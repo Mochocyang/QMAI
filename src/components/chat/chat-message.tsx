@@ -10,12 +10,13 @@ import {
   Image as ImageIcon,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { readFile } from "@/commands/fs"
+import { readFile, listDirectory } from "@/commands/fs"
+import { normalizePath, getFileName } from "@/lib/path-utils"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
+import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import type { DisplayMessage } from "@/stores/chat-store"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
-import { normalizePath, getFileName } from "@/lib/path-utils"
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
 import { findRawSourceForImage, imageUrlToAbsolute } from "@/lib/raw-source-resolver"
 import { detectLanguage } from "@/lib/detect-language"
@@ -35,7 +36,7 @@ interface ChatMessageProps {
   isSaving?: boolean
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, onSaveAsChapter, saveStatus, isSaving }: ChatMessageProps) {
+export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, saveStatus, isSaving }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
@@ -73,7 +74,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
           ) : isUser ? (
             <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
           ) : (
-            <MarkdownContent content={message.content} />
+            <AgentAwareContent content={message.content} projectPath={projectPath} />
           )}
         </div>
         {isAssistant && !message.discarded && <CitedReferencesPanel content={message.content} savedReferences={message.references} />}
@@ -518,6 +519,46 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
         )}
       </div>
     </div>
+  )
+}
+
+function AgentAwareContent({ content, projectPath }: { content: string; projectPath?: string | null }) {
+  const [applied, setApplied] = useState(false)
+  const [results, setResults] = useState<import("@/lib/novel/agent-tools").FileEditResult[]>([])
+  const [dismissed, setDismissed] = useState(false)
+
+  const parsed = useMemo(() => {
+    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
+    return parseAgentResponse(content)
+  }, [content])
+
+  const handleApply = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+    if (!projectPath) return []
+    const { applyFileEdits } = await import("@/lib/novel/agent-tools")
+    const editResults = await applyFileEdits(projectPath, edits)
+    setResults(editResults)
+    setApplied(true)
+    // Refresh file tree
+    const pp = normalizePath(projectPath)
+    const tree = await listDirectory(pp)
+    useWikiStore.getState().setFileTree(tree)
+    useWikiStore.getState().bumpDataVersion()
+    return editResults
+  }, [projectPath])
+
+  return (
+    <>
+      <MarkdownContent content={parsed.textContent || content} />
+      {parsed.hasEdits && !dismissed && projectPath ? (
+        <FileEditPreview
+          edits={parsed.edits}
+          onApply={handleApply}
+          onDismiss={() => setDismissed(true)}
+          applied={applied}
+          results={results}
+        />
+      ) : null}
+    </>
   )
 }
 

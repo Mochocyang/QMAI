@@ -491,6 +491,22 @@ export function ChatPanel() {
         // (after history so it's the last system instruction the LLM sees).
         langReminder = buildLanguageReminder(text)
 
+        // ── Agent mode: append file edit instructions if user has edit intent ──
+        if (novelMode && systemMessages.length > 0) {
+          const { detectEditIntent, buildAgentSystemSuffix } = await import("@/lib/novel/agent-parser")
+          if (detectEditIntent(text)) {
+            const lastSys = systemMessages[systemMessages.length - 1]
+            if (lastSys && typeof lastSys.content === "string") {
+              // 注入文件列表让 AI 知道有哪些文件可以操作
+              const { listScopeFiles } = await import("@/lib/novel/agent-tools")
+              const files = await listScopeFiles(pp, "chapters")
+              const fileListStr = files.map(f => `- ${f.name}`).join("\n")
+              lastSys.content += buildAgentSystemSuffix("chapters")
+              lastSys.content += `\n\n## 当前章节文件列表\n${fileListStr || "(暂无章节文件)"}`
+            }
+          }
+        }
+
         const nextQueryPages = relevantPages.map((p) => ({ title: p.title, path: p.path }))
         setLastQueryPages(nextQueryPages)
         queryRefs = [...nextQueryPages]

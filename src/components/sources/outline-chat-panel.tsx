@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react"
+import { useRef, useCallback, useEffect, useMemo } from "react"
 import { Send, X, Save, Copy, RefreshCw, FileText, Square, Plus, Trash2 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
@@ -8,6 +8,7 @@ import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import ReactMarkdown from "react-markdown"
 import { useState } from "react"
+import { FileEditPreview } from "@/components/chat/file-edit-preview"
 
 async function loadOutlineContext(projectPath: string): Promise<{ context: string; sources: string[] }> {
   const pp = normalizePath(projectPath)
@@ -67,6 +68,90 @@ async function getUniqueOutlinePath(outlinesDir: string, title: string): Promise
     if (!(await fileExists(candidate))) return candidate
   }
   return `${outlinesDir}/${title}-${Date.now()}.md`
+}
+
+function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, activeMessagesLength, copied, projectPath, onSaveAsOutline, onCopy, onRegenerate }: {
+  msg: import("@/stores/outline-chat-store").OutlineChatMessage
+  index: number
+  isStreaming: boolean
+  streamingContent: string
+  activeMessagesLength: number
+  copied: string | null
+  projectPath: string | null
+  onSaveAsOutline: (content: string) => Promise<void>
+  onCopy: (content: string, id: string) => void
+  onRegenerate: (index: number) => Promise<void>
+}) {
+  const [editApplied, setEditApplied] = useState(false)
+  const [editResults, setEditResults] = useState<import("@/lib/novel/agent-tools").FileEditResult[]>([])
+  const [editDismissed, setEditDismissed] = useState(false)
+
+  const displayContent = msg.content || (isStreaming && index === activeMessagesLength - 1 ? streamingContent : "")
+
+  // Parse for file edits
+  const parsed = useMemo(() => {
+    if (!displayContent) return { textContent: "", edits: [], hasEdits: false }
+    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
+    return parseAgentResponse(displayContent)
+  }, [displayContent])
+
+  const handleApplyEdits = useCallback(async (edits: import("@/lib/novel/agent-parser").FileEditAction[]) => {
+    if (!projectPath) return []
+    const { applyFileEdits } = await import("@/lib/novel/agent-tools")
+    const results = await applyFileEdits(projectPath, edits)
+    setEditResults(results)
+    setEditApplied(true)
+    const { listDirectory } = await import("@/commands/fs")
+    const { normalizePath } = await import("@/lib/path-utils")
+    const tree = await listDirectory(normalizePath(projectPath))
+    useWikiStore.getState().setFileTree(tree)
+    useWikiStore.getState().bumpDataVersion()
+    return results
+  }, [projectPath])
+
+  return (
+    <>
+      <div className="prose prose-sm dark:prose-invert max-w-none">
+        <ReactMarkdown>{parsed.textContent || displayContent}</ReactMarkdown>
+      </div>
+      {/* File edit preview */}
+      {parsed.hasEdits && !editDismissed && projectPath ? (
+        <FileEditPreview
+          edits={parsed.edits}
+          onApply={handleApplyEdits}
+          onDismiss={() => setEditDismissed(true)}
+          applied={editApplied}
+          results={editResults}
+        />
+      ) : null}
+      {/* Sources */}
+      {msg.sources && msg.sources.length > 0 && !isStreaming ? (
+        <details className="mt-2 border-t pt-2">
+          <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <FileText className="h-3 w-3" />
+            引用资料（{msg.sources.length}）
+          </summary>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {msg.sources.map((src, si) => <li key={si}>• {src}</li>)}
+          </ul>
+        </details>
+      ) : null}
+      {/* Action buttons */}
+      {msg.content && !isStreaming ? (
+        <div className="mt-2 flex gap-2 border-t pt-2">
+          <button onClick={() => void onSaveAsOutline(msg.content)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
+            <Save className="h-3 w-3" /> 保存为大纲
+          </button>
+          <button onClick={() => onCopy(msg.content, msg.id)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
+            <Copy className="h-3 w-3" /> {copied === msg.id ? "已复制" : "复制"}
+          </button>
+          <button onClick={() => void onRegenerate(index)} disabled={isStreaming} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50">
+            <RefreshCw className="h-3 w-3" /> 重新生成
+          </button>
+        </div>
+      ) : null}
+    </>
+  )
 }
 
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
@@ -133,7 +218,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     try {
       const { context, sources } = await loadOutlineContext(project.path)
       const allMsgs = [...(useOutlineChatStore.getState().conversations.find(c => c.id === convId)?.messages ?? [])]
-      const systemPrompt = `你是一个专业的小说大纲编辑助手。以下是当前小说的大纲和章节内容，请根据用户的问题进行大纲相关的讨论和创作。\n\n${context}`
+
+      // Agent mode: detect edit intent and add file edit instructions
+      const { detectEditIntent, buildAgentSystemSuffix } = await import("@/lib/novel/agent-parser")
+      const agentSuffix = detectEditIntent(input.trim()) ? buildAgentSystemSuffix("outlines") : ""
+      const { listScopeFiles } = await import("@/lib/novel/agent-tools")
+      const files = detectEditIntent(input.trim()) ? await listScopeFiles(project.path, "outlines") : []
+      const fileListStr = files.length > 0 ? `\n\n## 当前大纲文件列表\n${files.map(f => `- ${f.name}`).join("\n")}` : ""
+
+      const systemPrompt = `你是一个专业的小说大纲编辑助手。以下是当前小说的大纲和章节内容，请根据用户的问题进行大纲相关的讨论和创作。\n\n${context}${agentSuffix}${fileListStr}`
 
       const chatMessages: ChatMessage[] = [
         { role: "system", content: systemPrompt },
@@ -318,37 +411,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 : "bg-muted text-foreground"
             }`}>
               {msg.role === "assistant" ? (
-                <>
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown>{msg.content || (isStreaming && i === activeMessages.length - 1 ? streamingContent : "")}</ReactMarkdown>
-                  </div>
-                  {/* Sources */}
-                  {msg.sources && msg.sources.length > 0 && !isStreaming ? (
-                    <details className="mt-2 border-t pt-2">
-                      <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                        <FileText className="h-3 w-3" />
-                        引用资料（{msg.sources.length}）
-                      </summary>
-                      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                        {msg.sources.map((src, si) => <li key={si}>• {src}</li>)}
-                      </ul>
-                    </details>
-                  ) : null}
-                  {/* Action buttons */}
-                  {msg.content && !isStreaming ? (
-                    <div className="mt-2 flex gap-2 border-t pt-2">
-                      <button onClick={() => void handleSaveAsOutline(msg.content)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
-                        <Save className="h-3 w-3" /> 保存为大纲
-                      </button>
-                      <button onClick={() => handleCopy(msg.content, msg.id)} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent">
-                        <Copy className="h-3 w-3" /> {copied === msg.id ? "已复制" : "复制"}
-                      </button>
-                      <button onClick={() => void handleRegenerate(i)} disabled={isStreaming} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50">
-                        <RefreshCw className="h-3 w-3" /> 重新生成
-                      </button>
-                    </div>
-                  ) : null}
-                </>
+                <OutlineAssistantMessage
+                  msg={msg}
+                  index={i}
+                  isStreaming={isStreaming}
+                  streamingContent={streamingContent}
+                  activeMessagesLength={activeMessages.length}
+                  copied={copied}
+                  projectPath={project?.path ?? null}
+                  onSaveAsOutline={handleSaveAsOutline}
+                  onCopy={handleCopy}
+                  onRegenerate={handleRegenerate}
+                />
               ) : (
                 <span>{msg.content}</span>
               )}
