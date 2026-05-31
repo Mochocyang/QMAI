@@ -1,3 +1,0 @@
-```json
-{"resolved": ["r-mix-llm"]}
-```

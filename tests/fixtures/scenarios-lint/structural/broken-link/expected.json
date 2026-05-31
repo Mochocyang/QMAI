@@ -1,9 +1,0 @@
-{
-  "structural": [
-    {
-      "type": "broken-link",
-      "page": "attention.md",
-      "linkName": "nonexistent-page"
-    }
-  ]
-}

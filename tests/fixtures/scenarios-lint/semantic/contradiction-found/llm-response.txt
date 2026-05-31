@@ -1,7 +1,0 @@
-Reviewing the pages I found one contradiction:
-
----LINT: contradiction | warning | Attention function differs between pages---
-attention.md claims softmax is always used, but transformer.md describes a
-linear attention kernel. One page needs correction.
-PAGES: attention.md, transformer.md
----END LINT---

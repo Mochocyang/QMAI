@@ -1,8 +1,0 @@
-{
-  "topResultPaths": [
-    "wiki/embeddings.md"
-  ],
-  "excludedPaths": [
-    "wiki/other.md"
-  ]
-}

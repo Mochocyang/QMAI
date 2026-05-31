@@ -1,2 +1,0 @@
-## Connections to Existing Wiki
-- Multi-head attention is a variant of attention — existing [[attention]] page should be linked.

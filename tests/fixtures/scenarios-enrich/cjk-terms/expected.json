@@ -1,4 +1,0 @@
-{
-  "writeCalled": true,
-  "expectedContent": "# 简介\n\n[[注意力机制]]是 [[transformer]] 架构的核心组件之一。注意力机制让模型能够关注序列中最相关的部分。\n"
-}

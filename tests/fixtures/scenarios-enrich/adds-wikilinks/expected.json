@@ -1,4 +1,0 @@
-{
-  "writeCalled": true,
-  "expectedContent": "# Deep Learning Survey\n\nModern NLP relies on [[Transformer]] architectures for most tasks. The Transformer was introduced in 2017 and has since dominated. [[Attention]] is the key mechanism that makes it work.\n"
-}

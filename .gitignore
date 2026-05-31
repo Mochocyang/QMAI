@@ -1,14 +1,44 @@
-.worktrees/
-.worktrees
-.superpowers/
-.tmp-*/
-node_modules/
+# === 构建产物 ===
 dist/
 release-portable/
 release-portable-*/
 release-portable-backup/
 release-github/
-.codex-temp/
 src-tauri/target/
 *.tsbuildinfo
+
+# === 依赖 ===
+node_modules/
+
+# === 测试文件 ===
+tests/
+src/test-helpers/
+**/*.test.ts
+**/*.test.tsx
+
+# === 根目录文档（仅本地保留）===
+/docs/
+/AGENTS.md
+/PDD.MD
+/QM-QUAI.md
+/README.MD
+/soul.md
+/ter
+/_fix_encoding.py
+
+# === 中文命名文档 ===
+提示词.md
+项目完成度分析报告.md
+soul文档软件更新分析.md
+
+# === IDE / 工具临时文件 ===
+.worktrees/
+.worktrees
+.superpowers/
+.tmp-*/
+.codex-temp/
 .codex-*.log
+.trae/
+
+# === 杂项 ===
+/1.txt
