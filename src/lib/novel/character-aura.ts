@@ -644,8 +644,12 @@ export async function listBindableNovelCharacters(projectPath: string): Promise<
         const content = await readFile(file.path)
         const pageTitle = extractPrimaryTitle(content, file.name)
         if (!isCharacterOutlineFile(file.path, pageTitle, content)) continue
-        addName(pageTitle)
-        for (const characterName of extractCharacterNamesFromOutline(content)) {
+        const extractedNames = extractCharacterNamesFromOutline(content)
+        if (extractedNames.length === 0) {
+          addName(pageTitle)
+          continue
+        }
+        for (const characterName of extractedNames) {
           addName(characterName)
         }
       } catch {
@@ -1897,6 +1901,30 @@ function isCharacterOutlineFile(filePath: string, pageTitle: string, content: st
   )
 }
 
+type OutlineCharacterSection = {
+  level: number
+  title: string
+  body: string
+}
+
+const NON_CHARACTER_OUTLINE_TITLE_PATTERNS = [
+  /总览$/,
+  /整体状态$/,
+  /关系$/,
+  /线$/,
+  /小队$/,
+  /残部$/,
+]
+
+function isBindableCharacterOutlineSection(section: OutlineCharacterSection): boolean {
+  const title = section.title.trim()
+  if (!title) return false
+  if (IGNORE_BINDABLE_CHARACTER_NAMES.has(title)) return false
+  if (NON_CHARACTER_OUTLINE_TITLE_PATTERNS.some((pattern) => pattern.test(title))) return false
+  if (/性格与群像定位/.test(section.body)) return false
+  return true
+}
+
 function extractCharacterNamesFromOutline(content: string): string[] {
   const names = new Set<string>()
   const addName = (value: string) => {
@@ -1906,14 +1934,41 @@ function extractCharacterNamesFromOutline(content: string): string[] {
     names.add(trimmed)
   }
 
-  for (const match of content.matchAll(/^#{2,6}\s+(.+)$/gm)) {
-    addName(match[1].replace(/[：:].*$/, "").trim())
+  const headingMatches = [...content.matchAll(/^(#{2,6})\s+(.+)$/gm)].map((match) => ({
+    level: match[1].length,
+    title: match[2].replace(/[：:].*$/, "").trim(),
+    index: match.index ?? 0,
+    rawLength: match[0].length,
+  }))
+
+  if (headingMatches.length === 0) return []
+
+  const headingLevelCounts = new Map<number, number>()
+  for (const match of headingMatches) {
+    headingLevelCounts.set(match.level, (headingLevelCounts.get(match.level) ?? 0) + 1)
   }
-  for (const match of content.matchAll(/^\s*[-*+]\s*([^：:\n]{1,40})[：:]/gm)) {
-    addName(match[1])
-  }
-  for (const match of content.matchAll(/^\s*([^：:\n#*\-]{1,40})[：:]\s*\S+/gm)) {
-    addName(match[1])
+
+  const primaryHeadingLevel =
+    [2, 3, 4, 5, 6].find((level) => (headingLevelCounts.get(level) ?? 0) >= 2)
+    ?? Math.min(...headingMatches.map((match) => match.level))
+
+  const primarySections: OutlineCharacterSection[] = headingMatches
+    .filter((match) => match.level === primaryHeadingLevel)
+    .map((match, index, matches) => {
+      const nextMatch = matches[index + 1]
+      const bodyStart = match.index + match.rawLength
+      const bodyEnd = nextMatch?.index ?? content.length
+      return {
+        level: match.level,
+        title: match.title,
+        body: content.slice(bodyStart, bodyEnd),
+      }
+    })
+
+  for (const section of primarySections) {
+    if (isBindableCharacterOutlineSection(section)) {
+      addName(section.title)
+    }
   }
 
   return [...names]

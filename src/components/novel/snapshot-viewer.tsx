@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { buildSnapshotMemorySyncPreview, listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, saveEditedSnapshot, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
+import { listSnapshotHistory, loadSnapshot, restoreSnapshotHistory, syncSnapshotToMemory, type ChapterSnapshot, type SnapshotHistoryEntry } from "@/lib/novel/chapter-ingest"
 
 interface SnapshotViewerProps {
   projectPath: string
@@ -93,7 +93,6 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   const [showJson, setShowJson] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState<SnapshotHistoryEntry[]>([])
   const [restoring, setRestoring] = useState(false)
@@ -148,11 +147,13 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
     setSaving(true)
     setSaveMessage("")
     try {
-      await saveEditedSnapshot(projectPath, draft)
+      const result = await syncSnapshotToMemory(projectPath, draft)
+      const updatedSnapshot = { ...draft, memorySyncedAt: result.memorySyncedAt }
       await refreshHistory()
-      setSnapshot(draft)
+      setSnapshot(updatedSnapshot)
+      setDraft(updatedSnapshot)
       setEditing(false)
-      setSaveMessage("已保存，后续上下文将读取修正后的快照内容。")
+      setSaveMessage(t("novel.snapshot.syncMemorySuccess", { count: result.writtenEntityPaths.length }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSaveMessage(`保存失败：${message}`)
@@ -162,8 +163,8 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
   }
 
   const restoreHistory = async (entry: SnapshotHistoryEntry) => {
-    if (restoring || saving || syncing) return
-    if (!window.confirm("恢复历史快照只会恢复快照内容，不会自动同步到小说记忆。恢复后如需影响后续上下文，请重新点击同步记忆。是否继续？")) return
+    if (restoring || saving) return
+    if (!window.confirm("恢复历史快照会恢复快照内容，并自动重建小说记忆。是否继续？")) return
     setRestoring(true)
     setSaveMessage("")
     try {
@@ -172,35 +173,12 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
       setDraft(restored)
       setEditing(false)
       await refreshHistory()
-      setSaveMessage("已恢复历史快照。如需影响后续上下文，请重新点击同步记忆。")
+      setSaveMessage("已恢复历史快照，并自动重建小说记忆。")
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setSaveMessage(`恢复失败：${message}`)
     } finally {
       setRestoring(false)
-    }
-  }
-
-  const syncMemory = async () => {
-    const current = editing && draft ? draft : snapshot
-    if (!current || syncing || saving) return
-    const preview = buildSnapshotMemorySyncPreview(current)
-    const confirmMessage = `${t("novel.snapshot.syncMemoryConfirm")}\n\n${preview}`
-    if (!window.confirm(confirmMessage)) return
-    setSyncing(true)
-    setSaveMessage("")
-    try {
-      const result = await syncSnapshotToMemory(projectPath, current)
-      const updatedSnapshot = { ...current, memorySyncedAt: result.memorySyncedAt }
-      setSnapshot(updatedSnapshot)
-      setDraft(updatedSnapshot)
-      setEditing(false)
-      setSaveMessage(t("novel.snapshot.syncMemorySuccess", { count: result.writtenEntityPaths.length }))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setSaveMessage(t("novel.snapshot.syncMemoryFailed", { message }))
-    } finally {
-      setSyncing(false)
     }
   }
 
@@ -281,22 +259,11 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
               <button
                 type="button"
                 onClick={() => setShowHistory((value) => !value)}
-                disabled={saving || syncing || restoring}
+                disabled={saving || restoring}
                 title="查看保存快照前自动备份的历史版本，可恢复旧快照但不会自动同步记忆。"
                 className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 历史版本
-              </button>
-            ) : null}
-            {snapshot && !loading ? (
-              <button
-                type="button"
-                onClick={() => void syncMemory()}
-                disabled={syncing || saving}
-                title={t("novel.snapshot.syncMemoryTooltip")}
-                className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {syncing ? t("novel.snapshot.syncingMemory") : t("novel.snapshot.syncMemory")}
               </button>
             ) : null}
             {snapshot && !loading ? (
@@ -363,7 +330,7 @@ export function SnapshotViewer({ projectPath, chapterNumber, onClose }: Snapshot
                           <button
                             type="button"
                             onClick={() => void restoreHistory(entry)}
-                            disabled={restoring || saving || syncing}
+                            disabled={restoring || saving}
                             className="shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {restoring ? "恢复中" : "恢复"}

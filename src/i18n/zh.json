@@ -354,7 +354,9 @@
       "output": "输出偏好",
       "interface": "界面",
       "novel": "小说",
+      "usageGuide": "软件使用说明",
       "maintenance": "维护",
+      "feedback": "反馈",
       "changelog": "更新日志",
       "about": "关于"
     },
@@ -369,6 +371,11 @@
         "modelListFailed": "\u6a21\u578b\u5217\u8868\u62c9\u53d6\u5931\u8d25\uff1a{{message}}",
         "modelSelectPlaceholder": "\u8bf7\u9009\u62e9\u5df2\u62c9\u53d6\u7684\u6a21\u578b",
         "modelManualPlaceholder": "\u4e5f\u53ef\u624b\u52a8\u8f93\u5165\u6a21\u578b"
+      },
+      "usageGuide": {
+        "title": "软件使用说明",
+        "description": "常用教程和小说功能说明会在浏览器中打开，方便边看边配置。",
+        "open": "打开"
       },
       "llm": {
         "title": "LLM 模型",
@@ -692,6 +699,10 @@
     "emptyFiltered": "暂无{{label}}，点击 + 创建",
     "emptyAll": "暂无章节和大纲",
     "rename": "重命名",
+    "deleteFolder": "删除文件夹",
+    "deleteFolderConfirm": "确认将文件夹「{{name}}」及其下 {{count}} 个大纲移入回收站吗？",
+    "deleteEmptyFolderConfirm": "确认删除空文件夹「{{name}}」吗？",
+    "deleteFolderBlocked": "文件夹「{{name}}」中仍有未移入回收站的其他文件，已保留文件夹本身。",
     "move": "\u79fb\u52a8",
     "cancelMove": "\u53d6\u6d88\u79fb\u52a8",
     "moveModeHint": "\u5148\u70b9\u8981\u79fb\u52a8\u7684\u7ae0\u8282\uff0c\u518d\u70b9\u76ee\u6807\u7ae0\u8282",
@@ -1025,6 +1036,11 @@
       "error": "生成失败",
       "ingest": "提取初始记忆",
       "ingesting": "正在提取初始记忆...",
+      "bulkIngest": "一键提取",
+      "bulkIngesting": "一键提取中...",
+      "bulkIngestEmpty": "当前大纲库里没有可提取的大纲文档。",
+      "bulkIngestResult": "一键提取完成：共 {{total}} 个大纲，成功 {{succeeded}} 个，失败 {{failed}} 个。",
+      "bulkIngestError": "一键提取失败：{{message}}",
       "generationMayTakeLong": "生成大纲可能需要较长时间，建议隐藏之后先去做其他的，稍后会提醒您。",
       "hideAndContinue": "隐藏并后台生成",
       "generatingTitle": "大纲正在后台生成",

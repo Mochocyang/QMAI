@@ -24,7 +24,20 @@ CREATE TABLE IF NOT EXISTS daily_stats (
   peak_online INTEGER NOT NULL DEFAULT 0
 );
 
+-- 反馈表：记录设置页提交的问题与建议
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  contact TEXT,
+  app_version TEXT,
+  user_agent TEXT,
+  ip_hash TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- 索引：加速在线人数查询
 CREATE INDEX IF NOT EXISTS idx_sessions_online ON sessions(is_online) WHERE is_online = 1;
 CREATE INDEX IF NOT EXISTS idx_sessions_uuid ON sessions(uuid);
 CREATE INDEX IF NOT EXISTS idx_users_ip_hash ON users(ip_hash);
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC);

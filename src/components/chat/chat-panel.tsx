@@ -145,6 +145,7 @@ export function ChatPanel() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const soulDialogResolverRef = useRef<((confirmed: boolean) => void) | null>(null)
   const userScrolledUpRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
 
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [isSavingChapter, setIsSavingChapter] = useState(false)
@@ -218,6 +219,7 @@ export function ChatPanel() {
     if (!container) return
     if (!userScrolledUpRef.current) {
       container.scrollTop = container.scrollHeight
+      lastScrollTopRef.current = container.scrollTop
     }
   }, [activeMessages, streamingContent])
 
@@ -225,10 +227,17 @@ export function ChatPanel() {
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
+    lastScrollTopRef.current = container.scrollTop
     const handleScroll = () => {
       const threshold = 50
-      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
-      userScrolledUpRef.current = !atBottom
+      const currentScrollTop = container.scrollTop
+      const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < threshold
+      if (currentScrollTop < lastScrollTopRef.current - 1) {
+        userScrolledUpRef.current = true
+      } else if (atBottom) {
+        userScrolledUpRef.current = false
+      }
+      lastScrollTopRef.current = currentScrollTop
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)

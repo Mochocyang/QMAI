@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
+    "lib": ["ESNext"],
     "noEmit": true,
     "types": ["@cloudflare/workers-types"]
   },

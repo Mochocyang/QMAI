@@ -15,6 +15,7 @@ import { isTauri } from "@/lib/platform"
 const ANALYTICS_URL = "https://qmai-analytics.qmai.workers.dev"
 
 const DEVICE_UUID_KEY = "analytics_device_uuid"
+const HEARTBEAT_INTERVAL_MS = 60_000
 
 /**
  * 获取或生成设备唯一标识
@@ -66,6 +67,7 @@ async function sendAnalytics(
 
 /** 缓存 UUID 避免重复读取 */
 let cachedUUID: string | null = null
+let heartbeatTimer: number | null = null
 
 /**
  * 初始化统计 - 在 App 启动时调用一次即可
@@ -77,11 +79,23 @@ export async function initAnalytics(): Promise<void> {
 
     // 上报启动（在线）
     await sendAnalytics("/open", cachedUUID)
+    await sendAnalytics("/heartbeat", cachedUUID)
 
     // 注册关闭事件
     if (typeof window !== "undefined") {
+      if (heartbeatTimer !== null) {
+        window.clearInterval(heartbeatTimer)
+      }
+      heartbeatTimer = window.setInterval(() => {
+        if (cachedUUID) void sendAnalytics("/heartbeat", cachedUUID)
+      }, HEARTBEAT_INTERVAL_MS)
+
       window.addEventListener("beforeunload", () => {
         if (!cachedUUID) return
+        if (heartbeatTimer !== null) {
+          window.clearInterval(heartbeatTimer)
+          heartbeatTimer = null
+        }
         // 使用 sendBeacon 确保关闭时请求能发出
         const blob = new Blob(
           [JSON.stringify({ uuid: cachedUUID })],

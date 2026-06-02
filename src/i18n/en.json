@@ -648,7 +648,9 @@
       "output": "Output",
       "interface": "Interface",
       "novel": "Novel",
+      "usageGuide": "Usage Guide",
       "maintenance": "Maintenance",
+      "feedback": "Feedback",
       "changelog": "Changelog",
       "about": "About"
     },
@@ -663,6 +665,11 @@
         "modelListFailed": "Model list fetch failed: {{message}}",
         "modelSelectPlaceholder": "Choose a fetched model",
         "modelManualPlaceholder": "Or enter a model manually"
+      },
+      "usageGuide": {
+        "title": "Usage Guide",
+        "description": "Open tutorials and novel-writing guides in your browser while configuring the app.",
+        "open": "Open"
       },
       "llm": {
         "title": "LLM Model",
@@ -952,6 +959,10 @@
     "moveModeHint": "Select the chapter to move, then select the target chapter",
     "moveSourceSelected": "Move source selected",
     "rename": "Rename",
+    "deleteFolder": "Delete folder",
+    "deleteFolderConfirm": "Move folder \"{{name}}\" and its {{count}} outline files to trash?",
+    "deleteEmptyFolderConfirm": "Delete empty folder \"{{name}}\"?",
+    "deleteFolderBlocked": "Folder \"{{name}}\" still contains other files that were not moved to trash, so the folder itself was kept.",
     "rawSources": "Raw Sources",
     "deletingTitle": "Moving to trash: {{name}}…",
     "confirmDeleteTitle": "Click again to confirm moving to trash: {{name}}",
@@ -1148,6 +1159,11 @@
       "error": "Generation failed",
       "ingest": "Extract Initial Memory",
       "ingesting": "Extracting initial memory...",
+      "bulkIngest": "Extract All",
+      "bulkIngesting": "Extracting all...",
+      "bulkIngestEmpty": "There are no outline documents to extract in the current outline library.",
+      "bulkIngestResult": "Bulk extraction complete: {{succeeded}} succeeded, {{failed}} failed, {{total}} total.",
+      "bulkIngestError": "Bulk extraction failed: {{message}}",
       "generationMayTakeLong": "Outline generation may take a while. You can hide this dialog and work on something else; we will remind you later.",
       "hideAndContinue": "Hide and keep generating",
       "generatingTitle": "Outline is generating in the background",

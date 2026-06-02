@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   BookText,
   Brain,
+  ChevronDown,
   Clock3,
   FileText,
   GitBranchPlus,
@@ -24,6 +25,8 @@ import { normalizePath } from "@/lib/path-utils"
 import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import type { MemoryCenterData, MemoryCenterFilePreview } from "@/lib/novel/memory-center"
+import { OUTLINE_IMPORT_EXTENSIONS, importOutlineFiles, importOutlineFolder } from "@/lib/novel/outline-import"
+import { isTauri } from "@/lib/platform"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 
 function SearchHistoryPanel() {
@@ -198,6 +201,9 @@ export function SidebarPanel() {
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const [sidebarTotalWordCount, setSidebarTotalWordCount] = useState<number | null>(null)
+  const [outlineImporting, setOutlineImporting] = useState(false)
+  const [outlineImportMenuOpen, setOutlineImportMenuOpen] = useState(false)
+  const outlineImportMenuRef = useRef<HTMLDivElement | null>(null)
 
   const loadMemoryCenter = useCallback(async (projectPath: string) => {
     const { loadMemoryCenterData } = await import("@/lib/novel/memory-center")
@@ -265,6 +271,34 @@ export function SidebarPanel() {
     }
   }, [isChapter, pendingCreate?.kind])
 
+  useEffect(() => {
+    if (isChapter) {
+      setOutlineImportMenuOpen(false)
+    }
+  }, [isChapter])
+
+  useEffect(() => {
+    if (!outlineImportMenuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (outlineImportMenuRef.current?.contains(target)) return
+      setOutlineImportMenuOpen(false)
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOutlineImportMenuOpen(false)
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("keydown", handleEscape)
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [outlineImportMenuOpen])
+
   const handleRemovePendingPage = (pagePath: string) => {
     setPendingPages((prev) => prev.filter((page) => page.path !== pagePath))
   }
@@ -275,6 +309,85 @@ export function SidebarPanel() {
     useWikiStore.getState().bumpDataVersion()
     setRefreshKey((current) => current + 1)
     if (selectedPath) setSelectedFile(selectedPath)
+  }
+
+  async function handleImportOutlineFiles() {
+    if (!project || outlineImporting) return
+    if (!isTauri()) {
+      window.alert(t("novel.outlineImport.desktopOnly", { defaultValue: "导入大纲文档功能仅在桌面端可用。" }))
+      return
+    }
+
+    const { open } = await import("@tauri-apps/plugin-dialog")
+    const selected = await open({
+      multiple: true,
+      title: t("novel.outlineImport.importFilesTitle", { defaultValue: "导入大纲文件" }),
+      filters: [
+        {
+          name: t("novel.outlineImport.documentFilter", { defaultValue: "文档" }),
+          extensions: [...OUTLINE_IMPORT_EXTENSIONS],
+        },
+      ],
+    })
+    if (!selected || (Array.isArray(selected) && selected.length === 0)) return
+
+    setOutlineImporting(true)
+    try {
+      const projectPath = normalizePath(project.path)
+      const sourcePaths = Array.isArray(selected) ? selected : [selected]
+      const importedPaths = await importOutlineFiles(projectPath, sourcePaths)
+      if (importedPaths.length === 0) {
+        window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
+        return
+      }
+      await refreshTree(projectPath, importedPaths[0])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("[SidebarPanel] outline file import failed:", error)
+      window.alert(t("novel.outlineImport.importFailed", {
+        message,
+        defaultValue: `导入失败：${message}`,
+      }))
+    } finally {
+      setOutlineImporting(false)
+      setOutlineImportMenuOpen(false)
+    }
+  }
+
+  async function handleImportOutlineFolder() {
+    if (!project || outlineImporting) return
+    if (!isTauri()) {
+      window.alert(t("novel.outlineImport.desktopOnly", { defaultValue: "导入大纲文档功能仅在桌面端可用。" }))
+      return
+    }
+
+    const { open } = await import("@tauri-apps/plugin-dialog")
+    const selected = await open({
+      directory: true,
+      title: t("novel.outlineImport.importFolderTitle", { defaultValue: "导入大纲文件夹" }),
+    })
+    if (!selected || typeof selected !== "string") return
+
+    setOutlineImporting(true)
+    try {
+      const projectPath = normalizePath(project.path)
+      const importedPaths = await importOutlineFolder(projectPath, selected)
+      if (importedPaths.length === 0) {
+        window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
+        return
+      }
+      await refreshTree(projectPath, importedPaths[0])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("[SidebarPanel] outline folder import failed:", error)
+      window.alert(t("novel.outlineImport.importFailed", {
+        message,
+        defaultValue: `导入失败：${message}`,
+      }))
+    } finally {
+      setOutlineImporting(false)
+      setOutlineImportMenuOpen(false)
+    }
   }
 
   async function handleCreateNextChapter(parentDir?: string) {
@@ -538,20 +651,56 @@ export function SidebarPanel() {
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (isChapter) {
-              void handleCreateNextChapter()
-              return
-            }
-            beginCreate({ kind: "outline" })
-          }}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title={isChapter ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!isChapter ? (
+            <div ref={outlineImportMenuRef} className="relative">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={() => setOutlineImportMenuOpen((prev) => !prev)}
+                disabled={outlineImporting}
+              >
+                {outlineImporting ? t("sources.importing") : t("sources.import")}
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+              {outlineImportMenuOpen ? (
+                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg">
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
+                    onClick={() => void handleImportOutlineFiles()}
+                  >
+                    {t("sources.importFiles")}
+                  </button>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
+                    onClick={() => void handleImportOutlineFolder()}
+                  >
+                    {t("sources.importFolder")}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              if (isChapter) {
+                void handleCreateNextChapter()
+                return
+              }
+              beginCreate({ kind: "outline" })
+            }}
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title={isChapter ? t("sidebar.newChapter") : t("sidebar.newOutline")}
+            disabled={creating || outlineImporting}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {pendingCreate && (

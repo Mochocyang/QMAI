@@ -21,8 +21,10 @@ import { getNextChatExpanded } from "./chat-layout"
 import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
+import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
+import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import {
   buildPolishSelectionMessages,
   rebuildChapterBody,
@@ -165,6 +167,7 @@ export function PreviewPanel() {
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const finalChapterSave = useWikiStore((s) => s.finalChapterSave)
   const setFinalChapterSave = useWikiStore((s) => s.setFinalChapterSave)
+  const outlineTasks = useOutlineGenerationStore((s) => s.tasks)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isSavingFinal, setIsSavingFinal] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>("")
@@ -356,6 +359,17 @@ export function PreviewPanel() {
   const alreadyFinal = chapterFrontmatter ? isFinalChapter(chapterFrontmatter) : false
   const canFormatWriting = Boolean(selectedFile && getFileCategory(selectedFile) === "markdown" && isChapterPath(selectedFile))
   const canIngestOutline = Boolean(novelMode && project && selectedFile && getFileCategory(selectedFile) === "markdown" && isOutlinePath(selectedFile))
+  const currentOutlineTask = useMemo(() => {
+    if (!project || !selectedFile || !canIngestOutline) return null
+    const normalizedSelectedFile = normalizePath(selectedFile)
+    return outlineTasks
+      .filter((task: OutlineGenerationTask) => (
+        task.projectPath === project.path &&
+        normalizePath(task.outlinePath ?? "") === normalizedSelectedFile &&
+        (task.status === "ingesting" || task.status === "done" || task.status === "error")
+      ))
+      .sort((a: OutlineGenerationTask, b: OutlineGenerationTask) => b.updatedAt - a.updatedAt)[0] ?? null
+  }, [canIngestOutline, outlineTasks, project, selectedFile])
 
   // 检测大纲是否已经提取过初始记忆（持久化状态）
   useEffect(() => {
@@ -377,6 +391,11 @@ export function PreviewPanel() {
     const jsonPath = `${normalizePath(project.path)}/.novel/snapshots/${prefix}.snapshot.json`
     fileExists(jsonPath).then((exists) => setOutlineIngested(exists)).catch(() => setOutlineIngested(false))
   }, [canIngestOutline, project, selectedFile])
+  useEffect(() => {
+    if (!canIngestOutline) return
+    if (!currentOutlineTask?.message) return
+    setSaveStatus(currentOutlineTask.message)
+  }, [canIngestOutline, currentOutlineTask])
   const chapterNumber = useMemo(() => {
     if (!chapterFrontmatter) return null
     const meta = parseChapterMeta(chapterFrontmatter)
@@ -385,6 +404,7 @@ export function PreviewPanel() {
   const canViewSnapshot = Boolean(novelMode && project && chapterNumber !== null)
   const currentFinalChapterSave = finalChapterSave != null && finalChapterSave.projectPath === project?.path && finalChapterSave.filePath === selectedFile ? finalChapterSave : null
   const isFinalChapterSaving = currentFinalChapterSave?.saving ?? isSavingFinal
+  const isOutlineIngesting = currentOutlineTask?.status === "ingesting"
 
   const phaseLabelMap: Record<FinalChapterSavePhase, string> = {
     saving: t("novel.chapter.savingAsFinal"),
@@ -647,29 +667,11 @@ export function PreviewPanel() {
     }
   }, [canFormatWriting, fileContent, selectedFile, setFileContent, bumpDataVersion])
 
-  const handleIngestOutline = useCallback(async () => {
-    if (!project || !selectedFile || !canIngestOutline) return
-    setIsSavingFinal(true)
+  const handleIngestOutline = useCallback(() => {
+    if (!project || !selectedFile || !canIngestOutline || isOutlineIngesting) return
     setSaveStatus("")
-    try {
-      const { ingestOutline } = await import("@/lib/novel/chapter-ingest")
-      const snapshot = await ingestOutline(project.path, selectedFile)
-      if (snapshot) {
-        const tree = await listDirectory(normalizePath(project.path))
-        setFileTree(tree)
-        bumpDataVersion()
-        setOutlineIngested(true)
-        setSaveStatus(t("novel.outlineGenerator.ingestSuccessNotification"))
-      } else {
-        setSaveStatus(t("novel.outlineGenerator.ingestFailedNotification"))
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setSaveStatus(t("novel.outlineGenerator.ingestError", { message }))
-    } finally {
-      setIsSavingFinal(false)
-    }
-  }, [bumpDataVersion, canIngestOutline, project, selectedFile, setFileTree, t])
+    startOutlineIngestTask(project.path, selectedFile)
+  }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
 
   const handleDeAiProcess = useCallback(async () => {
     if (!fileContent.trim()) return
@@ -959,7 +961,7 @@ export function PreviewPanel() {
             <button
               type="button"
               onClick={() => void handleIngestOutline()}
-              disabled={isSavingFinal}
+              disabled={isOutlineIngesting}
               className={`shrink-0 rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
                 outlineIngested
                   ? "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
@@ -967,7 +969,7 @@ export function PreviewPanel() {
               }`}
               title={outlineIngested ? "重新提取初始记忆（将覆盖上次提取的内容）" : t("novel.outlineGenerator.ingest")}
             >
-              {isSavingFinal ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "✓ 已提取记忆" : t("novel.outlineGenerator.ingest")}
+              {isOutlineIngesting ? t("novel.outlineGenerator.ingesting") : outlineIngested ? "✓ 已提取记忆" : t("novel.outlineGenerator.ingest")}
             </button>
           ) : null}
           {canIngestOutline && outlineIngested && outlineSnapshotNumber !== null ? (

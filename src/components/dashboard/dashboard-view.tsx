@@ -64,10 +64,10 @@ interface RewriteDialogState {
 }
 
 const SEVERITY_CONFIG: Record<DashSeverity, { icon: typeof AlertTriangle; labelKey: string; color: string; bgColor: string }> = {
-  blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-red-600 dark:text-red-400", bgColor: "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950" },
-  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-orange-600 dark:text-orange-400", bgColor: "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950" },
-  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-amber-600 dark:text-amber-400", bgColor: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950" },
-  low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-blue-600 dark:text-blue-400", bgColor: "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950" },
+  blocking: { icon: AlertOctagon, labelKey: "dashboard.severity.blocking", color: "text-red-600 dark:text-red-400", bgColor: "border-red-300 bg-red-50 dark:border-red-900/70 dark:bg-red-950/35" },
+  high: { icon: ShieldAlert, labelKey: "dashboard.severity.high", color: "text-orange-600 dark:text-orange-400", bgColor: "border-orange-300 bg-orange-50 dark:border-orange-900/70 dark:bg-orange-950/30" },
+  medium: { icon: AlertTriangle, labelKey: "dashboard.severity.medium", color: "text-amber-600 dark:text-amber-400", bgColor: "border-amber-300 bg-amber-50 dark:border-amber-900/70 dark:bg-amber-950/30" },
+  low: { icon: Info, labelKey: "dashboard.severity.low", color: "text-blue-600 dark:text-blue-400", bgColor: "border-blue-300 bg-blue-50 dark:border-blue-900/70 dark:bg-blue-950/30" },
 }
 
 function mapReviewSeverity(severity: NovelReviewResult["severity"]): DashSeverity {

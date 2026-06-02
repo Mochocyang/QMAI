@@ -39,6 +39,14 @@ interface KnowledgeTreeProps {
   onRequestCreate?: (request: KnowledgeCreateRequest) => void
 }
 
+interface CreateMenuState {
+  x: number
+  y: number
+  parentDir?: string
+  targetFolderName?: string
+  targetFolderPath?: string
+}
+
 function parseChineseNumber(input: string): number | null {
   const digitMap: Record<string, number> = {
     零: 0,
@@ -256,7 +264,7 @@ export function KnowledgeTree({
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [armedPath, setArmedPath] = useState<string | null>(null)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
-  const [createMenu, setCreateMenu] = useState<{ x: number; y: number; parentDir?: string } | null>(null)
+  const [createMenu, setCreateMenu] = useState<CreateMenuState | null>(null)
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -411,6 +419,52 @@ export function KnowledgeTree({
       setDeletingPath(null)
     }
   }, [project, armedPath, filterType, loadPages, onRemovePendingPage, setFileTree, bumpDataVersion, selectedFile, setSelectedFile])
+
+  const handleDeleteFolder = useCallback(async (folderPath: string) => {
+    if (!project || filterType !== "outline") return
+
+    const normalizedFolderPath = normalizePath(folderPath)
+    const folderNode = findNodeByPath(sectionNodes, normalizedFolderPath)
+    if (!folderNode?.is_dir) return
+
+    const outlineFiles = flattenMdFiles([folderNode]).map((file) => normalizePath(file.path))
+    const folderName = folderNode.name
+    const confirmed = window.confirm(
+      outlineFiles.length > 0
+        ? t("knowledgeTree.deleteFolderConfirm", { name: folderName, count: outlineFiles.length })
+        : t("knowledgeTree.deleteEmptyFolderConfirm", { name: folderName }),
+    )
+    if (!confirmed) return
+
+    setArmedPath(null)
+    setDeletingPath(normalizedFolderPath)
+    try {
+      const projectPath = normalizePath(project.path)
+      for (const outlinePath of outlineFiles) {
+        await moveFileToTrash(projectPath, outlinePath, "outline")
+        onRemovePendingPage?.(outlinePath)
+      }
+
+      const remainingNodes = await listDirectory(normalizedFolderPath).catch(() => [])
+      if (flattenAllFiles(remainingNodes).length === 0) {
+        await deleteFile(normalizedFolderPath)
+      } else {
+        window.alert(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+      }
+
+      await loadPages()
+      const tree = await listDirectory(projectPath)
+      setFileTree(tree)
+      bumpDataVersion()
+      if (selectedFile?.startsWith(`${normalizedFolderPath}/`)) {
+        setSelectedFile(null)
+      }
+    } catch (error) {
+      console.error("[KnowledgeTree] folder delete failed:", error)
+    } finally {
+      setDeletingPath(null)
+    }
+  }, [project, filterType, sectionNodes, t, loadPages, setFileTree, bumpDataVersion, selectedFile, setSelectedFile, onRemovePendingPage])
 
   const updatePageTitleContent = useCallback((content: string, newTitle: string, newChapterNumber?: number | null) => {
     const escapedTitle = newTitle.replace(/"/g, '\\"')
@@ -711,12 +765,14 @@ export function KnowledgeTree({
     setCollapsedFolders((previous) => ({ ...previous, [folderPath]: !previous[folderPath] }))
   }, [])
 
-  const openCreateMenu = useCallback((event: React.MouseEvent, parentDir?: string) => {
+  const openCreateMenu = useCallback((event: React.MouseEvent, parentDir?: string, targetFolderName?: string) => {
     event.preventDefault()
     event.stopPropagation()
     const rect = containerRef.current?.getBoundingClientRect()
     setCreateMenu({
       parentDir,
+      targetFolderName,
+      targetFolderPath: parentDir,
       x: rect ? event.clientX - rect.left : event.clientX,
       y: rect ? event.clientY - rect.top : event.clientY,
     })
@@ -800,7 +856,7 @@ export function KnowledgeTree({
               data-knowledge-interactive="true"
               className="group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground qm-hover"
               style={{ paddingLeft: `${depth * 16 + 8}px` }}
-              onContextMenu={(event) => openCreateMenu(event, normalizedPath)}
+              onContextMenu={(event) => openCreateMenu(event, normalizedPath, node.name)}
             >
               <button
                 type="button"
@@ -990,6 +1046,22 @@ export function KnowledgeTree({
               <Folder className="h-3.5 w-3.5" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
             </button>
+            {filterType === "outline" && createMenu.targetFolderPath ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-accent"
+                onClick={() => {
+                  const targetFolderPath = createMenu.targetFolderPath
+                  setCreateMenu(null)
+                  if (targetFolderPath) {
+                    void handleDeleteFolder(targetFolderPath)
+                  }
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {t("knowledgeTree.deleteFolder")}
+              </button>
+            ) : null}
           </div>
         )}
 

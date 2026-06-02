@@ -8,6 +8,8 @@ import {
   Wrench,
   Clock,
   FolderSync,
+  HelpCircle,
+  MessageCircle,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -28,6 +30,8 @@ import { ScheduledImportSection } from "./sections/scheduled-import-section"
 import { SourceWatchSection } from "./sections/source-watch-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
+import { FeedbackSection } from "./sections/feedback-section"
+import { UsageGuideSection } from "./sections/usage-guide-section"
 
 type CategoryId =
   | "llm"
@@ -36,7 +40,9 @@ type CategoryId =
   | "scheduled-import"
   | "interface"
   | "novel"
+  | "usage-guide"
   | "maintenance"
+  | "feedback"
   | "changelog"
 
 interface Category {
@@ -55,7 +61,9 @@ const CATEGORIES: Category[] = [
   { id: "scheduled-import", labelKey: "settings.categories.scheduledImport", icon: Clock },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
+  { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
+  { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
 ]
 
@@ -132,6 +140,8 @@ function initialDraft(
 export function SettingsView() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
+  const activeSettingsCategory = useWikiStore((s) => s.activeSettingsCategory)
+  const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const setLlmConfig = useWikiStore((s) => s.setLlmConfig)
   const embeddingConfig = useWikiStore((s) => s.embeddingConfig)
@@ -177,6 +187,14 @@ export function SettingsView() {
       project?.path,
     ),
   )
+
+  useEffect(() => {
+    if (!activeSettingsCategory) return
+    if (CATEGORIES.some((category) => category.id === activeSettingsCategory)) {
+      setActive(activeSettingsCategory)
+    }
+    setActiveSettingsCategory(null)
+  }, [activeSettingsCategory, setActiveSettingsCategory])
 
   useEffect(() => {
     let cancelled = false
@@ -444,8 +462,12 @@ export function SettingsView() {
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":
         return <NovelSection draft={draft} setDraft={setDraft} />
+      case "usage-guide":
+        return <UsageGuideSection />
       case "maintenance":
         return <MaintenanceSection />
+      case "feedback":
+        return <FeedbackSection />
       case "changelog":
         return <ChangelogSection />
     }

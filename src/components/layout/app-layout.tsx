@@ -10,6 +10,7 @@ import { useOutlineGenerationStore, type OutlineGenerationTask, type OutlineGene
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
 import { useTranslation } from "react-i18next"
+import { HelpCircle, X } from "lucide-react"
 
 interface AppLayoutProps {
   onSwitchProject: () => void
@@ -19,11 +20,14 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const activeView = useWikiStore((s) => s.activeView)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const outlineTasks = useOutlineGenerationStore((s: OutlineGenerationState) => s.tasks)
   const removeOutlineTask = useOutlineGenerationStore((s: OutlineGenerationState) => s.removeTask)
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(false)
   const isDraggingLeft = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const latestOutlineTask = outlineTasks
@@ -161,6 +165,37 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               {t("novel.outlineGenerator.handleLater")}
             </button>
           </div>
+        </div>
+      )}
+      {!isSettings && !usageGuidePromptDismissed && (
+        <div className="fixed bottom-4 left-14 z-50 w-56 rounded-lg border border-primary/40 bg-background/95 p-3 shadow-xl backdrop-blur">
+          <button
+            type="button"
+            onClick={() => setUsageGuidePromptDismissed(true)}
+            className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="关闭"
+            aria-label="关闭软件使用说明提示"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSettingsCategory("usage-guide")
+              setActiveView("settings")
+            }}
+            className="flex w-full items-start gap-2 pr-5 text-left"
+          >
+            <span className="mt-0.5 rounded-md bg-primary/10 p-1.5 text-primary">
+              <HelpCircle className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">软件不知道怎么使用？点我</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                查看完整教程、用户手册和小说功能介绍。
+              </span>
+            </span>
+          </button>
         </div>
       )}
       <div className="flex min-h-0 flex-1">

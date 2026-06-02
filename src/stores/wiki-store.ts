@@ -389,6 +389,7 @@ interface WikiState {
   chatExpanded: boolean
   searchPanelOpen: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "settings" | "trash" | "reviewCenter"
+  activeSettingsCategory: "usage-guide" | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
   selectedSoulSection: "builtIn" | "custom"
@@ -441,6 +442,7 @@ interface WikiState {
   setChatExpanded: (expanded: boolean) => void
   setSearchPanelOpen: (open: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
+  setActiveSettingsCategory: (category: "usage-guide" | null) => void
   setSelectedSoulId: (id: string | null) => void
   setSelectedSoulTab: (tab: "project" | "character") => void
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
@@ -496,6 +498,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatExpanded: false,
   searchPanelOpen: false,
   activeView: "wiki",
+  activeSettingsCategory: null,
   selectedSoulId: null,
   selectedSoulTab: "project",
   selectedSoulSection: "builtIn",
@@ -537,6 +540,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setChatExpanded: (chatExpanded) => set({ chatExpanded }),
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
   setActiveView: (activeView) => set({ activeView }),
+  setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
   setSelectedSoulId: (selectedSoulId) => set({ selectedSoulId }),
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),

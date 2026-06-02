@@ -9,10 +9,13 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
 import { ModelSelectInput } from "../model-select-input"
+import { ResourceLink } from "../resource-link"
 import { resolveConfig } from "../preset-resolver"
 import { isTauri } from "@/lib/platform"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
+
+const BAILIAN_FREE_MODEL_URL = "https://bailian.console.aliyun.com/"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -498,7 +501,15 @@ function EndpointField({ value, mode, placeholder, onChange }: EndpointFieldProp
 
   return (
     <div className="space-y-1.5">
-      <Label>{t("settings.sections.llm.endpoint")}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label>{t("settings.sections.llm.endpoint")}</Label>
+        <ResourceLink
+          href={BAILIAN_FREE_MODEL_URL}
+          title="阿里百炼提供通义系列模型和免费额度，适合作为自定义 OpenAI 兼容接口。"
+        >
+          阿里百炼免费模型
+        </ResourceLink>
+      </div>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}

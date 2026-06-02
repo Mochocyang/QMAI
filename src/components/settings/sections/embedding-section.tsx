@@ -15,7 +15,10 @@ import {
 import { fetchEmbeddingModelList } from "@/lib/settings-model-list"
 import { testSettingsEmbeddingModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
+import { ResourceLink } from "../resource-link"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+
+const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
 interface Props {
   draft: SettingsDraft
@@ -264,7 +267,15 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
         {expanded && (
           <div className="space-y-4 border-t bg-background/50 px-4 py-3">
             <div className="space-y-2">
-              <Label>{t("settings.sections.embedding.endpoint")}</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label>{t("settings.sections.embedding.endpoint")}</Label>
+                <ResourceLink
+                  href={SILICONFLOW_RESOURCE_URL}
+                  title="为什么选择硅基流动：国内访问稳定，提供 BGE 等常用向量模型，适合资料库语义搜索。"
+                >
+                  硅基流动向量模型
+                </ResourceLink>
+              </div>
               <Input
                 value={draft.embeddingEndpoint}
                 onChange={(e) => setDraft("embeddingEndpoint", e.target.value)}

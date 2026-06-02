@@ -115,7 +115,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
         <ReactMarkdown>{parsed.textContent || displayContent}</ReactMarkdown>
       </div>
       {/* File edit preview */}
-      {parsed.hasEdits && !editDismissed && projectPath ? (
+      {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
           edits={parsed.edits}
           onApply={handleApplyEdits}
@@ -188,6 +188,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
 
   // Auto-scroll
@@ -195,14 +196,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     const container = scrollRef.current
     if (!container || userScrolledUpRef.current) return
     container.scrollTop = container.scrollHeight
+    lastScrollTopRef.current = container.scrollTop
   }, [activeMessages, streamingContent])
 
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
+    lastScrollTopRef.current = container.scrollTop
     const handleScroll = () => {
-      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
-      userScrolledUpRef.current = !atBottom
+      const currentScrollTop = container.scrollTop
+      const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < 50
+      if (currentScrollTop < lastScrollTopRef.current - 1) {
+        userScrolledUpRef.current = true
+      } else if (atBottom) {
+        userScrolledUpRef.current = false
+      }
+      lastScrollTopRef.current = currentScrollTop
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)

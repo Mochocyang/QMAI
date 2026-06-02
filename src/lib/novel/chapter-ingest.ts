@@ -494,7 +494,8 @@ export async function ingestChapter(
     }
   }
 
-  return { snapshot }
+  const syncResult = await syncSnapshotToMemory(pp, snapshot)
+  return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
 }
 
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
@@ -1444,9 +1445,8 @@ ${body}
       throw new Error("Outline snapshot payload is invalid.")
     }
 
-    await saveSnapshot(pp, snapshot)
-    await writeSnapshotToWiki(pp, snapshot)
-    return snapshot
+    const syncResult = await syncSnapshotToMemory(pp, snapshot)
+    return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
   } catch (err) {
     console.error("[Outline Ingest] Failed:", err)
     throw normalizeOutlineIngestError(err)

@@ -61,6 +61,8 @@ const MEMORY_FILE_CONFIGS = [
   { key: "conflicts", title: "conflicts", fileName: "conflicts.md" },
 ] as const
 
+const RECENT_SNAPSHOT_CARD_LIMIT = 10
+
 function trimList(items: string[], maxItems: number): { items: string[]; hasMore: boolean } {
   return {
     items: items.slice(0, maxItems),
@@ -281,7 +283,7 @@ export async function loadMemoryCenterData(projectPath: string): Promise<MemoryC
 
   return {
     stats: buildMemoryCenterStats(allSnapshotCards, files),
-    snapshots: allSnapshotCards.slice(0, 6),
+    snapshots: allSnapshotCards.slice(0, RECENT_SNAPSHOT_CARD_LIMIT),
     files,
   }
 }

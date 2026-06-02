@@ -9,8 +9,11 @@ import { fetchRerankModelList } from "@/lib/settings-model-list"
 import { testSettingsRerankModel } from "@/lib/settings-model-test"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { ModelSelectInput } from "../model-select-input"
+import { ResourceLink } from "../resource-link"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store"
+
+const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
 function normalizeRerankEndpoint(raw: string, mode: "chat_completions" | "anthropic_messages") {
   const trimmed = (raw ?? "").trim()
@@ -432,7 +435,15 @@ function RerankEndpointField({
 
   return (
     <div className="space-y-1.5">
-      <Label>{t("settings.sections.rerank.endpoint")}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label>{t("settings.sections.rerank.endpoint")}</Label>
+        <ResourceLink
+          href={SILICONFLOW_RESOURCE_URL}
+          title="为什么选择硅基流动：国内访问稳定，模型列表完整，适合配置轻量重排模型降低成本。"
+        >
+          硅基流动重排模型
+        </ResourceLink>
+      </div>
       <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}

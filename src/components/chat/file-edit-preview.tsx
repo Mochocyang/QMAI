@@ -4,7 +4,7 @@
  * 应用后可展开查看修改前后对比
  */
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Check, X, FileText, AlertCircle, Pencil, ChevronDown, ChevronRight } from "lucide-react"
 import type { FileEditAction } from "@/lib/novel/agent-parser"
 import type { FileEditResult } from "@/lib/novel/agent-tools"
@@ -51,6 +51,18 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
     () => edits.map(() => ({ status: applied ? "applied" : "pending" }))
   )
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
+  const effectiveItemStates = edits.map((_, index) => itemStates[index] ?? { status: applied ? "applied" : "pending" })
+
+  useEffect(() => {
+    setItemStates((prev) => {
+      if (prev.length === edits.length) return prev
+      return edits.map((_, index) => prev[index] ?? { status: applied ? "applied" : "pending" })
+    })
+    setExpandedItems((prev) => {
+      const next = new Set(Array.from(prev).filter((index) => index < edits.length))
+      return next.size === prev.size ? prev : next
+    })
+  }, [edits, applied])
 
   const toggleExpand = (index: number) => {
     setExpandedItems((prev) => {
@@ -62,7 +74,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   }
 
   const handleApplyOne = useCallback(async (index: number) => {
-    const state = itemStates[index]
+    const state = effectiveItemStates[index]
     const edit = { ...edits[index] }
     if (state.editedReplace !== undefined) {
       edit.replace = state.editedReplace
@@ -73,7 +85,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
       next[index] = { ...next[index], status: "applied", result: editResults[0] }
       return next
     })
-  }, [edits, itemStates, onApply])
+  }, [edits, effectiveItemStates, onApply])
 
   const handleDismissOne = useCallback((index: number) => {
     setItemStates((prev) => {
@@ -86,10 +98,11 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   const handleEditOne = useCallback((index: number) => {
     setItemStates((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], status: "editing", editedReplace: next[index].editedReplace ?? edits[index].replace }
+      const current = next[index] ?? { status: applied ? "applied" : "pending" }
+      next[index] = { ...current, status: "editing", editedReplace: current.editedReplace ?? edits[index].replace }
       return next
     })
-  }, [edits])
+  }, [applied, edits])
 
   const handleSaveEdit = useCallback((index: number, newReplace: string) => {
     setItemStates((prev) => {
@@ -102,7 +115,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
   const handleApplyAll = useCallback(async () => {
     const pendingEdits: { edit: FileEditAction; index: number }[] = []
     for (let i = 0; i < edits.length; i++) {
-      const state = itemStates[i]
+      const state = effectiveItemStates[i]
       if (state.status === "pending") {
         const edit = { ...edits[i] }
         if (state.editedReplace !== undefined) edit.replace = state.editedReplace
@@ -118,13 +131,13 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
       })
       return next
     })
-  }, [edits, itemStates, onApply])
+  }, [edits, effectiveItemStates, onApply])
 
-  const pendingCount = itemStates.filter(s => s.status === "pending").length
-  const appliedCount = itemStates.filter(s => s.status === "applied").length
+  const pendingCount = effectiveItemStates.filter(s => s.status === "pending").length
+  const appliedCount = effectiveItemStates.filter(s => s.status === "applied").length
 
   // 全部已处理
-  if (pendingCount === 0 && itemStates.every(s => s.status !== "editing")) {
+  if (pendingCount === 0 && effectiveItemStates.every(s => s.status !== "editing")) {
     return (
       <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/30">
         <div className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-200">
@@ -133,7 +146,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
         </div>
         <div className="mt-2 space-y-1">
           {edits.map((edit, i) => {
-            const state = itemStates[i]
+            const state = effectiveItemStates[i]
             const expanded = expandedItems.has(i)
             return (
               <div key={i} className="rounded border bg-background">
@@ -191,7 +204,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
 
       <div className="mt-2 space-y-2">
         {edits.map((edit, i) => {
-          const state = itemStates[i]
+          const state = effectiveItemStates[i]
           if (state.status === "dismissed") {
             return (
               <div key={i} className="rounded border bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground line-through">

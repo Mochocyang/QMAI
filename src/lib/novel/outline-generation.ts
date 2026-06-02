@@ -524,6 +524,73 @@ export async function addOutlineTaskToSourceList(taskId: string): Promise<string
   return addOutlineFileToSourceList(task.projectPath, task.outlinePath)
 }
 
+export function createOutlineIngestTask(projectPath: string, outlinePath: string): string {
+  return useOutlineGenerationStore.getState().createTask({
+    projectPath: normalizePath(projectPath),
+    kind: "ingest",
+    outlinePath: normalizePath(outlinePath),
+    status: "ingesting",
+    message: i18n.t("novel.outlineGenerator.ingestingNotification"),
+    error: null,
+  })
+}
+
+export function startOutlineIngestTask(projectPath: string, outlinePath: string): string {
+  const taskId = createOutlineIngestTask(projectPath, outlinePath)
+  void runOutlineIngestTask(taskId)
+  return taskId
+}
+
+function collectOutlineMarkdownPaths(
+  nodes: Array<{ path: string; name: string; is_dir: boolean; children?: Array<{ path: string; name: string; is_dir: boolean; children?: unknown[] }> }>,
+): string[] {
+  const paths: string[] = []
+  for (const node of nodes) {
+    if (node.is_dir && node.children) {
+      paths.push(...collectOutlineMarkdownPaths(node.children as Array<{ path: string; name: string; is_dir: boolean; children?: Array<{ path: string; name: string; is_dir: boolean; children?: unknown[] }> }>))
+      continue
+    }
+    if (!node.is_dir && node.name.endsWith(".md")) {
+      paths.push(normalizePath(node.path))
+    }
+  }
+  return paths
+}
+
+export async function runBulkOutlineIngest(projectPath: string): Promise<{
+  total: number
+  succeeded: number
+  failed: number
+}> {
+  const pp = normalizePath(projectPath)
+  let outlinePaths: string[] = []
+
+  try {
+    const tree = await listDirectory(`${pp}/wiki/outlines`)
+    outlinePaths = collectOutlineMarkdownPaths(tree as Array<{ path: string; name: string; is_dir: boolean; children?: Array<{ path: string; name: string; is_dir: boolean; children?: unknown[] }> }>)
+      .sort((a, b) => a.localeCompare(b, "zh-CN"))
+  } catch {
+    return { total: 0, succeeded: 0, failed: 0 }
+  }
+
+  let succeeded = 0
+  let failed = 0
+
+  for (const outlinePath of outlinePaths) {
+    const taskId = createOutlineIngestTask(pp, outlinePath)
+    await runOutlineIngestTask(taskId)
+    const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
+    if (task?.status === "done") succeeded += 1
+    else failed += 1
+  }
+
+  return {
+    total: outlinePaths.length,
+    succeeded,
+    failed,
+  }
+}
+
 export async function runOutlineIngestTask(taskId: string): Promise<void> {
   const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
   if (!task?.outlinePath) return
