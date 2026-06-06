@@ -181,6 +181,43 @@ describe("six-dimension review adapter", () => {
     })
   })
 
+  it("coalesces high-frequency dimension thinking callbacks from streamed tokens", async () => {
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      const prompt = messages.map((message) => message.content).join("\n")
+      if (prompt.includes("最终 JSON")) {
+        callbacks.onToken(JSON.stringify({
+          score: 90,
+          status: "pass",
+          summary: "爽感密度通过",
+          issues: [],
+        }))
+      } else {
+        for (let i = 0; i < 50; i += 1) {
+          callbacks.onToken(`阶段片段 ${i}`)
+        }
+      }
+      callbacks.onDone()
+    })
+
+    const thinking: string[] = []
+    await reviewChapterDimension({
+      llmConfig,
+      contextPack,
+      chapterContent: "主角直接说出族谱被换。",
+      dimension: SIX_REVIEW_DIMENSIONS.thrill,
+      callbacks: {
+        onThinking: (_dimensionKey, content) => thinking.push(content),
+      },
+    })
+
+    expect(thinking.length).toBeLessThan(20)
+    expect(thinking.join("\n")).toContain("阶段片段 49")
+  })
+
   it("runs all six dimensions with one shared context and continues after one failure", async () => {
     const finalCallDimensions: string[] = []
     streamChatMock.mockImplementation(async (

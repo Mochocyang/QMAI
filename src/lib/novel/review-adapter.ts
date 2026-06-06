@@ -6,6 +6,7 @@ import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 
 export interface NovelReviewResult {
   severity: "error" | "warning" | "info"
@@ -219,10 +220,15 @@ async function runReviewStage(
   ]
 
   let result = ""
+  const thinkingPublisher = createReviewThinkingPublisher({
+    publish: (content) => {
+      publishReviewStageThinking(stageThinking, callbacks, stageTitle, content)
+    },
+  })
   const streamCallbacks: StreamCallbacks = {
     onToken: (token: string) => {
       result += token
-      publishReviewStageThinking(stageThinking, callbacks, stageTitle, result)
+      thinkingPublisher.publish(result)
     },
     onDone: () => {},
     onError: (error: Error) => {
@@ -230,13 +236,17 @@ async function runReviewStage(
     },
   }
 
-  await streamChat(
-    llmConfig,
-    messages,
-    streamCallbacks,
-    AbortSignal.timeout(120000),
-    { reasoning: { mode: "high" } },
-  )
+  try {
+    await streamChat(
+      llmConfig,
+      messages,
+      streamCallbacks,
+      AbortSignal.timeout(120000),
+      { reasoning: { mode: "high" } },
+    )
+  } finally {
+    thinkingPublisher.flush()
+  }
 
   return result.trim()
 }

@@ -6,6 +6,7 @@ import { buildContextPack, contextPackToPrompt, type ContextPack } from "./conte
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
+import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 
 export type SixReviewDimensionKey = "thrill" | "consistency" | "pacing" | "character" | "continuity" | "pull"
 export type DimensionReviewStatus = "error" | "high" | "medium" | "low" | "pass"
@@ -239,10 +240,15 @@ async function runDimensionStage(
     { role: "user", content: userPrompt },
   ]
   let result = ""
+  const thinkingPublisher = createReviewThinkingPublisher({
+    publish: (content) => {
+      callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, content))
+    },
+  })
   const streamCallbacks: StreamCallbacks = {
     onToken: (token: string) => {
       result += token
-      callbacks.onThinking?.(dimension.key, formatDimensionThinking(dimension, result))
+      thinkingPublisher.publish(result)
     },
     onDone: () => {},
     onError: (error: Error) => {
@@ -250,13 +256,17 @@ async function runDimensionStage(
     },
   }
 
-  await streamChat(
-    llmConfig,
-    messages,
-    streamCallbacks,
-    AbortSignal.timeout(120000),
-    { reasoning: { mode: "high" } },
-  )
+  try {
+    await streamChat(
+      llmConfig,
+      messages,
+      streamCallbacks,
+      AbortSignal.timeout(120000),
+      { reasoning: { mode: "high" } },
+    )
+  } finally {
+    thinkingPublisher.flush()
+  }
   return result.trim()
 }
 

@@ -152,4 +152,34 @@ describe("review-adapter staged review", () => {
       suggestion: "改为通过族谱缺页和行为细节推断异常。",
     }])
   })
+
+  it("coalesces high-frequency staged thinking callbacks from streamed tokens", async () => {
+    let callCount = 0
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: Array<{ role: string; content: string }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      callCount += 1
+      if (callCount === 4) {
+        callbacks.onToken("[]")
+      } else {
+        for (let i = 0; i < 50; i += 1) {
+          callbacks.onToken(`阶段片段 ${i}`)
+        }
+      }
+      callbacks.onDone()
+    })
+
+    const thinking: string[] = []
+    await reviewChapter(
+      "E:/Novel",
+      "主角直接说出族谱被换。",
+      8,
+      { onThinking: (content) => thinking.push(content) },
+    )
+
+    expect(thinking.length).toBeLessThan(20)
+    expect(thinking.join("\n")).toContain("阶段片段 49")
+  })
 })
