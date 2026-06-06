@@ -4,6 +4,7 @@ import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { reviewChapter } from "@/lib/novel/review-adapter"
 import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResults } from "@/lib/novel/revision-feedback"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
+import { getFileStem } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 
 interface StartNovelReviewRunArgs {
@@ -12,6 +13,34 @@ interface StartNovelReviewRunArgs {
   selectedFile: string
   t: TFunction
   onHistorySaved?: () => Promise<void> | void
+}
+
+export interface ReviewChapterTarget {
+  chapterNumber?: number
+}
+
+function parseChapterNumberFromSelectedFile(selectedFile: string): number | undefined {
+  const stem = getFileStem(selectedFile).trim()
+  const chineseChapter = stem.match(/第\s*0*(\d+)\s*章/)
+  if (chineseChapter) return Number(chineseChapter[1])
+
+  const slugChapter = stem.match(/chapter[-_\s]*0*(\d+)/i)
+  if (slugChapter) return Number(slugChapter[1])
+
+  const numericStem = stem.match(/^0*(\d+)$/)
+  if (numericStem) return Number(numericStem[1])
+
+  return undefined
+}
+
+export function resolveReviewChapterTarget(fileContent: string, selectedFile: string): ReviewChapterTarget {
+  const parsed = parseFrontmatter(fileContent)
+  const meta = parsed.frontmatter ? parseChapterMeta(parsed.frontmatter as Record<string, unknown>) : null
+  const selectedChapterNumber = parseChapterNumberFromSelectedFile(selectedFile)
+
+  return {
+    chapterNumber: selectedChapterNumber ?? meta?.chapterNumber,
+  }
 }
 
 export async function startNovelReviewRun({
@@ -23,13 +52,12 @@ export async function startNovelReviewRun({
 }: StartNovelReviewRunArgs): Promise<void> {
   if (!selectedFile || !fileContent.trim()) return
 
-  const parsed = parseFrontmatter(fileContent)
-  const meta = parsed.frontmatter ? parseChapterMeta(parsed.frontmatter as Record<string, unknown>) : null
+  const target = resolveReviewChapterTarget(fileContent, selectedFile)
   const runId = `${Date.now()}-${Math.random()}`
   useWikiStore.getState().setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
 
   try {
-    const results = await reviewChapter(projectPath, fileContent, meta?.chapterNumber, {
+    const results = await reviewChapter(projectPath, fileContent, target.chapterNumber, {
       onThinking: (thinking) => {
         useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
       },
@@ -37,17 +65,17 @@ export async function startNovelReviewRun({
     useWikiStore.getState().finishReviewRun(runId, { running: true, results, error: undefined })
     await saveGenerationHistoryEntry(projectPath, {
       kind: "review",
-      title: meta?.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: meta.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
-      chapterNumber: meta?.chapterNumber,
+      title: target.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: target.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
+      chapterNumber: target.chapterNumber,
       sourcePath: selectedFile,
       results,
     })
     await onHistorySaved?.()
 
-    if (meta?.chapterNumber) {
+    if (target.chapterNumber) {
       await persistRevisionFeedbackForChapter(
         projectPath,
-        meta.chapterNumber,
+        target.chapterNumber,
         "review",
         pickRevisionFeedbackFromReviewResults(results),
       )

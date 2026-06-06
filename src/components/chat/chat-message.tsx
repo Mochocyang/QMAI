@@ -23,6 +23,7 @@ import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { canContinueUnfinishedDeepChapter } from "./chat-resume"
+import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 
 interface ChatMessageProps {
   message: DisplayMessage
@@ -149,13 +150,7 @@ function CopyButton({ content }: { content: string }) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = useCallback(async () => {
-    // Strip HTML comments and thinking blocks before copying
-    const clean = content
-      .replace(/<!--.*?-->/gs, "")
-      .replace(/<think(?:ing)?>\s*[\s\S]*?<\/think(?:ing)?>\s*/gi, "")
-      .replace(/<think(?:ing)?>\s*[\s\S]*$/gi, "")
-      .trim()
-
+    const clean = getCopyableAssistantContent(content)
     await navigator.clipboard.writeText(clean)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)

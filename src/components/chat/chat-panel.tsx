@@ -36,6 +36,7 @@ import {
   extractContinueUnfinishedDeepChapterContext,
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
+import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
 
 function formatDate(timestamp: number): string {
   const d = new Date(timestamp)
@@ -210,7 +211,7 @@ export function ChatPanel() {
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/${fileName}`
       const chapterTitle = `第${nextNum}章`
-      const cleanedContent = cleanGeneratedChapterContentForSave(content)
+      const cleanedContent = cleanGeneratedChapterContentForSave(getCopyableAssistantContent(content))
 
       const now = new Date().toISOString().slice(0, 10)
       const frontmatter = [

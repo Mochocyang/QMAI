@@ -6,6 +6,8 @@ release-portable-backup/
 release-github/
 src-tauri/target/
 *.tsbuildinfo
+.env
+.env.*
 
 # === 依赖 ===
 node_modules/
@@ -17,6 +19,11 @@ src/test-helpers/*
 !src/test-helpers/load-test-env.ts
 **/*.test.ts
 **/*.test.tsx
+!src/test-helpers/
+!src/test-helpers/load-test-env.ts
+!src/lib/chat-copy-content.test.ts
+!src/lib/tauri-fetch.test.ts
+!src/lib/novel/start-review-run.test.ts
 
 # === 根目录文档（仅本地保留）===
 /docs/

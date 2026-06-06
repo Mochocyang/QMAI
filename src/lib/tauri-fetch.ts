@@ -11,10 +11,9 @@
  *  - Any enterprise / on-prem gateway that doesn't anticipate browser
  *    origins — a common shape across domestic Chinese clouds
  *
- * In unit tests (vitest / node), the plugin's browser-only globals
- * aren't available; `getHttpFetch` lazily imports and falls back to
- * `globalThis.fetch` so helper functions in this file can be imported
- * from any environment without crashing at module load.
+ * In unit tests (vitest / node) and plain browser previews, the Tauri
+ * IPC globals aren't available. `getHttpFetch` only imports the plugin
+ * inside a real Tauri webview; everywhere else it uses native fetch.
  */
 
 let pluginFetchPromise: Promise<typeof globalThis.fetch> | null = null
@@ -27,6 +26,8 @@ let pluginFetchPromise: Promise<typeof globalThis.fetch> | null = null
  * import rather than trying to .catch() an error that happens later.
  */
 const isNodeEnv = typeof window === "undefined"
+const isTauriEnv = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
 /**
  * Returns a fetch function that routes through Tauri's HTTP plugin in
@@ -40,7 +41,7 @@ const isNodeEnv = typeof window === "undefined"
  */
 export function getHttpFetch(): Promise<typeof globalThis.fetch> {
   if (!pluginFetchPromise) {
-    if (isNodeEnv) {
+    if (isNodeEnv || !isTauriEnv()) {
       // Bind so `this === globalThis` — Node's fetch requires it.
       pluginFetchPromise = Promise.resolve(globalThis.fetch.bind(globalThis))
     } else {
