@@ -6,6 +6,7 @@ import { persistRevisionFeedbackForChapter, pickRevisionFeedbackFromReviewResult
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
+import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 
 interface StartNovelReviewRunArgs {
   fileContent: string
@@ -55,13 +56,19 @@ export async function startNovelReviewRun({
   const target = resolveReviewChapterTarget(fileContent, selectedFile)
   const runId = `${Date.now()}-${Math.random()}`
   useWikiStore.getState().setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
+  const thinkingPublisher = createReviewThinkingPublisher({
+    publish: (thinking) => {
+      useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
+    },
+  })
 
   try {
     const results = await reviewChapter(projectPath, fileContent, target.chapterNumber, {
       onThinking: (thinking) => {
-        useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
+        thinkingPublisher.publish(thinking)
       },
     })
+    thinkingPublisher.flush()
     useWikiStore.getState().finishReviewRun(runId, { running: true, results, error: undefined })
     await saveGenerationHistoryEntry(projectPath, {
       kind: "review",
@@ -82,8 +89,10 @@ export async function startNovelReviewRun({
     }
   } catch (error) {
     console.error("审查失败:", error)
+    thinkingPublisher.flush()
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
+    thinkingPublisher.flush()
     const current = useWikiStore.getState().reviewRun
     if (current?.runId === runId) {
       useWikiStore.getState().finishReviewRun(runId, { running: false, results: current.results })

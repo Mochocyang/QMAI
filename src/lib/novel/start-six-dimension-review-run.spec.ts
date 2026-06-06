@@ -121,4 +121,45 @@ describe("startSixDimensionReviewRun", () => {
       }),
     )
   })
+
+  it("coalesces high-frequency dimension thinking updates before writing to the store", async () => {
+    let thinkingUpdateCount = 0
+    const unsubscribe = useWikiStore.subscribe((state, previousState) => {
+      const nextThinking = state.reviewRun?.dimensionThinking?.thrill
+      const previousThinking = previousState.reviewRun?.dimensionThinking?.thrill
+      if (nextThinking && nextThinking !== previousThinking) {
+        thinkingUpdateCount += 1
+      }
+    })
+
+    mocks.runSixDimensionReview.mockImplementation(async (args: {
+      callbacks?: {
+        onDimensionThinking?: (dimensionKey: string, thinking: string) => void
+        onDimensionResult?: (dimensionKey: string, result: DimensionReviewResult) => void
+      }
+    }) => {
+      args.callbacks?.onDimensionThinking?.("thrill", "## 爽感密度\n开始")
+      for (let i = 0; i < 50; i += 1) {
+        args.callbacks?.onDimensionThinking?.("thrill", `## 爽感密度\n流式片段 ${i}`)
+      }
+      args.callbacks?.onDimensionResult?.("thrill", dimensionResult("thrill"))
+      return {
+        thrill: dimensionResult("thrill"),
+      }
+    })
+
+    try {
+      await startSixDimensionReviewRun({
+        fileContent: "---\nchapterNumber: 8\n---\n正文",
+        projectPath: "E:/Novel",
+        selectedFile: "E:/Novel/wiki/chapters/008.md",
+        t: ((key: string) => key) as never,
+      })
+    } finally {
+      unsubscribe()
+    }
+
+    expect(thinkingUpdateCount).toBeLessThanOrEqual(3)
+    expect(useWikiStore.getState().reviewRun?.dimensionThinking?.thrill).toContain("流式片段 49")
+  })
 })

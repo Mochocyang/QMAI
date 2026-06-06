@@ -4,6 +4,7 @@ import { parseChapterMeta } from "@/lib/novel/chapter-meta"
 import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { runSixDimensionReview, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import { useWikiStore } from "@/stores/wiki-store"
+import { createReviewThinkingPublisher, type ReviewThinkingPublisher } from "./review-thinking-publisher"
 
 interface StartSixDimensionReviewRunArgs {
   fileContent: string
@@ -40,6 +41,32 @@ export async function startSixDimensionReviewRun({
     dimensionResults: preservedDimensionResults,
     dimensionThinking: {},
   })
+  const dimensionThinkingPublishers = new Map<SixReviewDimensionKey, ReviewThinkingPublisher>()
+  const getThinkingPublisher = (dimensionKey: SixReviewDimensionKey) => {
+    const existing = dimensionThinkingPublishers.get(dimensionKey)
+    if (existing) return existing
+
+    const publisher = createReviewThinkingPublisher({
+      publish: (thinking) => {
+        const current = useWikiStore.getState().reviewRun
+        useWikiStore.getState().finishReviewRun(runId, {
+          running: true,
+          activeDimension: dimensionKey,
+          dimensionThinking: {
+            ...(current?.dimensionThinking ?? {}),
+            [dimensionKey]: thinking,
+          },
+        })
+      },
+    })
+    dimensionThinkingPublishers.set(dimensionKey, publisher)
+    return publisher
+  }
+  const flushThinkingPublishers = () => {
+    for (const publisher of dimensionThinkingPublishers.values()) {
+      publisher.flush()
+    }
+  }
 
   try {
     const dimensionResults = await runSixDimensionReview({
@@ -56,17 +83,10 @@ export async function startSixDimensionReviewRun({
           })
         },
         onDimensionThinking: (dimensionKey, thinking) => {
-          const current = useWikiStore.getState().reviewRun
-          useWikiStore.getState().finishReviewRun(runId, {
-            running: true,
-            activeDimension: dimensionKey,
-            dimensionThinking: {
-              ...(current?.dimensionThinking ?? {}),
-              [dimensionKey]: thinking,
-            },
-          })
+          getThinkingPublisher(dimensionKey).publish(thinking)
         },
         onDimensionResult: (dimensionKey, result) => {
+          getThinkingPublisher(dimensionKey).flush()
           const current = useWikiStore.getState().reviewRun
           useWikiStore.getState().finishReviewRun(runId, {
             running: true,
@@ -79,6 +99,7 @@ export async function startSixDimensionReviewRun({
         },
       },
     })
+    flushThinkingPublishers()
 
     const nextDimensionResults = {
       ...preservedDimensionResults,
@@ -101,8 +122,10 @@ export async function startSixDimensionReviewRun({
     await onHistorySaved?.()
   } catch (error) {
     console.error("六维审查失败:", error)
+    flushThinkingPublishers()
     useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
   } finally {
+    flushThinkingPublishers()
     const current = useWikiStore.getState().reviewRun
     if (current?.runId === runId) {
       useWikiStore.getState().finishReviewRun(runId, {
