@@ -47,6 +47,7 @@ const SOURCE_TIE_PRIORITY: Record<NovelSearchResult["type"], number> = {
   canon: 3,
   recent_chapter: 4,
 }
+const KEYWORD_SEARCH_MAX_CONTENT_CHARS = 30000
 
 export function isAuthoritativeGenerationPath(path: string): boolean {
   return /\/wiki\/(entities|concepts|memory|chapters)\//.test(path)
@@ -67,7 +68,11 @@ export async function novelMixedSearch(params: NovelSearchParams): Promise<Novel
   const promises: Promise<void>[] = []
 
   if (params.includeKeyword !== false) {
-    const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query)).then(items => {
+    const pKeyword = runSearchBranch("keyword", searchWiki(pp, params.query, {
+      includeVector: false,
+      maxContentChars: KEYWORD_SEARCH_MAX_CONTENT_CHARS,
+      topK: Math.max(topK * 2, 10),
+    })).then(items => {
       console.log("[novelMixedSearch] keyword done, got", items.length)
       results.push(...items.slice(0, topK).map((item, sourceRank) => ({
         type: "keyword" as const,

@@ -26,6 +26,7 @@ export interface RetrievalGraph {
 // ---------------------------------------------------------------------------
 
 const WIKILINK_REGEX = /\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]/g
+const GRAPH_CONTENT_SCAN_LIMIT_CHARS = 50000
 
 const WEIGHTS = {
   directLink: 3.0,
@@ -218,7 +219,8 @@ async function buildRetrievalGraphUncached(
       continue
     }
 
-    const fm = extractFrontmatter(content)
+    const scanContent = limitGraphScanContent(content)
+    const fm = extractFrontmatter(scanContent)
     if (fm.isHistorical) {
       continue
     }
@@ -228,7 +230,7 @@ async function buildRetrievalGraphUncached(
       type: fm.type,
       path: file.path,
       sources: fm.sources,
-      rawLinks: extractWikilinks(content),
+      rawLinks: extractWikilinks(scanContent),
       fileName: file.name,
     })
   }
@@ -269,6 +271,11 @@ async function buildRetrievalGraphUncached(
 
   const graph: RetrievalGraph = { nodes, dataVersion }
   return graph
+}
+
+function limitGraphScanContent(content: string): string {
+  if (content.length <= GRAPH_CONTENT_SCAN_LIMIT_CHARS) return content
+  return content.slice(0, GRAPH_CONTENT_SCAN_LIMIT_CHARS)
 }
 
 export function calculateRelevance(

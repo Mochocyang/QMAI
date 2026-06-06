@@ -1,6 +1,6 @@
 import { listDirectory, readFile } from "@/commands/fs"
 import i18n from "@/i18n"
-import { searchWiki, tokenizeQuery } from "@/lib/search"
+import { searchWiki, tokenizeQuery, type SearchWikiOptions } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseChapterMeta } from "./chapter-meta"
@@ -34,6 +34,8 @@ const SECTION_PRIORITY: Record<string, number> = {
   "下一章推进建议": 16,
   "写作风格": 17,
 }
+const CONTEXT_SEARCH_MAX_CONTENT_CHARS = 20000
+const CONTEXT_SEARCH_DEFAULT_TOP_K = 8
 
 export interface ContextPack {
   task: string
@@ -285,9 +287,22 @@ function emptyPack(task: string): ContextPack {
   }
 }
 
+function contextSearchWiki(
+  pp: string,
+  query: string,
+  options: SearchWikiOptions = {},
+) {
+  return searchWiki(pp, query, {
+    ...options,
+    includeVector: false,
+    maxContentChars: options.maxContentChars ?? CONTEXT_SEARCH_MAX_CONTENT_CHARS,
+    topK: options.topK ?? CONTEXT_SEARCH_DEFAULT_TOP_K,
+  })
+}
+
 async function readOutlineContent(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "outline type:outline")
+    const results = await contextSearchWiki(pp, "outline type:outline", { topK: 12 })
     if (results.length > 0) {
       const contents = await Promise.all(
         results.slice(0, 12).map(async (result) => {
@@ -399,7 +414,7 @@ async function readChapterOutlineContent(pp: string, chapterNumber?: number): Pr
   ]
   for (const query of queries) {
     try {
-      const results = await searchWiki(pp, query)
+      const results = await contextSearchWiki(pp, query, { topK: 1 })
       if (results.length > 0) {
         return (await readFile(results[0].path)).slice(0, 3000)
       }
@@ -472,7 +487,7 @@ async function readSnapshotContext(
 async function readRecentChapterSummaries(pp: string, count: number): Promise<string[]> {
   const summaries: string[] = []
   try {
-    const results = await searchWiki(pp, "type:chapter")
+    const results = await contextSearchWiki(pp, "type:chapter", { topK: count })
     for (const r of results.slice(0, count)) {
       try {
         const content = await readFile(r.path)
@@ -493,7 +508,7 @@ async function readRecentChapterSummaries(pp: string, count: number): Promise<st
 async function readPreviousChapterEnding(pp: string, chapterNumber?: number): Promise<string> {
   if (!chapterNumber || chapterNumber <= 1) return ""
   try {
-    const results = await searchWiki(pp, `chapter_number:${chapterNumber - 1}`)
+    const results = await contextSearchWiki(pp, `chapter_number:${chapterNumber - 1}`, { topK: 1 })
     if (results.length > 0) {
       const content = await readFile(results[0].path)
       const lines = content.split("\n")
@@ -506,7 +521,7 @@ async function readPreviousChapterEnding(pp: string, chapterNumber?: number): Pr
 
 async function readCharacterStates(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "type:entity character")
+    const results = await contextSearchWiki(pp, "type:entity character", { topK: 5 })
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 5).map(r => readFile(r.path).catch(() => "")))
       return contents.filter(Boolean).join("\n---\n").slice(0, 3000)
@@ -526,7 +541,7 @@ async function readCognitionStates(pp: string): Promise<string> {
 
 async function readForeshadowingStates(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "伏笔 foreshadowing")
+    const results = await contextSearchWiki(pp, "伏笔 foreshadowing", { topK: 3 })
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
       return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
@@ -537,7 +552,7 @@ async function readForeshadowingStates(pp: string): Promise<string> {
 
 async function readTimeline(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "timeline 时间线")
+    const results = await contextSearchWiki(pp, "timeline 时间线", { topK: 1 })
     if (results.length > 0) {
       const content = await readFile(results[0].path)
       return content.slice(0, 2000)
@@ -548,7 +563,7 @@ async function readTimeline(pp: string): Promise<string> {
 
 async function readRelatedSettings(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "setting 设定 location 地点")
+    const results = await contextSearchWiki(pp, "setting 设定 location 地点", { topK: 3 })
     if (results.length > 0) {
       const contents = await Promise.all(results.slice(0, 3).map(r => readFile(r.path).catch(() => "")))
       return contents.filter(Boolean).join("\n---\n").slice(0, 2000)
@@ -559,7 +574,7 @@ async function readRelatedSettings(pp: string): Promise<string> {
 
 async function readCanonRules(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "canon 正史 rule 规则")
+    const results = await contextSearchWiki(pp, "canon 正史 rule 规则", { topK: 1 })
     if (results.length > 0) {
       const content = await readFile(results[0].path)
       return content.slice(0, 2000)
@@ -570,7 +585,7 @@ async function readCanonRules(pp: string): Promise<string> {
 
 async function readWritingStyle(pp: string): Promise<string> {
   try {
-    const results = await searchWiki(pp, "style 风格 writing 写作")
+    const results = await contextSearchWiki(pp, "style 风格 writing 写作", { topK: 1 })
     if (results.length > 0) {
       const content = await readFile(results[0].path)
       return content.slice(0, 1000)
@@ -622,8 +637,8 @@ export async function searchRelevantContent(
   const query = queryParts.join(" ")
 
   const [keywordResults, indexResults, vectorResults] = await Promise.all([
-    searchWiki(pp, query).catch(() => []),
-    searchWiki(pp, `关键词索引 向量索引 ${task}`).catch(() => []),
+    contextSearchWiki(pp, query, { topK: limit }).catch(() => []),
+    contextSearchWiki(pp, `关键词索引 向量索引 ${task}`, { topK: limit }).catch(() => []),
     runVectorSearchForContext(pp, query, limit).catch(() => []),
   ])
 
@@ -683,7 +698,7 @@ async function searchRelevantContentUnified(
       includeRecentChapters: true,
       includeCanon: true,
     }).catch(() => []),
-    searchWiki(pp, `关键词索引 向量索引 ${task}`, {
+    contextSearchWiki(pp, `关键词索引 向量索引 ${task}`, {
       rerank: true,
       topK: Math.max(limit, 4),
       rerankPurpose: "用于补充剧情上下文中的索引和记忆条目。",

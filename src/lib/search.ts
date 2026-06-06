@@ -37,6 +37,7 @@ export interface SearchWikiOptions {
   topK?: number
   rerankPurpose?: string
   includeVector?: boolean
+  maxContentChars?: number
 }
 
 const MAX_RESULTS = 20
@@ -265,7 +266,7 @@ export async function searchWiki(
     const tList = Math.round(performance.now() - t0)
     console.log("[searchWiki] wikiFiles:", wikiFiles.length)
     const t1 = performance.now()
-    await searchFiles(wikiFiles, effectiveTokens, query, results)
+    await searchFiles(wikiFiles, effectiveTokens, query, results, options)
     const tRead = Math.round(performance.now() - t1)
     console.log("[searchWiki] searchFiles done in", tRead, "ms")
     console.log(
@@ -435,6 +436,7 @@ async function searchFiles(
   tokens: readonly string[],
   query: string,
   results: SearchResult[],
+  options: SearchWikiOptions,
 ): Promise<void> {
   // Strip leading / trailing punctuation from the query before using
   // it as a phrase-bonus probe. Without this, `query="总资产。"`
@@ -465,14 +467,34 @@ async function searchFiles(
         } catch {
           return null
         }
-        return scoreFile(file, content, tokens, queryPhrase, query)
+        return scoreFile(
+          file,
+          applyContentScanLimit(content, options.maxContentChars),
+          tokens,
+          queryPhrase,
+          query,
+        )
       }),
     )
     console.log("[searchFiles] batch", batchNum, "done, matched", batchResults.filter(Boolean).length)
     for (const r of batchResults) {
       if (r) results.push(r)
     }
+    if (i + SEARCH_READ_CONCURRENCY < files.length) {
+      await yieldToEventLoop()
+    }
   }
+}
+
+function applyContentScanLimit(content: string, maxContentChars: number | undefined): string {
+  if (!maxContentChars || maxContentChars <= 0 || content.length <= maxContentChars) {
+    return content
+  }
+  return content.slice(0, maxContentChars)
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 /**
@@ -539,4 +561,3 @@ function scoreFile(
     images: extractImageRefs(content),
   }
 }
-

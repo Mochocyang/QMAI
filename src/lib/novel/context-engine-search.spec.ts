@@ -50,6 +50,7 @@ vi.mock("./soul-doc", () => ({
   readSoulDoc: vi.fn(async () => ""),
 }))
 
+import { searchWiki } from "@/lib/search"
 import { buildContextPack } from "./context-engine"
 import { novelMixedSearch } from "./search-adapter"
 
@@ -79,4 +80,14 @@ test("context mixed search leaves graph search to the dedicated graph context br
     includeKeyword: true,
     includeVector: true,
   }))
+})
+
+test("context searchWiki calls disable vector search during review context assembly", async () => {
+  await buildContextPack("/Project", "审核第2章", 2)
+
+  const calls = vi.mocked(searchWiki).mock.calls
+  expect(calls.length).toBeGreaterThan(0)
+  for (const [, , options] of calls) {
+    expect(options).toEqual(expect.objectContaining({ includeVector: false }))
+  }
 })
