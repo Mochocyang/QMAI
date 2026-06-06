@@ -19,9 +19,8 @@ src/test-helpers/*
 !src/test-helpers/load-test-env.ts
 **/*.test.ts
 **/*.test.tsx
-!src/test-helpers/
-!src/test-helpers/load-test-env.ts
 !src/lib/chat-copy-content.test.ts
+!src/lib/dashboard-issue-actions.test.ts
 !src/lib/tauri-fetch.test.ts
 !src/lib/novel/start-review-run.test.ts
 
