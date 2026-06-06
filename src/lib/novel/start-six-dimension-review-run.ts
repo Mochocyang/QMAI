@@ -5,6 +5,7 @@ import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { runSixDimensionReview, type SixReviewDimensionKey } from "@/lib/novel/dimension-review-adapter"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher, type ReviewThinkingPublisher } from "./review-thinking-publisher"
+import { yieldToBrowserFrame } from "./yield-to-browser"
 
 interface StartSixDimensionReviewRunArgs {
   fileContent: string
@@ -41,6 +42,7 @@ export async function startSixDimensionReviewRun({
     dimensionResults: preservedDimensionResults,
     dimensionThinking: {},
   })
+  await yieldToBrowserFrame()
   const dimensionThinkingPublishers = new Map<SixReviewDimensionKey, ReviewThinkingPublisher>()
   const getThinkingPublisher = (dimensionKey: SixReviewDimensionKey) => {
     const existing = dimensionThinkingPublishers.get(dimensionKey)

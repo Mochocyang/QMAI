@@ -75,6 +75,12 @@ vi.mock("./model-resolver", () => ({
 
 vi.mock("./context-engine", () => ({
   buildContextPack: mocks.buildContextPackMock,
+  REVIEW_CONTEXT_OPTIONS: {
+    includeVectorSearch: false,
+    includeGraphSearch: false,
+    includeRerank: false,
+    maxSearchTopK: 3,
+  },
   contextPackToPrompt: (pack: ContextPack) => [
     `当前任务：${pack.task}`,
     `章节目标：${pack.chapterGoal}`,
@@ -254,6 +260,16 @@ describe("six-dimension review adapter", () => {
     })
 
     expect(buildContextPackMock).toHaveBeenCalledTimes(1)
+    expect(buildContextPackMock).toHaveBeenCalledWith(
+      "E:/Novel",
+      "六维审查第8章",
+      8,
+      expect.objectContaining({
+        includeVectorSearch: false,
+        includeGraphSearch: false,
+        includeRerank: false,
+      }),
+    )
     expect(finalCallDimensions).toEqual(SIX_REVIEW_DIMENSION_ORDER)
     expect(Object.keys(results)).toEqual(SIX_REVIEW_DIMENSION_ORDER)
     expect(results.pacing?.status).toBe("error")

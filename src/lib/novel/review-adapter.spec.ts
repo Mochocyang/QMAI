@@ -6,6 +6,7 @@ import { buildReviewPrompt, reviewChapter } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
+  buildContextPackMock: vi.fn(),
   llmConfig: {
     provider: "custom" as const,
     apiKey: "test-key",
@@ -40,6 +41,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 const streamChatMock = mocks.streamChatMock
+const buildContextPackMock = mocks.buildContextPackMock
 const llmConfig = mocks.llmConfig as LlmConfig
 const contextPack = mocks.contextPack satisfies ContextPack
 
@@ -66,7 +68,13 @@ vi.mock("./model-resolver", () => ({
 }))
 
 vi.mock("./context-engine", () => ({
-  buildContextPack: vi.fn(async () => mocks.contextPack),
+  buildContextPack: mocks.buildContextPackMock,
+  REVIEW_CONTEXT_OPTIONS: {
+    includeVectorSearch: false,
+    includeGraphSearch: false,
+    includeRerank: false,
+    maxSearchTopK: 3,
+  },
   contextPackToPrompt: (pack: ContextPack) => [
     `当前任务：${pack.task}`,
     `当前章节目标：${pack.chapterGoal}`,
@@ -86,6 +94,8 @@ vi.mock("./context-engine", () => ({
 describe("review-adapter staged review", () => {
   beforeEach(() => {
     streamChatMock.mockReset()
+    buildContextPackMock.mockReset()
+    buildContextPackMock.mockResolvedValue(contextPack)
     llmConfig.reasoning = { mode: "auto" }
   })
 
@@ -136,6 +146,16 @@ describe("review-adapter staged review", () => {
     )
 
     expect(streamChatMock).toHaveBeenCalledTimes(4)
+    expect(buildContextPackMock).toHaveBeenCalledWith(
+      "E:/Novel",
+      "审稿第8章",
+      8,
+      expect.objectContaining({
+        includeVectorSearch: false,
+        includeGraphSearch: false,
+        includeRerank: false,
+      }),
+    )
     expect(streamChatMock.mock.calls.every((call) => call[4]?.reasoning?.mode === "high")).toBe(true)
     expect(thinking.join("\n")).toContain("阶段1：审查任务识别")
     expect(thinking.join("\n")).toContain("阶段4：事实与记忆核对")

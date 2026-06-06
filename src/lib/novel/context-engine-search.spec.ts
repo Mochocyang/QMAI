@@ -17,6 +17,11 @@ vi.mock("@/lib/rerank", () => ({
   rerankCandidates: vi.fn(async (_query: string, candidates: unknown[]) => candidates),
 }))
 
+vi.mock("@/lib/graph-relevance", () => ({
+  buildRetrievalGraph: vi.fn(async () => ({ nodes: new Map() })),
+  getRelatedNodes: vi.fn(() => []),
+}))
+
 vi.mock("./search-adapter", () => ({
   isAuthoritativeGenerationPath: vi.fn(() => true),
   isHistoricalProjectionSnippet: vi.fn(() => false),
@@ -51,7 +56,8 @@ vi.mock("./soul-doc", () => ({
 }))
 
 import { searchWiki } from "@/lib/search"
-import { buildContextPack } from "./context-engine"
+import { buildRetrievalGraph } from "@/lib/graph-relevance"
+import { buildContextPack, REVIEW_CONTEXT_OPTIONS } from "./context-engine"
 import { novelMixedSearch } from "./search-adapter"
 
 beforeEach(() => {
@@ -80,6 +86,18 @@ test("context mixed search leaves graph search to the dedicated graph context br
     includeKeyword: true,
     includeVector: true,
   }))
+})
+
+test("review context skips vector and graph retrieval before model review", async () => {
+  await buildContextPack("/Project", "审核第2章", 2, REVIEW_CONTEXT_OPTIONS)
+
+  expect(novelMixedSearch).toHaveBeenCalledWith(expect.objectContaining({
+    includeGraph: false,
+    includeKeyword: true,
+    includeVector: false,
+    topK: 6,
+  }))
+  expect(buildRetrievalGraph).not.toHaveBeenCalled()
 })
 
 test("context searchWiki calls disable vector search during review context assembly", async () => {

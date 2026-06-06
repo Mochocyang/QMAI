@@ -2,7 +2,7 @@ import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
+import { buildContextPack, contextPackToPrompt, REVIEW_CONTEXT_OPTIONS, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { NovelReviewResult } from "./review-adapter"
@@ -199,6 +199,7 @@ export async function runSixDimensionReview({
     projectPath,
     `六维审查第${chapterNumber || "?"}章`,
     chapterNumber,
+    REVIEW_CONTEXT_OPTIONS,
   )
 
   const results: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>> = {}

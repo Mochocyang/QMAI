@@ -36,6 +36,21 @@ const SECTION_PRIORITY: Record<string, number> = {
 }
 const CONTEXT_SEARCH_MAX_CONTENT_CHARS = 20000
 const CONTEXT_SEARCH_DEFAULT_TOP_K = 8
+const REVIEW_CONTEXT_MAX_TOP_K = 3
+
+export interface BuildContextPackOptions {
+  includeVectorSearch?: boolean
+  includeGraphSearch?: boolean
+  includeRerank?: boolean
+  maxSearchTopK?: number
+}
+
+export const REVIEW_CONTEXT_OPTIONS: BuildContextPackOptions = {
+  includeVectorSearch: false,
+  includeGraphSearch: false,
+  includeRerank: false,
+  maxSearchTopK: REVIEW_CONTEXT_MAX_TOP_K,
+}
 
 export interface ContextPack {
   task: string
@@ -64,6 +79,7 @@ export async function buildContextPack(
   projectPath: string,
   task: string,
   chapterNumber?: number,
+  options: BuildContextPackOptions = {},
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
   const novelMode = useWikiStore.getState().novelMode
@@ -74,7 +90,11 @@ export async function buildContextPack(
   }
 
   const recentSummaryWindow = novelConfig.recentSummaryWindow > 0 ? novelConfig.recentSummaryWindow : 8
-  const searchTopK = novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5
+  const configuredSearchTopK = novelConfig.searchTopK > 0 ? novelConfig.searchTopK : 5
+  const searchTopK = Math.max(
+    1,
+    Math.min(configuredSearchTopK, options.maxSearchTopK ?? configuredSearchTopK),
+  )
   const snapshotLookback = 3
 
   const resolvedChapterNumber = chapterNumber ?? extractChapterNumberFromTask(task)
@@ -91,8 +111,15 @@ export async function buildContextPack(
     readRelatedSettings(pp),
     readCanonRules(pp),
     readWritingStyle(pp),
-    searchRelevantContentUnified(pp, task, resolvedChapterNumber, searchTopK),
-    searchGraphRelevantContent(pp, task, resolvedChapterNumber),
+    searchRelevantContentUnified(pp, task, resolvedChapterNumber, searchTopK, {
+      includeVector: options.includeVectorSearch ?? true,
+      includeRerank: options.includeRerank ?? true,
+    }),
+    options.includeGraphSearch === false
+      ? Promise.resolve("")
+      : searchGraphRelevantContent(pp, task, resolvedChapterNumber, {
+        includeRerank: options.includeRerank ?? true,
+      }),
     loadRevisionFeedbackForContext(pp, resolvedChapterNumber, revisionFeedbackWindowConfig),
     readCognitionStates(pp),
     readSoulDoc(pp),
@@ -671,6 +698,10 @@ async function searchRelevantContentUnified(
   task: string,
   chapterNumber: number | undefined,
   limit: number,
+  options: {
+    includeVector?: boolean
+    includeRerank?: boolean
+  } = {},
 ): Promise<string> {
   const tokens = tokenizeQuery(task)
   const entityHints = tokens.filter((t) => t.length >= 2).slice(0, 5)
@@ -685,6 +716,8 @@ async function searchRelevantContentUnified(
   }
   const query = queryParts.join(" ")
 
+  const includeVector = options.includeVector ?? true
+  const includeRerank = options.includeRerank ?? true
   const [semanticResults, indexResults, vectorResults] = await Promise.all([
     novelMixedSearch({
       projectPath: pp,
@@ -693,17 +726,17 @@ async function searchRelevantContentUnified(
       topK: Math.max(limit * 2, 6),
       authoritativeOnly: true,
       includeKeyword: true,
-      includeVector: true,
+      includeVector,
       includeGraph: false,
       includeRecentChapters: true,
       includeCanon: true,
     }).catch(() => []),
     contextSearchWiki(pp, `关键词索引 向量索引 ${task}`, {
-      rerank: true,
+      rerank: includeRerank,
       topK: Math.max(limit, 4),
       rerankPurpose: "用于补充剧情上下文中的索引和记忆条目。",
     }).catch(() => []),
-    runVectorSearchForContext(pp, query, limit).catch(() => []),
+    includeVector ? runVectorSearchForContext(pp, query, limit).catch(() => []) : Promise.resolve([]),
   ])
 
   const candidates = [
@@ -737,10 +770,12 @@ async function searchRelevantContentUnified(
     return isAuthoritativeGenerationPath(path)
   })
 
-  const reranked = await rerankCandidates(query, candidates, {
-    topK: Math.max(limit * 2, limit),
-    purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
-  }).catch(() => candidates)
+  const reranked = includeRerank
+    ? await rerankCandidates(query, candidates, {
+      topK: Math.max(limit * 2, limit),
+      purpose: "用于构建小说写作上下文，优先保留最能支撑当前章节任务的记忆、设定、伏笔和正史约束。",
+    }).catch(() => candidates)
+    : candidates.slice(0, Math.max(limit * 2, limit))
 
   const merged: string[] = []
   const seen = new Set<string>()
@@ -802,6 +837,7 @@ async function searchGraphRelevantContent(
   pp: string,
   task: string,
   _chapterNumber: number | undefined,
+  options: { includeRerank?: boolean } = {},
 ): Promise<string> {
   try {
     const { buildRetrievalGraph, getRelatedNodes } = await import("@/lib/graph-relevance")
@@ -856,20 +892,23 @@ async function searchGraphRelevantContent(
     }
 
     scoredNodes.sort((a, b) => b.relevance - a.relevance)
-    const topNodes = await rerankCandidates(
-      task,
-      scoredNodes.slice(0, 10).map((node, index) => ({
-        id: `graph:${index}:${node.title}`,
-        title: node.title,
-        snippet: node.snippet,
-        source: "graph_context",
-        relevance: node.relevance,
-      })),
-      {
-        topK: 10,
-        purpose: "用于补充图谱关联上下文，优先保留和当前任务最直接相关的关联节点。",
-      },
-    ).catch(() => scoredNodes.slice(0, 10))
+    const graphCandidates = scoredNodes.slice(0, 10)
+    const topNodes = options.includeRerank === false
+      ? graphCandidates
+      : await rerankCandidates(
+        task,
+        graphCandidates.map((node, index) => ({
+          id: `graph:${index}:${node.title}`,
+          title: node.title,
+          snippet: node.snippet,
+          source: "graph_context",
+          relevance: node.relevance,
+        })),
+        {
+          topK: 10,
+          purpose: "用于补充图谱关联上下文，优先保留和当前任务最直接相关的关联节点。",
+        },
+      ).catch(() => graphCandidates)
     if (topNodes.length === 0) return ""
 
     return topNodes.map(

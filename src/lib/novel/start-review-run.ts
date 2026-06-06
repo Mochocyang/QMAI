@@ -7,6 +7,7 @@ import { saveGenerationHistoryEntry } from "@/lib/novel/generation-history"
 import { getFileStem } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
+import { yieldToBrowserFrame } from "./yield-to-browser"
 
 interface StartNovelReviewRunArgs {
   fileContent: string
@@ -56,6 +57,7 @@ export async function startNovelReviewRun({
   const target = resolveReviewChapterTarget(fileContent, selectedFile)
   const runId = `${Date.now()}-${Math.random()}`
   useWikiStore.getState().setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
+  await yieldToBrowserFrame()
   const thinkingPublisher = createReviewThinkingPublisher({
     publish: (thinking) => {
       useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })

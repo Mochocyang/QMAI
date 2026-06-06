@@ -3,7 +3,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
-import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
+import { contextPackToPrompt, buildContextPack, REVIEW_CONTEXT_OPTIONS, type ContextPack } from "./context-engine"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
@@ -112,6 +112,7 @@ export async function reviewChapter(
     projectPath,
     `审稿第${chapterNumber || "?"}章`,
     chapterNumber,
+    REVIEW_CONTEXT_OPTIONS,
   )
 
   const outputLang = getOutputLanguage()
