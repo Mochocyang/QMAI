@@ -679,7 +679,7 @@ async function searchRelevantContentUnified(
       authoritativeOnly: true,
       includeKeyword: true,
       includeVector: true,
-      includeGraph: true,
+      includeGraph: false,
       includeRecentChapters: true,
       includeCanon: true,
     }).catch(() => []),

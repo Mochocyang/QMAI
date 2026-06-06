@@ -46,7 +46,8 @@ const TYPE_AFFINITY: Record<string, Record<string, number>> = {
 // Module-level cache
 // ---------------------------------------------------------------------------
 
-let cachedGraph: RetrievalGraph | null = null
+const cachedGraphs = new Map<string, RetrievalGraph>()
+const inFlightGraphBuilds = new Map<string, Promise<RetrievalGraph>>()
 
 // ---------------------------------------------------------------------------
 // Helpers (pure)
@@ -158,18 +159,40 @@ export async function buildRetrievalGraph(
   projectPath: string,
   dataVersion: number = 0,
 ): Promise<RetrievalGraph> {
-  // Return cached if version matches
-  if (cachedGraph !== null && cachedGraph.dataVersion === dataVersion) {
+  const pp = normalizePath(projectPath)
+  const cacheKey = `${pp}::${dataVersion}`
+  const cachedGraph = cachedGraphs.get(cacheKey)
+  if (cachedGraph) {
     return cachedGraph
   }
 
-  const wikiRoot = `${normalizePath(projectPath)}/wiki`
+  const inFlight = inFlightGraphBuilds.get(cacheKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const buildPromise = buildRetrievalGraphUncached(pp, dataVersion)
+  inFlightGraphBuilds.set(cacheKey, buildPromise)
+
+  try {
+    const graph = await buildPromise
+    cachedGraphs.set(cacheKey, graph)
+    return graph
+  } finally {
+    inFlightGraphBuilds.delete(cacheKey)
+  }
+}
+
+async function buildRetrievalGraphUncached(
+  normalizedProjectPath: string,
+  dataVersion: number,
+): Promise<RetrievalGraph> {
+  const wikiRoot = `${normalizedProjectPath}/wiki`
   let tree: FileNode[]
   try {
     tree = await listDirectory(wikiRoot)
   } catch {
     const emptyGraph: RetrievalGraph = { nodes: new Map(), dataVersion }
-    cachedGraph = emptyGraph
     return emptyGraph
   }
 
@@ -245,7 +268,6 @@ export async function buildRetrievalGraph(
   }
 
   const graph: RetrievalGraph = { nodes, dataVersion }
-  cachedGraph = graph
   return graph
 }
 
@@ -313,5 +335,6 @@ export function getRelatedNodes(
 }
 
 export function clearGraphCache(): void {
-  cachedGraph = null
+  cachedGraphs.clear()
+  inFlightGraphBuilds.clear()
 }

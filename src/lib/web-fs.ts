@@ -84,58 +84,106 @@ class WebFileSystem {
   }
 
   private listDirectoryTree(normalizedPath: string): FileNode[] {
-    const children: FileNode[] = []
-    const seenDirs = new Set<string>()
-    const seenFiles = new Set<string>()
+    type MutableDirNode = {
+      name: string
+      path: string
+      is_dir: true
+      children: Map<string, MutableTreeNode>
+    }
+    type MutableFileNode = {
+      name: string
+      path: string
+      is_dir: false
+    }
+    type MutableTreeNode = MutableDirNode | MutableFileNode
 
-    for (const [filePath] of this.files.entries()) {
-      if (!filePath.startsWith(normalizedPath + "/")) continue
-      const relative = filePath.slice(normalizedPath.length + 1)
-      const firstSegment = relative.split("/")[0]
-      if (!firstSegment) continue
+    const rootChildren = new Map<string, MutableTreeNode>()
+    const prefix = `${normalizedPath}/`
 
-      if (relative.includes("/")) {
-        if (!seenDirs.has(firstSegment)) {
-          seenDirs.add(firstSegment)
-          const dirPath = `${normalizedPath}/${firstSegment}`
-          children.push({
-            name: firstSegment,
-            path: dirPath,
-            is_dir: true,
-            children: this.listDirectoryTree(dirPath),
-          })
-        }
-      } else {
-        if (!seenFiles.has(firstSegment)) {
-          seenFiles.add(firstSegment)
-          children.push({
-            name: firstSegment,
-            path: `${normalizedPath}/${firstSegment}`,
-            is_dir: false,
-          })
-        }
+    const ensureDir = (
+      children: Map<string, MutableTreeNode>,
+      name: string,
+      path: string,
+    ): MutableDirNode => {
+      const existing = children.get(name)
+      if (existing?.is_dir) return existing
+      const node: MutableDirNode = {
+        name,
+        path,
+        is_dir: true,
+        children: new Map(),
+      }
+      children.set(name, node)
+      return node
+    }
+
+    const addDir = (dirPath: string) => {
+      if (!dirPath.startsWith(prefix)) return
+      const segments = dirPath.slice(prefix.length).split("/").filter(Boolean)
+      if (segments.length === 0) return
+
+      let children = rootChildren
+      let currentPath = normalizedPath
+      for (const segment of segments) {
+        currentPath = `${currentPath}/${segment}`
+        const node = ensureDir(children, segment, currentPath)
+        children = node.children
       }
     }
 
-    for (const dir of this.dirs) {
-      if (!dir.startsWith(normalizedPath + "/")) continue
-      const relative = dir.slice(normalizedPath.length + 1)
-      const firstSegment = relative.split("/")[0]
-      if (!firstSegment || relative.includes("/")) continue
+    const addFile = (filePath: string) => {
+      if (!filePath.startsWith(prefix)) return
+      const segments = filePath.slice(prefix.length).split("/").filter(Boolean)
+      if (segments.length === 0) return
 
-      if (!seenDirs.has(firstSegment)) {
-        seenDirs.add(firstSegment)
-        const dirPath = `${normalizedPath}/${firstSegment}`
-        children.push({
-          name: firstSegment,
-          path: dirPath,
-          is_dir: true,
-          children: this.listDirectoryTree(dirPath),
+      let children = rootChildren
+      let currentPath = normalizedPath
+      for (const segment of segments.slice(0, -1)) {
+        currentPath = `${currentPath}/${segment}`
+        const node = ensureDir(children, segment, currentPath)
+        children = node.children
+      }
+
+      const fileName = segments[segments.length - 1]
+      const existing = children.get(fileName)
+      if (!existing) {
+        children.set(fileName, {
+          name: fileName,
+          path: filePath,
+          is_dir: false,
         })
       }
     }
 
-    return children
+    const toFileNodes = (children: Map<string, MutableTreeNode>): FileNode[] => {
+      const nodes: FileNode[] = []
+      for (const node of children.values()) {
+        if (node.is_dir) {
+          nodes.push({
+            name: node.name,
+            path: node.path,
+            is_dir: true,
+            children: toFileNodes(node.children),
+          })
+        } else {
+          nodes.push({
+            name: node.name,
+            path: node.path,
+            is_dir: false,
+          })
+        }
+      }
+      return nodes
+    }
+
+    for (const [filePath] of this.files.entries()) {
+      addFile(filePath)
+    }
+    for (const dir of this.dirs) {
+      addDir(dir)
+    }
+
+    return toFileNodes(rootChildren)
   }
 
   async createDirectory(path: string): Promise<void> {
