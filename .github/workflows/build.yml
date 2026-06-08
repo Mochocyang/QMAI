@@ -134,19 +134,35 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare release notes
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+          node scripts/release-notes.mjs "$version" --out release-assets/release-notes.txt
+
+      - name: Ensure GitHub Release exists
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          notes_path="release-assets/release-notes.txt"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "QMAI $tag" --notes-file "$notes_path" --verify-tag || true
+          fi
+          gh release edit "$tag" --notes-file "$notes_path"
+
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
-          releaseName: ${{ github.event_name == 'push' && format('QMAI {0}', github.ref_name) || '' }}
-          releaseBody: "QMAI multi-platform release assets."
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.tauri_args }}
+        run: npx tauri build ${{ matrix.tauri_args }}
 
       - name: Publish Windows updater manifest
         if: github.event_name == 'push' && matrix.label == 'windows-x64'
@@ -180,16 +196,14 @@ jobs:
           $releaseDir = "release-assets"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          $assetName = "QMaiWrite_$($version)_x64-setup$($installer.Extension)"
+          $assetName = "QMaiWrite_$($version)_windows_X64$($installer.Extension)"
           $assetPath = Join-Path $releaseDir $assetName
+          $assetSignaturePath = "$assetPath.sig"
           Copy-Item $installer.FullName $assetPath -Force
 
           $signature = (Get-Content $signaturePath -Raw).Trim()
+          Copy-Item $signaturePath $assetSignaturePath -Force
           $notesPath = Join-Path $releaseDir "release-notes.txt"
-          node scripts/release-notes.mjs $version --out $notesPath
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
           $notes = Get-Content -Path $notesPath -Raw -Encoding utf8
           $latest = [ordered]@{
             version = $version
@@ -207,28 +221,64 @@ jobs:
           $latest.notes = $notes
           $latest | ConvertTo-Json -Depth 5 | Set-Content -Path $latestPath -Encoding utf8
           gh release edit "${{ github.ref_name }}" --notes-file $notesPath
-          gh release upload "${{ github.ref_name }}" $assetPath $latestPath --clobber
+          gh release upload "${{ github.ref_name }}" $assetPath $assetSignaturePath $latestPath --clobber
 
-      - name: Package macOS app tarball
+      - name: Package macOS release assets
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [ "${{ matrix.label }}" = "macos-intel" ]; then
+            system_label="macOS_Intel"
+          else
+            system_label="macOS_AppleSilicon"
+          fi
+          mkdir -p release-assets
+
+          dmg_path="$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)"
+          if [ -n "$dmg_path" ]; then
+            cp "$dmg_path" "release-assets/QMaiWrite_${version}_${system_label}.dmg"
+          fi
+
           app_path="$(find src-tauri/target -path '*/release/bundle/macos/*.app' -print -quit)"
           if [ -z "$app_path" ]; then
             echo "No .app bundle found"
             exit 1
           fi
-          version="$(node -p "require('./package.json').version")"
-          mkdir -p release-assets
-          tar -C "$(dirname "$app_path")" -czf "release-assets/QMaiWrite_${version}_${{ matrix.label }}.app.tar.gz" "$(basename "$app_path")"
+          tar -C "$(dirname "$app_path")" -czf "release-assets/QMaiWrite_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
 
       - name: Attach macOS app tarball to release
         if: github.event_name == 'push' && runner.os == 'macOS'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/*.app.tar.gz --clobber
+        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_macOS_* --clobber
+
+      - name: Package Linux release assets
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+
+          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
+          if [ -n "$appimage_path" ]; then
+            cp "$appimage_path" "release-assets/QMaiWrite_${version}_linux_X64.AppImage"
+          fi
+
+          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
+          if [ -n "$deb_path" ]; then
+            cp "$deb_path" "release-assets/QMaiWrite_${version}_linux_X64.deb"
+          fi
+
+      - name: Attach Linux assets to release
+        if: github.event_name == 'push' && runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_linux_X64.* --clobber
 
       - name: Upload bundles as workflow artifacts
         if: github.event_name == 'workflow_dispatch'

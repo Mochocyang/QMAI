@@ -28,7 +28,7 @@ if (!updaterAssetName) {
 }
 
 const updaterAssetPath = resolve(bundleDir, updaterAssetName)
-const releaseAssetName = `QMaiWrite_${pkg.version}_x64-setup${extname(updaterAssetName)}`
+const releaseAssetName = `QMaiWrite_${pkg.version}_windows_X64${extname(updaterAssetName)}`
 const releaseAssetPath = resolve(outDir, releaseAssetName)
 const releaseSignaturePath = `${releaseAssetPath}.sig`
 
