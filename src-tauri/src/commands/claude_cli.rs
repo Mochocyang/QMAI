@@ -28,6 +28,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use super::cli_resolver::find_cli_command;
+use super::local_cli_config::{
+    apply_local_cli_environment, read_claude_local_config, resolve_home_dir, LocalCliConfigInfo,
+};
 
 /// Shared state holding running `claude` child processes keyed by the
 /// frontend-generated stream id. Registered via .manage() in lib.rs.
@@ -41,6 +44,7 @@ pub struct DetectResult {
     installed: bool,
     version: Option<String>,
     path: Option<String>,
+    model: Option<String>,
     /// When !installed, a short human-readable reason (missing from PATH,
     /// quarantined on macOS, spawn failed, etc). The frontend shows this
     /// verbatim in the status pill.
@@ -134,6 +138,7 @@ fn suppress_windows_console(_cmd: &mut Command) {
 /// mount of the settings panel.
 #[tauri::command]
 pub async fn claude_cli_detect() -> Result<DetectResult, String> {
+    let local_config = read_current_claude_local_config();
     let path = match find_claude_command().await {
         Ok(p) => p,
         Err(error) => {
@@ -141,6 +146,7 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
                 installed: false,
                 version: None,
                 path: None,
+                model: local_config.model,
                 error: Some(error),
             });
         }
@@ -150,6 +156,7 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
 
     let mut cmd = Command::new(&path);
     suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
     let output = tokio::time::timeout(Duration::from_secs(3), cmd.arg("--version").output()).await;
 
     match output {
@@ -159,6 +166,7 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
                 installed: true,
                 version: Some(version),
                 path: Some(path_str),
+                model: local_config.model,
                 error: None,
             })
         }
@@ -180,6 +188,7 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
                 installed: false,
                 version: None,
                 path: Some(path_str),
+                model: local_config.model,
                 error,
             })
         }
@@ -187,12 +196,14 @@ pub async fn claude_cli_detect() -> Result<DetectResult, String> {
             installed: false,
             version: None,
             path: Some(path_str),
+            model: local_config.model,
             error: Some(format!("Failed to spawn `claude`: {e}")),
         }),
         Err(_) => Ok(DetectResult {
             installed: false,
             version: None,
             path: Some(path_str),
+            model: local_config.model,
             error: Some("`claude --version` timed out after 3s".to_string()),
         }),
     }
@@ -254,6 +265,7 @@ pub async fn claude_cli_spawn(
     let claude = find_claude_command().await?;
     let mut cmd = Command::new(&claude);
     suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
     cmd.args(build_claude_cli_args(&model, isolate_local_config));
 
     cmd.stdin(Stdio::piped())
@@ -407,8 +419,15 @@ fn build_claude_cli_args(model: &str, isolate_local_config: bool) -> Vec<String>
         ]);
     }
 
-    args.extend(["--model".to_string(), model.to_string()]);
+    if !model.trim().is_empty() {
+        args.extend(["--model".to_string(), model.to_string()]);
+    }
     args
+}
+
+fn read_current_claude_local_config() -> LocalCliConfigInfo {
+    let home = resolve_home_dir();
+    read_claude_local_config(home.as_deref())
 }
 
 /// Kill a running child registered under `stream_id`. Called on
@@ -499,5 +518,11 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--prompt-suggestions" && pair[1] == "false"));
+    }
+
+    #[test]
+    fn claude_args_skip_model_flag_when_model_is_empty() {
+        let args = build_claude_cli_args("", false);
+        assert!(!args.contains(&"--model".to_string()));
     }
 }

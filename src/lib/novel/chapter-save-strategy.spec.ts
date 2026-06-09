@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "./chapter-save-strategy"
 
 describe("decideChapterSaveStrategy", () => {
-  it("directly saves into the selected chapter when the selected chapter body is empty", () => {
+  it("always saves to the next chapter when there is no explicit generated chapter target", () => {
     const result = decideChapterSaveStrategy({
       selectedChapterNumber: 1,
       selectedChapterHasBody: false,
@@ -11,12 +11,11 @@ describe("decideChapterSaveStrategy", () => {
     })
 
     expect(result).toEqual({
-      action: "direct_current_empty",
-      targetChapterNumber: 1,
+      action: "direct_next_chapter",
     })
   })
 
-  it("shows three actions when the selected chapter already has content", () => {
+  it("still saves to the next chapter even when the selected chapter already has content", () => {
     const result = decideChapterSaveStrategy({
       selectedChapterNumber: 1,
       selectedChapterHasBody: true,
@@ -25,13 +24,11 @@ describe("decideChapterSaveStrategy", () => {
     })
 
     expect(result).toEqual({
-      action: "dialog_selected_exists",
-      targetChapterNumber: 1,
-      options: ["append", "replace", "save_to_next"],
+      action: "direct_next_chapter",
     })
   })
 
-  it("directly creates the explicit target chapter when it does not yet exist", () => {
+  it("still creates the explicit target chapter when it does not yet exist", () => {
     const result = decideChapterSaveStrategy({
       selectedChapterNumber: 1,
       selectedChapterHasBody: true,
@@ -45,7 +42,7 @@ describe("decideChapterSaveStrategy", () => {
     })
   })
 
-  it("shows two actions when the explicit target chapter already exists", () => {
+  it("falls back to the next chapter when the explicit target chapter already exists", () => {
     const result = decideChapterSaveStrategy({
       selectedChapterNumber: 1,
       selectedChapterHasBody: true,
@@ -54,13 +51,11 @@ describe("decideChapterSaveStrategy", () => {
     })
 
     expect(result).toEqual({
-      action: "dialog_explicit_target_exists",
-      targetChapterNumber: 7,
-      options: ["append", "replace"],
+      action: "direct_next_chapter",
     })
   })
 
-  it("prefers the explicit generated target chapter over the currently selected chapter", () => {
+  it("still falls back to the next chapter when the explicit generated target chapter already exists", () => {
     const result = decideChapterSaveStrategy({
       selectedChapterNumber: 1,
       selectedChapterHasBody: false,
@@ -69,9 +64,7 @@ describe("decideChapterSaveStrategy", () => {
     })
 
     expect(result).toEqual({
-      action: "dialog_explicit_target_exists",
-      targetChapterNumber: 7,
-      options: ["append", "replace"],
+      action: "direct_next_chapter",
     })
   })
 })

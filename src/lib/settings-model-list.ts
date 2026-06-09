@@ -1,4 +1,5 @@
 import { getProviderConfig } from "@/lib/llm-providers"
+import { detectLocalCliConfig } from "@/lib/local-cli-config"
 import { isDirectRerankEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
@@ -161,11 +162,21 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
   return toModelListResult(parseModelListResponse(await response.json()))
 }
 
+async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult> {
+  const explicitModel = config.model.trim()
+  if (explicitModel) return { models: [explicitModel] }
+
+  const detect = await detectLocalCliConfig(config.provider)
+  const localModel = detect?.model?.trim() ?? ""
+  if (!localModel) {
+    throw new Error("当前本地 CLI 未配置默认模型，请先在本地 CLI 中设置模型，或在软件里手动填写模型。")
+  }
+  return { models: [localModel] }
+}
+
 export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelListResult> {
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
-    const model = config.model.trim()
-    if (!model) throw new Error("当前 CLI 模型配置为空，无法拉取模型列表。")
-    return { models: [model] }
+    return fetchLocalCliModel(config)
   }
 
   const { url, headers } = buildModelsUrl(config)

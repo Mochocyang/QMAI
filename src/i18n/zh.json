@@ -93,7 +93,8 @@
     "logoAlt": "青幕AI写作",
     "modelConnected": "模型连接正常",
     "modelChecking": "正在检测模型连接...",
-    "modelDisconnected": "模型连接失败，请检查设置"
+    "modelDisconnected": "模型连接失败，请检查设置",
+    "usageGuide": "使用说明"
   },
   "welcome": {
     "newProject": "新建小说",
@@ -422,6 +423,8 @@
         "wireAnthropic": "Anthropic 兼容",
         "apiKeyPlaceholderCustom": "输入 Key，留空表示使用本地或免密服务",
         "apiKeyPlaceholder": "输入 API Key",
+        "fetchModels": "拉取模型",
+        "loadingModels": "拉取中...",
         "savedBadge": "已保存",
         "configuredBadge": "已配置",
         "activeBadge": "当前使用",

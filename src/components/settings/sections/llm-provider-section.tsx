@@ -12,6 +12,9 @@ import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
+import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { testSettingsLlmModel } from "@/lib/settings-model-test"
+import { ModelSelectInput } from "../model-select-input"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -109,6 +112,10 @@ type ProviderTestState =
   | { kind: "running"; label: string }
   | { kind: "done"; result: ProviderTestResult }
 
+type ModelActionState =
+  | { loading: boolean; success: boolean; message: string }
+  | null
+
 function PresetRow({
   preset,
   override,
@@ -133,6 +140,9 @@ function PresetRow({
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
   const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli"
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [modelListState, setModelListState] = useState<ModelActionState>(null)
+  const [modelTestState, setModelTestState] = useState<ModelActionState>(null)
   const hasConfig = !!apiKey || !!ov.baseUrl || !!ov.model || !!ov.azureApiVersion || !!ov.azureModelFamily
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
@@ -147,6 +157,11 @@ function PresetRow({
     [apiKey, apiMode, azureApiVersion, azureModelFamily, baseUrl, context, model, preset, reasoning, ov],
   )
 
+  useEffect(() => {
+    setModelOptions([])
+    setModelListState(null)
+  }, [apiKey, apiMode, baseUrl, preset.id, preset.provider])
+
   async function runProviderTest(kind: "connection" | "function") {
     setTestState({
       kind: "running",
@@ -158,6 +173,57 @@ function PresetRow({
       ? await testLlmConnection(resolvedConfig)
       : await testLlmFunction(resolvedConfig)
     setTestState({ kind: "done", result })
+  }
+
+  async function loadModelOptions() {
+    setModelListState({
+      loading: true,
+      success: false,
+      message: t("settings.sections.shared.loadingModels"),
+    })
+
+    try {
+      const result = await fetchLlmModelList(resolvedConfig)
+      setModelOptions(result.models)
+      setModelListState({
+        loading: false,
+        success: true,
+        message: t("settings.sections.shared.modelListSuccess", { count: result.models.length }),
+      })
+    } catch (error) {
+      setModelListState({
+        loading: false,
+        success: false,
+        message: t("settings.sections.shared.modelListFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      })
+    }
+  }
+
+  async function runSelectedModelTest() {
+    setModelTestState({
+      loading: true,
+      success: false,
+      message: t("settings.sections.shared.testing"),
+    })
+
+    try {
+      const result = await testSettingsLlmModel(resolvedConfig)
+      setModelTestState({
+        loading: false,
+        success: true,
+        message: t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
+      })
+    } catch (error) {
+      setModelTestState({
+        loading: false,
+        success: false,
+        message: t("settings.sections.shared.testFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      })
+    }
   }
 
   return (
@@ -410,9 +476,47 @@ function PresetRow({
             <ModelPicker
               value={model}
               suggestions={preset.suggestedModels ?? []}
+              fetchedModels={modelOptions}
               placeholder={preset.defaultModel ?? "e.g. gpt-4o"}
+              selectPlaceholder={t("settings.sections.shared.modelSelectPlaceholder")}
+              inputPlaceholder={t("settings.sections.shared.modelManualPlaceholder")}
               onChange={(v) => onChange({ model: v })}
             />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void loadModelOptions()}
+                disabled={modelListState?.loading || modelTestState?.loading}
+                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {modelListState?.loading
+                  ? t("settings.sections.llm.loadingModels")
+                  : t("settings.sections.llm.fetchModels")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runSelectedModelTest()}
+                disabled={modelListState?.loading || modelTestState?.loading}
+                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {modelTestState?.loading
+                  ? t("settings.sections.shared.testing")
+                  : t("settings.sections.shared.testModel")}
+              </button>
+            </div>
+            {modelListState?.message ? (
+              <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
+                {modelListState.message}
+              </p>
+            ) : null}
+            {modelTestState?.message ? (
+              <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
+                {modelTestState.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -615,7 +719,10 @@ function EndpointField({ value, mode, placeholder, onChange }: EndpointFieldProp
 interface ModelPickerProps {
   value: string
   suggestions: string[]
+  fetchedModels: string[]
   placeholder: string
+  selectPlaceholder: string
+  inputPlaceholder: string
   onChange: (value: string) => void
 }
 
@@ -629,10 +736,22 @@ interface ModelPickerProps {
  * model is active without reading the text field. Presets with no
  * `suggestedModels` render the input alone.
  */
-function ModelPicker({ value, suggestions, placeholder, onChange }: ModelPickerProps) {
+function ModelPicker({
+  value,
+  suggestions,
+  fetchedModels,
+  placeholder,
+  selectPlaceholder,
+  inputPlaceholder,
+  onChange,
+}: ModelPickerProps) {
   const { t } = useTranslation()
   const hasSuggestions = suggestions.length > 0
   const isCustom = hasSuggestions && value.length > 0 && !suggestions.includes(value)
+  const mergedOptions = useMemo(
+    () => Array.from(new Set([...fetchedModels, value].map((item) => item.trim()).filter(Boolean))),
+    [fetchedModels, value],
+  )
 
   return (
     <div className="space-y-2">
@@ -672,10 +791,12 @@ function ModelPicker({ value, suggestions, placeholder, onChange }: ModelPickerP
           </button>
         </div>
       )}
-      <Input
+      <ModelSelectInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        options={mergedOptions}
+        onChange={onChange}
+        selectPlaceholder={selectPlaceholder}
+        inputPlaceholder={inputPlaceholder || placeholder}
       />
     </div>
   )

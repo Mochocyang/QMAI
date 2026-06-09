@@ -1,23 +1,10 @@
-export type ChapterSaveDialogOption = "append" | "replace" | "save_to_next"
-
 export type ChapterSaveStrategy =
   | {
-    action: "direct_current_empty"
-    targetChapterNumber: number
-  }
-  | {
-    action: "dialog_selected_exists"
-    targetChapterNumber: number
-    options: ChapterSaveDialogOption[]
+    action: "direct_next_chapter"
   }
   | {
     action: "direct_explicit_target_new"
     targetChapterNumber: number
-  }
-  | {
-    action: "dialog_explicit_target_exists"
-    targetChapterNumber: number
-    options: Array<Exclude<ChapterSaveDialogOption, "save_to_next">>
   }
 
 export function decideChapterSaveStrategy(input: {
@@ -31,26 +18,17 @@ export function decideChapterSaveStrategy(input: {
     input.generatedTargetChapterNumber > 0 &&
     input.generatedTargetChapterNumber !== input.selectedChapterNumber
   ) {
-    if (input.generatedTargetExists) {
+    if (!input.generatedTargetExists) {
       return {
-        action: "dialog_explicit_target_exists",
+        action: "direct_explicit_target_new",
         targetChapterNumber: input.generatedTargetChapterNumber,
-        options: ["append", "replace"],
       }
-    }
-    return {
-      action: "direct_explicit_target_new",
-      targetChapterNumber: input.generatedTargetChapterNumber,
     }
   }
 
   return {
-    action: input.selectedChapterHasBody ? "dialog_selected_exists" : "direct_current_empty",
-    targetChapterNumber: input.selectedChapterNumber ?? 1,
-    ...(input.selectedChapterHasBody
-      ? { options: ["append", "replace", "save_to_next"] as ChapterSaveDialogOption[] }
-      : {}),
-  } as ChapterSaveStrategy
+    action: "direct_next_chapter",
+  }
 }
 
 export function detectGeneratedTargetChapterNumber(content: string): number | null {

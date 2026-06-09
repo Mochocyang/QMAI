@@ -19,6 +19,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use super::cli_resolver::{child_path_env, find_cli_command};
+use super::local_cli_config::{
+    apply_local_cli_environment, read_codex_local_config, resolve_home_dir, LocalCliConfigInfo,
+};
 
 #[derive(Default)]
 pub struct CodexCliState {
@@ -30,6 +33,7 @@ pub struct DetectResult {
     installed: bool,
     version: Option<String>,
     path: Option<String>,
+    model: Option<String>,
     error: Option<String>,
 }
 
@@ -83,6 +87,7 @@ fn isolate_llm_api_key_env(cmd: &mut Command) {
 
 #[tauri::command]
 pub async fn codex_cli_detect() -> Result<DetectResult, String> {
+    let local_config = read_current_codex_local_config();
     let path = match find_codex_command().await {
         Ok(p) => p,
         Err(error) => {
@@ -90,6 +95,7 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
                 installed: false,
                 version: None,
                 path: None,
+                model: local_config.model,
                 error: Some(error),
             });
         }
@@ -98,6 +104,7 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
     let path_str = path.to_string_lossy().to_string();
     let mut cmd = Command::new(&path);
     suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
     if let Some(path_env) = child_path_env().await {
         cmd.env("PATH", path_env);
     }
@@ -110,6 +117,7 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
                 installed: true,
                 version: Some(stdout),
                 path: Some(path_str),
+                model: local_config.model,
                 error: None,
             })
         }
@@ -119,6 +127,7 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
                 installed: false,
                 version: None,
                 path: Some(path_str),
+                model: local_config.model,
                 error: Some(if stderr.is_empty() {
                     format!("`codex --version` exited with {}", out.status)
                 } else {
@@ -130,12 +139,14 @@ pub async fn codex_cli_detect() -> Result<DetectResult, String> {
             installed: false,
             version: None,
             path: Some(path_str),
+            model: local_config.model,
             error: Some(format!("Failed to spawn `codex`: {e}")),
         }),
         Err(_) => Ok(DetectResult {
             installed: false,
             version: None,
             path: Some(path_str),
+            model: local_config.model,
             error: Some("`codex --version` timed out after 3s".to_string()),
         }),
     }
@@ -158,6 +169,7 @@ pub async fn codex_cli_spawn(
     let codex = find_codex_command().await?;
     let mut cmd = Command::new(&codex);
     suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
     if let Some(path_env) = child_path_env().await {
         cmd.env("PATH", path_env);
     }
@@ -315,11 +327,17 @@ fn build_codex_cli_args(model: &str, isolate_local_config: bool) -> Vec<String> 
         "--sandbox".to_string(),
         "read-only".to_string(),
         "--ephemeral".to_string(),
-        "--model".to_string(),
-        model.to_string(),
-        "-".to_string(),
     ]);
+    if !model.trim().is_empty() {
+        args.extend(["--model".to_string(), model.to_string()]);
+    }
+    args.push("-".to_string());
     args
+}
+
+fn read_current_codex_local_config() -> LocalCliConfigInfo {
+    let home = resolve_home_dir();
+    read_codex_local_config(home.as_deref())
 }
 
 #[tauri::command]
@@ -413,5 +431,12 @@ mod tests {
 
         assert!(!args.contains(&"--ignore-user-config".to_string()));
         assert!(!args.contains(&"--ignore-rules".to_string()));
+    }
+
+    #[test]
+    fn codex_args_skip_model_flag_when_model_is_empty() {
+        let args = build_codex_cli_args("", false);
+        assert!(!args.contains(&"--model".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("-"));
     }
 }

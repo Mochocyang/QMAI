@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { invoke } from "@tauri-apps/api/core"
 
 const fetchMock = vi.fn()
 
 vi.mock("@/lib/tauri-fetch", () => ({
   getHttpFetch: async () => fetchMock,
+}))
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
 }))
 
 function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
@@ -23,6 +28,7 @@ function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
 
 afterEach(() => {
   fetchMock.mockReset()
+  vi.mocked(invoke).mockReset()
 })
 
 describe("settings model list", () => {
@@ -84,5 +90,45 @@ describe("settings model list", () => {
     await expect(fetchLlmModelList(customConfig())).rejects.toThrow(
       "模型列表拉取失败：HTTP 403 forbidden",
     )
+  })
+
+  it("reads the configured local Claude CLI model from Tauri detection", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      installed: true,
+      version: "2.1.169 (Claude Code)",
+      path: "C:/Users/Administrator/AppData/Roaming/npm/claude.cmd",
+      model: "haiku",
+      error: null,
+    })
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    const result = await fetchLlmModelList(customConfig({
+      provider: "claude-code",
+      apiKey: "",
+      model: "",
+    }))
+
+    expect(invoke).toHaveBeenCalledWith("claude_cli_detect")
+    expect(result.models).toEqual(["haiku"])
+  })
+
+  it("reads the configured local Codex CLI model from Tauri detection", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      installed: true,
+      version: "codex-cli 0.137.0",
+      path: "C:/Users/Administrator/AppData/Roaming/npm/codex.cmd",
+      model: "gpt-5.4",
+      error: null,
+    })
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    const result = await fetchLlmModelList(customConfig({
+      provider: "codex-cli",
+      apiKey: "",
+      model: "",
+    }))
+
+    expect(invoke).toHaveBeenCalledWith("codex_cli_detect")
+    expect(result.models).toEqual(["gpt-5.4"])
   })
 })

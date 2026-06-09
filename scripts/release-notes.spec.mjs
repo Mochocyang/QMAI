@@ -11,9 +11,10 @@ describe("release notes for updater manifest", () => {
 
     expect(notes).not.toBe("QMAI 2.2.1 鍙戝竷鐗堟湰")
     expect(notes).toContain("1. ")
-    expect(notes).toContain("修复 AI 大纲深度思考生成报错")
-    expect(notes).toContain("undefined 的 length / trim")
-    expect(notes.split("\n")).toHaveLength(1)
+    expect(notes).toContain("修复 AI 会话“保存到章节库”后")
+    expect(notes).toContain("2200-3200")
+    expect(notes).toContain("本地 Claude Code CLI / Codex CLI")
+    expect(notes.split("\n")).toHaveLength(9)
     expect(notes).not.toContain("鍚屾宸茬‘璁ゅ彲浠ユ帴鍙楃殑 PR 淇")
     expect(notes).not.toContain(".codex-temp")
     expect(notes).not.toContain("鑱旂郴鏂瑰紡")

@@ -207,7 +207,8 @@
     "logoAlt": "Qingmu AI Writing",
     "modelConnected": "Model connected",
     "modelChecking": "Checking model connection...",
-    "modelDisconnected": "Model connection failed, check settings"
+    "modelDisconnected": "Model connection failed, check settings",
+    "usageGuide": "Usage Guide"
   },
   "welcome": {
     "newProject": "New Novel",
@@ -716,6 +717,8 @@
         "wireAnthropic": "Anthropic Compatible",
         "apiKeyPlaceholderCustom": "Leave blank if no key is required (local model)",
         "apiKeyPlaceholder": "Enter API Key",
+        "fetchModels": "Fetch Models",
+        "loadingModels": "Fetching...",
         "savedBadge": "Saved",
         "configuredBadge": "Configured",
         "activeBadge": "● Active",

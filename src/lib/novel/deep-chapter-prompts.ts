@@ -1,19 +1,14 @@
 import type { NovelReviewResult } from "./review-adapter"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
+import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
 
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
-export const DEEP_CHAPTER_LENGTH_RANGE = "2200-3200 字"
-export const DEEP_CHAPTER_OPTIMIZED_MIN_CHARS = 2200
-export const DEEP_CHAPTER_OPTIMIZED_MAX_CHARS = 3200
 export const DEEP_CHAPTER_DRAFT_MAX_CHARS = 3500
-export const DEEP_CHAPTER_REWRITE_MAX_CHARS = 6000
-export const DEEP_CHAPTER_HARD_MAX_CHARS = 6000
-export const DEEP_CHAPTER_LENGTH_OPTIMIZATION_MAX_ATTEMPTS = 4
 export const DEEP_CHAPTER_MAX_OUTPUT_TOKENS = 8000
 
 function chapterLengthBoundary(): string {
-  return `最终正文必须控制在 ${DEEP_CHAPTER_LENGTH_RANGE}；低于 ${DEEP_CHAPTER_OPTIMIZED_MIN_CHARS} 字视为未完成；超过 ${DEEP_CHAPTER_OPTIMIZED_MAX_CHARS} 字会进入阶段4优化；全文最长上限 ${DEEP_CHAPTER_HARD_MAX_CHARS} 字。`
+  return `目标约 ${DEEP_CHAPTER_TARGET_CHARS} 字；低于 ${DEEP_CHAPTER_MIN_CHARS} 字视为正文初稿未完成。`
 }
 
 export function buildDeepChapterBriefPrompt(
@@ -92,7 +87,7 @@ export function buildDeepChapterRevisionPrompt(
     "2. 不要输出解释、审稿说明、修改清单或后续建议。",
     "3. 优先修复审稿指出的问题，不要无关改写。",
     "4. 必须继续遵守写作任务书和上下文。",
-    `5. 返修后仍必须保持完整章节长度：${chapterLengthBoundary()}`,
+    "5. 不再强制调整到固定字数区间；只修复审稿指出的阻断问题，并保留当前章节的有效剧情容量。",
     "6. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
@@ -165,8 +160,10 @@ export function buildDeepChapterFinalPolishPrompt(
     "2. 去掉 AI 味：减少总结腔、模板句、过度解释、相同句式堆叠和空泛形容。",
     "3. 保留原有剧情事实、人物关系、时间线、伏笔和章节结尾钩子，不要另起新剧情。",
     "4. 只做必要的自然化、顺滑化和轻量修补，不要大幅重写。",
-    `5. 最终正文必须控制在 ${DEEP_CHAPTER_LENGTH_RANGE}；如果超过 ${DEEP_CHAPTER_REWRITE_MAX_CHARS} 字会再次进入优化；禁止为了凑字数复读。`,
+    "5. 不再强制压缩到固定字数区间；只做必要的自然化、顺滑化和轻量修补，禁止为了凑字数复读。",
     "6. 只输出最终可保存的小说正文，不要输出审查报告、解释、标题或修改说明。",
+    "",
+    CHINESE_NOVEL_DE_AI_RULES,
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
@@ -192,13 +189,13 @@ export function buildDeepChapterLengthRewritePrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
 ): string {
   return [
-    "你是小说正文阶段4字数审核与内容优化助手。",
-    "请基于阶段3正文草稿做内容优化，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减或压缩环境描写、氛围描写、重复心理、解释性铺垫和旁枝剧情。",
+    "你是小说正文轻量整理助手。",
+    "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
     "",
     "硬性要求：",
     "1. 只输出优化后的完整小说正文，不要输出解释、分析、标题或修改说明。",
-    `2. 字数必须严格控制在 ${DEEP_CHAPTER_LENGTH_RANGE}。`,
-    `3. 如果当前正文超过 ${DEEP_CHAPTER_REWRITE_MAX_CHARS} 字，必须优先压缩非必要描写，不得继续扩写。`,
+    "2. 不强制压缩到固定字数区间；保留当前章节的有效剧情容量。",
+    "3. 如果当前正文明显重复或循环，优先删掉重复内容，不得继续扩写。",
     "4. 不得改变剧情因果、人物目标、已完成事件、关键对话含义和下一章钩子。",
     "5. 可以优化环境、氛围、心理和过渡，但每一段都必须推动剧情、冲突、人物关系或期待。",
     "6. 写到完整结尾后立即停止。",

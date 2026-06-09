@@ -2,16 +2,18 @@
 import { allChangelog, currentVersionChangelog } from "./changelog"
 
 describe("changelog", () => {
-  it("shows the 2.2.9 release before earlier visible releases", () => {
+  it("shows the 2.2.11 release before earlier visible releases", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions[0]).toBe("2.2.9")
-    expect(versions[1]).toBe("2.2.8")
-    expect(versions[2]).toBe("2.2.7")
-    expect(versions[3]).toBe("2.2.0")
-    expect(versions[4]).toBe("2.1.0")
-    expect(versions[5]).toBe("2.0.0")
+    expect(versions[0]).toBe("2.2.11")
+    expect(versions[1]).toBe("2.2.10")
+    expect(versions[2]).toBe("2.2.9")
+    expect(versions[3]).toBe("2.2.8")
+    expect(versions[4]).toBe("2.2.7")
+    expect(versions[5]).toBe("2.2.0")
+    expect(versions[6]).toBe("2.1.0")
+    expect(versions[7]).toBe("2.0.0")
 
     for (let patch = 1; patch <= 6; patch += 1) {
       expect(versions).not.toContain(`2.2.${patch}`)
@@ -83,5 +85,19 @@ describe("changelog", () => {
     expect(en).toContain("undefined length/trim errors")
     expect(zh).toContain("length / trim")
     expect(zh).toContain("大纲上下文或对话字段缺失")
+  })
+
+  it("returns the 2.2.11 changelog entry for toolbar, de-ai, and local cli fixes", () => {
+    const release = currentVersionChangelog("2.2.11")[0]
+    const zh = release.highlights.zh.join("\n")
+    const en = release.highlights.en.join("\n")
+
+    expect(release.version).toBe("2.2.11")
+    expect(en).toContain("full right-side chapter toolbar")
+    expect(en).toContain("2,200-3,200")
+    expect(en).toContain("Claude Code CLI")
+    expect(zh).toContain("保存到章节库")
+    expect(zh).toContain("2200-3200")
+    expect(zh).toContain("本地 Claude Code CLI / Codex CLI")
   })
 })

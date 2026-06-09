@@ -12,11 +12,10 @@ import {
 import {
   buildDeepChapterBriefPrompt,
   buildDeepChapterDraftPrompt,
+  buildDeepChapterFinalPolishPrompt,
   buildDeepChapterRevisionPrompt,
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
-  DEEP_CHAPTER_HARD_MAX_CHARS,
   DEEP_CHAPTER_MIN_CHARS,
-  DEEP_CHAPTER_REWRITE_MAX_CHARS,
 } from "./deep-chapter-prompts"
 
 const llmConfig = {
@@ -99,7 +98,7 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
 }
 
 describe("runDeepChapterGeneration", () => {
-  it("puts a hard 3000-character chapter length target into planning, draft, and revision prompts", () => {
+  it("keeps the word-count target in planning and draft prompts without forcing later review stages", () => {
     const reviewResults: NovelReviewResult[] = [{
       severity: "error",
       type: "plot",
@@ -109,18 +108,27 @@ describe("runDeepChapterGeneration", () => {
       suggestion: "",
     }]
 
-    const prompts = [
-      buildDeepChapterBriefPrompt("上下文包内容", "生成第3章", 3),
-      buildDeepChapterDraftPrompt("上下文包内容", "写作任务书内容", "生成第3章", 3),
-      buildDeepChapterRevisionPrompt("上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成第3章", 3),
-    ]
+    const planningPrompt = buildDeepChapterBriefPrompt("上下文包内容", "生成第3章", 3)
+    const draftPrompt = buildDeepChapterDraftPrompt("上下文包内容", "写作任务书内容", "生成第3章", 3)
+    const revisionPrompt = buildDeepChapterRevisionPrompt("上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成第3章", 3)
+    const finalPolishPrompt = buildDeepChapterFinalPolishPrompt("上下文包内容", "写作任务书内容", "返修正文内容", "生成第3章", 3)
 
-    for (const prompt of prompts) {
+    for (const prompt of [planningPrompt, draftPrompt]) {
       expect(prompt).toContain(`低于 ${DEEP_CHAPTER_MIN_CHARS} 字`)
-      expect(prompt).toContain("2200-3200 字")
-      expect(prompt).toContain("6000 字")
+      expect(prompt).toContain("目标约 3000 字")
+      expect(prompt).not.toContain("2200-3200 字")
+      expect(prompt).not.toContain("阶段4优化")
     }
-    expect(prompts[1]).toContain(`阶段3正文草稿最多 ${DEEP_CHAPTER_DRAFT_MAX_CHARS} 字`)
+    expect(draftPrompt).toContain(`阶段3正文草稿最多 ${DEEP_CHAPTER_DRAFT_MAX_CHARS} 字`)
+    for (const prompt of [revisionPrompt, finalPolishPrompt]) {
+      expect(prompt).not.toContain(`低于 ${DEEP_CHAPTER_MIN_CHARS} 字`)
+      expect(prompt).not.toContain("目标约 3000 字")
+      expect(prompt).not.toContain("全文安全上限")
+      expect(prompt).not.toContain("2200-3200 字")
+    }
+    expect(finalPolishPrompt).toContain("中文小说去 AI 味补充规则")
+    expect(finalPolishPrompt).toContain("角色声线")
+    expect(finalPolishPrompt).toContain("不要按非虚构写作规则硬删副词")
   })
 
   it("only enables deep generation for write-chapter routes when the switch is on", () => {
@@ -272,17 +280,13 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
   })
 
-  it("checks the final polish length and returns to expansion before completing", async () => {
+  it("does not force expansion after final polish even when the result is short", async () => {
     const draft = chapterText("初稿正文内容", 3000)
     const shortFinal = chapterText("最终润色后过短", 1800)
-    const expandedAfterFinalCheck = chapterText("阶段6字数不足后扩写正文", 3000)
-    const finalPolished = chapterText("再次简单审查后的最终正文", 3000)
     const responses = [
       "写作任务书内容",
       draft,
       shortFinal,
-      expandedAfterFinalCheck,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -302,11 +306,12 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(finalPolished)
-    expect(deps.streamChat).toHaveBeenCalledTimes(5)
+    expect(result.finalContent).toBe(shortFinal)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
     expect(thinking.join("\n")).toContain("阶段5：无需自动返修")
-    expect(thinking.join("\n")).toContain("阶段6：字数检查未达标")
-    expect(thinking.join("\n")).toContain("阶段3：正文扩写补足")
+    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).not.toContain("阶段6：字数检查未达标")
+    expect(thinking.join("\n")).not.toContain("阶段3：正文扩写补足")
   })
 
   it("trims runaway repeated chapter output before review and final polish", async () => {
@@ -343,14 +348,12 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("检测到模型重复输出")
   })
 
-  it("uses a plain chapter length limit message when the hard max is reached", async () => {
-    const longDraft = Array.from({ length: 6500 }, (_, index) => `句${index}`).join("")
-    const controlledDraft = chapterText("控字重写正文", 3200)
+  it("does not stop the AI chat stream at the old chapter hard max", async () => {
+    const longDraft = chapterText("超过旧硬上限但不是重复输出的正文", 6500)
     const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       longDraft,
-      controlledDraft,
       finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -364,24 +367,24 @@ describe("runDeepChapterGeneration", () => {
     }
     const thinking: string[] = []
 
-    await runDeepChapterGeneration(
+    const result = await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
       { onThinking: (content) => thinking.push(content) },
       deps,
     )
 
-    expect(thinking.join("\n")).toContain("已达到本章字数上限。本次章节最多生成 6000 字，达到上限后会自动暂停输出。建议按章节逐章生成，避免一次生成过多内容导致中断。")
+    expect(result.draftContent).toBe(longDraft)
+    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", longDraft, 3)
+    expect(thinking.join("\n")).not.toContain("已达到本章字数上限")
     expect(thinking.join("\n")).not.toContain("内容已达到安全上限")
   })
 
-  it("returns to stage 3 for a controlled rewrite before review when the draft is too long", async () => {
-    const overlongDraft = chapterText("过长初稿正文", DEEP_CHAPTER_REWRITE_MAX_CHARS + 80)
-    const controlledDraft = chapterText("控字重写正文", 3200)
+  it("sends long drafts directly to review without a stage 4 length rewrite", async () => {
+    const overlongDraft = chapterText("过长初稿正文", 5200)
     const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       overlongDraft,
-      controlledDraft,
       finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -401,21 +404,18 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", controlledDraft, 3)
-    expect(deps.reviewChapter).not.toHaveBeenCalledWith("E:/Novel", overlongDraft, 3)
-    expect(thinking.join("\n")).toContain("阶段4：字数审核与正文优化")
-    expect(thinking.join("\n")).toContain("2200-3200")
-    expect(thinking.join("\n")).toContain("第 1 次优化完成")
+    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", overlongDraft, 3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).not.toContain("2200-3200")
+    expect(thinking.join("\n")).not.toContain("字数优化")
   })
 
-  it("optimizes the stage 3 draft in stage 4 before review and sends the optimized draft forward", async () => {
+  it("does not optimize the stage 3 draft in stage 4 before review", async () => {
     const draft = chapterText("阶段3较长初稿", 5500)
-    const optimizedDraft = chapterText("阶段4优化后正文", 3000)
     const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       draft,
-      optimizedDraft,
       finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -435,23 +435,17 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", optimizedDraft, 3)
-    expect(deps.reviewChapter).not.toHaveBeenCalledWith("E:/Novel", draft, 3)
-    expect(thinking.join("\n")).toContain("阶段4：字数审核与正文优化")
-    expect(thinking.join("\n")).toContain("2200-3200")
+    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", draft, 3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).not.toContain("2200-3200")
   })
 
-  it("continues after four failed stage 4 length optimizations when output stays within 6000 chars", async () => {
+  it("does not retry stage 4 length optimization when the draft stays long", async () => {
     const draft = chapterText("阶段3超长初稿", 5500)
-    const acceptedLongDraft = chapterText("第4次优化仍超长", 4050)
     const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       draft,
-      chapterText("第1次优化仍超长", 4500),
-      chapterText("第2次优化仍超长", 4300),
-      chapterText("第3次优化仍超长", 4100),
-      acceptedLongDraft,
       finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -472,22 +466,19 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(result.finalContent).toBe(finalPolished)
-    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", acceptedLongDraft, 3)
-    expect(deps.streamChat).toHaveBeenCalledTimes(7)
-    expect(thinking.join("\n")).toContain(`未能压缩到 2200-3200 字，但仍未超过 ${DEEP_CHAPTER_HARD_MAX_CHARS} 字上限`)
+    expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", draft, 3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).not.toContain("2200-3200")
+    expect(thinking.join("\n")).not.toContain("连续尝试")
   })
 
-  it("checks final polish length and returns to stage 3 when the stage 6 result is too long", async () => {
+  it("does not force a length rewrite after final polish", async () => {
     const draft = chapterText("初稿正文内容", 3000)
-    const overlongFinal = chapterText("简单审查后过长正文", DEEP_CHAPTER_REWRITE_MAX_CHARS + 60)
-    const controlledFinal = chapterText("阶段6控字重写正文", 3100)
-    const repolishedFinal = chapterText("再次简单审查后的最终正文", 3000)
+    const overlongFinal = chapterText("简单审查后过长正文", 5200)
     const responses = [
       "写作任务书内容",
       draft,
       overlongFinal,
-      controlledFinal,
-      repolishedFinal,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -506,11 +497,11 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(repolishedFinal)
-    expect(deps.streamChat).toHaveBeenCalledTimes(5)
-    expect(thinking.join("\n")).toContain("阶段6：字数检查与正文优化")
-    expect(thinking.join("\n")).toContain("2200-3200")
-    expect(thinking.join("\n")).toContain("第 1 次优化完成")
+    expect(result.finalContent).toBe(overlongFinal)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).not.toContain("2200-3200")
+    expect(thinking.join("\n")).not.toContain("字数检查与正文优化")
   })
 
   it("resumes from a saved review checkpoint instead of regenerating earlier stages", async () => {
@@ -559,10 +550,8 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("阶段7：完成")
   })
 
-  it("does not fail when the stream reports request cancelled after the chapter length limit stops output", async () => {
-    const longDraft = Array.from({ length: 4700 }, (_, index) => `句${index}`).join("")
-    const controlledDraft = chapterText("控字重写正文", 3200)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
+  it("still treats provider-side cancellation as an error when there is no local length cutoff", async () => {
+    const longDraft = chapterText("供应商取消前已返回的长正文", 4700)
     let callIndex = 0
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -575,7 +564,7 @@ describe("runDeepChapterGeneration", () => {
           callbacks.onError(new Error("Request cancelled"))
           return
         }
-        callbacks.onToken(callIndex === 1 ? "写作任务书内容" : callIndex === 3 ? controlledDraft : finalPolished)
+        callbacks.onToken("写作任务书内容")
         callbacks.onDone()
       }),
     }
@@ -584,7 +573,7 @@ describe("runDeepChapterGeneration", () => {
       { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
       {},
       deps,
-    )).resolves.toMatchObject({ finalContent: expect.stringContaining("最终去AI味正文") })
+    )).rejects.toThrow("Request cancelled")
   })
 
   it("stops before review when the user cancels during draft streaming", async () => {

@@ -202,24 +202,6 @@ export function ChatPanel() {
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
   const [deepChapterEnabled, setDeepChapterEnabled] = useState(true)
   const [aiChatModelOptions, setAiChatModelOptions] = useState<string[]>([])
-  const [pendingChapterSaveDialog, setPendingChapterSaveDialog] = useState<{
-    open: boolean
-    title: string
-    content: string
-    targetChapterNumber: number
-    targetPath: string
-    targetContent: string
-    options: Array<"append" | "replace" | "save_to_next">
-  }>({
-    open: false,
-    title: "",
-    content: "",
-    targetChapterNumber: 0,
-    targetPath: "",
-    targetContent: "",
-    options: [],
-  })
-
   const closeSoulDialog = useCallback((confirmed: boolean) => {
     const resolver = soulDialogResolverRef.current
     soulDialogResolverRef.current = null
@@ -256,14 +238,11 @@ export function ChatPanel() {
     try {
       const cleanedContent = cleanGeneratedChapterContentForSave(getCopyableAssistantContent(content))
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
-      const selectedChapterPath = selectedChapterNumber ? await findChapterFileByNumber(pp, selectedChapterNumber) : null
-      const selectedChapterContent = selectedChapterPath ? await readFile(selectedChapterPath).catch(() => "") : ""
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
-      const explicitTargetContent = explicitTargetPath ? await readFile(explicitTargetPath).catch(() => "") : ""
       const strategy = decideChapterSaveStrategy({
         selectedChapterNumber: selectedChapterNumber ?? null,
-        selectedChapterHasBody: Boolean(selectedChapterContent.trim()),
+        selectedChapterHasBody: false,
         generatedTargetChapterNumber,
         generatedTargetExists: Boolean(explicitTargetPath),
       })
@@ -284,36 +263,13 @@ export function ChatPanel() {
         return `${frontmatter}# ${chapterTitle}\n\n${cleanedContent}\n`
       }
 
-      if (strategy.action === "direct_current_empty" && selectedChapterPath) {
-        await writeFile(selectedChapterPath, buildDraftContent(strategy.targetChapterNumber))
-        setChapterSaveStatus(`已保存到第${strategy.targetChapterNumber}章`)
-      } else if (strategy.action === "direct_explicit_target_new") {
+      if (strategy.action === "direct_explicit_target_new") {
         const chapterDir = `${pp}/wiki/chapters`
         await createDirectory(chapterDir)
         const chapterPath = `${chapterDir}/chapter-${String(strategy.targetChapterNumber).padStart(3, "0")}.md`
         await writeFile(chapterPath, buildDraftContent(strategy.targetChapterNumber))
         setChapterSaveStatus(`已创建并保存到第${strategy.targetChapterNumber}章`)
         useWikiStore.getState().setSelectedFile(chapterPath)
-      } else if (strategy.action === "dialog_selected_exists" && selectedChapterPath) {
-        setPendingChapterSaveDialog({
-          open: true,
-          title: "当前AI生成的内容你要如何操作？",
-          content: cleanedContent,
-          targetChapterNumber: strategy.targetChapterNumber,
-          targetPath: selectedChapterPath,
-          targetContent: selectedChapterContent,
-          options: strategy.options,
-        })
-      } else if (strategy.action === "dialog_explicit_target_exists" && explicitTargetPath) {
-        setPendingChapterSaveDialog({
-          open: true,
-          title: `当前判断有第${strategy.targetChapterNumber}章，请选择您的操作`,
-          content: cleanedContent,
-          targetChapterNumber: strategy.targetChapterNumber,
-          targetPath: explicitTargetPath,
-          targetContent: explicitTargetContent,
-          options: strategy.options,
-        })
       } else {
         const nextNum = await getNextChapterNumber(pp)
         const chapterDir = `${pp}/wiki/chapters`
@@ -335,62 +291,6 @@ export function ChatPanel() {
       setIsSavingChapter(false)
     }
   }, [project, selectedFile, t])
-
-  const applyPendingChapterSave = useCallback(async (action: "append" | "replace" | "save_to_next") => {
-    if (!project || !pendingChapterSaveDialog.open) return
-    const pp = normalizePath(project.path)
-    setIsSavingChapter(true)
-    try {
-      if (action === "save_to_next") {
-        const nextNum = await getNextChapterNumber(pp)
-        const chapterDir = `${pp}/wiki/chapters`
-        await createDirectory(chapterDir)
-        const chapterPath = `${chapterDir}/chapter-${String(nextNum).padStart(3, "0")}.md`
-        const now = new Date().toISOString().slice(0, 10)
-        const chapterTitle = `第${nextNum}章`
-        const frontmatter = [
-          "---",
-          "type: chapter",
-          `chapter_number: ${nextNum}`,
-          "chapter_status: draft",
-          `title: "${chapterTitle}"`,
-          `created: ${now}`,
-          "---",
-          "",
-        ].join("\n")
-        await writeFile(chapterPath, `${frontmatter}# ${chapterTitle}\n\n${pendingChapterSaveDialog.content}\n`)
-        setChapterSaveStatus(`已保存到第${nextNum}章`)
-        useWikiStore.getState().setSelectedFile(chapterPath)
-      } else {
-        const original = pendingChapterSaveDialog.targetContent
-        await backupChapterFile({
-          projectPath: pp,
-          chapterPath: pendingChapterSaveDialog.targetPath,
-          chapterNumber: pendingChapterSaveDialog.targetChapterNumber,
-          content: original || "",
-        })
-        const nextBody = action === "append"
-          ? `${original.trimEnd()}\n\n${pendingChapterSaveDialog.content}`.trim()
-          : pendingChapterSaveDialog.content
-        await writeFile(pendingChapterSaveDialog.targetPath, nextBody + "\n")
-        setChapterSaveStatus(
-          action === "append"
-            ? `已追加到第${pendingChapterSaveDialog.targetChapterNumber}章`
-            : `已覆盖第${pendingChapterSaveDialog.targetChapterNumber}章`,
-        )
-        useWikiStore.getState().setSelectedFile(pendingChapterSaveDialog.targetPath)
-      }
-      const tree = await listDirectory(pp)
-      useWikiStore.getState().setFileTree(tree)
-      useWikiStore.getState().bumpDataVersion()
-      setPendingChapterSaveDialog((current) => ({ ...current, open: false }))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setChapterSaveStatus(`保存失败：${message}`)
-    } finally {
-      setIsSavingChapter(false)
-    }
-  }, [project, pendingChapterSaveDialog])
 
   // Auto-scroll to bottom when messages change or streaming content updates
   // But stop if user manually scrolled up
@@ -1516,40 +1416,6 @@ export function ChatPanel() {
             <DialogFooter>
               <Button variant="outline" onClick={() => closeSoulDialog(false)}>取消本次生成</Button>
               <Button onClick={() => closeSoulDialog(true)}>继续生成</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={pendingChapterSaveDialog.open}
-          onOpenChange={(open) => {
-            if (!open) {
-              setPendingChapterSaveDialog((current) => ({ ...current, open: false }))
-            }
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{pendingChapterSaveDialog.title}</DialogTitle>
-              <DialogDescription>
-                请选择本次生成内容的保存方式。
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              {pendingChapterSaveDialog.options.includes("append") ? (
-                <Button variant="outline" onClick={() => void applyPendingChapterSave("append")}>
-                  保存到章节后面
-                </Button>
-              ) : null}
-              {pendingChapterSaveDialog.options.includes("replace") ? (
-                <Button variant="outline" onClick={() => void applyPendingChapterSave("replace")}>
-                  覆盖全部内容
-                </Button>
-              ) : null}
-              {pendingChapterSaveDialog.options.includes("save_to_next") ? (
-                <Button onClick={() => void applyPendingChapterSave("save_to_next")}>
-                  保存在下一章
-                </Button>
-              ) : null}
             </DialogFooter>
           </DialogContent>
         </Dialog>

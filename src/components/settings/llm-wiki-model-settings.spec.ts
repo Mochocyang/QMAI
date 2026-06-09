@@ -89,19 +89,21 @@ describe("LLM Wiki model settings copied into QMAI", () => {
   it("keeps local CLI provider options available in the resolved config", () => {
     const claude = resolveConfig(
       preset("claude-code-cli"),
-      { model: "claude-sonnet-4-6", localCliIsolation: true },
+      { localCliIsolation: true },
       fallback,
     )
     expect(claude.provider).toBe("claude-code")
     expect(claude.localCliIsolation).toBe(true)
+    expect(claude.model).toBe("")
 
     const codex = resolveConfig(
       preset("codex-cli"),
-      { model: "gpt-5.4-mini", localCliIsolation: true, codexCliTimeoutMinutes: 45 },
+      { localCliIsolation: true, codexCliTimeoutMinutes: 45 },
       fallback,
     )
     expect(codex.provider).toBe("codex-cli")
     expect(codex.localCliIsolation).toBe(true)
+    expect(codex.model).toBe("")
     expect(codex.codexCliTimeoutMinutes).toBe(45)
   })
 

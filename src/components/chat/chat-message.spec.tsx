@@ -47,6 +47,24 @@ describe("deep chapter thinking toggle style", () => {
   })
 })
 
+describe("chapter save preview sync regression", () => {
+  it("always routes AI chapter saves to the next chapter instead of reusing the current chapter", () => {
+    const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+
+    expect(source).toContain('if (strategy.action === "direct_explicit_target_new")')
+    expect(source).toContain("const nextNum = await getNextChapterNumber(pp)")
+    expect(source).toContain("setChapterSaveStatus(`已保存为第${nextNum}章草稿`)")
+  })
+
+  it("no longer uses the pending chapter save dialog flow", () => {
+    const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+
+    expect(source).not.toContain("pendingChapterSaveDialog")
+    expect(source).not.toContain("applyPendingChapterSave")
+    expect(source).not.toContain("保存到章节后面")
+  })
+})
+
 describe("deep chapter unfinished continuation action", () => {
   it("shows a continuation button and explanation for failed deep chapter thinking", () => {
     const source = readFileSync(resolve(__dirname, "chat-message.tsx"), "utf8")

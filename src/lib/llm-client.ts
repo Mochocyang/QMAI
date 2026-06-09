@@ -3,6 +3,7 @@ import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import { getProviderConfig, type RequestOverrides } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
+import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -80,20 +81,21 @@ export async function streamChat(
    */
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
+  const runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const { onToken, onDone, onError } = callbacks
 
   // Claude Code CLI uses a subprocess transport (stdin/stdout), not
   // HTTP. Dispatch before getProviderConfig — that function throws for
   // this provider because it has no URL/headers.
-  if (config.provider === "claude-code") {
-    return streamViaClaudeCodeCli(config, messages, callbacks, signal, requestOverrides)
+  if (runtimeConfig.provider === "claude-code") {
+    return streamViaClaudeCodeCli(runtimeConfig, messages, callbacks, signal, requestOverrides)
   }
 
-  if (config.provider === "codex-cli") {
-    return streamViaCodexCli(config, messages, callbacks, signal, requestOverrides)
+  if (runtimeConfig.provider === "codex-cli") {
+    return streamViaCodexCli(runtimeConfig, messages, callbacks, signal, requestOverrides)
   }
 
-  const providerConfig = getProviderConfig(config)
+  const providerConfig = getProviderConfig(runtimeConfig)
 
   // Combined abort: (a) user cancel, (b) our long-horizon timeout.
   // The long timeout is a backstop for truly stuck requests; it's NOT
@@ -196,8 +198,8 @@ export async function streamChat(
     }
     if (
       response.status === 404 &&
-      (config.provider === "azure" ||
-        (config.provider === "custom" && isAzureOpenAiEndpoint(config.customEndpoint)))
+      (runtimeConfig.provider === "azure" ||
+        (runtimeConfig.provider === "custom" && isAzureOpenAiEndpoint(runtimeConfig.customEndpoint)))
     ) {
       onError(
         new Error(
