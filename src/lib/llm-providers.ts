@@ -847,15 +847,15 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       const azure = isAzureOpenAiEndpoint(url)
       return {
         url,
-        headers: {
-          "Content-Type": JSON_CONTENT_TYPE,
-          ...(apiKey
-            ? azure
-              ? { "api-key": apiKey }
-              : { Authorization: `Bearer ${apiKey}` }
-            : {}),
-          ...(!azure && isLocalOrPrivateHttpEndpoint(url) ? localLlmOriginHeader() : {}),
-        },
+        headers: azure
+          ? {
+              "Content-Type": JSON_CONTENT_TYPE,
+              ...(apiKey ? { "api-key": apiKey } : {}),
+            }
+          : withCustomOriginHeader({
+              "Content-Type": JSON_CONTENT_TYPE,
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            }, url),
         buildBody: (messages, overrides) => {
           const body = buildOpenAiCompatibleBody(config, messages, overrides)
           if (!azure) body.model = model
