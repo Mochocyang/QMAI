@@ -35,8 +35,8 @@ describe("resolveChapterLengthSpec", () => {
   })
 
   it("clamps unreasonable targets", () => {
-    expect(resolveChapterLengthSpec(10).targetChars).toBe(500)
-    expect(resolveChapterLengthSpec(999999).targetChars).toBe(20000)
+    expect(resolveChapterLengthSpec(10).targetChars).toBe(2000)
+    expect(resolveChapterLengthSpec(999999).targetChars).toBe(6000)
   })
 })
 

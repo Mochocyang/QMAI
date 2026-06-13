@@ -78,6 +78,27 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_FOURTEEN_CHANGELOG: ChangelogEntry = {
+  version: "2.2.14",
+  date: "2026-06-13",
+  highlights: {
+    en: [
+      "Fixed Issue #10: AI-modified chapters no longer fail with 'missing frontmatter, write-back stopped' error; now automatically inherits original frontmatter and tolerates code fences and missing titles.",
+      "Fixed Issue #9: 'Continue Next Chapter' no longer regenerates Chapter 1; prompt mentions of 'opening/first chapter' no longer hijack target chapter to 1; session remembers just-generated unsaved chapter numbers.",
+      "Fixed Issue #6: Outline refinement logic unified to check directory for .md files; updated hasOutlineForRefinement from search-based to direct filesystem check.",
+      "Fixed Issue #8: Added per-chapter word-count target control in settings; chapter generation, expansion threshold, and 'Continue Next Chapter' prompts now follow configured target (2,000-6,000 characters).",
+      "Enhanced de-AI rules with Chinese novel adaptation notes: preserve character voice, dialogue edges, narrative rhythm, and necessary pauses; don't apply non-fiction article rules to delete adverbs or compress to fixed word count.",
+    ],
+    zh: [
+      "修复 Issue #10：AI 修改章节时不再报错\"返回内容缺少 frontmatter，已停止写回\"，现在自动沿用原章节 frontmatter，并容错代码围栏与缺失标题。",
+      "修复 Issue #9：\"继续生成下一章\"不再重复生成第一章；提示词中顺带出现的\"开篇/第一章\"字样不再把目标章节劫持为第1章；本会话记住刚生成、尚未保存的章节号。",
+      "修复 Issue #6：大纲细化生成逻辑统一按目录是否已有 .md 文件判断；hasOutlineForRefinement 从基于搜索改为直接文件系统检查。",
+      "修复 Issue #8：新增\"单章目标字数\"设置（2000-6000字），章节生成、扩写阈值和\"继续生成下一章\"提示词都按设置目标执行。",
+      "增强去AI味规则的中文小说适配说明：保留角色声线、对白毛边、叙事节奏和必要停顿；不要按非虚构文章规则硬删副词或压缩到固定字数。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_THIRTEEN_CHANGELOG: ChangelogEntry = {
   version: "2.2.13",
   date: "2026-06-11",
@@ -342,6 +363,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_FOURTEEN_CHANGELOG.version) return [TWO_POINT_TWO_FOURTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTEEN_CHANGELOG.version) return [TWO_POINT_TWO_THIRTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_TWELVE_CHANGELOG.version) return [TWO_POINT_TWO_TWELVE_CHANGELOG]
   if (version === TWO_POINT_TWO_ELEVEN_CHANGELOG.version) return [TWO_POINT_TWO_ELEVEN_CHANGELOG]
@@ -361,6 +383,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_FOURTEEN_CHANGELOG,
     TWO_POINT_TWO_THIRTEEN_CHANGELOG,
     TWO_POINT_TWO_TWELVE_CHANGELOG,
     TWO_POINT_TWO_ELEVEN_CHANGELOG,

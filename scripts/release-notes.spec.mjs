@@ -11,10 +11,11 @@ describe("release notes for updater manifest", () => {
 
     expect(notes).not.toMatch(/^QMAI [\d.]+ 发布版本$/)
     expect(notes).toContain("1. ")
-    expect(notes).toContain("去AI味")
-    expect(notes).toContain("前情分析")
-    expect(notes).toContain("阿里百炼")
-    expect(notes.split("\n")).toHaveLength(12)
+    expect(notes).toContain("Issue #10")
+    expect(notes).toContain("frontmatter")
+    expect(notes).toContain("Issue #8")
+    expect(notes).toContain("单章目标字数")
+    expect(notes.split("\n")).toHaveLength(5)
     expect(notes).not.toContain(".codex-temp")
   })
 

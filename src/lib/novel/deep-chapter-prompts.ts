@@ -24,7 +24,7 @@ export const DEFAULT_CHAPTER_LENGTH_SPEC: ChapterLengthSpec = {
 
 export function resolveChapterLengthSpec(targetChars?: number): ChapterLengthSpec {
   const target = Number.isFinite(targetChars) && (targetChars as number) > 0
-    ? Math.max(500, Math.min(20000, Math.round(targetChars as number)))
+    ? Math.max(2000, Math.min(6000, Math.round(targetChars as number)))
     : DEEP_CHAPTER_TARGET_CHARS
   if (target === DEEP_CHAPTER_TARGET_CHARS) return DEFAULT_CHAPTER_LENGTH_SPEC
   return {

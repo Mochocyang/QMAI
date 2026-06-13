@@ -265,12 +265,12 @@ export function NovelSection({ draft, setDraft }: Props) {
             </div>
             <Input
               type="number"
-              min={500}
-              max={20000}
+              min={2000}
+              max={6000}
               step={100}
               value={draft.novelConfig.chapterTargetChars}
               onChange={(e) => updateNovelConfig({
-                chapterTargetChars: Math.max(500, Math.min(20000, Number(e.target.value) || 3000)),
+                chapterTargetChars: Math.max(2000, Math.min(6000, Number(e.target.value) || 3000)),
               })}
               className="w-32"
             />
