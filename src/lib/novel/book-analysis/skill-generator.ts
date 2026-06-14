@@ -13,6 +13,7 @@ import type {
   ExtractedCharacter,
   CharacterSkill,
   BookAnalysisMetadata,
+  PersonalityProfile,
 } from "./types"
 import { writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
@@ -270,4 +271,39 @@ export async function generateSkillsForCharacters(
   })
 
   return skills
+}
+
+/**
+ * 生成简单提取模式的 Skill markdown（feature/character-recognition-and-simple-mode）
+ * 4 字段 + 代表性台词格式
+ */
+export function generateSimpleSkillMarkdown(input: {
+  characterName: string
+  profile: PersonalityProfile
+  sourceBook?: string
+}): string {
+  const { characterName, profile, sourceBook } = input
+  return `# 角色 Skill - ${characterName}
+
+> 来源：${sourceBook ?? "未知"}
+> 提取方式：简单提取（4 字段 + 代表性台词）
+
+## 性格
+${profile.personality}
+
+## 动机
+${profile.motivation}
+
+## 说话风格
+${profile.speechStyle}
+
+## 行为模式
+${profile.behaviorPatterns}
+
+## 代表性台词
+${profile.quotes.map((q) => `- 「${q}」`).join("\n")}
+
+---
+*本 Skill 由 QM AI 拆书功能生成*
+`
 }
