@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -25,6 +25,7 @@ const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string; novel
   { view: "graph", icon: Network, labelKey: "nav.graph", novelLabelKey: "novel.nav.graph" },
   { view: "lint", icon: Brain, labelKey: "nav.lint", novelLabelKey: "novel.nav.lint" },
   { view: "soul", icon: Sparkles, labelKey: "nav.soul", novelLabelKey: "novel.nav.soul" },
+  { view: "dismantling", icon: BookOpen, labelKey: "nav.dismantling", novelLabelKey: "novel.nav.dismantling" },
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "nav.reviewCenter", novelLabelKey: "novel.nav.reviewCenter" },
 ]
 

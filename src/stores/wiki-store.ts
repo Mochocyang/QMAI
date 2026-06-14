@@ -604,7 +604,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ chatDockPosition })
   },
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
-  setActiveView: (activeView) => set({ activeView: (activeView === "dismantling" || activeView === "bookAnalysis") ? "wiki" : activeView }),
+  setActiveView: (activeView) => set({ activeView }),
   setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
   setSelectedSoulId: (selectedSoulId) => set({ selectedSoulId }),
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
