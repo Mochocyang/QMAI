@@ -2,21 +2,17 @@
  * 章节选择面板
  * 显示已识别的章节列表，支持用户勾选需要分析的章节
  *
- * 6 维度扩展（feature/book-analysis-6d-skill）：
- *   - 点击"开始分析"时弹出深度选择对话框（快速 / 标准 / 完整）
- *   - 选完后才真正调用 onConfirm，并附带 depth
- *   - 打开弹窗时自动选上一次的深度档（depth-preference 持久化）
+ * 改造（feature/character-recognition-and-simple-mode）：
+ *   - 移除"深度选择弹窗"（fast/standard/deep 三档）
+ *   - 点击"开始分析"时直接调用 onConfirm（默认 standard 深度）
+ *   - 识别完成后自动打开"角色选择"弹窗（CharacterSelectionPanel）
  */
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X } from "lucide-react"
-import type { AnalysisDepth } from "@/lib/novel/book-analysis/types"
-import { DEPTH_DESCRIPTIONS } from "@/lib/novel/book-analysis/six-dimension-engine"
-import {
-  loadDepthPreference,
-  saveDepthPreference,
-} from "@/lib/novel/book-analysis/depth-preference"
+import type { AnalysisDepth, RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import { CharacterSelectionPanel } from "./character-selection-panel"
 
 interface ChapterSelectionPanelProps {
   chapters: Array<{
@@ -28,17 +24,32 @@ interface ChapterSelectionPanelProps {
   }>
   onConfirm: (selectedChapterIds: string[], depth: AnalysisDepth) => void
   onCancel: () => void
+  // 角色识别（feature/character-recognition-and-simple-mode）
+  recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognizedCharacters?: RecognizedCharacter[]
+  selectedCharacterIds?: string[]
+  onToggleCharacter?: (id: string) => void
+  onSelectAllMain?: () => void
+  onClearSelection?: () => void
+  onDeepExtract?: () => void
+  onSimpleExtract?: () => void
 }
 
 export function ChapterSelectionPanel({
   chapters,
   onConfirm,
   onCancel,
+  recognitionStatus = "idle",
+  recognizedCharacters = [],
+  selectedCharacterIds = [],
+  onToggleCharacter,
+  onSelectAllMain,
+  onClearSelection,
+  onDeepExtract,
+  onSimpleExtract,
 }: ChapterSelectionPanelProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
-  const [showDepthPicker, setShowDepthPicker] = useState(false)
-  const [pendingDepth, setPendingDepth] = useState<AnalysisDepth | null>(null)
 
   // 初始化：默认全选
   useEffect(() => {
@@ -46,13 +57,6 @@ export function ChapterSelectionPanel({
     setSelectedChapters(allIds)
     setSelectAll(true)
   }, [chapters])
-
-  // 深度选择弹窗打开时，自动选上一次的深度档
-  useEffect(() => {
-    if (showDepthPicker) {
-      setPendingDepth(loadDepthPreference())
-    }
-  }, [showDepthPicker])
 
   const handleToggleChapter = (chapterId: string) => {
     setSelectedChapters(prev => {
@@ -92,6 +96,16 @@ export function ChapterSelectionPanel({
     .reduce((sum, ch) => sum + ch.wordCount, 0)
 
   const canConfirm = selectedCount > 0
+
+  // 识别完成时弹出"角色选择"弹窗（feature/character-recognition-and-simple-mode）
+  const showCharacterPicker =
+    recognitionStatus === "done" &&
+    recognizedCharacters.length > 0 &&
+    !!onToggleCharacter &&
+    !!onSelectAllMain &&
+    !!onClearSelection &&
+    !!onDeepExtract &&
+    !!onSimpleExtract
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -156,9 +170,9 @@ export function ChapterSelectionPanel({
             </div>
           </div>
 
-          {/* 开始分析按钮 - 移到顶部 */}
+          {/* 开始分析按钮 - feature/character-recognition-and-simple-mode：直接调用 onConfirm */}
           <Button
-            onClick={() => setShowDepthPicker(true)}
+            onClick={() => onConfirm(Array.from(selectedChapters), "standard")}
             disabled={!canConfirm}
             size="default"
           >
@@ -233,80 +247,18 @@ export function ChapterSelectionPanel({
         </div>
       </div>
 
-      {/* 深度选择弹窗（feature/book-analysis-6d-skill） */}
-      {showDepthPicker && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-          <div className="w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[90vh] flex flex-col">
-            <h3 className="text-lg font-semibold mb-2">选择分析深度</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              选择更深的分析会消耗更多 token，请根据需要选择。
-            </p>
-            <div className="space-y-3 overflow-y-auto min-h-0 flex-1">
-              {(["fast", "standard", "deep"] as AnalysisDepth[]).map((d) => {
-                const info = DEPTH_DESCRIPTIONS[d]
-                const checked = pendingDepth === d
-                return (
-                  <label
-                    key={d}
-                    className={`block cursor-pointer rounded-md border p-4 transition-colors ${
-                      checked
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted"
-                    }`}
-                    onClick={() => setPendingDepth(d)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="depth"
-                          checked={checked}
-                          onChange={() => setPendingDepth(d)}
-                        />
-                        <span className="font-semibold">{info.label}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        约 {info.approxTokenMultiplier} token
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground ml-6">
-                      {info.description}
-                    </p>
-                  </label>
-                )
-              })}
-            </div>
-            {pendingDepth === "deep" && (
-              <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-                完整模式会通过 DuckDuckGo / Wikipedia 获取公开资料，6 维度提取约消耗 6 倍 token，请确认。
-              </div>
-            )}
-            <div className="shrink-0 mt-4 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowDepthPicker(false)
-                  setPendingDepth(null)
-                }}
-              >
-                取消
-              </Button>
-              <Button
-                disabled={!pendingDepth}
-                onClick={() => {
-                  if (!pendingDepth) return
-                  const depth = pendingDepth
-                  saveDepthPreference(depth)
-                  setShowDepthPicker(false)
-                  setPendingDepth(null)
-                  onConfirm(Array.from(selectedChapters), depth)
-                }}
-              >
-                开始
-              </Button>
-            </div>
-          </div>
-        </div>
+      {/* 角色选择弹窗（feature/character-recognition-and-simple-mode） */}
+      {showCharacterPicker && (
+        <CharacterSelectionPanel
+          characters={recognizedCharacters}
+          selectedIds={selectedCharacterIds}
+          onToggle={onToggleCharacter!}
+          onSelectAllMain={onSelectAllMain!}
+          onClear={onClearSelection!}
+          onDeepExtract={onDeepExtract!}
+          onSimpleExtract={onSimpleExtract!}
+          onCancel={onCancel}
+        />
       )}
     </div>
   )
