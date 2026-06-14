@@ -22,6 +22,7 @@ import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { SoulSidebarPanel } from "./soul-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
+import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createDirectory, fileExists, listDirectory, preprocessFile, readFile, writeFile } from "@/commands/fs"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -1089,6 +1090,10 @@ export function SidebarPanel() {
 
   if (activeView === "reviewCenter") {
     return <ReviewCenterSidebarPanel />
+  }
+
+  if (activeView === "bookAnalysis") {
+    return <BookAnalysisSidebarPanel />
   }
 
   if (activeView === "search") {
