@@ -82,7 +82,11 @@ function buildSixDimensionSkeleton(
 }
 
 /**
- * 生成角色 Skill（6 维度模式 / 旧模式自动判断）
+ * 生成角色 Skill
+ * 模式分支（按优先级）：
+ *   1. sixDimensionResearch → 6 维度骨架（feature/book-analysis-6d-skill）
+ *   2. personalityProfile   → 简单提取模板（feature/character-recognition-and-simple-mode）
+ *   3. fallback             → 旧 LLM 生成路径
  */
 export async function generateCharacterSkill(
   character: ExtractedCharacter,
@@ -93,6 +97,16 @@ export async function generateCharacterSkill(
   // 6 维度模式：直接组装，跳过 LLM（研究阶段已调用过 6 次 LLM）
   if (isSixDimensionSkill(character)) {
     return buildSixDimensionSkeleton(character, bookMetadata)
+  }
+
+  // 简单提取模式（feature/character-recognition-and-simple-mode）：
+  // personalityProfile 存在但无 6 维度研究时走新模板
+  if (character.personalityProfile) {
+    return generateSimpleSkillMarkdown({
+      characterName: character.name,
+      profile: character.personalityProfile,
+      sourceBook: bookMetadata.title,
+    })
   }
 
   const prompt = `请为小说角色生成一个完整的 Skill 技能文档。
