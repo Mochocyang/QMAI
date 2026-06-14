@@ -1,6 +1,16 @@
 import { describe, it, expect, vi } from "vitest"
-import { extractSimpleProfiles, type SimpleExtractionInput } from "./simple-extraction-engine"
+import { extractSimpleProfiles } from "./simple-extraction-engine"
 import type { RecognizedCharacter } from "./types"
+import type { LlmConfig } from "@/stores/wiki-store"
+
+const stubLlmConfig: LlmConfig = {
+  provider: "openai",
+  apiKey: "x",
+  model: "x",
+  ollamaUrl: "http://127.0.0.1:1",
+  customEndpoint: "http://127.0.0.1:1",
+  maxContextSize: 8000,
+}
 
 describe("extractSimpleProfiles", () => {
   const candidates: RecognizedCharacter[] = [
@@ -17,9 +27,9 @@ describe("extractSimpleProfiles", () => {
     const result = await extractSimpleProfiles({
       candidates,
       chapterSamples: "x",
-      llmConfig: { endpoint: "mock", model: "mock" },
+      llmConfig: stubLlmConfig,
       _llmCall: llmCall,
-    } as SimpleExtractionInput)
+    })
 
     expect(llmCall).toHaveBeenCalledTimes(1)
     expect(result.profiles).toHaveLength(2)
@@ -32,9 +42,9 @@ describe("extractSimpleProfiles", () => {
     const result = await extractSimpleProfiles({
       candidates,
       chapterSamples: "x",
-      llmConfig: { endpoint: "mock", model: "mock" },
+      llmConfig: stubLlmConfig,
       _llmCall: llmCall,
-    } as SimpleExtractionInput)
+    })
     expect(result.error).toBeDefined()
     expect(result.profiles[0].profile).toEqual({
       personality: "", motivation: "", speechStyle: "", behaviorPatterns: "", quotes: [],

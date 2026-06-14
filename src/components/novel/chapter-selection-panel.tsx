@@ -4,7 +4,8 @@
  *
  * 改造（feature/character-recognition-and-simple-mode）：
  *   - 移除"深度选择弹窗"（fast/standard/deep 三档）
- *   - 点击"开始分析"时直接调用 onConfirm（默认 standard 深度）
+ *   - "开始分析"按钮旁加二档单选：快速（仅启发式）/ 标准（启发式 + LLM 评分）
+ *   - 选完深度档后调用 onConfirm（深度参数由用户在面板内选择）
  *   - 识别完成后自动打开"角色选择"弹窗（CharacterSelectionPanel）
  */
 
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { CheckSquare, Square, Play, X } from "lucide-react"
 import type { AnalysisDepth, RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { CharacterSelectionPanel } from "./character-selection-panel"
+import { loadDepthPreference, saveDepthPreference } from "@/lib/novel/book-analysis/depth-preference"
 
 interface ChapterSelectionPanelProps {
   chapters: Array<{
@@ -50,6 +52,17 @@ export function ChapterSelectionPanel({
 }: ChapterSelectionPanelProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
+  // 深度档：快速（仅启发式）/ 标准（启发式 + LLM 评分）
+  // 初始化时优先用用户上次保存的偏好；兼容旧值"deep"（映射为"standard"）
+  const [depth, setDepth] = useState<AnalysisDepth>(() => {
+    const saved = loadDepthPreference()
+    return saved === "fast" ? "fast" : "standard"
+  })
+
+  useEffect(() => {
+    // 每次用户切换都记忆（feature/character-recognition-and-simple-mode）
+    saveDepthPreference(depth)
+  }, [depth])
 
   // 初始化：默认全选
   useEffect(() => {
@@ -170,15 +183,42 @@ export function ChapterSelectionPanel({
             </div>
           </div>
 
-          {/* 开始分析按钮 - feature/character-recognition-and-simple-mode：直接调用 onConfirm */}
-          <Button
-            onClick={() => onConfirm(Array.from(selectedChapters), "standard")}
-            disabled={!canConfirm}
-            size="default"
-          >
-            <Play className="h-4 w-4 mr-2" />
-            开始分析（{selectedCount} 章）
-          </Button>
+          {/* 深度档 + 开始分析（feature/character-recognition-and-simple-mode） */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground mr-1">识别深度：</span>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="radio"
+                  name="depth-mode"
+                  value="fast"
+                  checked={depth === "fast"}
+                  onChange={() => setDepth("fast")}
+                  className="h-3 w-3"
+                />
+                <span>快速</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="radio"
+                  name="depth-mode"
+                  value="standard"
+                  checked={depth === "standard"}
+                  onChange={() => setDepth("standard")}
+                  className="h-3 w-3"
+                />
+                <span>标准</span>
+              </label>
+            </div>
+            <Button
+              onClick={() => onConfirm(Array.from(selectedChapters), depth)}
+              disabled={!canConfirm}
+              size="default"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              开始分析（{selectedCount} 章）
+            </Button>
+          </div>
         </div>
 
         {/* 统计信息 + 提示 */}
