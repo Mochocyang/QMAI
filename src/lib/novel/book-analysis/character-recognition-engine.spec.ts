@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest"
 import { heuristicRecognizeCharacters, llmScoreCharacters, filterMidFrequencyCandidates, stableCharacterId, type HeuristicInput, type LlmScoringInput } from "./character-recognition-engine"
 import { vi } from "vitest"
+import type { LlmConfig } from "@/stores/wiki-store"
+
+const stubLlmConfig: LlmConfig = {
+  provider: "openai",
+  apiKey: "x",
+  model: "x",
+  ollamaUrl: "http://127.0.0.1:1",
+  customEndpoint: "http://127.0.0.1:1",
+  maxContextSize: 8000,
+}
 
 describe("heuristicRecognizeCharacters", () => {
   it("按出场章节数统计名字频次", () => {
@@ -55,7 +65,7 @@ describe("llmScoreCharacters", () => {
         { id: "3", name: "高频角色", aliases: [], appearances: 5, chapterIndices: [0, 1, 2, 3, 4], importanceScore: 50, category: "主角", sourceBook: "" },
       ],
       chapters: [{ index: 0, content: "..." }],
-      llmConfig: { endpoint: "mock", model: "mock" },
+      llmConfig: stubLlmConfig,
       _llmCall: llmCall,
     }
 
@@ -76,7 +86,7 @@ describe("llmScoreCharacters", () => {
         { id: "1", name: "A", aliases: [], appearances: 1, chapterIndices: [0], importanceScore: 50, category: "配角", sourceBook: "" },
       ],
       chapters: [{ index: 0, content: "x" }],
-      llmConfig: { endpoint: "mock", model: "mock" },
+      llmConfig: stubLlmConfig,
       _llmCall: llmCall,
     })
     expect(result.scored[0].importanceScore).toBe(50)  // 保持启发式分数
@@ -92,7 +102,7 @@ describe("llmScoreCharacters", () => {
         { id: "2", name: "B", aliases: [], appearances: 4, chapterIndices: [0, 1, 2, 3], importanceScore: 40, category: "配角", sourceBook: "" },
       ],
       chapters: [{ index: 0, content: "x" }],
-      llmConfig: { endpoint: "mock", model: "mock" },
+      llmConfig: stubLlmConfig,
       _llmCall: llmCall,
     })
     expect(llmCall).not.toHaveBeenCalled()

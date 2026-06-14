@@ -1,4 +1,5 @@
 import { createHash } from "crypto"
+import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
 
 /**
@@ -87,7 +88,7 @@ function classifyByScore(score: number): CharacterCategory {
 export interface LlmScoringInput {
   candidates: RecognizedCharacter[]
   chapters: { index: number; content: string }[]
-  llmConfig: { endpoint: string; apiKey?: string; model: string }
+  llmConfig: LlmConfig
   signal?: AbortSignal
   // 测试注入点（生产环境不传）
   _llmCall?: (prompt: string) => Promise<string>
@@ -134,7 +135,6 @@ export async function llmScoreCharacters(
   const { candidates, chapters, signal, _llmCall } = input
   // llmConfig 保留在接口中（生产代码传入），此处占位以避免 lint 警告
   void input.llmConfig
-
   // 启发式全名单独立保留（高频角色已有充分信号，无需再送 LLM）
   // 只对"中频"角色（潜在隐藏 BOSS）调用 LLM 评分
   const midFrequencyCandidates = filterMidFrequencyCandidates(candidates)
