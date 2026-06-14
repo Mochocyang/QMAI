@@ -87,6 +87,13 @@ export interface BookAnalysisProgress {
   currentDimension?: SixDimensionKey
   /** 6 维度分析时：6 个维度的完整状态清单（UI 可直接渲染） */
   dimensions?: SixDimensionProgressItem[]
+  /** 角色识别阶段状态（feature/character-recognition-and-simple-mode） */
+  recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognizedCharactersCount?: number
+  /** 简单提取进度（feature/character-recognition-and-simple-mode） */
+  simpleExtractionStatus?: "idle" | "running" | "done" | "error"
+  simpleExtractionCompleted?: number
+  simpleExtractionTotal?: number
 }
 
 export interface BookAnalysisCheckpoint {
@@ -142,6 +149,9 @@ export interface ExtractedCharacter {
   aliasMap?: NameAliasMap
   sixDimensionResearch?: SixDimensionResearch
   sixDimensionMeta?: SixDimensionMeta
+  /** 简单提取结果（feature/character-recognition-and-simple-mode） */
+  personalityProfile?: PersonalityProfile
+  simpleExtractionMeta?: SimpleExtractionMeta
 }
 
 // 角色 Skill
@@ -188,6 +198,34 @@ export interface BookAnalysisTask {
   }>
   characters?: ExtractedCharacter[]
   skills?: CharacterSkill[]
+}
+
+// === 角色识别（feature/character-recognition-and-simple-mode）===
+export type CharacterCategory = "主角" | "配角" | "次要"
+
+export interface RecognizedCharacter {
+  id: string                       // 稳定 id：name + sourceBook 的 hash
+  name: string
+  aliases: string[]
+  appearances: number              // 出场次数（启发式）
+  chapterIndices: number[]         // 出场章节索引
+  importanceScore: number          // 0-100（LLM 评分）
+  category: CharacterCategory      // 按 score 自动分类
+  sourceBook: string               // 用于 id 稳定性
+}
+
+// === 简单提取（feature/character-recognition-and-simple-mode）===
+export interface PersonalityProfile {
+  personality: string         // 性格：核心性格特征 + 优缺点
+  motivation: string          // 动机：核心目标、欲望、恐惧
+  speechStyle: string         // 说话风格：语言习惯、用词偏好、语气
+  behaviorPatterns: string    // 行为模式：决策倾向、面对冲突的方式、社交风格
+  quotes: string[]            // 代表性台词 3-5 句
+}
+
+export interface SimpleExtractionMeta {
+  generatedAt: number
+  schemaVersion: 1
 }
 
 // 作品库信息
