@@ -362,6 +362,18 @@ export function BookAnalysisView() {
                     </ul>
                   </div>
                 )}
+                {/* 角色识别阶段状态（feature/character-recognition-and-simple-mode） */}
+                {task.progress.recognitionStatus === "heuristic" && (
+                  <p className="text-sm text-muted-foreground">正在启发式识别角色...</p>
+                )}
+                {task.progress.recognitionStatus === "llm_scoring" && (
+                  <p className="text-sm text-muted-foreground">正在用 LLM 评分角色重要度...</p>
+                )}
+                {task.progress.recognitionStatus === "done" && (
+                  <p className="text-sm text-muted-foreground">
+                    识别出 {task.progress.recognizedCharactersCount ?? 0} 个角色
+                  </p>
+                )}
                 {/* 停止按钮 */}
                 <div className="flex gap-2 mt-3">
                   <button
