@@ -15,7 +15,7 @@ import { reanalyzeSixDimensions, DEPTH_DESCRIPTIONS } from "@/lib/novel/book-ana
 import { isSixDimensionSkill } from "@/lib/novel/book-analysis/skill-generator"
 import { revealInFileManager } from "@/lib/reveal-in-file-manager"
 import { toast } from "@/lib/toast"
-import type { AnalysisDepth, BookAnalysisResult, CharacterSkill, ExtractedCharacter } from "@/lib/novel/book-analysis/types"
+import type { AnalysisDepth, BookAnalysisResult, CharacterSkill, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
   projectPath: string
@@ -377,6 +377,11 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                       <p className="text-sm leading-relaxed">{selectedCharacter.speechStyle || "暂无"}</p>
                     </div>
 
+                    {/* 简单提取 profile 渲染（feature/character-recognition-and-simple-mode） */}
+                    {selectedCharacter.personalityProfile && !selectedCharacter.sixDimensionResearch && (
+                      <SimpleProfileCard profile={selectedCharacter.personalityProfile} />
+                    )}
+
                     {selectedCharacter.relationships.length > 0 && (
                       <div>
                         <h4 className="font-semibold mb-2">关系网络</h4>
@@ -609,6 +614,43 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           <Button onClick={onClose}>关闭</Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 简单提取 profile 卡片（feature/character-recognition-and-simple-mode）
+ * 4 字段 + 代表性台词渲染
+ */
+function SimpleProfileCard({ profile }: { profile: PersonalityProfile }) {
+  return (
+    <div className="rounded-lg border p-4 space-y-2">
+      <div>
+        <h4 className="text-sm font-semibold">性格</h4>
+        <p className="text-sm text-muted-foreground">{profile.personality}</p>
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold">动机</h4>
+        <p className="text-sm text-muted-foreground">{profile.motivation}</p>
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold">说话风格</h4>
+        <p className="text-sm text-muted-foreground">{profile.speechStyle}</p>
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold">行为模式</h4>
+        <p className="text-sm text-muted-foreground">{profile.behaviorPatterns}</p>
+      </div>
+      {profile.quotes.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold">代表性台词</h4>
+          <ul className="text-sm text-muted-foreground list-disc list-inside">
+            {profile.quotes.map((q, i) => (
+              <li key={i}>「{q}」</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
