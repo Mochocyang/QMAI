@@ -7,6 +7,7 @@ import type {
   BookAnalysisResult,
   ExtractedCharacter,
   CharacterSkill,
+  RecognizedCharacter,
 } from "@/lib/novel/book-analysis/types"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -18,6 +19,11 @@ export interface BookAnalysisState {
   selectedResultPath: string | null
   currentResult: BookAnalysisResult | null
   showResultViewer: boolean
+
+  // 角色识别（feature/character-recognition-and-simple-mode）
+  recognitionStatus: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognizedCharacters: RecognizedCharacter[]
+  selectedCharacterIds: string[]
 
   // 任务管理
   startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string
@@ -38,6 +44,12 @@ export interface BookAnalysisState {
   setCurrentResult: (result: BookAnalysisResult | null) => void
   setShowResultViewer: (show: boolean) => void
 
+  // 角色识别 actions（feature/character-recognition-and-simple-mode）
+  setRecognitionStatus: (status: "idle" | "heuristic" | "llm_scoring" | "done" | "error") => void
+  setRecognizedCharacters: (characters: RecognizedCharacter[]) => void
+  setSelectedCharacterIds: (ids: string[]) => void
+  clearRecognition: () => void
+
   // 查询
   getTask: (taskId: string) => BookAnalysisTask | null
   getTaskByProject: (projectPath: string) => BookAnalysisTask | null
@@ -52,6 +64,11 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   selectedResultPath: null,
   currentResult: null,
   showResultViewer: false,
+
+  // 角色识别初始 state（feature/character-recognition-and-simple-mode）
+  recognitionStatus: "idle",
+  recognizedCharacters: [],
+  selectedCharacterIds: [],
 
   startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => {
     const now = Date.now()
@@ -240,6 +257,18 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   setShowResultViewer: (show: boolean) => {
     set({ showResultViewer: show })
   },
+
+  // 角色识别 actions 实现（feature/character-recognition-and-simple-mode）
+  setRecognitionStatus: (status) => set({ recognitionStatus: status }),
+  setRecognizedCharacters: (characters) =>
+    set({ recognizedCharacters: characters, recognitionStatus: "done" }),
+  setSelectedCharacterIds: (ids) => set({ selectedCharacterIds: ids }),
+  clearRecognition: () =>
+    set({
+      recognitionStatus: "idle",
+      recognizedCharacters: [],
+      selectedCharacterIds: [],
+    }),
 
   getTask: (taskId: string) => {
     return get().tasks.find((task) => task.id === taskId) ?? null
