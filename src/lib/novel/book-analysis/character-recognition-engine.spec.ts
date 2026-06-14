@@ -53,7 +53,6 @@ describe("llmScoreCharacters", () => {
       ],
       chapters: [{ index: 0, content: "..." }],
       llmConfig: { endpoint: "mock", model: "mock" },
-      // @ts-expect-error 注入 llmCall
       _llmCall: llmCall,
     }
 
@@ -72,7 +71,6 @@ describe("llmScoreCharacters", () => {
       ],
       chapters: [{ index: 0, content: "x" }],
       llmConfig: { endpoint: "mock", model: "mock" },
-      // @ts-expect-error
       _llmCall: llmCall,
     })
     expect(result.scored[0].importanceScore).toBe(50)  // 保持启发式分数

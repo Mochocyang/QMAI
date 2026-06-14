@@ -18,7 +18,6 @@ describe("extractSimpleProfiles", () => {
       candidates,
       chapterSamples: "x",
       llmConfig: { endpoint: "mock", model: "mock" },
-      // @ts-expect-error
       _llmCall: llmCall,
     } as SimpleExtractionInput)
 
@@ -34,7 +33,6 @@ describe("extractSimpleProfiles", () => {
       candidates,
       chapterSamples: "x",
       llmConfig: { endpoint: "mock", model: "mock" },
-      // @ts-expect-error
       _llmCall: llmCall,
     } as SimpleExtractionInput)
     expect(result.error).toBeDefined()
