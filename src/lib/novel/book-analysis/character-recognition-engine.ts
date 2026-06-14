@@ -78,15 +78,79 @@ export interface LlmScoringInput {
   chapters: { index: number; content: string }[]
   llmConfig: { endpoint: string; apiKey?: string; model: string }
   signal?: AbortSignal
+  // 测试注入点（生产环境不传）
+  _llmCall?: (prompt: string) => Promise<string>
 }
 
 export interface LlmScoringOutput {
-  scored: RecognizedCharacter[]  // 含 importanceScore 0-100
+  scored: RecognizedCharacter[]
 }
+
+const SCORING_PROMPT = `你是一个小说角色分析助手。下面是候选角色列表（来自启发式统计），请根据角色在章节中的剧情参与度给每个角色打"重要度"分（0-100），并判断其类别（主角/配角/次要）。
+
+# 候选角色
+{{candidates}}
+
+# 章节内容（节选）
+{{chapterSamples}}
+
+# 输出格式（JSON 数组）
+[
+  { "name": "角色名", "importanceScore": 0-100, "category": "主角|配角|次要", "aliases": ["别名1"] }
+]
+只返回 JSON，不要其他文字。`
 
 export async function llmScoreCharacters(
   input: LlmScoringInput
 ): Promise<LlmScoringOutput> {
-  // 占位：实际实现见 Task 4
-  return { scored: input.candidates }
+  const { candidates, chapters, llmConfig, signal, _llmCall } = input
+
+  // 构建 prompt
+  const candidateList = candidates
+    .map((c) => `- ${c.name}（${c.appearances} 章）`)
+    .join("\n")
+  const chapterSamples = chapters
+    .slice(0, 5)  // 仅前 5 章
+    .map((c) => `【第 ${c.index + 1} 章】\n${c.content.slice(0, 500)}`)
+    .join("\n\n")
+  const prompt = SCORING_PROMPT
+    .replace("{{candidates}}", candidateList)
+    .replace("{{chapterSamples}}", chapterSamples)
+
+  try {
+    const llmFn = _llmCall ?? defaultLlmCall
+    const raw = await llmFn(prompt)
+    if (signal?.aborted) throw new Error("aborted")
+    const parsed = JSON.parse(raw) as Array<{
+      name: string
+      importanceScore: number
+      category: CharacterCategory
+      aliases?: string[]
+    }>
+
+    // 合并：LLM 结果覆盖启发式分数，LLM 未返回的保留启发式
+    const scored: RecognizedCharacter[] = candidates.map((c) => {
+      const llmResult = parsed.find((p) => p.name === c.name)
+      if (llmResult) {
+        return {
+          ...c,
+          importanceScore: llmResult.importanceScore,
+          category: llmResult.category,
+          aliases: llmResult.aliases ?? c.aliases,
+        }
+      }
+      return c
+    })
+
+    return { scored }
+  } catch {
+    // LLM 失败 → 保留启发式分数
+    return { scored: candidates }
+  }
+}
+
+async function defaultLlmCall(_prompt: string): Promise<string> {
+  // 占位：实际项目里应调真实 LLM endpoint
+  // 暂时 throw 让回退逻辑生效
+  throw new Error("defaultLlmCall not implemented in this context")
 }
