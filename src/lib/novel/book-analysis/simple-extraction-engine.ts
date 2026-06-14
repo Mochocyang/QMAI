@@ -1,10 +1,11 @@
+import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, PersonalityProfile } from "./types"
 import { buildSimpleExtractionPrompt } from "./simple-extraction-prompts"
 
 export interface SimpleExtractionInput {
   candidates: RecognizedCharacter[]
   chapterSamples: string
-  llmConfig: { endpoint: string; apiKey?: string; model: string }
+  llmConfig: LlmConfig
   signal?: AbortSignal
   // 测试注入点
   _llmCall?: (prompt: string) => Promise<string>

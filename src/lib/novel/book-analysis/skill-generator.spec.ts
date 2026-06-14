@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { generateCharacterSkill, generateSimpleSkillMarkdown, isSixDimensionSkill } from "./skill-generator"
 import type { BookAnalysisMetadata, ExtractedCharacter } from "./types"
+import type { LlmConfig } from "@/stores/wiki-store"
 
 const metadata: BookAnalysisMetadata = {
   title: "长夜书",
@@ -9,6 +10,15 @@ const metadata: BookAnalysisMetadata = {
   sourceType: "file",
   createdAt: 1,
   updatedAt: 2,
+}
+
+const stubLlmConfig: LlmConfig = {
+  provider: "openai",
+  apiKey: "x",
+  model: "x",
+  ollamaUrl: "http://127.0.0.1:1",
+  customEndpoint: "http://127.0.0.1:1",
+  maxContextSize: 8000,
 }
 
 describe("isSixDimensionSkill", () => {
@@ -80,7 +90,7 @@ describe("generateCharacterSkill 模式分支", () => {
       c,
       metadata,
       // 故意传一个无效 endpoint；如果走了 LLM 路径，会抛错或挂起
-      { endpoint: "http://127.0.0.1:1", apiKey: "x", model: "x" }
+      stubLlmConfig
     )
     expect(md).toContain("许七安")
     expect(md).toContain("机智")
@@ -106,7 +116,7 @@ describe("generateCharacterSkill 模式分支", () => {
     const md = await generateCharacterSkill(
       c,
       metadata,
-      { endpoint: "http://127.0.0.1:1", apiKey: "x", model: "x" }
+      stubLlmConfig
     )
     expect(md).toContain("许七安")
     expect(md).toContain("公开资料内容")
