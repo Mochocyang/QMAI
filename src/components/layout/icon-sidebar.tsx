@@ -25,7 +25,7 @@ const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string; novel
   { view: "graph", icon: Network, labelKey: "nav.graph", novelLabelKey: "novel.nav.graph" },
   { view: "lint", icon: Brain, labelKey: "nav.lint", novelLabelKey: "novel.nav.lint" },
   { view: "soul", icon: Sparkles, labelKey: "nav.soul", novelLabelKey: "novel.nav.soul" },
-  { view: "dismantling", icon: BookOpen, labelKey: "nav.dismantling", novelLabelKey: "novel.nav.dismantling" },
+  { view: "bookAnalysis", icon: BookOpen, labelKey: "nav.dismantling", novelLabelKey: "novel.nav.dismantling" },
   { view: "reviewCenter", icon: LayoutDashboard, labelKey: "nav.reviewCenter", novelLabelKey: "novel.nav.reviewCenter" },
 ]
 
