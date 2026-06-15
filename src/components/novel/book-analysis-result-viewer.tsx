@@ -37,6 +37,8 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   const [reextractOpen, setReextractOpen] = useState(false)
   const [reextractDepth, setReextractDepth] = useState<"simple" | "six-dimension">("simple")
   const [reextractRunning, setReextractRunning] = useState(false)
+  // feature/book-analysis-reuse：详情卡「单角色再次提取 / 深度提取」
+  const [singleReextractId, setSingleReextractId] = useState<string | null>(null)
 
   const currentProject = useWikiStore((s) => s.project)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -88,11 +90,14 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     setReextractRunning(true)
     try {
       const llmConfig = useWikiStore.getState().llmConfig
+      // 修复：bookPath 实际写入路径是 book-analysis/{bookId}，不是 book-analysis/{title}（feature/book-analysis-reuse）
+      const bookId = task?.bookId
+      const bookPath = joinPath(currentProject.path, "book-analysis", bookId ?? "unknown")
       let updated: ExtractedCharacter[] = []
       for (const c of characters) {
         const { character: fresh } = await extractSingleCharacter({
-          bookPath: joinPath(currentProject.path, "book-analysis", effectiveResult.metadata.title),
-          bookId: "",
+          bookPath,
+          bookId: bookId ?? "",
           character: c,
           mode: reextractDepth === "simple" ? "simple" : "six-dimension",
           depth: "standard",
@@ -115,6 +120,47 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       toast.error(`重新提取失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setReextractRunning(false)
+    }
+  }
+
+  // feature/book-analysis-reuse：详情卡「单角色再次提取 / 深度提取」
+  const handleSingleReextract = async (
+    character: ExtractedCharacter,
+    mode: "simple" | "six-dimension",
+  ) => {
+    if (!currentProject?.path || !effectiveResult) return
+    setSingleReextractId(character.id)
+    try {
+      const llmConfig = useWikiStore.getState().llmConfig
+      // 修复：bookPath 实际写入路径是 book-analysis/{bookId}，不是 book-analysis/{title}
+      const bookId = task?.bookId
+      const bookPath = joinPath(currentProject.path, "book-analysis", bookId ?? "unknown")
+      const { character: fresh } = await extractSingleCharacter({
+        bookPath,
+        bookId: bookId ?? "",
+        character,
+        mode,
+        depth: "standard",
+        llmConfig,
+        signal: undefined,
+      })
+      useBookAnalysisStore.setState((s) => ({
+        tasks: s.tasks.map((t) =>
+          t.projectPath === projectPath && t.status === "completed"
+            ? {
+                ...t,
+                characters: (t.characters ?? []).map((c) => (c.id === fresh.id ? fresh : c)),
+                updatedAt: Date.now(),
+              }
+            : t,
+        ),
+      }))
+      setSelectedCharacter(fresh)
+      toast.success(`已${mode === "simple" ? "简单" : "深度"}提取「${character.name}」`)
+    } catch (err) {
+      toast.error(`提取失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSingleReextractId(null)
     }
   }
 
@@ -532,6 +578,29 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                           <span className="text-muted-foreground">重要性：</span>
                           <span className="ml-2 font-medium">{selectedCharacter.importance}/10</span>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* feature/book-analysis-reuse：详情卡底部「单角色重提」按钮 */}
+                    <div className="pt-4 border-t">
+                      <div className="text-xs text-muted-foreground mb-2">单角色重提</div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSingleReextract(selectedCharacter, "simple")}
+                          disabled={singleReextractId === selectedCharacter.id}
+                        >
+                          {singleReextractId === selectedCharacter.id ? "提取中..." : "再次提取(简单)"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSingleReextract(selectedCharacter, "six-dimension")}
+                          disabled={singleReextractId === selectedCharacter.id}
+                        >
+                          {singleReextractId === selectedCharacter.id ? "提取中..." : "深度提取(6 维)"}
+                        </Button>
                       </div>
                     </div>
                   </div>
