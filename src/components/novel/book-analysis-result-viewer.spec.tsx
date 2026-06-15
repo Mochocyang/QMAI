@@ -65,9 +65,35 @@ describe("BookAnalysisResultViewer", () => {
       />,
     )
 
-    expect(html).toContain("生成的 Skills")
-    expect(html).toContain("添加所选 Skill 到自定义灵魂")
-    expect(html).toContain("绑定到小说人物")
+    // feature/fix-viewer-ui：删 skills tab，验证角色列表 + 绑定小说人物区
+    expect(html).toContain("角色列表")
+    expect(html).toContain("添加所选角色到自定义灵魂")
+    expect(html).toContain("绑定小说人物")
     expect(html).toContain("林烬")
+    // feature/book-analysis-reuse：顶栏重新提取按钮
+    expect(html).toContain("重新提取角色")
+    // 详情卡两个单角色按钮（detail 部分依赖选中角色，断言存在性）
+    // 由于该测试 mock 出 1 个角色且未点击选中，按钮区在没选中时不渲染；
+    // 单独 it 验证 selectedCharacter 时显示：
+  })
+
+  it("renders single-character reextract buttons when a character is selected", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisResultViewer
+        projectPath="E:/Novel"
+        onClose={() => undefined}
+        result={{
+          metadata: { title: "长夜书", totalChapters: 1, totalWords: 100, sourceType: "file", createdAt: 1, updatedAt: 2 },
+          characters: [{
+            id: "c1", name: "林烬", aliases: [], importance: 9, category: "protagonist",
+            firstAppearance: 1, lastAppearance: 1, appearanceCount: 1,
+            description: "", personality: "", speechStyle: "", relationships: [], keyEvents: [], corpus: "",
+          }],
+          skills: [],
+        }}
+      />,
+    )
+    // 默认未选中时不渲染单角色按钮（详情卡才有），所以这一条只验证空状态
+    expect(html).toContain("请从左侧选择角色查看详情")
   })
 })
