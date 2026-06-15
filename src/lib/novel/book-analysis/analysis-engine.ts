@@ -10,6 +10,8 @@ import type {
 } from "./types"
 import { createDirectory, writeFile, readFile, listDirectory } from "@/commands/fs"
 import { normalizePath, joinPath } from "@/lib/path-utils"
+import { fingerprintFileSample } from "./content-fingerprint"
+import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 
 export interface SplitChaptersInput {
   sourcePath: string
@@ -65,9 +67,8 @@ export async function splitNovelIntoChapters(
   onProgress?: (progress: any) => void,
   signal?: AbortSignal
 ): Promise<SplitChaptersResult> {
-  // 生成 bookId
+  // 生成 bookId - 顶部声明一次（feature/book-analysis-reuse）
   const now = Date.now()
-  const bookId = `book-${now}`
 
   onProgress?.({
     stage: "reading_file",
@@ -77,15 +78,33 @@ export async function splitNovelIntoChapters(
     percentage: 0,
   })
 
-  // 创建目录结构
-  const bookPath = await createAnalysisDirectories(projectPath, bookId)
-
-  // 读取源文件
+  // 读取源文件 + 算指纹（feature/book-analysis-reuse：先读后算 hash）
   let content: string
   try {
     content = await readFile(sourcePath)
   } catch (error) {
     throw new Error(`读取文件失败: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const contentHash = fingerprintFileSample(content)
+  const normalizedSource = normalizePath(sourcePath)
+
+  // 查重（feature/book-analysis-reuse）：命中则复用 bookId，跳过目录创建
+  const existing = await findBookLibraryEntry(projectPath, normalizedSource, contentHash)
+  let bookId: string
+  let bookPath: string
+  if (existing) {
+    bookId = existing.bookId
+    bookPath = normalizePath(joinPath(projectPath, "book-analysis", bookId))
+    onProgress?.({
+      stage: "reading_file",
+      stageLabel: "复用历史分析",
+      completed: 10,
+      total: 100,
+      percentage: 10,
+    })
+  } else {
+    bookId = `book-${now}`
+    bookPath = await createAnalysisDirectories(projectPath, bookId)
   }
 
   if (signal?.aborted) {
@@ -94,7 +113,7 @@ export async function splitNovelIntoChapters(
 
   onProgress?.({
     stage: "splitting_chapters",
-    stageLabel: "识别章节中",
+    stageLabel: existing ? "复用章节中" : "识别章节中",
     completed: 10,
     total: 100,
     percentage: 10,
@@ -173,14 +192,14 @@ ${chapterContent}
   const sourceFileName = sourcePath.split(/[/\\]/).pop()?.replace(/\.txt$/i, "") || "未命名作品"
   const bookTitle = sourceFileName
 
-  // 保存元数据
+  // 保存元数据（feature/book-analysis-reuse：复用时保留原 createdAt）
   const metadata: BookAnalysisMetadata = {
     title: bookTitle,
     author: undefined,
     totalChapters: chapters.length,
     totalWords,
     sourceType: "file",
-    createdAt: now,
+    createdAt: existing ? existing.createdAt : now,
     updatedAt: now,
   }
 
@@ -188,6 +207,21 @@ ${chapterContent}
     joinPath(bookPath, "metadata.json"),
     JSON.stringify(metadata, null, 2)
   )
+
+  // 注册到 library（feature/book-analysis-reuse）
+  await upsertBookLibraryEntry(projectPath, {
+    bookId,
+    sourcePath: normalizedSource,
+    contentHash,
+    title: bookTitle,
+    totalChapters: chapters.length,
+    totalWords,
+    charactersCount: existing?.charactersCount ?? 0,
+    skillsCount: existing?.skillsCount ?? 0,
+    status: "completed",
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  })
 
   onProgress?.({
     stage: "splitting_chapters",
