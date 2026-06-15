@@ -1,6 +1,7 @@
 /**
  * 拆书分析系统 - 类型定义（精简版，聚焦角色提取）
  */
+import type { LlmConfig } from "@/stores/wiki-store"
 
 /** 6 维度分析深度档位（feature/book-analysis-6d-skill） */
 export type AnalysisDepth = "fast" | "standard" | "deep"
@@ -88,10 +89,10 @@ export interface BookAnalysisProgress {
   /** 6 维度分析时：6 个维度的完整状态清单（UI 可直接渲染） */
   dimensions?: SixDimensionProgressItem[]
   /** 角色识别阶段状态（feature/character-recognition-and-simple-mode） */
-  recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognitionStatus?: "idle" | "heuristic" | "llm_recognizing" | "llm_scoring" | "done" | "error"
   recognizedCharactersCount?: number
   /** 简单提取进度（feature/character-recognition-and-simple-mode） */
-  simpleExtractionStatus?: "idle" | "running" | "done" | "error"
+  simpleExtractionStatus?: "idle" | "running" | "done" | "error" | "partial"
   simpleExtractionCompleted?: number
   simpleExtractionTotal?: number
 }
@@ -242,4 +243,38 @@ export interface BookAnalysisLibrary {
     charactersCount: number
     skillsCount: number
   }>
+}
+
+// === 作品库索引（feature/book-analysis-reuse）===
+export interface BookLibraryEntry {
+  bookId: string
+  sourcePath: string         // 标准化路径
+  contentHash: string        // fingerprintFileSample 结果
+  title: string
+  author?: string
+  totalChapters: number
+  totalWords: number
+  charactersCount: number
+  skillsCount: number
+  status: "completed" | "error" | "partial"
+  createdAt: number
+  updatedAt: number
+}
+
+export interface BookLibrary {
+  version: 1
+  entries: BookLibraryEntry[]
+}
+
+// === 单角色重新提取选项（feature/book-analysis-reuse）===
+export type SingleCharacterReextractMode = "simple" | "six-dimension"
+
+export interface SingleCharacterReextractOptions {
+  bookPath: string
+  bookId: string
+  character: ExtractedCharacter
+  mode: SingleCharacterReextractMode
+  depth?: AnalysisDepth
+  llmConfig: LlmConfig
+  signal?: AbortSignal
 }
