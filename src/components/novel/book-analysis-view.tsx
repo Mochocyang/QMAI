@@ -12,7 +12,6 @@ import type {
   AnalysisDepth,
   SixDimensionProgressItem,
   SixDimensionStatus,
-  RecognizedCharacter,
   ExtractedCharacter,
 } from "@/lib/novel/book-analysis/types"
 
@@ -66,6 +65,8 @@ export function BookAnalysisView() {
   const currentResult = useBookAnalysisStore((s) => s.currentResult)
   const showResultViewer = useBookAnalysisStore((s) => s.showResultViewer)
   const setShowResultViewer = useBookAnalysisStore((s) => s.setShowResultViewer)
+  // 角色识别 LLM 配置（feature/llm-character-recognizer）
+  const llmConfig = useWikiStore((s) => s.llmConfig)
   // 角色识别 store 状态与 actions（feature/character-recognition-and-simple-mode）
   const recognitionStatus = useBookAnalysisStore((s) => s.recognitionStatus)
   const recognizedCharacters = useBookAnalysisStore((s) => s.recognizedCharacters)
@@ -74,6 +75,7 @@ export function BookAnalysisView() {
   const setRecognizedCharacters = useBookAnalysisStore((s) => s.setRecognizedCharacters)
   const setSelectedCharacterIds = useBookAnalysisStore((s) => s.setSelectedCharacterIds)
   const clearRecognition = useBookAnalysisStore((s) => s.clearRecognition)
+  const recognitionError = useBookAnalysisStore((s) => s.recognitionError)
 
   const handleStartAnalysis = async (config: {
     sourceType: "file"
@@ -163,17 +165,17 @@ export function BookAnalysisView() {
     // 阶段 0：清空旧的识别状态
     clearRecognition()
 
-    // 阶段 1：启发式识别
+    // 阶段 1：启发式（提示用户已开始分析）
     setRecognitionStatus("heuristic")
     const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
     updateTaskProgress(taskId, {
       recognitionStatus: "heuristic",
-      stageLabel: "启发式识别角色中",
+      stageLabel: "读取章节中",
     })
 
     try {
       // 读取章节内容（feature/character-recognition-and-simple-mode）
-      const { heuristicRecognizeCharacters, llmScoreCharacters } = await import(
+      const { recognizeCharacters } = await import(
         "@/lib/novel/book-analysis/character-recognition-engine"
       )
 
@@ -188,51 +190,54 @@ export function BookAnalysisView() {
         const raw = await readFile(chapterPath)
         // 去除 frontmatter
         const body = raw.replace(/^---[\s\S]*?---\n/, "")
-        // 限长避免一次读太多（截取前 4000 字足够启发式）
+        // 限长避免一次读太多（截取前 4000 字足够启发式 / LLM）
         chapterContents.push({ index: i, content: body.slice(0, 4000) })
         if (abortController.signal.aborted) {
           throw new Error("用户取消")
         }
       }
 
-      // 启发式：minChapters 至少 2（避免噪音），章节数少时按比例缩
+      // 阶段 2：AI 识别（feature/llm-character-recognizer）
+      // 先 LLM 识别（精准），失败时回退到启发式
       const heuristicMinChapters = Math.min(2, selectedChapterIds.length)
-      const heuristic = heuristicRecognizeCharacters({
+
+      // 状态切到"AI 识别中"
+      if (llmConfig) {
+        setRecognitionStatus("llm_recognizing")
+        updateTaskProgress(taskId, {
+          recognitionStatus: "llm_recognizing",
+          stageLabel: "正在用 AI 识别角色",
+        })
+      }
+
+      const result = await recognizeCharacters({
         chapters: chapterContents,
         minChapters: heuristicMinChapters,
         sourceBook: bookPath,
+        llmConfig: llmConfig ?? undefined,
+        signal: abortController.signal,
       })
 
-      // 阶段 2：LLM 评分（仅在 standard / deep 走；fast 跳过节省 token）
-      let scored: RecognizedCharacter[] = heuristic
-      if (depth !== "fast" && heuristic.length > 0) {
-        setRecognitionStatus("llm_scoring")
-        updateTaskProgress(taskId, {
-          recognitionStatus: "llm_scoring",
-          stageLabel: "正在用 LLM 评分角色重要度",
-        })
-        const { useWikiStore } = await import("@/stores/wiki-store")
-        const llmConfig = useWikiStore.getState().llmConfig
-        const llmResult = await llmScoreCharacters({
-          candidates: heuristic,
-          chapters: chapterContents,
-          llmConfig,
-          signal: abortController.signal,
-        })
-        scored = llmResult.scored
-      }
+      if (abortController.signal.aborted) throw new Error("用户取消")
 
       // 阶段 3：写入 store（弹窗自动打开）
+      const sourceLabel = result.source === "llm" ? "AI 识别" : "启发式识别（AI 失败兜底）"
       updateTaskProgress(taskId, {
         recognitionStatus: "done",
-        recognizedCharactersCount: scored.length,
-        stageLabel: `识别出 ${scored.length} 个角色`,
+        recognizedCharactersCount: result.characters.length,
+        stageLabel:
+          result.source === "heuristic" && result.error
+            ? `识别出 ${result.characters.length} 个角色（AI 失败已回退：${result.error}）`
+            : `识别出 ${result.characters.length} 个角色（${sourceLabel}）`,
       })
-      setRecognizedCharacters(scored)
+      setRecognizedCharacters(result.characters)
     } catch (err) {
       if (abortController.signal.aborted) return
-      setRecognitionStatus("error")
       const errorMessage = err instanceof Error ? err.message : "识别失败"
+      const setRecognitionError = useBookAnalysisStore.getState().setRecognitionError
+      console.error("[角色识别] 失败：", err)
+      setRecognitionStatus("error")
+      setRecognitionError(errorMessage)
       updateTaskProgress(taskId, {
         recognitionStatus: "error",
         stageLabel: `角色识别失败：${errorMessage}`,
@@ -402,10 +407,7 @@ export function BookAnalysisView() {
       }
       const chapterSamples = samples.join("\n\n")
 
-      // 跑简单提取
-      const { extractSimpleProfiles } = await import(
-        "@/lib/novel/book-analysis/simple-extraction-engine"
-      )
+      // 跑简单提取（feature/network-error-resume：循环逐个提取，单个失败不影响其他）
       updateTaskProgress(taskId, {
         stage: "extracting_characters",
         stageLabel: "简单提取角色特征中",
@@ -414,20 +416,119 @@ export function BookAnalysisView() {
         simpleExtractionTotal: userPicked.length,
       })
 
-      const result = await extractSimpleProfiles({
-        candidates: userPicked,
-        chapterSamples,
-        llmConfig,
-        signal: abortController.signal,
-        onProgress: (completed, total) => {
-          updateTaskProgress(taskId, {
-            simpleExtractionStatus: "running",
-            simpleExtractionCompleted: completed,
-            simpleExtractionTotal: total,
-            stageLabel: `简单提取进度 ${completed}/${total}`,
-          })
-        },
+      // 注入真实 LLM 调用（feature/llm-character-recognizer — 复用 LLM 调用模式）
+      // 引擎内部 _llmCall ?? defaultLlmCall，没注入就走 defaultLlmCall 抛错
+      const currentLlmConfig = useWikiStore.getState().llmConfig
+      if (!currentLlmConfig) {
+        throw new Error("未配置 LLM，请先在设置中配置 LLM 后再提取")
+      }
+      const { streamChat } = await import("@/lib/llm-client")
+      const realLlmCall = async (prompt: string): Promise<string> => {
+        let response = ""
+        await streamChat(
+          currentLlmConfig,
+          [{ role: "user", content: prompt }],
+          {
+            onToken: (text) => { response += text },
+            onDone: () => {},
+            onError: (err) => { console.error("[simple-extract] LLM error:", err) },
+          },
+          abortController.signal
+        )
+        return response.trim()
+      }
+
+      // 循环逐个提取（feature/network-error-resume：单角色失败不影响其他）
+      const { extractSingleProfile } = await import(
+        "@/lib/novel/book-analysis/simple-extraction-engine"
+      )
+      const completedProfiles: Array<{
+        name: string
+        profile: { personality: string; motivation: string; speechStyle: string; behaviorPatterns: string; quotes: string[] }
+        error?: string
+        errorKind?: string
+      }> = []
+      const failedNames: string[] = []
+      let networkFailure = false
+
+      for (let i = 0; i < userPicked.length; i++) {
+        if (abortController.signal.aborted) throw new Error("用户取消")
+        const character = userPicked[i]
+        updateTaskProgress(taskId, {
+          stage: "extracting_characters",
+          stageLabel: `简单提取 ${i + 1}/${userPicked.length}：${character.name}`,
+          simpleExtractionStatus: "running",
+          simpleExtractionCompleted: i,
+          simpleExtractionTotal: userPicked.length,
+        })
+        const singleResult = await extractSingleProfile({
+          character,
+          chapterSamples,
+          llmConfig: currentLlmConfig,
+          signal: abortController.signal,
+          _llmCall: realLlmCall,
+        })
+        completedProfiles.push({
+          name: singleResult.name,
+          profile: singleResult.profile,
+          error: singleResult.error,
+          errorKind: singleResult.errorKind,
+        })
+        if (singleResult.error) {
+          failedNames.push(character.name)
+          if (singleResult.errorKind === "network") networkFailure = true
+        }
+        updateTaskProgress(taskId, {
+          simpleExtractionCompleted: i + 1,
+          simpleExtractionTotal: userPicked.length,
+        })
+      }
+
+      // 阶段结果：成功 N，失败 K
+      const succeeded = completedProfiles.length - failedNames.length
+      const errorSummary = failedNames.length > 0
+        ? `（失败 ${failedNames.length} 个：${failedNames.slice(0, 3).join("、")}${failedNames.length > 3 ? "..." : ""}）`
+        : ""
+      const errorKindLabel = networkFailure
+        ? "网络中断"
+        : (failedNames.length > 0 ? "提取出错" : "")
+      const resumeHint = failedNames.length > 0
+        ? "，点击任务卡上的『继续生成』按钮可重试失败的角色"
+        : ""
+      updateTaskProgress(taskId, {
+        stageLabel: `${errorKindLabel ? errorKindLabel + "：" : ""}成功 ${succeeded}/${userPicked.length}${errorSummary}${resumeHint}`,
+        simpleExtractionStatus: failedNames.length > 0 ? "partial" : "done",
       })
+
+      // 把失败列表存到 task.metadata，任务卡渲染"继续生成"按钮用
+      const currentTask = useBookAnalysisStore.getState().tasks.find((t) => t.id === taskId)
+      if (currentTask) {
+        updateTaskProgress(taskId, {})  // 触发一次刷新占位
+        useBookAnalysisStore.setState((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  metadata: {
+                    ...(t.metadata ?? {}),
+                    // feature/network-error-resume：失败的角色名列表
+                    failedCharacterNames: failedNames,
+                    networkFailure,
+                  } as any,
+                }
+              : t
+          ),
+        }))
+      }
+
+      // 组装 result（用一次性的 extractSimpleProfiles 走兼容路径：仅用于 result 包装）
+      // 这里直接用 completedProfiles 构造
+      const result = {
+        profiles: completedProfiles.map((p) => ({ name: p.name, profile: p.profile })),
+        error: failedNames.length > 0
+          ? `${errorKindLabel}：${failedNames.length} 个角色失败`
+          : undefined,
+      }
 
       // 组装 ExtractedCharacter 列表
       const characters: ExtractedCharacter[] = userPicked.map((picked) => {
@@ -495,6 +596,140 @@ export function BookAnalysisView() {
     }
   }
 
+  // 继续生成失败的角色（feature/network-error-resume）
+  const handleResumeFailedExtraction = async (taskId: string) => {
+    const task = useBookAnalysisStore.getState().tasks.find((t) => t.id === taskId)
+    if (!task) return
+    const failedNames = (task.metadata as any)?.failedCharacterNames as string[] | undefined
+    if (!failedNames || failedNames.length === 0) return
+
+    // 从 task.characters 中按名字匹配失败的 character
+    const failedCharacters = (task.characters ?? []).filter((c) => failedNames.includes(c.name))
+    if (failedCharacters.length === 0) return
+
+    const abortController = new AbortController()
+    const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
+    const updateTaskCharacters = useBookAnalysisStore.getState().updateTaskCharacters
+
+    const llmConfig = useWikiStore.getState().llmConfig
+    if (!llmConfig) {
+      alert("未配置 LLM，请先在设置中配置")
+      return
+    }
+    const { streamChat } = await import("@/lib/llm-client")
+    const realLlmCall = async (prompt: string): Promise<string> => {
+      let response = ""
+      await streamChat(
+        llmConfig,
+        [{ role: "user", content: prompt }],
+        {
+          onToken: (text) => { response += text },
+          onDone: () => {},
+          onError: (err) => { console.error("[resume] LLM error:", err) },
+        },
+        abortController.signal
+      )
+      return response.trim()
+    }
+
+    const sourceBook = (task.metadata as any)?.sourceBook
+    if (!sourceBook) {
+      alert("找不到原始作品路径，无法继续生成")
+      return
+    }
+    const { joinPath } = await import("@/lib/path-utils")
+    const { readFile } = await import("@/commands/fs")
+    const samples: string[] = []
+    try {
+      const raw = await readFile(joinPath(sourceBook, "chapters", "1.md"))
+      samples.push(`【第 1 章】\n${raw.replace(/^---[\s\S]*?---\n/, "").slice(0, 1500)}`)
+    } catch {
+      alert("无法读取原始章节内容，请重新发起提取")
+      return
+    }
+    const chapterSamples = samples.join("\n\n")
+
+    const { extractSingleProfile } = await import(
+      "@/lib/novel/book-analysis/simple-extraction-engine"
+    )
+
+    updateTaskProgress(taskId, {
+      stageLabel: `继续生成 ${failedCharacters.length} 个失败角色中...`,
+      simpleExtractionStatus: "running",
+      simpleExtractionCompleted: 0,
+      simpleExtractionTotal: failedCharacters.length,
+    })
+
+    const updated = [...(task.characters ?? [])]
+    let succeeded = 0
+    const stillFailed: string[] = []
+    for (let i = 0; i < failedCharacters.length; i++) {
+      const ch = failedCharacters[i]
+      const singleResult = await extractSingleProfile({
+        character: {
+          id: ch.id,
+          name: ch.name,
+          aliases: ch.aliases ?? [],
+          appearances: ch.appearanceCount,
+          chapterIndices: [ch.firstAppearance - 1],
+          importanceScore: ch.importance,
+          category: ch.category === "protagonist" ? "主角" : ch.category === "supporting" ? "配角" : "次要",
+          sourceBook: sourceBook,
+        },
+        chapterSamples,
+        llmConfig,
+        signal: abortController.signal,
+        _llmCall: realLlmCall,
+      })
+      const targetIdx = updated.findIndex((u) => u.id === ch.id)
+      if (targetIdx >= 0 && !singleResult.error) {
+        updated[targetIdx] = {
+          ...updated[targetIdx],
+          personality: singleResult.profile.personality,
+          speechStyle: singleResult.profile.speechStyle,
+          personalityProfile: singleResult.profile,
+        }
+        succeeded++
+      } else if (singleResult.error) {
+        stillFailed.push(ch.name)
+      }
+    }
+    updateTaskCharacters(taskId, updated)
+
+    // 更新 failedCharacterNames
+    useBookAnalysisStore.setState((state) => ({
+      tasks: state.tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, metadata: { ...(t.metadata ?? {}), failedCharacterNames: stillFailed } as any }
+          : t
+      ),
+    }))
+
+    updateTaskProgress(taskId, {
+        stageLabel: stillFailed.length > 0
+          ? `继续生成完成：成功 ${succeeded}，仍失败 ${stillFailed.length}（${stillFailed.slice(0, 3).join("、")}${stillFailed.length > 3 ? "..." : ""}）`
+          : `继续生成完成：成功 ${succeeded}，全部完成`,
+        simpleExtractionStatus: stillFailed.length > 0 ? "partial" : "done",
+      })
+
+    if (succeeded > 0) {
+      try {
+        const { generateSkillsForCharacters } = await import(
+          "@/lib/novel/book-analysis/skill-generator"
+        )
+        const skills = await generateSkillsForCharacters(
+          updated,
+          task.metadata as any,
+          sourceBook,
+          llmConfig,
+        )
+        useBookAnalysisStore.getState().updateTaskSkills(taskId, skills)
+      } catch (e) {
+        console.error("[resume] regenerate skills failed:", e)
+      }
+    }
+  }
+
   const handleChapterSelectionCancel = () => {
     if (chapterSelectionData) {
       cancelTask(chapterSelectionData.taskId)
@@ -502,10 +737,11 @@ export function BookAnalysisView() {
     }
   }
 
-  // 如果没有任务，显示欢迎页
+  // 如果没有任务，显示欢迎页（feature/fix-viewer-from-sidebar：欢迎页下也允许打开 viewer）
   if (tasks.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <>
+        <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md text-center space-y-6">
           <div className="flex justify-center">
             <div className="rounded-full bg-primary/10 p-6">
@@ -563,13 +799,26 @@ export function BookAnalysisView() {
             支持本地TXT文件，自动识别章节结构
           </div>
         </div>
+        </div>
 
         <BookAnalysisInputDialog
           open={inputDialogOpen}
           onOpenChange={setInputDialogOpen}
           onSubmit={handleStartAnalysis}
         />
-      </div>
+
+        {/* feature/fix-viewer-from-sidebar：欢迎页下也允许从侧边栏打开历史结果 viewer */}
+        {(viewingResultPath || showResultViewer) && (
+          <BookAnalysisResultViewer
+            projectPath={viewingResultPath ?? currentProject?.path ?? ""}
+            result={currentResult}
+            onClose={() => {
+              setViewingResultPath(null)
+              setShowResultViewer(false)
+            }}
+          />
+        )}
+      </>
     )
   }
 
@@ -588,7 +837,16 @@ export function BookAnalysisView() {
         {tasks.map((task) => (
           <div
             key={task.id}
-            className="border rounded-lg p-4 space-y-3"
+            className="border rounded-lg p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            role="button"
+            tabIndex={0}
+            onClick={() => setViewingResultPath(task.projectPath)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setViewingResultPath(task.projectPath)
+              }
+            }}
           >
             <div className="flex items-start justify-between">
               <div>
@@ -681,11 +939,24 @@ export function BookAnalysisView() {
             {task.status === "completed" && (
               <div className="flex gap-2 mt-3">
                 <button
-                  onClick={() => setViewingResultPath(task.projectPath)}
-                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
+                  type="button"
+                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium pointer-events-none"
                 >
                   查看分析结果
                 </button>
+                {/* feature/network-error-resume：失败角色时显示"继续生成"按钮 */}
+                {(() => {
+                  const failedNames = (task.metadata as any)?.failedCharacterNames as string[] | undefined
+                  if (!failedNames || failedNames.length === 0) return null
+                  return (
+                    <button
+                      onClick={() => handleResumeFailedExtraction(task.id)}
+                      className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors text-sm font-medium"
+                    >
+                      继续生成（{failedNames.length}）
+                    </button>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -718,6 +989,7 @@ export function BookAnalysisView() {
           recognitionStatus={recognitionStatus}
           recognizedCharacters={recognizedCharacters}
           selectedCharacterIds={selectedCharacterIds}
+          recognitionError={recognitionError}
           onToggleCharacter={handleToggleCharacter}
           onSelectAllMain={handleSelectAllMain}
           onClearSelection={handleClearSelection}
