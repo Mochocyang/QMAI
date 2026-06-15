@@ -5,17 +5,15 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { User, FileText, X, Download, BookOpen, Plus, RefreshCw } from "lucide-react"
+import { User, X, Plus } from "lucide-react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
 import { importBookAnalysisSkillsAsAuras, type ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
-import { reanalyzeSixDimensions, DEPTH_DESCRIPTIONS } from "@/lib/novel/book-analysis/six-dimension-engine"
-import { isSixDimensionSkill } from "@/lib/novel/book-analysis/skill-generator"
-import { revealInFileManager } from "@/lib/reveal-in-file-manager"
+import { extractSingleCharacter } from "@/lib/novel/book-analysis/character-extraction-engine"
+import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
-import type { AnalysisDepth, BookAnalysisResult, CharacterSkill, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
+import type { BookAnalysisResult, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
   projectPath: string
@@ -24,17 +22,21 @@ interface BookAnalysisResultViewerProps {
 }
 
 export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookAnalysisResultViewerProps) {
-  const [activeTab, setActiveTab] = useState<"characters" | "skills">("characters")
   const [error, setError] = useState<string>("")
   const [selectedCharacter, setSelectedCharacter] = useState<ExtractedCharacter | null>(null)
   const [sortByImportance, setSortByImportance] = useState(true)
   const [addingToSoul, setAddingToSoul] = useState(false)
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  // feature/fix-viewer-ui：selectedCharacterIds 改为"选中的角色"id（多选）
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set())
   const [importedAuras, setImportedAuras] = useState<ImportedBookAnalysisAura[]>([])
   const [bindableCharacters, setBindableCharacters] = useState<string[]>([])
   const [selectedAuraId, setSelectedAuraId] = useState("")
-  const [selectedNovelCharacter, setSelectedNovelCharacter] = useState("")
-  const [reanalyzingSkillId, setReanalyzingSkillId] = useState<string | null>(null)
+  // feature/fix-viewer-ui：多选小说人物
+  const [selectedNovelCharacterIds, setSelectedNovelCharacterIds] = useState<Set<string>>(new Set())
+  // feature/book-analysis-reuse：顶栏「重新提取角色」按钮
+  const [reextractOpen, setReextractOpen] = useState(false)
+  const [reextractDepth, setReextractDepth] = useState<"simple" | "six-dimension">("simple")
+  const [reextractRunning, setReextractRunning] = useState(false)
 
   const currentProject = useWikiStore((s) => s.project)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -61,7 +63,11 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       .then((names) => {
         if (cancelled) return
         setBindableCharacters(names)
-        setSelectedNovelCharacter((current) => current || names[0] || "")
+        // feature/fix-viewer-ui：多选模式下默认勾选第一个（兼容旧 UX）
+        setSelectedNovelCharacterIds((current) => {
+          if (current.size > 0) return current
+          return names.length > 0 ? new Set([names[0]]) : new Set()
+        })
       })
       .catch(() => {
         if (!cancelled) setBindableCharacters([])
@@ -77,15 +83,53 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     ? [...characters].sort((a, b) => b.importance - a.importance || a.name.localeCompare(b.name, "zh-CN"))
     : characters
 
+  const handleReextractAll = async () => {
+    if (!currentProject?.path || !effectiveResult || reextractRunning) return
+    setReextractRunning(true)
+    try {
+      const llmConfig = useWikiStore.getState().llmConfig
+      let updated: ExtractedCharacter[] = []
+      for (const c of characters) {
+        const { character: fresh } = await extractSingleCharacter({
+          bookPath: joinPath(currentProject.path, "book-analysis", effectiveResult.metadata.title),
+          bookId: "",
+          character: c,
+          mode: reextractDepth === "simple" ? "simple" : "six-dimension",
+          depth: "standard",
+          llmConfig,
+          signal: undefined,
+        })
+        updated.push(fresh)
+      }
+      // 写回 result metadata 触发展示刷新
+      useBookAnalysisStore.setState((s) => ({
+        tasks: s.tasks.map((t) =>
+          t.projectPath === projectPath && t.status === "completed"
+            ? { ...t, characters: updated, updatedAt: Date.now() }
+            : t,
+        ),
+      }))
+      toast.success(`已重新提取 ${updated.length} 个角色`)
+      setReextractOpen(false)
+    } catch (err) {
+      toast.error(`重新提取失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setReextractRunning(false)
+    }
+  }
+
   const handleAddSkillsToSoul = async () => {
     if (!currentProject?.path || !effectiveResult) {
       toast.error("未找到当前项目或分析结果")
       return
     }
 
-    const ids = Array.from(selectedSkillIds)
-    if (ids.length === 0) {
-      toast.info("请先勾选要添加的角色 Skill")
+    // feature/fix-viewer-ui：把"选中的角色"映射到"选中的 skill"
+    const selectedSkillIds = skills
+      .filter((skill) => selectedCharacterIds.has(skill.characterId))
+      .map((skill) => skill.id)
+    if (selectedSkillIds.length === 0) {
+      toast.info("请先勾选要添加的角色")
       return
     }
 
@@ -97,11 +141,11 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         effectiveResult.metadata,
         characters,
         skills,
-        ids,
+        selectedSkillIds,
       )
       setImportedAuras((current) => [...current, ...imported])
       setSelectedAuraId((current) => current || imported[0]?.auraId || "")
-      setSelectedSkillIds(new Set())
+      setSelectedCharacterIds(new Set())
       bumpDataVersion()
       toast.success(`已添加 ${imported.length} 个角色 Skill 到自定义灵魂`)
     } catch (err) {
@@ -113,103 +157,45 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   }
 
   const handleSelectAllSkills = () => {
-    setSelectedSkillIds(new Set(skills.map((skill) => skill.id)))
+    setSelectedCharacterIds(new Set(characters.map((c) => c.id)))
   }
 
   const handleClearSkillSelection = () => {
-    setSelectedSkillIds(new Set())
+    setSelectedCharacterIds(new Set())
   }
 
   const handleBindImportedAura = async () => {
-    if (!currentProject?.path || !selectedAuraId || !selectedNovelCharacter.trim()) {
-      toast.error("请先选择自定义灵魂和小说人物")
+    if (!currentProject?.path || !selectedAuraId || selectedNovelCharacterIds.size === 0) {
+      toast.error("请先选择自定义灵魂和至少一个小说人物")
       return
     }
 
-    try {
-      await bindCharacterAura(currentProject.path, {
-        characterName: selectedNovelCharacter.trim(),
-        auraId: selectedAuraId,
-      })
-      bumpDataVersion()
-      const auraName = importedAuras.find((item) => item.auraId === selectedAuraId)?.auraName ?? "角色灵魂"
-      toast.success(`已将「${auraName}」绑定到「${selectedNovelCharacter.trim()}」`)
-    } catch (err) {
-      const errorMsg = err instanceof Error && err.message ? err.message : "未知错误"
-      toast.error(`绑定失败：${errorMsg}`)
+    const names = Array.from(selectedNovelCharacterIds)
+    let succeeded = 0
+    let failed = 0
+    for (const name of names) {
+      try {
+        await bindCharacterAura(currentProject.path, {
+          characterName: name,
+          auraId: selectedAuraId,
+        })
+        succeeded++
+      } catch (err) {
+        console.error(`[bind] 失败：${name}`, err)
+        failed++
+      }
     }
+    bumpDataVersion()
+    const auraName = importedAuras.find((item) => item.auraId === selectedAuraId)?.auraName ?? "角色灵魂"
+    if (failed === 0) {
+      toast.success(`已将「${auraName}」绑定到 ${succeeded} 个小说人物`)
+    } else {
+      toast.info(`绑定完成：成功 ${succeeded}，失败 ${failed}`)
+    }
+    setSelectedNovelCharacterIds(new Set())
   }
 
-  const handleReanalyzeSkill = async (skill: CharacterSkill) => {
-    if (!effectiveResult) return
-    const character = effectiveResult.characters.find((c) => c.id === skill.characterId)
-    if (!character) {
-      toast.error("未找到对应角色")
-      return
-    }
-    if (!isSixDimensionSkill(character)) {
-      toast.error("该角色未生成 6 维度研究内容，请重新分析整本书")
-      return
-    }
-    // 选择深度（简单 confirm）
-    const pick = window.prompt(
-      `重新分析「${skill.characterName}」的 6 维度内容\n\n请选择深度：\n1 = 快速（无 LLM）\n2 = 标准（6 次 LLM）\n3 = 完整（6 次 LLM + 网络搜索）`,
-      "2"
-    )
-    let depth: AnalysisDepth = "standard"
-    if (pick === "1") depth = "fast"
-    else if (pick === "2") depth = "standard"
-    else if (pick === "3") depth = "deep"
-    else return
-
-    setReanalyzingSkillId(skill.id)
-    try {
-      const { streamChat: _ignore } = await import("@/lib/llm-client")
-      const { useWikiStore: w } = await import("@/stores/wiki-store")
-      const llmConfig = w.getState().llmConfig
-      const { writeFile } = await import("@/commands/fs")
-      const result = await reanalyzeSixDimensions({
-        character: { ...character },
-        corpus: character.corpus || "",
-        llmConfig,
-        depth,
-        bookTitle: effectiveResult.metadata.title,
-        bookAuthor: effectiveResult.metadata.author,
-      })
-      // 写回 character
-      const idx = effectiveResult.characters.findIndex((c) => c.id === character.id)
-      if (idx >= 0) effectiveResult.characters[idx] = result.character
-      // 重写 skill 文件
-      const { generateCharacterSkill } = await import("@/lib/novel/book-analysis/skill-generator")
-      const { joinPath } = await import("@/lib/path-utils")
-      const skillContent = await generateCharacterSkill(
-        result.character,
-        effectiveResult.metadata,
-        llmConfig
-      )
-      const safeName = skill.characterName.replace(/[^一-龥a-zA-Z0-9]/g, "_")
-      const skillPath = joinPath(projectPath, "skills", `${safeName}-skill.md`)
-      await writeFile(skillPath, skillContent)
-      // 写回 character.json
-      const { joinPath: jp } = await import("@/lib/path-utils")
-      const charPath = jp(projectPath, "characters", `${character.id}.json`)
-      await writeFile(charPath, JSON.stringify(result.character, null, 2))
-
-      // 更新 skill 内存数据
-      skill.skillContent = skillContent
-      skill.depth = result.character.sixDimensionMeta?.depth
-      skill.sixDimensionMeta = result.character.sixDimensionMeta
-      bumpDataVersion()
-      toast.success(
-        `已重新分析「${skill.characterName}」（${DEPTH_DESCRIPTIONS[depth].label}）`
-      )
-    } catch (err) {
-      const errorMsg = err instanceof Error && err.message ? err.message : "未知错误"
-      toast.error(`重跑 6 维度失败：${errorMsg}`)
-    } finally {
-      setReanalyzingSkillId(null)
-    }
-  }
+  // feature/fix-viewer-ui：删 skills tab，连带删 handleReanalyzeSkill（已无调用点）
 
   const getCategoryLabel = (category: string) => {
     const labels: Record<string, string> = {
@@ -253,43 +239,62 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               {effectiveResult?.metadata?.title || "未命名作品"}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReextractOpen((v) => !v)}
+                disabled={reextractRunning || characters.length === 0}
+              >
+                {reextractRunning ? "提取中..." : "重新提取角色"}
+              </Button>
+              {reextractOpen && (
+                <div className="absolute right-0 top-full mt-1 z-10 w-56 rounded-md border bg-background p-2 shadow-md space-y-2">
+                  <div className="text-xs text-muted-foreground px-1">选择提取方式</div>
+                  <label className="flex items-center gap-2 px-1 text-sm">
+                    <input
+                      type="radio"
+                      name="reextract"
+                      checked={reextractDepth === "simple"}
+                      onChange={() => setReextractDepth("simple")}
+                    />
+                    简单提取(快速)
+                  </label>
+                  <label className="flex items-center gap-2 px-1 text-sm">
+                    <input
+                      type="radio"
+                      name="reextract"
+                      checked={reextractDepth === "six-dimension"}
+                      onChange={() => setReextractDepth("six-dimension")}
+                    />
+                    深度提取(6 维)
+                  </label>
+                  <Button size="sm" className="w-full" onClick={handleReextractAll} disabled={reextractRunning}>
+                    开始
+                  </Button>
+                </div>
+              )}
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
-        {/* Tab 切换 */}
+        {/* feature/fix-viewer-ui：删 skills tab，只保留角色列表 */}
         <div className="flex border-b">
-          <button
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 transition-colors ${
-              activeTab === "characters"
-                ? "border-primary text-foreground font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setActiveTab("characters")}
-          >
+          <div className="flex items-center gap-2 px-6 py-3 border-b-2 border-primary text-foreground font-medium">
             <User className="h-4 w-4" />
             角色列表 ({characters.length})
-          </button>
-          <button
-            className={`flex items-center gap-2 px-6 py-3 border-b-2 transition-colors ${
-              activeTab === "skills"
-                ? "border-primary text-foreground font-medium"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setActiveTab("skills")}
-          >
-            <FileText className="h-4 w-4" />
-            生成的 Skills ({skills.length})
-          </button>
+          </div>
         </div>
 
-        {/* 内容区域 */}
-        <div className="flex-1 overflow-hidden">
-          {activeTab === "characters" && (
-            <div className="h-full flex">
-              {/* 角色列表 */}
-              <ScrollArea className="w-1/3 border-r">
+        {/* 内容区域（feature/fix-viewer-ui：删除 skills tab，只剩角色列表） */}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <div className="h-full flex min-h-0">
+              {/* 角色列表（feature/fix-viewer-scroll：原生 div + overflow-y-auto + min-h-0） */}
+              <div className="w-1/3 border-r overflow-y-auto min-h-0">
                 <div className="p-4 space-y-2">
                   {sortedCharacters.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
@@ -301,56 +306,166 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                         <span className="text-muted-foreground">
                           共 {sortedCharacters.length} 个角色
                           {sortByImportance && " · 按重要性排序"}
+                          {selectedCharacterIds.size > 0 && ` · 已选 ${selectedCharacterIds.size}`}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setSortByImportance((current) => !current)}
-                          className="rounded border px-2 py-0.5 text-foreground hover:bg-muted"
-                        >
-                          {sortByImportance ? "恢复原序" : "按重要性排序"}
-                        </button>
-                      </div>
-                      {sortedCharacters.map((character) => (
-                      <button
-                        key={character.id}
-                        className={`w-full text-left p-4 rounded-lg border transition-colors ${
-                          selectedCharacter?.id === character.id
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:bg-muted"
-                        }`}
-                        onClick={() => setSelectedCharacter(character)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{character.name}</div>
-                            {character.aliases.length > 0 && (
-                              <div className="text-xs text-muted-foreground mt-1 truncate">
-                                别名：{character.aliases.join("、")}
-                              </div>
-                            )}
-                          </div>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${getCategoryColor(
-                              character.category
-                            )}`}
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSortByImportance((current) => !current)}
+                            className="rounded border px-2 py-0.5 text-foreground hover:bg-muted"
                           >
-                            {getCategoryLabel(character.category)}
-                          </span>
+                            {sortByImportance ? "恢复原序" : "按重要性排序"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSelectAllSkills}
+                            className="rounded border px-2 py-0.5 text-foreground hover:bg-muted"
+                          >
+                            全选
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearSkillSelection}
+                            className="rounded border px-2 py-0.5 text-foreground hover:bg-muted"
+                          >
+                            清空
+                          </button>
                         </div>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                          <span>重要性: {character.importance}/10</span>
-                          <span>•</span>
-                          <span>出现: {character.appearanceCount}次</span>
-                        </div>
-                      </button>
-                    ))}
+                      </div>
+                      {sortedCharacters.map((character) => {
+                        const isChecked = selectedCharacterIds.has(character.id)
+                        return (
+                          <div
+                            key={character.id}
+                            className={`w-full text-left p-4 rounded-lg border transition-colors ${
+                              isChecked
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:bg-muted"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              {/* feature/fix-viewer-ui：复选框，多选角色 */}
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  setSelectedCharacterIds((prev) => {
+                                    const next = new Set(prev)
+                                    if (e.target.checked) next.add(character.id)
+                                    else next.delete(character.id)
+                                    return next
+                                  })
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="mt-1 h-4 w-4 cursor-pointer accent-primary"
+                              />
+                              <button
+                                type="button"
+                                className="flex-1 min-w-0 text-left"
+                                onClick={() => setSelectedCharacter(character)}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium truncate">{character.name}</div>
+                                    {character.aliases.length > 0 && (
+                                      <div className="text-xs text-muted-foreground mt-1 truncate">
+                                        别名：{character.aliases.join("、")}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${getCategoryColor(
+                                      character.category
+                                    )}`}
+                                  >
+                                    {getCategoryLabel(character.category)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                                  <span>重要性: {character.importance}/10</span>
+                                  <span>•</span>
+                                  <span>出现: {character.appearanceCount}次</span>
+                                </div>
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </>
                   )}
                 </div>
-              </ScrollArea>
 
-              {/* 角色详情 */}
-              <ScrollArea className="flex-1">
+                {/* feature/fix-viewer-ui：角色列表底部"绑定小说人物"区（多选） */}
+                {importedAuras.length > 0 && bindableCharacters.length > 0 && (
+                  <div className="mt-4 rounded-lg border bg-muted/10 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        绑定小说人物（多选）
+                      </div>
+                      {selectedNovelCharacterIds.size > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          已选 {selectedNovelCharacterIds.size}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                      {bindableCharacters.map((name) => {
+                        const isChecked = selectedNovelCharacterIds.has(name)
+                        return (
+                          <label
+                            key={name}
+                            className={`flex items-center gap-2 rounded px-2 py-1 cursor-pointer text-sm hover:bg-muted ${
+                              isChecked ? "bg-primary/5" : ""
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                setSelectedNovelCharacterIds((prev) => {
+                                  const next = new Set(prev)
+                                  if (e.target.checked) next.add(name)
+                                  else next.delete(name)
+                                  return next
+                                })
+                              }}
+                              className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                            />
+                            <span className="truncate">{name}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <select
+                        value={selectedAuraId}
+                        onChange={(event) => setSelectedAuraId(event.target.value)}
+                        className="rounded-md border bg-background px-2 py-1 text-xs"
+                      >
+                        {importedAuras.map((item) => (
+                          <option key={item.auraId} value={item.auraId}>{item.auraName}</option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleBindImportedAura}
+                        disabled={selectedNovelCharacterIds.size === 0 || !selectedAuraId}
+                      >
+                        绑定 {selectedNovelCharacterIds.size > 0 ? `(${selectedNovelCharacterIds.size})` : ""} 并加入灵魂
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {importedAuras.length === 0 && (
+                  <div className="mt-4 rounded-lg border border-dashed bg-muted/10 p-3 text-xs text-muted-foreground">
+                    先在上方勾选角色并点击「添加所选角色到自定义灵魂」，再回到这里绑定小说人物。
+                  </div>
+                )}
+              </div>
+
+              {/* 角色详情（feature/fix-viewer-scroll：原生 div + overflow-y-auto + min-h-0） */}
+              <div className="flex-1 overflow-y-auto min-h-0">
                 {selectedCharacter ? (
                   <div className="p-6 space-y-6">
                     <div>
@@ -425,190 +540,22 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                     请从左侧选择角色查看详情
                   </div>
                 )}
-              </ScrollArea>
-            </div>
-          )}
-
-          {activeTab === "skills" && (
-            <ScrollArea className="h-full">
-              <div className="p-6 space-y-4">
-                {skills.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    暂无生成的 Skills
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-sm">
-                      <span className="text-muted-foreground">
-                        已选 {selectedSkillIds.size} / {skills.length} 个 Skill
-                      </span>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleSelectAllSkills}
-                          disabled={selectedSkillIds.size === skills.length}
-                        >
-                          全选
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleClearSkillSelection}
-                          disabled={selectedSkillIds.size === 0}
-                        >
-                          清空
-                        </Button>
-                      </div>
-                    </div>
-                    {skills.map((skill) => (
-                      <div
-                        key={skill.id}
-                        className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
-                      >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <BookOpen className="h-5 w-5 text-primary" />
-                            <h3 className="font-semibold text-lg">{skill.characterName}</h3>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            来源：{skill.sourceBook}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            章节范围：{skill.chapterRange.join(" - ")}
-                          </p>
-                          <label className="mt-3 flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={selectedSkillIds.has(skill.id)}
-                              onChange={(event) => {
-                                setSelectedSkillIds((current) => {
-                                  const next = new Set(current)
-                                  if (event.target.checked) next.add(skill.id)
-                                  else next.delete(skill.id)
-                                  return next
-                                })
-                              }}
-                            />
-                            <span>选择此 Skill</span>
-                          </label>
-                        </div>
-                        <div className="flex flex-col gap-2 shrink-0">
-                          {!skill.depth && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={reanalyzingSkillId === skill.id}
-                              onClick={() => handleReanalyzeSkill(skill)}
-                            >
-                              <RefreshCw className={`h-4 w-4 mr-2 ${reanalyzingSkillId === skill.id ? "animate-spin" : ""}`} />
-                              {reanalyzingSkillId === skill.id ? "分析中..." : "升级到 6 维度"}
-                            </Button>
-                          )}
-                          {skill.depth && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={reanalyzingSkillId === skill.id}
-                              onClick={() => handleReanalyzeSkill(skill)}
-                              title={`当前深度：${DEPTH_DESCRIPTIONS[skill.depth].label}，点击重新分析`}
-                            >
-                              <RefreshCw className={`h-4 w-4 mr-2 ${reanalyzingSkillId === skill.id ? "animate-spin" : ""}`} />
-                              {reanalyzingSkillId === skill.id ? "分析中..." : "重跑 6 维度"}
-                            </Button>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              if (!skill.filePath) {
-                                toast.error("该 Skill 暂未保存到本地文件")
-                                return
-                              }
-                              try {
-                                await revealInFileManager(skill.filePath)
-                              } catch (error) {
-                                const message = error instanceof Error ? error.message : "未知错误"
-                                toast.error(`打开文件失败：${message}`)
-                              }
-                            }}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            查看 Skill
-                          </Button>
-                        </div>
-                      </div>
-                      {skill.skillContent && (
-                        <details className="mt-4">
-                          <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-                            展开预览
-                          </summary>
-                          <pre className="mt-2 text-xs bg-muted p-3 rounded overflow-x-auto max-h-60">
-                            {skill.skillContent.substring(0, 500)}...
-                          </pre>
-                        </details>
-                      )}
-                      </div>
-                    ))}
-                  </>
-                )}
               </div>
-            </ScrollArea>
-          )}
+            </div>
+
+          {/* feature/fix-viewer-ui：删 skills tab 内容区 */}
         </div>
 
-        {/* 底部操作栏 */}
+        {/* 底部操作栏（feature/fix-viewer-ui：绑定小说人物区移到角色列表底部） */}
         <div className="border-t px-6 py-4 flex items-center justify-end gap-2">
-          {skills.length > 0 && (
-            <div className="mr-auto flex flex-wrap items-center justify-end gap-2 text-sm">
-              <span className="text-muted-foreground">绑定到小说人物</span>
-              <select
-                value={selectedAuraId}
-                onChange={(event) => setSelectedAuraId(event.target.value)}
-                className="rounded-md border bg-background px-2 py-1 text-xs"
-                disabled={importedAuras.length === 0}
-              >
-                {importedAuras.length === 0 ? (
-                  <option value="">请先添加 Skill</option>
-                ) : (
-                  importedAuras.map((item) => (
-                    <option key={item.auraId} value={item.auraId}>{item.auraName}</option>
-                  ))
-                )}
-              </select>
-              <select
-                value={selectedNovelCharacter}
-                onChange={(event) => setSelectedNovelCharacter(event.target.value)}
-                className="rounded-md border bg-background px-2 py-1 text-xs"
-                disabled={bindableCharacters.length === 0}
-              >
-                {bindableCharacters.length === 0 ? (
-                  <option value="">请先在人物小传或实体页中添加小说人物</option>
-                ) : (
-                  bindableCharacters.map((name) => <option key={name} value={name}>{name}</option>)
-                )}
-              </select>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBindImportedAura}
-                disabled={!selectedAuraId || !selectedNovelCharacter}
-              >
-                绑定
-              </Button>
-            </div>
-          )}
           {skills.length > 0 && (
             <Button
               variant="outline"
               onClick={handleAddSkillsToSoul}
-              disabled={addingToSoul || selectedSkillIds.size === 0}
+              disabled={addingToSoul || selectedCharacterIds.size === 0}
             >
               <Plus className="h-4 w-4 mr-2" />
-              {addingToSoul ? "添加中..." : `添加所选 Skill 到自定义灵魂 (${selectedSkillIds.size})`}
+              {addingToSoul ? "添加中..." : `添加所选角色到自定义灵魂 (${selectedCharacterIds.size})`}
             </Button>
           )}
           <Button onClick={onClose}>关闭</Button>
