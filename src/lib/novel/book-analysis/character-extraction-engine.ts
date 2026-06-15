@@ -11,6 +11,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type {
   AnalysisDepth,
   ExtractedCharacter,
+  RecognizedCharacter,
   SixDimensionKey,
   SixDimensionProgressItem,
 } from "./types"
@@ -18,6 +19,7 @@ import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
+import { stableCharacterId } from "./character-recognition-engine"
 
 export interface CharacterExtractionInput {
   bookPath: string
@@ -171,9 +173,9 @@ ${corpus}
     if (jsonMatch) {
       const data = JSON.parse(jsonMatch[0])
 
-      const now = Date.now()
       const character: ExtractedCharacter = {
-        id: `char-${now}-${Math.random().toString(36).substring(2, 9)}`,
+        // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
+        id: stableCharacterId(data.name || characterName, ""),
         name: data.name || characterName,
         aliases: data.aliases || [],
         importance: 5, // 默认值，稍后会更新
@@ -394,11 +396,15 @@ export async function extractCharactersFromChapters(
       } catch (e) {
         console.error(`[6d] failed for ${character.name}:`, e)
       }
-      // 保存更新后的角色
-      await writeFile(
-        joinPath(bookPath, "characters", `${character.id}.json`),
-        JSON.stringify(characters[i], null, 2)
-      )
+      // 保存更新后的角色（feature/fix-six-dim-extract：writeFile 失败不应中断整个 6 维流程）
+      try {
+        await writeFile(
+          joinPath(bookPath, "characters", `${character.id}.json`),
+          JSON.stringify(characters[i], null, 2)
+        )
+      } catch (writeErr) {
+        console.warn(`[6d] 保存角色档案失败（不影响 6 维返回）：${character.name}：`, writeErr)
+      }
     }
   }
 
@@ -414,4 +420,95 @@ export async function extractCharactersFromChapters(
     success: true,
     characters,
   }
+}
+
+// === 单角色重新提取（feature/book-analysis-reuse）===
+export interface SingleCharacterReextractInput {
+  bookPath: string
+  bookId: string
+  /** 被重提的目标角色（带 id + name + corpus） */
+  character: ExtractedCharacter
+  /** simple 走 simple-extraction；six-dimension 走 6 维 */
+  mode: "simple" | "six-dimension"
+  depth?: AnalysisDepth
+  llmConfig: LlmConfig
+  bookTitle?: string
+  bookAuthor?: string
+  signal?: AbortSignal
+}
+
+export interface SingleCharacterReextractResult {
+  character: ExtractedCharacter
+}
+
+/**
+ * 单角色重新提取（feature/book-analysis-reuse）
+ * 复用同一 bookPath / 同一 LLM 配置，仅重跑指定角色
+ */
+export async function extractSingleCharacter(
+  input: SingleCharacterReextractInput,
+): Promise<SingleCharacterReextractResult> {
+  const { bookPath, character, mode, depth = "standard", llmConfig, bookTitle, bookAuthor, signal } = input
+  const corpus = character.corpus || ""
+
+  if (mode === "simple") {
+    // 实际导出名是 extractSingleProfile（feature/network-error-resume 阶段新增），
+    // 签名要求 RecognizedCharacter + chapterSamples；本函数仅取 name，其余字段
+    // 用最小 RecognizedCharacter 占位以满足类型
+    const { extractSingleProfile } = await import("./simple-extraction-engine")
+    const minimalRecognized: RecognizedCharacter = {
+      id: character.id,
+      name: character.name,
+      aliases: character.aliases ?? [],
+      appearances: character.appearanceCount ?? 0,
+      chapterIndices: [],
+      importanceScore: (character.importance ?? 0) * 10,
+      category: "次要",
+      sourceBook: bookPath,
+    }
+    const { profile } = await extractSingleProfile({
+      character: minimalRecognized,
+      chapterSamples: corpus,
+      llmConfig,
+      signal,
+    })
+    const updated: ExtractedCharacter = {
+      ...character,
+      personalityProfile: profile,
+      simpleExtractionMeta: { generatedAt: Date.now(), schemaVersion: 1 },
+      // 清掉 6 维旧数据，避免两条结果混着
+      sixDimensionResearch: undefined,
+      sixDimensionMeta: undefined,
+    }
+    try {
+      await writeFile(
+        joinPath(bookPath, "characters", `${character.id}.json`),
+        JSON.stringify(updated, null, 2),
+      )
+    } catch (err) {
+      console.warn(`[single-reextract] 保存失败：${character.name}`, err)
+    }
+    return { character: updated }
+  }
+
+  // six-dimension
+  const { analyzeSixDimensions } = await import("./six-dimension-engine")
+  const result = await analyzeSixDimensions({
+    character,
+    corpus,
+    llmConfig,
+    depth,
+    bookTitle: bookTitle || "未知作品",
+    bookAuthor,
+    signal,
+  })
+  try {
+    await writeFile(
+      joinPath(bookPath, "characters", `${character.id}.json`),
+      JSON.stringify(result.character, null, 2),
+    )
+  } catch (err) {
+    console.warn(`[single-reextract] 保存失败：${character.name}`, err)
+  }
+  return { character: result.character }
 }
