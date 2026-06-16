@@ -1,7 +1,7 @@
 import type { ChatMessage } from "@/lib/llm-providers"
 import { readFile } from "@/commands/fs"
 import { join } from "@tauri-apps/api/path"
-import deAiSkillMarkdown from "../../../de-ai-skill.md?raw"
+import deAiSkillMarkdown from "../../../skills/de-ai-writing/SKILL.md?raw"
 
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
 
