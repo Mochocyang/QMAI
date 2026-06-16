@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "resources": ["pdfium/pdfium.dll", "../NvwaSKILL"],
+    "resources": ["pdfium/pdfium.dll", "../skills"],
     "windows": {
       "nsis": {
         "template": "windows/_tauri-installer-template.nsi",

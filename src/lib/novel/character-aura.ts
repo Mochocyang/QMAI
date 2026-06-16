@@ -263,7 +263,7 @@ function createBuiltInAura(id: string, category: string, name: string, corpus: s
     decisionHeuristics,
     valueAntiPatterns,
     honestyBoundaries,
-    skillFolder: `NvwaSKILL/examples/${skillSlug}-perspective`,
+    skillFolder: `skills/soulskill/${skillSlug}-perspective`,
   }
 }
 
@@ -764,8 +764,8 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
         try {
           const exeDir = await getExecutableDir()
           roots.push(exeDir)
-          // 便携版：NvwaSKILL 直接在 exe 旁边
-          // 安装版：NvwaSKILL 在 exe 目录下的 _up_ 子目录中
+          // 便携版：skills 直接在 exe 旁边
+          // 安装版：skills 在 exe 目录下的 _up_ 子目录中
           roots.push(joinPath(exeDir, "_up_"))
           // 也尝试 exe 的上一级目录
           const parentDir = exeDir.replace(/[\\/][^\\/]+[\\/]?$/, "")
@@ -774,7 +774,7 @@ async function readSkillFileWithFallback(filePath: string, projectPath?: string)
         try {
           const resDir = await getResourceDir()
           roots.push(resDir)
-          // Tauri NSIS 安装版把 ../NvwaSKILL 放到 _up_/NvwaSKILL
+          // Tauri NSIS 安装版把 ../skills 放到 _up_/skills
           roots.push(joinPath(resDir, "_up_"))
         } catch {}
       } catch {}

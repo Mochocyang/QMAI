@@ -84,7 +84,7 @@ writeFileSync(manifest, JSON.stringify({
   portableExe: outExe,
   exeBytes: exeStat.size,
   includesPdfium: existsSync(outPdfium),
-  includesNvwaSkill: existsSync(outSkillDir),
+  includesSkills: existsSync(outSkillDir),
 }, null, 2), "utf8")
 
 console.log(`便携版已生成：${outExe}`)
