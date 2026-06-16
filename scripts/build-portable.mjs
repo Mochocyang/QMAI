@@ -15,7 +15,7 @@ const sourcePdfium = existsSync(portableDevPdfium) ? portableDevPdfium : release
 const outDir = resolve(root, "release-portable")
 const outExe = resolve(outDir, "QMaiWrite.exe")
 const outPdfium = resolve(outDir, "pdfium/pdfium.dll")
-const outSkillDir = resolve(outDir, "NvwaSKILL")
+const outSkillDir = resolve(outDir, "skills")
 const manifest = resolve(outDir, "version-info.json")
 const backupDir = resolve(root, "release-portable-backup")
 
@@ -65,8 +65,8 @@ if (existsSync(sourcePdfium)) {
   } catch {}
 }
 
-// 复制 NvwaSKILL 文件夹到便携版目录
-const sourceSkillDir = resolve(root, "NvwaSKILL")
+// 复制 skills 文件夹到便携版目录
+const sourceSkillDir = resolve(root, "skills")
 if (existsSync(sourceSkillDir)) {
   try {
     rmSync(outSkillDir, { recursive: true, force: true })
