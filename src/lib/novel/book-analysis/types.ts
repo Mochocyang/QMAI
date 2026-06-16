@@ -174,6 +174,7 @@ export interface BookAnalysisResult {
   metadata: BookAnalysisMetadata
   characters: ExtractedCharacter[]
   skills: CharacterSkill[]
+  bookId?: string
 }
 
 // 分析任务状态

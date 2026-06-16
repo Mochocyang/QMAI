@@ -21,9 +21,10 @@ export interface BookAnalysisState {
   showResultViewer: boolean
 
   // 角色识别（feature/character-recognition-and-simple-mode）
-  recognitionStatus: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognitionStatus: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error"
   recognizedCharacters: RecognizedCharacter[]
   selectedCharacterIds: string[]
+  recognitionError?: string
 
   // 任务管理
   startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => string
@@ -45,9 +46,10 @@ export interface BookAnalysisState {
   setShowResultViewer: (show: boolean) => void
 
   // 角色识别 actions（feature/character-recognition-and-simple-mode）
-  setRecognitionStatus: (status: "idle" | "heuristic" | "llm_scoring" | "done" | "error") => void
+  setRecognitionStatus: (status: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error") => void
   setRecognizedCharacters: (characters: RecognizedCharacter[]) => void
   setSelectedCharacterIds: (ids: string[]) => void
+  setRecognitionError: (error?: string) => void
   clearRecognition: () => void
 
   // 查询
@@ -69,6 +71,7 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   recognitionStatus: "idle",
   recognizedCharacters: [],
   selectedCharacterIds: [],
+  recognitionError: undefined,
 
   startTask: (projectPath: string, config: BookAnalysisConfig, abortController?: AbortController) => {
     const now = Date.now()
@@ -263,11 +266,13 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
   setRecognizedCharacters: (characters) =>
     set({ recognizedCharacters: characters, recognitionStatus: "done" }),
   setSelectedCharacterIds: (ids) => set({ selectedCharacterIds: ids }),
+  setRecognitionError: (error) => set({ recognitionError: error }),
   clearRecognition: () =>
     set({
       recognitionStatus: "idle",
       recognizedCharacters: [],
       selectedCharacterIds: [],
+      recognitionError: undefined,
     }),
 
   getTask: (taskId: string) => {

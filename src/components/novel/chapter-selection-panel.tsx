@@ -7,11 +7,16 @@
  *   - "开始分析"按钮旁加二档单选：快速（仅启发式）/ 标准（启发式 + LLM 评分）
  *   - 选完深度档后调用 onConfirm（深度参数由用户在面板内选择）
  *   - 识别完成后自动打开"角色选择"弹窗（CharacterSelectionPanel）
+ *
+ * 修复（fix/character-reextract-and-loading-state）：
+ *   - 增加明显的"分析中"提示（带 spinner + 进度信息）
+ *   - 在分析进行中允许"后台运行"（关闭面板，任务继续在后台）
+ *   - 提供 `onAnalyzingChange` 让父组件同步状态
  */
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { CheckSquare, Square, Play, X } from "lucide-react"
+import { CheckSquare, Square, Play, X, Loader2, Minimize2 } from "lucide-react"
 import type { AnalysisDepth, RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { CharacterSelectionPanel } from "./character-selection-panel"
 import { loadDepthPreference, saveDepthPreference } from "@/lib/novel/book-analysis/depth-preference"
@@ -26,32 +31,46 @@ interface ChapterSelectionPanelProps {
   }>
   onConfirm: (selectedChapterIds: string[], depth: AnalysisDepth) => void
   onCancel: () => void
+  // 修复（fix/character-reextract-and-loading-state）：
+  // 后台运行：只关闭面板，不取消任务，识别/提取继续在后台执行
+  onBackground?: () => void
   // 角色识别（feature/character-recognition-and-simple-mode）
-  recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "done" | "error"
+  recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error"
   recognizedCharacters?: RecognizedCharacter[]
   selectedCharacterIds?: string[]
+  recognitionError?: string
   onToggleCharacter?: (id: string) => void
   onSelectAllMain?: () => void
   onClearSelection?: () => void
   onDeepExtract?: () => void
   onSimpleExtract?: () => void
+  // 修复（fix/character-reextract-and-loading-state）：
+  // 把"分析中"状态反向同步给父组件，让父组件可以恢复按钮态、显示 toast 等
+  onAnalyzingChange?: (analyzing: boolean) => void
 }
 
 export function ChapterSelectionPanel({
   chapters,
   onConfirm,
   onCancel,
+  onBackground,
   recognitionStatus = "idle",
   recognizedCharacters = [],
   selectedCharacterIds = [],
+  recognitionError: _recognitionError,
   onToggleCharacter,
   onSelectAllMain,
   onClearSelection,
   onDeepExtract,
   onSimpleExtract,
+  onAnalyzingChange,
 }: ChapterSelectionPanelProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  // 修复（fix/character-reextract-and-loading-state）：
+  // 后台运行时不取消任务，仅关闭面板
+  const [isBackgrounded, setIsBackgrounded] = useState(false)
   // 深度档：快速（仅启发式）/ 标准（启发式 + LLM 评分）
   // 初始化时优先用用户上次保存的偏好；兼容旧值"deep"（映射为"standard"）
   const [depth, setDepth] = useState<AnalysisDepth>(() => {
@@ -63,6 +82,18 @@ export function ChapterSelectionPanel({
     // 每次用户切换都记忆（feature/character-recognition-and-simple-mode）
     saveDepthPreference(depth)
   }, [depth])
+
+  // 同步 isAnalyzing 到父组件（fix/character-reextract-and-loading-state）
+  useEffect(() => {
+    onAnalyzingChange?.(isAnalyzing)
+  }, [isAnalyzing, onAnalyzingChange])
+
+  // 识别完成时同步恢复 isAnalyzing = false（fix/character-reextract-and-loading-state）
+  useEffect(() => {
+    if (recognitionStatus === "done" || recognitionStatus === "error") {
+      setIsAnalyzing(false)
+    }
+  }, [recognitionStatus])
 
   // 初始化：默认全选
   useEffect(() => {
@@ -194,6 +225,7 @@ export function ChapterSelectionPanel({
                   value="fast"
                   checked={depth === "fast"}
                   onChange={() => setDepth("fast")}
+                  disabled={isAnalyzing}
                   className="h-3 w-3"
                 />
                 <span>快速</span>
@@ -205,21 +237,81 @@ export function ChapterSelectionPanel({
                   value="standard"
                   checked={depth === "standard"}
                   onChange={() => setDepth("standard")}
+                  disabled={isAnalyzing}
                   className="h-3 w-3"
                 />
                 <span>标准</span>
               </label>
             </div>
             <Button
-              onClick={() => onConfirm(Array.from(selectedChapters), depth)}
-              disabled={!canConfirm}
+              onClick={(e) => {
+                e.stopPropagation()
+                console.log('[开始分析] 按钮点击', { selectedCount, depth, canConfirm })
+                if (!canConfirm) {
+                  console.warn('[开始分析] 未选择任何章节')
+                  return
+                }
+                setIsAnalyzing(true)
+                try {
+                  console.log('[开始分析] 调用 onConfirm', Array.from(selectedChapters), depth)
+                  onConfirm(Array.from(selectedChapters), depth)
+                } catch (err) {
+                  console.error('[开始分析] onConfirm 调用出错:', err)
+                  setIsAnalyzing(false)
+                }
+              }}
+              disabled={!canConfirm || isAnalyzing}
               size="default"
             >
-              <Play className="h-4 w-4 mr-2" />
-              开始分析（{selectedCount} 章）
+              {isAnalyzing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 mr-2" />
+              )}
+              {isAnalyzing ? "分析中..." : `开始分析（${selectedCount} 章）`}
             </Button>
           </div>
         </div>
+
+        {/* 修复（fix/character-reextract-and-loading-state）：明显的"分析中"提示条 */}
+        {isAnalyzing && (
+          <div className="shrink-0 mx-6 mt-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="font-medium text-foreground">正在分析中</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">
+                {recognitionStatus === "heuristic" && "读取章节中"}
+                {recognitionStatus === "llm_scoring" && "LLM 评分中"}
+                {recognitionStatus === "llm_recognizing" && "AI 识别角色中（可能需要较长时间，请耐心等待）"}
+                {recognitionStatus === "idle" && "准备中"}
+                {recognitionStatus === "done" && "识别完成"}
+                {recognitionStatus === "error" && "识别失败"}
+              </span>
+            </div>
+            {/* 后台运行按钮：fix/character-reextract-and-loading-state 让用户关闭面板、任务继续后台执行 */}
+            {!isBackgrounded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  console.log('[后台运行] 关闭面板，任务继续后台执行')
+                  setIsBackgrounded(true)
+                  // 优先用独立的 onBackground（不取消任务），向后兼容用 onCancel
+                  if (onBackground) {
+                    onBackground()
+                  } else {
+                    onCancel()
+                  }
+                }}
+              >
+                <Minimize2 className="h-4 w-4 mr-1" />
+                后台运行
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* 统计信息 + 提示 */}
         <div className="shrink-0 px-6 py-3 bg-muted/50">

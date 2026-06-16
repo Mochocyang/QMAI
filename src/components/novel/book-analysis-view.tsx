@@ -151,9 +151,16 @@ export function BookAnalysisView() {
   }
 
   const handleChapterSelectionConfirm = async (selectedChapterIds: string[], depth: AnalysisDepth) => {
-    if (!chapterSelectionData) return
+    console.log('[handleChapterSelectionConfirm] 开始执行', { selectedChapterIds, depth })
+
+    if (!chapterSelectionData) {
+      console.error('[handleChapterSelectionConfirm] chapterSelectionData 为空')
+      return
+    }
 
     const { taskId, bookPath, abortController } = chapterSelectionData
+    console.log('[handleChapterSelectionConfirm] taskId:', taskId, 'bookPath:', bookPath)
+
     // 不关闭章节面板，识别完成后会在面板上叠加"角色选择"弹窗
     // 把 selectedChapterIds + depth 暂存到 state，识别 / 提取阶段要用
     setChapterSelectionData({
@@ -174,6 +181,8 @@ export function BookAnalysisView() {
     })
 
     try {
+      console.log('[handleChapterSelectionConfirm] 开始识别角色')
+
       // 读取章节内容（feature/character-recognition-and-simple-mode）
       const { recognizeCharacters } = await import(
         "@/lib/novel/book-analysis/character-recognition-engine"
@@ -182,6 +191,8 @@ export function BookAnalysisView() {
       const selectedChapters = chapterSelectionData.chapters
         .filter((c) => selectedChapterIds.includes(c.id))
         .sort((a, b) => a.order - b.order)
+
+      console.log('[handleChapterSelectionConfirm] 已选择章节数:', selectedChapters.length)
 
       const chapterContents: { index: number; content: string }[] = []
       for (let i = 0; i < selectedChapters.length; i++) {
@@ -196,6 +207,8 @@ export function BookAnalysisView() {
           throw new Error("用户取消")
         }
       }
+
+      console.log('[handleChapterSelectionConfirm] 章节内容读取完成')
 
       // 阶段 2：AI 识别（feature/llm-character-recognizer）
       // 先 LLM 识别（精准），失败时回退到启发式
@@ -222,6 +235,10 @@ export function BookAnalysisView() {
 
       // 阶段 3：写入 store（弹窗自动打开）
       const sourceLabel = result.source === "llm" ? "AI 识别" : "启发式识别（AI 失败兜底）"
+      console.log('[handleChapterSelectionConfirm] 角色识别完成', {
+        count: result.characters.length,
+        source: result.source
+      })
       updateTaskProgress(taskId, {
         recognitionStatus: "done",
         recognizedCharactersCount: result.characters.length,
@@ -231,8 +248,13 @@ export function BookAnalysisView() {
             : `识别出 ${result.characters.length} 个角色（${sourceLabel}）`,
       })
       setRecognizedCharacters(result.characters)
+      setRecognitionStatus("done")
+      console.log('[handleChapterSelectionConfirm] 状态已更新为 done')
     } catch (err) {
-      if (abortController.signal.aborted) return
+      if (abortController.signal.aborted) {
+        console.log('[handleChapterSelectionConfirm] 用户取消')
+        return
+      }
       const errorMessage = err instanceof Error ? err.message : "识别失败"
       const setRecognitionError = useBookAnalysisStore.getState().setRecognitionError
       console.error("[角色识别] 失败：", err)
@@ -242,6 +264,9 @@ export function BookAnalysisView() {
         recognitionStatus: "error",
         stageLabel: `角色识别失败：${errorMessage}`,
       })
+      // 导入并使用 toast
+      const { toast } = await import("@/lib/toast")
+      toast.error(`角色识别失败：${errorMessage}`)
     }
   }
 
@@ -737,6 +762,14 @@ export function BookAnalysisView() {
     }
   }
 
+  // 修复（fix/character-reextract-and-loading-state）：
+  // 后台运行：只关闭面板、不取消任务，让识别/提取继续在后台跑
+  const handleChapterSelectionBackground = () => {
+    if (!chapterSelectionData) return
+    console.log('[后台运行] 关闭面板，任务继续后台执行', chapterSelectionData.taskId)
+    setChapterSelectionData(null)
+  }
+
   // 如果没有任务，显示欢迎页（feature/fix-viewer-from-sidebar：欢迎页下也允许打开 viewer）
   if (tasks.length === 0) {
     return (
@@ -985,6 +1018,16 @@ export function BookAnalysisView() {
           chapters={chapterSelectionData.chapters}
           onConfirm={handleChapterSelectionConfirm}
           onCancel={handleChapterSelectionCancel}
+          // 修复（fix/character-reextract-and-loading-state）：后台运行
+          onBackground={handleChapterSelectionBackground}
+          onAnalyzingChange={(analyzing) => {
+            // 这里可以加 toast 提示（保持轻量，不修改其他逻辑）
+            if (analyzing) {
+              console.log('[book-analysis-view] 进入分析中状态')
+            } else {
+              console.log('[book-analysis-view] 退出分析中状态')
+            }
+          }}
           // 角色识别 + 角色选择（feature/character-recognition-and-simple-mode）
           recognitionStatus={recognitionStatus}
           recognizedCharacters={recognizedCharacters}

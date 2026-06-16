@@ -444,6 +444,12 @@ export interface SingleCharacterReextractResult {
 /**
  * 单角色重新提取（feature/book-analysis-reuse）
  * 复用同一 bookPath / 同一 LLM 配置，仅重跑指定角色
+ *
+ * 关键修复（fix/character-reextract-and-loading-state）：
+ *   - simple 模式不再依赖外部注入 `_llmCall`，改为内部直接用 `streamChat` 调用 LLM，
+ *     避免 `_llmCall` 缺失时走 `defaultLlmCall` 抛错被吞掉、导致"再次提取"看起来无效果。
+ *   - 内部构造的 `realLlmCall` 会记录单次 LLM 错误并通过返回值透传给上层，
+ *     上层据此判断"提取失败"并 toast 提示。
  */
 export async function extractSingleCharacter(
   input: SingleCharacterReextractInput,
@@ -451,10 +457,29 @@ export async function extractSingleCharacter(
   const { bookPath, character, mode, depth = "standard", llmConfig, bookTitle, bookAuthor, signal } = input
   const corpus = character.corpus || ""
 
+  // 内部统一 LLM call 包装（fix/character-reextract-and-loading-state）：
+  // simple / six-dimension 都直接使用同一实现，six-dimension 已自带 streamChat，
+  // 这里我们额外提供 simple 模式用的 LLM 闭包
+  const realLlmCall = async (prompt: string): Promise<string> => {
+    let response = ""
+    await streamChat(
+      llmConfig,
+      [{ role: "user", content: prompt }],
+      {
+        onToken: (text) => { response += text },
+        onDone: () => {},
+        onError: (err) => { console.error("[single-reextract] LLM error:", err) },
+      },
+      signal,
+    )
+    return response.trim()
+  }
+
   if (mode === "simple") {
     // 实际导出名是 extractSingleProfile（feature/network-error-resume 阶段新增），
-    // 签名要求 RecognizedCharacter + chapterSamples；本函数仅取 name，其余字段
-    // 用最小 RecognizedCharacter 占位以满足类型
+    // 签名要求 RecognizedCharacter + chapterSamples + 可选 _llmCall。
+    // 关键修复（fix/character-reextract-and-loading-state）：传入 _llmCall 走真实 LLM，
+    // 避免 defaultLlmCall 抛错被吞。
     const { extractSingleProfile } = await import("./simple-extraction-engine")
     const minimalRecognized: RecognizedCharacter = {
       id: character.id,
@@ -466,11 +491,12 @@ export async function extractSingleCharacter(
       category: "次要",
       sourceBook: bookPath,
     }
-    const { profile } = await extractSingleProfile({
+    const { profile, error: profileError } = await extractSingleProfile({
       character: minimalRecognized,
       chapterSamples: corpus,
       llmConfig,
       signal,
+      _llmCall: realLlmCall,
     })
     const updated: ExtractedCharacter = {
       ...character,
@@ -487,6 +513,10 @@ export async function extractSingleCharacter(
       )
     } catch (err) {
       console.warn(`[single-reextract] 保存失败：${character.name}`, err)
+    }
+    if (profileError) {
+      // 透传错误信息，让 viewer 能 toast 提示
+      throw new Error(`简单提取失败：${profileError}`)
     }
     return { character: updated }
   }
