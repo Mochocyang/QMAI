@@ -3,7 +3,7 @@ import { resolve, join } from "path"
 import process from "process"
 
 const ROOT = process.argv[2] || process.cwd()
-const NVWA = resolve(ROOT, "NvwaSKILL", "examples")
+const NVWA = resolve(ROOT, "skills", "soulskill")
 const CHARACTER_AURA_PATH = resolve(ROOT, "src", "lib", "novel", "character-aura.ts")
 
 const CURLY_LEFT = "\u201C"
