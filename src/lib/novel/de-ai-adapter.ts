@@ -1,7 +1,8 @@
 import type { ChatMessage } from "@/lib/llm-providers"
 import { readFile } from "@/commands/fs"
-import { join } from "@tauri-apps/api/path"
+import { join, resourceDir } from "@tauri-apps/api/path"
 import deAiSkillMarkdown from "../../../skills/de-ai-writing/SKILL.md?raw"
+import type { ContextPack } from "./context-engine"
 
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
 
@@ -55,4 +56,121 @@ const DIRECTIVE_PREFIX = [
 export function injectDeAiDirective(content: string, enabled: boolean): string {
   if (!enabled) return content
   return DIRECTIVE_PREFIX + content
+}
+
+// ============ 智能场景选择功能 ============
+
+/**
+ * 场景类型
+ */
+type ContentGenre = 'web-novel' | 'popular-science' | 'commentary' | 'translation' | 'default'
+
+/**
+ * 检测内容场景类型
+ * @param task 用户请求文本
+ * @param contextPack 上下文包（可选）
+ * @returns 场景类型
+ */
+function detectContentGenre(
+  task: string,
+  contextPack?: ContextPack
+): ContentGenre {
+  // 1. 翻译任务优先级最高
+  if (/翻译|translate|译文|英译中|中译英/.test(task)) {
+    return 'translation'
+  }
+
+  // 2. 科普文章
+  if (/科普|科学普及|知识分享|科技解读/.test(task)) {
+    return 'popular-science'
+  }
+
+  // 3. 观点评论（触发good-writing）
+  if (/评论|书评|影评|观点|散文|随笔/.test(task)) {
+    return 'commentary'
+  }
+
+  // 4. 检查大纲中的genre标记
+  if (contextPack?.outline) {
+    const genreMatch = contextPack.outline.match(/genre:\s*(\w+)/i)
+    if (genreMatch) {
+      const genre = genreMatch[1].toLowerCase()
+      if (['xuanhuan', 'wuxia', 'xianxia', 'dushi'].includes(genre)) {
+        return 'web-novel'
+      }
+    }
+  }
+
+  // 5. 默认：网络小说（项目主要使用场景）
+  return 'web-novel'
+}
+
+/**
+ * 场景类型映射到skill文件路径
+ * @param genre 场景类型
+ * @returns skill文件路径
+ */
+function genreToSkillPath(genre: ContentGenre): string {
+  switch (genre) {
+    case 'commentary':
+    case 'popular-science':
+      return 'skills/good-writing/SKILL.md'
+    case 'web-novel':
+    case 'translation':
+    case 'default':
+    default:
+      return 'skills/de-ai-writing/SKILL.md'
+  }
+}
+
+/**
+ * 从打包的资源目录读取skill文件
+ * @param skillPath 相对于资源目录的skill路径
+ * @returns skill内容，失败返回null
+ */
+async function tryLoadSkillFromBundle(skillPath: string): Promise<string | null> {
+  try {
+    const resDir = await resourceDir()
+    const fullPath = await join(resDir, skillPath)
+    const content = await readFile(fullPath)
+    return content.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 智能加载去AI味skill（根据场景自动选择）
+ * @param projectPath 项目路径
+ * @param userRequest 用户请求文本
+ * @param contextPack 上下文包（可选）
+ * @returns skill内容，失败返回null（将使用内置规则兜底）
+ */
+export async function loadSmartDeAiSkill(
+  projectPath: string | null,
+  userRequest: string,
+  contextPack?: ContextPack
+): Promise<string | null> {
+  if (!projectPath) return null
+
+  // 1. 最高优先：用户自定义 de-ai-skill.txt
+  try {
+    const customPath = await join(projectPath, "de-ai-skill.txt")
+    const customSkill = await readFile(customPath)
+    const trimmed = customSkill.trim()
+    if (trimmed) return trimmed
+  } catch {
+    // 用户未自定义，继续自动选择
+  }
+
+  // 2. 场景检测
+  const genre = detectContentGenre(userRequest, contextPack)
+
+  // 3. 根据场景选择skill
+  const skillPath = genreToSkillPath(genre)
+  const sceneSkill = await tryLoadSkillFromBundle(skillPath)
+  if (sceneSkill) return sceneSkill
+
+  // 4. 保底：返回null，使用内置规则
+  return null
 }

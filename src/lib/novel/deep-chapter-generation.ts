@@ -152,8 +152,10 @@ export async function runDeepChapterGeneration(
   const resumeCheckpoint = input.resumeCheckpoint
   const writingConfig = resolveWritingConfig(input.llmConfig)
   const lengthSpec = resolveCurrentChapterLengthSpec()
-  const { loadCustomDeAiSkill } = await import("./de-ai-adapter")
-  const customDeAiSkill = await loadCustomDeAiSkill(input.projectPath)
+  const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
+
+  // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
+  let customDeAiSkill: string | null = null
 
   // 阶段0：前情分析（仅当章节号>1时）
   let previousChaptersAnalysis = ""
@@ -186,6 +188,9 @@ export async function runDeepChapterGeneration(
     input.chapterNumber,
   )
   assertNotAborted(signal)
+
+  // 阶段1后：加载智能skill（传递contextPack用于场景检测）
+  customDeAiSkill = await loadSmartDeAiSkill(input.projectPath, input.userRequest, contextPack)
 
   // 独立提取大纲，不通过contextPackToPrompt
   const outlinePrompt = contextPack.outline
@@ -376,6 +381,7 @@ export async function runDeepChapterGeneration(
     taskBrief,
     currentContent,
     input,
+    contextPack,
     callbacks,
     deps,
     signal,
@@ -405,6 +411,7 @@ async function finalPolishChapter(
   taskBrief: string,
   currentContent: string,
   input: DeepChapterGenerationInput,
+  contextPack: ContextPack,
   callbacks: DeepChapterGenerationCallbacks,
   deps: DeepChapterGenerationDeps,
   signal?: AbortSignal,
