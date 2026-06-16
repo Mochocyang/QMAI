@@ -186,9 +186,29 @@ export async function runDeepChapterGeneration(
     input.chapterNumber,
   )
   assertNotAborted(signal)
+
+  // 独立提取大纲，不通过contextPackToPrompt
+  const outlinePrompt = contextPack.outline
+    ? [
+        "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "# 【强制遵守】作品完整大纲",
+        "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "**重要：以下是本作品的完整大纲，这是强制性要求。**",
+        "你必须严格遵守大纲中的情节发展、角色行为、关键事件、故事走向。",
+        "大纲内容必须完整体现在生成的章节中，不可偏离。",
+        "",
+        contextPack.outline,
+        "",
+        "# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+      ].join("\n")
+    : ""
+
+  // 其他上下文可以进行token预算管理，但大纲已被排除
   const contextPrompt = [
     previousChaptersAnalysis ? `## 前情分析\n\n${previousChaptersAnalysis}` : "",
-    deps.contextPackToPrompt(contextPack),
+    deps.contextPackToPrompt(contextPack, 32000, { excludeOutline: true }),
     input.dismantlingReferenceDirective,
   ].filter(Boolean).join("\n\n")
 
@@ -205,6 +225,7 @@ export async function runDeepChapterGeneration(
       [{
         role: "user",
         content: buildDeepChapterBriefPrompt(
+          outlinePrompt,
           contextPrompt,
           input.userRequest,
           input.chapterNumber,
@@ -228,6 +249,7 @@ export async function runDeepChapterGeneration(
       [{
         role: "user",
         content: buildDeepChapterDraftPrompt(
+          outlinePrompt,
           contextPrompt,
           taskBrief,
           input.userRequest,
@@ -248,6 +270,7 @@ export async function runDeepChapterGeneration(
         [{
           role: "user",
           content: buildDeepChapterExpansionPrompt(
+            outlinePrompt,
             contextPrompt,
             taskBrief,
             draftContent,
@@ -310,6 +333,7 @@ export async function runDeepChapterGeneration(
       [{
         role: "user",
         content: buildDeepChapterRevisionPrompt(
+          outlinePrompt,
           contextPrompt,
           taskBrief,
           draftContent,
@@ -347,6 +371,7 @@ export async function runDeepChapterGeneration(
 
   const finalContent = await finalPolishChapter(
     writingConfig,
+    outlinePrompt,
     contextPrompt,
     taskBrief,
     currentContent,
@@ -375,6 +400,7 @@ export async function runDeepChapterGeneration(
 
 async function finalPolishChapter(
   writingConfig: LlmConfig,
+  outlinePrompt: string,
   contextPrompt: string,
   taskBrief: string,
   currentContent: string,
@@ -392,6 +418,7 @@ async function finalPolishChapter(
     [{
       role: "user",
       content: buildDeepChapterFinalPolishPrompt(
+        outlinePrompt,
         contextPrompt,
         taskBrief,
         currentContent,

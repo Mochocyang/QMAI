@@ -108,10 +108,10 @@ describe("runDeepChapterGeneration", () => {
       suggestion: "",
     }]
 
-    const planningPrompt = buildDeepChapterBriefPrompt("上下文包内容", "生成第3章", 3)
-    const draftPrompt = buildDeepChapterDraftPrompt("上下文包内容", "写作任务书内容", "生成第3章", 3)
-    const revisionPrompt = buildDeepChapterRevisionPrompt("上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成第3章", 3)
-    const finalPolishPrompt = buildDeepChapterFinalPolishPrompt("上下文包内容", "写作任务书内容", "返修正文内容", "生成第3章", 3)
+    const planningPrompt = buildDeepChapterBriefPrompt("", "上下文包内容", "生成第3章", 3)
+    const draftPrompt = buildDeepChapterDraftPrompt("", "上下文包内容", "写作任务书内容", "生成第3章", 3)
+    const revisionPrompt = buildDeepChapterRevisionPrompt("", "上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成第3章", 3)
+    const finalPolishPrompt = buildDeepChapterFinalPolishPrompt("", "上下文包内容", "写作任务书内容", "返修正文内容", "生成第3章", 3)
 
     for (const prompt of [planningPrompt, draftPrompt]) {
       expect(prompt).toContain(`低于 ${DEEP_CHAPTER_MIN_CHARS} 字`)

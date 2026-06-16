@@ -358,15 +358,15 @@ export async function readOutlineContent(pp: string): Promise<string> {
     const results = await searchWiki(pp, "outline type:outline")
     if (results.length > 0) {
       const contents = await Promise.all(
-        results.slice(0, 12).map(async (result) => {
+        results.map(async (result) => {
           try {
-            return (await readFile(result.path)).slice(0, 2500)
+            return await readFile(result.path)
           } catch {
             return ""
           }
         }),
       )
-      return joinNonEmpty(contents, "\n\n---\n\n").slice(0, 12000)
+      return joinNonEmpty(contents, "\n\n---\n\n")
     }
   } catch {}
   return ""
@@ -995,7 +995,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
 ]
 
-export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number): string {
+export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }): string {
   const sections: string[] = []
 
   sections.push(i18n.t("novel.contextPack.title"))
@@ -1006,6 +1006,11 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number): st
 
   const fieldSections: { title: string; content: string | string[] }[] = []
   for (const config of FIELD_CONFIGS) {
+    // 如果设置了 excludeOutline，跳过大纲字段
+    if (options?.excludeOutline && config.fieldKey === "outline") {
+      continue
+    }
+
     const content = pack[config.fieldKey] as string | string[]
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue

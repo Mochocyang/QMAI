@@ -42,6 +42,7 @@ function chapterLengthBoundary(lengthSpec: ChapterLengthSpec): string {
 }
 
 export function buildDeepChapterBriefPrompt(
+  outline: string,
   contextPrompt: string,
   userRequest: string,
   chapterNumber?: number,
@@ -49,6 +50,8 @@ export function buildDeepChapterBriefPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
+    outline,
+    "",
     "你是小说写作任务规划助手。",
     "请基于上下文输出一份写作任务书，供后续创作使用。",
     "",
@@ -65,10 +68,11 @@ export function buildDeepChapterBriefPrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export function buildDeepChapterDraftPrompt(
+  outline: string,
   contextPrompt: string,
   taskBrief: string,
   userRequest: string,
@@ -77,6 +81,8 @@ export function buildDeepChapterDraftPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
+    outline,
+    "",
     "你是专业小说正文写作助手。",
     "请严格根据上下文和写作任务书起草章节正文。",
     "",
@@ -98,10 +104,11 @@ export function buildDeepChapterDraftPrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export function buildDeepChapterRevisionPrompt(
+  outline: string,
   contextPrompt: string,
   taskBrief: string,
   draftContent: string,
@@ -111,6 +118,8 @@ export function buildDeepChapterRevisionPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
 ): string {
   return [
+    outline,
+    "",
     "你是小说正文返修助手。",
     "请根据审稿问题返修章节正文。",
     "",
@@ -137,10 +146,11 @@ export function buildDeepChapterRevisionPrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export function buildDeepChapterExpansionPrompt(
+  outline: string,
   contextPrompt: string,
   taskBrief: string,
   currentContent: string,
@@ -150,6 +160,8 @@ export function buildDeepChapterExpansionPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
+    outline,
+    "",
     "你是小说正文扩写补足助手。",
     "当前章节正文明显过短，请在不推翻已有内容的前提下扩写补足为完整章节。",
     "",
@@ -173,10 +185,11 @@ export function buildDeepChapterExpansionPrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export function buildDeepChapterFinalPolishPrompt(
+  outline: string,
   contextPrompt: string,
   taskBrief: string,
   currentContent: string,
@@ -187,6 +200,8 @@ export function buildDeepChapterFinalPolishPrompt(
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
   return [
+    outline,
+    "",
     "你是小说正文最终质检与去AI味助手。",
     "请对二次审查/返修后的章节做最后一遍简单审查，并进行去AI味处理。",
     "",
@@ -212,7 +227,7 @@ export function buildDeepChapterFinalPolishPrompt(
     "",
     "上下文：",
     contextPrompt,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
 
 export function buildDeepChapterLengthRewritePrompt(

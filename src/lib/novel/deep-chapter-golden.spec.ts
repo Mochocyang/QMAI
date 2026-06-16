@@ -21,11 +21,11 @@ describe("deep chapter prompts with golden three chapter constraints", () => {
       suggestion: "",
     }]
     const prompts = [
-      buildDeepChapterBriefPrompt("上下文包内容", "生成前三章", 1, golden),
-      buildDeepChapterDraftPrompt("上下文包内容", "写作任务书内容", "生成前三章", 1, golden),
-      buildDeepChapterRevisionPrompt("上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成前三章", 1, golden),
-      buildDeepChapterExpansionPrompt("上下文包内容", "写作任务书内容", "当前正文", "生成前三章", 1, golden),
-      buildDeepChapterFinalPolishPrompt("上下文包内容", "写作任务书内容", "当前正文", "生成前三章", 1, golden),
+      buildDeepChapterBriefPrompt("", "上下文包内容", "生成前三章", 1, golden),
+      buildDeepChapterDraftPrompt("", "上下文包内容", "写作任务书内容", "生成前三章", 1, golden),
+      buildDeepChapterRevisionPrompt("", "上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成前三章", 1, golden),
+      buildDeepChapterExpansionPrompt("", "上下文包内容", "写作任务书内容", "当前正文", "生成前三章", 1, golden),
+      buildDeepChapterFinalPolishPrompt("", "上下文包内容", "写作任务书内容", "当前正文", "生成前三章", 1, golden),
     ]
 
     for (const prompt of prompts) {

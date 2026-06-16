@@ -43,8 +43,8 @@ describe("resolveChapterLengthSpec", () => {
 describe("chapter prompts honor the configured length spec", () => {
   it("injects the configured target into brief and draft prompts", () => {
     const spec = resolveChapterLengthSpec(2000)
-    const brief = buildDeepChapterBriefPrompt("上下文", "继续生成下一章", 5, undefined, spec)
-    const draft = buildDeepChapterDraftPrompt("上下文", "任务书", "继续生成下一章", 5, undefined, spec)
+    const brief = buildDeepChapterBriefPrompt("", "上下文", "继续生成下一章", 5, undefined, spec)
+    const draft = buildDeepChapterDraftPrompt("", "上下文", "任务书", "继续生成下一章", 5, undefined, spec)
 
     expect(brief).toContain("目标约 2000 字")
     expect(draft).toContain("目标约 2000 字")
