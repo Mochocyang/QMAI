@@ -1,14 +1,9 @@
 import type { ChatMessage } from "@/lib/llm-providers"
 import { readFile } from "@/commands/fs"
 import { join } from "@tauri-apps/api/path"
-import qmQuaiSkillMarkdown from "../../../QM-QUAI.md?raw"
-import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
+import deAiSkillMarkdown from "../../../de-ai-skill.md?raw"
 
-const QM_QUAI_SYSTEM_PROMPT = [
-  qmQuaiSkillMarkdown.trim(),
-  "",
-  CHINESE_NOVEL_DE_AI_RULES,
-].join("\n")
+const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
 
 export async function loadCustomDeAiSkill(projectPath?: string | null): Promise<string | null> {
   if (!projectPath) return null
