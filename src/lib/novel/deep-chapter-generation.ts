@@ -411,7 +411,7 @@ async function finalPolishChapter(
   taskBrief: string,
   currentContent: string,
   input: DeepChapterGenerationInput,
-  contextPack: ContextPack,
+  _contextPack: ContextPack,
   callbacks: DeepChapterGenerationCallbacks,
   deps: DeepChapterGenerationDeps,
   signal?: AbortSignal,
