@@ -28,7 +28,8 @@ import { getConversationTabTitle, sortConversationsByUpdatedAt } from "@/lib/wor
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
-import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { resolveConfig } from "@/components/settings/preset-resolver"
+import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { saveAiChatModel } from "@/lib/project-store"
 import {
   buildGoldenThreeChapterDirective,
@@ -42,7 +43,6 @@ import {
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
-import { buildModelSelectOptions } from "@/components/settings/model-select-input"
 import { isChatEditRequest, resolveChatEditTarget, validateStructuredChapterEditResult } from "@/lib/novel/chat-edit-mode"
 import { backupChapterFile } from "@/lib/novel/chapter-backup"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
@@ -183,6 +183,7 @@ export function ChatPanel() {
   const project = useWikiStore((s) => s.project)
   const novelMode = useWikiStore((s) => s.novelMode)
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const setAiChatModel = useWikiStore((s) => s.setAiChatModel)
   const chatEditModeEnabled = useWikiStore((s) => s.chatEditModeEnabled)
@@ -203,7 +204,6 @@ export function ChatPanel() {
   const [isSavingChapter, setIsSavingChapter] = useState(false)
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
   const [deepChapterEnabled, setDeepChapterEnabled] = useState(true)
-  const [aiChatModelOptions, setAiChatModelOptions] = useState<string[]>([])
   const closeSoulDialog = useCallback((confirmed: boolean) => {
     const resolver = soulDialogResolverRef.current
     soulDialogResolverRef.current = null
@@ -217,20 +217,6 @@ export function ChatPanel() {
       soulDialogResolverRef.current = resolve
     })
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    void fetchLlmModelList(llmConfig)
-      .then((result) => {
-        if (!cancelled) setAiChatModelOptions(result.models)
-      })
-      .catch(() => {
-        if (!cancelled) setAiChatModelOptions([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [llmConfig])
 
   const handleSaveAsChapter = useCallback(async (content: string) => {
     if (!project) return
@@ -383,9 +369,32 @@ export function ChatPanel() {
           },
         }
         : taskRoute
-      const effectiveChatLlmConfig = aiChatModel.trim()
-        ? { ...llmConfig, model: aiChatModel.trim() }
-        : llmConfig
+      // AI 会话选中的 model 名（如 "deepseek-v3"）需要找到它所属的 provider
+      // 重新计算 baseUrl/apiKey/apiMode，否则会沿用 activePresetId 的配置
+      // 导致跨 provider 调用失败
+      let effectiveChatLlmConfig = llmConfig
+      if (aiChatModel.trim()) {
+        const targetModel = aiChatModel.trim()
+        let matched = false
+        for (const [providerId, override] of Object.entries(providerConfigs)) {
+          if (override.savedModels?.some((m) => m.model === targetModel)) {
+            const template =
+              LLM_PRESETS.find((p) => p.id === providerId) ??
+              LLM_PRESETS.find((p) => p.id === "custom")
+            if (template) {
+              effectiveChatLlmConfig = {
+                ...resolveConfig(template, override, llmConfig),
+                model: targetModel,
+              }
+            }
+            matched = true
+            break
+          }
+        }
+        if (!matched) {
+          effectiveChatLlmConfig = { ...llmConfig, model: targetModel }
+        }
+      }
       const shouldUseEditMode = novelMode && chatEditModeEnabled && isChatEditRequest(text)
       const goldenThreeChapter = novelMode
         ? detectGoldenThreeChapterRequest(text, effectiveTaskRoute?.chapterNumber)
@@ -993,7 +1002,7 @@ export function ChatPanel() {
         { reasoning: resolveUserVisibleReasoning(effectiveChatLlmConfig.reasoning) },
       )
     },
-    [aiChatModel, llmConfig, chatEditModeEnabled, addMessage, setStreaming, setStreamingContent, appendStreamToken, finalizeStream, createConversation, maxHistoryMessages, requestSoulDialog, deepChapterEnabled, project, novelMode, selectedFile],
+    [aiChatModel, llmConfig, providerConfigs, chatEditModeEnabled, addMessage, setStreaming, setStreamingContent, appendStreamToken, finalizeStream, createConversation, maxHistoryMessages, requestSoulDialog, deepChapterEnabled, project, novelMode, selectedFile],
   )
 
   const handleStop = useCallback(() => {
@@ -1400,7 +1409,7 @@ export function ChatPanel() {
                       </>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-muted-foreground">模型</span>
                     <ChatModelSelector
                       value={aiChatModel}
@@ -1409,23 +1418,6 @@ export function ChatPanel() {
                         void saveAiChatModel(model)
                       }}
                     />
-                    <select
-                      value={aiChatModel.trim() || "__default__"}
-                      onChange={(event) => {
-                        const nextValue = event.target.value === "__default__" ? "" : event.target.value
-                        setAiChatModel(nextValue)
-                        void saveAiChatModel(nextValue)
-                      }}
-                      className="h-8 min-w-48 rounded-md border border-input bg-background px-2 text-sm"
-                      aria-label="AI会话模型"
-                    >
-                      <option value="__default__">跟随当前主模型</option>
-                      {buildModelSelectOptions(aiChatModel, aiChatModelOptions).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 </div>
               </TooltipProvider>
