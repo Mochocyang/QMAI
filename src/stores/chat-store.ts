@@ -8,6 +8,7 @@ export interface Conversation {
   createdAt: number
   updatedAt: number
   deAiMode: boolean
+  inputDraft?: string
 }
 
 export interface MessageReference {
@@ -41,6 +42,7 @@ interface ChatState {
   setActiveConversation: (id: string | null) => void
   renameConversation: (id: string, title: string) => void
   setConversationDeAiMode: (id: string, deAiMode: boolean) => void
+  setConversationInputDraft: (id: string, draft: string) => void
 
   // Message management
   addMessage: (role: DisplayMessage["role"], content: string) => void
@@ -91,6 +93,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
       deAiMode: false,
+      inputDraft: "",
     }
     set((state) => ({
       conversations: [newConversation, ...state.conversations],
@@ -128,6 +131,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.id === id ? { ...c, deAiMode, updatedAt: Date.now() } : c
+      ),
+    })),
+
+  setConversationInputDraft: (id, draft) =>
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === id ? { ...c, inputDraft: draft } : c
       ),
     })),
 
