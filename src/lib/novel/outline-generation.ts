@@ -2,6 +2,7 @@ import { createDirectory, fileExists, listDirectory, readFile, writeFile } from 
 import { streamChat } from "@/lib/llm-client"
 import { getOutputLanguage } from "@/lib/output-language"
 import { getFileName, normalizePath } from "@/lib/path-utils"
+import { refreshProjectState } from "@/lib/project-refresh"
 import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { PROMPTS } from "@/lib/novel/prompt-templates"
@@ -440,10 +441,7 @@ export async function runOutlineGenerationTask(taskId: string, llmConfig: LlmCon
 
   try {
     const { outlinePath } = await generateOutlineFile(task.projectPath, llmConfig, task.prompt)
-    const pp = normalizePath(task.projectPath)
-    const tree = await listDirectory(pp)
-    useWikiStore.getState().setFileTree(tree)
-    useWikiStore.getState().bumpDataVersion()
+    await refreshProjectState(task.projectPath)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "generated",
       outlinePath,
@@ -493,10 +491,7 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
       outlinePath = result.primaryPath
     }
 
-    const pp = normalizePath(task.projectPath)
-    const tree = await listDirectory(pp)
-    useWikiStore.getState().setFileTree(tree)
-    useWikiStore.getState().bumpDataVersion()
+    await refreshProjectState(task.projectPath)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "generated",
       outlinePath,
@@ -553,8 +548,7 @@ export async function addOutlineFileToSourceList(projectPath: string, outlinePat
   const targetPath = await getUniqueSourceListPath(pp, getFileName(normalizedOutlinePath))
   await writeFile(targetPath, content)
 
-  const tree = await listDirectory(pp)
-  useWikiStore.getState().setFileTree(tree)
+  await refreshProjectState(projectPath)
   return targetPath
 }
 
@@ -642,10 +636,7 @@ export async function runOutlineIngestTask(taskId: string): Promise<void> {
     })
     const snapshot = await ingestOutline(task.projectPath, task.outlinePath)
     if (snapshot) {
-      const pp = normalizePath(task.projectPath)
-      const tree = await listDirectory(pp)
-      useWikiStore.getState().setFileTree(tree)
-      useWikiStore.getState().bumpDataVersion()
+      await refreshProjectState(task.projectPath)
     }
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: snapshot ? "done" : "error",

@@ -10,8 +10,9 @@ import {
   Image as ImageIcon,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { readFile, listDirectory } from "@/commands/fs"
+import { readFile } from "@/commands/fs"
 import { normalizePath, getFileName } from "@/lib/path-utils"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import type { DisplayMessage } from "@/stores/chat-store"
@@ -566,10 +567,7 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
     setResults(editResults)
     setApplied(true)
     // Refresh file tree
-    const pp = normalizePath(projectPath)
-    const tree = await listDirectory(pp)
-    useWikiStore.getState().setFileTree(tree)
-    useWikiStore.getState().bumpDataVersion()
+    await refreshProjectState(projectPath)
     return editResults
   }, [projectPath])
 
