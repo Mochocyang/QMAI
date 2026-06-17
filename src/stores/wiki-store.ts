@@ -355,6 +355,7 @@ export interface SavedModel {
  * briefly switch to a different provider.
  */
 export interface ProviderOverride {
+  label?: string             // 自定义配置的显示名称
   apiKey?: string
   model?: string
   baseUrl?: string           // customEndpoint for custom presets, ollamaUrl for ollama
@@ -365,6 +366,8 @@ export interface ProviderOverride {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
+  /** 是否在 AI 会话中显示该 provider 下的模型（仅用于自定义供应商）。默认 true。 */
+  enabled?: boolean
   /** 已保存的模型列表（仅用于自定义供应商） */
   savedModels?: SavedModel[]
 }

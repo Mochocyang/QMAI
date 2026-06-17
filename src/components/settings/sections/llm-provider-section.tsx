@@ -16,6 +16,7 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
+import { CustomProviderCards } from "./custom-provider-cards"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -70,7 +71,7 @@ export function LlmProviderSection() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">{t("settings.sections.llm.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -78,8 +79,12 @@ export function LlmProviderSection() {
         </p>
       </div>
 
+      {/* Custom Provider Cards - 放在顶部 */}
+      <CustomProviderCards />
+
+      {/* Built-in Presets - 内置预设，过滤掉通用的"自定义模型"预设 */}
       <div className="space-y-2">
-        {LLM_PRESETS.map((preset) => (
+        {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => (
           <PresetRow
             key={preset.id}
             preset={preset}
@@ -488,7 +493,6 @@ function PresetRow({
           {preset.provider === "custom" && (
             <SavedModelsManager
               savedModels={ov.savedModels ?? []}
-              presetId={preset.id}
               onChange={(models) => onChange({ savedModels: models })}
             />
           )}
@@ -589,7 +593,7 @@ function PresetRow({
   )
 }
 
-function ReasoningControls({
+export function ReasoningControls({
   value,
   onChange,
 }: {
