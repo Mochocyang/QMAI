@@ -15,6 +15,7 @@ import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/l
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
+import { SavedModelsManager } from "./saved-models-manager"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -483,6 +484,14 @@ function PresetRow({
               onChange={(v) => onChange({ model: v })}
             />
           </div>
+
+          {preset.provider === "custom" && (
+            <SavedModelsManager
+              savedModels={ov.savedModels ?? []}
+              presetId={preset.id}
+              onChange={(models) => onChange({ savedModels: models })}
+            />
+          )}
 
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">

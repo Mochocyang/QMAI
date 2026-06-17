@@ -1,4 +1,20 @@
 {
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "confirm": "确认",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "info": "提示"
+  },
   "app": {
     "title": "青幕AI写作",
     "subtitle": "面向长篇小说的 AI 写作桌面端系统"
@@ -207,7 +223,10 @@
     "msgCount": "条消息",
     "startNewConversation": "开始新对话",
     "clickNewChatToBegin": "点击「新建对话」开始",
-    "typeAMessage": "输入消息..."
+    "typeAMessage": "输入消息...",
+    "selectModel": "选择模型",
+    "searchModel": "搜索模型...",
+    "noModelFound": "未找到匹配的模型"
   },
   "search": {
     "title": "搜索",
@@ -483,7 +502,30 @@
         "providerTests": "模型测试",
         "providerTestsHint": "连接测试用于检查是否可访问；功能测试会要求模型返回指定标记，确认模型能正常生成可用内容。",
         "testConnection": "测试连接",
-        "testFunction": "测试功能"
+        "testFunction": "测试功能",
+        "savedModels": {
+          "title": "已保存的模型",
+          "addModel": "添加模型",
+          "editModel": "编辑模型",
+          "delete": "删除",
+          "edit": "编辑",
+          "empty": "暂未添加任何模型",
+          "endpoint": "接口",
+          "confirmDelete": "确定要删除这个模型配置吗？",
+          "dialogDescription": "配置一个新的模型。可以使用不同的API密钥或接口地址，方便在AI会话中快速切换。",
+          "modelName": "模型名称",
+          "modelNamePlaceholder": "例如：GPT-4o",
+          "modelId": "模型ID",
+          "modelIdPlaceholder": "例如：gpt-4o",
+          "apiKey": "API密钥（可选）",
+          "apiKeyPlaceholder": "留空则使用供应商的密钥",
+          "apiKeyHint": "留空则复用当前供应商的API密钥",
+          "customEndpoint": "自定义接口地址（可选）",
+          "customEndpointPlaceholder": "留空则使用供应商的接口地址",
+          "customEndpointHint": "留空则复用当前供应商的接口地址",
+          "description": "备注说明",
+          "descriptionPlaceholder": "例如：适合代码生成"
+        }
       },
       "embedding": {
         "title": "向量检索/Embedding模型",

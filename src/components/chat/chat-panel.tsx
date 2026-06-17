@@ -8,6 +8,7 @@ import { ChatMessage, StreamingMessage } from "./chat-message"
 import { ChatDockControls } from "./chat-dock-controls"
 import { setLastQueryPages, useSourceFiles } from "./chat-shared"
 import { ChatInput } from "./chat-input"
+import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
@@ -1400,7 +1401,14 @@ export function ChatPanel() {
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">AI会话模型</span>
+                    <span className="text-xs text-muted-foreground">模型</span>
+                    <ChatModelSelector
+                      value={aiChatModel}
+                      onChange={(model) => {
+                        setAiChatModel(model)
+                        void saveAiChatModel(model)
+                      }}
+                    />
                     <select
                       value={aiChatModel.trim() || "__default__"}
                       onChange={(event) => {
