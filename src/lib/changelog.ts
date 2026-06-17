@@ -78,6 +78,25 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_SIXTEEN_CHANGELOG: ChangelogEntry = {
+  version: "2.2.16",
+  date: "2026-06-18",
+  highlights: {
+    en: [
+      "Added support for multiple custom LLM models and fixed related model configuration issues.",
+      "Added the Dismantling Library beta feature: import TXT novels to extract characters and add them to custom souls.",
+      "Fixed AI Chat sometimes deviating from the outline; it now always reads the full outline content before generating.",
+      "Fixed various other issues.",
+    ],
+    zh: [
+      "LLM 模型增加多个自定义模型添加，修复模型等其他内容。",
+      "增加拆书测试版功能，导入 txt 小说文档可以提取小说角色加入到自定义灵魂当中。",
+      "AI 会话有时会脱离大纲，已修复当前问题，每次都会强制读取大纲内容。",
+      "修复一些其他问题。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_FOURTEEN_CHANGELOG: ChangelogEntry = {
   version: "2.2.14",
   date: "2026-06-13",
@@ -363,6 +382,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_SIXTEEN_CHANGELOG.version) return [TWO_POINT_TWO_SIXTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_FOURTEEN_CHANGELOG.version) return [TWO_POINT_TWO_FOURTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTEEN_CHANGELOG.version) return [TWO_POINT_TWO_THIRTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_TWELVE_CHANGELOG.version) return [TWO_POINT_TWO_TWELVE_CHANGELOG]
@@ -383,6 +403,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_SIXTEEN_CHANGELOG,
     TWO_POINT_TWO_FOURTEEN_CHANGELOG,
     TWO_POINT_TWO_THIRTEEN_CHANGELOG,
     TWO_POINT_TWO_TWELVE_CHANGELOG,
