@@ -29,8 +29,13 @@ function App() {
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${Math.round(uiFontSizeScale * 100)}%`
+  }, [uiFontSizeScale])
 
   // Set up auto-save and clip watcher once on mount
   useEffect(() => {

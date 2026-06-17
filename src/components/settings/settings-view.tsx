@@ -83,6 +83,7 @@ function initialDraft(
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
   maxHistoryMessages: number,
   uiLanguage: string,
+  uiFontSizeScale: number,
   projectPath?: string,
 ): SettingsDraft {
   // Show absolute path: if stored path is empty, show default using project path
@@ -141,6 +142,7 @@ function initialDraft(
     revisionFeedbackWindowConfig,
     novelConfig,
     uiLanguage,
+    uiFontSizeScale,
   }
 }
 
@@ -173,6 +175,8 @@ export function SettingsView() {
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const setMaxHistoryMessages = useChatStore((s) => s.setMaxHistoryMessages)
+  const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
+  const setUiFontSizeScale = useWikiStore((s) => s.setUiFontSizeScale)
 
   const [active, setActive] = useState<CategoryId>("llm")
   const [saved, setSaved] = useState(false)
@@ -191,6 +195,7 @@ export function SettingsView() {
       novelConfig,
       maxHistoryMessages,
       i18n.language,
+      uiFontSizeScale,
       project?.path,
     ),
   )
@@ -269,6 +274,7 @@ export function SettingsView() {
         novelConfig,
         maxHistoryMessages,
         prev.uiLanguage,
+        uiFontSizeScale,
         project?.path,
       ),
     )
@@ -285,6 +291,7 @@ export function SettingsView() {
     revisionFeedbackWindowConfig,
     novelConfig,
     maxHistoryMessages,
+    uiFontSizeScale,
     project,
   ])
 
@@ -429,6 +436,8 @@ export function SettingsView() {
     setNovelConfig(draft.novelConfig)
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
 
+    setUiFontSizeScale(draft.uiFontSizeScale)
+
     if (draft.uiLanguage !== i18n.language) {
       await i18n.changeLanguage(draft.uiLanguage)
       await saveLanguage(draft.uiLanguage)
@@ -452,6 +461,7 @@ export function SettingsView() {
     scheduledImportConfig,
     setMaxHistoryMessages,
     outputLanguage,
+    setUiFontSizeScale,
   ])
 
   const body = useMemo(() => {
