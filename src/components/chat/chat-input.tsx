@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, type ReactNode } from "react"
 import { Send, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { isImeComposing } from "@/lib/keyboard-utils"
+import { useChatStore } from "@/stores/chat-store"
 import {
   clampResizableInputHeight,
   DEFAULT_RESIZABLE_INPUT_HEIGHT,
@@ -29,10 +30,27 @@ function resolveResizePanelHeight(root: HTMLDivElement | null): number {
 }
 
 export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls }: ChatInputProps) {
-  const [value, setValue] = useState("")
+  const activeConversationId = useChatStore((state) => state.activeConversationId)
+  const setConversationInputDraft = useChatStore((state) => state.setConversationInputDraft)
+  const conversation = useChatStore((state) =>
+    activeConversationId
+      ? state.conversations.find((c) => c.id === activeConversationId)
+      : undefined
+  )
+  const value = conversation?.inputDraft ?? ""
+
   const [inputHeight, setInputHeight] = useState(DEFAULT_RESIZABLE_INPUT_HEIGHT)
   const rootRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const setValue = useCallback(
+    (draft: string) => {
+      if (activeConversationId) {
+        setConversationInputDraft(activeConversationId, draft)
+      }
+    },
+    [activeConversationId, setConversationInputDraft]
+  )
 
   const getResizeBounds = useCallback(() => {
     const panelHeight = resolveResizePanelHeight(rootRef.current)
@@ -51,7 +69,7 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
     if (ta.scrollHeight > inputHeight) {
       setInputHeight(clampResizableInputHeight(ta.scrollHeight, getResizeBounds()))
     }
-  }, [getResizeBounds, inputHeight])
+  }, [getResizeBounds, inputHeight, setValue])
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -95,7 +113,7 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
     if (!trimmed || isStreaming) return
     onSend(trimmed)
     setValue("")
-  }, [value, isStreaming, onSend])
+  }, [value, isStreaming, onSend, setValue])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
