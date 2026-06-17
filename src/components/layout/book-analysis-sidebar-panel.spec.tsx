@@ -19,10 +19,6 @@ vi.mock("@/lib/novel/book-analysis/aura-cleanup", () => ({
   deleteOrphanAurasForBook: vi.fn().mockResolvedValue(0),
 }))
 
-vi.mock("@/lib/novel/book-analysis/library-store", () => ({
-  removeBookLibraryEntry: vi.fn().mockResolvedValue(undefined),
-}))
-
 vi.mock("@/lib/novel/character-aura", () => ({
   listCharacterAuras: vi.fn().mockResolvedValue([]),
 }))
@@ -38,18 +34,16 @@ vi.mock("@/stores/wiki-store", () => ({
 vi.mock("@/stores/book-analysis-store", () => {
   const setCurrentResult = vi.fn()
   const setShowResultViewer = vi.fn()
-  const removeTasksByBookId = vi.fn()
   return {
     useBookAnalysisStore: Object.assign(
       () => ({ setCurrentResult, setShowResultViewer }),
-      { getState: () => ({ removeTasksByBookId }) },
+      { getState: () => ({}) },
     ),
   }
 })
 
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 import { listDirectory, readFile, deleteFile } from "@/commands/fs"
-import { removeBookLibraryEntry } from "@/lib/novel/book-analysis/library-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -81,13 +75,9 @@ function getMockRefs() {
     setCurrentResult: ReturnType<typeof vi.fn>
     setShowResultViewer: ReturnType<typeof vi.fn>
   }
-  const remove = useBookAnalysisStore.getState() as unknown as {
-    removeTasksByBookId: ReturnType<typeof vi.fn>
-  }
   return {
     setCurrentResult: store.setCurrentResult,
     setShowResultViewer: store.setShowResultViewer,
-    removeTasksByBookId: remove.removeTasksByBookId,
   }
 }
 
@@ -122,10 +112,10 @@ describe("BookAnalysisSidebarPanel", () => {
     const mocks = getMockRefs()
     const { cleanup } = renderPanel()
     await flushAsync(50) // 等 loadBooks 完成
-    const bookItem = document.querySelector('[role="button"]') as HTMLElement
-    expect(bookItem).toBeTruthy()
+    const viewBtn = document.querySelector('[aria-label="查看分析结果"]') as HTMLButtonElement
+    expect(viewBtn).toBeTruthy()
     await act(async () => {
-      bookItem.click()
+      viewBtn.click()
       await new Promise((r) => setTimeout(r, 0))
     })
     await flushAsync(50) // 等 handleViewBook 异步读盘 + setState
@@ -149,7 +139,6 @@ describe("BookAnalysisSidebarPanel", () => {
 
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
     vi.mocked(deleteFile).mockResolvedValue(undefined)
-    vi.mocked(removeBookLibraryEntry).mockResolvedValue(undefined)
 
     const mocks = getMockRefs()
     const { cleanup } = renderPanel()
@@ -160,11 +149,8 @@ describe("BookAnalysisSidebarPanel", () => {
       deleteBtn.click()
       await new Promise((r) => setTimeout(r, 0))
     })
-    await flushAsync(50) // 等 deleteFile + removeBookLibraryEntry + removeTasksByBookId
+    await flushAsync(50) // 等 deleteFile 完成
     expect(deleteFile).toHaveBeenCalledTimes(1)
-    expect(removeBookLibraryEntry).toHaveBeenCalledWith("/proj", "book-2")
-    // optimize/cleanup-store-on-delete：store task 清理应被调用
-    expect(mocks.removeTasksByBookId).toHaveBeenCalledWith("book-2")
     // 整行 click 不应触发：setCurrentResult 不应被调
     expect(mocks.setCurrentResult).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
