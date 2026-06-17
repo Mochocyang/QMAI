@@ -16,6 +16,9 @@ interface ChatInputProps {
   placeholder?: string
   leadingControls?: ReactNode
   footerControls?: ReactNode
+  inlineSendButton?: boolean
+  value?: string
+  onChange?: (value: string) => void
 }
 
 function resolveResizePanelHeight(root: HTMLDivElement | null): number {
@@ -29,7 +32,7 @@ function resolveResizePanelHeight(root: HTMLDivElement | null): number {
   return panelHeight
 }
 
-export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingControls, footerControls, inlineSendButton = true, value: controlledValue, onChange }: ChatInputProps) {
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const setConversationInputDraft = useChatStore((state) => state.setConversationInputDraft)
   const conversation = useChatStore((state) =>
@@ -37,7 +40,9 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
       ? state.conversations.find((c) => c.id === activeConversationId)
       : undefined
   )
-  const value = conversation?.inputDraft ?? ""
+  const isControlled = controlledValue !== undefined
+  const storeValue = conversation?.inputDraft ?? ""
+  const value = isControlled ? controlledValue : storeValue
 
   const [inputHeight, setInputHeight] = useState(DEFAULT_RESIZABLE_INPUT_HEIGHT)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -45,11 +50,13 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
 
   const setValue = useCallback(
     (draft: string) => {
-      if (activeConversationId) {
+      if (isControlled) {
+        onChange?.(draft)
+      } else if (activeConversationId) {
         setConversationInputDraft(activeConversationId, draft)
       }
     },
-    [activeConversationId, setConversationInputDraft]
+    [isControlled, onChange, activeConversationId, setConversationInputDraft]
   )
 
   const getResizeBounds = useCallback(() => {
@@ -141,9 +148,9 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
       >
         <span className="h-0.5 w-10 rounded-full bg-border" />
       </div>
-      {footerControls ?? leadingControls ? (
+      {leadingControls ? (
         <div className="px-3 pb-2">
-          {footerControls ?? leadingControls}
+          {leadingControls}
         </div>
       ) : null}
       <div className="flex items-end gap-2 px-3 pb-3">
@@ -159,7 +166,7 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
           className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           style={{ height: inputHeight, maxHeight: inputHeight, overflowY: "auto" }}
         />
-        {isStreaming ? (
+        {inlineSendButton && (isStreaming ? (
           <Button
             variant="destructive"
             size="icon"
@@ -181,8 +188,13 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
           >
             <Send className="h-4 w-4" />
           </Button>
-        )}
+        ))}
       </div>
+      {footerControls ? (
+        <div className="px-3 pb-2">
+          {footerControls}
+        </div>
+      ) : null}
     </div>
   )
 }

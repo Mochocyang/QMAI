@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, Check } from "lucide-react"
+import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
@@ -16,9 +17,14 @@ interface ModelGroup {
   models: SavedModel[]
 }
 
+const DROPDOWN_MAX_HEIGHT = 400
+const DROPDOWN_GAP = 6
+
 export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [dropdownStyle, setDropdownStyle] = useState<{ left: number; top: number; width: number } | null>(null)
   const activePresetId = useWikiStore((s) => s.activePresetId)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
@@ -68,9 +74,38 @@ export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
     return null
   }
 
+  useEffect(() => {
+    if (!open) {
+      setDropdownStyle(null)
+      return
+    }
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = Math.max(rect.width, 300)
+      const availableAbove = rect.top
+      const availableBelow = window.innerHeight - rect.bottom
+      let top: number
+      if (availableAbove >= DROPDOWN_MAX_HEIGHT + DROPDOWN_GAP || availableAbove >= availableBelow) {
+        top = Math.max(4, rect.top - DROPDOWN_MAX_HEIGHT - DROPDOWN_GAP)
+      } else {
+        top = rect.bottom + DROPDOWN_GAP
+      }
+      setDropdownStyle({
+        left: Math.min(rect.left, window.innerWidth - width - 4),
+        top,
+        width,
+      })
+    }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    return () => window.removeEventListener("resize", updatePosition)
+  }, [open])
+
   return (
     <div className="relative">
       <Button
+        ref={triggerRef}
         type="button"
         variant="outline"
         onClick={() => setOpen(!open)}
@@ -82,48 +117,56 @@ export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
       </Button>
 
-      {open && (
+      {open && dropdownStyle && createPortal(
         <>
           <div
             className="fixed inset-0 z-40"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute bottom-full left-0 z-50 mb-1 w-[300px] rounded-md border bg-popover p-1 shadow-md">
-            <div className="max-h-[400px] overflow-y-auto">
-              {modelGroups.map((group, groupIdx) => (
-                <div key={group.id}>
-                  {groupIdx > 0 && <div className="my-1 h-px bg-border" />}
-                  <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {group.label}
-                  </div>
-                  {group.models.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => {
-                        onChange(model.model)
-                        setOpen(false)
-                      }}
-                      className="flex w-full items-start gap-2 rounded-sm px-3 py-1.5 text-left text-sm hover:bg-accent"
-                    >
-                      <Check
-                        className={`mt-0.5 h-4 w-4 shrink-0 ${
-                          value === model.model ? "opacity-100" : "opacity-0"
-                        }`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{model.name}</div>
-                        <code className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {model.model}
-                        </code>
-                      </div>
-                    </button>
-                  ))}
+          <div
+            className="fixed z-50 rounded-md border bg-popover p-1 shadow-md"
+            style={{
+              left: dropdownStyle.left,
+              top: dropdownStyle.top,
+              width: dropdownStyle.width,
+              maxHeight: DROPDOWN_MAX_HEIGHT,
+              overflowY: "auto",
+            }}
+          >
+            {modelGroups.map((group, groupIdx) => (
+              <div key={group.id}>
+                {groupIdx > 0 && <div className="my-1 h-px bg-border" />}
+                <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {group.label}
                 </div>
-              ))}
-            </div>
+                {group.models.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(model.model)
+                      setOpen(false)
+                    }}
+                    className="flex w-full items-start gap-2 rounded-sm px-3 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Check
+                      className={`mt-0.5 h-4 w-4 shrink-0 ${
+                        value === model.model ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{model.name}</div>
+                      <code className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {model.model}
+                      </code>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   )

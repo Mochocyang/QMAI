@@ -10,6 +10,7 @@ import ReactMarkdown from "react-markdown"
 import { useState } from "react"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import { ChatDockControls } from "@/components/chat/chat-dock-controls"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-generation"
 import { prepareOutlineSaveDraft } from "@/lib/outline-save"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
@@ -210,6 +211,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const setStreamingContent = useOutlineChatStore((s) => s.setStreamingContent)
   const setIsStreaming = useOutlineChatStore((s) => s.setIsStreaming)
   const loadFromDisk = useOutlineChatStore((s) => s.loadFromDisk)
+
+  const [inputValue, setInputValue] = useState("")
 
   // 加载持久化的历史记录
   useEffect(() => {
@@ -606,7 +609,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         onStop={handleStop}
         isStreaming={isStreaming}
         placeholder="输入关于大纲的问题..."
-        leadingControls={<ChatDockControls />}
+        value={inputValue}
+        onChange={setInputValue}
+        footerControls={
+          <TooltipProvider delay={200}>
+            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
+              <ChatDockControls />
+            </div>
+          </TooltipProvider>
+        }
       />
     </div>
   )

@@ -10,7 +10,7 @@ import { saveNovelMode, saveNovelConfig } from "@/lib/project-store"
 import { normalizePath } from "@/lib/path-utils"
 import { exportProject } from "@/lib/novel/export"
 import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
-import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig } from "@/stores/wiki-store"
 
@@ -25,6 +25,7 @@ export function NovelSection({ draft, setDraft }: Props) {
   const setNovelMode = useWikiStore((s) => s.setNovelMode)
   const setNovelConfigStore = useWikiStore((s) => s.setNovelConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const project = useWikiStore((s) => s.project)
   const [exportStatus, setExportStatus] = useState<string>("")
   const [testStates, setTestStates] = useState<Record<TestableNovelModelTask, {
@@ -37,12 +38,6 @@ export function NovelSection({ draft, setDraft }: Props) {
     summary: undefined,
     extract: undefined,
   })
-  const [modelOptions, setModelOptions] = useState<string[]>([])
-  const [modelListState, setModelListState] = useState<{
-    loading: boolean
-    message: string
-    success: boolean
-  } | null>(null)
 
   const handleNovelModeToggle = async () => {
     const newMode = !novelMode
@@ -67,43 +62,6 @@ export function NovelSection({ draft, setDraft }: Props) {
       wrapperClassName: "space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3",
     },
   ] as const), [])
-
-  const mergedModelOptions = useMemo(() => {
-    const currentModels = [
-      llmConfig.model,
-      draft.novelConfig.writingModel,
-      draft.novelConfig.reviewModel,
-      draft.novelConfig.summaryModel,
-      draft.novelConfig.extractModel,
-    ]
-    return Array.from(new Set([...currentModels, ...modelOptions].map((model) => model.trim()).filter(Boolean)))
-  }, [draft.novelConfig.extractModel, draft.novelConfig.reviewModel, draft.novelConfig.summaryModel, draft.novelConfig.writingModel, llmConfig.model, modelOptions])
-
-  const loadModelOptions = async () => {
-    setModelListState({
-      loading: true,
-      message: t("novel.settings.loadingModels"),
-      success: false,
-    })
-
-    try {
-      const result = await fetchLlmModelList(llmConfig)
-      setModelOptions(result.models)
-      setModelListState({
-        loading: false,
-        message: t("novel.settings.modelListSuccess", { count: result.models.length }),
-        success: true,
-      })
-    } catch (error) {
-      setModelListState({
-        loading: false,
-        message: t("novel.settings.modelListFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-        success: false,
-      })
-    }
-  }
 
   const settingTooltip = (key: string) => (
     <Tooltip>
@@ -319,28 +277,6 @@ export function NovelSection({ draft, setDraft }: Props) {
             </button>
           </div>
 
-          <div className="space-y-2 rounded-md border border-dashed p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={modelListState?.loading}
-                onClick={() => void loadModelOptions()}
-              >
-                {modelListState?.loading ? t("novel.settings.loadingModels") : t("novel.settings.fetchModels")}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {t("novel.settings.modelSelectHint", { model: llmConfig.model || t("novel.settings.noMainModel") })}
-              </span>
-            </div>
-            {modelListState?.message ? (
-              <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
-                {modelListState.message}
-              </p>
-            ) : null}
-          </div>
-
           {modelItems.map((item) => {
             const state = testStates[item.task]
             return (
@@ -350,20 +286,12 @@ export function NovelSection({ draft, setDraft }: Props) {
                   {settingTooltip(`${item.field}Hint`)}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={draft.novelConfig[item.field] || "__default__"}
-                    onChange={(e) => updateNovelConfig({
-                      [item.field]: e.target.value === "__default__" ? "" : e.target.value,
+                  <ChatModelSelector
+                    value={draft.novelConfig[item.field] || aiChatModel || llmConfig.model || ""}
+                    onChange={(model) => updateNovelConfig({
+                      [item.field]: model === aiChatModel ? "" : model,
                     } as Partial<NovelConfig>)}
-                    className="h-9 w-64 rounded-md border border-input bg-background px-3 py-1 text-sm"
-                  >
-                    <option value="__default__">
-                      {t("novel.settings.useMainModel", { model: llmConfig.model || t("novel.settings.noMainModel") })}
-                    </option>
-                    {mergedModelOptions.map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
+                  />
                   <Button
                     type="button"
                     size="sm"

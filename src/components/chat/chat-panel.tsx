@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, PencilLine, Plus, Trash2, MessageSquare, FileEdit } from "lucide-react"
+import { BookOpen, Brain, Plus, Trash2, MessageSquare, FileEdit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -173,7 +173,6 @@ export function ChatPanel() {
   const createConversation = useChatStore((s) => s.createConversation)
   const removeLastAssistantMessage = useChatStore((s) => s.removeLastAssistantMessage)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
-
   // Derive active messages via selector to re-render on message changes
   const allMessages = useChatStore((s) => s.messages)
   const activeMessages = activeConversationId
@@ -1353,38 +1352,24 @@ export function ChatPanel() {
             onSend={handleSend}
             onStop={handleStop}
             isStreaming={isStreaming}
-            leadingControls={
+            footerControls={
               <TooltipProvider delay={200}>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center justify-between gap-2 flex-nowrap overflow-x-auto">
+                  <div className="flex items-center gap-2 flex-nowrap">
                     <ChatDockControls />
                     {novelMode ? (
                       <>
                         <Button
                           type="button"
                           variant="ghost"
-                          size="sm"
+                          size="icon"
                           aria-pressed={deepChapterEnabled}
                           className={getDeepChapterToggleButtonClass(deepChapterEnabled)}
-                          onClick={() => setDeepChapterEnabled(true)}
-                          title="深度思考"
-                          aria-label="深度思考"
+                          onClick={() => setDeepChapterEnabled(!deepChapterEnabled)}
+                          title={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
+                          aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
                         >
-                          <Brain className="mr-1 h-4 w-4" />
-                          深度思考
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-pressed={!deepChapterEnabled}
-                          className={!deepChapterEnabled ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground" : ""}
-                          onClick={() => setDeepChapterEnabled(false)}
-                          title="普通模式"
-                          aria-label="普通模式"
-                        >
-                          <PencilLine className="mr-1 h-4 w-4" />
-                          普通模式
+                          <Brain className="h-4 w-4" />
                         </Button>
                         <Tooltip>
                           <TooltipTrigger
@@ -1392,15 +1377,16 @@ export function ChatPanel() {
                               <Button
                                 type="button"
                                 variant="ghost"
-                                size="sm"
+                                size="icon"
                                 aria-pressed={chatEditModeEnabled}
                                 className={chatEditModeEnabled ? "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100" : ""}
                                 onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
+                                title="编辑章节"
+                                aria-label="编辑章节"
                               />
                             )}
                           >
-                            <FileEdit className="mr-1 h-4 w-4" />
-                            编辑章节
+                            <FileEdit className="h-4 w-4" />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs leading-5">
                             开启后，AI会话会读取当前章节或识别到的章节范围进行修改，并在写回前自动备份原内容。
@@ -1409,8 +1395,7 @@ export function ChatPanel() {
                       </>
                     ) : null}
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted-foreground">模型</span>
+                  <div className="flex items-center gap-2 flex-nowrap">
                     <ChatModelSelector
                       value={aiChatModel}
                       onChange={(model) => {
