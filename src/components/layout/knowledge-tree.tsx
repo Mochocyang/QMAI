@@ -235,7 +235,7 @@ function sortFileNodes(
 
     const leftInfo = pageInfoByPath.get(normalizePath(left.path))
     const rightInfo = pageInfoByPath.get(normalizePath(right.path))
-    if (filterType === "chapter") {
+    if (filterType === "chapter" || filterType === "outline") {
       const leftOrder = leftInfo?.chapterNumber ?? extractPageOrderFromTitle(leftInfo?.title ?? left.name)
       const rightOrder = rightInfo?.chapterNumber ?? extractPageOrderFromTitle(rightInfo?.title ?? right.name)
       if (leftOrder !== null && rightOrder !== null && leftOrder !== rightOrder) {
