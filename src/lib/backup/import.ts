@@ -45,10 +45,7 @@ export async function importBackup(
       })
     }
 
-    const result = await invoke<ImportResult>(
-      "import_backup",
-      params as unknown as Record<string, unknown>,
-    )
+    const result = await invoke<ImportResult>("import_backup", { params })
 
     if (!result.success) {
       return result

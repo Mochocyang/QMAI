@@ -74,10 +74,7 @@ export async function exportBackup(
       })
     }
 
-    const result = await invoke<ExportResult>(
-      "export_backup",
-      params as unknown as Record<string, unknown>,
-    )
+    const result = await invoke<ExportResult>("export_backup", { params })
     return result
   } finally {
     unlisten?.()
