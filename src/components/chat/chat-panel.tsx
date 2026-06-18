@@ -15,12 +15,13 @@ import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
 import { routeTask, buildTaskDirective } from "@/lib/novel/task-router"
-import { listDirectory, readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
+import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
 import { buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
 import { cleanGeneratedChapterContentForSave } from "@/lib/novel/chapter-content-cleanup"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { isGreeting } from "@/lib/greeting-detector"
 import { computeContextBudget } from "@/lib/context-budget"
@@ -187,7 +188,6 @@ export function ChatPanel() {
   const setAiChatModel = useWikiStore((s) => s.setAiChatModel)
   const chatEditModeEnabled = useWikiStore((s) => s.chatEditModeEnabled)
   const setChatEditModeEnabled = useWikiStore((s) => s.setChatEditModeEnabled)
-  const setFileTree = useWikiStore((s) => s.setFileTree)
   const selectedFile = useWikiStore((s) => s.selectedFile)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -267,9 +267,7 @@ export function ChatPanel() {
         useWikiStore.getState().setSelectedFile(chapterPath)
       }
 
-      const tree = await listDirectory(pp)
-      useWikiStore.getState().setFileTree(tree)
-      useWikiStore.getState().bumpDataVersion()
+      await refreshProjectState(pp)
       useWikiStore.getState().setActiveView("wiki")
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -531,9 +529,7 @@ export function ChatPanel() {
           await writeFile(chapter.chapterPath, normalizedResult.content)
         }
 
-        const tree = await listDirectory(pp)
-        useWikiStore.getState().setFileTree(tree)
-        useWikiStore.getState().bumpDataVersion()
+        await refreshProjectState(pp)
         if (chapterPayloads[0]?.chapterPath) {
           useWikiStore.getState().setSelectedFile(chapterPayloads[0].chapterPath)
         }
@@ -1273,15 +1269,14 @@ export function ChatPanel() {
     try {
       await executeIngestWrites(pp, llmConfig, undefined, undefined)
       try {
-        const tree = await listDirectory(pp)
-        setFileTree(tree)
+        await refreshProjectState(pp)
       } catch {
         // ignore
       }
     } catch (err) {
       console.error("写入 wiki 失败:", err)
     }
-  }, [project, llmConfig, setFileTree])
+  }, [project, llmConfig])
 
   const hasAssistantMessages = activeMessages.some((m) => m.role === "assistant")
   const showWriteButton = mode === "ingest" && !isStreaming && hasAssistantMessages

@@ -66,6 +66,7 @@ export interface SettingsDraft {
 
   // UI
   uiLanguage: string
+  uiFontSizeScale: number
 
   // Source folder auto watch
   sourceWatchConfig: SourceWatchConfig

@@ -13,6 +13,7 @@ import { importBookAnalysisSkillsAsAuras, type ImportedBookAnalysisAura } from "
 import { extractSingleCharacter } from "@/lib/novel/book-analysis/character-extraction-engine"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
+import { refreshProjectState } from "@/lib/project-refresh"
 import type { BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
@@ -39,7 +40,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   const [reextractRunning, setReextractRunning] = useState(false)
 
   const currentProject = useWikiStore((s) => s.project)
-  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const tasks = useBookAnalysisStore((s) => s.tasks)
   const task = tasks.find((t) => t.projectPath === projectPath && t.status === "completed")
   // 关键修复（fix/character-reextract-and-loading-state v2）：
@@ -283,7 +283,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       setImportedAuras((current) => [...current, ...imported])
       setSelectedAuraId((current) => current || imported[0]?.auraId || "")
       setSelectedCharacterIds(new Set())
-      bumpDataVersion()
+      await refreshProjectState(currentProject.path)
       toast.success(`已添加 ${imported.length} 个角色 Skill 到自定义灵魂`)
     } catch (err) {
       const errorMsg = err instanceof Error && err.message ? err.message : "未知错误"
@@ -322,7 +322,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         failed++
       }
     }
-    bumpDataVersion()
+    await refreshProjectState(currentProject.path)
     const auraName = importedAuras.find((item) => item.auraId === selectedAuraId)?.auraName ?? "角色灵魂"
     if (failed === 0) {
       toast.success(`已将「${auraName}」绑定到 ${succeeded} 个小说人物`)

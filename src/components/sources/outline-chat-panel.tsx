@@ -3,6 +3,7 @@ import { X, Save, Copy, RefreshCw, FileText, Plus, Trash2 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
 import { normalizePath } from "@/lib/path-utils"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -140,11 +141,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
     const results = await applyFileEdits(projectPath, edits)
     setEditResults(results)
     setEditApplied(true)
-    const { listDirectory } = await import("@/commands/fs")
-    const { normalizePath } = await import("@/lib/path-utils")
-    const tree = await listDirectory(normalizePath(projectPath))
-    useWikiStore.getState().setFileTree(tree)
-    useWikiStore.getState().bumpDataVersion()
+    await refreshProjectState(projectPath)
     return results
   }, [projectPath])
 
@@ -503,9 +500,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim()
       const mdContent = `---\ntype: outline\ntitle: "${fileName}"\n---\n\n# ${fileName}\n\n${body}\n`
       await writeFile(outlinePath, mdContent)
-      const tree = await listDirectory(pp)
-      useWikiStore.getState().setFileTree(tree)
-      useWikiStore.getState().bumpDataVersion()
+      await refreshProjectState(pp)
       setSaveStatus(`已保存：${fileName}`)
     } catch (err) {
       setSaveStatus(`保存失败：${err instanceof Error ? err.message : String(err)}`)

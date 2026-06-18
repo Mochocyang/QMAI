@@ -12,6 +12,7 @@ const GRAPH_EDGE_STRENGTH_KEY = "lk-graph-edge-strength"
 const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
 const CHAT_DOCK_POSITION_KEY = "qmai-chat-dock-position"
+const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 
 export type ChatDockPosition = "bottom" | "right"
 export type SettingsCategoryId =
@@ -31,6 +32,12 @@ const readStoredChatDockPosition = (): ChatDockPosition => {
   if (typeof localStorage === "undefined") return "bottom"
   const saved = localStorage.getItem(CHAT_DOCK_POSITION_KEY)
   return saved === "right" || saved === "bottom" ? saved : "bottom"
+}
+
+const readStoredUiFontSizeScale = (): number => {
+  if (typeof localStorage === "undefined") return 1
+  const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
+  return Number.isFinite(saved) ? Math.max(0.85, Math.min(1.3, Number(saved.toFixed(2)))) : 1
 }
 
 const readStoredGraphLabelDisplayMode = (): string => {
@@ -501,6 +508,7 @@ interface WikiState {
   lintRun: LintRunState | null
   reviewRun: ReviewRunState | null
   theme: "light" | "dark" | "deep-blue"
+  uiFontSizeScale: number
   dataVersion: number
 
   setProject: (project: WikiProject | null) => void
@@ -560,6 +568,7 @@ interface WikiState {
   finishReviewRun: (runId: string, reviewRun: ReviewRunFinishState) => void
   clearTransientTaskState: () => void
   setTheme: (theme: "light" | "dark" | "deep-blue") => void
+  setUiFontSizeScale: (scale: number) => void
   bumpDataVersion: () => void
 }
 
@@ -723,6 +732,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   lintRun: null,
   reviewRun: null,
   theme: "light",
+  uiFontSizeScale: readStoredUiFontSizeScale(),
 
   setLlmConfig: (llmConfig) => set({ llmConfig }),
   setAiChatModel: (aiChatModel) => set({ aiChatModel }),
@@ -756,6 +766,13 @@ export const useWikiStore = create<WikiState>((set) => ({
   }),
   clearTransientTaskState: () => set({ finalChapterSave: null, lintRun: null, reviewRun: null }),
   setTheme: (theme) => set({ theme }),
+  setUiFontSizeScale: (scale) => {
+    const clamped = Math.max(0.85, Math.min(1.3, Number(scale.toFixed(2))))
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(UI_FONT_SIZE_SCALE_KEY, String(clamped))
+    }
+    set({ uiFontSizeScale: clamped })
+  },
   bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 }))
 
