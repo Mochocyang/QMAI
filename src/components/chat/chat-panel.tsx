@@ -1300,7 +1300,8 @@ export function ChatPanel() {
               ref={scrollContainerRef}
               className="flex-1 overflow-y-auto px-3 py-2"
             >
-              <div className="flex flex-col gap-3">
+              {/* key 强制在切换会话时重新挂载消息列表，避免旧会话内容残留 */}
+              <div key={activeConversationId} className="flex flex-col gap-3">
                 {activeMessages.map((msg, idx) => {
                   // Check if this is the last assistant message
                   const isLastAssistant = msg.role === "assistant" &&
