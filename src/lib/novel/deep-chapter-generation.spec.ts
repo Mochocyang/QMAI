@@ -71,6 +71,18 @@ function chapterText(prefix: string, count = 3000): string {
   return text.slice(0, count)
 }
 
+// 写作阶段现在可能把 user 消息内容拆成带 cache_control 的文本块（见 applyCachePrefix）；
+// provider 侧会把纯文本块拼回字符串，这里在测试桩里也照做，保持按关键字匹配阶段的逻辑。
+function messagesPromptText(messages: ChatMessage[]): string {
+  return messages
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+    )
+    .join("\n")
+}
+
 function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerationDeps {
   const responses = [
     "写作任务书内容",
@@ -83,7 +95,7 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
     contextPackToPrompt: vi.fn(() => "上下文包内容"),
     reviewChapter: vi.fn(async () => reviewResults),
     streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
-      const prompt = messages.map((message) => String(message.content)).join("\n")
+      const prompt = messagesPromptText(messages)
       const content = prompt.includes("简单审查") || prompt.includes("去AI味")
         ? responses[3]
         : prompt.includes("返修")
@@ -253,7 +265,7 @@ describe("runDeepChapterGeneration", () => {
       contextPackToPrompt: vi.fn(() => "上下文包内容"),
       reviewChapter: vi.fn(async () => []),
       streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
-        const prompt = messages.map((message) => String(message.content)).join("\n")
+        const prompt = messagesPromptText(messages)
         const content = prompt.includes("简单审查") || prompt.includes("去AI味")
           ? finalPolished
           : prompt.includes("扩写补足")
@@ -583,7 +595,7 @@ describe("runDeepChapterGeneration", () => {
       contextPackToPrompt: vi.fn(() => "上下文包内容"),
       reviewChapter: vi.fn(async () => []),
       streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
-        const prompt = messages.map((message) => String(message.content)).join("\n")
+        const prompt = messagesPromptText(messages)
         callbacks.onToken(prompt.includes("章节正文") ? chapterText("被停止的正文", 3000) : "写作任务书内容")
         if (prompt.includes("章节正文")) controller.abort()
         callbacks.onDone()

@@ -102,3 +102,48 @@ describe("custom provider headers", () => {
     })
   })
 })
+
+describe("prompt caching cache_control breakpoints", () => {
+  const cachedMessage = [{
+    role: "user" as const,
+    content: [
+      { type: "text" as const, text: "STABLE_PREFIX", cacheControl: true },
+      { type: "text" as const, text: "STAGE_SPECIFIC" },
+    ],
+  }]
+
+  it("emits Anthropic cache_control on the flagged prefix block and leaves the rest plain", () => {
+    const body = getProviderConfig(customConfig({ apiMode: "anthropic_messages" }))
+      .buildBody(cachedMessage) as Record<string, unknown>
+    const messages = body.messages as Array<{ role: string; content: unknown }>
+
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "STABLE_PREFIX", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "STAGE_SPECIFIC" },
+    ])
+  })
+
+  it("collapses the same blocks to a byte-identical string for OpenAI-compatible wires (cache marker ignored)", () => {
+    const body = getProviderConfig(customConfig({ apiMode: "chat_completions" }))
+      .buildBody(cachedMessage) as Record<string, unknown>
+    const messages = body.messages as Array<{ role: string; content: unknown }>
+
+    // OpenAI/DeepSeek 走自动前缀缓存：纯文本块折叠回与原字符串逐字节一致的内容。
+    expect(messages[0].content).toBe("STABLE_PREFIXSTAGE_SPECIFIC")
+  })
+
+  it("keeps the legacy string-collapse path when no block is flagged for caching", () => {
+    const plainBlocks = [{
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: "A" },
+        { type: "text" as const, text: "B" },
+      ],
+    }]
+    const body = getProviderConfig(customConfig({ apiMode: "anthropic_messages" }))
+      .buildBody(plainBlocks) as Record<string, unknown>
+    const messages = body.messages as Array<{ role: string; content: unknown }>
+
+    expect(messages[0].content).toBe("AB")
+  })
+})

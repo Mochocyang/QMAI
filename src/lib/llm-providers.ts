@@ -22,7 +22,7 @@ import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
  * agnostic.
  */
 export type ContentBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; cacheControl?: boolean }
   | { type: "image"; mediaType: string; dataBase64: string }
 
 export interface ChatMessage {
@@ -448,11 +448,19 @@ function buildOpenAiCompatibleBody(
  */
 function toAnthropicContent(content: string | ContentBlock[]): unknown {
   if (typeof content === "string") return content
-  if (content.every((b) => b.type === "text")) {
+  // 任一文本块带 cacheControl 时，必须保留块数组形式以承载 cache_control 断点，
+  // 不能再折叠成纯字符串（折叠会丢掉缓存标记）。无标记时维持原有折叠行为，
+  // 以保持对落后端点的兼容（见 toOpenAiContent 注释）。
+  const hasCacheControl = content.some((b) => b.type === "text" && b.cacheControl)
+  if (!hasCacheControl && content.every((b) => b.type === "text")) {
     return content.map((b) => (b.type === "text" ? b.text : "")).join("")
   }
   return content.map((b) => {
-    if (b.type === "text") return { type: "text", text: b.text }
+    if (b.type === "text") {
+      return b.cacheControl
+        ? { type: "text", text: b.text, cache_control: { type: "ephemeral" } }
+        : { type: "text", text: b.text }
+    }
     return {
       type: "image",
       source: {

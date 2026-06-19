@@ -276,6 +276,72 @@ export function NovelSection({ draft, setDraft }: Props) {
             </button>
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.deepPreviousChaptersAnalysis")}</Label>
+              {settingTooltip("deepPreviousChaptersAnalysisHint")}
+            </div>
+            <button
+              type="button"
+              onClick={() => updateNovelConfig({ deepPreviousChaptersAnalysis: !draft.novelConfig.deepPreviousChaptersAnalysis })}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                draft.novelConfig.deepPreviousChaptersAnalysis ? "bg-primary" : "bg-input"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                  draft.novelConfig.deepPreviousChaptersAnalysis ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.deepChapterReview")}</Label>
+              {settingTooltip("deepChapterReviewHint")}
+            </div>
+            <button
+              type="button"
+              onClick={() => updateNovelConfig({ deepChapterReview: !draft.novelConfig.deepChapterReview })}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                draft.novelConfig.deepChapterReview ? "bg-primary" : "bg-input"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                  draft.novelConfig.deepChapterReview ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.reviewReasoningEffort")}</Label>
+              {settingTooltip("reviewReasoningEffortHint")}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(["low", "medium", "high"] as const).map((m) => {
+                const active = (draft.novelConfig.reviewReasoningEffort ?? "high") === m
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateNovelConfig({ reviewReasoningEffort: m })}
+                    className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border hover:bg-accent"
+                    }`}
+                  >
+                    {t(`settings.sections.llm.reasoning.${m}`)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {modelItems.map((item) => {
             const state = testStates[item.task]
             return (

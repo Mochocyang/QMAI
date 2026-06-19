@@ -20,6 +20,15 @@ export interface NovelReviewCallbacks {
   onThinking?: (content: string) => void
 }
 
+export interface ReviewChapterOptions extends NovelReviewCallbacks {
+  /**
+   * 复用调用方已构建好的上下文包，避免审稿内部重复 buildContextPack
+   * （含一次重复的检索 / 向量 / 图谱计算）。深度章节生成会把阶段1建好的
+   * contextPack 传进来。未提供时回退到内部自行构建。
+   */
+  contextPack?: ContextPack
+}
+
 const REVIEW_DIMENSIONS = [
   "是否违背总大纲",
   "是否违背分卷大纲",
@@ -95,7 +104,7 @@ export async function reviewChapter(
   projectPath: string,
   chapterContent: string,
   chapterNumber?: number,
-  callbacks: NovelReviewCallbacks = {},
+  options: ReviewChapterOptions = {},
   signal?: AbortSignal,
 ): Promise<NovelReviewResult[]> {
   if (signal?.aborted) throw new Error("已停止生成")
@@ -109,7 +118,8 @@ export async function reviewChapter(
   const novelMode = useWikiStore.getState().novelMode
   if (!novelMode) return []
 
-  const contextPack = await buildContextPack(
+  // 复用调用方已构建的 contextPack；没有才自行构建。
+  const contextPack = options.contextPack ?? await buildContextPack(
     projectPath,
     `审稿第${chapterNumber || "?"}章`,
     chapterNumber,
@@ -118,75 +128,46 @@ export async function reviewChapter(
   if (signal?.aborted) throw new Error("已停止生成")
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
+  // 审稿 reasoning 档位可配置（默认 high）；下调可省审稿推理 Token。
+  const reviewReasoningEffort = useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high"
 
   const systemPrompt = `你是一个专业的小说审稿编辑。你的任务是检查章节内容是否存在连贯性问题。
-前置阶段请输出审查分析摘要；只有用户明确要求“最终审查 JSON”时，才严格按照 JSON 数组格式输出检查结果，不要输出任何其他内容。
+请在一次回复里先完成分阶段审查分析，再在最后只输出最终审查 JSON 数组，JSON 之外不要有多余内容。
 ${langReminder}`
 
   const userPrompt = buildReviewPrompt(contextPack, chapterContent)
   const stageThinking = new Map<string, string>()
 
   try {
-    const stageOne = await runReviewStage(
-      llmConfig,
-      systemPrompt,
-      buildStagePrompt(userPrompt, "阶段1：审查任务识别", "阶段2：上下文检索", "请输出审查任务书和已读取上下文摘要，不要输出最终 JSON。"),
-      "阶段1：审查任务识别 / 阶段2：上下文检索",
-      callbacks,
-      stageThinking,
-      signal,
-    )
-    const stageTwo = await runReviewStage(
-      llmConfig,
-      systemPrompt,
-      buildStagePrompt(userPrompt, "阶段3：章节目标对齐", "阶段4：事实与记忆核对", "请重点核对章纲节点、上下文、记忆库、人物认知、伏笔和时间线，不要输出最终 JSON。"),
-      "阶段3：章节目标对齐 / 阶段4：事实与记忆核对",
-      callbacks,
-      stageThinking,
-      signal,
-    )
-    const stageThree = await runReviewStage(
-      llmConfig,
-      systemPrompt,
-      buildStagePrompt(userPrompt, "阶段5：逐维度审查", "阶段6：阻断判定", "请逐维度列出 pass 或 issue，并区分 error、warning、info，不要输出最终 JSON。"),
-      "阶段5：逐维度审查 / 阶段6：阻断判定",
-      callbacks,
-      stageThinking,
-      signal,
-    )
-
+    // 单次深度审稿：模型在同一次高级 thinking 中依次走完阶段1-7与全部维度，
+    // 最后只产出最终审查 JSON 数组。相比旧的 4 次串行调用，token 与时延都大幅下降。
     const result = await runReviewStage(
       llmConfig,
       systemPrompt,
       [
         userPrompt,
         "",
-        "前置阶段分析：",
-        stageOne,
-        "",
-        stageTwo,
-        "",
-        stageThree,
-        "",
-        "阶段7：二次复核",
-        "请删除没有正文证据、没有上下文依据或只是主观评价的问题；补上遗漏的阻断问题。",
+        "请在同一次回复中依次完成阶段1-7和上方全部审查维度：",
+        "- 先逐阶段、逐维度列出已核对依据与结论（每个维度给出 pass 或 issue）。",
+        "- 再做阶段7二次复核：删除没有正文证据或没有上下文 / 记忆 / 大纲依据的主观评价，补上遗漏的阻断问题。",
         "",
         "最终审查 JSON：",
-        "只输出最终 JSON 数组，不要输出解释、标题或 markdown。",
+        "在完成上述全部分析之后，最后只输出最终 JSON 数组，不要输出解释、标题或 markdown。",
       ].join("\n"),
-      "阶段7：二次复核",
-      callbacks,
+      "深度审查",
+      options,
       stageThinking,
       signal,
+      reviewReasoningEffort,
     )
 
-    const jsonMatch = result.match(/\[[\s\S]*\]/)
+    const jsonMatch = extractJsonArray(result)
     if (!jsonMatch) {
       console.warn("[Novel Review] No JSON array found in result:", result.slice(0, 500))
       return []
     }
 
-    const parsed = JSON.parse(jsonMatch[0])
+    const parsed = JSON.parse(jsonMatch)
     if (!Array.isArray(parsed)) {
       console.warn("[Novel Review] Parsed result is not an array:", parsed)
       return []
@@ -206,15 +187,26 @@ ${langReminder}`
   }
 }
 
-function buildStagePrompt(basePrompt: string, stageA: string, stageB: string, instruction: string): string {
-  return [
-    basePrompt,
-    "",
-    stageA,
-    stageB,
-    instruction,
-    "输出阶段分析即可，必须体现高级 thinking 的审查过程摘要：先列已核对依据，再列阶段结论。",
-  ].join("\n")
+/**
+ * 从单次审稿回复里取出最终 JSON 数组。优先取“最后一个”完整数组：
+ * 单次调用里模型可能先输出分析文字再给 JSON，贪婪匹配第一个 `[` 到最后一个
+ * `]` 容易把分析里的方括号一起吞掉，这里从末尾的 `]` 向前找配平的 `[`。
+ */
+function extractJsonArray(text: string): string | null {
+  const end = text.lastIndexOf("]")
+  if (end === -1) return null
+  let depth = 0
+  for (let i = end; i >= 0; i -= 1) {
+    const ch = text[i]
+    if (ch === "]") depth += 1
+    else if (ch === "[") {
+      depth -= 1
+      if (depth === 0) return text.slice(i, end + 1)
+    }
+  }
+  // 兜底：配平失败时退回贪婪匹配。
+  const greedy = text.match(/\[[\s\S]*\]/)
+  return greedy ? greedy[0] : null
 }
 
 async function runReviewStage(
@@ -225,6 +217,7 @@ async function runReviewStage(
   callbacks: NovelReviewCallbacks,
   stageThinking: Map<string, string>,
   signal?: AbortSignal,
+  reasoningMode: "low" | "medium" | "high" = "high",
   retryCount = 0,
 ): Promise<string> {
   publishReviewStageThinking(stageThinking, callbacks, stageTitle, "正在分析...")
@@ -234,10 +227,23 @@ async function runReviewStage(
   ]
 
   let result = ""
+  let reasoning = ""
+  const renderThinking = () => {
+    const combined = reasoning
+      ? `${reasoning}${result ? `\n\n${result}` : ""}`
+      : result
+    publishReviewStageThinking(stageThinking, callbacks, stageTitle, combined || "正在分析...")
+  }
   const streamCallbacks: StreamCallbacks = {
     onToken: (token: string) => {
       result += token
-      publishReviewStageThinking(stageThinking, callbacks, stageTitle, result)
+      renderThinking()
+    },
+    // 审稿模型多为推理模型，分阶段分析走 reasoning 通道：捕获后用于 thinking 展示，
+    // 但不计入 result，最终 JSON 只从 content（result）解析，避免分析文字污染 JSON。
+    onReasoningToken: (token: string) => {
+      reasoning += token
+      renderThinking()
     },
     onDone: () => {},
     onError: (error: Error) => {
@@ -258,7 +264,7 @@ async function runReviewStage(
       messages,
       streamCallbacks,
       combinedSignal,
-      { reasoning: { mode: "high" } },
+      { reasoning: { mode: reasoningMode } },
     )
     clearTimeout(timeoutId)
   } catch (err) {
@@ -268,7 +274,7 @@ async function runReviewStage(
       console.warn(`[Novel Review] Stage "${stageTitle}" failed, retrying (${retryCount + 1}/2)...`)
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, retryCount + 1)
+      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1)
     }
     throw err
   }

@@ -255,7 +255,7 @@ async function runDimensionStage(
     messages,
     streamCallbacks,
     AbortSignal.timeout(120000),
-    { reasoning: { mode: "high" } },
+    { reasoning: { mode: useWikiStore.getState().novelConfig.reviewReasoningEffort ?? "high" } },
   )
   return result.trim()
 }

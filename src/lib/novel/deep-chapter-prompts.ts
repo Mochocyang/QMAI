@@ -41,6 +41,25 @@ function chapterLengthBoundary(lengthSpec: ChapterLengthSpec): string {
   return `目标约 ${lengthSpec.targetChars} 字；低于 ${lengthSpec.minChars} 字视为正文初稿未完成。`
 }
 
+/**
+ * 跨阶段稳定上下文前缀：把“完整大纲 + 上下文包”放在每个阶段提示词的最前面，
+ * 且在同一次章节生成里逐字节相同。
+ *
+ * 任务书 / 初稿 / 扩写 / 返修 / 去AI味这几个阶段都由同一份 outline + contextPrompt
+ * 拼出相同前缀，DeepSeek / OpenAI 的自动前缀缓存即可命中这段最大的内容，
+ * 重复阶段按命中价计费（约 1/10），不再每阶段全价重发整段上下文。
+ *
+ * 因此阶段专属指令、写作任务书、初稿正文、审稿问题等“会变的内容”必须排在这段
+ * 前缀之后，不能插到前面，否则会把公共前缀截断、缓存失效。
+ */
+export function buildStableContextPrefix(outline: string, contextPrompt: string): string {
+  return [
+    outline,
+    "上下文：",
+    contextPrompt,
+  ].filter(Boolean).join("\n")
+}
+
 export function buildDeepChapterBriefPrompt(
   outline: string,
   contextPrompt: string,
@@ -50,10 +69,10 @@ export function buildDeepChapterBriefPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
     "",
     "你是小说写作任务规划助手。",
-    "请基于上下文输出一份写作任务书，供后续创作使用。",
+    "请基于上述上下文输出一份写作任务书，供后续创作使用。",
     "",
     "硬性要求：",
     "1. 只输出任务书，不要写故事片段。",
@@ -65,9 +84,6 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -81,10 +97,10 @@ export function buildDeepChapterDraftPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
     "",
     "你是专业小说正文写作助手。",
-    "请严格根据上下文和写作任务书起草章节正文。",
+    "请严格根据上述上下文和下方写作任务书起草章节正文。",
     "",
     "输出要求：",
     "1. 只输出可直接保存到章节库的小说正文。",
@@ -101,9 +117,6 @@ export function buildDeepChapterDraftPrompt(
     "",
     "写作任务书：",
     taskBrief,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -118,7 +131,7 @@ export function buildDeepChapterRevisionPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
     "",
     "你是小说正文返修助手。",
     "请根据审稿问题返修章节正文。",
@@ -143,9 +156,6 @@ export function buildDeepChapterRevisionPrompt(
     "",
     "原始初稿：",
     draftContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -160,7 +170,7 @@ export function buildDeepChapterExpansionPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
 ): string {
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
     "",
     "你是小说正文扩写补足助手。",
     "当前章节正文明显过短，请在不推翻已有内容的前提下扩写补足为完整章节。",
@@ -182,9 +192,6 @@ export function buildDeepChapterExpansionPrompt(
     "",
     "当前过短正文：",
     currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 
@@ -200,7 +207,7 @@ export function buildDeepChapterFinalPolishPrompt(
 ): string {
   const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
   return [
-    outline,
+    buildStableContextPrefix(outline, contextPrompt),
     "",
     "你是小说正文最终质检与去AI味助手。",
     "请对二次审查/返修后的章节做最后一遍简单审查，并进行去AI味处理。",
@@ -224,9 +231,6 @@ export function buildDeepChapterFinalPolishPrompt(
     "",
     "待最终简单审查与去AI味正文：",
     currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
   ].filter(Boolean).join("\n")
 }
 

@@ -263,6 +263,12 @@ export interface NovelConfig {
   autoIngestOnSave: boolean
   autoExtractOnImport: boolean
   reviewBeforeSave: boolean
+  /** 深度生成阶段0：读取并 LLM 分析前几章完整正文。关闭可省一次调用，记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
+  deepPreviousChaptersAnalysis: boolean
+  /** 深度生成阶段4-5：AI 审稿 + 自动返修。关闭则初稿直接进入简单审查与去AI味，省审稿与返修调用（默认开）。 */
+  deepChapterReview: boolean
+  /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
+  reviewReasoningEffort: "low" | "medium" | "high"
   writingModel: string
   reviewModel: string
   summaryModel: string
@@ -277,6 +283,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoIngestOnSave: true,
   autoExtractOnImport: true,
   reviewBeforeSave: false,
+  deepPreviousChaptersAnalysis: false,
+  deepChapterReview: true,
+  reviewReasoningEffort: "high",
   writingModel: "",
   reviewModel: "",
   summaryModel: "",
