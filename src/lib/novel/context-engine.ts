@@ -648,6 +648,14 @@ async function readCanonRules(pp: string): Promise<string> {
 
 // @ts-expect-error - 函数通过动态导入在 context-data-sources.ts 中使用
 async function readWritingStyle(pp: string): Promise<string> {
+  // 优先：已启用的拆书作品文风预设（feature/book-style-extraction）。
+  // buildWritingStyleContext 内部已做长度上限与"只学文风不借剧情"硬约束。
+  try {
+    const { buildWritingStyleContext } = await import("./writing-style-store")
+    const styleContext = await buildWritingStyleContext(pp)
+    if (styleContext.trim()) return styleContext
+  } catch {}
+  // 回退：wiki 中的风格页（旧行为）。
   try {
     const results = await searchWiki(pp, "style 风格 writing 写作")
     if (results.length > 0) {

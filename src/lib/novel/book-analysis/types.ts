@@ -175,6 +175,8 @@ export interface BookAnalysisResult {
   characters: ExtractedCharacter[]
   skills: CharacterSkill[]
   bookId?: string
+  /** 作品级写作文风画像（feature/book-style-extraction），未提取时为 undefined。 */
+  styleProfile?: BookStyleProfile
 }
 
 // 分析任务状态
@@ -200,6 +202,8 @@ export interface BookAnalysisTask {
   }>
   characters?: ExtractedCharacter[]
   skills?: CharacterSkill[]
+  /** 作品级写作文风画像（feature/book-style-extraction）。 */
+  styleProfile?: BookStyleProfile
 }
 
 // === 角色识别（feature/character-recognition-and-simple-mode）===
@@ -228,6 +232,32 @@ export interface PersonalityProfile {
 export interface SimpleExtractionMeta {
   generatedAt: number
   schemaVersion: 1
+}
+
+// === 作品级写作文风（feature/book-style-extraction）===
+/**
+ * 从一本拆书作品提取的"作品级叙事文风"画像。
+ * 区别于角色灵魂（人物的说话方式），这是作者的整体叙事风格：
+ * 叙事密度、描写克制度、句式、比喻频率、过渡方式等。
+ * constitution 是注入生成用的硬约束；samples 是 few-shot 代表原文片段。
+ */
+export interface BookStyleProfile {
+  schemaVersion: 1
+  generatedAt: number
+  sampledChapterIds: string[]
+  narrativeDensity: string
+  descriptionWeight: string
+  emotionRendering: string
+  sentenceStyle: string
+  rhetoricDensity: string
+  transitionStyle: string
+  narrativeVoice: string
+  dialogueStyle: string
+  thematicHabits: string
+  /** 5~8 条注入用"风格宪法"硬约束（由上面维度合成）。 */
+  constitution: string
+  /** 3~6 段代表原文片段，作为模仿锚点（few-shot）。 */
+  samples: string[]
 }
 
 // 作品库信息

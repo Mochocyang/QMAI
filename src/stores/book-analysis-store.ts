@@ -8,6 +8,7 @@ import type {
   ExtractedCharacter,
   CharacterSkill,
   RecognizedCharacter,
+  BookStyleProfile,
 } from "@/lib/novel/book-analysis/types"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -33,6 +34,7 @@ export interface BookAnalysisState {
   updateTaskMetadata: (taskId: string, metadata: BookAnalysisMetadata) => void
   updateTaskCharacters: (taskId: string, characters: ExtractedCharacter[]) => void
   updateTaskSkills: (taskId: string, skills: CharacterSkill[]) => void
+  updateTaskStyleProfile: (taskId: string, styleProfile: BookStyleProfile) => void
   pauseTask: (taskId: string) => void
   resumeTask: (taskId: string) => void
   cancelTask: (taskId: string) => void
@@ -159,6 +161,16 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
       tasks: state.tasks.map((task) =>
         task.id === taskId
           ? { ...task, skills, updatedAt: Date.now() }
+          : task
+      ),
+    }))
+  },
+
+  updateTaskStyleProfile: (taskId: string, styleProfile: BookStyleProfile) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, styleProfile, updatedAt: Date.now() }
           : task
       ),
     }))

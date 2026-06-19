@@ -15,6 +15,19 @@ import type { RecognizedCharacter, CharacterCategory } from "./types"
 // ============================================================
 // 入口类型
 // ============================================================
+/** 单次识别最多送入 LLM 的章节数，避免 prompt 过大导致代理超时（HTTP 524）。 */
+const MAX_RECOGNITION_CHAPTERS = 12
+
+/** 章节过多时首/中/尾均匀抽样，覆盖全书又不撑爆 prompt。 */
+function sampleChaptersForRecognition<T>(items: T[], max: number): T[] {
+  if (items.length <= max) return items
+  const picked: T[] = []
+  for (let i = 0; i < max; i += 1) {
+    picked.push(items[Math.round((i * (items.length - 1)) / (max - 1))])
+  }
+  return Array.from(new Set(picked))
+}
+
 export interface LlmRecognizeInput {
   chapters: { index: number; content: string }[]
   llmConfig: LlmConfig
@@ -63,8 +76,12 @@ export async function llmRecognizeCharacters(
 
   if (chapters.length === 0) return []
 
-  // 1. 构造 prompt（每章限 800 字避免 prompt 爆炸）
-  const chapterText = chapters
+  // 1. 构造 prompt
+  //    章节数封顶 + 每章限 800 字：选太多章会让 prompt 巨大、模型迟迟不返回，
+  //    经 Cloudflare 类代理时常触发 HTTP 524 超时。识别主要/配角并不需要全书，
+  //    首/中/尾均匀抽样即可覆盖。
+  const sampledChapters = sampleChaptersForRecognition(chapters, MAX_RECOGNITION_CHAPTERS)
+  const chapterText = sampledChapters
     .map((c) => `【第 ${c.index + 1} 章】\n${c.content.slice(0, 800)}`)
     .join("\n\n")
   const prompt = RECOGNITION_PROMPT.replace("{{chapters}}", chapterText)
@@ -89,12 +106,13 @@ export async function llmRecognizeCharacters(
     const chapterIndices = Array.isArray(p.chapterIndices)
       ? p.chapterIndices.filter((i) => Number.isInteger(i) && i >= 0 && i < chapters.length)
       : []
-    if (chapterIndices.length === 0) continue
+    // 不因缺少 chapterIndices 就丢弃角色：部分模型不会稳定回传章节索引，
+    // 但只要给出了角色名就应保留（否则会出现“识别成功却 0 个角色、弹窗不出现”）。
     results.push({
       id: stableCharacterId(trimmed, sourceBook),
       name: trimmed,
       aliases: Array.isArray(p.aliases) ? p.aliases.filter((a) => typeof a === "string") : [],
-      appearances: chapterIndices.length,
+      appearances: chapterIndices.length > 0 ? chapterIndices.length : 1,
       chapterIndices: chapterIndices.sort((a, b) => a - b),
       importanceScore: clampScore(p.importanceScore),
       category: normalizeCategory(p.category, p.importanceScore),
@@ -116,6 +134,7 @@ async function callLlmForRecognition(
 ): Promise<string> {
   const messages: ChatMessage[] = [{ role: "user", content: prompt }]
   let response = ""
+  let streamError: Error | null = null
   await streamChat(
     llmConfig,
     messages,
@@ -125,11 +144,14 @@ async function callLlmForRecognition(
       },
       onDone: () => {},
       onError: (err) => {
-        console.error("[llm-character-recognizer] LLM error:", err)
+        // 不能吞掉错误：否则 429 / 网络失败会被当成“没识别出角色”，
+        // 让用户以为是章节没人物，而不是模型调用失败。
+        streamError = err
       },
     },
     signal
   )
+  if (streamError) throw streamError
   return response.trim()
 }
 

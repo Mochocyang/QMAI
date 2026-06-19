@@ -212,19 +212,6 @@ function PresetRow({
       const result = await fetchLlmModelList(resolvedConfig)
       setModelOptions(result.models)
 
-      // 自动将所有模型设置为可用（如果之前没有选择）
-      if ((ov.savedModels ?? []).length === 0) {
-        const autoSavedModels: SavedModel[] = result.models.map((modelId, index) => ({
-          id: `model-${Date.now()}-${index}`,
-          name: modelId,
-          model: modelId,
-          apiKey: apiKey,
-          customEndpoint: baseUrl,
-          createdAt: Date.now(),
-        }))
-        onChange({ savedModels: autoSavedModels })
-      }
-
       // 拉取成功后自动展开模型选择区域
       setIsModelSelectionExpanded(true)
 

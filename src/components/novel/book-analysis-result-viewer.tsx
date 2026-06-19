@@ -5,15 +5,19 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { User, X, Plus } from "lucide-react"
+import { User, X, Plus, Feather } from "lucide-react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
 import { importBookAnalysisSkillsAsAuras, type ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
 import { extractSingleCharacter } from "@/lib/novel/book-analysis/character-extraction-engine"
+import { analyzeWritingStyle } from "@/lib/novel/book-analysis/style-extraction-engine"
+import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
+import { upsertWritingStylePreset, setEnabledWritingStyle, getEnabledWritingStyle } from "@/lib/novel/writing-style-store"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import type { BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
@@ -38,10 +42,14 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   const [reextractOpen, setReextractOpen] = useState(false)
   const [reextractDepth, setReextractDepth] = useState<"simple" | "six-dimension">("simple")
   const [reextractRunning, setReextractRunning] = useState(false)
+  // feature/book-style-extraction：作品文风提取 / 启用
+  const [styleExtracting, setStyleExtracting] = useState(false)
+  const [styleEnabledSourceBook, setStyleEnabledSourceBook] = useState<string | null>(null)
 
   const currentProject = useWikiStore((s) => s.project)
   const tasks = useBookAnalysisStore((s) => s.tasks)
-  const task = tasks.find((t) => t.projectPath === projectPath && t.status === "completed")
+  const normalizedProjectPath = projectPath.replace(/\\/g, "/")
+  const task = tasks.find((t) => t.projectPath === normalizedProjectPath && t.status === "completed")
   // 关键修复（fix/character-reextract-and-loading-state v2）：
   //   之前 `result ?? (task?.metadata ? {...} : null)` 优先用 result prop（即 currentResult），
   //   但 currentResult 是从磁盘加载的快照，store 中 task.characters 更新时不会同步刷新，
@@ -53,6 +61,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         metadata: result?.metadata ?? task.metadata,
         characters: task.characters ?? [],
         skills: task.skills ?? [],
+        styleProfile: task.styleProfile ?? result?.styleProfile,
       }
     : result
 
@@ -85,8 +94,27 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     }
   }, [currentProject?.path])
 
+  // feature/book-style-extraction：加载"当前项目已启用的文风来源书"
+  useEffect(() => {
+    let cancelled = false
+    if (!currentProject?.path) return
+    getEnabledWritingStyle(currentProject.path)
+      .then((preset) => {
+        if (!cancelled) setStyleEnabledSourceBook(preset?.sourceBook ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setStyleEnabledSourceBook(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentProject?.path])
   const characters = effectiveResult?.characters || []
   const skills = effectiveResult?.skills || []
+  // feature/book-style-extraction：当前作品的文风画像 + 是否已启用
+  const styleProfile = effectiveResult?.styleProfile
+  const bookTitle = effectiveResult?.metadata?.title || "未命名作品"
+  const styleEnabled = styleEnabledSourceBook != null && styleEnabledSourceBook === bookTitle
   const sortedCharacters = sortByImportance
     ? [...characters].sort((a, b) => b.importance - a.importance || a.name.localeCompare(b.name, "zh-CN"))
     : characters
@@ -95,7 +123,10 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     if (!currentProject?.path || !effectiveResult || reextractRunning) return
     setReextractRunning(true)
     try {
-      const llmConfig = useWikiStore.getState().llmConfig
+      const reextractStoreState = useWikiStore.getState()
+      const reextractLlmConfig = reextractStoreState.aiChatModel
+        ? resolveModelConfig(reextractStoreState.aiChatModel, reextractStoreState.llmConfig, reextractStoreState.providerConfigs)
+        : reextractStoreState.llmConfig
       // 修复：bookPath 实际写入路径是 book-analysis/{bookId}，不是 book-analysis/{title}（feature/book-analysis-reuse）
       const bookId = task?.bookId
       const bookPath = joinPath(currentProject.path, "book-analysis", bookId ?? "unknown")
@@ -107,7 +138,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
           character: c,
           mode: reextractDepth === "simple" ? "simple" : "six-dimension",
           depth: "standard",
-          llmConfig,
+          llmConfig: reextractLlmConfig,
           signal: undefined,
         })
         updated.push(fresh)
@@ -125,7 +156,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       }
       useBookAnalysisStore.setState((s) => ({
         tasks: s.tasks.map((t) =>
-          t.projectPath === projectPath && t.status === "completed"
+          t.projectPath === normalizedProjectPath && t.status === "completed"
             ? { ...t, characters: updated, updatedAt: Date.now() }
             : t,
         ),
@@ -136,6 +167,62 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       toast.error(`重新提取失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setReextractRunning(false)
+    }
+  }
+
+  // feature/book-style-extraction：提取作品级写作文风
+  const handleExtractStyle = async () => {
+    if (!currentProject?.path || styleExtracting) return
+    const bookId = task?.bookId
+    if (!bookId) {
+      toast.error("未找到作品标识")
+      return
+    }
+    const storeState = useWikiStore.getState()
+    const baseLlmConfig = storeState.llmConfig
+    if (!baseLlmConfig) {
+      toast.error("未配置 LLM，请先在设置中配置")
+      return
+    }
+    const aiChatModel = storeState.aiChatModel
+    const llmConfig = aiChatModel
+      ? resolveModelConfig(aiChatModel, baseLlmConfig, storeState.providerConfigs)
+      : baseLlmConfig
+    const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
+    setStyleExtracting(true)
+    try {
+      const profile = await analyzeWritingStyle(bookPath, llmConfig)
+      if (task) useBookAnalysisStore.getState().updateTaskStyleProfile(task.id, profile)
+      const cur = useBookAnalysisStore.getState().currentResult
+      if (cur) useBookAnalysisStore.getState().setCurrentResult({ ...cur, styleProfile: profile })
+      toast.success("已提取作品文风")
+    } catch (err) {
+      toast.error(`提取文风失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setStyleExtracting(false)
+    }
+  }
+
+  // feature/book-style-extraction：启用 / 取消启用该作品文风
+  const handleToggleStyleEnabled = async () => {
+    if (!currentProject?.path || !styleProfile) return
+    try {
+      if (styleEnabled) {
+        await setEnabledWritingStyle(currentProject.path, null)
+        setStyleEnabledSourceBook(null)
+        toast.success("已取消启用该文风")
+      } else {
+        const preset = await upsertWritingStylePreset(currentProject.path, {
+          name: `${bookTitle} · 文风`,
+          sourceBook: bookTitle,
+          profile: styleProfile,
+        })
+        await setEnabledWritingStyle(currentProject.path, preset.id)
+        setStyleEnabledSourceBook(bookTitle)
+        toast.success("已启用该文风，生成时会按此文风写作")
+      }
+    } catch (err) {
+      toast.error(`操作失败：${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -158,12 +245,19 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       return
     }
 
-    const llmConfig = useWikiStore.getState().llmConfig
-    if (!llmConfig) {
+    const storeState = useWikiStore.getState()
+    const baseLlmConfig = storeState.llmConfig
+    if (!baseLlmConfig) {
       console.log('[单角色提取] 未配置LLM')
       toast.error("未配置 LLM，请先在设置中配置")
       return
     }
+
+    // 解析当前 AI 会话模型配置，确保 apiKey/endpoint 与模型匹配
+    const aiChatModel = storeState.aiChatModel
+    const llmConfig = aiChatModel
+      ? resolveModelConfig(aiChatModel, baseLlmConfig, storeState.providerConfigs)
+      : baseLlmConfig
 
     const bookId = task?.bookId
     if (!bookId) {
@@ -223,7 +317,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
         }
         useBookAnalysisStore.setState((s) => ({
           tasks: s.tasks.map((t) =>
-            t.projectPath === projectPath && t.status === "completed"
+            t.projectPath === normalizedProjectPath && t.status === "completed"
               ? {
                   ...t,
                   characters: (t.characters ?? []).map((c) => (c.id === fresh.id ? fresh : c)),
@@ -429,7 +523,48 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
 
         {/* 内容区域（feature/fix-viewer-ui：删除 skills tab，只剩角色列表） */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <div className="h-full flex min-h-0">
+          {/* feature/book-style-extraction：作品文风卡片 */}
+          <div className="shrink-0 border-b px-6 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Feather className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium shrink-0">作品文风</span>
+                <span className="text-xs text-muted-foreground truncate">
+                  {styleProfile ? (styleProfile.narrativeDensity || "已提取") : "尚未提取叙事文风（与角色灵魂相互独立）"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {styleProfile && (
+                  <Button
+                    variant={styleEnabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={handleToggleStyleEnabled}
+                  >
+                    {styleEnabled ? "已启用 ✓" : "启用此文风"}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={handleExtractStyle} disabled={styleExtracting}>
+                  {styleExtracting ? "提取中..." : styleProfile ? "重新提取文风" : "提取文风"}
+                </Button>
+              </div>
+            </div>
+            {styleProfile && (
+              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {STYLE_DIMENSIONS.slice(0, 4).map((d) => (
+                  <div key={d.key} className="truncate">
+                    <span className="text-foreground">{d.label}：</span>
+                    {(styleProfile[d.key] as string) || "—"}
+                  </div>
+                ))}
+              </div>
+            )}
+            {styleEnabled && (
+              <div className="mt-1.5 text-xs text-primary">
+                已启用：生成时会按此文风写作（只模仿写法，不借用样本中的人物 / 剧情 / 设定）
+              </div>
+            )}
+          </div>
+          <div className="flex-1 flex min-h-0">
               {/* 角色列表（feature/fix-viewer-scroll：原生 div + overflow-y-auto + min-h-0） */}
               <div className="w-1/3 border-r overflow-y-auto min-h-0">
                 <div className="p-4 space-y-2">

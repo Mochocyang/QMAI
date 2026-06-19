@@ -44,6 +44,8 @@ interface ChapterSelectionPanelProps {
   onClearSelection?: () => void
   onDeepExtract?: () => void
   onSimpleExtract?: () => void
+  /** 关闭“角色选择”弹窗：回到章节选择页，不取消任务（feature/llm-only-character-recognition）。 */
+  onCharacterPickerClose?: () => void
   // 修复（fix/character-reextract-and-loading-state）：
   // 把"分析中"状态反向同步给父组件，让父组件可以恢复按钮态、显示 toast 等
   onAnalyzingChange?: (analyzing: boolean) => void
@@ -63,6 +65,7 @@ export function ChapterSelectionPanel({
   onClearSelection,
   onDeepExtract,
   onSimpleExtract,
+  onCharacterPickerClose,
   onAnalyzingChange,
 }: ChapterSelectionPanelProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
@@ -390,6 +393,7 @@ export function ChapterSelectionPanel({
           onDeepExtract={onDeepExtract!}
           onSimpleExtract={onSimpleExtract!}
           onCancel={onCancel}
+          onClose={onCharacterPickerClose}
         />
       )}
     </div>

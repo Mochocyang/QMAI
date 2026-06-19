@@ -11,7 +11,18 @@ import type {
   BookAnalysisMetadata,
   ExtractedCharacter,
   CharacterSkill,
+  BookStyleProfile,
 } from "./types"
+
+/** 读取已提取的作品文风画像（feature/book-style-extraction），不存在时返回 null。 */
+export async function loadStyleProfile(bookPath: string): Promise<BookStyleProfile | null> {
+  try {
+    const raw = await readFile(joinPath(bookPath, "style-profile.json"))
+    return JSON.parse(raw) as BookStyleProfile
+  } catch {
+    return null
+  }
+}
 
 export async function loadBookAnalysisResult(
   projectPath: string,
@@ -70,5 +81,7 @@ export async function loadBookAnalysisResult(
     // 没有 Skills 数据
   }
 
-  return { metadata, characters, skills, bookId }
+  const styleProfile = (await loadStyleProfile(bookPath)) ?? undefined
+
+  return { metadata, characters, skills, bookId, styleProfile }
 }

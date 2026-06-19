@@ -4,7 +4,7 @@ import { resolveConfig } from "@/components/settings/preset-resolver"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint"
 
-function resolveModelConfig(
+export function resolveModelConfig(
   targetModel: string,
   baseConfig: LlmConfig,
   providerConfigs: Record<string, ProviderOverride>,

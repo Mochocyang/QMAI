@@ -22,6 +22,8 @@ export interface CharacterSelectionPanelProps {
   onDeepExtract: () => void
   onSimpleExtract: () => void
   onCancel: () => void
+  /** 关闭弹窗（X / 返回）：应回到章节选择页，而不是取消整个任务。默认回退到 onCancel。 */
+  onClose?: () => void
   // 受控搜索词和排序（默认内部 state）
   search?: string
   sortBy?: "importance" | "appearances"
@@ -37,7 +39,9 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
     onDeepExtract,
     onSimpleExtract,
     onCancel,
+    onClose,
   } = props
+  const dismiss = onClose ?? onCancel
   const [search, setSearch] = useState("")
   const [sortBy, setSortBy] = useState<"importance" | "appearances">("importance")
 
@@ -56,7 +60,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
   const canExtract = selectedCount > 0
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+    <Dialog open onOpenChange={(o) => !o && dismiss()}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>识别出 {characters.length} 个角色，请选择</DialogTitle>
@@ -136,7 +140,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={onCancel}>取消</Button>
+          <Button variant="ghost" onClick={dismiss}>返回章节</Button>
           <Button
             disabled={!canExtract}
             onClick={onDeepExtract}

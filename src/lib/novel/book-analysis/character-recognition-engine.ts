@@ -1,14 +1,16 @@
-import { createHash } from "crypto"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
+import { fingerprintText } from "./content-fingerprint"
 
 /**
  * 生成稳定 id：基于 name + sourceBook 哈希
  * 同一本书 + 同一角色名 → 同一 id（多次识别结果可复用 / 匹配）
  */
 export function stableCharacterId(name: string, sourceBook: string): string {
+  // Tauri webview / 浏览器没有 Node crypto（见 content-fingerprint.ts 注释），
+  // 改用同一套 FNV-1a 哈希生成稳定 id，避免生产构建里 createHash 未定义导致识别整体崩溃。
   const seed = `${name}|${sourceBook}`
-  return createHash("sha256").update(seed).digest("hex").slice(0, 12)
+  return fingerprintText(seed).slice(0, 12)
 }
 
 // ============================================================

@@ -7,6 +7,7 @@ import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
 import type {
   AnalysisDepth,
@@ -66,7 +67,12 @@ export function BookAnalysisView() {
   const showResultViewer = useBookAnalysisStore((s) => s.showResultViewer)
   const setShowResultViewer = useBookAnalysisStore((s) => s.setShowResultViewer)
   // 角色识别 LLM 配置（feature/llm-character-recognizer）
-  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const baseLlmConfig = useWikiStore((s) => s.llmConfig)
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const llmConfig = aiChatModel
+    ? resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs)
+    : baseLlmConfig
   // 角色识别 store 状态与 actions（feature/character-recognition-and-simple-mode）
   const recognitionStatus = useBookAnalysisStore((s) => s.recognitionStatus)
   const recognizedCharacters = useBookAnalysisStore((s) => s.recognizedCharacters)
@@ -86,6 +92,11 @@ export function BookAnalysisView() {
       return
     }
 
+    // 新导入：先清空上一本书残留的识别结果（fix：导入 B 仍弹出 A 的角色弹窗）。
+    // 否则 recognitionStatus 仍是 "done"、recognizedCharacters 仍是上一本的角色，
+    // 新书的章节面板一挂载就会立刻叠加旧角色选择弹窗。
+    clearRecognition()
+
     // 创建 AbortController
     const abortController = new AbortController()
 
@@ -102,7 +113,10 @@ export function BookAnalysisView() {
     try {
       const { splitNovelIntoChapters } = await import("@/lib/novel/book-analysis/analysis-engine")
       const { useWikiStore } = await import("@/stores/wiki-store")
-      const llmConfig = useWikiStore.getState().llmConfig
+      const storeState = useWikiStore.getState()
+      const llmConfig = storeState.aiChatModel
+        ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)
+        : storeState.llmConfig
       const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
       const updateTaskMetadata = useBookAnalysisStore.getState().updateTaskMetadata
 
@@ -184,10 +198,6 @@ export function BookAnalysisView() {
       console.log('[handleChapterSelectionConfirm] 开始识别角色')
 
       // 读取章节内容（feature/character-recognition-and-simple-mode）
-      const { recognizeCharacters } = await import(
-        "@/lib/novel/book-analysis/character-recognition-engine"
-      )
-
       const selectedChapters = chapterSelectionData.chapters
         .filter((c) => selectedChapterIds.includes(c.id))
         .sort((a, b) => a.order - b.order)
@@ -210,44 +220,41 @@ export function BookAnalysisView() {
 
       console.log('[handleChapterSelectionConfirm] 章节内容读取完成')
 
-      // 阶段 2：AI 识别（feature/llm-character-recognizer）
-      // 先 LLM 识别（精准），失败时回退到启发式
-      const heuristicMinChapters = Math.min(2, selectedChapterIds.length)
-
-      // 状态切到"AI 识别中"
-      if (llmConfig) {
-        setRecognitionStatus("llm_recognizing")
-        updateTaskProgress(taskId, {
-          recognitionStatus: "llm_recognizing",
-          stageLabel: "正在用 AI 识别角色",
-        })
+      // 阶段 2：仅用 LLM 识别角色（feature/llm-only-character-recognition）
+      // 取消正则启发式：正则抽出的多是“虽然不/在马车/吃完后”等噪声，
+      // 改为只让 LLM 直接从正文识别真实角色；失败则报错，不再回退到正则垃圾结果。
+      if (!llmConfig) {
+        throw new Error("未配置可用的模型，请先在设置中配置 LLM，再识别角色")
       }
+      setRecognitionStatus("llm_recognizing")
+      updateTaskProgress(taskId, {
+        recognitionStatus: "llm_recognizing",
+        stageLabel: "正在用 AI 识别角色",
+      })
 
-      const result = await recognizeCharacters({
+      const { llmRecognizeCharacters } = await import(
+        "@/lib/novel/book-analysis/character-llm-recognizer"
+      )
+      const recognized = await llmRecognizeCharacters({
         chapters: chapterContents,
-        minChapters: heuristicMinChapters,
+        llmConfig,
         sourceBook: bookPath,
-        llmConfig: llmConfig ?? undefined,
         signal: abortController.signal,
       })
 
       if (abortController.signal.aborted) throw new Error("用户取消")
+      if (recognized.length === 0) {
+        throw new Error("AI 没有识别出角色，请确认所选章节包含人物，或更换模型后重试")
+      }
 
       // 阶段 3：写入 store（弹窗自动打开）
-      const sourceLabel = result.source === "llm" ? "AI 识别" : "启发式识别（AI 失败兜底）"
-      console.log('[handleChapterSelectionConfirm] 角色识别完成', {
-        count: result.characters.length,
-        source: result.source
-      })
+      console.log('[handleChapterSelectionConfirm] 角色识别完成', { count: recognized.length })
       updateTaskProgress(taskId, {
         recognitionStatus: "done",
-        recognizedCharactersCount: result.characters.length,
-        stageLabel:
-          result.source === "heuristic" && result.error
-            ? `识别出 ${result.characters.length} 个角色（AI 失败已回退：${result.error}）`
-            : `识别出 ${result.characters.length} 个角色（${sourceLabel}）`,
+        recognizedCharactersCount: recognized.length,
+        stageLabel: `识别出 ${recognized.length} 个角色（AI 识别）`,
       })
-      setRecognizedCharacters(result.characters)
+      setRecognizedCharacters(recognized)
       setRecognitionStatus("done")
       console.log('[handleChapterSelectionConfirm] 状态已更新为 done')
     } catch (err) {
@@ -255,7 +262,12 @@ export function BookAnalysisView() {
         console.log('[handleChapterSelectionConfirm] 用户取消')
         return
       }
-      const errorMessage = err instanceof Error ? err.message : "识别失败"
+      const rawMessage = err instanceof Error ? err.message : "识别失败"
+      // 超时类错误（如 Cloudflare 524）给出可操作建议
+      const isTimeout = /524|timeout|timed out|超时/i.test(rawMessage)
+      const errorMessage = isTimeout
+        ? `${rawMessage}（请求超时：可少选几章、或更换更快 / 更稳定的模型后重试）`
+        : rawMessage
       const setRecognitionError = useBookAnalysisStore.getState().setRecognitionError
       console.error("[角色识别] 失败：", err)
       setRecognitionStatus("error")
@@ -316,7 +328,10 @@ export function BookAnalysisView() {
     if (userPicked.length === 0) return
 
     const { useWikiStore } = await import("@/stores/wiki-store")
-    const llmConfig = useWikiStore.getState().llmConfig
+    const storeState = useWikiStore.getState()
+    const llmConfig = storeState.aiChatModel
+      ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)
+      : storeState.llmConfig
     const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
     const updateTaskCharacters = useBookAnalysisStore.getState().updateTaskCharacters
     const updateTaskSkills = useBookAnalysisStore.getState().updateTaskSkills
@@ -408,7 +423,10 @@ export function BookAnalysisView() {
     if (userPicked.length === 0) return
 
     const { useWikiStore } = await import("@/stores/wiki-store")
-    const llmConfig = useWikiStore.getState().llmConfig
+    const storeState = useWikiStore.getState()
+    const llmConfig = storeState.aiChatModel
+      ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)
+      : storeState.llmConfig
     const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
     const updateTaskCharacters = useBookAnalysisStore.getState().updateTaskCharacters
     const updateTaskSkills = useBookAnalysisStore.getState().updateTaskSkills
@@ -443,7 +461,10 @@ export function BookAnalysisView() {
 
       // 注入真实 LLM 调用（feature/llm-character-recognizer — 复用 LLM 调用模式）
       // 引擎内部 _llmCall ?? defaultLlmCall，没注入就走 defaultLlmCall 抛错
-      const currentLlmConfig = useWikiStore.getState().llmConfig
+      const currentState = useWikiStore.getState()
+      const currentLlmConfig = currentState.aiChatModel
+        ? resolveModelConfig(currentState.aiChatModel, currentState.llmConfig, currentState.providerConfigs)
+        : currentState.llmConfig
       if (!currentLlmConfig) {
         throw new Error("未配置 LLM，请先在设置中配置 LLM 后再提取")
       }
@@ -636,7 +657,10 @@ export function BookAnalysisView() {
     const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
     const updateTaskCharacters = useBookAnalysisStore.getState().updateTaskCharacters
 
-    const llmConfig = useWikiStore.getState().llmConfig
+    const resumeStoreState = useWikiStore.getState()
+    const llmConfig = resumeStoreState.aiChatModel
+      ? resolveModelConfig(resumeStoreState.aiChatModel, resumeStoreState.llmConfig, resumeStoreState.providerConfigs)
+      : resumeStoreState.llmConfig
     if (!llmConfig) {
       alert("未配置 LLM，请先在设置中配置")
       return
@@ -1015,6 +1039,7 @@ export function BookAnalysisView() {
 
       {chapterSelectionData && (
         <ChapterSelectionPanel
+          key={chapterSelectionData.taskId}
           chapters={chapterSelectionData.chapters}
           onConfirm={handleChapterSelectionConfirm}
           onCancel={handleChapterSelectionCancel}
@@ -1038,6 +1063,8 @@ export function BookAnalysisView() {
           onClearSelection={handleClearSelection}
           onDeepExtract={handleDeepExtract}
           onSimpleExtract={handleSimpleExtract}
+          // 关闭角色选择弹窗 → 仅清空识别结果回到章节页，不取消任务（fix）
+          onCharacterPickerClose={clearRecognition}
         />
       )}
     </div>
