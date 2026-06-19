@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode } from "@/stores/wiki-store"
+import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
 import { resolveConfig } from "../preset-resolver"
@@ -70,6 +70,15 @@ export function LlmProviderSection() {
     persist(providerConfigs, next).catch(() => {})
   }
 
+  function toggleEnabled(id: string) {
+    const current = providerConfigs[id]
+    const currentEnabled = current?.enabled ?? true
+    const merged: ProviderOverride = { ...(current ?? {}), enabled: !currentEnabled }
+    const next = { ...providerConfigs, [id]: merged }
+    setProviderConfigs(next)
+    persist(next, activePresetId).catch(() => {})
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -84,19 +93,24 @@ export function LlmProviderSection() {
 
       {/* Built-in Presets - 内置预设，过滤掉通用的"自定义模型"预设 */}
       <div className="space-y-2">
-        {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => (
-          <PresetRow
-            key={preset.id}
-            preset={preset}
-            override={providerConfigs[preset.id]}
-            isActive={activePresetId === preset.id}
-            isExpanded={!!expanded[preset.id]}
-            savedHere={savedId === preset.id}
-            onToggleActive={() => toggleActive(preset.id)}
-            onToggleExpand={() => toggleExpand(preset.id)}
-            onChange={(patch) => updateOverride(preset.id, patch)}
-          />
-        ))}
+        {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => {
+          const ov = providerConfigs[preset.id]
+          return (
+            <PresetRow
+              key={preset.id}
+              preset={preset}
+              override={ov}
+              isActive={activePresetId === preset.id}
+              isEnabled={ov?.enabled !== false}
+              isExpanded={!!expanded[preset.id]}
+              savedHere={savedId === preset.id}
+              onToggleActive={() => toggleActive(preset.id)}
+              onToggleEnabled={() => toggleEnabled(preset.id)}
+              onToggleExpand={() => toggleExpand(preset.id)}
+              onChange={(patch) => updateOverride(preset.id, patch)}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -106,9 +120,11 @@ interface PresetRowProps {
   preset: LlmPreset
   override: ProviderOverride | undefined
   isActive: boolean
+  isEnabled: boolean
   isExpanded: boolean
   savedHere: boolean
   onToggleActive: () => void
+  onToggleEnabled: () => void
   onToggleExpand: () => void
   onChange: (patch: ProviderOverride) => void
 }
@@ -125,10 +141,12 @@ type ModelActionState =
 function PresetRow({
   preset,
   override,
-  isActive,
+  isActive: _isActive,
+  isEnabled,
   isExpanded,
   savedHere,
-  onToggleActive,
+  onToggleActive: _onToggleActive,
+  onToggleEnabled,
   onToggleExpand,
   onChange,
 }: PresetRowProps) {
@@ -149,6 +167,8 @@ function PresetRow({
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
   const [modelTestState, setModelTestState] = useState<ModelActionState>(null)
+  const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
+  const savedModelsTextareaRef = useRef<HTMLTextAreaElement>(null)
   const hasConfig = !!apiKey || !!ov.baseUrl || !!ov.model || !!ov.azureApiVersion || !!ov.azureModelFamily
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
@@ -191,6 +211,23 @@ function PresetRow({
     try {
       const result = await fetchLlmModelList(resolvedConfig)
       setModelOptions(result.models)
+
+      // 自动将所有模型设置为可用（如果之前没有选择）
+      if ((ov.savedModels ?? []).length === 0) {
+        const autoSavedModels: SavedModel[] = result.models.map((modelId, index) => ({
+          id: `model-${Date.now()}-${index}`,
+          name: modelId,
+          model: modelId,
+          apiKey: apiKey,
+          customEndpoint: baseUrl,
+          createdAt: Date.now(),
+        }))
+        onChange({ savedModels: autoSavedModels })
+      }
+
+      // 拉取成功后自动展开模型选择区域
+      setIsModelSelectionExpanded(true)
+
       setModelListState({
         loading: false,
         success: true,
@@ -205,6 +242,29 @@ function PresetRow({
         }),
       })
     }
+  }
+
+  function toggleModelSelection(modelId: string) {
+    const currentSaved = ov.savedModels ?? []
+    const isSelected = currentSaved.some((m) => m.model === modelId)
+
+    let updatedModels: SavedModel[]
+
+    if (isSelected) {
+      updatedModels = currentSaved.filter((m) => m.model !== modelId)
+    } else {
+      const newModel: SavedModel = {
+        id: `model-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: modelId,
+        model: modelId,
+        apiKey: apiKey,
+        customEndpoint: baseUrl,
+        createdAt: Date.now(),
+      }
+      updatedModels = [...currentSaved, newModel]
+    }
+
+    onChange({ savedModels: updatedModels })
   }
 
   async function runSelectedModelTest() {
@@ -235,7 +295,7 @@ function PresetRow({
   return (
     <div
       className={`rounded-lg border transition-colors ${
-        isActive ? "border-primary/60 bg-primary/5" : "border-border"
+        isEnabled ? "border-primary/60 bg-primary/5" : "border-border"
       }`}
     >
       {/* Outer row — always visible */}
@@ -260,14 +320,14 @@ function PresetRow({
         >
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium">{preset.label}</span>
-            {hasConfig && !isActive && (
+            {hasConfig && !isEnabled && (
               <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {t("settings.sections.llm.configuredBadge")}
               </span>
             )}
-            {isActive && (
+            {isEnabled && (ov.savedModels ?? []).length > 0 && (
               <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                {t("settings.sections.llm.activeBadge")}
+                {t("settings.sections.llm.enabledBadge", { count: (ov.savedModels ?? []).length })}
               </span>
             )}
             {savedHere && (
@@ -281,21 +341,21 @@ function PresetRow({
           )}
         </button>
 
-        {/* Toggle switch */}
+        {/* Toggle switch — 启用/停用 */}
         <button
           type="button"
-          onClick={onToggleActive}
+          onClick={onToggleEnabled}
           className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-            isActive
+            isEnabled
               ? "border-primary bg-primary"
               : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
           }`}
-          title={isActive ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
-          aria-label={isActive ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
+          title={isEnabled ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
+          aria-label={isEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
         >
           <span
             className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
-              isActive ? "translate-x-4" : "translate-x-0.5"
+              isEnabled ? "translate-x-4" : "translate-x-0.5"
             }`}
           />
         </button>
@@ -490,12 +550,69 @@ function PresetRow({
             />
           </div>
 
-          {preset.provider === "custom" && (
-            <SavedModelsManager
-              savedModels={ov.savedModels ?? []}
-              onChange={(models) => onChange({ savedModels: models })}
-            />
+          {/* 拉取模型后的多选标签区域 */}
+          {modelOptions.length > 0 && (
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsModelSelectionExpanded(!isModelSelectionExpanded)}
+                  className="flex items-center gap-2 text-xs font-medium hover:text-primary"
+                >
+                  <span>{t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })}</span>
+                  <span className="text-muted-foreground">{t("settings.sections.llm.selectedModelsCount", { count: (ov.savedModels ?? []).length })}</span>
+                </button>
+              </div>
+
+              {isModelSelectionExpanded && (
+                <>
+                  <div className="text-xs text-muted-foreground">
+                    {t("settings.sections.llm.toggleModelHint")}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {modelOptions.map((modelId) => {
+                      const isSelected = (ov.savedModels ?? []).some((m) => m.model === modelId)
+                      return (
+                        <button
+                          key={modelId}
+                          type="button"
+                          onClick={() => toggleModelSelection(modelId)}
+                          className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                            isSelected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-background hover:bg-accent"
+                          }`}
+                        >
+                          {modelId}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           )}
+
+          {/* 已选模型显示 */}
+          {(ov.savedModels ?? []).length > 0 && (
+            <div className="space-y-2">
+              <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
+              <textarea
+                ref={savedModelsTextareaRef}
+                value={(ov.savedModels ?? []).map((m) => m.model).join(", ")}
+                readOnly
+                placeholder={t("settings.sections.llm.pleaseFetchModels")}
+                className="flex min-h-[40px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                rows={1}
+              />
+            </div>
+          )}
+
+          <SavedModelsManager
+            savedModels={ov.savedModels ?? []}
+            onChange={(models) => onChange({ savedModels: models })}
+          />
 
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">

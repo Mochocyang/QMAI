@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react"
 import {
   FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen,
 } from "lucide-react"
@@ -82,57 +81,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
       default: return t("theme.switch")
     }
   }
-
-  // Model connection status check
-  const llmConfig = useWikiStore((s) => s.llmConfig)
-  const [modelStatus, setModelStatus] = useState<"connected" | "checking" | "disconnected">("checking")
-  useEffect(() => {
-    const checkModel = async () => {
-      try {
-        const { hasUsableLlm } = await import("@/lib/has-usable-llm")
-        if (!hasUsableLlm(llmConfig)) {
-          setModelStatus("disconnected")
-          return
-        }
-        // Build the models endpoint based on provider
-        const { getHttpFetch } = await import("@/lib/tauri-fetch")
-        const httpFetch = await getHttpFetch()
-        let modelsUrl = ""
-        if (llmConfig.provider === "ollama") {
-          const base = (llmConfig.ollamaUrl || "http://127.0.0.1:11434").replace(/\/+$/, "")
-          modelsUrl = `${base}/api/tags`
-        } else if (llmConfig.provider === "custom" || llmConfig.provider === "minimax") {
-          // customEndpoint 可能是 "/v1" 或 "/v1/chat/completions"，去掉 /chat/completions 保留 /v1
-          const base = (llmConfig.customEndpoint || "").replace(/\/+$/, "").replace(/\/chat\/completions$/i, "")
-          if (!base) { setModelStatus("disconnected"); return }
-          modelsUrl = `${base}/models`
-        } else if (llmConfig.provider === "openai") {
-          modelsUrl = "https://api.openai.com/v1/models"
-        } else if (llmConfig.provider === "anthropic") {
-          // Anthropic 没有 /models 端点，配置有 key 就认为连接正常
-          setModelStatus("connected")
-          return
-        } else {
-          // claude-code, codex-cli etc. — assume connected if hasUsableLlm
-          setModelStatus("connected")
-          return
-        }
-        const headers: Record<string, string> = {}
-        if (llmConfig.apiKey) headers["Authorization"] = `Bearer ${llmConfig.apiKey}`
-        const response = await httpFetch(modelsUrl, {
-          method: "GET",
-          headers,
-          signal: AbortSignal.timeout(8000),
-        })
-        setModelStatus(response.ok ? "connected" : "disconnected")
-      } catch {
-        setModelStatus("disconnected")
-      }
-    }
-    checkModel()
-    const interval = setInterval(checkModel, 60000)
-    return () => clearInterval(interval)
-  }, [llmConfig])
 
   const handleNavClick = (view: NavView) => {
     setSearchPanelOpen(false)
@@ -235,23 +183,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
         </div>
         {/* Bottom: daemon status + theme toggle + settings + switch project */}
         <div className="flex flex-col items-center gap-1 pb-1">
-          {/* Model connection status indicator */}
-          <Tooltip>
-            <TooltipTrigger className="flex h-6 w-6 items-center justify-center">
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  modelStatus === "connected" ? "bg-emerald-500" :
-                  modelStatus === "checking" ? "bg-amber-400 animate-pulse" :
-                  "bg-red-500"
-                }`}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {modelStatus === "connected" && t("iconSidebar.modelConnected")}
-              {modelStatus === "checking" && t("iconSidebar.modelChecking")}
-              {modelStatus === "disconnected" && t("iconSidebar.modelDisconnected")}
-            </TooltipContent>
-          </Tooltip>
           {/* Theme toggle */}
           <Tooltip>
             <TooltipTrigger
