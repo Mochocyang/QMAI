@@ -56,7 +56,6 @@ import {
   type ChapterImportCandidate,
   type ImportedChapter,
 } from "@/lib/novel/chapter-import"
-import { resolveReviewModel } from "@/lib/novel/review-model"
 import { isTauri } from "@/lib/platform"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
@@ -670,13 +669,11 @@ export function SidebarPanel() {
     activeImportTaskIdRef.current = taskId
 
     const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-    const configuredExtractModel = useWikiStore.getState().novelConfig.extractModel?.trim()
-    const reviewModel = configuredExtractModel || resolveReviewModel()
     const result = await runImportedChapterMemoryExtraction({
       projectPath,
       chapterPaths: importedChapters.map((chapter) => chapter.path),
       signal: abortController.signal,
-      reviewModel,
+      reviewModel: undefined,
       ingestChapter,
       onProgress: (progress) => {
         useImportProgressStore.getState().updateTask(taskId, {

@@ -63,6 +63,18 @@ export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
 
   const selectedModel = useMemo(() => {
     if (!value) return null
+    // 优先按 "providerId/modelId" 格式精确匹配
+    const slashIdx = value.indexOf("/")
+    if (slashIdx > 0) {
+      const providerId = value.slice(0, slashIdx)
+      const modelId = value.slice(slashIdx + 1)
+      const group = modelGroups.find((g) => g.id === providerId)
+      if (group) {
+        const found = group.models.find((m) => m.model === modelId)
+        if (found) return found
+      }
+    }
+    // 回退：按纯模型名匹配（兼容旧数据）
     for (const group of modelGroups) {
       const found = group.models.find((m) => m.model === value)
       if (found) return found
@@ -139,19 +151,21 @@ export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
                 <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </div>
-                {group.models.map((model) => (
+                {group.models.map((model) => {
+                  const modelKey = `${group.id}/${model.model}`
+                  return (
                   <button
                     key={model.id}
                     type="button"
                     onClick={() => {
-                      onChange(model.model)
+                      onChange(modelKey)
                       setOpen(false)
                     }}
                     className="flex w-full items-start gap-2 rounded-sm px-3 py-1.5 text-left text-sm hover:bg-accent"
                   >
                     <Check
                       className={`mt-0.5 h-4 w-4 shrink-0 ${
-                        value === model.model ? "opacity-100" : "opacity-0"
+                        value === modelKey ? "opacity-100" : "opacity-0"
                       }`}
                     />
                     <div className="min-w-0 flex-1">
@@ -161,7 +175,8 @@ export function ChatModelSelector({ value, onChange }: ChatModelSelectorProps) {
                       </code>
                     </div>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             ))}
           </div>

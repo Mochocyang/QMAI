@@ -384,24 +384,46 @@ export function ChatPanel() {
       let effectiveChatLlmConfig = llmConfig
       if (aiChatModel.trim()) {
         const targetModel = aiChatModel.trim()
-        let matched = false
-        for (const [providerId, override] of Object.entries(providerConfigs)) {
-          if (override.savedModels?.some((m) => m.model === targetModel)) {
+        // 优先按 "providerId/modelId" 格式精确匹配
+        const slashIdx = targetModel.indexOf("/")
+        if (slashIdx > 0) {
+          const providerId = targetModel.slice(0, slashIdx)
+          const modelId = targetModel.slice(slashIdx + 1)
+          const override = providerConfigs[providerId]
+          if (override?.savedModels?.some((m) => m.model === modelId)) {
             const template =
               LLM_PRESETS.find((p) => p.id === providerId) ??
               LLM_PRESETS.find((p) => p.id === "custom")
             if (template) {
               effectiveChatLlmConfig = {
                 ...resolveConfig(template, override, llmConfig),
-                model: targetModel,
+                model: modelId,
               }
             }
-            matched = true
-            break
+          } else {
+            effectiveChatLlmConfig = { ...llmConfig, model: modelId }
           }
-        }
-        if (!matched) {
-          effectiveChatLlmConfig = { ...llmConfig, model: targetModel }
+        } else {
+          // 回退：按纯模型名匹配（兼容旧数据）
+          let matched = false
+          for (const [providerId, override] of Object.entries(providerConfigs)) {
+            if (override.savedModels?.some((m) => m.model === targetModel)) {
+              const template =
+                LLM_PRESETS.find((p) => p.id === providerId) ??
+                LLM_PRESETS.find((p) => p.id === "custom")
+              if (template) {
+                effectiveChatLlmConfig = {
+                  ...resolveConfig(template, override, llmConfig),
+                  model: targetModel,
+                }
+              }
+              matched = true
+              break
+            }
+          }
+          if (!matched) {
+            effectiveChatLlmConfig = { ...llmConfig, model: targetModel }
+          }
         }
       }
       const shouldUseEditMode = novelMode && chatEditModeEnabled && isChatEditRequest(text)

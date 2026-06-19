@@ -9,6 +9,21 @@ function resolveModelConfig(
   baseConfig: LlmConfig,
   providerConfigs: Record<string, ProviderOverride>,
 ): LlmConfig {
+  // 优先按 "providerId/modelId" 格式精确匹配
+  const slashIdx = targetModel.indexOf("/")
+  if (slashIdx > 0) {
+    const providerId = targetModel.slice(0, slashIdx)
+    const modelId = targetModel.slice(slashIdx + 1)
+    const override = providerConfigs[providerId]
+    if (override?.savedModels?.some((m) => m.model === modelId)) {
+      const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
+      if (template) {
+        return { ...resolveConfig(template, override, baseConfig), model: modelId }
+      }
+    }
+    return { ...baseConfig, model: modelId }
+  }
+  // 回退：按纯模型名匹配（兼容旧数据）
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (override.savedModels?.some((m) => m.model === targetModel)) {
       const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")

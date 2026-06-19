@@ -8,6 +8,7 @@ import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { canonicalizeSnapshotCharacters, writeSnapshotToWiki, writePatchFieldsToWiki } from "./graph-adapter"
+import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
@@ -294,14 +295,16 @@ export interface IngestResult {
 export async function ingestChapter(
   projectPath: string,
   chapterPath: string,
-  reviewModel?: string,
+  _reviewModel?: string,
 ): Promise<IngestResult> {
   const pp = normalizePath(projectPath)
   const novelMode = useWikiStore.getState().novelMode
   if (!novelMode) return { snapshot: null }
 
   const llmConfig = useWikiStore.getState().llmConfig
-  const runtimeLlmConfig = reviewModel?.trim() ? { ...llmConfig, model: reviewModel.trim() } : llmConfig
+  const novelConfig = useWikiStore.getState().novelConfig
+  // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换）
+  const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
   if (!hasUsableLlm(runtimeLlmConfig)) return { snapshot: null, failReason: "no_llm" }
 
   const content = await readFile(chapterPath)
