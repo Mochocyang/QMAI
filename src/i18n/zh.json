@@ -1059,7 +1059,11 @@
       "testSuccess": "模型测试成功。",
       "testFailed": "模型测试失败：{{message}}",
       "testUsingDefaultMainModel": "当前使用主模型：{{model}}",
-      "testUsingCurrentModel": "当前测试模型：{{model}}"
+      "testUsingCurrentModel": "当前测试模型：{{model}}",
+      "feedbackWindowLookbackChapterCountHelp": "设置在写当前章节时，往前回溯多少章的审稿反馈注入到写作上下文中。例如设为 2，则前 2 章的审稿反馈也会被带入当前章节的上下文。值越大，AI 写作时能参考越早之前的审稿意见，但也会消耗更多 Token。设为 0 表示不回溯任何历史章节的反馈。",
+      "feedbackWindowCurrentChapterIncludeShouldImproveHelp": "开启后，当前章节的审稿反馈中会包含「改进建议」级别的意见（如文笔优化、节奏调整等），AI 写作时会参考这些改进建议。关闭后，当前章节只贡献「必须修复项」和「延续指示」，忽略改进建议，适合只想让 AI 关注严重问题的场景。",
+      "feedbackWindowPreviousChapterCarryEnabledHelp": "开启后，上一章审稿时标记的「延续事项」（下一章需要继续处理的情节线索、伏笔等）会注入当前章节的写作上下文，确保章节间衔接连贯。关闭后，上一章的延续事项不会注入，每章更独立地写作，适合各章相对独立的故事结构。",
+      "feedbackWindowLookbackIncludeMustFixOnlyHelp": "开启后，回溯的那些历史章节只保留「必须修复」级别的反馈（如设定冲突、逻辑错误等严重问题），忽略改进建议，减少旧反馈对当前写作的干扰。关闭后，回溯章节不仅保留必须修复项，也会贡献改进建议，让 AI 参考更多历史意见。"
     },
     "soul": {
       "projectSoul": "项目灵魂",

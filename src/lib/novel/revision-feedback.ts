@@ -17,10 +17,10 @@ export interface RevisionFeedbackWindowConfig {
 }
 
 export const DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: RevisionFeedbackWindowConfig = {
-  currentChapterIncludeShouldImprove: true,
-  previousChapterCarryEnabled: true,
-  lookbackChapterCount: 2,
-  lookbackIncludeMustFixOnly: true,
+  currentChapterIncludeShouldImprove: false,
+  previousChapterCarryEnabled: false,
+  lookbackChapterCount: 0,
+  lookbackIncludeMustFixOnly: false,
 }
 
 export type RevisionFeedbackSource = "review" | "lint"

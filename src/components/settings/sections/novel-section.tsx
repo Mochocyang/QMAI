@@ -391,11 +391,14 @@ export function NovelSection({ draft, setDraft }: Props) {
         </Label>
         <div className="grid gap-4 rounded-lg border p-4">
           <div className="space-y-2">
-            <Label>
-              {t("settings.sections.novel.feedbackWindow.lookbackChapterCount", {
-                defaultValue: "回溯章节数量",
-              })}
-            </Label>
+            <div className="flex items-center gap-1.5">
+              <Label>
+                {t("settings.sections.novel.feedbackWindow.lookbackChapterCount", {
+                  defaultValue: "回溯章节数量",
+                })}
+              </Label>
+              {settingTooltip("feedbackWindowLookbackChapterCountHelp")}
+            </div>
             <input
               type="number"
               min={0}
@@ -416,11 +419,14 @@ export function NovelSection({ draft, setDraft }: Props) {
 
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Label>
-                {t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImprove", {
-                  defaultValue: "包含当前章节改进建议",
-                })}
-              </Label>
+              <div className="flex items-center gap-1.5">
+                <Label>
+                  {t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImprove", {
+                    defaultValue: "包含当前章节改进建议",
+                  })}
+                </Label>
+                {settingTooltip("feedbackWindowCurrentChapterIncludeShouldImproveHelp")}
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t("settings.sections.novel.feedbackWindow.currentChapterIncludeShouldImproveHint", {
                   defaultValue:
@@ -448,11 +454,14 @@ export function NovelSection({ draft, setDraft }: Props) {
 
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Label>
-                {t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabled", {
-                  defaultValue: "读取上一章延续事项",
-                })}
-              </Label>
+              <div className="flex items-center gap-1.5">
+                <Label>
+                  {t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabled", {
+                    defaultValue: "读取上一章延续事项",
+                  })}
+                </Label>
+                {settingTooltip("feedbackWindowPreviousChapterCarryEnabledHelp")}
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t("settings.sections.novel.feedbackWindow.previousChapterCarryEnabledHint", {
                   defaultValue:
@@ -480,11 +489,14 @@ export function NovelSection({ draft, setDraft }: Props) {
 
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Label>
-                {t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnly", {
-                  defaultValue: "回溯章节仅保留必须修复项",
-                })}
-              </Label>
+              <div className="flex items-center gap-1.5">
+                <Label>
+                  {t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnly", {
+                    defaultValue: "回溯章节仅保留必须修复项",
+                  })}
+                </Label>
+                {settingTooltip("feedbackWindowLookbackIncludeMustFixOnlyHelp")}
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t("settings.sections.novel.feedbackWindow.lookbackIncludeMustFixOnlyHint", {
                   defaultValue:
