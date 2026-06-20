@@ -25,7 +25,6 @@ export function NovelSection({ draft, setDraft }: Props) {
   const setNovelMode = useWikiStore((s) => s.setNovelMode)
   const setNovelConfigStore = useWikiStore((s) => s.setNovelConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
-  const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const project = useWikiStore((s) => s.project)
   const [exportStatus, setExportStatus] = useState<string>("")
   const [testStates, setTestStates] = useState<Record<TestableNovelModelTask, {
@@ -344,6 +343,10 @@ export function NovelSection({ draft, setDraft }: Props) {
 
           {modelItems.map((item) => {
             const state = testStates[item.task]
+            const modelValue = draft.novelConfig[item.field] || ""
+            const isFollowingChat = !modelValue
+            const displayValue = isFollowingChat ? "" : modelValue
+
             return (
               <div key={item.task} className={item.wrapperClassName}>
                 <div className="flex items-center gap-1.5">
@@ -351,12 +354,27 @@ export function NovelSection({ draft, setDraft }: Props) {
                   {settingTooltip(`${item.field}Hint`)}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <ChatModelSelector
-                    value={draft.novelConfig[item.field] || aiChatModel || llmConfig.model || ""}
-                    onChange={(model) => updateNovelConfig({
-                      [item.field]: model === aiChatModel ? "" : model,
-                    } as Partial<NovelConfig>)}
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateNovelConfig({
+                        [item.field]: "",
+                      } as Partial<NovelConfig>)}
+                      className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                        isFollowingChat
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border hover:bg-accent"
+                      }`}
+                    >
+                      {t("novel.settings.followChatModel")}
+                    </button>
+                    <ChatModelSelector
+                      value={displayValue}
+                      onChange={(model) => updateNovelConfig({
+                        [item.field]: model,
+                      } as Partial<NovelConfig>)}
+                    />
+                  </div>
                   <Button
                     type="button"
                     size="sm"

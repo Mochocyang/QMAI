@@ -17,7 +17,6 @@ import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
-import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -27,12 +26,9 @@ export function LlmProviderSection() {
   const setActivePresetId = useWikiStore((s) => s.setActivePresetId)
   const setLlmConfig = useWikiStore((s) => s.setLlmConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
-  const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
-  const setDefaultLlmModel = useWikiStore((s) => s.setDefaultLlmModel)
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
-  const [defaultModelTestState, setDefaultModelTestState] = useState<ModelActionState>(null)
 
   function toggleExpand(id: string) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -83,44 +79,6 @@ export function LlmProviderSection() {
     persist(next, activePresetId).catch(() => {})
   }
 
-  async function testDefaultModel() {
-    if (!defaultLlmModel) {
-      setDefaultModelTestState({
-        loading: false,
-        success: false,
-        message: t("settings.sections.llm.pleaseSelectModel"),
-      })
-      return
-    }
-
-    setDefaultModelTestState({
-      loading: true,
-      success: false,
-      message: t("settings.sections.shared.testing"),
-    })
-
-    try {
-      const testConfig: typeof llmConfig = {
-        ...llmConfig,
-        model: defaultLlmModel,
-      }
-      const result = await testSettingsLlmModel(testConfig)
-      setDefaultModelTestState({
-        loading: false,
-        success: true,
-        message: t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
-      })
-    } catch (error) {
-      setDefaultModelTestState({
-        loading: false,
-        success: false,
-        message: t("settings.sections.shared.testFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      })
-    }
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -128,43 +86,6 @@ export function LlmProviderSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.llm.description")}
         </p>
-      </div>
-
-      {/* 默认模型 - 后台任务（提取记忆、提取角色等）使用的模型 */}
-      <div className="space-y-2 rounded-lg border p-4">
-        <div className="flex items-center gap-1.5">
-          <Label>{t("settings.sections.llm.defaultLlmModel")}</Label>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.sections.llm.defaultLlmModelHint")}
-        </p>
-        <div className="flex items-start gap-2">
-          <div className="flex-1">
-            <ChatModelSelector
-              value={defaultLlmModel || ""}
-              onChange={async (model) => {
-                setDefaultLlmModel(model)
-                const { saveDefaultLlmModel } = await import("@/lib/project-store")
-                await saveDefaultLlmModel(model)
-              }}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void testDefaultModel()}
-            disabled={defaultModelTestState?.loading || !defaultLlmModel}
-            className="shrink-0 rounded-md border px-3 py-2 text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {defaultModelTestState?.loading
-              ? t("settings.sections.shared.testing")
-              : t("settings.sections.shared.testModel")}
-          </button>
-        </div>
-        {defaultModelTestState?.message ? (
-          <p className={`text-xs ${defaultModelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
-            {defaultModelTestState.message}
-          </p>
-        ) : null}
       </div>
 
       {/* Custom Provider Cards - 放在顶部 */}
