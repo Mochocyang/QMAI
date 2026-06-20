@@ -2,24 +2,19 @@
  * 章节选择面板
  * 显示已识别的章节列表，支持用户勾选需要分析的章节
  *
- * 改造（feature/character-recognition-and-simple-mode）：
- *   - 移除"深度选择弹窗"（fast/standard/deep 三档）
- *   - "开始分析"按钮旁加二档单选：快速（仅启发式）/ 标准（启发式 + LLM 评分）
- *   - 选完深度档后调用 onConfirm（深度参数由用户在面板内选择）
+ * 改造：
+ *   - 移除"深度选择弹窗"（快速/标准），默认走 LLM 提取
  *   - 识别完成后自动打开"角色选择"弹窗（CharacterSelectionPanel）
- *
- * 修复（fix/character-reextract-and-loading-state）：
- *   - 增加明显的"分析中"提示（带 spinner + 进度信息）
- *   - 在分析进行中允许"后台运行"（关闭面板，任务继续在后台）
- *   - 提供 `onAnalyzingChange` 让父组件同步状态
+ *   - 提取阶段在面板内显示进度，不再关闭面板
+ *   - 支持"后台运行"（关闭面板，任务继续在后台）
+ *   - 增加"已提取角色"按钮，加载以前提取过的角色
  */
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { CheckSquare, Square, Play, X, Loader2, Minimize2 } from "lucide-react"
-import type { AnalysisDepth, RecognizedCharacter } from "@/lib/novel/book-analysis/types"
+import { CheckSquare, Square, Play, X, Loader2, Minimize2, Users, CheckCircle2 } from "lucide-react"
+import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { CharacterSelectionPanel } from "./character-selection-panel"
-import { loadDepthPreference, saveDepthPreference } from "@/lib/novel/book-analysis/depth-preference"
 
 interface ChapterSelectionPanelProps {
   chapters: Array<{
@@ -29,12 +24,11 @@ interface ChapterSelectionPanelProps {
     wordCount: number
     path: string
   }>
-  onConfirm: (selectedChapterIds: string[], depth: AnalysisDepth) => void
+  onConfirm: (selectedChapterIds: string[]) => void
   onCancel: () => void
-  // 修复（fix/character-reextract-and-loading-state）：
-  // 后台运行：只关闭面板，不取消任务，识别/提取继续在后台执行
+  /** 后台运行：只关闭面板，不取消任务 */
   onBackground?: () => void
-  // 角色识别（feature/character-recognition-and-simple-mode）
+  // 角色识别
   recognitionStatus?: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error"
   recognizedCharacters?: RecognizedCharacter[]
   selectedCharacterIds?: string[]
@@ -44,11 +38,22 @@ interface ChapterSelectionPanelProps {
   onClearSelection?: () => void
   onDeepExtract?: () => void
   onSimpleExtract?: () => void
-  /** 关闭“角色选择”弹窗：回到章节选择页，不取消任务（feature/llm-only-character-recognition）。 */
+  /** 关闭"角色选择"弹窗：回到章节选择页，不取消任务 */
   onCharacterPickerClose?: () => void
-  // 修复（fix/character-reextract-and-loading-state）：
-  // 把"分析中"状态反向同步给父组件，让父组件可以恢复按钮态、显示 toast 等
+  /** 同步"分析中"状态给父组件 */
   onAnalyzingChange?: (analyzing: boolean) => void
+  // 提取进度
+  extractionPhase?: "deep" | "simple" | null
+  extractionProgress?: {
+    stageLabel?: string
+    percentage?: number
+    currentItem?: string
+    isCompleted?: boolean
+    error?: string
+  }
+  // 已提取角色
+  onLoadExtractedCharacters?: () => void
+  hasExtractedCharacters?: boolean
 }
 
 export function ChapterSelectionPanel({
@@ -67,31 +72,22 @@ export function ChapterSelectionPanel({
   onSimpleExtract,
   onCharacterPickerClose,
   onAnalyzingChange,
+  extractionPhase,
+  extractionProgress,
+  onLoadExtractedCharacters,
+  hasExtractedCharacters,
 }: ChapterSelectionPanelProps) {
   const [selectedChapters, setSelectedChapters] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  // 修复（fix/character-reextract-and-loading-state）：
-  // 后台运行时不取消任务，仅关闭面板
   const [isBackgrounded, setIsBackgrounded] = useState(false)
-  // 深度档：快速（仅启发式）/ 标准（启发式 + LLM 评分）
-  // 初始化时优先用用户上次保存的偏好；兼容旧值"deep"（映射为"standard"）
-  const [depth, setDepth] = useState<AnalysisDepth>(() => {
-    const saved = loadDepthPreference()
-    return saved === "fast" ? "fast" : "standard"
-  })
 
-  useEffect(() => {
-    // 每次用户切换都记忆（feature/character-recognition-and-simple-mode）
-    saveDepthPreference(depth)
-  }, [depth])
-
-  // 同步 isAnalyzing 到父组件（fix/character-reextract-and-loading-state）
+  // 同步 isAnalyzing 到父组件
   useEffect(() => {
     onAnalyzingChange?.(isAnalyzing)
   }, [isAnalyzing, onAnalyzingChange])
 
-  // 识别完成时同步恢复 isAnalyzing = false（fix/character-reextract-and-loading-state）
+  // 识别完成时同步恢复 isAnalyzing = false
   useEffect(() => {
     if (recognitionStatus === "done" || recognitionStatus === "error") {
       setIsAnalyzing(false)
@@ -144,15 +140,19 @@ export function ChapterSelectionPanel({
 
   const canConfirm = selectedCount > 0
 
-  // 识别完成时弹出"角色选择"弹窗（feature/character-recognition-and-simple-mode）
+  // 识别完成时弹出"角色选择"弹窗
   const showCharacterPicker =
     recognitionStatus === "done" &&
     recognizedCharacters.length > 0 &&
+    !extractionPhase &&
     !!onToggleCharacter &&
     !!onSelectAllMain &&
     !!onClearSelection &&
     !!onDeepExtract &&
     !!onSimpleExtract
+
+  // 是否正在提取中
+  const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -160,9 +160,21 @@ export function ChapterSelectionPanel({
         {/* 标题栏 */}
         <div className="flex shrink-0 items-center justify-between border-b px-6 py-4">
           <div>
-            <h2 className="text-xl font-semibold">选择分析章节</h2>
+            <h2 className="text-xl font-semibold">
+              {isExtracting
+                ? extractionPhase === "deep"
+                  ? "深度 6 维提取中"
+                  : "简单提取中"
+                : extractionProgress?.isCompleted
+                  ? "提取完成"
+                  : "选择分析章节"}
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              已识别 {chapters.length} 章，请选择需要分析的章节
+              {isExtracting
+                ? "正在提取角色特征，请耐心等待"
+                : extractionProgress?.isCompleted
+                  ? "角色特征提取已完成"
+                  : `已识别 ${chapters.length} 章，请选择需要分析的章节`}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onCancel}>
@@ -170,114 +182,76 @@ export function ChapterSelectionPanel({
           </Button>
         </div>
 
-        {/* 工具栏 */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-6 py-3">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSelectAll}
-            >
-              {selectAll ? (
-                <>
-                  <Square className="h-4 w-4 mr-2" />
-                  取消全选
-                </>
-              ) : (
-                <>
-                  <CheckSquare className="h-4 w-4 mr-2" />
-                  全选
-                </>
-              )}
-            </Button>
-
+        {/* 提取进度显示 */}
+        {isExtracting && (
+          <div className="shrink-0 mx-6 mt-4 rounded-md border border-primary/40 bg-primary/5 px-4 py-4 space-y-3">
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">快捷选择：</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSelectRange(1, 10)}
-              >
-                前10章
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSelectRange(1, 50)}
-              >
-                前50章
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSelectRange(1, 100)}
-              >
-                前100章
-              </Button>
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="font-medium text-foreground">
+                {extractionProgress?.stageLabel || "准备中..."}
+              </span>
             </div>
-          </div>
-
-          {/* 深度档 + 开始分析（feature/character-recognition-and-simple-mode） */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 text-xs">
-              <span className="text-muted-foreground mr-1">识别深度：</span>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="radio"
-                  name="depth-mode"
-                  value="fast"
-                  checked={depth === "fast"}
-                  onChange={() => setDepth("fast")}
-                  disabled={isAnalyzing}
-                  className="h-3 w-3"
-                />
-                <span>快速</span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input
-                  type="radio"
-                  name="depth-mode"
-                  value="standard"
-                  checked={depth === "standard"}
-                  onChange={() => setDepth("standard")}
-                  disabled={isAnalyzing}
-                  className="h-3 w-3"
-                />
-                <span>标准</span>
-              </label>
+            {/* 进度条 */}
+            <div className="h-2 bg-secondary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${extractionProgress?.percentage ?? 0}%` }}
+              />
             </div>
-            <Button
-              onClick={(e) => {
-                e.stopPropagation()
-                console.log('[开始分析] 按钮点击', { selectedCount, depth, canConfirm })
-                if (!canConfirm) {
-                  console.warn('[开始分析] 未选择任何章节')
-                  return
-                }
-                setIsAnalyzing(true)
-                try {
-                  console.log('[开始分析] 调用 onConfirm', Array.from(selectedChapters), depth)
-                  onConfirm(Array.from(selectedChapters), depth)
-                } catch (err) {
-                  console.error('[开始分析] onConfirm 调用出错:', err)
-                  setIsAnalyzing(false)
-                }
-              }}
-              disabled={!canConfirm || isAnalyzing}
-              size="default"
-            >
-              {isAnalyzing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4 mr-2" />
+            {extractionProgress?.currentItem && (
+              <div className="text-xs text-muted-foreground">
+                {extractionProgress.currentItem}
+              </div>
+            )}
+            {/* 后台运行按钮 */}
+            <div className="flex justify-end">
+              {!isBackgrounded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsBackgrounded(true)
+                    if (onBackground) {
+                      onBackground()
+                    }
+                  }}
+                >
+                  <Minimize2 className="h-4 w-4 mr-1" />
+                  后台运行
+                </Button>
               )}
-              {isAnalyzing ? "分析中..." : `开始分析（${selectedCount} 章）`}
-            </Button>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* 修复（fix/character-reextract-and-loading-state）：明显的"分析中"提示条 */}
-        {isAnalyzing && (
+        {/* 提取完成提示 */}
+        {extractionProgress?.isCompleted && (
+          <div className="shrink-0 mx-6 mt-4 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-4 py-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <span className="font-medium text-foreground">提取完成</span>
+            </div>
+            {extractionProgress.error && (
+              <div className="text-xs text-amber-600">{extractionProgress.error}</div>
+            )}
+            <div className="flex justify-end">
+              <Button size="sm" onClick={onCancel}>
+                关闭
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 提取错误提示 */}
+        {extractionPhase && extractionProgress?.error && !extractionProgress.isCompleted && (
+          <div className="shrink-0 mx-6 mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
+            <div className="text-sm text-destructive">{extractionProgress.error}</div>
+          </div>
+        )}
+
+        {/* 分析中提示条（角色识别阶段） */}
+        {isAnalyzing && !extractionPhase && (
           <div className="shrink-0 mx-6 mt-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -292,20 +266,15 @@ export function ChapterSelectionPanel({
                 {recognitionStatus === "error" && "识别失败"}
               </span>
             </div>
-            {/* 后台运行按钮：fix/character-reextract-and-loading-state 让用户关闭面板、任务继续后台执行 */}
             {!isBackgrounded && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation()
-                  console.log('[后台运行] 关闭面板，任务继续后台执行')
                   setIsBackgrounded(true)
-                  // 优先用独立的 onBackground（不取消任务），向后兼容用 onCancel
                   if (onBackground) {
                     onBackground()
-                  } else {
-                    onCancel()
                   }
                 }}
               >
@@ -316,73 +285,163 @@ export function ChapterSelectionPanel({
           </div>
         )}
 
-        {/* 统计信息 + 提示 */}
-        <div className="shrink-0 px-6 py-3 bg-muted/50">
-          <div className="flex items-center justify-between text-sm">
-            <div>
-              <span className="font-medium">已选择：</span>
-              <span className="ml-2 text-primary font-semibold">{selectedCount}</span>
-              <span className="ml-1 text-muted-foreground">章</span>
-              <span className="mx-3 text-muted-foreground">|</span>
-              <span className="font-medium">总字数：</span>
-              <span className="ml-2 text-primary font-semibold">
-                {totalWords.toLocaleString()}
-              </span>
-              <span className="ml-1 text-muted-foreground">字</span>
-            </div>
-            <div className="text-muted-foreground">
-              💡 提示：分析大量章节会消耗较多时间和 token，建议先选择部分章节测试
-            </div>
-          </div>
-        </div>
-
-        {/* 章节列表 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6">
-          <div className="py-4 space-y-2">
-            {chapters.map((chapter) => {
-              const isSelected = selectedChapters.has(chapter.id)
-              return (
-                <label
-                  key={chapter.id}
-                  className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
-                    isSelected
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:bg-muted"
-                  }`}
-                  onClick={() => handleToggleChapter(chapter.id)}
+        {/* 工具栏 + 章节列表（非提取阶段显示） */}
+        {!isExtracting && !extractionProgress?.isCompleted && (
+          <>
+            {/* 工具栏 */}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-6 py-3">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSelectAll}
                 >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => {}}
-                    className="h-4 w-4"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-muted-foreground">
-                        #{chapter.order}
-                      </span>
-                      <span className="font-medium truncate">{chapter.title}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {chapter.wordCount.toLocaleString()} 字
-                    </div>
-                  </div>
-                </label>
-              )
-            })}
-          </div>
-        </div>
+                  {selectAll ? (
+                    <>
+                      <Square className="h-4 w-4 mr-2" />
+                      取消全选
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4 mr-2" />
+                      全选
+                    </>
+                  )}
+                </Button>
 
-        {/* 底部操作栏 - 只保留取消按钮 */}
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">快捷选择：</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleSelectRange(1, 10)}
+                  >
+                    前10章
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleSelectRange(1, 50)}
+                  >
+                    前50章
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleSelectRange(1, 100)}
+                  >
+                    前100章
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* 已提取角色按钮 */}
+                {hasExtractedCharacters && onLoadExtractedCharacters && (
+                  <Button
+                    variant="outline"
+                    size="default"
+                    onClick={onLoadExtractedCharacters}
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    已提取角色
+                  </Button>
+                )}
+                {/* 开始分析按钮 */}
+                <Button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!canConfirm) return
+                    setIsAnalyzing(true)
+                    try {
+                      onConfirm(Array.from(selectedChapters))
+                    } catch (err) {
+                      console.error('[开始分析] onConfirm 调用出错:', err)
+                      setIsAnalyzing(false)
+                    }
+                  }}
+                  disabled={!canConfirm || isAnalyzing}
+                  size="default"
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  {isAnalyzing ? "分析中..." : `开始分析（${selectedCount} 章）`}
+                </Button>
+              </div>
+            </div>
+
+            {/* 统计信息 */}
+            <div className="shrink-0 px-6 py-3 bg-muted/50">
+              <div className="flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium">已选择：</span>
+                  <span className="ml-2 text-primary font-semibold">{selectedCount}</span>
+                  <span className="ml-1 text-muted-foreground">章</span>
+                  <span className="mx-3 text-muted-foreground">|</span>
+                  <span className="font-medium">总字数：</span>
+                  <span className="ml-2 text-primary font-semibold">
+                    {totalWords.toLocaleString()}
+                  </span>
+                  <span className="ml-1 text-muted-foreground">字</span>
+                </div>
+                <div className="text-muted-foreground">
+                  提示：分析大量章节会消耗较多时间和 token，建议先选择部分章节测试
+                </div>
+              </div>
+            </div>
+
+            {/* 章节列表 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-6">
+              <div className="py-4 space-y-2">
+                {chapters.map((chapter) => {
+                  const isSelected = selectedChapters.has(chapter.id)
+                  return (
+                    <label
+                      key={chapter.id}
+                      className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+                        isSelected
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:bg-muted"
+                      }`}
+                      onClick={() => handleToggleChapter(chapter.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-muted-foreground">
+                            #{chapter.order}
+                          </span>
+                          <span className="font-medium truncate">{chapter.title}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {chapter.wordCount.toLocaleString()} 字
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* 底部操作栏 */}
         <div className="shrink-0 border-t px-6 py-4 flex justify-end">
           <Button variant="outline" onClick={onCancel}>
-            取消
+            {extractionProgress?.isCompleted ? "关闭" : "取消"}
           </Button>
         </div>
       </div>
 
-      {/* 角色选择弹窗（feature/character-recognition-and-simple-mode） */}
+      {/* 角色选择弹窗 */}
       {showCharacterPicker && (
         <CharacterSelectionPanel
           characters={recognizedCharacters}

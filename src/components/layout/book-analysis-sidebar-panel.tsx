@@ -32,7 +32,7 @@ interface BookItem {
 export function BookAnalysisSidebarPanel() {
   const project = useWikiStore((s) => s.project)
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const { setSelectedLibraryBookId } = useBookAnalysisStore()
+  const { setSelectedLibraryBookId, sidebarRefreshCounter, triggerSidebarRefresh } = useBookAnalysisStore()
   const [books, setBooks] = useState<BookItem[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
@@ -42,7 +42,7 @@ export function BookAnalysisSidebarPanel() {
     if (project?.path) {
       loadBooks()
     }
-  }, [project?.path])
+  }, [project?.path, sidebarRefreshCounter])
 
   async function loadBooks() {
     if (!project?.path) return
@@ -171,7 +171,10 @@ export function BookAnalysisSidebarPanel() {
       await loadBooks()
       if (selectedBookId === book.id) {
         setSelectedBookId(null)
+        setSelectedLibraryBookId(null)
       }
+      // 触发主面板刷新 libraryState
+      triggerSidebarRefresh()
       if (cleaned > 0) {
         toast.success(`已删除作品「${book.title}」，并清理了 ${cleaned} 个孤儿灵魂`)
       } else {

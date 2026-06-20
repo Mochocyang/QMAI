@@ -27,6 +27,7 @@ import type {
   SixDimensionProgressItem,
   SixDimensionStatus,
   ExtractedCharacter,
+  RecognizedCharacter,
 } from "@/lib/novel/book-analysis/types"
 
 /** 6 维度状态图标的视觉映射 */
@@ -70,7 +71,8 @@ export function BookAnalysisView() {
     metadata: any
     abortController: AbortController
     selectedChapterIds: string[]  // 用户在章节选择面板中勾选的 id
-    depth: AnalysisDepth           // 选章节时确定的深度档（fast/standard）
+    depth: AnalysisDepth           // 固定 standard
+    extractionPhase?: "deep" | "simple" | null  // 提取阶段
   } | null>(null)
   const [libraryState, setLibraryState] = useState<BookAnalysisLibraryState>({
     books: [],
@@ -83,6 +85,7 @@ export function BookAnalysisView() {
   const [addingToSoul, setAddingToSoul] = useState(false)
   const currentProject = useWikiStore((s) => s.project)
   const storeSelectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
+  const sidebarRefreshCounter = useBookAnalysisStore((s) => s.sidebarRefreshCounter)
   const startTask = useBookAnalysisStore((s) => s.startTask)
   const cancelTask = useBookAnalysisStore((s) => s.cancelTask)
   const tasks = useBookAnalysisStore((s) => s.tasks)
@@ -128,13 +131,19 @@ export function BookAnalysisView() {
 
   useEffect(() => {
     void reloadLibraryState()
-  }, [currentProject?.path, tasks.length])
+  }, [currentProject?.path, tasks.length, sidebarRefreshCounter])
 
-  // 同步侧栏选中的 bookId
+  // 同步侧栏选中的 bookId（包括清空的情况）
   useEffect(() => {
-    if (storeSelectedBookId && storeSelectedBookId !== selectedBookId) {
-      setSelectedBookId(storeSelectedBookId)
-      setSelectedCharacterId(null)
+    if (storeSelectedBookId !== selectedBookId) {
+      if (storeSelectedBookId) {
+        setSelectedBookId(storeSelectedBookId)
+        setSelectedCharacterId(null)
+      } else {
+        // 侧栏清空了选中（如删除作品），重新从 libraryState 选择
+        setSelectedBookId(libraryState.books[0]?.id ?? null)
+        setSelectedCharacterId(null)
+      }
     }
   }, [storeSelectedBookId])
 
@@ -198,6 +207,12 @@ export function BookAnalysisView() {
 
         useBookAnalysisStore.getState().updateTaskBookData(taskId, splitResult.bookId, splitResult.chapters)
 
+        // 触发侧栏刷新，让作品库立刻显示新导入的作品
+        useBookAnalysisStore.getState().triggerSidebarRefresh()
+
+        // 刷新 libraryState，使"已提取角色"按钮能检测到已有角色
+        await reloadLibraryState()
+
         // 显示章节选择界面
         setChapterSelectionData({
           taskId,
@@ -206,7 +221,7 @@ export function BookAnalysisView() {
           metadata: splitResult.metadata,
           abortController,
           selectedChapterIds: [],  // 稍后由用户在章节选择面板中勾选
-          depth: "standard",         // 默认 standard，章节面板可改
+          depth: "standard",         // 固定 standard
         })
       }
     } catch (error) {
@@ -219,8 +234,8 @@ export function BookAnalysisView() {
     }
   }
 
-  const handleChapterSelectionConfirm = async (selectedChapterIds: string[], depth: AnalysisDepth) => {
-    console.log('[handleChapterSelectionConfirm] 开始执行', { selectedChapterIds, depth })
+  const handleChapterSelectionConfirm = async (selectedChapterIds: string[]) => {
+    console.log('[handleChapterSelectionConfirm] 开始执行', { selectedChapterIds })
 
     if (!chapterSelectionData) {
       console.error('[handleChapterSelectionConfirm] chapterSelectionData 为空')
@@ -231,11 +246,11 @@ export function BookAnalysisView() {
     console.log('[handleChapterSelectionConfirm] taskId:', taskId, 'bookPath:', bookPath)
 
     // 不关闭章节面板，识别完成后会在面板上叠加"角色选择"弹窗
-    // 把 selectedChapterIds + depth 暂存到 state，识别 / 提取阶段要用
+    // 把 selectedChapterIds 暂存到 state，识别 / 提取阶段要用
     setChapterSelectionData({
       ...chapterSelectionData,
       selectedChapterIds,
-      depth,
+      depth: "standard",
     })
 
     // 阶段 0：清空旧的识别状态
@@ -366,21 +381,19 @@ export function BookAnalysisView() {
   }
 
   /**
-   * 关闭章节选择面板（不取消任务，用于提取阶段）
-   */
-  const closeChapterPanel = () => {
-    setChapterSelectionData(null)
-  }
-
-  /**
    * 6 维度深度提取：跑原 6 维流程，提取后过滤到用户勾选的角色
    */
   const handleDeepExtract = async () => {
     if (!chapterSelectionData) return
     const { taskId, bookPath, metadata, abortController, selectedChapterIds, depth } = chapterSelectionData
     const userPicked = recognizedCharacters.filter((c) => selectedCharacterIds.includes(c.id))
-    closeChapterPanel()
     if (userPicked.length === 0) return
+
+    // 设置提取阶段，面板显示进度
+    setChapterSelectionData({
+      ...chapterSelectionData,
+      extractionPhase: "deep",
+    })
 
     const { useWikiStore } = await import("@/stores/wiki-store")
     const storeState = useWikiStore.getState()
@@ -459,10 +472,15 @@ export function BookAnalysisView() {
       )
       updateTaskSkills(taskId, skills)
       completeTask(taskId)
+      // 提取完成后刷新库和侧栏
+      await reloadLibraryState()
+      useBookAnalysisStore.getState().triggerSidebarRefresh()
+      toast.success("深度提取完成")
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "分析失败"
       if (!errorMessage.includes("取消") && !errorMessage.includes("已停止")) {
         errorTaskFn(taskId, errorMessage)
+        toast.error(`深度提取失败：${errorMessage}`)
       }
     }
   }
@@ -474,8 +492,13 @@ export function BookAnalysisView() {
     if (!chapterSelectionData) return
     const { taskId, bookPath, metadata, abortController, selectedChapterIds } = chapterSelectionData
     const userPicked = recognizedCharacters.filter((c) => selectedCharacterIds.includes(c.id))
-    closeChapterPanel()
     if (userPicked.length === 0) return
+
+    // 设置提取阶段，面板显示进度
+    setChapterSelectionData({
+      ...chapterSelectionData,
+      extractionPhase: "simple",
+    })
 
     const { useWikiStore } = await import("@/stores/wiki-store")
     const storeState = useWikiStore.getState()
@@ -663,6 +686,18 @@ export function BookAnalysisView() {
       })
       updateTaskCharacters(taskId, characters)
 
+      // 将角色持久化到磁盘，使"已提取角色"按钮可用
+      const { persistCharacterToDisk } = await import(
+        "@/lib/novel/book-analysis/character-disk-store"
+      )
+      for (const character of characters) {
+        try {
+          await persistCharacterToDisk(bookPath, character)
+        } catch (err) {
+          console.warn(`[简单提取] 持久化角色 ${character.name} 失败:`, err)
+        }
+      }
+
       // 生成 Skills（直接调简单提取模板，跳过 LLM）
       const { generateSkillsForCharacters } = await import(
         "@/lib/novel/book-analysis/skill-generator"
@@ -689,10 +724,15 @@ export function BookAnalysisView() {
         simpleExtractionStatus: "done",
       })
       completeTask(taskId)
+      // 提取完成后刷新库和侧栏
+      await reloadLibraryState()
+      useBookAnalysisStore.getState().triggerSidebarRefresh()
+      toast.success("简单提取完成")
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "分析失败"
       if (!errorMessage.includes("取消") && !errorMessage.includes("已停止")) {
         errorTaskFn(taskId, errorMessage)
+        toast.error(`简单提取失败：${errorMessage}`)
       }
     }
   }
@@ -841,12 +881,59 @@ export function BookAnalysisView() {
     }
   }
 
-  // 修复（fix/character-reextract-and-loading-state）：
   // 后台运行：只关闭面板、不取消任务，让识别/提取继续在后台跑
   const handleChapterSelectionBackground = () => {
     if (!chapterSelectionData) return
     console.log('[后台运行] 关闭面板，任务继续后台执行', chapterSelectionData.taskId)
+    toast.info("任务已在后台运行，完成后会自动刷新")
     setChapterSelectionData(null)
+  }
+
+  // 是否有已提取的角色（从磁盘加载）
+  const hasExtractedCharacters = useMemo(() => {
+    if (!chapterSelectionData?.bookPath) return false
+    // 检查 libraryState 中当前作品是否已有角色
+    const bookId = chapterSelectionData.bookPath.split(/[/\\]/).pop() ?? ""
+    const book = libraryState.books.find((b) => b.id === bookId || b.path === chapterSelectionData.bookPath)
+    return !!book && book.characters.length > 0
+  }, [chapterSelectionData?.bookPath, libraryState.books])
+
+  // 加载已提取的角色（从磁盘读取，避免重复消耗 token）
+  const handleLoadExtractedCharacters = async () => {
+    if (!chapterSelectionData?.bookPath) return
+    const bookId = chapterSelectionData.bookPath.split(/[/\\]/).pop() ?? ""
+    const book = libraryState.books.find((b) => b.id === bookId || b.path === chapterSelectionData.bookPath)
+    if (!book || book.characters.length === 0) {
+      toast.info("没有已提取的角色")
+      return
+    }
+
+    // 将已提取的角色转换为 RecognizedCharacter 格式
+    const existingCharacters: RecognizedCharacter[] = book.characters.map((c) => ({
+      id: c.id,
+      name: c.name,
+      aliases: c.aliases ?? [],
+      appearances: c.appearanceCount,
+      chapterIndices: [c.firstAppearance - 1],
+      importanceScore: c.importance,
+      category:
+        c.category === "protagonist"
+          ? "主角"
+          : c.category === "supporting"
+          ? "配角"
+          : "次要",
+      sourceBook: chapterSelectionData.bookPath,
+    }))
+
+    // 直接设置为已识别状态，跳过 LLM 识别
+    setRecognizedCharacters(existingCharacters)
+    setSelectedCharacterIds(
+      existingCharacters
+        .filter((c) => c.category === "主角" || c.category === "配角")
+        .map((c) => c.id)
+    )
+    setRecognitionStatus("done")
+    toast.info(`已加载 ${existingCharacters.length} 个已提取的角色，可直接选择进行提取`)
   }
 
   // 如果没有任务，显示欢迎页（feature/fix-viewer-from-sidebar：欢迎页下也允许打开 viewer）
@@ -1315,17 +1402,15 @@ export function BookAnalysisView() {
           chapters={chapterSelectionData.chapters}
           onConfirm={handleChapterSelectionConfirm}
           onCancel={handleChapterSelectionCancel}
-          // 修复（fix/character-reextract-and-loading-state）：后台运行
           onBackground={handleChapterSelectionBackground}
           onAnalyzingChange={(analyzing) => {
-            // 这里可以加 toast 提示（保持轻量，不修改其他逻辑）
             if (analyzing) {
               console.log('[book-analysis-view] 进入分析中状态')
             } else {
               console.log('[book-analysis-view] 退出分析中状态')
             }
           }}
-          // 角色识别 + 角色选择（feature/character-recognition-and-simple-mode）
+          // 角色识别 + 角色选择
           recognitionStatus={recognitionStatus}
           recognizedCharacters={recognizedCharacters}
           selectedCharacterIds={selectedCharacterIds}
@@ -1335,8 +1420,23 @@ export function BookAnalysisView() {
           onClearSelection={handleClearSelection}
           onDeepExtract={handleDeepExtract}
           onSimpleExtract={handleSimpleExtract}
-          // 关闭角色选择弹窗 → 仅清空识别结果回到章节页，不取消任务（fix）
           onCharacterPickerClose={clearRecognition}
+          // 提取进度
+          extractionPhase={chapterSelectionData.extractionPhase ?? null}
+          extractionProgress={(() => {
+            const task = tasks.find((t) => t.id === chapterSelectionData.taskId)
+            if (!task) return undefined
+            return {
+              stageLabel: task.progress.stageLabel,
+              percentage: task.progress.percentage,
+              currentItem: task.progress.currentItem,
+              isCompleted: task.status === "completed",
+              error: task.status === "error" ? task.error : undefined,
+            }
+          })()}
+          // 已提取角色
+          onLoadExtractedCharacters={handleLoadExtractedCharacters}
+          hasExtractedCharacters={hasExtractedCharacters}
         />
       )}
     </div>

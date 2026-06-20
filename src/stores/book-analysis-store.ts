@@ -51,6 +51,10 @@ export interface BookAnalysisState {
   selectedLibraryBookId: string | null
   setSelectedLibraryBookId: (id: string | null) => void
 
+  // 侧栏刷新触发器（导入/删除作品后递增，侧栏监听此值自动刷新）
+  sidebarRefreshCounter: number
+  triggerSidebarRefresh: () => void
+
   // 角色识别 actions（feature/character-recognition-and-simple-mode）
   setRecognitionStatus: (status: "idle" | "heuristic" | "llm_scoring" | "llm_recognizing" | "done" | "error") => void
   setRecognizedCharacters: (characters: RecognizedCharacter[]) => void
@@ -75,6 +79,7 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
 
   // 拆书库作品选中
   selectedLibraryBookId: null,
+  sidebarRefreshCounter: 0,
 
   // 角色识别初始 state（feature/character-recognition-and-simple-mode）
   recognitionStatus: "idle",
@@ -282,6 +287,10 @@ export const useBookAnalysisStore = create<BookAnalysisState>((set, get) => ({
 
   setSelectedLibraryBookId: (id: string | null) => {
     set({ selectedLibraryBookId: id })
+  },
+
+  triggerSidebarRefresh: () => {
+    set((state) => ({ sidebarRefreshCounter: state.sidebarRefreshCounter + 1 }))
   },
 
   // 角色识别 actions 实现（feature/character-recognition-and-simple-mode）
