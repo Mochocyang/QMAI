@@ -18,7 +18,6 @@ interface BookAnalysisLibraryLayoutProps {
   onExtractStyle: () => void
   onToggleStyle: () => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
-  onBindCharacter: (characterId: string) => void
   onReextractCharacters: () => void
   onDeleteBook: (bookId: string) => void
 }
@@ -35,7 +34,6 @@ export function BookAnalysisLibraryLayout({
   onExtractStyle,
   onToggleStyle,
   onAddSelectedSkillsToSoul,
-  onBindCharacter,
   onReextractCharacters,
 }: BookAnalysisLibraryLayoutProps) {
   const selectedBook = state.books.find((book) => book.id === selectedBookId) ?? state.books[0] ?? null
@@ -87,7 +85,6 @@ export function BookAnalysisLibraryLayout({
               addingToSoul={addingToSoul}
               onSelectCharacter={onSelectCharacter}
               onAddSelectedSkillsToSoul={onAddSelectedSkillsToSoul}
-              onBindCharacter={onBindCharacter}
             />
           </div>
         ) : (

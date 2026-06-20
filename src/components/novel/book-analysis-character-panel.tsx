@@ -8,7 +8,6 @@ interface BookAnalysisCharacterPanelProps {
   addingToSoul: boolean
   onSelectCharacter: (characterId: string) => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
-  onBindCharacter: (characterId: string) => void
 }
 
 const categoryLabels: Record<string, string> = {
@@ -24,13 +23,11 @@ export function BookAnalysisCharacterPanel({
   addingToSoul,
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
-  onBindCharacter,
 }: BookAnalysisCharacterPanelProps) {
   const selectedCharacter = book.characters.find((character) => character.id === selectedCharacterId) ?? book.characters[0] ?? null
   const selectedSkill = selectedCharacter
     ? book.skills.find((skill) => skill.characterId === selectedCharacter.id || skill.characterName === selectedCharacter.name) ?? null
     : null
-  const selectedHasSkill = Boolean(selectedSkill)
   const selectedAuraAdded = selectedCharacter ? book.addedAuraCharacterIds.includes(selectedCharacter.id) : false
   const addButtonLabel = addingToSoul
     ? "加入中..."
@@ -45,7 +42,7 @@ export function BookAnalysisCharacterPanel({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold">角色 Skill</h3>
-          <p className="mt-1 text-xs text-muted-foreground">选择角色 Skill 加入自定义灵魂库，也可绑定到当前小说人物。</p>
+          <p className="mt-1 text-xs text-muted-foreground">选择角色 Skill 加入自定义灵魂库。</p>
         </div>
         <Button
           size="sm"
@@ -140,14 +137,6 @@ export function BookAnalysisCharacterPanel({
                     {selectedSkill.skillContent.slice(0, 800)}{selectedSkill.skillContent.length > 800 ? "..." : ""}
                   </div>
                 </div>
-              )}
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => onBindCharacter(selectedCharacter.id)} disabled={!selectedHasSkill}>
-                  绑定到小说人物
-                </Button>
-              </div>
-              {!selectedHasSkill && (
-                <p className="text-xs text-muted-foreground">请先将该角色 Skill 加入自定义灵魂库，再绑定到小说人物。</p>
               )}
             </div>
           ) : (

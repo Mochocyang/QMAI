@@ -64,7 +64,6 @@ function renderPanel(
         addingToSoul={false}
         onSelectCharacter={vi.fn()}
         onAddSelectedSkillsToSoul={vi.fn()}
-        onBindCharacter={vi.fn()}
         {...props}
       />,
     )
@@ -102,6 +101,13 @@ describe("BookAnalysisCharacterPanel", () => {
 
     act(() => addButton.click())
     expect(onAddSelectedSkillsToSoul).not.toHaveBeenCalled()
+    cleanup()
+  })
+
+  it("does not render the bind-to-novel-character action", () => {
+    const { container, cleanup } = renderPanel()
+
+    expect(container.textContent).not.toContain("绑定到小说人物")
     cleanup()
   })
 })

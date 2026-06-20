@@ -101,7 +101,6 @@ export function BookAnalysisView() {
     handleLibraryExtractStyle,
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
-    handleLibraryBindCharacter,
     handleLibraryDeleteBook,
     handleLibraryReextractCharacters,
   } = useLibraryOperations({
@@ -330,7 +329,6 @@ export function BookAnalysisView() {
       onExtractStyle={handleLibraryExtractStyle}
       onToggleStyle={handleLibraryToggleStyle}
       onAddSelectedSkillsToSoul={handleLibraryAddSkillsToSoul}
-      onBindCharacter={handleLibraryBindCharacter}
       onReextractCharacters={handleLibraryReextractCharacters}
       onDeleteBook={(bookId) => handleLibraryDeleteBook(bookId, selectedBookId)}
     />

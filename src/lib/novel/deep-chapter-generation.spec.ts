@@ -171,6 +171,38 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("未发现阻断问题")
   })
 
+  it("injects the enabled writing style into the stage 3 draft prompt", async () => {
+    const capturedPrompts: string[] = []
+    const enabledStyleContext = "目标文风来源：《长夜书》\n风格硬约束：冷峻克制、短句推进、少解释"
+    const deps = createDeps()
+    vi.mocked(deps.contextPackToPrompt).mockImplementation((pack) => {
+      expect(pack.writingStyle).toContain("悬疑")
+      return enabledStyleContext
+    })
+    vi.mocked(deps.streamChat).mockImplementation(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+      const prompt = messagesPromptText(messages)
+      capturedPrompts.push(prompt)
+      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+        ? chapterText("最终文风正文", 3000)
+        : prompt.includes("返修")
+          ? chapterText("返修文风正文", 3000)
+          : prompt.includes("正文")
+            ? chapterText("初稿文风正文", 3000)
+            : "写作任务书内容"
+      callbacks.onToken(content)
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+    )
+
+    expect(capturedPrompts[1]).toContain("目标文风来源：《长夜书》")
+    expect(capturedPrompts[1]).toContain("冷峻克制")
+  })
+
   it("shows a visible golden-three hint in thinking when generating the first chapter", async () => {
     const deps = createDeps()
     const thinking: string[] = []

@@ -12,6 +12,7 @@ import { loadRevisionFeedbackForContext } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
+import { buildWritingStyleContext } from "./writing-style-store"
 import type { DataSource, ContextLoadContext } from "./context-data-source"
 
 // 导入现有的辅助函数
@@ -287,6 +288,11 @@ export const writingStyleDataSource: DataSource<string> = {
   name: "writingStyle",
   priority: 12,
   async load(context: ContextLoadContext): Promise<string> {
+    try {
+      const enabledStyle = await buildWritingStyleContext(context.projectPath)
+      if (enabledStyle.trim()) return enabledStyle
+    } catch {}
+
     try {
       const results = await searchWiki(context.projectPath, "style 风格 writing 写作")
       if (results.length > 0) {

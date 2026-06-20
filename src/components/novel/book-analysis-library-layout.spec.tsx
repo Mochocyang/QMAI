@@ -105,7 +105,6 @@ describe("BookAnalysisLibraryLayout", () => {
         onExtractStyle={vi.fn()}
         onToggleStyle={vi.fn()}
         onAddSelectedSkillsToSoul={vi.fn()}
-        onBindCharacter={vi.fn()}
         onReextractCharacters={vi.fn()}
         onDeleteBook={vi.fn()}
       />,
