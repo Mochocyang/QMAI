@@ -71,7 +71,15 @@ async function loadSkills(
       if (!file.is_dir && file.name.endsWith(".md")) {
         const content = await readFile(file.path)
         const baseName = file.name.replace(/-skill\.md$/i, "").replace(/\.md$/i, "")
-        const character = characters.find((item) => item.name === baseName || file.name.includes(item.name))
+        // 匹配策略：1) 精确名称匹配 2) 文件名包含角色名 3) safeFileName 转换后匹配
+        const character = characters.find((item) => {
+          if (item.name === baseName) return true
+          if (file.name.includes(item.name)) return true
+          // skill-generator 使用 safeFileName = name.replace(/[^一-龥a-zA-Z0-9]/g, "_")
+          const safeName = item.name.replace(/[^一-龥a-zA-Z0-9]/g, "_")
+          if (safeName === baseName) return true
+          return false
+        })
         skills.push({
           id: character ? `skill-${character.id}` : `skill-${baseName}`,
           characterId: character?.id ?? baseName,

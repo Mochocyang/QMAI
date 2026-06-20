@@ -161,6 +161,10 @@ export function useLibraryOperations({
       toast.info("当前作品还没有可加入的角色 Skill，请先提取角色。")
       return
     }
+    if (selectedLibraryBook.characters.length === 0) {
+      toast.info("当前作品没有角色数据，请先提取角色。")
+      return
+    }
     setAddingToSoul(true)
     try {
       const imported = await importBookAnalysisSkillsAsAuras(
@@ -171,10 +175,14 @@ export function useLibraryOperations({
         selectedLibraryBook.skills.map((skill) => skill.id),
       )
       if (imported.length === 0) {
-        toast.info("没有可导入的角色 Skill。")
+        toast.info("没有可导入的角色 Skill，角色数据与 Skill 不匹配，请重新提取角色。")
       } else {
         await refreshProjectState(currentProjectPath)
-        toast.success(`已添加 ${imported.length} 个角色 Skill 到自定义灵魂。`)
+        const skipped = selectedLibraryBook.skills.length - imported.length
+        const msg = skipped > 0
+          ? `已添加 ${imported.length} 个角色 Skill 到自定义灵魂（${skipped} 个因角色数据缺失被跳过）。`
+          : `已添加 ${imported.length} 个角色 Skill 到自定义灵魂。`
+        toast.success(msg)
       }
       await reloadLibraryState()
     } catch (err) {

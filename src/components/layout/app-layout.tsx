@@ -29,7 +29,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const outlineTasks = useOutlineGenerationStore((s: OutlineGenerationState) => s.tasks)
   const removeOutlineTask = useOutlineGenerationStore((s: OutlineGenerationState) => s.removeTask)
   const bookAnalysisTasks = useBookAnalysisStore((s) => s.tasks)
-  const cancelBookAnalysisTask = useBookAnalysisStore((s) => s.cancelTask)
+  const removeBookAnalysisTask = useBookAnalysisStore((s) => s.removeTask)
   const [leftWidth, setLeftWidth] = useState(220)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [usageGuidePromptDismissed, setUsageGuidePromptDismissed] = useState(() => {
@@ -204,8 +204,8 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                 // 运行中关闭：记录ID，完成后重新弹出
                 setDismissedBookAnalysisTaskIds((prev) => new Set(prev).add(latestBookAnalysisTask.id))
               } else {
-                // 完成/出错关闭：移除任务
-                cancelBookAnalysisTask(latestBookAnalysisTask.id)
+                // 完成/出错关闭：从列表中移除
+                removeBookAnalysisTask(latestBookAnalysisTask.id)
               }
             }}
             className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -256,7 +256,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                 className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
                 onClick={() => {
                   setActiveView("bookAnalysis")
-                  cancelBookAnalysisTask(latestBookAnalysisTask.id)
+                  removeBookAnalysisTask(latestBookAnalysisTask.id)
                 }}
               >
                 查看结果
@@ -269,7 +269,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                 if (latestBookAnalysisTask.status === "running") {
                   setDismissedBookAnalysisTaskIds((prev) => new Set(prev).add(latestBookAnalysisTask.id))
                 } else {
-                  cancelBookAnalysisTask(latestBookAnalysisTask.id)
+                  removeBookAnalysisTask(latestBookAnalysisTask.id)
                 }
               }}
             >

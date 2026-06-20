@@ -19,8 +19,8 @@ import {
   parseStyleProfileResult,
 } from "./style-prompts"
 
-const MAX_SAMPLE_CHAPTERS = 5
-const PER_CHAPTER_CHAR_LIMIT = 4000
+const MAX_SAMPLE_CHAPTERS = 8
+const PER_CHAPTER_CHAR_LIMIT = 6000
 /** 跳过过短的纯过渡章，避免样本不具代表性。 */
 const MIN_SAMPLE_WORD_COUNT = 800
 

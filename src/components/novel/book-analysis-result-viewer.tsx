@@ -553,12 +553,28 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
             </div>
             {styleProfile && (
               <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {STYLE_DIMENSIONS.slice(0, 4).map((d) => (
-                  <div key={d.key} className="truncate">
+                {STYLE_DIMENSIONS.map((d) => (
+                  <div key={d.key} className="min-w-0">
                     <span className="text-foreground">{d.label}：</span>
-                    {(styleProfile[d.key] as string) || "—"}
+                    <span className="break-all">{(styleProfile[d.key] as string) || "\u2014"}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {styleProfile?.constitution && (
+              <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs">
+                <div className="font-medium">风格宪法</div>
+                <div className="mt-1 text-muted-foreground whitespace-pre-line leading-5">{styleProfile.constitution}</div>
+              </div>
+            )}
+            {styleProfile?.samples && styleProfile.samples.length > 0 && (
+              <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs">
+                <div className="font-medium">代表原文样本</div>
+                <div className="mt-1 space-y-1">
+                  {styleProfile.samples.map((sample, i) => (
+                    <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">{sample}</div>
+                  ))}
+                </div>
               </div>
             )}
             {styleEnabled && (

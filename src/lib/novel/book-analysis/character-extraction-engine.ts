@@ -229,8 +229,9 @@ export async function extractCharactersFromChapters(
       const chapterPath = joinPath(bookPath, "chapters", `${chapterId}.md`)
       const content = await readFile(chapterPath)
 
-      // 解析 frontmatter
-      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
+      // 解析 frontmatter（兼容 \r\n 和 \n 换行）
+      const normalizedContent = content.replace(/\r\n/g, "\n")
+      const frontmatterMatch = normalizedContent.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
       if (frontmatterMatch) {
         const frontmatter = frontmatterMatch[1]
         const bodyContent = frontmatterMatch[2]

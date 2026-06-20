@@ -1,6 +1,8 @@
-import { Feather, Loader2 } from "lucide-react"
+import { useState } from "react"
+import { ChevronDown, ChevronUp, Feather, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
 
 interface BookAnalysisStyleCardProps {
   book: BookAnalysisLibraryBook
@@ -12,6 +14,7 @@ interface BookAnalysisStyleCardProps {
 export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onToggleStyle }: BookAnalysisStyleCardProps) {
   const profile = book.styleProfile
   const enabled = book.styleStatus === "enabled"
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <section className="rounded-lg border bg-background p-4">
@@ -41,16 +44,57 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
         </div>
       </div>
       {profile && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <div className="rounded-md bg-muted/40 p-3 text-xs">
-            <div className="font-medium">描写克制度</div>
-            <div className="mt-1 text-muted-foreground">{profile.descriptionWeight || "—"}</div>
+        <>
+          {/* 始终显示的维度摘要 */}
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {STYLE_DIMENSIONS.slice(0, 4).map((d) => (
+              <div key={d.key} className="rounded-md bg-muted/40 p-3 text-xs">
+                <div className="font-medium">{d.label}</div>
+                <div className="mt-1 text-muted-foreground line-clamp-2">{(profile[d.key] as string) || "\u2014"}</div>
+              </div>
+            ))}
           </div>
-          <div className="rounded-md bg-muted/40 p-3 text-xs">
-            <div className="font-medium">对白风格</div>
-            <div className="mt-1 text-muted-foreground">{profile.dialogueStyle || "—"}</div>
-          </div>
-        </div>
+          {/* 展开/收起 */}
+          <button
+            type="button"
+            className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {expanded ? "收起详情" : "查看全部维度、风格宪法与代表样本"}
+          </button>
+          {expanded && (
+            <div className="mt-3 space-y-4">
+              {/* 剩余维度 */}
+              {STYLE_DIMENSIONS.slice(4).map((d) => (
+                <div key={d.key} className="rounded-md bg-muted/40 p-3 text-xs">
+                  <div className="font-medium">{d.label}</div>
+                  <div className="mt-1 text-muted-foreground leading-5">{(profile[d.key] as string) || "\u2014"}</div>
+                </div>
+              ))}
+              {/* 风格宪法 */}
+              {profile.constitution && (
+                <div className="rounded-md bg-muted/40 p-3 text-xs">
+                  <div className="font-medium">风格宪法（注入生成）</div>
+                  <div className="mt-1 text-muted-foreground leading-5 whitespace-pre-line">{profile.constitution}</div>
+                </div>
+              )}
+              {/* 代表样本 */}
+              {profile.samples && profile.samples.length > 0 && (
+                <div className="rounded-md bg-muted/40 p-3 text-xs">
+                  <div className="font-medium">代表原文样本</div>
+                  <div className="mt-1 space-y-2">
+                    {profile.samples.map((sample, i) => (
+                      <div key={i} className="text-muted-foreground leading-5 border-l-2 border-primary/30 pl-2">
+                        {sample}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   )

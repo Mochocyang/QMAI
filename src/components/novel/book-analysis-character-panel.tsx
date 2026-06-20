@@ -28,6 +28,10 @@ export function BookAnalysisCharacterPanel({
 }: BookAnalysisCharacterPanelProps) {
   const selectedCharacter = book.characters.find((character) => character.id === selectedCharacterId) ?? book.characters[0] ?? null
   const selectedHasSkill = selectedCharacter ? book.skills.some((skill) => skill.characterId === selectedCharacter.id) : false
+  const selectedSkill = selectedCharacter ? book.skills.find((skill) => skill.characterId === selectedCharacter.id) : null
+
+  // 优先使用 personalityProfile 的完整数据
+  const profile = selectedCharacter?.personalityProfile
 
   return (
     <section className="min-h-0 flex-1 rounded-lg border bg-background">
@@ -81,22 +85,55 @@ export function BookAnalysisCharacterPanel({
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-primary" />
                   <h4 className="text-lg font-semibold">{selectedCharacter.name}</h4>
+                  <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                    {categoryLabels[selectedCharacter.category] ?? selectedCharacter.category}
+                  </span>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{selectedCharacter.description || "暂无角色描述。"}</p>
+                {selectedCharacter.description && (
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{selectedCharacter.description}</p>
+                )}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
                   <div className="font-medium">性格</div>
-                  <div className="mt-1 text-muted-foreground">{selectedCharacter.personality || "暂无"}</div>
+                  <div className="mt-1 text-muted-foreground">{profile?.personality || selectedCharacter.personality || "暂无"}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3 text-sm">
                   <div className="font-medium">说话风格</div>
-                  <div className="mt-1 text-muted-foreground">{selectedCharacter.speechStyle || "暂无"}</div>
+                  <div className="mt-1 text-muted-foreground">{profile?.speechStyle || selectedCharacter.speechStyle || "暂无"}</div>
+                </div>
+                <div className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="font-medium">动机</div>
+                  <div className="mt-1 text-muted-foreground">{profile?.motivation || "暂无"}</div>
+                </div>
+                <div className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="font-medium">行为模式</div>
+                  <div className="mt-1 text-muted-foreground">{profile?.behaviorPatterns || "暂无"}</div>
                 </div>
               </div>
-              <Button size="sm" variant="outline" onClick={() => onBindCharacter(selectedCharacter.id)} disabled={!selectedHasSkill}>
-                绑定到小说人物
-              </Button>
+              {profile?.quotes && profile.quotes.length > 0 && (
+                <div className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="font-medium">代表性台词</div>
+                  <div className="mt-1 space-y-1 text-muted-foreground">
+                    {profile.quotes.map((q, i) => (
+                      <div key={i}>「{q}」</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedSkill && (
+                <div className="rounded-md bg-muted/40 p-3 text-sm">
+                  <div className="font-medium">Skill 内容预览</div>
+                  <div className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-muted-foreground">
+                    {selectedSkill.skillContent.slice(0, 800)}{selectedSkill.skillContent.length > 800 ? "..." : ""}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => onBindCharacter(selectedCharacter.id)} disabled={!selectedHasSkill}>
+                  绑定到小说人物
+                </Button>
+              </div>
               {!selectedHasSkill && (
                 <p className="text-xs text-muted-foreground">请先将该角色 Skill 加入自定义灵魂库，再绑定到小说人物。</p>
               )}

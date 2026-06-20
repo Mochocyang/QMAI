@@ -120,6 +120,18 @@ export function useCharacterExtraction({
       )
       updateTaskCharacters(taskId, filteredCharacters)
 
+      // 持久化角色到磁盘，确保 loadCharacters 能读到（6 维度分析可能只保存了部分角色）
+      const { persistCharacterToDisk } = await import(
+        "@/lib/novel/book-analysis/character-disk-store"
+      )
+      for (const character of filteredCharacters) {
+        try {
+          await persistCharacterToDisk(bookPath, character)
+        } catch (err) {
+          console.warn(`[深度提取] 持久化角色 ${character.name} 失败:`, err)
+        }
+      }
+
       const { generateSkillsForCharacters } = await import(
         "@/lib/novel/book-analysis/skill-generator"
       )

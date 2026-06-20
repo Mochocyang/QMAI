@@ -36,7 +36,10 @@ export async function extractSimpleProfiles(
     const raw = await llmFn(prompt)
     if (signal?.aborted) throw new Error("aborted")
 
-    const parsed = JSON.parse(raw) as Array<{
+    // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
+    const stripped = raw.replace(/^[\s\S]*?```(?:json)?\s*\n?/i, "").replace(/\n?```\s*[\s\S]*$/, "").trim()
+
+    const parsed = JSON.parse(stripped) as Array<{
       name: string
       personality: string
       motivation: string
@@ -108,6 +111,9 @@ export async function extractSingleProfile(
     const raw = await llmFn(prompt)
     if (signal?.aborted) throw new Error("aborted")
 
+    // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
+    const stripped = raw.replace(/^[\s\S]*?```(?:json)?\s*\n?/i, "").replace(/\n?```\s*[\s\S]*$/, "").trim()
+
     let parsed: Array<{
       name: string
       personality: string
@@ -118,7 +124,7 @@ export async function extractSingleProfile(
     }>
 
     try {
-      parsed = JSON.parse(raw)
+      parsed = JSON.parse(stripped)
       if (!Array.isArray(parsed)) {
         throw new Error("LLM 返回的不是数组")
       }
@@ -127,7 +133,7 @@ export async function extractSingleProfile(
       return {
         name: character.name,
         profile: {
-          personality: raw.slice(0, 200).trim(),
+          personality: stripped.slice(0, 200).trim(),
           motivation: "",
           speechStyle: "",
           behaviorPatterns: "",
