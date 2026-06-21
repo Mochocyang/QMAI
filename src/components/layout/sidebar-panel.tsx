@@ -41,7 +41,6 @@ import {
 import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { OutlineActionToolbar } from "@/components/sources/outline-action-toolbar"
 import type { MemoryCenterData, MemoryCenterFilePreview } from "@/lib/novel/memory-center"
 import {
   OUTLINE_IMPORT_EXTENSIONS,
@@ -1439,12 +1438,6 @@ export function SidebarPanel() {
           </button>
         </div>
       </div>
-
-      {novelMode && !isChapter ? (
-        <div className="border-b px-2 py-2">
-          <OutlineActionToolbar className="justify-start" />
-        </div>
-      ) : null}
 
       {pendingCreate && (
         <div className="flex items-center gap-1 border-b px-2 py-1">
