@@ -1,10 +1,17 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
+import { NOVEL_RELATION_LABELS } from "@/lib/novel/graph-adapter"
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** 带关系类型的出边，用于关系类型匹配信号。 */
+export interface RelationEdge {
+  readonly target: string
+  readonly relation: string
+}
 
 export interface RetrievalNode {
   readonly id: string
@@ -14,6 +21,8 @@ export interface RetrievalNode {
   readonly sources: readonly string[]
   readonly outLinks: ReadonlySet<string>
   readonly inLinks: ReadonlySet<string>
+  /** 带关系类型的出边（从 wiki 实体页的 `- [[target]] — 关系标签` 提取）。 */
+  readonly relationEdges: readonly RelationEdge[]
 }
 
 export interface RetrievalGraph {
@@ -32,6 +41,7 @@ const WEIGHTS = {
   sourceOverlap: 4.0,
   commonNeighbor: 1.5,
   typeAffinity: 1.0,
+  relationTypeMatch: 1.5,
 } as const
 
 const TYPE_AFFINITY: Record<string, Record<string, number>> = {
@@ -40,6 +50,37 @@ const TYPE_AFFINITY: Record<string, Record<string, number>> = {
   source: { entity: 1.0, concept: 1.0, source: 0.5, query: 0.8, synthesis: 1.0 },
   query: { concept: 1.0, entity: 0.8, synthesis: 1.0, source: 0.8, query: 0.5 },
   synthesis: { concept: 1.2, entity: 1.0, source: 1.0, query: 1.0, synthesis: 0.8 },
+}
+
+/**
+ * 关系类型对关联度的贡献权重。
+ *
+ * 设计原则：
+ * - 强关系（敌对/合作/属于）：人物间核心关系，高权重
+ * - 伏笔关系（推进/回收/新增）：剧情线索，较高权重
+ * - 心理关系（怀疑/隐瞒）：戏剧冲突来源，较高权重
+ * - 因果关系（导致/揭示/影响）：剧情推动，中权重
+ * - 弱关系（出场于/发生于/位于）：太常见，低权重（避免噪声）
+ * - 认知关系（知道/不知道）：单向认知，中低权重
+ */
+const RELATION_TYPE_AFFINITY: Record<string, number> = {
+  ENEMY_OF: 1.5,
+  ALLY_OF: 1.5,
+  BELONGS_TO: 1.3,
+  HAS_ITEM: 1.0,
+  KNOWS: 0.8,
+  DOES_NOT_KNOW: 0.5,
+  SUSPECTS: 1.2,
+  HIDES_FROM: 1.2,
+  CAUSES: 1.0,
+  REVEALS: 1.0,
+  AFFECTS: 0.8,
+  APPEARS_IN: 0.5,
+  HAPPENS_IN: 0.5,
+  LOCATED_AT: 0.6,
+  ADVANCES_FORESHADOWING: 1.2,
+  RESOLVES_FORESHADOWING: 1.2,
+  CREATES_FORESHADOWING: 1.2,
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +164,37 @@ function extractWikilinks(content: string): string[] {
   return links
 }
 
+/** 把关系标签（中文或英文类型名）转为关系类型枚举。 */
+function relationNameToType(name: string): string | undefined {
+  const normalized = name.trim()
+  for (const [type, label] of Object.entries(NOVEL_RELATION_LABELS)) {
+    if (normalized === type || normalized === label) return type
+  }
+  return undefined
+}
+
+/**
+ * 从 wiki 实体页内容提取带关系类型的链接。
+ *
+ * 匹配格式（与 wiki-graph.ts 的 extractRelationLinks 保持一致）：
+ *   - [[target]] — 关系标签
+ *   - [[target]] - 关系标签
+ *   - [[target]] : 关系标签
+ *   - [[target]]：关系标签
+ *
+ * 只保留能识别为 NOVEL_RELATION_LABELS 的关系，避免噪声。
+ */
+function extractRelationLinks(content: string): Array<{ target: string; relation: string }> {
+  const links: Array<{ target: string; relation: string }> = []
+  const regex = /^\s*-\s*\[\[([^\]|]+?)(?:\|[^\]]+?)?\]\]\s*(?:—|-|:|：)\s*([^\n]+?)\s*$/gm
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(content)) !== null) {
+    const relation = relationNameToType(match[2])
+    if (relation) links.push({ target: match[1].trim(), relation })
+  }
+  return links
+}
+
 function resolveTarget(
   raw: string,
   nodeIds: ReadonlySet<string>,
@@ -195,6 +267,7 @@ async function buildRetrievalGraphForProject(
     path: string
     sources: string[]
     rawLinks: string[]
+    rawRelationLinks: Array<{ target: string; relation: string }>
     fileName: string
   }> = []
 
@@ -218,6 +291,7 @@ async function buildRetrievalGraphForProject(
       path: file.path,
       sources: fm.sources,
       rawLinks: extractWikilinks(content),
+      rawRelationLinks: extractRelationLinks(content),
       fileName: file.name,
     })
   }
@@ -227,10 +301,12 @@ async function buildRetrievalGraphForProject(
   // Second pass: resolve links and build graph nodes
   const outLinksMap = new Map<string, Set<string>>()
   const inLinksMap = new Map<string, Set<string>>()
+  const relationEdgesMap = new Map<string, RelationEdge[]>()
 
   for (const id of nodeIds) {
     outLinksMap.set(id, new Set())
     inLinksMap.set(id, new Set())
+    relationEdgesMap.set(id, [])
   }
 
   for (const raw of rawNodes) {
@@ -239,6 +315,12 @@ async function buildRetrievalGraphForProject(
       if (resolvedId === null || resolvedId === raw.id) continue
       outLinksMap.get(raw.id)!.add(resolvedId)
       inLinksMap.get(resolvedId)!.add(raw.id)
+    }
+    // 解析关系链接，只保留能解析到目标节点的边
+    for (const rel of raw.rawRelationLinks) {
+      const resolvedId = resolveTarget(rel.target, nodeIds)
+      if (resolvedId === null || resolvedId === raw.id) continue
+      relationEdgesMap.get(raw.id)!.push({ target: resolvedId, relation: rel.relation })
     }
   }
 
@@ -253,6 +335,7 @@ async function buildRetrievalGraphForProject(
       sources: Object.freeze([...raw.sources]),
       outLinks: Object.freeze(outLinksMap.get(raw.id) ?? new Set<string>()),
       inLinks: Object.freeze(inLinksMap.get(raw.id) ?? new Set<string>()),
+      relationEdges: Object.freeze(relationEdgesMap.get(raw.id) ?? []),
     })
   }
 
@@ -299,7 +382,23 @@ export function calculateRelevance(
   const affinityMap = TYPE_AFFINITY[nodeA.type]
   const typeAffinityScore = (affinityMap?.[nodeB.type] ?? 0.5) * WEIGHTS.typeAffinity
 
-  return directLinkScore + sourceOverlapScore + commonNeighborScore + typeAffinityScore
+  // Signal 5: Relation type match (weight 1.5)
+  // 遍历 A→B 和 B→A 的带关系类型边，按关系类型权重累加。
+  // 强关系（敌对/合作/属于）贡献高，弱关系（出场于/位于）贡献低。
+  let relationTypeWeight = 0
+  for (const edge of nodeA.relationEdges) {
+    if (edge.target === nodeB.id) {
+      relationTypeWeight += RELATION_TYPE_AFFINITY[edge.relation] ?? 0.5
+    }
+  }
+  for (const edge of nodeB.relationEdges) {
+    if (edge.target === nodeA.id) {
+      relationTypeWeight += RELATION_TYPE_AFFINITY[edge.relation] ?? 0.5
+    }
+  }
+  const relationTypeMatchScore = relationTypeWeight * WEIGHTS.relationTypeMatch
+
+  return directLinkScore + sourceOverlapScore + commonNeighborScore + typeAffinityScore + relationTypeMatchScore
 }
 
 export function getRelatedNodes(
