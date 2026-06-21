@@ -91,12 +91,12 @@ export function SoulSidebarPanel() {
             title="灵魂功能使用说明"
             onClick={(e) => {
               e.stopPropagation()
-              void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Az3owqt2kiDxBbkls0Gc3K7ZnNc?from=from_copylink")
+              void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/QRPwwsXZAi6I4wksRpFca775n6d?from=from_copylink")
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.stopPropagation()
-                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Az3owqt2kiDxBbkls0Gc3K7ZnNc?from=from_copylink")
+                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/QRPwwsXZAi6I4wksRpFca775n6d?from=from_copylink")
               }
             }}
           >

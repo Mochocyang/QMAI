@@ -510,10 +510,10 @@ export function SettingsView() {
             tabIndex={0}
             className="cursor-pointer text-muted-foreground transition-colors hover:text-primary"
             title="软件设置功能使用说明"
-            onClick={() => void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/H8F7wRVqeifGDakS7jXcSkO4nlg?from=from_copylink")}
+            onClick={() => void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Z4cjwp0U4iqZ5TkhRiIckmy6nRb?from=from_copylink")}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
-                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/H8F7wRVqeifGDakS7jXcSkO4nlg?from=from_copylink")
+                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Z4cjwp0U4iqZ5TkhRiIckmy6nRb?from=from_copylink")
               }
             }}
           >

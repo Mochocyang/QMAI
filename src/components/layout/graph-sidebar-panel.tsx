@@ -44,12 +44,12 @@ export function GraphSidebarPanel() {
             title="小说图谱功能使用说明"
             onClick={(e) => {
               e.stopPropagation()
-              void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Yrb6wfFzqiFy8akW4xAcTz3EnKh?from=from_copylink")
+              void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/WlOpwrEQYiqczGkSohtcy3U0n7g?from=from_copylink")
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.stopPropagation()
-                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/Yrb6wfFzqiFy8akW4xAcTz3EnKh?from=from_copylink")
+                void openExternalUrl("https://tcnk9ik08e1c.feishu.cn/wiki/WlOpwrEQYiqczGkSohtcy3U0n7g?from=from_copylink")
               }
             }}
           >
