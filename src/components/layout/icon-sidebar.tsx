@@ -1,5 +1,5 @@
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, CircleHelp,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next"
 import logoImg from "@/assets/QM-LOGO.png"
 import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
+import { openExternalUrl } from "@/lib/open-external-url"
 
 type NavView = WikiState["activeView"]
 
@@ -16,6 +17,17 @@ const SEARCH_NAV_ITEM: { view: NavView; icon: typeof FileText; labelKey: string;
   icon: Search,
   labelKey: "nav.search",
   novelLabelKey: "novel.nav.search",
+}
+
+// 功能使用说明文档链接
+const USAGE_GUIDE_URLS: Record<string, string> = {
+  wiki: "https://tcnk9ik08e1c.feishu.cn/wiki/AOkuw8KtCixoVqko4gpc8rYGnNc?from=from_copylink",
+  sources: "https://tcnk9ik08e1c.feishu.cn/wiki/CtUhwqUUBiQhOZk6OcHcc4uHnDd?from=from_copylink",
+  graph: "https://tcnk9ik08e1c.feishu.cn/wiki/Yrb6wfFzqiFy8akW4xAcTz3EnKh?from=from_copylink",
+  lint: "https://tcnk9ik08e1c.feishu.cn/wiki/SMrtwpJdsi4H5EkP0CicfsOhnvf?from=from_copylink",
+  soul: "https://tcnk9ik08e1c.feishu.cn/wiki/Az3owqt2kiDxBbkls0Gc3K7ZnNc?from=from_copylink",
+  reviewCenter: "https://tcnk9ik08e1c.feishu.cn/wiki/Tfp8w6hNWinb2okPvvEc3veZnZf?from=from_copylink",
+  settings: "https://tcnk9ik08e1c.feishu.cn/wiki/H8F7wRVqeifGDakS7jXcSkO4nlg?from=from_copylink",
 }
 
 const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string; novelLabelKey: string }[] = [
@@ -142,9 +154,24 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                   </span>
                 )}
               </TooltipTrigger>
-              <TooltipContent side="right">
-                {t(novelMode ? novelLabelKey : labelKey)}
-                {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
+              <TooltipContent side="right" className="flex items-center gap-2">
+                <span>
+                  {t(novelMode ? novelLabelKey : labelKey)}
+                  {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
+                </span>
+                {USAGE_GUIDE_URLS[view] && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void openExternalUrl(USAGE_GUIDE_URLS[view])
+                    }}
+                    className="flex items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+                    title={t("iconSidebar.usageGuide")}
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </TooltipContent>
             </Tooltip>
           ))}
@@ -209,8 +236,21 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             >
               <Settings className="h-5 w-5" />
             </TooltipTrigger>
-            <TooltipContent side="right">
-              {t(novelMode ? "novel.nav.settings" : "nav.settings")}
+            <TooltipContent side="right" className="flex items-center gap-2">
+              <span>{t(novelMode ? "novel.nav.settings" : "nav.settings")}</span>
+              {USAGE_GUIDE_URLS.settings && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void openExternalUrl(USAGE_GUIDE_URLS.settings)
+                  }}
+                  className="flex items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+                  title={t("iconSidebar.usageGuide")}
+                >
+                  <CircleHelp className="h-3.5 w-3.5" />
+                </button>
+              )}
             </TooltipContent>
           </Tooltip>
           <Tooltip>

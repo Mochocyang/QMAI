@@ -273,6 +273,12 @@ export interface NovelConfig {
   reviewModel: string
   summaryModel: string
   extractModel: string
+  /** 社区摘要自动提取：开启后每 N 章用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（默认开）。 */
+  communitySummaryEnabled: boolean
+  /** 社区摘要提取间隔：每摄取多少章后自动重建一次社区摘要（默认 5）。 */
+  communitySummaryInterval: number
+  /** 社区摘要后台异步执行：开启后不阻塞章节摄取，关闭则同步等待（默认开）。 */
+  communitySummaryAsync: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -290,6 +296,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   reviewModel: "",
   summaryModel: "",
   extractModel: "",
+  communitySummaryEnabled: true,
+  communitySummaryInterval: 5,
+  communitySummaryAsync: true,
 }
 
 export interface RevisionFeedbackWindowConfig {
@@ -513,6 +522,8 @@ interface WikiState {
   novelMode: boolean
   chatEditModeEnabled: boolean
   novelConfig: NovelConfig
+  /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
+  communitySummaryError: string | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
@@ -571,6 +582,7 @@ interface WikiState {
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
+  setCommunitySummaryError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
@@ -734,6 +746,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   novelMode: false,
   chatEditModeEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
+  communitySummaryError: null,
   searchHistory: [],
   searchTrigger: null,
   revisionFeedbackWindowConfig: {
@@ -765,6 +778,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
   setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
+  setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),
