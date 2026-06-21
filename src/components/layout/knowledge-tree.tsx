@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Pencil, Plus, Trash2 } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -1223,22 +1223,22 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
   const project = useWikiStore((s) => s.project)
   const tasks = useImportProgressStore((s) => s.tasks)
   const [expanded, setExpanded] = useState(false)
-  const currentTask = useMemo(() => {
-    if (!project) return null
+
+  const projectTasks = useMemo(() => {
+    if (!project) return []
     const projectPath = normalizePath(project.path)
     return tasks
       .filter((task) => task.projectPath === projectPath)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }, [project, tasks])
-  const isRunning = currentTask?.status === "running"
-  const progressPercent = currentTask && currentTask.total > 0
-    ? Math.round((currentTask.completed / currentTask.total) * 100)
-    : 0
-  const kindLabel = currentTask?.kind === "outline" ? "AI 大纲" : "章节"
+
+  const runningTasks = projectTasks.filter((t) => t.status === "running")
+  const hasRunning = runningTasks.length > 0
+  const hasAnyTask = projectTasks.length > 0
 
   useEffect(() => {
-    if (isRunning) setExpanded(true)
-  }, [isRunning])
+    if (hasRunning) setExpanded(true)
+  }, [hasRunning])
 
   return (
     <div className="shrink-0 border-t bg-background/95 p-2 backdrop-blur">
@@ -1254,44 +1254,80 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
         )}
         <BookOpen className="h-3.5 w-3.5 shrink-0 text-amber-600" />
         <span className="flex-1 text-left font-medium text-muted-foreground">提取中</span>
-        {currentTask ? (
-          <span className="text-xs text-muted-foreground">
-            {currentTask.completed}/{currentTask.total}
-          </span>
+        {hasRunning ? (
+          <span className="text-xs text-primary">{runningTasks.length} 个任务运行中</span>
         ) : null}
       </button>
       {expanded && (
         <div className="ml-3 space-y-2 pr-1 text-xs text-muted-foreground">
-          {currentTask ? (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate">
-                  {currentTask.status === "running"
-                    ? currentTask.cancelling
-                      ? `正在取消${kindLabel}记忆提取，当前内容完成后停止...`
-                      : `正在提取${kindLabel}记忆：${currentTask.completed}/${currentTask.total} ${currentTask.currentTitle}`
-                    : currentTask.message ?? "提取任务已结束"}
-                </span>
-                {currentTask.status === "running" ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-6 shrink-0 px-2 text-xs"
-                    onClick={onCancelExtraction}
-                    disabled={currentTask.cancelling}
-                  >
-                    取消
-                  </Button>
-                ) : null}
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            </>
+          {hasAnyTask ? (
+            projectTasks.slice(0, 20).map((task) => {
+              const kindLabel = task.kind === "outline" ? "AI 大纲" : "章节"
+              const progressPercent = task.total > 0
+                ? Math.round((task.completed / task.total) * 100)
+                : 0
+              const isRunning = task.status === "running"
+              return (
+                <div key={task.id} className="space-y-1 rounded-md bg-muted/30 px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate flex items-center gap-1">
+                      {isRunning ? (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                      ) : task.status === "done" ? (
+                        <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                      ) : task.status === "error" ? (
+                        <X className="h-3 w-3 shrink-0 text-destructive" />
+                      ) : task.status === "cancelled" ? (
+                        <X className="h-3 w-3 shrink-0 text-muted-foreground" />
+                      ) : null}
+                      <span className={isRunning ? "text-foreground font-medium" : ""}>
+                        {isRunning
+                          ? task.cancelling
+                            ? `正在取消${kindLabel}提取...`
+                            : task.currentTitle || `${kindLabel}提取中`
+                          : task.status === "done"
+                            ? `${kindLabel}提取完成`
+                            : task.status === "error"
+                              ? `${kindLabel}提取失败`
+                              : task.status === "cancelled"
+                                ? `${kindLabel}提取已取消`
+                                : task.message ?? ""}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {isRunning && (
+                        <>
+                          <span className="text-muted-foreground">{progressPercent}%</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-5 px-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                            onClick={onCancelExtraction}
+                            disabled={task.cancelling}
+                          >
+                            停止
+                          </Button>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  {isRunning && (
+                    <div className="h-1 overflow-hidden rounded-full bg-border">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  )}
+                  {isRunning && task.completed > 0 && (
+                    <span className="text-muted-foreground">
+                      {task.completed}/{task.total} · {kindLabel}
+                    </span>
+                  )}
+                </div>
+              )
+            })
           ) : (
             <div className="rounded-md bg-muted/40 px-2 py-2">暂无提取任务</div>
           )}

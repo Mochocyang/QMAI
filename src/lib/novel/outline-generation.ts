@@ -7,6 +7,7 @@ import i18n from "@/i18n"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { PROMPTS } from "@/lib/novel/prompt-templates"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
+import { useImportProgressStore } from "@/stores/import-progress-store"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { ingestOutline } from "./chapter-ingest"
@@ -628,6 +629,16 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<{
 export async function runOutlineIngestTask(taskId: string): Promise<void> {
   const task = useOutlineGenerationStore.getState().tasks.find((item) => item.id === taskId)
   if (!task?.outlinePath) return
+
+  const outlineFileName = task.outlinePath.split("/").pop()?.replace(".md", "") || "大纲"
+  const progressTaskId = useImportProgressStore.getState().startTask({
+    projectPath: task.projectPath,
+    kind: "outline",
+    total: 1,
+    currentTitle: outlineFileName,
+    message: "正在提取大纲记忆",
+  })
+
   try {
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "ingesting",
@@ -645,12 +656,24 @@ export async function runOutlineIngestTask(taskId: string): Promise<void> {
         : i18n.t("novel.outlineGenerator.ingestFailedNotification"),
       error: snapshot ? null : i18n.t("novel.outlineGenerator.ingestFailedNotification"),
     })
+    useImportProgressStore.getState().finishTask(progressTaskId, snapshot ? "done" : "error", {
+      completed: snapshot ? 1 : 0,
+      total: 1,
+      currentTitle: "",
+      message: snapshot ? `${outlineFileName} 提取完成` : `${outlineFileName} 提取失败`,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     useOutlineGenerationStore.getState().updateTask(taskId, {
       status: "error",
       message,
       error: message,
+    })
+    useImportProgressStore.getState().finishTask(progressTaskId, "error", {
+      completed: 0,
+      total: 1,
+      currentTitle: "",
+      message: `${outlineFileName} 提取失败`,
     })
   }
 }

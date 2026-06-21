@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+﻿﻿import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
@@ -318,6 +318,8 @@ export function BookAnalysisView() {
       extractingStyle={styleExtracting}
       extractingCharacters={chapterSelectionData !== null}
       addingToSoul={addingToSoul}
+      tasks={tasks}
+      onCancelTask={cancelTask}
       onSelectBook={(bookId) => {
         const book = libraryState.books.find((item) => item.id === bookId)
         setSelectedBookId(bookId)

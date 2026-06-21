@@ -27,6 +27,7 @@ import { streamChat } from "@/lib/llm-client"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
+import { useImportProgressStore } from "@/stores/import-progress-store"
 import {
   buildPolishSelectionMessages,
   rebuildChapterBody,
@@ -632,8 +633,22 @@ export function PreviewPanel() {
             await writeFile(targetPath, syncResult.markdown)
             await new Promise((resolve) => setTimeout(resolve, 100))
           }
+          const chapterTitle = chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`
+          const ingestTaskId = useImportProgressStore.getState().startTask({
+            projectPath: project.path,
+            kind: "chapter",
+            total: 1,
+            currentTitle: String(chapterTitle),
+            message: "正在提取章节记忆",
+          })
           const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
           const result = await ingestChapter(project.path, targetPath, resolveReviewModel())
+          useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
+            completed: result.snapshot ? 1 : 0,
+            total: 1,
+            currentTitle: "",
+            message: result.snapshot ? `${chapterTitle} 提取完成` : `${chapterTitle} 提取失败`,
+          })
           if (result.snapshot) {
             updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
           } else if (result.failReason === "invalid_chapter_number") {

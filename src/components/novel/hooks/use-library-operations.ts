@@ -74,11 +74,12 @@ export function useLibraryOperations({
     }
     setStyleExtracting(true)
 
+    const abortController = new AbortController()
     const taskId = useBookAnalysisStore.getState().startTask(currentProjectPath, {
       sourceType: "file",
       sourcePath: selectedLibraryBook.path,
       selectedChapters: [],
-    })
+    }, abortController)
     useBookAnalysisStore.getState().updateTaskBookData(taskId, selectedLibraryBook.id, [])
     useBookAnalysisStore.getState().updateTaskProgress(taskId, {
       stage: "extracting_style",
@@ -94,6 +95,7 @@ export function useLibraryOperations({
         "保存文风画像…": 90,
       }
       const profile = await analyzeWritingStyle(selectedLibraryBook.path, llmConfig, {
+        signal: abortController.signal,
         onProgress: (msg) => {
           const pct = Object.entries(progressMap).find(([k]) => msg.includes(k))?.[1]
           if (pct !== undefined) {
