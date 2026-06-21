@@ -397,6 +397,40 @@ export async function runDeepChapterGeneration(
     }))
   }
 
+  // 阶段5.5：返修后复审（只在发生了返修时执行，只审查角色一致性维度，降低token消耗，不再自动返修避免循环）
+  if (revised && novelConfig.deepChapterReview) {
+    callbacks.onThinking?.(formatStageThinking(
+      "阶段5.5：返修后角色一致性复审",
+      "正在对返修后的正文进行角色一致性专项复审（轻量模式，只检查角色相关维度），确认返修是否引入新的角色偏差。",
+    ))
+    try {
+      const postRevisionResults = signal
+        ? await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack, characterOnly: true }, signal)
+        : await deps.reviewChapter(input.projectPath, currentContent, input.chapterNumber, { onThinking: callbacks.onThinking, contextPack, characterOnly: true })
+      const postBlockingIssues = (postRevisionResults || []).filter((item) => item.severity === "error")
+      if (postBlockingIssues.length > 0) {
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5.5：返修后复审",
+          [
+            `返修后复审发现 ${postBlockingIssues.length} 个阻断问题（不再自动返修，避免循环）：`,
+            "",
+            formatReviewIssueList(postBlockingIssues),
+            "",
+            "这些问题将在阶段6去AI味时一并处理，或需要手动修改。",
+          ].join("\n"),
+        ))
+        reviewResults = [...reviewResults, ...(postRevisionResults || [])]
+      } else {
+        callbacks.onThinking?.(formatStageThinking(
+          "阶段5.5：返修后复审",
+          "返修后复审未发现新的阻断问题，进入阶段6。",
+        ))
+      }
+    } catch (err) {
+      console.error("[Deep Chapter] 返修后复审失败:", err)
+    }
+  }
+
   const finalContent = await finalPolishChapter(
     writingConfig,
     outlinePrompt,
@@ -666,14 +700,28 @@ function formatReviewThinking(reviewResults: NovelReviewResult[]): string {
   if (reviewResults.length === 0) {
     return formatStageThinking("阶段4：AI审稿", "未发现阻断问题。")
   }
-  return formatStageThinking(
-    "阶段4：AI审稿",
-    [
-      `发现 ${reviewResults.length} 个问题，其中阻断问题 ${reviewResults.filter((item) => item.severity === "error").length} 个。`,
-      "",
-      formatReviewIssueList(reviewResults),
-    ].join("\n"),
-  )
+  const characterIssues = reviewResults.filter((item) => item.type === "character_consistency")
+  const otherIssues = reviewResults.filter((item) => item.type !== "character_consistency")
+  const errorCount = reviewResults.filter((item) => item.severity === "error").length
+  const sections: string[] = [
+    `发现 ${reviewResults.length} 个问题，其中阻断问题 ${errorCount} 个。`,
+  ]
+
+  // 角色命中记忆库报告（单独展示 character_consistency 类型的问题）
+  if (characterIssues.length > 0) {
+    sections.push("")
+    sections.push("【角色命中记忆库报告】")
+    sections.push(formatReviewIssueList(characterIssues))
+  }
+
+  // 其他问题
+  if (otherIssues.length > 0) {
+    sections.push("")
+    sections.push("【其他审查问题】")
+    sections.push(formatReviewIssueList(otherIssues))
+  }
+
+  return formatStageThinking("阶段4：AI审稿", sections.join("\n"))
 }
 
 function formatStageThinking(title: string, content: string): string {

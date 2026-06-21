@@ -21,6 +21,10 @@ export function ReviewCenterView() {
     return <ReviewView />
   }
 
+  if (selectedReviewDimension === "character-report") {
+    return <ReviewView title="角色命中报告" emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />
+  }
+
   if (!selectedReviewDimension || !novelMode) {
     return <DashboardView headerActions={<ReviewStartButton />} />
   }

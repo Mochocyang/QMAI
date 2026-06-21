@@ -4,6 +4,7 @@ import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
+import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
@@ -27,7 +28,21 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
    * contextPack 传进来。未提供时回退到内部自行构建。
    */
   contextPack?: ContextPack
+  /**
+   * 轻量审查模式：只审查角色一致性相关维度（人设、动机、记忆库、认知、秘密），
+   * 用于返修后复审，降低 token 消耗。默认 false 走全量审查。
+   */
+  characterOnly?: boolean
 }
+
+/** 角色一致性相关的审查维度，用于 characterOnly 轻量审查模式 */
+const CHARACTER_REVIEW_DIMENSIONS = [
+  "是否人设崩坏",
+  "是否人物动机不一致",
+  "是否角色脱离记忆库设定",
+  "是否提前泄露秘密",
+  "是否角色知道了不该知道的信息",
+]
 
 const REVIEW_DIMENSIONS = [
   "是否违背总大纲",
@@ -38,6 +53,7 @@ const REVIEW_DIMENSIONS = [
   "下一章推进建议是否被忽略或反向推进",
   "是否人设崩坏",
   "是否人物动机不一致",
+  "是否角色脱离记忆库设定",
   "是否时间线错误",
   "是否地点错误",
   "是否能力体系崩坏",
@@ -59,28 +75,73 @@ const REVIEW_STAGES = [
   "阶段7：二次复核",
 ]
 
-export function buildReviewPrompt(pack: ContextPack, chapterContent: string): string {
+const REVIEW_CHUNK_SIZE = 8000
+const REVIEW_MAX_CHUNKS = 3
+
+/**
+ * 把超长章节分段用于审查。章节 ≤ 8000 字时返回单段；
+ * 超过时按 8000 字一段切分，最多 3 段（覆盖 24000 字），超出部分追加到最后一段。
+ */
+function splitChapterForReview(content: string): string[] {
+  if (content.length <= REVIEW_CHUNK_SIZE) return [content]
+  const chunks: string[] = []
+  for (let i = 0; i < content.length && chunks.length < REVIEW_MAX_CHUNKS; i += REVIEW_CHUNK_SIZE) {
+    chunks.push(content.slice(i, i + REVIEW_CHUNK_SIZE))
+  }
+  const totalCovered = REVIEW_MAX_CHUNKS * REVIEW_CHUNK_SIZE
+  if (chunks.length === REVIEW_MAX_CHUNKS && content.length > totalCovered) {
+    chunks[REVIEW_MAX_CHUNKS - 1] += content.slice(totalCovered)
+  }
+  return chunks
+}
+
+export function buildReviewPrompt(pack: ContextPack, chapterContent: string, characterOnly = false): string {
+  const dimensions = characterOnly ? CHARACTER_REVIEW_DIMENSIONS : REVIEW_DIMENSIONS
+  const modeTitle = characterOnly ? "角色一致性专项审查" : "阶段式深度审查工作流"
+  const modeStages = characterOnly
+    ? ["阶段1：角色提取", "阶段2：记忆库对照", "阶段3：脱离判定", "阶段4：二次复核"]
+    : REVIEW_STAGES
   return `${contextPackToPrompt(pack)}
 
-阶段式深度审查工作流：
-${REVIEW_STAGES.map((stage) => `- ${stage}：必须使用高级 thinking，先分析证据，再给结论。`).join("\n")}
+${modeTitle}：
+${modeStages.map((stage) => `- ${stage}：必须使用高级 thinking，先分析证据，再给结论。`).join("\n")}
 
-阶段要求：
-1. 审查任务识别：确认目标章节、章纲节点、正文范围、是否缺少必要上下文。
-2. 上下文检索：结合大纲、节点、上一章结尾、下一章建议、记忆库、人物信息、伏笔、时间线、角色认知状态。
-3. 章节目标对齐：判断正文是否完成本章必须推进项，是否偏离章纲或反向推进。
-4. 事实与记忆核对：逐项对照已登记设定、人物认知、伏笔状态、历史事件和相关检索结果。
-5. 逐维度审查：每个维度都必须有 pass 或 issue，不要只检查明显错误。
-6. 阻断判定：把会影响正式章节保存、后续生成、主线事实或人物一致性的问题标为 error。
-7. 二次复核：删除没有正文证据或没有记忆/大纲依据的主观评价，补上遗漏的阻断问题。
+${characterOnly ? "角色一致性专项审查要求：" : "阶段要求："}
+${characterOnly
+  ? [
+      "1. 角色提取：从本章正文中提取所有出现的角色名（含别名、昵称），列出角色清单。",
+      "2. 记忆库对照：逐个角色对照上下文中的角色光环/灵魂、人物状态、角色认知状态字段，标注命中状态。",
+      "3. 脱离判定：角色行为若违背光环设定、人物状态、认知状态、大纲人物小传，视为脱离记忆库，按严重程度标为 error 或 warning。",
+      "4. 二次复核：删除没有正文证据或没有记忆/大纲依据的主观评价，补上遗漏的阻断问题。",
+    ].join("\n")
+  : [
+      "1. 审查任务识别：确认目标章节、章纲节点、正文范围、是否缺少必要上下文。",
+      "2. 上下文检索：结合大纲、节点、上一章结尾、下一章建议、记忆库、人物信息、伏笔、时间线、角色认知状态。",
+      "3. 章节目标对齐：判断正文是否完成本章必须推进项，是否偏离章纲或反向推进。",
+      "4. 事实与记忆核对：逐项对照已登记设定、人物认知、伏笔状态、历史事件和相关检索结果。",
+      "5. 逐维度审查：每个维度都必须有 pass 或 issue，不要只检查明显错误。",
+      "6. 阻断判定：把会影响正式章节保存、后续生成、主线事实或人物一致性的问题标为 error。",
+      "7. 二次复核：删除没有正文证据或没有记忆/大纲依据的主观评价，补上遗漏的阻断问题。",
+    ].join("\n")}
 
 ${i18n.t("novel.reviewPrompt.reviewChapterInstruction")}
-${REVIEW_DIMENSIONS.map((key, i) => `${i + 1}. ${i18n.t(key)}`).join("\n")}
+${dimensions.map((key, i) => `${i + 1}. ${i18n.t(key)}`).join("\n")}
 
-${i18n.t("novel.reviewPrompt.specialChecksTitle")}
+${characterOnly ? "" : `${i18n.t("novel.reviewPrompt.specialChecksTitle")}
 - ${i18n.t("novel.reviewPrompt.specialChecks.mustDo")}
 - ${i18n.t("novel.reviewPrompt.specialChecks.mustAvoid")}
 - ${i18n.t("novel.reviewPrompt.specialChecks.nextChapterAdvice")}
+
+`}
+
+角色命中记忆库检查（必须执行）：
+1. 角色提取：先从本章正文中提取所有出现的角色名（含别名、昵称），列出角色清单。
+2. 记忆库对照：逐个角色对照上下文中的"角色光环/灵魂"、"人物状态"、"角色认知状态"字段：
+   - 标注该角色是否命中记忆库（已注入光环 / 仅有状态 / 完全缺失）。
+   - 若角色已命中记忆库，检查正文行为是否符合光环设定（说话方式、心智模型、决策启发式、价值观反模式、诚实边界）。
+   - 若角色未命中记忆库但在大纲/人物小传中存在，标注"未命中但应命中"。
+3. 脱离判定：角色行为若违背光环设定、人物状态、认知状态（知道/不知道什么）、大纲人物小传，视为"脱离记忆库"，按严重程度标为 error 或 warning。
+4. 输出要求：在审查 JSON 中，角色相关问题 type 使用 "character_consistency"，relatedMemory 必须引用对应的光环/状态/认知/大纲原文。
 
 ${i18n.t("novel.reviewPrompt.chapterContent")}
 ${chapterContent.slice(0, 8000)}
@@ -119,11 +180,32 @@ export async function reviewChapter(
   if (!novelMode) return []
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
-  const contextPack = options.contextPack ?? await buildContextPack(
+  const baseContextPack = options.contextPack ?? await buildContextPack(
     projectPath,
     `审稿第${chapterNumber || "?"}章`,
     chapterNumber,
   )
+
+  // 审查前用初稿正文重新匹配角色光环，补齐初稿中新出现的角色。
+  // 阶段1构建 contextPack 时 matchingText 不含初稿正文，配角/新角色登场时光环不会被注入，
+  // 这里把 chapterContent 加入 matchingText 重新匹配，确保审查阶段能看到初稿新角色的完整光环。
+  let contextPack = baseContextPack
+  try {
+    const draftCharacterAuras = await buildCharacterAuraContext(projectPath, baseContextPack.task, {
+      matchingText: [
+        baseContextPack.chapterGoal,
+        baseContextPack.outline,
+        baseContextPack.characterStates,
+        baseContextPack.cognitionStates,
+        chapterContent,
+      ].filter(Boolean).join("\n\n"),
+    })
+    if (draftCharacterAuras && draftCharacterAuras !== baseContextPack.characterAuras) {
+      contextPack = { ...baseContextPack, characterAuras: draftCharacterAuras }
+    }
+  } catch (err) {
+    console.error("[Novel Review] 重新匹配角色光环失败，沿用阶段1的光环:", err)
+  }
 
   if (signal?.aborted) throw new Error("已停止生成")
   const outputLang = getOutputLanguage()
@@ -135,52 +217,65 @@ export async function reviewChapter(
 请在一次回复里先完成分阶段审查分析，再在最后只输出最终审查 JSON 数组，JSON 之外不要有多余内容。
 ${langReminder}`
 
-  const userPrompt = buildReviewPrompt(contextPack, chapterContent)
+  // 章节超长时分段审查，合并所有段的审查结果
+  const chunks = splitChapterForReview(chapterContent)
   const stageThinking = new Map<string, string>()
 
   try {
-    // 单次深度审稿：模型在同一次高级 thinking 中依次走完阶段1-7与全部维度，
-    // 最后只产出最终审查 JSON 数组。相比旧的 4 次串行调用，token 与时延都大幅下降。
-    const result = await runReviewStage(
-      llmConfig,
-      systemPrompt,
-      [
-        userPrompt,
-        "",
-        "请在同一次回复中依次完成阶段1-7和上方全部审查维度：",
-        "- 先逐阶段、逐维度列出已核对依据与结论（每个维度给出 pass 或 issue）。",
-        "- 再做阶段7二次复核：删除没有正文证据或没有上下文 / 记忆 / 大纲依据的主观评价，补上遗漏的阻断问题。",
-        "",
-        "最终审查 JSON：",
-        "在完成上述全部分析之后，最后只输出最终 JSON 数组，不要输出解释、标题或 markdown。",
-      ].join("\n"),
-      "深度审查",
-      options,
-      stageThinking,
-      signal,
-      reviewReasoningEffort,
-    )
+    // 并行审查所有分段，缩短超长章节审查时延
+    const chunkResults = await Promise.all(chunks.map(async (chunk, i) => {
+      if (signal?.aborted) throw new Error("已停止生成")
+      const chunkContent = chunks.length > 1
+        ? `【第${i + 1}段/共${chunks.length}段】\n${chunk}`
+        : chunk
+      const userPrompt = buildReviewPrompt(contextPack, chunkContent, options.characterOnly)
+      const stageTitle = chunks.length > 1
+        ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
+        : (options.characterOnly ? "角色一致性审查" : "深度审查")
 
-    const jsonMatch = extractJsonArray(result)
-    if (!jsonMatch) {
-      console.warn("[Novel Review] No JSON array found in result:", result.slice(0, 500))
-      return []
-    }
+      const result = await runReviewStage(
+        llmConfig,
+        systemPrompt,
+        [
+          userPrompt,
+          "",
+          "请在同一次回复中依次完成阶段1-7和上方全部审查维度：",
+          "- 先逐阶段、逐维度列出已核对依据与结论（每个维度给出 pass 或 issue）。",
+          "- 再做阶段7二次复核：删除没有正文证据或没有上下文 / 记忆 / 大纲依据的主观评价，补上遗漏的阻断问题。",
+          "",
+          "最终审查 JSON：",
+          "在完成上述全部分析之后，最后只输出最终 JSON 数组，不要输出解释、标题或 markdown。",
+        ].join("\n"),
+        stageTitle,
+        options,
+        stageThinking,
+        signal,
+        reviewReasoningEffort,
+      )
 
-    const parsed = JSON.parse(jsonMatch)
-    if (!Array.isArray(parsed)) {
-      console.warn("[Novel Review] Parsed result is not an array:", parsed)
-      return []
-    }
+      const jsonMatch = extractJsonArray(result)
+      if (!jsonMatch) {
+        console.warn(`[Novel Review] No JSON array found in chunk ${i + 1}:`, result.slice(0, 500))
+        return []
+      }
 
-    return parsed.map((item: Record<string, unknown>) => ({
-      severity: validateSeverity(item.severity),
-      type: String(item.type || "unknown"),
-      message: String(item.message || ""),
-      evidence: String(item.evidence || ""),
-      relatedMemory: String(item.relatedMemory || ""),
-      suggestion: String(item.suggestion || ""),
+      const parsed = JSON.parse(jsonMatch)
+      if (!Array.isArray(parsed)) {
+        console.warn(`[Novel Review] Parsed result is not an array in chunk ${i + 1}:`, parsed)
+        return []
+      }
+
+      return parsed.map((item: Record<string, unknown>) => ({
+        severity: validateSeverity(item.severity),
+        type: String(item.type || "unknown"),
+        message: String(item.message || ""),
+        evidence: String(item.evidence || ""),
+        relatedMemory: String(item.relatedMemory || ""),
+        suggestion: String(item.suggestion || ""),
+      }))
     }))
+
+    return chunkResults.flat()
   } catch (err) {
     console.error("[Novel Review] Failed:", err)
     return []

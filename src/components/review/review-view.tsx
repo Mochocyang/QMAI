@@ -84,6 +84,8 @@ interface ReviewViewProps {
   emptyMessage?: string
   resultScoreDimensionKeys?: string[]
   dimensionKey?: SixReviewDimensionKey
+  /** 只展示角色一致性（character_consistency）类型的问题 */
+  characterOnly?: boolean
 }
 
 export function ReviewView({
@@ -91,6 +93,7 @@ export function ReviewView({
   emptyMessage,
   resultScoreDimensionKeys,
   dimensionKey,
+  characterOnly = false,
 }: ReviewViewProps = {}) {
   const { t } = useTranslation()
   const novelMode = useWikiStore((s) => s.novelMode)
@@ -109,7 +112,11 @@ export function ReviewView({
   const setPendingEditorHighlight = useWikiStore((s) => s.setPendingEditorHighlight)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const reviewRun = useWikiStore((s) => s.reviewRun)
-  const novelReviewResults = reviewRun?.results ?? []
+  const allReviewResults = reviewRun?.results ?? []
+  // characterOnly 模式下只展示角色一致性（character_consistency）类型的问题
+  const novelReviewResults = characterOnly
+    ? allReviewResults.filter((item) => item.type === "character_consistency")
+    : allReviewResults
   const isReviewing = reviewRun?.running ?? false
   const reviewError = reviewRun?.error
   const [reviewHistory, setReviewHistory] = useState<GenerationHistoryEntry[]>([])

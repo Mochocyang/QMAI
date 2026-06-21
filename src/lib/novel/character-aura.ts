@@ -10,6 +10,27 @@ import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore } from "@/stores/wiki-store"
+import { pinyin } from "pinyin-pro"
+import * as OpenCC from "opencc-js"
+
+/** 把中文文本转为无音调小写拼音，用于拼音模糊匹配 */
+function toPinyin(text: string): string {
+  try {
+    return pinyin(text, { toneType: "none", type: "array" }).join("").toLowerCase()
+  } catch {
+    return text.toLowerCase()
+  }
+}
+
+/** 把繁体中文转为简体中文，用于简繁模糊匹配 */
+const simplifiedConverter = OpenCC.Converter({ from: "tw", to: "cn" })
+function toSimplified(text: string): string {
+  try {
+    return simplifiedConverter(text)
+  } catch {
+    return text
+  }
+}
 
 export interface CharacterAura {
   id: string
@@ -39,6 +60,8 @@ export interface CharacterAura {
 export interface CharacterAuraBinding {
   characterName: string
   auraId: string
+  /** 角色别名/昵称列表，用于在任务描述或初稿正文中匹配该角色 */
+  aliases?: string[]
 }
 
 export interface BuildCharacterAuraContextOptions {
@@ -580,13 +603,31 @@ export async function buildCharacterAuraContext(
   const allAuras = [...BUILT_IN_CHARACTER_AURAS, ...store.customAuras]
   const matchingText = [task, options.matchingText ?? ""].filter(Boolean).join("\n")
   const normalizedTask = normalizeCharacterText(matchingText)
+  const pinyinTask = toPinyin(normalizedTask)
+  const simplifiedTask = toSimplified(normalizedTask)
   const tokens = new Set(matchingText.split(/[\s，。、『』《》：:；;,.!?！？\-]+/).filter(Boolean))
   const matched = store.bindings.filter((binding) => {
     const normalizedName = normalizeCharacterText(binding.characterName)
+    const aliases = (binding.aliases ?? []).filter((alias) => alias.trim().length > 0)
+    const normalizedAliases = aliases.map((alias) => normalizeCharacterText(alias)).filter((n) => n.length > 0)
+    // 拼音和简繁形式
+    const pinyinName = normalizedName.length > 0 ? toPinyin(normalizedName) : ""
+    const simplifiedName = normalizedName.length > 0 ? toSimplified(normalizedName) : ""
+    const pinyinAliases = normalizedAliases.map((a) => toPinyin(a))
+    const simplifiedAliases = normalizedAliases.map((a) => toSimplified(a))
     return (
       matchingText.includes(binding.characterName)
       || tokens.has(binding.characterName)
       || (normalizedName.length > 0 && normalizedTask.includes(normalizedName))
+      // 别名匹配：任务描述或上下文中出现别名时也命中该角色
+      || aliases.some((alias) => matchingText.includes(alias) || tokens.has(alias))
+      || normalizedAliases.some((normalizedAlias) => normalizedTask.includes(normalizedAlias))
+      // 拼音模糊匹配：任务描述的拼音包含角色名/别名的拼音
+      || (pinyinName.length > 0 && pinyinTask.includes(pinyinName))
+      || pinyinAliases.some((pa) => pa.length > 0 && pinyinTask.includes(pa))
+      // 简繁模糊匹配：任务描述的简体形式包含角色名/别名的简体形式
+      || (simplifiedName.length > 0 && simplifiedTask.includes(simplifiedName))
+      || simplifiedAliases.some((sa) => sa.length > 0 && simplifiedTask.includes(sa))
     )
   })
   const effectiveMatched = matched.length > 0 || !options.fallbackAuraId

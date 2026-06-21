@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
-import { ClipboardCheck, Sparkles } from "lucide-react"
+import { ClipboardCheck, Sparkles, Users } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { listDirectory, readFile } from "@/commands/fs"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
@@ -142,6 +142,18 @@ export function ReviewCenterSidebarPanel() {
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
               <span>{t("reviewCenter.aiReview")}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedReviewDimension("character-report")}
+            className={`mt-1 w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+              selectedReviewDimension === "character-report" ? "qm-selected" : "text-muted-foreground qm-hover"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              <span>角色命中报告</span>
             </div>
           </button>
         </div>
