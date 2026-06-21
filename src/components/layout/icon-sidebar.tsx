@@ -153,29 +153,31 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
                     {pendingCount > 99 ? "99+" : pendingCount}
                   </span>
                 )}
-              </TooltipTrigger>
-              <TooltipContent side="right" className="flex items-center gap-2">
-                <span>
-                  {t(novelMode ? novelLabelKey : labelKey)}
-                  {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
-                </span>
+                {/* 帮助图标：hover时显示在右上角，点击打开使用说明 */}
                 {USAGE_GUIDE_URLS[view] && (
-                  <button
-                    type="button"
-                    onPointerDown={(e) => {
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="absolute -right-1 -top-1 flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-full bg-muted text-muted-foreground opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 [button:hover_&]:opacity-100"
+                    title={t("iconSidebar.usageGuide")}
+                    onClick={(e) => {
                       e.stopPropagation()
                       void openExternalUrl(USAGE_GUIDE_URLS[view])
                     }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation()
+                        void openExternalUrl(USAGE_GUIDE_URLS[view])
+                      }
                     }}
-                    className="flex items-center justify-center text-muted-foreground transition-colors hover:text-primary"
-                    title={t("iconSidebar.usageGuide")}
                   >
-                    <CircleHelp className="h-3.5 w-3.5" />
-                  </button>
+                    <CircleHelp className="h-2.5 w-2.5" />
+                  </span>
                 )}
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t(novelMode ? novelLabelKey : labelKey)}
+                {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
               </TooltipContent>
             </Tooltip>
           ))}
@@ -239,26 +241,30 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
               }`}
             >
               <Settings className="h-5 w-5" />
-            </TooltipTrigger>
-            <TooltipContent side="right" className="flex items-center gap-2">
-              <span>{t(novelMode ? "novel.nav.settings" : "nav.settings")}</span>
+              {/* 帮助图标：hover时显示在右上角，点击打开使用说明 */}
               {USAGE_GUIDE_URLS.settings && (
-                <button
-                  type="button"
-                  onPointerDown={(e) => {
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="absolute -right-1 -top-1 flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-full bg-muted text-muted-foreground opacity-0 transition-opacity hover:text-primary [button:hover_&]:opacity-100"
+                  title={t("iconSidebar.usageGuide")}
+                  onClick={(e) => {
                     e.stopPropagation()
                     void openExternalUrl(USAGE_GUIDE_URLS.settings)
                   }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.stopPropagation()
+                      void openExternalUrl(USAGE_GUIDE_URLS.settings)
+                    }
                   }}
-                  className="flex items-center justify-center text-muted-foreground transition-colors hover:text-primary"
-                  title={t("iconSidebar.usageGuide")}
                 >
-                  <CircleHelp className="h-3.5 w-3.5" />
-                </button>
+                  <CircleHelp className="h-2.5 w-2.5" />
+                </span>
               )}
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t(novelMode ? "novel.nav.settings" : "nav.settings")}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
