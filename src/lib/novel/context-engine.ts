@@ -40,6 +40,7 @@ export interface ContextPack {
   task: string
   chapterGoal: string
   outline: string
+  recentChapterContents?: string[]
   recentSummaries: string[]
   previousChapterEnding: string
   characterStates: string
@@ -129,6 +130,9 @@ async function buildContextPackFromRawData(
   const recentSummaries = snapshotRecentSummaries.length > 0 
     ? snapshotRecentSummaries 
     : rawData.fallbackRecentSummaries
+  const recentChapterContents = Array.isArray(rawData.recentChapterContents)
+    ? rawData.recentChapterContents
+    : []
   
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
@@ -185,6 +189,7 @@ async function buildContextPackFromRawData(
     task: context.task,
     chapterGoal,
     outline: mergedOutline,
+    recentChapterContents,
     recentSummaries,
     previousChapterEnding,
     characterStates,
@@ -333,6 +338,7 @@ function emptyPack(task: string): ContextPack {
     task,
     chapterGoal: "",
     outline: "",
+    recentChapterContents: [],
     recentSummaries: [],
     previousChapterEnding: "",
     characterStates: "",
@@ -1001,6 +1007,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.soulDoc", fieldKey: "soulDoc" },
   { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives" },
   { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline" },
+  { titleKey: "novel.contextPack.recentChapterContents", fieldKey: "recentChapterContents" },
   { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries" },
   { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding" },
   { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates" },

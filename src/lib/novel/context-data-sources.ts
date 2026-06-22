@@ -25,6 +25,32 @@ import {
   joinNonEmpty,
 } from "./context-engine"
 
+const RECENT_CHAPTER_CONTENT_MAX_CHARS = 6000
+const RECENT_CHAPTER_CONTENT_HEAD_CHARS = 2200
+const RECENT_CHAPTER_CONTENT_TAIL_CHARS = 3200
+
+function selectRecentChapterNumbersForContent(chapterNumber: number | undefined, count: number): number[] {
+  if (!chapterNumber || chapterNumber <= 1) return []
+  const start = Math.max(1, chapterNumber - Math.max(1, count))
+  const numbers: number[] = []
+  for (let current = start; current < chapterNumber; current += 1) {
+    numbers.push(current)
+  }
+  return numbers
+}
+
+function stripFrontmatterBody(content: string): string {
+  return parseFrontmatter(content).body.trim()
+}
+
+function excerptChapterContent(body: string): string {
+  const normalized = body.trim()
+  if (normalized.length <= RECENT_CHAPTER_CONTENT_MAX_CHARS) return normalized
+  const head = normalized.slice(0, RECENT_CHAPTER_CONTENT_HEAD_CHARS).trimEnd()
+  const tail = normalized.slice(-RECENT_CHAPTER_CONTENT_TAIL_CHARS).trimStart()
+  return `${head}\n\n[章节正文中段已按上下文预算省略]\n\n${tail}`
+}
+
 /**
  * 大纲数据源
  */
@@ -144,6 +170,31 @@ export const snapshotDataSource: DataSource<{
 /**
  * 降级：近期章节摘要数据源
  */
+export const recentChapterContentsDataSource: DataSource<string[]> = {
+  name: "recentChapterContents",
+  priority: 5,
+  async load(context: ContextLoadContext): Promise<string[]> {
+    const chapterNumbers = selectRecentChapterNumbersForContent(
+      context.chapterNumber,
+      context.config.recentSummaryWindow,
+    )
+    if (chapterNumbers.length === 0) return []
+
+    const contents: string[] = []
+    for (const chapterNumber of chapterNumbers) {
+      try {
+        const results = await searchWiki(context.projectPath, `chapter_number:${chapterNumber}`)
+        if (results.length === 0) continue
+        const content = await readFile(results[0].path)
+        const body = stripFrontmatterBody(content)
+        if (!body) continue
+        contents.push(`## 第${chapterNumber}章正文片段\n${excerptChapterContent(body)}`)
+      } catch {}
+    }
+    return contents
+  },
+}
+
 export const fallbackRecentSummariesDataSource: DataSource<string[]> = {
   name: "fallbackRecentSummaries",
   priority: 5,
@@ -399,6 +450,7 @@ export function getAllDataSources(): DataSource<any>[] {
     chapterOutlineDataSource,
     volumeContextDataSource,
     snapshotDataSource,
+    recentChapterContentsDataSource,
     fallbackRecentSummariesDataSource,
     fallbackPreviousEndingDataSource,
     fallbackCharacterStatesDataSource,

@@ -1017,8 +1017,8 @@
     },
     "settings": {
       "title": "小说写作设置",
-      "recentSummaryWindow": "最近章节数量窗口",
-      "recentSummaryWindowHint": "控制写作时直接纳入上下文的最近章节数量。数值越大，模型越能回顾近期剧情，但会占用更多上下文。",
+      "recentSummaryWindow": "最近章节正文窗口",
+      "recentSummaryWindowHint": "控制写作时纳入上下文的最近章节数量。系统会读取这些章节的正文片段，并结合章节摘要帮助模型承接近期剧情；数值越大越连贯，但会占用更多上下文。",
       "searchTopK": "检索结果数量",
       "searchTopKHint": "控制从小说记忆库中检索并注入上下文的相关资料条数。数值越大，参考资料越多，但噪音和上下文占用也会增加。",
       "contextTokenBudget": "上下文 Token 预算",
@@ -1411,6 +1411,7 @@
       "recentRevisionDirectives": "## 最近检查待修正项",
       "requiredOutline": "## 必须遵守的大纲",
       "recentPlotSummaries": "## 最近剧情摘要",
+      "recentChapterContents": "## 最近章节正文片段",
       "previousChapterEnding": "## 上一章结尾",
       "characterStates": "## 当前人物状态",
       "characterAuras": "## 角色灵魂",

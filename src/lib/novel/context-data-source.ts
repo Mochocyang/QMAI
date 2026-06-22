@@ -118,6 +118,7 @@ export class DataSourceRegistry {
         foreshadowingSignals: [],
         timeline: "",
       },
+      recentChapterContents: [],
       fallbackRecentSummaries: [],
       fallbackPreviousEnding: "",
       fallbackCharacterStates: "",
