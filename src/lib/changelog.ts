@@ -7,73 +7,37 @@ export interface ChangelogEntry {
   }
 }
 
-const TWO_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
-  version: "2.2.10",
-  date: "2026-06-09",
+const TWO_POINT_TWO_TWENTY_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.2.22",
+  date: "2026-06-23",
   highlights: {
     en: [
-      "Restored the LLM provider model fetch control so fetched models can be selected from a dropdown and the model test uses the selected model.",
+      "In Settings > LLM Models, fetching models and selecting multiple models now tests all selected models sequentially when clicking Test Model.",
+      "Model testing shows live progress: Testing model (1/N): model-name.",
+      "When all selected models pass, a success summary is shown.",
+      "When some models fail, failed models are listed with errors and highlighted in red.",
+      "If no models are selected, Test Model falls back to testing the current model input.",
+      "Custom model card model input is now tag-based: each selected model appears as a removable chip.",
+      "Fetched model tags sync into the custom model card input automatically.",
+      "The model input supports typing and pressing Enter or clicking Add; multiple models can be added at once with comma separation.",
+      "Selected models in the custom model card are persisted and no longer cleared when fetching models again.",
+      "Failed model tags are shown in red with a red border for easy removal.",
+      "Added a Retry Failed Models button to re-test only the failed models.",
     ],
     zh: [
-      "恢复大语言/LLM 模型中的拉取模型入口：拉取后可从下拉框选择模型，点击测试模型时会测试当前选中的模型。",
-    ],
-  },
-}
-
-const TWO_POINT_TWO_TWELVE_CHANGELOG: ChangelogEntry = {
-  version: "2.2.12",
-  date: "2026-06-11",
-  highlights: {
-    en: [
-      "Fixed continue-next-chapter regenerating chapter 1: incidental 开篇/第一章 wording inside prompts no longer hijacks the target chapter.",
-      "Continue-next-chapter now remembers the chapter just generated in this conversation, so an empty chapter library no longer resets the target back to chapter 1.",
-      "Fixed AI chapter editing failing with \"missing frontmatter, write-back stopped\": the original chapter frontmatter is reattached automatically, and fenced output or missing headings are tolerated.",
-      "Added a per-chapter target character setting: chapter drafting, expansion thresholds, and the continue-next-chapter prompt all follow the configured target.",
-      "Fixed the review stage being unstoppable when the stop signal fired before the review started.",
-      "Fixed contradictory outline refinement checks by uniformly testing whether the target directory already contains .md files.",
-      "Fixed stage-4 AI review interruptions: timeout extended from 2 to 5 minutes with automatic retries.",
-      "Fixed stale thinking content showing up when creating or switching conversations.",
-      "Redesigned the AI chat footer: deep thinking and normal mode are mutually exclusive, and normal mode supports plain conversation plus chapter editing.",
-    ],
-    zh: [
-      "修复“继续生成下一章”会重复生成第一章的问题：提示词中顺带出现的“开篇/第一章”字样不再把目标章节劫持为第1章。",
-      "继续生成下一章会记住本会话刚生成、尚未保存的章节号，章节库为空时也能正确推进到下一章。",
-      "修复 AI 修改章节时“返回内容缺少 frontmatter，已停止写回”的问题：自动沿用原章节 frontmatter，并容错代码围栏与缺失标题。",
-      "新增“单章目标字数”设置：章节生成、扩写阈值和“继续生成下一章”提示词都按设置目标执行。",
-      "修复点击停止后审稿阶段可能无法停止的问题：停止信号在审稿开始前已生效时也会立即中止。",
-      "修复大纲细化生成逻辑矛盾，统一按目录是否已有 .md 文件判断。",
-      "修复 AI 审稿阶段4易中断问题：超时从 2 分钟延长到 5 分钟，并增加失败自动重试。",
-      "修复新建/切换会话时显示旧思考内容的问题。",
-      "AI 会话界面重做：深度思考与普通模式互斥切换，普通模式支持正常对话与编辑章节。",
-    ],
-  },
-}
-
-const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
-  version: "2.2.11",
-  date: "2026-06-10",
-  highlights: {
-    en: [
-      "Fixed the AI Chat save-to-chapter-library flow so the first blank chapter keeps the full right-side chapter toolbar after saving.",
-      "Restored frontmatter-dependent chapter actions after AI Chat saving, including Save as Final Chapter and View Memory.",
-      "Synced preview-body updates when AI Chat appends to or overwrites the currently open chapter, preventing the same toolbar-state regression from reappearing.",
-      "Removed the hard 2,200-3,200 character limit from later deep chapter stages, so review, revision, and final de-AI passes no longer stop or rewrite solely because of that range.",
-      "Removed the old full-text hard cutoff warning from AI Chat streaming, so long chapters no longer stop at a fixed limit while duplicate-output detection stays in place.",
-      "Refined the novel de-AI rules to preserve plot movement, character voice, rough dialogue edges, narrative rhythm, and subtext.",
-      "Fixed local Claude Code CLI and Codex CLI mode so subprocesses explicitly inherit local PATH, HOME, USERPROFILE, APPDATA, and HTTP/HTTPS/ALL/NO_PROXY proxy variables.",
-      "Fixed local CLI mode being overridden by preset default models; when no model is entered manually, QMAI now reads the current default model from ~/.claude/settings.json and ~/.codex/config.toml and runs with the local CLI configuration first.",
-      "Added regression coverage for local CLI config reading, empty-model fallback, and CLI spawn arguments so local environment and proxy mode do not regress again.",
-    ],
-    zh: [
-      "修复 AI 会话“保存到章节库”后，首章空白章节的右侧章节工具栏变成不完整工具栏的问题。",
-      "修复保存后缺少“保存为正式章节”“查看记忆”等依赖章节 frontmatter 的按钮问题。",
-      "补齐 AI 会话将内容追加/覆盖到当前已打开章节时的预览正文同步，避免出现同类工具栏状态错乱回归。",
-      "删除 AI 会话深度章节生成后续阶段的 2200-3200 字硬性限制，审稿、返修和最终去 AI 味阶段不再因为字数区间强制重写或中止。",
-      "移除 AI 会话流式输出的旧全文硬截断提示，避免长正文因固定上限直接停止；重复输出检测仍然保留。",
-      "优化小说去AI味规则，强调保留剧情、角色声线、对白毛边、叙事节奏和潜台词。",
-      "修复本地 Claude Code CLI / Codex CLI 无法正确继承本机环境的问题，启动时会显式带上本机 PATH、HOME、USERPROFILE、APPDATA 以及 HTTP/HTTPS/ALL/NO_PROXY 代理变量。",
-      "修复本地 CLI 模式会被软件预设默认模型覆盖的问题；当未手动填写模型时，软件会读取本机 ~/.claude/settings.json 与 ~/.codex/config.toml 中的当前默认模型，并优先按本地 CLI 配置运行。",
-      "补充本地 CLI 配置读取、空模型回退、以及 CLI 启动参数的回归测试，避免后续再次出现“本地环境读不到”或“走不到本地代理模式”的回退。",
+      "在「设置 - LLM 模型」页面中，拉取模型列表并勾选多个模型后，点击「测试模型」按钮将依次测试所有已选模型。",
+      "测试过程中显示实时进度：正在测试模型 (1/N): model-name。",
+      "全部模型测试成功后提示「N 个模型全部测试成功」。",
+      "部分模型失败时提示「success/total 个模型测试成功，失败：model: error」，失败模型以红色标签展示。",
+      "未选择任何模型时保持原有行为，仅测试输入框中的当前模型。",
+      "自定义模型卡片「模型」输入框改为标签式输入：每个已选模型是一个带「×」的小标签，点击即可移除。",
+      "拉取模型后选中模型标签，模型名称会自动同步到「模型」输入框中并显示为标签。",
+      "输入框内可直接输入模型名称，按回车或点击「添加」进入已选列表；多个模型可用逗号分隔批量添加。",
+      "已选模型不再以文本形式回填输入框，输入框保持空白供用户输入新模型。",
+      "已选模型列表不再因重新拉取模型而被清空，仅用户手动清空时才会清除。",
+      "自定义模型卡片的「测试模型」按钮改为测试已选模型列表；无已选模型时仍测试输入框内容。",
+      "批量测试部分失败时，失败模型以红色标签展示，并新增「重试失败模型」按钮，仅对失败模型重新测试。",
+      "自定义模型卡片输入框内的失败模型标签会高亮变红并带红框，用户可直接点击「×」移除；移除后该模型会从失败列表中清除。",
     ],
   },
 }
@@ -482,6 +446,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_TWENTY_TWO_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_TWO_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_CHANGELOG]
   if (version === TWO_POINT_TWO_NINETEEN_CHANGELOG.version) return [TWO_POINT_TWO_NINETEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_EIGHTEEN_CHANGELOG.version) return [TWO_POINT_TWO_EIGHTEEN_CHANGELOG]
@@ -507,6 +472,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_TWENTY_TWO_CHANGELOG,
     TWO_POINT_TWO_TWENTY_CHANGELOG,
     TWO_POINT_TWO_NINETEEN_CHANGELOG,
     TWO_POINT_TWO_EIGHTEEN_CHANGELOG,
