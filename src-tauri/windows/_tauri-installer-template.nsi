@@ -641,6 +641,22 @@ Section WebView2
   ${EndIf}
 SectionEnd
 
+Function WaitForMainBinaryRelease
+  StrCpy $0 0
+
+  wait_main_binary_release:
+    Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+    IfFileExists "$INSTDIR\${MAINBINARYNAME}.exe" 0 wait_main_binary_released
+    IntOp $0 $0 + 1
+    ${If} $0 >= 30
+      Abort "当前程序文件仍被占用，请完全退出 QMaiWrite 后重试。"
+    ${EndIf}
+    Sleep 500
+    Goto wait_main_binary_release
+
+  wait_main_binary_released:
+FunctionEnd
+
 Section Install
   SetOutPath $INSTDIR
 
@@ -649,6 +665,7 @@ Section Install
   !endif
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  Call WaitForMainBinaryRelease
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"

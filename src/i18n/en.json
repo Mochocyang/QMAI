@@ -29,6 +29,27 @@
     "back": "Back",
     "next": "Next"
   },
+  "appLayout": {
+    "bookAnalysis": {
+      "closeNotification": "Close notification",
+      "extractingCharacters": "Extracting characters in the background",
+      "analyzingSixDimension": "Running deep extraction in the background",
+      "generatingSkills": "Generating Skills in the background",
+      "running": "Book analysis is running in the background",
+      "error": "Book analysis failed",
+      "completed": "Book analysis complete",
+      "processing": "Processing, please wait...",
+      "errorDescription": "An error occurred during analysis",
+      "completedDescription": "Character feature extraction is complete",
+      "viewResult": "View results",
+      "handleLater": "Later"
+    },
+    "usageGuidePrompt": {
+      "close": "Close usage guide prompt",
+      "title": "Need help using the app?",
+      "description": "Open the full tutorial, user manual, and novel feature guide."
+    }
+  },
   "sidebar": {
     "knowledge": "Chapters",
     "files": "Outlines",

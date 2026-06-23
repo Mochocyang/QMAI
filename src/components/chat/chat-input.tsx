@@ -41,8 +41,9 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
       : undefined
   )
   const isControlled = controlledValue !== undefined
+  const [fallbackDraft, setFallbackDraft] = useState("")
   const storeValue = conversation?.inputDraft ?? ""
-  const value = isControlled ? controlledValue : storeValue
+  const value = isControlled ? controlledValue : activeConversationId ? storeValue : fallbackDraft
 
   const [inputHeight, setInputHeight] = useState(DEFAULT_RESIZABLE_INPUT_HEIGHT)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -54,6 +55,8 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
         onChange?.(draft)
       } else if (activeConversationId) {
         setConversationInputDraft(activeConversationId, draft)
+      } else {
+        setFallbackDraft(draft)
       }
     },
     [isControlled, onChange, activeConversationId, setConversationInputDraft]

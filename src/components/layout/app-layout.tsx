@@ -131,6 +131,32 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     localStorage.setItem(USAGE_GUIDE_PROMPT_DISMISSED_KEY, "1")
   }, [])
 
+  const bookAnalysisTitle = latestBookAnalysisTask
+    ? latestBookAnalysisTask.status === "running"
+      ? latestBookAnalysisTask.progress.stage === "extracting_characters"
+        ? t("appLayout.bookAnalysis.extractingCharacters")
+        : latestBookAnalysisTask.progress.stage === "analyzing_six_dimension"
+          ? t("appLayout.bookAnalysis.analyzingSixDimension")
+          : latestBookAnalysisTask.progress.stage === "generating_skills"
+            ? t("appLayout.bookAnalysis.generatingSkills")
+            : t("appLayout.bookAnalysis.running")
+      : latestBookAnalysisTask.status === "error"
+        ? t("appLayout.bookAnalysis.error")
+        : t("appLayout.bookAnalysis.completed")
+    : ""
+
+  const bookAnalysisDescription = latestBookAnalysisTask
+    ? latestBookAnalysisTask.status === "running"
+      ? latestBookAnalysisTask.progress.stageLabel || t("appLayout.bookAnalysis.processing")
+      : latestBookAnalysisTask.status === "error"
+        ? latestBookAnalysisTask.error || t("appLayout.bookAnalysis.errorDescription")
+        : latestBookAnalysisTask.progress.stageLabel || t("appLayout.bookAnalysis.completedDescription")
+    : ""
+
+  const bookAnalysisDismissLabel = latestBookAnalysisTask?.status === "running"
+    ? t("appLayout.bookAnalysis.handleLater")
+    : t("common.close")
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       {latestOutlineTask && (
@@ -209,30 +235,16 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               }
             }}
             className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="关闭"
-            aria-label="关闭通知"
+            title={t("common.close")}
+            aria-label={t("appLayout.bookAnalysis.closeNotification")}
           >
             <X className="h-3.5 w-3.5" />
           </button>
           <div className="text-sm font-medium pr-5">
-            {latestBookAnalysisTask.status === "running"
-              ? latestBookAnalysisTask.progress.stage === "extracting_characters"
-                ? "正在后台提取角色"
-                : latestBookAnalysisTask.progress.stage === "analyzing_six_dimension"
-                  ? "正在后台深度提取"
-                  : latestBookAnalysisTask.progress.stage === "generating_skills"
-                    ? "正在后台生成 Skills"
-                    : "拆书分析后台运行中"
-              : latestBookAnalysisTask.status === "error"
-                ? "拆书分析出错"
-                : "拆书分析完成"}
+            {bookAnalysisTitle}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {latestBookAnalysisTask.status === "running"
-              ? latestBookAnalysisTask.progress.stageLabel || "处理中，请耐心等待..."
-              : latestBookAnalysisTask.status === "error"
-                ? latestBookAnalysisTask.error || "分析过程中出现错误"
-                : latestBookAnalysisTask.progress.stageLabel || "角色特征提取已完成"}
+            {bookAnalysisDescription}
           </div>
           {latestBookAnalysisTask.status === "running" && (
             <div className="mt-2">
@@ -259,7 +271,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                   removeBookAnalysisTask(latestBookAnalysisTask.id)
                 }}
               >
-                查看结果
+                {t("appLayout.bookAnalysis.viewResult")}
               </button>
             )}
             <button
@@ -273,7 +285,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
                 }
               }}
             >
-              {latestBookAnalysisTask.status === "running" ? "稍后处理" : "关闭"}
+              {bookAnalysisDismissLabel}
             </button>
           </div>
         </div>
@@ -284,8 +296,8 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
             type="button"
             onClick={dismissUsageGuidePrompt}
             className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="关闭"
-            aria-label="关闭软件使用说明提示"
+            title={t("common.close")}
+            aria-label={t("appLayout.usageGuidePrompt.close")}
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -302,9 +314,9 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               <HelpCircle className="h-4 w-4" />
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-medium">软件不知道怎么使用？点我</span>
+              <span className="block text-sm font-medium">{t("appLayout.usageGuidePrompt.title")}</span>
               <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                查看完整教程、用户手册和小说功能介绍。
+                {t("appLayout.usageGuidePrompt.description")}
               </span>
             </span>
           </button>

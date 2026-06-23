@@ -2,24 +2,26 @@ import { describe, expect, it } from "vitest"
 import { allChangelog, currentVersionChangelog } from "./changelog"
 
 describe("changelog", () => {
-  it("shows the 2.2.18 release before earlier visible releases", () => {
+  it("shows the latest visible 2.2 releases before earlier releases", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions[0]).toBe("2.2.18")
-    expect(versions[1]).toBe("2.2.17")
-    expect(versions[2]).toBe("2.2.16")
-    expect(versions[3]).toBe("2.2.14")
-    expect(versions[4]).toBe("2.2.13")
-    expect(versions[5]).toBe("2.2.12")
-    expect(versions[6]).toBe("2.2.11")
-    expect(versions[7]).toBe("2.2.10")
-    expect(versions[8]).toBe("2.2.9")
-    expect(versions[9]).toBe("2.2.8")
-    expect(versions[10]).toBe("2.2.7")
-    expect(versions[11]).toBe("2.2.0")
-    expect(versions[12]).toBe("2.1.0")
-    expect(versions[13]).toBe("2.0.0")
+    expect(versions[0]).toBe("2.2.20")
+    expect(versions[1]).toBe("2.2.19")
+    expect(versions[2]).toBe("2.2.18")
+    expect(versions[3]).toBe("2.2.17")
+    expect(versions[4]).toBe("2.2.16")
+    expect(versions[5]).toBe("2.2.14")
+    expect(versions[6]).toBe("2.2.13")
+    expect(versions[7]).toBe("2.2.12")
+    expect(versions[8]).toBe("2.2.11")
+    expect(versions[9]).toBe("2.2.10")
+    expect(versions[10]).toBe("2.2.9")
+    expect(versions[11]).toBe("2.2.8")
+    expect(versions[12]).toBe("2.2.7")
+    expect(versions[13]).toBe("2.2.0")
+    expect(versions[14]).toBe("2.1.0")
+    expect(versions[15]).toBe("2.0.0")
 
     for (let patch = 1; patch <= 6; patch += 1) {
       expect(versions).not.toContain(`2.2.${patch}`)

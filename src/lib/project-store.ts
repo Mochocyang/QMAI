@@ -406,10 +406,10 @@ export interface RevisionFeedbackWindowConfig {
 }
 
 const DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: RevisionFeedbackWindowConfig = {
-  currentChapterIncludeShouldImprove: false,
-  previousChapterCarryEnabled: false,
-  lookbackChapterCount: 0,
-  lookbackIncludeMustFixOnly: false,
+  currentChapterIncludeShouldImprove: true,
+  previousChapterCarryEnabled: true,
+  lookbackChapterCount: 2,
+  lookbackIncludeMustFixOnly: true,
 }
 
 const REVISION_FEEDBACK_CONFIG_FILE = ".qmai/revision-feedback-config.json"

@@ -12,6 +12,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
+vi.mock("@/lib/platform", () => ({
+  isTauri: () => true,
+}))
+
 function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
   return {
     provider: "custom",

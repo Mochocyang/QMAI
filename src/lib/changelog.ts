@@ -78,6 +78,49 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_TWENTY_CHANGELOG: ChangelogEntry = {
+  version: "2.2.20",
+  date: "2026-06-23",
+  highlights: {
+    en: [
+      "Added book-style extraction in the Dismantling Library: one-click analysis of novel writing style with 9-dimension metrics, style constitution, and original text samples.",
+      "Added default model setting in LLM configuration for background AI tasks (memory extraction, character recognition, etc.).",
+      "Added batch select/clear buttons for custom model list management.",
+      "Added quick help links to core features (chapters, outlines, graph, memory, soul, settings).",
+      "Optimized character recognition to use LLM-only extraction, eliminating invalid regex-generated candidate names.",
+      "Unified AI operation model invocation: user-triggered AI actions now follow default/chat model settings.",
+      "Refactored outline toolbar into a shared component, fixing disappearing toolbar entries after tab switches.",
+      "Optimized token consumption across AI chat and review center workflows.",
+      "Improved Chinese diagnostics for reasoning-only responses and input-length limit errors.",
+      "Fixed custom model input field being read-only; now editable with add button and working test connectivity.",
+      "Fixed recent chapter body reading: now reads N chapters of body text instead of only summaries.",
+      "Fixed long chapter generation exceeding model input limits with automatic context trimming and retry.",
+      "Fixed review stage character recognition: re-matches character auras from draft text before review.",
+      "Fixed wiki relative-path image preview not displaying on first load.",
+      "Enhanced character consistency checking in deep chapter generation with memory library validation.",
+      "Improved Windows updater: waits for old executable release before copying new version.",
+    ],
+    zh: [
+      "新增拆书库作品文风提取功能，支持一键提取小说写作风格，输出9维文风指标和风格宪法。",
+      "新增默认模型设置项，用于AI会话提取记忆、提取角色等后台自动任务。",
+      "自定义模型拉取区域新增「全选」「清空」按钮，支持批量管理。",
+      "为核心功能新增使用说明快捷入口，可快速查看操作指引。",
+      "角色识别改为仅通过LLM提取真实人名，大幅提升识别准确率。",
+      "用户主动触发的AI操作统一跟随默认模型/AI会话当前模型调用。",
+      "大纲工具栏重构为共享组件，修复切页后入口消失的问题。",
+      "全链路Token消耗优化，降低模型调用成本。",
+      "优化reasoning-only回复和输入长度超限错误的中文提示文案。",
+      "修复自定义模型输入框只读问题，改为可编辑并新增添加按钮。",
+      "修复最近章节正文读取不完整，改为读取正文片段并结合摘要。",
+      "修复长章节生成上下文超限问题，发送前按模型预算自动裁剪。",
+      "修复审查阶段无法识别初稿中新出现角色的问题。",
+      "修复项目Wiki内相对路径图片首次预览可能不显示的问题。",
+      "增强深度章节生成的角色一致性校验能力，严控人设崩塌。",
+      "优化Windows更新安装流程，减少文件占用导致的更新失败。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_NINETEEN_CHANGELOG: ChangelogEntry = {
   version: "2.2.19",
   date: "2026-06-20",
@@ -439,6 +482,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_TWENTY_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_CHANGELOG]
   if (version === TWO_POINT_TWO_NINETEEN_CHANGELOG.version) return [TWO_POINT_TWO_NINETEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_EIGHTEEN_CHANGELOG.version) return [TWO_POINT_TWO_EIGHTEEN_CHANGELOG]
   if (version === TWO_POINT_TWO_SEVENTEEN_CHANGELOG.version) return [TWO_POINT_TWO_SEVENTEEN_CHANGELOG]
@@ -463,6 +507,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_TWENTY_CHANGELOG,
     TWO_POINT_TWO_NINETEEN_CHANGELOG,
     TWO_POINT_TWO_EIGHTEEN_CHANGELOG,
     TWO_POINT_TWO_SEVENTEEN_CHANGELOG,

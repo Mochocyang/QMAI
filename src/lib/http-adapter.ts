@@ -1,11 +1,14 @@
 import type { FileNode } from "@/types/wiki"
 
 // Detect the API base URL from the current page location
-const API_BASE = `http://${window.location.hostname}:5800/api`
+function getApiBase(): string {
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost"
+  return `http://${hostname}:5800/api`
+}
 
 // Generic API call helper
 async function apiCall<T>(path: string, body?: unknown, method?: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${getApiBase()}${path}`, {
     method: method || (body ? "POST" : "GET"),
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -48,7 +51,7 @@ export const httpFs = {
     for (const file of files) {
       formData.append("file", file)
     }
-    const res = await fetch(`${API_BASE}/fs/upload-files`, {
+    const res = await fetch(`${getApiBase()}/fs/upload-files`, {
       method: "POST",
       body: formData,
     })

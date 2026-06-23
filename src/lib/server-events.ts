@@ -7,6 +7,7 @@ class ServerEventManager {
 
   connect() {
     if (this.es) return
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return
 
     const url = `http://${window.location.hostname}:5800/api/events`
     this.es = new EventSource(url)

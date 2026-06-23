@@ -19,6 +19,27 @@
     "title": "青幕AI写作",
     "subtitle": "面向长篇小说的 AI 写作桌面端系统"
   },
+  "appLayout": {
+    "bookAnalysis": {
+      "closeNotification": "关闭通知",
+      "extractingCharacters": "正在后台提取角色",
+      "analyzingSixDimension": "正在后台深度提取",
+      "generatingSkills": "正在后台生成 Skills",
+      "running": "拆书分析后台运行中",
+      "error": "拆书分析出错",
+      "completed": "拆书分析完成",
+      "processing": "处理中，请耐心等待...",
+      "errorDescription": "分析过程中出现错误",
+      "completedDescription": "角色特征提取已完成",
+      "viewResult": "查看结果",
+      "handleLater": "稍后处理"
+    },
+    "usageGuidePrompt": {
+      "close": "关闭软件使用说明提示",
+      "title": "软件不知道怎么使用？点我",
+      "description": "查看完整教程、用户手册和小说功能介绍。"
+    }
+  },
   "dashboard": {
     "title": "项目仪表盘",
     "noIssues": "未发现任何问题",

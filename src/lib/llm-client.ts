@@ -4,6 +4,7 @@ import { getProviderConfig, type RequestOverrides } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
+import { trimChatMessagesToBudget } from "./chat-request-budget"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -66,6 +67,20 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
+function parseInputLengthLimit(errorDetail: string): { inputLength: number; maxLength: number } | null {
+  const match = /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+maximum length\s*([\d,]+)/i.exec(errorDetail)
+    ?? /input length\s*([\d,]+)\s*exceeds(?:\s+the)?\s+max(?:imum)?\s*([\d,]+)/i.exec(errorDetail)
+  if (!match) return null
+  const inputLength = Number(match[1]?.replace(/,/g, ""))
+  const maxLength = Number(match[2]?.replace(/,/g, ""))
+  if (!Number.isFinite(inputLength) || !Number.isFinite(maxLength) || maxLength <= 0) return null
+  return { inputLength, maxLength }
+}
+
+function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number }): string {
+  return `输入内容过长：本次请求约 ${limit.inputLength} 字符，接口最大允许 ${limit.maxLength} 字符。请减少历史上下文、缩短章节正文，或确认当前接口是否真的支持所选模型的上下文长度。`
+}
+
 export async function streamChat(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
@@ -124,22 +139,19 @@ export async function streamChat(
     combinedSignal = timeoutController.signal
   }
 
-  const body = providerConfig.buildBody(messages, requestOverrides)
-  const requestInit: RequestInit = {
+  const buildRequestInit = (nextMessages: import("./llm-providers").ChatMessage[]): RequestInit => ({
     method: "POST",
     headers: providerConfig.headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(providerConfig.buildBody(nextMessages, requestOverrides)),
     signal: combinedSignal,
-  }
+  })
 
-  let response: Response
-  try {
+  const sendRequest = async (requestInit: RequestInit): Promise<Response> => {
     const httpFetch = await getHttpFetch()
     let attempt = 0
     while (true) {
       try {
-        response = await httpFetch(providerConfig.url, requestInit)
-        break
+        return await httpFetch(providerConfig.url, requestInit)
       } catch (err) {
         if (signal?.aborted || combinedSignal?.aborted) throw err
         if (!isFetchNetworkError(err)) throw err
@@ -157,6 +169,12 @@ export async function streamChat(
         if (!shouldContinue) throw err
       }
     }
+  }
+
+  let requestInit = buildRequestInit(messages)
+  let response: Response
+  try {
+    response = await sendRequest(requestInit)
   } catch (err) {
     if (signal?.aborted || (combinedSignal?.aborted && !timeoutFired)) {
       onDone()
@@ -196,7 +214,39 @@ export async function streamChat(
     } catch {
       // ignore body read failure
     }
+    let inputLimitRetrySucceeded = false
+    const inputLimit = parseInputLengthLimit(errorDetail)
+    if (inputLimit) {
+      const retryRequestInit = buildRequestInit(
+        trimChatMessagesToBudget(messages, Math.floor(inputLimit.maxLength * 0.85)),
+      )
+      if (retryRequestInit.body === requestInit.body) {
+        onError(new Error(inputLengthLimitMessage(inputLimit)))
+        return
+      }
+      requestInit = retryRequestInit
+      try {
+        response = await sendRequest(requestInit)
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)))
+        return
+      }
+      if (response.ok) {
+        inputLimitRetrySucceeded = true
+      } else {
+        let retryErrorDetail = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const retryBody = await response.text()
+          if (retryBody) retryErrorDetail += ` — ${retryBody}`
+        } catch {
+          // ignore body read failure
+        }
+        onError(new Error(inputLengthLimitMessage(parseInputLengthLimit(retryErrorDetail) ?? inputLimit)))
+        return
+      }
+    }
     if (
+      !inputLimitRetrySucceeded &&
       response.status === 404 &&
       (runtimeConfig.provider === "azure" ||
         (runtimeConfig.provider === "custom" && isAzureOpenAiEndpoint(runtimeConfig.customEndpoint)))
@@ -208,7 +258,7 @@ export async function streamChat(
       )
       return
     }
-    if (shouldRetryWithBrowserFetch(errorDetail) && typeof globalThis.fetch === "function") {
+    if (!inputLimitRetrySucceeded && shouldRetryWithBrowserFetch(errorDetail) && typeof globalThis.fetch === "function") {
       try {
         response = await globalThis.fetch(providerConfig.url, requestInit)
       } catch (err) {
@@ -227,7 +277,7 @@ export async function streamChat(
         onError(new Error(retryErrorDetail))
         return
       }
-    } else {
+    } else if (!inputLimitRetrySucceeded) {
       onError(new Error(errorDetail))
       return
     }
@@ -306,10 +356,9 @@ export async function streamChat(
     ) {
       onError(
         new Error(
-          `Model produced ${reasoningCharsObserved.toLocaleString()} characters of reasoning / chain-of-thought, but no actual response content. ` +
-          `This usually means the endpoint hit a thinking-token limit, the model didn't transition from thinking to answering, ` +
-          `or the endpoint is misbehaving (the official Anthropic / OpenAI APIs don't have this issue). ` +
-          `Try a shorter input, increase max_tokens, or switch to a different model in Settings.`,
+          `模型只输出了 ${reasoningCharsObserved.toLocaleString()} 字符的思考内容，但没有输出正文。` +
+          `这通常表示接口触发了思考 token 上限、模型没有从思考阶段切换到正式回答，或当前兼容接口的流式输出不完整。` +
+          `请缩短输入、提高 max_tokens，或在设置里切换其他模型后重试。`,
         ),
       )
       return

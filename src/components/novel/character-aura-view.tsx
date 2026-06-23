@@ -129,6 +129,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const setStoredSelectedSoulId = useWikiStore((s) => s.setSelectedSoulId)
   const storedSelectedSoulSection = useWikiStore((s) => s.selectedSoulSection)
   const setStoredSelectedSoulSection = useWikiStore((s) => s.setSelectedSoulSection)
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [section, setSection] = useState<"builtIn" | "custom">("builtIn")
   const [mode, setMode] = useState<"create" | "edit">("create")
   const [showCustomEditor, setShowCustomEditor] = useState(false)
@@ -323,7 +324,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
         aliases: aliases.length > 0 ? aliases : undefined,
       })
       await refresh()
-      await refreshProjectState(project.path)
+      bumpDataVersion()
       setMessage(`已将「${selected.name}」绑定到人物「${characterName.trim()}」`)
       setCharacterAliases("")
     }, "绑定失败，请稍后重试")
@@ -334,7 +335,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     await runAction(async () => {
       await unbindCharacterAura(project.path, targetCharacterName, selected.id)
       await refresh()
-      await refreshProjectState(project.path)
+      bumpDataVersion()
       setMessage(`已取消“${targetCharacterName}”与“${selected.name}”的绑定`)
     }, "取消绑定失败，请稍后重试")
   }

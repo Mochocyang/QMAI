@@ -15,6 +15,7 @@ export async function refreshProjectState(projectPath: string | undefined | null
     store.setFileTree(tree)
     store.bumpDataVersion()
   } catch (err) {
+    useWikiStore.getState().bumpDataVersion()
     console.error("[refreshProjectState] 刷新文件树失败:", err)
   }
 }
