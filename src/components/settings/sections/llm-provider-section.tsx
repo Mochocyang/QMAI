@@ -13,7 +13,7 @@ import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
-import { testSettingsLlmModel } from "@/lib/settings-model-test"
+import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
@@ -166,9 +166,9 @@ function PresetRow({
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
-  const [modelTestState, setModelTestState] = useState<ModelActionState>(null)
   const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
   const savedModelsTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const { modelTestState, runBatchTest, retryFailed } = useBatchModelTest(t)
   const hasConfig = !!apiKey || !!ov.baseUrl || !!ov.model || !!ov.azureApiVersion || !!ov.azureModelFamily
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
@@ -255,28 +255,11 @@ function PresetRow({
   }
 
   async function runSelectedModelTest() {
-    setModelTestState({
-      loading: true,
-      success: false,
-      message: t("settings.sections.shared.testing"),
-    })
-
-    try {
-      const result = await testSettingsLlmModel(resolvedConfig)
-      setModelTestState({
-        loading: false,
-        success: true,
-        message: t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
-      })
-    } catch (error) {
-      setModelTestState({
-        loading: false,
-        success: false,
-        message: t("settings.sections.shared.testFailed", {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      })
-    }
+    const savedModels = ov.savedModels ?? []
+    const modelsToTest = savedModels.length > 0
+      ? savedModels.map((m) => m.model)
+      : [model]
+    await runBatchTest(modelsToTest, (modelId) => ({ ...resolvedConfig, model: modelId }))
   }
 
   return (
@@ -630,9 +613,32 @@ function PresetRow({
               </p>
             ) : null}
             {modelTestState?.message ? (
-              <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
-                {modelTestState.message}
-              </p>
+              <div className="space-y-1.5">
+                <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
+                  {modelTestState.message}
+                </p>
+                {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">失败模型：</span>
+                    {modelTestState.failedModels.map((failedModel) => (
+                      <span
+                        key={failedModel}
+                        className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
+                      >
+                        {failedModel}
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => void retryFailed((modelId) => ({ ...resolvedConfig, model: modelId }))}
+                      disabled={modelTestState.loading}
+                      className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      重试失败模型
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : null}
           </div>
 

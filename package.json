@@ -1,7 +1,7 @@
 {
   "name": "llm-wiki",
   "private": true,
-  "version": "2.2.21",
+  "version": "2.2.22",
   "type": "module",
   "scripts": {
     "dev": "vite",

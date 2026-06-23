@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react"
-import { Plus, Trash2, ChevronDown } from "lucide-react"
+import { useState, useMemo, useEffect, useRef } from "react"
+import { Plus, Trash2, ChevronDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -7,7 +7,7 @@ import { useWikiStore, type ProviderOverride, type SavedModel, type ReasoningCon
 import { ContextSizeSelector } from "../context-size-selector"
 import { resolveConfig } from "../preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
-import { testSettingsLlmModel } from "@/lib/settings-model-test"
+import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
 import { ReasoningControls } from "./llm-provider-section"
 
@@ -198,32 +198,36 @@ function CustomProviderCardItem({
     success: boolean
     message: string
   } | null>(null)
-  const [modelTestState, setModelTestState] = useState<{
-    loading: boolean
-    success: boolean
-    message: string
-  } | null>(null)
-  const [manualModelInput, setManualModelInput] = useState(card.model)
+  const { modelTestState, runBatchTest, retryFailed, removeFailedModel } = useBatchModelTest(t)
+  const [manualModelInput, setManualModelInput] = useState(
+    card.savedModels.length === 0 ? card.model : ""
+  )
 
   const llmConfig = useWikiStore((s) => s.llmConfig)
+  const prevSavedModelsLength = useRef(card.savedModels.length)
 
-  // 同步外部 card.model 变化到本地输入
+  // 当已选模型从有到无时，将输入框回退到单模型模式（显示 card.model）
   useEffect(() => {
-    setManualModelInput(card.model)
-  }, [card.model])
+    const currentLength = card.savedModels.length
+    if (currentLength === 0 && prevSavedModelsLength.current > 0) {
+      setManualModelInput(card.model)
+    }
+    prevSavedModelsLength.current = currentLength
+  }, [card.savedModels.length, card.model])
 
   const resolvedConfig = useMemo(() => {
+    const effectiveModel = card.savedModels[0]?.model || card.model
     const preset = {
       id: card.id,
       label: card.label,
       provider: "custom" as const,
       baseUrl: card.baseUrl,
       apiMode: card.apiMode,
-      defaultModel: card.model,
+      defaultModel: effectiveModel,
     }
     const override = {
       apiKey: card.apiKey,
-      model: card.model,
+      model: effectiveModel,
       baseUrl: card.baseUrl,
       apiMode: card.apiMode,
       maxContextSize: card.maxContextSize,
@@ -242,9 +246,7 @@ function CustomProviderCardItem({
       const result = await fetchLlmModelList(resolvedConfig)
       setModelOptions(result.models)
 
-      // 拉取新模型后清空旧的已选模型（URL/API 可能已更换，旧模型不再有效）
-      onUpdate({ savedModels: [] })
-
+      // 保留已选模型，仅在 URL/API 变更导致模型失效时由用户手动清空
       // 拉取成功后自动展开模型选择区域
       setIsExpanded(true)
 
@@ -265,57 +267,39 @@ function CustomProviderCardItem({
   }
 
   async function testCurrentModel() {
-    const modelToTest = manualModelInput.trim()
-    if (!modelToTest) {
-      setModelTestState({
-        loading: false,
-        success: false,
-        message: "请先输入或选择模型",
-      })
-      return
-    }
-
-    setModelTestState({
-      loading: true,
-      success: false,
-      message: `正在测试模型 ${modelToTest}...`,
-    })
-
-    const testConfig = {
-      ...resolvedConfig,
-      model: modelToTest,
-    }
-
-    try {
-      const result = await testSettingsLlmModel(testConfig)
-      setModelTestState({
-        loading: false,
-        success: true,
-        message: `模型 ${result.model} 测试成功`,
-      })
-    } catch (error) {
-      setModelTestState({
-        loading: false,
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
+    const modelsToTest = card.savedModels.length > 0
+      ? card.savedModels.map((m) => m.model)
+      : [manualModelInput.trim()]
+    await runBatchTest(modelsToTest, (modelId) => ({ ...resolvedConfig, model: modelId }))
   }
 
   function addManualModelToSaved() {
-    const modelToAdd = manualModelInput.trim()
-    if (!modelToAdd) return
-    // 避免重复添加
-    if (card.savedModels.some((m) => m.model === modelToAdd)) return
-    const newModel: SavedModel = {
-      id: `model-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: modelToAdd,
-      model: modelToAdd,
-      apiKey: card.apiKey,
-      customEndpoint: card.baseUrl,
-      createdAt: Date.now(),
+    const raw = manualModelInput.trim()
+    if (!raw) return
+    const modelsToAdd = raw
+      .split(/[,，\n]+/)
+      .map((m) => m.trim())
+      .filter(Boolean)
+    const existingModels = new Set(card.savedModels.map((m) => m.model))
+    const newModels: SavedModel[] = []
+    for (const modelId of modelsToAdd) {
+      if (existingModels.has(modelId)) continue
+      newModels.push({
+        id: `model-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: modelId,
+        model: modelId,
+        apiKey: card.apiKey,
+        customEndpoint: card.baseUrl,
+        createdAt: Date.now(),
+      })
     }
-    onUpdate({ savedModels: [...card.savedModels, newModel] })
+    if (newModels.length === 0) return
+    const updatedModels = [...card.savedModels, ...newModels]
+    onUpdate({
+      savedModels: updatedModels,
+      model: updatedModels[0].model,
+    })
+    setManualModelInput("")
   }
 
   function toggleModelSelection(modelId: string) {
@@ -337,7 +321,19 @@ function CustomProviderCardItem({
       updatedModels = [...card.savedModels, newModel]
     }
 
-    onUpdate({ savedModels: updatedModels })
+    onUpdate({
+      savedModels: updatedModels,
+      model: updatedModels[0]?.model || card.model,
+    })
+  }
+
+  function removeSavedModel(modelId: string) {
+    const updatedModels = card.savedModels.filter((m) => m.model !== modelId)
+    removeFailedModel(modelId)
+    onUpdate({
+      savedModels: updatedModels,
+      model: updatedModels[0]?.model || card.model,
+    })
   }
 
   // 从 baseUrl 中提取 host 用于 hint 提示，例如 "https://api.openai.com/v1" → "api.openai.com"
@@ -516,7 +512,10 @@ function CustomProviderCardItem({
                             customEndpoint: card.baseUrl,
                             createdAt: Date.now(),
                           }))
-                          onUpdate({ savedModels: newModels })
+                          onUpdate({
+                            savedModels: newModels,
+                            model: newModels[0].model,
+                          })
                         }}
                         className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                       >
@@ -526,7 +525,7 @@ function CustomProviderCardItem({
                         type="button"
                         onClick={() => {
                           if (card.savedModels.length === 0) return
-                          onUpdate({ savedModels: [] })
+                          onUpdate({ savedModels: [], model: "" })
                         }}
                         className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                       >
@@ -559,37 +558,76 @@ function CustomProviderCardItem({
             </div>
           )}
 
-          {/* Model - Manual input + selected models display */}
+          {/* Model - Tag input + selected models display */}
           <div className="space-y-2">
             <Label htmlFor={`${card.id}-model`} className="text-xs">
               模型
             </Label>
             <div className="flex gap-2">
-              <Input
-                id={`${card.id}-model`}
-                value={manualModelInput}
-                onChange={(e) => {
-                  setManualModelInput(e.target.value)
-                  onUpdate({ model: e.target.value })
-                }}
-                placeholder="输入模型名称或拉取后选择"
-                className="text-sm flex-1"
-              />
+              <div className="flex min-h-[2.25rem] flex-1 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring">
+                {card.savedModels.map((savedModel) => {
+                  const isFailed = modelTestState.failedModels?.includes(savedModel.model)
+                  return (
+                    <span
+                      key={savedModel.id}
+                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs ${
+                        isFailed
+                          ? "bg-destructive/15 text-destructive ring-1 ring-destructive/40"
+                          : "bg-primary/10 text-primary"
+                      }`}
+                    >
+                      {savedModel.model}
+                      <button
+                        type="button"
+                        onClick={() => removeSavedModel(savedModel.model)}
+                        className={`rounded-full p-0.5 ${isFailed ? "hover:bg-destructive/20" : "hover:bg-primary/20"}`}
+                        title="移除"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )
+                })}
+                <input
+                  id={`${card.id}-model`}
+                  value={manualModelInput}
+                  onChange={(e) => {
+                    setManualModelInput(e.target.value)
+                    if (card.savedModels.length === 0) {
+                      onUpdate({ model: e.target.value })
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      addManualModelToSaved()
+                    }
+                  }}
+                  placeholder={
+                    card.savedModels.length > 0
+                      ? "输入模型名称按回车添加"
+                      : "输入模型名称或拉取后选择"
+                  }
+                  className="min-w-[8rem] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
               <button
                 type="button"
                 onClick={addManualModelToSaved}
-                disabled={!manualModelInput.trim() || card.savedModels.some((m) => m.model === manualModelInput.trim())}
+                disabled={
+                  !manualModelInput.trim() ||
+                  manualModelInput
+                    .split(/[,，\n]+/)
+                    .map((m) => m.trim())
+                    .filter(Boolean)
+                    .every((m) => card.savedModels.some((saved) => saved.model === m))
+                }
                 className="shrink-0 rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                title="将当前输入的模型添加到已选列表"
+                title="将当前输入的模型添加到已选列表，多个用逗号分隔"
               >
                 添加
               </button>
             </div>
-            {card.savedModels.length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                已选模型：{card.savedModels.map((m) => m.model).join(", ")}
-              </div>
-            )}
           </div>
 
           {/* Test and Fetch Buttons */}
@@ -608,7 +646,11 @@ function CustomProviderCardItem({
               <button
                 type="button"
                 onClick={() => void testCurrentModel()}
-                disabled={modelListState?.loading || modelTestState?.loading || !manualModelInput.trim()}
+                disabled={
+                  modelListState?.loading ||
+                  modelTestState?.loading ||
+                  (card.savedModels.length === 0 && !manualModelInput.trim())
+                }
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {modelTestState?.loading
@@ -622,9 +664,32 @@ function CustomProviderCardItem({
               </p>
             ) : null}
             {modelTestState?.message ? (
-              <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
-                {modelTestState.message}
-              </p>
+              <div className="space-y-1.5">
+                <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
+                  {modelTestState.message}
+                </p>
+                {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">失败模型：</span>
+                    {modelTestState.failedModels.map((failedModel) => (
+                      <span
+                        key={failedModel}
+                        className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
+                      >
+                        {failedModel}
+                      </span>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => void retryFailed((modelId) => ({ ...resolvedConfig, model: modelId }))}
+                      disabled={modelTestState.loading}
+                      className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      重试失败模型
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : null}
           </div>
 
