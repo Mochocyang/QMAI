@@ -1,0 +1,11 @@
+{
+  "version": "2.2.22",
+  "notes": "修复：软件内自动更新下载后无法安装的问题（「无法卸载」错误）",
+  "pub_date": "2026-06-23T14:40:00.000Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUWnM4dDNjaExtcm42UHY5azFXb1kyQ2Q4VzBhOVhXblV0cHhTWnhQVEcvakljV29xcVJ6NElOd2NLZU9Iek9iVldnNDNPQjA3V3lUbzNyZWJMZDZHWlkzZ3lJZEc2L0E0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMjI1OTUyCWZpbGU6UU1haVdyaXRlXzIuMi4yMl93aW5kb3dzX1g2NC5leGUKV2FRSWhhZ2pod0RZOUhqamZQWTl3SXZTWmtCYkFzVi9mV0J3aVZGakx1eW9PTkxaVEdFeGNSSGptVk90YUdacytueFhnODBKeGJ3M3RjdVBYQ2gvQlE9PQo=",
+      "url": "https://github.com/Mochocyang/QMAI/releases/download/v2.2.22/QMaiWrite_2.2.22_windows_X64.exe"
+    }
+  }
+}

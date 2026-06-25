@@ -1,0 +1,56 @@
+{
+  "enabled": true,
+  "autoIngest": true,
+  "includeExtensions": [
+    "md",
+    "mdx",
+    "txt",
+    "pdf",
+    "docx",
+    "pptx",
+    "xls",
+    "xlsx",
+    "odt",
+    "odp",
+    "ods",
+    "rtf",
+    "html",
+    "htm",
+    "csv"
+  ],
+  "excludeExtensions": [
+    "tmp",
+    "temp",
+    "bak",
+    "swp",
+    "part",
+    "partial",
+    "crdownload",
+    "exe",
+    "dll",
+    "so",
+    "dylib",
+    "bin",
+    "iso",
+    "dmg"
+  ],
+  "excludeDirs": [
+    ".git",
+    ".svn",
+    ".hg",
+    ".obsidian",
+    ".idea",
+    ".vscode",
+    "node_modules",
+    ".cache",
+    "__pycache__"
+  ],
+  "excludeGlobs": [
+    "~$*",
+    ".~lock.*#",
+    "*.draft.*",
+    "draft-*",
+    "*.private.*"
+  ],
+  "maxFileSizeMb": 100
+}

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            pdfium_asset: pdfium-mac-arm64.tgz
+            pdfium_library: libpdfium.dylib
+          - platform: ubuntu-22.04
+            pdfium_asset: pdfium-linux-x64.tgz
+            pdfium_library: libpdfium.so
+          - platform: windows-latest
+            pdfium_asset: ""
+            pdfium_library: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: brew install protobuf
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
+
+      - name: Install protoc (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: choco install protoc -y
+
+      - name: Install PDFium binary
+        if: matrix.pdfium_asset != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pdfium" src-tauri/pdfium
+          curl -L --fail --retry 5 --retry-delay 2 \
+            -o "$RUNNER_TEMP/pdfium.tgz" \
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_asset }}"
+          tar -xzf "$RUNNER_TEMP/pdfium.tgz" -C "$RUNNER_TEMP/pdfium"
+          cp "$RUNNER_TEMP/pdfium/lib/${{ matrix.pdfium_library }}" "src-tauri/pdfium/${{ matrix.pdfium_library }}"
+          ls -la src-tauri/pdfium
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Check frontend build
+        run: npx vite build
+
+      - name: Check Rust build
+        working-directory: src-tauri
+        run: cargo build

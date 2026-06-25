@@ -1,0 +1,90 @@
+[package]
+name = "llm-wiki"
+version = "2.2.22"
+description = "LLM Wiki - A personal knowledge base for LLM concepts"
+authors = []
+edition = "2021"
+default-run = "qmai"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "llm_wiki_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "qmai"
+path = "src/main.rs"
+
+[[bin]]
+name = "qmai-server"
+path = "src/bin/server.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["clock"] }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-updater = "2"
+pdfium-render = "0.9"
+tauri-plugin-store = "2.4.2"
+tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tiny_http = "0.12"
+zip = "2"
+calamine = "0.34.0"
+docx-rs = "0.4.20"
+cfb = "0.7.3"
+encoding_rs = "0.8.35"
+lancedb = "0.27.2"
+# tokio provided by tauri runtime for async commands
+arrow-array = "57"
+arrow-schema = "57"
+futures = "0.3"
+# Claude Code CLI subprocess transport: spawn `claude` as a child process,
+# stream stdout line-by-line back to the frontend. tokio::process gives us
+# async io and clean cancellation; `which` locates the binary on PATH.
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt"] }
+which = "7"
+uuid = { version = "1", features = ["v4"] }
+toml = "0.8"
+# Multimodal image extraction (Phase 1):
+#   `image` re-encodes pdfium's raw bitmap output to PNG so the IPC
+#   payload is self-contained (the frontend doesn't need to know
+#   about pdfium's internal RGBA layout).
+#   `base64` serializes binary image data for Tauri IPC, which is
+#   JSON-only — Vec<u8> roundtrips ~1.33× larger than raw bytes but
+#   that's acceptable for our ~MB-scale per-image payloads.
+#   `sha2` is for the dedup cache (Phase 3) — same image hash =
+#   same caption, no redundant VLM calls. Pulled in here so the
+#   extraction layer can also expose the hash if a caller wants it.
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+sha2 = "0.10"
+md-5 = "0.10"
+notify = "8"
+walkdir = "2"
+tauri-plugin-single-instance = "2"
+axum = { version = "0.8", features = ["macros", "multipart"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+rust-embed = "8"
+mime_guess = "2"
+open = "5"
+async-stream = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+# Unwind (not abort) so third-party parser panics can be caught at the
+# Tauri command boundary via panic_guard and turned into errors. Slightly
+# larger binary, but prevents single-file corruption from killing the app.
+panic = "unwind"
+strip = true

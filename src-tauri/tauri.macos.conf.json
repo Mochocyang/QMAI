@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "macOS": {
+      "frameworks": ["pdfium/libpdfium.dylib"]
+    }
+  }
+}

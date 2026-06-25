@@ -1,0 +1,362 @@
+A[940] 完成。
+
+## 最终状态
+
+**两个提交（均在 master）：**
+- `792edd0e` perf: 深度章节工作流五阶段省 token 优化（14 文件）
+- `11464aef` test: 对齐 changelog 测试期望版本至 2.2.18（1 文件）
+
+**测试：246 文件 / 1886 用例全绿，0 失败**（之前那个唯一红灯已消除）。`tsc` 通过。
+
+**打包产物（之前已生成，仍然有效）：**
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, v2.2.18)
+```
+> 这次 changelog 改动是**纯测试文件**，不影响 App 运行行为，所以**无需重新打包**——直接用之前那个 exe 测试即可。如果你希望我重打一份带最新提交号的，我再跑一次 `build:portable`。
+
+未执行 `...
+----
+A[945] 这是个很有价值的想法。我先把两样东西读清楚再分析：凡人修仙传的实际文风样本，以及当前的去AI味规则。
+----
+A[963] 这是个更大的功能设想，涉及拆书库现有架构。我先把现状摸清楚——拆书库现在怎么提取角色灵魂、数据存哪、生成时怎么注入——再分析"加风格提取 + 生成时对比原文"是否值得、怎么做才不和我们刚做的省 token 工作打架。
+----
+A[972] 丰富的发现:拆书库已有完整提取管线(六维引擎、技能生成器、内容指纹),而且 `skills/good-writing/` 里已经存在 `style-dna.md`、`style-summary.md` 这种"风格DNA"概念。让我读关键文件,搞清数据模型、技能怎么生成、生成时怎么消费——这决定了"加风格提取+对比原文"该怎么接。
+----
+A[982] 关键发现:拆书库**目前是"角色中心"的**——`ExtractedCharacter` 提取的是人物的性格/说话风格/六维(公开材料、表达DNA、决策、时间线…),产物是**每个角色一份** `CharacterSkill`。确实**没有作品级的"叙事文风"提取**(那种叙事密度、描写比重、句式、比喻频率的整体风格)。用户判断准确。
+
+再确认一个关键集成点:生成上下文里其实已经有一个 `writingStyle` 槽位。让我看它从哪读——如果拆书产出的风格能写进这个通道,落地会非常顺。
+----
+A[998] I'm in plan mode. Let me launch focused Explore agents in parallel to ground the plan in the actual orchestration, persistence, enable/consume, and UI patterns.
+----
+A[1009] The Explore agents hit a rate limit (429). I'll investigate directly with parallel reads. Starting with orchestration, the injection hooks, and the aura enable/consume mechanism.
+----
+A[1019] Good — I now have the orchestration (`book-analysis/<bookId>/{chapters,characters,skills}` layout, chapter split + sampling) and the injection hooks (`loadSmartDeAiSkill`, `de-ai-skill.txt`, the no-op dismantling loader). Let me ground the "enable + consume" and editor patterns.
+----
+A[1028] I now have the full aura lifecycle (store at `.qmai/character-aura.json`, bindings = "enable", `buildCharacterAuraContext` → `contextPack.characterAuras`) and the generation channels (`contextPack.writingStyle` already exists and flows through `contextPackToPrompt` → deep-chapter `contextPrompt` → cachePrefix). Let me ground the store + UI insertion points and the extraction-pass pattern.
+----
+A[1037] I now have the full picture: the aura "enable" pattern (`.qmai/character-aura.json` + `buildCharacterAuraContext` → `contextPack.characterAuras`), the existing `contextPack.writingStyle` channel that already flows through `contextPackToPrompt` into both normal chat and the deep-chapter `contextPrompt`/cachePrefix, the dismantle pipeline/storage (`book-analysis/<bookId>/`), and the result-viewer UI...
+----
+A[1041] All three answers received: **宪法+样本(默认开样本)** · **全部生成场景** · **MVP先落地**. Writing the plan file now.
+----
+A[1050] The plan is written. Presenting it for your approval.
+----
+A[1058] Plan approved. Let me set up tasks and start implementing bottom-up. First I'll read the few files I'll modify but haven't fully seen yet.
+----
+A[1076] Patterns confirmed. Starting implementation. Task 12 — the data model:
+----
+A[1093] Task 12 done. Now Task 13 — the style prompts + extraction engine. First `style-prompts.ts`:
+----
+A[1102] Now the extraction engine:
+----
+A[1110] Now add `loadStyleProfile` to `result-loader.ts` and wire it into the loaded result:
+----
+A[1116] Task 13 done. Now Task 14 — the project-level enable store + injection builder:
+----
+A[1128] Task 14 done. Task 15 — reroute `readWritingStyle` to prefer the enabled preset:
+----
+A[1137] Task 15 done. Task 16 — store action first, then the UI card + i18n. Add `updateTaskStyleProfile`:
+----
+A[1152] Now read the result viewer to find the exact insertion point and reuse patterns:
+----
+A[1171] I have the patterns and confirmed this viewer uses **hardcoded Chinese** (not `t()`), so I'll match it — no i18n wiring needed here. Let me add imports:
+----
+A[1176] Now add `styleProfile` to `effectiveResult`, plus the state and effect for style:
+----
+A[1185] Now the load-enabled effect and derived style values. First the effect:
+----
+A[1191] Let me verify the current state around those edits — the `const characters` line may have been consumed:
+----
+A[1195] Confirmed — `const characters` was consumed. Restoring it:
+----
+A[1203] Now add the extract + enable handlers after `handleReextractAll`:
+----
+A[1207] Now insert the "作品文风" card into the render and make the character row flex to fill remaining height:
+----
+A[1214] Task 16 done (UI matches the viewer's hardcoded-Chinese convention, so no i18n wiring needed there). Let me typecheck before writing tests.
+----
+A[1222] Typecheck clean. Now the tests. First `style-prompts.spec.ts`:
+----
+A[1229] Now `writing-style-store.spec.ts` with an in-memory fs mock:
+----
+A[1233] Now run the new tests + the broader novel/stores suites + typecheck:
+----
+A[1237] All 459 pass. Now the full mocked sweep + typecheck:
+----
+A[1241] All **1900 tests pass** (1886 + 14 new) and typecheck is clean. Let me record the next-phase roadmap in memory, then report.
+----
+A[1252] MVP 实现完成并验证通过。
+
+## 做了什么（按计划）
+
+**数据层** — `book-analysis/types.ts` 新增 `BookStyleProfile`（9 个文风维度 + `constitution` 风格宪法 + `samples` 代表原文）。
+
+**提取** — 新增 `style-extraction-engine.ts: analyzeWritingStyle`：抽样 3-5 章正文 → **一次** LLM 调用 → 落盘 `<bookPath>/style-profile.json` + `style.md`。提示词与容错解析在新 `style-prompts.ts`（含兜底"通用朴素宪法"）。`result-loader.ts` 加 `loadStyleProfile` 读回。
+
+**启用态** — 新增 `src/lib/novel/writing-...
+----
+A[1257] 不提交，只打包。启动便携版构建（后台跑，完成会通知）。同时给你列测试指南。
+----
+A[1267] 构建完成（退出码 0）。确认产物。
+----
+A[1273] 打包完成，未提交。
+
+## 产物
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, v2.2.18, 构建于 07:39Z)
+```
+前端 `✓ built in 3.62s`、Rust `Finished in 1m 27s`、退出码 0。直接双击运行测试。
+
+## 本次构建包含
+- **新功能**：拆书库「作品文风」提取 + 启用 + 生成联动。
+- 同时含此前的五阶段省 token 改造（审稿合并、前缀缓存、cache_control、裁剪开关、审稿档位）——均已在这份 exe 里。
+
+## 测试清单（按上一条的指南）
+1. **拆书提取文风**：拆 `E:\凡人1.txt` → 结果页「作品文风」卡片 → 「提取文风」→ 看维度摘要 + 落盘 `style.md`（宪法 + 原文样本）。
+2. **启用/取消**：「启用此文...
+----
+A[1278] 分析一下。先澄清：「作品文风」卡片在**分析结果页**，只有分析跑完才出现——所以"没有作品文风"是"分析没跑起来"的连带结果。真正要查的是「开始分析」点击无效。我没有改过分析启动那条链路，但得确认是不是我的改动在运行时连累了它，还是本来就有问题。先定位「开始分析」按钮的处理函数。
+----
+A[1286] 历史上「开始分析」按钮就有过"点击无效"的修复记录。按钮在 `chapter-selection-panel.tsx:271`，调 `onConfirm` → `book-analysis-view.tsx:handleStartAnalysis`。我没动这两个文件，但要确认是否运行时连累。读这两段的实际逻辑。
+----
+A[1290] The button is `disabled={!canConfirm || isAnalyzing}` — so "no effect" could mean no chapters selected (disabled), or `handleStartAnalysis` returns early. Let me read that handler and the guards.
+----
+A[1297] This is the **existing character-extraction flow** (`handleChapterSelectionConfirm` → `recognizeCharacters`), which I did not modify — and the 「作品文风」card only appears in the **analysis result page** (after extraction completes), so not seeing it is a consequence of analysis not running, not a separate bug. Let me pin down why "开始分析" does nothing — check `canConfirm` and whether recognition needs/f...
+----
+A[1304] Found it: the button is gated by `canConfirm = selectedCount > 0` (`chapter-selection-panel.tsx:142`) — if **no chapter checkboxes are ticked**, the button is disabled and clicking does nothing. And "标准" depth needs a working LLM (the proxy you gave returns 429). Let me confirm the fast path avoids the LLM so I can give you a clean diagnostic.
+----
+A[1311] Recognition's heuristic path uses `createHash` from `crypto` — but the chapter split (which **succeeded**, since you reached chapter selection) also relies on fingerprinting, so let me confirm `crypto` works in this build rather than guess.
+----
+A[1316] **Found the real bug.** `content-fingerprint.ts:4` explicitly notes Node `crypto` is **"浏览器不可用"** (unavailable in the webview) and uses FNV‑1a instead — but `character-recognition-engine.ts:1` does `import { createHash } from "crypto"`. In the production build that `createHash` is undefined, so the **moment recognition runs it throws → "开始分析" appears to do nothing**. This is a pre‑existing bug (I ...
+----
+A[1325] Confirmed and the fix is clean: `content-fingerprint.ts` already exports a browser-safe `fingerprintText` (FNV‑1a). `character-recognition-engine.ts` only uses `createHash` in `stableCharacterId`. Let me first scan the whole codebase for any other browser-incompatible `crypto` imports so I fix them all at once.
+----
+A[1330] Only one offending import. Fixing it to reuse the browser-safe FNV‑1a hash:
+----
+A[1338] Now check whether the recognition spec asserts the old sha256-based id, then typecheck:
+----
+A[1343] The spec only checks determinism + distinctness (no hardcoded hash value), so the algorithm swap is safe. Let me typecheck and run the affected tests:
+----
+A[1347] tsc clean, 111 book-analysis tests pass. Let me confirm the diagnosis with hard evidence — check whether the build log warned about externalizing `crypto`:
+----
+A[1351] **Confirmed with hard evidence** — the build log says:
+> Module "crypto" has been externalized for browser compatibility, imported by "…character-recognition-engine.ts"
+
+And it appears in the **previous** build log too (`build-stage345.log`), so this bug **pre-dates my 作品文风 feature** — it's been silently breaking character recognition in every production build. My fix removes that import. Rebuildi...
+----
+A[1355] 构建中。先说清楚诊断结果，构建完我再确认。
+
+## 根因（已用构建日志坐实）
+不是「作品文风」功能的问题，也不是你操作的问题，而是一个**早已存在的生产构建 bug**：
+
+- `character-recognition-engine.ts` 顶部 `import { createHash } from "crypto"` 用了 **Node 的 crypto**，但 Tauri 是浏览器环境，**没有 crypto**。Vite 把它"externalize"成空模块，于是 `createHash` 在打包后是 `undefined`。
+- 点「开始分析」→ 第一步就是启发式识别 → 调 `stableCharacterId()` → `createHash(...)` **当场抛错**→ 识别整体崩溃 → 表现就是"点了没反应、提取不出内容"。
+- 证据：构建日志里明确有 `Modu...
+----
+A[1364] 构建完成。验证 crypto 警告是否已消除 + 产物更新。
+----
+A[1375] crypto 修复生效了——识别能跑了（图3 已识别出角色）。但图3 暴露了两个问题，正如你说的：
+
+1. 正则启发式抽出来的全是垃圾名（"虽然不""在马车""吃完后""恩"…），要**改成只用 LLM 识别角色**。
+2. 角色选择弹窗点 **X 关闭**应回退到**章节页**，而不是拆书作品列表。
+
+先把识别编排和弹窗关闭逻辑读清楚再改。
+----
+A[1380] Now I see the orchestration: `recognizeCharacters` tries LLM then **falls back to heuristic** — Image #3's garbage names mean the LLM failed and it fell back to regex. The user wants LLM-only (no regex fallback). Let me read the recognition engine and the dialog close handler.
+----
+A[1387] `recognizeCharacters` isn't in this file's first 199 lines — let me find its definition and read the LLM recognizer.
+----
+A[1393] The "llm" path only **scores** the heuristic garbage candidates — it never discovers real names. There's a separate `character-llm-recognizer.ts` that isn't wired in. Let me read it.
+----
+A[1397] Now I have the full picture for #1: the real LLM recognizer (`llmRecognizeCharacters`) exists but isn't used — `recognizeCharacters` only heuristic+score. For #2, the character-selection dialog with the X is rendered inside `ChapterSelectionPanel`. Let me read that dialog + how the panel is wired in the view.
+----
+A[1408] The X is inside `CharacterSelectionPanel`, wired to `onCancel`. Let me find `showCharacterPicker`, the `CharacterSelectionPanel` component's X handler, and how the view passes `onCancel`.
+----
+A[1418] `CharacterSelectionPanel` X uses `onOpenChange → onCancel`. I need to see the bottom buttons, `showCharacterPicker`, how the view wires `onCancel`, and the spec. Reading those.
+----
+A[1425] `onCancel={handleChapterSelectionCancel}` is shared by both the chapter panel's 取消 and the picker's X. Let me see `handleChapterSelectionCancel` and `showCharacterPicker`, plus the picker spec.
+----
+A[1437] Root cause for #2 confirmed: the picker's X → `onCancel` → `handleChapterSelectionCancel` which **`cancelTask()` + closes the panel** → dumps to the 拆书作品 list (and creates those "用户取消分析" error cards in Image #4). 
+
+Let me check the picker's spec before renaming its prop.
+----
+A[1444] All confirmed. The picker's X cancels the whole task (creating the error cards in Image #4). Now implementing both fixes.
+
+**Fix #1 — LLM-only recognition.** Remove the now-unused heuristic import:
+----
+A[1455] **Fix #2 — picker close returns to chapter page.** First the picker component: add an `onClose` and wire the X + bottom button to it.
+----
+A[1470] Now `ChapterSelectionPanel` — add the pass-through prop:
+----
+A[1477] Now Edit C — the view passes `clearRecognition` as the picker-close handler:
+----
+A[1481] All wiring done. Typecheck + run the affected UI/recognition tests:
+----
+A[1490] Typecheck clean, 156 component/book-analysis tests pass. Full sweep + rebuild:
+----
+A[1494] All 1900 pass. Rebuilding the portable so you can test:
+----
+A[1497] 构建中（完成会通知）。先说明这次改了什么。
+
+## 修复内容
+
+**① 取消正则、只用 LLM 识别角色**
+- 之前 `recognizeCharacters` 是"正则启发式抽候选 + LLM 只打分"，正则把"虽然不/在马车/吃完后/恩"这些噪声当人名（图3 就是 LLM 调用失败后**回退到正则垃圾**的结果）。
+- 现在 `handleChapterSelectionConfirm` 直接调**真正的 LLM 识别器** `llmRecognizeCharacters`（它本来就在代码里，只是没被接上），让模型从正文直接识别真实人物（韩立、韩铸、三叔…），并明确忽略代词/称呼/副词/对话。
+- **不再回退正则**：没配模型 → 报错"未配置可用的模型…"；LLM 失败/识别为空 → 报错提示换模型重试。也就是说宁可明确报错，也不再给你一堆垃圾名。
+- 注：`depth`（快速/...
+----
+A[1502] 构建完成。确认产物。
+----
+A[1505] 打包完成，crypto 警告 0 处（已彻底消除）。
+
+## 产物
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, 构建于 08:15Z)
+```
+
+## 这版包含的全部修复（累计）
+1. **crypto 崩溃**：识别不再因 Node crypto 在浏览器缺失而崩 → 「开始分析」能跑。
+2. **只用 LLM 识别角色**：删掉正则垃圾候选，直接 LLM 识别真实人名；失败明确报错，不再回退垃圾。
+3. **关闭角色弹窗回到章节页**：X / “返回章节” → 回章节选择页，不取消任务、不再产生“用户取消”错误卡片。
+4. （以及此前的）五阶段省 token + 作品文风提取/启用/生成联动。
+
+## 测试重点
+1. 拆 `凡人1` → 选章节 → 开始分析 → **识别结果应是真实人名**（韩立、韩铸、三叔…），不再有“...
+----
+A[1510] 可能是我改动后的预期行为（LLM 失败不再回退、也就不再弹窗），也可能是我引入了 bug。先重读改完后的 `handleChapterSelectionConfirm`，确认成功路径仍会弹窗、失败路径有明确提示。
+----
+A[1517] Success path is correct (sets `done` + characters → dialog shows). So recognition is **failing** — and the problem is `callLlmForRecognition` swallows the streamChat error (only `console.error`), so a 429/network failure returns an empty string → my code reports the misleading "没识别出角色" (or nothing obvious). Let me also verify which `llmConfig` recognition uses.
+----
+A[1522] `handleChapterSelectionConfirm` uses the correctly-resolved model (lines 70‑73). So the "no dialog" has two likely culprits, both in `character-llm-recognizer.ts`:
+1. `callLlmForRecognition` **swallows** the streamChat error → a 429/network failure returns "" → misreported as "no characters" (no clear error).
+2. `llmRecognizeCharacters` **drops every character lacking `chapterIndices`** (line 92) ...
+----
+A[1530] No spec on this recognizer — safe to fix both. Applying:
+
+**Fix 1** — surface the real LLM error instead of swallowing it:
+----
+A[1533] **Fix 2** — keep characters even when the model omits `chapterIndices`:
+----
+A[1540] Let me lock in both fixes with a focused spec (none existed for this recognizer), using the `_llmCall` injection point:
+----
+A[1547] tsc clean, 114 book-analysis tests pass (+3 new). Quick full sweep, then rebuild:
+----
+A[1551] All 1903 pass. Rebuilding:
+----
+A[1557] 构建中（完成会通知）。先说明这次的根因和修复。
+
+## 为什么"开始分析"后不弹角色窗
+我上一版把识别改成"只用 LLM、不再回退正则"，于是 LLM 识别一旦没产出，就**不弹窗**（不再用垃圾名兜底）。而"没产出"有两种隐藏原因，都被吃掉了：
+
+1. **错误被吞了**：`callLlmForRecognition` 的 `onError` 只 `console.error`，不抛出。所以模型 **429 / 网络失败**时返回空串 → 被当成"没识别出角色"，你看不到真正原因（甚至连弹窗带提示都没有）。
+2. **没返回章节号的角色被全部丢弃**：识别器原本要求每个角色都带 `chapterIndices`，否则 `continue` 跳过。很多模型**不稳定返回章节索引**，结果"识别成功却 0 个角色 → 不弹窗"。
+
+## 已修（`character-llm-recognize...
+----
+A[1562] 构建完成。确认产物。
+----
+A[1565] 打包完成。
+
+## 产物
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, 构建于 08:26Z)
+```
+
+## 这版关键修复
+- **识别失败不再静默**：模型 429/网络错误会明确弹 toast「角色识别失败：<真实原因>」，不再表现为"点了没反应/不弹窗"。
+- **缺章节号的角色不再被丢弃**：只要模型返回了角色名就保留 → 模型正常时一定会弹角色列表。
+- （累计）只用 LLM 识别真实人名、关闭弹窗回章节页、crypto 崩溃修复、五阶段省 token、作品文风提取/启用。
+
+## 测试要点
+1. 配**有额度的模型** → 开始分析 → 应弹出**真实人名**列表（韩立、韩铸、三叔…）。
+2. 若模型没额度 → 现在会明确告诉你失败原因（而不是无反应）→ 换模型即可。
+3. 关闭弹窗回**章节页**；选角色→提取→...
+----
+A[1570] 现在错误清晰了——**HTTP 524 是 Cloudflare 超时**（代理后端在 100 秒内没返回响应头）。这说明我的"暴露真实错误"修复生效了。524 的常见原因是**识别请求太大/模型太慢**：识别会把你选中的**所有**章节正文拼进一个 prompt 发给模型，章节一多就超时。
+
+修复方向：识别时对章节数封顶（均匀抽样足够找出主要角色），并对超时类错误给出可操作提示。先看识别器当前发送逻辑。
+----
+A[1578] Now add the constant + sampling helper near the top of the file:
+----
+A[1583] Now add a timeout-specific hint to the recognition error so the user knows what to do:
+----
+A[1587] Add a test for the chapter cap, then verify and rebuild:
+----
+A[1595] tsc clean, 4 recognizer tests pass. Rebuilding:
+----
+A[1598] 构建中（完成会通知）。说明这次的修复。
+
+## HTTP 524 是什么
+524 = **Cloudflare 超时**：你配的模型接口在 Cloudflare 后面，后端 100 秒内没返回响应头，Cloudflare 就掐断。能看到这个清晰错误，说明上一版"暴露真实错误"已生效。
+
+## 为什么会超时 + 已修
+识别原本把你选中的**所有章节**正文拼进一个 prompt 发给模型。章节一多 prompt 巨大、模型迟迟不返回 → 524。
+
+- **章节数封顶**（`character-llm-recognizer.ts`）：识别最多送 **12 章**，首/中/尾均匀抽样——找主角/配角根本不需要全书，这样 prompt 小、返回快，基本能避开 524。
+- **超时类错误给可操作提示**：以后再遇到 524/超时，toast 会显示「…（请求超时：可少选几章、或更换更快/更稳定的...
+----
+A[1605] 打包完成。
+
+## 产物
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, 构建于 08:35Z)
+```
+
+## 这版针对 524 的修复
+- **识别最多发 12 章样本**（首/中/尾均匀抽样）→ prompt 变小、模型更快返回，基本避开 Cloudflare 524 超时。
+- 再遇超时会提示「可少选几章、或更换更快/更稳定的模型」。
+
+## 你再测
+1. 直接「开始分析」——即便选了很多章，识别也只发 12 章样本，应能在超时前返回真实人名列表。
+2. 若**仍 524**：是这个免费代理后端本身太慢/不稳，换个更快更稳的接口即可。
+3. 想更保险：先少选几章。
+
+如果这版能正常弹出真实角色 → 选角色 → 提取 → 结果页测「作品文风」，整条链路就通了。确认 OK 后我把这一系列改动**一次性提交**。继续有问题就发我...
+----
+A[1611] Stale-state bug: after book A's recognition, the store's `recognizedCharacters` + `recognitionStatus: "done"` are never cleared. When book B's chapter panel mounts, `showCharacterPicker` (`recognitionStatus === "done" && recognizedCharacters.length > 0`) is immediately true → shows A's characters. Fix: reset recognition state when a new import starts. Let me place it precisely.
+----
+A[1620] Also key the chapter panel by task so switching books remounts it fresh (prevents the analogous "B shows A's checked chapters" staleness):
+----
+A[1624] Typecheck + full sweep, then rebuild:
+----
+A[1628] tsc clean, 1904 pass. Rebuilding:
+----
+A[1631] 构建中（完成会通知）。说明这次的修复。
+
+## 根因
+角色识别结果存在全局 store 里（`recognizedCharacters` + `recognitionStatus`）。A 作品识别+提取后，**这份状态从没被清空**。导入 B 时，B 的章节面板一挂载，弹窗的显示条件 `recognitionStatus === "done" && recognizedCharacters.length > 0` 立刻成立 → 直接把 **A 的 9 个角色**叠在 B 的章节页上。
+
+## 已修
+1. **新导入即清空识别状态**：`handleStartAnalysis` 一开始就调 `clearRecognition()`（重置识别状态、角色列表、已选项）。导入 B 时 A 的残留被清掉 → B 的章节页干净，不再弹 A 的角色。
+2. **章节面板按任务 key 重挂载**：`<C...
+----
+A[1639] 打包完成。
+
+## 产物
+```
+E:\QMAI\release-portable\QMaiWrite.exe   (143 MB, 构建于 08:42Z)
+```
+
+## 这版修复（跨书残留）
+- **新导入即清空上一本的识别结果** → 导入 B 不再弹 A 的角色。
+- **章节面板按任务重挂载** → 换书时已勾选章节等内部状态也重置。
+
+## 测试
+导入 A → 识别/提取 → 再导入 B → 应**只显示 B 的章节页**，点 B 的「开始分析」才识别 B 的角色。
+
+---
+
+拆书这条链路至今攒了 6 处修复（均未提交）：
+1. crypto 崩溃（识别能跑）
+2. 只用 LLM 识别真实人名（删正则垃圾）
+3. 关闭角色弹窗回章节页（不再误取消任务）
+4. 识别错误不再被吞（明确报错）
+5. HTTP 524：识别章节封顶 12 + 超时提示
+6. 跨书识别结果残留清空
+
+...
+----
+A[1655] API Error: Request rejected (429) · Service Unavailable
+----
+A[1660] API Error: Request rejected (429) · Service Unavailable
+----

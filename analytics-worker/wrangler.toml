@@ -1,0 +1,11 @@
+name = "qmai-analytics"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "qmai-analytics-db"
+database_id = "884bb0bb-c024-4cff-b062-b3b4e783a5cf"
+
+[triggers]
+crons = ["0 * * * *"]

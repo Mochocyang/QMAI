@@ -1,0 +1,126 @@
+# Reasonix configuration.
+# Resolution order: flag > ./reasonix.toml > ~/AppData/Roaming/reasonix/config.toml > built-in defaults.
+# Secrets come from the environment via api_key_env; never put keys here.
+
+config_version = 2   # schema marker for diagnostics; old versions may ignore it
+default_model = "deepseek-flash"
+# language      = "zh"   # ui/model language; empty = auto-detect from $LANG / $REASONIX_LANG
+
+[agent]
+# system_prompt = """..."""   # omit to use the built-in prompt for this version
+# system_prompt_file = "prompts/system.md"   # overrides system_prompt when set
+# max_steps         = 0   # executor tool-call rounds; 0 = no limit
+# planner_max_steps = 12   # planner read-only tool-call rounds; 0 = no limit
+temperature       = 0.0
+auto_plan   = "off"   # off|on; off keeps plan mode manual
+# reasoning_language = "zh"   # visible reasoning language: auto|zh|en
+# auto_plan_classifier = "deepseek-flash"   # optional; only used for borderline tasks
+soft_compact_ratio  = 0.5   # notice only; keeps cache-first prefix intact
+compact_ratio       = 0.8   # try compacting when prompt reaches this fraction
+compact_force_ratio = 0.9   # force compacting at this high-water mark
+# keep                = ["errors"]   # compaction keep policy: errors, user_marked
+# recent_keep         = 2   # minimum recent messages kept verbatim
+cold_resume_prune   = true   # elide stale tool results when reopening a session past the provider cache window
+# planner_model = "mimo"   # optional: enable two-model collaboration
+# subagent_model = "deepseek-pro"   # optional default for runAs=subagent skills
+# subagent_models = { review = "deepseek-pro", security_review = "deepseek-pro" }   # per-skill overrides
+# subagent_effort = "high"   # optional default effort for subagents
+# subagent_efforts = { review = "max", task = "high" }   # per-tool/skill effort overrides
+# output_style = "explanatory"   # explanatory | learning | concise | custom; empty = default
+
+[[providers]]
+name        = "deepseek-flash"
+kind        = "openai"
+base_url    = "https://api.deepseek.com"
+model       = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+balance_url = "https://api.deepseek.com/user/balance"   # optional; wallet-balance endpoint shown in the status bar
+context_window = 1000000   # tokens; compaction triggers near this limit
+price       = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" }   # provider-wide fallback, per 1M tokens
+prices      = { "deepseek-v4-flash" = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" } }   # per-model prices, per 1M tokens
+
+[[providers]]
+name        = "deepseek-pro"
+kind        = "openai"
+base_url    = "https://api.deepseek.com"
+model       = "deepseek-v4-pro"
+api_key_env = "DEEPSEEK_API_KEY"
+balance_url = "https://api.deepseek.com/user/balance"   # optional; wallet-balance endpoint shown in the status bar
+context_window = 1000000   # tokens; compaction triggers near this limit
+price       = { cache_hit = 0.025, input = 3, output = 6, currency = "¥" }   # provider-wide fallback, per 1M tokens
+prices      = { "deepseek-v4-pro" = { cache_hit = 0.025, input = 3, output = 6, currency = "¥" } }   # per-model prices, per 1M tokens
+
+[[providers]]
+name        = "mimo-pro"
+kind        = "openai"
+base_url    = "https://token-plan-cn.xiaomimimo.com/v1"
+model       = "mimo-v2.5-pro"
+api_key_env = "MIMO_API_KEY"
+context_window = 1000000   # tokens; compaction triggers near this limit
+price       = { cache_hit = 0.025, input = 3, output = 6, currency = "¥" }   # provider-wide fallback, per 1M tokens
+no_proxy    = true   # reach this base_url directly, never via the proxy
+
+[[providers]]
+name        = "mimo-flash"
+kind        = "openai"
+base_url    = "https://token-plan-cn.xiaomimimo.com/v1"
+model       = "mimo-v2.5"
+api_key_env = "MIMO_API_KEY"
+context_window = 1000000   # tokens; compaction triggers near this limit
+price       = { cache_hit = 0.02, input = 1, output = 2, currency = "¥" }   # provider-wide fallback, per 1M tokens
+no_proxy    = true   # reach this base_url directly, never via the proxy
+
+[tools]
+enabled = []   # empty = all built-in tools
+bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local cap
+
+[tools.background_jobs]
+stalled_warning_seconds = 900   # warn once per background job after this many quiet seconds; 0 disables
+
+[lsp]
+enabled = true   # language server tools; servers launch lazily when used
+# [lsp.servers.go]
+# command = "gopls"
+# args = []
+# extensions = [".go"]
+
+[skills]
+# paths = ["~/my-skills", "../shared/skills"]   # extra custom skill roots
+# excluded_paths = ["~/.agents/skills"]   # hide convention roots without deleting folders
+# max_depth = 3   # nested scan depth; set 1 for legacy root-only discovery
+# disabled_skills = ["review"]   # hide noisy or unwanted skills
+
+[permissions]
+# Per-call gating. mode = writer fallback when no rule matches: ask|allow|deny.
+# Readers always default to allow. Precedence: deny > ask > allow > fallback.
+# Rules are "Tool" or "Tool(specifier)"; e.g. Bash(go test:*), Edit(src/**).
+mode  = "ask"
+# deny = ["Bash(rm -rf*)", "Bash(git push*)"]   # hard-blocked in every mode
+allow = ["task", "Edit", "Bash(cd /e/QMAI && git status && echo \"=== 当前分支 ===\" && git branch --show-current)"]
+# ask = ["Edit(src/**)"]   # force a prompt even if otherwise allowed
+
+[sandbox]
+# Confine tool blast radius. File-writers (write_file/edit_file/multi_edit/move_file)
+# may only write under workspace_root (empty = current dir) and allow_write extras.
+# bash = "enforce" (default) jails each command in an OS sandbox (macOS now;
+# graceful fallback elsewhere); "off" disables it. network allows egress.
+# workspace_root = ""            # default: current working directory
+# allow_write = ["/tmp"]          # extra dirs writers may also modify
+bash    = "enforce"
+network = true
+
+[statusline]
+# A custom status line: a command whose first stdout line replaces the built-in
+# data row. It receives {"model","contextUsed","contextWindow","cwd"} as JSON on stdin.
+# command = "my-statusline.sh"
+
+# External MCP servers. type: "stdio" (default, a subprocess) | "http" | "sse".
+# ${VAR} / ${VAR:-default} are expanded from the environment in command/args/env/url/headers.
+# [[plugins]]
+# name    = "example"
+# command = "reasonix-plugin-example"
+# [[plugins]]                                  # a remote server over Streamable HTTP
+# name    = "stripe"
+# type    = "http"
+# url     = "https://mcp.stripe.com"
+# headers = { Authorization = "Bearer ${STRIPE_KEY}" }

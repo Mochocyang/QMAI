@@ -1,0 +1,113 @@
+import { buildLanguageDirective } from "@/lib/output-language"
+
+export const PROMPTS = {
+  chapterGeneration: (contextPack: string, chapterGoal: string) =>
+    [
+      contextPack,
+      "",
+      "请根据以上上下文包和大纲，撰写以下章节：",
+      chapterGoal,
+      "",
+      "要求：",
+      "1. 严格遵循大纲中的情节走向",
+      "2. 保持人物性格和说话方式一致",
+      "3. 不要泄露角色尚不知道的信息",
+      "4. 注意伏笔的埋设和回收",
+      "5. 章节结尾要有钩子，吸引读者继续阅读",
+      "6. 字数控制在 3000-5000 字",
+    ].join("\n"),
+
+  chapterContinuation: (contextPack: string, lastParagraph: string) =>
+    [
+      contextPack,
+      "",
+      "上一段内容：",
+      lastParagraph,
+      "",
+      "请续写以下内容，保持风格和节奏一致：",
+    ].join("\n"),
+
+  chapterRevision: (contextPack: string, originalContent: string, revisionNotes: string) =>
+    [
+      contextPack,
+      "",
+      "原始章节内容：",
+      originalContent.slice(0, 6000),
+      "",
+      "修改要求：",
+      revisionNotes,
+      "",
+      "请根据修改要求重写章节，保持其他部分不变：",
+    ].join("\n"),
+
+  outlineGeneration: (genre: string, scale: string, premise: string, context = "") =>
+    [
+      `请为以下小说生成大纲：`,
+      "",
+      `类型：${genre}`,
+      `规模：${scale}`,
+      `核心设定：${premise}`,
+      "",
+      "已有故事记忆与项目资料（如果有）：",
+      context || "暂无可用的剧情记忆、卡片故事或设定，请基于本次大纲提示词先生成初始版大纲。",
+      "",
+      buildLanguageDirective(premise),
+      "",
+      "请输出以下内容：",
+      "1. 总大纲（包含起承转合、主要冲突线、情感线）",
+      "2. 分卷大纲（根据规模合理分卷，每卷10-20章，标注每卷核心事件和转折点）",
+      "3. 主要人物设定（姓名、性格、动机、人物弧线、关键关系）",
+      "4. 世界观设定（核心设定规则、势力分布、能力体系、重要地点）",
+      "5. 伏笔计划（主要伏笔的埋设、推进、回收节点）",
+    ].join("\n"),
+
+  outlineRefinementGeneration: (outlineContext: string, sectionHints: string, userRequest: string) =>
+    [
+      "请基于已有大纲和项目记忆，对小说进行一次统一的细化生成。",
+      "",
+      "硬性约束：",
+      "1. 已有大纲、人物状态、角色认知、伏笔状态、时间线、正史规则和项目记忆都是最高优先级，不得推翻。",
+      "2. 本次用户要求只能用于补充、聚焦和完善，不得改写既定主线和核心设定。",
+      "3. 如果信息不足，只能做最小必要补完，且必须与现有设定兼容。",
+      "",
+      "已有大纲与项目记忆：",
+      outlineContext,
+      "",
+      "本次细化重点：",
+      userRequest.trim() || "未额外指定，请基于已有大纲与项目记忆完成全量细化。",
+      "",
+      buildLanguageDirective(userRequest || outlineContext),
+      "",
+      "请一次性覆盖以下 6 类细化内容：",
+      sectionHints,
+      "",
+      "输出要求：",
+      "1. 只返回一个 JSON 对象，不要输出解释、前言、额外说明或代码块外文本。",
+      "2. JSON 必须包含以下 6 个字段，且每个字段的值都必须是字符串形式的中文 Markdown：",
+      '   - "chapterOutlines"',
+      '   - "characterBriefs"',
+      '   - "organizationsOutline"',
+      '   - "powerSystem"',
+      '   - "foreshadowingPlan"',
+      '   - "locationsOutline"',
+      "3. chapterOutlines 必须体现章节目标、冲突、转折和结尾钩子。",
+      "4. characterBriefs 必须覆盖人物动机、弧线、关系和当前状态。",
+      "5. organizationsOutline、powerSystem、locationsOutline 必须写清规则、限制、代价、归属与剧情作用。",
+      "6. foreshadowingPlan 必须体现伏笔的埋设、推进、回收节点和对应章节。",
+    ].join("\n"),
+
+  consistencyCheck: (contextPack: string, chapterContent: string) =>
+    [
+      contextPack,
+      "",
+      "请检查以下章节的连贯性：",
+      chapterContent.slice(0, 8000),
+      "",
+      "检查维度：",
+      "1. 人设一致性",
+      "2. 时间线准确性",
+      "3. 伏笔状态",
+      "4. 角色认知合理性",
+      "5. 设定一致性",
+    ].join("\n"),
+} as const

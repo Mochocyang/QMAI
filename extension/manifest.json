@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Wiki Clipper",
+  "version": "0.1.0",
+  "description": "Clip web pages to your LLM Wiki knowledge base",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:19827/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["Readability.js", "Turndown.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

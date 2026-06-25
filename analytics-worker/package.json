@@ -1,0 +1,16 @@
+{
+  "name": "qmai-analytics-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create qmai-analytics-db",
+    "db:migrate": "wrangler d1 execute qmai-analytics-db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0",
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "typescript": "^5.7.0"
+  }
+}

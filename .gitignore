@@ -1,0 +1,54 @@
+# === 构建产物 ===
+dist/
+release-portable/
+release-portable-*/
+release-portable-backup/
+release-github/
+src-tauri/target/
+*.tsbuildinfo
+.env
+.env.*
+
+# === 依赖 ===
+node_modules/
+
+# === 测试文件 ===
+tests/
+src/test-helpers/*
+!src/test-helpers/
+!src/test-helpers/load-test-env.ts
+**/*.test.ts
+**/*.test.tsx
+!src/lib/chat-copy-content.test.ts
+!src/lib/dashboard-issue-actions.test.ts
+!src/lib/tauri-fetch.test.ts
+!src/lib/novel/start-review-run.test.ts
+!src/lib/web-fs.spec.ts
+!src/lib/graph-relevance.spec.ts
+!src/lib/chat-request-budget.test.ts
+
+# === 根目录文档（仅本地保留）===
+/docs/
+/AGENTS.md
+/PDD.MD
+/QM-QUAI.md
+/soul.md
+/ter
+/_fix_encoding.py
+
+# === 中文命名文档 ===
+提示词.md
+项目完成度分析报告.md
+soul文档软件更新分析.md
+
+# === IDE / 工具临时文件 ===
+.worktrees/
+.worktrees
+.superpowers/
+.tmp-*/
+.codex-temp/
+.codex-*.log
+.trae/
+
+# === 杂项 ===
+/1.txt

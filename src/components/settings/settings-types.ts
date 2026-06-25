@@ -1,0 +1,87 @@
+import type { CustomApiMode } from "./llm-presets"
+import type { AzureModelFamily, ReasoningConfig, SourceWatchConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
+
+/**
+ * Shape of the draft state each section reads from and writes into.
+ * The parent (SettingsView) owns one instance and hands it to every
+ * section; the Save button at the bottom flushes the whole draft to
+ * stores + disk in one commit.
+ */
+export interface SettingsDraft {
+  // LLM provider
+  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"
+  apiKey: string
+  model: string
+  ollamaUrl: string
+  customEndpoint: string
+  azureApiVersion: string
+  azureModelFamily: AzureModelFamily
+  maxContextSize: number
+  apiMode: CustomApiMode | undefined
+  reasoning: ReasoningConfig | undefined
+  localCliIsolation: boolean
+
+  // Embedding
+  embeddingEnabled: boolean
+  embeddingEndpoint: string
+  embeddingApiKey: string
+  embeddingModel: string
+  /** Optional Gemini native output_dimensionality. Empty = provider default. */
+  embeddingOutputDimensionality: number | undefined
+  /** Target characters per chunk. Empty = use chunker default (1000). */
+  embeddingMaxChunkChars: number | undefined
+  /** Overlap characters between adjacent chunks. Empty = default (200). */
+  embeddingOverlapChunkChars: number | undefined
+
+  // Multimodal (image captioning at ingest time)
+  multimodalEnabled: boolean
+  multimodalUseMainLlm: boolean
+  multimodalProvider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"
+  multimodalApiKey: string
+  multimodalModel: string
+  multimodalOllamaUrl: string
+  multimodalCustomEndpoint: string
+  multimodalAzureApiVersion: string
+  multimodalAzureModelFamily: AzureModelFamily
+  multimodalApiMode: CustomApiMode | undefined
+  multimodalConcurrency: number
+
+  // Output preferences
+  outputLanguage: OutputLanguage
+  maxHistoryMessages: number
+
+  // Network — global outbound HTTP proxy. Persisted to app-state.json
+  // and read by the Rust setup hook on app launch (changes apply
+  // after restart). See src/lib/proxy-config.ts.
+  proxyEnabled: boolean
+  proxyUrl: string
+  proxyBypassLocal: boolean
+  clipServerEnabled: boolean
+  clipServerPort: number
+
+  // Scheduled Import
+  scheduledImportEnabled: boolean
+  scheduledImportPath: string
+  scheduledImportInterval: number // minutes
+
+  // UI
+  uiLanguage: string
+  uiFontSizeScale: number
+
+  // Source folder auto watch
+  sourceWatchConfig: SourceWatchConfig
+
+  // Novel feedback window
+  revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
+
+  // Novel config
+  novelConfig: NovelConfig
+
+  // Retrieval rerank config
+  rerankConfig: RerankConfig
+}
+
+export type DraftSetter = <K extends keyof SettingsDraft>(
+  key: K,
+  value: SettingsDraft[K],
+) => void

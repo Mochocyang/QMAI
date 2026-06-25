@@ -1,0 +1,8 @@
+[package]
+name = "qmai-data-cleaner"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "QMaiDataCleaner"
+path = "src/main.rs"
