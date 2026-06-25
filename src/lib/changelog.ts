@@ -78,6 +78,31 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_TWENTY_THREE_CHANGELOG: ChangelogEntry = {
+  version: "2.2.23",
+  date: "2026-06-25",
+  highlights: {
+    en: [
+      "Fixed 'Follow AI Chat Model' checkbox missing and not following: restored checkbox UI and corrected model fallback priority to aiChatModel > defaultLlmModel.",
+      "Fixed DeepSeek model stalling during writing: auto reasoning mode no longer forced to high; novel generation uses config.reasoning directly.",
+      "Fixed scrollbar jumping when deleting text in chapter editor: preserves scroll position during textarea resize.",
+      "Fixed backup import losing chapters and outlines after QMBOOK folder deleted: unified wiki directory name in exports, auto-migrates wiki→QM on import, restores project names from backup.",
+      "Added 'Restore Data' button on welcome/login page for one-click backup import.",
+      "Fixed inability to delete ghost entries (missing files): moveFileToTrash handles missing files gracefully instead of aborting.",
+      "Fixed nested path virtualization bug causing delete failures on files in nested QM directories (wiki/outlines/1/wiki/chapters/...): now replaces all legacy path segments, not just the last one.",
+    ],
+    zh: [
+      "修复「跟随 AI 会话模型」复选框丢失且无法跟随的问题：恢复复选框 UI，修正模型回退优先级为 aiChatModel > defaultLlmModel。",
+      "修复 DeepSeek 模型写作卡顿问题：auto 推理模式不再强制转为 high，小说写作直接使用 config.reasoning。",
+      "修复章节编辑器删除文字时滚动条跳动：在 textarea resize 前后保存并恢复滚动容器位置。",
+      "修复重装系统后备份导入丢失章节和大纲的问题：导出统一以 wiki 目录名打包，导入后自动迁移 wiki→QM、.llm-wiki→.qmai，恢复项目原始名称。",
+      "登录/欢迎页新增「恢复数据」按钮，支持一键导入备份。",
+      "修复文件已丢失的幽灵条目无法删除的问题：moveFileToTrash 容错处理不存在的文件，不中断删除流程。",
+      "修复嵌套路径虚拟化导致部分条目无法删除的问题：路径中包含多个 wiki/QM 段时全量替换，而非仅替换最后一个。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_TWENTY_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.2.22",
   date: "2026-06-23",
@@ -536,6 +561,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_TWENTY_THREE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_THREE_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_TWO_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_TWO_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_ONE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_ONE_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_CHANGELOG]
@@ -563,6 +589,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_TWENTY_THREE_CHANGELOG,
     TWO_POINT_TWO_TWENTY_TWO_CHANGELOG,
     TWO_POINT_TWO_TWENTY_ONE_CHANGELOG,
     TWO_POINT_TWO_TWENTY_CHANGELOG,
