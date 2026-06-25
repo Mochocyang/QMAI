@@ -25,6 +25,7 @@ const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".qmai";
 const LEGACY_META_DIR: &str = ".llm-wiki";
 
+#[allow(dead_code)]
 fn replace_last_path_segment(path: &str, from: &str, to: &str) -> Option<String> {
     let mut parts: Vec<&str> = path.split('/').collect();
     let index = parts.iter().rposition(|part| *part == from)?;
@@ -32,16 +33,42 @@ fn replace_last_path_segment(path: &str, from: &str, to: &str) -> Option<String>
     Some(parts.join("/"))
 }
 
+/// Replace **all** path segments matching `from` with `to`.
+/// Used when the path may contain multiple legacy directory names
+/// (e.g. `wiki/outlines/1/wiki/chapters/xxx.md` → `QM/outlines/1/QM/chapters/xxx.md`).
+fn replace_all_path_segments(path: &str, from: &str, to: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut changed = false;
+    let replaced: Vec<String> = parts
+        .iter()
+        .map(|part| {
+            if *part == from {
+                changed = true;
+                to.to_string()
+            } else {
+                part.to_string()
+            }
+        })
+        .collect();
+    if changed {
+        Some(replaced.join("/"))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn resolve_project_storage_path(path: &str) -> String {
     let normalized = path.replace('\\', "/");
 
-    if let Some(candidate) = replace_last_path_segment(&normalized, LEGACY_META_DIR, META_DIR) {
+    // 先尝试替换所有 .llm-wiki → .qmai（可能有多个嵌套）
+    if let Some(candidate) = replace_all_path_segments(&normalized, LEGACY_META_DIR, META_DIR) {
         if Path::new(&candidate).exists() || !Path::new(&normalized).exists() {
             return candidate;
         }
     }
 
-    if let Some(candidate) = replace_last_path_segment(&normalized, LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR) {
+    // 再尝试替换所有 wiki → QM（可能有多个嵌套）
+    if let Some(candidate) = replace_all_path_segments(&normalized, LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR) {
         if Path::new(&candidate).exists() || !Path::new(&normalized).exists() {
             return candidate;
         }
