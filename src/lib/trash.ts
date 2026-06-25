@@ -157,7 +157,16 @@ export async function moveFileToTrash(
   const name = getBaseName(normalizedPath)
   const id = makeTrashId(now)
   const trashPath = `${trashFilesDir(pp)}/${id}${getExtension(name)}`
-  const content = await readFile(normalizedPath)
+
+  // 尝试读取文件内容；如果文件不存在（损坏/幽灵条目），用空内容占位，
+  // 确保删除操作不会因为读不到文件而失败
+  let content: string
+  try {
+    content = await readFile(normalizedPath)
+  } catch {
+    content = ""
+  }
+
   await ensureTrashDirs(pp)
   await writeFile(trashPath, content)
   const item: TrashItem = {
@@ -171,7 +180,14 @@ export async function moveFileToTrash(
   }
   const items = await readTrashItems(pp)
   await writeTrashItems(pp, [item, ...items])
-  await deleteFile(normalizedPath)
+
+  // 删除原文件，忽略不存在的情况（幽灵条目）
+  try {
+    await deleteFile(normalizedPath)
+  } catch {
+    // 文件可能已经不存在，静默继续
+  }
+
   return item
 }
 

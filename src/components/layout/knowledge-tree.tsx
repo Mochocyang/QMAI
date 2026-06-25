@@ -451,11 +451,16 @@ export function KnowledgeTree({
         } catch { /* ignore */ }
       }
       await moveFileToTrash(projectPath, pagePath, filterType)
-      await cleanupDeletedSourceMemory(projectPath, {
-        kind: filterType,
-        pagePath,
-        content: sourceContent,
-      })
+      try {
+        await cleanupDeletedSourceMemory(projectPath, {
+          kind: filterType,
+          pagePath,
+          content: sourceContent,
+        })
+      } catch (e) {
+        // 记忆清理失败不影响文件删除本身
+        console.warn("[KnowledgeTree] 清理关联记忆失败:", e)
+      }
       await loadPages()
       onRemovePendingPage?.(pagePath)
       const tree = await listDirectory(projectPath)
@@ -491,19 +496,30 @@ export function KnowledgeTree({
     try {
       const projectPath = normalizePath(project.path)
       for (const filePath of mdFiles) {
-        await moveFileToTrash(projectPath, filePath, fileKind)
-        await cleanupDeletedSourceMemory(projectPath, {
-          kind: fileKind,
-          pagePath: filePath,
-        })
+        try {
+          await moveFileToTrash(projectPath, filePath, fileKind)
+          await cleanupDeletedSourceMemory(projectPath, {
+            kind: fileKind,
+            pagePath: filePath,
+          })
+        } catch (e) {
+          // 单个文件删除失败不影响整体流程（如文件已不存在的幽灵条目）
+          console.warn("[KnowledgeTree] 删除文件失败，继续处理下一个:", filePath, e)
+        }
         onRemovePendingPage?.(filePath)
       }
 
-      const remainingNodes = await listDirectory(normalizedFolderPath).catch(() => [])
-      if (flattenAllFiles(remainingNodes).length === 0) {
-        await deleteFile(normalizedFolderPath)
-      } else {
-        window.alert(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+      // 尝试删除文件夹：如果目录不存在或已空，直接删除；
+      // 这样能清理掉那些文件已丢失、只剩空壳目录的幽灵条目
+      try {
+        const remainingNodes = await listDirectory(normalizedFolderPath).catch(() => [])
+        if (flattenAllFiles(remainingNodes).length === 0) {
+          await deleteFile(normalizedFolderPath)
+        } else {
+          window.alert(t("knowledgeTree.deleteFolderBlocked", { name: folderName }))
+        }
+      } catch {
+        // 目录可能已经不存在了，直接视为删除成功
       }
 
       await loadPages()
