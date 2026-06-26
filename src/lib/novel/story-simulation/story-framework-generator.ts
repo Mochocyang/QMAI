@@ -80,6 +80,9 @@ export async function generateStoryFramework(
   const framework: StoryFramework = {
     id: `framework-${Date.now()}`,
     title: buildTitle(parsed.premise, userIdea),
+    shortTitle: typeof parsed.shortTitle === 'string' && parsed.shortTitle.trim()
+      ? parsed.shortTitle.trim().slice(0, 10)
+      : buildShortTitle(parsed.premise, userIdea),
     premise: strOr(parsed.premise, ""),
     targetWords,
     simulationMode: mode,
@@ -117,11 +120,13 @@ function buildMessages(
     "   - expectedOutcome：预期导致的结局或转折",
     "3. 节点之间必须有明确的因果链：后一节点的 causeFromPrev 应承接前一节点的 expectedOutcome。",
     "4. premise：用一两句话概括整个故事的核心前提。",
-    "5. 只输出一个 JSON 对象，不要输出任何解释、注释或多余文字。",
+    "5. shortTitle：为这个故事框架取一个简短标题（4-8个字），用于侧边栏显示，如'指认风波'、'毒影疑云'。",
+    "6. 只输出一个 JSON 对象，不要输出任何解释、注释或多余文字。",
     "",
     "输出格式（严格遵循）：",
     "{",
     '  "premise": "故事核心前提",',
+    '  "shortTitle": "简短标题",',
     '  "nodes": [',
     "    {",
     '      "phase": "起",',
@@ -276,6 +281,7 @@ function collectStream(
 
 interface ParsedFramework {
   premise?: unknown
+  shortTitle?: unknown
   nodes?: unknown
 }
 
@@ -387,6 +393,7 @@ function buildEmptyFramework(
   return {
     id: `framework-${Date.now()}`,
     title: "故事框架（生成失败，已回退为空框架）",
+    shortTitle: "生成失败",
     premise: reason,
     targetWords: options.targetWords,
     simulationMode: options.mode,
@@ -405,6 +412,13 @@ function buildTitle(premise: unknown, userIdea?: string): string {
     return truncate(premise.trim(), 30)
   }
   return "故事框架"
+}
+
+function buildShortTitle(premise: unknown, userIdea?: string): string {
+  const source = userIdea || (typeof premise === "string" ? premise : "")
+  if (!source) return "故事框架"
+  // 取前8个字符作为简短标题
+  return source.trim().slice(0, 8)
 }
 
 function truncate(text: string, max: number): string {
