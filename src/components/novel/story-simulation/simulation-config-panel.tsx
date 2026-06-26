@@ -15,6 +15,13 @@ const MODES = [
 ]
 
 const CHAPTER_OPTIONS = [5, 10, 20, 30, 50]
+const ROUND_OPTIONS = [
+  { value: 0, label: "自动（按字数）" },
+  { value: 2, label: "快速（2轮）" },
+  { value: 3, label: "标准（3轮）" },
+  { value: 5, label: "深度（5轮）" },
+  { value: 8, label: "充分（8轮）" },
+]
 
 const WORD_LABEL_KEYS: Record<number, string> = {
   10000: "storySimulation.words10k",
@@ -32,10 +39,12 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
   const userIdea = useStorySimulationStore((s) => s.userIdea)
   const targetWords = useStorySimulationStore((s) => s.targetWords)
   const sourceChapters = useStorySimulationStore((s) => s.sourceChapters)
+  const simulationRounds = useStorySimulationStore((s) => s.simulationRounds)
   const setMode = useStorySimulationStore((s) => s.setMode)
   const setUserIdea = useStorySimulationStore((s) => s.setUserIdea)
   const setTargetWords = useStorySimulationStore((s) => s.setTargetWords)
   const setSourceChapters = useStorySimulationStore((s) => s.setSourceChapters)
+  const setSimulationRounds = useStorySimulationStore((s) => s.setSimulationRounds)
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
@@ -119,7 +128,27 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         </select>
       </section>
 
-      {/* 5. 开始按钮 */}
+      {/* 5. 仿真轮次 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-medium">仿真深度（每节点轮次）</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          {ROUND_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              variant={simulationRounds === opt.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSimulationRounds(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          轮次越多，角色互动越丰富，但消耗token越多。自动模式：1万字约1轮，至少2轮。
+        </p>
+      </section>
+
+      {/* 6. 开始按钮 */}
       <div className="flex justify-end pt-2">
         <Button onClick={onStart} size="lg">
           {t("storySimulation.startExtract")}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Send, X } from "lucide-react"
+import { Send, X, Download } from "lucide-react"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
@@ -16,6 +16,7 @@ import { generateStoryDraft } from "@/lib/novel/story-simulation/story-draft-gen
 import { saveFramework } from "@/lib/novel/story-simulation/framework-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { interviewAgent } from "@/lib/novel/story-simulation/agent-interview"
+import { exportInterview } from "@/lib/novel/story-simulation/interview-export"
 import type {
   AgentChatMessage,
   ExtractionResult,
@@ -91,6 +92,7 @@ export function StorySimulationView() {
   const userIdea = useStorySimulationStore((s) => s.userIdea)
   const targetWords = useStorySimulationStore((s) => s.targetWords)
   const sourceChapters = useStorySimulationStore((s) => s.sourceChapters)
+  const simulationRounds = useStorySimulationStore((s) => s.simulationRounds)
   const extractionResult = useStorySimulationStore((s) => s.extractionResult)
   const currentFramework = useStorySimulationStore((s) => s.currentFramework)
   const currentReport = useStorySimulationStore((s) => s.currentReport)
@@ -126,6 +128,7 @@ export function StorySimulationView() {
   // 采访输入框
   const [chatInput, setChatInput] = useState("")
   const [chatSending, setChatSending] = useState(false)
+  const [chatExporting, setChatExporting] = useState(false)
   const chatStreamRef = useRef("")
   const chatLogRef = useRef<HTMLDivElement | null>(null)
 
@@ -258,6 +261,7 @@ export function StorySimulationView() {
           wordBudget: targetWords,
           llmConfig,
           userIdea: userIdea || undefined,
+          maxRoundsPerNode: simulationRounds > 0 ? simulationRounds : undefined,
         },
         extraction,
         callbacks,
@@ -345,6 +349,25 @@ export function StorySimulationView() {
   /** 关闭采访面板。 */
   const handleCloseChat = () => {
     clearAgentChat()
+  }
+
+  /** 导出对话记录为MD。 */
+  const handleExportChat = async () => {
+    if (!activeChatAgent || !projectPath || agentChatMessages.length === 0) return
+    setChatExporting(true)
+    try {
+      const filePath = await exportInterview(
+        projectPath,
+        activeChatAgent.name,
+        agentChatMessages,
+      )
+      setError(`对话已导出到：${filePath}`)
+      setTimeout(() => setError(null), 5000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导出失败")
+    } finally {
+      setChatExporting(false)
+    }
   }
 
   /** 发送采访消息。 */
@@ -505,7 +528,9 @@ export function StorySimulationView() {
                 onInputChange={setChatInput}
                 onSend={() => void handleSendChat()}
                 onClose={handleCloseChat}
+                onExport={() => void handleExportChat()}
                 sending={chatSending}
+                exporting={chatExporting}
                 chatLogRef={chatLogRef}
               />
             )}
@@ -545,7 +570,7 @@ function ProgressPanel({
   )
 }
 
-/** 仿真中面板：进度条 + 实时时间线事件流。 */
+/** 仿真中面板：进度条 + 实时时间线事件流（带筛选）。 */
 function SimulatingTimelinePanel({
   progress,
   label,
@@ -558,11 +583,47 @@ function SimulatingTimelinePanel({
   const clamped = Math.min(100, Math.max(0, progress))
   const logRef = useRef<HTMLDivElement | null>(null)
 
+  // 筛选状态
+  const [filterActor, setFilterActor] = useState<string>("all")
+  const [filterType, setFilterType] = useState<string>("all")
+
+  // 从事件中提取所有角色和行动类型
+  const actors = Array.from(new Set(events.map((e) => e.actorName))).sort()
+  const actionTypes = Array.from(new Set(events.map((e) => e.actionType))).sort()
+
+  // 过滤事件
+  const filteredEvents = events.filter((e) => {
+    if (filterActor !== "all" && e.actorName !== filterActor) return false
+    if (filterType !== "all" && e.actionType !== filterType) return false
+    return true
+  })
+
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
-  }, [events.length])
+  }, [filteredEvents.length])
+
+  // 行动类型中文标签
+  const actionTypeLabel = (type: string): string => {
+    const map: Record<string, string> = {
+      evaluate: "评价",
+      pushPlot: "推动",
+      observe: "观察",
+      react: "反应",
+      speak: "对话",
+      ally: "示好",
+      confront: "对抗",
+      conceal: "隐瞒",
+      investigate: "调查",
+      act: "行动",
+      decide: "决策",
+      conflict: "冲突",
+      cooperate: "合作",
+      withhold: "隐瞒",
+    }
+    return map[type] || type
+  }
 
   return (
     <div className="flex flex-1 flex-col p-6">
@@ -576,17 +637,60 @@ function SimulatingTimelinePanel({
         </div>
         <div className="text-xs text-muted-foreground">{clamped}%</div>
       </div>
+
+      {/* 筛选栏 */}
+      {events.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">筛选：</span>
+          <select
+            value={filterActor}
+            onChange={(e) => setFilterActor(e.target.value)}
+            className="h-7 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">全部角色</option>
+            {actors.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="h-7 rounded border border-input bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">全部行为</option>
+            {actionTypes.map((type) => (
+              <option key={type} value={type}>{actionTypeLabel(type)}</option>
+            ))}
+          </select>
+          {(filterActor !== "all" || filterType !== "all") && (
+            <button
+              type="button"
+              className="text-xs text-primary hover:underline"
+              onClick={() => {
+                setFilterActor("all")
+                setFilterType("all")
+              }}
+            >
+              清除筛选
+            </button>
+          )}
+          <span className="ml-auto text-muted-foreground">
+            显示 {filteredEvents.length}/{events.length} 条
+          </span>
+        </div>
+      )}
+
       <div
         ref={logRef}
         className="flex-1 overflow-y-auto rounded-lg border bg-muted/30 p-3 text-sm"
       >
-        {events.length === 0 ? (
+        {filteredEvents.length === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            等待角色行动...
+            {events.length === 0 ? "等待角色行动..." : "没有符合筛选条件的事件"}
           </div>
         ) : (
           <div className="space-y-1.5">
-            {events.map((ev) => (
+            {filteredEvents.map((ev) => (
               <div key={ev.id} className="leading-relaxed">
                 <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
                   {ev.nodeIndex + 1}-{ev.round + 1}
@@ -614,7 +718,9 @@ function AgentChatPanel({
   onInputChange,
   onSend,
   onClose,
+  onExport,
   sending,
+  exporting,
   chatLogRef,
 }: {
   agentName: string
@@ -623,23 +729,38 @@ function AgentChatPanel({
   onInputChange: (v: string) => void
   onSend: () => void
   onClose: () => void
+  onExport: () => void
   sending: boolean
+  exporting: boolean
   chatLogRef: React.RefObject<HTMLDivElement | null>
 }) {
   return (
     <div className="flex w-80 shrink-0 flex-col border-l">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <div className="text-sm font-semibold">与 {agentName} 对话</div>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7"
-          onClick={onClose}
-          title="关闭对话"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={onExport}
+            title="导出对话为MD"
+            disabled={exporting || messages.length === 0}
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={onClose}
+            title="关闭对话"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div
         ref={chatLogRef}

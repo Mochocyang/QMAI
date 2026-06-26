@@ -740,12 +740,11 @@ export async function runSimulation(
   signal?: AbortSignal,
 ): Promise<SimulationEvent[]> {
   const events: SimulationEvent[] = []
-  const { agents, framework, wordBudget, llmConfig, injectionEvent } = input
+  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode } = input
   const totalNodes = framework.nodes.length
-  const maxRounds = Math.max(
-    1,
-    calcMaxRoundsPerNode(wordBudget) || MAX_ROUNDS_PER_NODE_FALLBACK,
-  )
+  // 使用用户指定的轮数，若未指定则自动计算
+  const calculatedRounds = calcMaxRoundsPerNode(wordBudget) || MAX_ROUNDS_PER_NODE_FALLBACK
+  const maxRounds = Math.max(1, maxRoundsPerNode ?? calculatedRounds)
   let aborted = false
 
   // 初始化仿真状态

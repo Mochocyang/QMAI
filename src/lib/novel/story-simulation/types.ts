@@ -281,6 +281,8 @@ export interface SimulationInput {
   llmConfig: LlmConfig
   userIdea?: string
   injectionEvent?: string
+  /** 每个节点的仿真轮数，不传则根据字数自动计算 */
+  maxRoundsPerNode?: number
 }
 
 // ── 仿真配置 ──

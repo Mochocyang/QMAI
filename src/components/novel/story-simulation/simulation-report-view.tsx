@@ -1,5 +1,6 @@
+import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageCircle, RefreshCw, Sparkles, TrendingUp } from "lucide-react"
+import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Network } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import type { StoryBranch } from "@/lib/novel/story-simulation/types"
@@ -53,6 +54,58 @@ export function SimulationReportView({
 
   if (!report) return null
 
+  // 构建角色关系网络数据
+  const relationshipData = useMemo(() => {
+    if (timelineEvents.length === 0) return null
+
+    // 统计角色活跃度
+    const activityCount = new Map<string, number>()
+    // 统计角色间互动：key = "A|B"（字母序），value = { count, sentiment }
+    const interactions = new Map<string, { count: number; sentiment: number; lastAction: string }>()
+
+    for (const ev of timelineEvents) {
+      activityCount.set(ev.actorName, (activityCount.get(ev.actorName) || 0) + 1)
+      if (ev.targetName) {
+        activityCount.set(ev.targetName, (activityCount.get(ev.targetName) || 0) + 1)
+        const pair = [ev.actorName, ev.targetName].sort().join("|")
+        const existing = interactions.get(pair) || { count: 0, sentiment: 0, lastAction: "" }
+        let sentimentDelta = 0
+        switch (ev.actionType) {
+          case "ally":
+            sentimentDelta = 2
+            break
+          case "speak":
+            sentimentDelta = 0.5
+            break
+          case "confront":
+            sentimentDelta = -2
+            break
+          case "react":
+            sentimentDelta = ev.content.includes("好感") || ev.content.includes("赞同") ? 1 : -1
+            break
+          default:
+            sentimentDelta = 0
+        }
+        interactions.set(pair, {
+          count: existing.count + 1,
+          sentiment: Math.max(-5, Math.min(5, existing.sentiment + sentimentDelta)),
+          lastAction: ev.content.slice(0, 30),
+        })
+      }
+    }
+
+    const characters = Array.from(activityCount.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+
+    const edges = Array.from(interactions.entries()).map(([key, data]) => {
+      const [from, to] = key.split("|")
+      return { from, to, ...data }
+    })
+
+    return { characters, edges }
+  }, [timelineEvents])
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -68,6 +121,17 @@ export function SimulationReportView({
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mx-auto max-w-3xl space-y-6">
+          {/* 角色关系网络 */}
+          {relationshipData && relationshipData.characters.length > 1 && (
+            <section>
+              <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Network className="h-3.5 w-3.5" />
+                角色关系网络
+              </h3>
+              <RelationshipGraph data={relationshipData} />
+            </section>
+          )}
+
           {/* 关键剧情事件时间线 */}
           {timelineEvents.length > 0 && (
             <section>
@@ -268,6 +332,146 @@ export function SimulationReportView({
             </section>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 角色关系图谱组件（SVG 实现，轻量无依赖） ──
+
+interface RelationNode {
+  name: string
+  count: number
+}
+
+interface RelationEdge {
+  from: string
+  to: string
+  count: number
+  sentiment: number
+  lastAction: string
+}
+
+interface RelationshipGraphData {
+  characters: RelationNode[]
+  edges: RelationEdge[]
+}
+
+function RelationshipGraph({ data }: { data: RelationshipGraphData }) {
+  const { characters, edges } = data
+  const width = 520
+  const height = 380
+  const cx = width / 2
+  const cy = height / 2
+  const radius = Math.min(cx, cy) - 50
+
+  // 圆形布局：按活跃度排序，主角居中
+  const positions = useMemo(() => {
+    const posMap = new Map<string, { x: number; y: number }>()
+    const maxNodes = Math.min(characters.length, 10) // 最多显示10个角色
+
+    if (characters.length === 0) return posMap
+
+    // 最活跃角色放中心
+    const main = characters[0]
+    posMap.set(main.name, { x: cx, y: cy })
+
+    // 其他角色围一圈
+    const others = characters.slice(1, maxNodes)
+    others.forEach((char, i) => {
+      const angle = (i / others.length) * Math.PI * 2 - Math.PI / 2
+      const x = cx + Math.cos(angle) * radius
+      const y = cy + Math.sin(angle) * radius
+      posMap.set(char.name, { x, y })
+    })
+
+    return posMap
+  }, [characters, cx, cy, radius])
+
+  const maxActivity = characters[0]?.count || 1
+
+  const nodeRadius = (count: number, isMain: boolean) => {
+    if (isMain) return 28
+    return 14 + (count / maxActivity) * 14
+  }
+
+  const edgeColor = (sentiment: number) => {
+    if (sentiment > 1) return "#22c55e" // 绿色-友好
+    if (sentiment < -1) return "#ef4444" // 红色-敌对
+    return "#94a3b8" // 灰色-中立
+  }
+
+  const edgeWidth = (count: number) => Math.max(1, Math.min(4, count / 2))
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ maxHeight: 380 }}>
+        {/* 绘制边 */}
+        {edges.map((edge, i) => {
+          const from = positions.get(edge.from)
+          const to = positions.get(edge.to)
+          if (!from || !to) return null
+          return (
+            <line
+              key={i}
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+              stroke={edgeColor(edge.sentiment)}
+              strokeWidth={edgeWidth(edge.count)}
+              strokeOpacity={0.6}
+            >
+              <title>{`${edge.from} ↔ ${edge.to}\n互动${edge.count}次\n情感倾向：${edge.sentiment > 1 ? "友好" : edge.sentiment < -1 ? "敌对" : "中立"}`}</title>
+            </line>
+          )
+        })}
+
+        {/* 绘制节点 */}
+        {characters.slice(0, 10).map((char, i) => {
+          const pos = positions.get(char.name)
+          if (!pos) return null
+          const isMain = i === 0
+          const r = nodeRadius(char.count, isMain)
+          return (
+            <g key={char.name}>
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={r}
+                fill={isMain ? "hsl(var(--primary))" : "hsl(var(--muted))"}
+                stroke={isMain ? "hsl(var(--primary))" : "hsl(var(--border))"}
+                strokeWidth={2}
+              >
+                <title>{`${char.name}\n参与事件：${char.count}次${isMain ? "\n（核心角色）" : ""}`}</title>
+              </circle>
+              <text
+                x={pos.x}
+                y={pos.y + r + 14}
+                textAnchor="middle"
+                fontSize={11}
+                fill="currentColor"
+                className="fill-muted-foreground"
+              >
+                {char.name.length > 4 ? char.name.slice(0, 4) : char.name}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* 图例 */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-0.5 w-4 bg-[#22c55e]" /> 友好
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-0.5 w-4 bg-[#94a3b8]" /> 中立
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-0.5 w-4 bg-[#ef4444]" /> 敌对
+        </span>
+        <span>· 节点大小=活跃度 · 线粗细=互动次数</span>
       </div>
     </div>
   )

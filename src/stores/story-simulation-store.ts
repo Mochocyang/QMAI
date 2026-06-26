@@ -28,6 +28,8 @@ export interface StorySimulationState {
   userIdea: string
   targetWords: number
   sourceChapters: number
+  /** 每个节点仿真轮数，0表示自动 */
+  simulationRounds: number
   extractionResult: ExtractionResult | null
   currentFramework: StoryFramework | null
   currentReport: SimulationReport | null
@@ -52,6 +54,7 @@ export interface StorySimulationState {
   setUserIdea: (idea: string) => void
   setTargetWords: (words: number) => void
   setSourceChapters: (count: number) => void
+  setSimulationRounds: (rounds: number) => void
   setExtractionResult: (result: ExtractionResult | null) => void
   setCurrentFramework: (framework: StoryFramework | null) => void
   setCurrentReport: (report: SimulationReport | null) => void
@@ -76,6 +79,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   userIdea: "",
   targetWords: 10000,
   sourceChapters: 10,
+  simulationRounds: 0,
   extractionResult: null,
   currentFramework: null,
   currentReport: null,
@@ -96,6 +100,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setUserIdea: (userIdea) => set({ userIdea }),
   setTargetWords: (targetWords) => set({ targetWords }),
   setSourceChapters: (sourceChapters) => set({ sourceChapters }),
+  setSimulationRounds: (simulationRounds) => set({ simulationRounds }),
   setExtractionResult: (extractionResult) => set({ extractionResult }),
   setCurrentFramework: (currentFramework) => set({ currentFramework }),
   setCurrentReport: (currentReport) => set({ currentReport }),
