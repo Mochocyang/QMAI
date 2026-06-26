@@ -48,6 +48,11 @@ const BookAnalysisView = lazy(async () => {
   return { default: mod.BookAnalysisView }
 })
 
+const StorySimulationView = lazy(async () => {
+  const mod = await import("@/components/novel/story-simulation/story-simulation-view")
+  return { default: mod.StorySimulationView }
+})
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -115,6 +120,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <BookAnalysisView />
+          </Suspense>
+        )
+        break
+      case "storySimulation":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <StorySimulationView />
           </Suspense>
         )
         break
