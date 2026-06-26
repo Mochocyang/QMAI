@@ -40,37 +40,37 @@ const PROGRESS_PHASES = [
   "draft-generating",
 ] as const
 
-/** 将 actionType 映射为中文动词短语（用于实时事件流展示） */
-function actionPhrase(type: string, actorName: string, targetName?: string): string {
+/** 将 actionType 映射为中文动词短语（不含角色名，用于实时事件流展示） */
+function actionPhrase(type: string, targetName?: string): string {
   switch (type) {
     case "evaluate":
-      return `${actorName} 心中评价`
+      return "心中评价"
     case "pushPlot":
-      return `${actorName} 推动事态`
+      return "推动事态"
     case "observe":
-      return `${actorName} 观察到`
+      return "观察到"
     case "react":
       return targetName
-        ? `${actorName} 对 ${targetName} 的反应`
-        : `${actorName} 做出反应`
+        ? `对 ${targetName} 的反应`
+        : "做出反应"
     case "speak":
       return targetName
-        ? `${actorName} 对 ${targetName} 说`
-        : `${actorName} 说`
+        ? `对 ${targetName} 说`
+        : "说"
     case "ally":
       return targetName
-        ? `${actorName} 向 ${targetName} 示好`
-        : `${actorName} 寻求合作`
+        ? `向 ${targetName} 示好`
+        : "寻求合作"
     case "confront":
       return targetName
-        ? `${actorName} 与 ${targetName} 对抗`
-        : `${actorName} 采取对抗姿态`
+        ? `与 ${targetName} 对抗`
+        : "采取对抗姿态"
     case "conceal":
-      return `${actorName} 隐瞒内心`
+      return "隐瞒内心"
     case "investigate":
-      return `${actorName} 调查`
+      return "调查"
     default:
-      return `${actorName} 行动`
+      return "行动"
   }
 }
 
@@ -594,7 +594,7 @@ function SimulatingTimelinePanel({
                 <span className="font-medium">{ev.actorName}</span>
                 <span className="text-muted-foreground">
                   {" "}
-                  {actionPhrase(ev.actionType, "", ev.targetName)}：
+                  {actionPhrase(ev.actionType, ev.targetName)}：
                 </span>
                 <span>{ev.content}</span>
               </div>
