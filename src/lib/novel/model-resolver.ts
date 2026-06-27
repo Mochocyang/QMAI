@@ -42,7 +42,8 @@ export function resolveModelConfig(
 
 /**
  * 解析后台任务的默认模型。
- * 优先级：defaultLlmModel > aiChatModel > baseConfig
+ * 优先级：defaultLlmModel > aiChatModel
+ * 不回退到 baseConfig（llmConfig），避免静默使用已禁用的 CLI provider。
  * 用于提取记忆、提取角色等后台 AI 任务。
  */
 export function resolveDefaultModel(baseConfig: LlmConfig): LlmConfig {
@@ -62,10 +63,6 @@ export function resolveDefaultModel(baseConfig: LlmConfig): LlmConfig {
     if (isConfigUsable(cfg, providerConfigs)) {
       return cfg
     }
-  }
-
-  if (isConfigUsable(baseConfig, providerConfigs)) {
-    return baseConfig
   }
 
   return { ...baseConfig, apiKey: "", model: "" }
@@ -108,10 +105,6 @@ export function resolveNovelModel(
     if (isConfigUsable(cfg, providerConfigs)) {
       return cfg
     }
-  }
-
-  if (isConfigUsable(llmConfig, providerConfigs)) {
-    return llmConfig
   }
 
   return { ...llmConfig, apiKey: "", model: "" }
