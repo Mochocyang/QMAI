@@ -655,7 +655,7 @@ ${chapterBody.slice(0, 8000)}
     return normalizeChapterSnapshot({
       ...parsed,
       chapterId: parsed.chapterId || `chapter-${chapterNumber}`,
-      chapterNumber: parsed.chapterNumber || chapterNumber,
+      chapterNumber: chapterNumber, // 强制使用代码传入的章节号，不信任LLM输出
       entityIsNew: {},
       validationWarnings: [],
       characterDetails: parsed.characterDetails || undefined,
