@@ -256,6 +256,8 @@ export interface DraftChapter {
   title: string
   content: string
   correspondingNode: number
+  /** 原始 AI 生成内容（编辑前的备份），未编辑时为 undefined */
+  rawContent?: string
 }
 
 // ── 框架绑定 ──
