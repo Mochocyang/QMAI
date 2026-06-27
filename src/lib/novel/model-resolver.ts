@@ -1,8 +1,13 @@
 import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint"
+
+function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, ProviderOverride>): boolean {
+  return hasUsableLlm(cfg, providerConfigs)
+}
 
 export function resolveModelConfig(
   targetModel: string,
@@ -42,11 +47,28 @@ export function resolveModelConfig(
  */
 export function resolveDefaultModel(baseConfig: LlmConfig): LlmConfig {
   const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
-  const targetModel = defaultLlmModel?.trim() || aiChatModel?.trim()
-  if (targetModel) {
-    return resolveModelConfig(targetModel, baseConfig, providerConfigs)
+
+  const defaultModel = defaultLlmModel?.trim()
+  if (defaultModel) {
+    const cfg = resolveModelConfig(defaultModel, baseConfig, providerConfigs)
+    if (isConfigUsable(cfg, providerConfigs)) {
+      return cfg
+    }
   }
-  return baseConfig
+
+  const chatModel = aiChatModel?.trim()
+  if (chatModel && chatModel !== defaultModel) {
+    const cfg = resolveModelConfig(chatModel, baseConfig, providerConfigs)
+    if (isConfigUsable(cfg, providerConfigs)) {
+      return cfg
+    }
+  }
+
+  if (isConfigUsable(baseConfig, providerConfigs)) {
+    return baseConfig
+  }
+
+  return { ...baseConfig, apiKey: "", model: "" }
 }
 
 export function resolveNovelModel(
@@ -65,14 +87,32 @@ export function resolveNovelModel(
   const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
 
   const taskModel = modelMap[taskType]
-  if (!taskModel) {
-    // 没有指定任务模型时：优先使用 AI 会话当前模型，再回退到默认模型
-    const targetModel = aiChatModel?.trim() || defaultLlmModel?.trim()
-    if (targetModel) {
-      return resolveModelConfig(targetModel, llmConfig, providerConfigs)
+  if (taskModel?.trim()) {
+    const cfg = resolveModelConfig(taskModel, llmConfig, providerConfigs)
+    if (isConfigUsable(cfg, providerConfigs)) {
+      return cfg
     }
+  }
+
+  const chatModel = aiChatModel?.trim()
+  if (chatModel) {
+    const cfg = resolveModelConfig(chatModel, llmConfig, providerConfigs)
+    if (isConfigUsable(cfg, providerConfigs)) {
+      return cfg
+    }
+  }
+
+  const defaultModel = defaultLlmModel?.trim()
+  if (defaultModel && defaultModel !== chatModel) {
+    const cfg = resolveModelConfig(defaultModel, llmConfig, providerConfigs)
+    if (isConfigUsable(cfg, providerConfigs)) {
+      return cfg
+    }
+  }
+
+  if (isConfigUsable(llmConfig, providerConfigs)) {
     return llmConfig
   }
 
-  return resolveModelConfig(taskModel, llmConfig, providerConfigs)
+  return { ...llmConfig, apiKey: "", model: "" }
 }
