@@ -72,6 +72,8 @@ export interface StorySimulationState {
   viewingInterview: SavedInterview | null
   /** 对比模式下要对比的结果ID（null表示不对比） */
   compareWithResultId: string | null
+  /** 当前续聊的采访ID（用于保存时判断覆盖/另存） */
+  continuingInterviewId: string | null
 
   setPhase: (phase: SimulationPhase) => void
   setMode: (mode: SimulationMode) => void
@@ -100,6 +102,9 @@ export interface StorySimulationState {
   setSavedInterviews: (interviews: SavedInterview[]) => void
   setViewingInterview: (interview: SavedInterview | null) => void
   setCompareWithResultId: (id: string | null) => void
+  setContinuingInterviewId: (id: string | null) => void
+  /** 设置采访消息列表 */
+  setAgentChatMessages: (messages: AgentChatMessage[]) => void
   reset: () => void
 }
 
@@ -130,6 +135,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   savedInterviews: [],
   viewingInterview: null,
   compareWithResultId: null,
+  continuingInterviewId: null,
 
   setPhase: (phase) => set({ phase }),
   setMode: (mode) => set({ mode }),
@@ -160,6 +166,8 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setSavedInterviews: (savedInterviews) => set({ savedInterviews }),
   setViewingInterview: (viewingInterview) => set({ viewingInterview }),
   setCompareWithResultId: (compareWithResultId) => set({ compareWithResultId }),
+  setContinuingInterviewId: (continuingInterviewId) => set({ continuingInterviewId }),
+  setAgentChatMessages: (agentChatMessages) => set({ agentChatMessages }),
   reset: () =>
     set({
       phase: "idle",
@@ -179,5 +187,6 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       savedInterviews: [],
       viewingInterview: null,
       compareWithResultId: null,
+      continuingInterviewId: null,
     }),
 }))

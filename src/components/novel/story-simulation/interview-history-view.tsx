@@ -5,7 +5,10 @@ import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { loadInterviews, deleteInterview } from "@/lib/novel/story-simulation/interview-store"
 import { exportInterview } from "@/lib/novel/story-simulation/interview-export"
+import { deserializeSimulationSnapshot } from "@/lib/novel/story-simulation/simulation-serializer"
+import { loadSimulationResults } from "@/lib/novel/story-simulation/framework-store"
 import type { SavedInterview } from "@/lib/novel/story-simulation/interview-store"
+import type { NovelAgent } from "@/lib/novel/story-simulation/types"
 
 export function InterviewHistoryView() {
   const projectPath = useWikiStore((s) => s.project?.path)
@@ -16,10 +19,14 @@ export function InterviewHistoryView() {
   const setSavedInterviews = useStorySimulationStore((s) => s.setSavedInterviews)
   const setViewingInterview = useStorySimulationStore((s) => s.setViewingInterview)
   const setError = useStorySimulationStore((s) => s.setError)
+  const setContinuingInterviewId = useStorySimulationStore((s) => s.setContinuingInterviewId)
+  const setActiveChatAgent = useStorySimulationStore((s) => s.setActiveChatAgent)
+  const setAgentChatMessages = useStorySimulationStore((s) => s.setAgentChatMessages)
 
   const [loading, setLoading] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [exporting, setExporting] = useState<string | null>(null)
+  const [resuming, setResuming] = useState(false)
 
   // 加载采访列表
   useEffect(() => {
@@ -83,6 +90,62 @@ export function InterviewHistoryView() {
       setTimeout(() => setError(null), 3000)
     } finally {
       setExporting(null)
+    }
+  }
+
+  const handleContinueInterview = async (interview: SavedInterview) => {
+    if (!projectPath) return
+    setResuming(true)
+    try {
+      let agents: NovelAgent[] = []
+
+      // 优先从采访记录的 agentSnapshot 恢复
+      if (interview.agentSnapshot) {
+        const { agents: deserializedAgents } = deserializeSimulationSnapshot(interview.agentSnapshot)
+        agents = deserializedAgents
+      }
+
+      // 若采访记录无快照，尝试从对应 frameworkId 的推演结果恢复
+      if (agents.length === 0 && interview.frameworkId) {
+        const results = await loadSimulationResults(projectPath, interview.frameworkId)
+        for (const r of results) {
+          if (r.agentSnapshot) {
+            const { agents: deserializedAgents } = deserializeSimulationSnapshot(r.agentSnapshot)
+            if (deserializedAgents.some((a) => a.name === interview.agentName)) {
+              agents = deserializedAgents
+              break
+            }
+          }
+        }
+      }
+
+      if (agents.length === 0) {
+        setError("无法恢复角色状态，仅支持只读查看")
+        setTimeout(() => setError(null), 3000)
+        return
+      }
+
+      // 找到对应角色的 agent
+      const targetAgent = agents.find((a) => a.name === interview.agentName)
+      if (!targetAgent) {
+        setError(`未找到角色「${interview.agentName}」的 agent 数据`)
+        setTimeout(() => setError(null), 3000)
+        return
+      }
+
+      // 加载旧对话消息到 store
+      setAgentChatMessages(interview.session.messages)
+      setActiveChatAgent({ id: targetAgent.characterId, name: targetAgent.name })
+      setContinuingInterviewId(interview.id)
+      setShowInterviewHistory(false)
+      setViewingInterview(null)
+      setError("已恢复采访，可继续对话")
+      setTimeout(() => setError(null), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "恢复失败")
+      setTimeout(() => setError(null), 3000)
+    } finally {
+      setResuming(false)
     }
   }
 
@@ -151,6 +214,14 @@ export function InterviewHistoryView() {
                       框架：{viewingInterview.frameworkTitle}
                     </span>
                   )}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => handleContinueInterview(viewingInterview)}
+                    disabled={resuming}
+                  >
+                    {resuming ? "恢复中..." : "继续对话"}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

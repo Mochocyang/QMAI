@@ -154,6 +154,8 @@ export function StorySimulationView() {
   const bumpListRefresh = useStorySimulationStore((s) => s.bumpListRefresh)
   const setSavedResults = useStorySimulationStore((s) => s.setSavedResults)
   const setShowInterviewHistory = useStorySimulationStore((s) => s.setShowInterviewHistory)
+  const continuingInterviewId = useStorySimulationStore((s) => s.continuingInterviewId)
+  const setContinuingInterviewId = useStorySimulationStore((s) => s.setContinuingInterviewId)
 
   // 保存仿真后的 agents 和 state 供采访使用
   const lastAgentsRef = useRef<NovelAgent[]>([])
@@ -562,11 +564,21 @@ export function StorySimulationView() {
       const agentSnapshot = lastSimulationStateRef.current && lastAgentsRef.current.length > 0
         ? serializeSimulationState(lastSimulationStateRef.current, lastAgentsRef.current)
         : undefined
+      // 续聊模式下询问覆盖原采访或另存为新采访
+      let existingId: string | undefined
+      if (continuingInterviewId) {
+        const choice = confirm("覆盖原采访对话？\n\n确定 = 覆盖原采访\n取消 = 另存为新采访")
+        if (choice) {
+          existingId = continuingInterviewId
+        }
+      }
       await saveInterview(projectPath, session, {
         frameworkId: currentFramework?.id,
         frameworkTitle: currentFramework?.title,
         agentSnapshot,
+        existingId,
       })
+      setContinuingInterviewId(null)
       setError(`采访对话已保存（${agentChatMessages.length}条消息）`)
       setTimeout(() => setError(null), 3000)
     } catch (err) {
