@@ -19,6 +19,7 @@ import {
   loadMemoryCenterData,
   type MemoryCenterSnapshotCard,
 } from "@/lib/novel/memory-center"
+import { loadSnapshot } from "@/lib/novel/chapter-ingest"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -40,6 +41,7 @@ type MemoryCenterDetailView =
       title: string
       description: string
       cards: MemoryCenterSnapshotCard[]
+      allChapterNumbers: number[]
       parentView: MemoryCenterDetailView | null
     }
   | {
@@ -246,6 +248,7 @@ export function MemoryCenterView() {
           title: t("novel.memoryCenter.snapshots.title"),
           description: t("novel.memoryCenter.snapshots.listDescription"),
           cards: memoryData.snapshots,
+          allChapterNumbers: memoryData.allChapterNumbers,
           parentView: null,
         })
         return
@@ -526,11 +529,66 @@ function MemoryCenterDetailPanel({
   const [selectedChapter, setSelectedChapter] = useState<number | null>(null)
   const [rangeStart, setRangeStart] = useState("")
   const [rangeEnd, setRangeEnd] = useState("")
+  const [loadedCard, setLoadedCard] = useState<MemoryCenterSnapshotCard | null>(null)
+  const [loadingCard, setLoadingCard] = useState(false)
+
+  // 按需加载不在预加载列表中的章节快照
+  useEffect(() => {
+    if (selectedChapter === null) {
+      setLoadedCard(null)
+      return
+    }
+    const fromCache = detailView.kind === "snapshotList"
+      ? detailView.cards.find((c) => c.chapterNumber === selectedChapter)
+      : null
+    if (fromCache) {
+      setLoadedCard(null)
+      return
+    }
+    // 不在缓存中，从磁盘加载
+    let cancelled = false
+    setLoadingCard(true)
+    const projectPath = useWikiStore.getState().project?.path
+    if (!projectPath) {
+      setLoadingCard(false)
+      return
+    }
+    loadSnapshot(projectPath, selectedChapter).then((snapshot) => {
+      if (cancelled || !snapshot) {
+        if (!cancelled) setLoadingCard(false)
+        return
+      }
+      const card: MemoryCenterSnapshotCard = {
+        chapterNumber: snapshot.chapterNumber,
+        chapterTitle: snapshot.chapterTitle,
+        summary: snapshot.summary?.trim() ?? "",
+        endingHook: snapshot.endingHook?.trim() ?? "",
+        memorySynced: Boolean(snapshot.memorySyncedAt),
+        memorySyncedAt: snapshot.memorySyncedAt,
+        snapshotPath: "",
+        characterStateChanges: (snapshot.characterStateChanges ?? []).slice(0, 3),
+        knowledgeChanges: (snapshot.knowledgeChanges ?? []).slice(0, 3),
+        foreshadowingChanges: (snapshot.foreshadowingChanges ?? []).slice(0, 3),
+        timelineEvents: (snapshot.timelineEvents ?? []).slice(0, 3),
+        hasMoreCharacterStateChanges: (snapshot.characterStateChanges ?? []).length > 3,
+        hasMoreKnowledgeChanges: (snapshot.knowledgeChanges ?? []).length > 3,
+        hasMoreForeshadowingChanges: (snapshot.foreshadowingChanges ?? []).length > 3,
+        hasMoreTimelineEvents: (snapshot.timelineEvents ?? []).length > 3,
+      }
+      if (!cancelled) {
+        setLoadedCard(card)
+        setLoadingCard(false)
+      }
+    }).catch(() => {
+      if (!cancelled) setLoadingCard(false)
+    })
+    return () => { cancelled = true }
+  }, [selectedChapter, detailView])
 
   if (detailView.kind === "snapshotList") {
     const chapterCards = detailView.cards.filter((c) => c.chapterNumber > 0)
     const outlineCards = detailView.cards.filter((c) => c.chapterNumber < 0)
-    const maxChapter = chapterCards.length > 0 ? chapterCards[0].chapterNumber : 0
+    const maxChapter = detailView.allChapterNumbers.length > 0 ? detailView.allChapterNumbers[0] : 0
 
     // 区间筛选
     const filteredChapterCards = useMemo(() => {
@@ -553,16 +611,14 @@ function MemoryCenterDetailPanel({
       return filteredChapterCards.slice(0, DEFAULT_SNAPSHOT_PAGE_SIZE)
     }, [filteredChapterCards, rangeStart, rangeEnd])
 
-    // 章节列表（用于侧边栏选择）
-    const allChapterNumbers = useMemo(() =>
-      chapterCards.map((c) => c.chapterNumber),
-    [chapterCards])
+    // 章节列表（用于侧边栏选择，显示全部章节）
+    const allChapterNumbers = detailView.allChapterNumbers
 
-    // 选中的章节卡片
+    // 选中的章节卡片（优先从缓存取，其次从按需加载取）
     const selectedCard = useMemo(() => {
       if (selectedChapter === null) return null
-      return detailView.cards.find((c) => c.chapterNumber === selectedChapter) ?? null
-    }, [detailView.cards, selectedChapter])
+      return detailView.cards.find((c) => c.chapterNumber === selectedChapter) ?? loadedCard ?? null
+    }, [detailView.cards, selectedChapter, loadedCard])
 
     return (
       <div className="flex h-full gap-0">
@@ -633,7 +689,12 @@ function MemoryCenterDetailPanel({
 
         {/* 右侧快照详情 */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
-          {selectedCard ? (
+          {loadingCard ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="mr-2 h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">正在加载第{selectedChapter}章快照...</span>
+            </div>
+          ) : selectedCard ? (
             <SnapshotCard
               card={selectedCard}
               buttonId={`memory-center-detail-snapshot-${selectedCard.chapterNumber}`}

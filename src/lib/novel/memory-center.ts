@@ -60,6 +60,7 @@ export interface MemoryCenterDismantlingProjectPreview {
 export interface MemoryCenterData {
   stats: MemoryCenterStats
   snapshots: MemoryCenterSnapshotCard[]
+  allChapterNumbers: number[]
   files: MemoryCenterFilePreview[]
   dismantlingProjects: MemoryCenterDismantlingProjectPreview[]
 }
@@ -309,9 +310,14 @@ export async function loadMemoryCenterData(projectPath: string): Promise<MemoryC
     structureMemory: project.structureMemory.slice(0, 5),
   }))
 
+  const allChapterNumbers = allSnapshotCards
+    .filter((c) => c.chapterNumber > 0)
+    .map((c) => c.chapterNumber)
+
   return {
     stats: buildMemoryCenterStats(allSnapshotCards, files),
     snapshots: allSnapshotCards.slice(0, RECENT_SNAPSHOT_CARD_LIMIT),
+    allChapterNumbers,
     files,
     dismantlingProjects,
   }
