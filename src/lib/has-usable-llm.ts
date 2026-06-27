@@ -1,4 +1,5 @@
-import type { LlmConfig } from "@/stores/wiki-store"
+import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
+import { LLM_PRESETS } from "@/components/settings/llm-presets"
 
 export type LlmProvider = LlmConfig["provider"]
 
@@ -26,6 +27,29 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
 ])
 
 /**
+ * Maps LlmConfig.provider values to their corresponding LLM_PRESETS id,
+ * for providers that are gated by a single well-known preset toggle.
+ */
+const PRESET_ID_BY_PROVIDER: Partial<Record<LlmProvider, string>> = {
+  "claude-code": "claude-code-cli",
+  "codex-cli": "codex-cli",
+  "ollama": "ollama-local",
+}
+
+function isPresetEnabled(providerConfigs: ProviderConfigs, presetId: string): boolean {
+  const entry = providerConfigs[presetId]
+  return entry?.enabled === true
+}
+
+function hasEnabledCustomPreset(providerConfigs: ProviderConfigs): boolean {
+  for (const preset of LLM_PRESETS) {
+    if (preset.provider !== "custom") continue
+    if (isPresetEnabled(providerConfigs, preset.id)) return true
+  }
+  return false
+}
+
+/**
  * Single source of truth for "is the user's LLM configuration good
  * enough to make calls?" Replaces ad-hoc `apiKey || provider ===
  * "ollama" || …` checks scattered across ingest, sweep, lint,
@@ -41,7 +65,24 @@ export const PROVIDERS_WITHOUT_KEY: ReadonlySet<LlmProvider> = new Set<LlmProvid
  */
 export function hasUsableLlm(
   cfg: Pick<LlmConfig, "provider" | "apiKey" | "model">,
+  providerConfigs: ProviderConfigs = {},
 ): boolean {
-  if (PROVIDERS_WITHOUT_KEY.has(cfg.provider)) return true
-  return cfg.apiKey.trim().length > 0 && cfg.model.trim().length > 0
+  const hasKey = cfg.apiKey.trim().length > 0
+  const hasModel = cfg.model.trim().length > 0
+
+  if (cfg.provider === "claude-code" || cfg.provider === "codex-cli") {
+    const presetId = PRESET_ID_BY_PROVIDER[cfg.provider]
+    return presetId !== undefined && isPresetEnabled(providerConfigs, presetId)
+  }
+
+  if (cfg.provider === "ollama") {
+    return isPresetEnabled(providerConfigs, "ollama-local") && hasModel
+  }
+
+  if (cfg.provider === "custom") {
+    if (hasKey && hasModel) return true
+    return hasEnabledCustomPreset(providerConfigs) && hasModel
+  }
+
+  return hasKey && hasModel
 }
