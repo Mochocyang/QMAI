@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Sparkles } from "lucide-react"
+import { Loader2, Sparkles, X } from "lucide-react"
 import { listDirectory, readFile } from "@/commands/fs"
 import {
   Dialog,
@@ -12,6 +12,15 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { ChatModelSelector } from "@/components/chat/chat-model-selector"
+import {
+  CHANNELS,
+  getChannelLabel,
+  getMainGenreLabel,
+  getMainGenresByChannel,
+  getSubGenres,
+} from "@/lib/novel/outline-genres"
 import {
   addOutlineTaskToSourceList,
   buildOutlineGenerationPrompt,
@@ -26,18 +35,6 @@ import {
 } from "@/lib/novel/outline-generation"
 import { useOutlineGenerationStore, type OutlineGenerationState, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
-
-const GENRE_KEYS = [
-  "mystery",
-  "xianxia",
-  "romance",
-  "military",
-  "scifi",
-  "fantasy",
-  "historical",
-  "urban",
-  "general",
-] as const
 
 const SCALE_KEYS = ["short", "medium", "long", "epic"] as const
 
@@ -111,9 +108,14 @@ export function OutlineGeneratorDialog({
   const updateTask = useOutlineGenerationStore((s: OutlineGenerationState) => s.updateTask)
   const tasks = useOutlineGenerationStore((s: OutlineGenerationState) => s.tasks)
 
-  const [genre, setGenre] = useState<string>("general")
+  const [channel, setChannel] = useState<"male" | "female">("male")
+  const [mainGenre, setMainGenre] = useState<string>("xuanhuan")
+  const [subGenres, setSubGenres] = useState<string[]>([])
+  const [customTags, setCustomTags] = useState<string[]>([])
+  const [customTagInput, setCustomTagInput] = useState("")
   const [scale, setScale] = useState<string>("medium")
   const [premise, setPremise] = useState("")
+  const [modelId, setModelId] = useState<string>("")
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ingesting, setIngesting] = useState(false)
@@ -134,6 +136,19 @@ export function OutlineGeneratorDialog({
     () => OUTLINE_SECTION_GENERATION_CONFIGS.find((config) => config.key === selectedSectionKey) ?? null,
     [selectedSectionKey],
   )
+
+  const currentGenres = useMemo(() => getMainGenresByChannel(channel), [channel])
+  const currentSubGenres = useMemo(
+    () => getSubGenres(channel, mainGenre),
+    [channel, mainGenre],
+  )
+
+  useEffect(() => {
+    const genres = getMainGenresByChannel(channel)
+    const firstGenre = genres[0]?.key ?? ""
+    setMainGenre(firstGenre)
+    setSubGenres([])
+  }, [channel])
 
   const latestTask = useMemo(() => {
     if (!project) return null
@@ -238,6 +253,24 @@ export function OutlineGeneratorDialog({
     return () => { cancelled = true }
   }, [open, mode, project])
 
+  function handleAddCustomTag() {
+    const tag = customTagInput.trim()
+    if (!tag || customTags.includes(tag)) return
+    setCustomTags((prev) => [...prev, tag])
+    setCustomTagInput("")
+  }
+
+  function handleRemoveCustomTag(tag: string) {
+    setCustomTags((prev) => prev.filter((t) => t !== tag))
+  }
+
+  function handleCustomTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      handleAddCustomTag()
+    }
+  }
+
   async function handleGenerate() {
     if (!project || generating || taskGenerating) return
 
@@ -245,16 +278,32 @@ export function OutlineGeneratorDialog({
     setError(null)
 
     try {
-      const genreLabel = t(`novel.outlineGenerator.genres.${genre}`)
+      const channelLabel = getChannelLabel(channel)
+      const mainGenreLabel = getMainGenreLabel(channel, mainGenre)
+      const selectedSubGenreLabels = subGenres
+        .map((key) => currentSubGenres.find((s) => s.key === key)?.label)
+        .filter(Boolean)
+        .join("、")
+      const allTags = [...customTags]
+      if (selectedSubGenreLabels) {
+        allTags.unshift(selectedSubGenreLabels)
+      }
+      const tagPart = allTags.length > 0 ? `，风格标签：${allTags.join("、")}` : ""
+      const genreLabel = `${channelLabel} / ${mainGenreLabel}${tagPart}`
       const scaleLabel = t(`novel.outlineGenerator.scales.${scale}`)
       const prompt = await buildOutlineGenerationPrompt(project.path, genreLabel, scaleLabel, premise)
 
       const taskId = createTask({
         projectPath: project.path,
-        genre,
+        genre: genreLabel,
         scale,
         premise,
         prompt,
+        channel,
+        mainGenre,
+        subGenres,
+        customTags,
+        modelId: modelId || undefined,
       })
       updateTask(taskId, {
         status: "generating",
@@ -404,45 +453,149 @@ export function OutlineGeneratorDialog({
 
         <div className="flex flex-col gap-4">
           {mode === "outline" ? (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("novel.outlineGenerator.genre")}</Label>
-                <select
-                  value={genre}
-                  onChange={(e) => setGenre(e.target.value)}
-                  disabled={generating || taskGenerating}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  {GENRE_KEYS.map((key) => (
-                    <option key={key} value={key}>
-                      {t(`novel.outlineGenerator.genres.${key}`)}
-                    </option>
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">小说频道</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {CHANNELS.map((c) => (
+                    <Button
+                      key={c.key}
+                      type="button"
+                      variant={channel === c.key ? "default" : "outline"}
+                      onClick={() => setChannel(c.key)}
+                      disabled={generating || taskGenerating}
+                      className="h-10"
+                    >
+                      {c.label}
+                    </Button>
                   ))}
-                </select>
+                </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("novel.outlineGenerator.scale")}</Label>
-                <select
-                  value={scale}
-                  onChange={(e) => setScale(e.target.value)}
-                  disabled={generating || taskGenerating}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  {SCALE_KEYS.map((key) => (
-                    <option key={key} value={key}>
-                      {t(`novel.outlineGenerator.scales.${key}`)}
-                    </option>
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">小说分类</Label>
+                <div className="flex flex-wrap gap-2">
+                  {currentGenres.map((g) => (
+                    <Button
+                      key={g.key}
+                      type="button"
+                      size="sm"
+                      variant={mainGenre === g.key ? "default" : "outline"}
+                      onClick={() => setMainGenre(g.key)}
+                      disabled={generating || taskGenerating}
+                      className="h-8 rounded-full px-3 text-xs"
+                    >
+                      {g.label}
+                    </Button>
                   ))}
-                </select>
+                </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label>{t("novel.outlineGenerator.premise")}</Label>
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">风格标签（可多选）</Label>
+                <div className="flex flex-wrap gap-2">
+                  {currentSubGenres.map((s) => {
+                    const selected = subGenres.includes(s.key)
+                    return (
+                      <Button
+                        key={s.key}
+                        type="button"
+                        size="sm"
+                        variant={selected ? "default" : "outline"}
+                        onClick={() =>
+                          setSubGenres((prev) =>
+                            selected ? prev.filter((k) => k !== s.key) : [...prev, s.key]
+                          )
+                        }
+                        disabled={generating || taskGenerating}
+                        className="h-7 rounded-full px-2.5 text-xs"
+                      >
+                        {s.label}
+                      </Button>
+                    )
+                  })}
+                </div>
+
+                {customTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {customTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-xs text-primary-foreground"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCustomTag(tag)}
+                          disabled={generating || taskGenerating}
+                          className="rounded-full hover:bg-primary-foreground/20"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Input
+                    value={customTagInput}
+                    onChange={(e) => setCustomTagInput(e.target.value)}
+                    onKeyDown={handleCustomTagKeyDown}
+                    placeholder="输入自定义标签，按回车添加"
+                    disabled={generating || taskGenerating}
+                    className="h-9 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleAddCustomTag}
+                    disabled={generating || taskGenerating}
+                    className="h-9 w-9 shrink-0"
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">目标字数</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {SCALE_KEYS.map((key) => {
+                    const labels: Record<string, { title: string; subtitle: string }> = {
+                      short: { title: "短篇", subtitle: "10万字以内" },
+                      medium: { title: "中篇", subtitle: "10-50万字" },
+                      long: { title: "长篇", subtitle: "50-200万字" },
+                      epic: { title: "超长篇", subtitle: "200万字以上" },
+                    }
+                    const item = labels[key]
+                    const selected = scale === key
+                    return (
+                      <Button
+                        key={key}
+                        type="button"
+                        variant={selected ? "default" : "outline"}
+                        onClick={() => setScale(key)}
+                        disabled={generating || taskGenerating}
+                        className="flex h-auto flex-col gap-0.5 py-2 text-xs"
+                      >
+                        <span className="font-medium">{item.title}</span>
+                        <span className={`text-[10px] ${selected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                          {item.subtitle}
+                        </span>
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">故事核心设定</Label>
                 <textarea
                   value={premise}
                   onChange={(e) => setPremise(e.target.value)}
-                  placeholder={t("novel.outlineGenerator.premisePlaceholder")}
+                  placeholder="用一段话描述你的故事核心设定，比如主角身份、核心冲突、故事走向等..."
                   disabled={generating || taskGenerating}
                   rows={4}
                   className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -482,7 +635,7 @@ export function OutlineGeneratorDialog({
                   </div>
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <div className="flex gap-4">
               {/* Left column: settings */}
@@ -706,65 +859,74 @@ export function OutlineGeneratorDialog({
           )}
         </div>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={ingesting}
-          >
-            {(mode === "outline" || mode === "refine") && taskGenerating
-              ? t("novel.outlineGenerator.hideAndContinue")
-              : t("project.cancel")}
-          </Button>
-          {mode === "outline" ? (
-            hasGeneratedOutline ? (
-              <Button onClick={handleIngestOutline} disabled={ingesting}>
-                {ingesting ? (
-                  <>
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    {t("novel.outlineGenerator.ingesting")}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-1 h-4 w-4" />
-                    {t("novel.outlineGenerator.ingest")}
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button onClick={handleGenerate} disabled={generating || taskGenerating || !premise.trim()}>
-                {generating ? (
-                  <>
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    {t("novel.outlineGenerator.generating")}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="mr-1 h-4 w-4" />
-                    {t("novel.outlineGenerator.title")}
-                  </>
-                )}
-              </Button>
-            )
-          ) : (
-            <Button onClick={handleRefineGenerate} disabled={taskGenerating || checkingOutline || !canRefine}>
-              {taskGenerating ? (
-                <>
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  {activeSectionTitle && activeSectionTitle !== t("novel.outlineGenerator.refineTitle")
-                    ? t("novel.outlineGenerator.sectionGenerating", { title: activeSectionTitle })
-                    : t("novel.outlineGenerator.refining")}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="mr-1 h-4 w-4" />
-                  {selectedSectionKey
-                    ? t(`novel.outlineGenerator.sectionButtons.${selectedSectionKey}`)
-                    : t("novel.outlineGenerator.refineTitle")}
-                </>
-              )}
+        <DialogFooter className="items-center gap-2 sm:justify-between">
+          <div className="flex items-center gap-2">
+            <ChatModelSelector
+              value={modelId}
+              onChange={setModelId}
+              disabled={generating || taskGenerating}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={ingesting}
+            >
+              {(mode === "outline" || mode === "refine") && taskGenerating
+                ? t("novel.outlineGenerator.hideAndContinue")
+                : t("project.cancel")}
             </Button>
-          )}
+            {mode === "outline" ? (
+              hasGeneratedOutline ? (
+                <Button onClick={handleIngestOutline} disabled={ingesting}>
+                  {ingesting ? (
+                    <>
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      {t("novel.outlineGenerator.ingesting")}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-1 h-4 w-4" />
+                      {t("novel.outlineGenerator.ingest")}
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button onClick={handleGenerate} disabled={generating || taskGenerating || !premise.trim()}>
+                  {generating ? (
+                    <>
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      {t("novel.outlineGenerator.generating")}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-1 h-4 w-4" />
+                      {t("novel.outlineGenerator.title")}
+                    </>
+                  )}
+                </Button>
+              )
+            ) : (
+              <Button onClick={handleRefineGenerate} disabled={taskGenerating || checkingOutline || !canRefine}>
+                {taskGenerating ? (
+                  <>
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    {activeSectionTitle && activeSectionTitle !== t("novel.outlineGenerator.refineTitle")
+                      ? t("novel.outlineGenerator.sectionGenerating", { title: activeSectionTitle })
+                      : t("novel.outlineGenerator.refining")}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-1 h-4 w-4" />
+                    {selectedSectionKey
+                      ? t(`novel.outlineGenerator.sectionButtons.${selectedSectionKey}`)
+                      : t("novel.outlineGenerator.refineTitle")}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -11,6 +11,11 @@ export interface OutlineGenerationTask {
   scale: string
   premise: string
   prompt: string
+  channel?: "male" | "female"
+  mainGenre?: string
+  subGenres?: string[]
+  customTags?: string[]
+  modelId?: string
   userRequest: string
   selectedSectionKey: string | null
   displayTitle: string | null
@@ -31,6 +36,11 @@ interface CreateOutlineTaskInput {
   scale?: string
   premise?: string
   prompt?: string
+  channel?: "male" | "female"
+  mainGenre?: string
+  subGenres?: string[]
+  customTags?: string[]
+  modelId?: string
   userRequest?: string
   selectedSectionKey?: string | null
   displayTitle?: string | null
@@ -71,6 +81,11 @@ export const useOutlineGenerationStore = create<OutlineGenerationState>((set) =>
           scale: input.scale ?? "",
           premise: input.premise ?? "",
           prompt: input.prompt ?? "",
+          channel: input.channel,
+          mainGenre: input.mainGenre,
+          subGenres: input.subGenres,
+          customTags: input.customTags,
+          modelId: input.modelId,
           userRequest: input.userRequest ?? "",
           selectedSectionKey: input.selectedSectionKey ?? null,
           displayTitle: input.displayTitle ?? null,

@@ -15,6 +15,7 @@ export interface OutlineChatConversation {
   title: string
   createdAt: number
   messages: OutlineChatMessage[]
+  modelId?: string
 }
 
 interface OutlineChatState {
@@ -30,6 +31,7 @@ interface OutlineChatState {
   replaceLastAssistant: (convId: string, content: string, sources?: string[]) => void
   removeLastMessage: (convId: string) => void
   deleteConversation: (id: string) => void
+  setConversationModel: (id: string, modelId: string) => void
   setStreamingContent: (content: string) => void
   setIsStreaming: (value: boolean) => void
   loadFromDisk: () => Promise<void>
@@ -108,6 +110,15 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
     set((s) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       activeConversationId: s.activeConversationId === id ? null : s.activeConversationId,
+    }))
+    void get().saveToDisk()
+  },
+
+  setConversationModel: (id, modelId) => {
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, modelId } : c
+      ),
     }))
     void get().saveToDisk()
   },

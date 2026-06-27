@@ -15,9 +15,10 @@ import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-generati
 import { prepareOutlineSaveDraft } from "@/lib/outline-save"
 import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
 import { runDeepOutlineGeneration } from "@/lib/novel/deep-outline-generation"
-import { resolveNovelModel } from "@/lib/novel/model-resolver"
+import { resolveModelConfig, resolveNovelModel } from "@/lib/novel/model-resolver"
 import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { ChatInput } from "@/components/chat/chat-input"
+import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import {
   buildWebResearchContext,
   collectWebResearch,
@@ -192,6 +193,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
   const conversations = useOutlineChatStore((s) => s.conversations)
   const activeConversationId = useOutlineChatStore((s) => s.activeConversationId)
@@ -204,11 +206,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const replaceLastAssistant = useOutlineChatStore((s) => s.replaceLastAssistant)
   const removeLastMessage = useOutlineChatStore((s) => s.removeLastMessage)
   const deleteConversation = useOutlineChatStore((s) => s.deleteConversation)
+  const setConversationModel = useOutlineChatStore((s) => s.setConversationModel)
   const setStreamingContent = useOutlineChatStore((s) => s.setStreamingContent)
   const setIsStreaming = useOutlineChatStore((s) => s.setIsStreaming)
   const loadFromDisk = useOutlineChatStore((s) => s.loadFromDisk)
 
+  const activeConv = conversations.find((c) => c.id === activeConversationId)
+  const activeMessages = activeConv?.messages ?? []
+
   const [inputValue, setInputValue] = useState("")
+  const [localModelId, setLocalModelId] = useState(activeConv?.modelId ?? "")
 
   // 加载持久化的历史记录
   useEffect(() => {
@@ -217,8 +224,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     }
   }, [loaded, loadFromDisk])
 
-  const activeConv = conversations.find((c) => c.id === activeConversationId)
-  const activeMessages = activeConv?.messages ?? []
+  // 当前会话切换或持久化 modelId 变化时，同步本地选择状态
+  useEffect(() => {
+    setLocalModelId(activeConv?.modelId ?? "")
+  }, [activeConv?.modelId])
 
   const [saveStatus, setSaveStatus] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
@@ -256,7 +265,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const handleSend = useCallback(async (inputText: string) => {
     const prompt = inputText.trim()
     if (!prompt || !project || isStreaming) return
-    const effectiveLlmConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
+    let effectiveLlmConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
+    if (activeConv?.modelId) {
+      effectiveLlmConfig = resolveModelConfig(activeConv.modelId, effectiveLlmConfig, providerConfigs)
+    }
     if (!hasUsableLlm(effectiveLlmConfig)) {
       const convId = activeConversationId ?? createConversation()
       addMessage(convId, { id: crypto.randomUUID(), role: "assistant", content: "请先在设置中配置可用的AI模型（API Key 和模型名称），或在AI会话中选择一个模型。" })
@@ -396,7 +408,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [project, isStreaming, llmConfig, novelConfig, activeConversationId, createConversation, addMessage, replaceLastAssistant, removeLastMessage, setIsStreaming, setStreamingContent])
+  }, [project, isStreaming, llmConfig, novelConfig, providerConfigs, activeConv, activeConversationId, createConversation, addMessage, replaceLastAssistant, removeLastMessage, setIsStreaming, setStreamingContent])
 
   const handleGenerateSection = useCallback((title: string, requestHint: string) => {
     void handleSend(`请继续生成「${title}」。${requestHint} 请基于已有大纲、章节内容和项目记忆直接输出该分项内容，结构清晰，可保存为大纲。`)
@@ -416,7 +428,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleRegenerate = useCallback(async (msgIndex: number) => {
     if (!project || isStreaming || !activeConversationId) return
-    const effectiveLlmConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
+    let effectiveLlmConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
+    if (activeConv?.modelId) {
+      effectiveLlmConfig = resolveModelConfig(activeConv.modelId, effectiveLlmConfig, providerConfigs)
+    }
     if (!hasUsableLlm(effectiveLlmConfig)) {
       addMessage(activeConversationId, { id: crypto.randomUUID(), role: "assistant", content: "请先在设置中配置可用的AI模型（API Key 和模型名称），或在AI会话中选择一个模型。" })
       return
@@ -489,7 +504,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [project, isStreaming, llmConfig, novelConfig, activeConversationId, addMessage, replaceLastAssistant, setIsStreaming, setStreamingContent])
+  }, [project, isStreaming, llmConfig, novelConfig, providerConfigs, activeConv, activeConversationId, addMessage, replaceLastAssistant, setIsStreaming, setStreamingContent])
 
   const handleCopy = useCallback((content: string, id: string) => {
     navigator.clipboard.writeText(content).then(() => {
@@ -628,8 +643,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         onChange={setInputValue}
         footerControls={
           <TooltipProvider delay={200}>
-            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
-              <ChatDockControls />
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
+                <ChatDockControls />
+              </div>
+              <ChatModelSelector
+                value={localModelId}
+                onChange={(value) => {
+                  setLocalModelId(value)
+                  if (activeConversationId) {
+                    setConversationModel(activeConversationId, value)
+                  }
+                }}
+                disabled={isStreaming}
+              />
             </div>
           </TooltipProvider>
         }
