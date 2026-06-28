@@ -119,17 +119,6 @@ export function SoulSidebarPanel() {
               <div className="mt-1 text-xs opacity-80">{t("novel.soul.projectSoulDesc")}</div>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedSoulId("de-ai-skill")}
-              className={`mb-1 w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                selectedSoulId === "de-ai-skill" ? "qm-selected" : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <div className="font-medium">去AI味Skill</div>
-              <div className="mt-1 text-xs opacity-80">自定义去AI味规则，应用到全局</div>
-            </button>
-
             <div className="mt-3 rounded-md border bg-muted/20 p-3">
               <div className="text-xs font-medium text-muted-foreground">已绑定人物</div>
               {bindings.length > 0 ? (
