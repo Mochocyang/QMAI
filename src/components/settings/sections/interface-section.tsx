@@ -1,6 +1,10 @@
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+import {
+  normalizeSidebarNavConfig,
+  type SidebarNavItemId,
+} from "@/lib/sidebar-nav-preferences"
 
 interface Props {
   draft: SettingsDraft
@@ -19,9 +23,34 @@ const FONT_SIZE_PRESETS = [
   { label: "特大", value: 1.3 },
 ]
 
+const SIDEBAR_NAV_LABEL_KEYS: Record<SidebarNavItemId, string> = {
+  wiki: "novel.nav.wiki",
+  sources: "novel.nav.sources",
+  graph: "novel.nav.graph",
+  lint: "novel.nav.lint",
+  soul: "novel.nav.soul",
+  bookAnalysis: "novel.nav.dismantling",
+  reviewCenter: "novel.nav.reviewCenter",
+  storySimulation: "novel.nav.storySimulation",
+  search: "novel.nav.search",
+  trash: "nav.trash",
+}
+
 export function InterfaceSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const scalePercent = Math.round(draft.uiFontSizeScale * 100)
+  const sidebarNavConfig = normalizeSidebarNavConfig(draft.sidebarNavConfig)
+  const hiddenSidebarNavIds = new Set(sidebarNavConfig.hidden)
+
+  const handleToggleSidebarNavItem = (id: SidebarNavItemId, visible: boolean) => {
+    const hidden = visible
+      ? sidebarNavConfig.hidden.filter((itemId) => itemId !== id)
+      : [...sidebarNavConfig.hidden, id]
+    setDraft("sidebarNavConfig", normalizeSidebarNavConfig({
+      ...sidebarNavConfig,
+      hidden,
+    }))
+  }
 
   return (
     <div className="space-y-6">
@@ -55,6 +84,38 @@ export function InterfaceSection({ draft, setDraft }: Props) {
         </div>
         <p className="text-xs text-muted-foreground">
           {t("settings.sections.interface.uiLanguageHint")}
+        </p>
+      </div>
+
+      <div className="space-y-3 rounded-lg border p-4">
+        <div>
+          <Label>{t("settings.sections.interface.sidebarNavTitle")}</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("settings.sections.interface.sidebarNavDescription")}
+          </p>
+        </div>
+        <div className="grid gap-2">
+          {sidebarNavConfig.order.map((id) => {
+            const visible = !hiddenSidebarNavIds.has(id)
+            return (
+              <label
+                key={id}
+                className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-accent/40"
+              >
+                <span className="truncate">{t(SIDEBAR_NAV_LABEL_KEYS[id])}</span>
+                <input
+                  type="checkbox"
+                  checked={visible}
+                  onChange={(e) => handleToggleSidebarNavItem(id, e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                  aria-label={t(SIDEBAR_NAV_LABEL_KEYS[id])}
+                />
+              </label>
+            )
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.interface.sidebarNavOrderHint")}
         </p>
       </div>
 

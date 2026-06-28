@@ -1,5 +1,6 @@
 import type { CustomApiMode } from "./llm-presets"
 import type { AzureModelFamily, ReasoningConfig, SourceWatchConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
+import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 
 /**
  * Shape of the draft state each section reads from and writes into.
@@ -65,6 +66,7 @@ export interface SettingsDraft {
   // UI
   uiLanguage: string
   uiFontSizeScale: number
+  sidebarNavConfig: SidebarNavConfig
 
   // Source folder auto watch
   sourceWatchConfig: SourceWatchConfig

@@ -727,11 +727,14 @@
         "historyCurrent": "当前 {{count}} 条消息（约 {{turns}} 轮对话）"
       },
       "interface": {
-        "title": "界面",
-        "description": "界面语言和外观样式。切换后立即生效并持久化。",
-        "uiLanguage": "UI 语言",
-        "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。"
-      },
+      "title": "界面",
+      "description": "界面语言和外观样式。切换后立即生效并持久化。",
+      "uiLanguage": "UI 语言",
+      "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。",
+      "sidebarNavTitle": "左侧功能栏",
+      "sidebarNavDescription": "勾选要在左侧显示的功能，取消勾选后该功能入口会隐藏。",
+      "sidebarNavOrderHint": "图标顺序可在左侧功能栏中长按拖动调整。"
+    },
       "novel": {
         "title": "小说",
         "description": "项目级小说写作模式和修改反馈窗口设置。",

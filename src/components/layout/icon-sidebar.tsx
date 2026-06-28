@@ -1,8 +1,22 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import {
   FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Eye, SunMoon, Check, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama,
 } from "lucide-react"
 import { createPortal } from "react-dom"
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
@@ -11,24 +25,32 @@ import logoImg from "@/assets/QM-LOGO.png"
 import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
+import {
+  isSidebarNavItemId,
+  reorderSidebarNavOrder,
+  type SidebarNavItemId,
+} from "@/lib/sidebar-nav-preferences"
 
 type NavView = WikiState["activeView"]
 
-const SEARCH_NAV_ITEM: { view: NavView; icon: typeof FileText; labelKey: string } = {
-  view: "search",
-  icon: Search,
-  labelKey: "novel.nav.search",
+interface ConfigurableNavItem {
+  id: SidebarNavItemId
+  view: NavView
+  icon: typeof FileText
+  labelKey: string
 }
 
-const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = [
-  { view: "wiki", icon: FileText, labelKey: "novel.nav.wiki" },
-  { view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources" },
-  { view: "graph", icon: Network, labelKey: "novel.nav.graph" },
-  { view: "lint", icon: Brain, labelKey: "novel.nav.lint" },
-  { view: "soul", icon: Sparkles, labelKey: "novel.nav.soul" },
-  { view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
-  { view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
-  { view: "storySimulation", icon: Drama, labelKey: "novel.nav.storySimulation" },
+const CONFIGURABLE_NAV_ITEMS: ConfigurableNavItem[] = [
+  { id: "wiki", view: "wiki", icon: FileText, labelKey: "novel.nav.wiki" },
+  { id: "sources", view: "sources", icon: FolderOpen, labelKey: "novel.nav.sources" },
+  { id: "graph", view: "graph", icon: Network, labelKey: "novel.nav.graph" },
+  { id: "lint", view: "lint", icon: Brain, labelKey: "novel.nav.lint" },
+  { id: "soul", view: "soul", icon: Sparkles, labelKey: "novel.nav.soul" },
+  { id: "bookAnalysis", view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
+  { id: "reviewCenter", view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
+  { id: "storySimulation", view: "storySimulation", icon: Drama, labelKey: "novel.nav.storySimulation" },
+  { id: "search", view: "search", icon: Search, labelKey: "novel.nav.search" },
+  { id: "trash", view: "trash", icon: Trash2, labelKey: "nav.trash" },
 ]
 
 interface IconSidebarProps {
@@ -44,6 +66,59 @@ const THEME_OPTIONS: { value: ThemeMode; icon: typeof Sun; labelKey: string }[] 
   { value: "system", icon: SunMoon, labelKey: "theme.system" },
 ]
 
+interface SortableNavButtonProps {
+  item: ConfigurableNavItem
+  activeView: NavView
+  pendingCount: number
+  label: string
+  onClick: (item: ConfigurableNavItem) => void
+}
+
+function SortableNavButton({ item, activeView, pendingCount, label, onClick }: SortableNavButtonProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const Icon = item.icon
+  const isActive = activeView === item.view
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        ref={setNodeRef}
+        type="button"
+        onClick={() => onClick(item)}
+        className={`relative flex h-10 w-10 touch-none items-center justify-center rounded-md transition-colors ${
+          isActive
+            ? "qm-selected"
+            : "text-muted-foreground qm-hover"
+        } ${isDragging ? "z-10 opacity-80 shadow-sm" : ""}`}
+        style={style}
+        {...attributes}
+        {...listeners}
+      >
+        <Icon className="h-5 w-5" />
+        {item.view === "reviewCenter" && pendingCount > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+            {pendingCount > 99 ? "99+" : pendingCount}
+          </span>
+        )}
+        {item.view === "storySimulation" && (
+          <span className="absolute -right-1 -top-0.5 flex h-3.5 items-center justify-center rounded bg-amber-500 px-1 text-[9px] font-bold leading-none text-white">
+            BETA
+          </span>
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {label}
+        {item.view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
+        {item.view === "storySimulation" && " (测试版)"}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }: IconSidebarProps) {
   const { t } = useTranslation()
   const activeView = useWikiStore((s) => s.activeView)
@@ -53,12 +128,31 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const theme = useWikiStore((s) => s.theme)
   const setTheme = useWikiStore((s) => s.setTheme)
+  const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
+  const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
 
   // 主题下拉框状态
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
   const [themeMenuStyle, setThemeMenuStyle] = useState<{ left: number; top: number } | null>(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+  )
+  const navItemsById = useMemo(
+    () => new Map(CONFIGURABLE_NAV_ITEMS.map((item) => [item.id, item])),
+    [],
+  )
+  const hiddenNavIds = useMemo(
+    () => new Set(sidebarNavConfig.hidden),
+    [sidebarNavConfig.hidden],
+  )
+  const visibleNavItems = sidebarNavConfig.order
+    .map((id) => navItemsById.get(id))
+    .filter((item): item is ConfigurableNavItem => item !== undefined && !hiddenNavIds.has(item.id))
+  const visibleNavIds = visibleNavItems.map((item) => item.id)
 
   const getThemeIcon = () => {
     const option = THEME_OPTIONS.find((o) => o.value === theme)
@@ -119,9 +213,23 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
     setActiveView(view)
   }
 
-  const handleSearchClick = () => {
-    setSearchPanelOpen(false)
-    setActiveView("search")
+  const handleConfigurableNavClick = (item: ConfigurableNavItem) => {
+    handleNavClick(item.view)
+    if (item.view === "trash") {
+      onOpenSidebar?.()
+    }
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    if (!isSidebarNavItemId(activeId) || !isSidebarNavItemId(overId)) return
+    setSidebarNavConfig({
+      ...sidebarNavConfig,
+      order: reorderSidebarNavOrder(sidebarNavConfig.order, activeId, overId),
+    })
   }
 
   return (
@@ -139,69 +247,28 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             className="h-6 w-6 rounded-[22%]"
           />
         </button>
-        {/* Top: main nav items */}
+        {/* Top: configurable feature entries */}
         <div className="flex flex-1 flex-col items-center gap-1">
-          {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
-            <Tooltip key={view}>
-              <TooltipTrigger
-                onClick={() => handleNavClick(view)}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                  activeView === view
-                    ? "qm-selected"
-                    : "text-muted-foreground qm-hover"
-                }`}
-              >
-                <Icon className="h-5 w-5" />
-                {view === "reviewCenter" && pendingCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                    {pendingCount > 99 ? "99+" : pendingCount}
-                  </span>
-                )}
-                {view === "storySimulation" && (
-                  <span className="absolute -right-1 -top-0.5 flex h-3.5 items-center justify-center rounded bg-amber-500 px-1 text-[9px] font-bold leading-none text-white">
-                    BETA
-                  </span>
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t(labelKey)}
-                {view === "reviewCenter" && pendingCount > 0 && ` (${pendingCount})`}
-                {view === "storySimulation" && " (测试版)"}
-              </TooltipContent>
-            </Tooltip>
-          ))}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={handleSearchClick}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "search"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Search className="h-5 w-5" />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t(SEARCH_NAV_ITEM.labelKey)}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => {
-                setSearchPanelOpen(false)
-                setActiveView("trash")
-                onOpenSidebar?.()
-              }}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "trash"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Trash2 className="h-5 w-5" />
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("nav.trash")}</TooltipContent>
-          </Tooltip>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={visibleNavIds} strategy={verticalListSortingStrategy}>
+              <div className="flex flex-col items-center gap-1">
+                {visibleNavItems.map((item) => (
+                  <SortableNavButton
+                    key={item.id}
+                    item={item}
+                    activeView={activeView}
+                    pendingCount={pendingCount}
+                    label={t(item.labelKey)}
+                    onClick={handleConfigurableNavClick}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
         {/* Bottom: daemon status + theme toggle + settings + switch project */}
         <div className="flex flex-col items-center gap-1 pb-1">

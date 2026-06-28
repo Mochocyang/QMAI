@@ -967,11 +967,14 @@
         "historyCurrent": "Currently {{count}} messages (about {{turns}} turns)"
       },
       "interface": {
-        "title": "Interface",
-        "description": "Interface language and visual presentation settings.",
-        "uiLanguage": "UI language",
-        "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output."
-      },
+      "title": "Interface",
+      "description": "Interface language and visual presentation settings.",
+      "uiLanguage": "UI language",
+      "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output.",
+      "sidebarNavTitle": "Left Feature Bar",
+      "sidebarNavDescription": "Select the features shown on the left. Unselected features are hidden from the bar.",
+      "sidebarNavOrderHint": "Long-press and drag icons in the left feature bar to change their order."
+    },
       "dataManagement": {
         "title": "Data Management",
         "description": "Backup and restore all your data, including model configs, AI chats, novel content, outlines, memory, book analysis results, etc.",
