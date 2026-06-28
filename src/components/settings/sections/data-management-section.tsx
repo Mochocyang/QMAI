@@ -6,15 +6,18 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  ListChecks,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { exportBackup } from "@/lib/backup/export"
-import { importBackup } from "@/lib/backup/import"
+import { importBackup, readBackupManifest, selectBackupFile } from "@/lib/backup/import"
 import type {
   ExportResult,
   ImportResult,
   ImportStrategy,
   BackupProgressPayload,
+  ProjectManifestEntry,
+  ProjectRestoreInfo,
 } from "@/lib/backup/types"
 
 export function DataManagementSection() {
@@ -25,6 +28,10 @@ export function DataManagementSection() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importStrategy, setImportStrategy] = useState<ImportStrategy>("full")
   const [progress, setProgress] = useState<BackupProgressPayload | null>(null)
+  const [showProjectSelect, setShowProjectSelect] = useState(false)
+  const [manifestProjects, setManifestProjects] = useState<ProjectManifestEntry[]>([])
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set())
+  const [pendingZipPath, setPendingZipPath] = useState<string>("")
 
   const handleProgress = useCallback((payload: BackupProgressPayload) => {
     setProgress(payload)
@@ -52,6 +59,30 @@ export function DataManagementSection() {
   }
 
   async function handleImport() {
+    if (importStrategy === "selective") {
+      // 选择性导入：先选文件，再读 manifest，再弹项目选择
+      const zipPath = await selectBackupFile()
+      if (!zipPath) return
+
+      try {
+        const manifest = await readBackupManifest(zipPath)
+        setManifestProjects(manifest)
+        setSelectedProjectIds(new Set(manifest.map((p) => p.id)))
+        setPendingZipPath(zipPath)
+        setShowProjectSelect(true)
+      } catch {
+        setImportResult({
+          success: false,
+          appState: null,
+          localStorageData: null,
+          projects: [],
+          warnings: [],
+          error: "读取备份文件失败，文件可能已损坏",
+        })
+      }
+      return
+    }
+
     setIsImporting(true)
     setImportResult(null)
     setProgress(null)
@@ -71,6 +102,46 @@ export function DataManagementSection() {
       setIsImporting(false)
       setProgress((p) => (p && p.stage === "done" ? p : null))
     }
+  }
+
+  async function handleSelectiveImport() {
+    setShowProjectSelect(false)
+    setIsImporting(true)
+    setImportResult(null)
+    setProgress(null)
+
+    const selectedProjects: ProjectRestoreInfo[] = manifestProjects
+      .filter((p) => selectedProjectIds.has(p.id))
+      .map((p) => ({ id: p.id, targetPath: p.path }))
+
+    try {
+      const result = await importBackup("selective", selectedProjects, handleProgress, pendingZipPath)
+      setImportResult(result)
+    } catch (err) {
+      setImportResult({
+        success: false,
+        appState: null,
+        localStorageData: null,
+        projects: [],
+        warnings: [],
+        error: String(err),
+      })
+    } finally {
+      setIsImporting(false)
+      setProgress((p) => (p && p.stage === "done" ? p : null))
+    }
+  }
+
+  function toggleProject(id: string) {
+    setSelectedProjectIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
   }
 
   const isBusy = isExporting || isImporting
@@ -183,6 +254,7 @@ export function DataManagementSection() {
           <div className="space-y-1">
             {([
               { value: "full" as const, label: "完全覆盖（清除当前所有数据）" },
+              { value: "selective" as const, label: "选择性导入（仅恢复选中的项目）" },
               { value: "global-only" as const, label: "仅导入全局配置（模型、UI偏好）" },
             ]).map((opt) => (
               <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -254,6 +326,50 @@ export function DataManagementSection() {
           </div>
         )}
       </div>
+
+      {/* 选择性导入项目选择弹窗 */}
+      {showProjectSelect && manifestProjects.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg">
+            <div className="flex items-center gap-2 mb-4">
+              <ListChecks className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold">选择要恢复的项目</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              请勾选需要恢复的项目，未勾选的项目将不会被导入。
+            </p>
+            <div className="max-h-64 space-y-2 overflow-y-auto border rounded-lg p-3">
+              {manifestProjects.map((p) => (
+                <label key={p.id} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-muted rounded px-2 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={selectedProjectIds.has(p.id)}
+                    onChange={() => toggleProject(p.id)}
+                    className="cursor-pointer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{p.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{p.path}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-xs text-muted-foreground">
+                已选择 {selectedProjectIds.size} / {manifestProjects.length} 个项目
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowProjectSelect(false)}>
+                  取消
+                </Button>
+                <Button onClick={handleSelectiveImport} disabled={selectedProjectIds.size === 0}>
+                  开始恢复
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
         <div className="flex items-start gap-2">
