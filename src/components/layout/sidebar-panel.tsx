@@ -1475,7 +1475,7 @@ export function SidebarPanel() {
       </div>
 
       {pendingCreate && (
-        <div className="flex items-center gap-1 border-b px-2 py-1">
+        <div className="flex flex-col gap-2 border-b px-2 py-2">
           <input
             type="text"
             value={inputTitle}
@@ -1488,27 +1488,30 @@ export function SidebarPanel() {
               }
             }}
             placeholder={inputPlaceholder}
-            className="flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="w-full rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
             autoFocus
             disabled={creating}
           />
-          <button
-            type="button"
-            onClick={() => void handleCreateFromInput()}
-            disabled={!inputTitle.trim() || creating}
-            className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {creating ? "..." : "创建"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              cancelPendingCreate()
-            }}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-          >
-            取消
-          </button>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                cancelPendingCreate()
+              }}
+              disabled={creating}
+              className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCreateFromInput()}
+              disabled={!inputTitle.trim() || creating}
+              className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {creating ? "..." : "创建"}
+            </button>
+          </div>
         </div>
       )}
 
