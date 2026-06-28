@@ -88,17 +88,36 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
 
   useEffect(() => {
     const handleResize = () => {
+      const userMin = userSetMinHeightRef.current
       const ta = textareaRef.current
-      const bounds = getResizeBoundsForElement(rootRef.current)
-      const minBase = userSetMinHeightRef.current ?? DEFAULT_RESIZABLE_INPUT_HEIGHT
+
+      if (userMin != null) {
+        // 用户已手动设置高度：窗口 resize 时只做上下边界检查，保持高度尽量不变
+        const bounds = getResizeBoundsForElement(rootRef.current)
+        const current = inputHeightRef.current
+        const next = clampResizableInputHeight(current, bounds)
+        if (next !== current) {
+          if (ta) {
+            ta.style.height = `${next}px`
+          }
+          setInputHeight(next)
+          setUserSetMinHeight(next)
+        }
+        setIsAtLimitTop(isHeightAtMax(next, bounds))
+        setIsAtLimitBottom(isHeightAtMin(next, bounds))
+        return
+      }
+
       if (ta) {
+        const bounds = getResizeBoundsForElement(rootRef.current)
         ta.style.height = "auto"
         const contentHeight = ta.scrollHeight
         const current = inputHeightRef.current
-        const next = clampResizableInputHeight(Math.max(minBase, contentHeight, current), bounds)
+        const next = clampResizableInputHeight(Math.max(DEFAULT_RESIZABLE_INPUT_HEIGHT, contentHeight, current), bounds)
         ta.style.height = `${next}px`
         setInputHeight(next)
       } else {
+        const bounds = getResizeBoundsForElement(rootRef.current)
         setInputHeight((prev) => clampResizableInputHeight(prev, bounds))
       }
     }
@@ -109,11 +128,18 @@ export function ChatInput({ onSend, onStop, isStreaming, placeholder, leadingCon
   const autoFitTextarea = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
+    const userMin = userSetMinHeightRef.current
+
+    // 用户已手动设置高度：保持固定高度，不随内容自适应
+    // 内容超出时 textarea 内部自动滚动，高度始终不变
+    if (userMin != null) {
+      return
+    }
+
     const bounds = getResizeBoundsForElement(rootRef.current)
-    const minBase = userSetMinHeightRef.current ?? DEFAULT_RESIZABLE_INPUT_HEIGHT
     ta.style.height = "auto"
     const contentHeight = ta.scrollHeight
-    const next = clampResizableInputHeight(Math.max(minBase, contentHeight), bounds)
+    const next = clampResizableInputHeight(Math.max(DEFAULT_RESIZABLE_INPUT_HEIGHT, contentHeight), bounds)
     ta.style.height = `${next}px`
     setInputHeight(next)
     setIsAtLimitTop(isHeightAtMax(next, bounds))
