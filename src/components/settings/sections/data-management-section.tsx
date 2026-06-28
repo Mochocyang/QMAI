@@ -144,6 +144,14 @@ export function DataManagementSection() {
     })
   }
 
+  function selectAllProjects() {
+    setSelectedProjectIds(new Set(manifestProjects.map((p) => p.id)))
+  }
+
+  function deselectAllProjects() {
+    setSelectedProjectIds(new Set())
+  }
+
   const isBusy = isExporting || isImporting
 
   return (
@@ -161,7 +169,18 @@ export function DataManagementSection() {
 
       {progress && isBusy && (
         <div className="rounded-lg border p-4 space-y-2">
-          <p className="text-sm font-medium">{progress.message}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">{progress.message}</p>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+              {progress.stage === "preparing" && "准备中"}
+              {progress.stage === "collecting" && "收集中"}
+              {progress.stage === "packing" && "打包中"}
+              {progress.stage === "restoring" && "恢复中"}
+              {progress.stage === "writing" && "写入中"}
+              {progress.stage === "done" && "完成"}
+              {!["preparing","collecting","packing","restoring","writing","done"].includes(progress.stage) && progress.stage}
+            </span>
+          </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full bg-primary transition-all duration-300"
@@ -287,7 +306,7 @@ export function DataManagementSection() {
         </Button>
 
         {importResult && (
-          <div className="text-sm space-y-1">
+          <div className="text-sm space-y-2">
             {importResult.success ? (
               <div className="flex items-start gap-2 text-green-600">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -309,17 +328,29 @@ export function DataManagementSection() {
                 <p>{importResult.error}</p>
               </div>
             )}
+            {/* 项目恢复详情列表 */}
+            {importResult.projects?.length > 0 && (
+              <div className="border rounded-lg divide-y text-xs">
+                {importResult.projects.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 px-3 py-2">
+                    {p.success ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                    ) : (
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                    )}
+                    <span className="font-medium truncate">{p.name}</span>
+                    <span className="text-muted-foreground truncate flex-1">{p.path}</span>
+                    {!p.success && p.error && (
+                      <span className="text-red-500 shrink-0">{p.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {importResult.warnings?.length > 0 && (
               <div className="text-yellow-600 text-xs space-y-1">
                 {importResult.warnings.map((w, i) => (
                   <p key={i}>⚠ {w}</p>
-                ))}
-              </div>
-            )}
-            {importResult.projects?.some((p) => !p.success) && (
-              <div className="text-red-600 text-xs space-y-1">
-                {importResult.projects.filter((p) => !p.success).map((p, i) => (
-                  <p key={i}>✗ {p.id}: {p.error}</p>
                 ))}
               </div>
             )}
@@ -338,6 +369,19 @@ export function DataManagementSection() {
             <p className="text-sm text-muted-foreground mb-4">
               请勾选需要恢复的项目，未勾选的项目将不会被导入。
             </p>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={selectAllProjects} className="text-xs h-7 px-2">
+                  全选
+                </Button>
+                <Button variant="ghost" size="sm" onClick={deselectAllProjects} className="text-xs h-7 px-2">
+                  取消全选
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                已选择 {selectedProjectIds.size} / {manifestProjects.length} 个项目
+              </p>
+            </div>
             <div className="max-h-64 space-y-2 overflow-y-auto border rounded-lg p-3">
               {manifestProjects.map((p) => (
                 <label key={p.id} className="flex items-center gap-3 text-sm cursor-pointer hover:bg-muted rounded px-2 py-1.5">
