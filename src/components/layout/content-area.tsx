@@ -38,6 +38,11 @@ const SoulView = lazy(async () => {
   return { default: mod.SoulView }
 })
 
+const SkillLibraryView = lazy(async () => {
+  const mod = await import("@/components/skill-library/skill-library-view")
+  return { default: mod.SkillLibraryView }
+})
+
 const ReviewCenterView = lazy(async () => {
   const mod = await import("@/components/review/review-center-view")
   return { default: mod.ReviewCenterView }
@@ -92,6 +97,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <SoulView />
+          </Suspense>
+        )
+        break
+      case "skillLibrary":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <SkillLibraryView />
           </Suspense>
         )
         break

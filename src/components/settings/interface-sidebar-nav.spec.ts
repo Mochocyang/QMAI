@@ -17,6 +17,7 @@ describe("settings sidebar nav preferences", () => {
 
   it("renders a Chinese sidebar feature visibility section in interface settings", () => {
     expect(interfaceSectionSource).toContain("SIDEBAR_NAV_LABEL_KEYS")
+    expect(interfaceSectionSource).toContain("skillLibrary")
     expect(interfaceSectionSource).toContain('setDraft("sidebarNavConfig"')
     expect(interfaceSectionSource).toContain('type="checkbox"')
     expect(zh.settings.sections.interface.sidebarNavTitle).toBe("左侧功能栏")

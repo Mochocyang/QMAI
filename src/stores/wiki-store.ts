@@ -496,7 +496,7 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"

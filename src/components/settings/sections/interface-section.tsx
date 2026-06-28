@@ -29,6 +29,7 @@ const SIDEBAR_NAV_LABEL_KEYS: Record<SidebarNavItemId, string> = {
   graph: "novel.nav.graph",
   lint: "novel.nav.lint",
   soul: "novel.nav.soul",
+  skillLibrary: "novel.nav.skillLibrary",
   bookAnalysis: "novel.nav.dismantling",
   reviewCenter: "novel.nav.reviewCenter",
   storySimulation: "novel.nav.storySimulation",

@@ -14,6 +14,7 @@ describe("sidebar nav preferences", () => {
       "graph",
       "lint",
       "soul",
+      "skillLibrary",
       "bookAnalysis",
       "reviewCenter",
       "storySimulation",
@@ -36,6 +37,7 @@ describe("sidebar nav preferences", () => {
       "graph",
       "lint",
       "soul",
+      "skillLibrary",
       "bookAnalysis",
       "reviewCenter",
       "storySimulation",
@@ -55,5 +57,10 @@ describe("sidebar nav preferences", () => {
     const order = reorderSidebarNavOrder(DEFAULT_SIDEBAR_NAV_ORDER, "trash", "wiki")
 
     expect(order.slice(0, 3)).toEqual(["trash", "wiki", "sources"])
+  })
+
+  it("includes skill library in the configurable sidebar order", () => {
+    expect(DEFAULT_SIDEBAR_NAV_ORDER).toContain("skillLibrary")
+    expect(normalizeSidebarNavConfig({ order: ["wiki"] }).order).toContain("skillLibrary")
   })
 })
