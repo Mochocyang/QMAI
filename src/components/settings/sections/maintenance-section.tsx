@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { runDuplicateDetection } from "@/lib/dedup-runner"
 import { addNotDuplicate } from "@/lib/dedup-storage"
 import {
@@ -100,7 +101,8 @@ export function MaintenanceSection() {
     return () => clearInterval(id)
   }, [])
 
-  const llmReady = hasUsableLlm(llmConfig, providerConfigs)
+  const resolvedLlmConfig = useMemo(() => resolveDefaultModel(llmConfig), [llmConfig])
+  const llmReady = hasUsableLlm(resolvedLlmConfig, providerConfigs)
   const projectReady = !!project
   const projectScanState = project && scanState.projectPath === project.path ? scanState : emptyScanState
   const { scanning, scanError, groups, scanCompleted } = projectScanState

@@ -78,6 +78,19 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "2.2.27",
+  date: "2026-06-28",
+  highlights: {
+    en: [],
+    zh: [
+      "修复维护工具「检测重复实体」模型检测逻辑：现在会正确解析 AI 会话模型和默认模型，不再误报「请先配置大模型」。",
+      "修复扫描结果展示英文的问题：重复检测和合并的 LLM 提示词改为中文，LLM 返回的重复原因描述现在显示中文。",
+      "修复队列错误信息为中文：合并任务失败时的错误提示改为中文。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_TWENTY_SIX_CHANGELOG: ChangelogEntry = {
   version: "2.2.26",
   date: "2026-06-28",
@@ -638,6 +651,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_SIX_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_SIX_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_FIVE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_FIVE_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG]
@@ -669,6 +683,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG,
     TWO_POINT_TWO_TWENTY_SIX_CHANGELOG,
     TWO_POINT_TWO_TWENTY_FIVE_CHANGELOG,
     TWO_POINT_TWO_TWENTY_FOUR_CHANGELOG,

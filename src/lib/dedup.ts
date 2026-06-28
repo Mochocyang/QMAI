@@ -168,34 +168,36 @@ function truncate(s: string, max: number): string {
 // Stage 2: LLM-driven duplicate detection
 // ──────────────────────────────────────────────────────────────────
 
-const DETECTOR_SYSTEM_PROMPT = `You are a wiki maintenance assistant. You will receive a list of entity / concept pages from a wiki. Identify groups of slugs that likely refer to the same underlying topic under different names — for example:
+const DETECTOR_SYSTEM_PROMPT = `你是一个维基维护助手。你将收到一个维基中的实体/概念页面列表。请找出那些很可能指向同一主题但名称不同的 slug 分组——例如：
 
-- Same name in two languages (English vs Chinese, etc.)
-- Plural vs singular form (e.g. "dpao" vs "dpaos")
-- Abbreviation vs full form (e.g. "vfa" vs "volatile-fatty-acids")
-- Synonyms in the same language
-- The same proper noun spelled differently
+- 同一名称的不同语言版本（中英文等）
+- 单复数形式（如 "dpao" 和 "dpaos"）
+- 缩写与全称（如 "vfa" 和 "volatile-fatty-acids"）
+- 同义词
+- 同一专有名词的不同拼写
 
-Output ONLY valid JSON. No prose, no markdown fences, no explanation outside the JSON. The schema is:
+只输出有效的 JSON。不要输出散文、markdown 代码块或 JSON 之外的任何解释。JSON 结构如下：
 
 {
   "groups": [
     {
       "slugs": ["slug-a", "slug-b"],
-      "reason": "Both refer to X; first is English, second is Chinese.",
+      "reason": "两个页面都指向 X；第一个是英文，第二个是中文。",
       "confidence": "high"
     }
   ]
 }
 
-Rules:
-- Only include groups of 2 or more slugs from the input list.
-- "high" = clearly the same entity, only naming differs.
-- "medium" = likely the same but context-dependent.
-- "low" = uncertain; user should review carefully.
-- Never invent slugs that aren't in the input.
-- If no duplicates exist, output {"groups": []}.
-- Pages of different \`type\` (e.g. an entity and a concept) usually should NOT be grouped — only group across types when they're unambiguously the same thing.`
+规则：
+- 只包含输入列表中 2 个或更多 slug 的分组。
+- "high" = 明显是同一实体，只是命名不同。
+- "medium" = 可能是同一实体，但需要结合上下文判断。
+- "low" = 不确定，需要用户仔细审查。
+- 不要编造输入列表中不存在的 slug。
+- 如果没有重复项，输出 {"groups": []}。
+- 不同 \`type\`（如 entity 和 concept）的页面通常不应分在一组——只有在明确是同一事物时才跨类型分组。
+
+重要：reason 字段必须使用中文描述。`
 
 /**
  * Run the LLM duplicate-detector. The caller hands in summaries
@@ -318,17 +320,17 @@ function normalizeGroupKey(slugs: string[]): string {
 // Stage 3: merge a confirmed duplicate group
 // ──────────────────────────────────────────────────────────────────
 
-const MERGER_SYSTEM_PROMPT = `You are a wiki maintenance assistant. You will be given several wiki pages that all describe the same entity or concept under different names. Merge them into a single coherent wiki page.
+const MERGER_SYSTEM_PROMPT = `你是一个维基维护助手。你将收到几个描述同一实体或概念但名称不同的维基页面。请将它们合并为一个连贯的维基页面。
 
-Output the COMPLETE merged file (frontmatter + body). The first character of your response MUST be "-" (the opening of "---"). No preamble, no explanation outside the file.
+输出完整的合并文件（frontmatter + 正文）。你回复的第一个字符必须是 "-"（"---" 的开头）。不要输出前言或文件之外的任何解释。
 
-Rules:
-- Preserve every distinct factual claim from every input page.
-- Eliminate redundancy (don't say the same thing twice across sections).
-- Reorganize sections so the structure is logical for the unified topic, not a concatenation of inputs.
-- Use [[wikilink]] syntax in the body where the inputs did.
-- Frontmatter: keep the standard fields (type, title, created, updated, tags, related, sources). The caller will overwrite sources / tags / related / updated with deterministic unions afterward — your job is to produce a sensible body and reasonable frontmatter shape.
-- Pick the most descriptive title. If the inputs use different languages, prefer the language that matches the majority of the body content.`
+规则：
+- 保留每个输入页面中所有不同的事实性陈述。
+- 消除冗余（不要在多个章节中重复相同的内容）。
+- 重新组织章节结构，使其对统一后的主题具有逻辑性，而不是简单拼接输入内容。
+- 在正文中使用 [[wikilink]] 语法（如果输入中使用了的话）。
+- Frontmatter：保留标准字段（type, title, created, updated, tags, related, sources）。调用方会在之后用确定性合并覆盖 sources / tags / related / updated 字段——你的任务是生成合理的正文和合理的 frontmatter 结构。
+- 选择最具描述性的标题。如果输入使用了不同语言，优先选择与正文内容多数语言匹配的语言。`
 
 const FIELDS_TO_UNION = ["sources", "tags", "related"] as const
 
