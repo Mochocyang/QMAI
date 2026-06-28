@@ -1275,7 +1275,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
         ) : null}
       </button>
       {expanded && (
-        <div className="ml-3 space-y-2 pr-1 text-xs text-muted-foreground">
+        <div className="ml-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-xs text-muted-foreground">
           {hasAnyTask ? (
             projectTasks.slice(0, 20).map((task) => {
               const kindLabel =
