@@ -43,14 +43,25 @@ export function createResizeContext(rootEl: HTMLDivElement | null, currentInputH
 
 function findChatContainer(root: HTMLDivElement): HTMLElement | null {
   let current: HTMLElement | null = root.parentElement
-  for (let i = 0; i < 6 && current; i++) {
+  let fallback: HTMLElement | null = null
+  for (let i = 0; i < 8 && current; i++) {
+    const tag = current.tagName
+    if (tag === "BODY" || tag === "HTML") break
     const style = window.getComputedStyle(current)
-    if (style.display === "flex" && style.flexDirection === "column" && current.classList.contains("overflow-hidden")) {
-      return current
+    const isFlexColumn = style.display === "flex" && style.flexDirection === "column"
+    if (isFlexColumn) {
+      const hasConstrainedHeight = style.height !== "auto" && style.height !== ""
+      const hasOverflowClip = style.overflowY === "hidden" || style.overflowY === "auto" || style.overflowY === "scroll"
+      if (hasConstrainedHeight || hasOverflowClip) {
+        return current
+      }
+      if (!fallback) {
+        fallback = current
+      }
     }
     current = current.parentElement
   }
-  return root.parentElement
+  return fallback ?? root.parentElement
 }
 
 export function resolveMaxHeightFromContext(ctx: ResizeContext, nextHeight: number): number {
