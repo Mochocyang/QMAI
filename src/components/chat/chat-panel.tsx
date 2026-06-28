@@ -217,7 +217,8 @@ export function ChatPanel() {
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [isSavingChapter, setIsSavingChapter] = useState(false)
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
-  const [deepChapterEnabled, setDeepChapterEnabled] = useState(false)
+  const deepChapterEnabled = useWikiStore((s) => s.deepChapterEnabled)
+  const setDeepChapterEnabled = useWikiStore((s) => s.setDeepChapterEnabled)
   // 故事框架绑定状态
   const [activeBinding, setActiveBinding] = useState<{ binding: FrameworkBinding; framework: StoryFramework } | null>(null)
   const closeSoulDialog = useCallback((confirmed: boolean) => {

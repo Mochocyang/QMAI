@@ -652,3 +652,16 @@ function normalizeRerankConfig(
     maxCandidates: Math.max(3, Math.min(30, config.maxCandidates ?? DEFAULT_RERANK_CONFIG.maxCandidates)),
   }
 }
+
+const LAST_READ_CHAPTER_KEY = "lastReadChapter"
+
+export async function saveLastReadChapter(chapterPath: string): Promise<void> {
+  const store = await getStore()
+  await store.set(LAST_READ_CHAPTER_KEY, chapterPath)
+}
+
+export async function loadLastReadChapter(): Promise<string | null> {
+  const store = await getStore()
+  const path = await store.get<string>(LAST_READ_CHAPTER_KEY)
+  return path ?? null
+}

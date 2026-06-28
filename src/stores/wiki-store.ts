@@ -518,6 +518,8 @@ interface WikiState {
   sourceWatchConfig: SourceWatchConfig
   novelMode: boolean
   chatEditModeEnabled: boolean
+  /** 深度模式状态：跨视图切换保持开启 */
+  deepChapterEnabled: boolean
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
   communitySummaryError: string | null
@@ -578,6 +580,7 @@ interface WikiState {
   setSourceWatchConfig: (sourceWatchConfig: SourceWatchConfig) => void
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
+  setDeepChapterEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
@@ -739,6 +742,7 @@ export const useWikiStore = create<WikiState>((set) => ({
 
   novelMode: true,
   chatEditModeEnabled: false,
+  deepChapterEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
   searchHistory: [],
@@ -770,6 +774,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
+  setDeepChapterEnabled: (deepChapterEnabled) => set({ deepChapterEnabled }),
   setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),

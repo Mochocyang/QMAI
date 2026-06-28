@@ -4,8 +4,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
-import { listDirectory, openProject } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig } from "@/lib/project-store"
+import { listDirectory, openProject, fileExists } from "@/commands/fs"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, saveLlmConfig, loadLastReadChapter } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { checkForAppUpdate } from "@/lib/app-updater"
@@ -224,6 +224,20 @@ function App() {
     setActiveView("wiki")
     useWikiStore.getState().bumpDataVersion()
     await saveLastProject(proj)
+
+    // 自动打开最后阅读的章节和AI会话窗口
+    try {
+      const lastChapterPath = await loadLastReadChapter()
+      if (lastChapterPath) {
+        const exists = await fileExists(lastChapterPath)
+        if (exists) {
+          setSelectedFile(lastChapterPath)
+        }
+      }
+    } catch (err) {
+      console.error("加载最后阅读章节失败:", err)
+    }
+    useWikiStore.getState().setChatExpanded(true)
 
     if (isTauri()) {
       try {
