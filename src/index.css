@@ -223,3 +223,26 @@
 .legend-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Model selector dropdown scrollbar */
+.model-selector-dropdown {
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+
+.model-selector-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb {
+  background: oklch(0.55 0 0);
+  border-radius: 2px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-corner {
+  background: transparent;
+}
