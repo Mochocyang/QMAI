@@ -463,7 +463,11 @@ function StorySimulationSidebarPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-semibold text-foreground">故事框架</div>
+        <PanelHeaderWithHelp
+          title="故事框架"
+          helpKey="storySimulation"
+          helpTitle="剧情推演室使用说明"
+        />
         <Button
           type="button"
           size="sm"

@@ -14,6 +14,8 @@ export const HELP_LINKS = {
   review: "https://tcnk9ik08e1c.feishu.cn/wiki/J6zCwjcWDiMAdkkOrjgcHtPjngh",
   graph: "https://tcnk9ik08e1c.feishu.cn/wiki/WlOpwrEQYiqczGkSohtcy3U0n7g",
   chapter: "https://tcnk9ik08e1c.feishu.cn/wiki/TUcKwxtqbihdYvk7bivcaaqGnfd",
+  storySimulation:
+    "https://tcnk9ik08e1c.feishu.cn/wiki/Za7hwMcM4iDy78kixapcOUrwnGb",
 } as const
 
 export type HelpLinkKey = keyof typeof HELP_LINKS
