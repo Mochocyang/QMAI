@@ -658,10 +658,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         onChange={setInputValue}
         footerControls={
           <TooltipProvider delay={200}>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
-                <ChatDockControls />
-              </div>
+            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
+              <ChatDockControls />
               {hasAvailableModels ? (
                 <ChatModelSelector
                   value={localModelId}
