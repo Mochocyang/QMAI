@@ -1502,104 +1502,99 @@ export function ChatPanel() {
           </>
         )}
 
-        <div className="shrink-0 border-t bg-background">
+        <div className="shrink-0 bg-background">
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}
             isStreaming={isStreaming}
             footerControls={
               <TooltipProvider delay={200}>
-                <div className="flex items-center justify-between gap-2 flex-nowrap overflow-x-auto">
-                  <div className="flex items-center gap-2 flex-nowrap">
-                    <ChatDockControls />
-                    {novelMode ? (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-pressed={deepChapterEnabled}
-                          className={getDeepChapterToggleButtonClass(deepChapterEnabled)}
-                          onClick={() => setDeepChapterEnabled(!deepChapterEnabled)}
-                          title={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
-                          aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
+                <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
+                  <ChatDockControls />
+                  {novelMode && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={deepChapterEnabled}
+                        className={getDeepChapterToggleButtonClass(deepChapterEnabled)}
+                        onClick={() => setDeepChapterEnabled(!deepChapterEnabled)}
+                        title={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
+                        aria-label={deepChapterEnabled ? "关闭深度模式" : "开启深度模式"}
+                      >
+                        <Brain className="h-4 w-4" />
+                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={(
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-pressed={chatEditModeEnabled}
+                              className={chatEditModeEnabled ? "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100" : ""}
+                              onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
+                              title="编辑章节"
+                              aria-label="编辑章节"
+                            />
+                          )}
                         >
-                          <Brain className="h-4 w-4" />
-                        </Button>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={(
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-pressed={chatEditModeEnabled}
-                                className={chatEditModeEnabled ? "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100" : ""}
-                                onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
-                                title="编辑章节"
-                                aria-label="编辑章节"
-                              />
-                            )}
-                          >
-                            <FileEdit className="h-4 w-4" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-5">
-                            开启后，AI会话会读取当前章节或识别到的章节范围进行修改，并在写回前自动备份原内容。
-                          </TooltipContent>
-                        </Tooltip>
-                        {/* 故事框架绑定状态 */}
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={(
-                              <button
-                                type="button"
-                                onClick={() => setActiveView("storySimulation")}
-                                className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors ${
-                                  activeBinding
-                                    ? "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
-                                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-                                }`}
-                              >
-                                <Drama className="h-3.5 w-3.5" />
-                                <span className="max-w-[100px] truncate">
-                                  {activeBinding
-                                    ? activeBinding.framework.shortTitle || activeBinding.framework.title
-                                    : "故事框架"}
-                                </span>
-                              </button>
-                            )}
-                          />
-                          <TooltipContent side="top" className="max-w-xs leading-5">
-                            {activeBinding ? (
-                              <>
-                                <div className="font-medium">已绑定故事框架</div>
-                                <div className="mt-1 text-xs opacity-80">
-                                  {activeBinding.framework.title}
-                                </div>
-                                <div className="mt-1 text-xs opacity-70">
-                                  目标章节数：{activeBinding.binding.targetChapterCount}章
-                                </div>
-                                <div className="mt-1 text-xs opacity-70">
-                                  点击可进入剧情推演室管理
-                                </div>
-                              </>
-                            ) : (
-                              <>未绑定故事框架，点击进入剧情推演室创建</>
-                            )}
-                          </TooltipContent>
-                        </Tooltip>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2 flex-nowrap">
-                    <ChatModelSelector
-                      value={aiChatModel}
-                      onChange={(model) => {
-                        setAiChatModel(model)
-                        void saveAiChatModel(model)
-                      }}
-                    />
-                  </div>
+                          <FileEdit className="h-4 w-4" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs leading-5">
+                          开启后，AI会话会读取当前章节或识别到的章节范围进行修改，并在写回前自动备份原内容。
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={(
+                            <button
+                              type="button"
+                              onClick={() => setActiveView("storySimulation")}
+                              className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors ${
+                                activeBinding
+                                  ? "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                              }`}
+                            >
+                              <Drama className="h-3.5 w-3.5" />
+                              <span className="max-w-[100px] truncate">
+                                {activeBinding
+                                  ? activeBinding.framework.shortTitle || activeBinding.framework.title
+                                  : "故事框架"}
+                              </span>
+                            </button>
+                          )}
+                        />
+                        <TooltipContent side="top" className="max-w-xs leading-5">
+                          {activeBinding ? (
+                            <>
+                              <div className="font-medium">已绑定故事框架</div>
+                              <div className="mt-1 text-xs opacity-80">
+                                {activeBinding.framework.title}
+                              </div>
+                              <div className="mt-1 text-xs opacity-70">
+                                目标章节数：{activeBinding.binding.targetChapterCount}章
+                              </div>
+                              <div className="mt-1 text-xs opacity-70">
+                                点击可进入剧情推演室管理
+                              </div>
+                            </>
+                          ) : (
+                            <>未绑定故事框架，点击进入剧情推演室创建</>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </>
+                  )}
+                  <ChatModelSelector
+                    value={aiChatModel}
+                    onChange={(model) => {
+                      setAiChatModel(model)
+                      void saveAiChatModel(model)
+                    }}
+                  />
                 </div>
               </TooltipProvider>
             }
