@@ -229,6 +229,10 @@
   },
   "theme": {
     "switch": "Switch theme",
+    "light": "Light",
+    "dark": "Dark",
+    "deepBlue": "Deep Blue",
+    "system": "System",
     "toDark": "Switch to dark mode",
     "toDeepBlue": "Switch to deep blue eye-care mode",
     "toLight": "Switch to light mode",

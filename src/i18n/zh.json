@@ -121,6 +121,10 @@
   },
   "theme": {
     "switch": "切换主题",
+    "light": "浅色模式",
+    "dark": "深色模式",
+    "deepBlue": "深蓝护眼",
+    "system": "跟随系统",
     "toDark": "切换到深色模式",
     "toDeepBlue": "切换到深蓝护眼模式",
     "toLight": "切换到浅色模式",

@@ -1,6 +1,8 @@
+import { useState, useRef, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Monitor, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama,
+  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, Eye, SunMoon, Check, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama,
 } from "lucide-react"
+import { createPortal } from "react-dom"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
@@ -8,7 +10,7 @@ import { useTranslation } from "react-i18next"
 import logoImg from "@/assets/QM-LOGO.png"
 import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
-import { applyTheme } from "@/lib/theme-utils"
+import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
 
 type NavView = WikiState["activeView"]
 
@@ -35,6 +37,13 @@ interface IconSidebarProps {
   onSwitchProject: () => void
 }
 
+const THEME_OPTIONS: { value: ThemeMode; icon: typeof Sun; labelKey: string }[] = [
+  { value: "light", icon: Sun, labelKey: "theme.light" },
+  { value: "dark", icon: Moon, labelKey: "theme.dark" },
+  { value: "deep-blue", icon: Eye, labelKey: "theme.deepBlue" },
+  { value: "system", icon: SunMoon, labelKey: "theme.system" },
+]
+
 export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }: IconSidebarProps) {
   const { t } = useTranslation()
   const activeView = useWikiStore((s) => s.activeView)
@@ -46,36 +55,49 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const setTheme = useWikiStore((s) => s.setTheme)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
 
-  const handleCycleTheme = () => {
-    const themes: ("light" | "dark" | "deep-blue" | "system")[] = ["system", "light", "dark", "deep-blue"]
-    const currentIndex = themes.indexOf(theme)
-    const nextIndex = (currentIndex + 1) % themes.length
-    const nextTheme = themes[nextIndex]
-    
+  // 主题下拉框状态
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+  const themeTriggerRef = useRef<HTMLButtonElement>(null)
+  const [themeMenuStyle, setThemeMenuStyle] = useState<{ left: number; top: number } | null>(null)
+
+  const getThemeIcon = () => {
+    const option = THEME_OPTIONS.find((o) => o.value === theme)
+    const Icon = option?.icon ?? Sun
+    return <Icon className="h-5 w-5" />
+  }
+
+  const handleSelectTheme = (nextTheme: ThemeMode) => {
     setTheme(nextTheme)
     saveTheme(nextTheme)
     applyTheme(nextTheme)
+    setThemeMenuOpen(false)
   }
 
-  const getThemeIcon = () => {
-    switch (theme) {
-      case "light": return <Sun className="h-5 w-5" />
-      case "dark": return <Moon className="h-5 w-5" />
-      case "deep-blue": return <Monitor className="h-5 w-5" />
-      case "system": return <ArrowLeftRight className="h-5 w-5" />
-      default: return <Sun className="h-5 w-5" />
+  useEffect(() => {
+    if (!themeMenuOpen) {
+      setThemeMenuStyle(null)
+      return
     }
-  }
-
-  const getThemeTooltip = () => {
-    switch (theme) {
-      case "system": return t("theme.toLight")
-      case "light": return t("theme.toDark")
-      case "dark": return t("theme.toDeepBlue")
-      case "deep-blue": return t("theme.toSystem")
-      default: return t("theme.switch")
+    const updatePosition = () => {
+      const rect = themeTriggerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const menuWidth = 180
+      const menuHeight = THEME_OPTIONS.length * 36 + 8
+      const left = Math.min(rect.right + 6, window.innerWidth - menuWidth - 4)
+      let top: number
+      const availableAbove = rect.top
+      const availableBelow = window.innerHeight - rect.bottom
+      if (availableAbove >= menuHeight + 6 || availableAbove >= availableBelow) {
+        top = Math.max(4, rect.bottom - menuHeight)
+      } else {
+        top = rect.top
+      }
+      setThemeMenuStyle({ left, top })
     }
-  }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    return () => window.removeEventListener("resize", updatePosition)
+  }, [themeMenuOpen])
 
   const handleNavClick = (view: NavView) => {
     setSearchPanelOpen(false)
@@ -183,18 +205,53 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
         </div>
         {/* Bottom: daemon status + theme toggle + settings + switch project */}
         <div className="flex flex-col items-center gap-1 pb-1">
-          {/* Theme toggle */}
+          {/* Theme selector dropdown */}
           <Tooltip>
             <TooltipTrigger
-              onClick={handleCycleTheme}
-              className="relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+              ref={themeTriggerRef}
+              onClick={() => setThemeMenuOpen(!themeMenuOpen)}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-accent/50 hover:text-accent-foreground ${
+                themeMenuOpen ? "bg-accent/50 text-accent-foreground" : "text-muted-foreground"
+              }`}
             >
               {getThemeIcon()}
             </TooltipTrigger>
             <TooltipContent side="right">
-              {getThemeTooltip()}
+              {t("theme.switch")}
             </TooltipContent>
           </Tooltip>
+          {themeMenuOpen && themeMenuStyle && createPortal(
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setThemeMenuOpen(false)}
+              />
+              <div
+                className="fixed z-50 rounded-md border bg-popover p-1 shadow-md"
+                style={{ left: themeMenuStyle.left, top: themeMenuStyle.top, width: 180 }}
+              >
+                {THEME_OPTIONS.map((option) => {
+                  const Icon = option.icon
+                  const isActive = theme === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleSelectTheme(option.value)}
+                      className={`flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
+                        isActive ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="flex-1">{t(option.labelKey)}</span>
+                      <Check className={`h-4 w-4 shrink-0 ${isActive ? "opacity-100" : "opacity-0"}`} />
+                    </button>
+                  )
+                })}
+              </div>
+            </>,
+            document.body,
+          )}
           <Tooltip>
             <TooltipTrigger
               onClick={() => {
