@@ -120,7 +120,7 @@ export async function splitNovelIntoChapters(
   })
 
   // 章节拆分（支持多种格式）
-  const chapterRegex = /第[一二三四五六七八九十百千0-9]+章[^\n]*/gi
+  const chapterRegex = /第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*/gi
   const matches = Array.from(content.matchAll(chapterRegex))
 
   if (matches.length === 0) {
