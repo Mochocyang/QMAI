@@ -23,6 +23,7 @@ import { useChatStore } from "@/stores/chat-store"
 import { loadSourceWatchConfig, saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
+import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { EmbeddingSection } from "./sections/embedding-section"
 import { RerankSection } from "./sections/rerank-section"
@@ -88,6 +89,7 @@ function initialDraft(
   maxHistoryMessages: number,
   uiLanguage: string,
   uiFontSizeScale: number,
+  sidebarNavConfig: SidebarNavConfig,
   projectPath?: string,
 ): SettingsDraft {
   // Show absolute path: if stored path is empty, show default using project path
@@ -145,6 +147,7 @@ function initialDraft(
     novelConfig,
     uiLanguage,
     uiFontSizeScale,
+    sidebarNavConfig,
   }
 }
 
@@ -177,6 +180,8 @@ export function SettingsView() {
   const setMaxHistoryMessages = useChatStore((s) => s.setMaxHistoryMessages)
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
   const setUiFontSizeScale = useWikiStore((s) => s.setUiFontSizeScale)
+  const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
+  const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
 
   const [active, setActive] = useState<CategoryId>("llm")
   const [saved, setSaved] = useState(false)
@@ -195,6 +200,7 @@ export function SettingsView() {
       maxHistoryMessages,
       i18n.language,
       uiFontSizeScale,
+      sidebarNavConfig,
       project?.path,
     ),
   )
@@ -273,6 +279,7 @@ export function SettingsView() {
         maxHistoryMessages,
         prev.uiLanguage,
         uiFontSizeScale,
+        sidebarNavConfig,
         project?.path,
       ),
     )
@@ -289,6 +296,7 @@ export function SettingsView() {
     novelConfig,
     maxHistoryMessages,
     uiFontSizeScale,
+    sidebarNavConfig,
     project,
   ])
 
@@ -434,6 +442,7 @@ export function SettingsView() {
     await saveMaxHistoryMessages(draft.maxHistoryMessages, project?.id, project?.path)
     setUiFontSizeScale(draft.uiFontSizeScale)
     await saveUiFontSizeScale(draft.uiFontSizeScale, project?.id, project?.path)
+    setSidebarNavConfig(draft.sidebarNavConfig)
 
     if (draft.uiLanguage !== i18n.language) {
       await i18n.changeLanguage(draft.uiLanguage)
@@ -458,6 +467,7 @@ export function SettingsView() {
     setMaxHistoryMessages,
     outputLanguage,
     setUiFontSizeScale,
+    setSidebarNavConfig,
   ])
 
   const body = useMemo(() => {
