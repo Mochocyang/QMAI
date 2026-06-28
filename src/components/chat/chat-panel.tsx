@@ -11,6 +11,7 @@ import { ChatInput } from "./chat-input"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { DeAiSkillPicker } from "@/components/skill-library/de-ai-skill-picker"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
@@ -18,7 +19,8 @@ import { routeTask, buildTaskDirective } from "@/lib/novel/task-router"
 import { readFile, writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { detectLastGeneratedChapterNumber, findChapterFileByNumber, getNextChapterNumber, readSelectedChapterNumberForFile, resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
-import { buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
+import { buildDeAiSkillSystemPrompt, buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
+import { loadDeAiSkillConfig, resolveEffectiveDeAiSkill } from "@/lib/novel/de-ai-skill-library"
 import { cleanGeneratedChapterContentWithTitle } from "@/lib/novel/chapter-content-cleanup"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
@@ -182,11 +184,16 @@ export function ChatPanel() {
   const removeLastAssistantMessage = useChatStore((s) => s.removeLastAssistantMessage)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const isConversationStreaming = useChatStore((s) => s.isConversationStreaming)
+  const conversations = useChatStore((s) => s.conversations)
+  const setConversationDeAiSkillId = useChatStore((s) => s.setConversationDeAiSkillId)
   // Derive active messages via selector to re-render on message changes
   const allMessages = useChatStore((s) => s.messages)
   const activeMessages = activeConversationId
     ? allMessages.filter((m) => m.conversationId === activeConversationId)
     : []
+  const activeConversation = activeConversationId
+    ? conversations.find((conversation) => conversation.id === activeConversationId) ?? null
+    : null
 
   // 当前活跃会话的流式内容
   const streamingContent = activeConversationId ? streamingContents[activeConversationId] ?? "" : ""
@@ -1007,6 +1014,17 @@ export function ChatPanel() {
       const activeConvMessages = useChatStore.getState().getActiveMessages()
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(-maxHistoryMessages)
+      const conversations = useChatStore.getState().conversations
+      // 使用 capturedConvId 而非闭包中的 activeConversationId，防止切换会话后取错会话
+      const activeConv = conversations.find(c => c.id === capturedConvId)
+      const skillConfig = await loadDeAiSkillConfig(project?.path ?? null)
+      const effectiveDeAiSkill = resolveEffectiveDeAiSkill(skillConfig, activeConv?.selectedDeAiSkillId)
+      if (effectiveDeAiSkill) {
+        systemMessages.push({
+          role: "system",
+          content: buildDeAiSkillSystemPrompt(effectiveDeAiSkill.content),
+        })
+      }
 
       // Prepend the language reminder onto the final user turn rather than
       // inserting a second {role:"system"} between history and the final
@@ -1029,11 +1047,8 @@ export function ChatPanel() {
         }
       }
 
-      const conversations = useChatStore.getState().conversations
-      // 使用 capturedConvId 而非闭包中的 activeConversationId，防止切换会话后取错会话
-      const activeConv = conversations.find(c => c.id === capturedConvId)
       const deAiMode = activeConv?.deAiMode ?? false
-      if (deAiMode && llmMessages.length > 0) {
+      if (!effectiveDeAiSkill && deAiMode && llmMessages.length > 0) {
         const lastIdx = llmMessages.length - 1
         const last = llmMessages[lastIdx]
         if (last && last.role === "user" && typeof last.content === "string") {
@@ -1511,6 +1526,13 @@ export function ChatPanel() {
               <TooltipProvider delay={200}>
                 <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
                   <ChatDockControls />
+                  <DeAiSkillPicker
+                    value={activeConversation?.selectedDeAiSkillId}
+                    onChange={(skillId) => {
+                      const convId = useChatStore.getState().activeConversationId
+                      if (convId) setConversationDeAiSkillId(convId, skillId)
+                    }}
+                  />
                   {novelMode && (
                     <>
                       <Button
