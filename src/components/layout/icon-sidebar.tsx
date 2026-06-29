@@ -249,14 +249,14 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           />
         </button>
         {/* Top: configurable feature entries */}
-        <div className="flex flex-1 flex-col items-center gap-1">
+        <div className="flex flex-1 flex-col items-center gap-1.5">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={visibleNavIds} strategy={verticalListSortingStrategy}>
-              <div className="flex flex-col items-center gap-1">
+              <div className="flex flex-col items-center gap-1.5">
                 {visibleNavItems.map((item) => (
                   <SortableNavButton
                     key={item.id}
@@ -272,7 +272,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           </DndContext>
         </div>
         {/* Bottom: daemon status + theme toggle + settings + switch project */}
-        <div className="flex flex-col items-center gap-1 pb-1">
+        <div className="flex flex-col items-center gap-1.5 pb-1">
           {/* Theme selector dropdown */}
           <Tooltip>
             <TooltipTrigger
