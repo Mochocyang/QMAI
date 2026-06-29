@@ -1456,7 +1456,7 @@ export function ChatPanel() {
   }, [])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-muted/30">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       <ConversationTabs onAbortStream={abortConversationStream} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1518,7 +1518,6 @@ export function ChatPanel() {
         )}
 
         <div className="shrink-0 bg-background">
-          <div className="h-0.5 bg-gradient-to-r from-primary/0 via-primary/40 to-primary/0" />
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}
