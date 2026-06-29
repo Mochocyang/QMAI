@@ -4,12 +4,16 @@ import {
   DEFAULT_DE_AI_SKILL_ID,
   createProjectDeAiSkillFromTemplate,
   deleteProjectDeAiSkill,
+  getAllDeAiSkills,
+  isDeAiSkillModified,
   loadDeAiSkillConfig,
   normalizeDeAiSkillConfig,
+  resetBuiltInDeAiSkill,
   resolveAvailableDeAiSkills,
   resolveEffectiveDeAiSkill,
   setDeAiSkillEnabled,
   setDefaultDeAiSkill,
+  updateDeAiSkill,
   updateProjectDeAiSkill,
 } from "./de-ai-skill-library"
 
@@ -47,6 +51,7 @@ describe("de-ai skill library", () => {
       defaultSkillId: DEFAULT_DE_AI_SKILL_ID,
       disabledSkillIds: [],
       projectSkills: [],
+      builtInSkillOverrides: [],
     })
   })
 
@@ -98,6 +103,53 @@ describe("de-ai skill library", () => {
     expect(updated.projectSkills[0].updatedAt).toBe(2000)
     expect(deleted.projectSkills).toHaveLength(0)
     expect(deleteProjectDeAiSkill(deleted, "built-in:comprehensive")).toEqual(deleted)
+  })
+
+  it("stores edited built-in skills as project overrides and can restore defaults", () => {
+    const config = normalizeDeAiSkillConfig(null)
+
+    const updated = updateDeAiSkill(config, "built-in:comprehensive", {
+      name: "综合去AI味-项目版",
+      description: "当前项目专用规则",
+      content: "当前项目覆盖后的内置规则",
+    }, 2000)
+    const allUpdatedSkills = getAllDeAiSkills(updated)
+
+    expect(updated.builtInSkillOverrides).toHaveLength(1)
+    expect(updated.builtInSkillOverrides[0]).toMatchObject({
+      id: "built-in:comprehensive",
+      name: "综合去AI味-项目版",
+      description: "当前项目专用规则",
+      content: "当前项目覆盖后的内置规则",
+      source: "built-in",
+      updatedAt: 2000,
+    })
+    expect(allUpdatedSkills.filter((skill) => skill.id === "built-in:comprehensive")).toHaveLength(1)
+    expect(resolveEffectiveDeAiSkill(updated, "built-in:comprehensive")?.content).toBe("当前项目覆盖后的内置规则")
+
+    const restored = resetBuiltInDeAiSkill(updated, "built-in:comprehensive")
+
+    expect(restored.builtInSkillOverrides).toEqual([])
+    expect(resolveEffectiveDeAiSkill(restored, "built-in:comprehensive")?.content).toBe(
+      BUILT_IN_DE_AI_SKILLS[0].content,
+    )
+  })
+
+  it("detects modified built-in and project skills", () => {
+    const builtInUpdated = updateDeAiSkill(normalizeDeAiSkillConfig(null), "built-in:comprehensive", {
+      name: "综合去AI味-项目版",
+      content: "项目覆盖规则",
+    }, 2000)
+    const projectCreated = createProjectDeAiSkillFromTemplate(builtInUpdated, "built-in:dialogue-natural", 3000)
+    const projectId = projectCreated.projectSkills[0].id
+    const projectUpdated = updateDeAiSkill(projectCreated, projectId, {
+      name: "对话规则",
+      content: "新的对话规则",
+    }, 4000)
+
+    expect(isDeAiSkillModified(projectUpdated, "built-in:comprehensive")).toBe(true)
+    expect(isDeAiSkillModified(projectUpdated, projectId)).toBe(true)
+    expect(isDeAiSkillModified(projectUpdated, "built-in:reduce-explanation")).toBe(false)
   })
 
   it("disables a default skill and moves default to an available skill", () => {

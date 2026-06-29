@@ -11,6 +11,7 @@ export interface DeAiPreviewDialogProps {
   open: boolean
   sourceContent: string
   candidateContent: string
+  skillName?: string
   onApply: () => void
   onSaveDraft: () => void
   onClose: () => void
@@ -20,6 +21,7 @@ export function DeAiPreviewDialog({
   open,
   sourceContent,
   candidateContent,
+  skillName,
   onApply,
   onSaveDraft,
   onClose,
@@ -29,6 +31,9 @@ export function DeAiPreviewDialog({
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>去AI味预览</DialogTitle>
+          {skillName ? (
+            <div className="text-xs text-muted-foreground">本次使用 Skill：{skillName}</div>
+          ) : null}
         </DialogHeader>
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-2">

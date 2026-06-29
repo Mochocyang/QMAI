@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { WritingWorkspace } from "./writing-workspace"
 import { SearchView } from "@/components/search/search-view"
+import { SkillLibraryView } from "@/components/skill-library/skill-library-view"
 
 const ChatPanel = lazy(async () => {
   const mod = await import("@/components/chat/chat-panel")
@@ -64,7 +65,7 @@ function LoadingView() {
 export function ContentArea() {
   const activeView = useWikiStore((s) => s.activeView)
   const novelMode = useWikiStore((s) => s.novelMode)
-  const showWritingWorkspace = activeView === "wiki" || activeView === "trash" || activeView === "skillLibrary"
+  const showWritingWorkspace = activeView === "wiki" || activeView === "trash"
 
   let content = null
   if (showWritingWorkspace) {
@@ -92,6 +93,13 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <SoulView />
+          </Suspense>
+        )
+        break
+      case "skillLibrary":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <SkillLibraryView />
           </Suspense>
         )
         break

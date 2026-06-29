@@ -470,6 +470,13 @@ export interface PendingEditorHighlight {
 type LintRunFinishState = Omit<Partial<LintRunState>, "runId" | "projectPath" | "filePath">
 type ReviewRunFinishState = Omit<Partial<ReviewRunState>, "runId" | "projectPath" | "filePath">
 
+export const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前 Skill 还有未保存修改，确定放弃修改吗？"
+
+export function confirmDiscardSkillLibraryDraft(): boolean {
+  if (typeof window === "undefined" || typeof window.confirm !== "function") return true
+  return window.confirm(SKILL_LIBRARY_UNSAVED_CONFIRM)
+}
+
 interface WikiState {
   project: WikiProject | null
   fileTree: FileNode[]
@@ -501,6 +508,8 @@ interface WikiState {
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
   selectedSoulSection: "builtIn" | "custom"
+  selectedSkillLibrarySkillId: string | null
+  skillLibraryDraftDirty: boolean
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
   selectedDismantlingProjectId: string | null
@@ -567,6 +576,8 @@ interface WikiState {
   setSelectedSoulId: (id: string | null) => void
   setSelectedSoulTab: (tab: "project" | "character") => void
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
+  setSelectedSkillLibrarySkillId: (id: string | null) => void
+  setSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setSelectedDismantlingProjectId: (id: string | null) => void
@@ -633,6 +644,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedSoulId: null,
   selectedSoulTab: "project",
   selectedSoulSection: "builtIn",
+  selectedSkillLibrarySkillId: null,
+  skillLibraryDraftDirty: false,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
   selectedDismantlingProjectId: null,
@@ -684,11 +697,33 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ chatDockPosition })
   },
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
-  setActiveView: (activeView) => set({ activeView }),
+  setActiveView: (activeView) => set((state) => {
+    if (
+      state.activeView === "skillLibrary"
+      && activeView !== "skillLibrary"
+      && state.skillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    return {
+      activeView,
+      skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
+    }
+  }),
   setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
   setSelectedSoulId: (selectedSoulId) => set({ selectedSoulId }),
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),
+  setSelectedSkillLibrarySkillId: (selectedSkillLibrarySkillId) => set((state) => {
+    if (state.selectedSkillLibrarySkillId === selectedSkillLibrarySkillId) return {}
+    if (state.skillLibraryDraftDirty && !confirmDiscardSkillLibraryDraft()) return {}
+    return {
+      selectedSkillLibrarySkillId,
+      skillLibraryDraftDirty: false,
+    }
+  }),
+  setSkillLibraryDraftDirty: (skillLibraryDraftDirty) => set({ skillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setSelectedDismantlingProjectId: (selectedDismantlingProjectId) => set({ selectedDismantlingProjectId }),

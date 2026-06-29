@@ -20,6 +20,7 @@ export interface DeAiSkillConfig {
   defaultSkillId: string
   disabledSkillIds: string[]
   projectSkills: DeAiSkill[]
+  builtInSkillOverrides: DeAiSkill[]
 }
 
 export const DEFAULT_DE_AI_SKILL_ID = "built-in:comprehensive"
@@ -106,10 +107,35 @@ function normalizeProjectSkill(value: unknown): DeAiSkill | null {
   }
 }
 
+function normalizeBuiltInSkillOverride(value: unknown): DeAiSkill | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Partial<DeAiSkill>
+  const id = typeof raw.id === "string" && BUILT_IN_IDS.has(raw.id) ? raw.id : ""
+  const base = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === id)
+  if (!base) return null
+  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : base.name
+  const content = typeof raw.content === "string" && raw.content.trim() ? raw.content.trim() : base.content
+  return {
+    ...base,
+    name,
+    description: typeof raw.description === "string" ? raw.description : base.description,
+    content,
+    source: "built-in",
+    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+  }
+}
+
 export function normalizeDeAiSkillConfig(value: unknown): DeAiSkillConfig {
   const raw = value && typeof value === "object" ? value as Partial<DeAiSkillConfig> : {}
   const projectSkills = Array.isArray(raw.projectSkills)
     ? raw.projectSkills.map(normalizeProjectSkill).filter((skill): skill is DeAiSkill => Boolean(skill))
+    : []
+  const builtInSkillOverrides = Array.isArray(raw.builtInSkillOverrides)
+    ? raw.builtInSkillOverrides
+      .map(normalizeBuiltInSkillOverride)
+      .filter((skill): skill is DeAiSkill => Boolean(skill))
+      .filter((skill, index, skills) => skills.findIndex((item) => item.id === skill.id) === index)
     : []
   const disabledSkillIds = uniqueStrings(raw.disabledSkillIds)
   const knownIds = new Set([...BUILT_IN_IDS, ...projectSkills.map((skill) => skill.id)])
@@ -120,11 +146,14 @@ export function normalizeDeAiSkillConfig(value: unknown): DeAiSkillConfig {
     defaultSkillId,
     disabledSkillIds,
     projectSkills,
+    builtInSkillOverrides,
   }
 }
 
 export function getAllDeAiSkills(config: DeAiSkillConfig): DeAiSkill[] {
-  return [...config.projectSkills, ...BUILT_IN_DE_AI_SKILLS]
+  const overrides = new Map((config.builtInSkillOverrides ?? []).map((skill) => [skill.id, skill]))
+  const builtInSkills = BUILT_IN_DE_AI_SKILLS.map((skill) => overrides.get(skill.id) ?? skill)
+  return [...config.projectSkills, ...builtInSkills]
 }
 
 export function resolveAvailableDeAiSkills(config: DeAiSkillConfig): DeAiSkill[] {
@@ -141,6 +170,18 @@ export function resolveEffectiveDeAiSkill(
   if (available.length === 0) return null
   const requested = selectedSkillId ?? config.defaultSkillId
   return available.find((skill) => skill.id === requested) ?? available[0]
+}
+
+export function isDeAiSkillModified(config: DeAiSkillConfig, skillId: string): boolean {
+  const normalized = normalizeDeAiSkillConfig(config)
+  if (skillId.startsWith("built-in:")) {
+    return normalized.builtInSkillOverrides.some((skill) => skill.id === skillId)
+  }
+  const projectSkill = normalized.projectSkills.find((skill) => skill.id === skillId)
+  if (!projectSkill) return false
+  return typeof projectSkill.createdAt === "number"
+    && typeof projectSkill.updatedAt === "number"
+    && projectSkill.updatedAt > projectSkill.createdAt
 }
 
 export function createProjectDeAiSkillFromTemplate(
@@ -179,6 +220,45 @@ export function updateProjectDeAiSkill(
         ? { ...skill, ...patch, source: "project", updatedAt: now }
         : skill,
     ),
+  })
+}
+
+export function updateDeAiSkill(
+  config: DeAiSkillConfig,
+  skillId: string,
+  patch: Pick<Partial<DeAiSkill>, "name" | "description" | "content">,
+  now = Date.now(),
+): DeAiSkillConfig {
+  const normalized = normalizeDeAiSkillConfig(config)
+  if (!skillId.startsWith("built-in:")) {
+    return updateProjectDeAiSkill(normalized, skillId, patch, now)
+  }
+  const existingOverride = normalized.builtInSkillOverrides.find((skill) => skill.id === skillId)
+  const current = getAllDeAiSkills(normalized).find((skill) => skill.id === skillId)
+  if (!current || !BUILT_IN_IDS.has(skillId)) return normalized
+  const override: DeAiSkill = {
+    ...current,
+    ...patch,
+    id: skillId,
+    source: "built-in",
+    createdAt: existingOverride?.createdAt ?? now,
+    updatedAt: now,
+  }
+  return normalizeDeAiSkillConfig({
+    ...normalized,
+    builtInSkillOverrides: [
+      override,
+      ...normalized.builtInSkillOverrides.filter((skill) => skill.id !== skillId),
+    ],
+  })
+}
+
+export function resetBuiltInDeAiSkill(config: DeAiSkillConfig, skillId: string): DeAiSkillConfig {
+  const normalized = normalizeDeAiSkillConfig(config)
+  if (!BUILT_IN_IDS.has(skillId)) return normalized
+  return normalizeDeAiSkillConfig({
+    ...normalized,
+    builtInSkillOverrides: normalized.builtInSkillOverrides.filter((skill) => skill.id !== skillId),
   })
 }
 
