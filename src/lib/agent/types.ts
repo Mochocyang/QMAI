@@ -35,6 +35,8 @@ export interface AgentConfig {
   tools: Tool[]
   systemPrompt: string
   llmConfig: LlmConfig
+  /** 模型标识，用于上层识别当前使用的模型 */
+  modelId?: string
 }
 
 export interface AgentRunCallbacks {
