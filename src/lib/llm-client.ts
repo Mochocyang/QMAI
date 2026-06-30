@@ -12,6 +12,8 @@ export { isFetchNetworkError } from "./tauri-fetch"
 export interface StreamCallbacks {
   onToken: (token: string) => void
   onReasoningToken?: (token: string) => void
+  /** 工具调用流式 delta，用于累积 tool_calls */
+  onToolCallDelta?: (delta: { index: number; id?: string; name?: string; arguments?: string }) => void
   onDone: () => void
   onError: (error: Error) => void
 }
@@ -67,6 +69,36 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
     }, ms)
     signal?.addEventListener("abort", onAbort, { once: true })
   })
+}
+
+function parseToolCallDeltaFromLine(line: string): { index: number; id?: string; name?: string; arguments?: string } | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith("data: ")) return null
+  const data = trimmed.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{
+        delta?: {
+          tool_calls?: Array<{
+            index?: number
+            id?: string
+            function?: { name?: string; arguments?: string }
+          }>
+        }
+      }>
+    }
+    const toolCall = parsed.choices?.[0]?.delta?.tool_calls?.[0]
+    if (toolCall === undefined) return null
+    return {
+      index: toolCall.index ?? 0,
+      id: toolCall.id,
+      name: toolCall.function?.name,
+      arguments: toolCall.function?.arguments,
+    }
+  } catch {
+    return null
+  }
 }
 
 function parseInputLengthLimit(errorDetail: string): { inputLength: number; maxLength: number } | null {
@@ -328,10 +360,15 @@ export async function streamChat(
         if (done) {
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim()
-            reasoningCharsObserved += countReasoningCharsInLine(trimmed)
-            recordReasoning(trimmed)
-            const token = providerConfig.parseStream(trimmed)
-            if (token !== null) recordToken(token)
+            const toolDelta = parseToolCallDeltaFromLine(trimmed)
+            if (toolDelta) {
+              callbacks.onToolCallDelta?.(toolDelta)
+            } else {
+              reasoningCharsObserved += countReasoningCharsInLine(trimmed)
+              recordReasoning(trimmed)
+              const token = providerConfig.parseStream(trimmed)
+              if (token !== null) recordToken(token)
+            }
           }
           break
         }
@@ -342,6 +379,11 @@ export async function streamChat(
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
+          const toolDelta = parseToolCallDeltaFromLine(trimmed)
+          if (toolDelta) {
+            callbacks.onToolCallDelta?.(toolDelta)
+            continue
+          }
           reasoningCharsObserved += countReasoningCharsInLine(trimmed)
           recordReasoning(trimmed)
           const token = providerConfig.parseStream(trimmed)
