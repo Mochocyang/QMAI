@@ -78,6 +78,33 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_THIRTY_ONE_CHANGELOG: ChangelogEntry = {
+  version: "2.2.31",
+  date: "2026-06-30",
+  highlights: {
+    en: [
+      "Added de-AI skill library: independent skill management page with create/edit/delete, custom prompt templates, temperature and model settings.",
+      "Added 7 oriental aesthetic visual styles: Classic, Cangzhu Bamboo, Tianqing Celadon, Qingci Antique, Yunshan Mist, Yuebai Moonlight, Gumo Ancient Ink, each with light and dark variants.",
+      "Added sidebar nav customization: drag-to-reorder, show/hide entries, settings page configuration.",
+      "Restored font size settings with editor and interface font controls and persistence.",
+      "Fixed chapter library state persistence: switching views (graph, outline) no longer loses selected chapter content.",
+      "Optimized de-AI button display: shows only '去AI味' when no skill is enabled, '去AI味：技能名' when active.",
+      "Removed deep-blue eye-care theme (merged with dark mode to simplify options).",
+      "Fixed portable build issues, chat input interaction details, and outline chat panel functionality.",
+    ],
+    zh: [
+      "新增去AI味技能库：独立的技能管理页面，支持创建、编辑、删除技能，可配置提示词模板、温度、模型等参数。",
+      "新增 7 种东方美学视觉风格：经典原版、苍竹翠色、天青釉色、青瓷古韵、云山雾霭、月白清风、古墨书香，每种风格均含浅色和深色配色。",
+      "新增侧边栏导航自定义：支持拖拽排序、显示/隐藏功能入口，设置页面可配置。",
+      "恢复字体大小设置：支持调节编辑器和界面字体大小，设置自动持久化保存。",
+      "修复章节库状态持久化：切换视图（图谱、大纲等）后返回章节库，章节内容不再丢失。",
+      "优化去AI味按钮显示：未启用技能时仅显示「去AI味」，启用后显示「去AI味：技能名」，配置损坏时明确提示。",
+      "删除「深蓝护眼」主题（与深色模式效果重复，精简选项）。",
+      "修复便携版打包相关问题、聊天输入框若干交互细节、大纲聊天面板相关功能。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_THIRTY_CHANGELOG: ChangelogEntry = {
   version: "2.2.30",
   date: "2026-06-30",
@@ -690,6 +717,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_THIRTY_ONE_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_ONE_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTY_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_NINE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_NINE_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG]
@@ -724,6 +752,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_THIRTY_ONE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_CHANGELOG,
     TWO_POINT_TWO_TWENTY_NINE_CHANGELOG,
     TWO_POINT_TWO_TWENTY_SEVEN_CHANGELOG,
