@@ -60,6 +60,49 @@ describe("ReferenceInput", () => {
     expect(onAtTrigger).toHaveBeenCalledTimes(2)
   })
 
+  it("keeps the resize handle and footer controls beside the send button", async () => {
+    await act(async () => {
+      root.render(
+        <ReferenceInput
+          tokens={[]}
+          onSubmit={vi.fn()}
+          rightControls={<button type="button">模型选择</button>}
+        />,
+      )
+    })
+
+    expect(host.querySelector("[aria-label='拖动调整输入框高度']")).toBeTruthy()
+    const footer = host.querySelector("[data-reference-input-footer]")
+    expect(footer?.textContent).toContain("模型选择")
+    expect(footer?.querySelector("[aria-label='发送消息']")).toBeTruthy()
+  })
+
+  it("shows a stop action in the footer while streaming", async () => {
+    const onStop = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <ReferenceInput
+          tokens={[]}
+          onSubmit={vi.fn()}
+          isStreaming
+          onStop={onStop}
+          rightControls={<button type="button">模型选择</button>}
+        />,
+      )
+    })
+
+    expect(host.querySelector("[aria-label='发送消息']")).toBeNull()
+    const stop = host.querySelector<HTMLButtonElement>("[aria-label='停止生成']")
+    expect(stop).toBeTruthy()
+
+    await act(async () => {
+      stop?.click()
+    })
+
+    expect(onStop).toHaveBeenCalledTimes(1)
+  })
+
   it("does not submit when only references are present", async () => {
     const onSubmit = vi.fn()
 

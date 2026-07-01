@@ -1,6 +1,13 @@
 import { listDirectory } from "@/commands/fs"
 import type { ReferenceCategory, ReferenceToken } from "./types"
 
+type ReferenceFileNode = {
+  name: string
+  path?: string
+  is_dir: boolean
+  children?: ReferenceFileNode[]
+}
+
 export interface ReferenceProvider {
   category: ReferenceCategory
   fetchItems: (projectPath: string) => Promise<ReferenceToken[]>
@@ -28,10 +35,59 @@ function normalizeProjectPath(projectPath: string): string {
   return projectPath.replace(/\\/g, "/")
 }
 
+function nodePath(baseDir: string, node: ReferenceFileNode): string {
+  const normalizedPath = node.path ? normalizeProjectPath(node.path) : ""
+  if (normalizedPath && normalizedPath !== node.name) return normalizedPath
+  return `${baseDir}/${node.name}`
+}
+
+function stripExtension(name: string, extensions: string[]): string {
+  const extension = extensions.find((candidate) => name.toLowerCase().endsWith(candidate))
+  return extension ? name.slice(0, -extension.length) : name
+}
+
+async function collectReferenceFiles(
+  baseDir: string,
+  nodes: ReferenceFileNode[],
+  extensions: string[],
+  parentParts: string[] = [],
+  visitedDirs = new Set<string>(),
+): Promise<Array<{ title: string; path: string }>> {
+  const items: Array<{ title: string; path: string }> = []
+
+  for (const node of nodes) {
+    const path = nodePath(baseDir, node)
+    if (node.is_dir) {
+      const nextParentParts = [...parentParts, node.name]
+      const childNodes = node.children ?? await (async () => {
+        if (visitedDirs.has(path)) return []
+        visitedDirs.add(path)
+        try {
+          return await listDirectory(path) as ReferenceFileNode[]
+        } catch {
+          return []
+        }
+      })()
+      items.push(...await collectReferenceFiles(path, childNodes, extensions, nextParentParts, visitedDirs))
+      continue
+    }
+
+    if (!extensions.some((extension) => node.name.toLowerCase().endsWith(extension))) {
+      continue
+    }
+
+    const stem = stripExtension(node.name, extensions)
+    const title = [...parentParts, stem].join("/")
+    items.push({ title, path })
+  }
+
+  return items
+}
+
 function createFileProvider(
   category: Extract<ReferenceCategory, "chapter" | "memory" | "outline" | "deduction">,
   relativeDir: string,
-  extension: ".md" | ".json",
+  extensions: Array<".md" | ".json">,
 ): ReferenceProvider {
   return {
     category,
@@ -39,19 +95,18 @@ function createFileProvider(
       try {
         const pp = normalizeProjectPath(projectPath)
         const dirPath = `${pp}/${relativeDir}`
-        const files = await listDirectory(dirPath)
-        return files
-          .filter((file) => !file.is_dir && file.name.endsWith(extension))
-          .map((file) => {
-            const title = file.name.slice(0, -extension.length)
-            return {
-              id: simpleId(),
-              category,
-              title,
-              path: `${dirPath}/${file.name}`,
-              displayTitle: truncateTitle(title),
-            }
-          })
+        const files = await collectReferenceFiles(
+          dirPath,
+          await listDirectory(dirPath) as ReferenceFileNode[],
+          extensions,
+        )
+        return files.map((file) => ({
+          id: simpleId(),
+          category,
+          title: file.title,
+          path: file.path,
+          displayTitle: truncateTitle(file.title),
+        }))
       } catch {
         return []
       }
@@ -62,25 +117,25 @@ function createFileProvider(
 export const chapterProvider = createFileProvider(
   "chapter",
   "wiki/chapters",
-  ".md",
+  [".md"],
 )
 
 export const memoryProvider = createFileProvider(
   "memory",
   "wiki/memory",
-  ".md",
+  [".md"],
 )
 
 export const outlineProvider = createFileProvider(
   "outline",
   "wiki/outlines",
-  ".md",
+  [".md"],
 )
 
 export const deductionProvider = createFileProvider(
   "deduction",
   ".qmai/simulations",
-  ".json",
+  [".md", ".json"],
 )
 
 export function createSkillProvider(getSkills: () => SkillSummary[]): ReferenceProvider {

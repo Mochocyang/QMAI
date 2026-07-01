@@ -34,6 +34,14 @@ describe("read tools", () => {
     expect(readFile).toHaveBeenCalledWith("/project/wiki/memory/曙光组织.md")
   })
 
+  it("read_memory reads an explicit nested memory path", async () => {
+    vi.mocked(readFile).mockResolvedValue("nested memory content")
+    const tool = createReadMemoryTool("/project/wiki/memory")
+    const result = await tool.execute({ path: "/project/wiki/memory/角色/主角.md" })
+    expect(result).toBe("nested memory content")
+    expect(readFile).toHaveBeenCalledWith("/project/wiki/memory/角色/主角.md")
+  })
+
   it("read_outline reads from outlines dir", async () => {
     vi.mocked(readFile).mockResolvedValue("outline content")
     const tool = createReadOutlineTool("/project/wiki/outlines")
@@ -46,6 +54,14 @@ describe("read tools", () => {
     const tool = createReadDeductionTool("/project/.qmai/simulations")
     const result = await tool.execute({ name: "framework_1" })
     expect(result).toContain("sim data")
+  })
+
+  it("read_deduction reads an explicit framework or result path", async () => {
+    vi.mocked(readFile).mockResolvedValue("# framework")
+    const tool = createReadDeductionTool("/project/.qmai/simulations")
+    const result = await tool.execute({ path: "/project/.qmai/simulations/frameworks/main.md" })
+    expect(result).toBe("# framework")
+    expect(readFile).toHaveBeenCalledWith("/project/.qmai/simulations/frameworks/main.md")
   })
 
   it("search_chapters searches by keyword", async () => {

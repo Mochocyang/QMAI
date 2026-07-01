@@ -38,6 +38,7 @@ interface ChatState {
   messages: DisplayMessage[]
   /** 按会话 ID 存储流式内容，支持多会话同时生成 */
   streamingContents: Record<string, string>
+  pendingReferenceTokens: ReferenceToken[]
   mode: "chat" | "ingest"
   ingestSource: string | null
   maxHistoryMessages: number
@@ -71,6 +72,8 @@ interface ChatState {
   setMaxHistoryMessages: (n: number) => void
   removeLastAssistantMessage: () => void  // for regenerate: remove last assistant reply
   markLastAssistantDiscarded: () => void   // for novel draft discard
+  enqueueReferenceTokens: (tokens: ReferenceToken[]) => void
+  consumePendingReferenceTokens: () => ReferenceToken[]
 
   // Helpers
   getActiveMessages: () => DisplayMessage[]
@@ -96,6 +99,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeConversationId: null,
   messages: [],
   streamingContents: {},
+  pendingReferenceTokens: [],
   mode: "chat",
   ingestSource: null,
   maxHistoryMessages: 20,
@@ -308,6 +312,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }
     }),
+
+  enqueueReferenceTokens: (tokens) => {
+    if (tokens.length === 0) return
+    set((state) => ({
+      pendingReferenceTokens: [...state.pendingReferenceTokens, ...tokens],
+    }))
+  },
+
+  consumePendingReferenceTokens: () => {
+    const tokens = get().pendingReferenceTokens
+    set({ pendingReferenceTokens: [] })
+    return tokens
+  },
 
   getActiveMessages: () => {
     const { messages, activeConversationId } = get()

@@ -1,3 +1,4 @@
+import { X } from "lucide-react"
 import type { ReferenceToken } from "@/lib/reference/types"
 
 const categoryColors: Record<ReferenceToken["category"], string> = {
@@ -25,7 +26,7 @@ export function ReferenceChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${colorClass} mx-0.5`}
+      className={`mx-0.5 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${colorClass}`}
       contentEditable={readonly ? undefined : false}
       data-reference-id={token.id}
       data-reference-category={token.category}
@@ -34,7 +35,7 @@ export function ReferenceChip({
       {!readonly && (
         <button
           type="button"
-          className="ml-0.5 cursor-pointer text-gray-400 hover:text-red-500"
+          className="ml-0.5 cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={(event) => {
             event.preventDefault()
             onRemove?.(token.id)
@@ -42,7 +43,7 @@ export function ReferenceChip({
           tabIndex={-1}
           aria-label={`移除引用 ${token.displayTitle}`}
         >
-          ×
+          <X className="h-3 w-3" aria-hidden="true" />
         </button>
       )}
     </span>

@@ -17,12 +17,19 @@ vi.mock("@/commands/fs", () => ({
   listDirectory: mocks.listDirectory,
 }))
 
-function file(name: string) {
-  return { name, path: name, is_dir: false }
+type MockNode = {
+  name: string
+  path: string
+  is_dir: boolean
+  children?: MockNode[]
 }
 
-function dir(name: string) {
-  return { name, path: name, is_dir: true }
+function file(name: string, path = name): MockNode {
+  return { name, path, is_dir: false }
+}
+
+function dir(name: string, path = name, children: MockNode[] = []): MockNode {
+  return { name, path, is_dir: true, children }
 }
 
 describe("reference providers", () => {
@@ -65,6 +72,47 @@ describe("reference providers", () => {
     ])
     await expect(deductionProvider.fetchItems("C:/Novel")).resolves.toMatchObject([
       { category: "deduction", title: "推演", path: "C:/Novel/.qmai/simulations/推演.json" },
+    ])
+  })
+
+  it("loads nested chapter and memory markdown files instead of hiding folder contents", async () => {
+    mocks.listDirectory
+      .mockResolvedValueOnce([
+        dir("第一卷", "C:/Novel/wiki/chapters/第一卷", [
+          file("第1章.md", "C:/Novel/wiki/chapters/第一卷/第1章.md"),
+        ]),
+      ])
+      .mockResolvedValueOnce([
+        dir("角色", "C:/Novel/wiki/memory/角色", [
+          file("主角.md", "C:/Novel/wiki/memory/角色/主角.md"),
+        ]),
+        file("canon-facts.md", "C:/Novel/wiki/memory/canon-facts.md"),
+      ])
+
+    await expect(chapterProvider.fetchItems("C:/Novel")).resolves.toMatchObject([
+      { category: "chapter", title: "第一卷/第1章", path: "C:/Novel/wiki/chapters/第一卷/第1章.md" },
+    ])
+    await expect(memoryProvider.fetchItems("C:/Novel")).resolves.toMatchObject([
+      { category: "memory", title: "角色/主角", path: "C:/Novel/wiki/memory/角色/主角.md" },
+      { category: "memory", title: "canon-facts", path: "C:/Novel/wiki/memory/canon-facts.md" },
+    ])
+  })
+
+  it("loads deduction room frameworks and nested simulation results", async () => {
+    mocks.listDirectory.mockResolvedValue([
+      dir("frameworks", "C:/Novel/.qmai/simulations/frameworks", [
+        file("主线框架.md", "C:/Novel/.qmai/simulations/frameworks/主线框架.md"),
+      ]),
+      dir("results", "C:/Novel/.qmai/simulations/results", [
+        dir("framework-1", "C:/Novel/.qmai/simulations/results/framework-1", [
+          file("result-1.json", "C:/Novel/.qmai/simulations/results/framework-1/result-1.json"),
+        ]),
+      ]),
+    ])
+
+    await expect(deductionProvider.fetchItems("C:/Novel")).resolves.toMatchObject([
+      { category: "deduction", title: "frameworks/主线框架", path: "C:/Novel/.qmai/simulations/frameworks/主线框架.md" },
+      { category: "deduction", title: "results/framework-1/result-1", path: "C:/Novel/.qmai/simulations/results/framework-1/result-1.json" },
     ])
   })
 

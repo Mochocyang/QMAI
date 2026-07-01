@@ -125,6 +125,30 @@ describe("ReferencePickerDialog", () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it("uses the app surface styles and clear Chinese labels", async () => {
+    await act(async () => {
+      root.render(
+        <ReferencePickerDialog
+          open
+          providers={providers}
+          projectPath="C:/Novel"
+          onConfirm={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      )
+    })
+    await flush()
+
+    const dialog = host.querySelector<HTMLElement>("[role='dialog']")
+    expect(dialog).toBeTruthy()
+    expect(dialog?.className).toContain("bg-background")
+    expect(dialog?.className).toContain("max-w-[min(920px,calc(100vw-32px))]")
+    expect(host.textContent).toContain("选择引用内容")
+    expect(host.textContent).toContain("章节")
+    expect(host.textContent).toContain("记忆库")
+    expect(host.textContent).toContain("已选 0/10")
+  })
+
   it("does not select more than the maximum reference count", async () => {
     await act(async () => {
       root.render(

@@ -42,4 +42,30 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("agentToolCalls")
     expect(source).toContain("当前模型不支持Agent功能，请更换模型")
   })
+
+  it("scopes reference input drafts to the active conversation", () => {
+    expect(source).toContain("setConversationInputDraft")
+    expect(source).toContain("getReferenceTokensForConversation")
+    expect(source).toContain("setReferenceTokensForConversation")
+    expect(source).not.toContain('const [referenceText, setReferenceText] = useState("")')
+    expect(source).not.toContain("const [currentTokens, setCurrentTokens] = useState<ReferenceToken[]>([])")
+  })
+
+  it("stores successful Agent read tool calls as assistant message references", () => {
+    expect(source).toContain("agentToolCallsToMessageReferences")
+    expect(source).toContain("references:")
+  })
+
+  it("keeps model and stop controls in the reference input footer", () => {
+    expect(source).toContain("rightControls={")
+    expect(source).toContain("<ChatModelSelector")
+    expect(source).toContain("isStreaming={isStreaming}")
+    expect(source).toContain("onStop={handleStop}")
+  })
+
+  it("consumes externally queued reference tokens into the active chat draft", () => {
+    expect(source).toContain("pendingReferenceTokens")
+    expect(source).toContain("consumePendingReferenceTokens")
+    expect(source).toContain("setReferenceTokensForConversation(drafts, targetConversationId")
+  })
 })

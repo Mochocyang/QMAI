@@ -5,24 +5,50 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type ReactNode,
 } from "react"
-import { ArrowUp, AtSign } from "lucide-react"
+import { ArrowUp, AtSign, Square } from "lucide-react"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { ReferenceChip } from "./ReferenceChip"
 
 export type InsertReferenceTokens = ((tokens: ReferenceToken[]) => void) | null
 
+const REFERENCE_INPUT_HEIGHT_KEY = "qmai-reference-input-height"
+const DEFAULT_REFERENCE_INPUT_HEIGHT = 56
+const MIN_REFERENCE_INPUT_HEIGHT = 48
+const MAX_REFERENCE_INPUT_HEIGHT = 220
+
 interface ReferenceInputProps {
   value?: string
   tokens: ReferenceToken[]
   placeholder?: string
   disabled?: boolean
+  isStreaming?: boolean
+  rightControls?: ReactNode
   onChange?: (plainText: string, tokens: ReferenceToken[]) => void
   onTokensChange?: (tokens: ReferenceToken[]) => void
   onSubmit: (plainText: string, tokens: ReferenceToken[]) => void
+  onStop?: () => void
   onAtTrigger?: () => void
   insertTokensRef?: MutableRefObject<InsertReferenceTokens>
+}
+
+function clampInputHeight(height: number): number {
+  if (!Number.isFinite(height)) return DEFAULT_REFERENCE_INPUT_HEIGHT
+  return Math.min(MAX_REFERENCE_INPUT_HEIGHT, Math.max(MIN_REFERENCE_INPUT_HEIGHT, Math.round(height)))
+}
+
+function loadSavedInputHeight(): number {
+  if (typeof localStorage === "undefined") return DEFAULT_REFERENCE_INPUT_HEIGHT
+  const raw = localStorage.getItem(REFERENCE_INPUT_HEIGHT_KEY)
+  const parsed = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) ? clampInputHeight(parsed) : DEFAULT_REFERENCE_INPUT_HEIGHT
+}
+
+function saveInputHeight(height: number) {
+  if (typeof localStorage === "undefined") return
+  localStorage.setItem(REFERENCE_INPUT_HEIGHT_KEY, String(clampInputHeight(height)))
 }
 
 function extractPlainText(editor: HTMLDivElement | null): string {
@@ -45,17 +71,22 @@ export function ReferenceInput({
   tokens,
   placeholder = "输入提示词，或 @ 引用内容...",
   disabled = false,
+  isStreaming = false,
+  rightControls,
   onChange,
   onTokensChange,
   onSubmit,
+  onStop,
   onAtTrigger,
   insertTokensRef,
 }: ReferenceInputProps) {
   const editorRef = useRef<HTMLDivElement>(null)
   const isControlled = value !== undefined
   const [draft, setDraft] = useState("")
+  const [inputHeight, setInputHeight] = useState(loadSavedInputHeight)
   const text = isControlled ? value : draft
-  const canSubmit = text.trim().length > 0 && !disabled
+  const inputDisabled = disabled || isStreaming
+  const canSubmit = text.trim().length > 0 && !inputDisabled
 
   const notifyChange = useCallback(
     (nextText: string, nextTokens: ReferenceToken[]) => {
@@ -98,9 +129,9 @@ export function ReferenceInput({
 
   const handleSubmit = useCallback(() => {
     const plainText = text.trim()
-    if (!plainText || disabled) return
+    if (!plainText || inputDisabled) return
     onSubmit(plainText, tokens)
-  }, [disabled, onSubmit, text, tokens])
+  }, [inputDisabled, onSubmit, text, tokens])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -120,6 +151,53 @@ export function ReferenceInput({
     [handleSubmit, onAtTrigger],
   )
 
+  const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+
+    const startY = event.clientY
+    const startHeight = inputHeight
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    const previousCursor = document.body.style.cursor
+    let savedHeight = startHeight
+    document.body.style.cursor = "ns-resize"
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // Older WebViews can miss pointer capture; window listeners still cover dragging.
+    }
+
+    const handlePointerMove = (pointerEvent: PointerEvent) => {
+      const nextHeight = clampInputHeight(startHeight + (startY - pointerEvent.clientY))
+      savedHeight = nextHeight
+      setInputHeight(nextHeight)
+    }
+
+    const handlePointerUp = () => {
+      saveInputHeight(savedHeight)
+      try {
+        handle.releasePointerCapture(pointerId)
+      } catch {
+        // Ignore release errors when capture has already been cancelled.
+      }
+      document.body.style.cursor = previousCursor
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+    window.addEventListener("pointercancel", handlePointerUp)
+  }, [inputHeight])
+
+  const resetInputHeight = useCallback(() => {
+    setInputHeight(DEFAULT_REFERENCE_INPUT_HEIGHT)
+    saveInputHeight(DEFAULT_REFERENCE_INPUT_HEIGHT)
+  }, [])
+
   const renderedTokens = useMemo(
     () => tokens.map((token) => (
       <ReferenceChip
@@ -132,12 +210,24 @@ export function ReferenceInput({
   )
 
   return (
-    <div className="rounded-lg border bg-background shadow-sm focus-within:ring-2 focus-within:ring-blue-400">
+    <div className="overflow-hidden rounded-lg border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring">
+      <div
+        role="separator"
+        aria-label="拖动调整输入框高度"
+        title="拖动调整输入框高度，双击恢复默认高度"
+        className="flex h-2 cursor-ns-resize items-center justify-center bg-muted/20 transition-colors hover:bg-muted/50"
+        onPointerDown={handleResizePointerDown}
+        onDoubleClick={resetInputHeight}
+      >
+        <span className="h-0.5 w-10 rounded-full bg-border" />
+      </div>
+
       <div className="relative px-3 py-2">
         <div
           ref={editorRef}
-          className="min-h-[48px] max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-sm outline-none disabled:cursor-not-allowed"
-          contentEditable={!disabled}
+          className="overflow-y-auto whitespace-pre-wrap break-words text-sm outline-none disabled:cursor-not-allowed"
+          style={{ height: inputHeight, maxHeight: inputHeight }}
+          contentEditable={!inputDisabled}
           suppressContentEditableWarning
           onInput={handleInput}
           onKeyDown={handleKeyDown}
@@ -153,27 +243,47 @@ export function ReferenceInput({
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t px-2 py-1.5">
+      <div
+        data-reference-input-footer
+        className="flex items-center justify-between gap-2 border-t px-2 py-1.5"
+      >
         <button
           type="button"
-          className="rounded-md p-1.5 text-gray-500 hover:bg-accent hover:text-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onAtTrigger?.()}
-          disabled={disabled}
+          disabled={inputDisabled}
           title="引用内容"
           aria-label="引用内容"
         >
           <AtSign className="h-4 w-4" />
         </button>
-        <button
-          type="button"
-          className="rounded-md bg-blue-500 p-1.5 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
-          disabled={!canSubmit}
-          onClick={handleSubmit}
-          title="发送消息"
-          aria-label="发送消息"
-        >
-          <ArrowUp className="h-4 w-4" />
-        </button>
+
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+          {rightControls}
+          {isStreaming ? (
+            <button
+              type="button"
+              className="rounded-md border border-destructive/40 p-1.5 text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!onStop}
+              onClick={onStop}
+              title="停止生成"
+              aria-label="停止生成"
+            >
+              <Square className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+              title="发送消息"
+              aria-label="发送消息"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

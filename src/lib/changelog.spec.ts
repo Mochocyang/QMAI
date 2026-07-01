@@ -6,7 +6,8 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 24)).toEqual([
+    expect(versions.slice(0, 25)).toEqual([
+      "2.2.31",
       "2.2.30",
       "2.2.29",
       "2.2.27",
@@ -32,7 +33,7 @@ describe("changelog", () => {
       "2.2.0",
       "2.1.0",
     ])
-    expect(versions[24]).toBe("2.0.0")
+    expect(versions[25]).toBe("2.0.0")
 
     for (let patch = 1; patch <= 6; patch += 1) {
       expect(versions).not.toContain(`2.2.${patch}`)

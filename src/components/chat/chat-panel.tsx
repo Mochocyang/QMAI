@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Plus, Trash2, MessageSquare, FileEdit, Drama, Square } from "lucide-react"
+import { BookOpen, Brain, Plus, Trash2, MessageSquare, FileEdit, Drama } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -56,6 +56,12 @@ import {
   detectGoldenThreeChapterRequest,
 } from "@/lib/novel/golden-three-chapters"
 import { createStreamSessionGuard } from "./stream-session"
+import {
+  agentToolCallsToMessageReferences,
+  getReferenceTokensForConversation,
+  setReferenceTokensForConversation,
+  type ReferenceTokensByConversation,
+} from "./agent-message-metadata"
 import {
   appendContinueUnfinishedDeepChapterContext,
   buildContinueUnfinishedDeepChapterPrompt,
@@ -317,7 +323,10 @@ export function ChatPanel() {
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const isConversationStreaming = useChatStore((s) => s.isConversationStreaming)
   const conversations = useChatStore((s) => s.conversations)
+  const setConversationInputDraft = useChatStore((s) => s.setConversationInputDraft)
   const setConversationDeAiSkillId = useChatStore((s) => s.setConversationDeAiSkillId)
+  const pendingReferenceTokens = useChatStore((s) => s.pendingReferenceTokens)
+  const consumePendingReferenceTokens = useChatStore((s) => s.consumePendingReferenceTokens)
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
   // Derive active messages via selector to re-render on message changes
   const allMessages = useChatStore((s) => s.messages)
@@ -362,10 +371,52 @@ export function ChatPanel() {
   const setDeepChapterEnabled = useWikiStore((s) => s.setDeepChapterEnabled)
   // 故事框架绑定状态
   const [activeBinding, setActiveBinding] = useState<{ binding: FrameworkBinding; framework: StoryFramework } | null>(null)
-  const [referenceText, setReferenceText] = useState("")
-  const [currentTokens, setCurrentTokens] = useState<ReferenceToken[]>([])
+  const [fallbackReferenceText, setFallbackReferenceText] = useState("")
+  const [referenceTokensByConversation, setReferenceTokensByConversation] = useState<ReferenceTokensByConversation>({})
   const [referencePickerOpen, setReferencePickerOpen] = useState(false)
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null)
+  const referenceDraftConversationId = activeConversationId ?? "__new_conversation__"
+  const referenceText = activeConversationId ? activeConversation?.inputDraft ?? "" : fallbackReferenceText
+  const currentTokens = getReferenceTokensForConversation(referenceTokensByConversation, referenceDraftConversationId)
+  const updateCurrentTokens = useCallback(
+    (tokens: ReferenceToken[]) => {
+      setReferenceTokensByConversation((drafts) =>
+        setReferenceTokensForConversation(drafts, referenceDraftConversationId, tokens),
+      )
+    },
+    [referenceDraftConversationId],
+  )
+  const updateReferenceDraft = useCallback(
+    (plainText: string, tokens: ReferenceToken[]) => {
+      if (activeConversationId) {
+        setConversationInputDraft(activeConversationId, plainText)
+      } else {
+        setFallbackReferenceText(plainText)
+      }
+      updateCurrentTokens(tokens)
+    },
+    [activeConversationId, setConversationInputDraft, updateCurrentTokens],
+  )
+
+  useEffect(() => {
+    if (pendingReferenceTokens.length === 0) return
+    const tokens = consumePendingReferenceTokens()
+    if (tokens.length === 0) return
+
+    let targetConversationId = useChatStore.getState().activeConversationId
+    if (!targetConversationId) {
+      targetConversationId = createConversation()
+    }
+
+    setReferenceTokensByConversation((drafts) => {
+      const existingTokens = getReferenceTokensForConversation(drafts, targetConversationId)
+      return setReferenceTokensForConversation(drafts, targetConversationId, [
+        ...existingTokens,
+        ...tokens,
+      ])
+    })
+  }, [consumePendingReferenceTokens, createConversation, pendingReferenceTokens])
+
   const agentSystemPrompt = useMemo(
     () =>
       buildChatAgentSystemPrompt({
@@ -731,8 +782,12 @@ export function ChatPanel() {
       ]
 
       const { assistantMessage } = appendAgentChatMessages(capturedConvId, plainText, tokens)
-      setReferenceText("")
-      setCurrentTokens([])
+      setConversationInputDraft(capturedConvId, "")
+      setFallbackReferenceText("")
+      setReferenceTokensByConversation((drafts) => {
+        const withoutCaptured = setReferenceTokensForConversation(drafts, capturedConvId, [])
+        return setReferenceTokensForConversation(withoutCaptured, referenceDraftConversationId, [])
+      })
       startStreaming(capturedConvId)
       const sessionId = streamSessionGuardRef.current.start(capturedConvId)
       activeStreamSessionsRef.current[capturedConvId] = sessionId
@@ -746,6 +801,16 @@ export function ChatPanel() {
           ...message,
           content: message.content || record?.finalText || "Agent未返回内容。",
           agentToolCalls: record?.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+          references: (() => {
+            const existingReferences = message.references ?? []
+            const existingPaths = new Set(existingReferences.map((reference) => reference.path))
+            const agentReferences = agentToolCallsToMessageReferences(
+              record?.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+            ).filter((reference) => !existingPaths.has(reference.path))
+            return agentReferences.length > 0
+              ? [...existingReferences, ...agentReferences]
+              : message.references
+          })(),
           isAgentRunning: false,
         }))
       }
@@ -864,8 +929,10 @@ export function ChatPanel() {
       maxHistoryMessages,
       novelMode,
       project,
+      referenceDraftConversationId,
       requestSoulDialog,
       selectedFile,
+      setConversationInputDraft,
       startStreaming,
     ],
   )
@@ -1382,19 +1449,14 @@ export function ChatPanel() {
                   )}
                 </div>
               </TooltipProvider>
-              <div className="flex shrink-0 items-center gap-2">
-                {isStreaming && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={handleStop}
-                    title="停止生成"
-                    aria-label="停止生成"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                  </Button>
-                )}
+            </div>
+            <ReferenceInput
+              value={referenceText}
+              tokens={currentTokens}
+              disabled={isStreaming}
+              isStreaming={isStreaming}
+              onStop={handleStop}
+              rightControls={
                 <ChatModelSelector
                   value={aiChatModel}
                   onChange={(model) => {
@@ -1402,18 +1464,10 @@ export function ChatPanel() {
                     void saveAiChatModel(model)
                   }}
                 />
-              </div>
-            </div>
-            <ReferenceInput
-              value={referenceText}
-              tokens={currentTokens}
-              disabled={isStreaming}
+              }
               insertTokensRef={insertReferenceTokensRef}
-              onChange={(plainText, tokens) => {
-                setReferenceText(plainText)
-                setCurrentTokens(tokens)
-              }}
-              onTokensChange={setCurrentTokens}
+              onChange={updateReferenceDraft}
+              onTokensChange={updateCurrentTokens}
               onSubmit={handleSend}
               onAtTrigger={() => setReferencePickerOpen(true)}
               placeholder={
