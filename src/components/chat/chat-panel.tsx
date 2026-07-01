@@ -130,7 +130,9 @@ function buildChatAgentSystemPrompt(options: {
     lines.push("当前处于资料写入模式，用户可能希望把对话内容整理写入资料库。")
   }
   if (options.novelMode) {
-    lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文或明确的执行结果。")
+    lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
+    lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
+    lines.push("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格；章节标题和正文以外的内容都不要输出。")
   }
   if (options.deepChapterEnabled) {
     lines.push("用户已开启深度模式，请在必要时进行更完整的章节规划和资料读取。")
@@ -663,123 +665,6 @@ export function ChatPanel() {
               .map((message) => message.content),
           )
         : undefined
-      const targetChapterNumber = novelMode && taskRoute
-        ? await resolveTargetChapterNumberForChat({
-            projectPath: pp,
-            userRequest: plainText,
-            routeIntent: taskRoute.intent,
-            routeChapterNumber: taskRoute.chapterNumber,
-            selectedFile,
-            lastGeneratedChapterNumber,
-          })
-        : undefined
-      const effectiveTaskRoute = taskRoute && targetChapterNumber
-        ? {
-            ...taskRoute,
-            chapterNumber: targetChapterNumber,
-            extractedParams: {
-              ...taskRoute.extractedParams,
-              chapterNumber: String(targetChapterNumber),
-            },
-          }
-        : taskRoute
-      const shouldUseQmQuaiSkill = effectiveTaskRoute != null && (
-        effectiveTaskRoute.intent === "write_chapter" ||
-        effectiveTaskRoute.intent === "continue_chapter" ||
-        effectiveTaskRoute.intent === "rewrite_chapter"
-      )
-      const qmQuaiSystemPrompt = shouldUseQmQuaiSkill ? buildQmQuaiSystemPrompt() : ""
-      let novelContextPrompt = ""
-
-      if (novelMode && effectiveTaskRoute) {
-        try {
-          const taskDirective = buildTaskDirective(effectiveTaskRoute)
-          const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
-          const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
-          const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
-          const contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
-            task: plainText,
-            chapterGoal: "",
-            outline: "",
-            recentSummaries: [],
-            previousChapterEnding: "",
-            characterStates: "",
-            soulDoc: "",
-            characterAuras: "",
-            cognitionStates: "",
-            foreshadowingStates: "",
-            timeline: "",
-            relatedSettings: "",
-            canonRules: "",
-            writingStyle: "",
-            searchResults: "",
-            graphSearchResults: "",
-            mustDo: "",
-            mustAvoid: "",
-            nextChapterAdvice: "",
-            revisionDirectives: "",
-          }))
-          if (contextPack.characterAuras.trim()) {
-            const confirmed = await requestSoulDialog(contextPack.characterAuras)
-            if (!confirmed) {
-              const { assistantMessage } = appendAgentChatMessages(capturedConvId, plainText, tokens)
-              updateAgentAssistantMessage(assistantMessage.id, (message) => ({
-                ...message,
-                content: "已取消本次生成，角色灵魂上下文未发送给模型。",
-                isAgentRunning: false,
-              }))
-              return
-            }
-          }
-          const novelConfig = useWikiStore.getState().novelConfig
-          const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
-          novelContextPrompt = [
-            taskDirective,
-            goldenDirective,
-            "## 小说上下文包",
-            contextPackToPrompt(contextPack, budget),
-          ].filter(Boolean).join("\n\n")
-        } catch (error) {
-          console.warn("构建Agent小说上下文失败:", error)
-        }
-      }
-
-      const {
-        skill: effectiveDeAiSkill,
-        warning: deAiSkillWarning,
-      } = await loadEffectiveDeAiSkillSafely(project.path, activeConv?.selectedDeAiSkillId)
-      if (deAiSkillWarning) {
-        setDeAiSkillWarningMessage(deAiSkillWarning)
-      }
-
-      const effectiveSystemPrompt = effectiveDeAiSkill
-        ? [
-            agentSystemPrompt,
-            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
-            novelContextPrompt,
-            "",
-            "## 当前会话去AI味技能",
-            buildDeAiSkillSystemPrompt(effectiveDeAiSkill.content),
-          ].filter(Boolean).join("\n")
-        : [
-            agentSystemPrompt,
-            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
-            novelContextPrompt,
-          ].filter(Boolean).join("\n")
-
-      const deAiMode = activeConv?.deAiMode ?? false
-      const rawUserContent = buildAgentUserContent(plainText, tokens)
-      const userContent = !effectiveDeAiSkill && deAiMode
-        ? injectDeAiDirective(rawUserContent, deAiMode)
-        : rawUserContent
-      const agentMessages: AgentMessage[] = [
-        { role: "system", content: effectiveSystemPrompt },
-        ...activeConvMessages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        } satisfies AgentMessage)),
-        { role: "user", content: userContent },
-      ]
 
       const { assistantMessage } = appendAgentChatMessages(capturedConvId, plainText, tokens)
       setConversationInputDraft(capturedConvId, "")
@@ -834,6 +719,128 @@ export function ChatPanel() {
           delete abortControllersRef.current[capturedConvId]
         })
       }
+
+      const targetChapterNumber = novelMode && taskRoute
+        ? await resolveTargetChapterNumberForChat({
+            projectPath: pp,
+            userRequest: plainText,
+            routeIntent: taskRoute.intent,
+            routeChapterNumber: taskRoute.chapterNumber,
+            selectedFile,
+            lastGeneratedChapterNumber,
+          }).catch((error) => {
+            console.warn("解析目标章节失败:", error)
+            return undefined
+          })
+        : undefined
+      const effectiveTaskRoute = taskRoute && targetChapterNumber
+        ? {
+            ...taskRoute,
+            chapterNumber: targetChapterNumber,
+            extractedParams: {
+              ...taskRoute.extractedParams,
+              chapterNumber: String(targetChapterNumber),
+            },
+          }
+        : taskRoute
+      const shouldUseQmQuaiSkill = effectiveTaskRoute != null && (
+        effectiveTaskRoute.intent === "write_chapter" ||
+        effectiveTaskRoute.intent === "continue_chapter" ||
+        effectiveTaskRoute.intent === "rewrite_chapter"
+      )
+      const qmQuaiSystemPrompt = shouldUseQmQuaiSkill ? buildQmQuaiSystemPrompt() : ""
+      let novelContextPrompt = ""
+
+      if (novelMode && effectiveTaskRoute) {
+        try {
+          const taskDirective = buildTaskDirective(effectiveTaskRoute)
+          const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
+          const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
+          const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
+          const contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
+            task: plainText,
+            chapterGoal: "",
+            outline: "",
+            recentSummaries: [],
+            previousChapterEnding: "",
+            characterStates: "",
+            soulDoc: "",
+            characterAuras: "",
+            cognitionStates: "",
+            foreshadowingStates: "",
+            timeline: "",
+            relatedSettings: "",
+            canonRules: "",
+            writingStyle: "",
+            searchResults: "",
+            graphSearchResults: "",
+            mustDo: "",
+            mustAvoid: "",
+            nextChapterAdvice: "",
+            revisionDirectives: "",
+          }))
+          if (contextPack.characterAuras.trim()) {
+            const confirmed = await requestSoulDialog(contextPack.characterAuras)
+            if (!confirmed) {
+              finishAgentSession(() => {
+                updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                  ...message,
+                  content: "已取消本次生成，角色灵魂上下文未发送给模型。",
+                  isAgentRunning: false,
+                }))
+              })
+              return
+            }
+          }
+          const novelConfig = useWikiStore.getState().novelConfig
+          const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
+          novelContextPrompt = [
+            taskDirective,
+            goldenDirective,
+            "## 小说上下文包",
+            contextPackToPrompt(contextPack, budget),
+          ].filter(Boolean).join("\n\n")
+        } catch (error) {
+          console.warn("构建Agent小说上下文失败:", error)
+        }
+      }
+
+      const {
+        skill: effectiveDeAiSkill,
+        warning: deAiSkillWarning,
+      } = await loadEffectiveDeAiSkillSafely(project.path, activeConv?.selectedDeAiSkillId)
+      if (deAiSkillWarning) {
+        setDeAiSkillWarningMessage(deAiSkillWarning)
+      }
+
+      const effectiveSystemPrompt = effectiveDeAiSkill
+        ? [
+            agentSystemPrompt,
+            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
+            novelContextPrompt,
+            "",
+            "## 当前会话去AI味技能",
+            buildDeAiSkillSystemPrompt(effectiveDeAiSkill.content),
+          ].filter(Boolean).join("\n")
+        : [
+            agentSystemPrompt,
+            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
+            novelContextPrompt,
+          ].filter(Boolean).join("\n")
+
+      const deAiMode = activeConv?.deAiMode ?? false
+      const rawUserContent = buildAgentUserContent(plainText, tokens)
+      const userContent = !effectiveDeAiSkill && deAiMode
+        ? injectDeAiDirective(rawUserContent, deAiMode)
+        : rawUserContent
+      const agentMessages: AgentMessage[] = [
+        { role: "system", content: effectiveSystemPrompt },
+        ...activeConvMessages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        } satisfies AgentMessage)),
+        { role: "user", content: userContent },
+      ]
 
       try {
         const record = await new AgentRunner().run(

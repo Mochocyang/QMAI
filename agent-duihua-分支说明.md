@@ -14,6 +14,12 @@
 
 ## 本次更新
 
+### 20260701-123054
+
+- 修复 Agent 工具调用轮过程文字污染最终回复的问题：工具调用轮的模型文字仅保留在内部上下文，不再直接显示给用户。
+- 收紧 AI 会话章节生成输出约束：生成、续写、改写章节时最终回复只允许章节正文，禁止输出读取说明、执行总结、完成目标表格、章节结构和后续建议。
+- 优化 Enter 发送链路：先写入用户消息和 assistant 运行占位，再异步解析章节号与构建小说上下文，减少按 Enter 后等待的体感延迟。
+
 ### 20260701-113111
 
 - 修复 AI 会话按 Enter 发送存在延迟的问题：提交时优先读取 textarea 当前 DOM 值，避免刚输入后 React state 尚未同步导致发送不及时。
@@ -55,6 +61,16 @@
 
 ## 验证记录
 
+- 20260701-123054：
+  - `npm.cmd exec -- vitest run src/lib/agent/runner.spec.ts src/components/chat/chat-panel.spec.tsx`：2 个测试文件、16 个用例通过。
+  - `npm.cmd exec -- vitest run src/components/reference/ReferenceInput.spec.tsx src/lib/agent/runner.spec.ts src/components/chat/chat-panel.spec.tsx src/components/chat/agent-message-metadata.spec.ts src/components/chat/chat-message.spec.tsx src/components/layout/chat-layout.test.ts src/lib/reference/resolve.spec.ts`：7 个测试文件、53 个用例通过。
+  - `npm.cmd exec -- vitest run src/components/reference/ReferenceInput.spec.tsx src/components/reference/ReferencePickerDialog.spec.tsx src/lib/reference/providers.spec.ts src/components/chat/chat-panel.spec.tsx src/components/sources/outline-chat-panel.spec.tsx src/lib/agent/tools/read-tools.spec.ts src/lib/agent/tools/write-tools.spec.ts`：7 个测试文件、53 个用例通过。
+  - `git diff --check`：通过，仅有 Git 换行提示。
+  - `npm.cmd run typecheck`：通过。
+  - `npm.cmd run test:mocks`：285 个测试文件、2116 个用例通过。
+  - `npm.cmd run build`：通过，存在既有 Vite chunk/dynamic import 警告。
+  - 源码启动：`npm.cmd run dev -- --host 127.0.0.1 --port 5173` 通过 Job 验证，Vite ready 后已停止。
+  - `npm.cmd run build:portable`：通过，生成 `release-portable\QMaiWrite.exe` 和 `version-info.json`；Rust 构建存在既有 `file_sync.rs` dead-code 警告。
 - 20260701-113111：
   - `npm.cmd exec -- vitest run src/components/reference/ReferenceInput.spec.tsx`：1 个测试文件、10 个用例通过。
   - `npm.cmd exec -- vitest run src/components/reference/ReferenceInput.spec.tsx src/components/reference/ReferencePickerDialog.spec.tsx src/lib/reference/providers.spec.ts src/components/chat/chat-panel.spec.tsx src/components/sources/outline-chat-panel.spec.tsx`：5 个测试文件、36 个用例通过。
@@ -97,6 +113,7 @@
 
 ## Git 状态
 
+- 20260701-123054 Agent 输出纯正文和 Enter 立即显示修复纳入本次提交。
 - 20260701-113111 Enter 立即发送修复纳入本次提交。
 - 20260701-092043 更新已提交，提交号 `6b08275`。
 - 20260701-095256 优化纳入本次提交。

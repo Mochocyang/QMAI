@@ -35,7 +35,6 @@ export class AgentRunner {
       const streamCallbacks: StreamCallbacks = {
         onToken: (t: string) => {
           roundText += t
-          callbacks.onText(t)
         },
         onToolCallDelta: (delta: ToolCallDelta) => {
           toolCallDeltas.push(delta)
@@ -73,6 +72,7 @@ export class AgentRunner {
       if (toolCalls.length === 0) {
         finalText = roundText
         record.finalText = finalText
+        if (roundText) callbacks.onText(roundText)
         callbacks.onDone()
         return record
       }

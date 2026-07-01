@@ -68,4 +68,21 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("consumePendingReferenceTokens")
     expect(source).toContain("setReferenceTokensForConversation(drafts, targetConversationId")
   })
+
+  it("keeps chapter-generation replies limited to chapter body", () => {
+    expect(source).toContain("章节生成、续写或改写任务的最终回复必须只包含章节正文")
+    expect(source).toContain("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议")
+  })
+
+  it("shows the sent chat message before asynchronous chapter context building", () => {
+    const appendIndex = source.indexOf("const { assistantMessage } = appendAgentChatMessages")
+    const resolveIndex = source.indexOf("await resolveTargetChapterNumberForChat")
+    const contextIndex = source.indexOf("await buildContextPack")
+
+    expect(appendIndex).toBeGreaterThan(-1)
+    expect(resolveIndex).toBeGreaterThan(-1)
+    expect(contextIndex).toBeGreaterThan(-1)
+    expect(appendIndex).toBeLessThan(resolveIndex)
+    expect(appendIndex).toBeLessThan(contextIndex)
+  })
 })
