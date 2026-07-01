@@ -49,9 +49,26 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("onGenerate={handleGenerateSection}")
   })
 
-  it("adds selected references to the outline model context instead of only storing chips", () => {
-    expect(source).toContain("loadReferenceTokenContext")
-    expect(source).toContain("本次 @ 引用内容")
-    expect(source).toContain("outlineSources = [...outlineSources, ...referenceContext.sources]")
+  it("adds selected references to the outline agent request instead of only storing chips", () => {
+    expect(source).toContain("buildOutlineAgentUserContent")
+    expect(source).toContain("本条消息附带的 @ 引用")
+    expect(source).toContain("请优先使用工具读取引用内容")
+  })
+
+  it("routes outline chat sends through AgentRunner with built-in tools", () => {
+    expect(source).toContain("AgentRunner")
+    expect(source).toContain("buildAgentConfig")
+    expect(source).toContain("ToolRegistry")
+    expect(source).toContain("read_outline")
+    expect(source).toContain("read_chapter")
+    expect(source).toContain("read_memory")
+    expect(source).toContain("read_deduction")
+    expect(source).not.toContain("runDeepOutlineGeneration(")
+  })
+
+  it("keeps outline reference chips as tool-readable hints instead of preloading file contents", () => {
+    expect(source).toContain("buildOutlineAgentUserContent")
+    expect(source).toContain("请优先使用工具读取引用内容")
+    expect(source).not.toContain("loadReferenceTokenContext(tokens)")
   })
 })

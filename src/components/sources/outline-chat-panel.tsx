@@ -4,19 +4,16 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore, type OutlineChatMessage } from "@/stores/outline-chat-store"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
-import { readFile, writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { writeFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import ReactMarkdown from "react-markdown"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
+import { AgentToolCallMessage } from "@/components/chat/agent-tool-call-message"
 import { ChatDockControls } from "@/components/chat/chat-dock-controls"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-generation"
 import { prepareOutlineSaveDraft } from "@/lib/outline-save"
-import { resolveUserVisibleReasoning } from "@/lib/user-visible-reasoning"
-import { runDeepOutlineGeneration } from "@/lib/novel/deep-outline-generation"
 import { resolveModelConfig, resolveNovelModel } from "@/lib/novel/model-resolver"
-import { createDeepThinkingStreamRenderer } from "@/lib/deep-thinking-stream"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
@@ -30,48 +27,16 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { useChatStore } from "@/stores/chat-store"
+import { AgentRunner } from "@/lib/agent/runner"
+import { ToolRegistry } from "@/lib/agent/registry"
+import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config"
+import type { AgentMessage, AgentRunRecord, ToolCall } from "@/lib/agent/types"
+import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
 import {
   buildWebResearchContext,
   collectWebResearch,
   shouldUseWebResearch,
 } from "@/lib/web-research"
-
-async function loadOutlineContext(projectPath: string): Promise<{ context: string; sources: string[] }> {
-  const pp = normalizePath(projectPath)
-  const sections: string[] = []
-  const sources: string[] = []
-
-  try {
-    const outlinesDir = `${pp}/wiki/outlines`
-    const tree = await listDirectory(outlinesDir)
-    for (const file of tree.slice(0, 10)) {
-      if (file.name.endsWith(".md")) {
-        try {
-          const content = await readFile(`${outlinesDir}/${file.name}`)
-          const trimmed = content.length > 3000 ? content.slice(0, 3000) + "\n...(已截断)" : content
-          sections.push(`【${file.name.replace(/\.md$/, "")}】\n${trimmed}`)
-          sources.push(`大纲: ${file.name.replace(/\.md$/, "")}`)
-        } catch { /* skip */ }
-      }
-    }
-  } catch { /* no outlines dir */ }
-
-  try {
-    const chaptersDir = `${pp}/wiki/chapters`
-    const tree = await listDirectory(chaptersDir)
-    const chapterFiles = tree.filter(f => f.name.endsWith(".md")).slice(-5)
-    for (const file of chapterFiles) {
-      try {
-        const content = await readFile(`${chaptersDir}/${file.name}`)
-        const preview = content.length > 1500 ? content.slice(0, 1500) + "\n...(已截断)" : content
-        sections.push(`【章节:${file.name.replace(/\.md$/, "")}】\n${preview}`)
-        sources.push(`章节: ${file.name.replace(/\.md$/, "")}`)
-      } catch { /* skip */ }
-    }
-  } catch { /* no chapters dir */ }
-
-  return { context: sections.join("\n\n---\n\n"), sources }
-}
 
 function referenceCategoryLabel(category: ReferenceToken["category"]): string {
   switch (category) {
@@ -94,30 +59,89 @@ function referenceCategoryLabel(category: ReferenceToken["category"]): string {
   }
 }
 
-async function loadReferenceTokenContext(tokens: ReferenceToken[]): Promise<{ context: string; sources: string[] }> {
-  if (tokens.length === 0) return { context: "", sources: [] }
+function describeReferenceForOutlineAgent(token: ReferenceToken, index: number): string {
+  const parts = [
+    `${index + 1}. 类型：${referenceCategoryLabel(token.category)}`,
+    `标题：${token.title || token.displayTitle}`,
+  ]
+  if (token.path) parts.push(`路径：${token.path}`)
+  if (token.conversationId) parts.push(`会话ID：${token.conversationId}`)
+  if (token.skillId) parts.push(`技能ID：${token.skillId}`)
+  return parts.join("；")
+}
 
-  const sections: string[] = ["## 本次 @ 引用内容"]
+function buildOutlineAgentUserContent(text: string, tokens: ReferenceToken[]): string {
+  if (tokens.length === 0) return text
+  return [
+    text,
+    "",
+    "## 本条消息附带的 @ 引用",
+    "请优先使用工具读取引用内容，不要只根据标题猜测。章节用 read_chapter，大纲用 read_outline，记忆用 read_memory，推演用 read_deduction，AI会话用 read_chat_history，AI大纲历史用 read_outline_history。",
+    ...tokens.map(describeReferenceForOutlineAgent),
+  ].join("\n")
+}
+
+function buildOutlineAgentSystemPrompt(options: { projectName?: string; webResearchContext?: string }): string {
+  return [
+    "你是专业小说大纲分析与创作助手。",
+    "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
+    "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
+    "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
+    "回答必须基于已读取内容进行分析，说明关键判断依据；需要写入大纲节点时使用 write_outline_node。",
+    "所有面向用户的回复必须使用中文。",
+    options.projectName ? `当前项目：${options.projectName}` : "",
+    options.webResearchContext?.trim()
+      ? `## 用户明确要求检索的网页资料\n${options.webResearchContext}`
+      : "",
+  ].filter(Boolean).join("\n")
+}
+
+function outlineToolCallsToSources(toolCalls: AgentRunRecord["toolCalls"]): string[] {
   const sources: string[] = []
-  for (const token of tokens) {
-    const label = referenceCategoryLabel(token.category)
-    const title = token.title || token.displayTitle
-    sources.push(`@${label}: ${title}`)
-    if (!token.path) {
-      sections.push(`【${label}：${title}】\n该引用没有可直接读取的文件路径。`)
-      continue
-    }
-
-    try {
-      const content = await readFile(token.path)
-      const trimmed = content.length > 3000 ? `${content.slice(0, 3000)}\n...(已截断)` : content
-      sections.push(`【${label}：${title}】\n路径：${token.path}\n\n${trimmed}`)
-    } catch {
-      sections.push(`【${label}：${title}】\n路径：${token.path}\n\n读取失败，已保留引用来源。`)
+  for (const call of toolCalls) {
+    if (call.status !== "done") continue
+    const target = call.params.name || call.params.path || call.params.keyword || call.params.conversationId || call.params.conversationTitle
+    switch (call.name) {
+      case "read_outline":
+        sources.push(`大纲: ${String(target ?? "")}`.trim())
+        break
+      case "read_chapter":
+      case "search_chapters":
+        sources.push(`章节: ${String(target ?? "")}`.trim())
+        break
+      case "read_memory":
+        sources.push(`记忆: ${String(target ?? "")}`.trim())
+        break
+      case "read_deduction":
+        sources.push(`推演: ${String(target ?? "")}`.trim())
+        break
+      case "read_chat_history":
+        sources.push(`AI会话: ${String(target ?? "")}`.trim())
+        break
+      case "read_outline_history":
+        sources.push(`AI大纲: ${String(target ?? "")}`.trim())
+        break
     }
   }
+  return Array.from(new Set(sources.filter((source) => !source.endsWith(":"))))
+}
 
-  return { context: sections.join("\n\n---\n\n"), sources }
+function updateOutlineAssistantMessage(
+  conversationId: string,
+  messageId: string,
+  updater: (message: OutlineChatMessage) => OutlineChatMessage,
+): void {
+  useOutlineChatStore.setState((state) => ({
+    conversations: state.conversations.map((conversation) => {
+      if (conversation.id !== conversationId) return conversation
+      return {
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.id === messageId ? updater(message) : message,
+        ),
+      }
+    }),
+  }))
 }
 
 async function getUniqueOutlinePath(outlinesDir: string, title: string): Promise<string> {
@@ -204,6 +228,7 @@ function OutlineAssistantMessage({ msg, index, isStreaming, streamingContent, ac
   return (
     <>
       {thinking ? <OutlineThinkingBlock content={thinking} open={isStreaming} /> : null}
+      <AgentToolCallMessage toolCalls={msg.agentToolCalls} />
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <ReactMarkdown>{parsed.textContent || answer}</ReactMarkdown>
       </div>
@@ -449,9 +474,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     if (activeConv?.modelId) {
       effectiveLlmConfig = resolveModelConfig(activeConv.modelId, effectiveLlmConfig, providerConfigs)
     }
+    const effectiveModelId = activeConv?.modelId || effectiveLlmConfig.model || ""
     if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
       const convId = activeConversationId ?? createConversation()
       addMessage(convId, { id: crypto.randomUUID(), role: "assistant", content: "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。" })
+      return
+    }
+    if (!modelSupportsTools(effectiveModelId)) {
+      const convId = activeConversationId ?? createConversation()
+      addMessage(convId, { id: crypto.randomUUID(), role: "assistant", content: "当前模型不支持 AI 大纲工具调用，请在下方模型选择器中更换支持工具调用的模型。" })
       return
     }
 
@@ -460,21 +491,31 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       convId = createConversation()
     }
 
-    const userMsg: OutlineChatMessage = { id: crypto.randomUUID(), role: "user", content: prompt }
+    const historyBeforeSend = (useOutlineChatStore.getState().conversations.find((c) => c.id === convId)?.messages ?? [])
+      .filter((message) => message.content.trim() && !message.isAgentRunning)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      } satisfies AgentMessage))
+    const userMsg: OutlineChatMessage = { id: crypto.randomUUID(), role: "user", content: prompt, attachedReferences: tokens }
+    const initialSources = tokens.map((token) => `@${referenceCategoryLabel(token.category)}: ${token.title || token.displayTitle}`)
+    const assistantId = crypto.randomUUID()
     addMessage(convId, userMsg)
+    addMessage(convId, {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      sources: initialSources,
+      agentToolCalls: [],
+      isAgentRunning: true,
+    })
     setIsStreaming(true)
     setStreamingContent("")
     userScrolledUpRef.current = false
 
     try {
-      const { context, sources } = await loadOutlineContext(project.path)
-      let outlineContext = context
-      let outlineSources = [...sources]
-      const referenceContext = await loadReferenceTokenContext(tokens)
-      if (referenceContext.context.trim()) {
-        outlineContext = [outlineContext, referenceContext.context].filter(Boolean).join("\n\n---\n\n")
-      }
-      outlineSources = [...outlineSources, ...referenceContext.sources]
+      let webResearchMarkdown = ""
+      let outlineSources = [...initialSources]
       if (shouldUseWebResearch(prompt)) {
         const webResearch = await collectWebResearch({
           text: prompt,
@@ -484,111 +525,160 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         })
         const webResearchContext = buildWebResearchContext(webResearch)
         if (webResearchContext.markdown.trim()) {
-          outlineContext = [outlineContext, webResearchContext.markdown].filter(Boolean).join("\n\n---\n\n")
+          webResearchMarkdown = webResearchContext.markdown
         }
         outlineSources = [...outlineSources, ...webResearchContext.sources]
       }
-      const allMsgs = [...(useOutlineChatStore.getState().conversations.find(c => c.id === convId)?.messages ?? [])]
 
-      // Agent mode: detect edit intent and add file edit instructions
-      const { detectEditIntent, buildAgentSystemSuffix } = await import("@/lib/novel/agent-parser")
-      const hasEditIntent = detectEditIntent(prompt)
-      const agentSuffix = hasEditIntent ? buildAgentSystemSuffix("outlines") : ""
-      let fileListStr = ""
-      if (hasEditIntent) {
-        const { readScopeFileContents } = await import("@/lib/novel/agent-tools")
-        const filesWithContent = await readScopeFileContents(project.path, "outlines")
-        fileListStr = filesWithContent.length > 0
-          ? `\n\n## 当前大纲文件内容（供修改定位）\n${filesWithContent.map(f => `### ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")}`
-          : "\n\n## 当前大纲文件列表\n(暂无大纲文件)"
-      }
-
-      const historyMessages: ChatMessage[] = allMsgs.map(m => ({ role: m.role as "user" | "assistant", content: m.content }))
       let result = ""
-      const appendToResult = (token: string) => {
-        result += token
-        setStreamingContent(result)
-      }
-      const deepStream = createDeepThinkingStreamRenderer()
-      const updateDeepResult = (content: string) => {
-        result = content
-        setStreamingContent(result)
-      }
-      const appendThinkingBlock = (content: string) => updateDeepResult(deepStream.updateThinking(content))
       const controller = new AbortController()
       abortRef.current = controller
 
-      // Add placeholder assistant message
-      addMessage(convId, { id: crypto.randomUUID(), role: "assistant", content: "", sources: outlineSources })
+      const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null)
+      const registry = new ToolRegistry()
+      const systemPrompt = buildOutlineAgentSystemPrompt({
+        projectName: project.name,
+        webResearchContext: webResearchMarkdown,
+      })
+      const agentConfig = buildAgentConfig(effectiveModelId, systemPrompt, registry, {
+        wikiPath: `${normalizePath(project.path)}/wiki`,
+        getSkillConfig: () => skillConfig,
+        getChatConversations: () => {
+          const state = useChatStore.getState()
+          return state.conversations.map((conversation) => ({
+            id: conversation.id,
+            title: conversation.title,
+            messages: state.messages
+              .filter((message) => message.conversationId === conversation.id)
+              .map((message) => ({ role: message.role, content: message.content })),
+          }))
+        },
+        getOutlineConversations: () =>
+          useOutlineChatStore.getState().conversations.map((conversation) => ({
+            id: conversation.id,
+            title: conversation.title,
+            messages: conversation.messages.map((message) => ({ role: message.role, content: message.content })),
+          })),
+        llmConfig: effectiveLlmConfig,
+      })
+      const agentMessages: AgentMessage[] = [
+        { role: "system", content: systemPrompt },
+        ...historyBeforeSend,
+        { role: "user", content: buildOutlineAgentUserContent(prompt, tokens) },
+      ]
+      let agentError: Error | null = null
 
-      if (hasEditIntent) {
-        const systemPrompt = `你是一个专业的小说大纲编辑助手。以下是当前小说的大纲、章节内容和用户明确要求检索的网页资料，请根据用户的问题进行大纲相关的讨论和创作。\n\n${outlineContext}${agentSuffix}${fileListStr}`
-        const chatMessages: ChatMessage[] = [
-          { role: "system", content: systemPrompt },
-          ...historyMessages,
-        ]
-
-        let thinkingOpen = false
-        const appendReasoning = (token: string) => {
-          if (!token) return
-          if (!thinkingOpen) {
-            thinkingOpen = true
-            appendToResult("<think>")
-          }
-          appendToResult(token)
-        }
-        const closeReasoning = () => {
-          if (!thinkingOpen) return
-          thinkingOpen = false
-          appendToResult("</think>")
-        }
-
-        await streamChat(effectiveLlmConfig, chatMessages, {
-          onToken: (token) => {
-            closeReasoning()
-            appendToResult(token)
+      const record = await new AgentRunner().run(
+        agentConfig,
+        registry,
+        agentMessages,
+        {
+          onText: (chunk) => {
+            result += chunk
+            setStreamingContent(result)
           },
-          onReasoningToken: appendReasoning,
+          onToolCall: (call: ToolCall) => {
+            updateOutlineAssistantMessage(convId, assistantId, (message) => {
+              const existing = message.agentToolCalls ?? []
+              if (existing.some((item) => item.id === call.id)) return message
+              return {
+                ...message,
+                agentToolCalls: [
+                  ...existing,
+                  {
+                    id: call.id,
+                    name: call.name,
+                    params: call.arguments,
+                    result: "",
+                    status: "done",
+                    startedAt: Date.now(),
+                    finishedAt: 0,
+                  },
+                ],
+              }
+            })
+          },
+          onToolResult: (callId, toolResult) => {
+            updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+              ...message,
+              agentToolCalls: (message.agentToolCalls ?? []).map((item) =>
+                item.id === callId
+                  ? { ...item, result: toolResult, status: "done", finishedAt: Date.now() }
+                  : item,
+              ),
+            }))
+          },
+          onToolError: (callId, error) => {
+            updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+              ...message,
+              agentToolCalls: (message.agentToolCalls ?? []).map((item) =>
+                item.id === callId
+                  ? { ...item, result: error, status: "error", finishedAt: Date.now() }
+                  : item,
+              ),
+            }))
+          },
           onDone: () => {
-            closeReasoning()
+            updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+              ...message,
+              isAgentRunning: false,
+            }))
           },
-          onError: () => {
-            closeReasoning()
+          onError: (error) => {
+            agentError = error
           },
-        }, controller.signal, { reasoning: resolveUserVisibleReasoning(effectiveLlmConfig.reasoning) })
-      } else {
-        await runDeepOutlineGeneration(
-          {
-            llmConfig: effectiveLlmConfig,
-            userRequest: prompt,
-            context: outlineContext,
-            historyMessages,
-          },
-          {
-            onThinking: appendThinkingBlock,
-            onFinalContent: (content) => updateDeepResult(deepStream.appendFinal(content)),
-          },
-          undefined,
-          controller.signal,
-        )
-      }
+        },
+        controller.signal,
+      )
+      if (agentError) throw agentError
 
-      replaceLastAssistant(convId, result, outlineSources)
+      const finalSources = Array.from(new Set([...outlineSources, ...outlineToolCallsToSources(record.toolCalls)]))
+      updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+        ...message,
+        content: result || record.finalText || "AI大纲未返回内容。",
+        sources: finalSources,
+        agentToolCalls: record.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+        isAgentRunning: false,
+      }))
+      const firstUser = useOutlineChatStore.getState()
+        .conversations.find((conversation) => conversation.id === convId)
+        ?.messages.find((message) => message.role === "user")
+      if (firstUser) {
+        useOutlineChatStore.setState((state) => ({
+          conversations: state.conversations.map((conversation) =>
+            conversation.id === convId
+              ? {
+                  ...conversation,
+                  title: firstUser.content.slice(0, 20) + (firstUser.content.length > 20 ? "..." : ""),
+                }
+              : conversation,
+          ),
+        }))
+      }
+      void useOutlineChatStore.getState().saveToDisk()
       setStreamingContent("")
     } catch (err) {
-      // If aborted, keep partial content; otherwise show error
       const partial = useOutlineChatStore.getState().streamingContent
       if (partial) {
-        replaceLastAssistant(convId!, partial)
+        updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+          ...message,
+          content: partial,
+          isAgentRunning: false,
+        }))
       } else {
         const errorMsg = err instanceof Error ? err.message : String(err)
         if (errorMsg && !errorMsg.includes("aborted")) {
-          replaceLastAssistant(convId!, `生成失败：${errorMsg}`)
+          updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+            ...message,
+            content: `生成失败：${errorMsg}`,
+            isAgentRunning: false,
+          }))
         } else {
-          removeLastMessage(convId!)
+          removeLastMessage(convId)
         }
       }
       setStreamingContent("")
+      void useOutlineChatStore.getState().saveToDisk()
     } finally {
       setIsStreaming(false)
       abortRef.current = null
@@ -617,8 +707,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     if (activeConv?.modelId) {
       effectiveLlmConfig = resolveModelConfig(activeConv.modelId, effectiveLlmConfig, providerConfigs)
     }
+    const effectiveModelId = activeConv?.modelId || effectiveLlmConfig.model || ""
     if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
       addMessage(activeConversationId, { id: crypto.randomUUID(), role: "assistant", content: "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。" })
+      return
+    }
+    if (!modelSupportsTools(effectiveModelId)) {
+      addMessage(activeConversationId, { id: crypto.randomUUID(), role: "assistant", content: "当前模型不支持 AI 大纲工具调用，请在下方模型选择器中更换支持工具调用的模型。" })
       return
     }
 
@@ -639,41 +734,131 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     userScrolledUpRef.current = false
 
     try {
-      const { context, sources } = await loadOutlineContext(project.path)
-      const chatMessages: ChatMessage[] = [
-        ...targetMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-      ]
       const lastUserRequest = [...targetMessages].reverse().find((message) => message.role === "user")?.content ?? "请基于已有大纲重新生成。"
-
+      const historyMessages = targetMessages
+        .filter((message) => message.content.trim() && !message.isAgentRunning)
+        .filter((message) => message.content !== lastUserRequest)
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        } satisfies AgentMessage))
       let result = ""
-      const deepStream = createDeepThinkingStreamRenderer()
-      const updateDeepResult = (content: string) => {
-        result = content
-        setStreamingContent(result)
-      }
-      const appendThinkingBlock = (content: string) => updateDeepResult(deepStream.updateThinking(content))
       const controller = new AbortController()
       abortRef.current = controller
+      const assistantId = crypto.randomUUID()
 
-      addMessage(activeConversationId, { id: crypto.randomUUID(), role: "assistant", content: "", sources })
+      addMessage(activeConversationId, {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        sources: [],
+        agentToolCalls: [],
+        isAgentRunning: true,
+      })
 
-      await runDeepOutlineGeneration(
-        {
-          llmConfig: effectiveLlmConfig,
-          userRequest: lastUserRequest,
-          context,
-          historyMessages: chatMessages,
+      const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null)
+      const registry = new ToolRegistry()
+      const systemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name })
+      const agentConfig = buildAgentConfig(effectiveModelId, systemPrompt, registry, {
+        wikiPath: `${normalizePath(project.path)}/wiki`,
+        getSkillConfig: () => skillConfig,
+        getChatConversations: () => {
+          const state = useChatStore.getState()
+          return state.conversations.map((conversation) => ({
+            id: conversation.id,
+            title: conversation.title,
+            messages: state.messages
+              .filter((message) => message.conversationId === conversation.id)
+              .map((message) => ({ role: message.role, content: message.content })),
+          }))
         },
+        getOutlineConversations: () =>
+          useOutlineChatStore.getState().conversations.map((conversation) => ({
+            id: conversation.id,
+            title: conversation.title,
+            messages: conversation.messages.map((message) => ({ role: message.role, content: message.content })),
+          })),
+        llmConfig: effectiveLlmConfig,
+      })
+      let agentError: Error | null = null
+      const record = await new AgentRunner().run(
+        agentConfig,
+        registry,
+        [
+          { role: "system", content: systemPrompt },
+          ...historyMessages,
+          { role: "user", content: lastUserRequest },
+        ],
         {
-          onThinking: appendThinkingBlock,
-          onFinalContent: (content) => updateDeepResult(deepStream.appendFinal(content)),
+          onText: (chunk) => {
+            result += chunk
+            setStreamingContent(result)
+          },
+          onToolCall: (call: ToolCall) => {
+            updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => {
+              const existing = message.agentToolCalls ?? []
+              if (existing.some((item) => item.id === call.id)) return message
+              return {
+                ...message,
+                agentToolCalls: [
+                  ...existing,
+                  {
+                    id: call.id,
+                    name: call.name,
+                    params: call.arguments,
+                    result: "",
+                    status: "done",
+                    startedAt: Date.now(),
+                    finishedAt: 0,
+                  },
+                ],
+              }
+            })
+          },
+          onToolResult: (callId, toolResult) => {
+            updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => ({
+              ...message,
+              agentToolCalls: (message.agentToolCalls ?? []).map((item) =>
+                item.id === callId
+                  ? { ...item, result: toolResult, status: "done", finishedAt: Date.now() }
+                  : item,
+              ),
+            }))
+          },
+          onToolError: (callId, error) => {
+            updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => ({
+              ...message,
+              agentToolCalls: (message.agentToolCalls ?? []).map((item) =>
+                item.id === callId
+                  ? { ...item, result: error, status: "error", finishedAt: Date.now() }
+                  : item,
+              ),
+            }))
+          },
+          onDone: () => {
+            updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => ({
+              ...message,
+              isAgentRunning: false,
+            }))
+          },
+          onError: (error) => {
+            agentError = error
+          },
         },
-        undefined,
         controller.signal,
       )
+      if (agentError) throw agentError
 
-      replaceLastAssistant(activeConversationId, result, sources)
+      const sources = outlineToolCallsToSources(record.toolCalls)
+      updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => ({
+        ...message,
+        content: result || record.finalText || "AI大纲未返回内容。",
+        sources,
+        agentToolCalls: record.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+        isAgentRunning: false,
+      }))
       setStreamingContent("")
+      void useOutlineChatStore.getState().saveToDisk()
     } catch (err) {
       const partial = useOutlineChatStore.getState().streamingContent
       if (partial) {

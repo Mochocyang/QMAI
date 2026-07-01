@@ -14,6 +14,13 @@
 
 ## 本次更新
 
+### 20260701-125104
+
+- 修复 AI 大纲仍走旧工作流、没有调用工具分析内容的问题：发送和重新生成流程已改为使用 `AgentRunner`、`ToolRegistry` 与 `buildAgentConfig`。
+- AI 大纲 @ 引用改为工具读取提示，不再提前读取后塞入普通上下文；提示词要求优先调用 `read_outline`、`read_chapter`、`read_memory`、`read_deduction` 等工具读取引用和项目内容。
+- AI 大纲 assistant 消息会展示工具调用过程，并把成功读取的章节、大纲、记忆和推演来源写入引用来源。
+- 新增回归测试，防止 AI 大纲重新回退到 `runDeepOutlineGeneration`、`streamChat` 或预加载引用内容的旧路径。
+
 ### 20260701-123054
 
 - 修复 Agent 工具调用轮过程文字污染最终回复的问题：工具调用轮的模型文字仅保留在内部上下文，不再直接显示给用户。
@@ -60,6 +67,14 @@
 - 保留章节生成相关的 QM-QUAI、目标章节解析和角色灵魂确认逻辑，避免旧功能回退。
 
 ## 验证记录
+
+- 20260701-125104：
+  - `npm.cmd exec -- vitest run src/components/sources/outline-chat-panel.spec.tsx`：1 个测试文件、7 个用例通过。
+  - `npm.cmd run test:mocks`：285 个测试文件、2118 个用例通过。
+  - `npm.cmd run typecheck`：通过。
+  - `npm.cmd run build`：通过，存在既有 Vite chunk/dynamic import 警告。
+  - 源码启动：`npm.cmd run dev -- --host 127.0.0.1 --port 5173` 通过 Job 验证，Vite ready 后已停止。
+  - `npm.cmd run build:portable`：通过，生成 `release-portable\QMaiWrite.exe` 和 `version-info.json`；Rust 构建存在既有 `file_sync.rs` dead-code 警告。
 
 - 20260701-123054：
   - `npm.cmd exec -- vitest run src/lib/agent/runner.spec.ts src/components/chat/chat-panel.spec.tsx`：2 个测试文件、16 个用例通过。
@@ -113,6 +128,7 @@
 
 ## Git 状态
 
+- 20260701-125104 AI 大纲 Agent 工具调用修复纳入本次提交。
 - 20260701-123054 Agent 输出纯正文和 Enter 立即显示修复纳入本次提交。
 - 20260701-113111 Enter 立即发送修复纳入本次提交。
 - 20260701-092043 更新已提交，提交号 `6b08275`。
