@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { OutlineActionToolbar } from "@/components/sources/outline-action-toolbar"
 import { PreviewPanel } from "@/components/layout/preview-panel"
-import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
+import { clampChatHeight, clampChatWidth, getInitialChatWidth } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 
 const OutlineChatPanel = lazy(async () => {
@@ -18,7 +18,7 @@ export function SourcesView() {
   const outlineChatOpen = useOutlineGenerationStore((s) => s.panelOpen)
   const setOutlineChatOpen = useOutlineGenerationStore((s) => s.setPanelOpen)
   const [chatHeight, setChatHeight] = useState(300)
-  const [chatWidth, setChatWidth] = useState(360)
+  const [chatWidth, setChatWidth] = useState(() => getInitialChatWidth())
   const [bulkIngestResult, setBulkIngestResult] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const resizingRef = useRef(false)

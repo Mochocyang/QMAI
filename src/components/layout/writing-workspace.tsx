@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import { PreviewPanel } from "./preview-panel"
-import { clampChatHeight, clampChatWidth } from "@/lib/workspace-layout"
+import { clampChatHeight, clampChatWidth, getInitialChatWidth } from "@/lib/workspace-layout"
 import { useWikiStore } from "@/stores/wiki-store"
 import { shouldShowRightDockChat, shouldShowWritingChat } from "./chat-layout"
 
@@ -16,17 +16,15 @@ export function WritingWorkspace() {
   const chatExpanded = useWikiStore((s) => s.chatExpanded)
   const chatDockPosition = useWikiStore((s) => s.chatDockPosition)
   const [chatHeight, setChatHeight] = useState(260)
-  const [chatWidth, setChatWidth] = useState(360)
+  const [chatWidth, setChatWidth] = useState(() => getInitialChatWidth())
 
   useEffect(() => {
     const saved = Number(localStorage.getItem("lk-chat-height") ?? "260")
     if (Number.isFinite(saved) && saved > 0) {
       setChatHeight(clampChatHeight(saved))
     }
-    const savedWidth = Number(localStorage.getItem("lk-chat-right-width") ?? "360")
-    if (Number.isFinite(savedWidth) && savedWidth > 0) {
-      setChatWidth(clampChatWidth(savedWidth))
-    }
+    const savedWidth = Number(localStorage.getItem("lk-chat-right-width"))
+    setChatWidth(getInitialChatWidth(savedWidth))
   }, [])
 
   useEffect(() => {

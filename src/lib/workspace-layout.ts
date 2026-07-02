@@ -12,8 +12,34 @@ export function clampChatHeight(height: number): number {
   return Math.max(180, Math.min(520, height))
 }
 
-export function clampChatWidth(width: number): number {
-  return Math.max(280, Math.min(520, width))
+const CHAT_MIN_WIDTH = 280
+const CHAT_OLD_DEFAULT_WIDTH = 360
+export const CHAT_DOCK_DEFAULT_WIDTH = 640
+export const CHAT_DOCK_MAX_VIEWPORT_RATIO = 0.5
+
+function resolveViewportWidth(viewportWidth?: number): number {
+  if (typeof viewportWidth === "number" && Number.isFinite(viewportWidth) && viewportWidth > 0) {
+    return viewportWidth
+  }
+  if (typeof window !== "undefined" && Number.isFinite(window.innerWidth) && window.innerWidth > 0) {
+    return window.innerWidth
+  }
+  return 1040
+}
+
+export function getMaxChatWidth(viewportWidth?: number): number {
+  return Math.max(CHAT_MIN_WIDTH, Math.floor(resolveViewportWidth(viewportWidth) * CHAT_DOCK_MAX_VIEWPORT_RATIO))
+}
+
+export function clampChatWidth(width: number, viewportWidth?: number): number {
+  return Math.max(CHAT_MIN_WIDTH, Math.min(getMaxChatWidth(viewportWidth), width))
+}
+
+export function getInitialChatWidth(storedWidth?: number | null, viewportWidth?: number): number {
+  if (typeof storedWidth === "number" && Number.isFinite(storedWidth) && storedWidth > CHAT_OLD_DEFAULT_WIDTH) {
+    return clampChatWidth(storedWidth, viewportWidth)
+  }
+  return clampChatWidth(CHAT_DOCK_DEFAULT_WIDTH, viewportWidth)
 }
 
 export function shouldUseCompactChapterToolbar(width: number): boolean {
