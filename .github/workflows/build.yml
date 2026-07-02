@@ -5,6 +5,16 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "目标 Release Tag（手动触发时上传到指定 Release，留空则仅生成 artifacts）"
+        required: false
+        default: ""
+      build_linux_only:
+        description: "是否仅构建 Linux 版本（加速）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,6 +41,7 @@ jobs:
             artifact_globs: |
               src-tauri/target/**/release/bundle/nsis/*.exe
               src-tauri/target/**/release/bundle/nsis/*.exe.sig
+            skip_manual: ${{ inputs.build_linux_only == true }}
 
           - label: macos-aarch64
             display_label: macOS Apple Silicon
@@ -42,6 +53,7 @@ jobs:
             artifact_globs: |
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
+            skip_manual: ${{ inputs.build_linux_only == true }}
 
           - label: macos-intel
             display_label: macOS Intel
@@ -53,7 +65,21 @@ jobs:
             artifact_globs: |
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
+            skip_manual: ${{ inputs.build_linux_only == true }}
 
+          - label: linux-x64
+            display_label: Linux x64
+            runner: ubuntu-22.04
+            rust_targets: ""
+            tauri_args: "--bundles appimage,deb"
+            pdfium_asset: "pdfium-linux-x64.tgz"
+            pdfium_library: "libpdfium.so"
+            artifact_globs: |
+              src-tauri/target/**/release/bundle/appimage/*.AppImage
+              src-tauri/target/**/release/bundle/deb/*.deb
+            skip_manual: false
+
+    if: ${{ !matrix.skip_manual }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -237,12 +263,48 @@ jobs:
           fi
           tar -C "$(dirname "$app_path")" -czf "release-assets/QMaiWrite_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
 
-      - name: Attach macOS app tarball to release
+      - name: Package Linux release assets
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+
+          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
+          if [ -n "$appimage_path" ]; then
+            cp "$appimage_path" "release-assets/QMaiWrite_${version}_linux_X64.AppImage"
+          fi
+
+          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
+          if [ -n "$deb_path" ]; then
+            cp "$deb_path" "release-assets/QMaiWrite_${version}_linux_X64.deb"
+          fi
+
+      - name: Attach macOS app tarball to release (tag push)
         if: github.event_name == 'push' && runner.os == 'macOS'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_macOS_* --clobber
+
+      - name: Attach Linux assets to release (tag push)
+        if: github.event_name == 'push' && runner.os == 'Linux'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_linux_* --clobber
+
+      - name: Attach assets to target release (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "release-assets" ]; then
+            gh release upload "${{ inputs.release_tag }}" release-assets/* --clobber
+          fi
 
       - name: Build Windows portable
         if: github.event_name == 'push' && matrix.label == 'windows-x64'
