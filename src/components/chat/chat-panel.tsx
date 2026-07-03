@@ -85,19 +85,24 @@ import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import { loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
 import type { FrameworkBinding, StoryFramework } from "@/lib/novel/story-simulation/types"
 
-import { type AiWorkflowMode, DEFAULT_AI_WORKFLOW_MODE } from "@/lib/agent/workflow-mode"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { createContextTrace, finishTrace, setContextInfo, type ContextTrace } from "@/lib/agent/context-trace"
 import { settleRunningAgentToolCalls } from "@/lib/agent/tool-events"
 // import { scopeAgentConfigTools } from "@/lib/agent/tool-scope"
 import { appendMcpCallTrace } from "@/lib/agent/mcp-trace"
 import { runNovelPrePluginChain } from "@/lib/agent/novel-pre-plugin-chain"
 import { buildInitialContextTraceInfo } from "@/lib/agent/context-trace-builders"
-import { runPostWriteCheck } from "@/lib/agent/plugins/post-write-check-plugin"
+import { runPostWriteCheckAI } from "@/lib/agent/plugins/post-write-check-ai"
 import { buildSelectedSkillsPrompt } from "@/lib/agent/plugins/select-skills-plugin"
 import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 import { validateChapterBeforeSave } from "@/lib/novel/result-save-guard"
 import { confirmDraft } from "@/lib/novel/draft-manager"
-// import { ModifyConfirmDialog } from "@/components/chat/modify-confirm-dialog"
+import { ModifyConfirmDialog } from "@/components/chat/modify-confirm-dialog"
+import {
+  buildBreakpointResumePrompt,
+  clearTaskBreakpoint,
+  loadTaskBreakpoint,
+} from "@/lib/agent/task-breakpoint"
 // import { getLoadedCategories, DATA_SOURCE_CATEGORY_LABELS } from "@/lib/novel/classification"
 // import { RetrievalStore } from "@/lib/novel/retrieval"
 // import { RetrievalStatusIndicator } from "@/components/novel/retrieval-status-indicator"
@@ -435,6 +440,7 @@ export function ChatPanel() {
   const conversations = useChatStore((s) => s.conversations)
   const setConversationInputDraft = useChatStore((s) => s.setConversationInputDraft)
   const setConversationDeAiSkillId = useChatStore((s) => s.setConversationDeAiSkillId)
+  const setLastBreakpoint = useChatStore((s) => s.setLastBreakpoint)
   const pendingReferenceTokens = useChatStore((s) => s.pendingReferenceTokens)
   const consumePendingReferenceTokens = useChatStore((s) => s.consumePendingReferenceTokens)
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
@@ -453,6 +459,7 @@ export function ChatPanel() {
   const isStreaming = activeConversationId ? isConversationStreaming(activeConversationId) : false
 
   const project = useWikiStore((s) => s.project)
+  const projectPath = project?.path ? normalizePath(project.path) : ""
   const novelMode = useWikiStore((s) => s.novelMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const llmConfig = useWikiStore((s) => s.llmConfig)
@@ -475,7 +482,8 @@ export function ChatPanel() {
 
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [deAiSkillWarningMessage, setDeAiSkillWarningMessage] = useState<string>("")
-  const [aiWorkflowMode, setAiWorkflowMode] = useState<AiWorkflowMode>(DEFAULT_AI_WORKFLOW_MODE)
+  const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  const setAiWorkflowMode = useWikiStore((s) => s.setAiWorkflowMode)
   void setAiWorkflowMode
   const [isSavingChapter, setIsSavingChapter] = useState(false)
   const [pendingSoulDialog, setPendingSoulDialog] = useState({ open: false, summary: "" })
@@ -557,8 +565,10 @@ export function ChatPanel() {
     skillConfigLoaded: agentSkillConfigLoaded,
     skillConfig: agentSkillConfig,
   } = useAgentConfig(agentSystemPrompt)
-  const agentWritingSkills = useMemo(() =>
-    resolveAvailableDeAiSkills(agentSkillConfig !).map(deAiSkillToUserSkill),
+  const agentWritingSkills = useMemo(
+    () => agentSkillConfig
+      ? resolveAvailableDeAiSkills(agentSkillConfig).map(deAiSkillToUserSkill)
+      : [],
     [agentSkillConfig],
   )
   const availableAgentSkills: UserSkill[] = agentWritingSkills
@@ -605,6 +615,8 @@ export function ChatPanel() {
   }>({ open: false, planContent: "", fullContent: "", conversationId: "" })
   const chapterPlanResolverRef = useRef<((action: "confirm" | "skip" | "cancel" | { modify: string }) => void) | null>(null)
   const handleSendRef = useRef<(text: string, tokens?: ReferenceToken[]) => Promise<void>>(() => Promise.resolve())
+  const [breakpointResumeOpen, setBreakpointResumeOpen] = useState(false)
+  const [breakpointResumeContent, setBreakpointResumeContent] = useState("")
 
   const closeChapterPlanDialog = useCallback(
     (action: "confirm" | "skip" | "cancel" | { modify: string }) => {
@@ -616,6 +628,19 @@ export function ChatPanel() {
     [],
   )
 
+  useEffect(() => {
+    return () => {
+      if (soulDialogResolverRef.current) {
+        soulDialogResolverRef.current(false)
+        soulDialogResolverRef.current = null
+      }
+      if (chapterPlanResolverRef.current) {
+        chapterPlanResolverRef.current("cancel")
+        chapterPlanResolverRef.current = null
+      }
+    }
+  }, [])
+
   const requestChapterPlanConfirm = useCallback(
     (planContent: string, fullContent: string, conversationId: string) => {
       setPendingChapterPlan({ open: true, planContent, fullContent, conversationId })
@@ -625,6 +650,37 @@ export function ChatPanel() {
     },
     [],
   )
+
+  useEffect(() => {
+    if (!projectPath) return
+    let cancelled = false
+
+    ;(async () => {
+      const breakpoint = await loadTaskBreakpoint(projectPath)
+      if (cancelled || !breakpoint) return
+      setLastBreakpoint(breakpoint)
+      setBreakpointResumeContent(buildBreakpointResumePrompt(breakpoint))
+      setBreakpointResumeOpen(true)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath, setLastBreakpoint])
+
+  const confirmBreakpointResume = useCallback(() => {
+    setBreakpointResumeOpen(false)
+    if (!breakpointResumeContent.trim()) return
+    void handleSendRef.current(breakpointResumeContent, [])
+  }, [breakpointResumeContent])
+
+  const cancelBreakpointResume = useCallback(() => {
+    setBreakpointResumeOpen(false)
+    setLastBreakpoint(null)
+    if (projectPath) {
+      void clearTaskBreakpoint(projectPath)
+    }
+  }, [projectPath, setLastBreakpoint])
 
   const handleSaveAsChapter = useCallback(async (content: string) => {
     if (!project) return
@@ -943,7 +999,7 @@ export function ChatPanel() {
           const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
           const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
           const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
-          const contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
+          contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
             task: plainText,
             chapterGoal: "",
             outline: "",
@@ -1037,6 +1093,8 @@ export function ChatPanel() {
           {
             ...agentConfig,
             systemPrompt: effectiveSystemPrompt,
+            projectPath,
+            taskGoal: plainText,
           },
           agentRegistry,
           agentMessages,
@@ -1129,11 +1187,25 @@ export function ChatPanel() {
                 // 排除含 chapter_plan 标记的内容（计划本身不是正文）与空内容
                 const hasChapterPlanMarker = chapterContent.includes("chapter_plan")
                 if (chapterContent && !hasChapterPlanMarker) {
-                  const postWriteCheck = runPostWriteCheck(chapterContent)
-                  contextTrace = setContextInfo(contextTrace, {
-                    ...contextTrace.contextInfo!,
-                    postWriteCheck,
-                  })
+                  void (async () => {
+                    try {
+                      const result = await runPostWriteCheckAI({
+                        chapterContent,
+                        contextPack: contextPack ?? undefined,
+                        llmConfig: agentConfig?.llmConfig,
+                      })
+                      contextTrace = setContextInfo(contextTrace, {
+                        ...contextTrace.contextInfo!,
+                        postWriteCheck: result.check,
+                        postWriteCheckMeta: {
+                          source: result.source,
+                          fallbackReason: result.fallbackReason,
+                        },
+                      })
+                    } catch (err) {
+                      console.error("[Stage D] AI 自检失败:", err)
+                    }
+                  })().catch((err) => console.error("[Stage D] 执行失败:", err))
                 }
               }
               contextTrace = finishTrace(contextTrace, "done")
@@ -1161,6 +1233,7 @@ export function ChatPanel() {
       maxHistoryMessages,
       novelMode,
       project,
+      projectPath,
       referenceDraftConversationId,
       requestChapterPlanConfirm,
       requestSoulDialog,
@@ -1701,7 +1774,7 @@ export function ChatPanel() {
             <ReferenceInput
               value={referenceText}
               tokens={currentTokens}
-              disabled={isStreaming || pendingChapterPlan.open}
+              disabled={isStreaming || pendingChapterPlan.open || pendingSoulDialog.open}
               isStreaming={isStreaming}
               onStop={handleStop}
               rightControls={
@@ -1764,6 +1837,17 @@ export function ChatPanel() {
             onCancel={() => closeChapterPlanDialog("cancel")}
           />
         )}
+        <ModifyConfirmDialog
+          open={breakpointResumeOpen}
+          originalContent="检测到上次有未完成的任务"
+          modifiedContent={breakpointResumeContent}
+          itemName="检测到上次有未完成的任务"
+          intentLabel="确认后将继续执行断点任务"
+          type="breakpoint"
+          editable={false}
+          onConfirm={confirmBreakpointResume}
+          onCancel={cancelBreakpointResume}
+        />
       </div>
     </div>
   )

@@ -8,7 +8,7 @@ import { searchWiki } from "@/lib/search"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
-import { loadRevisionFeedbackForContext } from "./revision-feedback"
+import { loadRevisionFeedbackForContext, createEmptyRevisionFeedback } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
@@ -16,6 +16,9 @@ import { buildWritingStyleContext } from "./writing-style-store"
 import type { DataSource, ContextLoadContext } from "./context-data-source"
 import { loadFrameworks } from "./story-simulation/framework-store"
 import { loadBinding, buildBindingContext } from "./story-simulation/framework-binding"
+import { RetrievalStore } from "./retrieval"
+import { writeFileAtomic, fileExists, listDirectory, createDirectory } from "@/commands/fs"
+import type { DataSourceCategory } from "./classification"
 
 // 导入现有的辅助函数
 import {
@@ -30,6 +33,30 @@ import {
 const RECENT_CHAPTER_CONTENT_MAX_CHARS = 6000
 const RECENT_CHAPTER_CONTENT_HEAD_CHARS = 2200
 const RECENT_CHAPTER_CONTENT_TAIL_CHARS = 3200
+
+const DATA_SOURCE_CATEGORY_MAP: Record<string, DataSourceCategory[]> = {
+  outline: ["outline"],
+  chapterOutline: ["outline"],
+  volumeContext: ["outline", "settings"],
+  snapshots: ["recent_summaries", "chapter_content", "character_states", "foreshadowing", "timeline"],
+  retrieval: ["recent_summaries", "character_states", "foreshadowing", "timeline"],
+  recentChapterContents: ["chapter_content"],
+  fallbackRecentSummaries: ["recent_summaries"],
+  fallbackPreviousEnding: ["chapter_content"],
+  fallbackCharacterStates: ["character_states"],
+  fallbackForeshadowingStates: ["foreshadowing"],
+  fallbackTimeline: ["timeline"],
+  relatedSettings: ["settings"],
+  canonRules: ["settings"],
+  writingStyle: ["settings"],
+  searchResults: ["memory", "plot_tools"],
+  graphSearchResults: ["graph"],
+  revisionFeedback: ["revision"],
+  cognitionText: ["character_states"],
+  soulDoc: ["soul"],
+  characterAuras: ["character_states", "soul"],
+  storyFrameworkBinding: ["settings", "outline"],
+}
 
 function selectRecentChapterNumbersForContent(chapterNumber: number | undefined, count: number): number[] {
   if (!chapterNumber || chapterNumber <= 1) return []
@@ -395,7 +422,7 @@ export const revisionFeedbackDataSource: DataSource<any> = {
   name: "revisionFeedback",
   priority: 15,
   async load(context: ContextLoadContext): Promise<any> {
-    if (!context.chapterNumber) return []
+    if (!context.chapterNumber) return createEmptyRevisionFeedback()
     return await loadRevisionFeedbackForContext(
       context.projectPath,
       context.chapterNumber,
@@ -465,6 +492,102 @@ export const storyFrameworkBindingDataSource: DataSource<string> = {
 }
 
 /**
+ * Retrieval 索引数据源
+ * 从 retrieval.md 主索引读取最近章节摘要
+ */
+export const retrievalDataSource: DataSource<{
+  recentSummaries: string[]
+  characterStates: string
+  foreshadowingSignals: string[]
+  timeline: string
+}> = {
+  name: "retrieval",
+  priority: 3,
+  async load(context: ContextLoadContext) {
+    const { projectPath, chapterNumber, config } = context
+    const store = createRetrievalStoreForDataSource(projectPath)
+    const hasIndex = await store.hasIndex()
+    
+    if (!hasIndex) {
+      return {
+        recentSummaries: [],
+        characterStates: "",
+        foreshadowingSignals: [],
+        timeline: "",
+      }
+    }
+
+    try {
+      const allEntries = await store.getAllEntries()
+      const sortedEntries = [...allEntries].sort((a, b) => a.chapterNumber - b.chapterNumber)
+      
+      const summaryCount = config.recentSummaryWindow
+      const lookbackCount = config.snapshotLookback
+      
+      const summaryEntries = chapterNumber
+        ? sortedEntries.filter((e) => e.chapterNumber < chapterNumber).slice(-summaryCount)
+        : sortedEntries.slice(-summaryCount)
+      
+      const lookbackEntries = chapterNumber
+        ? sortedEntries.filter((e) => e.chapterNumber < chapterNumber).slice(-lookbackCount)
+        : sortedEntries.slice(-lookbackCount)
+
+      const recentSummaries = summaryEntries.map(
+        (entry) => `第${entry.chapterNumber}章 ${entry.chapterTitle}：${entry.summary}`
+      )
+      
+      const characterStates = joinNonEmpty(
+        lookbackEntries
+          .filter((e) => e.characterStates)
+          .map((e) => `第${e.chapterNumber}章：${e.characterStates}`),
+        "\n",
+      )
+      
+      const foreshadowingSignals = lookbackEntries
+        .filter((e) => e.foreshadowingChanges)
+        .flatMap((e) => e.foreshadowingChanges.split("\n").filter(Boolean))
+      
+      const timeline = joinNonEmpty(
+        lookbackEntries
+          .filter((e) => e.timelineEvents)
+          .map((e) => `第${e.chapterNumber}章：${e.timelineEvents}`),
+        "\n",
+      )
+
+      return {
+        recentSummaries,
+        characterStates,
+        foreshadowingSignals,
+        timeline,
+      }
+    } catch (err) {
+      console.warn("[DataSource] retrieval load failed:", err)
+      return {
+        recentSummaries: [],
+        characterStates: "",
+        foreshadowingSignals: [],
+        timeline: "",
+      }
+    }
+  },
+}
+
+function createRetrievalStoreForDataSource(projectPath: string): RetrievalStore {
+  const fsAdapter = {
+    readFile,
+    writeFile: writeFileAtomic,
+    fileExists,
+    listDirectory: async (path: string): Promise<string[]> => {
+      const nodes = await listDirectory(path)
+      return nodes.map((n: any) => n.name)
+    },
+    createDirectory,
+    joinPath: (...parts: string[]) => parts.join("/"),
+  }
+  return new RetrievalStore(projectPath, fsAdapter as any)
+}
+
+/**
  * 获取所有数据源
  */
 export function getAllDataSources(): DataSource<any>[] {
@@ -473,6 +596,7 @@ export function getAllDataSources(): DataSource<any>[] {
     chapterOutlineDataSource,
     volumeContextDataSource,
     snapshotDataSource,
+    retrievalDataSource,
     recentChapterContentsDataSource,
     fallbackRecentSummariesDataSource,
     fallbackPreviousEndingDataSource,
@@ -489,4 +613,17 @@ export function getAllDataSources(): DataSource<any>[] {
     soulDocDataSource,
     storyFrameworkBindingDataSource,
   ]
+}
+
+export function getDataSourceNamesForCategories(categories: DataSourceCategory[]): string[] {
+  const allowed = new Set(categories)
+  return getAllDataSources()
+    .filter((source) => (DATA_SOURCE_CATEGORY_MAP[source.name] || []).some((category) => allowed.has(category)))
+    .map((source) => source.name)
+}
+
+export function getDataSourcesForCategories(categories?: DataSourceCategory[]): DataSource<any>[] {
+  if (!categories || categories.length === 0) return getAllDataSources()
+  const allowedNames = new Set(getDataSourceNamesForCategories(categories))
+  return getAllDataSources().filter((source) => allowedNames.has(source.name))
 }

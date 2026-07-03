@@ -1,6 +1,7 @@
 import type { AgentRunRecord, AgentToolEvent } from "./types"
 
 export type ToolCallRecord = AgentRunRecord["toolCalls"][number]
+type SettledToolCallStatus = "done" | "error" | "cancelled"
 
 export function applyAgentToolEvent(
   records: ToolCallRecord[] | undefined,
@@ -40,6 +41,24 @@ export function applyAgentToolEvent(
       result: event.result ?? record.result,
       status,
       finishedAt: event.type === "call_started" ? record.finishedAt : event.timestamp,
+    }
+  })
+}
+
+export function settleRunningAgentToolCalls(
+  records: ToolCallRecord[] | undefined,
+  status: SettledToolCallStatus = "done",
+  timestamp: number = Date.now(),
+  result?: string,
+): ToolCallRecord[] | undefined {
+  if (!records) return records
+  return records.map((record) => {
+    if (record.status !== "running") return record
+    return {
+      ...record,
+      status,
+      result: result ?? record.result,
+      finishedAt: timestamp,
     }
   })
 }

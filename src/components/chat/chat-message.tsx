@@ -7,7 +7,7 @@ import "katex/dist/katex.min.css"
 import {
   Bot, User, FileText, ChevronDown, ChevronRight, RefreshCw, Copy, Check,
   Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, Layout, Globe,
-  Image as ImageIcon, Loader2,
+  Image as ImageIcon, Loader2, Info,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
@@ -16,8 +16,10 @@ import { refreshProjectState } from "@/lib/project-refresh"
 import { getLastQueryPages } from "@/components/chat/chat-shared"
 import { FileEditPreview } from "@/components/chat/file-edit-preview"
 import { AgentToolCallMessage } from "@/components/chat/agent-tool-call-message"
+import type { ToolCallRecord } from "@/components/chat/agent-tool-call-message"
 import { ReferenceChip } from "@/components/reference/ReferenceChip"
 import type { DisplayMessage } from "@/stores/chat-store"
+import { ContextTracePanel } from "@/components/chat/context-trace-panel"
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode"
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
@@ -41,16 +43,45 @@ interface ChatMessageProps {
   onDiscardDraft?: () => void
   saveStatus?: string
   isSaving?: boolean
+  onConfirmToolSave?: (call: ToolCallRecord & { preview?: string }) => void
+  onRejectTool?: (call: ToolCallRecord & { preview?: string }) => void
+  onRebuildRetrievalIndex?: () => Promise<{
+    success: boolean
+    chapterCount?: number
+    error?: string
+  }>
+  retrievalIndexHasIndex?: boolean
+  isRebuildingRetrievalIndex?: boolean
+  lastRebuildRetrievalResult?: { success: boolean; chapterCount?: number; error?: string } | null
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode, projectPath, onSaveAsChapter, onContinueNextChapter, onContinueUnfinished, saveStatus, isSaving }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  isLastAssistant,
+  onRegenerate,
+  novelMode,
+  projectPath,
+  onSaveAsChapter,
+  onContinueNextChapter,
+  onContinueUnfinished,
+  saveStatus,
+  isSaving,
+  onConfirmToolSave,
+  onRejectTool,
+  onRebuildRetrievalIndex,
+  retrievalIndexHasIndex,
+  isRebuildingRetrievalIndex,
+  lastRebuildRetrievalResult,
+}: ChatMessageProps) {
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
   const [hovered, setHovered] = useState(false)
+  const [contextTraceExpanded, setContextTraceExpanded] = useState(false)
   const canResumeUnfinished = Boolean(
     novelMode && isLastAssistant && onContinueUnfinished && canContinueUnfinishedDeepChapter(message.content),
   )
+  const hasContextTrace = Boolean(message.contextTrace && (message.contextTrace.toolCalls.length > 0 || message.contextTrace.contextInfo))
 
   return (
     <div
@@ -69,7 +100,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="max-w-[80%] flex flex-col gap-1.5">
+      <div className="w-fit max-w-full lg:max-w-[50vw] flex flex-col gap-1.5">
         <div
           className={`rounded-lg px-3 py-2 text-sm ${
             isUser
@@ -95,7 +126,12 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
           ) : (
             <>
               {message.agentToolCalls && message.agentToolCalls.length > 0 && (
-                <AgentToolCallMessage toolCalls={message.agentToolCalls} />
+                <AgentToolCallMessage
+                  toolCalls={message.agentToolCalls}
+                  contextTrace={message.contextTrace}
+                  onConfirmSave={onConfirmToolSave}
+                  onReject={onRejectTool}
+                />
               )}
               {message.isAgentRunning && !message.content ? (
                 <AgentThinkingIndicator />
@@ -157,6 +193,30 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
                 <RefreshCw className="h-3 w-3" /> 重新生成
               </button>
             )}
+            {hasContextTrace && (
+              <button
+                type="button"
+                onClick={() => setContextTraceExpanded(!contextTraceExpanded)}
+                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="查看生成详情"
+              >
+                <Info className="h-3 w-3" />
+                {contextTraceExpanded ? "收起详情" : "查看生成详情"}
+                {contextTraceExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
+            )}
+          </div>
+        )}
+        {isAssistant && !message.discarded && contextTraceExpanded && message.contextTrace && (
+          <div className="mt-1">
+            <ContextTracePanel
+              trace={message.contextTrace}
+              projectPath={projectPath}
+              onRebuildRetrievalIndex={onRebuildRetrievalIndex}
+              retrievalIndexHasIndex={retrievalIndexHasIndex}
+              isRebuildingRetrievalIndex={isRebuildingRetrievalIndex}
+              lastRebuildResult={lastRebuildRetrievalResult}
+            />
           </div>
         )}
         {saveStatus && (
@@ -555,7 +615,7 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
+      <div className="w-fit max-w-full lg:max-w-[50vw] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
         {isThinking ? (
           <StreamingWorkflowBlock content={thinking} />
         ) : (

@@ -3,17 +3,19 @@ import { createWriteChapterTool } from "./write-chapter"
 import { createWriteMemoryTool } from "./write-memory"
 import { createApplySkillTool } from "./apply-skill"
 
-vi.mock("@/commands/fs", () => ({ readFile: vi.fn(), writeFile: vi.fn() }))
+vi.mock("@/commands/fs", () => ({ readFile: vi.fn(), writeFile: vi.fn(), fileExists: vi.fn(), createDirectory: vi.fn() }))
 vi.mock("@/lib/novel/de-ai-skill-library", () => ({
   getAllDeAiSkills: vi.fn(),
 }))
 
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
 import { getAllDeAiSkills } from "@/lib/novel/de-ai-skill-library"
 
 describe("write tools", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(fileExists).mockResolvedValue(true)
+    vi.mocked(createDirectory).mockResolvedValue()
   })
 
   it("write_chapter writes content to chapters dir", async () => {
@@ -66,5 +68,28 @@ describe("write tools", () => {
     const tool = createApplySkillTool(() => ({ defaultSkillId: "", projectSkills: [], builtInSkillOverrides: [], disabledSkillIds: [], version: 1, lastChapterDeAiSkillId: null }) as any)
     const result = await tool.execute({ skillName: "unknown" })
     expect(result).toContain("未找到")
+  })
+
+  it("apply_skill can return generic user skill content", async () => {
+    vi.mocked(getAllDeAiSkills).mockReturnValue([])
+    const tool = createApplySkillTool(
+      () => null,
+      () => [
+        {
+          id: "project:three-four",
+          name: "三翻四抖",
+          description: "",
+          kind: ["structure"],
+          stages: ["drafting"],
+          modes: ["standard"],
+          content: "三次转折，四次震惊。",
+          source: "project",
+        },
+      ] as any,
+    )
+
+    const result = await tool.execute({ skillName: "三翻四抖" })
+
+    expect(result).toContain("三次转折，四次震惊。")
   })
 })

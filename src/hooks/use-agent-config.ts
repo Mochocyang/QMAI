@@ -3,11 +3,16 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
+import { loadUserSkillConfig, resolveEnabledWritingSkills } from "@/lib/novel/user-skill-store"
+import type { UserSkill } from "@/lib/novel/skill-library"
 import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config"
 import type { AgentConfig } from "@/lib/agent/types"
+import type { AiCapability } from "@/lib/agent/capabilities/types"
+import { buildMcpRuntime } from "@/lib/mcp/runtime"
+import { RealMcpConnector } from "@/lib/mcp/real-connector"
 
 export interface UseAgentConfigResult {
   config: AgentConfig | null
@@ -15,6 +20,9 @@ export interface UseAgentConfigResult {
   supportsTools: boolean
   skillConfigLoaded: boolean
   skillConfig: DeAiSkillConfig | null
+  writingSkills: UserSkill[]
+  mcpCapabilities: AiCapability[]
+  mcpWarnings: string[]
 }
 
 export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
@@ -23,6 +31,8 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const baseLlmConfig = useWikiStore((s) => s.llmConfig)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
+  const mcpConfig = useWikiStore((s) => s.mcpConfig)
 
   const chatConversations = useChatStore((s) => s.conversations)
   const chatMessages = useChatStore((s) => s.messages)
@@ -30,6 +40,7 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
 
   const [skillConfig, setSkillConfig] = useState<DeAiSkillConfig | null>(null)
+  const [writingSkills, setWritingSkills] = useState<UserSkill[]>([])
   const [skillConfigLoaded, setSkillConfigLoaded] = useState(false)
 
   useEffect(() => {
@@ -38,19 +49,27 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
 
     if (!projectPath) {
       setSkillConfig(null)
+      setWritingSkills([])
       setSkillConfigLoaded(true)
       return
     }
 
-    loadDeAiSkillConfig(projectPath)
-      .then((config) => {
+    Promise.all([
+      loadDeAiSkillConfig(projectPath).catch(() => null),
+      loadUserSkillConfig(projectPath)
+        .then(resolveEnabledWritingSkills)
+        .catch(() => [] as UserSkill[]),
+    ])
+      .then(([config, enabledWritingSkills]) => {
         if (cancelled) return
         setSkillConfig(config)
+        setWritingSkills(enabledWritingSkills)
         setSkillConfigLoaded(true)
       })
       .catch(() => {
         if (cancelled) return
         setSkillConfig(null)
+        setWritingSkills([])
         setSkillConfigLoaded(true)
       })
 
@@ -60,6 +79,8 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
   }, [projectPath, dataVersion])
 
   const getSkillConfig = useCallback(() => skillConfig, [skillConfig])
+  const getUserSkills = useCallback(() => writingSkills, [writingSkills])
+  const getSearchApiConfig = useCallback(() => searchApiConfig, [searchApiConfig])
 
   const getChatConversations = useCallback(
     () =>
@@ -93,18 +114,31 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
         supportsTools,
         skillConfigLoaded: false,
         skillConfig,
+        writingSkills,
+        mcpCapabilities: [],
+        mcpWarnings: [],
       }
     }
 
     const llmConfig = resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs)
     const registry = new ToolRegistry()
     const wikiPath = `${normalizePath(projectPath)}/wiki`
+    const novelMode = useWikiStore.getState().novelMode
+    const realMcpConnector = (mcpConfig?.servers ?? []).some((server) => server.enabled && server.command)
+      ? new RealMcpConnector(mcpConfig)
+      : undefined
+    const mcpRuntime = buildMcpRuntime(mcpConfig, undefined, realMcpConnector)
     const config = buildAgentConfig(aiChatModel, systemPrompt, registry, {
       wikiPath,
       getSkillConfig,
+      getUserSkills,
+      getSearchApiConfig,
       getChatConversations,
       getOutlineConversations,
+      mcpTools: mcpRuntime.mcpTools,
       llmConfig,
+      draftMode: novelMode,
+      projectPath: normalizePath(projectPath),
     })
 
     return {
@@ -113,6 +147,9 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
       supportsTools: true,
       skillConfigLoaded: true,
       skillConfig,
+      writingSkills,
+      mcpCapabilities: mcpRuntime.mcpCapabilities,
+      mcpWarnings: mcpRuntime.warnings,
     }
   }, [
     aiChatModel,
@@ -120,8 +157,12 @@ export function useAgentConfig(systemPrompt: string): UseAgentConfigResult {
     skillConfigLoaded,
     baseLlmConfig,
     providerConfigs,
+    mcpConfig,
+    getSearchApiConfig,
+    getUserSkills,
     systemPrompt,
     getSkillConfig,
+    writingSkills,
     getChatConversations,
     getOutlineConversations,
   ])

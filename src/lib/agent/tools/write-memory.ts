@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFile, fileExists } from "@/commands/fs"
 
 export function createWriteMemoryTool(memoryDir: string): Tool {
   return {
@@ -10,6 +10,22 @@ export function createWriteMemoryTool(memoryDir: string): Tool {
     parameters: {
       name: { type: "string", description: "记忆条目名称", required: true },
       content: { type: "string", description: "记忆内容", required: true },
+    },
+    generatePreview: async (params) => {
+      const name = params.name as string
+      const content = params.content as string
+      const path = `${memoryDir}/${name}.md`
+      let isNew = true
+      try {
+        if (await fileExists(path)) {
+          isNew = false
+        }
+      } catch {}
+      if (isNew) {
+        return `将新建记忆「${name}」\n\n预览：\n${content}`
+      } else {
+        return `将更新记忆「${name}」\n\n预览：\n${content}\n原记忆将被覆盖。`
+      }
     },
     execute: async (params) => {
       const name = params.name as string

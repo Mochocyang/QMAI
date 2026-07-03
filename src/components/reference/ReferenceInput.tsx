@@ -125,7 +125,7 @@ export function ReferenceInput({
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isImeComposing(event)) return
 
-      if (event.key === "@" && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      if (event.key === "@" && !event.ctrlKey && !event.metaKey) {
         event.preventDefault()
         onAtTrigger?.()
         return

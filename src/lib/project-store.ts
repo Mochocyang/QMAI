@@ -2,6 +2,8 @@ import { getStore } from "@/lib/web-store"
 import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
+import type { McpConfig } from "@/lib/mcp/config"
+import { normalizeMcpConfig } from "@/lib/mcp/config"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizeUiFontFamily, type UiFontFamily } from "@/lib/font-settings"
 import { normalizeVisualStyle, type VisualStyle } from "@/lib/visual-style-settings"
@@ -105,6 +107,19 @@ export async function saveSearchApiConfig(config: SearchApiConfig): Promise<void
 export async function loadSearchApiConfig(): Promise<SearchApiConfig | null> {
   const store = await getStore()
   return (await store.get<SearchApiConfig>(SEARCH_API_KEY)) ?? null
+}
+
+const MCP_CONFIG_KEY = "mcpConfig"
+
+export async function saveMcpConfig(config: McpConfig): Promise<void> {
+  const store = await getStore()
+  await store.set(MCP_CONFIG_KEY, normalizeMcpConfig(config))
+  await store.save()
+}
+
+export async function loadMcpConfig(): Promise<McpConfig> {
+  const store = await getStore()
+  return normalizeMcpConfig(await store.get<McpConfig>(MCP_CONFIG_KEY))
 }
 
 const EMBEDDING_KEY = "embeddingConfig"

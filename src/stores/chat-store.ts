@@ -1,7 +1,9 @@
 import { create } from "zustand"
 import type { ChatMessage } from "@/lib/llm-client"
 import type { AgentRunRecord } from "@/lib/agent/types"
+import type { TaskBreakpoint } from "@/lib/agent/task-breakpoint"
 import type { ReferenceToken } from "@/lib/reference/types"
+import type { ContextTrace } from "@/lib/agent/context-trace"
 import i18n from "@/i18n"
 
 export interface Conversation {
@@ -30,6 +32,7 @@ export interface DisplayMessage {
   agentToolCalls?: AgentRunRecord["toolCalls"]
   isAgentRunning?: boolean
   attachedReferences?: ReferenceToken[]
+  contextTrace?: ContextTrace
 }
 
 interface ChatState {
@@ -42,6 +45,7 @@ interface ChatState {
   mode: "chat" | "ingest"
   ingestSource: string | null
   maxHistoryMessages: number
+  lastBreakpoint: TaskBreakpoint | null
 
   // Conversation management
   createConversation: () => string
@@ -70,6 +74,7 @@ interface ChatState {
   setIngestSource: (path: string | null) => void
   clearMessages: () => void
   setMaxHistoryMessages: (n: number) => void
+  setLastBreakpoint: (bp: TaskBreakpoint | null) => void
   removeLastAssistantMessage: () => void  // for regenerate: remove last assistant reply
   markLastAssistantDiscarded: () => void   // for novel draft discard
   enqueueReferenceTokens: (tokens: ReferenceToken[]) => void
@@ -103,6 +108,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   mode: "chat",
   ingestSource: null,
   maxHistoryMessages: 20,
+  lastBreakpoint: null,
 
   createConversation: () => {
     const id = generateConversationId()
@@ -283,6 +289,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
 
   setMaxHistoryMessages: (maxHistoryMessages) => set({ maxHistoryMessages }),
+
+  setLastBreakpoint: (lastBreakpoint) => set({ lastBreakpoint }),
 
   removeLastAssistantMessage: () =>
     set((state) => {

@@ -43,6 +43,7 @@ fn main() {
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::file_sync::FileSyncState::default());
+            app.manage(commands::mcp_stdio::McpStdioState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -93,6 +94,10 @@ fn main() {
             commands::file_sync::get_file_change_queue,
             commands::file_sync::retry_file_change_task,
             commands::file_sync::ignore_file_change_task,
+            commands::mcp_stdio::mcp_stdio_spawn,
+            commands::mcp_stdio::mcp_stdio_write,
+            commands::mcp_stdio::mcp_stdio_read,
+            commands::mcp_stdio::mcp_stdio_kill,
             commands::backup::export_backup,
             commands::backup::import_backup,
             commands::backup::read_backup_manifest,

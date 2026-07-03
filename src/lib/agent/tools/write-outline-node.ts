@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readFile, writeFile } from "@/commands/fs"
+import { readFile, writeFile, fileExists } from "@/commands/fs"
 
 export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
   return {
@@ -11,6 +11,24 @@ export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
       outlineName: { type: "string", description: "大纲文件名称", required: true },
       nodeTitle: { type: "string", description: "节点标题", required: true },
       nodeContent: { type: "string", description: "节点内容", required: true },
+    },
+    generatePreview: async (params) => {
+      const outlineName = params.outlineName as string
+      const nodeTitle = params.nodeTitle as string
+      const nodeContent = params.nodeContent as string
+      const path = `${outlinesDir}/${outlineName}`
+      const newSection = `## ${nodeTitle}\n\n${nodeContent}\n`
+      let originalContent = ""
+      try {
+        if (await fileExists(path)) {
+          originalContent = await readFile(path)
+        }
+      } catch {}
+      if (originalContent.includes(`## ${nodeTitle}`)) {
+        return `将更新大纲节点「${nodeTitle}」到「${outlineName}」\n\n预览：\n${newSection}\n原文件将被更新。`
+      } else {
+        return `将追加大纲节点「${nodeTitle}」到「${outlineName}」\n\n预览：\n${newSection}`
+      }
     },
     execute: async (params) => {
       const outlineName = params.outlineName as string

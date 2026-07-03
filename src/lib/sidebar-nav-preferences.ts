@@ -5,6 +5,7 @@ export const DEFAULT_SIDEBAR_NAV_ORDER = [
   "lint",
   "soul",
   "skillLibrary",
+  "writingSkillLibrary",
   "bookAnalysis",
   "reviewCenter",
   "storySimulation",

@@ -1,4 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
+import type { RequestOverrides } from "../llm-providers"
 
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array" | "integer"
@@ -7,9 +8,9 @@ export interface ToolParameter {
   enum?: string[]
 }
 
-export type ToolCategory = "read" | "write" | "action"
+export type ToolCategory = "read" | "write" | "action" | "virtual"
 export type ToolPermission = "auto" | "confirm"
-export type ToolCallStatus = "running" | "done" | "error" | "approval_required"
+export type ToolCallStatus = "running" | "done" | "error" | "approval_required" | "cancelled"
 
 export interface Tool {
   name: string
@@ -18,6 +19,7 @@ export interface Tool {
   permission?: ToolPermission
   parameters: Record<string, ToolParameter>
   execute(params: Record<string, unknown>, signal?: AbortSignal): Promise<string>
+  generatePreview?: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<string>
 }
 
 export interface ToolCall {
@@ -39,16 +41,22 @@ export interface AgentConfig {
   systemPrompt: string
   llmConfig: LlmConfig
   toolResultContextLimit?: number
+  requestOverrides?: RequestOverrides
   /** 模型标识，用于上层识别当前使用的模型 */
   modelId?: string
+  /** Stage F: 项目路径，用于断点持久化 */
+  projectPath?: string
+  /** Stage F: 本次任务目标，用于断点恢复 */
+  taskGoal?: string
 }
 
 export interface AgentToolEvent {
-  type: "call_started" | "result" | "error" | "approval_required"
+  type: "call_started" | "result" | "error" | "approval_required" | "cancelled"
   callId: string
   name: string
   params: Record<string, unknown>
   result?: string
+  preview?: string
   timestamp: number
 }
 

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { ChatMessage, StreamingMessage } from "./chat-message"
-import { getDeepChapterToggleButtonClass } from "./chat-panel"
+import { getWorkflowModeButtonClass } from "./chat-panel"
 import type { DisplayMessage } from "@/stores/chat-store"
 
 function tenThinkingLines(): string {
@@ -36,14 +36,13 @@ describe("chat thinking display", () => {
   })
 })
 
-describe("deep chapter thinking toggle style", () => {
-  it("uses a clear dark selected state when deep chapter generation is enabled", () => {
-    const activeClassName = getDeepChapterToggleButtonClass(true)
-    const inactiveClassName = getDeepChapterToggleButtonClass(false)
+describe("AI workflow mode toggle style", () => {
+  it("uses a clear selected state for the active workflow mode", () => {
+    const activeClassName = getWorkflowModeButtonClass(true)
+    const inactiveClassName = getWorkflowModeButtonClass(false)
 
     expect(activeClassName).toContain("bg-primary")
     expect(activeClassName).toContain("text-primary-foreground")
-    expect(activeClassName).toContain("border-primary")
     expect(inactiveClassName).not.toContain("bg-primary")
   })
 })
@@ -71,6 +70,16 @@ describe("chat message references", () => {
     expect(html).toContain("@第一章")
     expect(html).toContain('data-reference-id="ref-1"')
     expect(html).not.toContain("移除引用")
+  })
+})
+
+describe("chat message width", () => {
+  it("lets chat bubbles expand to half of the window without overflowing narrow panels", () => {
+    const source = readFileSync(resolve(__dirname, "chat-message.tsx"), "utf8")
+
+    expect(source).toContain("lg:max-w-[50vw]")
+    expect(source).toContain("max-w-full")
+    expect(source).not.toContain("max-w-[80%]")
   })
 })
 
@@ -118,7 +127,10 @@ describe("deep chapter unfinished continuation action", () => {
   it("keeps the ai chat footer labels as readable Chinese text", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
 
-    expect(source).toContain("深度模式")
+    expect(source).toContain("AI 会话执行模式")
+    expect(source).toContain("快速")
+    expect(source).toContain("标准")
+    expect(source).toContain("严格")
     expect(source).toContain("编辑章节")
     expect(source).toContain("继续未完成")
   })

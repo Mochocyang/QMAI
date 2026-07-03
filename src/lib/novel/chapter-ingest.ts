@@ -2,7 +2,7 @@ import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, 
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta, parseChapterNumber } from "./chapter-meta"
 import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
@@ -19,6 +19,7 @@ import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
+import { RetrievalStore } from "./retrieval"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -525,7 +526,127 @@ export async function ingestChapter(
     }
   }
 
+  if (snapshot) {
+    try {
+      const retrievalStore = createRetrievalStore(pp)
+      const sourceHash = buildSourceHash(content)
+      const relativePath = normalizePath(chapterPath).startsWith(normalizePath(pp) + "/")
+        ? normalizePath(chapterPath).slice(normalizePath(pp).length + 1)
+        : chapterPath
+      await retrievalStore.updateChapterEntry(snapshot.chapterNumber, snapshot, {
+        filePath: relativePath,
+        sourceHash,
+      }).catch((err) => {
+        console.warn("[Chapter Ingest] Retrieval index update failed:", err)
+      })
+    } catch (err) {
+      console.warn("[Chapter Ingest] Retrieval index update failed:", err instanceof Error ? err.message : err)
+    }
+  }
+
   return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
+}
+
+function createRetrievalStore(projectPath: string): RetrievalStore {
+  const fsAdapter = {
+    readFile,
+    writeFile: writeFileAtomic,
+    fileExists,
+    listDirectory: async (path: string): Promise<string[]> => {
+      const nodes = await listDirectory(path)
+      return nodes.map((n: any) => n.name)
+    },
+    createDirectory,
+    joinPath: (...parts: string[]) => parts.join("/"),
+  }
+  return new RetrievalStore(projectPath, fsAdapter as any)
+}
+
+export function buildSourceHash(content: string): string {
+  let hash = 0
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash |= 0
+  }
+  return String(hash)
+}
+
+async function findChapterPathForSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<string> {
+  const chaptersDir = `${projectPath}/wiki/chapters`
+  const fallback = `${chaptersDir}/chapter-${String(snapshot.chapterNumber).padStart(3, "0")}.md`
+  try {
+    const nodes = await listDirectory(chaptersDir)
+    for (const node of nodes as any[]) {
+      if (node?.isDir) continue
+      if (!String(node?.name || "").toLowerCase().endsWith(".md")) continue
+      const path = `${chaptersDir}/${node.name}`
+      try {
+        const content = await readFile(path)
+        const parsed = parseFrontmatter(content)
+        const meta = parseChapterMeta(parsed.frontmatter as Record<string, unknown>)
+        if (meta?.chapterNumber === snapshot.chapterNumber) {
+          return path
+        }
+      } catch {
+        // 忽略单文件读取失败，继续尝试其他章节文件。
+      }
+    }
+  } catch {
+    // 章节目录不存在或不可读时使用稳定的默认路径。
+  }
+  return fallback
+}
+
+async function buildRetrievalIndexSourceHash(projectPath: string, snapshot: ChapterSnapshot): Promise<string> {
+  const chapterPath = await findChapterPathForSnapshot(projectPath, snapshot)
+  try {
+    return buildSourceHash(await readFile(chapterPath))
+  } catch {
+    return buildSourceHash(JSON.stringify(snapshot))
+  }
+}
+
+export async function buildRetrievalIndex(projectPath: string): Promise<{ success: boolean; chapterCount: number }> {
+  const pp = normalizePath(projectPath)
+  const snapshotNumbers = await listSnapshots(pp)
+  
+  if (snapshotNumbers.length === 0) {
+    return { success: false, chapterCount: 0 }
+  }
+
+  const snapshots: ChapterSnapshot[] = []
+  for (const num of snapshotNumbers) {
+    const snapshot = await loadSnapshot(pp, num)
+    if (snapshot) {
+      snapshots.push(snapshot)
+    }
+  }
+
+  if (snapshots.length === 0) {
+    return { success: false, chapterCount: 0 }
+  }
+
+  const store = createRetrievalStore(pp)
+  
+  const snapshotPaths = new Map<number, string>()
+  const snapshotHashes = new Map<number, string>()
+  for (const snapshot of snapshots) {
+    const chapterPath = await findChapterPathForSnapshot(pp, snapshot)
+    const relativePath = normalizePath(chapterPath).startsWith(pp + "/")
+      ? normalizePath(chapterPath).slice(pp.length + 1)
+      : chapterPath
+    snapshotPaths.set(snapshot.chapterNumber, relativePath)
+    snapshotHashes.set(snapshot.chapterNumber, await buildRetrievalIndexSourceHash(pp, snapshot))
+  }
+
+  await store.buildFromSnapshots(
+    snapshots,
+    (snapshot) => snapshotPaths.get(snapshot.chapterNumber) || `wiki/chapters/chapter-${String(snapshot.chapterNumber).padStart(3, "0")}.md`,
+    (snapshot) => snapshotHashes.get(snapshot.chapterNumber) || buildSourceHash(JSON.stringify(snapshot)),
+  )
+  
+  return { success: true, chapterCount: snapshots.length }
 }
 
 export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })

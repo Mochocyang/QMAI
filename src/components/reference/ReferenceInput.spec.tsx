@@ -64,6 +64,34 @@ describe("ReferenceInput", () => {
     expect(onAtTrigger).toHaveBeenCalledTimes(2)
   })
 
+  it("triggers reference picker when @ is typed with Shift", async () => {
+    const onAtTrigger = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <ReferenceInput
+          tokens={[]}
+          onSubmit={vi.fn()}
+          onAtTrigger={onAtTrigger}
+        />,
+      )
+    })
+
+    const editor = host.querySelector("textarea") as HTMLTextAreaElement
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "@",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(onAtTrigger).toHaveBeenCalledTimes(1)
+  })
+
   it("uses a controlled textarea editor instead of contentEditable DOM mixing", async () => {
     const onChange = vi.fn()
 

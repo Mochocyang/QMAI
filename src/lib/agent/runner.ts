@@ -6,7 +6,21 @@ import { formatToolResultForModel } from "./tool-result"
 import type { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord, ToolCall, ToolCallDelta } from "./types"
 import { DEFAULT_MAX_ROUNDS, TOOL_EXECUTE_TIMEOUT_MS } from "./types"
+import type { TaskBreakpoint } from "./task-breakpoint"
+import {
+  clearTaskBreakpoint,
+  createTaskBreakpoint,
+  saveTaskBreakpoint,
+  updateBreakpointStage,
+} from "./task-breakpoint"
 import type { ChatMessage } from "../llm-providers"
+
+export class ModelDoesNotSupportToolsError extends Error {
+  constructor() {
+    super("当前模型不支持工具调用")
+    this.name = "ModelDoesNotSupportToolsError"
+  }
+}
 
 export class AgentRunner {
   async run(
@@ -20,11 +34,57 @@ export class AgentRunner {
     const workingMessages = [...messages]
     let finalText = ""
     const maxRounds = config.maxRounds || DEFAULT_MAX_ROUNDS
+    const projectPath = config.projectPath
+    const taskGoal =
+      config.taskGoal ||
+      [...messages].reverse().find((m) => m.role === "user")?.content ||
+      "未命名任务"
+    let taskBreakpoint: TaskBreakpoint | null = projectPath
+      ? createTaskBreakpoint({
+          taskGoal,
+          currentStage: "agent_round_1",
+        })
+      : null
+
+    const persistTaskBreakpoint = async () => {
+      if (!projectPath || !taskBreakpoint) return
+      try {
+        await saveTaskBreakpoint(projectPath, taskBreakpoint)
+      } catch {
+        // 断点保存失败不应中断当前 AI 会话
+      }
+    }
+
+    const clearPersistedBreakpoint = async () => {
+      if (!projectPath) return
+      try {
+        await clearTaskBreakpoint(projectPath)
+      } catch {
+        // clearTaskBreakpoint 内部已吞掉错误，这里保持双保险
+      }
+    }
+
+    if (taskBreakpoint) {
+      await persistTaskBreakpoint()
+    }
 
     for (let round = 0; round < maxRounds; round++) {
       record.roundsUsed = round + 1
 
       if (signal?.aborted) {
+        for (const tc of record.toolCalls) {
+          if (tc.status === "running") {
+            tc.status = "cancelled"
+            tc.finishedAt = Date.now()
+            callbacks.onToolEvent?.({
+              type: "cancelled",
+              callId: tc.id,
+              name: tc.name,
+              params: tc.params,
+              timestamp: tc.finishedAt,
+            })
+          }
+        }
         callbacks.onError(new Error("操作已取消"))
         return record
       }
@@ -48,16 +108,25 @@ export class AgentRunner {
         },
       }
 
+      const openaiTools = config.tools.length > 0 ? toOpenAITools(config.tools) : undefined
+      const requestOverrides = openaiTools
+        ? { ...config.requestOverrides, tools: openaiTools as any, toolChoice: "auto" as const }
+        : config.requestOverrides
       try {
-        const openaiTools = config.tools.length > 0 ? toOpenAITools(config.tools) : undefined
         await streamChat(
           config.llmConfig,
           workingMessages as ChatMessage[],
           streamCallbacks,
           signal,
-          openaiTools ? { tools: openaiTools as any, toolChoice: "auto" } : undefined,
+          requestOverrides,
         )
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (openaiTools && /tool|function.?call|unsupported|不支持工具/i.test(msg)) {
+          const modelErr = new ModelDoesNotSupportToolsError()
+          callbacks.onError(modelErr)
+          return record
+        }
         callbacks.onError(err instanceof Error ? err : new Error(String(err)))
         return record
       }
@@ -74,6 +143,7 @@ export class AgentRunner {
         finalText = roundText
         record.finalText = finalText
         if (roundText) callbacks.onText(roundText)
+        await clearPersistedBreakpoint()
         callbacks.onDone()
         return record
       }
@@ -90,6 +160,19 @@ export class AgentRunner {
       for (const tc of toolCalls) {
         const toolName = tc.function.name
         const tool = registry.get(toolName)
+
+        const saveToolProgress = async () => {
+          if (!taskBreakpoint) return
+          const usedTools = taskBreakpoint.usedTools.includes(toolName)
+            ? taskBreakpoint.usedTools
+            : [...taskBreakpoint.usedTools, toolName]
+          taskBreakpoint = updateBreakpointStage(
+            { ...taskBreakpoint, usedTools },
+            `agent_round_${round + 1}`,
+            `tool:${toolName}`,
+          )
+          await persistTaskBreakpoint()
+        }
 
         const params = (() => {
           try { return JSON.parse(tc.function.arguments || "{}") }
@@ -132,18 +215,27 @@ export class AgentRunner {
             timestamp: toolCallRecord.finishedAt,
           })
           workingMessages.push({ role: "tool", content: toolCallRecord.result, tool_call_id: tc.id, name: toolName })
+          await saveToolProgress()
           continue
         }
 
         const permission = tool.permission ?? (tool.category === "write" ? "confirm" : "auto")
         if (permission === "confirm") {
-          const approvalMessage = [
-            `写入工具 ${toolName} 需要用户确认后才能执行。`,
-            "本次没有执行写入操作。",
-            "请根据用户指令生成可审核的写入预览，并等待用户明确确认后再写入。",
-          ].join("\n")
+          let preview = ""
+          try {
+            const previewFn = tool.generatePreview ?? tool.execute
+            preview = await Promise.race([
+              previewFn(params, signal),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("工具执行超时")), TOOL_EXECUTE_TIMEOUT_MS),
+              ),
+            ])
+          } catch (e) {
+            preview = `预览生成失败：${e instanceof Error ? e.message : String(e)}`
+          }
           toolCallRecord.status = "approval_required"
-          toolCallRecord.result = approvalMessage
+          ;(toolCallRecord as any).preview = preview
+          toolCallRecord.result = preview
           toolCallRecord.finishedAt = Date.now()
           record.toolCalls.push(toolCallRecord)
           callbacks.onToolEvent?.({
@@ -151,10 +243,12 @@ export class AgentRunner {
             callId: tc.id,
             name: toolName,
             params,
-            result: approvalMessage,
+            result: preview,
+            preview,
             timestamp: toolCallRecord.finishedAt,
           })
-          workingMessages.push({ role: "tool", content: approvalMessage, tool_call_id: tc.id, name: toolName })
+          workingMessages.push({ role: "tool", content: preview, tool_call_id: tc.id, name: toolName })
+          await saveToolProgress()
           continue
         }
 
@@ -190,6 +284,7 @@ export class AgentRunner {
         }
 
         record.toolCalls.push(toolCallRecord)
+        await saveToolProgress()
         workingMessages.push({
           role: "tool",
           content: formatToolResultForModel(toolName, toolCallRecord.result, config.toolResultContextLimit),
@@ -200,6 +295,19 @@ export class AgentRunner {
 
       // Continue loop
       if (signal?.aborted) {
+        for (const tc of record.toolCalls) {
+          if (tc.status === "running") {
+            tc.status = "cancelled"
+            tc.finishedAt = Date.now()
+            callbacks.onToolEvent?.({
+              type: "cancelled",
+              callId: tc.id,
+              name: tc.name,
+              params: tc.params,
+              timestamp: tc.finishedAt,
+            })
+          }
+        }
         callbacks.onError(new Error("操作已取消"))
         return record
       }

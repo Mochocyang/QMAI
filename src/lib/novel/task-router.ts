@@ -19,11 +19,23 @@ export type NovelTaskIntent =
   | "setting_query"        // 设定查询
   | "general_chat"         // 一般对话
 
+export const MODIFY_INTENTS: Set<NovelTaskIntent> = new Set([
+  "rewrite_chapter",
+  "polish_chapter",
+  "review_chapter",
+  "lint_chapter",
+])
+
+export function isModifyIntent(intent: NovelTaskIntent): boolean {
+  return MODIFY_INTENTS.has(intent)
+}
+
 export interface TaskRouteResult {
   intent: NovelTaskIntent
   confidence: number
   chapterNumber?: number
-  extractedParams: Record<string, string>
+  extractedParams: Record<string, unknown>
+  modifyFamily?: boolean
 }
 
 interface IntentPattern {
@@ -182,7 +194,7 @@ const CHAPTER_NUMBER_PATTERNS = [
 export function routeTask(userInput: string): TaskRouteResult {
   const trimmed = userInput.trim()
   if (!trimmed) {
-    return { intent: "general_chat", confidence: 1, extractedParams: {} }
+    return { intent: "general_chat", confidence: 1, extractedParams: {}, modifyFamily: false }
   }
 
   if (isOpeningChapterRequest(trimmed)) {
@@ -233,7 +245,7 @@ export function routeTask(userInput: string): TaskRouteResult {
   }
 
   if (scores.length === 0) {
-    return { intent: "general_chat", confidence: 0.5, extractedParams }
+    return { intent: "general_chat", confidence: 0.5, extractedParams, modifyFamily: false }
   }
 
   scores.sort((a, b) => b.score - a.score)
@@ -246,6 +258,7 @@ export function routeTask(userInput: string): TaskRouteResult {
     confidence,
     chapterNumber,
     extractedParams,
+    modifyFamily: isModifyIntent(best.intent),
   }
 }
 

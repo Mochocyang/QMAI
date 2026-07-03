@@ -17,6 +17,7 @@ import { resolveModelConfig, resolveNovelModel } from "@/lib/novel/model-resolve
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
+import { ReferenceChip } from "@/components/reference/ReferenceChip"
 import {
   chapterProvider,
   createChatHistoryProvider,
@@ -31,13 +32,16 @@ import { AgentRunner } from "@/lib/agent/runner"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config"
 import type { AgentMessage, AgentRunRecord } from "@/lib/agent/types"
-import { applyAgentToolEvent } from "@/lib/agent/tool-events"
+import { applyAgentToolEvent, settleRunningAgentToolCalls } from "@/lib/agent/tool-events"
 import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
+import { readSoulDoc } from "@/lib/novel/soul-doc"
 import {
   buildWebResearchContext,
   collectWebResearch,
   shouldUseWebResearch,
 } from "@/lib/web-research"
+
+const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory"]
 
 function referenceCategoryLabel(category: ReferenceToken["category"]): string {
   switch (category) {
@@ -82,24 +86,80 @@ function buildOutlineAgentUserContent(text: string, tokens: ReferenceToken[]): s
   ].join("\n")
 }
 
-function buildOutlineAgentSystemPrompt(options: { projectName?: string; webResearchContext?: string }): string {
+function buildOutlineAgentSystemPrompt(options: { projectName?: string; webResearchContext?: string; soulDoc?: string }): string {
   return [
     "你是专业小说大纲分析与创作助手。",
     "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
     "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
-    "回答必须基于已读取内容进行分析，说明关键判断依据；需要写入大纲节点时使用 write_outline_node。",
+    "回答必须基于已读取内容进行分析，说明关键判断依据；需要保存大纲时只能使用 write_outline_node。",
     "## AI大纲固定分析流程",
     "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
     "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
     "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
     "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
+    "## AI大纲生成工作流",
+    "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
+    "关键内容提取必须服务于小说创作：只保留能帮助用户继续写小说的信息，例如章节目标、冲突推进、人物动机、伏笔状态、设定限制、时间线承接和结尾钩子。",
+    "最终回复只输出大纲标题和大纲正文；禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
+    "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。资料不足以生成完整正文时，先提出最少必要澄清问题，不要用流程说明冒充生成结果。",
     "所有面向用户的回复必须使用中文。",
     options.projectName ? `当前项目：${options.projectName}` : "",
+    options.soulDoc?.trim()
+      ? `## 作品灵魂与总则\n${options.soulDoc}`
+      : "",
     options.webResearchContext?.trim()
       ? `## 用户明确要求检索的网页资料\n${options.webResearchContext}`
       : "",
   ].filter(Boolean).join("\n")
+}
+
+function getOutlineSectionOutputRules(title: string): string {
+  if (title.includes("章节细纲")) {
+    return "按章节输出：章节标题、章节目标、核心事件、主要冲突、关键转折、结尾钩子、与前后章节承接。"
+  }
+  if (title.includes("人物")) {
+    return "按人物输出：人物定位、目标与动机、欲望和恐惧、关系变化、冲突点、成长或崩坏路径、当前状态。"
+  }
+  if (title.includes("组织") || title.includes("势力")) {
+    return "按组织或势力输出：阵营目标、利益诉求、掌握资源、内部矛盾、外部冲突、剧情作用、与主角线关系。"
+  }
+  if (title.includes("金手指") || title.includes("能力")) {
+    return "按能力体系输出：能力规则、限制、代价、成长路径、反制方式、剧情用途、容易制造的冲突。"
+  }
+  if (title.includes("伏笔")) {
+    return "按伏笔输出：伏笔名称、埋设位置、表层误导、真实指向、推进节点、回收位置、关联人物和风险。"
+  }
+  if (title.includes("地点")) {
+    return "按地点输出：地点定位、所属势力、空间规则、资源与限制、可触发事件、剧情作用、与人物线关系。"
+  }
+  return "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。"
+}
+
+function buildOutlineSectionGenerationPrompt(title: string, requestHint: string): string {
+  return [
+    `请按「AI大纲生成工作流」生成「${title}」。`,
+    "",
+    "## 本次意图",
+    "generate_outline",
+    "",
+    "## PRD 3.1 主流程要求",
+    "1. 提取请求关键词：确认用户要生成的大纲分项、范围和已有约束。",
+    "2. 识别用户意图：本次是生成/完善大纲正文，不是审稿报告、工具报告或分析说明。",
+    "3. 读取资料：优先读取用户 @ 引用、已有大纲、章节、记忆、推演和历史会话。",
+    "4. 提取对小说创作有用的关键内容：章节目标、冲突、伏笔、人物动机、设定限制、时间线承接和结尾钩子。",
+    "5. 结合用户要用的 skill + soul.md 约束，生成可直接保存的大纲正文。",
+    "6. 结果强约束收敛：最终回复只输出大纲标题和大纲正文。",
+    "",
+    "## 禁止输出",
+    "禁止输出工具调用报告、分析过程、完成报告、下一步行动、等待工具结果、已读取资料清单、泛泛建议。",
+    "",
+    "## 本分项内容要求",
+    requestHint,
+    getOutlineSectionOutputRules(title),
+    "",
+    "如果资料不足以完整生成，请只问一个最关键的澄清问题；如果资料足够，直接输出完整正文。",
+  ].join("\n")
 }
 
 function outlineToolCallsToSources(toolCalls: AgentRunRecord["toolCalls"]): string[] {
@@ -541,10 +601,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       abortRef.current = controller
 
       const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null)
+      const soulDoc = await readSoulDoc(project.path).catch(() => "")
       const registry = new ToolRegistry()
       const systemPrompt = buildOutlineAgentSystemPrompt({
         projectName: project.name,
         webResearchContext: webResearchMarkdown,
+        soulDoc,
       })
       const agentConfig = buildAgentConfig(effectiveModelId, systemPrompt, registry, {
         wikiPath: `${normalizePath(project.path)}/wiki`,
@@ -566,6 +628,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             messages: conversation.messages.map((message) => ({ role: message.role, content: message.content })),
           })),
         llmConfig: effectiveLlmConfig,
+        disabledTools: OUTLINE_CHAT_DISABLED_TOOLS,
       })
       const agentMessages: AgentMessage[] = [
         { role: "system", content: systemPrompt },
@@ -595,6 +658,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onDone: () => {
             updateOutlineAssistantMessage(convId, assistantId, (message) => ({
               ...message,
+              agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls),
               isAgentRunning: false,
             }))
           },
@@ -611,7 +675,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ...message,
         content: result || record.finalText || "AI大纲未返回内容。",
         sources: finalSources,
-        agentToolCalls: record.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+        agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
         isAgentRunning: false,
       }))
       const firstUser = useOutlineChatStore.getState()
@@ -637,6 +701,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
           ...message,
           content: partial,
+          agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error", Date.now(), err instanceof Error ? err.message : String(err)),
           isAgentRunning: false,
         }))
       } else {
@@ -645,6 +710,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           updateOutlineAssistantMessage(convId, assistantId, (message) => ({
             ...message,
             content: `生成失败：${errorMsg}`,
+            agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error", Date.now(), errorMsg),
             isAgentRunning: false,
           }))
         } else {
@@ -660,7 +726,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   }, [project, isStreaming, llmConfig, novelConfig, providerConfigs, activeConv, activeConversationId, createConversation, addMessage, replaceLastAssistant, removeLastMessage, setIsStreaming, setStreamingContent])
 
   const handleGenerateSection = useCallback((title: string, requestHint: string) => {
-    void handleSend(`请继续生成「${title}」。${requestHint} 请基于已有大纲、章节内容和项目记忆直接输出该分项内容，结构清晰，可保存为大纲。`)
+    void handleSend(buildOutlineSectionGenerationPrompt(title, requestHint))
   }, [handleSend])
 
   const handleStop = useCallback(() => {
@@ -731,8 +797,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       })
 
       const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null)
+      const soulDoc = await readSoulDoc(project.path).catch(() => "")
       const registry = new ToolRegistry()
-      const systemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name })
+      const systemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, soulDoc })
       const agentConfig = buildAgentConfig(effectiveModelId, systemPrompt, registry, {
         wikiPath: `${normalizePath(project.path)}/wiki`,
         getSkillConfig: () => skillConfig,
@@ -753,6 +820,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             messages: conversation.messages.map((message) => ({ role: message.role, content: message.content })),
           })),
         llmConfig: effectiveLlmConfig,
+        disabledTools: OUTLINE_CHAT_DISABLED_TOOLS,
       })
       let agentError: Error | null = null
       const record = await new AgentRunner().run(
@@ -780,6 +848,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onDone: () => {
             updateOutlineAssistantMessage(activeConversationId, assistantId, (message) => ({
               ...message,
+              agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls),
               isAgentRunning: false,
             }))
           },
@@ -796,7 +865,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ...message,
         content: result || record.finalText || "AI大纲未返回内容。",
         sources,
-        agentToolCalls: record.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+        agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
         isAgentRunning: false,
       }))
       setStreamingContent("")
@@ -895,7 +964,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ) : null}
         {activeMessages.map((msg, i) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+            <div className={`w-fit max-w-full lg:max-w-[50vw] rounded-lg px-3 py-2 text-sm ${
               msg.role === "user"
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-foreground"
@@ -914,7 +983,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onRegenerate={handleRegenerate}
                 />
               ) : (
-                <span>{msg.content}</span>
+                <>
+                  <span>{msg.content}</span>
+                  {msg.attachedReferences && msg.attachedReferences.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {msg.attachedReferences.map((token) => (
+                        <ReferenceChip key={token.id} token={token} readonly />
+                      ))}
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
@@ -922,7 +1000,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         {isStreaming && streamingContent && activeMessages.length > 0 && activeMessages[activeMessages.length - 1]?.content === "" ? null : (
           isStreaming && streamingContent && activeMessages[activeMessages.length - 1]?.role !== "assistant" ? (
             <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
+              <div className="w-fit max-w-full lg:max-w-[50vw] rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
                 <div className="prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown>{streamingContent}</ReactMarkdown>
                 </div>

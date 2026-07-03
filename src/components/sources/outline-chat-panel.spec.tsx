@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
+const outlineGenerationSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-generation.ts"), "utf8")
 
 describe("OutlineChatPanel controls", () => {
   it("uses the shared accent new conversation button style", () => {
@@ -66,10 +67,31 @@ describe("OutlineChatPanel controls", () => {
     expect(source).not.toContain("runDeepOutlineGeneration(")
   })
 
+  it("settles running outline tool calls when generation finishes", () => {
+    expect(source).toContain("settleRunningAgentToolCalls")
+    expect(source).toContain("settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls")
+    expect(source).toContain('settleRunningAgentToolCalls(message.agentToolCalls, "error"')
+  })
+
+  it("uses an outline-only tool set that cannot write chapters or memory", () => {
+    expect(source).toContain("OUTLINE_CHAT_DISABLED_TOOLS")
+    expect(source).toContain('"write_chapter"')
+    expect(source).toContain('"write_memory"')
+    expect(source).toContain("disabledTools: OUTLINE_CHAT_DISABLED_TOOLS")
+    expect(source).toContain("需要保存大纲时只能使用 write_outline_node")
+  })
+
   it("keeps outline reference chips as tool-readable hints instead of preloading file contents", () => {
     expect(source).toContain("buildOutlineAgentUserContent")
     expect(source).toContain("请优先使用工具读取引用内容")
     expect(source).not.toContain("loadReferenceTokenContext(tokens)")
+  })
+
+  it("renders sent @ references in outline chat user messages", () => {
+    expect(source).toContain('import { ReferenceChip } from "@/components/reference/ReferenceChip"')
+    expect(source).toContain("msg.attachedReferences")
+    expect(source).toContain("<ReferenceChip")
+    expect(source).toContain("readonly")
   })
 
   it("forces outline chat through a dedicated list-read-analyze-generate workflow", () => {
@@ -78,5 +100,26 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("再调用 read_outline、read_chapter、read_memory、read_deduction")
     expect(source).toContain("分析冲突、缺口、伏笔、角色动机和章节承接")
     expect(source).toContain("最后再生成大纲建议")
+  })
+
+  it("routes every outline generation menu item through the PRD 3.1 content workflow", () => {
+    expect(source).toContain("buildOutlineSectionGenerationPrompt")
+    expect(source).toContain("## AI大纲生成工作流")
+    expect(source).toContain("提取请求关键词")
+    expect(source).toContain("识别用户意图")
+    expect(source).toContain("提取对小说创作有用的关键内容")
+    expect(source).toContain("结合用户要用的 skill + soul.md 约束")
+    expect(source).toContain("最终回复只输出大纲标题和大纲正文")
+    expect(source).toContain("禁止输出工具调用报告、分析过程、完成报告、下一步行动")
+
+    for (const title of ["章节细纲", "人物小传", "组织势力设定", "金手指与能力体系", "伏笔计划", "地点设定"]) {
+      expect(outlineGenerationSource).toContain(title)
+    }
+  })
+
+  it("lets outline chat bubbles expand to half of the window without overflowing narrow panels", () => {
+    expect(source).toContain("lg:max-w-[50vw]")
+    expect(source).toContain("max-w-full")
+    expect(source).not.toContain("max-w-[85%]")
   })
 })

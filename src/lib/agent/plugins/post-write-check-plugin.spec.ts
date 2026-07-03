@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createPostWriteCheckPlugin, runPostWriteCheck } from "./post-write-check-plugin"
 import type { PrePluginInput } from "../pipeline"
+import type { PostWriteCheckItem } from "../context-trace"
 
 describe("createPostWriteCheckPlugin", () => {
   it("should return empty output when no content is available", async () => {
@@ -99,5 +100,21 @@ describe("runPostWriteCheck", () => {
     } else {
       expect(result.allPassed).toBe(false)
     }
+  })
+})
+
+describe("PostWriteCheckItem 字段扩展", () => {
+  it("类型定义包含 severity/evidence/suggestion 可选字段", () => {
+    const item: PostWriteCheckItem = { name: "测试", passed: true, detail: "测试" }
+    const withFields: PostWriteCheckItem = {
+      name: "测试",
+      passed: true,
+      detail: "测试",
+      severity: "warning",
+      evidence: "证据",
+      suggestion: "建议",
+    }
+    expect(item.severity).toBeUndefined()
+    expect(withFields.severity).toBe("warning")
   })
 })

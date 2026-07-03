@@ -76,6 +76,7 @@ const SIDEBAR_NAV_LABEL_KEYS: Record<SidebarNavItemId, string> = {
   lint: "novel.nav.lint",
   soul: "novel.nav.soul",
   skillLibrary: "novel.nav.skillLibrary",
+  writingSkillLibrary: "novel.nav.writingSkillLibrary",
   bookAnalysis: "novel.nav.dismantling",
   reviewCenter: "novel.nav.reviewCenter",
   storySimulation: "novel.nav.storySimulation",

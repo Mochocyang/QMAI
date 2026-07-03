@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+const chatStoreSource = readFileSync(resolve(__dirname, "../../stores/chat-store.ts"), "utf8")
 
 describe("chat-panel de-AI skill handling", () => {
   it("loads the chat de-AI skill safely and surfaces a warning without aborting send", () => {
@@ -261,8 +262,8 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 })
 
 describe("chat-panel post-write check integration (Stage D)", () => {
-  it("imports runPostWriteCheck from the post-write-check-plugin", () => {
-    expect(source).toContain('import { runPostWriteCheck } from "@/lib/agent/plugins/post-write-check-plugin"')
+  it("imports runPostWriteCheckAI from the post-write-check-ai module", () => {
+    expect(source).toContain('import { runPostWriteCheckAI } from "@/lib/agent/plugins/post-write-check-ai"')
   })
 
   it("declares a Stage D block inside the trace-building section", () => {
@@ -272,7 +273,7 @@ describe("chat-panel post-write check integration (Stage D)", () => {
   it("scopes the check to write_chapter and continue_chapter tasks only", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
     expect(stageDIndex).toBeGreaterThan(-1)
-    const stageDBlock = source.slice(stageDIndex, stageDIndex + 800)
+    const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
     expect(stageDBlock).toContain('effectiveTaskRoute.intent === "write_chapter"')
     expect(stageDBlock).toContain('effectiveTaskRoute.intent === "continue_chapter"')
     // 不应对 rewrite_chapter 或其他意图触发
@@ -281,14 +282,14 @@ describe("chat-panel post-write check integration (Stage D)", () => {
 
   it("reads the final assistant content from the store (same as Stage C)", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
-    const stageDBlock = source.slice(stageDIndex, stageDIndex + 800)
+    const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
     expect(stageDBlock).toContain("useChatStore.getState()")
     expect(stageDBlock).toContain("lastAssistant")
   })
 
   it("excludes content carrying the chapter_plan marker", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
-    const stageDBlock = source.slice(stageDIndex, stageDIndex + 800)
+    const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
     expect(stageDBlock).toContain('chapterContent.includes("chapter_plan")')
     expect(stageDBlock).toContain("hasChapterPlanMarker")
   })
@@ -299,18 +300,19 @@ describe("chat-panel post-write check integration (Stage D)", () => {
     expect(stageDBlock).toContain("if (chapterContent && !hasChapterPlanMarker)")
   })
 
-  it("writes the check result into contextTrace.contextInfo.postWriteCheck", () => {
+  it("writes the check result and meta into contextTrace.contextInfo", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
-    const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
-    expect(stageDBlock).toContain("runPostWriteCheck(chapterContent)")
+    const stageDBlock = source.slice(stageDIndex, stageDIndex + 2000)
+    expect(stageDBlock).toContain("runPostWriteCheckAI({")
     expect(stageDBlock).toContain("postWriteCheck")
+    expect(stageDBlock).toContain("postWriteCheckMeta")
     expect(stageDBlock).toContain("setContextInfo(contextTrace,")
   })
 
   it("places Stage D after result protocol and before finishTrace", () => {
     const traceBlockIndex = source.indexOf("if (contextTrace && effectiveTaskRoute) {")
     expect(traceBlockIndex).toBeGreaterThan(-1)
-    const traceBlock = source.slice(traceBlockIndex, traceBlockIndex + 2000)
+    const traceBlock = source.slice(traceBlockIndex, traceBlockIndex + 3000)
     const protocolIndex = traceBlock.indexOf("buildResultProtocolTrace")
     const stageDIndex = traceBlock.indexOf("=== Stage D: 写后剧情自检 ===")
     const finishIndex = traceBlock.indexOf('finishTrace(contextTrace, "done")')
@@ -321,9 +323,67 @@ describe("chat-panel post-write check integration (Stage D)", () => {
 
   it("does not block saving: the check only writes to contextTrace, no return or throw", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
-    const stageDBlock = source.slice(stageDIndex, stageDIndex + 800)
+    const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
     // 自检结果仅展示，不应阻止后续保存流程
     expect(stageDBlock).not.toContain("throw ")
     expect(stageDBlock).not.toContain("return")
+  })
+})
+
+describe("aiWorkflowMode store 读取", () => {
+  it("不再使用局部 useState 持有 aiWorkflowMode，改为从 store 读取", () => {
+    expect(source).not.toContain("useState<AiWorkflowMode>(DEFAULT_AI_WORKFLOW_MODE)")
+    expect(source).toMatch(/useWikiStore\(\(s\) => s\.aiWorkflowMode\)/)
+    expect(source).toMatch(/useWikiStore\(\(s\) => s\.setAiWorkflowMode\)/)
+  })
+})
+
+describe("resolver 卸载清理", () => {
+  it("useEffect 卸载钩子中清理 pending resolver", () => {
+    expect(source).toMatch(/soulDialogResolverRef\.current = null/)
+    expect(source).toMatch(/chapterPlanResolverRef\.current = null/)
+    expect(source).toMatch(/return \(\) => \{[\s\S]*?ResolverRef\.current/)
+  })
+})
+
+describe("SoulDialog 输入框禁用一致性", () => {
+  it("pendingSoulDialog.open 时禁用主输入框", () => {
+    expect(source).toMatch(/disabled=\{isStreaming \|\| pendingChapterPlan\.open \|\| pendingSoulDialog\.open\}/)
+  })
+})
+
+describe("Stage D AI 推理集成", () => {
+  it("import runPostWriteCheckAI 替代 runPostWriteCheck", () => {
+    expect(source).toContain("runPostWriteCheckAI")
+    expect(source).not.toMatch(/import \{ runPostWriteCheck \} from/)
+  })
+
+  it("异步调用 runPostWriteCheckAI 并写入 postWriteCheckMeta", () => {
+    expect(source).toMatch(/runPostWriteCheckAI\(\{/)
+    expect(source).toMatch(/postWriteCheckMeta/)
+  })
+})
+
+describe("Stage F 断点恢复", () => {
+  it("chat-store 缓存 lastBreakpoint", () => {
+    expect(chatStoreSource).toContain("lastBreakpoint")
+    expect(chatStoreSource).toContain("setLastBreakpoint")
+  })
+
+  it("挂载时调用 loadTaskBreakpoint", () => {
+    expect(source).toContain("loadTaskBreakpoint")
+    expect(source).toMatch(/loadTaskBreakpoint\(projectPath\)/)
+  })
+
+  it("检测到断点时弹确认对话框", () => {
+    expect(source).toContain("检测到上次有未完成的任务")
+    expect(source).toContain("breakpointResumeOpen")
+    expect(source).toContain("<ModifyConfirmDialog")
+  })
+
+  it("用户确认时调用 buildBreakpointResumePrompt 并发送恢复内容", () => {
+    expect(source).toContain("buildBreakpointResumePrompt")
+    expect(source).toContain("breakpointResumeContent")
+    expect(source).toContain("handleSendRef.current(breakpointResumeContent")
   })
 })

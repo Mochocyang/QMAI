@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyAgentToolEvent } from "./tool-events"
+import { applyAgentToolEvent, settleRunningAgentToolCalls } from "./tool-events"
 
 describe("applyAgentToolEvent", () => {
   it("creates and updates tool call records from normalized events", () => {
@@ -52,5 +52,37 @@ describe("applyAgentToolEvent", () => {
 
     expect(records[0].status).toBe("approval_required")
     expect(records[0].result).toContain("需要用户确认")
+  })
+
+  it("settles leftover running tool calls when an agent session finishes", () => {
+    const records = settleRunningAgentToolCalls([
+      {
+        id: "c1",
+        name: "read_chapter",
+        params: { name: "第1章" },
+        result: "",
+        status: "running",
+        startedAt: 100,
+        finishedAt: 0,
+      },
+      {
+        id: "c2",
+        name: "write_chapter",
+        params: { name: "第2章" },
+        result: "等待确认",
+        status: "approval_required",
+        startedAt: 120,
+        finishedAt: 130,
+      },
+    ], "done", 200)
+
+    expect(records?.[0]).toMatchObject({
+      status: "done",
+      finishedAt: 200,
+    })
+    expect(records?.[1]).toMatchObject({
+      status: "approval_required",
+      finishedAt: 130,
+    })
   })
 })

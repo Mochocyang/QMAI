@@ -21,6 +21,8 @@ import {
   normalizeVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style-settings"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
+import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -525,13 +527,15 @@ interface WikiState {
   chatExpanded: boolean
   chatDockPosition: ChatDockPosition
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "dismantling" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
   activeSettingsCategory: SettingsCategoryId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
   selectedSoulSection: "builtIn" | "custom"
   selectedSkillLibrarySkillId: string | null
   skillLibraryDraftDirty: boolean
+  selectedWritingSkillLibrarySkillId: string | null
+  writingSkillLibraryDraftDirty: boolean
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
   selectedDismantlingProjectId: string | null
@@ -556,6 +560,7 @@ interface WikiState {
   /** Which preset is currently active. `null` = no LLM configured. */
   activePresetId: string | null
   searchApiConfig: SearchApiConfig
+  mcpConfig: McpConfig
   embeddingConfig: EmbeddingConfig
   rerankConfig: RerankConfig
   multimodalConfig: MultimodalConfig
@@ -565,6 +570,7 @@ interface WikiState {
   sourceWatchConfig: SourceWatchConfig
   novelMode: boolean
   chatEditModeEnabled: boolean
+  aiWorkflowMode: AiWorkflowMode
   /** 深度模式状态：跨视图切换保持开启 */
   deepChapterEnabled: boolean
   novelConfig: NovelConfig
@@ -602,6 +608,8 @@ interface WikiState {
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
   setSelectedSkillLibrarySkillId: (id: string | null) => void
   setSkillLibraryDraftDirty: (dirty: boolean) => void
+  setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
+  setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setSelectedDismantlingProjectId: (id: string | null) => void
@@ -623,6 +631,7 @@ interface WikiState {
   setProviderConfigs: (configs: ProviderConfigs) => void
   setActivePresetId: (id: string | null) => void
   setSearchApiConfig: (config: SearchApiConfig) => void
+  setMcpConfig: (mcpConfig: McpConfig) => void
   setEmbeddingConfig: (config: EmbeddingConfig) => void
   setRerankConfig: (config: Partial<RerankConfig>) => void
   setMultimodalConfig: (config: MultimodalConfig) => void
@@ -632,6 +641,7 @@ interface WikiState {
   setSourceWatchConfig: (sourceWatchConfig: SourceWatchConfig) => void
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
+  setAiWorkflowMode: (mode: AiWorkflowMode) => void
   setDeepChapterEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
@@ -672,6 +682,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedSoulSection: "builtIn",
   selectedSkillLibrarySkillId: null,
   skillLibraryDraftDirty: false,
+  selectedWritingSkillLibrarySkillId: null,
+  writingSkillLibraryDraftDirty: false,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
   selectedDismantlingProjectId: null,
@@ -732,9 +744,20 @@ export const useWikiStore = create<WikiState>((set) => ({
     ) {
       return {}
     }
+    if (
+      state.activeView === "writingSkillLibrary"
+      && activeView !== "writingSkillLibrary"
+      && state.writingSkillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
     return {
       activeView,
       skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
+      writingSkillLibraryDraftDirty: activeView === "writingSkillLibrary"
+        ? state.writingSkillLibraryDraftDirty
+        : false,
     }
   }),
   setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
@@ -750,6 +773,15 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setSkillLibraryDraftDirty: (skillLibraryDraftDirty) => set({ skillLibraryDraftDirty }),
+  setSelectedWritingSkillLibrarySkillId: (selectedWritingSkillLibrarySkillId) => set((state) => {
+    if (state.selectedWritingSkillLibrarySkillId === selectedWritingSkillLibrarySkillId) return {}
+    if (state.writingSkillLibraryDraftDirty && !confirmDiscardSkillLibraryDraft()) return {}
+    return {
+      selectedWritingSkillLibrarySkillId,
+      writingSkillLibraryDraftDirty: false,
+    }
+  }),
+  setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setSelectedDismantlingProjectId: (selectedDismantlingProjectId) => set({ selectedDismantlingProjectId }),
@@ -773,6 +805,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     searXngCategories: ["general"],
     providerConfigs: {},
   },
+  mcpConfig: DEFAULT_MCP_CONFIG,
 
   embeddingConfig: {
     enabled: false,
@@ -821,6 +854,7 @@ export const useWikiStore = create<WikiState>((set) => ({
 
   novelMode: true,
   chatEditModeEnabled: false,
+  aiWorkflowMode: "standard",
   deepChapterEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
@@ -847,6 +881,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setProviderConfigs: (providerConfigs) => set({ providerConfigs }),
   setActivePresetId: (activePresetId) => set({ activePresetId }),
   setSearchApiConfig: (searchApiConfig) => set({ searchApiConfig }),
+  setMcpConfig: (mcpConfig) => set({ mcpConfig }),
   setEmbeddingConfig: (embeddingConfig) => set({ embeddingConfig }),
   setRerankConfig: (rerankConfig) => set((state) => ({ rerankConfig: { ...state.rerankConfig, ...rerankConfig } })),
   setMultimodalConfig: (multimodalConfig) => set({ multimodalConfig }),
@@ -856,7 +891,14 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
-  setDeepChapterEnabled: (deepChapterEnabled) => set({ deepChapterEnabled }),
+  setAiWorkflowMode: (aiWorkflowMode) => set({
+    aiWorkflowMode,
+    deepChapterEnabled: aiWorkflowMode === "strict",
+  }),
+  setDeepChapterEnabled: (deepChapterEnabled) => set({
+    deepChapterEnabled,
+    aiWorkflowMode: deepChapterEnabled ? "strict" : "standard",
+  }),
   setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),

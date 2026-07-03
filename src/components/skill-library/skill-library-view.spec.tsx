@@ -114,6 +114,9 @@ describe("SkillLibraryView", () => {
     expect(container.querySelector('[data-testid="skill-library-view"]')).not.toBeNull()
     expect(container.textContent).toContain("综合去AI味")
     expect(container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')?.value).toBe("综合去AI味")
+    expect(container.textContent).toContain("类型：风格")
+    expect(container.textContent).toContain("阶段：改写、输出")
+    expect(container.textContent).toContain("模式：快速、标准、严格")
 
     cleanup(root, container)
   })

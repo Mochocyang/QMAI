@@ -166,7 +166,13 @@ describe("reference providers", () => {
   })
 
   it("creates skill and conversation history providers", async () => {
-    const skills = createSkillProvider(() => [{ id: "s1", name: "长标题".repeat(12) }])
+    const skills = createSkillProvider(() => [{
+      id: "s1",
+      name: "长标题".repeat(12),
+      kind: ["structure", "planning"],
+      stages: ["planning", "review"],
+      modes: ["standard", "strict"],
+    }])
     const chats = createChatHistoryProvider(() => [{ id: "c1", title: "对话一" }])
     const outlines = createOutlineHistoryProvider(() => [{ id: "o1", title: "大纲一" }])
 
@@ -175,6 +181,9 @@ describe("reference providers", () => {
         category: "skill",
         title: "长标题".repeat(12),
         skillId: "s1",
+        skillKinds: ["structure", "planning"],
+        skillStages: ["planning", "review"],
+        skillModes: ["standard", "strict"],
         displayTitle: "长标题长标题长标题长标题长标题长标题长标...",
       },
     ])

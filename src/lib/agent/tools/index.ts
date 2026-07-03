@@ -1,4 +1,5 @@
 import type { ToolRegistry } from "../registry"
+import type { Tool } from "../types"
 import { createReadChapterTool } from "./read-chapter"
 import { createReadOutlineTool } from "./read-outline"
 import { createReadMemoryTool } from "./read-memory"
@@ -14,13 +15,41 @@ import { createWriteChapterTool } from "./write-chapter"
 import { createWriteOutlineNodeTool } from "./write-outline-node"
 import { createWriteMemoryTool } from "./write-memory"
 import { createApplySkillTool } from "./apply-skill"
+  import { createWebSearchTool } from "./web-search"
+  import { createReadWebPageTool } from "./read-web-page"
+  import { createSummarizeSearchResultsTool } from "./summarize-search-results"
+  import { createRouteTaskTool } from "./route-task"
+import { createLoadContextTool } from "./load-context"
+import { createTrimContextTool } from "./trim-context"
 import type { DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
+import type { UserSkill } from "@/lib/novel/skill-library"
+import type { SearchApiConfig } from "@/stores/wiki-store"
+import type { TaskRouteResult } from "@/lib/novel/task-router"
+import type { ContextPack } from "@/lib/novel/context-engine"
+
+export interface VirtualToolContext {
+  userMessage: string
+  projectPath: string
+  taskRoute?: TaskRouteResult
+  contextPack?: ContextPack
+  targetChars?: number
+}
 
 export interface ToolFactoryOptions {
   wikiPath: string
   getSkillConfig: () => DeAiSkillConfig | null
+  getUserSkills?: () => UserSkill[] | null
+  getSearchApiConfig?: () => SearchApiConfig | null
   getChatConversations: () => { id: string; title: string; messages: { role: string; content: string }[] }[]
   getOutlineConversations: () => { id: string; title: string; messages: { role: string; content: string }[] }[]
+  virtualToolContext?: VirtualToolContext
+  mcpTools?: Tool[]
+  draftMode?: boolean
+  projectPath?: string
+  sourceConversationId?: string
+  sourceMessageId?: string
+  enabledToolNames?: string[]
+  disabledTools?: string[]
 }
 
 export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFactoryOptions): void {
@@ -28,20 +57,48 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
   const memoryDir = `${options.wikiPath}/memory`
   const outlinesDir = `${options.wikiPath}/outlines`
   const simDir = `${options.wikiPath}/../.qmai/simulations`
+  const disabledTools = new Set(options.disabledTools ?? [])
+  const enabledToolNames = options.enabledToolNames ? new Set(options.enabledToolNames) : null
+  const shouldRegister = (name: string) =>
+    !disabledTools.has(name) && (!enabledToolNames || enabledToolNames.has(name))
 
-  registry.register(createReadChapterTool(chaptersDir))
-  registry.register(createReadOutlineTool(outlinesDir))
-  registry.register(createReadMemoryTool(memoryDir))
-  registry.register(createReadDeductionTool(simDir))
-  registry.register(createReadChatHistoryTool(options.getChatConversations()))
-  registry.register(createReadOutlineHistoryTool(options.getOutlineConversations()))
-  registry.register(createSearchChaptersTool(chaptersDir))
-  registry.register(createListChaptersTool(chaptersDir))
-  registry.register(createListOutlinesTool(outlinesDir))
-  registry.register(createListMemoriesTool(memoryDir))
-  registry.register(createListDeductionsTool(simDir))
-  registry.register(createWriteChapterTool(chaptersDir))
-  registry.register(createWriteOutlineNodeTool(outlinesDir))
-  registry.register(createWriteMemoryTool(memoryDir))
-  registry.register(createApplySkillTool(options.getSkillConfig))
+  if (shouldRegister("read_chapter")) registry.register(createReadChapterTool(chaptersDir))
+  if (shouldRegister("read_outline")) registry.register(createReadOutlineTool(outlinesDir))
+  if (shouldRegister("read_memory")) registry.register(createReadMemoryTool(memoryDir))
+  if (shouldRegister("read_deduction")) registry.register(createReadDeductionTool(simDir))
+  if (shouldRegister("read_chat_history")) registry.register(createReadChatHistoryTool(options.getChatConversations()))
+  if (shouldRegister("read_outline_history")) registry.register(createReadOutlineHistoryTool(options.getOutlineConversations()))
+  if (shouldRegister("search_chapters")) registry.register(createSearchChaptersTool(chaptersDir))
+  if (shouldRegister("list_chapters")) registry.register(createListChaptersTool(chaptersDir))
+  if (shouldRegister("list_outlines")) registry.register(createListOutlinesTool(outlinesDir))
+  if (shouldRegister("list_memories")) registry.register(createListMemoriesTool(memoryDir))
+  if (shouldRegister("list_deductions")) registry.register(createListDeductionsTool(simDir))
+  if (shouldRegister("write_chapter")) {
+    registry.register(createWriteChapterTool(chaptersDir, {
+      draftMode: options.draftMode,
+      projectPath: options.projectPath,
+      sourceConversationId: options.sourceConversationId,
+      sourceMessageId: options.sourceMessageId,
+    }))
+  }
+  if (shouldRegister("write_outline_node")) registry.register(createWriteOutlineNodeTool(outlinesDir))
+  if (shouldRegister("write_memory")) registry.register(createWriteMemoryTool(memoryDir))
+  if (shouldRegister("apply_skill")) registry.register(createApplySkillTool(options.getSkillConfig, options.getUserSkills))
+  if (shouldRegister("web_search")) registry.register(createWebSearchTool(options.getSearchApiConfig))
+  if (shouldRegister("read_web_page")) registry.register(createReadWebPageTool())
+  if (shouldRegister("summarize_search_results")) registry.register(createSummarizeSearchResultsTool())
+  for (const tool of options.mcpTools ?? []) {
+    if (shouldRegister(tool.name)) registry.register(tool)
+  }
+
+  if (options.virtualToolContext) {
+    const vtc = options.virtualToolContext
+    if (shouldRegister("route_task")) registry.register(createRouteTaskTool(vtc.userMessage))
+    if (vtc.taskRoute && shouldRegister("load_context")) {
+      registry.register(createLoadContextTool(vtc.projectPath, vtc.userMessage, vtc.taskRoute))
+    }
+    if (vtc.contextPack && shouldRegister("trim_context")) {
+      registry.register(createTrimContextTool(vtc.contextPack, vtc.targetChars ?? 8000))
+    }
+  }
 }

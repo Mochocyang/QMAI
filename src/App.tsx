@@ -5,7 +5,7 @@ import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject, fileExists } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { checkForAppUpdate } from "@/lib/app-updater"
@@ -166,6 +166,8 @@ function App() {
         if (savedEmbeddingConfig) {
           useWikiStore.getState().setEmbeddingConfig(savedEmbeddingConfig)
         }
+        const savedMcpConfig = await loadMcpConfig()
+        useWikiStore.getState().setMcpConfig(savedMcpConfig)
         const savedProxy = await loadProxyConfig()
         if (savedProxy) {
           useWikiStore.getState().setProxyConfig(savedProxy)

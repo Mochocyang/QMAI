@@ -1,3 +1,5 @@
+import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
+
 export type ReferenceCategory =
   | "chapter"
   | "memory"
@@ -15,6 +17,10 @@ export interface ReferenceToken {
   path?: string
   /** 技能时存 skillId */
   skillId?: string
+  /** 技能类型、阶段和适用模式 */
+  skillKinds?: SkillKind[]
+  skillStages?: SkillStage[]
+  skillModes?: SkillMode[]
   /** 对话时存 conversationId */
   conversationId?: string
   /** 芯片显示用的截断标题 */

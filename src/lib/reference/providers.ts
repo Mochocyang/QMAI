@@ -1,5 +1,6 @@
 import { listDirectory, readFile } from "@/commands/fs"
 import type { ReferenceCategory, ReferenceToken } from "./types"
+import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
 
 type ReferenceFileNode = {
   name: string
@@ -16,6 +17,9 @@ export interface ReferenceProvider {
 interface SkillSummary {
   id: string
   name: string
+  kind?: SkillKind[]
+  stages?: SkillStage[]
+  modes?: SkillMode[]
 }
 
 interface ConversationSummary {
@@ -272,6 +276,9 @@ export function createSkillProvider(getSkills: () => SkillSummary[]): ReferenceP
         category: "skill" as const,
         title: skill.name,
         skillId: skill.id,
+        skillKinds: skill.kind,
+        skillStages: skill.stages,
+        skillModes: skill.modes,
         displayTitle: truncateTitle(skill.name),
       })),
   }
