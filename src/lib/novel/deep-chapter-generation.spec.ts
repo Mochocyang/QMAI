@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
-import type { LlmConfig } from "@/stores/wiki-store"
-import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
+import { DEFAULT_NOVEL_CONFIG, useWikiStore, type LlmConfig } from "@/stores/wiki-store"
+import type { AgentActivityEvent } from "@/lib/agent/types"
+import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import type { NovelReviewResult } from "./review-adapter"
 import {
@@ -143,12 +144,12 @@ describe("runDeepChapterGeneration", () => {
     expect(finalPolishPrompt).toContain("不要按非虚构文章规则硬删副词")
   })
 
-  it("only enables deep generation for write-chapter routes when the switch is on", () => {
-    expect(shouldUseDeepChapterGeneration({ intent: "write_chapter", confidence: 1, extractedParams: {} }, true)).toBe(true)
-    expect(shouldUseDeepChapterGeneration({ intent: "continue_chapter", confidence: 1, extractedParams: {} }, true)).toBe(true)
-    expect(shouldUseDeepChapterGeneration({ intent: "write_chapter", confidence: 1, extractedParams: {} }, false)).toBe(false)
-    expect(shouldUseDeepChapterGeneration({ intent: "general_chat", confidence: 1, extractedParams: {} }, true)).toBe(true)
-    expect(shouldUseDeepChapterGeneration(null, true)).toBe(true)
+  it("enables the multi-task generation loop for all chapter writing routes", () => {
+    expect(shouldUseDeepChapterGeneration({ intent: "write_chapter", confidence: 1, extractedParams: {} }, false)).toBe(true)
+    expect(shouldUseDeepChapterGeneration({ intent: "continue_chapter", confidence: 1, extractedParams: {} }, false)).toBe(true)
+    expect(shouldUseDeepChapterGeneration({ intent: "rewrite_chapter", confidence: 1, extractedParams: {} }, false)).toBe(true)
+    expect(shouldUseDeepChapterGeneration({ intent: "general_chat", confidence: 1, extractedParams: {} }, true)).toBe(false)
+    expect(shouldUseDeepChapterGeneration(null, true)).toBe(false)
   })
 
   it("publishes stage results into thinking and returns the final simple review result when review passes", async () => {
@@ -169,6 +170,28 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("阶段4：AI审稿")
     expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
     expect(thinking.join("\n")).toContain("未发现阻断问题")
+  })
+
+  it("emits structured activity events for context extraction and stage outputs", async () => {
+    const deps = createDeps()
+    const activityEvents: AgentActivityEvent[] = []
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "fast",
+      },
+      { onActivityEvent: (event) => activityEvents.push(event) },
+      deps,
+    )
+
+    expect(activityEvents.some((event) => event.kind === "read_source" && event.content.includes("上一章结尾"))).toBe(true)
+    expect(activityEvents.some((event) => event.kind === "extract_goal" && event.content.includes("上一章结尾"))).toBe(true)
+    expect(activityEvents.some((event) => event.kind === "extract_result" && event.content.includes("门缝里传来金属拖拽声"))).toBe(true)
+    expect(activityEvents.some((event) => event.kind === "stage_output" && event.content.includes("任务书"))).toBe(true)
   })
 
   it("injects the enabled writing style into the stage 3 draft prompt", async () => {
@@ -201,6 +224,210 @@ describe("runDeepChapterGeneration", () => {
 
     expect(capturedPrompts[1]).toContain("目标文风来源：《长夜书》")
     expect(capturedPrompts[1]).toContain("冷峻克制")
+  })
+
+  it("does not pass app-side max_tokens limits to deep chapter model calls", async () => {
+    const deps = createDeps()
+    const overrides: Array<RequestOverrides | undefined> = []
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+      _signal,
+      requestOverrides,
+    ) => {
+      overrides.push(requestOverrides)
+      const prompt = messagesPromptText(messages)
+      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+        ? chapterText("最终无上限正文", 3000)
+        : prompt.includes("返修")
+          ? chapterText("返修无上限正文", 3000)
+          : prompt.includes("正文")
+            ? chapterText("初稿无上限正文", 3000)
+            : "写作任务书内容"
+      callbacks.onToken(content)
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+    )
+
+    expect(overrides.length).toBeGreaterThan(0)
+    expect(overrides.every((item) => item?.max_tokens === undefined)).toBe(true)
+  })
+
+  it("preserves configured model reasoning for chapter generation calls", async () => {
+    const deps = createDeps()
+    const overrides: Array<RequestOverrides | undefined> = []
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+      _signal,
+      requestOverrides,
+    ) => {
+      overrides.push(requestOverrides)
+      const prompt = messagesPromptText(messages)
+      callbacks.onToken(prompt.includes("正文") ? chapterText("保留推理正文", 3000) : "写作任务书内容")
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+    )
+
+    expect(overrides.length).toBeGreaterThan(0)
+    expect(overrides.every((item) => item?.reasoning === undefined)).toBe(true)
+  })
+
+  it("retries the current chapter generation stage with reasoning disabled after reasoning-only output", async () => {
+    const deps = createDeps()
+    const overrides: Array<RequestOverrides | undefined> = []
+    let callCount = 0
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+      _signal,
+      requestOverrides,
+    ) => {
+      callCount += 1
+      overrides.push(requestOverrides)
+      if (callCount === 1) {
+        callbacks.onReasoningToken?.("思考".repeat(160))
+        callbacks.onError(new Error("模型只输出了 543 字符的思考内容，但没有输出正文。"))
+        return
+      }
+
+      const prompt = messagesPromptText(messages)
+      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+        ? chapterText("最终兜底正文", 3000)
+        : prompt.includes("返修")
+          ? chapterText("返修兜底正文", 3000)
+          : prompt.includes("正文")
+            ? chapterText("初稿兜底正文", 3000)
+            : "写作任务书内容"
+      callbacks.onToken(content)
+      callbacks.onDone()
+    })
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+    )
+
+    expect(result.finalContent).toContain("最终兜底正文")
+    expect(overrides[0]?.reasoning).toBeUndefined()
+    expect(overrides[1]).toEqual({ reasoning: { mode: "off" } })
+  })
+
+  it("uses the same task loop with different workflow strength for fast standard and strict modes", async () => {
+    const fastDeps = createDeps()
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
+      {},
+      fastDeps,
+    )
+    expect(fastDeps.streamChat).toHaveBeenCalledTimes(2)
+    expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
+
+    const standardDeps = createDeps()
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
+      {},
+      standardDeps,
+    )
+    expect(standardDeps.streamChat).toHaveBeenCalledTimes(3)
+    expect(standardDeps.reviewChapter).not.toHaveBeenCalled()
+
+    const strictDeps = createDeps()
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      {},
+      strictDeps,
+    )
+    expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
+    expect(strictDeps.reviewChapter).toHaveBeenCalled()
+  })
+
+  it("keeps AI review mandatory in strict mode even when the global deep chapter review switch is off", async () => {
+    const previousNovelConfig = useWikiStore.getState().novelConfig
+    useWikiStore.setState({
+      novelConfig: {
+        ...DEFAULT_NOVEL_CONFIG,
+        ...previousNovelConfig,
+        deepChapterReview: false,
+      },
+    })
+    try {
+      const deps = createDeps()
+      const events: Array<{ name: string; result?: string }> = []
+
+      await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+        { onWorkflowEvent: (event) => events.push(event) },
+        deps,
+      )
+
+      expect(deps.reviewChapter).toHaveBeenCalled()
+      expect(events.find((event) => event.name === "chapter_review" && event.result)?.result).toContain("AI 审稿完成")
+    } finally {
+      useWikiStore.setState({ novelConfig: previousNovelConfig })
+    }
+  })
+
+  it("emits visible workflow events for the chapter multi-task loop", async () => {
+    const deps = createDeps()
+    const events: Array<{ type: string; id: string; name: string; title: string; result?: string }> = []
+
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )
+
+    const eventKeys = events.map((event) => `${event.type}:${event.name}`)
+    expect(eventKeys).toEqual(expect.arrayContaining([
+      "started:chapter_context",
+      "completed:chapter_context",
+      "started:chapter_task_brief",
+      "completed:chapter_task_brief",
+      "started:chapter_draft",
+      "completed:chapter_draft",
+      "started:chapter_review",
+      "completed:chapter_review",
+      "started:chapter_final_polish",
+      "completed:chapter_final_polish",
+      "completed:chapter_complete",
+    ]))
+    expect(events.find((event) => event.name === "chapter_task_brief")?.title).toBe("生成写作任务书")
+    expect(events.find((event) => event.name === "chapter_complete")?.result).toContain("多任务写作循环完成")
+  })
+
+  it("keeps fast and standard workflow visibility aligned with their skipped stages", async () => {
+    const fastEvents: Array<{ name: string; result?: string }> = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
+      { onWorkflowEvent: (event) => fastEvents.push(event) },
+      createDeps(),
+    )
+    expect(fastEvents.find((event) => event.name === "chapter_review")?.result).toContain("快速模式跳过")
+    expect(fastEvents.find((event) => event.name === "chapter_final_polish")?.result).toContain("快速模式跳过")
+
+    const standardEvents: Array<{ name: string; result?: string }> = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
+      { onWorkflowEvent: (event) => standardEvents.push(event) },
+      createDeps(),
+    )
+    expect(standardEvents.find((event) => event.name === "chapter_review")?.result).toContain("标准模式跳过")
+    expect(standardEvents.find((event) => event.name === "chapter_final_polish" && event.result)?.result).toContain("简单审查与去AI味完成")
   })
 
   it("shows a visible golden-three hint in thinking when generating the first chapter", async () => {

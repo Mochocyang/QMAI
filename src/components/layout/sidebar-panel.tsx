@@ -24,9 +24,10 @@ import { SoulSidebarPanel } from "./soul-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 import { FrameworkList } from "@/components/novel/story-simulation/framework-list"
-import { SkillLibrarySidebarPanel } from "@/components/skill-library/skill-library-view"
+import { UnifiedSkillLibrarySidebarPanel } from "@/components/skill-library/unified-skill-library-view"
 
 import { useWikiStore } from "@/stores/wiki-store"
+import { useChatStore } from "@/stores/chat-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { loadFrameworks, loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
@@ -67,6 +68,7 @@ import {
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
+import type { ReferenceToken } from "@/lib/reference/types"
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
@@ -673,6 +675,8 @@ export function SidebarPanel() {
   const setSelectedMemoryCenterEntry = useWikiStore((s) => s.setSelectedMemoryCenterEntry)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileTree = useWikiStore((s) => s.setFileTree)
+  const setChatExpanded = useWikiStore((s) => s.setChatExpanded)
+  const enqueueReferenceTokens = useChatStore((s) => s.enqueueReferenceTokens)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
@@ -1210,6 +1214,11 @@ export function SidebarPanel() {
     setInputTitle("")
   }
 
+  const handleSendChapterToChat = useCallback((token: ReferenceToken) => {
+    enqueueReferenceTokens([token])
+    setChatExpanded(true)
+  }, [enqueueReferenceTokens, setChatExpanded])
+
   const inputPlaceholder = pendingCreate?.kind === "outline"
     ? t("sidebar.newOutlinePrompt")
     : pendingCreate?.kind === "volume"
@@ -1273,8 +1282,8 @@ export function SidebarPanel() {
     return <SoulSidebarPanel />
   }
 
-  if (activeView === "skillLibrary") {
-    return <SkillLibrarySidebarPanel />
+  if (activeView === "skillLibrary" || activeView === "writingSkillLibrary") {
+    return <UnifiedSkillLibrarySidebarPanel />
   }
 
   if (activeView === "reviewCenter") {
@@ -1527,6 +1536,7 @@ export function SidebarPanel() {
           pendingPages={pendingPages.filter((page) => page.type === (isChapter ? "chapter" : "outline"))}
           onRemovePendingPage={handleRemovePendingPage}
           onRequestCreate={beginCreate}
+          onSendToChat={isChapter ? handleSendChapterToChat : undefined}
         />
       </div>
       <div className="border-t px-3 py-2">

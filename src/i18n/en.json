@@ -222,6 +222,7 @@
     "lint": "Check",
     "soul": "Soul",
     "skillLibrary": "Skill Library",
+    "writingSkillLibrary": "Writing Skill",
     "reviewCenter": "Review Center",
     "dismantling": "Dismantling",
     "settings": "Settings",
@@ -686,6 +687,7 @@
       "multimodal": "Multimodal",
       "webSearch": "Web Search",
       "network": "Network",
+      "mcp": "MCP Tools",
       "sourceWatch": "Source Watch",
       "scheduledImport": "Scheduled Import",
       "output": "Output",
@@ -697,7 +699,8 @@
       "contactSupport": "Contact & Support",
       "changelog": "Changelog",
       "dataManagement": "Data Management",
-      "about": "About"
+      "about": "About",
+      "classification": "Intent Routing"
     },
     "sections": {
       "shared": {
@@ -956,6 +959,25 @@
         "bypassLocal": "Bypass proxy for local addresses (recommended)",
         "bypassLocalHelp": "Requests to localhost, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, and *.local do not go through the proxy."
       },
+      "mcp": {
+        "title": "MCP Tools",
+        "description": "Configure MCP tool descriptors visible to AI chat. This stage saves config and runs local validation; it does not start external MCP processes.",
+        "addSample": "Add sample graph MCP",
+        "summary": "{{servers}} MCP servers configured, {{tools}} tools enabled, {{capabilities}} AI capabilities available.",
+        "saved": "Saved",
+        "warnings": "Runtime warnings",
+        "empty": "No MCP servers yet. Add the sample graph MCP, then edit the descriptors for your service.",
+        "enable": "Enable MCP server",
+        "disable": "Disable MCP server",
+        "delete": "Delete MCP server",
+        "deleteConfirm": "Delete this MCP server?",
+        "serverId": "Server ID",
+        "serverName": "Server name",
+        "toolsJson": "Tool descriptor JSON",
+        "toolsJsonHint": "Enter an array of MCP tool descriptors. Delete and overwrite tools are blocked at runtime.",
+        "invalidJson": "Invalid tool descriptor JSON",
+        "invalidTools": "Tool descriptors must be an MCP tool array"
+      },
       "output": {
         "title": "Output Preferences",
         "description": "Controls generation language, chat history length, and related output behavior.",
@@ -966,14 +988,14 @@
         "historyCurrent": "Currently {{count}} messages (about {{turns}} turns)"
       },
       "interface": {
-      "title": "Interface",
-      "description": "Interface language and visual presentation settings.",
-      "uiLanguage": "UI language",
-      "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output.",
-      "sidebarNavTitle": "Left Feature Bar",
-      "sidebarNavDescription": "Select the features shown on the left. Unselected features are hidden from the bar.",
-      "sidebarNavOrderHint": "Long-press and drag icons in the left feature bar to change their order."
-    },
+        "title": "Interface",
+        "description": "Interface language and visual presentation settings.",
+        "uiLanguage": "UI language",
+        "uiLanguageHint": "Only affects menus, labels, and other interface text. AI output language is configured separately under Output.",
+        "sidebarNavTitle": "Left Feature Bar",
+        "sidebarNavDescription": "Select the features shown on the left. Unselected features are hidden from the bar.",
+        "sidebarNavOrderHint": "Long-press and drag icons in the left feature bar to change their order."
+      },
       "dataManagement": {
         "title": "Data Management",
         "description": "Backup and restore all your data, including model configs, AI chats, novel content, outlines, memory, book analysis results, etc.",
@@ -1055,6 +1077,10 @@
           "merged": "Merged",
           "skipped": "Marked as Not Duplicates"
         }
+      },
+      "classification": {
+        "title": "Intent Routing Configuration",
+        "description": "Manage classification routing to control AI session data source loading"
       }
     }
   },
@@ -1124,6 +1150,7 @@
       "lint": "Memory Center",
       "soul": "Soul",
       "skillLibrary": "Skill Library",
+      "writingSkillLibrary": "Writing Skill",
       "reviewCenter": "Review Center",
       "storySimulation": "Story Simulation",
       "dismantling": "Dismantling",
@@ -1816,5 +1843,31 @@
     "stateChanges": "State Changes",
     "summary": "Summary",
     "recommended": "Recommended"
+  },
+  "classification": {
+    "title": "Intent Routing Configuration",
+    "description": "Manage classification routing to control AI session data source loading",
+    "noProject": "Please open a project first",
+    "checking": "Checking status...",
+    "notFound": "classification.md not found",
+    "valid": "classification.md configuration is valid",
+    "needsUpgrade": "Configuration version is outdated, upgrade recommended",
+    "error": "Load failed",
+    "create": "Create Default Config",
+    "created": "Default classification.md created",
+    "createError": "Creation failed",
+    "upgrade": "Upgrade Config Version",
+    "upgraded": "Upgraded to latest version",
+    "upgradeError": "Upgrade failed",
+    "refresh": "Recheck",
+    "faq": "FAQ",
+    "editorHint": "Format is checked before saving",
+    "save": "Save",
+    "saved": "classification.md saved",
+    "saveError": "Save failed",
+    "saveInvalid": "Invalid format: keep the auto-generated route block and at least one valid route rule",
+    "restoreDefault": "Restore Default",
+    "restored": "Default classification.md restored",
+    "restoreError": "Restore failed"
   }
 }

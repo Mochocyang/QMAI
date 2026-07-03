@@ -1,0 +1,375 @@
+// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { AgentToolCallMessage, getToolCallDescription } from "./agent-tool-call-message"
+import type { AgentRunRecord } from "@/lib/agent/types"
+
+type ToolCallRecord = AgentRunRecord["toolCalls"][number]
+
+let host: HTMLDivElement
+let root: Root
+
+const sampleCalls: ToolCallRecord[] = [
+  {
+    id: "call-1",
+    name: "read_chapter",
+    params: { name: "第1章-开篇" },
+    result: "第一章内容",
+    status: "done",
+    startedAt: 0,
+    finishedAt: 120,
+  },
+  {
+    id: "call-2",
+    name: "read_memory",
+    params: { name: "主角档案" },
+    result: "主角名为李明。",
+    status: "done",
+    startedAt: 160,
+    finishedAt: 190,
+  },
+  {
+    id: "call-3",
+    name: "write_memory",
+    params: { name: "写入资料", content: "主角名为李明。" },
+    result: "已写入记忆「写入资料」",
+    status: "done",
+    startedAt: 200,
+    finishedAt: 350,
+  },
+  {
+    id: "call-4",
+    name: "apply_skill",
+    params: { skillName: "去AI味" },
+    result: "技能模板内容",
+    status: "done",
+    startedAt: 400,
+    finishedAt: 500,
+  },
+  {
+    id: "call-5",
+    name: "search_chapters",
+    params: { keyword: "李明" },
+    result: "错误：搜索失败",
+    status: "error",
+    startedAt: 600,
+    finishedAt: 650,
+  },
+]
+
+beforeEach(() => {
+  host = document.createElement("div")
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+
+afterEach(() => {
+  act(() => {
+    root.unmount()
+  })
+  host.remove()
+})
+
+describe("AgentToolCallMessage", () => {
+  it("renders lightweight workflow stages and keeps raw tool details collapsed", async () => {
+    await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={sampleCalls} />)
+    })
+
+    expect(host.textContent).toContain("思考过程")
+    expect(host.textContent).toContain("任务理解")
+    expect(host.textContent).toContain("使用技能")
+    expect(host.textContent).toContain("上下文准备")
+    expect(host.textContent).toContain("工具调用")
+    expect(host.textContent).toContain("思考与决策")
+    expect(host.textContent).toContain("生成与校验")
+    expect(host.textContent).toContain("工具详情")
+    expect(host.textContent).not.toContain("read_chapter")
+    expect(host.textContent).not.toContain("read_memory")
+    expect(host.textContent).not.toContain("write_memory")
+    expect(host.textContent).not.toContain("写入资料")
+    expect(host.textContent).not.toContain("apply_skill")
+    expect(host.textContent).not.toContain("去AI味")
+
+    const contextButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("上下文准备"))
+    expect(contextButton).not.toBeUndefined()
+
+    await act(async () => {
+      contextButton?.click()
+    })
+
+    expect(host.textContent).toContain("读取章节《第1章-开篇》")
+    expect(host.textContent).toContain("读取记忆「主角档案」")
+    expect(host.textContent).toContain("搜索章节关键词「李明」")
+
+    const detailsButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("工具详情"))
+    expect(detailsButton).not.toBeUndefined()
+
+    await act(async () => {
+      detailsButton?.click()
+    })
+
+    expect(host.textContent).toContain("read_chapter")
+    expect(host.textContent).toContain("读取章节《第1章-开篇》")
+    expect(host.textContent).toContain("read_memory")
+    expect(host.textContent).toContain("读取记忆「主角档案」")
+    expect(host.textContent).toContain("write_memory")
+    expect(host.textContent).toContain("写入记忆「写入资料」")
+    expect(host.textContent).toContain("apply_skill")
+    expect(host.textContent).toContain("应用技能「去AI味」")
+  })
+
+  it("shows error style and icon for failed tool calls", async () => {
+    await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={[sampleCalls[4]]} />)
+    })
+
+    expect(host.textContent).toContain("失败")
+    const html = host.innerHTML
+    expect(html).toContain("text-red-600")
+  })
+
+  it("shows approval-required tool calls as pending confirmation", async () => {
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "call-approval",
+              name: "write_chapter",
+              params: { name: "第1章", content: "正文" },
+              result: "写入工具需要用户确认后才能执行。",
+              status: "approval_required",
+              startedAt: 100,
+              finishedAt: 100,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(host.textContent).toContain("待确认")
+    expect(host.textContent).toContain("判断本轮涉及写入，必须等待用户确认后才能保存")
+    expect(host.textContent).not.toContain("write_chapter")
+    expect(host.textContent).not.toContain("写入章节《第1章》")
+
+    const detailsButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("工具详情"))
+    expect(detailsButton).not.toBeUndefined()
+
+    await act(async () => {
+      detailsButton?.click()
+    })
+
+    expect(host.textContent).toContain("待确认")
+    expect(host.textContent).toContain("写入章节《第1章》")
+  })
+
+  it("shows a user-facing thinking process before raw tool details", async () => {
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "route-1",
+              name: "route_task",
+              params: { userMessage: "生成第18章" },
+              result: JSON.stringify({ intent: "write_chapter", confidence: 0.92, chapterNumber: 18 }),
+              status: "done",
+              startedAt: 0,
+              finishedAt: 40,
+            },
+            {
+              id: "outline-1",
+              name: "read_outline",
+              params: { name: "总大纲" },
+              result: "大纲内容",
+              status: "done",
+              startedAt: 50,
+              finishedAt: 90,
+            },
+            {
+              id: "write-1",
+              name: "write_chapter",
+              params: { name: "chapter-018", content: "正文".repeat(100) },
+              result: "写入工具需要用户确认后才能执行。",
+              status: "approval_required",
+              startedAt: 100,
+              finishedAt: 100,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(host.textContent).toContain("思考过程")
+    expect(host.textContent).toContain("任务理解")
+    expect(host.textContent).toContain("上下文准备")
+    expect(host.textContent).toContain("待确认")
+    expect(host.textContent).toContain("工具详情")
+    expect(host.textContent).not.toContain("AI 工具调用")
+    expect(host.textContent).not.toContain("read_outline")
+    expect(host.textContent).not.toContain("write_chapter")
+
+    const detailsButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("工具详情"))
+    expect(detailsButton).not.toBeUndefined()
+
+    await act(async () => {
+      detailsButton?.click()
+    })
+
+    expect(host.textContent).toContain("AI 工具调用")
+  })
+
+  it("returns null when toolCalls is empty or undefined", async () => {
+    await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={[]} />)
+    })
+    expect(host.textContent).toBe("")
+
+    host.innerHTML = ""
+    await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={undefined} />)
+    })
+    expect(host.textContent).toBe("")
+  })
+
+  it("keeps hook order stable when tool calls arrive after an empty render", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await act(async () => {
+        root.render(<AgentToolCallMessage toolCalls={[]} />)
+      })
+
+      await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={[sampleCalls[0]]} />)
+    })
+
+    expect(host.textContent).toContain("上下文准备")
+    expect(host.textContent).not.toContain("read_chapter")
+    expect(errorSpy.mock.calls.flat().join("\n")).not.toContain("change in the order of Hooks")
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it("opens the currently running stage by default", async () => {
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "running-read",
+              name: "read_chapter",
+              params: { name: "chapter-017" },
+              result: "",
+              status: "running",
+              startedAt: 100,
+              finishedAt: 100,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(host.textContent).toContain("正在读取章节《chapter-017》")
+  })
+
+  it("does not use the old blue card-list wrapper for workflow steps", () => {
+    const source = readFileSync(resolve(__dirname, "agent-workflow-panel.tsx"), "utf8")
+
+    expect(source).toContain("border-l border-border/80")
+    expect(source).toContain("before:bg-border/80")
+    expect(source).not.toContain("border-l-4 border-blue-500")
+    expect(source).not.toContain("bg-blue-50/50")
+    expect(source).not.toContain("border-blue-200/70 bg-white/50")
+  })
+
+  it("expands and collapses result on row click", async () => {
+    await act(async () => {
+      root.render(<AgentToolCallMessage toolCalls={[sampleCalls[0]]} />)
+    })
+
+    const detailsButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("工具详情"))
+    expect(detailsButton).not.toBeUndefined()
+
+    await act(async () => {
+      detailsButton?.click()
+    })
+
+    const expandButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("read_chapter"))
+    expect(expandButton).not.toBeNull()
+    expect(expandButton?.getAttribute("aria-expanded")).toBe("false")
+    expect(host.textContent).not.toContain("第一章内容")
+
+    await act(async () => {
+      expandButton?.click()
+    })
+
+    expect(expandButton?.getAttribute("aria-expanded")).toBe("true")
+    expect(host.textContent).toContain("第一章内容")
+
+    await act(async () => {
+      expandButton?.click()
+    })
+
+    expect(expandButton?.getAttribute("aria-expanded")).toBe("false")
+    expect(host.textContent).not.toContain("第一章内容")
+  })
+})
+
+describe("getToolCallDescription", () => {
+  it("covers all registered built-in tool names", () => {
+    const names = [
+      "read_chapter",
+      "read_outline",
+      "read_memory",
+      "read_deduction",
+      "read_chat_history",
+      "read_outline_history",
+      "search_chapters",
+      "list_chapters",
+      "list_outlines",
+      "list_memories",
+      "list_deductions",
+      "write_chapter",
+      "write_outline_node",
+      "write_memory",
+      "apply_skill",
+    ] as const
+
+    for (const name of names) {
+      const desc = getToolCallDescription(name, { name: "测试", keyword: "测试", skillName: "测试" })
+      expect(desc).not.toBe(name)
+      expect(desc.length).toBeGreaterThan(0)
+    }
+  })
+
+  it("falls back to tool name for unknown tools", () => {
+    expect(getToolCallDescription("unknown_tool", {})).toBe("unknown_tool")
+  })
+})
+
+describe("tool call timeline layout", () => {
+  it("wraps tool rows so long tool names and descriptions do not squeeze the chat panel", () => {
+    const source = readFileSync(resolve(__dirname, "tool-call-timeline.tsx"), "utf8")
+
+    expect(source).toContain("max-w-full overflow-hidden")
+    expect(source).toContain("grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto]")
+    expect(source).toContain("w-full max-w-full min-w-0")
+    expect(source).toContain("break-words")
+    expect(source).toContain("overflow-x-hidden")
+    expect(source).not.toContain("overflow-x-auto")
+    expect(source).not.toContain('className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"')
+    expect(source).not.toContain('className="min-w-0 flex-1 truncate text-muted-foreground"')
+  })
+})

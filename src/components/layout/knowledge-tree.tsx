@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, Pencil, Plus, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { saveLastReadChapter } from "@/lib/project-store"
+import type { ReferenceToken } from "@/lib/reference/types"
 
 interface WikiPageInfo {
   path: string
@@ -39,6 +40,8 @@ interface KnowledgeTreeProps {
   pendingPages?: WikiPageInfo[]
   onRemovePendingPage?: (pagePath: string) => void
   onRequestCreate?: (request: KnowledgeCreateRequest) => void
+  onSendToChat?: (token: ReferenceToken) => void
+  onSendToOutline?: (token: ReferenceToken) => void
 }
 
 interface CreateMenuState {
@@ -108,6 +111,20 @@ function getDirName(path: string): string {
   const normalized = normalizePath(path)
   const index = normalized.lastIndexOf("/")
   return index >= 0 ? normalized.slice(0, index) : ""
+}
+
+function truncateReferenceTitle(title: string, maxLen = 20): string {
+  return title.length > maxLen ? `${title.slice(0, maxLen)}...` : title
+}
+
+function createChapterReferenceToken(page: WikiPageInfo): ReferenceToken {
+  return {
+    id: globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2),
+    category: "chapter",
+    title: page.title,
+    path: page.path,
+    displayTitle: truncateReferenceTitle(page.title),
+  }
 }
 
 async function getUniquePagePath(dir: string, fileName: string, excludePath?: string): Promise<string> {
@@ -261,6 +278,8 @@ export function KnowledgeTree({
   pendingPages = [],
   onRemovePendingPage,
   onRequestCreate,
+  onSendToChat,
+  onSendToOutline,
 }: KnowledgeTreeProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -1392,6 +1411,38 @@ export function KnowledgeTree({
               <FolderOpen className="h-4 w-4" />
               打开文件所在位置
             </button>
+            {filterType === "chapter" && (onSendToChat || onSendToOutline) && (
+              <div className="mt-1 border-t pt-1">
+                {onSendToChat && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                    onClick={() => {
+                      const target = pageInfoByPath.get(pageMenu.path)
+                      if (target) onSendToChat(createChapterReferenceToken(target))
+                      setPageMenu(null)
+                    }}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    发送到AI会话
+                  </button>
+                )}
+                {onSendToOutline && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                    onClick={() => {
+                      const target = pageInfoByPath.get(pageMenu.path)
+                      if (target) onSendToOutline(createChapterReferenceToken(target))
+                      setPageMenu(null)
+                    }}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    发送到AI大纲
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

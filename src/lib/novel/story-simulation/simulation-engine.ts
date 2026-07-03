@@ -1,10 +1,16 @@
 import type { ChatMessage } from "@/lib/llm-client"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { buildAgentContext } from "@/lib/novel/story-simulation/agent-profile-builder"
 import {
-  buildAgentContext,
-  getVisibleEvents,
-} from "@/lib/novel/story-simulation/agent-profile-builder"
+  createBlackboardDebugTrace,
+  createSimulationBlackboard,
+  getBlackboardVisibleEvents,
+  planMultiAgentRound,
+  recordBlackboardEvent,
+  selectNodeAgentCandidates,
+  type SimulationBlackboard,
+} from "@/lib/novel/story-simulation/multi-agent-orchestrator"
 import type {
   ActionVisibility,
   AgentAction,
@@ -12,6 +18,7 @@ import type {
   EventImpact,
   ExtractionResult,
   NovelAgent,
+  SimulationDebugTrace,
   SimulationEvent,
   SimulationInput,
   SimulationState,
@@ -30,6 +37,8 @@ export interface SimulationCallbacks {
   onError: (error: Error) => void
   /** 新引擎时间线事件回调 */
   onTimelineEvent?: (event: TimelineEvent) => void
+  /** 推演过程观察回调：用于 UI 展示 Agent 调度和 blackboard 状态 */
+  onDebugTrace?: (trace: SimulationDebugTrace) => void
 }
 
 // ── 常量 ──
@@ -688,15 +697,12 @@ async function agentDecideAndAct(
   extraction: ExtractionResult,
   recentEventDescs: string[],
   injectionEvent: string | undefined,
+  blackboard: SimulationBlackboard,
   signal?: AbortSignal,
   modeHint?: string,
 ): Promise<{ parsed: ParsedAction; tlEvent: TimelineEvent; simEvent: SimulationEvent } | null> {
   // 1. 观察：筛选该 Agent 可见的时间线事件
-  const visibleEvents = getVisibleEvents(
-    agent.characterId,
-    state.timelineEvents,
-    10,
-  )
+  const visibleEvents = getBlackboardVisibleEvents(blackboard, agent.characterId, 10)
 
   // 2. 构建上下文（基于认知边界）
   const context = buildAgentContext(
@@ -785,6 +791,9 @@ export async function runSimulation(
     activeAgents: cloneAgentsToMap(agents),
     worldState: {},
   }
+  const blackboard = createSimulationBlackboard({
+    agents: Array.from(state.activeAgents.values()),
+  })
 
   try {
     for (let ni = 0; ni < totalNodes; ni++) {
@@ -795,22 +804,7 @@ export async function runSimulation(
 
       const node = framework.nodes[ni]
 
-      // 确定参与角色：从 involvedCharacters（角色名）过滤 agents
-      const nodeAgentIds = new Set<string>()
-      for (const a of agents) {
-        if (node.involvedCharacters.includes(a.name)) {
-          nodeAgentIds.add(a.characterId)
-        }
-      }
-      // 防御：若过滤结果为空，使用全部 agents
-      let nodeAgentList: NovelAgent[]
-      if (nodeAgentIds.size === 0) {
-        nodeAgentList = Array.from(state.activeAgents.values())
-      } else {
-        nodeAgentList = Array.from(state.activeAgents.values()).filter((a) =>
-          nodeAgentIds.has(a.characterId),
-        )
-      }
+      const nodeAgentList = selectNodeAgentCandidates(blackboard, node)
 
       // 设置本轮活跃 Agent
       const activeMap = new Map<string, NovelAgent>()
@@ -818,6 +812,7 @@ export async function runSimulation(
         activeMap.set(a.characterId, a)
       }
       state.activeAgents = activeMap
+      blackboard.activeAgents = activeMap
 
       // 产出 node-start 事件
       const startEvent: SimulationEvent = {
@@ -846,14 +841,26 @@ export async function runSimulation(
 
         state.currentRound = round
 
-        // 根据模式决定本轮活跃 Agent 子集
-        let roundAgentList = nodeAgentList
-        if (modeConfig.agentSubsetRatio < 1 && nodeAgentList.length > 1) {
-          const subsetSize = Math.max(1, Math.ceil(nodeAgentList.length * modeConfig.agentSubsetRatio))
-          // 简单的随机选择：打乱后取前 N 个
-          const shuffled = [...nodeAgentList].sort(() => Math.random() - 0.5)
-          roundAgentList = shuffled.slice(0, subsetSize)
-        }
+        const roundPlan = planMultiAgentRound({
+          node,
+          state,
+          candidateAgents: nodeAgentList,
+          modeConfig,
+          round,
+        })
+        blackboard.roundPlans.push(roundPlan)
+        callbacks.onDebugTrace?.(
+          createBlackboardDebugTrace(blackboard, {
+            type: "round-plan",
+            node,
+            round,
+            candidateAgents: nodeAgentList,
+            plan: roundPlan,
+          }),
+        )
+        const roundAgentList = roundPlan.turns
+          .map((turn) => state.activeAgents.get(turn.agentId))
+          .filter((agent): agent is NovelAgent => !!agent)
 
         // a. 每个活跃 Agent 观察并决策
         for (const agent of roundAgentList) {
@@ -876,6 +883,7 @@ export async function runSimulation(
               extraction,
               recentEventDescs,
               round === 0 ? injectionEvent : undefined,
+              blackboard,
               signal,
               modeConfig.behaviorHint,
             )
@@ -904,8 +912,19 @@ export async function runSimulation(
           const { parsed, tlEvent, simEvent } = result
 
           events.push(simEvent)
+          recordBlackboardEvent(blackboard, tlEvent)
           callbacks.onEvent(simEvent)
           callbacks.onTimelineEvent?.(tlEvent)
+          callbacks.onDebugTrace?.(
+            createBlackboardDebugTrace(blackboard, {
+              type: "event-recorded",
+              node,
+              round,
+              candidateAgents: nodeAgentList,
+              plan: roundPlan,
+              latestEvent: tlEvent,
+            }),
+          )
 
           recentEventDescs.push(
             formatActionDescription(parsed.action, currentAgent.name),
@@ -932,6 +951,7 @@ export async function runSimulation(
                 events,
                 callbacks,
                 nodeTimelineEvents,
+                blackboard,
                 signal,
               )
             }
@@ -961,8 +981,19 @@ export async function runSimulation(
               targetName: undefined,
             }
             state.timelineEvents.push(tlEvent)
+            recordBlackboardEvent(blackboard, tlEvent)
             nodeTimelineEvents.push(tlEvent)
             callbacks.onTimelineEvent?.(tlEvent)
+            callbacks.onDebugTrace?.(
+              createBlackboardDebugTrace(blackboard, {
+                type: "event-recorded",
+                node,
+                round,
+                candidateAgents: nodeAgentList,
+                plan: roundPlan,
+                latestEvent: tlEvent,
+              }),
+            )
             recentEventDescs.push(`[系统事件] ${randomEvent.message}`)
           }
         }
@@ -1034,14 +1065,15 @@ async function triggerReaction(
   events: SimulationEvent[],
   callbacks: SimulationCallbacks,
   nodeTimelineEvents: TimelineEvent[],
+  blackboard: SimulationBlackboard,
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) return
 
   // 构建反应专用上下文：强调对刚才事件的反应
-  const visibleEvents = getVisibleEvents(
+  const visibleEvents = getBlackboardVisibleEvents(
+    blackboard,
     targetAgent.characterId,
-    state.timelineEvents,
     10,
   )
 
@@ -1094,7 +1126,16 @@ async function triggerReaction(
     }
 
     state.timelineEvents.push(tlEvent)
+    recordBlackboardEvent(blackboard, tlEvent)
     nodeTimelineEvents.push(tlEvent)
+    callbacks.onDebugTrace?.(
+      createBlackboardDebugTrace(blackboard, {
+        type: "event-recorded",
+        node,
+        round: state.currentRound,
+        latestEvent: tlEvent,
+      }),
+    )
 
     const simEvent = timelineEventToSimulationEvent(
       tlEvent,

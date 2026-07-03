@@ -1,6 +1,8 @@
 import { create } from "zustand"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import type { AgentRunRecord } from "@/lib/agent/types"
+import type { ReferenceToken } from "@/lib/reference/types"
 import { useWikiStore } from "@/stores/wiki-store"
 
 export interface OutlineChatMessage {
@@ -8,6 +10,9 @@ export interface OutlineChatMessage {
   role: "user" | "assistant"
   content: string
   sources?: string[]
+  agentToolCalls?: AgentRunRecord["toolCalls"]
+  isAgentRunning?: boolean
+  attachedReferences?: ReferenceToken[]
 }
 
 export interface OutlineChatConversation {

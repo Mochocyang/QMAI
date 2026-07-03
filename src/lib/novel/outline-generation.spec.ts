@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+const source = readFileSync(resolve(__dirname, "outline-generation.ts"), "utf8")
 
 const mocks = vi.hoisted(() => ({
   buildContextPackMock: vi.fn(),
@@ -37,5 +41,15 @@ describe("outline-generation context fallback", () => {
       context: "",
       hasOutline: false,
     })
+  })
+})
+
+describe("outline-generation output workflow", () => {
+  it("keeps all outline refinement and file generation prompts constrained to usable outline正文", () => {
+    expect(source).toContain("buildOutlineRefinementWorkflowPrompt")
+    expect(source).toContain("## AI大纲生成工作流")
+    expect(source).toContain("提取对小说创作有用的关键内容")
+    expect(source).toContain("最终回复只输出大纲标题和大纲正文")
+    expect(source).toContain("不要输出工具调用报告、分析过程、完成报告、下一步行动")
   })
 })

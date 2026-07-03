@@ -1,5 +1,6 @@
 import { readFile, writeFile, writeFileAtomic } from "@/commands/fs"
 import { join } from "@tauri-apps/api/path"
+import type { UserSkill } from "@/lib/novel/skill-library"
 
 export type DeAiSkillSource = "built-in" | "project" | "legacy"
 
@@ -585,6 +586,21 @@ export function resolveEffectiveDeAiSkill(
 export interface SafeDeAiSkillResult {
   skill: DeAiSkill | null
   warning: string
+}
+
+export function deAiSkillToUserSkill(skill: DeAiSkill): UserSkill {
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    kind: ["style"],
+    stages: ["rewrite", "output"],
+    modes: ["fast", "standard", "strict"],
+    content: skill.content,
+    source: skill.source === "built-in" ? "built-in" : "project",
+    createdAt: skill.createdAt,
+    updatedAt: skill.updatedAt,
+  }
 }
 
 export async function loadEffectiveDeAiSkillSafely(

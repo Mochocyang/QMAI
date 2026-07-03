@@ -14,6 +14,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { ingestOutline } from "./chapter-ingest"
 import { buildContextPack, type ContextPack } from "./context-engine"
 import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { readSoulDoc } from "./soul-doc"
 
 export type OutlineSectionGenerationKey =
   | "chapterOutlines"
@@ -130,6 +131,7 @@ function appendContextSection(sections: string[], title: string, content: string
 
 function formatOutlineRefinementContext(pack: ContextPack): string {
   const sections: string[] = []
+  appendContextSection(sections, "作品灵魂与总则", pack.soulDoc)
   appendContextSection(sections, "已有大纲", pack.outline)
   appendContextSection(sections, "最近剧情摘要", pack.recentSummaries)
   appendContextSection(sections, "人物状态变化", pack.characterStates)
@@ -231,6 +233,58 @@ async function safeBuildOutlineContextPack(projectPath: string, task: string): P
   }
 }
 
+async function ensureSoulDocInPrompt(projectPath: string, prompt: string): Promise<string> {
+  let nextPrompt = prompt
+  try {
+    if (!nextPrompt.includes("作品灵魂") && !nextPrompt.includes("soulDoc") && !nextPrompt.includes("灵魂与总则")) {
+      const soulDoc = await readSoulDoc(projectPath)
+      if (soulDoc.trim()) {
+        nextPrompt = `## 作品灵魂与总则\n${soulDoc}\n\n${nextPrompt}`
+      }
+    }
+  } catch {}
+  if (!nextPrompt.includes("## AI大纲生成工作流")) {
+    nextPrompt = [
+      "## AI大纲生成工作流",
+      "提取请求关键词，识别用户意图，读取已有大纲、章节、记忆和推演信息，提取对小说创作有用的关键内容，再结合用户要用的 skill + soul.md 约束生成。",
+      "最终回复只输出大纲标题和大纲正文；不要输出工具调用报告、分析过程、完成报告、下一步行动。",
+      "",
+      nextPrompt,
+    ].join("\n")
+  }
+  return nextPrompt
+}
+
+function getOutlineRefinementOutputRules(config: OutlineSectionGenerationConfig): string {
+  switch (config.key) {
+    case "chapterOutlines":
+      return "章节细纲必须按章节写清：章节目标、核心事件、冲突、转折、结尾钩子、承接关系。"
+    case "characterBriefs":
+      return "人物小传必须写清：人物定位、目标与动机、欲望和恐惧、关系变化、冲突点、成长或崩坏路径。"
+    case "organizationsOutline":
+      return "组织势力设定必须写清：阵营目标、资源、内部矛盾、外部冲突、剧情作用、与主角线关系。"
+    case "powerSystem":
+      return "金手指与能力体系必须写清：规则、限制、代价、成长路径、反制方式、剧情用途。"
+    case "foreshadowingPlan":
+      return "伏笔计划必须写清：伏笔名称、埋设位置、表层误导、真实指向、推进节点、回收位置。"
+    case "locationsOutline":
+      return "地点设定必须写清：地点定位、所属势力、空间规则、资源与限制、可触发事件、剧情作用。"
+  }
+}
+
+function buildOutlineRefinementWorkflowPrompt(config: OutlineSectionGenerationConfig): string {
+  return [
+    "## AI大纲生成工作流",
+    "1. 提取请求关键词：确认要生成的大纲分项、范围和已有约束。",
+    "2. 识别用户意图：本次是生成/完善大纲正文，不是审稿报告、工具报告或分析说明。",
+    "3. 提取对小说创作有用的关键内容：章节目标、冲突、伏笔、人物动机、设定限制、时间线承接和结尾钩子。",
+    "4. 结合用户要用的 skill + soul.md 约束，生成可直接保存的大纲正文。",
+    "5. 结果强约束收敛：最终回复只输出大纲标题和大纲正文。",
+    "不要输出工具调用报告、分析过程、完成报告、下一步行动。",
+    getOutlineRefinementOutputRules(config),
+  ].join("\n")
+}
+
 function buildSectionRefinementPrompt(
   context: string,
   config: OutlineSectionGenerationConfig,
@@ -245,6 +299,9 @@ function buildSectionRefinementPrompt(
     "2. 本次用户要求只能用于补充、聚焦和完善，不得改写既定主线和核心设定。",
     "3. 如果信息不足，只能做最小必要补完，且必须与现有设定兼容。",
     "4. 只输出正文 Markdown，不要输出 JSON、代码块、解释、前言或额外说明。",
+    "5. 不要输出工具调用报告、分析过程、完成报告、下一步行动。",
+    "",
+    buildOutlineRefinementWorkflowPrompt(config),
     "",
     "已有大纲与项目记忆：",
     context || "当前暂无可读取的项目记忆，请仅基于已有大纲与本次要求进行细化。",
@@ -419,7 +476,8 @@ export async function generateOutlineFile(
   let content = ""
   let streamError: Error | null = null
 
-  const messages: ChatMessage[] = [{ role: "user", content: prompt }]
+  const safePrompt = await ensureSoulDocInPrompt(projectPath, prompt)
+  const messages: ChatMessage[] = [{ role: "user", content: safePrompt }]
 
   await streamChat(llmConfig, messages, {
     onToken: (token) => {

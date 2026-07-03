@@ -1,9 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { describe, expect, it } from "vitest"
-import { StreamingMessage } from "./chat-message"
-import { getDeepChapterToggleButtonClass } from "./chat-panel"
+import { describe, expect, it, vi } from "vitest"
+import { ChatMessage, StreamingMessage } from "./chat-message"
+import { getWorkflowModeButtonClass } from "./chat-panel"
+import type { DisplayMessage } from "@/stores/chat-store"
+
+vi.mock("@/lib/novel/agent-parser", () => ({
+  parseAgentResponse: (content: string) => ({
+    textContent: content,
+    hasEdits: false,
+    edits: [],
+  }),
+}))
 
 function tenThinkingLines(): string {
   return Array.from({ length: 10 }, (_value, index) => `stage line ${index + 1}`).join("\n")
@@ -35,15 +44,112 @@ describe("chat thinking display", () => {
   })
 })
 
-describe("deep chapter thinking toggle style", () => {
-  it("uses a clear dark selected state when deep chapter generation is enabled", () => {
-    const activeClassName = getDeepChapterToggleButtonClass(true)
-    const inactiveClassName = getDeepChapterToggleButtonClass(false)
+describe("AI workflow mode toggle style", () => {
+  it("uses a clear selected state for the active workflow mode", () => {
+    const activeClassName = getWorkflowModeButtonClass(true)
+    const inactiveClassName = getWorkflowModeButtonClass(false)
 
     expect(activeClassName).toContain("bg-primary")
     expect(activeClassName).toContain("text-primary-foreground")
-    expect(activeClassName).toContain("border-primary")
     expect(inactiveClassName).not.toContain("bg-primary")
+  })
+})
+
+describe("chat message references", () => {
+  it("renders attached reference chips on user messages", () => {
+    const message: DisplayMessage = {
+      id: "msg-1",
+      role: "user",
+      content: "请参考这一章",
+      timestamp: 1,
+      conversationId: "conv-1",
+      attachedReferences: [{
+        id: "ref-1",
+        category: "chapter",
+        title: "第一章",
+        path: "C:/Novel/wiki/chapters/第一章.md",
+        displayTitle: "第一章",
+      }],
+    }
+
+    const html = renderToStaticMarkup(<ChatMessage message={message} />)
+
+    expect(html).toContain("请参考这一章")
+    expect(html).toContain("@第一章")
+    expect(html).toContain('data-reference-id="ref-1"')
+    expect(html).not.toContain("移除引用")
+  })
+})
+
+describe("agent stage stream integration", () => {
+  it("renders structured generation process above final assistant content", () => {
+    const message: DisplayMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      content: "这是最终正文。",
+      timestamp: 1,
+      conversationId: "conv-1",
+      agentStages: [
+        {
+          id: "generate_draft",
+          title: "生成章节草稿",
+          status: "running",
+          summary: "正在生成正文初稿",
+          events: [
+            {
+              id: "event-1",
+              stageId: "generate_draft",
+              kind: "stage_input",
+              title: "接收内容",
+              content: "章节生成约束包",
+              timestamp: 1,
+            },
+          ],
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(<ChatMessage message={message} />)
+
+    expect(html).toContain("生成过程")
+    expect(html).toContain("章节生成约束包")
+    expect(html).toContain("这是最终正文。")
+  })
+
+  it("keeps old tool workflow fallback when structured stages are absent", () => {
+    const message: DisplayMessage = {
+      id: "assistant-2",
+      role: "assistant",
+      content: "完成。",
+      timestamp: 1,
+      conversationId: "conv-1",
+      agentToolCalls: [
+        {
+          id: "tool-1",
+          name: "read_chapter",
+          params: { chapter: "第1章" },
+          result: "章节内容",
+          status: "done",
+          startedAt: 1,
+          finishedAt: 2,
+        },
+      ],
+    }
+
+    const html = renderToStaticMarkup(<ChatMessage message={message} />)
+
+    expect(html).toContain("思考过程")
+    expect(html).toContain("完成。")
+  })
+})
+
+describe("chat message width", () => {
+  it("lets chat bubbles expand to half of the window without overflowing narrow panels", () => {
+    const source = readFileSync(resolve(__dirname, "chat-message.tsx"), "utf8")
+
+    expect(source).toContain("lg:max-w-[50vw]")
+    expect(source).toContain("max-w-full")
+    expect(source).not.toContain("max-w-[80%]")
   })
 })
 
@@ -80,18 +186,20 @@ describe("deep chapter unfinished continuation action", () => {
 
     expect(source).toContain("handleContinueUnfinished")
     expect(source).toContain("buildContinueUnfinishedDeepChapterPrompt")
-    expect(source).toContain("appendContinueUnfinishedDeepChapterContext")
     expect(source).toContain("extractContinueUnfinishedDeepChapterContext")
-    expect(source).toContain("contextPackToPrompt")
-    expect(source).toContain('addMessage("user", "继续未完成")')
-    expect(source).toContain("resolveNovelModel")
+    expect(source).toContain('handleSendRef.current(prompt, [], "继续未完成")')
+    expect(source).not.toContain('addMessage("user", "继续未完成")')
+    expect(source).not.toContain("resolveNovelModel")
     expect(source).toContain("onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}")
   })
 
   it("keeps the ai chat footer labels as readable Chinese text", () => {
     const source = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
 
-    expect(source).toContain("深度模式")
+    expect(source).toContain("AI 会话执行模式")
+    expect(source).toContain("快速")
+    expect(source).toContain("标准")
+    expect(source).toContain("严格")
     expect(source).toContain("编辑章节")
     expect(source).toContain("继续未完成")
   })

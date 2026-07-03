@@ -7,6 +7,7 @@ import type {
   StoryDraft,
   ExtractionResult,
   FrameworkBinding,
+  SimulationDebugTrace,
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
 import type { SerializedSimulationSnapshot } from "@/lib/novel/story-simulation/simulation-serializer"
@@ -54,6 +55,8 @@ export interface StorySimulationState {
   progressLabel: string
   /** 仿真过程中的时间线事件（实时流） */
   timelineEvents: TimelineEvent[]
+  /** 仿真过程观察快照（Agent 调度和 blackboard 状态） */
+  debugTraces: SimulationDebugTrace[]
   /** 当前正在采访的角色 */
   activeChatAgent: { id: string; name: string } | null
   /** 采访对话消息 */
@@ -92,6 +95,8 @@ export interface StorySimulationState {
   setProgress: (progress: number, label: string) => void
   setTimelineEvents: (events: TimelineEvent[]) => void
   addTimelineEvent: (event: TimelineEvent) => void
+  setDebugTraces: (traces: SimulationDebugTrace[]) => void
+  addDebugTrace: (trace: SimulationDebugTrace) => void
   setActiveChatAgent: (agent: { id: string; name: string } | null) => void
   addAgentChatMessage: (message: AgentChatMessage) => void
   clearAgentChat: () => void
@@ -126,6 +131,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   progress: 0,
   progressLabel: "",
   timelineEvents: [],
+  debugTraces: [],
   activeChatAgent: null,
   agentChatMessages: [],
   listRefreshKey: 0,
@@ -155,6 +161,9 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setTimelineEvents: (timelineEvents) => set({ timelineEvents }),
   addTimelineEvent: (event) =>
     set((state) => ({ timelineEvents: [...state.timelineEvents, event] })),
+  setDebugTraces: (debugTraces) => set({ debugTraces }),
+  addDebugTrace: (trace) =>
+    set((state) => ({ debugTraces: [...state.debugTraces, trace] })),
   setActiveChatAgent: (activeChatAgent) => set({ activeChatAgent }),
   addAgentChatMessage: (message) =>
     set((state) => ({ agentChatMessages: [...state.agentChatMessages, message] })),
@@ -179,6 +188,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       progress: 0,
       progressLabel: "",
       timelineEvents: [],
+      debugTraces: [],
       activeChatAgent: null,
       agentChatMessages: [],
       savedResults: [],

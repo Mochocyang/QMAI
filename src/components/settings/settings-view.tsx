@@ -12,6 +12,7 @@ import {
   MessageCircle,
   HeartHandshake,
   Archive,
+  FileText,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -30,7 +31,9 @@ import { EmbeddingSection } from "./sections/embedding-section"
 import { RerankSection } from "./sections/rerank-section"
 import { InterfaceSection } from "./sections/interface-section"
 import { NovelSection } from "./sections/novel-section"
+import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
+import { McpSection } from "./sections/mcp-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
 import { FeedbackSection } from "./sections/feedback-section"
@@ -43,6 +46,7 @@ type CategoryId =
   | "rerank"
   | "embedding"
   | "network"
+  | "mcp"
   | "interface"
   | "novel"
   | "usage-guide"
@@ -50,7 +54,8 @@ type CategoryId =
   | "data-management"
   | "feedback"
   | "contact-support"
-  | "changelog"
+  | "classification"
+| "changelog"
 
 interface Category {
   id: CategoryId
@@ -66,6 +71,7 @@ const CATEGORIES: Category[] = [
   { id: "rerank", labelKey: "settings.categories.rerank", icon: ListFilter },
   { id: "embedding", labelKey: "settings.categories.embedding", icon: Database },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
+  { id: "mcp", labelKey: "settings.categories.mcp", icon: Network },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
@@ -73,6 +79,7 @@ const CATEGORIES: Category[] = [
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "contact-support", labelKey: "settings.categories.contactSupport", icon: HeartHandshake },
+  { id: "classification", labelKey: "settings.categories.classification", icon: FileText },
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
 ]
 
@@ -505,10 +512,14 @@ export function SettingsView() {
         return <EmbeddingSection draft={draft} setDraft={setDraft} />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
+      case "mcp":
+        return <McpSection />
       case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":
         return <NovelSection draft={draft} setDraft={setDraft} />
+      case "classification":
+        return <ClassificationSection projectPath={project?.path ?? undefined} />
       case "usage-guide":
         return <UsageGuideSection />
       case "maintenance":

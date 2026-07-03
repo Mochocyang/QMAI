@@ -68,6 +68,43 @@ export interface TimelineEvent {
   timestamp: string
 }
 
+export interface SimulationDebugVisibleEvent {
+  id: string
+  actorName: string
+  actionType: AgentActionType
+  content: string
+  round: number
+  nodeIndex: number
+}
+
+export interface SimulationDebugAgent {
+  agentId: string
+  agentName: string
+  visibleEventCount?: number
+  recentEvents?: SimulationDebugVisibleEvent[]
+  reason?: string
+}
+
+export interface SimulationDebugTrace {
+  id: string
+  type: "round-plan" | "event-recorded"
+  nodeIndex: number
+  nodeTitle: string
+  round: number
+  strategy?: "all-agents" | "subset" | "none"
+  candidateAgents: SimulationDebugAgent[]
+  selectedAgents: SimulationDebugAgent[]
+  blackboard: {
+    allAgentCount: number
+    activeAgentCount: number
+    totalEventCount: number
+    publicEventCount: number
+  }
+  visibilityByAgent: SimulationDebugAgent[]
+  latestEvent?: SimulationDebugVisibleEvent
+  timestamp: string
+}
+
 // ── Agent 记忆 ──
 export interface AgentMemory {
   /** 已观察到的事件 ID 列表 */

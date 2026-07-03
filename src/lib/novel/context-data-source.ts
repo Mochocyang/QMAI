@@ -66,6 +66,16 @@ export class DataSourceRegistry {
    */
   async loadAll(context: ContextLoadContext): Promise<Record<string, any>> {
     const sources = Array.from(this.sources.values())
+    return this.loadSources(sources, context)
+  }
+
+  async loadOnly(sourceNames: string[], context: ContextLoadContext): Promise<Record<string, any>> {
+    const allowed = new Set(sourceNames)
+    const sources = Array.from(this.sources.values()).filter((source) => allowed.has(source.name))
+    return this.loadSources(sources, context)
+  }
+
+  private async loadSources(sources: DataSource<any>[], context: ContextLoadContext): Promise<Record<string, any>> {
 
     const promises = sources.map(async (source): Promise<DataSourceResult> => {
       try {

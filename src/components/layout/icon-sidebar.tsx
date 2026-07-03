@@ -77,7 +77,7 @@ interface SortableNavButtonProps {
 function SortableNavButton({ item, activeView, pendingCount, label, onClick }: SortableNavButtonProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const Icon = item.icon
-  const isActive = activeView === item.view
+  const isActive = activeView === item.view || (item.view === "skillLibrary" && activeView === "writingSkillLibrary")
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,

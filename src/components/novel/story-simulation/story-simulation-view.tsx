@@ -23,6 +23,7 @@ import type {
   AgentChatMessage,
   ExtractionResult,
   NovelAgent,
+  SimulationDebugTrace,
   SimulationState,
   StoryBranch,
   StoryFramework,
@@ -130,6 +131,7 @@ export function StorySimulationView() {
   const progress = useStorySimulationStore((s) => s.progress)
   const progressLabel = useStorySimulationStore((s) => s.progressLabel)
   const timelineEvents = useStorySimulationStore((s) => s.timelineEvents)
+  const debugTraces = useStorySimulationStore((s) => s.debugTraces)
   const activeChatAgent = useStorySimulationStore((s) => s.activeChatAgent)
   const savedResults = useStorySimulationStore((s) => s.savedResults)
   const selectedResultId = useStorySimulationStore((s) => s.selectedResultId)
@@ -147,6 +149,8 @@ export function StorySimulationView() {
   const setProgress = useStorySimulationStore((s) => s.setProgress)
   const setTimelineEvents = useStorySimulationStore((s) => s.setTimelineEvents)
   const addTimelineEvent = useStorySimulationStore((s) => s.addTimelineEvent)
+  const setDebugTraces = useStorySimulationStore((s) => s.setDebugTraces)
+  const addDebugTrace = useStorySimulationStore((s) => s.addDebugTrace)
   const setActiveChatAgent = useStorySimulationStore((s) => s.setActiveChatAgent)
   const addAgentChatMessage = useStorySimulationStore((s) => s.addAgentChatMessage)
   const agentChatMessages = useStorySimulationStore((s) => s.agentChatMessages)
@@ -256,6 +260,7 @@ export function StorySimulationView() {
     setError(null)
     setCurrentFramework(null)
     setTimelineEvents([])
+    setDebugTraces([])
     try {
       // 1. 提取内容
       setPhase("extracting")
@@ -311,6 +316,7 @@ export function StorySimulationView() {
     }
     setError(null)
     setTimelineEvents([])
+    setDebugTraces([])
     setIsCancelling(false)
     const ac = new AbortController()
     abortControllerRef.current = ac
@@ -359,6 +365,7 @@ export function StorySimulationView() {
           collectedTimeline.push(event)
           addTimelineEvent(event)
         },
+        onDebugTrace: addDebugTrace,
       }
       const events = await runSimulation(
         {
@@ -465,6 +472,7 @@ export function StorySimulationView() {
   /** 重新推演：回退到框架确认阶段。 */
   const handleResimulate = () => {
     setTimelineEvents([])
+    setDebugTraces([])
     setCurrentReport(null)
     setPhase("framework-confirming")
   }
@@ -762,6 +770,7 @@ export function StorySimulationView() {
               progress={progress}
               label={progressLabel || progressTitle}
               events={timelineEvents}
+              debugTraces={debugTraces}
               framework={currentFramework}
               onInterviewAgent={(id, name) => handleInterviewAgent(id, name)}
               onCancel={handleCancel}
@@ -862,6 +871,7 @@ function SimulatingTimelinePanel({
   progress,
   label,
   events,
+  debugTraces,
   framework,
   onInterviewAgent,
   onCancel,
@@ -870,6 +880,7 @@ function SimulatingTimelinePanel({
   progress: number
   label: string
   events: TimelineEvent[]
+  debugTraces: SimulationDebugTrace[]
   framework?: StoryFramework | null
   onInterviewAgent?: (agentId: string, agentName: string) => void
   onCancel?: () => void
@@ -877,6 +888,7 @@ function SimulatingTimelinePanel({
 }) {
   const clamped = Math.min(100, Math.max(0, progress))
   const logRef = useRef<HTMLDivElement | null>(null)
+  const [activeStreamView, setActiveStreamView] = useState<"timeline" | "debug">("timeline")
 
   // 筛选状态
   const [filterActor, setFilterActor] = useState<string>("all")
@@ -1011,6 +1023,35 @@ function SimulatingTimelinePanel({
         </div>
       </div>
 
+      <div className="mb-3 flex justify-center">
+        <div className="inline-flex rounded-md border bg-muted/40 p-0.5 text-xs">
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeStreamView === "timeline"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveStreamView("timeline")}
+          >
+            时间线
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeStreamView === "debug"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveStreamView("debug")}
+          >
+            过程观察
+          </button>
+        </div>
+      </div>
+
+      {activeStreamView === "timeline" ? (
+        <>
       {/* 筛选栏 */}
       {events.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
@@ -1155,6 +1196,129 @@ function SimulatingTimelinePanel({
               )
             })}
           </div>
+        )}
+      </div>
+        </>
+      ) : (
+        <ProcessDebugPanel debugTraces={debugTraces} />
+      )}
+    </div>
+  )
+}
+
+function ProcessDebugPanel({
+  debugTraces,
+}: {
+  debugTraces: SimulationDebugTrace[]
+}) {
+  const latestTrace = debugTraces[debugTraces.length - 1]
+  const displayTraces = debugTraces.slice(-50).reverse()
+
+  if (!latestTrace) {
+    return (
+      <div className="flex-1 rounded-lg border bg-muted/30 p-6 text-center text-xs text-muted-foreground">
+        等待推演过程数据...
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-muted/30 p-3 text-sm">
+      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <DebugStat label="全量角色" value={latestTrace.blackboard.allAgentCount} />
+        <DebugStat label="活跃角色" value={latestTrace.blackboard.activeAgentCount} />
+        <DebugStat label="总事件" value={latestTrace.blackboard.totalEventCount} />
+        <DebugStat label="公共事件" value={latestTrace.blackboard.publicEventCount} />
+      </div>
+
+      <div className="space-y-3">
+        {displayTraces.map((trace) => (
+          <div key={trace.id} className="rounded-md border bg-background/70 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                {trace.type === "round-plan" ? "轮次计划" : "事件写入"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                节点 {trace.nodeIndex + 1}：{trace.nodeTitle}
+              </span>
+              <span className="text-xs text-muted-foreground">R{trace.round + 1}</span>
+              {trace.strategy && (
+                <span className="text-xs text-muted-foreground">
+                  策略：{trace.strategy === "all-agents" ? "全部角色" : trace.strategy === "subset" ? "部分角色" : "无角色"}
+                </span>
+              )}
+            </div>
+
+            <div className="mb-2 grid gap-2 md:grid-cols-2">
+              <DebugAgentList title="候选 Agent" agents={trace.candidateAgents} />
+              <DebugAgentList title="本轮行动 Agent" agents={trace.selectedAgents} />
+            </div>
+
+            {trace.latestEvent && (
+              <div className="mb-2 rounded border bg-muted/30 px-2 py-1.5 text-xs">
+                <span className="font-medium">最近事件：</span>
+                <span className="text-muted-foreground">
+                  {trace.latestEvent.actorName} / {trace.latestEvent.actionType}
+                </span>
+                <span>：{trace.latestEvent.content}</span>
+              </div>
+            )}
+
+            <div className="rounded border bg-muted/20 p-2">
+              <div className="mb-1 text-xs font-medium">Blackboard 可见事件</div>
+              <div className="grid gap-1 md:grid-cols-2">
+                {trace.visibilityByAgent.map((agent) => (
+                  <div key={agent.agentId} className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{agent.agentName}</span>
+                    <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
+                    {agent.recentEvents && agent.recentEvents.length > 0 && (
+                      <span>
+                        ：{agent.recentEvents.map((event) => event.id).join("、")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DebugStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border bg-background/70 px-3 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
+    </div>
+  )
+}
+
+function DebugAgentList({
+  title,
+  agents,
+}: {
+  title: string
+  agents: SimulationDebugTrace["candidateAgents"]
+}) {
+  return (
+    <div className="rounded border bg-muted/20 p-2">
+      <div className="mb-1 text-xs font-medium">{title}</div>
+      <div className="flex flex-wrap gap-1">
+        {agents.length === 0 ? (
+          <span className="text-xs text-muted-foreground">无</span>
+        ) : (
+          agents.map((agent) => (
+            <span
+              key={`${title}-${agent.agentId}`}
+              className="rounded bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
+              title={agent.reason}
+            >
+              {agent.agentName}
+            </span>
+          ))
         )}
       </div>
     </div>

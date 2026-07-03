@@ -25,8 +25,17 @@ export type ContentBlock =
   | { type: "text"; text: string; cacheControl?: boolean }
   | { type: "image"; mediaType: string; dataBase64: string }
 
+export interface ToolCall {
+  id: string
+  type: "function"
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
 export interface ChatMessage {
-  role: "system" | "user" | "assistant"
+  role: "system" | "user" | "assistant" | "tool"
   /**
    * `string` is the legacy shape — every existing call site uses it,
    * and providers that don't speak vision (or callers that don't
@@ -38,6 +47,9 @@ export interface ChatMessage {
    * `extractOllamaImages` below.
    */
   content: string | ContentBlock[]
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+  name?: string
 }
 
 /**
@@ -56,6 +68,8 @@ export interface RequestOverrides {
   max_tokens?: number
   stop?: string | string[]
   reasoning?: ReasoningConfig
+  tools?: { type: string; function: { name: string; description: string; parameters: object } }[]
+  toolChoice?: "auto" | "none"
 }
 
 interface ProviderConfig {
@@ -273,8 +287,16 @@ function buildOpenAiBody(
   const translated = messages.map((m) => ({
     role: m.role,
     content: toOpenAiContent(m.content),
+    ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+    ...(m.name ? { name: m.name } : {}),
   }))
-  return { messages: translated, stream: true, ...stripWireAgnosticOverrides(overrides) }
+  const body: Record<string, unknown> = { messages: translated, stream: true, ...stripWireAgnosticOverrides(overrides) }
+  if (overrides?.tools && overrides.tools.length > 0) {
+    body.tools = overrides.tools
+    body.tool_choice = overrides.toolChoice ?? "auto"
+  }
+  return body
 }
 
 function toResponsesContent(content: string | ContentBlock[]): unknown {
@@ -533,8 +555,10 @@ function buildAnthropicBodyWithReasoning(
           ? 4096
         : 8192
   const budgetTokens = Math.max(1024, budget)
-  if ((body.max_tokens as number) <= budgetTokens) {
-    body.max_tokens = budgetTokens + 1
+  const minAnswerTokens = 4096
+  const minTotalTokens = budgetTokens + minAnswerTokens
+  if ((body.max_tokens as number) < minTotalTokens) {
+    body.max_tokens = minTotalTokens
   }
   body.thinking = { type: "enabled", budget_tokens: budgetTokens }
   delete body.temperature

@@ -14,26 +14,44 @@ import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixe
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
 import { DataSourceRegistry, type ContextLoadContext } from "./context-data-source"
-import { getAllDataSources } from "./context-data-sources"
+import { getAllDataSources, getDataSourcesForCategories } from "./context-data-sources"
+import type { DataSourceCategory } from "./classification"
 
-const SECTION_PRIORITY: Record<string, number> = {
-  "当前任务": 1,
-  "当前章节目标": 2,
-  "项目灵魂": 3,
-  "大纲要求": 4,
-  "禁止违背": 5,
-  "最近剧情摘要": 6,
-  "上一章结尾": 7,
-  "当前人物状态": 8,
-  "角色灵魂": 9,
-  "当前伏笔状态": 10,
-  "时间线": 11,
-  "角色认知状态": 12,
-  "相关地点/组织/物品": 13,
-  "相关记忆检索": 14,
-  "修改反馈": 15,
-  "下一章推进建议": 16,
-  "写作风格": 17,
+const FIELD_PRIORITY: Record<string, number> = {
+  task: 1,
+  chapterGoal: 2,
+  mustDo: 3,
+  mustAvoid: 4,
+  soulDoc: 5,
+  outline: 6,
+  recentSummaries: 7,
+  previousChapterEnding: 8,
+  characterStates: 9,
+  characterAuras: 10,
+  foreshadowingStates: 11,
+  recentChapterContents: 12,
+  revisionDirectives: 13,
+  cognitionStates: 14,
+  timeline: 15,
+  relatedSettings: 16,
+  canonRules: 17,
+  nextChapterAdvice: 18,
+  writingStyle: 19,
+  searchResults: 20,
+  graphSearchResults: 21,
+}
+
+export interface TrimResult {
+  prompt: string
+  trimmedFields: string[]
+  partiallyTrimmedField?: {
+    fieldKey: string
+    originalChars: number
+    keptChars: number
+  }
+  trimmedChars: number
+  originalChars: number
+  finalChars: number
 }
 
 export interface ContextPack {
@@ -64,6 +82,7 @@ export async function buildContextPack(
   projectPath: string,
   task: string,
   chapterNumber?: number,
+  options?: { categories?: DataSourceCategory[] },
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
   const novelMode = useWikiStore.getState().novelMode
@@ -75,7 +94,7 @@ export async function buildContextPack(
   const context = buildLoadContext(pp, task, chapterNumber)
   
   // 创建数据源注册器并加载所有数据
-  const registry = createDataSourceRegistry()
+  const registry = createDataSourceRegistry(options?.categories)
   const rawData = await registry.loadAll(context)
   
   // 从原始数据构建上下文包
@@ -109,9 +128,9 @@ function buildLoadContext(
 /**
  * 创建并配置数据源注册器
  */
-function createDataSourceRegistry(): DataSourceRegistry {
+function createDataSourceRegistry(categories?: DataSourceCategory[]): DataSourceRegistry {
   const registry = new DataSourceRegistry()
-  registry.registerAll(getAllDataSources())
+  registry.registerAll(categories?.length ? getDataSourcesForCategories(categories) : getAllDataSources())
   
   return registry
 }
@@ -123,11 +142,16 @@ async function buildContextPackFromRawData(
   rawData: Record<string, any>,
   context: ContextLoadContext,
 ): Promise<ContextPack> {
-  // 合并快照数据和降级数据
+  // 合并快照数据和降级数据，优先使用 retrieval 索引
+  const retrievalRecentSummaries = Array.isArray(rawData.retrieval?.recentSummaries)
+    ? rawData.retrieval.recentSummaries
+    : []
   const snapshotRecentSummaries = Array.isArray(rawData.snapshots?.recentSummaries)
     ? rawData.snapshots.recentSummaries
     : []
-  const recentSummaries = snapshotRecentSummaries.length > 0 
+  const recentSummaries = retrievalRecentSummaries.length > 0
+    ? retrievalRecentSummaries
+    : snapshotRecentSummaries.length > 0 
     ? snapshotRecentSummaries 
     : rawData.fallbackRecentSummaries
   const recentChapterContents = Array.isArray(rawData.recentChapterContents)
@@ -137,22 +161,34 @@ async function buildContextPackFromRawData(
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
   
+  const retrievalCharacterStates = rawData.retrieval?.characterStates || ""
+  const snapshotCharacterStates = rawData.snapshots?.characterStates || ""
   const characterStates = joinNonEmpty([
-    rawData.snapshots.characterStates, 
+    retrievalCharacterStates,
+    snapshotCharacterStates, 
     rawData.fallbackCharacterStates
   ], "\n\n")
   
+  const retrievalTimeline = rawData.retrieval?.timeline || ""
+  const snapshotTimeline = rawData.snapshots?.timeline || ""
   const timeline = joinNonEmpty([
-    rawData.snapshots.timeline, 
+    retrievalTimeline,
+    snapshotTimeline, 
     rawData.fallbackTimeline
   ], "\n\n")
   
+  const retrievalForeshadowingSignals = Array.isArray(rawData.retrieval?.foreshadowingSignals)
+    ? rawData.retrieval.foreshadowingSignals
+    : []
   const snapshotForeshadowingSignals = Array.isArray(rawData.snapshots?.foreshadowingSignals)
     ? rawData.snapshots.foreshadowingSignals
     : []
+  const foreshadowingSignals = retrievalForeshadowingSignals.length > 0
+    ? retrievalForeshadowingSignals
+    : snapshotForeshadowingSignals
   const foreshadowingStates = mergeForeshadowingSignals(
-    snapshotForeshadowingSignals.length > 0 
-      ? snapshotForeshadowingSignals 
+    foreshadowingSignals.length > 0 
+      ? foreshadowingSignals 
       : [rawData.fallbackForeshadowingStates].filter(Boolean),
     rawData.searchResults,
   )
@@ -1023,6 +1059,43 @@ const FIELD_CONFIGS: FieldConfig[] = [
 ]
 
 export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }): string {
+  const result = trimContextPack(pack, tokenBudget, options)
+  return result.prompt
+}
+
+function trimFieldContent(content: string | string[], maxChars: number): string | string[] {
+  if (Array.isArray(content)) {
+    if (content.length === 0) return content
+    const result: string[] = []
+    let total = 0
+    for (let i = content.length - 1; i >= 0; i--) {
+      const item = content[i]
+      if (total + item.length <= maxChars) {
+        result.unshift(item)
+        total += item.length
+      } else {
+        break
+      }
+    }
+    if (result.length === 0 && content.length > 0) {
+      const last = content[content.length - 1]
+      return [last.slice(0, maxChars) + "..."]
+    }
+    return result
+  } else {
+    if (content.length <= maxChars) return content
+    if (maxChars < 50) return content.slice(0, maxChars) + "..."
+    const headChars = Math.floor(maxChars * 0.4)
+    const tailChars = maxChars - headChars - 5
+    return content.slice(0, headChars) + "\n...\n" + content.slice(-tailChars)
+  }
+}
+
+export function trimContextPack(
+  pack: ContextPack,
+  tokenBudget?: number,
+  options?: { excludeOutline?: boolean }
+): TrimResult {
   const sections: string[] = []
 
   sections.push(i18n.t("novel.contextPack.title"))
@@ -1031,28 +1104,110 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
   sections.push(pack.task)
   sections.push("")
 
-  const fieldSections: { title: string; content: string | string[] }[] = []
+  const fieldData: { fieldKey: string; title: string; content: string | string[]; priority: number; charCount: number }[] = []
   for (const config of FIELD_CONFIGS) {
-    // 如果设置了 excludeOutline，跳过大纲字段
     if (options?.excludeOutline && config.fieldKey === "outline") {
       continue
     }
 
-    const content = pack[config.fieldKey] as string | string[]
+    const content = pack[config.fieldKey as keyof ContextPack] as string | string[]
     const hasContent = Array.isArray(content) ? content.length > 0 : Boolean(content)
     if (!hasContent) continue
-    fieldSections.push({ title: i18n.t(config.titleKey), content })
+
+    const charCount = Array.isArray(content)
+      ? content.reduce((sum, item) => sum + item.length, 0)
+      : content.length
+
+    fieldData.push({
+      fieldKey: config.fieldKey,
+      title: i18n.t(config.titleKey),
+      content,
+      priority: FIELD_PRIORITY[config.fieldKey] ?? 999,
+      charCount,
+    })
   }
 
-  fieldSections.sort((a, b) => {
-    const keyA = a.title.replace(/^##\s*/, "")
-    const keyB = b.title.replace(/^##\s*/, "")
-    const priorityA = SECTION_PRIORITY[keyA] ?? 999
-    const priorityB = SECTION_PRIORITY[keyB] ?? 999
-    return priorityA - priorityB
-  })
+  fieldData.sort((a, b) => a.priority - b.priority)
 
-  for (const { title, content } of fieldSections) {
+  const headerChars = sections.join("\n").length + 2
+  let totalChars = headerChars + fieldData.reduce((sum, f) => sum + f.charCount + f.title.length + 3, 0)
+  const originalChars = totalChars
+  const trimmedFields: string[] = []
+
+  const targetChars = tokenBudget ? tokenBudget * 4 : Infinity
+
+  if (totalChars <= targetChars) {
+    for (const { title, content } of fieldData) {
+      sections.push(title)
+      if (Array.isArray(content)) {
+        content.forEach(item => sections.push(item))
+      } else {
+        sections.push(content)
+      }
+      sections.push("")
+    }
+    return {
+      prompt: sections.join("\n"),
+      trimmedFields: [],
+      trimmedChars: 0,
+      originalChars,
+      finalChars: originalChars,
+    }
+  }
+
+  const sortedByPriorityAsc = [...fieldData].sort((a, b) => a.priority - b.priority)
+  let accumulatedChars = headerChars
+  let keepCount = 0
+  for (let i = 0; i < sortedByPriorityAsc.length; i++) {
+    const field = sortedByPriorityAsc[i]
+    const fieldTotalChars = field.charCount + field.title.length + 3
+    if (accumulatedChars + fieldTotalChars <= targetChars) {
+      accumulatedChars += fieldTotalChars
+      keepCount = i + 1
+    } else {
+      break
+    }
+  }
+
+  for (let i = keepCount; i < sortedByPriorityAsc.length; i++) {
+    trimmedFields.push(sortedByPriorityAsc[i].fieldKey)
+    totalChars -= sortedByPriorityAsc[i].charCount + sortedByPriorityAsc[i].title.length + 3
+  }
+
+  let partiallyTrimmed: { fieldKey: string; originalChars: number; keptChars: number } | null = null
+
+  if (keepCount < sortedByPriorityAsc.length) {
+    const nextField = sortedByPriorityAsc[keepCount]
+    const remainingBudget = targetChars - accumulatedChars
+    const minKeepChars = 100
+    const targetContentChars = remainingBudget - nextField.title.length - 3
+    const originalFieldChars = nextField.charCount
+    
+    if (targetContentChars > minKeepChars && nextField.charCount > targetContentChars) {
+      const trimmedContent = trimFieldContent(nextField.content, targetContentChars)
+      const keptContentChars = Array.isArray(trimmedContent)
+        ? trimmedContent.reduce((sum, item) => sum + item.length, 0)
+        : trimmedContent.length
+      
+      if (keptContentChars > 0) {
+        nextField.content = trimmedContent
+        nextField.charCount = keptContentChars
+        totalChars = accumulatedChars + keptContentChars + nextField.title.length + 3
+        partiallyTrimmed = {
+          fieldKey: nextField.fieldKey,
+          originalChars: originalFieldChars,
+          keptChars: keptContentChars,
+        }
+        const idx = trimmedFields.indexOf(nextField.fieldKey)
+        if (idx > -1) trimmedFields.splice(idx, 1)
+        keepCount++
+      }
+    }
+  }
+
+  const keptFields = sortedByPriorityAsc.slice(0, keepCount)
+
+  for (const { title, content } of keptFields) {
     sections.push(title)
     if (Array.isArray(content)) {
       content.forEach(item => sections.push(item))
@@ -1062,16 +1217,19 @@ export function contextPackToPrompt(pack: ContextPack, tokenBudget?: number, opt
     sections.push("")
   }
 
-  const fullPrompt = sections.join("\n")
+  const trimmedChars = originalChars - totalChars
 
-  if (tokenBudget && tokenBudget > 0 && fullPrompt.length > tokenBudget) {
-    const estimatedTokens = Math.ceil(fullPrompt.length / 4)
-    if (estimatedTokens <= tokenBudget) return fullPrompt
-    const targetChars = tokenBudget * 4
-    const headChars = Math.floor(targetChars * 0.4)
-    const tailChars = targetChars - headChars
-    return fullPrompt.slice(0, headChars) + "\n\n[...上下文已按Token预算裁剪...]\n\n" + fullPrompt.slice(-tailChars)
+  if (trimmedFields.length > 0) {
+    sections.push(`[...已裁剪 ${trimmedFields.length} 个低优先级上下文字段，约 ${trimmedChars} 字符...]`)
+    sections.push("")
   }
 
-  return fullPrompt
+  return {
+    prompt: sections.join("\n"),
+    trimmedFields,
+    partiallyTrimmedField: partiallyTrimmed ?? undefined,
+    trimmedChars,
+    originalChars,
+    finalChars: totalChars,
+  }
 }

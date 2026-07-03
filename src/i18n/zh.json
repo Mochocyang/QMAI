@@ -114,6 +114,7 @@
     "lint": "检查",
     "soul": "灵魂",
     "skillLibrary": "技能库",
+    "writingSkillLibrary": "写作 Skill",
     "reviewCenter": "审查中心",
     "dismantling": "拆文库",
     "settings": "设置",
@@ -398,6 +399,7 @@
       "multimodal": "图片描述",
       "webSearch": "网页搜索",
       "network": "网络",
+      "mcp": "MCP 工具",
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",
       "output": "输出偏好",
@@ -409,7 +411,8 @@
       "contactSupport": "联系与支持",
       "changelog": "更新日志",
       "dataManagement": "数据管理",
-      "about": "关于"
+      "about": "关于",
+      "classification": "意图路由"
     },
     "sections": {
       "shared": {
@@ -669,6 +672,25 @@
         "bypassLocal": "本地地址不走代理（推荐）",
         "bypassLocalHelp": "对 localhost、127.0.0.0/8、10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 以及 *.local 的请求会绕过代理。如果你用 Ollama / LM Studio 或局域网内的 LLM 服务，请保持开启。"
       },
+      "mcp": {
+        "title": "MCP 工具",
+        "description": "配置 AI 会话可以看见的 MCP 工具描述。当前阶段只保存配置和做运行时预检，不启动外部 MCP 进程。",
+        "addSample": "添加示例图谱 MCP",
+        "summary": "已配置 {{servers}} 个 MCP 服务，当前可启用 {{tools}} 个工具，{{capabilities}} 个 AI 能力。",
+        "saved": "已保存",
+        "warnings": "运行时预警",
+        "empty": "还没有 MCP 服务。可以先添加示例图谱 MCP，再按你的 MCP 服务修改工具描述。",
+        "enable": "启用 MCP 服务",
+        "disable": "停用 MCP 服务",
+        "delete": "删除 MCP 服务",
+        "deleteConfirm": "确定删除这个 MCP 服务吗？",
+        "serverId": "服务 ID",
+        "serverName": "服务名称",
+        "toolsJson": "工具描述 JSON",
+        "toolsJsonHint": "填写 MCP 工具 descriptor 数组。删除和覆盖类工具会在运行时被阻断。",
+        "invalidJson": "工具描述 JSON 格式错误",
+        "invalidTools": "工具描述必须是 MCP 工具数组"
+      },
       "sourceWatch": {
         "title": "资料文件夹自动监控",
         "description": "监控 raw/sources 的外部变化，并选择哪些文件允许自动进入提取队列。",
@@ -726,14 +748,14 @@
         "historyCurrent": "当前 {{count}} 条消息（约 {{turns}} 轮对话）"
       },
       "interface": {
-      "title": "界面",
-      "description": "界面语言和外观样式。切换后立即生效并持久化。",
-      "uiLanguage": "UI 语言",
-      "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。",
-      "sidebarNavTitle": "左侧功能栏",
-      "sidebarNavDescription": "勾选要在左侧显示的功能，取消勾选后该功能入口会隐藏。",
-      "sidebarNavOrderHint": "图标顺序可在左侧功能栏中长按拖动调整。"
-    },
+        "title": "界面",
+        "description": "界面语言和外观样式。切换后立即生效并持久化。",
+        "uiLanguage": "UI 语言",
+        "uiLanguageHint": "只影响按钮、标签这些 UI 文案,不影响 AI 输出语言(那个在\"输出偏好\"里单独设置)。",
+        "sidebarNavTitle": "左侧功能栏",
+        "sidebarNavDescription": "勾选要在左侧显示的功能，取消勾选后该功能入口会隐藏。",
+        "sidebarNavOrderHint": "图标顺序可在左侧功能栏中长按拖动调整。"
+      },
       "novel": {
         "title": "小说",
         "description": "项目级小说写作模式和修改反馈窗口设置。",
@@ -804,6 +826,10 @@
         "description": "构建信息和运行时状态。",
         "version": "版本",
         "appDescription": "一个由 LLM 驱动的个人知识库。源代码："
+      },
+      "classification": {
+        "title": "意图路由配置",
+        "description": "管理分类路由配置，控制 AI 会话的数据源加载策略"
       }
     }
   },
@@ -1005,6 +1031,7 @@
       "lint": "记忆中心",
       "soul": "灵魂",
       "skillLibrary": "技能库",
+      "writingSkillLibrary": "写作 Skill",
       "reviewCenter": "审查中心",
       "storySimulation": "剧情推演室",
       "dismantling": "拆文库",
@@ -1689,5 +1716,31 @@
     "stateChanges": "状态变化",
     "summary": "摘要",
     "recommended": "推荐"
+  },
+  "classification": {
+    "title": "意图路由配置",
+    "description": "管理分类路由配置，控制 AI 会话的数据源加载策略",
+    "noProject": "请先打开一个项目",
+    "checking": "正在检查状态...",
+    "notFound": "未找到 classification.md",
+    "valid": "classification.md 配置有效",
+    "needsUpgrade": "配置版本较旧，建议升级",
+    "error": "加载失败",
+    "create": "创建默认配置",
+    "created": "已创建默认 classification.md",
+    "createError": "创建失败",
+    "upgrade": "升级配置版本",
+    "upgraded": "已升级到最新版本",
+    "upgradeError": "升级失败",
+    "refresh": "重新检查",
+    "faq": "常见问题",
+    "editorHint": "编辑后保存前会先校验格式",
+    "save": "保存",
+    "saved": "已保存 classification.md",
+    "saveError": "保存失败",
+    "saveInvalid": "格式错误：请保留自动生成路由区块，并至少包含一条有效路由规则",
+    "restoreDefault": "恢复默认",
+    "restored": "已恢复默认 classification.md",
+    "restoreError": "恢复失败"
   }
 }
