@@ -44,6 +44,7 @@ const TOP_LEVEL_KEYS = new Set([
 
 export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
   const project = useWikiStore((s) => s.project)
+  const projectPathIndex = useWikiStore((s) => s.projectPathIndex)
   const fileTree = useWikiStore((s) => s.fileTree)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
 
@@ -153,7 +154,7 @@ export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
             {sources.map((source) => {
               const { slug, label } = unwrapWikilink(source)
               const path = sourcesRoot
-                ? resolveSourceName(fileTree, slug, sourcesRoot)
+                ? resolveSourceName(projectPathIndex, slug, sourcesRoot, fileTree)
                 : null
               return (
                 <SourceCard
@@ -180,7 +181,7 @@ export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
             {related.map((entry) => {
               const { slug, label } = unwrapWikilink(entry)
               const path = wikiRoot
-                ? resolveRelatedSlug(fileTree, slug, wikiRoot)
+                ? resolveRelatedSlug(projectPathIndex, slug, wikiRoot, fileTree)
                 : null
               return (
                 <RelatedChip

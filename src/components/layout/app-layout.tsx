@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { listDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
 import { IconSidebar } from "./icon-sidebar"
 import { SidebarPanel } from "./sidebar-panel"
 import { ContentArea } from "./content-area"
@@ -25,7 +24,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
-  const setFileTree = useWikiStore((s) => s.setFileTree)
   const outlineTasks = useOutlineGenerationStore((s: OutlineGenerationState) => s.tasks)
   const removeOutlineTask = useOutlineGenerationStore((s: OutlineGenerationState) => s.removeTask)
   const bookAnalysisTasks = useBookAnalysisStore((s) => s.tasks)
@@ -62,13 +60,11 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
 
   const loadFileTree = useCallback(async () => {
     if (!project) return
-    try {
-      const tree = await listDirectory(normalizePath(project.path))
-      setFileTree(tree)
-    } catch (err) {
-      console.error("Failed to load file tree:", err)
-    }
-  }, [project, setFileTree])
+    await refreshProjectFileTree(project.path, {
+      projectId: project.id,
+      clearDisplayTreeFirst: true,
+    })
+  }, [project])
 
   useEffect(() => {
     loadFileTree()

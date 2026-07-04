@@ -31,6 +31,7 @@ interface WikiReaderProps {
  */
 export function WikiReader({ body }: WikiReaderProps) {
   const project = useWikiStore((s) => s.project)
+  const projectPathIndex = useWikiStore((s) => s.projectPathIndex)
   const fileTree = useWikiStore((s) => s.fileTree)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
 
@@ -52,7 +53,7 @@ export function WikiReader({ body }: WikiReaderProps) {
         return href.slice(1)
       }
     })()
-    const path = resolveRelatedSlug(fileTree, slug, wikiRoot)
+    const path = resolveRelatedSlug(projectPathIndex, slug, wikiRoot, fileTree)
     if (path) setSelectedFile(path)
   }
 
