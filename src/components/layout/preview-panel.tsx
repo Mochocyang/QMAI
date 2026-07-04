@@ -95,6 +95,11 @@ async function getCanonicalChapterPath(currentPath: string, markdown: string, ch
   return getUniqueSiblingPath(getDirName(currentPath), makeChapterFileName(title, chapterNumber), currentPath)
 }
 
+/** Avoid flushing an empty in-memory snapshot over a chapter that still has disk content. */
+export function shouldSkipEmptyChapterFlush(markdown: string, lastLoaded: string): boolean {
+  return !markdown.trim() && Boolean(lastLoaded.trim())
+}
+
 function extractChapterNumberFromMarkdown(markdown: string): number | null {
   const { frontmatter } = parseFrontmatter(markdown)
   if (!frontmatter || typeof frontmatter !== "object") return null
@@ -279,6 +284,10 @@ export function PreviewPanel() {
 
     await writeFileAtomic(targetPath, normalized)
     if (targetPath !== path) {
+      if (useWikiStore.getState().selectedFile === path) {
+        selectedFileRef.current = targetPath
+        useWikiStore.getState().setSelectedFile(targetPath)
+      }
       await deleteFile(path)
       if (project) {
         try {
@@ -287,10 +296,6 @@ export function PreviewPanel() {
         } catch {
           // non-critical tree refresh
         }
-      }
-      if (useWikiStore.getState().selectedFile === path) {
-        selectedFileRef.current = targetPath
-        useWikiStore.getState().setSelectedFile(targetPath)
       }
     }
 
@@ -311,9 +316,14 @@ export function PreviewPanel() {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    if (markdown === lastLoadedRef.current) return
+    const storeMarkdown = useWikiStore.getState().fileContent
+    const resolvedMarkdown = markdown.trim()
+      ? markdown
+      : (storeMarkdown.trim() || lastLoadedRef.current)
+    if (shouldSkipEmptyChapterFlush(resolvedMarkdown, lastLoadedRef.current)) return
+    if (resolvedMarkdown === lastLoadedRef.current) return
     try {
-      await syncChapterToCanonicalPath(path, markdown)
+      await syncChapterToCanonicalPath(path, resolvedMarkdown)
     } catch (err) {
       console.error("切换章节前同步文件失败:", err)
     }
@@ -686,16 +696,25 @@ export function PreviewPanel() {
         saveTimerRef.current = null
       }
 
-      const updatedMarkdown = updateChapterStatus(fileContent, "final")
+      const markdownToSave = fileContent.trim() ? fileContent : lastLoadedRef.current
+      if (!markdownToSave.trim()) {
+        updatePhase(false, null)
+        setSaveStatus("章节内容为空，无法保存为正式章节")
+        setIsSavingFinal(false)
+        return
+      }
+
+      const updatedMarkdown = updateChapterStatus(markdownToSave, "final")
       const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown)
       const targetPath = syncResult.targetPath
       savePath = targetPath
       lastLoadedRef.current = syncResult.markdown
+      fileContentRef.current = syncResult.markdown
       setFileContent(syncResult.markdown)
 
       if (novelConfig.autoIngestOnSave) {
         const state = useWikiStore.getState()
-        const llmConfig = state.llmConfig
+        const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
         if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
           updatePhase(false, "ingest_no_llm")
         } else {

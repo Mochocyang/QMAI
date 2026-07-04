@@ -115,6 +115,7 @@ export function BookAnalysisView() {
     setSelectedCharacterId,
     setChapterSelectionData,
     llmConfig,
+    providerConfigs,
     startTask,
   })
 
@@ -135,6 +136,7 @@ export function BookAnalysisView() {
     clearRecognition,
     setRecognitionError: useBookAnalysisStore((s) => s.setRecognitionError),
     llmConfig,
+    providerConfigs,
   })
 
   // 角色特征提取钩子

@@ -13,7 +13,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { ingestOutline } from "./chapter-ingest"
 import { buildContextPack, type ContextPack } from "./context-engine"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
 
 export type OutlineSectionGenerationKey =
   | "chapterOutlines"
@@ -452,7 +452,7 @@ export async function runOutlineGenerationTask(taskId: string, llmConfig: LlmCon
   const { providerConfigs } = useWikiStore.getState()
   const effectiveLlmConfig = task.modelId
     ? resolveModelConfig(task.modelId, llmConfig, providerConfigs)
-    : llmConfig
+    : resolveDefaultModel(llmConfig)
 
   if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
     throw new Error("请先在设置中配置并选择一个可用的 AI 模型，或在大纲弹窗中选择模型后再试。")
@@ -506,7 +506,7 @@ export async function runOutlineRefinementTask(taskId: string, llmConfig: LlmCon
   const { providerConfigs } = useWikiStore.getState()
   const effectiveLlmConfig = task.modelId
     ? resolveModelConfig(task.modelId, llmConfig, providerConfigs)
-    : llmConfig
+    : resolveDefaultModel(llmConfig)
 
   if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
     throw new Error("请先在设置中配置并选择一个可用的 AI 模型，或在大纲弹窗中选择模型后再试。")

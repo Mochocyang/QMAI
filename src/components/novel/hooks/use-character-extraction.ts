@@ -2,6 +2,7 @@ import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
@@ -212,7 +213,7 @@ export function useCharacterExtraction({
         simpleExtractionTotal: userPicked.length,
       })
 
-      if (!llmConfig) {
+      if (!hasUsableLlm(llmConfig, useWikiStore.getState().providerConfigs)) {
         throw new Error("未配置 LLM，请先在设置中配置 LLM 后再提取")
       }
       const { streamChat } = await import("@/lib/llm-client")
@@ -415,7 +416,7 @@ export function useCharacterExtraction({
 
     const resumeStoreState = useWikiStore.getState()
     const llmConfig = resolveDefaultModel(resumeStoreState.llmConfig)
-    if (!llmConfig) {
+    if (!hasUsableLlm(llmConfig, resumeStoreState.providerConfigs)) {
       alert("未配置 LLM，请先在设置中配置")
       return
     }
