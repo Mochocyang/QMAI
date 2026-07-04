@@ -38,6 +38,15 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-brand-50: var(--brand-50);
+    --color-brand-100: var(--brand-100);
+    --color-brand-200: var(--brand-200);
+    --color-brand-300: var(--brand-300);
+    --color-brand-400: var(--brand-400);
+    --color-brand-500: var(--brand-500);
+    --color-brand-600: var(--brand-600);
+    --color-brand-700: var(--brand-700);
+    --color-brand-800: var(--brand-800);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -47,8 +56,19 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ====================================================
+   苍苍竹色 · 三色系东方美学配色
+   主色：竹绿（竹墨→翠竹→竹青→新篁→竹叶→竹露）
+   副色：竹编（EDE8D8 暖纸/米色）
+   点缀：金竹（C8A96E 暖金）
+   源自「东方美学配色方案」方案四「苍苍竹色」
+   ==================================================== */
+
+/* ---------- 浅色主题 ---------- */
 :root {
-    --qmai-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    --qmai-ui-font-family:
+        system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Microsoft YaHei", "PingFang SC", sans-serif;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -72,15 +92,6 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
 }
 
 :root.visual-cangzhu {
@@ -288,37 +299,58 @@
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: #1c3328;
+    --foreground: #daf0e2;
+    --card: #244234;
+    --card-foreground: #daf0e2;
+    --popover: #2d5040;
+    --popover-foreground: #daf0e2;
+
+    /* 深色模式下主色提亮为竹叶 */
+    --primary: #8fc0a5;
+    --primary-foreground: #1c3328;
+
+    --secondary: #2d5040;
+    --secondary-foreground: #daf0e2;
+
+    --muted: #2d5040;
+    --muted-foreground: #8fc0a5;
+
+    /* 金竹在深色下更温暖 */
+    --accent: #d9c69a;
+    --accent-foreground: #1c3328;
+
+    --destructive: #e06c6c;
+
+    --border: #3a5446;
+    --input: #3a5446;
+    --ring: #8fc0a5;
+
+    --chart-1: #8fc0a5;
+    --chart-2: #528a72;
+    --chart-3: #daf0e2;
+    --chart-4: #d9c69a;
+    --chart-5: #2d5040;
+
+    --sidebar: #1c3328;
+    --sidebar-foreground: #daf0e2;
+    --sidebar-primary: #8fc0a5;
+    --sidebar-primary-foreground: #1c3328;
+    --sidebar-accent: #244234;
+    --sidebar-accent-foreground: #daf0e2;
+    --sidebar-border: #3a5446;
+    --sidebar-ring: #8fc0a5;
+
+    /* 深色模式下品牌色阶反转：浅→深 */
+    --brand-50: #244234;
+    --brand-100: #2d5040;
+    --brand-200: #3e6b58;
+    --brand-300: #528a72;
+    --brand-400: #8fc0a5;
+    --brand-500: #a5d4bc;
+    --brand-600: #c2e4d2;
+    --brand-700: #daf0e2;
+    --brand-800: #f0f8f3;
 }
 
 .visual-cangzhu.dark {
@@ -526,135 +558,154 @@
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
+    * {
+        @apply border-border outline-ring/50;
     }
-  body {
-    @apply bg-background text-foreground;
+    body {
+        @apply bg-background text-foreground;
     }
-  html {
-    @apply font-sans;
+    html {
+        @apply font-sans;
+    }
+
+    /* 文字选中：竹露色 */
+    ::selection {
+        background: #daf0e2;
+        color: #1c3328;
     }
 }
 
 @layer components {
-  .qm-selected {
-    background: color-mix(in oklch, var(--primary) 38%, transparent);
-    color: #0f3f42;
-  }
+    /* 选中项：竹青底 + 竹墨字 + 左边金竹线 */
+    .qm-selected {
+        background: rgba(62, 107, 88, 0.14);
+        color: #1c3328;
+        border-left: 2px solid #c8a96e;
+    }
 
-  .qm-selected:hover {
-    background: color-mix(in oklch, var(--primary) 46%, transparent);
-  }
+    .qm-selected:hover {
+        background: rgba(62, 107, 88, 0.2);
+    }
 
-  .qm-selected-muted {
-    color: color-mix(in oklch, #0f3f42 72%, var(--foreground));
-  }
+    .qm-selected-muted {
+        color: #2d5040;
+    }
 
-  .qm-hover:hover {
-    background: color-mix(in oklch, var(--primary) 18%, transparent);
-    color: var(--foreground);
-  }
+    /* 悬停项：竹青淡底 */
+    .qm-hover:hover {
+        background: rgba(62, 107, 88, 0.08);
+        color: #1c3328;
+    }
 
-  .dark .qm-selected {
-    background: color-mix(in oklch, var(--primary) 27%, transparent);
-    color: #e8ffff;
-  }
+    /* 深色主题下的选中/悬停 */
+    .dark .qm-selected,
+    .deep-blue .qm-selected {
+        background: rgba(143, 192, 165, 0.18);
+        color: #daf0e2;
+        border-left: 2px solid #d9c69a;
+    }
 
-  .dark .qm-selected-muted {
-    color: color-mix(in oklch, #e8ffff 78%, var(--foreground));
-  }
+    .dark .qm-selected:hover,
+    .deep-blue .qm-selected:hover {
+        background: rgba(143, 192, 165, 0.26);
+    }
 
-  .dark .qm-hover:hover {
-    background: color-mix(in oklch, var(--primary) 17%, transparent);
-    color: var(--foreground);
-  }
+    .dark .qm-selected-muted,
+    .deep-blue .qm-selected-muted {
+        color: #b5d9c3;
+    }
+
+    .dark .qm-hover:hover,
+    .deep-blue .qm-hover:hover {
+        background: rgba(143, 192, 165, 0.1);
+        color: #daf0e2;
+    }
 }
 
 /* Legend scrollbar - left side */
 .legend-scroll {
-  scrollbar-width: thin;
-  scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
 }
 
 .legend-scroll::-webkit-scrollbar {
-  width: 4px;
+    width: 4px;
 }
 
 .legend-scroll::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 .legend-scroll::-webkit-scrollbar-thumb {
-  background: oklch(0.55 0 0);
-  border-radius: 2px;
+    background: #8fc0a5;
+    border-radius: 2px;
 }
 
 .legend-scroll::-webkit-scrollbar-corner {
-  background: transparent;
+    background: transparent;
 }
 
 /* Model selector dropdown scrollbar */
 .model-selector-dropdown {
-  scrollbar-width: thin;
-  scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
 }
 
 .model-selector-dropdown::-webkit-scrollbar {
-  width: 4px;
+    width: 4px;
 }
 
 .model-selector-dropdown::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 .model-selector-dropdown::-webkit-scrollbar-thumb {
-  background: oklch(0.55 0 0);
-  border-radius: 2px;
+    background: #8fc0a5;
+    border-radius: 2px;
 }
 
 .model-selector-dropdown::-webkit-scrollbar-corner {
-  background: transparent;
+    background: transparent;
 }
 
 /* 全局自定义滚动条 */
 * {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+    width: 6px;
+    height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--border));
-  border-radius: 3px;
-  transition: background-color 0.15s ease;
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+    transition: background-color 0.15s ease;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.5);
+    background-color: hsl(var(--muted-foreground) / 0.5);
 }
 
 *::-webkit-scrollbar-corner {
-  background: transparent;
+    background: transparent;
 }
 
 /* 暗色模式滚动条颜色微调 */
 .dark * {
-  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
 
 .dark *::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.3);
+    background-color: hsl(var(--muted-foreground) / 0.3);
 }
 
 .dark *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.5);
+    background-color: hsl(var(--muted-foreground) / 0.5);
 }

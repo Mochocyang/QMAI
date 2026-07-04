@@ -554,7 +554,7 @@ export function SettingsView() {
     <div className="flex h-full overflow-hidden">
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
           pattern so the two navigational surfaces feel like one app. */}
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-muted/30">
+      <aside className="flex w-56 shrink-0 flex-col border-r bg-brand-50/60">
         <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}

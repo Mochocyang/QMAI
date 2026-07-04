@@ -6,6 +6,7 @@ import type { WikiProject } from "@/types/wiki"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { importBackup } from "@/lib/backup/import"
+import logoImg from "@/assets/QM-LOGO.png"
 
 interface WelcomeScreenProps {
   onCreateProject: () => void
@@ -57,13 +58,24 @@ export function WelcomeScreen({
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-background">
+    <div className="fixed inset-0 flex items-center justify-center bg-brand-50">
       <div className="flex flex-col items-center gap-8 px-4">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold">{t(novelMode ? "novel.app.title" : "app.title")}</h1>
-          <p className="mt-2 text-muted-foreground">
-            {t(novelMode ? "novel.app.subtitle" : "app.subtitle")}
-          </p>
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="rounded-2xl bg-brand-100/60 p-3 ring-1 ring-brand-200/40">
+            <img
+              src={logoImg}
+              alt={t(novelMode ? "novel.app.title" : "app.title")}
+              className="h-12 w-12 rounded-[22%]"
+            />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">
+              {t(novelMode ? "novel.app.title" : "app.title")}
+            </h1>
+            <p className="mt-2 text-brand-500/80">
+              {t(novelMode ? "novel.app.subtitle" : "app.subtitle")}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap justify-center gap-3">
@@ -92,7 +104,7 @@ export function WelcomeScreen({
                 <button
                   key={proj.path}
                   onClick={() => onSelectProject(proj)}
-                  className="group flex w-full items-center justify-between border-b px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent"
+                  className="group flex w-full items-center justify-between rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{proj.name}</div>

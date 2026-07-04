@@ -43,7 +43,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       onClick={() => setSelectedFile(node.path)}
       className={`flex w-full items-center gap-1 py-1 text-sm ${
         isSelected
-          ? "qm-selected"
+          ? "qm-selected border-l-2 border-primary/60"
           : "text-muted-foreground qm-hover"
       }`}
       style={{ paddingLeft: paddingLeft + 14 }}
