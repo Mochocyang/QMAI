@@ -14,7 +14,7 @@ import { FilePreview } from "@/components/editor/file-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
-import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus } from "@/lib/novel/chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -126,35 +126,11 @@ function formatWritingBodyWithIndent(markdown: string): string {
 }
 
 function normalizeChapterWriting(markdown: string): string {
-  return formatWritingBodyWithIndent(syncChapterFrontmatterTitle(markdown))
+  return formatWritingBodyWithIndent(syncChapterFrontmatterFromBody(markdown))
 }
 
 function getDiskSyncNormalize(path: string): (content: string) => string {
   return isChapterPath(path) ? normalizeChapterWriting : (content) => content
-}
-
-function updateChapterHeading(markdown: string, nextTitle: string): string {
-  const { rawBlock, body } = parseFrontmatter(markdown)
-  const normalizedTitle = nextTitle.trim()
-  const bodyWithoutHeading = body.replace(/^#\s+.+$(\r?\n)?/m, "").replace(/^\n+/, "")
-  const nextBody = normalizedTitle
-    ? `# ${normalizedTitle}${bodyWithoutHeading ? `\n\n${bodyWithoutHeading}` : "\n"}`
-    : bodyWithoutHeading
-  return rawBlock + nextBody
-}
-
-function syncChapterFrontmatterTitle(markdown: string): string {
-  const { rawBlock, body, frontmatter } = parseFrontmatter(markdown)
-  if (!rawBlock || !frontmatter) return markdown
-  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim()
-  if (!heading) return markdown
-  const fmTitle = typeof (frontmatter as Record<string, unknown>).title === "string"
-    ? String((frontmatter as Record<string, unknown>).title).trim()
-    : ""
-  if (!fmTitle || fmTitle === heading) return markdown
-  const escaped = heading.replace(/"/g, '\\"')
-  const nextRaw = rawBlock.replace(/^title:\s*.*$/m, `title: "${escaped}"`)
-  return nextRaw + body
 }
 
 function getChapterTitleFromPath(path: string): string {
@@ -742,7 +718,7 @@ export function PreviewPanel() {
     setChapterTitleEditing(false)
     if (nextTitle === chapterDisplayTitle) return
     try {
-      await syncChapterToCanonicalPath(selectedFile, updateChapterHeading(fileContent, nextTitle), { renameToCanonical: true })
+      await syncChapterToCanonicalPath(selectedFile, updateChapterTitle(fileContent, nextTitle), { renameToCanonical: true })
     } catch (error) {
       console.error("章节标题同步失败:", error)
     }
