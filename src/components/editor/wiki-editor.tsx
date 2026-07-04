@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react"
 import { Editor, rootCtx, defaultValueCtx } from "@milkdown/kit/core"
 import { commonmark } from "@milkdown/kit/preset/commonmark"
 import { gfm } from "@milkdown/kit/preset/gfm"
@@ -41,14 +41,18 @@ interface FloatingToolbarPosition {
   left: number
 }
 
-function WritingTextarea({
+interface WritingTextareaHandle {
+  getLiveBodyMarkdown: () => string | null
+}
+
+const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(function WritingTextarea({
   content,
   onSave,
   autoFocus = false,
   onSelectionAction,
   highlightRequest,
   onHighlightHandled,
-}: WritingTextareaProps) {
+}, ref) {
   const initial = useMemo(() => splitChapterHeading(content), [content])
   const [heading, setHeading] = useState(initial.heading)
   const [value, setValue] = useState(initial.body)
@@ -56,6 +60,13 @@ function WritingTextarea({
   const previousBodyRef = useRef(initial.body)
   const [selection, setSelection] = useState<ChapterBodySelection | null>(null)
   const [toolbarPosition, setToolbarPosition] = useState<FloatingToolbarPosition | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    getLiveBodyMarkdown: () => {
+      if (!textareaRef.current) return null
+      return heading ? `# ${heading}\n\n${value}` : value
+    },
+  }), [heading, value])
 
   useEffect(() => {
     const { heading: h, body: b } = splitChapterHeading(content)
@@ -304,7 +315,7 @@ function WritingTextarea({
       />
     </div>
   )
-}
+})
 
 function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
   // Milkdown fires `markdownUpdated` once on initial parse before any
@@ -351,6 +362,10 @@ interface WikiEditorProps {
   onHighlightHandled?: () => void
 }
 
+export interface WikiEditorHandle {
+  getCurrentMarkdown: () => string | null
+}
+
 function wrapBareMathBlocks(text: string): string {
   return text.replace(
     /(?<!\$\$\s*)(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})(?!\s*\$\$)/g,
@@ -358,7 +373,7 @@ function wrapBareMathBlocks(text: string): string {
   )
 }
 
-export function WikiEditor({
+export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(function WikiEditor({
   content,
   onSave,
   defaultMode = "read",
@@ -366,7 +381,8 @@ export function WikiEditor({
   onSelectionAction,
   highlightRequest,
   onHighlightHandled,
-}: WikiEditorProps) {
+}, ref) {
+  const writingTextareaRef = useRef<WritingTextareaHandle>(null)
   // Default to read mode (ReactMarkdown render). Edit mode swaps
   // in Milkdown WYSIWYG. We default to read because:
   //   1. Milkdown's commonmark/gfm preset has no wikilink schema,
@@ -397,6 +413,14 @@ export function WikiEditor({
     () => (markdown: string) => onSave(rawBlock + markdown),
     [onSave, rawBlock],
   )
+
+  useImperativeHandle(ref, () => ({
+    getCurrentMarkdown: () => {
+      const liveBody = writingTextareaRef.current?.getLiveBodyMarkdown()
+      if (liveBody == null) return null
+      return rawBlock + liveBody
+    },
+  }), [rawBlock])
 
   useEffect(() => {
     setMode(defaultMode)
@@ -446,6 +470,7 @@ export function WikiEditor({
             `}</style>
             <div className="mx-auto w-full max-w-4xl flex-col px-8 py-10">
               <WritingTextarea
+                ref={writingTextareaRef}
                 content={body}
                 onSave={handleSave}
                 autoFocus={immersiveWriting}
@@ -466,7 +491,7 @@ export function WikiEditor({
       )}
     </div>
   )
-}
+})
 
 function getTextareaSelectionToolbarPosition(
   textarea: HTMLTextAreaElement,

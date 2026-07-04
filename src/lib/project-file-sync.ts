@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { readFile, listDirectory } from "@/commands/fs"
+import { listDirectory } from "@/commands/fs"
 import {
   rescanProjectFiles,
   startProjectFileWatcher,
@@ -141,9 +141,8 @@ async function processFileChangeBatch(
   await refreshAfterFileChanges(project, paths)
 }
 
-async function refreshAfterFileChanges(project: WikiProject, relativePaths: string[]): Promise<void> {
+async function refreshAfterFileChanges(project: WikiProject, _relativePaths: string[]): Promise<void> {
   const pp = normalizePath(project.path)
-  const store = useWikiStore.getState()
   try {
     const tree = await listDirectory(pp)
     useWikiStore.getState().setFileTree(tree)
@@ -151,26 +150,7 @@ async function refreshAfterFileChanges(project: WikiProject, relativePaths: stri
     console.warn("[file-sync] failed to refresh file tree:", err)
   }
 
-  store.bumpDataVersion()
-
-  const selected = store.selectedFile ? normalizePath(store.selectedFile) : null
-  if (!selected) return
-
-  const selectedRel = selected.startsWith(`${pp}/`) ? selected.slice(pp.length + 1) : selected
-  if (!relativePaths.includes(selectedRel)) return
-
-  try {
-    const content = await readFile(selected)
-    const currentContent = useWikiStore.getState().fileContent
-    if (currentContent && currentContent !== content) {
-      console.warn("[file-sync] 检测到编辑器有未保存内容，跳过文件刷新:", selected)
-      return
-    }
-    useWikiStore.getState().setFileContent(content)
-  } catch {
-    useWikiStore.getState().setSelectedFile(null)
-    useWikiStore.getState().setFileContent("")
-  }
+  useWikiStore.getState().bumpDataVersion()
 }
 
 async function enqueueRawSourceChanges(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {
