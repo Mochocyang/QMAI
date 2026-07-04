@@ -42,6 +42,7 @@ const writingConfig: UserSkillConfig = {
   version: 1,
   selectedSkillId: "skill:rhythm",
   disabledSkillIds: [],
+  categories: [],
   skills: [
     {
       id: "skill:rhythm",
@@ -52,6 +53,9 @@ const writingConfig: UserSkillConfig = {
       modes: ["strict"],
       content: "检查中段塌陷、重复场景和结尾钩子。",
       source: "uploaded",
+      priority: 0,
+      tags: [],
+      categoryId: "",
       createdAt: 100,
       updatedAt: 200,
     },

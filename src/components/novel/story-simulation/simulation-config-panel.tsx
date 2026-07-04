@@ -41,11 +41,13 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
   const targetWords = useStorySimulationStore((s) => s.targetWords)
   const sourceChapters = useStorySimulationStore((s) => s.sourceChapters)
   const simulationRounds = useStorySimulationStore((s) => s.simulationRounds)
+  const directorEnabled = useStorySimulationStore((s) => s.directorEnabled)
   const setMode = useStorySimulationStore((s) => s.setMode)
   const setUserIdea = useStorySimulationStore((s) => s.setUserIdea)
   const setTargetWords = useStorySimulationStore((s) => s.setTargetWords)
   const setSourceChapters = useStorySimulationStore((s) => s.setSourceChapters)
   const setSimulationRounds = useStorySimulationStore((s) => s.setSimulationRounds)
+  const setDirectorEnabled = useStorySimulationStore((s) => s.setDirectorEnabled)
 
   const selectedModeInfo = MODE_VISUAL_INFO[mode]
 
@@ -207,7 +209,30 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         </p>
       </section>
 
-      {/* 6. 开始按钮 */}
+      {/* 6. 高级设置 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-medium">高级设置</h3>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="director-enabled"
+            checked={directorEnabled}
+            onChange={(e) => setDirectorEnabled(e.target.checked)}
+            className="h-4 w-4 cursor-pointer rounded border-input"
+          />
+          <label
+            htmlFor="director-enabled"
+            className="cursor-pointer text-sm font-medium"
+          >
+            启用导演 Agent
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground pl-6">
+          节点结束时自动评估剧情质量，张力不足时会在下一节点注入突发事件以提升戏剧性。（默认关闭）
+        </p>
+      </section>
+
+      {/* 7. 开始按钮 */}
       <div className="flex justify-end pt-2">
         <Button onClick={onStart} size="lg">
           {t("storySimulation.startExtract")}

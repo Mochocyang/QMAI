@@ -18,6 +18,7 @@ function makeTrace(id: string): SimulationDebugTrace {
       activeAgentCount: 1,
       totalEventCount: 0,
       publicEventCount: 0,
+      rumorCount: 0,
     },
     visibilityByAgent: [
       {
@@ -27,6 +28,8 @@ function makeTrace(id: string): SimulationDebugTrace {
         recentEvents: [],
       },
     ],
+    rumors: [],
+    activeAgents: new Map(),
     timestamp: "2026-07-03T00:00:00.000Z",
   }
 }

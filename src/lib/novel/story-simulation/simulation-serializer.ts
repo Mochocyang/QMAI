@@ -151,6 +151,8 @@ export function deserializeSimulationSnapshot(
     timelineEvents: snapshot.state.timelineEvents as SimulationState["timelineEvents"],
     activeAgents,
     worldState: snapshot.state.worldState,
+    directorEnabled: false,
+    nextNodeInjectionMap: new Map(),
   }
   return { agents, state }
 }

@@ -1,6 +1,7 @@
 import type {
   ModeConfig,
   NovelAgent,
+  RumorEvent,
   SimulationDebugTrace,
   SimulationDebugVisibleEvent,
   SimulationState,
@@ -30,6 +31,8 @@ export interface SimulationBlackboard {
   events: TimelineEvent[]
   publicEvents: TimelineEvent[]
   visibleEventsByAgent: Map<string, TimelineEvent[]>
+  rumors: RumorEvent[]
+  visibleRumorsByAgent: Map<string, RumorEvent[]>
   roundPlans: MultiAgentRoundPlan[]
 }
 
@@ -71,6 +74,10 @@ export function createSimulationBlackboard(
     publicEvents: [],
     visibleEventsByAgent: new Map(
       input.agents.map((agent) => [agent.characterId, [] as TimelineEvent[]]),
+    ),
+    rumors: [],
+    visibleRumorsByAgent: new Map(
+      input.agents.map((agent) => [agent.characterId, [] as RumorEvent[]]),
     ),
     roundPlans: [],
   }
@@ -137,6 +144,7 @@ export function createBlackboardDebugTrace(
       activeAgentCount: blackboard.activeAgents.size,
       totalEventCount: blackboard.events.length,
       publicEventCount: blackboard.publicEvents.length,
+      rumorCount: blackboard.rumors.length,
     },
     visibilityByAgent: Array.from(blackboard.allAgents.values()).map((agent) => {
       const allVisibleEvents = blackboard.visibleEventsByAgent.get(agent.characterId) ?? []
@@ -152,6 +160,8 @@ export function createBlackboardDebugTrace(
       }
     }),
     latestEvent: input.latestEvent ? toDebugVisibleEvent(input.latestEvent) : undefined,
+    rumors: blackboard.rumors,
+    activeAgents: blackboard.activeAgents,
     timestamp,
   }
 }
@@ -172,6 +182,32 @@ export function recordBlackboardEvent(
   if (isPublicEvent(blackboard, event)) {
     blackboard.publicEvents.push(event)
   }
+}
+
+export function recordRumorEvent(
+  blackboard: SimulationBlackboard,
+  rumor: RumorEvent,
+): void {
+  blackboard.rumors.push(rumor)
+
+  for (const agentId of rumor.observableBy) {
+    if (!blackboard.visibleRumorsByAgent.has(agentId)) {
+      blackboard.visibleRumorsByAgent.set(agentId, [])
+    }
+    blackboard.visibleRumorsByAgent.get(agentId)!.push(rumor)
+  }
+}
+
+export function getBlackboardVisibleRumors(
+  blackboard: SimulationBlackboard,
+  agentId: string,
+  limit?: number,
+): RumorEvent[] {
+  const rumors = blackboard.visibleRumorsByAgent.get(agentId) ?? []
+  if (limit === undefined || limit <= 0 || rumors.length <= limit) {
+    return [...rumors]
+  }
+  return rumors.slice(-limit)
 }
 
 export function planMultiAgentRound(
@@ -254,5 +290,120 @@ function toDebugVisibleEvent(event: TimelineEvent): SimulationDebugVisibleEvent 
     content: event.content,
     round: event.round,
     nodeIndex: event.nodeIndex,
+  }
+}
+
+export type RumorVerificationResult = "confirmed" | "debunked" | "partial"
+
+function splitKeywords(text: string): string[] {
+  return text
+    .split(/[ ，。？！、]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+export function findMatchingRumor(
+  blackboard: SimulationBlackboard,
+  agentId: string,
+  description: string,
+): RumorEvent | null {
+  const visibleRumors = blackboard.visibleRumorsByAgent.get(agentId) ?? []
+  if (visibleRumors.length === 0) return null
+
+  for (const rumor of visibleRumors) {
+    if (rumor.content.includes(description) || description.includes(rumor.content)) {
+      return rumor
+    }
+  }
+
+  const descKeywords = new Set(splitKeywords(description))
+  let bestMatch: RumorEvent | null = null
+  let bestScore = 0
+
+  for (const rumor of visibleRumors) {
+    const rumorKeywords = splitKeywords(rumor.content)
+    const rumorKeywordSet = new Set(rumorKeywords)
+    let overlap = 0
+    for (const kw of descKeywords) {
+      if (rumorKeywordSet.has(kw)) overlap++
+    }
+    const totalKeywords = Math.max(descKeywords.size, rumorKeywords.length)
+    const score = totalKeywords > 0 ? overlap / totalKeywords : 0
+    if (score > bestScore) {
+      bestScore = score
+      bestMatch = rumor
+    }
+  }
+
+  return bestScore >= 0.2 ? bestMatch : null
+}
+
+export function decideRumorTruth(distortion: number): RumorVerificationResult {
+  const rand = Math.random()
+  if (distortion < 0.3) {
+    if (rand < 0.9) return "confirmed"
+    return "partial"
+  } else if (distortion <= 0.6) {
+    if (rand < 0.4) return "confirmed"
+    if (rand < 0.7) return "partial"
+    return "debunked"
+  } else {
+    if (rand < 0.2) return "confirmed"
+    if (rand < 0.5) return "partial"
+    return "debunked"
+  }
+}
+
+function stripRumorPrefixes(content: string): string {
+  const prefixes = ["听说", "据说", "传言", "有消息称", "据传"]
+  let result = content
+  for (const prefix of prefixes) {
+    if (result.startsWith(prefix)) {
+      result = result.slice(prefix.length)
+      break
+    }
+  }
+  return result
+}
+
+export function verifyRumor(
+  blackboard: SimulationBlackboard,
+  agentId: string,
+  rumorId: string,
+  result: RumorVerificationResult,
+): string {
+  const rumor = blackboard.rumors.find((r) => r.id === rumorId)
+  if (!rumor) return "错误：找不到指定的传闻"
+
+  const agent = blackboard.allAgents.get(agentId)
+  if (!agent) return "错误：找不到指定的角色"
+
+  if (!rumor.verifiedBy.includes(agentId)) {
+    rumor.verifiedBy.push(agentId)
+  }
+
+  const strippedContent = stripRumorPrefixes(rumor.content)
+
+  if (result === "confirmed") {
+    agent.memory.knownSecrets.add(strippedContent)
+    if (!rumor.believedBy.includes(agentId)) {
+      rumor.believedBy.push(agentId)
+    }
+    return `经过调查，确认属实：${strippedContent}`
+  } else if (result === "debunked") {
+    const visibleRumors = blackboard.visibleRumorsByAgent.get(agentId)
+    if (visibleRumors) {
+      const idx = visibleRumors.findIndex((r) => r.id === rumorId)
+      if (idx !== -1) {
+        visibleRumors.splice(idx, 1)
+      }
+    }
+    agent.memory.observedEvents.push(rumorId)
+    return `经过调查，证实为假：${strippedContent}`
+  } else {
+    const partialContent = `（部分属实）${strippedContent}`
+    agent.memory.knownSecrets.add(partialContent)
+    agent.memory.observedEvents.push(rumorId)
+    return `经过调查，部分属实：${strippedContent}`
   }
 }

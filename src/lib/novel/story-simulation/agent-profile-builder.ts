@@ -5,6 +5,7 @@ import type {
   ExtractionResult,
   ExtractedCharacter,
   NovelAgent,
+  RumorEvent,
   StoryFramework,
   StoryNode,
   TimelineEvent,
@@ -219,6 +220,11 @@ export function formatTimelineEvent(event: TimelineEvent): string {
   return `第${event.round + 1}轮 ${visibilityTag} ${event.actorName}${targetDesc} [${event.actionType}]：${event.content}`
 }
 
+function formatRumorEvent(rumor: RumorEvent): string {
+  const distortionPercent = Math.round(rumor.distortion * 100)
+  return `第${rumor.round + 1}轮 [传闻（可信度低，可能失真）] ${rumor.content}（失真度约${distortionPercent}%）`
+}
+
 /**
  * 构建 Agent 决策时的上下文文本。
  *
@@ -230,6 +236,7 @@ export function buildAgentContext(
   recentEvents: string[],
   worldRules: string,
   visibleTimelineEvents?: TimelineEvent[],
+  visibleRumors?: RumorEvent[],
 ): string {
   const sections: string[] = []
 
@@ -324,6 +331,16 @@ export function buildAgentContext(
     sections.push("【你观察到的最近事件】")
     for (const ev of visibleTimelineEvents) {
       sections.push(`- ${formatTimelineEvent(ev)}`)
+    }
+  }
+
+  // ── 你听到的传闻 ──
+  if (visibleRumors && visibleRumors.length > 0) {
+    sections.push("")
+    sections.push("【你听到的传闻】")
+    sections.push("注意：传闻（可信度低，可能失真），仅供参考，不要当作事实。")
+    for (const rumor of visibleRumors) {
+      sections.push(`- ${formatRumorEvent(rumor)}`)
     }
   }
 

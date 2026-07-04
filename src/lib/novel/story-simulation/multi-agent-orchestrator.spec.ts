@@ -90,6 +90,8 @@ function makeState(agents: NovelAgent[]): SimulationState {
     timelineEvents: [],
     activeAgents: new Map(agents.map((agent) => [agent.characterId, agent])),
     worldState: {},
+    directorEnabled: false,
+    nextNodeInjectionMap: new Map(),
   }
 }
 
@@ -241,6 +243,7 @@ describe("createBlackboardDebugTrace", () => {
       activeAgentCount: 3,
       totalEventCount: 2,
       publicEventCount: 1,
+      rumorCount: 0,
     })
     expect(trace.candidateAgents.map((agent) => agent.agentId)).toEqual(["a", "c"])
     expect(trace.selectedAgents.map((agent) => agent.agentId)).toEqual(["a", "c"])
@@ -254,7 +257,8 @@ describe("createBlackboardDebugTrace", () => {
         (event) => event.id,
       ),
     ).toEqual(["public"])
-    expect(Object.prototype.hasOwnProperty.call(trace, "activeAgents")).toBe(false)
+    expect(trace.rumors).toBeInstanceOf(Array)
+    expect(trace.activeAgents).toBeInstanceOf(Map)
   })
 
   it("limits each agent recent visible event summaries to the newest events", () => {

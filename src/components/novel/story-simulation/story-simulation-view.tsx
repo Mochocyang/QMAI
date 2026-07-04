@@ -11,6 +11,7 @@ import {
   runSimulation,
   type SimulationCallbacks,
 } from "@/lib/novel/story-simulation/simulation-engine"
+import { generateDynamicEventPool } from "@/lib/novel/story-simulation/event-pool-generator"
 import { generateSimulationReport } from "@/lib/novel/story-simulation/simulation-report-agent"
 import { generateStoryDraft } from "@/lib/novel/story-simulation/story-draft-generator"
 import { saveFramework, saveSimulationResult, loadSimulationResults } from "@/lib/novel/story-simulation/framework-store"
@@ -35,6 +36,10 @@ import { FrameworkConfirmPanel } from "./framework-confirm-panel"
 import { SimulationReportView } from "./simulation-report-view"
 import { StoryDraftView } from "./story-draft-view"
 import { InterviewHistoryView } from "./interview-history-view"
+import { RumorPropagationPanel } from "./rumor-propagation-panel"
+import { RelationshipGraphPanel } from "./relationship-graph-panel"
+import { ClueBoardPanel } from "./clue-board-panel"
+import { BranchManagerPanel } from "./branch-manager-panel"
 import { Button } from "@/components/ui/button"
 
 const PROGRESS_PHASES = [
@@ -160,6 +165,16 @@ export function StorySimulationView() {
   const setShowInterviewHistory = useStorySimulationStore((s) => s.setShowInterviewHistory)
   const continuingInterviewId = useStorySimulationStore((s) => s.continuingInterviewId)
   const setContinuingInterviewId = useStorySimulationStore((s) => s.setContinuingInterviewId)
+  const dynamicEventPool = useStorySimulationStore((s) => s.dynamicEventPool)
+  const setDynamicEventPool = useStorySimulationStore((s) => s.setDynamicEventPool)
+  const setCurrentRumors = useStorySimulationStore((s) => s.setCurrentRumors)
+  const setCurrentAgents = useStorySimulationStore((s) => s.setCurrentAgents)
+  const branches = useStorySimulationStore((s) => s.branches)
+  const activeBranchId = useStorySimulationStore((s) => s.activeBranchId)
+  const saveCurrentAsBranch = useStorySimulationStore((s) => s.saveCurrentAsBranch)
+  const deleteBranch = useStorySimulationStore((s) => s.deleteBranch)
+  const renameBranch = useStorySimulationStore((s) => s.renameBranch)
+  const switchToBranch = useStorySimulationStore((s) => s.switchToBranch)
 
   // 保存仿真后的 agents 和 state 供采访使用
   const lastAgentsRef = useRef<NovelAgent[]>([])
@@ -275,11 +290,20 @@ export function StorySimulationView() {
       )
       setExtractionResult(extraction)
 
+      // 1.5 预生成动态事件池
+      const llmConfig = resolveDefaultModel(baseLlmConfig)
+      const characterNames = extraction.characters.map((c) => c.name)
+      const eventPool = await generateDynamicEventPool({
+        llmConfig,
+        worldRules: extraction.worldRules,
+        characters: characterNames,
+      })
+      setDynamicEventPool(eventPool)
+
       // 2. 生成框架
       setPhase("framework-generating")
       phaseBaseProgressRef.current = 30
       setProgress(30, "正在生成故事框架...")
-      const llmConfig = resolveDefaultModel(baseLlmConfig)
       const framework: StoryFramework = await generateStoryFramework({
         extraction,
         mode,
@@ -365,7 +389,11 @@ export function StorySimulationView() {
           collectedTimeline.push(event)
           addTimelineEvent(event)
         },
-        onDebugTrace: addDebugTrace,
+        onDebugTrace: (trace) => {
+          addDebugTrace(trace)
+          setCurrentRumors(trace.rumors)
+          setCurrentAgents(trace.activeAgents)
+        },
       }
       const events = await runSimulation(
         {
@@ -376,6 +404,7 @@ export function StorySimulationView() {
           llmConfig,
           userIdea: userIdea || undefined,
           maxRoundsPerNode: simulationRounds > 0 ? simulationRounds : undefined,
+          dynamicEventPool: (Array.isArray(dynamicEventPool) ? dynamicEventPool.length > 0 : dynamicEventPool.all.length > 0) ? dynamicEventPool : undefined,
         },
         extraction,
         callbacks,
@@ -395,6 +424,8 @@ export function StorySimulationView() {
         timelineEvents: collectedTimeline,
         activeAgents: new Map(agents.map((a) => [a.characterId, a])),
         worldState: {},
+        directorEnabled: false,
+        nextNodeInjectionMap: new Map(),
       }
 
       // 生成推演报告
@@ -775,6 +806,12 @@ export function StorySimulationView() {
               onInterviewAgent={(id, name) => handleInterviewAgent(id, name)}
               onCancel={handleCancel}
               cancelling={isCancelling}
+              branches={branches}
+              activeBranchId={activeBranchId}
+              onSaveBranch={saveCurrentAsBranch}
+              onDeleteBranch={deleteBranch}
+              onRenameBranch={renameBranch}
+              onSwitchBranch={switchToBranch}
             />
           </div>
         ) : phase === "framework-confirming" ? (
@@ -797,7 +834,7 @@ export function StorySimulationView() {
                 onViewInterviewHistory={() => setShowInterviewHistory(true)}
               />
             </div>
-            {activeChatAgent && (
+            {activeChatAgent ? (
               <AgentChatPanel
                 agentName={activeChatAgent.name}
                 messages={agentChatMessages}
@@ -812,6 +849,19 @@ export function StorySimulationView() {
                 saving={chatSaving}
                 chatLogRef={chatLogRef}
               />
+            ) : (
+              <div className="flex w-80 shrink-0 flex-col border-l p-3">
+                <div className="flex-1 overflow-hidden">
+                  <BranchManagerPanel
+                    branches={branches}
+                    activeBranchId={activeBranchId}
+                    onSaveBranch={saveCurrentAsBranch}
+                    onDeleteBranch={deleteBranch}
+                    onRenameBranch={renameBranch}
+                    onSwitchBranch={switchToBranch}
+                  />
+                </div>
+              </div>
             )}
           </div>
         ) : phase === "draft-viewing" ? (
@@ -876,6 +926,12 @@ function SimulatingTimelinePanel({
   onInterviewAgent,
   onCancel,
   cancelling,
+  branches,
+  activeBranchId,
+  onSaveBranch,
+  onDeleteBranch,
+  onRenameBranch,
+  onSwitchBranch,
 }: {
   progress: number
   label: string
@@ -885,10 +941,16 @@ function SimulatingTimelinePanel({
   onInterviewAgent?: (agentId: string, agentName: string) => void
   onCancel?: () => void
   cancelling?: boolean
+  branches: import("@/lib/novel/story-simulation/types").SimulationBranch[]
+  activeBranchId: string | null
+  onSaveBranch: (name: string) => void
+  onDeleteBranch: (id: string) => void
+  onRenameBranch: (id: string, name: string) => void
+  onSwitchBranch: (id: string) => void
 }) {
   const clamped = Math.min(100, Math.max(0, progress))
   const logRef = useRef<HTMLDivElement | null>(null)
-  const [activeStreamView, setActiveStreamView] = useState<"timeline" | "debug">("timeline")
+  const [activeStreamView, setActiveStreamView] = useState<"timeline" | "debug" | "branches">("timeline")
 
   // 筛选状态
   const [filterActor, setFilterActor] = useState<string>("all")
@@ -1047,6 +1109,17 @@ function SimulatingTimelinePanel({
           >
             过程观察
           </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeStreamView === "branches"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveStreamView("branches")}
+          >
+            分支管理
+          </button>
         </div>
       </div>
 
@@ -1199,8 +1272,19 @@ function SimulatingTimelinePanel({
         )}
       </div>
         </>
-      ) : (
+      ) : activeStreamView === "debug" ? (
         <ProcessDebugPanel debugTraces={debugTraces} />
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <BranchManagerPanel
+            branches={branches}
+            activeBranchId={activeBranchId}
+            onSaveBranch={onSaveBranch}
+            onDeleteBranch={onDeleteBranch}
+            onRenameBranch={onRenameBranch}
+            onSwitchBranch={onSwitchBranch}
+          />
+        </div>
       )}
     </div>
   )
@@ -1211,6 +1295,10 @@ function ProcessDebugPanel({
 }: {
   debugTraces: SimulationDebugTrace[]
 }) {
+  const [activeTab, setActiveTab] = useState<"overview" | "rumors" | "relationships" | "clues">("overview")
+  const currentRumors = useStorySimulationStore((s) => s.currentRumors)
+  const currentAgents = useStorySimulationStore((s) => s.currentAgents)
+  const timelineEvents = useStorySimulationStore((s) => s.timelineEvents)
   const latestTrace = debugTraces[debugTraces.length - 1]
   const displayTraces = debugTraces.slice(-50).reverse()
 
@@ -1223,65 +1311,145 @@ function ProcessDebugPanel({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-muted/30 p-3 text-sm">
-      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-        <DebugStat label="全量角色" value={latestTrace.blackboard.allAgentCount} />
-        <DebugStat label="活跃角色" value={latestTrace.blackboard.activeAgentCount} />
-        <DebugStat label="总事件" value={latestTrace.blackboard.totalEventCount} />
-        <DebugStat label="公共事件" value={latestTrace.blackboard.publicEventCount} />
+    <div className="flex min-h-0 flex-1 flex-col rounded-lg border bg-muted/30 text-sm">
+      <div className="flex shrink-0 justify-center border-b p-2">
+        <div className="inline-flex rounded-md border bg-muted/40 p-0.5 text-xs">
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeTab === "overview"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveTab("overview")}
+          >
+            概览
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeTab === "rumors"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveTab("rumors")}
+          >
+            传闻
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeTab === "relationships"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveTab("relationships")}
+          >
+            关系
+          </button>
+          <button
+            type="button"
+            className={`rounded px-3 py-1.5 ${
+              activeTab === "clues"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setActiveTab("clues")}
+          >
+            线索
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {displayTraces.map((trace) => (
-          <div key={trace.id} className="rounded-md border bg-background/70 p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
-                {trace.type === "round-plan" ? "轮次计划" : "事件写入"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                节点 {trace.nodeIndex + 1}：{trace.nodeTitle}
-              </span>
-              <span className="text-xs text-muted-foreground">R{trace.round + 1}</span>
-              {trace.strategy && (
-                <span className="text-xs text-muted-foreground">
-                  策略：{trace.strategy === "all-agents" ? "全部角色" : trace.strategy === "subset" ? "部分角色" : "无角色"}
-                </span>
-              )}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {activeTab === "overview" && (
+          <div className="space-y-3">
+            <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+              <DebugStat label="全量角色" value={latestTrace.blackboard.allAgentCount} />
+              <DebugStat label="活跃角色" value={latestTrace.blackboard.activeAgentCount} />
+              <DebugStat label="总事件" value={latestTrace.blackboard.totalEventCount} />
+              <DebugStat label="公共事件" value={latestTrace.blackboard.publicEventCount} />
             </div>
 
-            <div className="mb-2 grid gap-2 md:grid-cols-2">
-              <DebugAgentList title="候选 Agent" agents={trace.candidateAgents} />
-              <DebugAgentList title="本轮行动 Agent" agents={trace.selectedAgents} />
-            </div>
-
-            {trace.latestEvent && (
-              <div className="mb-2 rounded border bg-muted/30 px-2 py-1.5 text-xs">
-                <span className="font-medium">最近事件：</span>
-                <span className="text-muted-foreground">
-                  {trace.latestEvent.actorName} / {trace.latestEvent.actionType}
-                </span>
-                <span>：{trace.latestEvent.content}</span>
-              </div>
-            )}
-
-            <div className="rounded border bg-muted/20 p-2">
-              <div className="mb-1 text-xs font-medium">Blackboard 可见事件</div>
-              <div className="grid gap-1 md:grid-cols-2">
-                {trace.visibilityByAgent.map((agent) => (
-                  <div key={agent.agentId} className="text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">{agent.agentName}</span>
-                    <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
-                    {agent.recentEvents && agent.recentEvents.length > 0 && (
-                      <span>
-                        ：{agent.recentEvents.map((event) => event.id).join("、")}
+            <div className="space-y-3">
+              {displayTraces.map((trace) => (
+                <div key={trace.id} className="rounded-md border bg-background/70 p-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                      {trace.type === "round-plan" ? "轮次计划" : "事件写入"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      节点 {trace.nodeIndex + 1}：{trace.nodeTitle}
+                    </span>
+                    <span className="text-xs text-muted-foreground">R{trace.round + 1}</span>
+                    {trace.strategy && (
+                      <span className="text-xs text-muted-foreground">
+                        策略：{trace.strategy === "all-agents" ? "全部角色" : trace.strategy === "subset" ? "部分角色" : "无角色"}
                       </span>
                     )}
                   </div>
-                ))}
-              </div>
+
+                  <div className="mb-2 grid gap-2 md:grid-cols-2">
+                    <DebugAgentList title="候选 Agent" agents={trace.candidateAgents} />
+                    <DebugAgentList title="本轮行动 Agent" agents={trace.selectedAgents} />
+                  </div>
+
+                  {trace.latestEvent && (
+                    <div className="mb-2 rounded border bg-muted/30 px-2 py-1.5 text-xs">
+                      <span className="font-medium">最近事件：</span>
+                      <span className="text-muted-foreground">
+                        {trace.latestEvent.actorName} / {trace.latestEvent.actionType}
+                      </span>
+                      <span>：{trace.latestEvent.content}</span>
+                    </div>
+                  )}
+
+                  <div className="rounded border bg-muted/20 p-2">
+                    <div className="mb-1 text-xs font-medium">Blackboard 可见事件</div>
+                    <div className="grid gap-1 md:grid-cols-2">
+                      {trace.visibilityByAgent.map((agent) => (
+                        <div key={agent.agentId} className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{agent.agentName}</span>
+                          <span> 可见事件 {agent.visibleEventCount ?? 0} 条</span>
+                          {agent.recentEvents && agent.recentEvents.length > 0 && (
+                            <span>
+                              ：{agent.recentEvents.map((event) => event.id).join("、")}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        ))}
+        )}
+
+        {activeTab === "rumors" && (
+          <div className="h-full">
+            <RumorPropagationPanel
+              rumors={currentRumors}
+              agents={currentAgents}
+              events={timelineEvents}
+            />
+          </div>
+        )}
+
+        {activeTab === "relationships" && (
+          <div className="h-full">
+            <RelationshipGraphPanel agents={currentAgents} />
+          </div>
+        )}
+
+        {activeTab === "clues" && (
+          <div className="h-full">
+            <ClueBoardPanel
+              agents={currentAgents}
+              rumors={currentRumors}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

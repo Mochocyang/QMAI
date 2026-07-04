@@ -68,6 +68,20 @@ export interface TimelineEvent {
   timestamp: string
 }
 
+export interface RumorEvent {
+  id: string
+  round: number
+  nodeIndex: number
+  sourceId: string | null
+  content: string
+  distortion: number
+  observableBy: string[]
+  believedBy: string[]
+  /** 已验证此传闻的角色 ID 列表 */
+  verifiedBy: string[]
+  timestamp: string
+}
+
 export interface SimulationDebugVisibleEvent {
   id: string
   actorName: string
@@ -99,9 +113,12 @@ export interface SimulationDebugTrace {
     activeAgentCount: number
     totalEventCount: number
     publicEventCount: number
+    rumorCount: number
   }
   visibilityByAgent: SimulationDebugAgent[]
   latestEvent?: SimulationDebugVisibleEvent
+  rumors: RumorEvent[]
+  activeAgents: Map<string, NovelAgent>
   timestamp: string
 }
 
@@ -149,11 +166,26 @@ export interface AgentRelation {
 }
 
 // ── 仿真状态（新引擎核心状态） ──
+export interface StagedEvent {
+  id: string
+  text: string
+  stage: "setup" | "rising" | "climax" | "resolution"
+}
+
+export interface StagedEventPool {
+  byStage: Record<"setup" | "rising" | "climax" | "resolution", StagedEvent[]>
+  all: StagedEvent[]
+}
+
 export interface SimulationState {
   currentRound: number
   timelineEvents: TimelineEvent[]
   activeAgents: Map<string, NovelAgent>
   worldState: Record<string, unknown>
+  dynamicEventPool?: string[]
+  usedEventIndices?: Set<number>
+  directorEnabled: boolean
+  nextNodeInjectionMap: Map<number, string>
 }
 
 // ── Agent 对话（采访/私聊） ──
@@ -324,6 +356,8 @@ export interface SimulationInput {
   injectionEvent?: string
   /** 每个节点的仿真轮数，不传则根据字数自动计算 */
   maxRoundsPerNode?: number
+  /** LLM 预生成的动态事件池（支持字符串数组或分阶段池） */
+  dynamicEventPool?: string[] | StagedEventPool
 }
 
 // ── 仿真配置 ──
@@ -360,6 +394,8 @@ export interface ModeConfig {
   agentSubsetRatio: number
   /** 是否强制按节点目标推进 */
   strictNodeProgression: boolean
+  /** 是否启用导演 Agent */
+  directorEnabled?: boolean
 }
 
 const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
@@ -370,6 +406,7 @@ const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
     randomEventChance: 0.1,
     agentSubsetRatio: 1,
     strictNodeProgression: true,
+    directorEnabled: false,
   },
   "free-emergence": {
     roundsMultiplier: 1.5,
@@ -378,6 +415,7 @@ const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
     randomEventChance: 0.25,
     agentSubsetRatio: 0.7,
     strictNodeProgression: false,
+    directorEnabled: false,
   },
   "decision-tree": {
     roundsMultiplier: 1.0,
@@ -386,6 +424,7 @@ const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
     randomEventChance: 0.15,
     agentSubsetRatio: 0.5,
     strictNodeProgression: true,
+    directorEnabled: false,
   },
   hybrid: {
     roundsMultiplier: 1.2,
@@ -394,6 +433,7 @@ const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
     randomEventChance: 0.2,
     agentSubsetRatio: 0.85,
     strictNodeProgression: false,
+    directorEnabled: false,
   },
 }
 
@@ -426,6 +466,49 @@ export interface ModeVisualInfo {
   color: string
   /** emoji图标 */
   icon: string
+}
+
+// ── 导演评价 ──
+
+export interface DirectorScore {
+  tension: number
+  pace: number
+  characterUtilization: number
+  characterArc: number
+  infoDensity: number
+  emotionalResonance: number
+  logicConsistency: number
+}
+
+export interface DirectorEvaluation {
+  scores: DirectorScore
+  totalScore: number
+  highlights: string[]
+  issues: string[]
+  suggestion: string
+  shouldInjectEvent: boolean
+  injectEvent?: string
+}
+
+// ── 仿真分支 ──
+
+export interface SimulationBranch {
+  id: string
+  name: string
+  frameworkId: string
+  mode: SimulationMode
+  createdAt: string
+  timelineEvents: TimelineEvent[]
+  rumors: RumorEvent[]
+  finalAgentSnapshots: { agentId: string; name: string; knownSecrets: string[]; sentiments: [string, number][] }[]
+  directorEvaluations: DirectorEvaluation[]
+  overallScore: number
+  scoreDetails: {
+    avgDirectorScore: number
+    eventCount: number
+    characterDiversity: number
+    plotProgression: number
+  }
 }
 
 export const MODE_VISUAL_INFO: Record<SimulationMode, ModeVisualInfo> = {

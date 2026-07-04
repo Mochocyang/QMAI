@@ -14,7 +14,7 @@ import {
 import type { UserSkillConfig } from "@/lib/novel/user-skill-store"
 
 export type UnifiedSkillLibrary = "writing" | "de-ai"
-export type UnifiedSkillSource = DeAiSkillSource | "built-in" | "project" | "uploaded"
+export type UnifiedSkillSource = DeAiSkillSource | "built-in" | "project" | "uploaded" | "linked"
 export type UnifiedSkillStatusFilter = "enabled" | "disabled"
 
 export interface UnifiedSkillEntry {

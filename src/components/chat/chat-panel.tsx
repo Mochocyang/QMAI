@@ -19,6 +19,7 @@ import {
 import { useChatStore, type DisplayMessage } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { DeAiSkillPicker } from "@/components/skill-library/de-ai-skill-picker"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
@@ -897,6 +898,40 @@ export function ChatPanel() {
         .slice(-maxHistoryMessages)
       const pp = normalizePath(project.path)
       const taskRoute = novelMode ? routeTask(plainText) : null
+
+      const SIMULATION_INTENTS = new Set([
+        "story_framework_generate",
+        "multi_agent_simulate",
+        "character_interview",
+      ])
+
+      if (taskRoute && SIMULATION_INTENTS.has(taskRoute.intent)) {
+        const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)
+        setConversationInputDraft(capturedConvId, "")
+        setFallbackReferenceText("")
+        setReferenceTokensByConversation((drafts) => {
+          const withoutCaptured = setReferenceTokensForConversation(drafts, capturedConvId, [])
+          return setReferenceTokensForConversation(withoutCaptured, referenceDraftConversationId, [])
+        })
+
+        const hasFramework = !!activeBinding
+        useStorySimulationStore.getState().initWithPreset({
+          intent: taskRoute.intent,
+          userInput: plainText,
+          hasFramework,
+        })
+
+        setActiveView("storySimulation")
+
+        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+          ...message,
+          content: "已为你打开剧情推演室并预填配置，请在推演室中继续操作。",
+          isAgentRunning: false,
+        }))
+
+        return
+      }
+
       const sessionAgentSystemPrompt = buildChatAgentSystemPrompt({
         novelMode,
         mode,

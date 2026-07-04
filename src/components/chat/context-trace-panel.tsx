@@ -74,6 +74,9 @@ const INTENT_LABELS: Record<NovelTaskIntent, string> = {
   timeline_query: "时间线查询",
   setting_query: "设定查询",
   general_chat: "随便聊聊",
+  story_framework_generate: "故事框架生成",
+  multi_agent_simulate: "多智能体推演",
+  character_interview: "角色采访",
 }
 
 const ROUTE_SOURCE_LABELS: Record<RouteSource, string> = {

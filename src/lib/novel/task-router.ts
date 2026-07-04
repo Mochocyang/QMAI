@@ -18,6 +18,9 @@ export type NovelTaskIntent =
   | "timeline_query"       // 时间线查询
   | "setting_query"        // 设定查询
   | "general_chat"         // 一般对话
+  | "story_framework_generate"  // 故事框架生成
+  | "multi_agent_simulate"      // 多智能体推演
+  | "character_interview"       // 角色采访
 
 export const MODIFY_INTENTS: Set<NovelTaskIntent> = new Set([
   "rewrite_chapter",
@@ -181,6 +184,33 @@ const INTENT_PATTERNS: IntentPattern[] = [
     ],
     keywords: ["设定", "世界观", "正史", "规则", "能力体系"],
     weight: 6,
+  },
+  {
+    intent: "story_framework_generate",
+    patterns: [
+      /^(生成|创建|写).*(故事框架|剧情框架)/,
+      /^(故事框架|剧情框架).*(生成|创建)/,
+    ],
+    keywords: ["故事框架", "剧情框架", "生成框架"],
+    weight: 10,
+  },
+  {
+    intent: "multi_agent_simulate",
+    patterns: [
+      /^(推演|推演一下|推演剧情|推演剧情走向|多智能体推演)/,
+      /(推演剧情|推演一下|多智能体推演|剧情走向)/,
+    ],
+    keywords: ["推演剧情", "多智能体推演", "剧情走向", "推演一下", "推演剧情走向"],
+    weight: 10,
+  },
+  {
+    intent: "character_interview",
+    patterns: [
+      /^(角色采访|采访角色|问角色)/,
+      /(角色采访|采访角色|问角色)/,
+    ],
+    keywords: ["角色采访", "采访角色", "问角色"],
+    weight: 10,
   },
 ]
 
@@ -399,6 +429,9 @@ export function buildTaskDirective(route: TaskRouteResult): string {
     timeline_query: "用户在查询时间线。请根据时间线数据回答当前时间进展。",
     setting_query: "用户在查询设定信息。请根据正史设定和世界观回答。",
     general_chat: "",
+    story_framework_generate: "用户要求生成故事框架。请跳转到剧情推演室进行框架生成。",
+    multi_agent_simulate: "用户要求多智能体推演。请跳转到剧情推演室进行推演。",
+    character_interview: "用户要求角色采访。请跳转到剧情推演室进行角色采访。",
   }
 
   const directive = directives[route.intent]
@@ -423,6 +456,9 @@ function intentToLabel(intent: NovelTaskIntent): string {
     timeline_query: "时间线查询",
     setting_query: "设定查询",
     general_chat: "一般对话",
+    story_framework_generate: "故事框架生成",
+    multi_agent_simulate: "多智能体推演",
+    character_interview: "角色采访",
   }
   return labels[intent] || "未知"
 }
