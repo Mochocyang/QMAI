@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="QM-LOGO.png" width="120" alt="青幕AI写作 Logo" />
+  <img src="src/assets/QM-LOGO.png" width="120" alt="青幕AI写作 Logo" />
 </p>
 
 <h1 align="center">青幕AI写作（QMAI）</h1>

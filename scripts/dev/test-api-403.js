@@ -1,6 +1,11 @@
-// 测试不同 headers 组合找出 403 的原因
-const API_KEY = "ah-52ff02ce8f7c1e6028e3bec33ba488a92cdaec659756c8cee92c2b4ef5ee83fe";
-const BASE_URL = "https://hub.linux.do/v1";
+// 测试不同 headers 组合找出 403 的原因（本地调试：API_KEY=xxx node scripts/dev/test-api-403.js）
+const API_KEY = process.env.API_KEY ?? "";
+const BASE_URL = process.env.BASE_URL ?? "https://hub.linux.do/v1";
+
+if (!API_KEY) {
+  console.error("请设置环境变量 API_KEY");
+  process.exit(1);
+}
 
 async function testWithHeaders(testName, headers) {
   console.log(`\n=== ${testName} ===`);
