@@ -78,6 +78,22 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_THIRTY_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.2.32",
+  date: "2026-07-04",
+  highlights: {
+    en: [
+      "Reworked how novel-writing tasks pick a model into one consistent rule: per-step model > Default Model > chat model (fallback). The model selected in the chat box is now used only for chatting and writing prose; review, summary, and extract follow the Default Model by default.",
+      "Moved the Default Model to the top of Novel settings and clarified that it drives every feature other than writing prose (review, summary, extract, Dismantling, deduplication, source import, etc.).",
+      "Rewrote all model-setting descriptions in plain language, and split the single checkbox into Follow default model and Follow chat model so the same control no longer means opposite things in different places.",
+    ],
+    zh: [
+      "重构写小说的模型选择逻辑，统一为「该环节单独设置 > 默认模型 > 聊天模型兜底」：聊天框选中的模型只用于聊天和写正文，审稿、摘要、提取等环节默认跟随「默认模型」。",
+      "设置页各模型说明全部改写为通俗易懂的表述；「跟随」复选框拆分为「跟随默认模型」与「跟随聊天模型」，避免同一控件在不同位置含义相反。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_THIRTY_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.2.31",
   date: "2026-06-30",
@@ -717,6 +733,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_THIRTY_TWO_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_TWO_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTY_ONE_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_ONE_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTY_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_NINE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_NINE_CHANGELOG]
@@ -752,6 +769,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_THIRTY_TWO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_ONE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_CHANGELOG,
     TWO_POINT_TWO_TWENTY_NINE_CHANGELOG,

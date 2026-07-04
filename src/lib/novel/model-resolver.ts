@@ -5,8 +5,53 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint"
 
+const UNUSABLE_LLM_CONFIG: Pick<LlmConfig, "provider" | "apiKey" | "model"> = {
+  provider: "openai",
+  apiKey: "",
+  model: "",
+}
+
 function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, ProviderOverride>): boolean {
   return hasUsableLlm(cfg, providerConfigs)
+}
+
+function toUnusableConfig(baseConfig: LlmConfig): LlmConfig {
+  return { ...baseConfig, ...UNUSABLE_LLM_CONFIG }
+}
+
+export function isModelKeyRegistered(
+  targetModel: string,
+  providerConfigs: Record<string, ProviderOverride>,
+): boolean {
+  const trimmed = targetModel.trim()
+  if (!trimmed) return false
+
+  const slashIdx = trimmed.indexOf("/")
+  if (slashIdx > 0) {
+    const providerId = trimmed.slice(0, slashIdx)
+    const modelId = trimmed.slice(slashIdx + 1)
+    return !!providerConfigs[providerId]?.savedModels?.some((m) => m.model === modelId)
+  }
+
+  for (const override of Object.values(providerConfigs)) {
+    if (override.savedModels?.some((m) => m.model === trimmed)) {
+      return true
+    }
+  }
+  return false
+}
+
+function resolveRegisteredModel(
+  targetModel: string,
+  baseConfig: LlmConfig,
+  providerConfigs: Record<string, ProviderOverride>,
+): LlmConfig | null {
+  const trimmed = targetModel.trim()
+  if (!trimmed || !isModelKeyRegistered(trimmed, providerConfigs)) {
+    return null
+  }
+  const cfg = resolveModelConfig(trimmed, baseConfig, providerConfigs)
+  return isConfigUsable(cfg, providerConfigs) ? cfg : null
 }
 
 export function resolveModelConfig(
@@ -40,32 +85,33 @@ export function resolveModelConfig(
   return { ...baseConfig, model: targetModel }
 }
 
+function resolveProjectDefaultLlmModel(): string {
+  const { novelConfig, defaultLlmModel } = useWikiStore.getState()
+  return novelConfig.defaultLlmModel?.trim() || defaultLlmModel?.trim() || ""
+}
+
 /**
  * 解析后台任务的默认模型。
  * 优先级：defaultLlmModel > aiChatModel
  * 不回退到 baseConfig（llmConfig），避免静默使用已禁用的 CLI provider。
- * 用于提取记忆、提取角色等后台 AI 任务。
+ * 用于导入队列、书籍分析、去重等通用后台任务；不含小说章节/大纲摄取（见 resolveNovelModel）。
  */
 export function resolveDefaultModel(baseConfig: LlmConfig): LlmConfig {
-  const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
+  const { providerConfigs, aiChatModel } = useWikiStore.getState()
 
-  const defaultModel = defaultLlmModel?.trim()
+  const defaultModel = resolveProjectDefaultLlmModel()
   if (defaultModel) {
-    const cfg = resolveModelConfig(defaultModel, baseConfig, providerConfigs)
-    if (isConfigUsable(cfg, providerConfigs)) {
-      return cfg
-    }
+    const cfg = resolveRegisteredModel(defaultModel, baseConfig, providerConfigs)
+    if (cfg) return cfg
   }
 
   const chatModel = aiChatModel?.trim()
   if (chatModel && chatModel !== defaultModel) {
-    const cfg = resolveModelConfig(chatModel, baseConfig, providerConfigs)
-    if (isConfigUsable(cfg, providerConfigs)) {
-      return cfg
-    }
+    const cfg = resolveRegisteredModel(chatModel, baseConfig, providerConfigs)
+    if (cfg) return cfg
   }
 
-  return { ...baseConfig, apiKey: "", model: "" }
+  return toUnusableConfig(baseConfig)
 }
 
 export function resolveNovelModel(
@@ -74,38 +120,48 @@ export function resolveNovelModel(
   taskType: NovelTaskType,
 ): LlmConfig {
   const modelMap: Record<NovelTaskType, string> = {
-    writing: "", // 写作模型已移除，始终使用 AI 会话当前模型
+    writing: "", // 写作正文属于“聊天写小说”，直接用聊天模型（下方特判）
     review: novelConfig.reviewModel,
     summary: novelConfig.summaryModel,
     extract: novelConfig.extractModel,
     lint: novelConfig.reviewModel,
   }
 
-  const { providerConfigs, defaultLlmModel, aiChatModel } = useWikiStore.getState()
+  const { providerConfigs, aiChatModel } = useWikiStore.getState()
+  const chatModel = aiChatModel?.trim()
 
+  // 写作正文：聊天模型优先，默认模型兜底。
+  if (taskType === "writing") {
+    if (chatModel) {
+      const cfg = resolveRegisteredModel(chatModel, llmConfig, providerConfigs)
+      if (cfg) return cfg
+    }
+    const defaultModel = resolveProjectDefaultLlmModel()
+    if (defaultModel && defaultModel !== chatModel) {
+      const cfg = resolveRegisteredModel(defaultModel, llmConfig, providerConfigs)
+      if (cfg) return cfg
+    }
+    return toUnusableConfig(llmConfig)
+  }
+
+  // 其余任务级模型（审稿/摘要/提取/lint）：
+  //   任务单独设置 > 默认模型 > 聊天模型（仅默认未设置时兜底）
   const taskModel = modelMap[taskType]
   if (taskModel?.trim()) {
-    const cfg = resolveModelConfig(taskModel, llmConfig, providerConfigs)
-    if (isConfigUsable(cfg, providerConfigs)) {
-      return cfg
-    }
+    const cfg = resolveRegisteredModel(taskModel, llmConfig, providerConfigs)
+    if (cfg) return cfg
   }
 
-  const chatModel = aiChatModel?.trim()
-  if (chatModel) {
-    const cfg = resolveModelConfig(chatModel, llmConfig, providerConfigs)
-    if (isConfigUsable(cfg, providerConfigs)) {
-      return cfg
-    }
+  const defaultModel = resolveProjectDefaultLlmModel()
+  if (defaultModel) {
+    const cfg = resolveRegisteredModel(defaultModel, llmConfig, providerConfigs)
+    if (cfg) return cfg
   }
 
-  const defaultModel = defaultLlmModel?.trim()
-  if (defaultModel && defaultModel !== chatModel) {
-    const cfg = resolveModelConfig(defaultModel, llmConfig, providerConfigs)
-    if (isConfigUsable(cfg, providerConfigs)) {
-      return cfg
-    }
+  if (chatModel && chatModel !== defaultModel) {
+    const cfg = resolveRegisteredModel(chatModel, llmConfig, providerConfigs)
+    if (cfg) return cfg
   }
 
-  return { ...llmConfig, apiKey: "", model: "" }
+  return toUnusableConfig(llmConfig)
 }

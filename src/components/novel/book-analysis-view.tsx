@@ -6,7 +6,7 @@ import { BookAnalysisResultViewer } from "./book-analysis-result-viewer"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import {
   toBookAnalysisResult,
   type BookAnalysisLibraryState,
@@ -73,11 +73,13 @@ export function BookAnalysisView() {
 
   // 角色识别 LLM 配置（feature/llm-character-recognizer）
   const baseLlmConfig = useWikiStore((s) => s.llmConfig)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
-  const llmConfig = aiChatModel
-    ? resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs)
-    : baseLlmConfig
+  const llmConfig = useMemo(
+    () => resolveDefaultModel(baseLlmConfig),
+    [baseLlmConfig, novelConfig.defaultLlmModel, aiChatModel, providerConfigs],
+  )
 
   // 角色识别 store 状态与 actions（feature/character-recognition-and-simple-mode）
   const recognitionStatus = useBookAnalysisStore((s) => s.recognitionStatus)
@@ -218,9 +220,7 @@ export function BookAnalysisView() {
       const { splitNovelIntoChapters } = await import("@/lib/novel/book-analysis/analysis-engine")
       const { useWikiStore } = await import("@/stores/wiki-store")
       const storeState = useWikiStore.getState()
-      const analysisLlmConfig = storeState.aiChatModel
-        ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)
-        : storeState.llmConfig
+      const analysisLlmConfig = resolveDefaultModel(storeState.llmConfig)
       const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
       const updateTaskMetadata = useBookAnalysisStore.getState().updateTaskMetadata
 

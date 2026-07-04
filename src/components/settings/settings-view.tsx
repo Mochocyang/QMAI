@@ -339,6 +339,7 @@ export function SettingsView() {
       saveSourceWatchConfig,
       saveRevisionFeedbackWindowConfig,
       saveNovelConfig,
+      saveDefaultLlmModel,
       saveOutputLanguage,
       saveMaxHistoryMessages,
       saveUiFontSizeScale,
@@ -461,6 +462,7 @@ export function SettingsView() {
 
     setNovelConfig(draft.novelConfig)
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
+    await saveDefaultLlmModel(draft.novelConfig.defaultLlmModel)
 
     setOutputLanguage(draft.outputLanguage)
     await saveOutputLanguage(draft.outputLanguage, project?.id)

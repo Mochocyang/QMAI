@@ -19,7 +19,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
-import { useWikiStore, type ProviderConfigs } from "@/stores/wiki-store"
+import { useWikiStore } from "@/stores/wiki-store"
+import { getFirstAvailableModelKey } from "@/lib/llm-model-keys"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { normalizePath } from "@/lib/path-utils"
 import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
@@ -105,24 +106,6 @@ function scanStateBelongsToProject(
   return normalizeProjectPath(state.projectPath) === normalizeProjectPath(project.path)
 }
 
-function getFirstAvailableModelKey(providerConfigs: ProviderConfigs): string {
-  for (const key of Object.keys(providerConfigs)) {
-    if (key.startsWith("custom-")) continue
-    const config = providerConfigs[key]
-    if (config.enabled !== true) continue
-    const first = config.savedModels?.[0]
-    if (first) return `${key}/${first.model}`
-  }
-  for (const key of Object.keys(providerConfigs)) {
-    if (!key.startsWith("custom-")) continue
-    const config = providerConfigs[key]
-    if (config.enabled === false) continue
-    const first = config.savedModels?.[0]
-    if (first) return `${key}/${first.model}`
-  }
-  return ""
-}
-
 function setSharedScanState(patch: Partial<MaintenanceScanState>): void {
   const normalizedPatch = patch.projectPath
     ? { ...patch, projectPath: normalizeProjectPath(patch.projectPath) }
@@ -176,7 +159,8 @@ export function MaintenanceSection() {
   const { t } = useTranslation()
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
-  const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
+  const defaultLlmModel = novelConfig.defaultLlmModel
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const project = useWikiStore((s) => s.project)
 

@@ -302,6 +302,8 @@ export interface NovelConfig {
   deepChapterReview: boolean
   /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
   reviewReasoningEffort: "low" | "medium" | "high"
+  /** 默认模型（工作流）：拆文库、剧情推演室、去重等。空字符串表示跟随 AI 会话模型。 */
+  defaultLlmModel: string
   writingModel: string
   reviewModel: string
   summaryModel: string
@@ -327,6 +329,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
   reviewReasoningEffort: "high",
+  defaultLlmModel: "",
   writingModel: "",
   reviewModel: "",
   summaryModel: "",
@@ -549,7 +552,7 @@ interface WikiState {
   refreshGraph: (() => void) | null
   llmConfig: LlmConfig
   aiChatModel: string
-  /** 默认模型：AI会话提取记忆、提取角色等后台任务默认使用的模型（格式: "providerId/modelId"，留空则使用 AI 会话当前模型） */
+  /** 默认模型（工作流）：拆文库、导入队列、去重、角色 aura 等。章节/大纲记忆摄取见 novelConfig.extractModel */
   defaultLlmModel: string
   /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
   providerConfigs: ProviderConfigs
@@ -857,7 +860,12 @@ export const useWikiStore = create<WikiState>((set) => ({
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
   setDeepChapterEnabled: (deepChapterEnabled) => set({ deepChapterEnabled }),
-  setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
+  setNovelConfig: (config) => set((state) => ({
+    novelConfig: { ...state.novelConfig, ...config },
+    ...(config.defaultLlmModel !== undefined
+      ? { defaultLlmModel: config.defaultLlmModel }
+      : {}),
+  })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),

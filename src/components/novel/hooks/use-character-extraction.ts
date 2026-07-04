@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
@@ -54,9 +54,7 @@ export function useCharacterExtraction({
 
   const resolveLlmConfig = useCallback(() => {
     const storeState = useWikiStore.getState()
-    return storeState.aiChatModel
-      ? resolveModelConfig(storeState.aiChatModel, storeState.llmConfig, storeState.providerConfigs)
-      : storeState.llmConfig
+    return resolveDefaultModel(storeState.llmConfig)
   }, [])
 
   /**
@@ -416,9 +414,7 @@ export function useCharacterExtraction({
     const updateTaskCharacters = useBookAnalysisStore.getState().updateTaskCharacters
 
     const resumeStoreState = useWikiStore.getState()
-    const llmConfig = resumeStoreState.aiChatModel
-      ? resolveModelConfig(resumeStoreState.aiChatModel, resumeStoreState.llmConfig, resumeStoreState.providerConfigs)
-      : resumeStoreState.llmConfig
+    const llmConfig = resolveDefaultModel(resumeStoreState.llmConfig)
     if (!llmConfig) {
       alert("未配置 LLM，请先在设置中配置")
       return

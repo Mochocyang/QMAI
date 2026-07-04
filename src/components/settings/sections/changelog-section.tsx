@@ -235,7 +235,7 @@ export function ChangelogSection() {
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
                 {entry.version === __APP_VERSION__ ? (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400">\u2190 当前版本</span>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400">← 当前版本</span>
                 ) : null}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">

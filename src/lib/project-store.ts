@@ -484,14 +484,28 @@ export async function saveNovelConfig(config: NovelConfig, projectId?: string, p
   }
 }
 
+async function maybeMigrateLegacyDefaultLlmModel(
+  config: NovelConfig,
+  projectId?: string,
+  projectPath?: string,
+): Promise<NovelConfig> {
+  if (config.defaultLlmModel.trim()) return config
+  const legacyGlobal = await loadDefaultLlmModel()
+  if (!legacyGlobal?.trim()) return config
+  const migrated = { ...config, defaultLlmModel: legacyGlobal.trim() }
+  await saveNovelConfig(migrated, projectId, projectPath)
+  return migrated
+}
+
 export async function loadNovelConfig(projectId?: string, projectPath?: string): Promise<NovelConfig | null> {
   if (projectPath) {
     try {
       const filePath = novelConfigFilePath(projectPath)
       if (await fileExists(filePath)) {
         const raw = await readFile(filePath)
-        const config = JSON.parse(raw)
-        return normalizeNovelConfig(config)
+        const config = normalizeNovelConfig(JSON.parse(raw))
+        if (!config) return null
+        return maybeMigrateLegacyDefaultLlmModel(config, projectId, projectPath)
       }
     } catch {
       // fall through to global store
@@ -515,7 +529,8 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
       // non-critical migration
     }
   }
-  return config
+  if (!config) return null
+  return maybeMigrateLegacyDefaultLlmModel(config, projectId, projectPath)
 }
 
 const RERANK_CONFIG_KEY = "rerankConfig"
@@ -653,6 +668,7 @@ function normalizeNovelConfig(
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
     deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
+    defaultLlmModel: config.defaultLlmModel ?? DEFAULT_NOVEL_CONFIG.defaultLlmModel,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
     reviewModel: config.reviewModel ?? DEFAULT_NOVEL_CONFIG.reviewModel,
     summaryModel: config.summaryModel ?? DEFAULT_NOVEL_CONFIG.summaryModel,
