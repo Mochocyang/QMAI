@@ -269,11 +269,12 @@ function App() {
       } catch (err) {
         console.error("恢复摄取队列失败:", err)
       }
-      import("@/lib/dedup-queue").then(({ restoreQueue }) => {
-        restoreQueue(proj.id, proj.path).catch((err) =>
-          console.error("恢复去重队列失败:", err)
-        )
-      })
+      try {
+        const { restoreQueue: restoreDedupQueue } = await import("@/lib/dedup-queue")
+        await restoreDedupQueue(proj.id, proj.path)
+      } catch (err) {
+        console.error("恢复去重队列失败:", err)
+      }
     }
 
     try {

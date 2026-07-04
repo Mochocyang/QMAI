@@ -76,6 +76,15 @@ const CATEGORIES: Category[] = [
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
 ]
 
+/** Settings tabs that edit the shared draft and need the global Save footer. */
+const CATEGORIES_WITH_SAVE_FOOTER: CategoryId[] = [
+  "rerank",
+  "embedding",
+  "network",
+  "interface",
+  "novel",
+]
+
 function initialDraft(
   llm: ReturnType<typeof useWikiStore.getState>["llmConfig"],
   embed: ReturnType<typeof useWikiStore.getState>["embeddingConfig"],
@@ -524,6 +533,8 @@ export function SettingsView() {
     }
   }, [active, draft, setDraft])
 
+  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active)
+
   return (
     <div className="flex h-full overflow-hidden">
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
@@ -571,16 +582,18 @@ export function SettingsView() {
           <div className="mx-auto max-w-2xl">{body}</div>
         </div>
 
-        <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              {saved ? t("settings.savedTick") : t("settings.changeHint")}
-            </p>
-            <Button onClick={handleSave}>
-              {saved ? t("settings.saved") : t("settings.save")}
-            </Button>
+        {showSaveFooter && (
+          <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+            <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
+              <p className="text-xs text-muted-foreground">
+                {saved ? t("settings.savedTick") : t("settings.changeHint")}
+              </p>
+              <Button onClick={handleSave}>
+                {saved ? t("settings.saved") : t("settings.save")}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
