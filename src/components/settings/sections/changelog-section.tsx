@@ -2,6 +2,11 @@ import { useState, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Download, CheckCircle, AlertCircle } from "lucide-react"
 import { allChangelog } from "@/lib/changelog"
+import {
+  APP_AUTO_UPDATE_RELEASES_URL,
+  APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE,
+  isAppAutoUpdateSupported,
+} from "@/lib/app-update-support"
 import { isTauri } from "@/lib/platform"
 import { formatUpdateErrorMessage } from "@/lib/update-error-message"
 
@@ -19,11 +24,17 @@ export function ChangelogSection() {
   const [errorMessage, setErrorMessage] = useState("")
   const [downloadProgress, setDownloadProgress] = useState(0)
   const updateHandleRef = useRef<unknown>(null)
+  const autoUpdateSupported = isAppAutoUpdateSupported()
 
   async function handleCheckUpdate() {
     if (!isTauri()) {
       setUpdateStatus("error")
       setErrorMessage("仅桌面版支持自动更新检测")
+      return
+    }
+    if (!autoUpdateSupported) {
+      setUpdateStatus("error")
+      setErrorMessage(APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE)
       return
     }
     setUpdateStatus("checking")
@@ -104,31 +115,46 @@ export function ChangelogSection() {
 
       {/* 检查更新区域 */}
       <div className="rounded-lg border border-border p-4">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void handleCheckUpdate()}
-            disabled={updateStatus === "checking" || updateStatus === "downloading"}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${updateStatus === "checking" ? "animate-spin" : ""}`} />
-            {updateStatus === "checking" ? "正在检查..." : "检查更新"}
-          </button>
+        {autoUpdateSupported ? (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleCheckUpdate()}
+              disabled={updateStatus === "checking" || updateStatus === "downloading"}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${updateStatus === "checking" ? "animate-spin" : ""}`} />
+              {updateStatus === "checking" ? "正在检查..." : "检查更新"}
+            </button>
 
-          {updateStatus === "up-to-date" ? (
-            <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
-              <CheckCircle className="h-4 w-4" />
-              当前已是最新版本
-            </span>
-          ) : null}
+            {updateStatus === "up-to-date" ? (
+              <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="h-4 w-4" />
+                当前已是最新版本
+              </span>
+            ) : null}
 
-          {updateStatus === "error" ? (
-            <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
-              <AlertCircle className="h-4 w-4" />
-              {errorMessage || "检查更新失败"}
-            </span>
-          ) : null}
-        </div>
+            {updateStatus === "error" ? (
+              <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+                <AlertCircle className="h-4 w-4" />
+                {errorMessage || "检查更新失败"}
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE}
+            {" "}
+            <a
+              href={APP_AUTO_UPDATE_RELEASES_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary hover:underline"
+            >
+              GitHub Releases
+            </a>
+          </p>
+        )}
 
         {updateStatus === "available" ? (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">
@@ -209,7 +235,7 @@ export function ChangelogSection() {
                 </span>
                 <span className="text-xs text-muted-foreground">{entry.date}</span>
                 {entry.version === __APP_VERSION__ ? (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400">\u2190 当前版本</span>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400">← 当前版本</span>
                 ) : null}
               </div>
               <ul className="mt-3 space-y-2 text-sm leading-relaxed text-foreground/90">

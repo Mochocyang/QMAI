@@ -291,9 +291,11 @@ export function ChatPanel() {
       const chapterDir = `${pp}/wiki/chapters`
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
-      await writeFile(chapterPath, buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent))
+      const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
+      await writeFile(chapterPath, chapterMarkdown)
       setChapterSaveStatus(`已保存为${chapterTitle}`)
       useWikiStore.getState().setSelectedFile(chapterPath)
+      useWikiStore.getState().setFileContent(chapterMarkdown)
 
       await refreshProjectState(pp)
       useWikiStore.getState().setActiveView("wiki")

@@ -2,19 +2,19 @@ import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, use
 import { useTranslation } from "react-i18next"
 import { Check, MoreHorizontal, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel, resolveNovelModel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
-import { WikiEditor } from "@/components/editor/wiki-editor"
+import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { FilePreview } from "@/components/editor/file-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
-import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus } from "@/lib/novel/chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -32,6 +32,12 @@ import {
 } from "@/lib/novel/de-ai-skill-library"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { streamChat } from "@/lib/llm-client"
+import {
+  extractChapterNumberFromMarkdown,
+  getDraftChapterPath,
+  resolveChapterFlushMarkdown,
+  shouldSyncChapterOnLeave,
+} from "@/lib/novel/chapter-path-sync"
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
@@ -45,6 +51,8 @@ import {
   type ChapterBodySelection,
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
+import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
+import { registerEditorDiskSyncHandler } from "@/lib/editor-disk-sync-session"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -95,12 +103,6 @@ async function getCanonicalChapterPath(currentPath: string, markdown: string, ch
   return getUniqueSiblingPath(getDirName(currentPath), makeChapterFileName(title, chapterNumber), currentPath)
 }
 
-function extractChapterNumberFromMarkdown(markdown: string): number | null {
-  const { frontmatter } = parseFrontmatter(markdown)
-  if (!frontmatter || typeof frontmatter !== "object") return null
-  return parseChapterMeta(frontmatter as Record<string, unknown>)?.chapterNumber ?? null
-}
-
 function formatWritingBodyWithIndent(markdown: string): string {
   return formatChapterWriting(markdown)
   /*
@@ -124,31 +126,11 @@ function formatWritingBodyWithIndent(markdown: string): string {
 }
 
 function normalizeChapterWriting(markdown: string): string {
-  return formatWritingBodyWithIndent(syncChapterFrontmatterTitle(markdown))
+  return formatWritingBodyWithIndent(syncChapterFrontmatterFromBody(markdown))
 }
 
-function updateChapterHeading(markdown: string, nextTitle: string): string {
-  const { rawBlock, body } = parseFrontmatter(markdown)
-  const normalizedTitle = nextTitle.trim()
-  const bodyWithoutHeading = body.replace(/^#\s+.+$(\r?\n)?/m, "").replace(/^\n+/, "")
-  const nextBody = normalizedTitle
-    ? `# ${normalizedTitle}${bodyWithoutHeading ? `\n\n${bodyWithoutHeading}` : "\n"}`
-    : bodyWithoutHeading
-  return rawBlock + nextBody
-}
-
-function syncChapterFrontmatterTitle(markdown: string): string {
-  const { rawBlock, body, frontmatter } = parseFrontmatter(markdown)
-  if (!rawBlock || !frontmatter) return markdown
-  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim()
-  if (!heading) return markdown
-  const fmTitle = typeof (frontmatter as Record<string, unknown>).title === "string"
-    ? String((frontmatter as Record<string, unknown>).title).trim()
-    : ""
-  if (!fmTitle || fmTitle === heading) return markdown
-  const escaped = heading.replace(/"/g, '\\"')
-  const nextRaw = rawBlock.replace(/^title:\s*.*$/m, `title: "${escaped}"`)
-  return nextRaw + body
+function getDiskSyncNormalize(path: string): (content: string) => string {
+  return isChapterPath(path) ? normalizeChapterWriting : (content) => content
 }
 
 function getChapterTitleFromPath(path: string): string {
@@ -196,6 +178,8 @@ export function PreviewPanel() {
   const setFinalChapterSave = useWikiStore((s) => s.setFinalChapterSave)
   const outlineTasks = useOutlineGenerationStore((s) => s.tasks)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveGenerationRef = useRef(0)
+  const wikiEditorRef = useRef<WikiEditorHandle>(null)
   const [isSavingFinal, setIsSavingFinal] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>("")
   const [showSnapshot, setShowSnapshot] = useState(false)
@@ -225,12 +209,14 @@ export function PreviewPanel() {
   const [chapterToolbarCompact, setChapterToolbarCompact] = useState(true)
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
+  const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
   // Snapshot of what was most recently loaded from disk. Milkdown re-emits
   // `markdownUpdated` on initial parse (before the user types anything),
   // which used to trigger an auto-save that could write back a placeholder
   // marker if read_file had returned one for a missing/locked file. We
   // skip save when the incoming markdown equals the last-loaded content.
   const lastLoadedRef = useRef<string>("")
+  const lastLoadedByPathRef = useRef<Map<string, string>>(new Map())
   const fileContentRef = useRef(fileContent)
   const selectedFileRef = useRef<string | null>(selectedFile)
   const deAiSkillMemoryWarningRef = useRef("")
@@ -246,6 +232,58 @@ export function PreviewPanel() {
   useEffect(() => {
     fileContentRef.current = fileContent
   }, [fileContent])
+
+  const rememberLoadedChapter = useCallback((path: string, markdown: string) => {
+    const key = normalizePath(path)
+    lastLoadedRef.current = markdown
+    lastLoadedByPathRef.current.set(key, markdown)
+  }, [])
+
+  const applyDiskSyncIfSafe = useCallback(async (path: string): Promise<boolean> => {
+    const normalizedPath = normalizePath(path)
+    if (getFileCategory(normalizedPath) !== "markdown") return false
+
+    let diskContent: string
+    try {
+      diskContent = await readFile(normalizedPath)
+    } catch {
+      return false
+    }
+
+    const editorContent = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+    const lastLoaded = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
+    const hasPendingSave = saveTimerRef.current != null
+    const normalize = getDiskSyncNormalize(normalizedPath)
+
+    if (!shouldApplyDiskToEditor({
+      lastLoaded,
+      editorContent,
+      diskContent,
+      hasPendingSave,
+      normalize,
+    })) {
+      return false
+    }
+
+    rememberLoadedChapter(normalizedPath, diskContent)
+    fileContentRef.current = diskContent
+    if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
+      setFileContent(diskContent)
+      setDiskSyncEpoch((epoch) => epoch + 1)
+    }
+    return true
+  }, [rememberLoadedChapter, setFileContent])
+
+  const syncDiskBeforeAction = useCallback(async () => {
+    const path = selectedFileRef.current
+    if (!path) return
+    await applyDiskSyncIfSafe(path)
+  }, [applyDiskSyncIfSafe])
+
+  useEffect(() => {
+    registerEditorDiskSyncHandler(applyDiskSyncIfSafe)
+    return () => registerEditorDiskSyncHandler(null)
+  }, [applyDiskSyncIfSafe])
 
   useEffect(() => {
     setChapterDeAiSkillId(undefined)
@@ -272,14 +310,31 @@ export function PreviewPanel() {
     }
   }, [deAiSkillPickerOpen])
 
-  const syncChapterToCanonicalPath = useCallback(async (path: string, markdown: string) => {
+  const syncChapterToCanonicalPath = useCallback(async (
+    path: string,
+    markdown: string,
+    options?: { renameToCanonical?: boolean },
+  ) => {
     const normalized = normalizeChapterWriting(markdown)
     const chapterNumber = extractChapterNumberFromMarkdown(normalized)
-    const targetPath = await getCanonicalChapterPath(path, normalized, chapterNumber)
+    const renameToCanonical = options?.renameToCanonical ?? false
+    const targetPath = renameToCanonical
+      ? await getCanonicalChapterPath(path, normalized, chapterNumber)
+      : path
 
     await writeFileAtomic(targetPath, normalized)
-    if (targetPath !== path) {
+    if (renameToCanonical && targetPath !== path) {
+      if (useWikiStore.getState().selectedFile === path) {
+        selectedFileRef.current = targetPath
+        useWikiStore.getState().setSelectedFile(targetPath)
+      }
       await deleteFile(path)
+      if (chapterNumber !== null) {
+        const draftPath = getDraftChapterPath(getDirName(targetPath), chapterNumber)
+        if (draftPath !== targetPath && draftPath !== path && await fileExists(draftPath)) {
+          await deleteFile(draftPath)
+        }
+      }
       if (project) {
         try {
           const tree = await listDirectory(normalizePath(project.path))
@@ -288,21 +343,17 @@ export function PreviewPanel() {
           // non-critical tree refresh
         }
       }
-      if (useWikiStore.getState().selectedFile === path) {
-        selectedFileRef.current = targetPath
-        useWikiStore.getState().setSelectedFile(targetPath)
-      }
     }
 
+    rememberLoadedChapter(targetPath, normalized)
     if (useWikiStore.getState().selectedFile === targetPath) {
       setFileContent(normalized)
       fileContentRef.current = normalized
-      lastLoadedRef.current = normalized
     }
 
     bumpDataVersion()
     return { targetPath, markdown: normalized }
-  }, [project, setFileContent, setFileTree, bumpDataVersion])
+  }, [project, rememberLoadedChapter, setFileContent, setFileTree, bumpDataVersion])
 
   const flushChapterBeforeLeave = useCallback(async (path: string | null, markdown: string) => {
     if (!path || !isChapterPath(path)) return
@@ -311,9 +362,12 @@ export function PreviewPanel() {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    if (markdown === lastLoadedRef.current) return
+    const normalizedPath = normalizePath(path)
+    const lastLoadedForPath = lastLoadedByPathRef.current.get(normalizedPath) ?? ""
+    const resolvedMarkdown = resolveChapterFlushMarkdown(path, markdown, lastLoadedByPathRef.current)
+    if (!shouldSyncChapterOnLeave(path, markdown, lastLoadedForPath)) return
     try {
-      await syncChapterToCanonicalPath(path, markdown)
+      await syncChapterToCanonicalPath(path, resolvedMarkdown, { renameToCanonical: false })
     } catch (err) {
       console.error("切换章节前同步文件失败:", err)
     }
@@ -321,6 +375,11 @@ export function PreviewPanel() {
 
   useEffect(() => {
     let cancelled = false
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    saveGenerationRef.current += 1
     const previousFile = selectedFileRef.current
     const previousContent = fileContentRef.current
     console.log("[PreviewPanel][debug] useEffect triggered", { selectedFile, previousFile, previousContentLength: previousContent?.length })
@@ -359,14 +418,13 @@ export function PreviewPanel() {
 
     setFileContent("")
     fileContentRef.current = ""
-    lastLoadedRef.current = ""
     setSaveStatus("")
 
     readFile(selectedFile)
       .then((content) => {
         console.log("[PreviewPanel][debug] readFile success", { selectedFile, contentLength: content?.length, cancelled, storeSelectedFile: useWikiStore.getState().selectedFile })
         if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
-        lastLoadedRef.current = content
+        rememberLoadedChapter(normalizePath(selectedFile), content)
         setFileContent(content)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
@@ -375,6 +433,7 @@ export function PreviewPanel() {
         console.log("[PreviewPanel][debug] readFile error", { selectedFile, err, cancelled, storeSelectedFile: useWikiStore.getState().selectedFile })
         if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
         lastLoadedRef.current = ""
+        lastLoadedByPathRef.current.delete(normalizePath(selectedFile))
         setFileContent(`Error loading file: ${err}`)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
@@ -383,7 +442,31 @@ export function PreviewPanel() {
       console.log("[PreviewPanel][debug] useEffect cleanup", { selectedFile })
       cancelled = true
     }
-  }, [selectedFile, setFileContent, flushChapterBeforeLeave])
+  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave])
+
+  useEffect(() => {
+    if (!selectedFile) return
+    const category = getFileCategory(selectedFile)
+    if (category !== "markdown" || isBinary(category)) return
+
+    const normalizedPath = normalizePath(selectedFile)
+    const syncNow = () => {
+      if (normalizePath(selectedFileRef.current ?? "") !== normalizedPath) return
+      void applyDiskSyncIfSafe(normalizedPath)
+    }
+
+    const intervalId = setInterval(syncNow, 2000)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") syncNow()
+    }
+    window.addEventListener("focus", syncNow)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener("focus", syncNow)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [selectedFile, applyDiskSyncIfSafe])
 
   useEffect(() => {
     return () => {
@@ -396,30 +479,52 @@ export function PreviewPanel() {
 
   const handleSave = useCallback(
     (markdown: string) => {
-      if (!selectedFile) return
-      const persistedMarkdown = isChapterPath(selectedFile)
+      const pathAtSave = selectedFileRef.current
+      if (!pathAtSave) return
+      const persistedMarkdown = isChapterPath(pathAtSave)
         ? normalizeChapterWriting(markdown)
         : markdown
       setFileContent(markdown)
       fileContentRef.current = markdown
-      // Ignore no-op saves from the editor's initial re-emit. Only write
-      // when the user has actually changed the content relative to the
-      // last disk read.
-      if (persistedMarkdown === lastLoadedRef.current) return
+      const normalizedPath = normalizePath(pathAtSave)
+      const lastLoadedForPath = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
+      if (persistedMarkdown === lastLoadedForPath) return
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      const generation = saveGenerationRef.current
       saveTimerRef.current = setTimeout(() => {
-        writeFileAtomic(selectedFile, persistedMarkdown)
-          .then(() => {
-            // Our own write becomes the new "last loaded" — subsequent
-            // re-emits from Milkdown that match this content must not
-            // trigger another save.
-            lastLoadedRef.current = persistedMarkdown
+        void (async () => {
+          try {
+            if (generation !== saveGenerationRef.current) return
+            if (pathAtSave !== selectedFileRef.current) return
+            if (normalizePath(pathAtSave) !== normalizedPath) return
+
+            let diskContent: string
+            try {
+              diskContent = await readFile(normalizedPath)
+            } catch (err) {
+              console.error("保存前读取磁盘失败:", err)
+              return
+            }
+
+            const currentLastLoaded = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
+            const normalize = getDiskSyncNormalize(normalizedPath)
+            if (normalize(diskContent) !== normalize(currentLastLoaded)) {
+              await applyDiskSyncIfSafe(normalizedPath)
+              return
+            }
+
+            await writeFileAtomic(pathAtSave, persistedMarkdown)
+            rememberLoadedChapter(normalizedPath, persistedMarkdown)
             bumpDataVersion()
-          })
-          .catch((err) => console.error("保存失败:", err))
+          } catch (err) {
+            console.error("保存失败:", err)
+          } finally {
+            saveTimerRef.current = null
+          }
+        })()
       }, 1000)
     },
-    [selectedFile, setFileContent, bumpDataVersion]
+    [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe]
   )
 
   const chapterFrontmatter = useMemo(() => {
@@ -613,7 +718,7 @@ export function PreviewPanel() {
     setChapterTitleEditing(false)
     if (nextTitle === chapterDisplayTitle) return
     try {
-      await syncChapterToCanonicalPath(selectedFile, updateChapterHeading(fileContent, nextTitle))
+      await syncChapterToCanonicalPath(selectedFile, updateChapterTitle(fileContent, nextTitle), { renameToCanonical: true })
     } catch (error) {
       console.error("章节标题同步失败:", error)
     }
@@ -636,6 +741,9 @@ export function PreviewPanel() {
   const handleSaveAsFinal = useCallback(async () => {
     if (!project || !selectedFile || !chapterFrontmatter) return
 
+    await syncDiskBeforeAction()
+    const currentContent = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+
     let savePath = selectedFile
     const projectPath = project.path
     const updatePhase = (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>) => {
@@ -652,7 +760,7 @@ export function PreviewPanel() {
       try {
         const chapterNumber = chapterFrontmatter.chapterNumber as number | undefined
         const { reviewChapter } = await import("@/lib/novel/review-adapter")
-        const results = await reviewChapter(project.path, fileContent, chapterNumber)
+        const results = await reviewChapter(project.path, currentContent, chapterNumber)
         if (results.length > 0) {
           const reviewStore = useReviewStore.getState()
           reviewStore.addNovelReviewEntry({
@@ -686,16 +794,27 @@ export function PreviewPanel() {
         saveTimerRef.current = null
       }
 
-      const updatedMarkdown = updateChapterStatus(fileContent, "final")
-      const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown)
+      const markdownToSave = currentContent.trim()
+        ? currentContent
+        : (lastLoadedByPathRef.current.get(normalizePath(selectedFile)) ?? lastLoadedRef.current)
+      if (!markdownToSave.trim()) {
+        updatePhase(false, null)
+        setSaveStatus("章节内容为空，无法保存为正式章节")
+        setIsSavingFinal(false)
+        return
+      }
+
+      const updatedMarkdown = updateChapterStatus(markdownToSave, "final")
+      const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown, { renameToCanonical: true })
       const targetPath = syncResult.targetPath
       savePath = targetPath
-      lastLoadedRef.current = syncResult.markdown
+      rememberLoadedChapter(targetPath, syncResult.markdown)
+      fileContentRef.current = syncResult.markdown
       setFileContent(syncResult.markdown)
 
       if (novelConfig.autoIngestOnSave) {
         const state = useWikiStore.getState()
-        const llmConfig = state.llmConfig
+        const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
         if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
           updatePhase(false, "ingest_no_llm")
         } else {
@@ -746,7 +865,7 @@ export function PreviewPanel() {
     } finally {
       setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, fileContent, project, selectedFile, setFileContent, setFinalChapterSave, t, syncChapterToCanonicalPath])
+  }, [chapterFrontmatter, project, selectedFile, setFileContent, setFinalChapterSave, syncChapterToCanonicalPath, syncDiskBeforeAction])
 
   const handleReingest = useCallback(async () => {
     if (!project || !selectedFile || !chapterFrontmatter) return
@@ -807,14 +926,14 @@ export function PreviewPanel() {
     if (!selectedFile || !canFormatWriting) return
     const formatted = normalizeChapterWriting(fileContent)
     setFileContent(formatted)
-    lastLoadedRef.current = formatted
+    rememberLoadedChapter(selectedFile, formatted)
     try {
       await writeFileAtomic(selectedFile, formatted)
       bumpDataVersion()
     } catch (err) {
       console.error("格式化写作内容失败:", err)
     }
-  }, [canFormatWriting, fileContent, selectedFile, setFileContent, bumpDataVersion])
+  }, [canFormatWriting, fileContent, rememberLoadedChapter, selectedFile, setFileContent, bumpDataVersion])
 
   const handleIngestOutline = useCallback(() => {
     if (!project || !selectedFile || !canIngestOutline || isOutlineIngesting) return
@@ -823,18 +942,19 @@ export function PreviewPanel() {
   }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
 
   const runWholeChapterDeAi = useCallback(async (skillContent: string, skillName: string) => {
-    if (!fileContent.trim()) return
+    await syncDiskBeforeAction()
+    const source = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+    if (!source.trim()) return
     setDeAiProcessing(true)
     setDeAiSkillName(skillName)
     const state = useWikiStore.getState()
-    const llmConfig = resolveDefaultModel(state.llmConfig)
+    const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "deAi")
     if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
       setDeAiProcessing(false)
       setSaveStatus("未配置可用的 AI 模型，无法去AI味")
       return
     }
     setSaveStatus(formatDeAiStatus(`去AI味处理中，使用 Skill：${skillName}...`))
-    const source = fileContent
     let result = ""
     try {
       await streamChat(
@@ -861,7 +981,7 @@ export function PreviewPanel() {
       console.error("去AI味处理失败:", err)
       setDeAiProcessing(false)
     }
-  }, [fileContent, formatDeAiStatus])
+  }, [formatDeAiStatus, syncDiskBeforeAction])
 
   const handleDeAiApply = useCallback(() => {
     setDeAiPreviewOpen(false)
@@ -899,8 +1019,13 @@ export function PreviewPanel() {
     skillName?: string,
   ) => {
     if (!selection.text.trim()) return
+    if (action === "de-ai") {
+      await syncDiskBeforeAction()
+    }
     const state = useWikiStore.getState()
-    const llmConfig = resolveDefaultModel(state.llmConfig)
+    const llmConfig = action === "de-ai"
+      ? resolveNovelModel(state.llmConfig, state.novelConfig, "deAi")
+      : resolveDefaultModel(state.llmConfig)
     if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
       setSaveStatus("未配置可用的 AI 模型，无法处理选中文本")
       return
@@ -948,7 +1073,7 @@ export function PreviewPanel() {
       console.error(`${actionLabel}失败:`, err)
       setSaveStatus(`${actionLabel}失败：${message}`)
     }
-  }, [formatDeAiStatus])
+  }, [formatDeAiStatus, syncDiskBeforeAction])
 
   const openDeAiSkillPicker = useCallback((selection: ChapterBodySelection | null, anchor?: HTMLElement | null) => {
     if (deAiProcessing) return
@@ -1430,7 +1555,8 @@ export function PreviewPanel() {
       <div className={getPreviewContentContainerClass(isSelectedChapter)}>
         {category === "markdown" ? (
           <WikiEditor
-            key={selectedFile}
+            ref={wikiEditorRef}
+            key={`${selectedFile}:${diskSyncEpoch}`}
             content={fileContent}
             onSave={handleSave}
             defaultMode={inferEditorMode(selectedFile)}

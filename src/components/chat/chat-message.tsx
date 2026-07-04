@@ -25,6 +25,7 @@ import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { canContinueUnfinishedDeepChapter } from "./chat-resume"
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
+import { parseAgentResponse } from "@/lib/novel/agent-parser"
 
 interface ChatMessageProps {
   message: DisplayMessage
@@ -556,7 +557,6 @@ function AgentAwareContent({ content, projectPath }: { content: string; projectP
   const [dismissed, setDismissed] = useState(false)
 
   const parsed = useMemo(() => {
-    const { parseAgentResponse } = require("@/lib/novel/agent-parser") as typeof import("@/lib/novel/agent-parser")
     return parseAgentResponse(content)
   }, [content])
 

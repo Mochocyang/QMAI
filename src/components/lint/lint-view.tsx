@@ -17,6 +17,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { runStructuralLint, runSemanticLint, type LintResult } from "@/lib/lint"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { resolveDefaultModel, resolveNovelModel } from "@/lib/novel/model-resolver"
 import { readFile, writeFile, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { useTranslation } from "react-i18next"
@@ -34,8 +35,6 @@ export function LintView() {
   const { t } = useTranslation()
   const novelMode = useWikiStore((s) => s.novelMode)
   const project = useWikiStore((s) => s.project)
-  const llmConfig = useWikiStore((s) => s.llmConfig)
-  const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const fileContent = useWikiStore((s) => s.fileContent)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
@@ -111,8 +110,13 @@ export function LintView() {
       const structural = await runStructuralLint(pp)
       let all = structural
 
-      if (runSemantic && hasUsableLlm(llmConfig, providerConfigs)) {
-        const semantic = await runSemanticLint(pp, llmConfig, {
+      const state = useWikiStore.getState()
+      const effectiveLlmConfig = novelMode
+        ? resolveNovelModel(state.llmConfig, state.novelConfig, "lint")
+        : resolveDefaultModel(state.llmConfig)
+
+      if (runSemantic && hasUsableLlm(effectiveLlmConfig, state.providerConfigs)) {
+        const semantic = await runSemanticLint(pp, effectiveLlmConfig, {
           chapterContent: novelMode && selectedFile ? fileContent : undefined,
           chapterNumber: meta?.chapterNumber,
         })
@@ -151,7 +155,7 @@ export function LintView() {
         })
       }
     }
-  }, [project, llmConfig, providerConfigs, running, runSemantic, fileContent, novelMode, selectedFile, t, loadHistory, setLintRun])
+  }, [project, running, runSemantic, fileContent, novelMode, selectedFile, t, loadHistory, setLintRun])
 
   async function handleOpenPage(page: string) {
     if (!project) return

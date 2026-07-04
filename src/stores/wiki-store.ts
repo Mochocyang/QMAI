@@ -1,5 +1,10 @@
 import { create } from "zustand"
 import type { WikiProject, FileNode } from "@/types/wiki"
+import {
+  buildProjectPathIndexFromTree,
+  createEmptyProjectPathIndex,
+  type ProjectPathIndex,
+} from "@/lib/wiki-page-resolver"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import type { LintResult } from "@/lib/lint"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
@@ -302,10 +307,14 @@ export interface NovelConfig {
   deepChapterReview: boolean
   /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
   reviewReasoningEffort: "low" | "medium" | "high"
+  /** 默认模型（工作流）：拆文库、剧情推演室、去重等。空字符串表示跟随 AI 会话模型。 */
+  defaultLlmModel: string
   writingModel: string
   reviewModel: string
   summaryModel: string
   extractModel: string
+  /** 去 AI 味：章节预览去 AI 味、深度生成阶段6。空字符串表示跟随默认模型。 */
+  deAiModel: string
   /** 社区摘要自动提取：开启后每 N 章用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（默认开）。 */
   communitySummaryEnabled: boolean
   /** 社区摘要提取间隔：每摄取多少章后自动重建一次社区摘要（默认 5）。 */
@@ -327,10 +336,12 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   deepPreviousChaptersAnalysis: false,
   deepChapterReview: true,
   reviewReasoningEffort: "high",
+  defaultLlmModel: "",
   writingModel: "",
   reviewModel: "",
   summaryModel: "",
   extractModel: "",
+  deAiModel: "",
   communitySummaryEnabled: true,
   communitySummaryInterval: 5,
   communitySummaryAsync: true,
@@ -502,6 +513,13 @@ export function confirmDiscardSkillLibraryDraft(): boolean {
 interface WikiState {
   project: WikiProject | null
   fileTree: FileNode[]
+  /**
+   * Lightweight lookup index derived from `fileTree`. Production code must
+   * update fileTree through `setFileTree` so this stays in sync; direct
+   * `useWikiStore.setState({ fileTree })` is only for tests that also reset or
+   * do not read path resolution.
+   */
+  projectPathIndex: ProjectPathIndex
   selectedFile: string | null
   selectedTrashItem: TrashItem | null
   fileContent: string
@@ -549,7 +567,7 @@ interface WikiState {
   refreshGraph: (() => void) | null
   llmConfig: LlmConfig
   aiChatModel: string
-  /** 默认模型：AI会话提取记忆、提取角色等后台任务默认使用的模型（格式: "providerId/modelId"，留空则使用 AI 会话当前模型） */
+  /** 默认模型（工作流）：拆文库、导入队列、去重、角色 aura 等。章节/大纲记忆摄取见 novelConfig.extractModel */
   defaultLlmModel: string
   /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
   providerConfigs: ProviderConfigs
@@ -585,7 +603,8 @@ interface WikiState {
   bindingVersion: number
 
   setProject: (project: WikiProject | null) => void
-  setFileTree: (tree: FileNode[]) => void
+  setFileTree: (tree: FileNode[], options?: { syncPathIndex?: boolean }) => void
+  setProjectPathIndexFromTree: (tree: FileNode[]) => void
   setSelectedFile: (path: string | null) => void
   setSelectedTrashItem: (item: TrashItem | null) => void
   setFileContent: (content: string) => void
@@ -656,6 +675,7 @@ interface WikiState {
 export const useWikiStore = create<WikiState>((set) => ({
   project: null,
   fileTree: [],
+  projectPathIndex: createEmptyProjectPathIndex(),
   selectedFile: null,
   selectedTrashItem: null,
   fileContent: "",
@@ -708,7 +728,15 @@ export const useWikiStore = create<WikiState>((set) => ({
   bindingVersion: 0,
 
   setProject: (project) => set({ project }),
-  setFileTree: (fileTree) => set({ fileTree }),
+  setFileTree: (fileTree, options) => {
+    if (options?.syncPathIndex === false) {
+      set({ fileTree })
+      return
+    }
+    set({ fileTree, projectPathIndex: buildProjectPathIndexFromTree(fileTree) })
+  },
+  setProjectPathIndexFromTree: (tree) =>
+    set({ projectPathIndex: buildProjectPathIndexFromTree(tree) }),
   setSelectedFile: (selectedFile) => set({ selectedFile, selectedTrashItem: null }),
   setSelectedTrashItem: (selectedTrashItem) => set({ selectedTrashItem, selectedFile: null }),
   setFileContent: (fileContent) => set({ fileContent }),
@@ -857,7 +885,12 @@ export const useWikiStore = create<WikiState>((set) => ({
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
   setDeepChapterEnabled: (deepChapterEnabled) => set({ deepChapterEnabled }),
-  setNovelConfig: (config) => set((state) => ({ novelConfig: { ...state.novelConfig, ...config } })),
+  setNovelConfig: (config) => set((state) => ({
+    novelConfig: { ...state.novelConfig, ...config },
+    ...(config.defaultLlmModel !== undefined
+      ? { defaultLlmModel: config.defaultLlmModel }
+      : {}),
+  })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),

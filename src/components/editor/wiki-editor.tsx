@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react"
 import { Editor, rootCtx, defaultValueCtx } from "@milkdown/kit/core"
 import { commonmark } from "@milkdown/kit/preset/commonmark"
 import { gfm } from "@milkdown/kit/preset/gfm"
@@ -21,6 +21,15 @@ import {
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
 import type { PendingEditorHighlight } from "@/stores/wiki-store"
+import { TextareaFindBar } from "@/components/editor/textarea-find-bar"
+import { TextareaFindHighlights } from "@/components/editor/textarea-find-highlights"
+import {
+  findAllMatches,
+  findInitialMatchIndex,
+  findNextMatchIndex,
+  findPrevMatchIndex,
+  scrollTextareaMatchIntoView,
+} from "@/lib/textarea-find"
 
 interface WikiEditorInnerProps {
   content: string
@@ -41,21 +50,40 @@ interface FloatingToolbarPosition {
   left: number
 }
 
-function WritingTextarea({
+interface WritingTextareaHandle {
+  getLiveBodyMarkdown: () => string | null
+}
+
+const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(function WritingTextarea({
   content,
   onSave,
   autoFocus = false,
   onSelectionAction,
   highlightRequest,
   onHighlightHandled,
-}: WritingTextareaProps) {
+}, ref) {
   const initial = useMemo(() => splitChapterHeading(content), [content])
   const [heading, setHeading] = useState(initial.heading)
   const [value, setValue] = useState(initial.body)
+  const editorRootRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const previousBodyRef = useRef(initial.body)
   const [selection, setSelection] = useState<ChapterBodySelection | null>(null)
   const [toolbarPosition, setToolbarPosition] = useState<FloatingToolbarPosition | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState("")
+  const [activeMatchIndex, setActiveMatchIndex] = useState(-1)
+  const findMatches = useMemo(
+    () => findAllMatches(value, findQuery, { caseSensitive: false }),
+    [value, findQuery],
+  )
+
+  useImperativeHandle(ref, () => ({
+    getLiveBodyMarkdown: () => {
+      if (!textareaRef.current) return null
+      return heading ? `# ${heading}\n\n${value}` : value
+    },
+  }), [heading, value])
 
   useEffect(() => {
     const { heading: h, body: b } = splitChapterHeading(content)
@@ -204,9 +232,7 @@ function WritingTextarea({
     requestAnimationFrame(() => {
       textarea.focus()
       textarea.setSelectionRange(start, end)
-      const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight || "32") || 32
-      const scrollTop = Math.max(0, value.slice(0, start).split("\n").length * lineHeight - textarea.clientHeight / 3)
-      textarea.scrollTop = scrollTop
+      scrollTextareaMatchIntoView(textarea, start, end)
       refreshSelection()
       onHighlightHandled?.()
     })
@@ -229,8 +255,122 @@ function WritingTextarea({
     setToolbarPosition(null)
   }, [selection, onSelectionAction])
 
+  const applyFindMatch = useCallback((matchIndex: number) => {
+    const textarea = textareaRef.current
+    if (!textarea || matchIndex < 0 || matchIndex >= findMatches.length || !findQuery) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    const start = findMatches[matchIndex]
+    const end = start + findQuery.length
+    setActiveMatchIndex(matchIndex)
+    requestAnimationFrame(() => {
+      scrollTextareaMatchIntoView(textarea, start, end)
+      if (findOpen) {
+        textarea.setSelectionRange(start, start)
+        const findInput = editorRootRef.current?.querySelector<HTMLInputElement>("[data-find-bar='true'] input")
+        findInput?.focus()
+        return
+      }
+      textarea.setSelectionRange(start, end)
+      textarea.focus()
+    })
+  }, [findMatches, findQuery, findOpen])
+
+  const openFindBar = useCallback((initialQuery = "") => {
+    const textarea = textareaRef.current
+    let query = initialQuery
+    if (!query && textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      if (start !== end) {
+        query = value.slice(start, end)
+      }
+    }
+    setFindOpen(true)
+    setFindQuery(query)
+  }, [value])
+
+  const closeFindBar = useCallback(() => {
+    setFindOpen(false)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+    })
+  }, [])
+
+  const goToNextMatch = useCallback(() => {
+    if (!findQuery || findMatches.length === 0) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    const textarea = textareaRef.current
+    const selectionStart = textarea?.selectionStart ?? 0
+    const nextIndex = findNextMatchIndex(findMatches, selectionStart, findQuery.length)
+    applyFindMatch(nextIndex)
+  }, [applyFindMatch, findMatches, findQuery])
+
+  const goToPreviousMatch = useCallback(() => {
+    if (!findQuery || findMatches.length === 0) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    const textarea = textareaRef.current
+    const selectionStart = textarea?.selectionStart ?? 0
+    const prevIndex = findPrevMatchIndex(findMatches, selectionStart)
+    applyFindMatch(prevIndex)
+  }, [applyFindMatch, findMatches, findQuery])
+
+  useEffect(() => {
+    if (!findOpen) return
+    if (!findQuery) {
+      setActiveMatchIndex(-1)
+      return
+    }
+    const textarea = textareaRef.current
+    const cursor = textarea?.selectionStart ?? 0
+    const matchIndex = findInitialMatchIndex(findMatches, cursor)
+    setActiveMatchIndex(matchIndex)
+    if (matchIndex >= 0) {
+      applyFindMatch(matchIndex)
+    }
+  }, [findOpen, findQuery, findMatches, value, applyFindMatch])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return
+      const root = editorRootRef.current
+      const active = document.activeElement
+      if (!root) return
+      const inEditor = active instanceof Node && root.contains(active)
+      const findBarActive = active instanceof HTMLElement && active.closest("[data-find-bar='true']")
+      if (!inEditor && !findBarActive && !findOpen) return
+      event.preventDefault()
+      if (findOpen) {
+        requestAnimationFrame(() => {
+          const input = editorRootRef.current?.querySelector<HTMLInputElement>("[data-find-bar='true'] input")
+          input?.focus()
+          input?.select()
+        })
+        return
+      }
+      openFindBar("")
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [findOpen, findQuery, openFindBar])
+
   return (
-    <div className="relative flex w-full flex-col">
+    <div ref={editorRootRef} data-writing-editor="true" className="relative flex w-full flex-col">
+      <TextareaFindBar
+        open={findOpen}
+        query={findQuery}
+        activeMatchIndex={activeMatchIndex}
+        matchCount={findMatches.length}
+        onQueryChange={setFindQuery}
+        onNext={goToNextMatch}
+        onPrevious={goToPreviousMatch}
+        onClose={closeFindBar}
+      />
       {selection && toolbarPosition && onSelectionAction ? (
         <div
           data-selection-toolbar="true"
@@ -255,7 +395,16 @@ function WritingTextarea({
           </button>
         </div>
       ) : null}
-      <textarea
+      <div className="relative w-full">
+        {findOpen && findQuery ? (
+          <TextareaFindHighlights
+            text={value}
+            query={findQuery}
+            matches={findMatches}
+            activeMatchIndex={activeMatchIndex}
+          />
+        ) : null}
+        <textarea
         ref={textareaRef}
         value={value}
         onChange={(e) => {
@@ -271,8 +420,9 @@ function WritingTextarea({
         onBlur={() => {
           window.setTimeout(() => {
             const active = document.activeElement
-            if (active instanceof HTMLElement && active.closest("[data-selection-toolbar='true']")) {
-              return
+            if (active instanceof HTMLElement) {
+              if (active.closest("[data-selection-toolbar='true']")) return
+              if (active.closest("[data-find-bar='true']")) return
             }
             setSelection(null)
             setToolbarPosition(null)
@@ -294,7 +444,7 @@ function WritingTextarea({
             resize()
           })
         }}
-        className="w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-lg leading-8 text-foreground outline-none"
+        className="relative z-1 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-lg leading-8 text-foreground outline-none"
         style={{ 
           fontFamily: "inherit",
           minHeight: "100%",
@@ -302,9 +452,10 @@ function WritingTextarea({
         }}
         spellCheck={false}
       />
+      </div>
     </div>
   )
-}
+})
 
 function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
   // Milkdown fires `markdownUpdated` once on initial parse before any
@@ -351,6 +502,10 @@ interface WikiEditorProps {
   onHighlightHandled?: () => void
 }
 
+export interface WikiEditorHandle {
+  getCurrentMarkdown: () => string | null
+}
+
 function wrapBareMathBlocks(text: string): string {
   return text.replace(
     /(?<!\$\$\s*)(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})(?!\s*\$\$)/g,
@@ -358,7 +513,7 @@ function wrapBareMathBlocks(text: string): string {
   )
 }
 
-export function WikiEditor({
+export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(function WikiEditor({
   content,
   onSave,
   defaultMode = "read",
@@ -366,7 +521,8 @@ export function WikiEditor({
   onSelectionAction,
   highlightRequest,
   onHighlightHandled,
-}: WikiEditorProps) {
+}, ref) {
+  const writingTextareaRef = useRef<WritingTextareaHandle>(null)
   // Default to read mode (ReactMarkdown render). Edit mode swaps
   // in Milkdown WYSIWYG. We default to read because:
   //   1. Milkdown's commonmark/gfm preset has no wikilink schema,
@@ -397,6 +553,14 @@ export function WikiEditor({
     () => (markdown: string) => onSave(rawBlock + markdown),
     [onSave, rawBlock],
   )
+
+  useImperativeHandle(ref, () => ({
+    getCurrentMarkdown: () => {
+      const liveBody = writingTextareaRef.current?.getLiveBodyMarkdown()
+      if (liveBody == null) return null
+      return rawBlock + liveBody
+    },
+  }), [rawBlock])
 
   useEffect(() => {
     setMode(defaultMode)
@@ -446,6 +610,7 @@ export function WikiEditor({
             `}</style>
             <div className="mx-auto w-full max-w-4xl flex-col px-8 py-10">
               <WritingTextarea
+                ref={writingTextareaRef}
                 content={body}
                 onSave={handleSave}
                 autoFocus={immersiveWriting}
@@ -466,7 +631,7 @@ export function WikiEditor({
       )}
     </div>
   )
-}
+})
 
 function getTextareaSelectionToolbarPosition(
   textarea: HTMLTextAreaElement,

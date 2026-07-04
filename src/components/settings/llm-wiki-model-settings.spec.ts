@@ -22,8 +22,8 @@ function preset(id: string) {
   return found
 }
 
-describe("LLM Wiki model settings copied into QMAI", () => {
-  it("includes the LLM Wiki provider rows below the custom row", () => {
+describe("QMAI model settings", () => {
+  it("includes the built-in provider rows below the custom row", () => {
     expect(LLM_PRESETS[0]?.id).toBe("custom")
 
     expect(LLM_PRESETS.map((item) => item.id)).toEqual([
@@ -107,7 +107,7 @@ describe("LLM Wiki model settings copied into QMAI", () => {
     expect(codex.codexCliTimeoutMinutes).toBe(45)
   })
 
-  it("has Chinese labels for the copied LLM Wiki settings instead of placeholder question marks", () => {
+  it("has Chinese labels for the built-in model settings instead of placeholder question marks", () => {
     const llm = zh.settings.sections.llm
     expect(llm.collapse).toBe("收起配置")
     expect(llm.apiKeyPlaceholder).toBe("输入 API Key")

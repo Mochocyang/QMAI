@@ -1,3 +1,4 @@
+import { isAppAutoUpdateSupported } from "@/lib/app-update-support"
 import { isTauri } from "@/lib/platform"
 import type { Update } from "@tauri-apps/plugin-updater"
 
@@ -89,7 +90,7 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
 }
 
 export async function checkForAppUpdate() {
-  if (!isTauri() || updateCheckStarted) return
+  if (!isTauri() || !isAppAutoUpdateSupported() || updateCheckStarted) return
 
   updateCheckStarted = true
   try {

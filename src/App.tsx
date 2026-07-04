@@ -4,13 +4,12 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
-import { listDirectory, openProject, fileExists } from "@/commands/fs"
+import { openProject, fileExists } from "@/commands/fs"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
-import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
 import { AppLayout } from "@/components/layout/app-layout"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
@@ -23,6 +22,7 @@ import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 import { applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
+import { normalizePath } from "@/lib/path-utils"
 
 function App() {
   const project = useWikiStore((s) => s.project)
@@ -37,6 +37,114 @@ function App() {
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  function isCurrentProject(proj: WikiProject): boolean {
+    const current = useWikiStore.getState().project
+    if (!current || current.id !== proj.id) return false
+    return normalizePath(current.path) === normalizePath(proj.path)
+  }
+
+  async function hydrateProjectSideStores(proj: WikiProject): Promise<void> {
+    try {
+      const savedReview = await loadReviewItems(proj.path)
+      if (savedReview.length > 0 && isCurrentProject(proj)) {
+        useReviewStore.getState().setItems(savedReview)
+      }
+    } catch (err) {
+      console.warn("[startup] 加载审查项失败:", err)
+    }
+
+    try {
+      const savedChat = await loadChatHistory(proj.path)
+      if (!isCurrentProject(proj)) return
+      if (savedChat.conversations.length > 0) {
+        useChatStore.getState().setConversations(savedChat.conversations)
+        useChatStore.getState().setMessages(savedChat.messages)
+        const sorted = [...savedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+        if (sorted[0]) {
+          useChatStore.getState().setActiveConversation(sorted[0].id)
+        }
+      }
+    } catch (err) {
+      console.warn("[startup] 加载聊天历史失败:", err)
+    }
+  }
+
+  async function hydrateScheduledImportAfterOpen(proj: WikiProject): Promise<void> {
+    try {
+      const savedScheduledImport = await loadScheduledImportConfig(proj.path)
+      if (!isCurrentProject(proj)) return
+      if (savedScheduledImport) {
+        let path = savedScheduledImport.path
+        if (path && !path.startsWith("/") && !path.match(/^[a-zA-Z]:[/\\]/)) {
+          path = `${proj.path}/${path}`
+        }
+        useWikiStore.getState().setScheduledImportConfig({
+          ...savedScheduledImport,
+          path,
+        })
+      }
+
+      if (!isTauri()) return
+      const scheduledImportConfig = useWikiStore.getState().scheduledImportConfig
+      if (!isCurrentProject(proj)) return
+      if (scheduledImportConfig.enabled && scheduledImportConfig.path && scheduledImportConfig.interval > 0) {
+        const { startScheduledImport } = await import("@/lib/scheduled-import")
+        if (!isCurrentProject(proj)) return
+        startScheduledImport(proj, scheduledImportConfig)
+      }
+    } catch (err) {
+      console.warn("[startup] 加载定时导入配置失败:", err)
+    }
+  }
+
+  async function hydrateProjectBackgroundServices(proj: WikiProject): Promise<void> {
+    if (!isTauri()) return
+    if (!isCurrentProject(proj)) return
+
+    try {
+      const { restoreQueue } = await import("@/lib/ingest-queue")
+      if (!isCurrentProject(proj)) return
+      await restoreQueue(proj.id, proj.path)
+    } catch (err) {
+      console.error("恢复摄取队列失败:", err)
+    }
+
+    if (!isCurrentProject(proj)) return
+
+    try {
+      const { restoreQueue: restoreDedupQueue } = await import("@/lib/dedup-queue")
+      await restoreDedupQueue(proj.id, proj.path)
+    } catch (err) {
+      console.error("恢复去重队列失败:", err)
+    }
+
+    if (!isCurrentProject(proj)) return
+
+    try {
+      const { startProjectFileSync, stopProjectFileSync } = await import("@/lib/project-file-sync")
+      const config = await loadSourceWatchConfig(proj.id, proj.path)
+      if (!isCurrentProject(proj)) return
+      useWikiStore.getState().setSourceWatchConfig(config)
+      if (config.enabled) {
+        startProjectFileSync(proj, config).catch((err) =>
+          console.error("启动项目文件同步失败:", err)
+        )
+      } else {
+        stopProjectFileSync().catch(() => {})
+      }
+    } catch (err) {
+      console.error("配置项目文件同步失败:", err)
+    }
+  }
+
+  async function hydrateDeferredProjectState(proj: WikiProject): Promise<void> {
+    await hydrateProjectBackgroundServices(proj)
+    if (!isCurrentProject(proj)) return
+    await hydrateScheduledImportAfterOpen(proj)
+    if (!isCurrentProject(proj)) return
+    await hydrateProjectSideStores(proj)
+  }
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${Math.round(uiFontSizeScale * 100)}%`
@@ -236,119 +344,47 @@ function App() {
     // 默认开启小说模式
     useWikiStore.getState().setNovelMode(true)
     const projectNovelConfig = await loadNovelConfig(proj.id, proj.path)
-    if (projectNovelConfig) {
+    if (projectNovelConfig && isCurrentProject(proj)) {
       useWikiStore.getState().setNovelConfig(projectNovelConfig)
     }
     const projectRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig(proj.id, proj.path)
-    useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
+    if (isCurrentProject(proj)) {
+      useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
+    }
     setSelectedFile(null)
     setActiveView("wiki")
+    useWikiStore.getState().setScheduledImportConfig({
+      enabled: false,
+      path: `${proj.path}/raw/sources`,
+      interval: 60,
+      lastScan: null,
+    })
     useWikiStore.getState().bumpDataVersion()
     await saveLastProject(proj)
 
     // 自动打开最后阅读的章节和AI会话窗口
     try {
-      const lastChapterPath = await loadLastReadChapter()
-      if (lastChapterPath) {
-        const normalizedPath = lastChapterPath.replace(/\\/g, "/")
-        if (normalizedPath.includes("/wiki/chapters/")) {
-          const exists = await fileExists(lastChapterPath)
-          if (exists) {
-            setSelectedFile(lastChapterPath)
+      if (isCurrentProject(proj)) {
+        const lastChapterPath = await loadLastReadChapter()
+        if (isCurrentProject(proj) && lastChapterPath) {
+          const normalizedPath = lastChapterPath.replace(/\\/g, "/")
+          if (normalizedPath.includes("/wiki/chapters/")) {
+            const exists = await fileExists(lastChapterPath)
+            if (exists && isCurrentProject(proj)) {
+              setSelectedFile(lastChapterPath)
+            }
           }
         }
       }
     } catch (err) {
       console.error("加载最后阅读章节失败:", err)
     }
-    useWikiStore.getState().setChatExpanded(true)
-
-    if (isTauri()) {
-      try {
-        await restoreIngestQueue(proj.id, proj.path)
-      } catch (err) {
-        console.error("恢复摄取队列失败:", err)
-      }
-      import("@/lib/dedup-queue").then(({ restoreQueue }) => {
-        restoreQueue(proj.id, proj.path).catch((err) =>
-          console.error("恢复去重队列失败:", err)
-        )
-      })
+    if (isCurrentProject(proj)) {
+      useWikiStore.getState().setChatExpanded(true)
     }
 
-    try {
-      const savedScheduledImport = await loadScheduledImportConfig(proj.path)
-      if (savedScheduledImport) {
-        let path = savedScheduledImport.path
-        if (path && !path.startsWith("/") && !path.match(/^[a-zA-Z]:[/\\]/)) {
-          path = `${proj.path}/${path}`
-        }
-        useWikiStore.getState().setScheduledImportConfig({
-          ...savedScheduledImport,
-          path,
-        })
-      } else {
-        useWikiStore.getState().setScheduledImportConfig({
-          enabled: false,
-          path: `${proj.path}/raw/sources`,
-          interval: 60,
-          lastScan: null,
-        })
-      }
-    } catch (err) {
-      console.error("加载定时导入配置失败:", err)
-    }
-
-    if (isTauri()) {
-      const scheduledImportConfig = useWikiStore.getState().scheduledImportConfig
-      if (scheduledImportConfig.enabled && scheduledImportConfig.path && scheduledImportConfig.interval > 0) {
-        import("@/lib/scheduled-import").then(({ startScheduledImport }) => {
-          startScheduledImport(proj, scheduledImportConfig)
-        }).catch((err) =>
-          console.error("启动定时导入失败:", err)
-        )
-      }
-
-      import("@/lib/project-file-sync").then(async ({ startProjectFileSync, stopProjectFileSync }) => {
-        const config = await loadSourceWatchConfig(proj.id, proj.path)
-        useWikiStore.getState().setSourceWatchConfig(config)
-        if (config.enabled) {
-          startProjectFileSync(proj, config).catch((err) =>
-            console.error("启动项目文件同步失败:", err)
-          )
-        } else {
-          stopProjectFileSync().catch(() => {})
-        }
-      }).catch((err) => console.error("配置项目文件同步失败:", err))
-    }
-
-    try {
-      const tree = await listDirectory(proj.path)
-      setFileTree(tree)
-    } catch (err) {
-      console.error("加载文件树失败:", err)
-    }
-    try {
-      const savedReview = await loadReviewItems(proj.path)
-      if (savedReview.length > 0) {
-        useReviewStore.getState().setItems(savedReview)
-      }
-    } catch (err) {
-      console.error("加载审查项失败:", err)
-    }
-    try {
-      const savedChat = await loadChatHistory(proj.path)
-      if (savedChat.conversations.length > 0) {
-        useChatStore.getState().setConversations(savedChat.conversations)
-        useChatStore.getState().setMessages(savedChat.messages)
-        const sorted = [...savedChat.conversations].sort((a, b) => b.updatedAt - a.updatedAt)
-        if (sorted[0]) {
-          useChatStore.getState().setActiveConversation(sorted[0].id)
-        }
-      }
-    } catch (err) {
-      console.error("加载聊天历史失败:", err)
-    }
+    // 文件树由 AppLayout 通过 refreshProjectFileTree 加载；重队列/定时导入/审查/聊天后置 hydration。
+    void hydrateDeferredProjectState(proj)
   }
 
   async function handleSelectRecent(proj: WikiProject) {

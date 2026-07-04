@@ -94,4 +94,55 @@ describe("WikiEditor immersive writing", () => {
     act(() => root.unmount())
     document.body.removeChild(container)
   })
+
+  it("opens find bar on Cmd+F and selects matching text", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WikiEditor
+          content={"# 第1章\n\n这是一段正文，正文里有重复正文。"}
+          onSave={() => {}}
+          immersiveWriting
+        />,
+      )
+      await nextFrame()
+    })
+
+    const textarea = container.querySelector("textarea")
+    expect(textarea).not.toBeNull()
+    if (!textarea) throw new Error("textarea not found")
+
+    textarea.focus()
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "f",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      }))
+      await nextFrame()
+    })
+
+    const findInput = container.querySelector("[data-find-bar='true'] input")
+    expect(findInput).not.toBeNull()
+
+    await act(async () => {
+      const input = findInput as HTMLInputElement
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+      setter?.call(input, "正文")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+      await nextFrame()
+      await nextFrame()
+    })
+
+    expect(container.querySelector("[data-find-highlight-active='true']")?.textContent).toBe("正文")
+
+    act(() => root.unmount())
+    document.body.removeChild(container)
+  })
 })

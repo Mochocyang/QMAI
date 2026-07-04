@@ -1,5 +1,4 @@
-import yaml from "js-yaml"
-import { parseFrontmatter } from "@/lib/frontmatter"
+import { parseFrontmatter, type FrontmatterValue } from "@/lib/frontmatter"
 
 export type ChapterStatus = "outline" | "draft" | "revised" | "final" | "archived"
 export type OutlineType = "chapter-outline" | "volume-outline" | "story-outline"
@@ -52,18 +51,93 @@ export function isFinalChapter(frontmatter: Record<string, unknown>): boolean {
   return normalizeChapterStatus(frontmatter.chapter_status) === "final"
 }
 
-export function updateChapterStatus(content: string, status: ChapterStatus): string {
-  const { frontmatter, body } = parseFrontmatter(content)
-  const nextFrontmatter: Record<string, unknown> = {
-    ...(frontmatter ?? {}),
-    chapter_status: status,
+const CHAPTER_STATUS_LINE_RE = /^chapter_status:\s*["']?[\w-]+["']?\s*$/m
+
+function yamlEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+}
+
+function replaceFrontmatterLine(rawBlock: string, key: string, newLine: string): string {
+  const re = new RegExp(`^${key}:\\s*.*$`, "m")
+  return re.test(rawBlock) ? rawBlock.replace(re, newLine) : rawBlock
+}
+
+/** 将章节 frontmatter 关键字段写回 canonical YAML 标量类型。 */
+export function normalizeChapterFrontmatterBlock(
+  rawBlock: string,
+  frontmatter: Record<string, FrontmatterValue> | null,
+): string {
+  if (!frontmatter) return rawBlock
+
+  let next = rawBlock
+
+  const chapterNumber = parseChapterNumber(frontmatter.chapter_number)
+  if (chapterNumber !== null) {
+    next = replaceFrontmatterLine(next, "chapter_number", `chapter_number: ${chapterNumber}`)
   }
 
-  const yamlPayload = yaml.dump(nextFrontmatter, {
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: false,
-  }).trimEnd()
+  const title = typeof frontmatter.title === "string" ? frontmatter.title : null
+  if (title !== null && title !== "") {
+    next = replaceFrontmatterLine(next, "title", `title: "${yamlEscape(title)}"`)
+  }
 
-  return `---\n${yamlPayload}\n---\n\n${body.replace(/^\s*/, "")}`
+  const created = typeof frontmatter.created === "string" ? frontmatter.created.trim() : null
+  if (created) {
+    next = replaceFrontmatterLine(next, "created", `created: ${created}`)
+  }
+
+  return next
+}
+
+export function updateChapterStatus(content: string, status: ChapterStatus): string {
+  const { frontmatter, body, rawBlock } = parseFrontmatter(content)
+  if (!rawBlock) return content
+
+  let nextRaw = CHAPTER_STATUS_LINE_RE.test(rawBlock)
+    ? rawBlock.replace(CHAPTER_STATUS_LINE_RE, `chapter_status: ${status}`)
+    : insertChapterStatusLine(rawBlock, status)
+
+  nextRaw = normalizeChapterFrontmatterBlock(nextRaw, frontmatter)
+
+  return nextRaw + body
+}
+
+export function updateChapterTitle(content: string, nextTitle: string): string {
+  const { frontmatter, body, rawBlock } = parseFrontmatter(content)
+  const normalizedTitle = nextTitle.trim()
+  const bodyWithoutHeading = body.replace(/^#\s+.+$(\r?\n)?/m, "").replace(/^\n+/, "")
+  const nextBody = normalizedTitle
+    ? `# ${normalizedTitle}${bodyWithoutHeading ? `\n\n${bodyWithoutHeading}` : "\n"}`
+    : bodyWithoutHeading
+
+  if (!rawBlock || !frontmatter) return rawBlock + nextBody
+
+  const nextRaw = normalizeChapterFrontmatterBlock(rawBlock, {
+    ...frontmatter,
+    title: normalizedTitle,
+  })
+  return nextRaw + nextBody
+}
+
+/** 以正文标题为准同步 frontmatter，并修正关键字段的 YAML 标量类型。 */
+export function syncChapterFrontmatterFromBody(content: string): string {
+  const { frontmatter, body, rawBlock } = parseFrontmatter(content)
+  if (!rawBlock || !frontmatter) return content
+
+  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim()
+  if (!heading) return content
+
+  const nextRaw = normalizeChapterFrontmatterBlock(rawBlock, {
+    ...frontmatter,
+    title: heading,
+  })
+  if (nextRaw === rawBlock) return content
+  return nextRaw + body
+}
+
+function insertChapterStatusLine(rawBlock: string, status: ChapterStatus): string {
+  if (/^type:\s*chapter\s*$/m.test(rawBlock)) {
+    return rawBlock.replace(/^type:\s*chapter\s*$/m, `type: chapter\nchapter_status: ${status}`)
+  }
+  return rawBlock.replace(/(\r?\n)---\s*(?:\r?\n|$)/, `$1chapter_status: ${status}$1---$1`)
 }

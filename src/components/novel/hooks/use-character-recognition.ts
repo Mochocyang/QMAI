@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
@@ -19,6 +20,7 @@ export interface UseCharacterRecognitionParams {
   clearRecognition: () => void
   setRecognitionError: (error?: string) => void
   llmConfig: ReturnType<typeof useWikiStore.getState>["llmConfig"]
+  providerConfigs: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
 }
 
 /**
@@ -39,6 +41,7 @@ export function useCharacterRecognition({
   clearRecognition,
   setRecognitionError,
   llmConfig,
+  providerConfigs,
 }: UseCharacterRecognitionParams) {
   /**
    * 用户在章节选择面板中确认章节后，启动角色识别流程
@@ -79,7 +82,7 @@ export function useCharacterRecognition({
         }
       }
 
-      if (!llmConfig) {
+      if (!hasUsableLlm(llmConfig, providerConfigs)) {
         throw new Error("未配置可用的模型，请先在设置中配置 LLM，再识别角色")
       }
       setRecognitionStatus("llm_recognizing")

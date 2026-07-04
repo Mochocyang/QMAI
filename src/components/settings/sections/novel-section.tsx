@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { Info } from "lucide-react"
 import { Label } from "@/components/ui/label"
@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
-import { saveNovelConfig } from "@/lib/project-store"
+import { saveNovelConfig, saveDefaultLlmModel } from "@/lib/project-store"
+import { getFirstAvailableModelKey, hasAvailableModels } from "@/lib/llm-model-keys"
 
 import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
@@ -18,21 +19,111 @@ interface Props {
   setDraft: DraftSetter
 }
 
+const MODEL_PICKER_BLOCK_CLASS = "space-y-3 rounded-lg border border-border/60 p-4"
+
+interface NovelModelPickerBlockProps {
+  title: string
+  hintKey?: string
+  footnote?: string
+  followChecked: boolean
+  onFollowChange: (checked: boolean) => void
+  modelValue: string
+  onModelChange: (model: string) => void
+  renderHint?: (hintKey: string) => ReactNode
+  testState?: { loading: boolean; message: string; success: boolean }
+  onTest?: () => void
+  testLoadingLabel: string
+  testLabel: string
+  followLabel: string
+}
+
+function NovelModelPickerBlock({
+  title,
+  hintKey,
+  footnote,
+  followChecked,
+  onFollowChange,
+  modelValue,
+  onModelChange,
+  renderHint,
+  testState,
+  onTest,
+  testLoadingLabel,
+  testLabel,
+  followLabel,
+}: NovelModelPickerBlockProps) {
+  return (
+    <div className={MODEL_PICKER_BLOCK_CLASS}>
+      <div className="flex items-center gap-1.5">
+        <Label>{title}</Label>
+        {hintKey && renderHint?.(hintKey)}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex shrink-0 items-center gap-2">
+          <input
+            type="checkbox"
+            checked={followChecked}
+            onChange={(e) => onFollowChange(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <span className="text-sm">{followLabel}</span>
+        </label>
+        <ChatModelSelector
+          value={modelValue}
+          onChange={onModelChange}
+          disabled={followChecked}
+        />
+        {onTest ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={testState?.loading}
+            onClick={onTest}
+          >
+            {testState?.loading ? testLoadingLabel : testLabel}
+          </Button>
+        ) : null}
+      </div>
+      {footnote ? (
+        <p className="text-xs leading-5 text-muted-foreground/80">{footnote}</p>
+      ) : null}
+      {testState?.message ? (
+        <p className={`text-xs ${testState.success ? "text-emerald-600" : "text-destructive"}`}>
+          {testState.message}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function NovelSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const setNovelConfigStore = useWikiStore((s) => s.setNovelConfig)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const project = useWikiStore((s) => s.project)
+  const defaultLlmModel = draft.novelConfig.defaultLlmModel
+  const isWorkflowModelFollowingChat = !defaultLlmModel.trim()
+  const displayWorkflowDefaultModel = isWorkflowModelFollowingChat ? "" : defaultLlmModel
+
+  const modelsAvailable = useMemo(
+    () => hasAvailableModels(providerConfigs),
+    [providerConfigs],
+  )
+
   const [testStates, setTestStates] = useState<Record<TestableNovelModelTask, {
     loading: boolean
     message: string
     success: boolean
   } | undefined>>({
     writing: undefined,
+    workflow: undefined,
     review: undefined,
     summary: undefined,
     extract: undefined,
+    deAi: undefined,
   })
 
   const updateNovelConfig = async (patch: Partial<NovelConfig>) => {
@@ -42,14 +133,16 @@ export function NovelSection({ draft, setDraft }: Props) {
     await saveNovelConfig(newConfig, project?.id, project?.path)
   }
 
+  const updateWorkflowDefaultModel = async (model: string) => {
+    await updateNovelConfig({ defaultLlmModel: model })
+    await saveDefaultLlmModel(model)
+  }
+
   const modelItems = useMemo(() => ([
-    { task: "review", field: "reviewModel", wrapperClassName: "space-y-2" },
-    { task: "summary", field: "summaryModel", wrapperClassName: "space-y-2" },
-    {
-      task: "extract",
-      field: "extractModel",
-      wrapperClassName: "space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3",
-    },
+    { task: "review", field: "reviewModel" },
+    { task: "summary", field: "summaryModel" },
+    { task: "extract", field: "extractModel" },
+    { task: "deAi", field: "deAiModel" },
   ] as const), [])
 
   const settingTooltip = (key: string) => (
@@ -126,6 +219,32 @@ export function NovelSection({ draft, setDraft }: Props) {
       <div className="space-y-2">
         <Label>{t("novel.settings.title")}</Label>
         <div className="grid gap-4 rounded-lg border p-4">
+          {modelsAvailable && (
+            <NovelModelPickerBlock
+              title={t("novel.settings.defaultLlmModel")}
+              hintKey="defaultLlmModelHint"
+              footnote={t("novel.settings.defaultLlmModelScopeNote")}
+              followChecked={isWorkflowModelFollowingChat}
+              onFollowChange={(checked) => {
+                if (checked) {
+                  void updateWorkflowDefaultModel("")
+                } else {
+                  void updateWorkflowDefaultModel(
+                    aiChatModel.trim() || getFirstAvailableModelKey(providerConfigs),
+                  )
+                }
+              }}
+              modelValue={displayWorkflowDefaultModel}
+              onModelChange={(model) => void updateWorkflowDefaultModel(model)}
+              renderHint={settingTooltip}
+              testState={testStates.workflow}
+              onTest={() => runModelTest("workflow")}
+              followLabel={t("novel.settings.followChatModel")}
+              testLoadingLabel={t("novel.settings.testingModel")}
+              testLabel={t("novel.settings.testModel")}
+            />
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
               <Label>{t("novel.settings.recentSummaryWindow")}</Label>
@@ -400,6 +519,13 @@ export function NovelSection({ draft, setDraft }: Props) {
             </>
           )}
 
+          <div className="space-y-1 border-t border-border/60 pt-4">
+            <Label>{t("novel.settings.taskModelsTitle")}</Label>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("novel.settings.taskModelsHint")}
+            </p>
+          </div>
+
           {modelItems.map((item) => {
             const state = testStates[item.task]
             const modelValue = draft.novelConfig[item.field] || ""
@@ -407,65 +533,33 @@ export function NovelSection({ draft, setDraft }: Props) {
             const displayValue = isFollowingChat ? "" : modelValue
 
             return (
-              <div key={item.task} className={item.wrapperClassName}>
-                <div className="flex items-center gap-1.5">
-                  <Label>{t(`novel.settings.${item.field}`)}</Label>
-                  {settingTooltip(`${item.field}Hint`)}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={isFollowingChat}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            // 勾选：清空模型值，跟随 AI 会话模型
-                            updateNovelConfig({
-                              [item.field]: "",
-                            } as Partial<NovelConfig>)
-                          } else {
-                        // 取消勾选：使用 AI 会话当前模型作为默认值，若为空则填入占位值让用户手动选择
-                        updateNovelConfig({
-                          [item.field]: aiChatModel || " ",
-                        } as Partial<NovelConfig>)
-                      }
-                        }}
-                        className="h-4 w-4"
-                      />
-                      <span className="text-sm">
-                        {t("novel.settings.followChatModel")}
-                      </span>
-                    </label>
-                    <ChatModelSelector
-                      value={displayValue}
-                      onChange={(model) => updateNovelConfig({
-                        [item.field]: model,
-                      } as Partial<NovelConfig>)}
-                      disabled={isFollowingChat}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={state?.loading}
-                    onClick={() => runModelTest(item.task)}
-                  >
-                    {state?.loading ? t("novel.settings.testingModel") : t("novel.settings.testModel")}
-                  </Button>
-                </div>
-                {item.task === "extract" ? (
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("novel.settings.extractModelHint")}
-                  </p>
-                ) : null}
-                {state?.message ? (
-                  <p className={`text-xs ${state.success ? "text-emerald-600" : "text-destructive"}`}>
-                    {state.message}
-                  </p>
-                ) : null}
-              </div>
+              <NovelModelPickerBlock
+                key={item.task}
+                title={t(`novel.settings.${item.field}`)}
+                hintKey={`${item.field}Hint`}
+                followChecked={isFollowingChat}
+                onFollowChange={(checked) => {
+                  if (checked) {
+                    updateNovelConfig({
+                      [item.field]: "",
+                    } as Partial<NovelConfig>)
+                  } else {
+                    updateNovelConfig({
+                      [item.field]: aiChatModel || " ",
+                    } as Partial<NovelConfig>)
+                  }
+                }}
+                modelValue={displayValue}
+                onModelChange={(model) => updateNovelConfig({
+                  [item.field]: model,
+                } as Partial<NovelConfig>)}
+                renderHint={settingTooltip}
+                testState={state}
+                onTest={() => runModelTest(item.task)}
+                followLabel={t("novel.settings.followDefaultModel")}
+                testLoadingLabel={t("novel.settings.testingModel")}
+                testLabel={t("novel.settings.testModel")}
+              />
             )
           })}
         </div>

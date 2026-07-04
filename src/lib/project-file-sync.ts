@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { readFile, listDirectory } from "@/commands/fs"
+import { listDirectory } from "@/commands/fs"
 import {
   rescanProjectFiles,
   startProjectFileWatcher,
@@ -20,6 +20,7 @@ import {
   isIngestableSourcePath,
 } from "@/lib/source-lifecycle"
 import { isPathAllowedBySourceWatch, normalizeSourceWatchConfig } from "@/lib/source-watch-config"
+import { requestEditorDiskSyncIfSafe } from "@/lib/editor-disk-sync-session"
 
 let unlistenQueue: UnlistenFn | null = null
 let unlistenChanged: UnlistenFn | null = null
@@ -143,7 +144,6 @@ async function processFileChangeBatch(
 
 async function refreshAfterFileChanges(project: WikiProject, relativePaths: string[]): Promise<void> {
   const pp = normalizePath(project.path)
-  const store = useWikiStore.getState()
   try {
     const tree = await listDirectory(pp)
     useWikiStore.getState().setFileTree(tree)
@@ -151,26 +151,17 @@ async function refreshAfterFileChanges(project: WikiProject, relativePaths: stri
     console.warn("[file-sync] failed to refresh file tree:", err)
   }
 
-  store.bumpDataVersion()
+  useWikiStore.getState().bumpDataVersion()
 
-  const selected = store.selectedFile ? normalizePath(store.selectedFile) : null
+  const selected = useWikiStore.getState().selectedFile
+    ? normalizePath(useWikiStore.getState().selectedFile!)
+    : null
   if (!selected) return
 
   const selectedRel = selected.startsWith(`${pp}/`) ? selected.slice(pp.length + 1) : selected
   if (!relativePaths.includes(selectedRel)) return
 
-  try {
-    const content = await readFile(selected)
-    const currentContent = useWikiStore.getState().fileContent
-    if (currentContent && currentContent !== content) {
-      console.warn("[file-sync] 检测到编辑器有未保存内容，跳过文件刷新:", selected)
-      return
-    }
-    useWikiStore.getState().setFileContent(content)
-  } catch {
-    useWikiStore.getState().setSelectedFile(null)
-    useWikiStore.getState().setFileContent("")
-  }
+  await requestEditorDiskSyncIfSafe(selected)
 }
 
 async function enqueueRawSourceChanges(project: WikiProject, tasks: FileChangeTask[]): Promise<void> {

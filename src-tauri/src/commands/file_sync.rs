@@ -204,11 +204,10 @@ fn normalize_source_watch_config(config: Option<SourceWatchConfig>) -> SourceWat
     config
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FileSyncPayload {
-    project_id: String,
-    tasks: Vec<FileChangeTask>,
+fn make_event_emitter(app: AppHandle) -> EventEmitter {
+    Box::new(move |event, payload| {
+        let _ = app.emit(event, payload);
+    })
 }
 
 #[tauri::command]
@@ -219,140 +218,18 @@ pub fn start_project_file_watcher(
     project_path: String,
     source_watch_config: Option<SourceWatchConfig>,
 ) -> Result<FileChangeQueue, String> {
-    run_guarded("start_project_file_watcher", || {
-        let root = PathBuf::from(project_path);
-        let source_watch_config = normalize_source_watch_config(source_watch_config);
-        let watcher_generation = WATCHER_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-        ensure_sync_dir(&root)?;
-        with_queue_lock(&root, || reset_processing_tasks(&root, &project_id))?;
-        enqueue_rescan_changes(&root, &project_id, &source_watch_config)?;
-        process_queue(&app, &root, &project_id)?;
-
-        let (tx, rx) = mpsc::sync_channel::<PathBuf>(8_192);
-        let app_for_thread = app.clone();
-        let root_for_thread = root.clone();
-        let project_for_thread = project_id.clone();
-        let config_for_thread = source_watch_config.clone();
-        std::thread::spawn(move || {
-            let mut pending = BTreeSet::<PathBuf>::new();
-            let mut last_periodic_rescan = now_ms();
-            loop {
-                match rx.recv_timeout(Duration::from_millis(700)) {
-                    Ok(path) => {
-                        pending.insert(path);
-                        while let Ok(path) = rx.try_recv() {
-                            pending.insert(path);
-                        }
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // 检查 channel 溢出标志：如果溢出则将 root 加入 pending 触发全量重扫描
-                        if OVERFLOW_FLAG.swap(false, Ordering::Relaxed) {
-                            pending.insert(root_for_thread.clone());
-                        }
-                        if pending.is_empty() {
-                            maybe_periodic_rescan(
-                                &app_for_thread,
-                                &root_for_thread,
-                                &project_for_thread,
-                                &config_for_thread,
-                                watcher_generation,
-                                &mut last_periodic_rescan,
-                            );
-                            continue;
-                        }
-                        let paths = pending.iter().cloned().collect::<Vec<_>>();
-                        pending.clear();
-                        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                            handle_changed_paths(
-                                &app_for_thread,
-                                &root_for_thread,
-                                &project_for_thread,
-                                &config_for_thread,
-                                watcher_generation,
-                                paths,
-                            )
-                        }));
-                        match result {
-                            Ok(Ok(())) => {}
-                            Ok(Err(err)) => eprintln!("[file-sync] change handling failed: {err}"),
-                            Err(_) => eprintln!("[file-sync] watcher worker recovered from panic"),
-                        }
-                        maybe_periodic_rescan(
-                            &app_for_thread,
-                            &root_for_thread,
-                            &project_for_thread,
-                            &config_for_thread,
-                            watcher_generation,
-                            &mut last_periodic_rescan,
-                        );
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-            }
-        });
-
-        let tx_for_watcher = tx.clone();
-        let root_for_error = root.clone();
-        let mut watcher = RecommendedWatcher::new(
-            move |res: notify::Result<Event>| {
-                match res {
-                    Ok(event) => {
-                        for path in event.paths {
-                            if tx_for_watcher.try_send(path).is_err() {
-                                // channel 溢出：设置标志而非依赖 try_send(root)，
-                                // 因为 channel 已满时第二个 try_send 也会失败
-                                OVERFLOW_FLAG.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("[file-sync] watcher error; scheduling rescan: {err}");
-                        let _ = tx_for_watcher.try_send(root_for_error.clone());
-                    }
-                }
-            },
-            Config::default(),
-        )
-        .map_err(|e| format!("Failed to create file watcher: {e}"))?;
-        watcher
-            .watch(&root, RecursiveMode::Recursive)
-            .map_err(|e| format!("Failed to watch '{}': {e}", root.display()))?;
-        for rel in ["raw/sources", "QM", "wiki"] {
-            let path = root.join(rel);
-            if path.exists() {
-                if let Err(err) = watcher.watch(&path, RecursiveMode::Recursive) {
-                    eprintln!(
-                        "[file-sync] failed to add supplemental watch '{}': {err}",
-                        path.display()
-                    );
-                }
-            }
-        }
-
-        {
-            let mut inner = state.inner.lock().map_err(|_| "file sync state poisoned")?;
-            inner.watcher = Some(watcher);
-            inner.project_id = Some(project_id.clone());
-            inner.project_path = Some(root.clone());
-        }
-
-        let queue = with_queue_lock(&root, || read_queue(&root))?;
-        emit_queue(&app, &project_id, &queue);
-        Ok(queue)
-    })
+    do_start_project_file_watcher(
+        &state,
+        project_id,
+        project_path,
+        source_watch_config,
+        make_event_emitter(app),
+    )
 }
 
 #[tauri::command]
 pub fn stop_project_file_watcher(state: State<FileSyncState>) -> Result<(), String> {
-    run_guarded("stop_project_file_watcher", || {
-        WATCHER_GENERATION.fetch_add(1, Ordering::SeqCst);
-        let mut inner = state.inner.lock().map_err(|_| "file sync state poisoned")?;
-        inner.watcher = None;
-        inner.project_id = None;
-        inner.project_path = None;
-        Ok(())
-    })
+    do_stop_project_file_watcher(&state)
 }
 
 #[tauri::command]
@@ -362,27 +239,13 @@ pub fn rescan_project_files(
     project_path: String,
     source_watch_config: Option<SourceWatchConfig>,
 ) -> Result<FileChangeRescanResult, String> {
-    run_guarded("rescan_project_files", || {
-        let root = PathBuf::from(project_path);
-        let source_watch_config = normalize_source_watch_config(source_watch_config);
-        ensure_sync_dir(&root)?;
-        enqueue_rescan_changes(&root, &project_id, &source_watch_config)?;
-        let changed_tasks = process_queue(&app, &root, &project_id)?;
-        let queue = with_queue_lock(&root, || read_queue(&root))?;
-        emit_queue(&app, &project_id, &queue);
-        Ok(FileChangeRescanResult {
-            queue,
-            changed_tasks,
-        })
-    })
+    let emit = Arc::new(make_event_emitter(app));
+    do_rescan_project_files(project_id, project_path, source_watch_config, &emit)
 }
 
 #[tauri::command]
 pub fn get_file_change_queue(project_path: String) -> Result<FileChangeQueue, String> {
-    run_guarded("get_file_change_queue", || {
-        let root = PathBuf::from(project_path);
-        with_queue_lock(&root, || read_queue(&root))
-    })
+    do_get_file_change_queue(project_path)
 }
 
 #[tauri::command]
@@ -392,27 +255,8 @@ pub fn retry_file_change_task(
     project_path: String,
     task_id: String,
 ) -> Result<FileChangeQueue, String> {
-    run_guarded("retry_file_change_task", || {
-        let root = PathBuf::from(project_path);
-        with_queue_lock(&root, || {
-            let mut queue = read_queue(&root)?;
-            let now = now_ms();
-            for task in &mut queue.tasks {
-                if task.id == task_id && task.project_id == project_id {
-                    task.status = FileChangeStatus::Pending;
-                    task.error = None;
-                    task.retry_count = 0;
-                    task.needs_rerun = false;
-                    task.updated_at = now;
-                }
-            }
-            write_queue(&root, &queue)
-        })?;
-        process_queue(&app, &root, &project_id)?;
-        let queue = with_queue_lock(&root, || read_queue(&root))?;
-        emit_queue(&app, &project_id, &queue);
-        Ok(queue)
-    })
+    let emit = Arc::new(make_event_emitter(app));
+    do_retry_file_change_task(project_id, project_path, task_id, &emit)
 }
 
 #[tauri::command]
@@ -422,19 +266,8 @@ pub fn ignore_file_change_task(
     project_path: String,
     task_id: String,
 ) -> Result<FileChangeQueue, String> {
-    run_guarded("ignore_file_change_task", || {
-        let root = PathBuf::from(project_path);
-        let queue = with_queue_lock(&root, || {
-            let mut queue = read_queue(&root)?;
-            queue
-                .tasks
-                .retain(|task| !(task.id == task_id && task.project_id == project_id));
-            write_queue(&root, &queue)?;
-            read_queue(&root)
-        })?;
-        emit_queue(&app, &project_id, &queue);
-        Ok(queue)
-    })
+    let emit = Arc::new(make_event_emitter(app));
+    do_ignore_file_change_task(project_id, project_path, task_id, &emit)
 }
 
 pub fn mark_app_write_path(path: &Path) {
@@ -446,112 +279,6 @@ pub fn mark_app_write_path(path: &Path) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     ignores.retain(|_, expires_at| *expires_at > now);
     ignores.insert(key, now + APP_WRITE_IGNORE_MS);
-}
-
-fn handle_changed_paths(
-    app: &AppHandle,
-    root: &Path,
-    project_id: &str,
-    source_watch_config: &SourceWatchConfig,
-    watcher_generation: u64,
-    paths: Vec<PathBuf>,
-) -> Result<(), String> {
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    let rules = SourceWatchRules::new(source_watch_config);
-    let mut rels = BTreeSet::<String>::new();
-    let mut app_written_rels = BTreeSet::<String>::new();
-    let snapshot = with_queue_lock(root, || read_snapshot(root))?;
-    for path in paths {
-        if is_app_write_ignored(&path) {
-            collect_known_paths(root, &path, &snapshot, &mut app_written_rels, &rules);
-            continue;
-        }
-        if path.is_dir() {
-            for entry in WalkDir::new(&path).into_iter().filter_map(Result::ok) {
-                if entry.file_type().is_file() && !is_app_write_ignored(entry.path()) {
-                    if let Some(rel) = relative_watch_path(root, entry.path(), &rules, entry.metadata().ok().map(|m| m.len())) {
-                        rels.insert(rel);
-                    }
-                }
-            }
-        } else if let Some(rel) = relative_watch_path(root, &path, &rules, None) {
-            rels.insert(rel);
-        } else if !path.exists() {
-            collect_known_paths(root, &path, &snapshot, &mut rels, &rules);
-        }
-    }
-    if !app_written_rels.is_empty() {
-        sync_snapshot_paths(root, app_written_rels)?;
-    }
-    if rels.is_empty() {
-        return Ok(());
-    }
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    enqueue_paths(root, project_id, rels)?;
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    process_queue(app, root, project_id)?;
-    let queue = with_queue_lock(root, || read_queue(root))?;
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    emit_queue(app, project_id, &queue);
-    Ok(())
-}
-
-fn maybe_periodic_rescan(
-    app: &AppHandle,
-    root: &Path,
-    project_id: &str,
-    source_watch_config: &SourceWatchConfig,
-    watcher_generation: u64,
-    last_periodic_rescan: &mut i64,
-) {
-    if !cfg!(target_os = "linux") || now_ms() - *last_periodic_rescan < LINUX_RESCAN_INTERVAL_MS {
-        return;
-    }
-    *last_periodic_rescan = now_ms();
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        rescan_watch_roots(app, root, project_id, source_watch_config, watcher_generation)
-    }));
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => eprintln!("[file-sync] periodic rescan failed: {err}"),
-        Err(_) => eprintln!("[file-sync] periodic rescan recovered from panic"),
-    }
-}
-
-fn rescan_watch_roots(
-    app: &AppHandle,
-    root: &Path,
-    project_id: &str,
-    source_watch_config: &SourceWatchConfig,
-    watcher_generation: u64,
-) -> Result<(), String> {
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    enqueue_rescan_changes_for_prefixes(
-        root,
-        project_id,
-        &["raw/sources", "QM", "wiki", "purpose.md", "schema.md"],
-        source_watch_config,
-    )?;
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    process_queue(app, root, project_id)?;
-    let queue = with_queue_lock(root, || read_queue(root))?;
-    if !is_active_watcher_generation(watcher_generation) {
-        return Ok(());
-    }
-    emit_queue(app, project_id, &queue);
-    Ok(())
 }
 
 fn is_active_watcher_generation(generation: u64) -> bool {
@@ -784,15 +511,6 @@ fn upsert_task(
         error: None,
         needs_rerun: false,
     });
-}
-
-fn process_queue(app: &AppHandle, root: &Path, project_id: &str) -> Result<Vec<FileChangeTask>, String> {
-    process_queue_inner(
-        root,
-        project_id,
-        |queue| emit_queue(app, project_id, queue),
-        |tasks| emit_changed_batch(app, project_id, tasks),
-    )
 }
 
 fn process_queue_inner(
@@ -1205,25 +923,6 @@ fn merge_kind(existing: &FileChangeKind, incoming: &FileChangeKind) -> FileChang
         | (_, FileChangeKind::Modified) => FileChangeKind::Modified,
         (_, kind) => kind.clone(),
     }
-}
-
-fn emit_queue(app: &AppHandle, project_id: &str, queue: &FileChangeQueue) {
-    let payload = FileSyncPayload {
-        project_id: project_id.to_string(),
-        tasks: queue.tasks.clone(),
-    };
-    let _ = app.emit(EVENT_QUEUE_UPDATED, payload);
-}
-
-fn emit_changed_batch(app: &AppHandle, project_id: &str, tasks: Vec<FileChangeTask>) {
-    if tasks.is_empty() {
-        return;
-    }
-    let payload = FileSyncPayload {
-        project_id: project_id.to_string(),
-        tasks,
-    };
-    let _ = app.emit(EVENT_CHANGED, payload);
 }
 
 fn ensure_sync_dir(root: &Path) -> Result<(), String> {

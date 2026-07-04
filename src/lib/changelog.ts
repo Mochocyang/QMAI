@@ -78,6 +78,35 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 }
 
+const TWO_POINT_TWO_THIRTY_TWO_CHANGELOG: ChangelogEntry = {
+  version: "2.2.32",
+  date: "2026-07-04",
+  highlights: {
+    en: [
+      "Chapter saving is more reliable: switching chapters no longer deletes drafts or writes to the wrong file; saving as a final chapter is when the Chinese filename is applied.",
+      "Chat model and background-task model are separate: the chat box is for conversation and prose; review, summary, de-AI, and similar steps use the Default Model unless you pick another for that step.",
+      "De-AI can use its own model instead of always sharing the chat model.",
+      "Duplicate-entity detection: pick a model before scanning, last results are remembered, merged entries disappear right away, and progress is clearer.",
+      "The editor polls disk every 2 seconds so external edits show up; fixed sync stopping after you edit locally.",
+      "Faster startup and safer project switching so data from the previous project does not leak in.",
+      "Fixed chapter title and status edits sometimes failing to save because of mismatched value types.",
+      "macOS and Linux no longer auto-check for updates; the settings page points you to manual download.",
+      "Some settings take effect immediately without a Save button.",
+    ],
+    zh: [
+      "章节保存更稳了：切换章节不会再误删草稿或存错文件；只有点「保存为正式章节」才会改成中文文件名。",
+      "聊天模型和后台任务模型分开了：聊天框里选的只管对话和写正文；审稿、摘要、去 AI 味等默认用「默认模型」，也可以给某个环节单独指定。",
+      "去 AI 味可以单独选模型，不用和聊天模型绑在一起。",
+      "重复角色/实体检测更好用：扫描前可选模型，上次结果会保留，合并后条目马上消失，进度也更清楚。",
+      "编辑器每 2 秒检查一次磁盘，用别的软件改了文件会自动刷新；也修好了本地改完字之后不再同步的问题。",
+      "启动更快，快速切换项目时不会再串上一个项目的数据。",
+      "修好了改章节标题或状态时，偶尔保存失败的问题。",
+      "macOS 和 Linux 版暂不支持软件内自动更新，设置里会提示去官网手动下载。",
+      "部分设置改了立刻生效，不用点保存。",
+    ],
+  },
+}
+
 const TWO_POINT_TWO_THIRTY_ONE_CHANGELOG: ChangelogEntry = {
   version: "2.2.31",
   date: "2026-06-30",
@@ -717,6 +746,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 ]
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_THIRTY_TWO_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_TWO_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTY_ONE_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_ONE_CHANGELOG]
   if (version === TWO_POINT_TWO_THIRTY_CHANGELOG.version) return [TWO_POINT_TWO_THIRTY_CHANGELOG]
   if (version === TWO_POINT_TWO_TWENTY_NINE_CHANGELOG.version) return [TWO_POINT_TWO_TWENTY_NINE_CHANGELOG]
@@ -752,6 +782,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_THIRTY_TWO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_ONE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_CHANGELOG,
     TWO_POINT_TWO_TWENTY_NINE_CHANGELOG,

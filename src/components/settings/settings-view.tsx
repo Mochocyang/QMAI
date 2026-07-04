@@ -58,6 +58,8 @@ interface Category {
    *  switching language in Settings → Interface takes effect without
    *  remounting this component (Bug #53). */
   labelKey: string
+  /** Optional muted subtitle under the label (e.g. novel → model setup). */
+  hintKey?: string
   icon: typeof Bot
 }
 
@@ -67,13 +69,22 @@ const CATEGORIES: Category[] = [
   { id: "embedding", labelKey: "settings.categories.embedding", icon: Database },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
-  { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
+  { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "contact-support", labelKey: "settings.categories.contactSupport", icon: HeartHandshake },
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
+]
+
+/** Settings tabs that edit the shared draft and need the global Save footer. */
+const CATEGORIES_WITH_SAVE_FOOTER: CategoryId[] = [
+  "rerank",
+  "embedding",
+  "network",
+  "interface",
+  "novel",
 ]
 
 function initialDraft(
@@ -330,6 +341,7 @@ export function SettingsView() {
       saveSourceWatchConfig,
       saveRevisionFeedbackWindowConfig,
       saveNovelConfig,
+      saveDefaultLlmModel,
       saveOutputLanguage,
       saveMaxHistoryMessages,
       saveUiFontSizeScale,
@@ -452,6 +464,7 @@ export function SettingsView() {
 
     setNovelConfig(draft.novelConfig)
     await saveNovelConfig(draft.novelConfig, project?.id, project?.path)
+    await saveDefaultLlmModel(draft.novelConfig.defaultLlmModel)
 
     setOutputLanguage(draft.outputLanguage)
     await saveOutputLanguage(draft.outputLanguage, project?.id)
@@ -524,6 +537,8 @@ export function SettingsView() {
     }
   }, [active, draft, setDraft])
 
+  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active)
+
   return (
     <div className="flex h-full overflow-hidden">
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
@@ -558,7 +573,14 @@ export function SettingsView() {
                     isActive ? "text-primary" : "text-muted-foreground/80 group-hover:text-accent-foreground"
                   }`}
                 />
-                <span className="truncate">{t(c.labelKey)}</span>
+                <span className="flex min-w-0 flex-1 flex-col items-start">
+                  <span className="truncate">{t(c.labelKey)}</span>
+                  {c.hintKey ? (
+                    <span className="truncate text-[10px] leading-tight text-muted-foreground/80">
+                      {t(c.hintKey)}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             )
           })}
@@ -571,16 +593,18 @@ export function SettingsView() {
           <div className="mx-auto max-w-2xl">{body}</div>
         </div>
 
-        <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              {saved ? t("settings.savedTick") : t("settings.changeHint")}
-            </p>
-            <Button onClick={handleSave}>
-              {saved ? t("settings.saved") : t("settings.save")}
-            </Button>
+        {showSaveFooter && (
+          <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+            <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
+              <p className="text-xs text-muted-foreground">
+                {saved ? t("settings.savedTick") : t("settings.changeHint")}
+              </p>
+              <Button onClick={handleSave}>
+                {saved ? t("settings.saved") : t("settings.save")}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

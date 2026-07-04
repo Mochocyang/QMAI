@@ -1,6 +1,7 @@
 ﻿import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
 import { useWikiStore } from "@/stores/wiki-store"
+import { resolveNovelModel } from "./model-resolver"
 import { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
 import { reviewChapter, type NovelReviewResult } from "./review-adapter"
 import type { TaskRouteResult } from "./task-router"
@@ -149,9 +150,10 @@ export async function runDeepChapterGeneration(
 ): Promise<DeepChapterGenerationResult> {
   assertNotAborted(signal)
   const resumeCheckpoint = input.resumeCheckpoint
-  const writingConfig = resolveWritingConfig(input.llmConfig)
-  const lengthSpec = resolveCurrentChapterLengthSpec()
   const novelConfig = useWikiStore.getState().novelConfig
+  const writingConfig = resolveWritingConfig(input.llmConfig)
+  const deAiConfig = resolveNovelModel(input.llmConfig, novelConfig, "deAi")
+  const lengthSpec = resolveCurrentChapterLengthSpec()
   const { loadSmartDeAiSkill } = await import("./de-ai-adapter")
 
   // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
@@ -430,7 +432,7 @@ export async function runDeepChapterGeneration(
   }
 
   const finalContent = await finalPolishChapter(
-    writingConfig,
+    deAiConfig,
     outlinePrompt,
     contextPrompt,
     taskBrief,
@@ -461,7 +463,7 @@ export async function runDeepChapterGeneration(
 }
 
 async function finalPolishChapter(
-  writingConfig: LlmConfig,
+  deAiConfig: LlmConfig,
   outlinePrompt: string,
   contextPrompt: string,
   taskBrief: string,
@@ -478,7 +480,7 @@ async function finalPolishChapter(
   assertNotAborted(signal)
   callbacks.onThinking?.(formatStageThinking("阶段6：简单审查与去AI味", "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。"))
   const polished = await collectModelText(
-    writingConfig,
+    deAiConfig,
     [{
       role: "user",
       content: buildDeepChapterFinalPolishPrompt(

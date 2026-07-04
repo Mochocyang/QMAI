@@ -15,6 +15,7 @@ import { refreshProjectState } from "@/lib/project-refresh"
 import { readFile, listDirectory, deleteFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { AnalysisDepth } from "@/lib/novel/book-analysis/types"
 import type { ChapterSelectionData } from "./use-character-extraction"
 
@@ -27,6 +28,7 @@ export interface UseLibraryOperationsParams {
   setSelectedCharacterId: React.Dispatch<React.SetStateAction<string | null>>
   setChapterSelectionData: React.Dispatch<React.SetStateAction<ChapterSelectionData | null>>
   llmConfig: ReturnType<typeof useWikiStore.getState>["llmConfig"]
+  providerConfigs: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
   startTask: (projectPath: string, config: any, abortController?: AbortController) => string
 }
 
@@ -46,6 +48,7 @@ export function useLibraryOperations({
   setSelectedCharacterId,
   setChapterSelectionData,
   llmConfig,
+  providerConfigs,
   startTask,
 }: UseLibraryOperationsParams) {
   const [styleExtracting, setStyleExtracting] = useState(false)
@@ -68,7 +71,7 @@ export function useLibraryOperations({
 
   const handleLibraryExtractStyle = useCallback(async () => {
     if (!currentProjectPath || !selectedLibraryBook || styleExtracting) return
-    if (!llmConfig?.apiKey) {
+    if (!hasUsableLlm(llmConfig, providerConfigs)) {
       toast.error("未配置可用模型，请先在设置中配置 LLM。")
       return
     }
@@ -255,7 +258,7 @@ export function useLibraryOperations({
 
   const handleLibraryReextractCharacters = useCallback(async () => {
     if (!currentProjectPath || !selectedLibraryBook) return
-    if (!llmConfig) {
+    if (!hasUsableLlm(llmConfig, providerConfigs)) {
       toast.error("未配置可用模型，请先在设置中配置 LLM。")
       return
     }

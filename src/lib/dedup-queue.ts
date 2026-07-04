@@ -20,8 +20,8 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { executeMerge } from "@/lib/dedup-runner"
+import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
+import { executeMerge, type DedupMergeStage } from "@/lib/dedup-runner"
 import type { DuplicateGroup } from "@/lib/dedup"
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -31,6 +31,7 @@ export interface DedupTask {
   projectId: string
   group: DuplicateGroup
   canonicalSlug: string
+  modelId?: string
   status: "pending" | "processing" | "done" | "failed"
   addedAt: number
   error: string | null
@@ -44,6 +45,26 @@ let processing = false
 let currentProjectId = ""
 let currentProjectPath = ""
 let currentAbortController: AbortController | null = null
+let currentMergeProgress: { taskId: string; stage: DedupMergeStage } | null = null
+
+type MergeCompleteListener = (task: DedupTask) => void
+const mergeCompleteListeners = new Set<MergeCompleteListener>()
+
+/** Fires once when a merge task finishes successfully and leaves the queue. */
+export function onDedupMergeComplete(listener: MergeCompleteListener): () => void {
+  mergeCompleteListeners.add(listener)
+  return () => mergeCompleteListeners.delete(listener)
+}
+
+function notifyMergeComplete(task: DedupTask): void {
+  for (const listener of mergeCompleteListeners) {
+    try {
+      listener(task)
+    } catch (err) {
+      console.error("[Dedup Queue] mergeComplete listener failed:", err)
+    }
+  }
+}
 
 // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -100,10 +121,20 @@ export async function enqueueMerge(
   projectId: string,
   group: DuplicateGroup,
   canonicalSlug: string,
+  modelId?: string,
 ): Promise<string> {
+  const active = useWikiStore.getState().project
+  if (!active || active.id !== projectId) {
+    throw new Error(
+      `enqueueMerge: project ${projectId} is not the active project (current: ${active?.id || "<none>"})`,
+    )
+  }
+
+  await ensureQueueActive(active.id, active.path)
+
   if (!currentProjectId || currentProjectId !== projectId) {
     throw new Error(
-      `enqueueMerge: project ${projectId} is not the active project (current: ${currentProjectId || "<none>"})`,
+      `enqueueMerge: failed to activate dedup queue for project ${projectId}`,
     )
   }
 
@@ -121,6 +152,7 @@ export async function enqueueMerge(
     projectId,
     group,
     canonicalSlug,
+    modelId: modelId?.trim() || undefined,
     status: "pending",
     addedAt: Date.now(),
     error: null,
@@ -139,9 +171,17 @@ export async function enqueueMerge(
  * attempts again.
  */
 export async function retryTask(taskId: string): Promise<void> {
-  const task = queue.find((t) => t.id === taskId)
+  let task = queue.find((t) => t.id === taskId)
   if (!task) return
-  if (task.projectId !== currentProjectId) return
+  const projectId = task.projectId
+
+  const active = useWikiStore.getState().project
+  if (!active || active.id !== projectId) return
+
+  await ensureQueueActive(active.id, active.path)
+
+  task = queue.find((t) => t.id === taskId)
+  if (!task || task.projectId !== currentProjectId) return
 
   task.status = "pending"
   task.error = null
@@ -156,9 +196,17 @@ export async function retryTask(taskId: string): Promise<void> {
  * abort fired. Backup snapshots already on disk are kept either way.
  */
 export async function cancelTask(taskId: string): Promise<void> {
-  const task = queue.find((t) => t.id === taskId)
+  let task = queue.find((t) => t.id === taskId)
   if (!task) return
-  if (task.projectId !== currentProjectId) return
+  const projectId = task.projectId
+
+  const active = useWikiStore.getState().project
+  if (!active || active.id !== projectId) return
+
+  await ensureQueueActive(active.id, active.path)
+
+  task = queue.find((t) => t.id === taskId)
+  if (!task || task.projectId !== currentProjectId) return
 
   if (task.status === "processing") {
     if (currentAbortController) {
@@ -166,6 +214,7 @@ export async function cancelTask(taskId: string): Promise<void> {
       currentAbortController = null
     }
     processing = false
+    currentMergeProgress = null
   }
 
   queue = queue.filter((t) => t.id !== taskId)
@@ -175,6 +224,11 @@ export async function cancelTask(taskId: string): Promise<void> {
 
 export function getQueue(): readonly DedupTask[] {
   return queue
+}
+
+/** In-memory merge stage for the currently processing task (not persisted). */
+export function getMergeProgress(): { taskId: string; stage: DedupMergeStage } | null {
+  return currentMergeProgress
 }
 
 export function getQueueSummary(): {
@@ -205,6 +259,7 @@ export function clearQueueState(): void {
   currentProjectId = ""
   currentProjectPath = ""
   currentAbortController = null
+  currentMergeProgress = null
 }
 
 /**
@@ -222,6 +277,7 @@ export async function pauseQueue(): Promise<void> {
     currentAbortController = null
   }
   processing = false
+  currentMergeProgress = null
 
   for (const task of queue) {
     if (task.status === "processing") {
@@ -234,6 +290,19 @@ export async function pauseQueue(): Promise<void> {
   queue = []
   currentProjectId = ""
   currentProjectPath = ""
+}
+
+/**
+ * Ensure the in-memory dedup queue is bound to the given project.
+ * No-op when already active; otherwise loads from disk via restoreQueue.
+ */
+export async function ensureQueueActive(
+  projectId: string,
+  projectPath: string,
+): Promise<void> {
+  const pp = normalizePath(projectPath)
+  if (currentProjectId === projectId && currentProjectPath === pp) return
+  await restoreQueue(projectId, projectPath)
 }
 
 /**
@@ -314,12 +383,15 @@ async function processNext(projectId: string): Promise<void> {
   if (currentProjectId !== projectId) return
 
   const state = useWikiStore.getState()
-  const llmConfig = resolveDefaultModel(state.llmConfig)
+  const llmConfig = next.modelId?.trim()
+    ? resolveModelConfig(next.modelId, state.llmConfig, state.providerConfigs)
+    : resolveDefaultModel(state.llmConfig)
 
   if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
     next.status = "failed"
     next.error = "LLM 未配置，请在设置中配置大模型提供方"
     processing = false
+    currentMergeProgress = null
     await saveQueue(pp)
     return
   }
@@ -329,23 +401,31 @@ async function processNext(projectId: string): Promise<void> {
   )
 
   currentAbortController = new AbortController()
+  currentMergeProgress = { taskId: next.id, stage: "loading" }
 
   try {
     await executeMerge(pp, next.group, next.canonicalSlug, llmConfig, {
       signal: currentAbortController.signal,
+      onProgress: (stage) => {
+        currentMergeProgress = { taskId: next.id, stage }
+      },
     })
     if (currentProjectId !== projectId) return
 
     currentAbortController = null
+    currentMergeProgress = null
+    const completedTask = { ...next }
     queue = queue.filter((t) => t.id !== next.id)
     await saveQueue(pp)
     // Tell the rest of the app the wiki tree changed.
     useWikiStore.getState().bumpDataVersion()
 
     console.log(`[Dedup Queue] Done: ${next.group.slugs.join(",")}`)
+    notifyMergeComplete(completedTask)
   } catch (err) {
     if (currentProjectId !== projectId) return
     currentAbortController = null
+    currentMergeProgress = null
     const message = err instanceof Error ? err.message : String(err)
     next.retryCount++
     next.error = message

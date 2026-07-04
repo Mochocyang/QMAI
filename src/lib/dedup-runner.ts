@@ -21,6 +21,84 @@ import {
 } from "./dedup"
 import { loadNotDuplicates } from "./dedup-storage"
 
+const WIKI_READ_CONCURRENCY = 12
+const WIKI_WRITE_CONCURRENCY = 12
+
+export type DedupMergeStage = "loading" | "merging" | "writing"
+
+export type DedupScanStage = "loading" | "detecting"
+
+export interface ExecuteMergeOptions {
+  signal?: AbortSignal
+  onProgress?: (stage: DedupMergeStage) => void
+}
+
+export interface RunDuplicateDetectionOptions {
+  signal?: AbortSignal
+  summaries?: EntitySummary[]
+  onProgress?: (stage: DedupScanStage) => void
+}
+
+export interface DuplicateDetectionResult {
+  groups: DuplicateGroup[]
+  scannedPageCount: number
+}
+
+/**
+ * Run `fn` over `items` with a bounded worker pool. Items where `fn`
+ * returns null/undefined are omitted from the result.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R | null | undefined>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+
+  const limit = Math.max(1, concurrency)
+  const results: R[] = []
+  let index = 0
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = index++
+      if (i >= items.length) return
+      const result = await fn(items[i])
+      if (result !== null && result !== undefined) {
+        results.push(result)
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  )
+  return results
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return
+
+  const limit = Math.max(1, concurrency)
+  let index = 0
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = index++
+      if (i >= items.length) return
+      await fn(items[i])
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  )
+}
+
 /**
  * Wrap streamChat into the (system, user, signal) → string shape
  * the dedup module expects. Same pattern page-merge uses — keeps
@@ -91,20 +169,20 @@ export async function loadAllEntitySummaries(
 ): Promise<EntitySummary[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
-  const out: EntitySummary[] = []
+  const nodes: FileNode[] = []
   for (const prefix of ["wiki/entities", "wiki/concepts"]) {
-    for (const node of walkMd(tree, prefix)) {
-      try {
-        const content = await readFile(node.path)
-        const rel = toWikiRelative(pp, node.path)
-        const summary = extractEntitySummary(rel, content)
-        if (summary) out.push(summary)
-      } catch {
-        // best-effort — skip unreadable pages
-      }
-    }
+    nodes.push(...walkMd(tree, prefix))
   }
-  return out
+
+  return mapWithConcurrency(nodes, WIKI_READ_CONCURRENCY, async (node) => {
+    try {
+      const content = await readFile(node.path)
+      const rel = toWikiRelative(pp, node.path)
+      return extractEntitySummary(rel, content)
+    } catch {
+      return null
+    }
+  })
 }
 
 /** Read every .md under wiki/ as { path, content }. The path is
@@ -114,16 +192,16 @@ export async function loadAllWikiPages(
 ): Promise<{ path: string; content: string }[]> {
   const pp = normalizePath(projectPath)
   const tree = await listDirectory(pp)
-  const out: { path: string; content: string }[] = []
-  for (const node of walkMd(tree, "wiki")) {
+  const nodes = [...walkMd(tree, "wiki")]
+
+  return mapWithConcurrency(nodes, WIKI_READ_CONCURRENCY, async (node) => {
     try {
       const content = await readFile(node.path)
-      out.push({ path: toWikiRelative(pp, node.path), content })
+      return { path: toWikiRelative(pp, node.path), content }
     } catch {
-      // ignore
+      return null
     }
-  }
-  return out
+  })
 }
 
 /**
@@ -134,16 +212,24 @@ export async function loadAllWikiPages(
 export async function runDuplicateDetection(
   projectPath: string,
   llmConfig: LlmConfig,
-  options: { signal?: AbortSignal } = {},
-): Promise<DuplicateGroup[]> {
-  const summaries = await loadAllEntitySummaries(projectPath)
-  if (summaries.length < 2) return []
+  options: RunDuplicateDetectionOptions = {},
+): Promise<DuplicateDetectionResult> {
+  options.onProgress?.("loading")
+  const summaries =
+    options.summaries ?? (await loadAllEntitySummaries(projectPath))
+
+  if (summaries.length < 2) {
+    return { groups: [], scannedPageCount: summaries.length }
+  }
+
+  options.onProgress?.("detecting")
   const notDup = await loadNotDuplicates(projectPath)
   const llm = buildDedupLlmCall(llmConfig)
-  return detectDuplicateGroups(summaries, llm, {
+  const groups = await detectDuplicateGroups(summaries, llm, {
     signal: options.signal,
     notDuplicates: notDup,
   })
+  return { groups, scannedPageCount: summaries.length }
 }
 
 /**
@@ -167,11 +253,13 @@ export async function executeMerge(
   group: DuplicateGroup,
   canonicalSlug: string,
   llmConfig: LlmConfig,
-  options: { signal?: AbortSignal } = {},
+  options: ExecuteMergeOptions = {},
 ): Promise<MergeResult> {
   const pp = normalizePath(projectPath)
+  const { signal, onProgress } = options
 
   // 1. Resolve each group slug to its actual on-disk path + content
+  onProgress?.("loading")
   const allPages = await loadAllWikiPages(pp)
   const pathBySlug = new Map<string, string>()
   for (const p of allPages) {
@@ -199,6 +287,7 @@ export async function executeMerge(
   const otherPages = allPages.filter((p) => !groupPaths.has(p.path))
 
   const llm = buildDedupLlmCall(llmConfig)
+  onProgress?.("merging")
   const result = await mergeDuplicateGroup(
     {
       group: groupPages,
@@ -206,36 +295,38 @@ export async function executeMerge(
       otherWikiPages: otherPages,
     },
     llm,
-    { signal: options.signal },
+    { signal },
   )
+
+  onProgress?.("writing")
 
   // 2. Snapshot backup before any writes. If a write fails partway
   //    through, the user has the pre-merge state intact in
   //    .qmai/page-history/.
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
   const backupDir = `${pp}/.qmai/page-history/dedup-${stamp}`
-  for (const b of result.backup) {
+  await runWithConcurrency(result.backup, WIKI_WRITE_CONCURRENCY, async (b) => {
     const sanitized = b.path.replace(/[/\\]/g, "_")
     await writeFile(`${backupDir}/${sanitized}`, b.content)
-  }
+  })
 
   // 3. Write canonical
   await writeFile(`${pp}/${result.canonicalPath}`, result.canonicalContent)
 
   // 4. Apply rewrites
-  for (const r of result.rewrites) {
+  await runWithConcurrency(result.rewrites, WIKI_WRITE_CONCURRENCY, async (r) => {
     await writeFile(`${pp}/${r.path}`, r.newContent)
-  }
+  })
 
   // 5. Delete merged-away pages
-  for (const dead of result.pagesToDelete) {
+  await runWithConcurrency(result.pagesToDelete, WIKI_WRITE_CONCURRENCY, async (dead) => {
     try {
       await deleteFile(`${pp}/${dead}`)
     } catch (err) {
       // Surface as a warning — backup is still safe.
       console.warn(`[dedup] failed to delete ${dead}: ${err}`)
     }
-  }
+  })
 
   // 6. Rewrite index.md to drop merged-away entries.
   const indexPath = `${pp}/wiki/index.md`

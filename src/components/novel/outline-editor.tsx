@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat } from "@/lib/llm-client"
+import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { writeFile, listDirectory, createDirectory } from "@/commands/fs"
 import { PROMPTS } from "@/lib/novel/prompt-templates"
 import { normalizePath } from "@/lib/path-utils"
@@ -35,7 +37,8 @@ export function OutlineCreatorDialog({
 }: OutlineCreatorDialogProps) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
-  const llmConfig = useWikiStore((s) => s.llmConfig)
+  const baseLlmConfig = useWikiStore((s) => s.llmConfig)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const setFileTree = useWikiStore((s) => s.setFileTree)
 
   const [outlineType, setOutlineType] = useState<OutlineType>("story-outline")
@@ -79,6 +82,12 @@ export function OutlineCreatorDialog({
       let content = ""
 
       if (useAi) {
+        const llmConfig = resolveDefaultModel(baseLlmConfig)
+        if (!hasUsableLlm(llmConfig, providerConfigs)) {
+          setError("请先在设置中配置可用的 AI 模型")
+          setGenerating(false)
+          return
+        }
         const outlineTypeLabel = t(`novel.outline.type.${outlineType}`)
         const prompt = PROMPTS.outlineGeneration(outlineTypeLabel, "", premise)
 

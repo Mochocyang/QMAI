@@ -1,5 +1,5 @@
-import { listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
 import { useWikiStore } from "@/stores/wiki-store"
 
 /**
@@ -10,10 +10,7 @@ export async function refreshProjectState(projectPath: string | undefined | null
   if (!projectPath) return
   const pp = normalizePath(projectPath)
   try {
-    const tree = await listDirectory(pp)
-    const store = useWikiStore.getState()
-    store.setFileTree(tree)
-    store.bumpDataVersion()
+    await refreshProjectFileTree(pp, { bumpDataVersion: true })
   } catch (err) {
     useWikiStore.getState().bumpDataVersion()
     console.error("[refreshProjectState] 刷新文件树失败:", err)

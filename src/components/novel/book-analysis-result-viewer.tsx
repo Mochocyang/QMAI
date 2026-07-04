@@ -17,7 +17,8 @@ import { upsertWritingStylePreset, setEnabledWritingStyle, getEnabledWritingStyl
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { refreshProjectState } from "@/lib/project-refresh"
-import { resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
@@ -124,9 +125,11 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     setReextractRunning(true)
     try {
       const reextractStoreState = useWikiStore.getState()
-      const reextractLlmConfig = reextractStoreState.aiChatModel
-        ? resolveModelConfig(reextractStoreState.aiChatModel, reextractStoreState.llmConfig, reextractStoreState.providerConfigs)
-        : reextractStoreState.llmConfig
+      const reextractLlmConfig = resolveDefaultModel(reextractStoreState.llmConfig)
+      if (!hasUsableLlm(reextractLlmConfig, reextractStoreState.providerConfigs)) {
+        toast.error("未配置 LLM，请先在设置中配置")
+        return
+      }
       // 修复：bookPath 实际写入路径是 book-analysis/{bookId}，不是 book-analysis/{title}（feature/book-analysis-reuse）
       const bookId = task?.bookId
       const bookPath = joinPath(currentProject.path, "book-analysis", bookId ?? "unknown")
@@ -179,15 +182,11 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
       return
     }
     const storeState = useWikiStore.getState()
-    const baseLlmConfig = storeState.llmConfig
-    if (!baseLlmConfig) {
+    const llmConfig = resolveDefaultModel(storeState.llmConfig)
+    if (!hasUsableLlm(llmConfig, storeState.providerConfigs)) {
       toast.error("未配置 LLM，请先在设置中配置")
       return
     }
-    const aiChatModel = storeState.aiChatModel
-    const llmConfig = aiChatModel
-      ? resolveModelConfig(aiChatModel, baseLlmConfig, storeState.providerConfigs)
-      : baseLlmConfig
     const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
     setStyleExtracting(true)
     try {
@@ -246,18 +245,12 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     }
 
     const storeState = useWikiStore.getState()
-    const baseLlmConfig = storeState.llmConfig
-    if (!baseLlmConfig) {
+    const llmConfig = resolveDefaultModel(storeState.llmConfig)
+    if (!hasUsableLlm(llmConfig, storeState.providerConfigs)) {
       console.log('[单角色提取] 未配置LLM')
       toast.error("未配置 LLM，请先在设置中配置")
       return
     }
-
-    // 解析当前 AI 会话模型配置，确保 apiKey/endpoint 与模型匹配
-    const aiChatModel = storeState.aiChatModel
-    const llmConfig = aiChatModel
-      ? resolveModelConfig(aiChatModel, baseLlmConfig, storeState.providerConfigs)
-      : baseLlmConfig
 
     const bookId = task?.bookId
     if (!bookId) {

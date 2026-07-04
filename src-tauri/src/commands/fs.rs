@@ -1188,8 +1188,24 @@ pub async fn write_file_atomic(path: String, contents: String) -> Result<(), Str
         .map_err(|e| format!("write_file_atomic blocking task join error: {e}"))?
 }
 
+/// Whether a directory entry should appear in a listing.
+///
+/// Hidden (dot-prefixed) entries are shown only when `include_hidden`
+/// is set. That flag is reserved for the `raw/sources` content area,
+/// where dotfolders like `.claude` / `.codex` are legitimate sources
+/// the user deliberately added. Every other caller keeps hiding dot
+/// entries so internal state (`.qmai`, `.git`), caches, and secrets
+/// (`.env`) never leak into trees or the ingest candidate set.
+fn entry_is_visible(name: &str, include_hidden: bool) -> bool {
+    include_hidden || !name.starts_with('.')
+}
+
 /// Core logic for `list_directory`, callable from both Tauri commands and Axum handlers.
-pub fn do_list_directory(path: &str) -> Result<Vec<FileNode>, String> {
+pub fn do_list_directory(
+    path: &str,
+    include_hidden: bool,
+    max_depth: usize,
+) -> Result<Vec<FileNode>, String> {
     run_guarded("list_directory", || {
         let path = resolve_project_storage_path(path);
         let p = Path::new(&path);
@@ -1199,20 +1215,31 @@ pub fn do_list_directory(path: &str) -> Result<Vec<FileNode>, String> {
         if !p.is_dir() {
             return Err(format!("Path is not a directory: '{}'", path));
         }
-        let nodes = build_tree(p, 0, 30)?;
+        let nodes = build_tree(p, 0, max_depth, include_hidden)?;
         Ok(nodes)
     })
 }
 
 #[tauri::command]
-pub async fn list_directory(path: String) -> Result<Vec<FileNode>, String> {
+pub async fn list_directory(
+    path: String,
+    include_hidden: Option<bool>,
+    max_depth: Option<usize>,
+) -> Result<Vec<FileNode>, String> {
+    let include_hidden = include_hidden.unwrap_or(false);
+    let max_depth = max_depth.unwrap_or(30).clamp(1, 30);
     let p = path.clone();
-    tauri::async_runtime::spawn_blocking(move || do_list_directory(&p))
+    tauri::async_runtime::spawn_blocking(move || do_list_directory(&p, include_hidden, max_depth))
         .await
         .map_err(|e| format!("list_directory blocking task join error: {e}"))?
 }
 
-fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode>, String> {
+fn build_tree(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    include_hidden: bool,
+) -> Result<Vec<FileNode>, String> {
     if depth >= max_depth {
         return Ok(vec![]);
     }
@@ -1221,8 +1248,9 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
         .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            // Skip dotfiles; use to_string_lossy so non-UTF-8 filenames are still visible
-            !entry.file_name().to_string_lossy().starts_with('.')
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            entry_is_visible(&name, include_hidden)
         })
         .collect();
 
@@ -1253,7 +1281,7 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
         let is_dir = entry_path.is_dir();
 
         let children = if is_dir {
-            let kids = build_tree(&entry_path, depth + 1, max_depth)?;
+            let kids = build_tree(&entry_path, depth + 1, max_depth, include_hidden)?;
             if kids.is_empty() {
                 None
             } else {

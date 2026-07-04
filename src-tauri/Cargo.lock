@@ -4441,43 +4441,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
-name = "llm-wiki"
-version = "2.2.30"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "base64 0.22.1",
- "calamine",
- "cfb",
- "chrono",
- "docx-rs",
- "encoding_rs",
- "futures",
- "image",
- "lancedb",
- "md-5",
- "notify",
- "pdfium-render",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-http",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "tokio",
- "toml 0.8.2",
- "uuid",
- "walkdir",
- "which",
- "zip 2.4.2",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5762,6 +5725,43 @@ name = "pxfm"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
+
+[[package]]
+name = "qmai"
+version = "2.2.32"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "base64 0.22.1",
+ "calamine",
+ "cfb",
+ "chrono",
+ "docx-rs",
+ "encoding_rs",
+ "futures",
+ "image",
+ "lancedb",
+ "md-5",
+ "notify",
+ "pdfium-render",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-http",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "tokio",
+ "toml 0.8.2",
+ "uuid",
+ "walkdir",
+ "which",
+ "zip 2.4.2",
+]
 
 [[package]]
 name = "quick-error"
