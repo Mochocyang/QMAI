@@ -12,8 +12,31 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
-import { useImportProgressStore } from "@/stores/import-progress-store"
+import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
 import { saveLastReadChapter } from "@/lib/project-store"
+
+function formatImportProgressRunningLabel(task: ImportProgressTask, kindLabel: string): string {
+  if (task.cancelling) return `正在取消${kindLabel}提取...`
+
+  const activeTitles = task.activeTitles?.filter(Boolean) ?? []
+
+  if (activeTitles.length > 1) {
+    const preview = activeTitles.slice(0, 2).join("、")
+    return activeTitles.length > 2 ? `${preview} 等${activeTitles.length}个` : preview
+  }
+
+  if (activeTitles.length === 1) return activeTitles[0]!
+  return task.currentTitle || `${kindLabel}提取中`
+}
+
+function formatImportProgressDetail(task: ImportProgressTask): string {
+  const base = `${task.completed}/${task.total}`
+  const activeCount = task.activeTitles?.length ?? 0
+  if ((task.concurrency ?? 1) > 1 && activeCount > 1) {
+    return `${base} · ${activeCount} 路并行`
+  }
+  return base
+}
 
 interface WikiPageInfo {
   path: string
@@ -1466,9 +1489,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                       ) : null}
                       <span className={isRunning ? "text-foreground font-medium" : ""}>
                         {isRunning
-                          ? task.cancelling
-                            ? `正在取消${kindLabel}提取...`
-                            : task.currentTitle || `${kindLabel}提取中`
+                          ? formatImportProgressRunningLabel(task, kindLabel)
                           : task.status === "done"
                             ? `${kindLabel}提取完成`
                             : task.status === "error"
@@ -1507,9 +1528,9 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                       />
                     </div>
                   )}
-                  {isRunning && task.completed > 0 && (
+                  {isRunning && (
                     <span className="text-muted-foreground">
-                      {task.completed}/{task.total} · {kindLabel}
+                      {formatImportProgressDetail(task)}
                     </span>
                   )}
                 </div>

@@ -3,7 +3,7 @@ export { parseChapterMeta, isChapterPage, isOutlinePage, type ChapterMeta, type 
 export { parseVolumeMeta, isVolumePage, getChapterVolumes, type VolumeMeta } from "./volume"
 export { createChapterPipeline, type ChapterPipeline, type ChapterPipelineDeps } from "./chapter-pipeline"
 export { buildContextPack, contextPackToPrompt, type ContextPack } from "./context-engine"
-export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason } from "./chapter-ingest"
+export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, finalizeProjectMemoryRebuild, syncSnapshotToMemory, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason, type OutlineIngestResult, type IngestOutlineOptions, type SyncSnapshotToMemoryOptions } from "./chapter-ingest"
 export { reviewChapter, type NovelReviewResult } from "./review-adapter"
 export { runNovelLint, buildNovelLintPrompt, type NovelLintResult } from "./lint"
 export { resolveNovelModel, type NovelTaskType } from "./model-resolver"

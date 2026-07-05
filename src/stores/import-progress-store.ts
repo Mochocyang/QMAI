@@ -12,6 +12,8 @@ export interface ImportProgressTask {
   completed: number
   total: number
   currentTitle: string
+  activeTitles?: string[]
+  concurrency?: number
   message?: string
   error?: string
   cancelling: boolean
@@ -27,6 +29,8 @@ interface StartImportProgressTaskInput {
   currentTitle?: string
   message?: string
   abortController?: AbortController
+  activeTitles?: string[]
+  concurrency?: number
 }
 
 export interface ImportProgressState {
@@ -62,6 +66,8 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
           total: input.total,
           currentTitle: input.currentTitle ?? "",
           message: input.message,
+          activeTitles: input.activeTitles ?? [],
+          concurrency: input.concurrency,
           cancelling: false,
           createdAt: now,
           updatedAt: now,

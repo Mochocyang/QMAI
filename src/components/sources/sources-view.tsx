@@ -88,7 +88,7 @@ export function SourcesView() {
         </div>
       </div>
       {bulkIngestResult ? (
-        <div className="border-b px-4 py-2 text-xs text-muted-foreground">
+        <div className="border-b px-4 py-2 text-xs text-muted-foreground whitespace-pre-line">
           {bulkIngestResult}
         </div>
       ) : null}

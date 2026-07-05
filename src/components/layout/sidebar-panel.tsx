@@ -901,50 +901,17 @@ export function SidebarPanel() {
   }
 
   async function extractImportedOutlineMemories(projectPath: string, importedPaths: string[]) {
-    outlineImportCancelledRef.current = false
-    const taskId = useImportProgressStore.getState().startTask({
-      projectPath,
-      kind: "outline",
-      total: importedPaths.length,
-      currentTitle: getFileName(importedPaths[0] ?? ""),
-      message: "正在提取 AI 大纲记忆",
-    })
-    activeImportTaskIdRef.current = taskId
-
-    let completed = 0
-    let failed = 0
-    for (const outlinePath of importedPaths) {
-      if (outlineImportCancelledRef.current) {
-        useImportProgressStore.getState().finishTask(taskId, "cancelled", {
-          completed,
-          currentTitle: "",
-          message: `已取消大纲记忆提取，已完成 ${completed}/${importedPaths.length} 个大纲。`,
-        })
-        activeImportTaskIdRef.current = null
-        return
-      }
-
-      useImportProgressStore.getState().updateTask(taskId, {
-        completed,
-        total: importedPaths.length,
-        currentTitle: getFileName(outlinePath),
+    const { runOutlineIngestPaths } = await import("@/lib/novel/outline-generation")
+    try {
+      await runOutlineIngestPaths(projectPath, importedPaths, {
+        onProgressTaskStarted: (taskId) => {
+          activeImportTaskIdRef.current = taskId
+        },
       })
-      const { createOutlineIngestTask, runOutlineIngestTask } = await import("@/lib/novel/outline-generation")
-      const outlineTaskId = createOutlineIngestTask(projectPath, outlinePath)
-      await runOutlineIngestTask(outlineTaskId)
-      completed += 1
+    } finally {
+      activeImportTaskIdRef.current = null
+      await refreshTree(projectPath, importedPaths[0])
     }
-
-    useImportProgressStore.getState().finishTask(taskId, failed > 0 ? "error" : "done", {
-      completed,
-      total: importedPaths.length,
-      currentTitle: "",
-      message: failed > 0
-        ? `大纲记忆提取完成：成功 ${completed - failed} 个，失败 ${failed} 个。`
-        : `大纲记忆提取完成：成功 ${completed} 个大纲。`,
-    })
-    activeImportTaskIdRef.current = null
-    await refreshTree(projectPath, importedPaths[0])
   }
 
   async function finishChapterImport(projectPath: string, importedChapters: ImportedChapter[], extractMemory: boolean) {

@@ -174,3 +174,39 @@ export function computeNovelContextTokenBudget(
   }
   return cap
 }
+
+/** Legacy single-pass outline ingest floor; kept so small windows still behave predictably. */
+export const OUTLINE_INGEST_MIN_BODY_BUDGET = 8_000
+/** Upper cap aligned with wiki long-source ingest. */
+export const OUTLINE_INGEST_MAX_BODY_BUDGET = 300_000
+
+function clampBudget(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+/**
+ * Character budget for the outline body in `ingestOutline`.
+ *
+ * Reserves space for fixed prompts and JSON output, then allocates the
+ * remainder to the outline markdown. Scales with `maxContextSize` and
+ * CJK language scale like other budget helpers.
+ */
+export function computeOutlineIngestBodyBudget(
+  maxContextSize: number | undefined,
+  promptOverheadChars: number,
+  langScale?: number,
+): number {
+  const { maxCtx, responseReserve } = computeContextBudget(maxContextSize, langScale)
+  const outputReserve = Math.max(responseReserve, Math.floor(maxCtx * 0.15))
+  const instructionReserve = Math.max(promptOverheadChars, Math.floor(maxCtx * 0.08))
+  const available = maxCtx - outputReserve - instructionReserve
+  const upper = Math.min(
+    OUTLINE_INGEST_MAX_BODY_BUDGET,
+    Math.max(OUTLINE_INGEST_MIN_BODY_BUDGET, Math.floor(maxCtx * 0.6)),
+  )
+  const min = Math.min(
+    OUTLINE_INGEST_MIN_BODY_BUDGET,
+    Math.max(1_000, Math.floor(available)),
+  )
+  return clampBudget(Math.floor(available), min, upper)
+}

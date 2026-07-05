@@ -19,6 +19,7 @@ import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
+import { computeOutlineIngestBodyBudget } from "@/lib/context-budget"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -538,6 +539,49 @@ function normalizeOutlineIngestError(err: unknown): Error {
   return new Error(message)
 }
 
+const OUTLINE_INGEST_JSON_TEMPLATE = `输出 JSON：
+{
+  "chapterId": "outline-init",
+  "chapterNumber": 0,
+  "summary": "大纲摘要",
+  "characters": ["初始人物"],
+  "locations": ["初始地点"],
+  "organizations": ["初始组织/势力"],
+  "items": ["关键物品"],
+  "events": ["背景事件"],
+  "characterStateChanges": ["人物初始状态"],
+  "relationshipChanges": ["人物初始关系"],
+  "knowledgeChanges": [],
+  "foreshadowingChanges": ["初始伏笔"],
+  "newCanonFacts": ["世界观正史设定"],
+  "timelineEvents": ["时间线背景"],
+  "conflicts": ["核心冲突"],
+  "endingHook": "",
+  "graphNodes": ["图谱节点列表"],
+  "graphEdges": ["图谱关系边，格式：A->关系->B。关系必须是以下之一：出场于|发生于|属于|持有|敌对|合作|怀疑|隐瞒|知道|不知道|推进伏笔|回收伏笔|新增伏笔|导致|揭示|影响|位于"]
+}`
+
+export interface OutlineIngestResult {
+  snapshot: ChapterSnapshot | null
+  truncated: boolean
+  originalLength: number
+  bodyLength: number
+  bodyBudget: number
+  failureReason?: "no_llm" | null
+}
+
+export interface IngestOutlineOptions {
+  skipSync?: boolean
+}
+
+function buildOutlineIngestUserPrompt(body: string): string {
+  return `请从以下大纲中提取初始设定：
+
+${body}
+
+${OUTLINE_INGEST_JSON_TEMPLATE}`
+}
+
 async function extractSnapshotWithLLM(
   chapterNumber: number,
   chapterBody: string,
@@ -946,9 +990,15 @@ export interface SyncSnapshotToMemoryResult {
   memorySyncedAt: string
 }
 
+export interface SyncSnapshotToMemoryOptions {
+  deferStructuredMemoryExport?: boolean
+  deferDerivedRebuild?: boolean
+}
+
 export async function syncSnapshotToMemory(
   projectPath: string,
   snapshot: ChapterSnapshot,
+  options?: SyncSnapshotToMemoryOptions,
 ): Promise<SyncSnapshotToMemoryResult> {
   const pp = normalizePath(projectPath)
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
@@ -1014,9 +1064,13 @@ export async function syncSnapshotToMemory(
 
   await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
   await saveSnapshot(pp, syncedSnapshot)
-  const memoryPagePaths = await exportStructuredMemoryToWiki(pp, syncedSnapshot)
-  clearGraphCache()
-  useWikiStore.getState().bumpDataVersion()
+  const memoryPagePaths = options?.deferStructuredMemoryExport
+    ? []
+    : await exportStructuredMemoryToWiki(pp, syncedSnapshot)
+  if (!options?.deferDerivedRebuild) {
+    clearGraphCache()
+    useWikiStore.getState().bumpDataVersion()
+  }
 
   return { writtenEntityPaths, memoryPagePaths, memorySyncedAt }
 }
@@ -1222,6 +1276,13 @@ async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnap
   await writeStructuredMemoryDocuments(projectPath, snapshots)
 }
 
+export async function finalizeProjectMemoryRebuild(projectPath: string): Promise<void> {
+  const pp = normalizePath(projectPath)
+  await rebuildDerivedMemoryFromSnapshots(pp)
+  clearGraphCache()
+  useWikiStore.getState().bumpDataVersion()
+}
+
 async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
   const canonicalSnapshot = ensureSnapshotIdentity(canonicalizeSnapshotCharacters(snapshot))
   const normalizedSnapshot = normalizeChapterSnapshot(canonicalSnapshot, {
@@ -1395,17 +1456,38 @@ export async function ingestOutline(
   projectPath: string,
   outlinePath: string,
   signal?: AbortSignal,
-): Promise<ChapterSnapshot | null> {
+  options?: IngestOutlineOptions,
+): Promise<OutlineIngestResult> {
+  const emptyResult = (
+    snapshot: ChapterSnapshot | null = null,
+    failureReason: OutlineIngestResult["failureReason"] = null,
+  ): OutlineIngestResult => ({
+    snapshot,
+    truncated: false,
+    originalLength: 0,
+    bodyLength: 0,
+    bodyBudget: 0,
+    failureReason,
+  })
+
   const pp = normalizePath(projectPath)
   const state = useWikiStore.getState()
   const llmConfig = state.llmConfig
   const novelConfig = state.novelConfig
   // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换），与 ingestChapter 保持一致
   const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
-  if (!hasUsableLlm(runtimeLlmConfig, state.providerConfigs)) return null
+  if (!hasUsableLlm(runtimeLlmConfig, state.providerConfigs)) return emptyResult(null, "no_llm")
 
   const content = await readFile(outlinePath)
-  const body = content.length > 8000 ? content.slice(0, 8000) : content
+  const originalLength = content.length
+
+  const outputLang = getOutputLanguage()
+  const langReminder = buildLanguageReminder(outputLang)
+  const systemPrompt = `你是一个专业的小说编辑助手。请从大纲中提取初始设定信息，输出 JSON。${langReminder}`
+  const promptOverhead = systemPrompt.length + buildOutlineIngestUserPrompt("").length
+  const bodyBudget = computeOutlineIngestBodyBudget(runtimeLlmConfig.maxContextSize, promptOverhead)
+  const truncated = content.length > bodyBudget
+  const body = truncated ? content.slice(0, bodyBudget) : content
 
   // 从文件路径提取大纲名称作为标题
   const normalizedOutlinePath = normalizePath(outlinePath)
@@ -1421,36 +1503,7 @@ export async function ingestOutline(
   const outlineNumber = -(Math.abs(hash % 999) + 1) // -1 到 -999
   const chapterId = `outline-${outlineName}`
 
-  const outputLang = getOutputLanguage()
-  const langReminder = buildLanguageReminder(outputLang)
-
-  const systemPrompt = `你是一个专业的小说编辑助手。请从大纲中提取初始设定信息，输出 JSON。${langReminder}`
-
-  const userPrompt = `请从以下大纲中提取初始设定：
-
-${body}
-
-输出 JSON：
-{
-  "chapterId": "outline-init",
-  "chapterNumber": 0,
-  "summary": "大纲摘要",
-  "characters": ["初始人物"],
-  "locations": ["初始地点"],
-  "organizations": ["初始组织/势力"],
-  "items": ["关键物品"],
-  "events": ["背景事件"],
-  "characterStateChanges": ["人物初始状态"],
-  "relationshipChanges": ["人物初始关系"],
-  "knowledgeChanges": [],
-  "foreshadowingChanges": ["初始伏笔"],
-  "newCanonFacts": ["世界观正史设定"],
-  "timelineEvents": ["时间线背景"],
-  "conflicts": ["核心冲突"],
-  "endingHook": "",
-  "graphNodes": ["图谱节点列表"],
-  "graphEdges": ["图谱关系边，格式：A->关系->B。关系必须是以下之一：出场于|发生于|属于|持有|敌对|合作|怀疑|隐瞒|知道|不知道|推进伏笔|回收伏笔|新增伏笔|导致|揭示|影响|位于"]
-}`
+  const userPrompt = buildOutlineIngestUserPrompt(body)
 
   try {
     const messages: ChatMessage[] = [
@@ -1487,8 +1540,26 @@ ${body}
       throw new Error("Outline snapshot payload is invalid.")
     }
 
+    if (options?.skipSync) {
+      return {
+        snapshot,
+        truncated,
+        originalLength,
+        bodyLength: body.length,
+        bodyBudget,
+        failureReason: null,
+      }
+    }
+
     const syncResult = await syncSnapshotToMemory(pp, snapshot)
-    return { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt }
+    return {
+      snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt },
+      truncated,
+      originalLength,
+      bodyLength: body.length,
+      bodyBudget,
+      failureReason: null,
+    }
   } catch (err) {
     console.error("[Outline Ingest] Failed:", err)
     throw normalizeOutlineIngestError(err)
