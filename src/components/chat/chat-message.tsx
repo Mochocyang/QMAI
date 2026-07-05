@@ -705,7 +705,7 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="max-w-[80%] rounded-lg border bg-background px-3 py-2 text-sm text-foreground">
+      <div className="flex-1 rounded-lg border bg-background px-3 py-2 text-sm text-foreground">
         {isThinking ? (
           <StreamingWorkflowBlock content={thinking} />
         ) : (

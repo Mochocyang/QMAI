@@ -614,6 +614,7 @@ export function ChatPanel() {
   const [workflowModeDropdownOpen, setWorkflowModeDropdownOpen] = useState(false)
   const workflowModeTriggerRef = useRef<HTMLButtonElement>(null)
   const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<{ left: number; top: number; width: number } | null>(null)
+  const workflowModeDropdownRef = useRef<HTMLDivElement | null>(null)
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
   const [isSavingChapter, setIsSavingChapter] = useState(false)
@@ -715,7 +716,9 @@ export function ChatPanel() {
   useEffect(() => {
     if (!workflowModeDropdownOpen) return
     const handleMouseDown = (event: MouseEvent) => {
-      if (workflowModeTriggerRef.current?.contains(event.target as Node)) return
+      const target = event.target as Node
+      if (workflowModeTriggerRef.current?.contains(target)) return
+      if (workflowModeDropdownRef.current?.contains(target)) return
       setWorkflowModeDropdownOpen(false)
     }
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1850,6 +1853,7 @@ export function ChatPanel() {
                               onClick={() => setWorkflowModeDropdownOpen(false)}
                             />
                             <div
+                              ref={workflowModeDropdownRef}
                               role="listbox"
                               className="fixed rounded-md border bg-popover p-1 shadow-md"
                               style={{
