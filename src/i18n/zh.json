@@ -249,6 +249,8 @@
     "msgCount": "条消息",
     "startNewConversation": "开始新对话",
     "clickNewChatToBegin": "点击「新建对话」开始",
+    "conversationHistory": "会话历史",
+    "noHistoryConversations": "暂无历史会话",
     "typeAMessage": "输入消息...",
     "selectModel": "选择模型",
     "searchModel": "搜索模型...",
@@ -1193,6 +1195,8 @@
       "msgCount": "条消息",
       "startNewConversation": "开始新的写作对话",
       "clickNewChatToBegin": "点击「新建对话」开始写作",
+      "conversationHistory": "会话历史",
+      "noHistoryConversations": "暂无历史会话",
       "writeToWiki": "写入章节",
       "ingestPlaceholder": "讨论章节内容或继续追问...",
       "typeAMessage": "请输入写作需求，并明确指定章节号（如「生成第16章」）或使用「继续写下一章」等关键词，以便AI准确识别目标章节并读取上下文。"

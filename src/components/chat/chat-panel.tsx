@@ -1,7 +1,7 @@
-﻿import { useRef, useEffect, useCallback, useState, useMemo } from "react"
+﻿import { useRef, useEffect, useCallback, useState, useMemo, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, Sparkles, ChevronDown, Check } from "lucide-react"
+import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, Sparkles, ChevronDown, Check, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -328,16 +328,148 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
   const setActiveConversation = useChatStore((s) => s.setActiveConversation)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyRef = useRef<HTMLDivElement | null>(null)
+  const historyButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null)
 
   const sorted = sortConversationsByUpdatedAt(conversations)
+  const activeConversation = sorted.find((conv) => conv.id === activeConversationId) ?? null
+  const historyConversations = sorted.filter((conv) => conv.id !== activeConversationId)
+  const historyCount = historyConversations.length
+
+  // 点击历史记录浮层外部关闭
+  useEffect(() => {
+    if (!historyOpen) return
+    function handleClick(event: MouseEvent) {
+      if (historyRef.current && !historyRef.current.contains(event.target as Node)) {
+        setHistoryOpen(false)
+      }
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setHistoryOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    document.addEventListener("keydown", handleKey)
+    return () => {
+      document.removeEventListener("mousedown", handleClick)
+      document.removeEventListener("keydown", handleKey)
+    }
+  }, [historyOpen])
+
+  // 历史浮层位置自适应：以按钮为锚点，视口不够时向左/向上翻转（半屏窗口更友好）
+  useEffect(() => {
+    if (!historyOpen) {
+      setHistoryDropdownStyle(null)
+      return
+    }
+    const PANEL_WIDTH = 288
+    const GAP = 6
+    function updatePosition() {
+      const rect = historyButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      // 水平：默认贴按钮右边展开，右侧空间不够时贴按钮左边
+      let left: number
+      const rightSpace = vw - rect.right
+      const leftSpace = rect.left
+      if (rightSpace >= PANEL_WIDTH + GAP) {
+        left = rect.right - PANEL_WIDTH
+        if (left < GAP) left = GAP
+      } else if (leftSpace >= PANEL_WIDTH + GAP) {
+        left = rect.left
+        if (left + PANEL_WIDTH > vw - GAP) left = vw - PANEL_WIDTH - GAP
+      } else {
+        // 视口太窄，居左撑开（最大 288，剩边距）
+        left = GAP
+      }
+      // 垂直：默认下方，不够时翻上方
+      const availableBelow = vh - rect.bottom
+      const availableAbove = rect.top
+      const MAX_HEIGHT = 360
+      const MIN_HEIGHT = 160
+      let top: number
+      let maxHeight: number
+      if (availableBelow < MIN_HEIGHT && availableAbove >= MIN_HEIGHT) {
+        maxHeight = Math.min(MAX_HEIGHT, availableAbove - GAP)
+        top = rect.top - maxHeight - GAP
+      } else {
+        maxHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, availableBelow - GAP))
+        top = rect.bottom + GAP
+      }
+      setHistoryDropdownStyle({ left, top, width: PANEL_WIDTH, maxHeight })
+    }
+    const raf = requestAnimationFrame(updatePosition)
+    window.addEventListener("resize", updatePosition)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener("resize", updatePosition)
+    }
+  }, [historyOpen])
+
+  // 切换/删除当前会话后自动收起历史浮层，避免悬空焦点
+  useEffect(() => {
+    setHistoryOpen(false)
+  }, [activeConversationId])
 
   function getMessageCount(convId: string): number {
     return messages.filter((m) => m.conversationId === convId).length
   }
 
+  function handleDeleteConversation(convId: string) {
+    onAbortStream(convId)
+    deleteConversation(convId)
+    const proj = useWikiStore.getState().project
+    if (proj) {
+      deleteFile(`${proj.path}/.qmai/chats/${convId}.json`).catch(() => {})
+    }
+  }
+
+  function renderConversationChip(conv: { id: string; title: string; updatedAt: number }) {
+    const isActive = conv.id === activeConversationId
+    const isThisStreaming = conv.id in streamingContents
+    const msgCount = getMessageCount(conv.id)
+    return (
+      <button
+        key={conv.id}
+        type="button"
+        className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+          isActive
+            ? "border-primary/40 bg-background text-foreground shadow-sm"
+            : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
+        }`}
+        onClick={() => setActiveConversation(conv.id)}
+        onMouseEnter={() => setHoveredId(conv.id)}
+        onMouseLeave={() => setHoveredId(null)}
+        title={conv.title}
+      >
+        {isThisStreaming && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />}
+        <span className="max-w-[140px] truncate font-medium">
+          {getConversationTabTitle(conv.title, 10)}
+        </span>
+        <span className="text-[10px] opacity-70">{msgCount}</span>
+        <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
+        {hoveredId === conv.id && (
+          <span
+            className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleDeleteConversation(conv.id)
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  // 顶部统一为三段式：新建写作绘画 / 正在工作的绘画 / 绘画历史记录
   return (
     <div className="shrink-0 border-b bg-muted/20 px-2 py-2">
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      <div className="flex items-center gap-2">
+        {/* 1. 新建写作绘画 */}
         <Button
           variant="ghost"
           size="icon-sm"
@@ -349,56 +481,56 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
           <Plus className="h-3.5 w-3.5" />
         </Button>
 
-        {sorted.length === 0 ? (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {t(novelMode ? "novel.chat.noConversationsYet" : "chat.noConversationsYet")}
-          </span>
-        ) : (
-          sorted.map((conv) => {
-            const isActive = conv.id === activeConversationId
-            const isThisStreaming = conv.id in streamingContents
-            const msgCount = getMessageCount(conv.id)
-            return (
-              <button
-                key={conv.id}
-                type="button"
-                className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                  isActive
-                    ? "border-primary/40 bg-background text-foreground shadow-sm"
-                    : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
-                }`}
-                onClick={() => setActiveConversation(conv.id)}
-                onMouseEnter={() => setHoveredId(conv.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                title={conv.title}
+        {/* 2. 正在工作的绘画（当前激活会话），没有则展示占位文案 */}
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+          {activeConversation ? (
+            <div className="flex min-w-0 flex-1 overflow-hidden">{renderConversationChip(activeConversation)}</div>
+          ) : (
+            <span className="shrink-0 truncate text-xs text-muted-foreground">
+              {t(novelMode ? "novel.chat.noConversationsYet" : "chat.noConversationsYet")}
+            </span>
+          )}
+        </div>
+
+        {/* 3. 绘画历史记录（点击展开下拉面板，显示全部历史会话） */}
+        <div className="relative shrink-0" ref={historyRef}>
+          <Button
+            ref={historyButtonRef}
+            variant="ghost"
+            size="sm"
+            className="qmai-history-button shrink-0 rounded-full border border-border bg-background/70 px-3 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setHistoryOpen((value) => !value)}
+            title={t(novelMode ? "novel.chat.conversationHistory" : "chat.conversationHistory")}
+            aria-label={t(novelMode ? "novel.chat.conversationHistory" : "chat.conversationHistory")}
+            aria-expanded={historyOpen}
+          >
+            <History className="h-3.5 w-3.5" />
+            <span>{t(novelMode ? "novel.chat.conversationHistory" : "chat.conversationHistory")}</span>
+            {historyCount > 0 && (
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
+                {historyCount}
+              </span>
+            )}
+            <ChevronDown className={`h-3 w-3 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
+          </Button>
+
+          {historyOpen && historyDropdownStyle &&
+            createPortal(
+              <div
+                className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
+                style={historyDropdownStyle}
               >
-                {isThisStreaming && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />}
-                <span className="max-w-[140px] truncate font-medium">
-                  {getConversationTabTitle(conv.title, 10)}
-                </span>
-                <span className="text-[10px] opacity-70">{msgCount}</span>
-                <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
-                {hoveredId === conv.id && (
-                  <span
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      // 先 abort 该会话的流式请求，防止后台继续运行
-                      onAbortStream(conv.id)
-                      deleteConversation(conv.id)
-                      const proj = useWikiStore.getState().project
-                      if (proj) {
-                        deleteFile(`${proj.path}/.qmai/chats/${conv.id}.json`).catch(() => {})
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </span>
-                )}
-              </button>
-            )
-          })
-        )}
+              {historyCount === 0 ? (
+                <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                  {t(novelMode ? "novel.chat.noHistoryConversations" : "chat.noHistoryConversations")}
+                </div>
+              ) : (
+                historyConversations.map((conv) => renderConversationChip(conv))
+              )}
+              </div>,
+              document.body,
+            )}
+        </div>
       </div>
     </div>
   )

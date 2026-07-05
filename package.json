@@ -1,7 +1,7 @@
 {
   "name": "qmai",
   "private": true,
-  "version": "2.2.32",
+  "version": "2.2.33",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {

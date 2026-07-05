@@ -359,6 +359,8 @@
     "msgCount": "messages",
     "startNewConversation": "Start a new conversation",
     "clickNewChatToBegin": "Click ‘New Chat’ to begin",
+    "conversationHistory": "History",
+    "noHistoryConversations": "No history yet",
     "modelAnswering": "Model is answering…",
     "send": "Send",
     "thinking": "Thinking…",
@@ -1318,6 +1320,8 @@
       "msgCount": "messages",
       "startNewConversation": "Start a new writing conversation",
       "clickNewChatToBegin": "Click 'New Chat' to start writing",
+      "conversationHistory": "History",
+      "noHistoryConversations": "No history yet",
       "writeToWiki": "Write to Chapter",
       "ingestPlaceholder": "Discuss chapter content or continue...",
       "typeAMessage": "Enter writing request..."
