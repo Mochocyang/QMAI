@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Layers,
 } from "lucide-react";
 import {
   KnowledgeTree,
@@ -466,7 +467,6 @@ export function DismantlingSidebarPanel() {
   );
 }
 
-void DismantlingSidebarPanel;
 
 /** 剧情推演室侧边栏：头部标题+新建按钮 + 框架列表 */
 function StorySimulationSidebarPanel() {
@@ -747,6 +747,7 @@ interface ImportMemoryDecisionRequest {
 
 const MEMORY_LABEL_KEYS: Record<string, string> = {
   "dismantling-library": "拆文记忆库",
+  "plot-framework": "剧情框架",
   snapshots: "novel.memoryCenter.snapshots.title",
   "character-states": "novel.memoryCenter.sections.characterStates",
   "character-cognition": "novel.memoryCenter.sections.cognition",
@@ -758,6 +759,7 @@ const MEMORY_LABEL_KEYS: Record<string, string> = {
 
 const MEMORY_ICONS: Record<string, typeof Users> = {
   "dismantling-library": BookOpenCheck,
+  "plot-framework": Layers,
   snapshots: FileText,
   "character-states": Users,
   "character-cognition": Brain,
@@ -1588,6 +1590,10 @@ export function SidebarPanel() {
 
   if (activeView === "bookAnalysis") {
     return <BookAnalysisSidebarPanel />;
+
+  if (activeView === "dismantling") {
+    return <DismantlingSidebarPanel />;
+  }
   }
 
   if (activeView === "search") {
@@ -1612,6 +1618,16 @@ export function SidebarPanel() {
             count: memoryData?.stats.snapshotCount ?? 0,
             icon: MEMORY_ICONS[key] ?? FileText,
             disabled: (memoryData?.snapshots.length ?? 0) === 0,
+          };
+        }
+
+        if (key === "plot-framework") {
+          return {
+            key,
+            label: t(MEMORY_LABEL_KEYS[key]),
+            count: 0,
+            icon: MEMORY_ICONS[key] ?? FileText,
+            disabled: false,
           };
         }
 

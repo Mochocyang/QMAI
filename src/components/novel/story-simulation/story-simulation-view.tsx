@@ -1163,7 +1163,7 @@ export function StorySimulationView() {
                     </div>
                   ) : reportViewTab === "overview" ? (
                     <div className="h-full overflow-hidden">
-                      <ProcessOverviewPanel debugTraces={debugTraces} />
+                      <ProcessDebugPanel debugTraces={debugTraces} />
                     </div>
                   ) : reportViewTab === "rumors" ? (
                     <div className="h-full">
@@ -1266,7 +1266,7 @@ export function StorySimulationView() {
                   }`}
                   onClick={() => setDraftViewTab("overview")}
                 >
-                  概览
+                  过程观察
                 </button>
                 <button
                   type="button"
@@ -1343,7 +1343,7 @@ export function StorySimulationView() {
                 </div>
               ) : draftViewTab === "overview" ? (
                 <div className="h-full overflow-hidden">
-                  <ProcessOverviewPanel debugTraces={debugTraces} />
+                  <ProcessDebugPanel debugTraces={debugTraces} />
                 </div>
               ) : draftViewTab === "rumors" ? (
                 <div className="h-full">
@@ -1608,7 +1608,7 @@ function SimulatingTimelinePanel({
             }`}
             onClick={() => setActiveStreamView("overview")}
           >
-            概览
+            过程观察
           </button>
           <button
             type="button"
@@ -1824,7 +1824,7 @@ function SimulatingTimelinePanel({
         </>
       ) : activeStreamView === "overview" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <ProcessOverviewPanel debugTraces={debugTraces} />
+          <ProcessDebugPanel debugTraces={debugTraces} />
         </div>
       ) : activeStreamView === "rumors" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -1863,7 +1863,7 @@ function SimulatingTimelinePanel({
   );
 }
 
-function ProcessOverviewPanel({
+function ProcessDebugPanel({
   debugTraces,
 }: {
   debugTraces: SimulationDebugTrace[];

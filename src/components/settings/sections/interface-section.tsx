@@ -1,4 +1,4 @@
-import { useTranslation } from "react-i18next"
+﻿import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import {
@@ -76,7 +76,9 @@ const SIDEBAR_NAV_LABEL_KEYS: Record<SidebarNavItemId, string> = {
   lint: "novel.nav.lint",
   soul: "novel.nav.soul",
   skillLibrary: "novel.nav.skillLibrary",
+  dismantling: "novel.nav.dismantlingLibrary",
   bookAnalysis: "novel.nav.dismantling",
+  plotFrameworkLibrary: "novel.nav.plotFrameworkLibrary",
   reviewCenter: "novel.nav.reviewCenter",
   storySimulation: "novel.nav.storySimulation",
   search: "novel.nav.search",

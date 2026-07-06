@@ -20,6 +20,9 @@ import {
   type MemoryCenterSnapshotCard,
 } from "@/lib/novel/memory-center"
 import { loadSnapshot } from "@/lib/novel/chapter-ingest"
+import { loadPlotFrameworkLibrary } from "@/lib/novel/plot-framework-library"
+import { summarizePlotFrameworkLibrary } from "@/lib/novel/plot-framework-summary"
+import type { PlotFrameworkSummary } from "@/lib/novel/plot-framework-summary"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -214,6 +217,7 @@ export function MemoryCenterView() {
     chapterNumber?: number
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [frameworkSummary, setFrameworkSummary] = useState<PlotFrameworkSummary | null>(null)
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const restoreScrollTop = useRef(0)
@@ -232,6 +236,23 @@ export function MemoryCenterView() {
       setSelectedMemoryCenterEntry(null)
       setDetailView(null)
       setLoading(false)
+      return
+    }
+
+    if (selectedMemoryCenterEntry === "plot-framework") {
+      setLoading(true)
+      setError(null)
+      setDetailView(null)
+      try {
+        const lib = await loadPlotFrameworkLibrary(project.path)
+        setFrameworkSummary(summarizePlotFrameworkLibrary(lib))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setError(message)
+        setFrameworkSummary(null)
+      } finally {
+        setLoading(false)
+      }
       return
     }
 
@@ -460,6 +481,9 @@ export function MemoryCenterView() {
           </div>
         ) : null}
 
+        {selectedMemoryCenterEntry === "plot-framework" && frameworkSummary ? (
+          <PlotFrameworkSummaryCard summary={frameworkSummary} />
+        ) : null}
         {!selectedMemoryCenterEntry ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
             <FileText className="h-8 w-8 text-muted-foreground/30" />
@@ -876,6 +900,66 @@ function DeleteMemoryConfirmDialog({
             {deleting ? t("novel.memoryCenter.deleting") : t("novel.memoryCenter.deleteConfirmAction")}
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function PlotFrameworkSummaryCard({
+  summary,
+}: {
+  summary: PlotFrameworkSummary
+}) {
+  const lineLabel = (line: "main" | "sub") => (line === "main" ? "主线" : "支线")
+  const pacingLabel = (pacing: "tight" | "standard" | "loose" | undefined) => {
+    if (pacing === "tight") return "紧凑"
+    if (pacing === "standard") return "标准"
+    if (pacing === "loose") return "舒缓"
+    return "未评定"
+  }
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border bg-card px-4 py-3">
+        <div className="text-sm font-semibold">剧情框架统计</div>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-muted-foreground">框架总数</div>
+            <div className="mt-1 text-lg font-semibold">{summary.total}</div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-muted-foreground">主线</div>
+            <div className="mt-1 text-lg font-semibold">{summary.mainCount}</div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-muted-foreground">支线</div>
+            <div className="mt-1 text-lg font-semibold">{summary.subCount}</div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-muted-foreground">未评定节奏</div>
+            <div className="mt-1 text-lg font-semibold">{summary.unratedCount}</div>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full border px-2 py-0.5">紧凑 {summary.tightCount}</span>
+          <span className="rounded-full border px-2 py-0.5">标准 {summary.standardCount}</span>
+          <span className="rounded-full border px-2 py-0.5">舒缓 {summary.looseCount}</span>
+        </div>
+      </div>
+      {summary.recentTitles.length > 0 ? (
+        <div className="rounded-md border bg-card px-4 py-3">
+          <div className="text-sm font-semibold">最近更新的框架</div>
+          <ul className="mt-2 space-y-1 text-xs">
+            {summary.recentTitles.map((fw, idx) => (
+              <li key={idx} className="flex items-center justify-between rounded border bg-background px-2 py-1">
+                <span className="truncate">{fw.title}</span>
+                <span className="ml-2 shrink-0 text-muted-foreground">{lineLabel(fw.line)} · {pacingLabel(fw.pacing)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="text-xs text-muted-foreground">
+        剧情框架在拆书库提取后自动入库；此卡片为只读统计视图。
       </div>
     </div>
   )

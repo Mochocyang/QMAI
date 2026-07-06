@@ -882,9 +882,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ...message,
           content: result || record.finalText || "AI大纲未返回内容。",
           sources: finalSources,
-          agentToolCalls: settleRunningAgentToolCalls(
-            record.toolCalls.length ? record.toolCalls : message.agentToolCalls,
-          ),
+          agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
           isAgentRunning: false,
         }));
         const firstUser = useOutlineChatStore
@@ -913,9 +911,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           updateOutlineAssistantMessage(convId, assistantId, (message) => ({
             ...message,
             content: partial,
-            agentToolCalls: settleRunningAgentToolCalls(
-              message.agentToolCalls,
-              "error",
+            agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error",
               Date.now(),
               err instanceof Error ? err.message : String(err),
             ),
@@ -927,9 +923,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             updateOutlineAssistantMessage(convId, assistantId, (message) => ({
               ...message,
               content: `生成失败：${errorMsg}`,
-              agentToolCalls: settleRunningAgentToolCalls(
-                message.agentToolCalls,
-                "error",
+                agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error",
                 Date.now(),
                 errorMsg,
               ),
@@ -1180,11 +1174,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ...message,
             content: result || record.finalText || "AI大纲未返回内容。",
             sources,
-            agentToolCalls: settleRunningAgentToolCalls(
-              record.toolCalls.length
-                ? record.toolCalls
-                : message.agentToolCalls,
-            ),
+            agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
             isAgentRunning: false,
           }),
         );

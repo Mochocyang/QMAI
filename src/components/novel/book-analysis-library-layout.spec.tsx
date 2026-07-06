@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import type { BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
+import type { PlotFramework } from "@/lib/novel/plot-framework"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 
 const state: BookAnalysisLibraryState = {
@@ -89,6 +90,30 @@ const state: BookAnalysisLibraryState = {
   ],
 }
 
+const storyFrameworks: PlotFramework[] = [
+  {
+    id: "framework-book-1",
+    title: "先压后扬的误解反转",
+    beats: {
+      hook: "开局用错误判断制造强期待。",
+      buildup: "铺垫规则压力、旁人轻视和主角的被动处境。",
+      payoff: "爽点由主角反手证明自己并释放压抑情绪。",
+      endingHook: "结尾抛出更高层的新误会，推动下一轮期待。",
+    },
+    rangeChapterIds: ["ch-0001", "ch-0002"],
+    line: "main",
+    characters: [],
+    foreshadowing: [],
+    reusableTemplate: "先压后扬",
+    directionHints: "",
+    handcraftHints: "作者手搓留白：爽点处补角色台词。",
+    sourceDismantlingProjectId: "book-analysis:book-1",
+    sourceDismantlingProjectTitle: "凡人修仙传",
+    createdAt: 1,
+    updatedAt: 1,
+  },
+]
+
 describe("BookAnalysisLibraryLayout", () => {
   it("renders the three-column library state", () => {
     const html = renderToStaticMarkup(
@@ -99,6 +124,7 @@ describe("BookAnalysisLibraryLayout", () => {
         extractingStyle={false}
         extractingCharacters={false}
         addingToSoul={false}
+        storyFrameworks={storyFrameworks}
         onSelectBook={vi.fn()}
         onSelectCharacter={vi.fn()}
         onImportNovel={vi.fn()}
@@ -106,6 +132,9 @@ describe("BookAnalysisLibraryLayout", () => {
         onToggleStyle={vi.fn()}
         onAddSelectedSkillsToSoul={vi.fn()}
         onReextractCharacters={vi.fn()}
+        extractingStoryFramework={false}
+        onExtractStoryFramework={vi.fn()}
+        onCreateOutlineFromFramework={vi.fn()}
         onDeleteBook={vi.fn()}
       />,
     )
@@ -120,5 +149,15 @@ describe("BookAnalysisLibraryLayout", () => {
     expect(html).toContain("韩立")
     expect(html).toContain("重新提取角色")
     expect(html).toContain("重新提取文风")
+    expect(html).toContain("故事框架提取")
+    expect(html).toContain("故事框架")
+    expect(html).toContain("从选中章节提取钩子、铺垫、爽点和结尾钩子")
+    expect(html).toContain("查看完整框架")
+    expect(html).toContain("开局钩子")
+    expect(html).toContain("铺垫")
+    expect(html).toContain("爽点")
+    expect(html).toContain("结尾钩子")
+    expect(html).toContain("结尾抛出更高层的新误会，推动下一轮期待。")
+    expect(html).toContain("基于此框架创建章纲")
   })
 })

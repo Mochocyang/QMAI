@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   buildDismantlingAnalysisPrompt,
+  buildDismantlingCachePrefix,
   buildDismantlingReferenceDirective,
   buildDismantlingWebResearchPrompt,
+  buildPlotFrameworkDraftFromAnalysis,
+  extractPlotFrameworkBeatsFromAnalysis,
+  extractPlotFrameworkLineageFromAnalysis,
   getDismantlingLibraryPath,
   normalizeDismantlingLibrary,
   selectNextDismantlingBatch,
@@ -138,6 +142,112 @@ describe("dismantling library", () => {
     expect(prompt).toContain("结尾钩子")
   })
 
+  it("builds an analysis prompt that enforces the four-beat framework (hook/buildup/payoff/endingHook)", () => {
+    const prompt = buildDismantlingAnalysisPrompt({
+      projectTitle: "参考作品",
+      chapters: [
+        { id: "c1", chapterNumber: 1, title: "第一章", content: "主角被追杀。", status: "pending" },
+      ],
+    })
+
+    // 四段必须显式作为段标题出现，不能只是提示词里泛泛提及
+    expect(prompt).toContain("## 开局钩子")
+    expect(prompt).toContain("## 铺垫")
+    expect(prompt).toContain("## 爽点")
+    expect(prompt).toContain("## 结尾钩子")
+    // 主线/支线归属与衔接约束必须显式要求
+    expect(prompt).toContain("## 框架归属与衔接")
+    expect(prompt).toContain("主线 / 支线")
+    // 一句话可复用模板要求
+    expect(prompt).toContain("一句话可复用模板")
+    // 节奏字数初判约束
+    expect(prompt).toContain("紧凑型")
+    expect(prompt).toContain("水型")
+    // 心智模型必须被提及，让 AI 理解固定方向模板
+    expect(prompt).toContain("固定方向模板")
+  })
+
+  it("extracts four-beat framework from analysis markdown", () => {
+    const markdown = [
+      "## 本批总览",
+      "样例",
+      "## 开局钩子",
+      "主角穿越后觉醒双S职业。",
+      "## 铺垫",
+      "配角衬托A级即顶点。",
+      "## 爽点",
+      "男主双S打破规则。",
+      "## 结尾钩子",
+      "所有人启程新手副本。",
+      "## 框架归属与衔接",
+      "- 本框架属于：主线",
+      "- 本框架覆盖本批章节数：1 章",
+      "- 与上一框架衔接点：无",
+      "- 与下一框架衔接点：引出新手副本",
+      "## 可复用结构记忆",
+      "- 一句话可复用模板：先压后扬，规则打破",
+    ].join("\n")
+
+    const beats = extractPlotFrameworkBeatsFromAnalysis(markdown)
+    expect(beats).not.toBeNull()
+    expect(beats!.hook).toContain("双S职业")
+    expect(beats!.buildup).toContain("配角")
+    expect(beats!.payoff).toContain("打破规则")
+    expect(beats!.endingHook).toContain("新手副本")
+
+    const lineage = extractPlotFrameworkLineageFromAnalysis(markdown)
+    expect(lineage.line).toBe("main")
+    expect(lineage.reusableTemplate).toContain("先压后扬")
+    expect(lineage.nextConnector).toContain("新手副本")
+    expect(lineage.pacingChapterCount).toBe(1)
+  })
+
+  it("returns null beats when any of the four sections is missing in analysis markdown", () => {
+    const markdown = [
+      "## 开局钩子",
+      "只有钩子，其他三段都没写。",
+    ].join("\n")
+    expect(extractPlotFrameworkBeatsFromAnalysis(markdown)).toBeNull()
+  })
+
+  it("builds a basic plot framework draft from complete dismantling analysis", () => {
+    const markdown = [
+      "## 开局钩子",
+      "主角穿越后觉醒双S职业。",
+      "## 铺垫",
+      "配角衬托A级即顶点。",
+      "## 爽点",
+      "男主双S打破规则。",
+      "## 结尾钩子",
+      "所有人启程新手副本。",
+      "## 框架归属与衔接",
+      "- 本框架属于：主线",
+      "- 与上一框架衔接点：承接觉醒仪式",
+      "- 与下一框架衔接点：引出新手副本",
+      "## 可复用结构记忆",
+      "- 一句话可复用模板：先压后扬，规则打破",
+    ].join("\n")
+
+    const draft = buildPlotFrameworkDraftFromAnalysis({
+      analysisId: "analysis-1",
+      markdown,
+      rangeChapterIds: ["ch-1", "ch-2"],
+      sourceDismantlingProjectId: "project-1",
+      sourceDismantlingProjectTitle: "全民转职",
+      createdAt: 1000,
+    })
+
+    expect(draft).not.toBeNull()
+    expect(draft!.id).toBe("framework-analysis-1")
+    expect(draft!.line).toBe("main")
+    expect(draft!.rangeChapterIds).toEqual(["ch-1", "ch-2"])
+    expect(draft!.sourceDismantlingProjectTitle).toBe("全民转职")
+    expect(draft!.reusableTemplate).toBe("先压后扬，规则打破")
+    expect(draft!.prevConnector).toBe("承接觉醒仪式")
+    expect(draft!.nextConnector).toBe("引出新手副本")
+    expect(draft!.handcraftHints).toContain("作者手搓")
+  })
+
   it("builds a web research prompt for hot-topic and webpage dismantling without mixing novel memory", () => {
     const prompt = buildDismantlingWebResearchPrompt({
       projectTitle: "参考作品",
@@ -166,6 +276,27 @@ describe("dismantling library", () => {
     expect(directive).toContain("不得复用原作人物")
     expect(directive).toContain("不得复用原作剧情")
     expect(directive).toContain("只学习节奏、冲突推进、爽点安排和章节钩子")
+  })
+})
+
+describe("buildDismantlingCachePrefix", () => {
+  it("输出项目标题 + 章节内容作为稳定前缀", () => {
+    const chapters = [
+      { id: "ch-1", chapterNumber: 1, title: "第一章 觉醒", content: "男主转职双S。", status: "done" as const },
+    ]
+    const prefix = buildDismantlingCachePrefix("全民转职", chapters)
+    expect(prefix).toContain("全民转职")
+    expect(prefix).toContain("第一章 觉醒")
+    expect(prefix).toContain("男主转职双S")
+  })
+
+  it("buildDismantlingAnalysisPrompt 以 buildDismantlingCachePrefix 的输出开头", () => {
+    const chapters = [
+      { id: "ch-1", chapterNumber: 1, title: "第一章", content: "正文内容。", status: "done" as const },
+    ]
+    const prefix = buildDismantlingCachePrefix("作品A", chapters)
+    const prompt = buildDismantlingAnalysisPrompt({ projectTitle: "作品A", chapters })
+    expect(prompt.startsWith(prefix)).toBe(true)
   })
 })
 

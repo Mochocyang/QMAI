@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "title": "青幕AI写作",
     "subtitle": "AI writing system for long-form novels",
@@ -225,6 +225,8 @@
     "writingSkillLibrary": "Writing Skill",
     "reviewCenter": "Review Center",
     "dismantling": "Dismantling",
+    "dismantlingLibrary": "Dismantling Library",
+    "plotFrameworkLibrary": "Plot Framework Library",
     "settings": "Settings",
     "switchProject": "Switch Project",
     "trash": "Trash"

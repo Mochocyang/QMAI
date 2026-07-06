@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "保存",
     "cancel": "取消",
@@ -117,6 +117,8 @@
     "writingSkillLibrary": "写作 Skill",
     "reviewCenter": "审查中心",
     "dismantling": "拆文库",
+    "dismantlingLibrary": "拆文库",
+    "plotFrameworkLibrary": "剧情框架库",
     "settings": "设置",
     "switchProject": "切换小说",
     "trash": "回收站"

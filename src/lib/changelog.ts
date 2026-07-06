@@ -78,6 +78,29 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   },
 };
 
+const TWO_POINT_TWO_THIRTY_THREE_CHANGELOG: ChangelogEntry = {
+  version: "2.2.33",
+  date: "2026-07-05",
+  highlights: {
+    en: [
+        "Added plot framework extraction for the dismantling library, centered on hook, buildup, payoff, and ending hook.",
+        "The visible Book Dismantling Library now has a Story Framework Extraction entry that lets selected chapters generate reusable plot frameworks.",
+        "Chapter outline generation can now receive the selected plot framework as a hard constraint instead of only writing a framework_id.",
+      "Dismantling runs automatically create a basic reusable plot framework when the four required beats are complete.",
+      "Outline previews now highlight the author handcraft zone even when the heading includes explanatory parentheses.",
+      "Cleaned build blockers caused by stale unused imports and variables.",
+    ],
+    zh: [
+        "拆书库新增剧情框架提取能力，围绕「钩子、铺垫、爽点、结尾钩子」形成可复用模板。",
+        "当前可见的拆书库顶部新增「故事框架提取」入口，可选择章节生成可复用剧情框架。",
+        "基于剧情框架创建章纲时，会把完整框架内容作为硬约束交给 AI，不再只是写入 framework_id。",
+      "拆文完成后，如果四段框架完整，会自动生成基础剧情框架并写入框架库。",
+      "章纲预览支持高亮「作者手搓留白」区域，标题带括号说明时也能识别。",
+      "清理阻塞构建的过期未使用导入和变量，恢复 typecheck 验证。",
+    ],
+  },
+};
+
 const TWO_POINT_TWO_THIRTY_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.2.32",
   date: "2026-07-04",
@@ -766,6 +789,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_THIRTY_THREE_CHANGELOG.version)
+    return [TWO_POINT_TWO_THIRTY_THREE_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_TWO_CHANGELOG.version)
     return [TWO_POINT_TWO_THIRTY_TWO_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_ONE_CHANGELOG.version)
@@ -829,6 +854,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_THIRTY_THREE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_TWO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_ONE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_CHANGELOG,

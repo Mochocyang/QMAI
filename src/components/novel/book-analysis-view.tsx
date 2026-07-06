@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
@@ -7,9 +7,11 @@ import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import {
   toBookAnalysisResult,
   type BookAnalysisLibraryState,
+  type BookAnalysisLibraryBook,
 } from "@/lib/novel/book-analysis/library-state"
 import { toast } from "@/lib/toast"
 import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
@@ -22,6 +24,20 @@ import type {
 import { useCharacterExtraction, type ChapterSelectionData } from "./hooks/use-character-extraction"
 import { useCharacterRecognition } from "./hooks/use-character-recognition"
 import { useLibraryOperations } from "./hooks/use-library-operations"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
+import {
+  buildBookStoryFrameworkPrompt,
+  buildPlotFrameworkDraftFromBookStoryOutput,
+  loadBookStoryFrameworkChapters,
+} from "@/lib/novel/book-analysis/story-framework-extraction"
+import { loadPlotFrameworkLibrary, upsertPlotFramework } from "@/lib/novel/plot-framework-library"
+import type { PlotFramework } from "@/lib/novel/plot-framework"
+import { OutlineCreatorDialog } from "./outline-editor"
+
+interface StoryFrameworkSelectionData {
+  book: BookAnalysisLibraryBook
+  chapters: ChapterSelectionData["chapters"]
+}
 
 /** 6 维度状态图标的视觉映射 */
 function DimensionStatusIcon({ status }: { status: SixDimensionStatus }) {
@@ -52,6 +68,11 @@ export function BookAnalysisView() {
   const [inputDialogOpen, setInputDialogOpen] = useState(false)
   const [viewingResultPath, setViewingResultPath] = useState<string | null>(null)
   const [chapterSelectionData, setChapterSelectionData] = useState<ChapterSelectionData | null>(null)
+  const [storyFrameworkSelectionData, setStoryFrameworkSelectionData] =
+    useState<StoryFrameworkSelectionData | null>(null)
+  const [storyFrameworkExtracting, setStoryFrameworkExtracting] = useState(false)
+  const [storyFrameworks, setStoryFrameworks] = useState<PlotFramework[]>([])
+  const [outlineCreatorFrameworkId, setOutlineCreatorFrameworkId] = useState<string | undefined>(undefined)
   const [libraryState, setLibraryState] = useState<BookAnalysisLibraryState>({
     books: [],
     enabledStyle: null,
@@ -95,6 +116,19 @@ export function BookAnalysisView() {
     () => libraryState.books.find((book) => book.id === selectedBookId) ?? libraryState.books[0] ?? null,
     [libraryState.books, selectedBookId],
   )
+
+  const reloadStoryFrameworks = useCallback(async () => {
+    if (!currentProject?.path || !selectedLibraryBook) {
+      setStoryFrameworks([])
+      return
+    }
+    const library = await loadPlotFrameworkLibrary(currentProject.path)
+    setStoryFrameworks(
+      library.frameworks.filter(
+        (framework) => framework.sourceDismantlingProjectId === `book-analysis:${selectedLibraryBook.id}`,
+      ),
+    )
+  }, [currentProject?.path, selectedLibraryBook])
 
   // 作品库操作钩子
   const {
@@ -155,6 +189,10 @@ export function BookAnalysisView() {
   useEffect(() => {
     void reloadLibraryState()
   }, [currentProject?.path, tasks.length, sidebarRefreshCounter, reloadLibraryState])
+
+  useEffect(() => {
+    void reloadStoryFrameworks()
+  }, [reloadStoryFrameworks, sidebarRefreshCounter])
 
   // 同步侧栏选中的 bookId（包括清空的情况）
   useEffect(() => {
@@ -339,6 +377,86 @@ export function BookAnalysisView() {
     toast.info(`已加载 ${existingCharacters.length} 个已提取的角色，可直接选择进行提取`)
   }
 
+  const handleOpenStoryFrameworkSelection = async () => {
+    if (!selectedLibraryBook) return
+    try {
+      const chapters = await loadBookStoryFrameworkChapters(selectedLibraryBook.path)
+      if (chapters.length === 0) {
+        toast.error("未找到章节文件，无法提取故事框架。")
+        return
+      }
+      setStoryFrameworkSelectionData({
+        book: selectedLibraryBook,
+        chapters: chapters.map((chapter) => ({
+          id: chapter.id,
+          title: chapter.title,
+          order: chapter.order,
+          wordCount: chapter.content.length,
+          path: "",
+        })),
+      })
+    } catch (err) {
+      toast.error(`读取章节失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const handleStoryFrameworkConfirm = async (selectedChapterIds: string[]) => {
+    if (!currentProject?.path || !storyFrameworkSelectionData || storyFrameworkExtracting) return
+    if (!hasUsableLlm(llmConfig, providerConfigs)) {
+      toast.error("未配置可用模型，请先在设置中配置 LLM。")
+      return
+    }
+
+    const { book } = storyFrameworkSelectionData
+    setStoryFrameworkExtracting(true)
+    setStoryFrameworkSelectionData(null)
+    toast.info("正在提取故事框架，请稍候。")
+    try {
+      const chapters = await loadBookStoryFrameworkChapters(book.path, selectedChapterIds)
+      const prompt = buildBookStoryFrameworkPrompt({
+        bookTitle: book.metadata.title,
+        chapters,
+      })
+      const messages: ChatMessage[] = [
+        {
+          role: "system",
+          content: "你是严谨的小说故事框架拆解助手，必须输出可复用的中文四段框架。",
+        },
+        { role: "user", content: prompt },
+      ]
+      let output = ""
+      await new Promise<void>((resolve, reject) => {
+        void streamChat(llmConfig, messages, {
+          onToken: (token) => {
+            output += token
+          },
+          onDone: resolve,
+          onError: reject,
+        })
+      })
+      const now = Date.now()
+      const framework = buildPlotFrameworkDraftFromBookStoryOutput({
+        bookId: book.id,
+        bookTitle: book.metadata.title,
+        markdown: output,
+        rangeChapterIds: selectedChapterIds,
+        createdAt: now,
+      })
+      if (!framework) {
+        toast.error("故事框架提取失败：AI 输出缺少钩子/铺垫/爽点/结尾钩子。")
+        return
+      }
+      await upsertPlotFramework(currentProject.path, framework)
+      await reloadStoryFrameworks()
+      useBookAnalysisStore.getState().triggerSidebarRefresh()
+      toast.success("故事框架已提取并入库。")
+    } catch (err) {
+      toast.error(`故事框架提取失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setStoryFrameworkExtracting(false)
+    }
+  }
+
   const libraryLayout = (
     <BookAnalysisLibraryLayout
       state={libraryState}
@@ -346,7 +464,9 @@ export function BookAnalysisView() {
       selectedCharacterId={selectedCharacterId}
       extractingStyle={styleExtracting}
       extractingCharacters={chapterSelectionData !== null}
+      extractingStoryFramework={storyFrameworkExtracting}
       addingToSoul={addingToSoul}
+      storyFrameworks={storyFrameworks}
       onSelectBook={(bookId) => {
         const book = libraryState.books.find((item) => item.id === bookId)
         setSelectedBookId(bookId)
@@ -357,6 +477,8 @@ export function BookAnalysisView() {
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
       onExtractStyle={handleLibraryExtractStyle}
+      onExtractStoryFramework={handleOpenStoryFrameworkSelection}
+      onCreateOutlineFromFramework={(frameworkId) => setOutlineCreatorFrameworkId(frameworkId)}
       onToggleStyle={handleLibraryToggleStyle}
       onAddSelectedSkillsToSoul={handleLibraryAddSkillsToSoul}
       onReextractCharacters={handleLibraryReextractCharacters}
@@ -447,6 +569,23 @@ export function BookAnalysisView() {
             }}
           />
         )}
+
+        {storyFrameworkSelectionData && (
+          <ChapterSelectionPanel
+            key={`story-framework-${storyFrameworkSelectionData.book.id}`}
+            chapters={storyFrameworkSelectionData.chapters}
+            onConfirm={handleStoryFrameworkConfirm}
+            onCancel={() => setStoryFrameworkSelectionData(null)}
+          />
+        )}
+
+        <OutlineCreatorDialog
+          open={Boolean(outlineCreatorFrameworkId)}
+          onOpenChange={(open) => {
+            if (!open) setOutlineCreatorFrameworkId(undefined)
+          }}
+          frameworkId={outlineCreatorFrameworkId}
+        />
       </>
     )
   }
@@ -662,6 +801,23 @@ export function BookAnalysisView() {
           hasExtractedCharacters={hasExtractedCharacters}
         />
       )}
+
+      {storyFrameworkSelectionData && (
+        <ChapterSelectionPanel
+          key={`story-framework-${storyFrameworkSelectionData.book.id}`}
+          chapters={storyFrameworkSelectionData.chapters}
+          onConfirm={handleStoryFrameworkConfirm}
+          onCancel={() => setStoryFrameworkSelectionData(null)}
+        />
+      )}
+
+      <OutlineCreatorDialog
+        open={Boolean(outlineCreatorFrameworkId)}
+        onOpenChange={(open) => {
+          if (!open) setOutlineCreatorFrameworkId(undefined)
+        }}
+        frameworkId={outlineCreatorFrameworkId}
+      />
     </div>
   )
 }

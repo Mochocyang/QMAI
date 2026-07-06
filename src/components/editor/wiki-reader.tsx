@@ -1,20 +1,23 @@
-import { useMemo } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import remarkMath from "remark-math"
-import rehypeKatex from "rehype-katex"
-import "katex/dist/katex.min.css"
-import { transformWikilinks } from "@/lib/wikilink-transform"
-import { resolveRelatedSlug } from "@/lib/wiki-page-resolver"
-import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver"
-import { normalizePath } from "@/lib/path-utils"
-import { detectLanguage } from "@/lib/detect-language"
-import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
-import { useWikiStore } from "@/stores/wiki-store"
-import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
+import { useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+import { transformWikilinks } from "@/lib/wikilink-transform";
+import { resolveRelatedSlug } from "@/lib/wiki-page-resolver";
+import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver";
+import { normalizePath } from "@/lib/path-utils";
+import { detectLanguage } from "@/lib/detect-language";
+import { getHtmlLang, getTextDirection } from "@/lib/language-metadata";
+import { useWikiStore } from "@/stores/wiki-store";
+import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram";
+import { transformHandcraftZonesForReader } from "@/lib/novel/handcraft-zone";
 
 interface WikiReaderProps {
-  body: string
+  body: string;
+  /** 当为 true 时，识别 markdown 中的 "### 作者手搓留白" 段并高亮显示 */
+  highlightHandcraftZones?: boolean;
 }
 
 /**
@@ -29,32 +32,44 @@ interface WikiReaderProps {
  * against the project's wiki tree and routed to setSelectedFile,
  * giving the user single-click navigation between pages.
  */
-export function WikiReader({ body }: WikiReaderProps) {
-  const project = useWikiStore((s) => s.project)
-  const projectPathIndex = useWikiStore((s) => s.projectPathIndex)
-  const fileTree = useWikiStore((s) => s.fileTree)
-  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
+export function WikiReader({
+  body,
+  highlightHandcraftZones = false,
+}: WikiReaderProps) {
+  const project = useWikiStore((s) => s.project);
+  const projectPathIndex = useWikiStore((s) => s.projectPathIndex);
+  const fileTree = useWikiStore((s) => s.fileTree);
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile);
 
-  const transformed = useMemo(() => transformWikilinks(body), [body])
-  const renderLanguage = detectLanguage(body)
-  const direction = getTextDirection(renderLanguage)
-  const htmlLang = getHtmlLang(renderLanguage)
-  const projectPath = project ? normalizePath(project.path) : null
-  const wikiRoot = projectPath ? `${projectPath}/wiki` : null
+  const transformed = useMemo(() => {
+    let processed = transformWikilinks(body);
+    if (highlightHandcraftZones) {
+      processed = transformHandcraftZonesForReader(processed);
+    }
+    return processed;
+  }, [body, highlightHandcraftZones]);
+  const renderLanguage = detectLanguage(body);
+  const direction = getTextDirection(renderLanguage);
+  const htmlLang = getHtmlLang(renderLanguage);
+  const projectPath = project ? normalizePath(project.path) : null;
+  const wikiRoot = projectPath ? `${projectPath}/wiki` : null;
 
-  function handleAnchorClick(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
-    if (!href.startsWith("#")) return
-    e.preventDefault()
-    if (!wikiRoot) return
+  function handleAnchorClick(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) {
+    if (!href.startsWith("#")) return;
+    e.preventDefault();
+    if (!wikiRoot) return;
     const slug = (() => {
       try {
-        return decodeURIComponent(href.slice(1))
+        return decodeURIComponent(href.slice(1));
       } catch {
-        return href.slice(1)
+        return href.slice(1);
       }
-    })()
-    const path = resolveRelatedSlug(projectPathIndex, slug, wikiRoot, fileTree)
-    if (path) setSelectedFile(path)
+    })();
+    const path = resolveRelatedSlug(projectPathIndex, slug, wikiRoot, fileTree);
+    if (path) setSelectedFile(path);
   }
 
   return (
@@ -69,12 +84,18 @@ export function WikiReader({ body }: WikiReaderProps) {
         rehypePlugins={[rehypeKatex]}
         components={{
           h1: ({ children, ...props }) => (
-            <h1 className="mb-5 mt-1 border-b border-border pb-3 text-3xl font-bold leading-tight tracking-tight text-foreground" {...props}>
+            <h1
+              className="mb-5 mt-1 border-b border-border pb-3 text-3xl font-bold leading-tight tracking-tight text-foreground"
+              {...props}
+            >
               {children}
             </h1>
           ),
           h2: ({ children, ...props }) => (
-            <h2 className="mb-4 mt-8 text-2xl font-bold leading-snug tracking-tight text-foreground" {...props}>
+            <h2
+              className="mb-4 mt-8 text-2xl font-bold leading-snug tracking-tight text-foreground"
+              {...props}
+            >
               {children}
             </h2>
           ),
@@ -84,7 +105,10 @@ export function WikiReader({ body }: WikiReaderProps) {
             </h3>
           ),
           h4: ({ children, ...props }) => (
-            <h4 className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground" {...props}>
+            <h4
+              className="mb-2 mt-4 text-base font-semibold leading-snug text-foreground"
+              {...props}
+            >
               {children}
             </h4>
           ),
@@ -109,13 +133,16 @@ export function WikiReader({ body }: WikiReaderProps) {
             </li>
           ),
           blockquote: ({ children, ...props }) => (
-            <blockquote className="my-4 border-l-4 border-primary/50 bg-muted/40 px-4 py-2 text-muted-foreground" {...props}>
+            <blockquote
+              className="my-4 border-l-4 border-primary/50 bg-muted/40 px-4 py-2 text-muted-foreground"
+              {...props}
+            >
               {children}
             </blockquote>
           ),
           a: ({ href, children, ...props }) => {
-            const h = typeof href === "string" ? href : ""
-            const isWikilink = h.startsWith("#")
+            const h = typeof href === "string" ? href : "";
+            const isWikilink = h.startsWith("#");
             return (
               <a
                 href={h || undefined}
@@ -129,7 +156,7 @@ export function WikiReader({ body }: WikiReaderProps) {
               >
                 {children}
               </a>
-            )
+            );
           },
           img: ({ src, alt, ...props }) => (
             <img
@@ -171,20 +198,39 @@ export function WikiReader({ body }: WikiReaderProps) {
             </td>
           ),
           pre: ({ children, ...props }) => {
-            const mermaid = unwrapMermaidPre(children)
-            if (mermaid) return <>{mermaid}</>
-            return <pre className="my-4 overflow-x-auto rounded-lg border bg-muted p-4 text-sm" dir="ltr" style={{ textAlign: "left" }} {...props}>{children}</pre>
+            const mermaid = unwrapMermaidPre(children);
+            if (mermaid) return <>{mermaid}</>;
+            return (
+              <pre
+                className="my-4 overflow-x-auto rounded-lg border bg-muted p-4 text-sm"
+                dir="ltr"
+                style={{ textAlign: "left" }}
+                {...props}
+              >
+                {children}
+              </pre>
+            );
           },
           code: ({ className, children, ...props }) => {
-            const lang = className?.replace("language-", "")
-            const codeText = String(children).replace(/\n$/, "")
-            if (lang === "mermaid") return <MermaidDiagram code={codeText} />
-            return <code dir="ltr" className={className ?? "rounded bg-muted px-1.5 py-0.5 text-sm"} {...props}>{children}</code>
+            const lang = className?.replace("language-", "");
+            const codeText = String(children).replace(/\n$/, "");
+            if (lang === "mermaid") return <MermaidDiagram code={codeText} />;
+            return (
+              <code
+                dir="ltr"
+                className={
+                  className ?? "rounded bg-muted px-1.5 py-0.5 text-sm"
+                }
+                {...props}
+              >
+                {children}
+              </code>
+            );
           },
         }}
       >
         {transformed}
       </ReactMarkdown>
     </div>
-  )
+  );
 }
