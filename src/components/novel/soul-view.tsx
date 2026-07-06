@@ -8,10 +8,8 @@ export function SoulView() {
 
   if (selectedSoulTab === "project" || selectedSoulId === "project-soul") {
     return (
-      <div className="flex h-full overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl">
-          <SoulDocEditor />
-        </div>
+      <div className="flex h-full min-h-0 w-full overflow-y-auto">
+        <SoulDocEditor />
       </div>
     )
   }

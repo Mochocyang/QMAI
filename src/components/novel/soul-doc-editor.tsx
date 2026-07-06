@@ -152,7 +152,7 @@ export function SoulDocEditor() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-7">
+    <div className="flex h-full min-h-0 w-full max-w-none flex-col gap-5 px-8 py-7">
       <div className="space-y-1">
         <Label className="text-base font-semibold">{i18n.t("novel.soul.projectSoul")}</Label>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -160,7 +160,7 @@ export function SoulDocEditor() {
         </p>
       </div>
 
-      <div className="grid min-h-[34rem] gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="grid min-h-[34rem] flex-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col rounded-md border bg-background/35">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="text-sm font-medium">写作风格</div>

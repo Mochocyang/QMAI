@@ -22,4 +22,9 @@ describe("SoulDocEditor source", () => {
     expect(source).toContain("核心气质、创作边界、叙事原则和长期写作总则")
     expect(source).not.toContain("定义整个写作 AI 的气质、叙事节奏和语言风格")
   })
+
+  it("uses the full soul workspace width instead of a narrow centered editor", () => {
+    expect(source).toContain("w-full max-w-none")
+    expect(source).not.toContain("max-w-5xl")
+  })
 })
