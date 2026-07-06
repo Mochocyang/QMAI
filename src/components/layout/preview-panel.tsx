@@ -1251,7 +1251,7 @@ export function PreviewPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b px-3 py-1.5">
+      <div className="flex h-12 shrink-0 items-center border-b px-3">
         <div ref={chapterToolbarRef} className="flex min-w-0 items-center gap-2">
           <div className="relative flex min-w-0 min-h-0 flex-1 items-center gap-1 overflow-hidden">
             {chapterHeader ? (

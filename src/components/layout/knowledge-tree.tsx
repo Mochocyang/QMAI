@@ -498,6 +498,98 @@ export function KnowledgeTree({
     }
   }, [project, t, loadPages, setFileTree, bumpDataVersion, selectedFile, setSelectedFile])
 
+  const handleExtractAllChapterMemories = useCallback(async () => {
+    if (!project || filterType !== "chapter") return
+    const chapterPaths = sortedChapterPages.map((page) => page.path)
+    if (chapterPaths.length === 0) {
+      window.alert("当前没有可提取的章节。")
+      return
+    }
+
+    const projectPath = normalizePath(project.path)
+    const abortController = new AbortController()
+    const taskId = useImportProgressStore.getState().startTask({
+      projectPath,
+      kind: "chapter",
+      total: chapterPaths.length,
+      currentTitle: sortedChapterPages[0]?.title ?? "",
+      message: "正在一键提取所有章节记忆",
+      abortController,
+    })
+
+    let completed = 0
+    let failed = 0
+    const titleByPath = new Map(sortedChapterPages.map((page) => [page.path, page.title]))
+
+    try {
+      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
+      for (const chapterPath of chapterPaths) {
+        if (abortController.signal.aborted) {
+          useImportProgressStore.getState().finishTask(taskId, "cancelled", {
+            completed,
+            total: chapterPaths.length,
+            currentTitle: "",
+            message: `已取消章节记忆提取，已完成 ${completed}/${chapterPaths.length} 个章节。`,
+          })
+          return
+        }
+
+        useImportProgressStore.getState().updateTask(taskId, {
+          completed,
+          total: chapterPaths.length,
+          currentTitle: titleByPath.get(chapterPath) ?? chapterPath,
+        })
+
+        const page = sortedChapterPages.find((item) => item.path === chapterPath)
+        const result = await ingestChapter(
+          projectPath,
+          chapterPath,
+          undefined,
+          abortController.signal,
+          page?.chapterNumber,
+          { allowDraft: true },
+        )
+        if (result.snapshot) {
+          completed += 1
+        } else {
+          failed += 1
+        }
+      }
+
+      useImportProgressStore.getState().finishTask(taskId, failed > 0 ? "error" : "done", {
+        completed,
+        total: chapterPaths.length,
+        currentTitle: "",
+        message: failed > 0
+          ? `章节记忆提取完成：成功 ${completed} 个，失败 ${failed} 个。`
+          : `章节记忆提取完成：成功 ${completed} 个章节。`,
+      })
+      await loadPages()
+      const tree = await listDirectory(projectPath)
+      setFileTree(tree)
+      bumpDataVersion()
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        useImportProgressStore.getState().finishTask(taskId, "cancelled", {
+          completed,
+          total: chapterPaths.length,
+          currentTitle: "",
+          message: `已取消章节记忆提取，已完成 ${completed}/${chapterPaths.length} 个章节。`,
+        })
+        return
+      }
+      console.error("[KnowledgeTree] extract all chapter memories failed:", error)
+      useImportProgressStore.getState().finishTask(taskId, "error", {
+        completed,
+        total: chapterPaths.length,
+        currentTitle: "",
+        message: `章节记忆提取失败：已完成 ${completed}/${chapterPaths.length} 个章节。`,
+      })
+    } finally {
+      setPageMenu(null)
+    }
+  }, [project, filterType, sortedChapterPages, loadPages, setFileTree, bumpDataVersion])
+
   const toggleChapterSelection = useCallback((pagePath: string) => {
     const normalizedPath = normalizePath(pagePath)
     setSelectedChapterPaths((previous) => {
@@ -1305,7 +1397,7 @@ export function KnowledgeTree({
 
         {pageMenu && (
           <div
-            className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
+            className="absolute z-20 w-48 rounded-md border bg-background py-1 text-xs shadow-lg"
             style={{ left: pageMenu.x, top: pageMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
@@ -1400,6 +1492,16 @@ export function KnowledgeTree({
                   </div>
                 )}
               </div>
+            )}
+            {filterType === "chapter" && pageMenu && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => void handleExtractAllChapterMemories()}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                一键提取所有章节
+              </button>
             )}
             <button
               type="button"

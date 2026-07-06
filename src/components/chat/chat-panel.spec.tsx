@@ -14,9 +14,11 @@ describe("chat-panel de-AI skill handling", () => {
     expect(source).not.toContain("setChapterSaveStatus(deAiSkillWarning)")
   })
 
-  it("uses an icon-only de-AI skill trigger in the chat input toolbar", () => {
+  it("uses a skill library trigger instead of the old de-AI-only label in the chat input toolbar", () => {
     expect(source).toContain("<DeAiSkillPicker")
-    expect(source).toContain("iconOnly")
+    expect(source).toContain('buttonLabel="技能库"')
+    expect(source).not.toContain('title="当前启用的 Skill"')
+    expect(source).not.toContain('aria-label="当前启用的 Skill"')
   })
 
   it("uses an icon-only accent new conversation button", () => {
@@ -276,6 +278,15 @@ describe("chat-panel agent reference integration", () => {
     expect(confirmIndex).toBeGreaterThan(-1)
     expect(validationIndex).toBeGreaterThan(confirmIndex)
     expect(validationIndex).toBeLessThan(confirmDraftIndex)
+  })
+
+  it("keeps up to three working or today's conversations in the top toolbar and moves the rest into history", () => {
+    expect(source).toContain("splitConversationToolbarItems")
+    expect(source).toContain("isStreamingConversation")
+    expect(source).toContain("topConversations")
+    expect(source).toContain("historyConversations")
+    expect(source).toContain("topConversations.map((conv) => renderConversationChip(conv))")
+    expect(source).not.toContain("historyConversations = sorted.filter((conv) => conv.id !== activeConversationId)")
   })
 })
 

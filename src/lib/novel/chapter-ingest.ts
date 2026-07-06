@@ -294,12 +294,17 @@ export interface IngestResult {
   failReason?: IngestFailReason
 }
 
+interface IngestChapterOptions {
+  allowDraft?: boolean
+}
+
 export async function ingestChapter(
   projectPath: string,
   chapterPath: string,
   _reviewModel?: string,
   signal?: AbortSignal,
   chapterNumberOverride?: number,
+  options: IngestChapterOptions = {},
 ): Promise<IngestResult> {
   const pp = normalizePath(projectPath)
   const state = useWikiStore.getState()
@@ -315,7 +320,7 @@ export async function ingestChapter(
   const parsed = parseFrontmatter(content)
   const fm = parsed.frontmatter as Record<string, unknown> | null
   if (!fm || !isChapterPage(fm)) return { snapshot: null, failReason: "not_chapter" }
-  if (!isFinalChapter(fm)) {
+  if (!options.allowDraft && !isFinalChapter(fm)) {
     console.warn(`[Chapter Ingest] Chapter status is not final, skipping ingest.`)
     return { snapshot: null, failReason: "not_final" }
   }

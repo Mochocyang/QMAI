@@ -171,6 +171,46 @@ describe("AgentToolCallMessage", () => {
     expect(host.textContent).toContain("写入章节《第1章》")
   })
 
+  it("shows confirmation actions for approval-required write tools without opening raw details", async () => {
+    const onConfirmSave = vi.fn()
+    const onReject = vi.fn()
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "call-approval",
+              name: "write_outline_node",
+              params: { outlineName: "将乱天下大纲.md", nodeTitle: "人物关系", nodeContent: "正文" },
+              result: "写入工具需要用户确认后才能执行。",
+              status: "approval_required",
+              startedAt: 100,
+              finishedAt: 100,
+            },
+          ]}
+          onConfirmSave={onConfirmSave}
+          onReject={onReject}
+        />,
+      )
+    })
+
+    expect(host.textContent).toContain("大纲写入需要确认")
+    expect(host.textContent).toContain("确认保存")
+    expect(host.textContent).toContain("放弃")
+    expect(host.textContent).not.toContain("write_outline_node")
+
+    const confirmButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("确认保存"))
+    expect(confirmButton).not.toBeUndefined()
+
+    await act(async () => {
+      confirmButton?.click()
+    })
+
+    expect(onConfirmSave).toHaveBeenCalledTimes(1)
+    expect(onConfirmSave.mock.calls[0][0].name).toBe("write_outline_node")
+  })
+
   it("shows a user-facing thinking process before raw tool details", async () => {
     await act(async () => {
       root.render(

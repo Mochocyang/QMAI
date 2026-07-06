@@ -60,4 +60,12 @@ describe("AgentStageStream", () => {
     expect(html).toContain("已读取上一章结尾")
     expect(html).not.toContain("上一章结尾：铜铃线索未揭示。")
   })
+
+  it("fills the assistant message width instead of shrinking to stage text", () => {
+    const html = renderToStaticMarkup(<AgentStageStream stages={stages} />)
+
+    expect(html).toContain("w-full")
+    expect(html).toContain("min-w-0")
+    expect(html).toContain("max-w-full")
+  })
 })

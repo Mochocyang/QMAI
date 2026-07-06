@@ -151,6 +151,15 @@ describe("chat message width", () => {
     expect(source).toContain("max-w-full")
     expect(source).not.toContain("max-w-[80%]")
   })
+
+  it("lets assistant messages use the available chat column width for generation process cards", () => {
+    const source = readFileSync(resolve(__dirname, "chat-message.tsx"), "utf8")
+
+    expect(source).toContain('className={`flex w-full min-w-0 gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}')
+    expect(source).toContain('isUser ? "w-fit max-w-full lg:max-w-[50vw]" : "min-w-0 flex-1 max-w-full"')
+    expect(source).toContain('className="flex w-full min-w-0 gap-2 flex-row"')
+    expect(source).toContain('className="min-w-0 flex-1 max-w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground"')
+  })
 })
 
 describe("chapter save preview sync regression", () => {

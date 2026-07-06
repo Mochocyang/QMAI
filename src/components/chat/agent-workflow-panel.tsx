@@ -187,6 +187,7 @@ export function AgentWorkflowPanel({
   const overallStatus = getOverallStatus(steps)
   const duration = getWorkflowDuration(steps)
   const safeToolCalls = toolCalls ?? []
+  const pendingApprovalCalls = safeToolCalls.filter((call) => call.status === "approval_required")
 
   const isStepOpen = (step: AgentWorkflowStep) => {
     if (allOpen) return true
@@ -250,6 +251,34 @@ export function AgentWorkflowPanel({
           />
         ))}
       </div>
+
+      {pendingApprovalCalls.length > 0 && onConfirmSave && onReject ? (
+        <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+          {pendingApprovalCalls.map((call) => (
+            <div key={call.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 flex-1 truncate">
+                {call.name === "write_outline_node" ? "大纲写入需要确认" : "写入操作需要确认"}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onConfirmSave(call)}
+                  className="rounded bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700"
+                >
+                  确认保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onReject(call)}
+                  className="rounded border border-amber-300/70 bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent"
+                >
+                  放弃
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {detailsOpen && safeToolCalls.length > 0 && (
         <div className="mt-3 border-t border-border/70 pt-2">

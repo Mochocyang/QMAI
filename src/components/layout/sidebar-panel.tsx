@@ -1707,20 +1707,20 @@ export function SidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-semibold">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             <PanelHeaderWithHelp
               title={isChapter ? t("sidebar.knowledge") : t("sidebar.files")}
               helpKey={isChapter ? "chapter" : "outline"}
               helpTitle={isChapter ? "章节功能使用说明" : "大纲功能使用说明"}
             />
+            {isChapter && sidebarTotalWordCount !== null ? (
+              <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                {buildChapterTotalWordCountLabel(sidebarTotalWordCount)}
+              </span>
+            ) : null}
           </div>
-          {isChapter && sidebarTotalWordCount !== null ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">
-              {buildChapterTotalWordCountLabel(sidebarTotalWordCount)}
-            </div>
-          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {isChapter ? (
@@ -1729,7 +1729,7 @@ export function SidebarPanel() {
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 px-2 text-xs"
+                className="h-8 px-2 text-xs"
                 onClick={() => setChapterImportMenuOpen((prev) => !prev)}
                 disabled={chapterImporting}
               >

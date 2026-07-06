@@ -14,6 +14,25 @@ describe("OutlineChatPanel controls", () => {
     expect(source).not.toContain("text-emerald-700")
   })
 
+  it("uses the same top conversation/history split as AI chat", () => {
+    expect(source).toContain("splitConversationToolbarItems")
+    expect(source).toContain("topConversations")
+    expect(source).toContain("historyConversations")
+    expect(source).toContain("qmai-outline-history-button")
+    expect(source).toContain('aria-label="大纲会话历史"')
+    expect(source).not.toContain("conversations.map((conv) => (")
+  })
+
+  it("passes confirm and reject handlers into the outline tool workflow", () => {
+    expect(source).toContain("handleConfirmToolSave")
+    expect(source).toContain("handleRejectTool")
+    expect(source).toContain("createWriteOutlineNodeTool")
+    expect(source).toContain("onConfirmToolSave={handleConfirmToolSave}")
+    expect(source).toContain("onRejectTool={handleRejectTool}")
+    expect(source).toContain("onConfirmSave={onConfirmToolSave}")
+    expect(source).toContain("onReject={onRejectTool}")
+  })
+
   it("uses the shared reference input and picker for @ references", () => {
     expect(source).toContain("ReferenceInput")
     expect(source).toContain("ReferencePickerDialog")

@@ -10,6 +10,7 @@ interface DeAiSkillPickerProps {
   includeDisableOption?: boolean
   buttonLabel?: string
   iconOnly?: boolean
+  showLibraryShortcut?: boolean
 }
 
 export { getDeAiSkillLoadErrorMessage } from "./de-ai-skill-errors"
@@ -153,8 +154,10 @@ export function DeAiSkillPicker({
   includeDisableOption = true,
   buttonLabel,
   iconOnly = false,
+  showLibraryShortcut = false,
 }: DeAiSkillPickerProps) {
   const project = useWikiStore((s) => s.project)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
   const [open, setOpen] = useState(false)
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({ left: 8, top: 8 })
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -167,8 +170,10 @@ export function DeAiSkillPicker({
     modifiedSkillIds,
     loadError,
   } = useDeAiSkillOptions({ projectPath: project?.path, selectedSkillId: value })
-  const triggerTitle = `当前去AI味 Skill：${effectiveName}`
-  const iconTriggerDescription = `${triggerTitle}。点击选择去AI味 Skill`
+  const triggerTitle = buttonLabel === "技能库" ? "技能库：选择写作 Skill 或去AI味 Skill" : `当前去AI味 Skill：${effectiveName}`
+  const iconTriggerDescription = buttonLabel === "技能库"
+    ? `${triggerTitle}。点击打开技能选择`
+    : `${triggerTitle}。点击选择去AI味 Skill`
 
   useEffect(() => {
     if (!open) return
@@ -240,6 +245,18 @@ export function DeAiSkillPicker({
             >
               <X className="h-3.5 w-3.5" />
               关闭去AI味技能
+            </button>
+          ) : null}
+          {showLibraryShortcut ? (
+            <button
+              type="button"
+              className="mt-1 flex w-full items-center gap-2 rounded border-t px-2 py-2 text-left text-muted-foreground hover:bg-accent"
+              onClick={() => {
+                setOpen(false)
+                setActiveView("writingSkillLibrary")
+              }}
+            >
+              打开完整技能库
             </button>
           ) : null}
         </div>

@@ -116,7 +116,7 @@ export function ChatMessage({
 
   return (
     <div
-      className={`flex gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+      className={`flex w-full min-w-0 gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -131,7 +131,7 @@ export function ChatMessage({
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="w-fit max-w-full lg:max-w-[50vw] flex flex-col gap-1.5">
+      <div className={`${isUser ? "w-fit max-w-full lg:max-w-[50vw]" : "min-w-0 flex-1 max-w-full"} flex flex-col gap-1.5`}>
         <div
           className={`rounded-lg px-3 py-2 text-sm ${
             isUser
@@ -699,11 +699,11 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
   const isThinking = thinking !== null && answer.length === 0;
 
   return (
-    <div className="flex gap-2 flex-row">
+    <div className="flex w-full min-w-0 gap-2 flex-row">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="w-fit max-w-full lg:max-w-[50vw] rounded-lg border bg-background px-3 py-2 text-sm text-foreground">
+      <div className="min-w-0 flex-1 max-w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground">
         {isThinking ? (
           <StreamingWorkflowBlock content={thinking} />
         ) : (

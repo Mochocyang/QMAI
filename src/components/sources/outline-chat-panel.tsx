@@ -1,11 +1,14 @@
 import React, {
+  type CSSProperties,
   useRef,
   useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
+  ChevronDown,
   X,
   Save,
   Copy,
@@ -14,6 +17,7 @@ import {
   Plus,
   Trash2,
   ListPlus,
+  History,
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import {
@@ -31,7 +35,10 @@ import {
 import { hasUsableLlm } from "@/lib/has-usable-llm";
 import ReactMarkdown from "react-markdown";
 import { FileEditPreview } from "@/components/chat/file-edit-preview";
-import { AgentToolCallMessage } from "@/components/chat/agent-tool-call-message";
+import {
+  AgentToolCallMessage,
+  type ToolCallRecord,
+} from "@/components/chat/agent-tool-call-message";
 import { ChatDockControls } from "@/components/chat/chat-dock-controls";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-generation";
@@ -75,6 +82,11 @@ import {
   collectWebResearch,
   shouldUseWebResearch,
 } from "@/lib/web-research";
+import {
+  getConversationTabTitle,
+  splitConversationToolbarItems,
+} from "@/lib/workspace-layout";
+import { createWriteOutlineNodeTool } from "@/lib/agent/tools/write-outline-node";
 
 const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory"];
 
@@ -265,6 +277,38 @@ function updateOutlineAssistantMessage(
   }));
 }
 
+function updateOutlineToolCall(
+  callId: string,
+  updater: (call: ToolCallRecord) => ToolCallRecord,
+): void {
+  useOutlineChatStore.setState((state) => ({
+    conversations: state.conversations.map((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) => {
+        if (!message.agentToolCalls?.some((call) => call.id === callId)) {
+          return message;
+        }
+        return {
+          ...message,
+          agentToolCalls: message.agentToolCalls.map((call) =>
+            call.id === callId ? updater(call) : call,
+          ),
+          isAgentRunning: false,
+        };
+      }),
+    })),
+  }));
+}
+
+function formatOutlineConversationDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 async function getUniqueOutlinePath(
   outlinesDir: string,
   title: string,
@@ -336,6 +380,8 @@ function OutlineAssistantMessage({
   onSaveAsOutline,
   onCopy,
   onRegenerate,
+  onConfirmToolSave,
+  onRejectTool,
 }: {
   msg: import("@/stores/outline-chat-store").OutlineChatMessage;
   index: number;
@@ -347,6 +393,8 @@ function OutlineAssistantMessage({
   onSaveAsOutline: (content: string) => Promise<void>;
   onCopy: (content: string, id: string) => void;
   onRegenerate: (index: number) => Promise<void>;
+  onConfirmToolSave: (call: ToolCallRecord & { preview?: string }) => void;
+  onRejectTool: (call: ToolCallRecord & { preview?: string }) => void;
 }) {
   const [editApplied, setEditApplied] = useState(false);
   const [editResults, setEditResults] = useState<
@@ -397,7 +445,11 @@ function OutlineAssistantMessage({
       {thinking ? (
         <OutlineThinkingBlock content={thinking} open={isStreaming} />
       ) : null}
-      <AgentToolCallMessage toolCalls={msg.agentToolCalls} />
+      <AgentToolCallMessage
+        toolCalls={msg.agentToolCalls}
+        onConfirmSave={onConfirmToolSave}
+        onReject={onRejectTool}
+      />
       <div className="prose prose-sm dark:prose-invert max-w-none">
         <ReactMarkdown>{parsed.textContent || answer}</ReactMarkdown>
       </div>
@@ -581,6 +633,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const activeMessages = activeConv?.messages ?? [];
+  const isWorkingConversation = useCallback(
+    (convId: string) => Boolean(isStreaming && convId === activeConversationId),
+    [activeConversationId, isStreaming],
+  );
+  const { topConversations, historyConversations } = useMemo(
+    () => splitConversationToolbarItems(
+      conversations,
+      activeConversationId,
+      isWorkingConversation,
+    ),
+    [activeConversationId, conversations, isWorkingConversation],
+  );
+  const historyCount = historyConversations.length;
 
   const hasAvailableModels = useMemo(() => {
     for (const key of Object.keys(providerConfigs)) {
@@ -604,6 +669,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [localModelId, setLocalModelId] = useState(activeConv?.modelId ?? "");
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null);
+  const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyRef = useRef<HTMLDivElement | null>(null);
+  const historyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null);
 
   const referenceProviders = useMemo(
     () => [
@@ -638,6 +708,60 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     setLocalModelId(activeConv?.modelId ?? "");
   }, [activeConv?.modelId]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    function handleClick(event: MouseEvent) {
+      if (historyRef.current && !historyRef.current.contains(event.target as Node)) {
+        setHistoryOpen(false);
+      }
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setHistoryOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [historyOpen]);
+
+  useEffect(() => {
+    if (!historyOpen) {
+      setHistoryDropdownStyle(null);
+      return;
+    }
+    const panelWidth = 288;
+    const gap = 6;
+    function updatePosition() {
+      const rect = historyButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const left = Math.min(
+        Math.max(gap, rect.right - panelWidth),
+        Math.max(gap, viewportWidth - panelWidth - gap),
+      );
+      const availableBelow = viewportHeight - rect.bottom;
+      const availableAbove = rect.top;
+      const maxHeight = Math.min(360, Math.max(160, Math.max(availableBelow, availableAbove) - gap));
+      const top = availableBelow >= 160 || availableBelow >= availableAbove
+        ? rect.bottom + gap
+        : Math.max(gap, rect.top - maxHeight - gap);
+      setHistoryDropdownStyle({ left, top, width: panelWidth, maxHeight });
+    }
+    const raf = requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [historyOpen]);
+
+  useEffect(() => {
+    setHistoryOpen(false);
+  }, [activeConversationId]);
 
   const [saveStatus, setSaveStatus] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -1255,10 +1379,66 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     [project],
   );
 
+  const handleConfirmToolSave = useCallback(
+    async (call: ToolCallRecord & { preview?: string }) => {
+      if (!project) return;
+      if (call.status !== "approval_required") return;
+      if (call.name !== "write_outline_node") {
+        setSaveStatus("当前写入工具暂不支持在 AI 大纲中确认。");
+        return;
+      }
+
+      setSaveStatus("正在确认写入大纲...");
+      updateOutlineToolCall(call.id, (current) => ({
+        ...current,
+        status: "running",
+        result: "正在写入大纲...",
+        finishedAt: 0,
+      }));
+
+      try {
+        const projectPath = normalizePath(project.path);
+        const tool = createWriteOutlineNodeTool(`${projectPath}/wiki/outlines`);
+        const result = await tool.execute(call.params);
+        updateOutlineToolCall(call.id, (current) => ({
+          ...current,
+          status: result.startsWith("错误：") ? "error" : "done",
+          result,
+          finishedAt: Date.now(),
+        }));
+        await refreshProjectState(projectPath);
+        setSaveStatus(result.startsWith("错误：") ? result : "已确认写入大纲");
+      } catch (error) {
+        const message = `写入大纲失败：${error instanceof Error ? error.message : String(error)}`;
+        updateOutlineToolCall(call.id, (current) => ({
+          ...current,
+          status: "error",
+          result: message,
+          finishedAt: Date.now(),
+        }));
+        setSaveStatus(message);
+      } finally {
+        void useOutlineChatStore.getState().saveToDisk();
+      }
+    },
+    [project],
+  );
+
+  const handleRejectTool = useCallback((call: ToolCallRecord & { preview?: string }) => {
+    updateOutlineToolCall(call.id, (current) => ({
+      ...current,
+      status: "cancelled",
+      result: "已放弃写入。",
+      finishedAt: Date.now(),
+    }));
+    setSaveStatus("已放弃写入。");
+    void useOutlineChatStore.getState().saveToDisk();
+  }, []);
+
   return (
     <div className="flex h-full flex-col overflow-hidden border-border bg-background">
       {/* Header with conversation tabs */}
-      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5 overflow-x-auto">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
         <button
           type="button"
           onClick={() => {
@@ -1270,27 +1450,114 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-        {conversations.map((conv) => (
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+          {topConversations.length > 0 ? (
+            <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
+              {topConversations.map((conv) => {
+                const isActive = conv.id === activeConversationId;
+                const isThisStreaming = isStreaming && conv.id === activeConversationId;
+                return (
+                  <button
+                    key={conv.id}
+                    type="button"
+                    onClick={() => setActiveConversation(conv.id)}
+                    onMouseEnter={() => setHoveredConversationId(conv.id)}
+                    onMouseLeave={() => setHoveredConversationId(null)}
+                    className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                      isActive
+                        ? "border-primary/40 bg-background text-foreground shadow-sm"
+                        : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                    title={conv.title}
+                  >
+                    {isThisStreaming ? (
+                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                    ) : null}
+                    <span className="max-w-[140px] truncate font-medium">
+                      {getConversationTabTitle(conv.title, 10)}
+                    </span>
+                    <span className="text-[10px] opacity-70">{conv.messages.length}</span>
+                    <span className="text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                    {hoveredConversationId === conv.id ? (
+                      <span
+                        className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteConversation(conv.id);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="shrink-0 truncate text-xs text-muted-foreground">
+              暂无大纲对话
+            </span>
+          )}
+        </div>
+        <div className="relative shrink-0" ref={historyRef}>
           <button
-            key={conv.id}
-            onClick={() => setActiveConversation(conv.id)}
-            className={`group shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs ${
-              conv.id === activeConversationId
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/50"
-            }`}
+            ref={historyButtonRef}
+            type="button"
+            onClick={() => setHistoryOpen((value) => !value)}
+            className="qmai-outline-history-button inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background/70 px-3 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="大纲会话历史"
+            aria-label="大纲会话历史"
+            aria-expanded={historyOpen}
           >
-            <span className="max-w-[100px] truncate">{conv.title}</span>
-            <Trash2
-              className="h-3 w-3 opacity-0 group-hover:opacity-100 hover:text-destructive"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteConversation(conv.id);
-              }}
-            />
+            <History className="h-3.5 w-3.5" />
+            <span>会话历史</span>
+            {historyCount > 0 ? (
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
+                {historyCount}
+              </span>
+            ) : null}
+            <ChevronDown className={`h-3 w-3 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
           </button>
-        ))}
-        <div className="ml-auto flex items-center gap-1">
+          {historyOpen && historyDropdownStyle
+            ? createPortal(
+                <div
+                  className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
+                  style={historyDropdownStyle}
+                >
+                  {historyCount === 0 ? (
+                    <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                      暂无历史大纲对话
+                    </div>
+                  ) : (
+                    historyConversations.map((conv) => (
+                      <button
+                        key={conv.id}
+                        type="button"
+                        onClick={() => setActiveConversation(conv.id)}
+                        className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title={conv.title}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {getConversationTabTitle(conv.title, 16)}
+                        </span>
+                        <span className="shrink-0 text-[10px] opacity-70">{conv.messages.length}</span>
+                        <span className="shrink-0 text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                        <Trash2
+                          className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.id);
+                          }}
+                        />
+                      </button>
+                    ))
+                  )}
+                </div>,
+                document.body,
+              )
+            : null}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {saveStatus && (
             <span className="text-xs text-muted-foreground">{saveStatus}</span>
           )}
@@ -1338,6 +1605,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onSaveAsOutline={handleSaveAsOutline}
                   onCopy={handleCopy}
                   onRegenerate={handleRegenerate}
+                  onConfirmToolSave={handleConfirmToolSave}
+                  onRejectTool={handleRejectTool}
                 />
               ) : (
                 <>

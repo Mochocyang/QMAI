@@ -19,6 +19,7 @@ export interface OutlineChatConversation {
   id: string
   title: string
   createdAt: number
+  updatedAt: number
   messages: OutlineChatMessage[]
   modelId?: string
 }
@@ -58,10 +59,12 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
 
   createConversation: () => {
     const id = crypto.randomUUID()
+    const now = Date.now()
     const conv: OutlineChatConversation = {
       id,
       title: `大纲对话 ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
       messages: [],
     }
     set((s) => ({
@@ -75,15 +78,17 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
   setActiveConversation: (id) => set({ activeConversationId: id }),
 
   addMessage: (convId, msg) => {
+    const now = Date.now()
     set((s) => ({
       conversations: s.conversations.map((c) =>
-        c.id === convId ? { ...c, messages: [...c.messages, msg] } : c
+        c.id === convId ? { ...c, messages: [...c.messages, msg], updatedAt: now } : c
       ),
     }))
     void get().saveToDisk()
   },
 
   replaceLastAssistant: (convId, content, sources) => {
+    const now = Date.now()
     set((s) => ({
       conversations: s.conversations.map((c) => {
         if (c.id !== convId) return c
@@ -96,16 +101,17 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
         }
         const firstUser = msgs.find((m) => m.role === "user")
         const title = firstUser ? firstUser.content.slice(0, 20) + (firstUser.content.length > 20 ? "..." : "") : c.title
-        return { ...c, messages: msgs, title }
+        return { ...c, messages: msgs, title, updatedAt: now }
       }),
     }))
     void get().saveToDisk()
   },
 
   removeLastMessage: (convId) => {
+    const now = Date.now()
     set((s) => ({
       conversations: s.conversations.map((c) =>
-        c.id === convId ? { ...c, messages: c.messages.slice(0, -1) } : c
+        c.id === convId ? { ...c, messages: c.messages.slice(0, -1), updatedAt: now } : c
       ),
     }))
     void get().saveToDisk()
@@ -120,9 +126,10 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
   },
 
   setConversationModel: (id, modelId) => {
+    const now = Date.now()
     set((s) => ({
       conversations: s.conversations.map((c) =>
-        c.id === id ? { ...c, modelId } : c
+        c.id === id ? { ...c, modelId, updatedAt: now } : c
       ),
     }))
     void get().saveToDisk()
@@ -138,7 +145,10 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => ({
       const content = await readFile(path)
       const data = JSON.parse(content) as { conversations: OutlineChatConversation[]; activeConversationId: string | null }
       set({
-        conversations: data.conversations ?? [],
+        conversations: (data.conversations ?? []).map((conversation) => ({
+          ...conversation,
+          updatedAt: conversation.updatedAt ?? conversation.createdAt ?? Date.now(),
+        })),
         activeConversationId: data.activeConversationId ?? null,
         loaded: true,
       })

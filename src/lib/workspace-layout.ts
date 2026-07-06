@@ -1,5 +1,3 @@
-import type { Conversation } from "@/stores/chat-store"
-
 export function isWorkspaceView(view: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "characterAura" | "settings" | "trash"): boolean {
   return view === "wiki" || view === "trash"
 }
@@ -57,6 +55,47 @@ export function getConversationTabTitle(title: string, maxLength = 12): string {
   return `${title.slice(0, Math.max(1, maxLength - 1))}…`
 }
 
-export function sortConversationsByUpdatedAt(conversations: Conversation[]): Conversation[] {
+export interface ConversationToolbarItem {
+  id: string
+  updatedAt: number
+}
+
+export const MAX_TOP_CONVERSATIONS = 3
+
+export function sortConversationsByUpdatedAt<T extends ConversationToolbarItem>(conversations: T[]): T[] {
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+export function isTodayConversation(conv: ConversationToolbarItem, now = new Date()): boolean {
+  return new Date(conv.updatedAt).toDateString() === now.toDateString()
+}
+
+export function splitConversationToolbarItems<T extends ConversationToolbarItem>(
+  conversations: T[],
+  activeConversationId: string | null,
+  isWorkingConversation: (convId: string) => boolean,
+): {
+  sorted: T[]
+  topConversations: T[]
+  historyConversations: T[]
+} {
+  const sorted = sortConversationsByUpdatedAt(conversations)
+  const activeConversation = sorted.find((conv) => conv.id === activeConversationId) ?? null
+  const topConversationCandidates = [
+    ...(activeConversation ? [activeConversation] : []),
+    ...sorted.filter((conv) => conv.id !== activeConversationId && isWorkingConversation(conv.id)),
+    ...sorted.filter((conv) => conv.id !== activeConversationId && !isWorkingConversation(conv.id) && isTodayConversation(conv)),
+  ]
+  const seenTopConversationIds = new Set<string>()
+  const topConversations = topConversationCandidates
+    .filter((conv) => {
+      if (seenTopConversationIds.has(conv.id)) return false
+      seenTopConversationIds.add(conv.id)
+      return true
+    })
+    .slice(0, MAX_TOP_CONVERSATIONS)
+  const topConversationIds = new Set(topConversations.map((conv) => conv.id))
+  const historyConversations = sorted.filter((conv) => !topConversationIds.has(conv.id))
+
+  return { sorted, topConversations, historyConversations }
 }
