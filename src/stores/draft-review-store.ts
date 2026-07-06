@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { Deviation, DraftReviewResult } from "@/lib/agent/skills/draft-review-skill"
+import type { DraftReviewResult } from "@/lib/agent/skills/draft-review-skill"
 
 export interface DraftReviewPhase {
   /** 当前阶段 */
@@ -86,7 +86,7 @@ export const useDraftReviewStore = create<DraftReviewState>((set, get) => ({
     })),
 
   setResult: (result) =>
-    set((state) => ({
+    set({
       result,
       phase: {
         stage: result.deviations.length === 0 ? "done" : "repairing",
@@ -97,7 +97,7 @@ export const useDraftReviewStore = create<DraftReviewState>((set, get) => ({
         progress: result.deviations.length === 0 ? 100 : 70,
       },
       dialogTabLocked: result.deviations.length > 0,
-    })),
+    }),
 
   nextRound: () =>
     set((state) => ({

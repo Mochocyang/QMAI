@@ -10,6 +10,8 @@ export interface ProjectPathIndex {
   filesByName: ReadonlyMap<string, readonly ProjectPathIndexEntry[]>
 }
 
+type ProjectPathLookup = ProjectPathIndex | FileNode[]
+
 export function createEmptyProjectPathIndex(): ProjectPathIndex {
   return { byPath: new Map(), filesByName: new Map() }
 }
@@ -36,6 +38,13 @@ export function buildProjectPathIndexFromTree(tree: FileNode[]): ProjectPathInde
 
   walk(tree)
   return { byPath, filesByName }
+}
+
+function toProjectPathIndex(input: ProjectPathLookup): { index: ProjectPathIndex; fallbackTree?: FileNode[] } {
+  if (Array.isArray(input)) {
+    return { index: buildProjectPathIndexFromTree(input), fallbackTree: input }
+  }
+  return { index: input }
 }
 
 /**
@@ -97,28 +106,32 @@ function findInTreeByPathFromTree(tree: FileNode[], targetPath: string): string 
  * matches `targetName` and whose path contains `pathContains`.
  */
 export function findInTreeByName(
-  index: ProjectPathIndex,
+  lookup: ProjectPathLookup,
   targetName: string,
   pathContains: string,
   fallbackTree?: FileNode[],
 ): string | null {
-  for (const entry of index.filesByName.get(targetName) ?? []) {
+  const normalized = toProjectPathIndex(lookup)
+  const tree = fallbackTree ?? normalized.fallbackTree
+  for (const entry of normalized.index.filesByName.get(targetName) ?? []) {
     if (entry.path.includes(pathContains)) return entry.path
   }
-  if (fallbackTree) {
-    return findInTreeByNameFromTree(fallbackTree, targetName, pathContains)
+  if (tree) {
+    return findInTreeByNameFromTree(tree, targetName, pathContains)
   }
   return null
 }
 
 function findInTreeByPath(
-  index: ProjectPathIndex,
+  lookup: ProjectPathLookup,
   targetPath: string,
   fallbackTree?: FileNode[],
 ): string | null {
-  const found = index.byPath.get(targetPath)
+  const normalized = toProjectPathIndex(lookup)
+  const found = normalized.index.byPath.get(targetPath)
   if (found) return found.path
-  if (fallbackTree) return findInTreeByPathFromTree(fallbackTree, targetPath)
+  const tree = fallbackTree ?? normalized.fallbackTree
+  if (tree) return findInTreeByPathFromTree(tree, targetPath)
   return null
 }
 
@@ -126,7 +139,7 @@ function findInTreeByPath(
  * Resolve a `related:` reference to an absolute wiki page path.
  */
 export function resolveRelatedSlug(
-  index: ProjectPathIndex,
+  lookup: ProjectPathLookup,
   ref: string,
   wikiRoot: string,
   fallbackTree?: FileNode[],
@@ -134,19 +147,19 @@ export function resolveRelatedSlug(
   if (ref.includes("/")) {
     const projectRoot = wikiRoot.replace(/\/wiki$/, "")
     const target = `${projectRoot}/${ref}`
-    const found = findInTreeByPath(index, target, fallbackTree)
+    const found = findInTreeByPath(lookup, target, fallbackTree)
     return found && found.includes(`${wikiRoot}/`) ? found : null
   }
 
   const filename = ref.endsWith(".md") ? ref : `${ref}.md`
-  return findInTreeByName(index, filename, `${wikiRoot}/`, fallbackTree)
+  return findInTreeByName(lookup, filename, `${wikiRoot}/`, fallbackTree)
 }
 
 /**
  * Resolve a `sources:` reference.
  */
 export function resolveSourceName(
-  index: ProjectPathIndex,
+  lookup: ProjectPathLookup,
   ref: string,
   sourcesRoot: string,
   fallbackTree?: FileNode[],
@@ -165,16 +178,16 @@ export function resolveSourceName(
         ]
 
     for (const target of candidates) {
-      const found = findInTreeByPath(index, target, fallbackTree)
+      const found = findInTreeByPath(lookup, target, fallbackTree)
       if (found) return found
     }
     return null
   }
 
   if (ref.endsWith(".md")) {
-    const inWiki = findInTreeByName(index, ref, `${wikiSources}/`, fallbackTree)
+    const inWiki = findInTreeByName(lookup, ref, `${wikiSources}/`, fallbackTree)
     if (inWiki) return inWiki
   }
 
-  return findInTreeByName(index, ref, `${sourcesRoot}/`, fallbackTree)
+  return findInTreeByName(lookup, ref, `${sourcesRoot}/`, fallbackTree)
 }

@@ -17,7 +17,7 @@ export function shouldRequirePlan(
   intent?: string | null,
 ): boolean {
   if (!planExecuteEnabled) return false
-  return Boolean(intent && WRITING_INTENTS.has(intent))
+  return Boolean(intent && WRITING_INTENTS.has(intent as NovelTaskIntent))
 }
 
 export function buildPlanExecutePolicyPrompt(mode: AiWorkflowMode): string {
