@@ -1,7 +1,7 @@
 const DEFAULT_PLAN_EXECUTION_SUMMARY_MAX_CHARS = 1800
 
 const EXECUTION_KEYWORD_PATTERN =
-  /维度[一二三四五六七]|本章目标|章节目标|场景|戏剧功能|信息流|伏笔|边界|禁忌|对话目标|爽点|期待点|开头|结尾|钩子|水文|冲突|人物|必须|禁止|不得|可自由|自由发挥|mustDo|mustAvoid|canon|timeline|cognition/i
+  /维度[一二三四五六七]|^S\d+[\s:：.、．-]|本章目标|章节目标|场景|戏剧功能|信息流|伏笔|边界|禁忌|对话目标|爽点|期待点|开头|结尾|钩子|水文|冲突|人物|必须|禁止|不得|可自由|自由发挥|mustDo|mustAvoid|canon|timeline|cognition/i
 
 const LOW_VALUE_LINE_PATTERN =
   /感谢确认|下面开始|下面才会|工具流程|计划来源|帮助模型理解|不属于正文|补充说明/i
@@ -56,16 +56,34 @@ function extractFirstValue(lines: string[], pattern: RegExp): string {
 }
 
 function extractSceneItems(lines: string[]): string[] {
-  const sceneLine = lines.find((line) => /场景序列|维度四/.test(line))
-  if (!sceneLine) return []
-  const content = cleanPlanLine(sceneLine)
+  const sceneIndex = lines.findIndex((line) => /场景序列|维度四/.test(line))
+  if (sceneIndex < 0) return []
+
+  const sceneContents: string[] = []
+  const headerContent = cleanPlanLine(lines[sceneIndex])
+  if (headerContent) sceneContents.push(headerContent)
+
+  for (const line of lines.slice(sceneIndex + 1)) {
+    if (/^维度[一二三五六七]/.test(line)) break
+    if (/^S\d+[\s:：.、．-]/i.test(line)) {
+      sceneContents.push(line)
+    }
+  }
+
+  return unique(sceneContents.flatMap(parseSceneLine))
+}
+
+function parseSceneLine(line: string): string[] {
+  const content = cleanPlanLine(line)
   const numbered = content
     .replace(/(?:^|[；;]\s*)(?:S)?(\d+)[.、．]\s*/gi, "\n")
     .split(/\n|[；;]/)
     .map((item) => item.trim())
     .filter(Boolean)
   const items = numbered.length > 0 ? numbered : [content]
-  return items.map((item) => item.replace(/^S\d+\s*/i, "").trim()).filter(Boolean)
+  return items
+    .map((item) => item.replace(/^S\d+[\s:：.、．-]*/i, "").trim())
+    .filter(Boolean)
 }
 
 function cleanPlanLine(line: string): string {

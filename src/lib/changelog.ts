@@ -80,27 +80,34 @@ const TWO_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
 
 const TWO_POINT_TWO_THIRTY_THREE_CHANGELOG: ChangelogEntry = {
   version: "2.2.33",
-  date: "2026-07-05",
+  date: "2026-07-06",
   highlights: {
     en: [
-        "Added plot framework extraction for the dismantling library, centered on hook, buildup, payoff, and ending hook.",
-        "The visible Book Dismantling Library now has a Story Framework Extraction entry that lets selected chapters generate reusable plot frameworks.",
-        "Chapter outline generation can now receive the selected plot framework as a hard constraint instead of only writing a framework_id.",
+      "Optimized AI chapter plan execution with a user-facing chapter plan, hidden execution contract, and visible execution report.",
+      "Added execution recheck and targeted repair so generated chapters are validated against the plan before returning results.",
+      "Improved chapter plan confirmation and activity output so planning, execution, and verification are easier to trace.",
+      "Stabilized AI chat and related mock coverage after the plan execution workflow changes.",
+      "Added plot framework extraction for the dismantling library, centered on hook, buildup, payoff, and ending hook.",
+      "The visible Book Dismantling Library now has a Story Framework Extraction entry that lets selected chapters generate reusable plot frameworks.",
+      "Chapter outline generation can now receive the selected plot framework as a hard constraint instead of only writing a framework_id.",
       "Dismantling runs automatically create a basic reusable plot framework when the four required beats are complete.",
       "Outline previews now highlight the author handcraft zone even when the heading includes explanatory parentheses.",
       "Cleaned build blockers caused by stale unused imports and variables.",
     ],
     zh: [
-        "拆书库新增剧情框架提取能力，围绕「钩子、铺垫、爽点、结尾钩子」形成可复用模板。",
-        "当前可见的拆书库顶部新增「故事框架提取」入口，可选择章节生成可复用剧情框架。",
-        "基于剧情框架创建章纲时，会把完整框架内容作为硬约束交给 AI，不再只是写入 framework_id。",
+      "优化 AI 会话章节计划执行：新增面向用户的本章策划案、隐藏执行契约和可查看的执行报告。",
+      "新增执行复核与定向修复，生成章节会按计划契约检查后再返回结果。",
+      "优化章节计划确认弹窗和执行动态展示，让计划、执行、复核过程更容易追踪。",
+      "修复计划执行优化后的 AI 会话相关 mock 测试回归，提升当前版本稳定性。",
+      "拆书库新增剧情框架提取能力，围绕「钩子、铺垫、爽点、结尾钩子」形成可复用模板。",
+      "当前可见的拆书库顶部新增「故事框架提取」入口，可选择章节生成可复用剧情框架。",
+      "基于剧情框架创建章纲时，会把完整框架内容作为硬约束交给 AI，不再只是写入 framework_id。",
       "拆文完成后，如果四段框架完整，会自动生成基础剧情框架并写入框架库。",
       "章纲预览支持高亮「作者手搓留白」区域，标题带括号说明时也能识别。",
       "清理阻塞构建的过期未使用导入和变量，恢复 typecheck 验证。",
     ],
   },
 };
-
 const TWO_POINT_TWO_THIRTY_TWO_CHANGELOG: ChangelogEntry = {
   version: "2.2.32",
   date: "2026-07-04",
@@ -885,3 +892,4 @@ export function allChangelog(): ChangelogEntry[] {
     ...CHANGELOG.filter((entry) => !isMergedOnePointRelease(entry.version)),
   ];
 }
+

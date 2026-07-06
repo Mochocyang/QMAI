@@ -69,8 +69,8 @@ describe("OutlineChatPanel controls", () => {
 
   it("settles running outline tool calls when generation finishes", () => {
     expect(source).toContain("settleRunningAgentToolCalls")
-    expect(source).toContain("settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls")
-    expect(source).toContain('settleRunningAgentToolCalls(message.agentToolCalls, "error"')
+    expect(source).toMatch(/settleRunningAgentToolCalls\(\s*record\.toolCalls\.length\s*\?\s*record\.toolCalls\s*:\s*message\.agentToolCalls/s)
+    expect(source).toMatch(/settleRunningAgentToolCalls\(\s*message\.agentToolCalls,\s*"error"/s)
   })
 
   it("uses an outline-only tool set that cannot write chapters or memory", () => {

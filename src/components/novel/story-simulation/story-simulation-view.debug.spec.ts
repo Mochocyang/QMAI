@@ -29,8 +29,8 @@ describe("story simulation debug process view wiring", () => {
     )
 
     expect(source).toContain("时间线")
-    expect(source).toContain("过程观察")
-    expect(source).toContain("ProcessDebugPanel")
+    expect(source).toContain("概览")
+    expect(source).toContain("ProcessOverviewPanel")
     expect(source).toContain("Blackboard")
     expect(source).toContain("可见事件")
   })

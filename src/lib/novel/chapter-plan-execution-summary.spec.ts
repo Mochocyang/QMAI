@@ -26,6 +26,24 @@ describe("buildChapterPlanExecutionSummary", () => {
     expect(summary).toContain("结尾钩子：")
   })
 
+  it("keeps multiline S scene items under the scene-sequence dimension", () => {
+    const plan = [
+      "维度二·章节定位分析：本章目标是承接门缝声，推进锈钥匙线索。",
+      "维度四·场景序列编排：",
+      "S1 旧屋门口承接上一章门缝声，功能：制造当前问题。",
+      "S2 堂屋信纸揭示锈钥匙线索，功能：升级信息差。",
+      "S3 屋外第二个人影贴近门口，功能：引出新威胁。",
+      "维度六·边界与禁忌：禁止提前揭露旧屋主人身份。",
+      "维度七·节奏、字数与结尾钩子：结尾钩子是第二个人影贴近门口。",
+    ].join("\n")
+
+    const summary = buildChapterPlanExecutionSummary(plan)
+
+    expect(summary).toContain("S1 旧屋门口承接上一章门缝声")
+    expect(summary).toContain("S2 堂屋信纸揭示锈钥匙线索")
+    expect(summary).toContain("S3 屋外第二个人影贴近门口")
+  })
+
   it("keeps chapter execution constraints and removes low-value filler", () => {
     const plan = [
       "维度一·输入校验：本章写第3章。",

@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { getAllDeAiSkills, loadDeAiSkillConfig, type DeAiSkill } from "@/lib/novel/de-ai-skill-library"
+import {
+  getAllDeAiSkills,
+  loadDeAiSkillConfig,
+  type DeAiSkill,
+} from "@/lib/novel/de-ai-skill-library"
 import { loadUserSkillConfig } from "@/lib/novel/user-skill-store"
-import type { UserSkill } from "@/lib/novel/skill-library"
+import type { SkillKind, UserSkill } from "@/lib/novel/skill-library"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 
@@ -10,6 +14,51 @@ const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
 ]
+
+type UnifiedSkillCategory = "all" | "writing" | "de-ai" | SkillKind
+
+interface UnifiedSkillEntry {
+  id: string
+  sourceId: string
+  type: "writing" | "de-ai"
+  name: string
+  description: string
+  content: string
+  kinds: SkillKind[]
+}
+
+const unifiedSkillCategories: { id: UnifiedSkillCategory; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "writing", label: "写作" },
+  { id: "de-ai", label: "去AI味" },
+  { id: "review", label: "审稿" },
+  { id: "output", label: "输出" },
+  { id: "knowledge", label: "知识" },
+]
+
+function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
+  return {
+    id: `de-ai:${skill.id}`,
+    sourceId: skill.id,
+    type: "de-ai",
+    name: skill.name,
+    description: skill.description,
+    content: skill.content,
+    kinds: ["rewrite", "style"],
+  }
+}
+
+function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
+  return {
+    id: `writing:${skill.id}`,
+    sourceId: skill.id,
+    type: "writing",
+    name: skill.name,
+    description: skill.description,
+    content: skill.content,
+    kinds: skill.kind,
+  }
+}
 
 function SkillLibraryTabs({ compact = false }: { compact?: boolean }) {
   const activeView = useWikiStore((s) => s.activeView)
@@ -55,112 +104,146 @@ export function UnifiedSkillLibrarySidebarPanel() {
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const setSelectedSkillLibrarySkillId = useWikiStore((s) => s.setSelectedSkillLibrarySkillId)
-  const setSelectedWritingSkillLibrarySkillId = useWikiStore((s) => s.setSelectedWritingSkillLibrarySkillId)
-  const [deAiSkills, setDeAiSkills] = useState<DeAiSkill[]>([])
-  const [writingSkills, setWritingSkills] = useState<UserSkill[]>([])
+  const selectedSkillId = useWikiStore((s) => s.selectedSkillLibrarySkillId)
+  const selectedWritingSkillId = useWikiStore((s) => s.selectedWritingSkillLibrarySkillId)
+  const setSelectedSkillId = useWikiStore((s) => s.setSelectedSkillLibrarySkillId)
+  const setSelectedWritingSkillId = useWikiStore((s) => s.setSelectedWritingSkillLibrarySkillId)
+  const [entries, setEntries] = useState<UnifiedSkillEntry[]>([])
   const [query, setQuery] = useState("")
-  const [category, setCategory] = useState("全部")
+  const [category, setCategory] = useState<UnifiedSkillCategory>("all")
+  const [loadError, setLoadError] = useState("")
 
   useEffect(() => {
     let cancelled = false
+    setLoadError("")
     Promise.all([
-      loadDeAiSkillConfig(project?.path).then((config) => getAllDeAiSkills(config)).catch(() => []),
-      loadUserSkillConfig(project?.path).then((config) => config.skills).catch(() => []),
-    ]).then(([nextDeAiSkills, nextWritingSkills]) => {
-      if (cancelled) return
-      setDeAiSkills(nextDeAiSkills)
-      setWritingSkills(nextWritingSkills)
-    })
+      loadUserSkillConfig(project?.path),
+      loadDeAiSkillConfig(project?.path),
+    ])
+      .then(([writingConfig, deAiConfig]) => {
+        if (cancelled) return
+        setEntries([
+          ...writingConfig.skills.map(writingSkillToEntry),
+          ...getAllDeAiSkills(deAiConfig).map(deAiSkillToEntry),
+        ])
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEntries([])
+        setLoadError("技能库加载失败")
+      })
     return () => {
       cancelled = true
     }
-  }, [project?.path, dataVersion])
+  }, [dataVersion, project?.path])
 
-  const entries = useMemo(() => {
-    const writingEntries = writingSkills.map((skill) => ({
-      id: `writing:${skill.id}`,
-      source: "writing" as const,
-      skill,
-      name: skill.name,
-      description: skill.description,
-      categories: ["写作", ...skill.kind.map((kind) => kind === "review" ? "审稿" : kind === "output" ? "输出" : "知识")],
-    }))
-    const deAiEntries = deAiSkills.map((skill) => ({
-      id: `de-ai:${skill.id}`,
-      source: "de-ai" as const,
-      skill,
-      name: skill.name,
-      description: skill.description,
-      categories: ["去AI味"],
-    }))
-    return [...writingEntries, ...deAiEntries]
-  }, [deAiSkills, writingSkills])
+  const activeEntryId = useMemo(() => {
+    if (selectedWritingSkillId) return `writing:${selectedWritingSkillId}`
+    if (selectedSkillId) return `de-ai:${selectedSkillId}`
+    return ""
+  }, [selectedSkillId, selectedWritingSkillId])
 
-  const filteredEntries = entries.filter((entry) => {
-    const matchesCategory = category === "全部" || entry.categories.includes(category)
-    const text = `${entry.name} ${entry.description}`.toLowerCase()
-    const matchesQuery = !query.trim() || text.includes(query.trim().toLowerCase())
-    return matchesCategory && matchesQuery
-  })
+  const filteredEntries = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    return entries.filter((entry) => {
+      if (category === "writing" && entry.type !== "writing") return false
+      if (category === "de-ai" && entry.type !== "de-ai") return false
+      if (
+        category !== "all" &&
+        category !== "writing" &&
+        category !== "de-ai" &&
+        !entry.kinds.includes(category)
+      ) {
+        return false
+      }
+      if (!keyword) return true
+      return [entry.name, entry.description, entry.content]
+        .some((value) => value.toLowerCase().includes(keyword))
+    })
+  }, [category, entries, query])
 
-  function handleSelect(entry: (typeof entries)[number]) {
-    if (entry.source === "writing") {
+  function handleSelectEntry(entry: UnifiedSkillEntry) {
+    if (entry.type === "writing") {
+      setSelectedWritingSkillId(entry.sourceId)
       setActiveView("writingSkillLibrary")
-      setSelectedWritingSkillLibrarySkillId(entry.skill.id)
-    } else {
-      setActiveView("skillLibrary")
-      setSelectedSkillLibrarySkillId(entry.skill.id)
+      return
     }
+    setSelectedSkillId(entry.sourceId)
+    setActiveView("skillLibrary")
   }
 
   return (
     <div data-testid="unified-skill-library-sidebar" className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 border-b px-3 py-2">
         <h1 className="text-sm font-semibold">技能库</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">统一管理写作 Skill 与去AI味技能。</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">统一检索写作 Skill 和去AI味技能。</p>
       </div>
-      <div className="shrink-0 space-y-2 border-b px-3 py-2">
+      <div className="shrink-0 border-b px-3 py-2">
         <input
           data-testid="unified-skill-search-input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索技能"
+          placeholder="搜索技能名称、说明或规则"
           className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
         />
-        <div className="flex flex-wrap gap-1">
-          {["全部", "写作", "去AI味", "审稿", "输出", "知识"].map((item) => (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {unifiedSkillCategories.map((item) => (
             <button
-              key={item}
+              key={item.id}
               type="button"
-              onClick={() => setCategory(item)}
-              className={`rounded-full border px-2 py-0.5 text-xs ${
-                category === item ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
+              aria-pressed={category === item.id}
+              onClick={() => setCategory(item.id)}
+              className={`rounded-md border px-2 py-1 text-xs transition-colors ${
+                category === item.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
-              {item}
+              {item.label}
             </button>
           ))}
         </div>
       </div>
+      {loadError ? (
+        <div className="border-b px-3 py-2 text-xs text-muted-foreground">{loadError}</div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {filteredEntries.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            data-testid={`unified-skill-entry-${entry.id}`}
-            onClick={() => handleSelect(entry)}
-            className="mb-2 w-full rounded-md border px-3 py-2 text-left hover:bg-accent"
-          >
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {entry.source === "writing" ? "写作" : "去AI味"}
-              </span>
+        {filteredEntries.length === 0 ? (
+          <div className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
+            没有匹配的技能。
+          </div>
+        ) : null}
+        {filteredEntries.map((entry) => {
+          const active = entry.id === activeEntryId
+          return (
+            <div
+              key={entry.id}
+              data-testid={`unified-skill-entry-${entry.id}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleSelectEntry(entry)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  handleSelectEntry(entry)
+                }
+              }}
+              className={`mb-2 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent ${
+                active ? "border-primary bg-accent/60" : "border-border"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {entry.type === "writing" ? "写作" : "去AI味"}
+                </span>
+              </div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {entry.description || "未填写说明"}
+              </div>
             </div>
-            <div className="mt-1 truncate text-xs text-muted-foreground">{entry.description}</div>
-          </button>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

@@ -24,20 +24,30 @@ const llmConfig: LlmConfig = {
 }
 
 describe("chapter-plan-self-check", () => {
-  it("builds a prompt that checks blueprint completeness and includes the source plan", () => {
+  it("builds a prompt that checks Codex-style plan completeness and includes the source plan", () => {
     const prompt = buildChapterPlanSelfCheckPrompt("维度四·场景序列编排：旧屋揭示")
 
     expect(prompt).toContain("计划自检")
     expect(prompt).not.toContain("蓝图")
-    expect(prompt).toContain("七个维度")
+    expect(prompt).not.toContain("七个维度")
+    for (const section of [
+      "本章目标",
+      "已知依据",
+      "执行边界",
+      "分场景执行计划",
+      "信息流与伏笔",
+      "验收标准",
+      "风险与兜底",
+    ]) {
+      expect(prompt).toContain(section)
+    }
     expect(prompt).toContain("维度四·场景序列编排：旧屋揭示")
-    expect(prompt).toContain("爽点/期待点")
-    expect(prompt).toContain("场景戏剧功能")
+    expect(prompt).toContain("目的、冲突、转折、输出结果、验收标准")
+    expect(prompt).toContain("缺失段落、缺失场景字段或不可验收的标准必须进入 issues")
     expect(prompt).toContain("对话目标")
     expect(prompt).toContain("水文")
-    expect(prompt).toContain("开头和结尾")
     expect(prompt).toContain("只输出一个 JSON 对象")
-    expect(prompt.length).toBeLessThan(760)
+    expect(prompt.length).toBeLessThan(1100)
   })
 
   it("includes compressed project context when provided", () => {
@@ -100,10 +110,12 @@ describe("chapter-plan-self-check", () => {
     expect(prompt).toContain("原计划")
     expect(prompt).not.toContain("蓝图")
     expect(prompt).toContain("缺少字数预算")
-    expect(prompt).toContain("爽点/期待点")
+    expect(prompt).toContain("分场景执行计划")
+    expect(prompt).toContain("验收标准")
+    expect(prompt).toContain("风险与兜底")
     expect(prompt).toContain("对话目标")
     expect(prompt).toContain("只输出修订后的章节计划")
-    expect(prompt.length).toBeLessThan(320)
+    expect(prompt.length).toBeLessThan(520)
   })
 
   it("runs plan revision and returns the revised plan", async () => {

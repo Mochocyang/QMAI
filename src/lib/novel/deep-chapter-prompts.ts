@@ -68,8 +68,19 @@ export function buildDeepChapterBriefPrompt(
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   planBlueprint?: string,
+  executionContractText?: string,
 ): string {
-  const blueprintSection = planBlueprint && planBlueprint.trim()
+  const contractSection = executionContractText && executionContractText.trim()
+    ? [
+        "",
+        "## 用户确认计划的执行清单",
+        "以下执行清单是本阶段写作任务书的权威依据。不得重新设计剧情，只能把清单落实到正文。",
+        "",
+        executionContractText.trim(),
+      ].join("\n")
+    : ""
+
+  const blueprintSection = !contractSection && planBlueprint && planBlueprint.trim()
     ? [
         "",
         "## 用户已确认的章节计划执行摘要",
@@ -80,24 +91,40 @@ export function buildDeepChapterBriefPrompt(
       ].join("\n")
     : ""
 
-  const planningDirectives = planBlueprint && planBlueprint.trim()
+  const contractPlanningDirectives = [
+    "硬性要求：",
+    "1. 只输出任务书，不要写故事片段。",
+    "2. 任务书必须逐项承接执行清单中的 S 场景、必须执行、禁止违背和章末钩子。",
+    "3. 不得重新设计剧情，不得合并、跳过或调换 S 场景顺序。",
+    `4. 后续正文必须按完整章节规划，${chapterLengthBoundary(lengthSpec)}`,
+  ].join("\n")
+
+  const planBlueprintDirectives = [
+    "硬性要求：",
+    "1. 只输出任务书，不要写故事片段。",
+    "2. 以用户确认的计划为骨架逐场景落地：必须完成、禁止违背、角色状态、伏笔推进、结尾钩子都与计划一致。",
+    "3. 若计划摘要含 S1/S2/S3，任务书必须逐条展开 S1/S2/S3，不得合并、跳过或调换顺序。",
+    "4. 不新增计划未涵盖的主线推进、伏笔动作或人物变化；计划有缺失时只给最小补全方向。",
+    `5. 后续正文必须按完整章节规划，${chapterLengthBoundary(lengthSpec)}`,
+    "6. 任务书必须覆盖场景推进、冲突升级、人物互动、细节描写、章节节奏曲线、爽点/期待点、对话目标和开头/结尾执行要求。",
+  ].join("\n")
+
+  const defaultPlanningDirectives = [
+    "硬性要求：",
+    "1. 只输出任务书，不要写故事片段。",
+    "2. 必须列出本章必须完成、禁止违背、角色状态、伏笔推进、结尾钩子。",
+    "3. 如果上下文不足，写明缺失项，并给出最小补全方向。",
+    `4. 后续正文必须按完整章节规划，${chapterLengthBoundary(lengthSpec)}`,
+    "5. 任务书必须覆盖场景推进、冲突升级、人物互动、细节描写、章节节奏曲线、爽点/期待点、主要对话目标、开头承接方式和结尾钩子执行方式。",
+  ].join("\n")
+
+  const planningDirectives = contractSection
+    ? contractPlanningDirectives
+    : planBlueprint && planBlueprint.trim()
     ? [
-        "硬性要求：",
-        "1. 只输出任务书，不要写故事片段。",
-        "2. 以用户确认的计划为骨架逐场景落地：必须完成、禁止违背、角色状态、伏笔推进、结尾钩子都与计划一致。",
-        "3. 若计划摘要含 S1/S2/S3，任务书必须逐条展开 S1/S2/S3，不得合并、跳过或调换顺序。",
-        "4. 不新增计划未涵盖的主线推进、伏笔动作或人物变化；计划有缺失时只给最小补全方向。",
-        `5. 后续正文必须按完整章节规划，${chapterLengthBoundary(lengthSpec)}`,
-        "6. 任务书必须覆盖场景推进、冲突升级、人物互动、细节描写、章节节奏曲线、爽点/期待点、对话目标和开头/结尾执行要求。",
+        planBlueprintDirectives,
       ].join("\n")
-    : [
-        "硬性要求：",
-        "1. 只输出任务书，不要写故事片段。",
-        "2. 必须列出本章必须完成、禁止违背、角色状态、伏笔推进、结尾钩子。",
-        "3. 如果上下文不足，写明缺失项，并给出最小补全方向。",
-        `4. 后续正文必须按完整章节规划，${chapterLengthBoundary(lengthSpec)}`,
-        "5. 任务书必须覆盖场景推进、冲突升级、人物互动、细节描写、章节节奏曲线、爽点/期待点、主要对话目标、开头承接方式和结尾钩子执行方式。",
-      ].join("\n")
+    : defaultPlanningDirectives
 
   return [
     buildStableContextPrefix(outline, contextPrompt),
@@ -110,7 +137,7 @@ export function buildDeepChapterBriefPrompt(
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
-    blueprintSection,
+    contractSection || blueprintSection,
   ].filter(Boolean).join("\n")
 }
 

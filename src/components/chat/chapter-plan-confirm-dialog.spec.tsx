@@ -77,7 +77,20 @@ describe("chapter-plan-confirm-dialog 纯函数", () => {
 
       expect(prompt).toContain("计划自检")
       expect(prompt).not.toContain("蓝图")
-      expect(prompt).toContain("七个维度")
+      expect(prompt).not.toContain("七个维度")
+      for (const section of [
+        "本章目标",
+        "已知依据",
+        "执行边界",
+        "分场景执行计划",
+        "信息流与伏笔",
+        "验收标准",
+        "风险与兜底",
+      ]) {
+        expect(prompt).toContain(section)
+      }
+      expect(prompt).toContain("目的、冲突、转折、输出结果、验收标准")
+      expect(prompt).toContain("缺失段落、缺失场景字段或不可验收的标准必须进入 issues")
       expect(prompt).toContain("维度四·场景序列编排：旧屋揭示")
       expect(prompt).toContain("只输出一个 JSON 对象")
     })
@@ -245,6 +258,36 @@ describe("ChapterPlanConfirmDialog 组件", () => {
     const textarea = host.querySelector("textarea") as HTMLTextAreaElement
     expect(textarea).not.toBeNull()
     expect(textarea.value).toBe("修订后计划：已补充篇幅分配")
+  })
+
+  it("修订计划后点击普通确认也按修订后的计划执行", async () => {
+    const onConfirm = vi.fn()
+    const onModify = vi.fn()
+    const onSelfCheck = vi.fn(async () => "状态：warning\n建议：补充篇幅分配")
+    const onRevisePlan = vi.fn(async () => "修订后计划：已补充篇幅分配")
+    await act(async () => {
+      root.render(
+        <ChapterPlanConfirmDialog
+          {...baseProps}
+          onConfirm={onConfirm}
+          onModify={onModify}
+          onSelfCheck={onSelfCheck}
+          onRevisePlan={onRevisePlan}
+        />,
+      )
+    })
+    await act(async () => {
+      ;(queryByText("自检计划") as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(queryByText("按自检建议修正") as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(queryByText("确认，按此计划写正文") as HTMLButtonElement).click()
+    })
+
+    expect(onModify).toHaveBeenCalledWith("修订后计划：已补充篇幅分配")
+    expect(onConfirm).not.toHaveBeenCalled()
   })
 
   it("自检期间关闭弹窗后不会把旧结果带到下次打开", async () => {

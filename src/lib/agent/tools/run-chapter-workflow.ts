@@ -154,6 +154,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
         "章节工作流完成。",
         `是否返修：${result.revised ? "是" : "否"}`,
         `任务书：${result.taskBrief}`,
+        result.executionReport ? `执行报告：\n${result.executionReport}` : "",
         result.planCompliance ? `计划履约度：\n${result.planCompliance}` : "",
         "",
         "最终正文：",

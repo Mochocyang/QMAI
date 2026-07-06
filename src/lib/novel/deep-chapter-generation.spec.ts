@@ -18,6 +18,7 @@ import {
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
   DEEP_CHAPTER_MIN_CHARS,
 } from "./deep-chapter-prompts"
+import { contractToTaskBriefText, createEmptyContract, type ChapterExecutionContract } from "./chapter-execution-contract"
 
 const llmConfig = {
   provider: "custom",
@@ -50,6 +51,27 @@ const contextPack: ContextPack = {
   mustAvoid: "不要提前揭露旧屋主人身份。",
   nextChapterAdvice: "结尾引出屋内第二个人影。",
   revisionDirectives: "",
+}
+
+const executionContract: ChapterExecutionContract = {
+  objective: "推进旧屋线索",
+  knownContext: ["上一章门缝声未解"],
+  assumptions: [],
+  sceneSteps: [{
+    id: "S1",
+    title: "旧屋门口",
+    purpose: "承接悬念",
+    conflict: "主角要进屋，小晴阻止",
+    turn: "门内传来第二声响",
+    requiredOutcome: "主角进入旧屋",
+    acceptanceCriteria: ["出现门缝声承接", "主角进入旧屋"],
+  }],
+  mustDo: ["推进锈钥匙"],
+  mustAvoid: ["不得提前揭露旧屋主人"],
+  dialogueGoals: ["主角试探小晴"],
+  informationFlow: { reveal: [], hide: [], mislead: [], foreshadow: [] },
+  finalHook: "门外出现第二个人影",
+  freeSpace: ["环境细节可自由补足"],
 }
 
 function chapterText(prefix: string, count = 3000): string {
@@ -95,6 +117,15 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
     buildContextPack: vi.fn(async () => contextPack),
     contextPackToPrompt: vi.fn(() => "上下文包内容"),
     reviewChapter: vi.fn(async () => reviewResults),
+    runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+    runChapterExecutionReportCheck: vi.fn(async () => ({
+      status: "pass" as const,
+      sceneResults: [{ id: "S1", passed: true, missing: [], evidence: "已进入旧屋", repairInstruction: "" }],
+      mustDoResults: [],
+      mustAvoidResults: [],
+      finalHookPassed: true,
+      repairItems: [],
+    })),
     streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
       const prompt = messagesPromptText(messages)
       const content = prompt.includes("简单审查") || prompt.includes("去AI味")
@@ -107,6 +138,13 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
       callbacks.onToken(content)
       callbacks.onDone()
     }),
+  }
+}
+
+function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerationDeps {
+  return {
+    ...createDeps(reviewResults),
+    runChapterExecutionContractBuild: vi.fn(async () => createEmptyContract()),
   }
 }
 
@@ -174,9 +212,262 @@ describe("runDeepChapterGeneration", () => {
     expect(promptWithoutPlan).not.toContain("用户已确认的章节计划")
   })
 
-  it("runs a final plan compliance check with the compact execution summary when a confirmed plan is provided", async () => {
+  it("prefers the execution contract task brief over the old plan summary", () => {
+    const taskBrief = contractToTaskBriefText(executionContract)
+    const prompt = buildDeepChapterBriefPrompt(
+      "",
+      "上下文包内容",
+      "生成第3章",
+      3,
+      undefined,
+      undefined,
+      "旧计划摘要",
+      taskBrief,
+    )
+
+    expect(prompt).toContain("用户确认计划的执行清单")
+    expect(prompt).toContain("以下执行清单是本阶段写作任务书的权威依据")
+    expect(prompt).toContain("S1：旧屋门口")
+    expect(prompt).toContain("必须完成：出现门缝声承接；主角进入旧屋")
+    expect(prompt).toContain("不得重新设计剧情")
+    expect(prompt).not.toContain("用户已确认的章节计划执行摘要")
+  })
+
+  it("generates an execution contract from confirmed plan and uses it for task brief", async () => {
     const deps = {
       ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
+    }
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      {},
+      deps,
+    )
+
+    expect(deps.runChapterExecutionContractBuild).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.stringContaining("## 本章策划案"),
+      undefined,
+    )
+    const streamPrompts = vi.mocked(deps.streamChat).mock.calls.map((call) => messagesPromptText(call[1]))
+    expect(streamPrompts.join("\n")).toContain("用户确认计划的执行清单")
+    expect(streamPrompts.join("\n")).toContain("S1：旧屋门口")
+  })
+
+  it("falls back to local execution contract parsing when contract generation fails", async () => {
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => {
+        throw new Error("contract failed")
+      }),
+      runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。\n- 验收标准：主角进入旧屋。",
+      },
+      {},
+      deps,
+    )
+
+    expect(result.finalContent).toContain("最终去AI味正文")
+    const streamPrompts = vi.mocked(deps.streamChat).mock.calls.map((call) => messagesPromptText(call[1]))
+    expect(streamPrompts.join("\n")).toContain("用户确认计划的执行清单")
+    expect(streamPrompts.join("\n")).toContain("完成后状态：主角进入旧屋。")
+  })
+
+  it("uses execution report repair items for targeted plan repair", async () => {
+    const repairedContent = chapterText("执行报告返修后正文", 3000)
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi.fn(async () => ({
+        status: "fail" as const,
+        sceneResults: [{
+          id: "S1",
+          passed: false,
+          missing: ["主角进入旧屋"],
+          evidence: "正文停在门外。",
+          repairInstruction: "补写主角进入旧屋。",
+        }],
+        mustDoResults: [],
+        mustAvoidResults: [],
+        finalHookPassed: true,
+        repairItems: ["S1 缺少主角进入旧屋"],
+      })),
+      runChapterPlanComplianceCheck: vi.fn(async () => "不应调用旧履约检查"),
+      runChapterPlanDeviationRepair: vi.fn(async (_config, _plan, _content, compliance) => {
+        expect(String(compliance)).toContain("S1 缺少主角进入旧屋")
+        return repairedContent
+      }),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      {},
+      deps,
+    )
+
+    expect(result.finalContent).toBe(repairedContent)
+    expect(result.executionReport).toContain("执行状态：已返修")
+    expect(result.planCompliance).toBe("")
+    expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
+  })
+
+  it("emits the execution report as a visible activity result", async () => {
+    const activityEvents: AgentActivityEvent[] = []
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi.fn(async () => ({
+        status: "warning" as const,
+        sceneResults: [
+          { id: "S1", passed: true, missing: [], evidence: "已进入旧屋", repairInstruction: "" },
+          { id: "S2", passed: false, missing: ["误导不足"], evidence: "", repairInstruction: "补误导" },
+        ],
+        mustDoResults: [],
+        mustAvoidResults: [],
+        finalHookPassed: true,
+        repairItems: [],
+      })),
+      runChapterPlanDeviationRepair: vi.fn(async () => chapterText("执行报告可见性返修后正文", 3000)),
+      runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      { onActivityEvent: (event) => activityEvents.push(event) },
+      deps,
+    )
+
+    const reportEvent = activityEvents.find((event) => event.stageId === "execution_report")
+    expect(reportEvent?.title).toBe("执行报告")
+    expect(reportEvent?.content).toContain("执行状态：有警告")
+    expect(reportEvent?.content).toContain("完成场景：S1")
+    expect(reportEvent?.content).toContain("待处理偏离项：补误导")
+    expect(result.planCompliance).toBe("")
+    expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
+    expect(activityEvents.some((event) => event.stageId === "plan_compliance")).toBe(false)
+  })
+
+  it("rechecks the execution report after accepted targeted repair", async () => {
+    const repairedContent = chapterText("执行报告返修后正文", 3000)
+    const activityEvents: AgentActivityEvent[] = []
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: "fail" as const,
+          sceneResults: [{
+            id: "S1",
+            passed: false,
+            missing: ["主角进入旧屋"],
+            evidence: "正文停在门外。",
+            repairInstruction: "补写主角进入旧屋。",
+          }],
+          mustDoResults: [],
+          mustAvoidResults: [],
+          finalHookPassed: true,
+          repairItems: ["S1 缺少主角进入旧屋"],
+        })
+        .mockResolvedValueOnce({
+          status: "pass" as const,
+          sceneResults: [{ id: "S1", passed: true, missing: [], evidence: "返修后已进入旧屋。", repairInstruction: "" }],
+          mustDoResults: [],
+          mustAvoidResults: [],
+          finalHookPassed: true,
+          repairItems: [],
+        }),
+      runChapterPlanDeviationRepair: vi.fn(async () => repairedContent),
+      runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      { onActivityEvent: (event) => activityEvents.push(event) },
+      deps,
+    )
+
+    expect(deps.runChapterExecutionReportCheck).toHaveBeenCalledTimes(2)
+    expect(deps.runChapterExecutionReportCheck).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      executionContract,
+      repairedContent,
+      undefined,
+    )
+    expect(result.executionReport).toContain("执行状态：已返修")
+    expect(result.executionReport).toContain("完成场景：S1")
+    expect(result.executionReport).toContain("待处理偏离项：无")
+    expect(result.planCompliance).toBe("")
+    expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
+    expect(activityEvents.some((event) => event.stageId === "execution_recheck" && event.content.includes("执行状态：已返修"))).toBe(true)
+    expect(activityEvents.some((event) => event.stageId === "plan_compliance")).toBe(false)
+  })
+
+  it("keeps final content when execution report generation fails", async () => {
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi.fn(async () => {
+        throw new Error("report failed")
+      }),
+      runChapterPlanComplianceCheck: vi.fn(async () => "不应调用旧履约检查"),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      {},
+      deps,
+    )
+
+    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.executionReport).toContain("执行报告生成失败")
+    expect(result.planCompliance).toBe("")
+    expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
+  })
+
+  it("runs a final plan compliance check with the compact execution summary when a confirmed plan is provided", async () => {
+    const deps = {
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async (
         _config: LlmConfig,
         _plan: string,
@@ -221,7 +512,7 @@ describe("runDeepChapterGeneration", () => {
   it("publishes final content before waiting for blueprint compliance", async () => {
     const order: string[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => {
         order.push("compliance-start")
         await Promise.resolve()
@@ -247,7 +538,7 @@ describe("runDeepChapterGeneration", () => {
 
   it("forwards the stop signal into plan compliance", async () => {
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
     }
     const controller = new AbortController()
@@ -278,7 +569,7 @@ describe("runDeepChapterGeneration", () => {
     const finalContents: string[] = []
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
         status: "partial_deviation",
         summary: "结尾钩子缺失。",
@@ -320,6 +611,8 @@ describe("runDeepChapterGeneration", () => {
     expect(deps.runChapterPlanDeviationRepair).toHaveBeenCalledOnce()
     expect(result.finalContent).toBe(repairedContent)
     expect(result.revised).toBe(true)
+    expect(result.planCompliance).toContain("计划偏离点返修：已完成")
+    expect(result.planCompliance).not.toContain("partial_deviation")
     expect(finalContents[0]).toContain("最终去AI味正文")
     expect(finalContents[finalContents.length - 1]).toBe(repairedContent)
     const complianceEvent = activityEvents.find((event) => event.stageId === "plan_compliance")
@@ -336,7 +629,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not repair final content when plan compliance is mostly compliant", async () => {
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => "履约度：基本符合"),
       runChapterPlanDeviationRepair: vi.fn(async () => chapterText("不应出现的返修正文", 3000)),
     }
@@ -364,7 +657,7 @@ describe("runDeepChapterGeneration", () => {
     const finalContents: string[] = []
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
         status: "clear_deviation",
         summary: "章末钩子缺失。",
@@ -404,7 +697,7 @@ describe("runDeepChapterGeneration", () => {
   it("keeps the original final content when plan deviation repair becomes too long", async () => {
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
         status: "partial_deviation",
         summary: "缺少一个结尾动作。",
@@ -436,7 +729,7 @@ describe("runDeepChapterGeneration", () => {
       `全新段落${index}：这里改写成完全不同的事件、地点、人物和线索，绕开旧屋、钥匙、脚步声。`,
     ).join("\n")
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
         status: "partial_deviation",
         summary: "缺少一个结尾动作。",
@@ -465,7 +758,7 @@ describe("runDeepChapterGeneration", () => {
   it("explains why unknown plan compliance results do not trigger repair", async () => {
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
-      ...createDeps(),
+      ...createLegacyPlanComplianceDeps(),
       runChapterPlanComplianceCheck: vi.fn(async () => "模型输出混乱，未给出履约度。"),
       runChapterPlanDeviationRepair: vi.fn(async () => chapterText("不应出现的返修正文", 3000)),
     }

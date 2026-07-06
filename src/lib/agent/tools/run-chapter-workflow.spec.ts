@@ -318,4 +318,30 @@ describe("createRunChapterWorkflowTool", () => {
     expect(result).toContain("计划履约度")
     expect(result).toContain("履约度：基本符合")
   })
+
+  it("includes execution report summary in the tool result when available", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => ({
+      finalContent: "最终正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: true,
+      executionReport: "执行状态：已返修\n完成场景：S1/S2\n待处理偏离项：无",
+    }))
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+
+    const result = await tool.execute({
+      intent: "write_chapter",
+      userRequest: "生成第3章",
+    })
+
+    expect(result).toContain("执行报告")
+    expect(result).toContain("执行状态：已返修")
+    expect(result).toContain("最终正文")
+  })
 })

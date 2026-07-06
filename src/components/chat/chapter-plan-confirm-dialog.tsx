@@ -93,6 +93,15 @@ export function ChapterPlanConfirmDialog({
     setEditing(false)
   }, [editedContent, onModify])
 
+  const handleConfirm = useCallback(() => {
+    if (editing && onModify) {
+      onModify(editedContent)
+      setEditing(false)
+      return
+    }
+    onConfirm()
+  }, [editedContent, editing, onConfirm, onModify])
+
   const handleSelfCheck = useCallback(async () => {
     if (!onSelfCheck) return
     const requestId = selfCheckRequestRef.current + 1
@@ -230,7 +239,7 @@ export function ChapterPlanConfirmDialog({
               跳过计划，直接写
             </button>
             <button
-              onClick={onConfirm}
+              onClick={handleConfirm}
               className="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-700"
             >
               <Check className="h-4 w-4" />

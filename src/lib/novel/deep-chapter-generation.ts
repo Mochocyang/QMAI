@@ -31,6 +31,17 @@ import {
 } from "./chapter-plan-compliance";
 import { buildChapterPlanExecutionSummary } from "./chapter-plan-execution-summary";
 import {
+  contractToTaskBriefText,
+  fallbackParseChapterExecutionContract,
+  runChapterExecutionContractBuild,
+  type ChapterExecutionContract,
+} from "./chapter-execution-contract";
+import {
+  executionReportToToolSummary,
+  extractExecutionRepairItems,
+  runChapterExecutionReportCheck,
+} from "./chapter-execution-report";
+import {
   resolveChapterLengthSpec,
   type ChapterLengthSpec,
   buildDeepChapterBriefPrompt,
@@ -69,6 +80,7 @@ export interface DeepChapterGenerationResult {
   reviewResults: NovelReviewResult[];
   revised: boolean;
   planCompliance?: string;
+  executionReport?: string;
 }
 
 export type ChapterWorkflowEventType = "started" | "completed" | "error";
@@ -108,6 +120,8 @@ export interface DeepChapterGenerationDeps {
   reviewChapter: typeof reviewChapter;
   runChapterPlanComplianceCheck?: typeof runChapterPlanComplianceCheck;
   runChapterPlanDeviationRepair?: typeof runChapterPlanDeviationRepair;
+  runChapterExecutionContractBuild?: typeof runChapterExecutionContractBuild;
+  runChapterExecutionReportCheck?: typeof runChapterExecutionReportCheck;
   streamChat: (
     config: LlmConfig,
     messages: ChatMessage[],
@@ -134,6 +148,32 @@ const DEEP_CHAPTER_CONTEXT_TOKEN_BUDGET = 32000;
 /** chars/token approximation used to convert the token budget to characters
  *  for the outline cap (mirrors context-budget.ts / contextPackToPrompt). */
 const DEEP_CHAPTER_CHARS_PER_TOKEN = 4;
+
+function hasUsableChapterExecutionContract(contract: ChapterExecutionContract | null): contract is ChapterExecutionContract {
+  if (!contract) return false;
+  const hasSceneChecks = contract.sceneSteps.some((step) =>
+    step.title.trim() ||
+    step.purpose.trim() ||
+    step.conflict.trim() ||
+    step.turn.trim() ||
+    step.requiredOutcome.trim() ||
+    step.acceptanceCriteria.some((item) => item.trim()),
+  );
+  const hasInformationFlow =
+    contract.informationFlow.reveal.some((item) => item.trim()) ||
+    contract.informationFlow.hide.some((item) => item.trim()) ||
+    contract.informationFlow.mislead.some((item) => item.trim()) ||
+    contract.informationFlow.foreshadow.some((item) => item.trim());
+
+  return (
+    hasSceneChecks ||
+    contract.mustDo.some((item) => item.trim()) ||
+    contract.mustAvoid.some((item) => item.trim()) ||
+    contract.dialogueGoals.some((item) => item.trim()) ||
+    hasInformationFlow ||
+    Boolean(contract.finalHook.trim())
+  );
+}
 /** The mandatory outline may consume at most this share of the total context
  *  budget. The remainder is left for memory/settings/search context so the
  *  outline can never crowd the whole window out on its own. */
@@ -429,6 +469,23 @@ export async function runDeepChapterGeneration(
     chapterNumber: input.chapterNumber ?? null,
   };
   const planExecutionSummary = buildChapterPlanExecutionSummary(input.planBlueprint ?? "");
+  let executionContract: ChapterExecutionContract | null = null;
+  let executionContractText = "";
+  if (input.planBlueprint?.trim()) {
+    try {
+      const buildContract = deps.runChapterExecutionContractBuild || runChapterExecutionContractBuild;
+      executionContract = await buildContract(writingConfig, input.planBlueprint, signal);
+    } catch (error) {
+      console.warn("[Deep Chapter] 执行清单生成失败，使用本地兜底解析:", error);
+      executionContract = fallbackParseChapterExecutionContract(input.planBlueprint);
+    }
+    if (hasUsableChapterExecutionContract(executionContract)) {
+      executionContractText = contractToTaskBriefText(executionContract);
+    } else {
+      executionContract = null;
+      executionContractText = "";
+    }
+  }
   const contextWorkflowStep: ChapterWorkflowStepSpec = {
     name: "chapter_context",
     title: "读取上下文",
@@ -672,6 +729,7 @@ export async function runDeepChapterGeneration(
                 input.goldenThreeChapter,
                 lengthSpec,
                 planExecutionSummary,
+                executionContractText,
               ),
             },
           ],
@@ -1188,8 +1246,102 @@ export async function runDeepChapterGeneration(
     content: `最终正文已生成，约 ${countChapterChars(finalContent)} 字。`,
   });
   callbacks.onFinalContent?.(finalContent);
+  let executionReportSummary = "";
+  if (executionContract) {
+    let repairedByExecutionReport = false;
+    try {
+      const runReport = deps.runChapterExecutionReportCheck || runChapterExecutionReportCheck;
+      const report = await runChapterWorkflowStep(
+        callbacks,
+        {
+          name: "chapter_execution_report",
+          title: "检查执行清单",
+          detail: "按场景验收标准逐项检查最终正文。",
+          params: workflowBaseParams,
+        },
+        () => runReport(writingConfig, executionContract!, finalContent, signal),
+        (value) => executionReportToToolSummary(value),
+        (value) => ({
+          status: value.status,
+          repairItemCount: extractExecutionRepairItems(value).length,
+        }),
+      );
+      const repairItems = extractExecutionRepairItems(report);
+      executionReportSummary = executionReportToToolSummary(report);
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:execution_report:output:${Date.now()}`,
+        stageId: "execution_report",
+        kind: "stage_output",
+        title: "执行报告",
+        content: executionReportSummary,
+      });
+      if (repairItems.length > 0) {
+        const runRepair = deps.runChapterPlanDeviationRepair || runChapterPlanDeviationRepair;
+        const repairedContent = await runChapterWorkflowStep(
+          callbacks,
+          {
+            name: "chapter_execution_repair",
+            title: "返修执行失败项",
+            detail: "只修复执行报告中的失败项，不重写全章。",
+            params: workflowBaseParams,
+          },
+          () => runRepair(
+            writingConfig,
+            contractToTaskBriefText(executionContract!),
+            finalContent,
+            repairItems.join("\n"),
+            signal,
+          ),
+          (value) => `执行失败项返修完成，正文约 ${countChapterChars(value)} 字。`,
+          (value) => ({ chars: countChapterChars(value) }),
+        );
+        const validation = validateChapterPlanRepairResult(finalContent, repairedContent);
+        if (validation.accepted) {
+          finalContent = repairedContent.trim();
+          revised = true;
+          repairedByExecutionReport = true;
+          callbacks.onFinalContent?.(finalContent);
+          const recheckReport = await runChapterWorkflowStep(
+            callbacks,
+            {
+              name: "chapter_execution_recheck",
+              title: "复检执行清单",
+              detail: "返修后再次检查执行清单失败项是否消除。",
+              params: workflowBaseParams,
+            },
+            () => runReport(writingConfig, executionContract!, finalContent, signal),
+            (value) => executionReportToToolSummary(value, true),
+            (value) => ({
+              status: value.status,
+              repairItemCount: extractExecutionRepairItems(value).length,
+            }),
+          );
+          executionReportSummary = executionReportToToolSummary(recheckReport, true);
+          emitDeepChapterActivity(callbacks, {
+            id: `deep_chapter:execution_recheck:output:${Date.now()}`,
+            stageId: "execution_recheck",
+            kind: "stage_output",
+            title: "执行复检",
+            content: executionReportSummary,
+          });
+        }
+      }
+      if (!repairedByExecutionReport) {
+        executionReportSummary = executionReportToToolSummary(report);
+      }
+    } catch (error) {
+      executionReportSummary = `执行报告生成失败，已保留正文：${error instanceof Error ? error.message : String(error)}`;
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:execution_report:error:${Date.now()}`,
+        stageId: "execution_report",
+        kind: "stage_output",
+        title: "执行报告",
+        content: executionReportSummary,
+      });
+    }
+  }
   let planCompliance = "";
-  if (planExecutionSummary.trim()) {
+  if (planExecutionSummary.trim() && !executionContract) {
     let complianceCheckFailed = false;
     const complianceStep = {
       name: "chapter_plan_compliance",
@@ -1256,6 +1408,7 @@ export async function runDeepChapterGeneration(
             finalContent = repairedContent.trim();
             revised = true;
             const afterChars = countChapterChars(finalContent);
+            planCompliance = buildPlanDeviationRepairReturnContent(parsedCompliance, beforeChars, afterChars);
             emitDeepChapterActivity(callbacks, {
               id: `deep_chapter:plan_deviation_repair:output:${Date.now()}`,
               stageId: "plan_deviation_repair",
@@ -1310,6 +1463,7 @@ export async function runDeepChapterGeneration(
     reviewResults,
     revised,
     planCompliance,
+    executionReport: executionReportSummary,
   };
 }
 
@@ -1542,6 +1696,33 @@ function chapterPlanComplianceStatusLabel(
   if (status === "partial_deviation") return "部分偏离";
   if (status === "clear_deviation") return "明显偏离";
   return "未知";
+}
+
+function buildPlanDeviationRepairReturnContent(
+  result: ParsedChapterPlanComplianceResult,
+  beforeChars: number,
+  afterChars: number,
+): string {
+  const lines = [
+    "计划偏离点返修：已完成",
+    `返修前履约状态：${chapterPlanComplianceStatusLabel(result.status)}`,
+    `已处理偏离点数量：${result.deviations.length}`,
+    `返修前：约 ${beforeChars} 字。`,
+    `返修后：约 ${afterChars} 字。`,
+    "最终正文已按计划偏离点轻量返修结果更新。",
+  ];
+  const handledPoints = result.deviations
+    .map((item) => item.point.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  if (handledPoints.length > 0) {
+    lines.push("");
+    lines.push("已处理偏离点：");
+    handledPoints.forEach((point, index) => {
+      lines.push(`${index + 1}. ${point}`);
+    });
+  }
+  return lines.join("\n");
 }
 
 function validateChapterPlanRepairResult(
