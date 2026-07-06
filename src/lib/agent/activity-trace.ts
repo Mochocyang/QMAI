@@ -7,6 +7,7 @@ import type {
 } from "./types"
 
 const EMPTY_CONTENT = "本阶段未返回可展示内容。"
+const AGGREGATE_STAGE_IDS = new Set(["chapter_workflow", "react_tools"])
 
 export interface CreateAgentActivityEventInput {
   id: string
@@ -61,7 +62,7 @@ export function applyAgentActivityEvent(
   stages: AgentStageTrace[] | undefined,
   event: AgentActivityEvent,
 ): AgentStageTrace[] {
-  const current = stages ?? []
+  const current = settlePreviousSequentialStages(stages ?? [], event)
   const existingIndex = current.findIndex((stage) => stage.id === event.stageId)
   const existingStage = existingIndex >= 0 ? current[existingIndex] : createStageFromEvent(event)
   const nextStage = applyEventToStage(existingStage, event)
@@ -82,9 +83,9 @@ export function summarizeAgentStage(stage: AgentStageTrace): string {
 }
 
 export function getDefaultOpenAgentStageId(stages: AgentStageTrace[]): string | null {
-  return stages.find((stage) => stage.status === "running")?.id
-    ?? stages.find((stage) => stage.status === "approval_required")?.id
-    ?? stages.find((stage) => stage.status === "error")?.id
+  return findMostRecentStageId(stages, "running")
+    ?? findMostRecentStageId(stages, "approval_required")
+    ?? findMostRecentStageId(stages, "error")
     ?? null
 }
 
@@ -148,6 +149,41 @@ function applyEventToStage(stage: AgentStageTrace, event: AgentActivityEvent): A
     startedAt,
     finishedAt,
   }
+}
+
+function settlePreviousSequentialStages(
+  stages: AgentStageTrace[],
+  event: AgentActivityEvent,
+): AgentStageTrace[] {
+  if (event.kind !== "stage_started") return stages
+
+  return stages.map((stage) => {
+    if (stage.id === event.stageId) return stage
+    if (AGGREGATE_STAGE_IDS.has(stage.id)) return stage
+    if (stage.status !== "running" && stage.status !== "pending") return stage
+
+    return {
+      ...stage,
+      status: "done",
+      finishedAt: event.timestamp,
+      summary: stage.summary || summarizeAgentStage(stage),
+    }
+  })
+}
+
+function findMostRecentStageId(
+  stages: AgentStageTrace[],
+  status: AgentStageStatus,
+): string | null {
+  const matching = stages.filter((stage) => stage.status === status)
+  if (matching.length === 0) return null
+  return matching.reduce((latest, stage) => {
+    const latestLastEvent = latest.events[latest.events.length - 1]
+    const stageLastEvent = stage.events[stage.events.length - 1]
+    const latestTime = latest.startedAt ?? latestLastEvent?.timestamp ?? 0
+    const stageTime = stage.startedAt ?? stageLastEvent?.timestamp ?? 0
+    return stageTime >= latestTime ? stage : latest
+  }).id
 }
 
 function statusFromEvent(current: AgentStageStatus, event: AgentActivityEvent): AgentStageStatus {

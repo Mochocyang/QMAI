@@ -92,6 +92,23 @@ describe("chat-panel agent reference integration", () => {
     expect(source).not.toContain("用户已开启深度模式，请在必要时进行更完整的章节规划和资料读取。")
   })
 
+  it("shows route descriptions in the workflow mode menu", () => {
+    expect(source).toContain("description: \"轻量直出")
+    expect(source).toContain("description: \"基础收尾")
+    expect(source).toContain("description: \"完整质检")
+    expect(source).toContain("workflowModeDropdownStyle.width")
+    expect(source).toContain("routeDescription")
+  })
+
+  it("adds visible route and selected skill summaries to the generation process", () => {
+    expect(source).toContain("buildWorkflowRouteActivityContent")
+    expect(source).toContain("buildSelectedSkillsActivityContent")
+    expect(source).toContain("当前执行路线")
+    expect(source).toContain("本次启用 Skill")
+    expect(source).toContain('kind: "skill_used"')
+    expect(source).toContain("prePluginResult?.selectedSkills")
+  })
+
   it("keeps Plan Execute as an independent switch outside fast standard strict modes", () => {
     expect(source).toContain("planExecuteEnabled")
     expect(source).toContain("setPlanExecuteEnabled")
@@ -201,6 +218,16 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("prePluginSystemPrompt")
   })
 
+  it("skips the character soul confirmation dialog in fast workflow mode", () => {
+    expect(source).toContain('aiWorkflowMode !== "fast"')
+    expect(source).toContain('contextPack.characterAuras.trim()')
+    const guardIndex = source.indexOf('aiWorkflowMode !== "fast"')
+    const requestIndex = source.indexOf("await requestSoulDialog(contextPack.characterAuras)")
+    expect(guardIndex).toBeGreaterThan(-1)
+    expect(requestIndex).toBeGreaterThan(-1)
+    expect(guardIndex).toBeLessThan(requestIndex)
+  })
+
   it("passes MCP capabilities from agent config into the novel pre-plugin chain", () => {
     expect(source).toContain("mcpCapabilities: agentMcpCapabilities")
     expect(source).not.toContain("mcpCapabilities: ([] as any[])")
@@ -238,8 +265,15 @@ describe("chat-panel agent reference integration", () => {
 
   it("settles running tool calls when the agent session finishes", () => {
     expect(source).toContain("settleRunningAgentToolCalls")
-    expect(source).toContain("settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls")
-    expect(source).toContain('settleRunningAgentToolCalls(message.agentToolCalls, "error"')
+    expect(source).not.toContain("const _settlePattern")
+    expect(source).toContain("agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls)")
+    expect(source).toContain('agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error")')
+  })
+
+  it("settles visible tool calls when generation is cancelled from any chat confirmation path", () => {
+    expect(source).toContain('agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled")')
+    expect(source).toContain("content: \"已取消本次生成，角色灵魂上下文未发送给模型。\"")
+    expect(source).toContain("已停止生成。")
   })
 
   it("routes normal agent sends through runAiChatSession", () => {
@@ -373,6 +407,14 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
     expect(source).toContain('closeChapterPlanDialog("skip")')
     expect(source).toContain('closeChapterPlanDialog("cancel")')
     expect(source).toContain('closeChapterPlanDialog({ modify:')
+  })
+
+  it("records a visible cancellation when the chapter plan dialog is cancelled", () => {
+    expect(source).toContain("recordChapterPlanExecutionCancelled")
+    expect(source).toContain("已取消计划执行，未进入正文生成。")
+    expect(source).toContain("用户取消了章节计划确认")
+    expect(source).toContain('settleRunningAgentStages(message.agentStages, "cancelled")')
+    expect(source).toContain('if (action === "cancel")')
   })
 })
 

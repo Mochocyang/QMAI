@@ -965,7 +965,7 @@ describe("runDeepChapterGeneration", () => {
     expect(overrides[1]).toEqual({ reasoning: { mode: "off" } })
   })
 
-  it("uses the same task loop with different workflow strength for fast standard and strict modes", async () => {
+  it("uses separate workflow routes for fast standard and strict modes", async () => {
     const fastDeps = createDeps()
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
@@ -1048,15 +1048,16 @@ describe("runDeepChapterGeneration", () => {
     expect(events.find((event) => event.name === "chapter_complete")?.result).toContain("多任务写作循环完成")
   })
 
-  it("keeps fast and standard workflow visibility aligned with their skipped stages", async () => {
+  it("keeps workflow visibility aligned with the selected mode route", async () => {
     const fastEvents: Array<{ name: string; result?: string }> = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
       { onWorkflowEvent: (event) => fastEvents.push(event) },
       createDeps(),
     )
-    expect(fastEvents.find((event) => event.name === "chapter_review")?.result).toContain("快速模式跳过")
-    expect(fastEvents.find((event) => event.name === "chapter_final_polish")?.result).toContain("快速模式跳过")
+    expect(fastEvents.some((event) => event.name === "chapter_review")).toBe(false)
+    expect(fastEvents.some((event) => event.name === "chapter_final_polish")).toBe(false)
+    expect(fastEvents.find((event) => event.name === "chapter_complete")?.result).toContain("快速模式写作完成")
 
     const standardEvents: Array<{ name: string; result?: string }> = []
     await runDeepChapterGeneration(
@@ -1066,6 +1067,56 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(standardEvents.find((event) => event.name === "chapter_review")?.result).toContain("标准模式跳过")
     expect(standardEvents.find((event) => event.name === "chapter_final_polish" && event.result)?.result).toContain("简单审查与去AI味完成")
+  })
+
+  it("keeps fast mode on a lightweight route without post-draft plan audits", async () => {
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi.fn(async () => ({
+        status: "fail" as const,
+        sceneResults: [{
+          id: "S1",
+          passed: false,
+          missing: ["主角进入旧屋"],
+          evidence: "正文停在门外。",
+          repairInstruction: "补写主角进入旧屋。",
+        }],
+        mustDoResults: [],
+        mustAvoidResults: [],
+        finalHookPassed: true,
+        repairItems: ["S1 缺少主角进入旧屋"],
+      })),
+      runChapterPlanComplianceCheck: vi.fn(async () => "履约度：偏离"),
+      runChapterPlanDeviationRepair: vi.fn(async () => chapterText("不应出现的返修正文", 3000)),
+    }
+    const events: Array<{ name: string; title: string; result?: string }> = []
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "fast",
+        planBlueprint: "## 本章策划案\nS1：旧屋门口\n- 输出结果：主角进入旧屋。",
+      },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )
+
+    expect(deps.runChapterExecutionContractBuild).not.toHaveBeenCalled()
+    expect(deps.runChapterExecutionReportCheck).not.toHaveBeenCalled()
+    expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
+    expect(deps.runChapterPlanDeviationRepair).not.toHaveBeenCalled()
+    expect(result.planCompliance).toBe("")
+    expect(result.executionReport).toBe("")
+    expect(events.some((event) => event.name === "chapter_execution_report")).toBe(false)
+    expect(events.some((event) => event.name === "chapter_plan_compliance")).toBe(false)
+    const completeEvent = events.find((event) => event.name === "chapter_complete")
+    expect(completeEvent?.title).toBe("完成快速写作")
+    expect(completeEvent?.result).toContain("快速模式写作完成")
+    expect(completeEvent?.result).not.toContain("多任务写作循环")
   })
 
   it("shows a visible golden-three hint in thinking when generating the first chapter", async () => {

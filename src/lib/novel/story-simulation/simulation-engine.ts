@@ -35,6 +35,7 @@ import type {
   SimulationEvent,
   SimulationInput,
   SimulationState,
+  StoryFramework,
   StoryNode,
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
@@ -126,6 +127,20 @@ let eventCounter = 0
 function nextEventId(): string {
   eventCounter++
   return `evt_${Date.now()}_${eventCounter}`
+}
+
+function timelineEventToResumeSimulationEvent(
+  event: TimelineEvent,
+  framework: StoryFramework,
+): SimulationEvent {
+  const node = framework.nodes.find((item) => item.index === event.nodeIndex)
+  return {
+    type: "info",
+    node,
+    timestamp: event.timestamp,
+    message: `[已保存] 节点${event.nodeIndex + 1} 第${event.round + 1}轮 ${event.actorName}：${event.content}`,
+    timelineEvent: event,
+  }
 }
 
 // ── 内部辅助：构建 Agent 系统提示词 ──
@@ -1154,7 +1169,7 @@ export async function runSimulation(
   signal?: AbortSignal,
 ): Promise<SimulationEvent[]> {
   const events: SimulationEvent[] = []
-  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool } = input
+  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume } = input
   const mode = input.mode || framework.simulationMode || "hybrid"
   const modeConfig: ModeConfig = getModeConfig(mode)
   const totalNodes = framework.nodes.length
@@ -1163,6 +1178,9 @@ export async function runSimulation(
   const baseRounds = Math.max(1, maxRoundsPerNode ?? calculatedRounds)
   const maxRounds = Math.max(1, Math.round(baseRounds * modeConfig.roundsMultiplier))
   let aborted = false
+  const resumeTimelineEvents = resume?.timelineEvents ?? []
+  const normalizedResumeNodeIndex = Math.max(0, Math.min(totalNodes - 1, resume?.nextNodeIndex ?? 0))
+  const normalizedResumeRound = Math.max(0, resume?.nextRound ?? 0)
 
   const isStagedPool =
     dynamicEventPool &&
@@ -1188,7 +1206,7 @@ export async function runSimulation(
   // 初始化仿真状态
   const state: SimulationState = {
     currentRound: 0,
-    timelineEvents: [],
+    timelineEvents: [...resumeTimelineEvents],
     activeAgents: cloneAgentsToMap(agents),
     worldState: {},
     dynamicEventPool: stringPool && stringPool.length > 0 ? stringPool : undefined,
@@ -1198,16 +1216,30 @@ export async function runSimulation(
   }
   const blackboard = createSimulationBlackboard({
     agents: Array.from(state.activeAgents.values()),
+    timelineEvents: resumeTimelineEvents,
   })
 
   try {
-    for (let ni = 0; ni < totalNodes; ni++) {
+    for (const event of resumeTimelineEvents) {
+      callbacks.onTimelineEvent?.(event)
+      events.push(timelineEventToResumeSimulationEvent(event, framework))
+    }
+
+    let startNodeIndex = resume ? normalizedResumeNodeIndex : 0
+    let firstNodeStartRound = resume ? normalizedResumeRound : 0
+    if (firstNodeStartRound >= maxRounds) {
+      startNodeIndex += 1
+      firstNodeStartRound = 0
+    }
+
+    for (let ni = startNodeIndex; ni < totalNodes; ni++) {
       if (signal?.aborted) {
         aborted = true
         break
       }
 
       const node = framework.nodes[ni]
+      const isResumingInsideNode = !!resume && ni === startNodeIndex && firstNodeStartRound > 0
 
       const nodeAgentList = selectNodeAgentCandidates(blackboard, node)
 
@@ -1219,14 +1251,16 @@ export async function runSimulation(
       state.activeAgents = activeMap
       blackboard.activeAgents = activeMap
 
-      // 产出 node-start 事件
-      const startEvent: SimulationEvent = {
-        type: "node-start",
-        node,
-        timestamp: new Date().toISOString(),
+      if (!isResumingInsideNode) {
+        // 产出 node-start 事件
+        const startEvent: SimulationEvent = {
+          type: "node-start",
+          node,
+          timestamp: new Date().toISOString(),
+        }
+        events.push(startEvent)
+        callbacks.onEvent(startEvent)
       }
-      events.push(startEvent)
-      callbacks.onEvent(startEvent)
 
       callbacks.onProgress(
         Math.round((ni / totalNodes) * 100),
@@ -1239,11 +1273,15 @@ export async function runSimulation(
       const nodeInjectionEvent = directorInjection || initialInjection
 
       // 当前节点内的事件描述（供 recentEvents 使用）
-      const recentEventDescs: string[] = []
-      const nodeTimelineEvents: TimelineEvent[] = []
+      const previousNodeEvents = resumeTimelineEvents.filter((event) => event.nodeIndex === node.index)
+      const recentEventDescs: string[] = previousNodeEvents.map(
+        (event) => `[已保存] ${event.actorName}：${event.content}`,
+      )
+      const nodeTimelineEvents: TimelineEvent[] = [...previousNodeEvents]
 
       // 节点内多轮交互
-      for (let round = 0; round < maxRounds; round++) {
+      const roundStart = ni === startNodeIndex ? firstNodeStartRound : 0
+      for (let round = roundStart; round < maxRounds; round++) {
         if (signal?.aborted) {
           aborted = true
           break
@@ -1320,6 +1358,10 @@ export async function runSimulation(
               }
             }
           } catch (agentErr) {
+            if (signal?.aborted || (agentErr instanceof Error && agentErr.name === "AbortError")) {
+              aborted = true
+              break
+            }
             console.warn(`[simulation] Agent ${currentAgent.name} 决策失败，跳过本轮：`, agentErr)
             const warnEvent: SimulationEvent = {
               type: "info",
@@ -1386,6 +1428,10 @@ export async function runSimulation(
                 blackboard,
                 signal,
               )
+              if (signal?.aborted) {
+                aborted = true
+                break
+              }
             }
           }
         }
@@ -1439,6 +1485,11 @@ export async function runSimulation(
             )
             recentEventDescs.push(`[系统事件] ${randomEvent.message}`)
           }
+        }
+
+        if (signal?.aborted) {
+          aborted = true
+          break
         }
 
         // f. 检查节点目标是否达成

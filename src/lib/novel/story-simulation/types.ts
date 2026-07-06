@@ -304,6 +304,14 @@ export interface SimulationReport {
   createdAt: string
 }
 
+export type SimulationResultStatus = "complete" | "partial" | "cancelled"
+
+export interface SimulationResumePoint {
+  nextNodeIndex: number
+  nextRound: number
+  timelineEvents: TimelineEvent[]
+}
+
 export interface CharacterAnalysis {
   characterId: string
   name: string
@@ -368,6 +376,8 @@ export interface SimulationInput {
   maxRoundsPerNode?: number
   /** LLM 预生成的动态事件池（支持字符串数组或分阶段池） */
   dynamicEventPool?: string[] | StagedEventPool
+  /** 从中断位置继续推演 */
+  resume?: SimulationResumePoint
 }
 
 // ── 仿真配置 ──

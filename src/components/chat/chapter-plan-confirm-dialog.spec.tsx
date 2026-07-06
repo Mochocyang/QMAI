@@ -22,6 +22,35 @@ describe("chapter-plan-confirm-dialog 纯函数", () => {
       expect(extractChapterPlan("普通正文")).toBeNull()
     })
 
+    it("无标记但包含章节计划结构时提取整段计划", () => {
+      const content = [
+        "1. 本章目标",
+        "承接上一章结尾，推进女主对林风的认知变化。",
+        "2. 已知依据",
+        "上一章结尾：女主误认轻薄，要求林风杀她。",
+        "3. 执行边界",
+        "- 必须执行：林风压住杀意，局面转向对峙。",
+        "4. 分场景执行计划",
+        "S1：林地对峙。目的：延续误会。冲突：女主求死，林风拒绝。",
+        "5. 信息流与伏笔",
+        "本章揭示女主对林风身份的误判。",
+        "6. 验收标准",
+        "- 女主仍然误解林风。",
+        "7. 风险与兜底",
+        "- 避免直接写成解释说明。",
+      ].join("\n")
+
+      const result = extractChapterPlan(content)
+
+      expect(result).not.toBeNull()
+      expect(result!.plan).toBe(content)
+      expect(result!.body).toBe("")
+    })
+
+    it("只有少量计划词但不是结构化计划时仍返回 null", () => {
+      expect(extractChapterPlan("本章目标是制造紧张感，然后直接输出正文。")).toBeNull()
+    })
+
     it("只有开始标记时返回 null", () => {
       expect(extractChapterPlan(`${CHAPTER_PLAN_MARKER_START}计划内容`)).toBeNull()
     })

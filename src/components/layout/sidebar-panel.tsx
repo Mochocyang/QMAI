@@ -515,6 +515,9 @@ function StorySimulationSidebarPanel() {
             agentSnapshot: r.agentSnapshot,
             rumors: r.rumors,
             debugTraces: r.debugTraces,
+            status: r.status,
+            partialReason: r.partialReason,
+            resume: r.resume,
             createdAt: r.report.createdAt,
           })),
         );

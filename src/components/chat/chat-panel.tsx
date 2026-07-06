@@ -45,7 +45,7 @@ import type { UserSkill } from "@/lib/novel/skill-library"
 import type { ContextPack } from "@/lib/novel/context-engine"
 import type { PrePluginChainResult } from "@/lib/agent/pipeline"
 import { applyAgentToolActivityEvent, applyAgentToolEvent } from "@/lib/agent/tool-events"
-import { applyAgentActivityEvent, settleRunningAgentStages } from "@/lib/agent/activity-trace"
+import { applyAgentActivityEvent, createAgentActivityEvent, settleRunningAgentStages } from "@/lib/agent/activity-trace"
 import { useAgentConfig } from "@/hooks/use-agent-config"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { executeIngestWrites } from "@/lib/ingest"
@@ -118,21 +118,37 @@ const taskRoute = shouldRunNovelPrePluginChain ? rawTaskRoute : null
 const selectedSkillsPrompt = ""
 const aiSessionWorkflowModeLabel = "AI 会话执行模式"
 const aiSessionPlanExecuteLabel = "计划执行模式"
-const aiWorkflowModeOptions: Array<{ mode: AiWorkflowMode; label: string }> = [
-  { mode: "fast", label: "快速" },
-  { mode: "standard", label: "标准" },
-  { mode: "strict", label: "严格" },
+const aiWorkflowModeOptions: Array<{
+  mode: AiWorkflowMode
+  label: string
+  description: string
+  routeDescription: string
+}> = [
+  {
+    mode: "fast",
+    label: "快速",
+    description: "轻量直出",
+    routeDescription: "读取上下文、生成任务书和正文初稿后直接完成，不做正文后审核。",
+  },
+  {
+    mode: "standard",
+    label: "标准",
+    description: "基础收尾",
+    routeDescription: "读取必要上下文，生成正文后做简单审查、去AI味和计划验收。",
+  },
+  {
+    mode: "strict",
+    label: "严格",
+    description: "完整质检",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
+  },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
-const _settlePattern1 = "settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls"
-const _settlePattern2 = 'settleRunningAgentToolCalls(message.agentToolCalls, "error"'
 void rawTaskRoute
 void shouldRunNovelPrePluginChain
 void taskRoute
 void selectedSkillsPrompt
 void aiSessionPlanExecuteLabel
-void _settlePattern1
-void _settlePattern2
 void currentModelNotSupportMsg
 if (rawTaskRoute && rawTaskRoute.intent !== "general_chat") {}
 let _prePluginResult: { stopReason?: string; contextPack?: any } | null = null
@@ -202,6 +218,39 @@ function buildChapterPlanSelfCheckContext(pack: ContextPack | null): ChapterPlan
     canonRules: pack.canonRules,
     mustAvoid: pack.mustAvoid,
   }
+}
+
+function getWorkflowModeOption(mode: AiWorkflowMode) {
+  return aiWorkflowModeOptions.find((option) => option.mode === mode) ?? aiWorkflowModeOptions[1]
+}
+
+function buildWorkflowRouteActivityContent(
+  mode: AiWorkflowMode,
+  planExecuteActive: boolean,
+  route: TaskRouteResult | null,
+): string {
+  const option = getWorkflowModeOption(mode)
+  return [
+    `当前模式：${option.label}模式（${option.description}）。`,
+    `执行路线：${option.routeDescription}`,
+    `计划执行：${planExecuteActive ? "已开启，写正文前会先生成计划并等待确认。" : "未开启，按当前模式直接执行。"}`,
+    route
+      ? `识别任务：${route.intent}${route.chapterNumber ? `，目标第${route.chapterNumber}章` : ""}。`
+      : "识别任务：普通会话或低置信度写作请求。",
+  ].join("\n")
+}
+
+function buildSelectedSkillsActivityContent(skills: UserSkill[] | undefined): string {
+  if (!skills || skills.length === 0) {
+    return "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。"
+  }
+  return skills
+    .map((skill, index) => {
+      const stageText = skill.stages.length > 0 ? skill.stages.join("、") : "未标注阶段"
+      const kindText = skill.kind.length > 0 ? skill.kind.join("、") : "未标注类型"
+      return `${index + 1}. ${skill.name}｜阶段：${stageText}｜类型：${kindText}｜优先级：${skill.priority ?? 50}`
+    })
+    .join("\n")
 }
 
 function buildChatAgentSystemPrompt(options: {
@@ -340,6 +389,30 @@ function updateAgentAssistantMessage(
     messages: state.messages.map((message) =>
       message.id === messageId ? updater(message) : message,
     ),
+  }))
+}
+
+function recordChapterPlanExecutionCancelled(messageId: string): void {
+  const timestamp = Date.now()
+  const cancelEvent = createAgentActivityEvent({
+    id: `chapter_plan_cancelled:${messageId}:${timestamp}`,
+    stageId: "write_confirmation",
+    kind: "stage_output",
+    title: "已取消计划执行",
+    content: "用户取消了章节计划确认，未进入正文生成。",
+    timestamp,
+  })
+  updateAgentAssistantMessage(messageId, (message) => ({
+    ...message,
+    content: message.content
+      ? `${message.content}\n\n已取消计划执行，未进入正文生成。`
+      : "已取消计划执行，未进入正文生成。",
+    agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled"),
+    agentStages: applyAgentActivityEvent(
+      settleRunningAgentStages(message.agentStages, "cancelled"),
+      cancelEvent,
+    ),
+    isAgentRunning: false,
   }))
 }
 
@@ -692,7 +765,7 @@ export function ChatPanel() {
     const updatePosition = () => {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect()
       if (!rect) return
-      const width = Math.max(rect.width, 100)
+      const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 8)
       const top = rect.bottom + 6
       setWorkflowModeDropdownStyle({
         left: Math.min(rect.left, window.innerWidth - width - 4),
@@ -1144,13 +1217,13 @@ export function ChatPanel() {
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
           content: message.content || record?.finalText || "Agent未返回内容。",
-          agentToolCalls: record?.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+          agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls),
           agentStages: settleRunningAgentStages(message.agentStages, "done"),
           references: (() => {
             const existingReferences = message.references ?? []
             const existingPaths = new Set(existingReferences.map((reference) => reference.path))
             const agentReferences = agentToolCallsToMessageReferences(
-              record?.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+              settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls) ?? [],
             ).filter((reference) => !existingPaths.has(reference.path))
             return agentReferences.length > 0
               ? [...existingReferences, ...agentReferences]
@@ -1168,6 +1241,7 @@ export function ChatPanel() {
           content: message.content
             ? `${message.content}\n\n出错：${error.message}`
             : `出错：${error.message}`,
+          agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error"),
           agentStages: settleRunningAgentStages(message.agentStages, "error"),
           contextTrace: contextTrace || message.contextTrace,
           isAgentRunning: false,
@@ -1239,6 +1313,33 @@ export function ChatPanel() {
         contextPack = prePluginResult.contextPack || null
       }
 
+      if (novelMode) {
+        const now = Date.now()
+        const routeEvent = createAgentActivityEvent({
+          id: `chat_route:${assistantMessage.id}:${now}`,
+          stageId: "task_understanding",
+          kind: "analysis",
+          title: "当前执行路线",
+          content: buildWorkflowRouteActivityContent(aiWorkflowMode, planExecuteActive, effectiveTaskRoute),
+          timestamp: now,
+        })
+        const skillEvent = createAgentActivityEvent({
+          id: `chat_skills:${assistantMessage.id}:${now + 1}`,
+          stageId: "capability_selection",
+          kind: "skill_used",
+          title: "本次启用 Skill",
+          content: buildSelectedSkillsActivityContent(prePluginResult?.selectedSkills),
+          timestamp: now + 1,
+        })
+        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+          ...message,
+          agentStages: applyAgentActivityEvent(
+            applyAgentActivityEvent(message.agentStages, routeEvent),
+            skillEvent,
+          ),
+        }))
+      }
+
       const shouldUseQmQuaiSkill = effectiveTaskRoute != null && (
         effectiveTaskRoute.intent === "write_chapter" ||
         effectiveTaskRoute.intent === "continue_chapter" ||
@@ -1275,13 +1376,15 @@ export function ChatPanel() {
             nextChapterAdvice: "",
             revisionDirectives: "",
           }))
-          if (contextPack.characterAuras.trim()) {
+          if (aiWorkflowMode !== "fast" && contextPack.characterAuras.trim()) {
             const confirmed = await requestSoulDialog(contextPack.characterAuras)
             if (!confirmed) {
               finishAgentSession(() => {
                 updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                   ...message,
                   content: "已取消本次生成，角色灵魂上下文未发送给模型。",
+                  agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled"),
+                  agentStages: settleRunningAgentStages(message.agentStages, "cancelled"),
                   isAgentRunning: false,
                 }))
               })
@@ -1400,7 +1503,6 @@ export function ChatPanel() {
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
         finishAgentSession(() => {
           if (!hasAgentError) {
-            settleRunningAgentToolCalls(record?.toolCalls ?? assistantMessage.agentToolCalls ?? [])
             if (contextTrace && effectiveTaskRoute) {
               const traceInfo = buildInitialContextTraceInfo(effectiveTaskRoute, prePluginResult, { workflowMode: aiWorkflowMode })
               contextTrace = setContextInfo(contextTrace, traceInfo)
@@ -1464,7 +1566,10 @@ export function ChatPanel() {
               fullContent,
               capturedConvId,
             )
-            if (action !== "cancel") {
+            if (action === "cancel") {
+              recordChapterPlanExecutionCancelled(assistantMessage.id)
+              chapterPlanContextRef.current = null
+            } else {
               let followupText: string
               if (action === "confirm") {
                 confirmedBlueprintRef.current = extracted.plan
@@ -1483,15 +1588,12 @@ export function ChatPanel() {
                 confirmedBlueprintRef.current = null
                 chapterPlanContextRef.current = null
               }
-            } else {
-              chapterPlanContextRef.current = null
             }
           }
         }
       } catch (error) {
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
         finishAgentSession(() => {
-          settleRunningAgentToolCalls(assistantMessage.agentToolCalls ?? [], "error")
           if (contextTrace) contextTrace = finishTrace(contextTrace, "error", error instanceof Error ? error.message : String(error))
           markError(error instanceof Error ? error : new Error(String(error)))
         })
@@ -1548,6 +1650,7 @@ export function ChatPanel() {
           updateAgentAssistantMessage(runningAssistant.id, (message) => ({
             ...message,
             content: message.content ? `${message.content}\n\n已停止生成。` : "已停止生成。",
+            agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled"),
             agentStages: settleRunningAgentStages(message.agentStages, "cancelled"),
             isAgentRunning: false,
           }))
@@ -1768,24 +1871,34 @@ export function ChatPanel() {
                                 zIndex: 9999,
                               }}
                             >
-                              {aiWorkflowModeOptions.map(({ mode, label }) => (
+                              {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
                                 <button
                                   key={mode}
                                   type="button"
                                   role="option"
                                   aria-selected={aiWorkflowMode === mode}
-                                  className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm hover:bg-accent"
+                                  className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent"
                                   onClick={() => {
                                     setAiWorkflowMode(mode)
                                     setWorkflowModeDropdownOpen(false)
                                   }}
                                 >
                                   <Check
-                                    className={`h-4 w-4 shrink-0 ${
+                                    className={`mt-0.5 h-4 w-4 shrink-0 ${
                                       aiWorkflowMode === mode ? "opacity-100" : "opacity-0"
                                     }`}
                                   />
-                                  <span className="flex-1">{label}</span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2 text-sm font-medium">
+                                      <span>{label}</span>
+                                      <span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                                        {description}
+                                      </span>
+                                    </span>
+                                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                                      {routeDescription}
+                                    </span>
+                                  </span>
                                 </button>
                               ))}
                             </div>

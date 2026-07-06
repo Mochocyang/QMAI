@@ -12,6 +12,8 @@ const readFileMock = vi.hoisted(() => vi.fn())
 const writeFileMock = vi.hoisted(() => vi.fn())
 const writeFileAtomicMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
+const openDialogMock = vi.hoisted(() => vi.fn())
+const saveDialogMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/commands/fs", () => ({
   readFile: readFileMock,
@@ -21,6 +23,11 @@ vi.mock("@/commands/fs", () => ({
 
 vi.mock("@tauri-apps/api/path", () => ({
   join: joinMock,
+}))
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: openDialogMock,
+  save: saveDialogMock,
 }))
 
 const deAiConfig = {
@@ -112,6 +119,8 @@ describe("UnifiedSkillLibraryView", () => {
     })
     writeFileMock.mockResolvedValue(undefined)
     writeFileAtomicMock.mockResolvedValue(undefined)
+    openDialogMock.mockResolvedValue(null)
+    saveDialogMock.mockResolvedValue(null)
     useWikiStore.getState().setProject({
       id: "p1",
       name: "测试项目",
@@ -132,6 +141,101 @@ describe("UnifiedSkillLibraryView", () => {
     for (const label of ["全部", "写作", "去AI味", "审稿", "输出", "知识"]) {
       expect(getButton(container, label)).not.toBeUndefined()
     }
+
+    cleanup(root, container)
+  })
+
+  it("keeps creation, import, and export actions out of the unified sidebar", async () => {
+    const { container, root } = await renderLibrary()
+    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')
+
+    for (const label of ["新建去AI技能", "新建 Skill", "导入文件", "导入文件夹", "导出当前"]) {
+      expect(sidebar?.textContent).not.toContain(label)
+    }
+
+    cleanup(root, container)
+  })
+
+  it("shows de-AI actions in the right header when de-AI skill tab is active", async () => {
+    const { container, root } = await renderLibrary()
+    const actions = container.querySelector<HTMLElement>('[data-testid="skill-library-header-actions"]')
+
+    expect(actions?.textContent).toContain("新建技能")
+    expect(actions?.textContent).toContain("导入技能")
+    expect(actions?.textContent).toContain("导入文件")
+    expect(actions?.textContent).toContain("导入文件夹")
+    expect(actions?.textContent).not.toContain("新建 Skill")
+    expect(actions?.textContent).not.toContain("导出当前")
+
+    cleanup(root, container)
+  })
+
+  it("shows writing Skill actions in the right header when writing tab is active", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      getButton(container, "写作 Skill")?.click()
+    })
+    await flushEffects()
+
+    const actions = container.querySelector<HTMLElement>('[data-testid="skill-library-header-actions"]')
+    expect(actions?.textContent).toContain("新建 Skill")
+    expect(actions?.textContent).toContain("导入 Skill")
+    expect(actions?.textContent).toContain("导入文件")
+    expect(actions?.textContent).toContain("导入文件夹")
+    expect(actions?.textContent).toContain("导出当前")
+    expect(actions?.textContent).not.toContain("新建技能")
+
+    cleanup(root, container)
+  })
+
+  it("creates a writing Skill directly from the right header", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      getButton(container, "写作 Skill")?.click()
+    })
+    await flushEffects()
+
+    await act(async () => {
+      getButton(container, "新建 Skill")?.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
+    expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toMatch(/^skill:/)
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/writing-skills.json",
+      expect.stringContaining("新建写作 Skill"),
+    )
+
+    cleanup(root, container)
+  })
+
+  it("imports a de-AI skill file from the right header", async () => {
+    openDialogMock.mockResolvedValue("C:/skills/冷硬叙事.md")
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path === "C:/skills/冷硬叙事.md") return "# 冷硬叙事\n\n删掉解释，保留动作。"
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      getButton(container, "导入文件")?.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/de-ai-skills.json",
+      expect.stringContaining("冷硬叙事"),
+    )
+    expect(writeFileAtomicMock).toHaveBeenCalledWith(
+      "C:/project/de-ai-skills.json",
+      expect.stringContaining("删掉解释，保留动作。"),
+    )
+    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
 
     cleanup(root, container)
   })

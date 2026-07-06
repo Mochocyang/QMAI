@@ -6,10 +6,19 @@ export const CHAPTER_PLAN_MARKER_START = "<!-- chapter_plan -->"
 export const CHAPTER_PLAN_MARKER_END = "<!-- /chapter_plan -->"
 const CHAPTER_PLAN_CONFIRMED_PREFIX = "章节计划已确认"
 const CHAPTER_PLAN_SKIPPED_PREFIX = "跳过章节计划"
+const FALLBACK_PLAN_SECTION_PATTERNS = [
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?本章目标/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?已知依据/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?执行边界/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?分场景执行计划/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?信息流与伏笔/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?验收标准/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?风险与兜底/u,
+]
 
 export function extractChapterPlan(fullContent: string): { plan: string; body: string } | null {
   const startIdx = fullContent.indexOf(CHAPTER_PLAN_MARKER_START)
-  if (startIdx < 0) return null
+  if (startIdx < 0) return extractUnmarkedChapterPlan(fullContent)
   const contentStart = startIdx + CHAPTER_PLAN_MARKER_START.length
   const endIdx = fullContent.indexOf(CHAPTER_PLAN_MARKER_END, contentStart)
   if (endIdx < 0) return null
@@ -18,6 +27,15 @@ export function extractChapterPlan(fullContent: string): { plan: string; body: s
   const afterPlan = fullContent.slice(endIdx + CHAPTER_PLAN_MARKER_END.length).trim()
   const body = [beforePlan, afterPlan].filter(Boolean).join("\n").trim()
   return { plan, body }
+}
+
+function extractUnmarkedChapterPlan(fullContent: string): { plan: string; body: string } | null {
+  const plan = fullContent.trim()
+  if (!plan) return null
+  const matchedSections = FALLBACK_PLAN_SECTION_PATTERNS.filter((pattern) => pattern.test(plan)).length
+  const hasRequiredOpening = FALLBACK_PLAN_SECTION_PATTERNS[0].test(plan)
+  if (!hasRequiredOpening || matchedSections < 4) return null
+  return { plan, body: "" }
 }
 
 export function buildPlanConfirmMessage(plan: string): string {

@@ -42,8 +42,11 @@ import type {
   AgentChatMessage,
   ExtractionResult,
   NovelAgent,
+  RumorEvent,
   SimulationDebugTrace,
   SimulationHistoryEntry,
+  SimulationReport,
+  SimulationResumePoint,
   SimulationState,
   StoryBranch,
   StoryFramework,
@@ -183,6 +186,12 @@ export function StorySimulationView() {
   // 取消控制器
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const resumeSimulationRef = useRef<SimulationResumePoint | null>(null);
+  const resumeSnapshotRef = useRef<{
+    agentSnapshot?: ReturnType<typeof serializeSimulationState> | null;
+    debugTraces?: SimulationDebugTrace[];
+    rumors?: RumorEvent[];
+  } | null>(null);
 
   // 历史结果模态框
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -300,11 +309,92 @@ export function StorySimulationView() {
 
   // ── 核心流程 ──
 
+  const savePartialSimulationResult = async (partialReason: string) => {
+    if (!projectPath || !currentFramework) return;
+    const state = useStorySimulationStore.getState();
+    const savedTimelineEvents = state.timelineEvents;
+    if (savedTimelineEvents.length === 0 && state.debugTraces.length === 0) {
+      return;
+    }
+
+    const latestEvent = savedTimelineEvents[savedTimelineEvents.length - 1];
+    const resume: SimulationResumePoint = {
+      nextNodeIndex: latestEvent?.nodeIndex ?? 0,
+      nextRound: latestEvent ? latestEvent.round + 1 : 0,
+      timelineEvents: savedTimelineEvents,
+    };
+    const activeAgents =
+      state.currentAgents.size > 0
+        ? state.currentAgents
+        : new Map(
+            lastAgentsRef.current.map((agent) => [agent.characterId, agent]),
+          );
+    const snapshotState: SimulationState = {
+      currentRound: latestEvent?.round ?? 0,
+      timelineEvents: savedTimelineEvents,
+      activeAgents,
+      worldState: lastSimulationStateRef.current?.worldState ?? {},
+      directorEnabled: false,
+      nextNodeInjectionMap: new Map(),
+    };
+    const agentsForSnapshot =
+      activeAgents.size > 0
+        ? Array.from(activeAgents.values())
+        : lastAgentsRef.current;
+    const agentSnapshot =
+      agentsForSnapshot.length > 0
+        ? serializeSimulationState(snapshotState, agentsForSnapshot)
+        : undefined;
+    const report: SimulationReport = {
+      frameworkId: currentFramework.id,
+      mode,
+      characterAnalyses: [],
+      branches: [],
+      recommendation: `推演未完成：${partialReason}。可在历史推演结果中查看已生成内容，并继续推演。`,
+      createdAt: new Date().toISOString(),
+    };
+
+    await saveSimulationResult(
+      projectPath,
+      currentFramework.id,
+      report,
+      undefined,
+      savedTimelineEvents,
+      agentSnapshot,
+      state.currentRumors,
+      state.debugTraces,
+      {
+        status: partialReason.includes("取消") ? "cancelled" : "partial",
+        partialReason,
+        resume,
+      },
+    );
+    const results = await loadSimulationResults(projectPath, currentFramework.id);
+    setSavedResults(
+      results.map((r) => ({
+        id: r.id,
+        frameworkId: currentFramework.id,
+        report: r.report,
+        draft: r.draft,
+        timelineEvents: r.timelineEvents,
+        agentSnapshot: r.agentSnapshot,
+        rumors: r.rumors,
+        debugTraces: r.debugTraces,
+        status: r.status,
+        partialReason: r.partialReason,
+        resume: r.resume,
+        createdAt: r.report.createdAt,
+      })),
+    );
+    setInfoMessage("已保存未完成推演，可在历史推演结果中继续。");
+    setTimeout(() => setInfoMessage(null), 5000);
+  };
+
   /** 取消当前正在进行的操作 */
   const handleCancel = () => {
     if (abortControllerRef.current) {
       setIsCancelling(true);
-      setError("正在取消...");
+      setError("正在取消并保存未完成推演...");
       abortControllerRef.current.abort();
     }
   };
@@ -398,7 +488,42 @@ export function StorySimulationView() {
     }
     setSelectedResultId(resultId);
     setShowHistoryModal(false);
+    if ((result.status ?? "complete") !== "complete") {
+      setReportViewTab("timeline");
+    }
     setPhase("report-viewing");
+  };
+
+  const handleContinuePartialResult = (resultId: string) => {
+    const result = savedResults.find((r) => r.id === resultId);
+    if (!result?.resume) return;
+
+    setTimelineEvents(result.timelineEvents || []);
+    setDebugTraces(result.debugTraces || []);
+    setCurrentRumors(result.rumors || []);
+    setCurrentReport(null);
+    setCurrentDraft(null);
+    if (result.agentSnapshot) {
+      try {
+        const { agents, state } = deserializeSimulationSnapshot(
+          result.agentSnapshot,
+        );
+        lastAgentsRef.current = agents;
+        lastSimulationStateRef.current = state;
+        setCurrentAgents(new Map(agents.map((a) => [a.characterId, a])));
+      } catch {
+        setCurrentAgents(new Map());
+      }
+    }
+    resumeSimulationRef.current = result.resume;
+    resumeSnapshotRef.current = {
+      agentSnapshot: result.agentSnapshot,
+      debugTraces: result.debugTraces,
+      rumors: result.rumors,
+    };
+    setSelectedResultId(resultId);
+    setShowHistoryModal(false);
+    void handleConfirmFramework();
   };
 
   /** 确认框架：必要时先保存 → 构建角色 → 仿真 → 生成报告。 */
@@ -407,9 +532,12 @@ export function StorySimulationView() {
       setError("缺少项目路径或故事框架");
       return;
     }
+    const resumePoint = resumeSimulationRef.current;
+    const resumeSnapshot = resumeSnapshotRef.current;
     setError(null);
     setTimelineEvents([]);
-    setDebugTraces([]);
+    setDebugTraces(resumePoint ? resumeSnapshot?.debugTraces || [] : []);
+    setCurrentRumors(resumePoint ? resumeSnapshot?.rumors || [] : []);
     setIsCancelling(false);
     const ac = new AbortController();
     abortControllerRef.current = ac;
@@ -444,7 +572,14 @@ export function StorySimulationView() {
       setPhase("simulating");
       phaseBaseProgressRef.current = 50;
       setProgress(50, t("storySimulation.simulating"));
-      const agents = buildAgents(extraction, currentFramework);
+      let agents = buildAgents(extraction, currentFramework);
+      if (resumePoint && resumeSnapshot?.agentSnapshot) {
+        try {
+          agents = deserializeSimulationSnapshot(resumeSnapshot.agentSnapshot).agents;
+        } catch {
+          // 快照损坏时回退为重新构建角色，避免继续推演入口直接失败。
+        }
+      }
       // 强制校验：没有 Agent 直接中止推演，避免空跑浪费 token
       if (agents.length === 0) {
         throw new Error(
@@ -473,6 +608,15 @@ export function StorySimulationView() {
           addDebugTrace(trace);
           setCurrentRumors(trace.rumors);
           setCurrentAgents(trace.activeAgents);
+          lastAgentsRef.current = Array.from(trace.activeAgents.values());
+          lastSimulationStateRef.current = {
+            currentRound: trace.round,
+            timelineEvents: useStorySimulationStore.getState().timelineEvents,
+            activeAgents: trace.activeAgents,
+            worldState: {},
+            directorEnabled: false,
+            nextNodeInjectionMap: new Map(),
+          };
 
           // 每轮只加一次历史快照（当 round 变化时）
           if (trace.round !== lastHistoryRoundRef.current) {
@@ -520,6 +664,7 @@ export function StorySimulationView() {
           )
             ? dynamicEventPool
             : undefined,
+          resume: resumePoint ?? undefined,
         },
         extraction,
         callbacks,
@@ -527,6 +672,7 @@ export function StorySimulationView() {
       );
 
       if (ac.signal.aborted) {
+        await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
         setError("推演已取消");
         setTimeout(() => setError(null), 3000);
@@ -557,6 +703,7 @@ export function StorySimulationView() {
       });
 
       if (ac.signal.aborted) {
+        await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
         setError("已取消");
         setTimeout(() => setError(null), 3000);
@@ -597,6 +744,9 @@ export function StorySimulationView() {
             agentSnapshot: r.agentSnapshot,
             rumors: r.rumors,
             debugTraces: r.debugTraces,
+            status: r.status,
+            partialReason: r.partialReason,
+            resume: r.resume,
             createdAt: r.report.createdAt,
           })),
         );
@@ -605,6 +755,7 @@ export function StorySimulationView() {
       }
     } catch (err) {
       if (ac.signal.aborted) {
+        await savePartialSimulationResult("用户取消推演");
         setPhase("framework-confirming");
         setError("推演已取消");
         setTimeout(() => setError(null), 3000);
@@ -615,6 +766,8 @@ export function StorySimulationView() {
     } finally {
       setIsCancelling(false);
       abortControllerRef.current = null;
+      resumeSimulationRef.current = null;
+      resumeSnapshotRef.current = null;
     }
   };
 
@@ -696,12 +849,15 @@ export function StorySimulationView() {
             report: r.report,
             draft: r.draft,
             timelineEvents: r.timelineEvents,
-            agentSnapshot: r.agentSnapshot,
-            rumors: r.rumors,
-            debugTraces: r.debugTraces,
-            createdAt: r.report.createdAt,
-          })),
-        );
+              agentSnapshot: r.agentSnapshot,
+              rumors: r.rumors,
+              debugTraces: r.debugTraces,
+              status: r.status,
+              partialReason: r.partialReason,
+              resume: r.resume,
+              createdAt: r.report.createdAt,
+            })),
+          );
       } catch (saveErr) {
         console.error("更新推演结果草稿失败:", saveErr);
       }
@@ -1029,11 +1185,12 @@ export function StorySimulationView() {
             {/* 历史结果模态框 */}
             <HistoryResultsModal
               open={showHistoryModal}
-              projectPath={projectPath}
-              frameworkId={currentFramework?.id}
-              onSelectResult={handleSelectHistoryResult}
-              onClose={() => setShowHistoryModal(false)}
-            />
+                projectPath={projectPath}
+                frameworkId={currentFramework?.id}
+                onSelectResult={handleSelectHistoryResult}
+                onContinueResult={handleContinuePartialResult}
+                onClose={() => setShowHistoryModal(false)}
+              />
           </div>
         ) : phase === "report-viewing" ? (
           <div className="flex min-h-0 flex-1">

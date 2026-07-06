@@ -72,6 +72,52 @@ describe("activity trace", () => {
     expect(getDefaultOpenAgentStageId(stages)).toBe("running")
   })
 
+  it("moves the active stage forward when a later stage starts", () => {
+    let stages: AgentStageTrace[] = []
+
+    stages = applyAgentActivityEvent(stages, createAgentActivityEvent({
+      id: "read-start",
+      stageId: "read_context",
+      kind: "read_source",
+      title: "调用完成：read_chapter",
+      content: "已读取第1章。",
+      timestamp: 100,
+    }))
+    stages = applyAgentActivityEvent(stages, createStageStartedEvent({
+      stageId: "generate_draft",
+      title: "生成章节草稿",
+      summary: "开始生成正文。",
+      timestamp: 200,
+    }))
+
+    expect(stages.find((stage) => stage.id === "read_context")?.status).toBe("done")
+    expect(stages.find((stage) => stage.id === "generate_draft")?.status).toBe("running")
+    expect(getDefaultOpenAgentStageId(stages)).toBe("generate_draft")
+  })
+
+  it("opens the most recent running stage when aggregate and detailed stages overlap", () => {
+    const stages: AgentStageTrace[] = [
+      {
+        id: "chapter_workflow",
+        title: "多任务写作循环",
+        status: "running",
+        summary: "运行章节工作流",
+        events: [],
+        startedAt: 100,
+      },
+      {
+        id: "generate_draft",
+        title: "生成章节草稿",
+        status: "running",
+        summary: "生成正文初稿",
+        events: [],
+        startedAt: 300,
+      },
+    ]
+
+    expect(getDefaultOpenAgentStageId(stages)).toBe("generate_draft")
+  })
+
   it("does not render undefined-like empty content", () => {
     const event = createAgentActivityEvent({
       id: "ev-empty",

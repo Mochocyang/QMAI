@@ -2,12 +2,14 @@
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
+import type { SimulationResultStatus } from "@/lib/novel/story-simulation/types"
 
 interface HistoryResultsModalProps {
   open: boolean
   projectPath: string | undefined
   frameworkId: string | undefined
   onSelectResult: (resultId: string) => void
+  onContinueResult?: (resultId: string) => void
   onClose: () => void
 }
 
@@ -16,6 +18,7 @@ interface ResultItem {
   createdAt: string
   summary: string
   hasDraft: boolean
+  status: SimulationResultStatus
 }
 
 export function HistoryResultsModal({
@@ -23,6 +26,7 @@ export function HistoryResultsModal({
   projectPath,
   frameworkId,
   onSelectResult,
+  onContinueResult,
   onClose,
 }: HistoryResultsModalProps) {
   const [results, setResults] = useState<ResultItem[]>([])
@@ -43,6 +47,7 @@ export function HistoryResultsModal({
             createdAt: r.report.createdAt,
             summary: r.report.recommendation || "查看推演结果",
             hasDraft: !!r.draft,
+            status: r.status,
           })),
         )
       })
@@ -133,11 +138,28 @@ export function HistoryResultsModal({
                           草稿
                         </span>
                       )}
+                      {(result.status ?? "complete") !== "complete" && (
+                        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                          未完成
+                        </span>
+                      )}
                     </div>
                     <span className="block truncate text-xs text-muted-foreground">
                       {result.summary.slice(0, 40)}
                     </span>
                   </div>
+                  {(result.status ?? "complete") !== "complete" && onContinueResult && (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded px-2 py-1 text-xs text-primary opacity-0 transition-opacity hover:bg-primary/10 group-hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onContinueResult(result.id)
+                      }}
+                    >
+                      继续推演
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"

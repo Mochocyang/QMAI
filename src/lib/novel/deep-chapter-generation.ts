@@ -216,9 +216,13 @@ export function shouldUseDeepChapterGeneration(
 interface ChapterWorkflowProfile {
   mode: AiWorkflowMode;
   runPreviousChaptersAnalysis: boolean;
+  runExecutionContractBuild: boolean;
   runAiReview: boolean;
   runFinalPolish: boolean;
   runPostRevisionReview: boolean;
+  runPostDraftPlanAudits: boolean;
+  completionTitle: string;
+  completionResultPrefix: string;
 }
 
 function resolveChapterWorkflowProfile(
@@ -229,26 +233,38 @@ function resolveChapterWorkflowProfile(
     return {
       mode: "fast",
       runPreviousChaptersAnalysis: false,
+      runExecutionContractBuild: false,
       runAiReview: false,
       runFinalPolish: false,
       runPostRevisionReview: false,
+      runPostDraftPlanAudits: false,
+      completionTitle: "完成快速写作",
+      completionResultPrefix: "快速模式写作完成",
     };
   }
   if (resolvedMode === "standard") {
     return {
       mode: "standard",
       runPreviousChaptersAnalysis: false,
+      runExecutionContractBuild: true,
       runAiReview: false,
       runFinalPolish: true,
       runPostRevisionReview: false,
+      runPostDraftPlanAudits: true,
+      completionTitle: "完成多任务写作循环",
+      completionResultPrefix: "多任务写作循环完成",
     };
   }
   return {
     mode: "strict",
     runPreviousChaptersAnalysis: true,
+    runExecutionContractBuild: true,
     runAiReview: true,
     runFinalPolish: true,
     runPostRevisionReview: true,
+    runPostDraftPlanAudits: true,
+    completionTitle: "完成多任务写作循环",
+    completionResultPrefix: "多任务写作循环完成",
   };
 }
 
@@ -471,7 +487,7 @@ export async function runDeepChapterGeneration(
   const planExecutionSummary = buildChapterPlanExecutionSummary(input.planBlueprint ?? "");
   let executionContract: ChapterExecutionContract | null = null;
   let executionContractText = "";
-  if (input.planBlueprint?.trim()) {
+  if (workflowProfile.runExecutionContractBuild && input.planBlueprint?.trim()) {
     try {
       const buildContract = deps.runChapterExecutionContractBuild || runChapterExecutionContractBuild;
       executionContract = await buildContract(writingConfig, input.planBlueprint, signal);
@@ -883,6 +899,47 @@ export async function runDeepChapterGeneration(
     );
   }
 
+  if (!workflowProfile.runPostDraftPlanAudits) {
+    const finalContent = draftContent;
+    callbacks.onThinking?.(
+      formatStageThinking(
+        "阶段4：快速完成",
+        "快速模式已完成任务书与正文初稿生成，直接采用正文初稿作为最终正文。",
+      ),
+    );
+    emitDeepChapterActivity(callbacks, {
+      id: `deep_chapter:final_output:output:${Date.now()}`,
+      stageId: "final_output",
+      kind: "final_output",
+      title: "最终正文",
+      content: `最终正文已生成，约 ${countChapterChars(finalContent)} 字。`,
+    });
+    callbacks.onFinalContent?.(finalContent);
+    completeChapterWorkflowStep(
+      callbacks,
+      {
+        name: "chapter_complete",
+        title: workflowProfile.completionTitle,
+        detail: "汇总本次章节生成结果。",
+        params: workflowBaseParams,
+      },
+      `${workflowProfile.completionResultPrefix}，最终正文约 ${countChapterChars(finalContent)} 字。`,
+      {
+        chars: countChapterChars(finalContent),
+        revised: false,
+      },
+    );
+    return {
+      finalContent,
+      taskBrief,
+      draftContent,
+      reviewResults: [],
+      revised: false,
+      planCompliance: "",
+      executionReport: "",
+    };
+  }
+
   let reviewResults = hasCheckpointReview(resumeCheckpoint)
     ? resumeCheckpoint.reviewResults
     : [];
@@ -1247,7 +1304,7 @@ export async function runDeepChapterGeneration(
   });
   callbacks.onFinalContent?.(finalContent);
   let executionReportSummary = "";
-  if (executionContract) {
+  if (workflowProfile.runPostDraftPlanAudits && executionContract) {
     let repairedByExecutionReport = false;
     try {
       const runReport = deps.runChapterExecutionReportCheck || runChapterExecutionReportCheck;
@@ -1341,7 +1398,7 @@ export async function runDeepChapterGeneration(
     }
   }
   let planCompliance = "";
-  if (planExecutionSummary.trim() && !executionContract) {
+  if (workflowProfile.runPostDraftPlanAudits && planExecutionSummary.trim() && !executionContract) {
     let complianceCheckFailed = false;
     const complianceStep = {
       name: "chapter_plan_compliance",
@@ -1446,11 +1503,11 @@ export async function runDeepChapterGeneration(
     callbacks,
     {
       name: "chapter_complete",
-      title: "完成多任务写作循环",
+      title: workflowProfile.completionTitle,
       detail: "汇总本次章节生成结果。",
       params: workflowBaseParams,
     },
-    `多任务写作循环完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
+    `${workflowProfile.completionResultPrefix}，最终正文约 ${countChapterChars(finalContent)} 字。`,
     {
       chars: countChapterChars(finalContent),
       revised,

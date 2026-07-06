@@ -19,6 +19,8 @@ import type { FileNode } from "@/types/wiki"
 import type {
   SimulationMode,
   SimulationReport,
+  SimulationResultStatus,
+  SimulationResumePoint,
   StoryDraft,
   StoryFramework,
   StoryNode,
@@ -408,6 +410,11 @@ export async function saveSimulationResult(
   agentSnapshot?: SerializedSimulationSnapshot,
   rumors?: RumorEvent[],
   debugTraces?: SimulationDebugTrace[],
+  options?: {
+    status?: SimulationResultStatus
+    partialReason?: string
+    resume?: SimulationResumePoint | null
+  },
 ): Promise<string> {
   await ensureSimulationDirs(projectPath)
   const resultId = `result-${Date.now()}`
@@ -421,6 +428,9 @@ export async function saveSimulationResult(
     agentSnapshot: agentSnapshot ?? null,
     rumors: rumors ?? [],
     debugTraces: debugTraces ?? [],
+    status: options?.status ?? "complete",
+    partialReason: options?.partialReason ?? null,
+    resume: options?.resume ?? null,
   }
   await writeFileAtomic(`${dir}/${resultId}.json`, JSON.stringify(payload, null, 2))
   await writeFileAtomic(
@@ -461,6 +471,9 @@ export async function loadSimulationResults(
   agentSnapshot?: SerializedSimulationSnapshot | null
   rumors?: RumorEvent[]
   debugTraces?: SimulationDebugTrace[]
+  status: SimulationResultStatus
+  partialReason?: string | null
+  resume?: SimulationResumePoint | null
 }[]> {
   const dir = frameworkResultsDir(projectPath, frameworkId)
   let entries: FileNode[]
@@ -478,6 +491,9 @@ export async function loadSimulationResults(
     agentSnapshot?: SerializedSimulationSnapshot | null
     rumors?: RumorEvent[]
     debugTraces?: SimulationDebugTrace[]
+    status: SimulationResultStatus
+    partialReason?: string | null
+    resume?: SimulationResumePoint | null
   }[] = []
   for (const entry of entries) {
     if (entry.is_dir) continue
@@ -491,6 +507,9 @@ export async function loadSimulationResults(
         agentSnapshot?: SerializedSimulationSnapshot | null
         rumors?: RumorEvent[]
         debugTraces?: SimulationDebugTrace[]
+        status?: SimulationResultStatus
+        partialReason?: string | null
+        resume?: SimulationResumePoint | null
       }
       if (parsed && parsed.report) {
         results.push({
@@ -501,6 +520,9 @@ export async function loadSimulationResults(
           agentSnapshot: parsed.agentSnapshot ?? null,
           rumors: parsed.rumors ?? [],
           debugTraces: parsed.debugTraces ?? [],
+          status: parsed.status ?? "complete",
+          partialReason: parsed.partialReason ?? null,
+          resume: parsed.resume ?? null,
         })
       }
     } catch {

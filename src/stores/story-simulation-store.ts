@@ -4,6 +4,8 @@ import type {
   SimulationMode,
   StoryFramework,
   SimulationReport,
+  SimulationResultStatus,
+  SimulationResumePoint,
   StoryDraft,
   ExtractionResult,
   FrameworkBinding,
@@ -28,6 +30,9 @@ export interface SavedSimulationResult {
   agentSnapshot?: SerializedSimulationSnapshot | null;
   rumors?: RumorEvent[];
   debugTraces?: SimulationDebugTrace[];
+  status?: SimulationResultStatus;
+  partialReason?: string | null;
+  resume?: SimulationResumePoint | null;
   createdAt: string;
 }
 
