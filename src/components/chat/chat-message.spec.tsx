@@ -33,6 +33,19 @@ describe("chat thinking display", () => {
     expect(html).toContain("max-h-")
     expect(html).toContain("overflow-y-auto")
   })
+
+  it("labels fragmented model reasoning as 思考过程 instead of hundreds of workflow stages", () => {
+    const fragmentedReasoning = ["好的，", "用户", "问", "的是", "当前", "情节", "中", "的人物"]
+      .join("\n\n")
+    const html = renderToStaticMarkup(
+      <StreamingMessage content={`<think>\n${fragmentedReasoning}\n</think>\n\n回答正文`} />,
+    )
+
+    expect(html).toContain("思考过程")
+    expect(html).not.toContain("工作流阶段")
+    expect(html).not.toContain("个阶段")
+    expect(html).toContain("好的，用户问的是当前情节中的人物")
+  })
 })
 
 describe("deep chapter thinking toggle style", () => {

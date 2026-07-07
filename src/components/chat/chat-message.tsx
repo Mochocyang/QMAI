@@ -53,7 +53,7 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
 
   return (
     <div
-      className={`flex gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+      className={`flex w-full gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -68,9 +68,9 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate, novelMode,
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className="max-w-[80%] flex flex-col gap-1.5">
+      <div className="min-w-0 max-w-[80%] flex-1 flex flex-col gap-1.5">
         <div
-          className={`rounded-lg px-3 py-2 text-sm ${
+          className={`w-full min-w-0 rounded-lg px-3 py-2 text-sm ${
             isUser
               ? "bg-primary text-primary-foreground"
               : message.discarded
@@ -532,11 +532,11 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
   const isThinking = thinking !== null && answer.length === 0
 
   return (
-    <div className="flex gap-2 flex-row">
+    <div className="flex w-full gap-2 flex-row">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="h-4 w-4" />
       </div>
-      <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
+      <div className="min-w-0 w-full max-w-[80%] flex-1 rounded-lg px-3 py-2 text-sm bg-muted text-foreground">
         {isThinking ? (
           <StreamingWorkflowBlock content={thinking} />
         ) : (
@@ -605,7 +605,7 @@ function MarkdownContent({ content }: { content: string }) {
   const htmlLang = getHtmlLang(renderLanguage)
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       {thinking && <WorkflowBlock content={thinking} />}
       <div
         className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
@@ -839,25 +839,49 @@ function separateThinking(text: string): { thinking: string | null; answer: stri
   return { thinking: filteredThinking, answer: answer.trim() }
 }
 
+function countWorkflowStages(content: string): number {
+  return content.split("\n").filter((line) => isWorkflowStageHeader(line)).length
+}
+
+function getThinkingBlockMeta(content: string, streaming: boolean): { title: string; stageCount: number | null } {
+  const stageCount = countWorkflowStages(content)
+  if (stageCount > 0) {
+    return {
+      title: streaming ? "工作流进行中..." : "工作流阶段",
+      stageCount,
+    }
+  }
+  return {
+    title: streaming ? "思考中..." : "思考过程",
+    stageCount: null,
+  }
+}
+
+/** 模型 reasoning 流式输出常带大量换行；合并为连续文本，避免被误切成上百个“阶段”。 */
+function formatThinkingForDisplay(content: string): string {
+  const trimmed = content.trim()
+  if (!trimmed) return ""
+
+  if (countWorkflowStages(trimmed) > 0) {
+    return trimmed.replace(/\n{3,}/g, "\n\n")
+  }
+
+  return trimmed.replace(/\s*\n+\s*/g, "")
+}
+
 /** Streaming workflow: show stages as they come in so user can see progress. */
 function StreamingWorkflowBlock({ content }: { content: string }) {
-  const paragraphs = content
-    .split(/\n\s*\n/)
-    .map((p) => p.replace(/\n/g, " ").trim())
-    .filter((p) => p.length > 0)
+  const displayContent = useMemo(() => formatThinkingForDisplay(content), [content])
+  const { title } = useMemo(() => getThinkingBlockMeta(content, true), [content])
 
   return (
-    <div className="rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 px-2.5 py-2 min-h-[3rem]">
+    <div className="w-full min-w-0 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 px-2.5 py-2 min-h-[3rem]">
       <div className="flex items-center gap-1.5 mb-1.5">
         <span className="text-sm animate-pulse">📋</span>
-        <span className="text-xs font-medium text-blue-700 dark:text-blue-400">工作流进行中...</span>
+        <span className="text-xs font-medium text-blue-700 dark:text-blue-400">{title}</span>
       </div>
-      <div className="max-h-72 overflow-y-auto pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap break-words">
-        {paragraphs.map((p, i) => (
-          <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
-            {p}
-          </div>
-        ))}
+      <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {displayContent}
         <span className="animate-pulse text-blue-500">▊</span>
       </div>
     </div>
@@ -866,24 +890,20 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
 
 /** Completed workflow stages: keep visible so user can review what happened. */
 function WorkflowBlock({ content }: { content: string }) {
-  const paragraphs = content
-    .split(/\n\s*\n/)
-    .map((p) => p.replace(/\n/g, " ").trim())
-    .filter((p) => p.length > 0)
+  const displayContent = useMemo(() => formatThinkingForDisplay(content), [content])
+  const { title, stageCount } = useMemo(() => getThinkingBlockMeta(content, false), [content])
 
   return (
-    <div className="mb-2 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 min-h-[3rem]">
+    <div className="mb-2 w-full min-w-0 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 min-h-[3rem]">
       <div className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-700 dark:text-blue-400">
         <span className="text-sm">📋</span>
-        <span className="font-medium">工作流阶段</span>
-        <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{paragraphs.length} 个阶段</span>
+        <span className="font-medium">{title}</span>
+        {stageCount !== null && (
+          <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{stageCount} 个阶段</span>
+        )}
       </div>
-      <div className="max-h-72 overflow-y-auto border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap break-words leading-relaxed">
-        {paragraphs.map((p, i) => (
-          <div key={`p-${i}`} className={i > 0 ? "mt-1.5" : ""}>
-            {p}
-          </div>
-        ))}
+      <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
+        {displayContent}
       </div>
     </div>
   )
