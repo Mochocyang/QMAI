@@ -875,11 +875,24 @@ export function ChatPanel() {
       memoryProvider,
       outlineProvider,
       deductionProvider,
-      createSkillProvider(() =>
-        agentSkillConfig
-          ? resolveAvailableDeAiSkills(agentSkillConfig).map((skill) => ({ id: skill.id, name: skill.name }))
-          : [],
-      ),
+      createSkillProvider(() => {
+        const deAiSkills = agentSkillConfig
+          ? resolveAvailableDeAiSkills(agentSkillConfig).map((skill) => ({
+              id: skill.id,
+              name: skill.name,
+              subtype: "deai" as const,
+            }))
+          : []
+        const writingSkills = agentUserWritingSkills.map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          subtype: "writing" as const,
+          kind: skill.kinds,
+          stages: skill.stages,
+          modes: skill.modes,
+        }))
+        return [...deAiSkills, ...writingSkills]
+      }),
       createChatHistoryProvider(() =>
         conversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
       ),

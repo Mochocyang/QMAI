@@ -1,8 +1,18 @@
-﻿import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Search, X } from "lucide-react"
-import type { ReferenceCategory, ReferenceToken } from "@/lib/reference/types"
+import type { ReferenceCategory, ReferenceToken, SkillSubtype } from "@/lib/reference/types"
 import { MAX_REFERENCE_COUNT, REFERENCE_TABS } from "@/lib/reference/types"
 import type { ReferenceProvider } from "@/lib/reference/providers"
+import {
+  SKILL_KIND_LABELS,
+  SKILL_STAGE_LABELS,
+  SKILL_MODE_LABELS,
+} from "@/lib/novel/skill-library"
+
+const SKILL_SUBTABS: Array<{ key: SkillSubtype; label: string }> = [
+  { key: "deai", label: "去AI味技能" },
+  { key: "writing", label: "写作Skill" },
+]
 
 interface ReferencePickerDialogProps {
   open: boolean
@@ -22,6 +32,7 @@ export function ReferencePickerDialog({
   defaultTab = "chapter",
 }: ReferencePickerDialogProps) {
   const [activeTab, setActiveTab] = useState<ReferenceCategory>(defaultTab)
+  const [skillSubtab, setSkillSubtab] = useState<SkillSubtype>("deai")
   const [items, setItems] = useState<ReferenceToken[]>([])
   const [selected, setSelected] = useState<ReferenceToken[]>([])
   const [search, setSearch] = useState("")
@@ -30,6 +41,7 @@ export function ReferencePickerDialog({
   useEffect(() => {
     if (!open) return
     setActiveTab(defaultTab)
+    setSkillSubtab("deai")
     setSelected([])
     setSearch("")
   }, [open, defaultTab])
@@ -69,9 +81,13 @@ export function ReferencePickerDialog({
 
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase()
-    if (!keyword) return items
-    return items.filter((item) => item.title.toLowerCase().includes(keyword))
-  }, [items, search])
+    let result = items
+    if (activeTab === "skill") {
+      result = result.filter((item) => item.skillSubtype === skillSubtab)
+    }
+    if (!keyword) return result
+    return result.filter((item) => item.title.toLowerCase().includes(keyword))
+  }, [items, search, activeTab, skillSubtab])
 
   function toggleItem(item: ReferenceToken) {
     setSelected((prev) => {
@@ -134,6 +150,27 @@ export function ReferencePickerDialog({
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col">
+            {activeTab === "skill" && (
+              <div className="flex gap-1 border-b px-3 py-2">
+                {SKILL_SUBTABS.map((subtab) => (
+                  <button
+                    key={subtab.key}
+                    type="button"
+                    className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      skillSubtab === subtab.key
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      setSkillSubtab(subtab.key)
+                      setSearch("")
+                    }}
+                  >
+                    {subtab.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="border-b px-3 py-2">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -158,10 +195,11 @@ export function ReferencePickerDialog({
                 <div className="grid gap-1">
                   {filteredItems.map((item) => {
                     const isSelected = selected.some((selectedItem) => selectedItem.id === item.id)
+                    const hasSkillMeta = item.category === "skill" && (item.skillKinds?.length || item.skillStages?.length || item.skillModes?.length)
                     return (
                       <label
                         key={item.id}
-                        className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
+                        className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
                           isSelected
                             ? "border-primary/40 bg-primary/10"
                             : "border-transparent hover:border-border hover:bg-accent/60"
@@ -171,12 +209,40 @@ export function ReferencePickerDialog({
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleItem(item)}
-                          className="h-4 w-4 accent-primary"
+                          className="mt-0.5 h-4 w-4 accent-primary"
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{item.displayTitle || item.title}</span>
                           {item.path ? (
                             <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.path}</span>
+                          ) : null}
+                          {hasSkillMeta ? (
+                            <span className="mt-1.5 flex flex-wrap gap-1">
+                              {item.skillKinds?.map((kind) => (
+                                <span
+                                  key={kind}
+                                  className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                >
+                                  {SKILL_KIND_LABELS[kind]}
+                                </span>
+                              ))}
+                              {item.skillStages?.map((stage) => (
+                                <span
+                                  key={stage}
+                                  className="inline-flex items-center rounded border border-dashed px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                >
+                                  {SKILL_STAGE_LABELS[stage]}
+                                </span>
+                              ))}
+                              {item.skillModes?.map((mode) => (
+                                <span
+                                  key={mode}
+                                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                >
+                                  {SKILL_MODE_LABELS[mode]}
+                                </span>
+                              ))}
+                            </span>
                           ) : null}
                         </span>
                       </label>

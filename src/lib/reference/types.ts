@@ -1,5 +1,7 @@
 import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
 
+export type SkillSubtype = "deai" | "writing"
+
 export type ReferenceCategory =
   | "chapter"
   | "memory"
@@ -17,6 +19,8 @@ export interface ReferenceToken {
   path?: string
   /** 技能时存 skillId */
   skillId?: string
+  /** 技能子类型：去AI味 / 写作 */
+  skillSubtype?: SkillSubtype
   /** 技能类型、阶段和适用模式 */
   skillKinds?: SkillKind[]
   skillStages?: SkillStage[]

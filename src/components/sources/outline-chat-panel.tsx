@@ -58,6 +58,7 @@ import {
   chapterProvider,
   createChatHistoryProvider,
   createOutlineHistoryProvider,
+  createSkillProvider,
   deductionProvider,
   memoryProvider,
   outlineProvider,
@@ -74,8 +75,14 @@ import {
 } from "@/lib/agent/tool-events";
 import {
   loadDeAiSkillConfig,
+  resolveAvailableDeAiSkills,
   type DeAiSkillConfig,
 } from "@/lib/novel/de-ai-skill-library";
+import {
+  loadUserSkillConfig,
+  resolveEnabledWritingSkills,
+  type UserSkill,
+} from "@/lib/novel/user-skill-store";
 import { readSoulDoc } from "@/lib/novel/soul-doc";
 import {
   buildWebResearchContext,
@@ -674,6 +681,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const historyRef = useRef<HTMLDivElement | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null);
+  const [deAiSkillConfig, setDeAiSkillConfig] = useState<DeAiSkillConfig | null>(null);
+  const [writingSkills, setWritingSkills] = useState<UserSkill[]>([]);
 
   const referenceProviders = useMemo(
     () => [
@@ -681,6 +690,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       memoryProvider,
       outlineProvider,
       deductionProvider,
+      createSkillProvider(() => {
+        const deAiSkills = deAiSkillConfig
+          ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({
+              id: skill.id,
+              name: skill.name,
+              subtype: "deai" as const,
+            }))
+          : []
+        const writingSkillList = writingSkills.map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          subtype: "writing" as const,
+          kind: skill.kinds,
+          stages: skill.stages,
+          modes: skill.modes,
+        }))
+        return [...deAiSkills, ...writingSkillList]
+      }),
       createChatHistoryProvider(() =>
         chatConversations.map((conversation) => ({
           id: conversation.id,
@@ -694,7 +721,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         })),
       ),
     ],
-    [chatConversations, conversations],
+    [chatConversations, conversations, deAiSkillConfig, writingSkills],
   );
 
   // 加载持久化的历史记录
@@ -703,6 +730,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       void loadFromDisk();
     }
   }, [loaded, loadFromDisk]);
+
+  // 加载技能配置
+  useEffect(() => {
+    if (!project?.path) {
+      setDeAiSkillConfig(null);
+      setWritingSkills([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const [deAiConfig, userSkillConfig] = await Promise.all([
+        loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null),
+        loadUserSkillConfig(project.path).catch(() => null),
+      ]);
+      if (cancelled) return;
+      setDeAiSkillConfig(deAiConfig);
+      setWritingSkills(userSkillConfig ? resolveEnabledWritingSkills(userSkillConfig) : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.path]);
 
   // 当前会话切换或持久化 modelId 变化时，同步本地选择状态
   useEffect(() => {
