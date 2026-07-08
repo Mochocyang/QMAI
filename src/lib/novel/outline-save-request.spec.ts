@@ -13,7 +13,7 @@ describe("outline-save-request", () => {
       "```json",
       JSON.stringify({
         outlineSaveRequest: {
-          targetFolder: "章纲文件夹",
+          targetFolder: "章纲",
           fileName: "章纲-第001章.md",
           fileType: "chapter-outline",
           writeMode: "create",
@@ -28,7 +28,7 @@ describe("outline-save-request", () => {
     expect(result.errors).toEqual([])
     expect(result.requests).toHaveLength(1)
     expect(result.requests[0]).toMatchObject({
-      targetFolder: "章纲文件夹",
+      targetFolder: "章纲",
       fileName: "章纲-第001章.md",
       fileType: "chapter-outline",
       writeMode: "create",
@@ -48,7 +48,7 @@ describe("outline-save-request", () => {
           content: "正文",
         },
         {
-          targetFolder: "章纲文件夹",
+          targetFolder: "章纲",
           fileName: "C:/危险.md",
           fileType: "chapter-outline",
           writeMode: "create",
@@ -66,12 +66,12 @@ describe("outline-save-request", () => {
 
   it("创建文件时自动避开同名文件并写入前置信息", async () => {
     const written = new Map<string, string>()
-    const existing = new Set(["C:/book/wiki/outlines/章纲文件夹/章纲-第001章.md"])
+    const existing = new Set(["C:/book/wiki/outlines/章纲/章纲-第001章.md"])
 
     const result = await saveOutlineSaveRequests({
       outlineRoot: "C:/book/wiki/outlines",
       requests: [{
-        targetFolder: "章纲文件夹",
+        targetFolder: "章纲",
         fileName: "章纲-第001章.md",
         fileType: "chapter-outline",
         writeMode: "create",
@@ -88,10 +88,10 @@ describe("outline-save-request", () => {
 
     expect(result.saved).toEqual([{
       fileName: "章纲-第001章-2.md",
-      path: "C:/book/wiki/outlines/章纲文件夹/章纲-第001章-2.md",
+      path: "C:/book/wiki/outlines/章纲/章纲-第001章-2.md",
       writeMode: "create",
     }])
-    expect(written.get("C:/book/wiki/outlines/章纲文件夹/章纲-第001章-2.md"))
+    expect(written.get("C:/book/wiki/outlines/章纲/章纲-第001章-2.md"))
       ?.toContain("source_intent: \"生成第001章章纲\"")
   })
 
@@ -115,7 +115,7 @@ describe("outline-save-request", () => {
     }], "保存人物小传")
 
     expect(requests).toEqual([{
-      targetFolder: "人物小传文件夹",
+      targetFolder: "人物小传",
       fileName: "角色-男主-林辰.md",
       fileType: "character",
       writeMode: "create",
@@ -128,7 +128,7 @@ describe("outline-save-request", () => {
   it("自动保存时将 character 请求分离为需要用户确认", () => {
     const result = splitConfirmRequiredSaveRequests([
       {
-        targetFolder: "人物小传文件夹",
+        targetFolder: "人物小传",
         fileName: "角色-男主-林辰.md",
         fileType: "character",
         writeMode: "create",
@@ -137,7 +137,7 @@ describe("outline-save-request", () => {
         content: "正文",
       },
       {
-        targetFolder: "章纲文件夹",
+        targetFolder: "章纲",
         fileName: "章纲-第001章.md",
         fileType: "chapter-outline",
         writeMode: "create",

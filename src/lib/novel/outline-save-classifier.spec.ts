@@ -8,14 +8,14 @@ import {
 
 describe("outline-save-classifier", () => {
   it("按 fileType 返回默认保存文件夹", () => {
-    expect(getDefaultFolderForOutlineFileType("outline")).toBe("大纲文件夹")
-    expect(getDefaultFolderForOutlineFileType("volume-outline")).toBe("卷纲文件夹")
-    expect(getDefaultFolderForOutlineFileType("chapter-outline")).toBe("章纲文件夹")
-    expect(getDefaultFolderForOutlineFileType("character")).toBe("人物小传文件夹")
-    expect(getDefaultFolderForOutlineFileType("setting")).toBe("设定文件夹")
-    expect(getDefaultFolderForOutlineFileType("foreshadowing")).toBe("伏笔文件夹")
-    expect(getDefaultFolderForOutlineFileType("organization")).toBe("组织文件夹")
-    expect(getDefaultFolderForOutlineFileType("quality-report")).toBe("质量检查文件夹")
+    expect(getDefaultFolderForOutlineFileType("outline")).toBe("大纲")
+    expect(getDefaultFolderForOutlineFileType("volume-outline")).toBe("卷纲")
+    expect(getDefaultFolderForOutlineFileType("chapter-outline")).toBe("章纲")
+    expect(getDefaultFolderForOutlineFileType("character")).toBe("人物小传")
+    expect(getDefaultFolderForOutlineFileType("setting")).toBe("设定")
+    expect(getDefaultFolderForOutlineFileType("foreshadowing")).toBe("伏笔")
+    expect(getDefaultFolderForOutlineFileType("organization")).toBe("组织")
+    expect(getDefaultFolderForOutlineFileType("quality-report")).toBe("质量检查")
   })
 
   it("按 Skill 路由推断保存类型", () => {
@@ -35,7 +35,7 @@ describe("outline-save-classifier", () => {
       content: "# 第001章章纲",
     })).toMatchObject({
       fileType: "character",
-      targetFolder: "人物小传文件夹",
+      targetFolder: "人物小传",
     })
   })
 
@@ -45,7 +45,7 @@ describe("outline-save-classifier", () => {
       content: "## 核心事件",
     })).toMatchObject({
       fileType: "chapter-outline",
-      targetFolder: "章纲文件夹",
+      targetFolder: "章纲",
       fileName: "章纲-第001章.md",
     })
   })
@@ -57,7 +57,7 @@ describe("outline-save-classifier", () => {
       content: "# 角色-男主-林辰",
     })).toMatchObject({
       fileType: "character",
-      targetFolder: "人物小传文件夹",
+      targetFolder: "人物小传",
       fileName: "角色-男主-林辰.md",
     })
   })
@@ -68,7 +68,7 @@ describe("outline-save-classifier", () => {
       content: "第1章：主角进入新地图",
     })).toMatchObject({
       fileType: "volume-outline",
-      targetFolder: "卷纲文件夹",
+      targetFolder: "卷纲",
     })
   })
 })

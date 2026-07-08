@@ -11,25 +11,25 @@ import { OutlineFileTree } from "./outline-file-tree"
 
 const tree: FileNode[] = [
   {
-    name: "章纲文件夹",
-    path: "C:/Book/wiki/outlines/章纲文件夹",
+    name: "章纲",
+    path: "C:/Book/wiki/outlines/章纲",
     is_dir: true,
     children: [
       {
         name: "章纲-第001章.md",
-        path: "C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md",
+        path: "C:/Book/wiki/outlines/章纲/章纲-第001章.md",
         is_dir: false,
       },
     ],
   },
   {
-    name: "大纲文件夹",
-    path: "C:/Book/wiki/outlines/大纲文件夹",
+    name: "大纲",
+    path: "C:/Book/wiki/outlines/大纲",
     is_dir: true,
     children: [
       {
         name: "总纲.md",
-        path: "C:/Book/wiki/outlines/大纲文件夹/总纲.md",
+        path: "C:/Book/wiki/outlines/大纲/总纲.md",
         is_dir: false,
       },
     ],
@@ -66,8 +66,8 @@ describe("OutlineFileTree", () => {
       )
     })
 
-    expect(host.textContent).toContain("章纲文件夹")
-    expect(host.textContent).toContain("大纲文件夹")
+    expect(host.textContent).toContain("章纲")
+    expect(host.textContent).toContain("大纲")
 
     const fileButton = Array.from(host.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("章纲-第001章.md"),
@@ -77,7 +77,7 @@ describe("OutlineFileTree", () => {
       fileButton.click()
     })
 
-    expect(onSelectFile).toHaveBeenCalledWith("C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md")
+    expect(onSelectFile).toHaveBeenCalledWith("C:/Book/wiki/outlines/章纲/章纲-第001章.md")
     expect(host.querySelector("[data-testid='outline-file-context-menu']")).toBeNull()
     expect(host.querySelector("[data-testid='outline-move-submenu']")).toBeNull()
     expect(onMoveFile).not.toHaveBeenCalled()
@@ -105,12 +105,12 @@ describe("OutlineFileTree", () => {
       fileButton.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }))
     })
 
-    const menu = host.querySelector("[data-testid='outline-file-context-menu']")
+    const menu = document.body.querySelector("[data-testid='outline-file-context-menu']")
     expect(menu).not.toBeNull()
     expect(menu?.textContent ?? "").toContain("重命名")
     expect(menu?.textContent ?? "").toContain("移动")
     expect(menu?.textContent ?? "").toContain("发送到AI大纲会话")
-    expect(host.querySelector("[data-testid='outline-move-submenu']")).toBeNull()
+    expect(document.body.querySelector("[data-testid='outline-move-submenu']")).toBeNull()
 
     const moveButton = Array.from(menu?.querySelectorAll("button") ?? []).find((button) =>
       button.textContent?.includes("移动"),
@@ -120,12 +120,12 @@ describe("OutlineFileTree", () => {
       moveButton.click()
     })
 
-    const moveMenu = host.querySelector("[data-testid='outline-move-submenu']")
+    const moveMenu = document.body.querySelector("[data-testid='outline-move-submenu']")
     expect(moveMenu).not.toBeNull()
-    expect(moveMenu?.textContent ?? "").toContain("大纲文件夹")
+    expect(moveMenu?.textContent ?? "").toContain("大纲")
 
     const targetButton = Array.from(moveMenu?.querySelectorAll("button") ?? []).find((button) =>
-      button.textContent?.includes("大纲文件夹"),
+      button.textContent?.includes("大纲"),
     ) as HTMLButtonElement
 
     await act(async () => {
@@ -133,8 +133,8 @@ describe("OutlineFileTree", () => {
     })
 
     expect(onMoveFile).toHaveBeenCalledWith(
-      "C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md",
-      "C:/Book/wiki/outlines/大纲文件夹",
+      "C:/Book/wiki/outlines/章纲/章纲-第001章.md",
+      "C:/Book/wiki/outlines/大纲",
     )
   })
 
@@ -161,7 +161,7 @@ describe("OutlineFileTree", () => {
       fileButton.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }))
     })
 
-    const menu = host.querySelector("[data-testid='outline-file-context-menu']")
+    const menu = document.body.querySelector("[data-testid='outline-file-context-menu']")
     const renameButton = Array.from(menu?.querySelectorAll("button") ?? []).find((button) =>
       button.textContent?.includes("重命名"),
     ) as HTMLButtonElement
@@ -180,7 +180,7 @@ describe("OutlineFileTree", () => {
     })
 
     expect(onRenameFile).toHaveBeenCalledWith(
-      "C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md",
+      "C:/Book/wiki/outlines/章纲/章纲-第001章.md",
       "新章纲.md",
     )
   })
@@ -208,7 +208,7 @@ describe("OutlineFileTree", () => {
       fileButton.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }))
     })
 
-    const menu = host.querySelector("[data-testid='outline-file-context-menu']")
+    const menu = document.body.querySelector("[data-testid='outline-file-context-menu']")
     const sendButton = Array.from(menu?.querySelectorAll("button") ?? []).find((button) =>
       button.textContent?.includes("发送到AI大纲会话"),
     ) as HTMLButtonElement
@@ -218,7 +218,7 @@ describe("OutlineFileTree", () => {
     })
 
     expect(onSendToOutlineChat).toHaveBeenCalledWith(
-      "C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md",
+      "C:/Book/wiki/outlines/章纲/章纲-第001章.md",
       "章纲-第001章.md",
     )
   })
@@ -241,7 +241,7 @@ describe("OutlineFileTree", () => {
       button.textContent?.includes("章纲-第001章.md"),
     ) as HTMLButtonElement
     const folderButton = Array.from(host.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("大纲文件夹"),
+      button.textContent?.includes("大纲"),
     ) as HTMLButtonElement
 
     await act(async () => {
@@ -254,8 +254,58 @@ describe("OutlineFileTree", () => {
     })
 
     expect(onMoveFile).toHaveBeenCalledWith(
-      "C:/Book/wiki/outlines/章纲文件夹/章纲-第001章.md",
-      "C:/Book/wiki/outlines/大纲文件夹",
+      "C:/Book/wiki/outlines/章纲/章纲-第001章.md",
+      "C:/Book/wiki/outlines/大纲",
     )
+  })
+
+  it("右键文件夹显示新建、重命名和删除操作", async () => {
+    const onCreateFile = vi.fn()
+    const onCreateFolder = vi.fn()
+    const onRenameFolder = vi.fn()
+    const onDeleteFolder = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <OutlineFileTree
+          nodes={tree}
+          selectedPath={null}
+          onSelectFile={() => {}}
+          onMoveFile={async () => {}}
+          onCreateFile={onCreateFile}
+          onCreateFolder={onCreateFolder}
+          onRenameFolder={onRenameFolder}
+          onDeleteFolder={onDeleteFolder}
+        />,
+      )
+    })
+
+    const folderButton = Array.from(host.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("章纲"),
+    ) as HTMLButtonElement
+
+    await act(async () => {
+      folderButton.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        clientX: 24,
+        clientY: 36,
+      }))
+    })
+
+    const menu = document.body.querySelector("[data-testid='outline-file-context-menu']")
+    expect(menu).not.toBeNull()
+    expect(menu?.textContent ?? "").toContain("新建文档")
+    expect(menu?.textContent ?? "").toContain("新建文件夹")
+    expect(menu?.textContent ?? "").toContain("重命名")
+    expect(menu?.textContent ?? "").toContain("删除")
+    expect(menu?.textContent ?? "").not.toContain("发送到AI大纲会话")
+
+    const createFileButton = Array.from(menu?.querySelectorAll("button") ?? []).find((button) =>
+      button.textContent?.includes("新建文档"),
+    ) as HTMLButtonElement
+    await act(async () => {
+      createFileButton.click()
+    })
+    expect(onCreateFile).toHaveBeenCalledWith("C:/Book/wiki/outlines/章纲")
   })
 })

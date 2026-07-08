@@ -32,7 +32,7 @@ describe("AI大纲结构化输出协议", () => {
     const result = parseOutlineFinalResult(`\`\`\`json
 {
   "outline_type": "chapter-outline",
-  "target_folder": "章纲文件夹",
+  "target_folder": "章纲",
   "file_name": "章纲-第001章.md",
   "status": "草稿",
   "content_markdown": "# 章纲（第001章）",

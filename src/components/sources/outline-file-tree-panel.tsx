@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react"
 import type { FileNode } from "@/types/wiki"
-import { copyFile, createDirectory, deleteFile, fileExists, listDirectory } from "@/commands/fs"
+import { copyDirectory, copyFile, createDirectory, deleteFile, fileExists, listDirectory, writeFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { OutlineFileTree } from "@/components/sources/outline-file-tree"
 import {
   DEFAULT_OUTLINE_FOLDER_PATHS,
+  LEGACY_OUTLINE_FOLDER_MIGRATIONS,
   getDefaultOutlineFolderPath,
   getOutlineRoot,
   planOutlineFileMove,
@@ -25,6 +26,60 @@ function getDirName(path: string): string {
 function ensureMarkdownFileName(name: string): string {
   const trimmed = name.trim()
   return trimmed.toLowerCase().endsWith(".md") ? trimmed : `${trimmed}.md`
+}
+
+function getBaseName(path: string): string {
+  return normalizePath(path).split("/").pop() ?? ""
+}
+
+function assertSafeName(name: string, label: string) {
+  if (!name || name.includes("/") || name.includes("\\")) {
+    throw new Error(`${label}不能包含路径分隔符。`)
+  }
+}
+
+async function resolveUniquePath(path: string): Promise<string> {
+  if (!(await fileExists(path))) return path
+  const normalized = normalizePath(path)
+  const slashIndex = normalized.lastIndexOf("/")
+  const dir = slashIndex >= 0 ? normalized.slice(0, slashIndex) : ""
+  const name = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized
+  const dotIndex = name.lastIndexOf(".")
+  const stem = dotIndex > 0 ? name.slice(0, dotIndex) : name
+  const ext = dotIndex > 0 ? name.slice(dotIndex) : ""
+  for (let index = 2; index <= 99; index++) {
+    const candidate = `${dir}/${stem}-${index}${ext}`
+    if (!(await fileExists(candidate))) return candidate
+  }
+  return `${dir}/${stem}-${Date.now()}${ext}`
+}
+
+async function migrateNodeChildren(sourceNode: FileNode, targetDir: string) {
+  await createDirectory(targetDir)
+  for (const child of sourceNode.children ?? []) {
+    const targetPath = await resolveUniquePath(`${targetDir}/${child.name}`)
+    if (child.is_dir) {
+      await migrateNodeChildren(child, targetPath)
+      await deleteFile(child.path)
+    } else {
+      await copyFile(child.path, targetPath)
+      await deleteFile(child.path)
+    }
+  }
+}
+
+async function migrateLegacyOutlineFolders(projectPath: string, nodes: FileNode[]): Promise<boolean> {
+  const outlineRoot = getOutlineRoot(projectPath)
+  let migrated = false
+  for (const migration of LEGACY_OUTLINE_FOLDER_MIGRATIONS) {
+    const source = nodes.find((node) => node.is_dir && node.name === migration.from)
+    if (!source) continue
+    const targetDir = `${outlineRoot}/${migration.to}`
+    await migrateNodeChildren(source, targetDir)
+    await deleteFile(source.path)
+    migrated = true
+  }
+  return migrated
 }
 
 export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanelProps) {
@@ -70,7 +125,10 @@ export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanel
             createDirectory(getDefaultOutlineFolderPath(projectPath, folderPath)),
           ),
         )
-        const nodes = await listDirectory(getOutlineRoot(projectPath))
+        const outlineRoot = getOutlineRoot(projectPath)
+        const initialNodes = await listDirectory(outlineRoot)
+        const migrated = await migrateLegacyOutlineFolders(projectPath, initialNodes)
+        const nodes = migrated ? await listDirectory(outlineRoot) : initialNodes
         if (cancelled) return
         setOutlineNodes(nodes)
       } catch (err) {
@@ -142,6 +200,90 @@ export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanel
     [project, refreshTrees, selectedFile, setSelectedFile],
   )
 
+  const handleRenameFolder = useCallback(
+    async (sourcePath: string, nextName: string) => {
+      if (!project) return
+      const folderName = nextName.trim()
+      assertSafeName(folderName, "文件夹名称")
+      const source = normalizePath(sourcePath)
+      const targetPath = `${getDirName(source)}/${folderName}`
+      if (targetPath === source) return
+
+      const exists = await fileExists(targetPath)
+      if (exists) throw new Error("目标文件夹已存在，请更换名称。")
+
+      await copyDirectory(source, targetPath)
+      await deleteFile(source)
+      const normalizedSelected = normalizePath(selectedFile ?? "")
+      if (normalizedSelected === source || normalizedSelected.startsWith(`${source}/`)) {
+        setSelectedFile(normalizedSelected ? normalizedSelected.replace(source, targetPath) : null)
+      }
+      await refreshTrees()
+    },
+    [project, refreshTrees, selectedFile, setSelectedFile],
+  )
+
+  const handleCreateFile = useCallback(
+    async (folderPath: string) => {
+      const rawName = window.prompt("请输入新文档名称")
+      if (rawName === null) return
+      const fileName = ensureMarkdownFileName(rawName)
+      assertSafeName(fileName, "文件名")
+      const baseTitle = fileName.replace(/\.md$/i, "")
+      const targetPath = `${normalizePath(folderPath)}/${fileName}`
+      const exists = await fileExists(targetPath)
+      if (exists) throw new Error("目标文件已存在，请更换文件名。")
+      await writeFile(targetPath, `# ${baseTitle}\n\n`)
+      setSelectedFile(targetPath)
+      await refreshTrees()
+    },
+    [refreshTrees, setSelectedFile],
+  )
+
+  const handleCreateFolder = useCallback(
+    async (folderPath: string) => {
+      const rawName = window.prompt("请输入新文件夹名称")
+      if (rawName === null) return
+      const folderName = rawName.trim()
+      assertSafeName(folderName, "文件夹名称")
+      const targetPath = `${normalizePath(folderPath)}/${folderName}`
+      const exists = await fileExists(targetPath)
+      if (exists) throw new Error("目标文件夹已存在，请更换名称。")
+      await createDirectory(targetPath)
+      await refreshTrees()
+    },
+    [refreshTrees],
+  )
+
+  const handleDeleteFile = useCallback(
+    async (sourcePath: string) => {
+      const sourceName = getBaseName(sourcePath)
+      if (!window.confirm(`确认删除大纲文件“${sourceName}”吗？此操作不可撤销。`)) return
+      const source = normalizePath(sourcePath)
+      await deleteFile(source)
+      if (normalizePath(selectedFile ?? "") === source) {
+        setSelectedFile(null)
+      }
+      await refreshTrees()
+    },
+    [refreshTrees, selectedFile, setSelectedFile],
+  )
+
+  const handleDeleteFolder = useCallback(
+    async (sourcePath: string) => {
+      const sourceName = getBaseName(sourcePath)
+      if (!window.confirm(`确认删除文件夹“${sourceName}”及其全部内容吗？此操作不可撤销。`)) return
+      const source = normalizePath(sourcePath)
+      await deleteFile(source)
+      const normalizedSelected = normalizePath(selectedFile ?? "")
+      if (normalizedSelected === source || normalizedSelected.startsWith(`${source}/`)) {
+        setSelectedFile(null)
+      }
+      await refreshTrees()
+    },
+    [refreshTrees, selectedFile, setSelectedFile],
+  )
+
   const handleSendToOutlineChat = useCallback(
     (sourcePath: string, sourceName: string) => {
       const normalizedPath = normalizePath(sourcePath)
@@ -189,6 +331,11 @@ export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanel
       onSelectFile={setSelectedFile}
       onMoveFile={handleMoveFile}
       onRenameFile={handleRenameFile}
+      onRenameFolder={handleRenameFolder}
+      onDeleteFile={handleDeleteFile}
+      onDeleteFolder={handleDeleteFolder}
+      onCreateFile={handleCreateFile}
+      onCreateFolder={handleCreateFolder}
       onSendToOutlineChat={handleSendToOutlineChat}
       showHeader={showHeader}
     />

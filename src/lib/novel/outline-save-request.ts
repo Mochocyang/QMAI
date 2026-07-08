@@ -189,7 +189,7 @@ export function characterDraftsToSaveRequests(
   return drafts
     .filter((draft) => draft.selected)
     .map((draft) => ({
-      targetFolder: "人物小传文件夹",
+      targetFolder: "人物小传",
       fileName: draft.fileName,
       fileType: "character",
       writeMode: "create",

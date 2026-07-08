@@ -21,6 +21,6 @@ describe("write-outline-node helpers", () => {
     expect(validateOutlineWriteTarget("../章纲.md")).toContain("上级目录")
     expect(validateOutlineWriteTarget("C:/Book/章纲.md")).toContain("绝对路径")
     expect(validateOutlineWriteTarget("章纲.txt")).toContain("Markdown")
-    expect(validateOutlineWriteTarget("章纲文件夹/章纲-第001章.md")).toBeNull()
+    expect(validateOutlineWriteTarget("章纲/章纲-第001章.md")).toBeNull()
   })
 })

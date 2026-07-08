@@ -15,14 +15,14 @@ export interface OutlineSaveClassification {
 }
 
 const FILE_TYPE_FOLDERS: Record<OutlineSaveRequestFileType, string> = {
-  outline: "大纲文件夹",
-  "volume-outline": "卷纲文件夹",
-  "chapter-outline": "章纲文件夹",
-  character: "人物小传文件夹",
-  setting: "设定文件夹",
-  foreshadowing: "伏笔文件夹",
-  organization: "组织文件夹",
-  "quality-report": "质量检查文件夹",
+  outline: "大纲",
+  "volume-outline": "卷纲",
+  "chapter-outline": "章纲",
+  character: "人物小传",
+  setting: "设定",
+  foreshadowing: "伏笔",
+  organization: "组织",
+  "quality-report": "质量检查",
 }
 
 export function getDefaultFolderForOutlineFileType(fileType: OutlineSaveRequestFileType): string {

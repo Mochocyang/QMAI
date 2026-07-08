@@ -112,7 +112,7 @@ describe("OutlineSaveConfirmDialog", () => {
           mode="normal"
           characterDrafts={[]}
           requests={[{
-            targetFolder: "章纲文件夹",
+            targetFolder: "章纲",
             fileName: "章纲-第001章.md",
             fileType: "chapter-outline",
             writeMode: "create",
@@ -127,6 +127,6 @@ describe("OutlineSaveConfirmDialog", () => {
     })
 
     expect(document.body.textContent).toContain("章纲-第001章.md")
-    expect(document.body.textContent).toContain("章纲文件夹")
+    expect(document.body.textContent).toContain("章纲")
   })
 })

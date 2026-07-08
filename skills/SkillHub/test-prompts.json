@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "name": "new_book_outline_save_protocol",
     "prompt": "用户在 AI 大纲中选择：创建新书、长篇、男频、都市系统流，并输入灵感。请生成题材卡并保存。",
@@ -6,7 +6,7 @@
       "必须读取 ROUTE_MANIFEST.json 或 ROUTING_MEMORY.md",
       "必须路由到 TicaiSkill/male-urban-system",
       "必须输出 outlineSaveRequest",
-      "targetFolder 必须是大纲文件夹",
+      "targetFolder 必须是大纲",
       "不得生成正文"
     ]
   },
@@ -18,7 +18,7 @@
       "必须符合 CHAPTER_OUTLINE_STANDARD.md",
       "必须追加 QualitySkill/outline-quality-check",
       "必须输出 chapter-outline 类型保存请求",
-      "不得把正文保存到章纲文件夹"
+      "不得把正文保存到章纲"
     ]
   },
   {
