@@ -324,6 +324,53 @@ describe("OutlineFileTreePanel", () => {
     expect(deleteFileMock).toHaveBeenCalledWith("C:/Book/wiki/outlines/设定/世界观-2")
   })
 
+  it("加载时将设定下的伏笔目录合并到顶层伏笔并删除嵌套目录", async () => {
+    const duplicatedForeshadowingNodes: FileNode[] = [
+      {
+        name: "伏笔",
+        path: "C:/Book/wiki/outlines/伏笔",
+        is_dir: true,
+        children: [],
+      },
+      {
+        name: "设定",
+        path: "C:/Book/wiki/outlines/设定",
+        is_dir: true,
+        children: [
+          {
+            name: "伏笔",
+            path: "C:/Book/wiki/outlines/设定/伏笔",
+            is_dir: true,
+            children: [
+              {
+                name: "主线伏笔.md",
+                path: "C:/Book/wiki/outlines/设定/伏笔/主线伏笔.md",
+                is_dir: false,
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    listDirectoryMock.mockResolvedValue(duplicatedForeshadowingNodes)
+    fileExistsMock.mockResolvedValue(false)
+
+    await act(async () => {
+      root.render(<OutlineFileTreePanel showHeader={false} />)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(createDirectoryMock).not.toHaveBeenCalledWith("C:/Book/wiki/outlines/设定/伏笔")
+    expect(copyFileMock).toHaveBeenCalledWith(
+      "C:/Book/wiki/outlines/设定/伏笔/主线伏笔.md",
+      "C:/Book/wiki/outlines/伏笔/主线伏笔.md",
+    )
+    expect(deleteFileMock).toHaveBeenCalledWith("C:/Book/wiki/outlines/设定/伏笔/主线伏笔.md")
+    expect(deleteFileMock).toHaveBeenCalledWith("C:/Book/wiki/outlines/设定/伏笔")
+  })
+
   it("右键文件夹后可新建文档、新建文件夹和删除文件夹", async () => {
     const promptSpy = vi.spyOn(window, "prompt")
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)

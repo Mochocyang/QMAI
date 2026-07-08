@@ -24,13 +24,14 @@ describe("AI 大纲工作台核心逻辑", () => {
 
   it("提供设定文件夹默认子目录", () => {
     expect(DEFAULT_OUTLINE_FOLDER_PATHS).toEqual(expect.arrayContaining([
+      "伏笔",
       "设定/角色",
       "设定/世界观",
       "设定/势力",
-      "设定/伏笔",
       "设定/地图",
       "设定/状态",
     ]))
+    expect(DEFAULT_OUTLINE_FOLDER_PATHS).not.toContain("设定/伏笔")
   })
 
   it("提供旧默认文件夹到新文件夹的迁移映射", () => {

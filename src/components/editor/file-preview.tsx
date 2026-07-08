@@ -203,10 +203,10 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
       </div>
       {frontmatter && <FrontmatterPanel data={frontmatter} />}
       <div
-        className="prose prose-sm max-w-none dark:prose-invert"
+        className="prose prose-sm max-w-none break-words dark:prose-invert"
         dir={direction}
         lang={htmlLang}
-        style={{ textAlign: "start" }}
+        style={{ textAlign: "start", overflowWrap: "anywhere", wordBreak: "break-word" }}
       >
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}

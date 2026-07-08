@@ -59,7 +59,7 @@ import {
   planOutlineSubAgents,
   runOutlineMultiAgentWorkflow,
 } from "@/lib/novel/outline-multi-agent-orchestrator";
-import { prepareOutlineSaveDraft } from "@/lib/outline-save";
+import { normalizeOutlineMarkdown, prepareOutlineSaveDraft } from "@/lib/outline-save";
 import {
   type CharacterSaveDraft,
   extractCharacterSaveDrafts,
@@ -76,7 +76,7 @@ import {
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
 } from "@/lib/novel/outline-save-request";
-import { parseOutlineSubAgentResult } from "@/lib/novel/outline-result-protocol";
+import { coerceOutlineSubAgentResult } from "@/lib/novel/outline-result-protocol";
 import {
   resolveModelConfig,
   resolveNovelModel,
@@ -629,6 +629,10 @@ function OutlineAssistantMessage({
     edits: import("@/lib/novel/agent-parser").FileEditAction[];
     hasEdits: boolean;
   }>({ textContent: "", edits: [], hasEdits: false });
+  const renderedMarkdownContent = useMemo(
+    () => normalizeOutlineMarkdown(parsed.textContent || answer),
+    [answer, parsed.textContent],
+  );
   useEffect(() => {
     if (!answer) {
       setParsed({ textContent: "", edits: [], hasEdits: false });
@@ -663,8 +667,11 @@ function OutlineAssistantMessage({
         onConfirmSave={onConfirmToolSave}
         onReject={onRejectTool}
       />
-      <div className="prose prose-sm dark:prose-invert max-w-none">
-        <ReactMarkdown>{parsed.textContent || answer}</ReactMarkdown>
+      <div
+        className="prose prose-sm dark:prose-invert max-w-none break-words"
+        style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+      >
+        <ReactMarkdown>{renderedMarkdownContent}</ReactMarkdown>
       </div>
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
@@ -1485,12 +1492,29 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   ),
                 },
               ];
-              const subRun = await runOutlineAgentOnce(subAgentMessages, {
-                skillNames: subAgentPlan.skillNames,
-                disableWriteTools: true,
-                statusText: `多 Agent 并行生成中...\n正在运行：${subAgentPlan.name}`,
+              let subRun: { text: string; record: AgentRunRecord };
+              try {
+                subRun = await runOutlineAgentOnce(subAgentMessages, {
+                  skillNames: subAgentPlan.skillNames,
+                  disableWriteTools: true,
+                  statusText: `多 Agent 并行生成中...\n正在运行：${subAgentPlan.name}`,
+                });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
+                  ...agent,
+                  status: "error",
+                  error: message,
+                  finishedAt: Date.now(),
+                }));
+                throw error;
+              }
+              const parsed = coerceOutlineSubAgentResult(subRun.text, {
+                agentId: subAgentPlan.id,
+                agentName: subAgentPlan.name,
+                usedSkills: subAgentPlan.skillNames,
+                stage: subAgentPlan.kind,
               });
-              const parsed = parseOutlineSubAgentResult(subRun.text);
               if (!parsed.ok) {
                 updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
                   ...agent,
@@ -1506,7 +1530,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 summary: parsed.value.summary || "已完成本 Agent 负责内容。",
                 finishedAt: Date.now(),
               }));
-              return subRun.text;
+              return JSON.stringify({
+                agent_id: parsed.value.agentId,
+                agent_name: parsed.value.agentName,
+                stage: parsed.value.stage,
+                used_skills: parsed.value.usedSkills,
+                confidence: parsed.value.confidence,
+                summary: parsed.value.summary,
+                content_markdown: parsed.value.contentMarkdown,
+                constraints: parsed.value.constraints,
+                writeback_items: parsed.value.writebackItems.map((item) => ({
+                  type: item.type,
+                  name: item.name,
+                  content: item.content,
+                  target_folder: item.targetFolder,
+                })),
+                risks: parsed.value.risks,
+                questions: parsed.value.questions,
+              });
             },
             runSingleAgentFallback: async () => {
               updateOutlineMultiAgentRun(convId, assistantId, (run) => run ? ({
@@ -1520,7 +1561,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 fallbackReason: run.fallbackReason ?? "多 Agent 不可用或部分子 Agent 失败，已自动回退。",
               }) : run);
               setStreamingContent(
-                "当前环境不支持多 Agent 并行生成，已自动回退为单 Agent 大纲生成。",
+                "多 Agent 生成未能完成，正在按单 Agent 大纲生成继续输出。",
               );
               return runSingleAgentFallback();
             },
@@ -1587,6 +1628,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               mode: multiAgentResult.mode,
               status: multiAgentResult.mode === "multi-agent" ? "done" : "fallback",
               fallbackReason: multiAgentResult.fallbackReason ?? run.fallbackReason,
+              failureDetails: multiAgentResult.failureDetails ?? run.failureDetails,
               agents: run.agents.map((agent) => {
                 if (successful.has(agent.id) && agent.status !== "done") {
                   return { ...agent, status: "done", summary: agent.summary ?? "已完成。", finishedAt: Date.now() };
@@ -2306,8 +2348,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           activeMessages[activeMessages.length - 1]?.role !== "assistant" ? (
           <div className="flex justify-start">
             <div className="w-fit max-w-full lg:max-w-[50vw] rounded-lg bg-muted px-3 py-2 text-sm text-foreground">
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown>{streamingContent}</ReactMarkdown>
+              <div
+                className="prose prose-sm dark:prose-invert max-w-none break-words"
+                style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+              >
+                <ReactMarkdown>{normalizeOutlineMarkdown(streamingContent)}</ReactMarkdown>
               </div>
             </div>
           </div>

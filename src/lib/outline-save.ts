@@ -9,10 +9,20 @@ const DEFAULT_TITLE_PREFIX = "AI大纲"
 
 export function prepareOutlineSaveDraft(content: string, existingTitles: string[]): OutlineSaveDraft {
   const parsed = parseFrontmatter(content)
-  const body = parsed.body.trim()
+  const body = normalizeOutlineMarkdown(parsed.body).trim()
   const baseTitle = sanitizeOutlineTitle(extractOutlineTitle(body))
   const title = makeDistinctOutlineTitle(baseTitle, existingTitles)
   return { title, content: body }
+}
+
+export function normalizeOutlineMarkdown(content: string): string {
+  return content
+    .replace(/```(?:markdown|md)\s*\r?\n([\s\S]*?)\r?\n```/gi, (_, inner: string) => inner.trim())
+    .replace(/^\\(#{1,6}\s)/gm, "$1")
+    .replace(/^\\([-*+]\s)/gm, "$1")
+    .replace(/^\\(>\s)/gm, "$1")
+    .replace(/^\\(\d+\.\s)/gm, "$1")
+    .replace(/\\([*_`[\]])/g, "$1")
 }
 
 function extractOutlineTitle(content: string): string {

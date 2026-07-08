@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  coerceOutlineSubAgentResult,
   parseOutlineFinalResult,
   parseOutlineSubAgentResult,
 } from "./outline-result-protocol"
@@ -60,6 +61,29 @@ describe("AI大纲结构化输出协议", () => {
     if (!result.ok) {
       expect(result.error).toContain("缺少必要字段")
       expect(result.error).toContain("content_markdown")
+    }
+  })
+
+  it("将子 Agent 的 Markdown 输出容错转换为结构化结果", () => {
+    const result = coerceOutlineSubAgentResult(
+      [
+        "## 题材判断",
+        "这是玄幻升级流，核心卖点是压迫感和突破感。",
+      ].join("\n"),
+      {
+        agentId: "topic-agent",
+        agentName: "题材 Agent",
+        usedSkills: ["male-xuanhuan-xianxia"],
+      },
+    )
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.agentId).toBe("topic-agent")
+      expect(result.value.agentName).toBe("题材 Agent")
+      expect(result.value.usedSkills).toEqual(["male-xuanhuan-xianxia"])
+      expect(result.value.summary).toContain("题材判断")
+      expect(result.value.contentMarkdown).toContain("玄幻升级流")
     }
   })
 })

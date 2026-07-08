@@ -46,6 +46,7 @@ export interface OutlineMultiAgentRunState {
     finishedAt?: number
   }
   fallbackReason?: string
+  failureDetails?: string[]
 }
 
 export interface OutlineChatMessage {

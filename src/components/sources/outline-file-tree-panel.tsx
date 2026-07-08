@@ -109,6 +109,27 @@ async function cleanupDuplicatedSettingFolders(nodes: FileNode[]): Promise<boole
   return migrated
 }
 
+function isNestedForeshadowingFolder(name: string): boolean {
+  return name === "伏笔" || /^伏笔-\d+$/.test(name)
+}
+
+async function cleanupNestedForeshadowingFolders(nodes: FileNode[]): Promise<boolean> {
+  const settingNode = nodes.find((node) => node.is_dir && node.name === "设定")
+  if (!settingNode?.children?.length) return false
+
+  const outlineRoot = getDirName(settingNode.path)
+  const targetDir = `${outlineRoot}/伏笔`
+  let migrated = false
+  for (const child of settingNode.children) {
+    if (!child.is_dir || !isNestedForeshadowingFolder(child.name)) continue
+    await migrateNodeChildren(child, targetDir)
+    await deleteFile(child.path)
+    migrated = true
+  }
+
+  return migrated
+}
+
 export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanelProps) {
   const project = useWikiStore((s) => s.project)
   const selectedFile = useWikiStore((s) => s.selectedFile)
@@ -157,7 +178,9 @@ export function OutlineFileTreePanel({ showHeader = true }: OutlineFileTreePanel
         const migrated = await migrateLegacyOutlineFolders(projectPath, initialNodes)
         const afterMigrationNodes = migrated ? await listDirectory(outlineRoot) : initialNodes
         const cleaned = await cleanupDuplicatedSettingFolders(afterMigrationNodes)
-        const nodes = cleaned ? await listDirectory(outlineRoot) : afterMigrationNodes
+        const afterSettingCleanupNodes = cleaned ? await listDirectory(outlineRoot) : afterMigrationNodes
+        const cleanedForeshadowing = await cleanupNestedForeshadowingFolders(afterSettingCleanupNodes)
+        const nodes = cleanedForeshadowing ? await listDirectory(outlineRoot) : afterSettingCleanupNodes
         if (cancelled) return
         setOutlineNodes(nodes)
       } catch (err) {

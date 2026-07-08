@@ -93,6 +93,8 @@ describe("AI大纲多 Agent 编排器", () => {
     expect(result.mode).toBe("single-agent-fallback")
     expect(result.finalText).toBe("单 Agent 结果")
     expect(result.fallbackReason).toContain("多 Agent 失败数量超过阈值")
+    expect(result.failureDetails?.[0]).toContain("topic Agent")
+    expect(result.failureDetails?.[0]).toContain("失败")
   })
 
   it("合并 Agent 失败时自动回退为单 Agent", async () => {

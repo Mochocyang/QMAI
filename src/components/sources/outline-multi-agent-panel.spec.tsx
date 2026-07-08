@@ -10,6 +10,7 @@ describe("OutlineMultiAgentPanel", () => {
       status: "fallback",
       maxConcurrency: 3,
       fallbackReason: "多 Agent 失败数量超过阈值：2/3",
+      failureDetails: ["题材 Agent：结构化输出 JSON 解析失败"],
       agents: [
         {
           id: "outline-agent",
@@ -50,5 +51,6 @@ describe("OutlineMultiAgentPanel", () => {
     expect(html).toContain("结构化输出 JSON 解析失败")
     expect(html).toContain("回退原因")
     expect(html).toContain("多 Agent 失败数量超过阈值：2/3")
+    expect(html).toContain("题材 Agent：结构化输出 JSON 解析失败")
   })
 })

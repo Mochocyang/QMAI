@@ -20,7 +20,6 @@ export const DEFAULT_OUTLINE_FOLDER_PATHS = [
   "设定/角色",
   "设定/世界观",
   "设定/势力",
-  "设定/伏笔",
   "设定/地图",
   "设定/状态",
 ] as const
@@ -29,7 +28,6 @@ export const DEFAULT_SETTING_FOLDER_NAMES = [
   "角色",
   "世界观",
   "势力",
-  "伏笔",
   "地图",
   "状态",
 ] as const

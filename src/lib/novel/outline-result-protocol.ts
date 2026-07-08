@@ -19,6 +19,13 @@ export interface OutlineSubAgentResult {
   questions: string[]
 }
 
+export interface OutlineSubAgentFallbackContext {
+  agentId: string
+  agentName: string
+  usedSkills?: string[]
+  stage?: string
+}
+
 export interface OutlineFinalResult {
   outlineType: string
   targetFolder: string
@@ -40,8 +47,15 @@ export type OutlineProtocolParseResult<T> =
 
 function extractJsonPayload(text: string): string {
   const trimmed = text.trim()
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
-  return (fenced?.[1] ?? trimmed).trim()
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fenced?.[1]) return fenced[1].trim()
+  if (trimmed.startsWith("{")) return trimmed
+  const firstBrace = trimmed.indexOf("{")
+  const lastBrace = trimmed.lastIndexOf("}")
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1).trim()
+  }
+  return trimmed
 }
 
 function parseJsonObject(text: string): OutlineProtocolParseResult<Record<string, unknown>> {
@@ -112,6 +126,45 @@ export function parseOutlineSubAgentResult(text: string): OutlineProtocolParseRe
       writebackItems: asWritebackItems(parsed.value.writeback_items),
       risks: asStringArray(parsed.value.risks),
       questions: asStringArray(parsed.value.questions),
+    },
+  }
+}
+
+function summarizeMarkdown(content: string): string {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#{1,6}\s*/, "").trim())
+    .filter(Boolean)
+  const summary = lines.slice(0, 2).join("；")
+  return summary.slice(0, 120) || "已输出本 Agent 负责内容。"
+}
+
+export function coerceOutlineSubAgentResult(
+  text: string,
+  context: OutlineSubAgentFallbackContext,
+): OutlineProtocolParseResult<OutlineSubAgentResult> {
+  const parsed = parseOutlineSubAgentResult(text)
+  if (parsed.ok) return parsed
+
+  const contentMarkdown = text.trim()
+  if (!contentMarkdown) {
+    return { ok: false, error: parsed.error }
+  }
+
+  return {
+    ok: true,
+    value: {
+      agentId: context.agentId,
+      agentName: context.agentName,
+      stage: context.stage ?? "markdown_fallback",
+      usedSkills: context.usedSkills ?? [],
+      confidence: 0.55,
+      summary: summarizeMarkdown(contentMarkdown),
+      contentMarkdown,
+      constraints: [],
+      writebackItems: [],
+      risks: [`子 Agent 未按结构化 JSON 协议输出，已按 Markdown 内容容错接入：${parsed.error}`],
+      questions: [],
     },
   }
 }

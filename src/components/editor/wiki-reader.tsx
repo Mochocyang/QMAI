@@ -77,7 +77,7 @@ export function WikiReader({
       className="min-w-0 max-w-none text-[15px] leading-7 text-foreground"
       dir={direction}
       lang={htmlLang}
-      style={{ textAlign: "start" }}
+      style={{ textAlign: "start", overflowWrap: "anywhere", wordBreak: "break-word" }}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}

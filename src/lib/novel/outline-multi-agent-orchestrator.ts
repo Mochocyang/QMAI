@@ -1,5 +1,5 @@
 import {
-  parseOutlineSubAgentResult,
+  coerceOutlineSubAgentResult,
   type OutlineSubAgentResult,
 } from "./outline-result-protocol"
 
@@ -40,6 +40,7 @@ export interface OutlineMultiAgentRunResult {
   successfulAgents: string[]
   failedAgents: string[]
   fallbackReason?: string
+  failureDetails?: string[]
 }
 
 const KIND_ORDER: OutlineSubAgentKind[] = [
@@ -82,13 +83,19 @@ export async function runOutlineMultiAgentWorkflow(
       successfulAgents: [],
       failedAgents: [],
       fallbackReason: "没有可执行的子 Agent 计划。",
+      failureDetails: [],
     }
   }
 
   const maxConcurrency = Math.max(1, input.maxConcurrency ?? 3)
   const settled = await runWithConcurrency(input.plan, maxConcurrency, async (plan) => {
     const raw = await input.runSubAgent(plan)
-    const parsed = parseOutlineSubAgentResult(raw)
+    const parsed = coerceOutlineSubAgentResult(raw, {
+      agentId: plan.id,
+      agentName: plan.name,
+      usedSkills: plan.skillNames,
+      stage: plan.kind,
+    })
     if (!parsed.ok) throw new Error(parsed.error)
     return parsed.value
   })
@@ -96,10 +103,15 @@ export async function runOutlineMultiAgentWorkflow(
   const successful = settled
     .filter((item): item is PromiseFulfilledResult<OutlineSubAgentResult> => item.status === "fulfilled")
     .map((item) => item.value)
-  const failedAgents = settled
+  const failures = settled
     .map((item, index) => ({ item, plan: input.plan[index] }))
     .filter(({ item }) => item.status === "rejected")
-    .map(({ plan }) => plan.id)
+    .map(({ item, plan }) => ({
+      agentId: plan.id,
+      detail: `${plan.name}：${item.status === "rejected" ? formatError(item.reason) : "执行失败"}`,
+    }))
+  const failedAgents = failures.map((item) => item.agentId)
+  const failureDetails = failures.map((item) => item.detail)
 
   const threshold = input.failureFallbackThreshold ?? 0.5
   if (failedAgents.length / input.plan.length >= threshold) {
@@ -110,6 +122,7 @@ export async function runOutlineMultiAgentWorkflow(
       successfulAgents: successful.map((item) => item.agentId),
       failedAgents,
       fallbackReason: `多 Agent 失败数量超过阈值：${failedAgents.length}/${input.plan.length}`,
+      failureDetails,
     }
   }
 
@@ -120,6 +133,7 @@ export async function runOutlineMultiAgentWorkflow(
       finalText,
       successfulAgents: successful.map((item) => item.agentId),
       failedAgents,
+      failureDetails,
     }
   } catch (error) {
     const finalText = await input.runSingleAgentFallback()
@@ -129,8 +143,13 @@ export async function runOutlineMultiAgentWorkflow(
       successfulAgents: successful.map((item) => item.agentId),
       failedAgents,
       fallbackReason: `合并 Agent 失败：${error instanceof Error ? error.message : String(error)}`,
+      failureDetails: [...failureDetails, `合并 Agent：${formatError(error)}`],
     }
   }
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function runWithConcurrency<T, R>(
@@ -186,6 +205,20 @@ function buildSubAgentTaskPrompt(
     "请只处理自己负责的维度，不要写入文件。",
     `原始任务：${taskPrompt}`,
     `本 Agent 使用 Skill：${skillNames.join("、")}`,
-    "输出必须符合 AI 大纲子 Agent JSON 协议。",
+    "输出必须是一个 JSON 对象，不要输出 Markdown 代码围栏，不要输出解释说明。",
+    "JSON 字段模板：",
+    JSON.stringify({
+      agent_id: `${kind}-agent`,
+      agent_name: subAgentName(kind),
+      stage: kind,
+      used_skills: skillNames,
+      confidence: 0.8,
+      summary: "一句话总结本 Agent 结论",
+      content_markdown: "## 本 Agent 负责内容\n这里写可合并的大纲内容",
+      constraints: [],
+      writeback_items: [],
+      risks: [],
+      questions: [],
+    }, null, 2),
   ].join("\n")
 }

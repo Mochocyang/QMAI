@@ -149,6 +149,13 @@ export function OutlineMultiAgentPanel({ run }: OutlineMultiAgentPanelProps) {
         <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/70 px-2.5 py-2 leading-5 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           <span className="font-medium">回退原因：</span>
           {run.fallbackReason}
+          {run.failureDetails?.length ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {run.failureDetails.map((detail, index) => (
+                <li key={`${detail}-${index}`} className="break-words">{detail}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
     </div>
