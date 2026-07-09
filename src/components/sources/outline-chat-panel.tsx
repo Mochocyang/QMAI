@@ -2809,6 +2809,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {qualityFeedbackState && qualityFeedbackState.status !== "pass" ? (
+            <button
+              type="button"
+              disabled={isStreaming}
+              onClick={handleRepairQualityFeedback}
+              aria-label="修订生成后质量检查发现的问题"
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              title={qualityFeedbackState.summary}
+            >
+              修订质量问题
+            </button>
+          ) : null}
+          {saveStatus && (
+            <span className="text-xs text-muted-foreground">{saveStatus}</span>
+          )}
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
