@@ -4,6 +4,8 @@ import { normalizePath } from "@/lib/path-utils"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { useWikiStore } from "@/stores/wiki-store"
+import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
+import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
 
 export type OutlineMultiAgentStatus =
   | "planning"
@@ -59,6 +61,9 @@ export interface OutlineChatMessage {
   showThinkingProcess?: boolean
   isAgentRunning?: boolean
   attachedReferences?: ReferenceToken[]
+  intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"
+  intentClarityResult?: IntentClarityResult | null
+  nextStepRecommendation?: NextStepRecommendation | null
 }
 
 export interface OutlineChatConversation {
