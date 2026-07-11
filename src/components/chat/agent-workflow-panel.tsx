@@ -1,201 +1,123 @@
-import { useMemo, useState } from "react"
-import {
-  AlertTriangle,
-  Brain,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  Clock3,
-  Loader2,
-  XCircle,
-} from "lucide-react"
-import { ToolCallTimeline } from "./tool-call-timeline"
-import {
-  buildAgentWorkflowSteps,
-  type AgentWorkflowDetail,
-  type AgentWorkflowStep,
-  type AgentWorkflowStepStatus,
-} from "@/lib/agent/workflow-trace"
-import type { ContextTrace } from "@/lib/agent/context-trace"
+import { useMemo, useRef, useEffect } from "react"
+import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
 import type { AgentRunRecord } from "@/lib/agent/types"
-import { cn } from "@/lib/utils"
+import type { ContextTrace } from "@/lib/agent/context-trace"
+import { createStreamingEventBuilder } from "@/components/common/timeline-types"
+import type { ToolCallEventItem, TimelineToolCategory } from "@/components/common/timeline-types"
+import { EventStream } from "@/components/common/event-stream"
 
 type ToolCallRecord = AgentRunRecord["toolCalls"][number]
 
 interface AgentWorkflowPanelProps {
   toolCalls: ToolCallRecord[] | undefined
   contextTrace?: ContextTrace | null
+  thinkingContent?: string
+  thinkingStreaming?: boolean
   onConfirmSave?: (call: ToolCallRecord & { preview?: string }) => void
   onReject?: (call: ToolCallRecord & { preview?: string }) => void
 }
 
-function getDefaultOpenStepId(steps: AgentWorkflowStep[]): string | null {
-  return steps.find((step) => step.status === "running")?.id
-    ?? steps.find((step) => step.status === "approval_required")?.id
-    ?? null
+const WRITE_TOOLS = new Set(["write_chapter", "write_outline_node", "write_memory"])
+const READ_TOOLS = new Set([
+  "list_chapters", "list_outlines", "list_memories", "list_deductions",
+  "read_chapter", "read_outline", "read_memory", "read_deduction",
+  "read_chat_history", "read_outline_history", "search_chapters",
+  "chapter_context", "chapter_previous_analysis", "load_context", "trim_context",
+])
+const ACTION_TOOLS = new Set(["route_task", "apply_skill"])
+
+function getToolCallCategory(name: string): TimelineToolCategory {
+  if (WRITE_TOOLS.has(name)) return "write"
+  if (READ_TOOLS.has(name)) return "read"
+  if (ACTION_TOOLS.has(name)) return "action"
+  return "virtual"
 }
 
-function getWorkflowDuration(steps: AgentWorkflowStep[]): string {
-  const starts = steps.map((step) => step.startedAt).filter((value): value is number => Number.isFinite(value))
-  if (starts.length === 0) return ""
-  const finishes = steps.map((step) => step.finishedAt).filter((value): value is number => Number.isFinite(value))
-  const start = Math.min(...starts)
-  const end = finishes.length > 0 ? Math.max(...finishes) : Date.now()
-  const ms = Math.max(0, end - start)
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  const seconds = Math.floor(ms / 1000)
-  return `${Math.floor(seconds / 60)}m${seconds % 60}s`
-}
-
-function getOverallStatus(steps: AgentWorkflowStep[]): AgentWorkflowStepStatus {
-  if (steps.some((step) => step.status === "running")) return "running"
-  if (steps.some((step) => step.status === "approval_required")) return "approval_required"
-  if (steps.some((step) => step.status === "error")) return "error"
-  if (steps.some((step) => step.status === "cancelled")) return "cancelled"
-  return "done"
-}
-
-function WorkflowStatusIcon({ status }: { status: AgentWorkflowStepStatus }) {
-  if (status === "running") {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600 dark:text-sky-400" />
+function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
+  const isError = call.status === "error"
+  return {
+    id: call.id,
+    name: call.name,
+    description: getWorkflowToolDescription(call),
+    category: getToolCallCategory(call.name),
+    status: call.status,
+    params: call.params,
+    result: isError ? undefined : call.result,
+    error: isError ? call.result : undefined,
+    startedAt: call.startedAt,
+    finishedAt: call.finishedAt,
   }
-  if (status === "approval_required") {
-    return <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-  }
-  if (status === "error") {
-    return <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-  }
-  if (status === "cancelled") {
-    return <XCircle className="h-3.5 w-3.5 text-muted-foreground/70" />
-  }
-  if (status === "pending") {
-    return <Circle className="h-3.5 w-3.5 text-muted-foreground/60" />
-  }
-  return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-}
-
-function getStatusLabel(status: AgentWorkflowStepStatus): string {
-  switch (status) {
-    case "running":
-      return "进行中"
-    case "approval_required":
-      return "待确认"
-    case "error":
-      return "失败"
-    case "cancelled":
-      return "已取消"
-    case "pending":
-      return "待处理"
-    default:
-      return "完成"
-  }
-}
-
-function getDetailToneClass(tone: AgentWorkflowDetail["tone"]): string {
-  switch (tone) {
-    case "success":
-      return "text-emerald-700 dark:text-emerald-300"
-    case "warning":
-      return "text-amber-700 dark:text-amber-300"
-    case "error":
-      return "text-red-700 dark:text-red-300"
-    case "muted":
-      return "text-muted-foreground/80"
-    default:
-      return "text-foreground/85"
-  }
-}
-
-function WorkflowStepRow({
-  step,
-  open,
-  onToggle,
-}: {
-  step: AgentWorkflowStep
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <div
-      className={cn(
-        "relative pl-7",
-        step.status === "running" && "rounded-md bg-sky-50/45 py-1 pr-2 dark:bg-sky-950/10",
-        step.status === "approval_required" && "rounded-md bg-amber-50/55 py-1 pr-2 dark:bg-amber-950/10",
-      )}
-    >
-      <span className="absolute left-0 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-background">
-        <WorkflowStatusIcon status={step.status} />
-      </span>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="group grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 text-left"
-        aria-expanded={open}
-      >
-        <span className="min-w-0">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <ChevronRight
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground",
-                open && "rotate-90",
-              )}
-            />
-            <span className="min-w-0 break-words text-[13px] font-medium text-foreground">
-              {step.title}
-            </span>
-          </span>
-          <span className="mt-0.5 block break-words pl-5 text-[12px] leading-5 text-muted-foreground">
-            {step.summary}
-          </span>
-        </span>
-        <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
-          {getStatusLabel(step.status)}
-        </span>
-      </button>
-      {open && (
-        <div className="mt-1.5 space-y-1.5 pl-5 text-[12px] leading-5">
-          {step.details.map((detail, index) => (
-            <div key={`${step.id}-${detail.label}-${index}`} className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-              <span className="text-muted-foreground">{detail.label}</span>
-              <span className={cn("min-w-0 break-words", getDetailToneClass(detail.tone))}>{detail.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 export function AgentWorkflowPanel({
   toolCalls,
   contextTrace,
+  thinkingContent,
+  thinkingStreaming,
   onConfirmSave,
   onReject,
 }: AgentWorkflowPanelProps) {
-  const steps = useMemo(
-    () => buildAgentWorkflowSteps({ toolCalls, contextTrace }),
-    [toolCalls, contextTrace],
-  )
-  const defaultOpenStepId = useMemo(() => getDefaultOpenStepId(steps), [steps])
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [allOpen, setAllOpen] = useState(false)
-
-  if (steps.length === 0) return null
-
-  const overallStatus = getOverallStatus(steps)
-  const duration = getWorkflowDuration(steps)
   const safeToolCalls = toolCalls ?? []
-  const pendingApprovalCalls = safeToolCalls.filter((call) => call.status === "approval_required")
+  const builderRef = useRef(createStreamingEventBuilder("agent-thinking"))
+  const wasStreamingRef = useRef(false)
 
-  // 检测同批写入调用中是否有重复的大纲文件名
+  const sortedCalls = useMemo(
+    () => [...safeToolCalls].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)),
+    [safeToolCalls],
+  )
+
+  const adaptedCalls = useMemo(
+    () => sortedCalls.map(adaptToolCall),
+    [sortedCalls],
+  )
+
+  const isStreaming =
+    thinkingStreaming || safeToolCalls.some((c) => c.status === "running")
+
+  useEffect(() => {
+    if (!wasStreamingRef.current && isStreaming) {
+      builderRef.current.reset()
+    }
+    wasStreamingRef.current = isStreaming
+  }, [isStreaming])
+
+  const events = useMemo(
+    () => builderRef.current.update(
+      thinkingContent || "",
+      adaptedCalls,
+      !!thinkingStreaming,
+    ),
+    [thinkingContent, adaptedCalls, thinkingStreaming],
+  )
+
+  const totalDurationMs = useMemo(() => {
+    if (contextTrace?.startedAt && contextTrace?.finishedAt) {
+      return contextTrace.finishedAt - contextTrace.startedAt
+    }
+    if (safeToolCalls.length > 0) {
+      const startedAts = safeToolCalls.map((c) => c.startedAt).filter(Boolean)
+      const finishedAts = safeToolCalls.map((c) => c.finishedAt).filter(Boolean)
+      if (startedAts.length > 0 && finishedAts.length > 0) {
+        return Math.max(...finishedAts) - Math.min(...startedAts)
+      }
+    }
+    return undefined
+  }, [contextTrace, safeToolCalls])
+
+  const pendingApprovalCalls = safeToolCalls.filter(
+    (call) => call.status === "approval_required",
+  )
+
+  if (events.length === 0 && !isStreaming) return null
+
   const duplicateOutlineCalls = (() => {
     if (pendingApprovalCalls.length < 2) return []
     const groupedByFile = new Map<string, typeof pendingApprovalCalls>()
     for (const call of pendingApprovalCalls) {
       if (call.name !== "write_outline_node") continue
-      const outlineName = (call.params as Record<string, unknown>)?.outlineName as string | undefined
+      const outlineName = (call.params as Record<string, unknown>)?.outlineName as
+        | string
+        | undefined
       if (!outlineName) continue
       const existing = groupedByFile.get(outlineName) ?? []
       existing.push(call)
@@ -210,75 +132,17 @@ export function AgentWorkflowPanel({
     return duplicates
   })()
 
-
-  const isStepOpen = (step: AgentWorkflowStep) => {
-    if (allOpen) return true
-    if (step.id in openMap) return openMap[step.id]
-    return step.id === defaultOpenStepId
-  }
-
   return (
-    <div className="mb-2 max-w-full overflow-hidden border-l border-border/80 pl-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Brain className="h-3.5 w-3.5" />
-          </span>
-          <span>思考过程</span>
-          <span className="text-[11px] font-normal text-muted-foreground">({steps.length})</span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
-            <WorkflowStatusIcon status={overallStatus} />
-            {getStatusLabel(overallStatus)}
-          </span>
-          {duration && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
-              <Clock3 className="h-3 w-3" />
-              {duration}
-            </span>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2 text-[11px]">
-          <button
-            type="button"
-            onClick={() => setAllOpen((value) => !value)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            {allOpen ? "全部折叠" : "展开全部"}
-          </button>
-          {safeToolCalls.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen((value) => !value)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-expanded={detailsOpen}
-            >
-              工具详情
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="relative space-y-3 before:absolute before:left-[9px] before:top-2 before:bottom-2 before:w-px before:bg-border/80">
-        {steps.map((step) => (
-          <WorkflowStepRow
-            key={step.id}
-            step={step}
-            open={isStepOpen(step)}
-            onToggle={() => {
-              setOpenMap((prev) => ({
-                ...prev,
-                [step.id]: !isStepOpen(step),
-              }))
-            }}
-          />
-        ))}
-      </div>
+    <div className="mb-2 w-full min-w-0 max-w-full overflow-hidden border-l border-border/80 pl-3">
+      <EventStream events={events} isStreaming={isStreaming} totalDurationMs={totalDurationMs} />
 
       {pendingApprovalCalls.length > 0 && onConfirmSave && onReject ? (
         <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
           {duplicateOutlineCalls.length > 0 ? (
             <div className="mb-2 rounded-md border border-red-200 bg-red-50/70 p-2 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
-              <span className="font-semibold">⚠ 警告：以下文件有多个写入项指向同一文件名：</span>
+              <span className="font-semibold">
+                ⚠ 警告：以下文件有多个写入项指向同一文件名：
+              </span>
               <ul className="mt-1 list-inside list-disc space-y-0.5">
                 {duplicateOutlineCalls.map(({ outlineName, callCount }) => (
                   <li key={outlineName}>
@@ -289,9 +153,14 @@ export function AgentWorkflowPanel({
             </div>
           ) : null}
           {pendingApprovalCalls.map((call) => (
-            <div key={call.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <div
+              key={call.id}
+              className="flex min-w-0 flex-wrap items-center justify-between gap-2"
+            >
               <span className="min-w-0 flex-1 truncate">
-                {call.name === "write_outline_node" ? "大纲写入需要确认" : "写入操作需要确认"}
+                {call.name === "write_outline_node"
+                  ? "大纲写入需要确认"
+                  : "写入操作需要确认"}
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
                 <button
@@ -313,17 +182,6 @@ export function AgentWorkflowPanel({
           ))}
         </div>
       ) : null}
-
-      {detailsOpen && safeToolCalls.length > 0 && (
-        <div className="mt-3 border-t border-border/70 pt-2">
-          <ToolCallTimeline
-            toolCalls={safeToolCalls}
-            onConfirmSave={onConfirmSave}
-            onReject={onReject}
-            defaultExpanded={false}
-          />
-        </div>
-      )}
     </div>
   )
 }

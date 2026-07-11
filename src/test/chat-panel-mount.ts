@@ -3,6 +3,8 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { vi } from "vitest"
 import type { TaskBreakpoint } from "@/lib/agent/task-breakpoint"
+import type { Conversation, DisplayMessage } from "@/stores/chat-store"
+import type { ConversationRunStates } from "@/lib/conversation-run-state"
 
 const wikiState = {
   project: { path: "C:/QMAI_C/QMAI-main", name: "测试项目" },
@@ -147,32 +149,41 @@ import { useChatStore } from "@/stores/chat-store"
 
 export interface RenderChatPanelOptions {
   activeConversation?: boolean
+  activeConversationId?: string | null
+  conversations?: Conversation[]
+  messages?: DisplayMessage[]
+  runStates?: ConversationRunStates
   agentSkillConfig?: typeof defaultAgentSkillConfig | null
   taskBreakpoint?: TaskBreakpoint | null
 }
 
 export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  if (!HTMLElement.prototype.scrollTo) HTMLElement.prototype.scrollTo = vi.fn()
   mockAgentSkillConfig = options.agentSkillConfig === undefined
     ? defaultAgentSkillConfig
     : options.agentSkillConfig
   mockTaskBreakpoint = options.taskBreakpoint ?? null
 
-  const activeConversationId = options.activeConversation ? "conv_mount" : null
+  const activeConversationId = options.activeConversationId !== undefined
+    ? options.activeConversationId
+    : options.activeConversation ? "conv_mount" : null
+  const conversations = options.conversations ?? (activeConversationId
+    ? [{
+        id: activeConversationId,
+        title: "测试会话",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        deAiMode: false,
+        inputDraft: "",
+      }]
+    : [])
   useChatStore.setState({
-    conversations: activeConversationId
-      ? [{
-          id: activeConversationId,
-          title: "测试会话",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          deAiMode: false,
-          inputDraft: "",
-        }]
-      : [],
+    conversations,
     activeConversationId,
-    messages: [],
+    messages: options.messages ?? [],
     streamingContents: {},
+    runStates: options.runStates ?? {},
     pendingReferenceTokens: [],
   })
 

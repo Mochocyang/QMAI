@@ -77,22 +77,21 @@ describe("AI大纲多 Agent 编排器", () => {
     expect(result.failedAgents).toEqual(["topic-agent"])
   })
 
-  it("超过失败阈值时自动回退为单 Agent", async () => {
+  it("部分 Agent 失败时不整体降级，继续合并成功结果", async () => {
     const result = await runOutlineMultiAgentWorkflow({
       plan: [makePlan("outline"), makePlan("topic"), makePlan("character")],
       maxConcurrency: 3,
-      failureFallbackThreshold: 0.5,
       runSubAgent: async (item) => {
         if (item.kind !== "outline") throw new Error("失败")
         return makeSubAgentJson(item.id, item.name)
       },
-      runSingleAgentFallback: async () => "单 Agent 结果",
-      mergeResults: async () => "不应执行",
+      runSingleAgentFallback: async () => "不应降级",
+      mergeResults: async (items) => `成功数量：${items.length}`,
     })
 
-    expect(result.mode).toBe("single-agent-fallback")
-    expect(result.finalText).toBe("单 Agent 结果")
-    expect(result.fallbackReason).toContain("多 Agent 失败数量超过阈值")
+    expect(result.mode).toBe("multi-agent")
+    expect(result.finalText).toBe("成功数量：1")
+    expect(result.failedAgents).toEqual(["topic-agent", "character-agent"])
     expect(result.failureDetails?.[0]).toContain("topic Agent")
     expect(result.failureDetails?.[0]).toContain("失败")
   })

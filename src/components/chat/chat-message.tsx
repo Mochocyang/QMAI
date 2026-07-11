@@ -47,6 +47,10 @@ import {
 import { detectLanguage } from "@/lib/detect-language";
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata";
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram";
+import { highlightCode } from "@/lib/streaming-code-highlight";
+import { separateThinking } from "@/lib/separate-thinking";
+import { StreamingMarkdown } from "@/components/common/streaming-markdown";
+import { StreamingSpinner } from "@/components/common/streaming-spinner";
 import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
 
@@ -114,6 +118,17 @@ export function ChatMessage({
       message.contextTrace.contextInfo),
   );
 
+  // 仅对最后一条流式助手消息提取 thinking，避免历史消息重复提取
+  const isLastStreamingAssistant = isLastAssistant && isAssistant;
+  const { thinking: extractedThinking } = useMemo(
+    () =>
+      isLastStreamingAssistant
+        ? separateThinking(message.content)
+        : { thinking: null, answer: message.content },
+    [message.content, isLastStreamingAssistant],
+  );
+  const thinkingStreaming = isLastStreamingAssistant && !!message.isAgentRunning;
+
   return (
     <div
       className={`flex w-full min-w-0 gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}
@@ -166,6 +181,8 @@ export function ChatMessage({
                 <AgentToolCallMessage
                   toolCalls={message.agentToolCalls}
                   contextTrace={message.contextTrace}
+                  thinkingContent={extractedThinking ?? undefined}
+                  thinkingStreaming={thinkingStreaming}
                   onConfirmSave={onConfirmToolSave}
                   onReject={onRejectTool}
                 />
@@ -689,9 +706,10 @@ function extractCitedPages(text: string): CitedPage[] {
 
 interface StreamingMessageProps {
   content: string;
+  isStreaming?: boolean;
 }
 
-export function StreamingMessage({ content }: StreamingMessageProps) {
+export function StreamingMessage({ content, isStreaming = true }: StreamingMessageProps) {
   const { thinking, answer } = useMemo(
     () => separateThinking(content),
     [content],
@@ -709,8 +727,11 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
         ) : (
           <>
             {thinking && <WorkflowBlock content={thinking} />}
-            <MarkdownContent content={answer} />
-            <span className="animate-pulse">▊</span>
+            <StreamingMarkdown
+              content={answer}
+              isStreaming={isStreaming}
+              renderCommitted={(text) => <MarkdownContent content={text} />}
+            />
           </>
         )}
       </div>
@@ -884,6 +905,17 @@ function MarkdownContent({ content }: { content: string }) {
               if (lang === "mermaid") {
                 return <MermaidDiagram code={codeText} />;
               }
+              if (lang && lang !== "text" && lang !== "plain") {
+                const highlighted = highlightCode(codeText, lang);
+                return (
+                  <code
+                    dir="ltr"
+                    className={`${className ?? ""} code-highlight`}
+                    dangerouslySetInnerHTML={{ __html: highlighted }}
+                    {...props}
+                  />
+                );
+              }
               return (
                 <code dir="ltr" className={className} {...props}>
                   {children}
@@ -900,54 +932,6 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 /**
- * 检测文本是否主要是LLM英文思考内容（应隐藏）
- * 特征：主要是英文，包含典型推理词汇，中文字符极少
- */
-function isLlmEnglishThinking(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-
-  // 统计中文字符数
-  const chineseChars = (trimmed.match(/[\u4e00-\u9fff]/g) || []).length;
-  const totalChars = trimmed.length;
-  const chineseRatio = chineseChars / Math.max(totalChars, 1);
-
-  // 如果中文字符占比超过15%，认为是中文内容（工作流信息），保留
-  if (chineseRatio > 0.15) return false;
-
-  // 检测典型的LLM英文思考关键词
-  const thinkingKeywords = [
-    "thinking process",
-    "let's think",
-    "let me think",
-    "analyze",
-    "let's write",
-    "wait,",
-    "word count",
-    "constraints",
-    "note:",
-    "check:",
-    "strategy",
-    "i need to",
-    "i should",
-    "first,",
-    "okay,",
-    "so,",
-    "now,",
-    "the user",
-    "based on",
-    "according to",
-  ];
-  const lower = trimmed.toLowerCase();
-  const keywordCount = thinkingKeywords.filter((kw) =>
-    lower.includes(kw),
-  ).length;
-
-  // 如果包含2个以上思考关键词且中文很少，判定为LLM英文思考
-  return keywordCount >= 2;
-}
-
-/**
  * 检测一行是否是工作流阶段标题
  */
 function isWorkflowStageHeader(line: string): boolean {
@@ -957,112 +941,6 @@ function isWorkflowStageHeader(line: string): boolean {
   // 匹配 "阶段X：" 或 "阶段X:" 开头的行（即使没有##）
   if (/^阶段\s*[\d.]+\s*[：:]/.test(trimmed)) return true;
   return false;
-}
-
-/**
- * 过滤思考块内容，保留中文工作流阶段信息，隐藏LLM英文思考
- */
-function filterThinkingContent(thinking: string): string | null {
-  const lines = thinking.split("\n");
-  const resultLines: string[] = [];
-  let currentStageHeader: string | null = null;
-  let currentStageContent: string[] = [];
-
-  const flushStage = () => {
-    if (currentStageHeader) {
-      resultLines.push(currentStageHeader);
-      const contentText = currentStageContent.join("\n").trim();
-      if (contentText) {
-        // 检查内容是否是LLM英文思考
-        if (!isLlmEnglishThinking(contentText)) {
-          resultLines.push(...currentStageContent);
-        }
-      }
-      resultLines.push("");
-    } else if (currentStageContent.length > 0) {
-      // 没有阶段标题的独立内容块
-      const blockText = currentStageContent.join("\n").trim();
-      if (blockText && !isLlmEnglishThinking(blockText)) {
-        resultLines.push(...currentStageContent);
-        resultLines.push("");
-      }
-    }
-    currentStageHeader = null;
-    currentStageContent = [];
-  };
-
-  for (const line of lines) {
-    if (isWorkflowStageHeader(line)) {
-      // 新的阶段开始，先flush之前的
-      flushStage();
-      currentStageHeader = line;
-    } else if (currentStageHeader) {
-      // 当前正在收集阶段内容
-      currentStageContent.push(line);
-    } else {
-      // 不在阶段内的内容，按段落处理
-      currentStageContent.push(line);
-      // 空行表示段落结束
-      if (!line.trim()) {
-        flushStage();
-      }
-    }
-  }
-  // flush最后一个阶段
-  flushStage();
-
-  const result = resultLines.join("\n").trim();
-  return result || null;
-}
-
-/**
- * Separate <think>...</think> blocks from the main answer.
- * Handles multiple think blocks and partial (unclosed) thinking during streaming.
- * 保留工作流阶段提示（中文），过滤LLM英文思考内容。
- */
-function separateThinking(text: string): {
-  thinking: string | null;
-  answer: string;
-} {
-  // Match complete <think>...</think> and <thinking>...</thinking> blocks
-  const thinkRegex = /<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/gi;
-  const thinkParts: string[] = [];
-  let answer = text;
-
-  let match: RegExpExecArray | null;
-  while ((match = thinkRegex.exec(text)) !== null) {
-    thinkParts.push(match[1].trim());
-  }
-  answer = answer
-    .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, "")
-    .trim();
-
-  // Handle unclosed <think> or <thinking> tag (streaming in progress)
-  const unclosedMatch = answer.match(/<think(?:ing)?>([\s\S]*)$/i);
-  if (unclosedMatch) {
-    thinkParts.push(unclosedMatch[1].trim());
-    answer = answer.replace(/<think(?:ing)?>[\s\S]*$/i, "").trim();
-  }
-
-  // 处理只有结尾 </think> 标签的情况（没有开头标签）
-  const firstCloseIndex = answer.search(/<\/think(?:ing)?>/i);
-  if (firstCloseIndex >= 0) {
-    const beforeClose = answer.slice(0, firstCloseIndex);
-    if (!/<think(?:ing)?>/i.test(beforeClose)) {
-      const thinkingContent = beforeClose.trim();
-      if (thinkingContent) {
-        thinkParts.push(thinkingContent);
-      }
-      answer = answer.replace(/^[\s\S]*?<\/think(?:ing)?>\s*/i, "");
-    }
-  }
-
-  const rawThinking = thinkParts.length > 0 ? thinkParts.join("\n\n") : null;
-  const filteredThinking = rawThinking
-    ? filterThinkingContent(rawThinking)
-    : null;
-
-  return { thinking: filteredThinking, answer: answer.trim() };
 }
 
 function countWorkflowStages(content: string): number {
@@ -1108,7 +986,7 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
       </div>
       <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
         {displayContent}
-        <span className="animate-pulse text-blue-500">▊</span>
+        <span className="text-blue-500"><StreamingSpinner /></span>
       </div>
     </div>
   );

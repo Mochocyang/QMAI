@@ -1,4 +1,4 @@
-import React, {
+import {
   type CSSProperties,
   useRef,
   useCallback,
@@ -18,6 +18,7 @@ import {
   Trash2,
   ListPlus,
   History,
+  ArrowDown,
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import {
@@ -73,6 +74,10 @@ import {
   planOutlineSubAgents,
   runOutlineMultiAgentWorkflow,
 } from "@/lib/novel/outline-multi-agent-orchestrator";
+import {
+  buildDynamicOutlinePlannerPrompt,
+  parseDynamicOutlinePlan,
+} from "@/lib/novel/outline-dynamic-agent-planner";
 import { normalizeOutlineMarkdown, prepareOutlineSaveDraft } from "@/lib/outline-save";
 import {
   type CharacterSaveDraft,
@@ -95,12 +100,15 @@ import {
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
 } from "@/lib/novel/outline-save-request";
-import { coerceOutlineSubAgentResult } from "@/lib/novel/outline-result-protocol";
 import {
   resolveModelConfig,
   resolveNovelModel,
 } from "@/lib/novel/model-resolver";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
+import { useStreamingText } from "@/hooks/use-streaming-text";
+import { highlightCode } from "@/lib/streaming-code-highlight";
+import { separateThinking } from "@/lib/separate-thinking";
+import { StreamingMarkdown } from "@/components/common/streaming-markdown";
 import {
   ReferenceInput,
   type InsertReferenceTokens,
@@ -153,12 +161,50 @@ import {
   splitConversationToolbarItems,
 } from "@/lib/workspace-layout";
 import { createWriteOutlineNodeTool } from "@/lib/agent/tools/write-outline-node";
+import {
+  buildIntentAnalysisPrompt,
+  parseIntentClarity,
+  stripStructuredMarkers,
+  type IntentClarityResult,
+} from "@/lib/novel/outline-intent-clarity";
+import {
+  cleanNextStepArtifacts,
+  extractNextStep,
+  buildNextStepPromptSuffix,
+} from "@/lib/novel/outline-next-step";
+import { IntentOptionsCard } from "@/components/sources/outline-intent-options-card";
+import { NextStepCard } from "@/components/sources/outline-next-step-card";
+import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon";
+import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog";
+import {
+  canCreateNewConversation,
+  EMPTY_CONVERSATION_CREATE_REASON,
+} from "@/lib/conversation-create-guard";
+import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
+import { toast } from "@/lib/toast";
+import {
+  type OutlineWorkflowStage,
+  canTransitionOutlineWorkflow,
+} from "@/lib/novel/outline-workflow-state";
+import {
+  canApplyOutlineRunEffect,
+  setOutlineSessionValue,
+  shouldClearOutlineDraft,
+} from "@/lib/novel/outline-chat-session-state";
 
 const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory"];
 const OUTLINE_CHAT_WIZARD_DISABLED_TOOLS = [
   ...OUTLINE_CHAT_DISABLED_TOOLS,
   "write_outline_node",
 ];
+
+function showOutlineAutoSaveError(message: string) {
+  toast.error(message, {
+    title: "自动保存失败",
+    persistent: true,
+    dedupeKey: `outline-auto-save:${message}`,
+  });
+}
 
 function mergeDisabledTools(...groups: Array<readonly string[] | undefined>): string[] {
   return Array.from(new Set(groups.flatMap((group) => group ?? [])));
@@ -272,6 +318,20 @@ function buildOutlineAgentSystemPrompt(options: {
     "长篇小说必须先卷后章：先形成核心设定、总纲、卷节拍表、卷时间线和卷纲，再生成章纲；不得从灵感直接跳到全书章纲。",
     "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
     "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
+    "## 意图清晰度分析阶段",
+    "当用户请求生成大纲分项时，必须先进行意图清晰度分析：",
+    "1. 调用 list_outlines、list_chapters、read_outline 读取已有资料",
+    "2. 判断用户意图是否清晰（能否确定具体生成范围）",
+    "3. 输出 <!-- intent_clarity --> JSON 标记块",
+    "4. clear 时：只输出 JSON，不生成正文，等待系统自动注入生成指令",
+    "5. needs_input 时：输出 JSON 后用自然语言提出澄清问题 + 4个推荐选项",
+    "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
+    "用户选择或回复后，直接进入生成流程，不再二次分析。",
+    "",
+    "## 下一步推荐输出",
+    "生成完成后，在回复末尾附加 <!-- next_step --> JSON 标记块。",
+    "推荐方向仅限大纲体系内（人物小传、组织势力、力量体系等），严禁推荐正文生成。",
+    "必须包含一个 id 为 D 的自定义选项。",
     "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
     "关键内容提取必须服务于小说创作：只保留能帮助用户继续写小说的信息，例如章节目标、冲突推进、人物动机、伏笔状态、设定限制、时间线承接和结尾钩子。",
     "生成章纲时必须使用章纲标准结构：基础信息、上层依据、本章目标、核心事件、场景顺序、结构节点、章首钩子、爽点设计、章尾钩子、执行约束、人物状态、伏笔与追踪、待写回设定、写作约束、AI写作提示。核心事件不少于6条，场景顺序为2-4个场景。",
@@ -333,7 +393,7 @@ function getOutlineSectionOutputRules(title: string): string {
   return "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。";
 }
 
-function buildOutlineSectionGenerationPrompt(
+export function buildOutlineSectionGenerationPrompt(
   title: string,
   requestHint: string,
 ): string {
@@ -359,6 +419,37 @@ function buildOutlineSectionGenerationPrompt(
     getOutlineSectionOutputRules(title),
     "",
     "如果资料不足以完整生成，请只问一个最关键的澄清问题；如果资料足够，直接输出完整正文。",
+  ].join("\n");
+}
+
+function buildGenerationPrompt(
+  title: string,
+  requestHint: string,
+  scope?: string,
+  outputMode?: "per_chapter" | "per_item" | "single",
+): string {
+  const outputModeInstruction = outputMode === "per_chapter"
+    ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
+    : outputMode === "per_item"
+    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。"
+    : "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。";
+
+  return [
+    `请按「AI大纲生成工作流」生成「${title}」。`,
+    scope ? `\n## 已确认范围\n${scope}\n` : "",
+    "## PRD 3.1 主流程要求",
+    "1. 提取请求关键词。2. 识别用户意图。3. 读取资料。4. 提取关键内容。",
+    "5. 结合 skill + soul.md 生成可直接保存的大纲正文。6. 结果强约束收敛。",
+    "",
+    "## 本分项内容要求",
+    requestHint,
+    getOutlineSectionOutputRules(title),
+    "",
+    "## 文件输出要求",
+    outputModeInstruction,
+    "",
+    "如果资料足够，直接输出完整正文。",
+    buildNextStepPromptSuffix(),
   ].join("\n");
 }
 
@@ -445,6 +536,19 @@ function updateOutlineAssistantMessage(
   }));
 }
 
+function removeOutlineMessage(conversationId: string, messageId: string): void {
+  useOutlineChatStore.setState((state) => ({
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === conversationId
+        ? {
+            ...conversation,
+            messages: conversation.messages.filter((message) => message.id !== messageId),
+          }
+        : conversation,
+    ),
+  }));
+}
+
 function describeOutlineSubAgentTask(agent: OutlineSubAgentPlan): string {
   switch (agent.kind) {
     case "outline":
@@ -475,8 +579,12 @@ function createOutlineMultiAgentRunState(
       name: agent.name,
       kind: agent.kind,
       skillNames: agent.skillNames,
-      taskPrompt: describeOutlineSubAgentTask(agent),
-      status: "pending",
+      taskPrompt: agent.taskPrompt || describeOutlineSubAgentTask(agent),
+      dimension: agent.dimension,
+      dependencies: agent.dependencies ?? [],
+      priority: agent.priority,
+      finalReview: agent.finalReview,
+      status: "waiting",
     })),
     merge: {
       status: "pending",
@@ -489,7 +597,9 @@ function updateOutlineMultiAgentRun(
   conversationId: string,
   messageId: string,
   updater: (run: OutlineMultiAgentRunState | undefined) => OutlineMultiAgentRunState | undefined,
+  canApply: () => boolean = () => true,
 ): void {
+  if (!canApply()) return;
   updateOutlineAssistantMessage(conversationId, messageId, (message) => ({
     ...message,
     multiAgentRun: updater(message.multiAgentRun),
@@ -501,6 +611,7 @@ function updateOutlineMultiAgentItem(
   messageId: string,
   agentId: string,
   updater: (agent: OutlineMultiAgentRunState["agents"][number]) => OutlineMultiAgentRunState["agents"][number],
+  canApply: () => boolean = () => true,
 ): void {
   updateOutlineMultiAgentRun(conversationId, messageId, (run) => {
     if (!run) return run;
@@ -508,7 +619,7 @@ function updateOutlineMultiAgentItem(
       ...run,
       agents: run.agents.map((agent) => agent.id === agentId ? updater(agent) : agent),
     };
-  });
+  }, canApply);
 }
 
 function updateOutlineToolCall(
@@ -583,51 +694,116 @@ function buildFallbackCharacterDraftsFromRequests(
   });
 }
 
-function separateThinking(text: string): {
-  thinking: string | null;
-  answer: string;
-} {
-  const thinkParts: string[] = [];
-  let answer = text.replace(
-    /<(think|thinking)>([\s\S]*?)<\/\1>/gi,
-    (_match, _tag, inner) => {
-      thinkParts.push(String(inner).trim());
-      return "";
-    },
-  );
-
-  const openMatch = answer.match(/<(think|thinking)>([\s\S]*)$/i);
-  if (openMatch && openMatch.index !== undefined) {
-    thinkParts.push(openMatch[2].trim());
-    answer = answer.slice(0, openMatch.index);
-  }
-
-  return {
-    thinking:
-      thinkParts.length > 0 ? thinkParts.filter(Boolean).join("\n\n") : null,
-    answer: answer.trim(),
-  };
-}
-
-const OutlineThinkingBlock = React.memo(function OutlineThinkingBlock({
+function OutlineMarkdownContent({
   content,
-  open,
+  projectPath,
 }: {
   content: string;
-  open: boolean;
+  projectPath: string | null;
 }) {
   return (
-    <div className="mb-2 rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 px-3 py-2 text-xs dark:bg-amber-950/20 min-h-[3rem]">
-      <div className="mb-1.5 flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-        <span className={open ? "animate-pulse" : undefined}>💭</span>
-        <span className="font-medium">{open ? "思考中..." : "思考过程"}</span>
-      </div>
-      <div className="max-h-72 overflow-y-auto border-t border-amber-500/20 pt-2 pr-1 whitespace-pre-wrap break-words font-mono leading-5 text-amber-800/80 dark:text-amber-300/70">
+    <div
+      className="chat-markdown prose prose-sm max-w-none dark:prose-invert
+        prose-p:my-1.5 prose-p:leading-relaxed
+        prose-h1:text-xl prose-h1:font-bold prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-2 prose-h1:border-b prose-h1:border-border
+        prose-h2:text-lg prose-h2:font-semibold prose-h2:mt-4 prose-h2:mb-2
+        prose-h3:text-base prose-h3:font-semibold prose-h3:mt-3 prose-h3:mb-1.5
+        prose-h4:text-sm prose-h4:font-semibold prose-h4:mt-2 prose-h4:mb-1
+        prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:leading-relaxed
+        prose-strong:font-semibold prose-strong:text-foreground
+        prose-pre:my-2 prose-pre:p-3 prose-pre:rounded-md
+        prose-code:text-xs prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
+        prose-table:text-xs prose-th:font-semibold
+        prose-blockquote:border-l-4 prose-blockquote:border-primary/50 prose-blockquote:pl-3 prose-blockquote:italic prose-blockquote:text-muted-foreground
+        break-words"
+      style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          img: ({ src, alt, ...props }) => (
+            <img
+              src={
+                typeof src === "string"
+                  ? resolveMarkdownImageSrc(src, projectPath)
+                  : undefined
+              }
+              alt={alt ?? ""}
+              className="my-2 max-w-full rounded border border-border/40"
+              loading="lazy"
+              {...props}
+            />
+          ),
+          table: ({ children, ...props }) => (
+            <div className="my-2 overflow-x-auto rounded border border-border">
+              <table className="w-full border-collapse text-xs" {...props}>
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ children, ...props }) => (
+            <thead className="bg-muted" {...props}>
+              {children}
+            </thead>
+          ),
+          th: ({ children, ...props }) => (
+            <th
+              className="border border-border/80 px-3 py-1.5 text-start font-semibold bg-muted"
+              {...props}
+            >
+              {children}
+            </th>
+          ),
+          td: ({ children, ...props }) => (
+            <td className="border border-border/60 px-3 py-1.5" {...props}>
+              {children}
+            </td>
+          ),
+          pre: ({ children, ...props }) => {
+            const mermaid = unwrapMermaidPre(children);
+            if (mermaid) return <>{mermaid}</>;
+            return (
+              <pre
+                dir="ltr"
+                className="rounded bg-background/50 p-2 text-xs overflow-x-auto"
+                style={{ textAlign: "left" }}
+                {...props}
+              >
+                {children}
+              </pre>
+            );
+          },
+          code: ({ className, children, ...props }) => {
+            const lang = className?.replace("language-", "");
+            const codeText = String(children).replace(/\n$/, "");
+            if (lang === "mermaid") {
+              return <MermaidDiagram code={codeText} />;
+            }
+            if (lang && lang !== "text" && lang !== "plain") {
+              const highlighted = highlightCode(codeText, lang);
+              return (
+                <code
+                  dir="ltr"
+                  className={`${className ?? ""} code-highlight`}
+                  dangerouslySetInnerHTML={{ __html: highlighted }}
+                  {...props}
+                />
+              );
+            }
+            return (
+              <code dir="ltr" className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
         {content}
-      </div>
+      </ReactMarkdown>
     </div>
   );
-});
+}
 
 function OutlineAssistantMessage({
   msg,
@@ -642,6 +818,9 @@ function OutlineAssistantMessage({
   onRegenerate,
   onConfirmToolSave,
   onRejectTool,
+  onGenerateSection,
+  onSendMessage,
+  onFocusInput,
 }: {
   msg: import("@/stores/outline-chat-store").OutlineChatMessage;
   index: number;
@@ -655,6 +834,9 @@ function OutlineAssistantMessage({
   onRegenerate: (index: number) => Promise<void>;
   onConfirmToolSave: (call: ToolCallRecord & { preview?: string }) => void;
   onRejectTool: (call: ToolCallRecord & { preview?: string }) => void;
+  onGenerateSection: (title: string, requestHint: string) => void;
+  onSendMessage: (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => void;
+  onFocusInput: () => void;
 }) {
   const [editApplied, setEditApplied] = useState(false);
   const [editResults, setEditResults] = useState<
@@ -669,9 +851,8 @@ function OutlineAssistantMessage({
     () => separateThinking(displayContent),
     [displayContent],
   );
-  const visibleThinking =
-    msg.showThinkingProcess === false ? null : thinking;
   const actionContent = answer || displayContent;
+  const messageIsStreaming = isStreaming && index === activeMessagesLength - 1;
 
   // Parse for file edits
   const [parsed, setParsed] = useState<{
@@ -681,8 +862,9 @@ function OutlineAssistantMessage({
   }>({ textContent: "", edits: [], hasEdits: false });
   const renderedMarkdownContent = useMemo(() => {
     const rawContent = parsed.textContent || answer;
-    const bodyContent = extractBodyContent(rawContent);
-    return normalizeOutlineMarkdown(bodyContent || rawContent);
+    const stripped = stripStructuredMarkers(rawContent);
+    const bodyContent = extractBodyContent(stripped);
+    return normalizeOutlineMarkdown(bodyContent || stripped);
   }, [answer, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
@@ -709,104 +891,22 @@ function OutlineAssistantMessage({
 
   return (
     <>
-      {visibleThinking ? (
-        <OutlineThinkingBlock content={visibleThinking} open={isStreaming} />
-      ) : null}
+
       <OutlineMultiAgentPanel run={msg.multiAgentRun} />
       <AgentToolCallMessage
         toolCalls={msg.agentToolCalls}
+        thinkingContent={thinking || undefined}
+        thinkingStreaming={messageIsStreaming}
         onConfirmSave={onConfirmToolSave}
         onReject={onRejectTool}
       />
-      <div
-        className="chat-markdown prose prose-sm max-w-none dark:prose-invert 
-          prose-p:my-1.5 prose-p:leading-relaxed
-          prose-h1:text-xl prose-h1:font-bold prose-h1:mt-5 prose-h1:mb-3 prose-h1:pb-2 prose-h1:border-b prose-h1:border-border
-          prose-h2:text-lg prose-h2:font-semibold prose-h2:mt-4 prose-h2:mb-2
-          prose-h3:text-base prose-h3:font-semibold prose-h3:mt-3 prose-h3:mb-1.5
-          prose-h4:text-sm prose-h4:font-semibold prose-h4:mt-2 prose-h4:mb-1
-          prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-li:leading-relaxed
-          prose-strong:font-semibold prose-strong:text-foreground
-          prose-pre:my-2 prose-pre:p-3 prose-pre:rounded-md
-          prose-code:text-xs prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none
-          prose-table:text-xs prose-th:font-semibold
-          prose-blockquote:border-l-4 prose-blockquote:border-primary/50 prose-blockquote:pl-3 prose-blockquote:italic prose-blockquote:text-muted-foreground
-          break-words"
-        style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-      >
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-          components={{
-            img: ({ src, alt, ...props }) => (
-              <img
-                src={
-                  typeof src === "string"
-                    ? resolveMarkdownImageSrc(src, projectPath)
-                    : undefined
-                }
-                alt={alt ?? ""}
-                className="my-2 max-w-full rounded border border-border/40"
-                loading="lazy"
-                {...props}
-              />
-            ),
-            table: ({ children, ...props }) => (
-              <div className="my-2 overflow-x-auto rounded border border-border">
-                <table className="w-full border-collapse text-xs" {...props}>
-                  {children}
-                </table>
-              </div>
-            ),
-            thead: ({ children, ...props }) => (
-              <thead className="bg-muted" {...props}>
-                {children}
-              </thead>
-            ),
-            th: ({ children, ...props }) => (
-              <th
-                className="border border-border/80 px-3 py-1.5 text-start font-semibold bg-muted"
-                {...props}
-              >
-                {children}
-              </th>
-            ),
-            td: ({ children, ...props }) => (
-              <td className="border border-border/60 px-3 py-1.5" {...props}>
-                {children}
-              </td>
-            ),
-            pre: ({ children, ...props }) => {
-              const mermaid = unwrapMermaidPre(children);
-              if (mermaid) return <>{mermaid}</>;
-              return (
-                <pre
-                  dir="ltr"
-                  className="rounded bg-background/50 p-2 text-xs overflow-x-auto"
-                  style={{ textAlign: "left" }}
-                  {...props}
-                >
-                  {children}
-                </pre>
-              );
-            },
-            code: ({ className, children, ...props }) => {
-              const lang = className?.replace("language-", "");
-              const codeText = String(children).replace(/\n$/, "");
-              if (lang === "mermaid") {
-                return <MermaidDiagram code={codeText} />;
-              }
-              return (
-                <code dir="ltr" className={className} {...props}>
-                  {children}
-                </code>
-              );
-            },
-          }}
-        >
-          {renderedMarkdownContent}
-        </ReactMarkdown>
-      </div>
+      <StreamingMarkdown
+        content={renderedMarkdownContent}
+        isStreaming={isStreaming && index === activeMessagesLength - 1}
+        renderCommitted={(text) => (
+          <OutlineMarkdownContent content={text} projectPath={projectPath} />
+        )}
+      />
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
@@ -854,6 +954,36 @@ function OutlineAssistantMessage({
             <RefreshCw className="h-3 w-3" /> 重新生成
           </button>
         </div>
+      ) : null}
+      {/* 意图不清晰时的推荐选项 */}
+      {msg.intentClarityResult?.clarity === "needs_input" && !isStreaming ? (
+        <IntentOptionsCard
+          result={msg.intentClarityResult}
+          onSelectOption={(optionId, label, description) => {
+            if (optionId === "D") {
+              onFocusInput();
+            } else {
+              const scope = label + (description ? `：${description}` : "");
+              onSendMessage(scope, { intentPhase: "generation", scope });
+            }
+          }}
+        />
+      ) : null}
+      {/* 下一步推荐 */}
+      {msg.nextStepRecommendation && msg.nextStepRecommendation.recommendations.length > 0 && !isStreaming ? (
+        <NextStepCard
+          recommendation={msg.nextStepRecommendation}
+          onSelectRecommendation={(recId, label) => {
+            if (recId === "D") {
+              onFocusInput();
+            } else {
+              const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === label);
+              if (config) {
+                onGenerateSection(config.title, config.requestHint);
+              }
+            }
+          }}
+        />
       ) : null}
     </>
   );
@@ -965,8 +1095,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const activeConversationId = useOutlineChatStore(
     (s) => s.activeConversationId,
   );
-  const streamingContent = useOutlineChatStore((s) => s.streamingContent);
-  const isStreaming = useOutlineChatStore((s) => s.isStreaming);
+  const streamingContents = useOutlineChatStore((s) => s.streamingContents);
+  const runStates = useOutlineChatStore((s) => s.runStates);
+  const activeRunState = activeConversationId ? runStates[activeConversationId] : undefined;
+  const isStreaming = activeRunState?.status === "running";
+  const streamingContent = activeConversationId ? streamingContents[activeConversationId] ?? "" : "";
+  const batchedStreamingContent = useStreamingText(streamingContent, isStreaming);
   const loaded = useOutlineChatStore((s) => s.loaded);
   const createConversation = useOutlineChatStore((s) => s.createConversation);
   const setActiveConversation = useOutlineChatStore(
@@ -976,7 +1110,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const replaceLastAssistant = useOutlineChatStore(
     (s) => s.replaceLastAssistant,
   );
-  const removeLastMessage = useOutlineChatStore((s) => s.removeLastMessage);
   const deleteConversation = useOutlineChatStore((s) => s.deleteConversation);
   const setConversationModel = useOutlineChatStore(
     (s) => s.setConversationModel,
@@ -985,7 +1118,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     (s) => s.setConversationContextSummary,
   );
   const setStreamingContent = useOutlineChatStore((s) => s.setStreamingContent);
-  const setIsStreaming = useOutlineChatStore((s) => s.setIsStreaming);
+  const clearStreamingContent = useOutlineChatStore((s) => s.clearStreamingContent);
+  const startConversationRun = useOutlineChatStore((s) => s.startConversationRun);
+  const finishConversationRun = useOutlineChatStore((s) => s.finishConversationRun);
+  const failConversationRun = useOutlineChatStore((s) => s.failConversationRun);
+  const stopConversationRun = useOutlineChatStore((s) => s.stopConversationRun);
+  const canStartConversationRun = useOutlineChatStore((s) => s.canStartConversationRun);
   const pendingReferenceTokens = useOutlineChatStore(
     (s) => s.pendingReferenceTokens,
   );
@@ -996,9 +1134,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const activeMessages = activeConv?.messages ?? [];
+  const hasSentUserMessage =
+    activeConv?.messages.some((message) => message.role === "user") ?? false;
+  const canCreateConversation = canCreateNewConversation(
+    activeConversationId,
+    hasSentUserMessage,
+  );
   const isWorkingConversation = useCallback(
-    (convId: string) => Boolean(isStreaming && convId === activeConversationId),
-    [activeConversationId, isStreaming],
+    (convId: string) => runStates[convId]?.status === "running",
+    [runStates],
   );
   const { topConversations, historyConversations } = useMemo(
     () => splitConversationToolbarItems(
@@ -1036,12 +1180,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null);
   const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyDropdownRef = useRef<HTMLDivElement | null>(null);
   const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null);
   const [deAiSkillConfig, setDeAiSkillConfig] = useState<DeAiSkillConfig | null>(null);
   const [writingSkills, setWritingSkills] = useState<UserSkill[]>([]);
+  const intentContextsRef = useRef<Record<string, {
+    result?: IntentClarityResult | null;
+    title: string;
+    hint: string;
+    outputMode?: "per_chapter" | "per_item" | "single";
+  }>>({});
+  const [outlineWorkflowStages, setOutlineWorkflowStages] = useState<Record<string, OutlineWorkflowStage>>({});
+  const outlineWorkflowStage = activeConversationId
+    ? outlineWorkflowStages[activeConversationId] ?? "idle"
+    : "idle";
   const outlineWritingSkills = useMemo(() => {
     const routed = filterSkillsForSkillRoutes(writingSkills, [...OUTLINE_CHAT_SKILL_ROUTES]);
     return routed.length > 0 ? routed : writingSkills;
@@ -1185,13 +1340,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     setHistoryOpen(false);
   }, [activeConversationId]);
 
-  const [saveStatus, setSaveStatus] = useState("");
-  const [qualityFeedbackState, setQualityFeedbackState] =
-    useState<OutlineGenerationQualityFeedback | null>(null);
-  const [qualityConfirmState, setQualityConfirmState] = useState<{
+  const setSaveStatus = useCallback((message: string) => {
+    if (!/(失败|错误|不支持|无法)/.test(message)) return;
+    toast.error(message, {
+      title: "大纲操作失败",
+      persistent: true,
+      dedupeKey: `outline-operation:${message}`,
+    });
+  }, []);
+  const [qualityFeedbackStates, setQualityFeedbackStates] =
+    useState<Record<string, OutlineGenerationQualityFeedback>>({});
+  type QualityConfirmState = {
     feedback: OutlineGenerationQualityFeedback;
     requests: OutlineSaveRequest[];
-  } | null>(null);
+  };
+  const [qualityConfirmStates, setQualityConfirmStates] = useState<Record<string, QualityConfirmState>>({});
+  const qualityFeedbackState = activeConversationId ? qualityFeedbackStates[activeConversationId] ?? null : null;
+  const qualityConfirmState = activeConversationId ? qualityConfirmStates[activeConversationId] ?? null : null;
   const [saveConfirmState, setSaveConfirmState] = useState<{
     title: string;
     mode: "normal" | "character";
@@ -1199,20 +1364,33 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     characterDrafts: CharacterSaveDraft[];
   } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const lastScrollTopRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const streamingConversationIdRef = useRef<string | null>(null);
-  const pendingRepairMetaRef = useRef<OutlineSaveRequest[] | null>(null);
+  const pendingRepairMetaRef = useRef<Record<string, OutlineSaveRequest[]>>({});
 
   // Auto-scroll
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || userScrolledUpRef.current) return;
-    container.scrollTop = container.scrollHeight;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    });
     lastScrollTopRef.current = container.scrollTop;
-  }, [activeMessages, streamingContent]);
+  }, [activeMessages, batchedStreamingContent]);
+
+  const handleScrollToBottom = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    userScrolledUpRef.current = false;
+    setShowScrollToBottom(false);
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    });
+  }, []);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -1227,11 +1405,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       } else if (atBottom) {
         userScrolledUpRef.current = false;
       }
+      setShowScrollToBottom(userScrolledUpRef.current && isStreaming);
       lastScrollTopRef.current = currentScrollTop;
     };
     container.addEventListener("scroll", handleScroll);
     return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [isStreaming]);
 
   const executeConfirmedOutlineSave = useCallback(
     async (payload: OutlineSaveConfirmPayload) => {
@@ -1277,11 +1456,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleAutoSaveOutlineRequests = useCallback(
-    async (assistantContent: string) => {
-      if (!project) return;
+    async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
+      if (!project || !canApply()) return;
       const parsed = parseOutlineSaveRequests(assistantContent);
       if (parsed.requests.length === 0) {
-        const repairMeta = pendingRepairMetaRef.current;
+        const repairMeta = pendingRepairMetaRef.current[conversationId];
         if (repairMeta && repairMeta.length > 0) {
           const body = assistantContent
             .replace(/```(?:json)?\s*[\s\S]*?```/gi, "")
@@ -1292,10 +1471,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               ...meta,
               content: body,
             }));
-            pendingRepairMetaRef.current = null;
+            delete pendingRepairMetaRef.current[conversationId];
             setSaveStatus("正在自动保存修订后的大纲...");
             try {
               const projectPath = normalizePath(project.path);
+              if (!canApply()) return;
               const saveResult = await saveOutlineSaveRequests({
                 outlineRoot: `${projectPath}/wiki/outlines`,
                 requests: fallbackRequests,
@@ -1304,25 +1484,27 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 readFile,
                 writeFile,
               });
+              if (!canApply()) return;
               if (saveResult.saved.length > 0) {
                 await refreshProjectState(projectPath);
                 const names = saveResult.saved.map((item) => item.fileName).join("、");
                 setSaveStatus(`已保存修订后的大纲文件：${names}`);
               } else if (saveResult.errors.length > 0) {
-                setSaveStatus(`保存失败：${saveResult.errors.slice(0, 2).join("；")}`);
+                showOutlineAutoSaveError(saveResult.errors.slice(0, 2).join("；"));
               }
             } catch (error) {
-              setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+              if (!canApply()) return;
+              showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
             }
             return;
           }
         }
         if (parsed.errors.length > 0) {
-          setSaveStatus(formatOutlineSaveParseFeedback(parsed.errors));
+          showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
         }
         return;
       }
-      pendingRepairMetaRef.current = null;
+      delete pendingRepairMetaRef.current[conversationId];
 
       const qualityFeedback = parsed.requests
         .map((request) =>
@@ -1337,12 +1519,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
 
       if (qualityFeedback) {
-        setQualityFeedbackState(qualityFeedback);
+        setQualityFeedbackStates((states) => setOutlineSessionValue(states, conversationId, qualityFeedback));
         const split = splitConfirmRequiredSaveRequests(parsed.requests);
-        setQualityConfirmState({
+        setQualityConfirmStates((states) => setOutlineSessionValue(states, conversationId, {
           feedback: qualityFeedback,
           requests: split.autoSaveable,
-        });
+        }));
         setSaveStatus("");
         return;
       }
@@ -1380,6 +1562,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
         if (split.autoSaveable.length === 0) return;
 
+        if (!canApply()) return;
         const saveResult = await saveOutlineSaveRequests({
           outlineRoot: `${projectPath}/wiki/outlines`,
           requests: split.autoSaveable,
@@ -1388,16 +1571,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           readFile,
           writeFile,
         });
+        if (!canApply()) return;
         if (saveResult.saved.length > 0) {
           await refreshProjectState(projectPath);
           const names = saveResult.saved.map((item) => item.fileName).join("、");
           const skipped = saveResult.skipped.length > 0
             ? `；${saveResult.skipped.slice(0, 2).join("；")}`
             : "";
-          const qualityText = qualityFeedback
-            ? `；${qualityFeedback.title}发现可修复项，可点击“修订质量问题”。`
-            : "";
-          setSaveStatus(`已自动保存 ${saveResult.saved.length} 个大纲文件：${names}${skipped}${qualityText}`);
+          setSaveStatus(`已自动保存 ${saveResult.saved.length} 个大纲文件：${names}${skipped}`);
           return;
         }
         if (saveResult.skipped.length > 0) {
@@ -1405,10 +1586,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           return;
         }
         if (saveResult.errors.length > 0 || parsed.errors.length > 0) {
-          setSaveStatus(`自动保存失败：${[...saveResult.errors, ...parsed.errors].slice(0, 2).join("；")}`);
+          showOutlineAutoSaveError([...saveResult.errors, ...parsed.errors].slice(0, 2).join("；"));
         }
       } catch (error) {
-        setSaveStatus(`自动保存失败：${error instanceof Error ? error.message : String(error)}`);
+        if (!canApply()) return;
+        showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
       }
     },
     [project],
@@ -1423,28 +1605,38 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         preferredSkillNames?: string[];
         enableMultiAgent?: boolean;
         forceRefresh?: boolean;
+        conversationId?: string;
+        clearDraft?: boolean;
+        intentPhase?: "intent_analysis" | "generation" | "waiting_user_input";
       } = {},
     ) => {
       const prompt = inputText.trim();
-      if (!prompt || !project || isStreaming) return;
-      setInputValue("");
-      setOutlineReferenceTokens([]);
+      if (!prompt || !project) return;
+      const requestedConversationId = options.conversationId ?? activeConversationId;
+      const requestedRunState = requestedConversationId
+        ? useOutlineChatStore.getState().runStates[requestedConversationId]
+        : undefined;
+      if (requestedRunState?.status === "running") return;
+      let convId = requestedConversationId;
+      if (!convId) convId = createConversation();
       let effectiveLlmConfig = resolveNovelModel(
         llmConfig,
         novelConfig,
         "writing",
       );
-      if (activeConv?.modelId) {
+      const targetConversation = options.conversationId
+        ? useOutlineChatStore.getState().conversations.find((conversation) => conversation.id === options.conversationId)
+        : activeConv;
+      if (targetConversation?.modelId) {
         effectiveLlmConfig = resolveModelConfig(
-          activeConv.modelId,
+          targetConversation.modelId,
           effectiveLlmConfig,
           providerConfigs,
         );
       }
       const effectiveModelId =
-        activeConv?.modelId || effectiveLlmConfig.model || "";
+        targetConversation?.modelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
-        const convId = activeConversationId ?? createConversation();
         addMessage(convId, {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -1454,7 +1646,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         return;
       }
       if (!modelSupportsTools(effectiveModelId)) {
-        const convId = activeConversationId ?? createConversation();
         addMessage(convId, {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -1464,9 +1655,27 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         return;
       }
 
-      let convId = activeConversationId;
-      if (!convId) {
-        convId = createConversation();
+      const capturedConvId = convId;
+      const runId = crypto.randomUUID();
+      if (!startConversationRun(capturedConvId, runId)) return;
+      const controller = new AbortController();
+      outlineConversationRunRegistry.register(capturedConvId, controller);
+      const isCurrentRun = () => canApplyOutlineRunEffect(
+        useOutlineChatStore.getState().runStates,
+        capturedConvId,
+        runId,
+      );
+      const setCapturedWorkflowStage = (stage: OutlineWorkflowStage) => {
+        if (!isCurrentRun()) return;
+        setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, stage));
+      };
+      if (shouldClearOutlineDraft({
+        clearDraft: options.clearDraft !== false,
+        invocationConversationId: capturedConvId,
+        activeConversationId: useOutlineChatStore.getState().activeConversationId,
+      })) {
+        setInputValue("");
+        setOutlineReferenceTokens([]);
       }
 
       const historyBeforeSend = (
@@ -1533,12 +1742,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         agentToolCalls: [],
         showThinkingProcess: historyPlan.showThinkingProcess,
         isAgentRunning: true,
+        intentPhase: options.intentPhase,
       });
-      setIsStreaming(true);
-      setStreamingContent("");
-      streamingConversationIdRef.current = convId;
+      setStreamingContent(capturedConvId, "");
       userScrolledUpRef.current = false;
       let hiddenToolCalls: AgentRunRecord["toolCalls"] = [];
+      let followUpGenerationPrompt: string | null = null;
 
       try {
         let webResearchMarkdown = "";
@@ -1558,9 +1767,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
 
         let result = "";
-        const controller = new AbortController();
-        abortRef.current = controller;
-
         const skillConfig = await loadDeAiSkillConfig(project.path).catch(
           (): DeAiSkillConfig | null => null,
         );
@@ -1650,7 +1856,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           let runText = "";
           let agentError: Error | null = null;
           if (optionsForRun.statusText) {
-            setStreamingContent(optionsForRun.statusText);
+            if (isCurrentRun()) setStreamingContent(capturedConvId, optionsForRun.statusText);
           }
           const record = await new AgentRunner().run(
             agentConfig,
@@ -1661,13 +1867,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 runText += chunk;
                 if (optionsForRun.streamToUser) {
                   result += chunk;
-                  setStreamingContent(result);
+                  if (isCurrentRun()) setStreamingContent(capturedConvId, result);
                 }
               },
               onToolCall: () => {},
               onToolResult: () => {},
               onToolError: () => {},
               onToolEvent: (event) => {
+                if (!isCurrentRun()) return;
                 if (!historyPlan.showToolProcess) {
                   hiddenToolCalls = applyAgentToolEvent(hiddenToolCalls, event);
                   return;
@@ -1705,11 +1912,48 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         let finalText = "";
         if (options.enableMultiAgent) {
           const maxConcurrency = 3;
-          const subAgentPlan = planOutlineSubAgents({
+          const fallbackSubAgentPlan = planOutlineSubAgents({
             preferredSkillNames: options.preferredSkillNames ?? [],
             taskPrompt: prompt,
             maxConcurrency,
           });
+          const plannerPrompt = buildDynamicOutlinePlannerPrompt({
+            userTask: prompt,
+            projectSummary: [
+              targetConversation?.contextSummary,
+              contextDecision.instruction,
+              historyPlan.instruction,
+            ].filter(Boolean).join("\n"),
+            existingModules: outlineSources.length > 0 ? outlineSources : ["当前项目尚无可识别的大纲模块"],
+            missingModules: ["请根据用户任务、已有模块和项目摘要识别缺失模块"],
+            skills: outlineWritingSkills.map((skill) => ({
+              name: skill.name,
+              description: skill.description,
+              stages: skill.stages,
+              kinds: skill.kind,
+            })),
+          });
+          let subAgentPlan = fallbackSubAgentPlan;
+          try {
+            const plannerRun = await runOutlineAgentOnce([
+              {
+                role: "system",
+                content: "你只负责规划大纲子 Agent 任务图，不执行大纲生成，不调用工具，只输出 JSON。",
+              },
+              { role: "user", content: plannerPrompt },
+            ], {
+              skillNames: [],
+              disableWriteTools: true,
+              statusText: "正在动态规划 Agent 任务…",
+            });
+            const dynamicPlan = parseDynamicOutlinePlan(
+              plannerRun.text,
+              outlineWritingSkills.map((skill) => skill.name),
+            );
+            if (dynamicPlan.ok) subAgentPlan = dynamicPlan.plan;
+          } catch {
+            // 动态规划失败时保留规则规划，继续使用依赖调度器。
+          }
           updateOutlineAssistantMessage(convId, assistantId, (message) => ({
             ...message,
             multiAgentRun: createOutlineMultiAgentRunState(subAgentPlan, maxConcurrency),
@@ -1717,8 +1961,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const multiAgentResult = await runOutlineMultiAgentWorkflow({
             plan: subAgentPlan,
             maxConcurrency,
-            failureFallbackThreshold: 0.5,
+            onStatusChange: (event) => {
+              if (!isCurrentRun()) return;
+              updateOutlineMultiAgentItem(convId, assistantId, event.agentId, (agent) => ({
+                ...agent,
+                status: event.status === "completed"
+                  ? "done"
+                  : event.status === "failed"
+                    ? "error"
+                    : event.status === "retrying"
+                      ? "retrying"
+                      : event.status === "waiting" || event.status === "ready"
+                        ? "waiting"
+                        : "running",
+                retryCount: Math.max(0, event.attempt - 1),
+                startedAt: event.status === "running" && !agent.startedAt ? Date.now() : agent.startedAt,
+                finishedAt: event.status === "completed" || event.status === "failed" ? Date.now() : undefined,
+                error: event.error,
+                summary: event.status === "completed" ? agent.summary ?? "已完成本 Agent 任务。" : agent.summary,
+              }));
+            },
             runSubAgent: async (subAgentPlan) => {
+              if (!isCurrentRun()) throw new Error("aborted");
               updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
                 ...agent,
                 status: "running",
@@ -1754,6 +2018,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   statusText: `多 Agent 并行生成中...\n正在运行：${subAgentPlan.name}`,
                 });
               } catch (error) {
+                if (!isCurrentRun()) throw new Error("aborted");
                 const message = error instanceof Error ? error.message : String(error);
                 updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
                   ...agent,
@@ -1763,76 +2028,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 }));
                 throw error;
               }
-              const parsed = coerceOutlineSubAgentResult(subRun.text, {
-                agentId: subAgentPlan.id,
-                agentName: subAgentPlan.name,
-                usedSkills: subAgentPlan.skillNames,
-                stage: subAgentPlan.kind,
-              });
-              let finalParsed = parsed;
-              if (!finalParsed.ok) {
-                const retrySubAgentMessages: AgentMessage[] = [
-                  ...subAgentMessages,
-                  {
-                    role: "assistant",
-                    content: subRun.text || "[空输出]",
-                  },
-                  {
-                    role: "user",
-                    content: [
-                      `结构化输出解析失败：${finalParsed.error}`,
-                      "请只重新输出一个合法 JSON 对象，不要输出 Markdown 代码围栏，不要输出解释说明。",
-                      "必须包含字段：agent_id、agent_name、stage、used_skills、confidence、summary、content_markdown、constraints、writeback_items、risks、questions。",
-                    ].join("\n"),
-                  },
-                ];
-                const subAgentRetryRun = await runOutlineAgentOnce(retrySubAgentMessages, {
-                  skillNames: subAgentPlan.skillNames,
-                  disableWriteTools: true,
-                  statusText: `多 Agent 并行生成中...\n正在重试：${subAgentPlan.name}`,
-                });
-                finalParsed = coerceOutlineSubAgentResult(subAgentRetryRun.text, {
-                  agentId: subAgentPlan.id,
-                  agentName: subAgentPlan.name,
-                  usedSkills: subAgentPlan.skillNames,
-                  stage: subAgentPlan.kind,
-                });
-              }
-              if (!finalParsed.ok) {
-                updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
-                  ...agent,
-                  status: "error",
-                  error: finalParsed.error,
-                  finishedAt: Date.now(),
-                }));
-                throw new Error(finalParsed.error);
-              }
-              updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
-                ...agent,
-                status: "done",
-                summary: finalParsed.value.summary || "已完成本 Agent 负责内容。",
-                finishedAt: Date.now(),
-              }));
-              return JSON.stringify({
-                agent_id: finalParsed.value.agentId,
-                agent_name: finalParsed.value.agentName,
-                stage: finalParsed.value.stage,
-                used_skills: finalParsed.value.usedSkills,
-                confidence: finalParsed.value.confidence,
-                summary: finalParsed.value.summary,
-                content_markdown: finalParsed.value.contentMarkdown,
-                constraints: finalParsed.value.constraints,
-                writeback_items: finalParsed.value.writebackItems.map((item) => ({
-                  type: item.type,
-                  name: item.name,
-                  content: item.content,
-                  target_folder: item.targetFolder,
-                })),
-                risks: finalParsed.value.risks,
-                questions: finalParsed.value.questions,
-              });
+              return subRun.text;
+
             },
             runSingleAgentFallback: async () => {
+              if (!isCurrentRun()) throw new Error("aborted");
               updateOutlineMultiAgentRun(convId, assistantId, (run) => run ? ({
                 ...run,
                 mode: "single-agent-fallback",
@@ -1843,12 +2043,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 },
                 fallbackReason: run.fallbackReason ?? "多 Agent 不可用或部分子 Agent 失败，已自动回退。",
               }) : run);
-              setStreamingContent(
-                "多 Agent 生成未能完成，正在按单 Agent 大纲生成继续输出。",
-              );
+              if (isCurrentRun()) {
+                setStreamingContent(capturedConvId,
+                  "多 Agent 生成未能完成，正在按单 Agent 大纲生成继续输出。",
+                );
+              }
               return runSingleAgentFallback();
             },
             mergeResults: async (subAgentResults) => {
+              if (!isCurrentRun()) throw new Error("aborted");
               result = "";
               updateOutlineMultiAgentRun(convId, assistantId, (run) => run ? ({
                 ...run,
@@ -1890,6 +2093,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 streamToUser: true,
                 statusText: "多 Agent 已完成，正在合并大纲结果...",
               });
+              if (!isCurrentRun()) throw new Error("aborted");
               updateOutlineMultiAgentRun(convId, assistantId, (run) => run ? ({
                 ...run,
                 status: "done",
@@ -1902,6 +2106,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               return mergeRun.text || "AI大纲未返回内容。";
             },
           });
+          if (!isCurrentRun()) return;
           updateOutlineMultiAgentRun(convId, assistantId, (run) => {
             if (!run) return run;
             const successful = new Set(multiAgentResult.successfulAgents);
@@ -1934,6 +2139,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           finalText = await runSingleAgentFallback();
         }
 
+        if (!isCurrentRun()) return;
+
         const finalSources = Array.from(
           new Set([
             ...contextSources,
@@ -1941,7 +2148,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ...outlineToolCallsToSources(allToolCalls),
           ]),
         );
-        const finalContent = finalText || result || "AI大纲未返回内容。";
+        const rawFinalContent = finalText || result || "AI大纲未返回内容。";
+        const nextStepExtraction = extractNextStep(rawFinalContent, {
+          allowFallback: options.intentPhase === "generation",
+          completedModule: intentContextsRef.current[capturedConvId]?.title || "当前模块",
+        });
+        const finalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
         const visibleToolCalls = allToolCalls.length ? allToolCalls : [];
         const shouldShowToolProcess =
           historyPlan.showToolProcess ||
@@ -1957,7 +2169,47 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               )
             : [],
           isAgentRunning: false,
+          nextStepRecommendation: nextStepExtraction.recommendation,
         }));
+
+        // 解析意图清晰度结果
+        const intentResult = parseIntentClarity(finalContent);
+        if (intentResult) {
+          const intentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
+          intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+            ...intentContext,
+            result: intentResult,
+          });
+          updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+            ...message,
+            intentClarityResult: intentResult,
+          }));
+          if (intentResult.clarity === "clear") {
+            const capturedStage = outlineWorkflowStages[capturedConvId] ?? "idle";
+            if (canTransitionOutlineWorkflow(capturedStage, "sufficiency_check")) {
+              setCapturedWorkflowStage("sufficiency_check");
+            }
+            addMessage(convId, {
+              id: crypto.randomUUID(),
+              role: "user",
+              content: `✓ 意图明确（${intentResult.module}${intentResult.detectedScope ? `：${intentResult.detectedScope}` : ""}），开始生成...`,
+            });
+            const scope = intentResult.detectedScope;
+            const capturedIntentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
+            followUpGenerationPrompt = buildGenerationPrompt(
+              capturedIntentContext.title,
+              capturedIntentContext.hint,
+              scope,
+              capturedIntentContext.outputMode,
+            );
+          } else if (intentResult.clarity === "needs_input") {
+            const capturedStage = outlineWorkflowStages[capturedConvId] ?? "idle";
+            if (canTransitionOutlineWorkflow(capturedStage, "waiting_user_input")) {
+              setCapturedWorkflowStage("waiting_user_input");
+            }
+          }
+        }
+
         const nextContextSummaryPayload = {
           contextSummary: buildOutlineContextSummary([
             ...historyBeforeSend,
@@ -1965,8 +2217,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             { role: "assistant", content: finalContent },
           ]),
         };
+        if (!isCurrentRun()) return;
         setConversationContextSummary(convId, nextContextSummaryPayload.contextSummary);
-        await handleAutoSaveOutlineRequests(finalContent);
+        await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        if (!isCurrentRun()) return;
         const firstUser = useOutlineChatStore
           .getState()
           .conversations.find((conversation) => conversation.id === convId)
@@ -1986,9 +2240,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }));
         }
         void useOutlineChatStore.getState().saveToDisk();
-        setStreamingContent("");
+        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        setCapturedWorkflowStage("idle");
+        finishConversationRun(
+          capturedConvId,
+          useOutlineChatStore.getState().activeConversationId,
+          runId,
+        );
+        if (followUpGenerationPrompt) {
+          void handleSend(followUpGenerationPrompt, [], {
+            conversationId: capturedConvId,
+            clearDraft: false,
+            intentPhase: "generation",
+          });
+        }
       } catch (err) {
-        const partial = useOutlineChatStore.getState().streamingContent;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const aborted = controller.signal.aborted || errorMsg.toLowerCase().includes("aborted");
+        if (aborted || !isCurrentRun()) return;
+        const partial = useOutlineChatStore.getState().getStreamingContent(capturedConvId);
         if (partial) {
           updateOutlineAssistantMessage(convId, assistantId, (message) => ({
             ...message,
@@ -1998,14 +2268,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
                   "error",
                   Date.now(),
-                  err instanceof Error ? err.message : String(err),
+                   errorMsg,
                 )
               : [],
             isAgentRunning: false,
           }));
         } else {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          if (errorMsg && !errorMsg.includes("aborted")) {
+          if (errorMsg && !aborted) {
             updateOutlineAssistantMessage(convId, assistantId, (message) => ({
               ...message,
               content: `生成失败：${errorMsg}`,
@@ -2019,18 +2288,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 : [],
               isAgentRunning: false,
             }));
-          } else {
-            removeLastMessage(convId);
+          } else if (isCurrentRun()) {
+            removeOutlineMessage(capturedConvId, assistantId);
           }
         }
-        setStreamingContent("");
+        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        if (isCurrentRun()) {
+          setCapturedWorkflowStage("idle");
+          failConversationRun(capturedConvId, errorMsg || "未知错误", runId);
+          toast.error(errorMsg || "未知错误", {
+            title: "大纲生成失败",
+            persistent: true,
+            dedupeKey: `outline-run:${capturedConvId}:${errorMsg}`,
+          });
+        }
         void useOutlineChatStore.getState().saveToDisk();
       } finally {
-        setIsStreaming(false);
-        abortRef.current = null;
-        if (streamingConversationIdRef.current === convId) {
-          streamingConversationIdRef.current = null;
-        }
+        outlineConversationRunRegistry.remove(capturedConvId, controller);
+        if (isCurrentRun()) setCapturedWorkflowStage("idle");
       }
     },
     [
@@ -2046,20 +2321,62 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       addMessage,
       setConversationContextSummary,
       replaceLastAssistant,
-      removeLastMessage,
       handleAutoSaveOutlineRequests,
       outlineWritingSkills,
-      setIsStreaming,
       setStreamingContent,
+      clearStreamingContent,
+      startConversationRun,
+      finishConversationRun,
+      failConversationRun,
+      outlineWorkflowStage,
     ],
   );
 
   const handleGenerateSection = useCallback(
     (title: string, requestHint: string) => {
-      void handleSend(buildOutlineSectionGenerationPrompt(title, requestHint));
+      const capturedConvId = activeConversationId ?? createConversation();
+      const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === title);
+      intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+        title,
+        hint: requestHint,
+        outputMode: config?.outputMode,
+      });
+      if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
+        setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
+      }
+      const intentPrompt = buildIntentAnalysisPrompt(title, requestHint);
+      void handleSend(intentPrompt, [], { conversationId: capturedConvId, intentPhase: "intent_analysis" });
     },
-    [handleSend],
+    [activeConversationId, createConversation, handleSend, outlineWorkflowStages],
   );
+
+  const handleSendMessage = useCallback(
+    (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => {
+      const capturedConvId = activeConversationId;
+      if (!capturedConvId) return;
+      if (options?.intentPhase === "generation") {
+        if (activeConversationId && canTransitionOutlineWorkflow(outlineWorkflowStage, "sufficiency_check")) {
+          setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, activeConversationId, "sufficiency_check"));
+        }
+        const scope = options.scope || text;
+        const intentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
+        const generationPrompt = buildGenerationPrompt(intentContext.title, intentContext.hint, scope, intentContext.outputMode);
+        void handleSend(generationPrompt, [], { conversationId: capturedConvId, intentPhase: "generation" });
+      } else {
+        void handleSend(text, [], { conversationId: capturedConvId, intentPhase: options?.intentPhase });
+      }
+    },
+    [activeConversationId, handleSend, outlineWorkflowStage],
+  );
+
+  const handleFocusInput = useCallback(() => {
+    setTimeout(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="输入关于大纲的问题..."]'
+      );
+      textarea?.focus();
+    }, 0);
+  }, []);
 
   const handleSubmitOutlineWizard = useCallback(
     (request: OutlineWizardRequest) => {
@@ -2073,23 +2390,34 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleStop = useCallback(() => {
-    abortRef.current?.abort();
-    // Force stop streaming state immediately in case abort doesn't trigger catch
-    const partial = useOutlineChatStore.getState().streamingContent;
-    const streamingConversationId =
-      streamingConversationIdRef.current ?? activeConversationId;
-    if (partial && streamingConversationId) {
-      replaceLastAssistant(streamingConversationId, partial);
+    if (!activeConversationId) return;
+    const runningState = useOutlineChatStore.getState().runStates[activeConversationId];
+    if (runningState?.status !== "running" || !runningState.runId) return;
+    outlineConversationRunRegistry.abort(activeConversationId);
+    const partial = useOutlineChatStore.getState().getStreamingContent(activeConversationId);
+    const conversation = useOutlineChatStore.getState().conversations
+      .find((item) => item.id === activeConversationId);
+    const lastMessage = conversation?.messages[conversation.messages.length - 1];
+    if (partial) {
+      if (lastMessage?.role === "assistant") {
+        updateOutlineAssistantMessage(activeConversationId, lastMessage.id, (message) => ({
+          ...message,
+          content: partial,
+          isAgentRunning: false,
+        }));
+      }
+    } else {
+      if (lastMessage?.role === "assistant" && lastMessage.isAgentRunning) {
+        removeOutlineMessage(activeConversationId, lastMessage.id);
+      }
     }
-    setStreamingContent("");
-    setIsStreaming(false);
-    abortRef.current = null;
-    streamingConversationIdRef.current = null;
+    clearStreamingContent(activeConversationId);
+    stopConversationRun(activeConversationId, runningState.runId);
   }, [
     activeConversationId,
     replaceLastAssistant,
-    setStreamingContent,
-    setIsStreaming,
+    clearStreamingContent,
+    stopConversationRun,
   ]);
 
   const handleRegenerate = useCallback(
@@ -2133,20 +2461,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         .getState()
         .conversations.find((c) => c.id === activeConversationId);
       if (!conv) return;
+      const capturedConvId = activeConversationId;
+      const runId = crypto.randomUUID();
+      if (!startConversationRun(capturedConvId, runId)) return;
+      const controller = new AbortController();
+      outlineConversationRunRegistry.register(capturedConvId, controller);
+      const isCurrentRun = () => canApplyOutlineRunEffect(
+        useOutlineChatStore.getState().runStates,
+        capturedConvId,
+        runId,
+      );
       const targetMessages = conv.messages.slice(0, msgIndex);
 
       // Update store
       useOutlineChatStore.setState((s) => ({
         conversations: s.conversations.map((c) =>
-          c.id === activeConversationId
+          c.id === capturedConvId
             ? { ...c, messages: targetMessages }
             : c,
         ),
       }));
 
-      setIsStreaming(true);
-      setStreamingContent("");
-      streamingConversationIdRef.current = activeConversationId;
+      setStreamingContent(capturedConvId, "");
       userScrolledUpRef.current = false;
 
       try {
@@ -2168,11 +2504,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               }) satisfies AgentMessage,
           );
         let result = "";
-        const controller = new AbortController();
-        abortRef.current = controller;
         const assistantId = crypto.randomUUID();
 
-        addMessage(activeConversationId, {
+        addMessage(capturedConvId, {
           id: assistantId,
           role: "assistant",
           content: "",
@@ -2240,14 +2574,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           {
             onText: (chunk) => {
               result += chunk;
-              setStreamingContent(result);
+              if (isCurrentRun()) setStreamingContent(capturedConvId, result);
             },
             onToolCall: () => {},
             onToolResult: () => {},
             onToolError: () => {},
             onToolEvent: (event) => {
+              if (!isCurrentRun()) return;
               updateOutlineAssistantMessage(
-                activeConversationId,
+                capturedConvId,
                 assistantId,
                 (message) => ({
                   ...message,
@@ -2259,8 +2594,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               );
             },
             onDone: () => {
+              if (!isCurrentRun()) return;
               updateOutlineAssistantMessage(
-                activeConversationId,
+                capturedConvId,
                 assistantId,
                 (message) => ({
                   ...message,
@@ -2278,11 +2614,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           controller.signal,
         );
         if (agentError) throw agentError;
+        if (!isCurrentRun()) return;
 
         const sources = outlineToolCallsToSources(record.toolCalls);
-        const finalContent = result || record.finalText || "AI大纲未返回内容。";
+        const nextStepExtraction = extractNextStep(
+          result || record.finalText || "AI大纲未返回内容。",
+          { allowFallback: true, completedModule: "当前模块" },
+        );
+        const finalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
         updateOutlineAssistantMessage(
-          activeConversationId,
+          capturedConvId,
           assistantId,
           (message) => ({
             ...message,
@@ -2290,28 +2631,42 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sources,
             agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
             isAgentRunning: false,
+            nextStepRecommendation: nextStepExtraction.recommendation,
           }),
         );
-        await handleAutoSaveOutlineRequests(finalContent);
-        setStreamingContent("");
+        if (!isCurrentRun()) return;
+        await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        if (!isCurrentRun()) return;
+        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        finishConversationRun(
+          capturedConvId,
+          useOutlineChatStore.getState().activeConversationId,
+          runId,
+        );
         void useOutlineChatStore.getState().saveToDisk();
       } catch (err) {
-        const partial = useOutlineChatStore.getState().streamingContent;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const aborted = controller.signal.aborted || errorMsg.toLowerCase().includes("aborted");
+        if (aborted || !isCurrentRun()) return;
+        const partial = useOutlineChatStore.getState().getStreamingContent(capturedConvId);
         if (partial) {
-          replaceLastAssistant(activeConversationId, partial);
+          replaceLastAssistant(capturedConvId, partial);
         } else {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          if (errorMsg && !errorMsg.includes("aborted")) {
-            replaceLastAssistant(activeConversationId, `生成失败：${errorMsg}`);
+          if (errorMsg && !aborted) {
+            replaceLastAssistant(capturedConvId, `生成失败：${errorMsg}`);
           }
         }
-        setStreamingContent("");
-      } finally {
-        setIsStreaming(false);
-        abortRef.current = null;
-        if (streamingConversationIdRef.current === activeConversationId) {
-          streamingConversationIdRef.current = null;
+        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        if (isCurrentRun()) {
+          failConversationRun(capturedConvId, errorMsg || "未知错误", runId);
+          toast.error(errorMsg || "未知错误", {
+            title: "大纲生成失败",
+            persistent: true,
+            dedupeKey: `outline-run:${capturedConvId}:${errorMsg}`,
+          });
         }
+      } finally {
+        outlineConversationRunRegistry.remove(capturedConvId, controller);
       }
     },
     [
@@ -2326,14 +2681,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       replaceLastAssistant,
       handleAutoSaveOutlineRequests,
       outlineWritingSkills,
-      setIsStreaming,
       setStreamingContent,
+      clearStreamingContent,
+      startConversationRun,
+      finishConversationRun,
+      failConversationRun,
     ],
   );
 
   const handleCopy = useCallback((content: string, id: string) => {
     navigator.clipboard
-      .writeText(content)
+      .writeText(cleanNextStepArtifacts(content))
       .then(() => {
         setCopied(id);
         setTimeout(() => setCopied(null), 2000);
@@ -2343,10 +2701,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleSaveAsOutline = useCallback(
     async (content: string) => {
-      if (!project) return;
+      if (!project || !activeConversationId) return;
+      const capturedConvId = activeConversationId;
       setSaveStatus("");
       try {
-        const draft = prepareOutlineSaveDraft(content, []);
+        const draft = prepareOutlineSaveDraft(cleanNextStepArtifacts(content), []);
         const classification = classifyOutlineSaveTarget({
           title: draft.title,
           content: draft.content,
@@ -2377,8 +2736,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               content: mdContent,
             });
             if (qualityFeedback) {
-              setQualityFeedbackState(qualityFeedback);
-              setQualityConfirmState({
+              setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, qualityFeedback));
+              setQualityConfirmStates((states) => setOutlineSessionValue(states, capturedConvId, {
                 feedback: qualityFeedback,
                 requests: [{
                   targetFolder: classification.targetFolder,
@@ -2389,7 +2748,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   sourceIntent: "手动保存 AI 大纲结果",
                   content: mdContent,
                 }],
-              });
+              }));
             }
             setSaveStatus(formatChapterOutlineQualityReport(quality, {
               maxIssues: 4,
@@ -2418,7 +2777,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
       }
     },
-    [project],
+    [activeConversationId, project],
   );
 
   const handleConfirmToolSave = useCallback(
@@ -2478,17 +2837,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   const handleRepairQualityFeedback = useCallback(() => {
+    if (!activeConversationId) return;
+    const capturedConvId = activeConversationId;
     const repairPrompt = qualityFeedbackState?.repairPrompt;
     if (!repairPrompt) return;
-    setQualityFeedbackState(null);
-    void handleSend(repairPrompt, [], { forceRefresh: true });
-  }, [handleSend, qualityFeedbackState]);
+    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
+    void handleSend(repairPrompt, [], { conversationId: capturedConvId, clearDraft: false, forceRefresh: true });
+  }, [activeConversationId, handleSend, qualityFeedbackState]);
 
   const handleSaveAsIs = useCallback(async () => {
-    if (!project || !qualityConfirmState) return;
+    if (!project || !qualityConfirmState || !activeConversationId) return;
+    const capturedConvId = activeConversationId;
     const { requests } = qualityConfirmState;
-    setQualityConfirmState(null);
-    setQualityFeedbackState(null);
+    setQualityConfirmStates((states) => setOutlineSessionValue(states, capturedConvId, null));
+    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
     if (requests.length === 0) return;
     setSaveStatus("正在保存大纲...");
     try {
@@ -2511,72 +2873,114 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     } catch (error) {
       setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [project, qualityConfirmState, createDirectory, fileExists, readFile, writeFile]);
+  }, [activeConversationId, project, qualityConfirmState, createDirectory, fileExists, readFile, writeFile]);
 
   const handleAutoFixFromModal = useCallback(() => {
+    if (!activeConversationId) return;
+    const capturedConvId = activeConversationId;
     const repairPrompt = qualityConfirmState?.feedback.repairPrompt;
     if (!repairPrompt) return;
-    pendingRepairMetaRef.current = qualityConfirmState.requests;
-    setQualityConfirmState(null);
-    setQualityFeedbackState(null);
-    void handleSend(repairPrompt, [], { forceRefresh: true });
-  }, [handleSend, qualityConfirmState]);
+    pendingRepairMetaRef.current[capturedConvId] = qualityConfirmState.requests;
+    setQualityConfirmStates((states) => setOutlineSessionValue(states, capturedConvId, null));
+    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
+    void handleSend(repairPrompt, [], { conversationId: capturedConvId, clearDraft: false, forceRefresh: true });
+  }, [activeConversationId, handleSend, qualityConfirmState]);
+
+  const requestDeleteConversation = useCallback((conversationId: string) => {
+    if (runStates[conversationId]?.status === "running") {
+      setPendingDeleteConversationId(conversationId);
+      return;
+    }
+    deleteConversation(conversationId);
+  }, [deleteConversation, runStates]);
+
+  const confirmDeleteRunningConversation = useCallback(() => {
+    if (!pendingDeleteConversationId) return;
+    const runningState = useOutlineChatStore.getState().runStates[pendingDeleteConversationId];
+    outlineConversationRunRegistry.abort(pendingDeleteConversationId);
+    if (runningState?.status === "running" && runningState.runId) {
+      stopConversationRun(pendingDeleteConversationId, runningState.runId);
+    }
+    clearStreamingContent(pendingDeleteConversationId);
+    deleteConversation(pendingDeleteConversationId);
+    setPendingDeleteConversationId(null);
+  }, [clearStreamingContent, deleteConversation, pendingDeleteConversationId, stopConversationRun]);
+
+  const outlineRunLimitReached = activeConversationId
+    ? !isStreaming && !canStartConversationRun(activeConversationId)
+    : Object.values(runStates).filter((state) => state.status === "running").length >= 3;
+  const submitDisabled = isStreaming || outlineRunLimitReached;
+  const submitDisabledReason = outlineRunLimitReached && !isStreaming
+    ? "大纲 AI 会话最多同时运行 3 个任务，请等待任一任务结束后再发送。"
+    : undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden border-border bg-background">
       {/* Header with conversation tabs */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
-        <button
-          type="button"
-          onClick={() => {
-            createConversation();
-          }}
-          className="qmai-new-conversation-button flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-accent/60 text-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
-          title="新建大纲对话"
-          aria-label="新建大纲对话"
+        <span
+          className="inline-flex shrink-0"
+          title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}
         >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              createConversation();
+            }}
+            className="qmai-new-conversation-button flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-accent/60 text-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+            disabled={!canCreateConversation}
+            title={canCreateConversation ? "新建大纲对话" : EMPTY_CONVERSATION_CREATE_REASON}
+            aria-label="新建大纲对话"
+            aria-describedby={!canCreateConversation
+              ? "outline-new-conversation-disabled-reason"
+              : undefined}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          {!canCreateConversation && (
+            <span id="outline-new-conversation-disabled-reason" className="sr-only">
+              {EMPTY_CONVERSATION_CREATE_REASON}
+            </span>
+          )}
+        </span>
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {topConversations.length > 0 ? (
             <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
               {topConversations.map((conv) => {
                 const isActive = conv.id === activeConversationId;
-                const isThisStreaming = isStreaming && conv.id === activeConversationId;
                 return (
-                  <button
+                  <div
                     key={conv.id}
-                    type="button"
-                    onClick={() => setActiveConversation(conv.id)}
                     onMouseEnter={() => setHoveredConversationId(conv.id)}
                     onMouseLeave={() => setHoveredConversationId(null)}
-                    className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                    className={`group flex shrink-0 items-center rounded-full border text-xs transition-colors ${
                       isActive
                         ? "border-primary/40 bg-background text-foreground shadow-sm"
                         : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}
-                    title={conv.title}
                   >
-                    {isThisStreaming ? (
-                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-                    ) : null}
-                    <span className="max-w-[140px] truncate font-medium">
-                      {getConversationTabTitle(conv.title, 10)}
-                    </span>
-                    <span className="text-[10px] opacity-70">{conv.messages.length}</span>
-                    <span className="text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveConversation(conv.id)}
+                      className="flex items-center gap-2 rounded-full px-3 py-1.5"
+                      title={conv.title}
+                    >
+                      <ConversationRunStatusIcon state={runStates[conv.id]} />
+                      <span className="max-w-[140px] truncate font-medium">{getConversationTabTitle(conv.title, 10)}</span>
+                      <span className="text-[10px] opacity-70">{conv.messages.length}</span>
+                      <span className="text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                    </button>
                     {hoveredConversationId === conv.id ? (
-                      <span
-                        className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteConversation(conv.id);
-                        }}
+                      <button
+                        type="button"
+                        aria-label={`删除大纲会话：${conv.title}`}
+                        className="mr-2 rounded p-0.5 text-muted-foreground hover:text-destructive"
+                        onClick={() => requestDeleteConversation(conv.id)}
                       >
                         <Trash2 className="h-3 w-3" />
-                      </span>
+                      </button>
                     ) : null}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -2585,6 +2989,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               暂无大纲对话
             </span>
           )}
+          {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
+               outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
+               outlineWorkflowStage === "sufficiency_check" ? "生成中" :
+               "处理中"}
+            </span>
+          ) : null}
         </div>
         <div className="relative shrink-0" ref={historyRef}>
           <button
@@ -2618,26 +3030,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     </div>
                   ) : (
                     historyConversations.map((conv) => (
-                      <button
+                      <div
                         key={conv.id}
-                        type="button"
-                        onClick={() => setActiveConversation(conv.id)}
                         className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                        title={conv.title}
                       >
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {getConversationTabTitle(conv.title, 16)}
-                        </span>
-                        <span className="shrink-0 text-[10px] opacity-70">{conv.messages.length}</span>
-                        <span className="shrink-0 text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
-                        <Trash2
-                          className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteConversation(conv.id);
-                          }}
-                        />
-                      </button>
+                        <button type="button" onClick={() => setActiveConversation(conv.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={conv.title}>
+                          <ConversationRunStatusIcon state={runStates[conv.id]} />
+                          <span className="min-w-0 flex-1 truncate font-medium">{getConversationTabTitle(conv.title, 16)}</span>
+                          <span className="shrink-0 text-[10px] opacity-70">{conv.messages.length}</span>
+                          <span className="shrink-0 text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                        </button>
+                        <button type="button" aria-label={`删除大纲会话：${conv.title}`} onClick={() => requestDeleteConversation(conv.id)} className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-destructive">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
                     ))
                   )}
                 </div>,
@@ -2646,6 +3052,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {qualityFeedbackState && qualityFeedbackState.status !== "pass" ? (
+            <button
+              type="button"
+              disabled={isStreaming}
+              onClick={handleRepairQualityFeedback}
+              aria-label="修订生成后质量检查发现的问题"
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              title={qualityFeedbackState.summary}
+            >
+              修订质量问题
+            </button>
+          ) : null}
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
@@ -2656,10 +3074,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 space-y-3"
-      >
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          ref={scrollRef}
+          className="h-full w-full min-w-0 max-w-full space-y-3 overflow-x-hidden overflow-y-auto px-3 py-2"
+        >
         {activeMessages.length === 0 && !isStreaming ? (
           <p className="text-center text-xs text-muted-foreground py-8">
             输入关于大纲的问题或指令，AI
@@ -2669,10 +3088,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         {activeMessages.map((msg, i) => (
           <div
             key={msg.id}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`w-fit max-w-full lg:max-w-[50vw] rounded-lg px-3 py-2 text-sm ${
+              className={`${msg.role === "user" ? "w-fit max-w-full lg:max-w-[50vw]" : "w-full min-w-0 max-w-full"} rounded-lg px-3 py-2 text-sm ${
                 msg.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-foreground"
@@ -2683,7 +3102,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   msg={msg}
                   index={i}
                   isStreaming={isStreaming}
-                  streamingContent={streamingContent}
+                  streamingContent={batchedStreamingContent}
                   activeMessagesLength={activeMessages.length}
                   copied={copied}
                   projectPath={project?.path ?? null}
@@ -2692,6 +3111,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onRegenerate={handleRegenerate}
                   onConfirmToolSave={handleConfirmToolSave}
                   onRejectTool={handleRejectTool}
+                  onGenerateSection={handleGenerateSection}
+                  onSendMessage={handleSendMessage}
+                  onFocusInput={handleFocusInput}
                 />
               ) : (
                 <>
@@ -2711,6 +3133,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         ))}
+        </div>
+
+        {showScrollToBottom && (
+          <button
+            type="button"
+            onClick={handleScrollToBottom}
+            className="absolute bottom-3 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/90 shadow-md backdrop-blur-sm transition-all hover:bg-accent"
+            title="回到最新"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Input */}
@@ -2727,7 +3161,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={() => setOutlineWizardOpen(true)}
-            disabled={isStreaming}
+            disabled={submitDisabled}
             className="shrink-0 rounded-md border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             选择生成你想要的小说
@@ -2738,6 +3172,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           tokens={outlineReferenceTokens}
           onStop={handleStop}
           isStreaming={isStreaming}
+          submitDisabled={submitDisabled}
+          submitDisabledReason={submitDisabledReason}
           placeholder="输入关于大纲的问题..."
           onChange={(text, tokens) => {
             setInputValue(text);
@@ -2750,7 +3186,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           leftFooterControls={
             <TooltipProvider delay={200}>
               <OutlineGenerationMenu
-                disabled={isStreaming}
+                disabled={submitDisabled}
                 onGenerate={handleGenerateSection}
               />
             </TooltipProvider>
@@ -2765,7 +3201,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     setConversationModel(activeConversationId, value);
                   }
                 }}
-                disabled={isStreaming}
+                disabled={false}
               />
             ) : (
               <p
@@ -2792,6 +3228,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onOpenChange={setOutlineWizardOpen}
           onSubmit={handleSubmitOutlineWizard}
         />
+        <ConversationDeleteConfirmDialog
+          open={pendingDeleteConversationId !== null}
+          onCancel={() => setPendingDeleteConversationId(null)}
+          onConfirm={confirmDeleteRunningConversation}
+        />
         {saveConfirmState ? (
           <OutlineSaveConfirmDialog
             open
@@ -2804,7 +3245,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           />
         ) : null}
         {qualityConfirmState ? (
-          <Dialog open onOpenChange={(open) => { if (!open) setQualityConfirmState(null); }}>
+          <Dialog open onOpenChange={(open) => {
+            if (!open && activeConversationId) {
+              setQualityConfirmStates((states) => setOutlineSessionValue(states, activeConversationId, null));
+            }
+          }}>
             <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>大纲质量检查发现可修复项</DialogTitle>

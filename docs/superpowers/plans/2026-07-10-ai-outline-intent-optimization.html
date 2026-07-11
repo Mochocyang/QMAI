@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI大纲交互重构优化 — 实施计划</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #232733;
+    --border: #2d3142;
+    --text: #e6e8ed;
+    --text-muted: #9aa0ae;
+    --accent: #6cb6ff;
+    --accent-2: #8b7bf0;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.4rem; margin-top: 2.5rem; margin-bottom: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h3 { font-size: 1.15rem; margin-top: 1.8rem; margin-bottom: 0.8rem; color: var(--accent-2); }
+  h4 { font-size: 1rem; margin-top: 1.2rem; margin-bottom: 0.5rem; color: var(--text); }
+  p { margin-bottom: 0.8rem; }
+  ul, ol { margin-left: 1.5rem; margin-bottom: 0.8rem; }
+  li { margin-bottom: 0.3rem; }
+  code {
+    background: var(--surface-2);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88em;
+    color: var(--amber);
+  }
+  pre {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; color: var(--text); }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; text-align: left; }
+  th { background: var(--surface-2); color: var(--accent); font-weight: 600; }
+  tr:nth-child(even) { background: var(--surface); }
+  .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .callout { background: var(--surface); border-left: 3px solid var(--accent); padding: 0.8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  .callout-warn { border-left-color: var(--warning); }
+  .callout-danger { border-left-color: var(--danger); }
+  .callout-success { border-left-color: var(--success); }
+  .phase-tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; margin-right: 0.5rem; }
+  .phase-1 { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .phase-2 { background: rgba(251,191,36,0.15); color: var(--warning); }
+  .phase-3 { background: rgba(107,182,255,0.15); color: var(--accent); }
+  .phase-4 { background: rgba(74,222,128,0.15); color: var(--success); }
+  .task-block { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem 1.5rem; margin: 1.5rem 0; }
+  .step-line { padding: 0.3rem 0; }
+</style>
+</head>
+<body>
+
+<h1>AI大纲交互重构优化 — 实施计划</h1>
+
+<blockquote><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox-style tracking.</blockquote>
+
+<p><strong>Goal:</strong> 修复AI大纲会话窗口交互重构中的3个致命问题、4个高优先级问题及11个中等/低优先级优化项，使两阶段流程真正可运行并达到设计规格要求的完成度。</p>
+
+<p><strong>Architecture:</strong> 通过 props 传递回调解决推荐点击断裂；使用 useRef 替代 useState 消除闭包陷阱；提取独立组件降低面板复杂度；增强 buildOutlineStages 填充运行时摘要数据。</p>
+
+<p><strong>Tech Stack:</strong> React 18, TypeScript, Zustand, Vitest, Tailwind CSS</p>
+
+<hr>
+
+<h2>文件结构</h2>
+
+<table>
+  <tr><th>文件</th><th>操作</th><th>职责</th></tr>
+  <tr><td><code>src/lib/novel/outline-intent-clarity.ts</code></td><td>修改</td><td>新增 stripStructuredMarkers 工具函数</td></tr>
+  <tr><td><code>src/lib/novel/outline-intent-clarity.spec.ts</code></td><td>修改</td><td>新增 stripStructuredMarkers 测试</td></tr>
+  <tr><td><code>src/components/sources/outline-intent-options-card.tsx</code></td><td>创建</td><td>意图推荐选项卡片组件（从面板提取）</td></tr>
+  <tr><td><code>src/components/sources/outline-next-step-card.tsx</code></td><td>创建</td><td>下一步推荐卡片组件（从面板提取）</td></tr>
+  <tr><td><code>src/components/sources/outline-chat-panel.tsx</code></td><td>修改</td><td>核心改造：props传递、闭包修复、内容过滤、阶段摘要</td></tr>
+  <tr><td><code>src/lib/novel/outline-stage-trace.ts</code></td><td>修改</td><td>填充运行时摘要数据</td></tr>
+  <tr><td><code>src/lib/novel/outline-stage-trace.spec.ts</code></td><td>修改</td><td>新增摘要填充测试</td></tr>
+  <tr><td><code>src/lib/novel/outline-next-step.ts</code></td><td>修改</td><td>优化 isRecommendationForbidden 精确度</td></tr>
+  <tr><td><code>src/lib/novel/outline-next-step.spec.ts</code></td><td>修改</td><td>新增误杀测试</td></tr>
+  <tr><td><code>src/lib/novel/outline-section-configs.ts</code></td><td>修改</td><td>buildGenerationPrompt 使用 outputMode</td></tr>
+  <tr><td><code>src/lib/novel/outline-workflow-state.ts</code></td><td>修改</td><td>面板集成状态机</td></tr>
+</table>
+
+<hr>
+
+<h2><span class="phase-tag phase-1">第一阶段</span>修复致命问题（P0）</h2>
+
+<div class="callout callout-danger">
+  <strong>目标</strong>：让两阶段流程真正可运行，推荐点击能触发生成，显示内容干净。预估 4.5h。
+</div>
+
+<div class="task-block">
+
+<h3>Task 1: 新增 stripStructuredMarkers 工具函数</h3>
+
+<p><strong>问题 U1</strong>：intent_clarity / next_step JSON 块在正文显示中未过滤，用户看到原始 JSON。</p>
+
+**Files:**
+- Modify: `src/lib/novel/outline-intent-clarity.ts`
+- Modify: `src/lib/novel/outline-intent-clarity.spec.ts`
+
+- [ ] **Step 1: 在 outline-intent-clarity.spec.ts 新增测试**
+
+```typescript
+import { stripStructuredMarkers } from "./outline-intent-clarity"
+
+describe("stripStructuredMarkers", () => {
+  it("移除 intent_clarity 标记块", () => {
+    const text = `分析结果如下：\n<!-- intent_clarity -->\n{"clarity":"clear"}\n<!-- /intent_clarity -->\n\n这是正文内容。`
+    expect(stripStructuredMarkers(text)).toBe("分析结果如下：\n\n这是正文内容。")
+  })
+
+  it("移除 next_step 标记块", () => {
+    const text = `正文内容\n<!-- next_step -->\n{"recommendations":[]}\n<!-- /next_step -->`
+    expect(stripStructuredMarkers(text).trim()).toBe("正文内容")
+  })
+
+  it("同时移除两种标记块", () => {
+    const text = `<!-- intent_clarity -->\n{"clarity":"clear"}\n<!-- /intent_clarity -->\n正文\n<!-- next_step -->\n{"recommendations":[]}\n<!-- /next_step -->`
+    expect(stripStructuredMarkers(text).trim()).toBe("正文")
+  })
+
+  it("无标记块时原样返回", () => {
+    const text = "纯文本内容"
+    expect(stripStructuredMarkers(text)).toBe("纯文本内容")
+  })
+})
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+Run: `npx vitest run src/lib/novel/outline-intent-clarity.spec.ts`
+Expected: stripStructuredMarkers 相关测试 FAIL
+
+- [ ] **Step 3: 在 outline-intent-clarity.ts 新增 stripStructuredMarkers**
+
+在文件末尾（`buildIntentAnalysisPrompt` 函数之后）添加：
+
+```typescript
+export function stripStructuredMarkers(text: string): string {
+  return text
+    .replace(/<!--\s*intent_clarity\s*-->[\s\S]*?<!--\s*\/intent_clarity\s*-->/gi, "")
+    .replace(/<!--\s*next_step\s*-->[\s\S]*?<!--\s*\/next_step\s*-->/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+```
+
+- [ ] **Step 4: 运行测试验证通过**
+
+Run: `npx vitest run src/lib/novel/outline-intent-clarity.spec.ts`
+Expected: 全部 PASS
+
+- [ ] **Step 5: 在 outline-chat-panel.tsx 的 displayContent 中使用 stripStructuredMarkers**
+
+在 `OutlineAssistantMessage` 函数中（约 L732-L736），当前 `renderedMarkdownContent` 的 useMemo：
+
+```typescript
+  const renderedMarkdownContent = useMemo(() => {
+    const rawContent = parsed.textContent || answer;
+    const bodyContent = extractBodyContent(rawContent);
+    return normalizeOutlineMarkdown(bodyContent || rawContent);
+  }, [answer, parsed.textContent]);
+```
+
+修改为：
+
+```typescript
+  const renderedMarkdownContent = useMemo(() => {
+    const rawContent = parsed.textContent || answer;
+    const stripped = stripStructuredMarkers(rawContent);
+    const bodyContent = extractBodyContent(stripped);
+    return normalizeOutlineMarkdown(bodyContent || stripped);
+  }, [answer, parsed.textContent]);
+```
+
+同时在文件顶部新增 import：
+
+```typescript
+import { stripStructuredMarkers } from "@/lib/novel/outline-intent-clarity"
+```
+
+注意：`stripStructuredMarkers` 需要添加到已有的 `outline-intent-clarity` import 语句中（约 L157）。
+
+- [ ] **Step 6: 运行 typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 7: 提交**
+
+```
+git add src/lib/novel/outline-intent-clarity.ts src/lib/novel/outline-intent-clarity.spec.ts src/components/sources/outline-chat-panel.tsx
+git commit -m "新增stripStructuredMarkers过滤intent_clarity/next_step显示"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 2: 修复推荐选项点击回调（F1+F3+Q1）</h3>
+
+<p><strong>问题 F1</strong>：推荐选项点击回调未连接 handleGenerateSection。<br>
+<strong>问题 F3</strong>：needs_input 用户选择后未跳过意图分析。<br>
+<strong>问题 Q1</strong>：推荐点击回调直接操作 store，绕过面板流程控制。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 在 OutlineAssistantMessage props 新增回调**
+
+在 `OutlineAssistantMessage` 函数签名（约 L682-L708）中，在 `onRejectTool` 之后添加三个 props：
+
+```typescript
+function OutlineAssistantMessage({
+  msg,
+  index,
+  isStreaming,
+  streamingContent,
+  activeMessagesLength,
+  copied,
+  projectPath,
+  onSaveAsOutline,
+  onCopy,
+  onRegenerate,
+  onConfirmToolSave,
+  onRejectTool,
+  onGenerateSection,
+  onSendMessage,
+  onFocusInput,
+}: {
+  msg: import("@/stores/outline-chat-store").OutlineChatMessage;
+  index: number;
+  isStreaming: boolean;
+  streamingContent: string;
+  activeMessagesLength: number;
+  copied: string | null;
+  projectPath: string | null;
+  onSaveAsOutline: (content: string) => Promise<void>;
+  onCopy: (content: string, id: string) => void;
+  onRegenerate: (index: number) => Promise<void>;
+  onConfirmToolSave: (call: ToolCallRecord & { preview?: string }) => void;
+  onRejectTool: (call: ToolCallRecord & { preview?: string }) => void;
+  onGenerateSection: (title: string, requestHint: string) => void;
+  onSendMessage: (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => void;
+  onFocusInput: () => void;
+}) {
+```
+
+- [ ] **Step 2: 替换意图推荐选项的点击回调**
+
+在 `OutlineAssistantMessage` 中（约 L910-L943），替换 needs_input 推荐选项的 onClick：
+
+将：
+```tsx
+onClick={() => {
+  if (option.id === "D") {
+    // 自定义：聚焦输入框（暂不实现，后续 Task 补充）
+  } else {
+    const outlineChatStore = useOutlineChatStore.getState();
+    const convId = outlineChatStore.activeConversationId;
+    if (!convId) return;
+    useOutlineChatStore.getState().addMessage(convId, {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: option.label + (option.description ? `：${option.description}` : ""),
+    });
+  }
+}}
+```
+
+替换为：
+```tsx
+onClick={() => {
+  if (option.id === "D") {
+    onFocusInput();
+  } else {
+    const scope = option.label + (option.description ? `：${option.description}` : "");
+    onSendMessage(scope, { intentPhase: "generation", scope });
+  }
+}}
+```
+
+- [ ] **Step 3: 替换下一步推荐的点击回调**
+
+在 `OutlineAssistantMessage` 中（约 L944-L980），替换 next_step 推荐的 onClick：
+
+将：
+```tsx
+onClick={() => {
+  if (rec.id === "D") {
+    // 自定义：聚焦输入框
+  } else {
+    const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === rec.label);
+    if (config) {
+      const outlineChatStore = useOutlineChatStore.getState();
+      const convId = outlineChatStore.activeConversationId;
+      if (!convId) return;
+      useOutlineChatStore.getState().addMessage(convId, {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: `生成${rec.label}`,
+      });
+    }
+  }
+}}
+```
+
+替换为：
+```tsx
+onClick={() => {
+  if (rec.id === "D") {
+    onFocusInput();
+  } else {
+    const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === rec.label);
+    if (config) {
+      onGenerateSection(config.title, config.requestHint);
+    }
+  }
+}}
+```
+
+- [ ] **Step 4: 在渲染 OutlineAssistantMessage 的位置传入新 props**
+
+在面板主组件中（约 L2860-L2873），添加三个 props：
+
+```tsx
+<OutlineAssistantMessage
+  msg={msg}
+  index={i}
+  isStreaming={isStreaming}
+  streamingContent={streamingContent}
+  activeMessagesLength={activeMessages.length}
+  copied={copied}
+  projectPath={project?.path ?? null}
+  onSaveAsOutline={handleSaveAsOutline}
+  onCopy={handleCopy}
+  onRegenerate={handleRegenerate}
+  onConfirmToolSave={handleConfirmToolSave}
+  onRejectTool={handleRejectTool}
+  onGenerateSection={handleGenerateSection}
+  onSendMessage={(text, options) => {
+    void handleSend(
+      buildGenerationPrompt(lastIntentTitle, lastIntentHint, options?.scope),
+      [],
+      { intentPhase: options?.intentPhase ?? "generation" },
+    );
+  }}
+  onFocusInput={() => {
+    insertReferenceTokensRef.current?.focus();
+  }}
+/>
+```
+
+- [ ] **Step 5: 在 handleSend 中处理 scope 参数，确保防无限循环**
+
+在 handleSend 中 intentPhase 为 "generation" 时，不需要再做意图分析。当前 handleSend 的 options 已有 intentPhase 字段，流结束回调中已有逻辑只在 intentPhase 为 "intent_analysis" 时解析 intent_clarity。
+
+修改流结束回调中的意图解析逻辑（约 L2090-L2107），增加 intentPhase 条件检查：
+
+将：
+```typescript
+        // 解析意图清晰度结果
+        const intentResult = parseIntentClarity(finalContent);
+```
+
+替换为：
+```typescript
+        // 解析意图清晰度结果（仅意图分析阶段触发）
+        const currentIntentPhase = useOutlineChatStore.getState()
+          .conversations.find(c => c.id === convId)
+          ?.messages.find(m => m.id === assistantId)?.intentPhase;
+
+        if (currentIntentPhase === "intent_analysis") {
+        const intentResult = parseIntentClarity(finalContent);
+```
+
+并在该 if 块末尾（约 L2107）添加对应的闭合大括号 `}`。
+
+- [ ] **Step 6: 运行 typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 7: 运行大纲面板测试**
+
+Run: `npx vitest run src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 全部 PASS
+
+- [ ] **Step 8: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.tsx
+git commit -m "修复推荐选项点击回调连接handleGenerateSection，防无限循环"
+```
+
+</div>
+
+<h2><span class="phase-tag phase-2">第二阶段</span>补全交互细节（P1）</h2>
+
+<div class="callout callout-warn">
+  <strong>目标</strong>：4类选项完整可用，阶段信息可读，用户体验可感知。预估 6h。
+</div>
+
+<div class="task-block">
+
+<h3>Task 3: 提取推荐选项和下一步推荐为独立组件</h3>
+
+<p><strong>问题 M1</strong>：outline-chat-panel.tsx 过大，推荐选项和下一步推荐应提取为独立组件。</p>
+
+**Files:**
+- Create: `src/components/sources/outline-intent-options-card.tsx`
+- Create: `src/components/sources/outline-next-step-card.tsx`
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 创建 outline-intent-options-card.tsx**
+
+```tsx
+import React from "react"
+import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
+
+interface IntentOptionsCardProps {
+  result: IntentClarityResult
+  onSelectOption: (optionId: string, label: string, description: string) => void
+}
+
+export function IntentOptionsCard({ result, onSelectOption }: IntentOptionsCardProps) {
+  return (
+    <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-50/30 p-3 dark:bg-amber-950/10">
+      {result.analysis ? (
+        <div className="mb-2 text-xs text-muted-foreground">{result.analysis}</div>
+      ) : null}
+      <div className="text-sm font-medium mb-2">{result.question || "请选择生成范围："}</div>
+      <div className="space-y-2">
+        {result.options.map((option) => (
+          <button
+            key={option.id}
+            className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+            onClick={() => onSelectOption(option.id, option.label, option.description)}
+          >
+            <div className="font-medium">{option.label}</div>
+            {option.description ? (
+              <div className="text-xs text-muted-foreground">{option.description}</div>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 2: 创建 outline-next-step-card.tsx**
+
+```tsx
+import React from "react"
+import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
+
+interface NextStepCardProps {
+  recommendation: NextStepRecommendation
+  onSelectRecommendation: (recId: string, label: string) => void
+}
+
+export function NextStepCard({ recommendation, onSelectRecommendation }: NextStepCardProps) {
+  return (
+    <div className="mt-3 rounded-md border border-sky-500/30 bg-sky-50/30 p-3 dark:bg-sky-950/10">
+      <div className="text-xs text-muted-foreground mb-1">
+        已完成：{recommendation.completedModule}
+        {recommendation.completedScope ? `（${recommendation.completedScope}）` : ""}
+      </div>
+      <div className="text-sm font-medium mb-2">接下来想做什么？</div>
+      <div className="space-y-2">
+        {recommendation.recommendations.map((rec) => (
+          <button
+            key={rec.id}
+            className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+            onClick={() => onSelectRecommendation(rec.id, rec.label)}
+          >
+            <div className="font-medium">{rec.label}</div>
+            {rec.reason ? (
+              <div className="text-xs text-muted-foreground">{rec.reason}</div>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+- [ ] **Step 3: 在 outline-chat-panel.tsx 中替换内联渲染为组件调用**
+
+在文件顶部添加 import：
+
+```typescript
+import { IntentOptionsCard } from "@/components/sources/outline-intent-options-card"
+import { NextStepCard } from "@/components/sources/outline-next-step-card"
+```
+
+在 `OutlineAssistantMessage` 中，替换 needs_input 推荐选项区域（约 L910-L943）：
+
+```tsx
+{msg.intentClarityResult?.clarity === "needs_input" && !isStreaming ? (
+  <IntentOptionsCard
+    result={msg.intentClarityResult}
+    onSelectOption={(optionId, label, description) => {
+      if (optionId === "D") {
+        onFocusInput();
+      } else {
+        const scope = label + (description ? `：${description}` : "");
+        onSendMessage(scope, { intentPhase: "generation", scope });
+      }
+    }}
+  />
+) : null}
+```
+
+替换下一步推荐区域（约 L944-L980）：
+
+```tsx
+{msg.nextStepRecommendation && msg.nextStepRecommendation.recommendations.length > 0 && !isStreaming ? (
+  <NextStepCard
+    recommendation={msg.nextStepRecommendation}
+    onSelectRecommendation={(recId, label) => {
+      if (recId === "D") {
+        onFocusInput();
+      } else {
+        const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === label);
+        if (config) {
+          onGenerateSection(config.title, config.requestHint);
+        }
+      }
+    }}
+  />
+) : null}
+```
+
+- [ ] **Step 4: 运行 typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 5: 提交**
+
+```
+git add src/components/sources/outline-intent-options-card.tsx src/components/sources/outline-next-step-card.tsx src/components/sources/outline-chat-panel.tsx
+git commit -m "提取IntentOptionsCard和NextStepCard独立组件"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 4: 填充阶段摘要运行时数据</h3>
+
+<p><strong>问题 U2</strong>：阶段摘要信息为空，用户只看到"✓ 任务理解"而非"✓ 任务理解 · 识别为生成章节细纲 · 1.2s"。</p>
+
+**Files:**
+- Modify: `src/lib/novel/outline-stage-trace.ts`
+- Modify: `src/lib/novel/outline-stage-trace.spec.ts`
+
+- [ ] **Step 1: 在 outline-stage-trace.spec.ts 新增摘要测试**
+
+```typescript
+it("任务理解阶段摘要包含工具信息", () => {
+  const input: OutlineStageInput = {
+    toolCalls: [makeToolCall("route_task", "done")],
+    content: "",
+    isStreaming: false,
+  }
+  const stages = buildOutlineStages(input)
+  const intentStage = stages.find((s) => s.kind === "intent")
+  expect(intentStage?.summary).toBeTruthy()
+  expect(intentStage?.summary).toContain("route_task")
+})
+
+it("范围分析阶段摘要包含模块名", () => {
+  const content = `<!-- intent_clarity -->
+{"clarity":"clear","module":"章节细纲","analysis":"3章缺细纲","detectedScope":"第1-3章","missingItems":[],"options":[],"question":""}
+<!-- /intent_clarity -->`
+  const input: OutlineStageInput = {
+    toolCalls: [makeToolCall("route_task", "done")],
+    content,
+    isStreaming: false,
+  }
+  const stages = buildOutlineStages(input)
+  const scopeStage = stages.find((s) => s.kind === "scope")
+  expect(scopeStage?.summary).toContain("章节细纲")
+})
+
+it("上下文准备阶段摘要包含读取文件数", () => {
+  const input: OutlineStageInput = {
+    toolCalls: [
+      makeToolCall("route_task", "done"),
+      makeToolCall("read_outline", "done"),
+      makeToolCall("read_chapter", "done"),
+      makeToolCall("list_outlines", "done"),
+    ],
+    content: "",
+    isStreaming: false,
+  }
+  const stages = buildOutlineStages(input)
+  const ctxStage = stages.find((s) => s.kind === "context")
+  expect(ctxStage?.summary).toContain("3")
+})
+```
+
+- [ ] **Step 2: 运行测试验证失败**
+
+Run: `npx vitest run src/lib/novel/outline-stage-trace.spec.ts`
+Expected: 新增测试 FAIL（summary 为空）
+
+- [ ] **Step 3: 修改 buildOutlineStages 填充摘要数据**
+
+修改 `buildOutlineStages` 函数，在 stageDefs 构建后、返回前，根据激活条件填充 summary：
+
+将 `buildOutlineStages` 中 `stageDefs` 定义后的逻辑改为：
+
+```typescript
+export function buildOutlineStages(input: OutlineStageInput): OutlineStage[] {
+  const { toolCalls, content, isStreaming } = input
+
+  const routeCalls = toolCalls.filter((c) => ROUTE_TOOLS.has(c.name))
+  const skillCalls = toolCalls.filter((c) => SKILL_TOOLS.has(c.name))
+  const readCalls = toolCalls.filter((c) => LIST_TOOLS.has(c.name) || READ_TOOLS.has(c.name))
+  const writeCalls = toolCalls.filter((c) => WRITE_TOOLS.has(c.name))
+  const hasRoute = routeCalls.length > 0
+  const hasSkill = skillCalls.length > 0
+  const hasRead = readCalls.length > 0
+  const hasWrite = writeCalls.length > 0
+  const hasClarity = hasIntentClarity(content)
+  const hasThinkingBlock = hasThinking(content)
+  const hasOutput = hasGenerationStarted(content)
+
+  const activations = [hasRoute, hasClarity, hasSkill, hasRead, hasWrite, hasThinkingBlock, hasOutput]
+
+  // 提取意图分析摘要
+  let clarityModule = ""
+  let clarityAnalysis = ""
+  const clarityMatch = content.match(INTENT_CLARITY_PATTERN)
+  if (clarityMatch) {
+    try {
+      const payload = JSON.parse(clarityMatch[1].trim())
+      clarityModule = String(payload.module ?? "")
+      clarityAnalysis = String(payload.analysis ?? "")
+    } catch {}
+  }
+
+  // 构建摘要
+  const summaries: string[] = [
+    hasRoute ? `路由到${routeCalls.map(c => c.name).join("、")}` : "",
+    hasClarity ? (clarityModule ? `${clarityModule}：${clarityAnalysis || "范围已明确"}` : "范围分析完成") : "",
+    hasSkill ? `已加载${skillCalls.map(c => c.name).join("、")}` : "",
+    hasRead ? `读取了${readCalls.length}个资料` : "",
+    hasWrite ? `调用${writeCalls.length}个写入工具` : "",
+    hasThinkingBlock ? "角色与情节推理中" : "",
+    hasOutput ? "内容生成完成" : "",
+  ]
+
+  const detailsList: string[][] = [
+    hasRoute ? routeCalls.map((c) => `${c.name}（${c.status}）`) : [],
+    hasClarity ? [clarityModule, clarityAnalysis].filter(Boolean) : [],
+    hasSkill ? skillCalls.map((c) => `${c.name}（${c.status}）`) : [],
+    hasRead ? readCalls.map((c) => `${c.name}（${c.status}）`) : [],
+    hasWrite ? writeCalls.map((c) => `${c.name}（${c.status}）`) : [],
+    [],
+    [],
+  ]
+
+  const stageDefs: Array<Omit<OutlineStage, "status">> = [
+    { kind: "intent", title: "任务理解", summary: summaries[0], details: detailsList[0] },
+    { kind: "scope", title: "范围分析", summary: summaries[1], details: detailsList[1] },
+    { kind: "skill", title: "技能选择", summary: summaries[2], details: detailsList[2] },
+    { kind: "context", title: "上下文准备", summary: summaries[3], details: detailsList[3] },
+    { kind: "tool", title: "工具调用", summary: summaries[4], details: detailsList[4] },
+    { kind: "thinking", title: "思考与角色", summary: summaries[5], details: detailsList[5] },
+    { kind: "generation", title: "生成与校验", summary: summaries[6], details: detailsList[6] },
+  ]
+
+  let lastActiveIndex = -1
+  for (let i = activations.length - 1; i >= 0; i--) {
+    if (activations[i]) {
+      lastActiveIndex = i
+      break
+    }
+  }
+
+  return stageDefs.map((def, index) => {
+    const activated = activations[index]
+    let status: OutlineStageStatus = "hidden"
+
+    if (activated) {
+      if (!isStreaming || index < lastActiveIndex) {
+        status = "done"
+      } else {
+        status = "active"
+      }
+    }
+
+    if (activated && !isStreaming) {
+      status = "done"
+    }
+
+    return { ...def, status }
+  })
+}
+```
+
+- [ ] **Step 4: 运行测试验证通过**
+
+Run: `npx vitest run src/lib/novel/outline-stage-trace.spec.ts`
+Expected: 全部 PASS
+
+- [ ] **Step 5: 提交**
+
+```
+git add src/lib/novel/outline-stage-trace.ts src/lib/novel/outline-stage-trace.spec.ts
+git commit -m "填充阶段摘要运行时数据"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 5: 添加过渡提示和分析摘要</h3>
+
+<p><strong>问题 U3</strong>：clear 自动注入时无过渡提示。<br>
+<strong>问题 U4</strong>：推荐选项区域缺少分析摘要。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 在 clear 自动注入前添加系统消息**
+
+在 handleSend 流结束回调中（约 L2098-L2106），clear 自动注入逻辑前添加系统消息：
+
+将：
+```typescript
+          if (intentResult.clarity === "clear") {
+            // 自动注入生成 prompt
+            const scope = intentResult.detectedScope;
+            void handleSend(
+              buildGenerationPrompt(lastIntentTitle, lastIntentHint, scope),
+              [],
+              { intentPhase: "generation" },
+            );
+          }
+```
+
+替换为：
+```typescript
+          if (intentResult.clarity === "clear") {
+            // 插入过渡提示
+            addMessage(convId, {
+              id: crypto.randomUUID(),
+              role: "user",
+              content: `✓ 意图明确（${intentResult.module}${intentResult.detectedScope ? `：${intentResult.detectedScope}` : ""}），开始生成...`,
+            });
+            // 自动注入生成 prompt
+            const scope = intentResult.detectedScope;
+            void handleSend(
+              buildGenerationPrompt(lastIntentTitle, lastIntentHint, scope),
+              [],
+              { intentPhase: "generation" },
+            );
+          }
+```
+
+注意：U4（分析摘要）已在 Task 3 的 IntentOptionsCard 中通过 `result.analysis` 渲染实现。
+
+- [ ] **Step 2: 运行 typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 3: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.tsx
+git commit -m "添加clear自动注入过渡提示"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 6: 修复闭包陷阱，使用 useRef 保存意图上下文</h3>
+
+<p><strong>问题 Q2</strong>：lastIntentTitle/lastIntentHint 在 handleSend 闭包中可能过期。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 将 lastIntentTitle/lastIntentHint 改为 useRef**
+
+将（约 L1168-L1170）：
+```typescript
+  const [lastIntentTitle, setLastIntentTitle] = useState("");
+  const [lastIntentHint, setLastIntentHint] = useState("");
+```
+
+替换为：
+```typescript
+  const lastIntentTitleRef = useRef("");
+  const lastIntentHintRef = useRef("");
+```
+
+- [ ] **Step 2: 更新 handleGenerateSection 中的赋值**
+
+将（约 L2217-L2224）：
+```typescript
+  const handleGenerateSection = useCallback(
+    (title: string, requestHint: string) => {
+      setLastIntentTitle(title);
+      setLastIntentHint(requestHint);
+      const intentPrompt = buildIntentAnalysisPrompt(title, requestHint);
+      void handleSend(intentPrompt, [], { intentPhase: "intent_analysis" });
+    },
+    [handleSend],
+  );
+```
+
+替换为：
+```typescript
+  const handleGenerateSection = useCallback(
+    (title: string, requestHint: string) => {
+      lastIntentTitleRef.current = title;
+      lastIntentHintRef.current = requestHint;
+      const intentPrompt = buildIntentAnalysisPrompt(title, requestHint);
+      void handleSend(intentPrompt, [], { intentPhase: "intent_analysis" });
+    },
+    [handleSend],
+  );
+```
+
+- [ ] **Step 3: 更新 handleSend 中引用 lastIntentTitle/lastIntentHint 的位置**
+
+在流结束回调中（约 L2101-L2102），将：
+```typescript
+              buildGenerationPrompt(lastIntentTitle, lastIntentHint, scope),
+```
+
+替换为：
+```typescript
+              buildGenerationPrompt(lastIntentTitleRef.current, lastIntentHintRef.current, scope),
+```
+
+在 onSendMessage 的渲染位置（约 L2870），将：
+```tsx
+  onSendMessage={(text, options) => {
+    void handleSend(
+      buildGenerationPrompt(lastIntentTitle, lastIntentHint, options?.scope),
+```
+
+替换为：
+```tsx
+  onSendMessage={(text, options) => {
+    void handleSend(
+      buildGenerationPrompt(lastIntentTitleRef.current, lastIntentHintRef.current, options?.scope),
+```
+
+- [ ] **Step 4: 更新 handleSend 依赖数组**
+
+从 handleSend 的依赖数组中移除 `lastIntentTitle`、`lastIntentHint`，添加 `lastIntentTitleRef`、`lastIntentHintRef`。
+
+实际上 useRef 不需要在依赖数组中，所以直接移除 `lastIntentTitle` 和 `lastIntentHint` 即可。
+
+同时移除 `setLastIntentResult`（因为 lastIntentResult 也可以改用 ref）。
+
+将（约 L2211-L2213）：
+```typescript
+      lastIntentTitle,
+      lastIntentHint,
+      setLastIntentResult,
+```
+
+替换为空（直接删除这三行）。
+
+- [ ] **Step 5: 将 lastIntentResult 也改为 useRef**
+
+将（约 L1168）：
+```typescript
+  const [lastIntentResult, setLastIntentResult] = useState<IntentClarityResult | null>(null);
+```
+
+替换为：
+```typescript
+  const lastIntentResultRef = useRef<IntentClarityResult | null>(null);
+```
+
+在流结束回调中，将：
+```typescript
+          setLastIntentResult(intentResult);
+```
+
+替换为：
+```typescript
+          lastIntentResultRef.current = intentResult;
+```
+
+- [ ] **Step 6: 运行 typecheck + 大纲面板测试**
+
+Run: `npx tsc --noEmit`
+Run: `npx vitest run src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 无错误，全部 PASS
+
+- [ ] **Step 7: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.tsx
+git commit -m "修复闭包陷阱：lastIntent改用useRef"
+```
+
+</div>
+
+<h2><span class="phase-tag phase-3">第三阶段</span>架构完善与质量提升（P2）</h2>
+
+<div class="callout">
+  <strong>目标</strong>：outputMode 真正生效，状态机驱动流程，推荐过滤优化，测试覆盖完整。预估 9h。
+</div>
+
+<div class="task-block">
+
+<h3>Task 7: outputMode 在生成流程中生效</h3>
+
+<p><strong>问题 F4</strong>：outputMode 字段已定义但生成流程未使用。</p>
+
+**Files:**
+- Modify: `src/lib/novel/outline-section-configs.ts`
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 在 buildGenerationPrompt 中使用 outputMode**
+
+当前 `buildGenerationPrompt`（约 L376-L399）不接收 outputMode 参数。修改为接收并使用：
+
+将：
+```typescript
+function buildGenerationPrompt(
+  title: string,
+  requestHint: string,
+  scope?: string,
+): string {
+```
+
+替换为：
+```typescript
+function buildGenerationPrompt(
+  title: string,
+  requestHint: string,
+  scope?: string,
+  outputMode?: "per_chapter" | "per_item" | "single",
+): string {
+```
+
+在 prompt 中添加 outputMode 相关指导：
+
+在 `buildGenerationPrompt` 的返回数组中，在 `"## 文件输出要求"` 之后添加：
+
+```typescript
+    outputMode === "per_chapter"
+      ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
+      : outputMode === "per_item"
+      ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。"
+      : "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。",
+```
+
+- [ ] **Step 2: 在 handleGenerateSection 中传递 outputMode**
+
+修改 `handleGenerateSection`（约 L2217-L2224）：
+
+```typescript
+  const handleGenerateSection = useCallback(
+    (title: string, requestHint: string) => {
+      lastIntentTitleRef.current = title;
+      lastIntentHintRef.current = requestHint;
+      const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === title);
+      lastIntentOutputModeRef.current = config?.outputMode;
+      const intentPrompt = buildIntentAnalysisPrompt(title, requestHint);
+      void handleSend(intentPrompt, [], { intentPhase: "intent_analysis" });
+    },
+    [handleSend],
+  );
+```
+
+添加 `lastIntentOutputModeRef`：
+
+```typescript
+  const lastIntentOutputModeRef = useRef<"per_chapter" | "per_item" | "single" | undefined>(undefined);
+```
+
+- [ ] **Step 3: 在 clear 自动注入生成时传递 outputMode**
+
+在流结束回调中，修改 clear 分支：
+
+```typescript
+              buildGenerationPrompt(
+                lastIntentTitleRef.current,
+                lastIntentHintRef.current,
+                scope,
+                lastIntentOutputModeRef.current,
+              ),
+```
+
+同样修改 onSendMessage 中的调用：
+
+```tsx
+  onSendMessage={(text, options) => {
+    void handleSend(
+      buildGenerationPrompt(
+        lastIntentTitleRef.current,
+        lastIntentHintRef.current,
+        options?.scope,
+        lastIntentOutputModeRef.current,
+      ),
+      [],
+      { intentPhase: options?.intentPhase ?? "generation" },
+    );
+  }}
+```
+
+- [ ] **Step 4: 运行 typecheck + 大纲面板测试**
+
+Run: `npx tsc --noEmit`
+Run: `npx vitest run src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 无错误，全部 PASS
+
+- [ ] **Step 5: 提交**
+
+```
+git add src/lib/novel/outline-section-configs.ts src/components/sources/outline-chat-panel.tsx
+git commit -m "outputMode在生成流程中生效"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 8: 优化 isRecommendationForbidden 精确度</h3>
+
+<p><strong>问题 Q4</strong>：isRecommendationForbidden 可能误杀合法推荐。</p>
+
+**Files:**
+- Modify: `src/lib/novel/outline-next-step.ts`
+- Modify: `src/lib/novel/outline-next-step.spec.ts`
+
+- [ ] **Step 1: 新增误杀测试**
+
+```typescript
+it("不误杀包含'正文'但非正文生成的推荐", () => {
+  expect(isRecommendationForbidden("生成组织势力正文说明")).toBe(false)
+  expect(isRecommendationForbidden("完善伏笔正文分析")).toBe(false)
+  expect(isRecommendationForbidden("生成角色设定文档")).toBe(false)
+})
+
+it("精确禁止章节正文生成", () => {
+  expect(isRecommendationForbidden("生成章节正文")).toBe(true)
+  expect(isRecommendationForbidden("生成对应正文")).toBe(true)
+  expect(isRecommendationForbidden("写章节正文")).toBe(true)
+  expect(isRecommendationForbidden("开始写正文")).toBe(true)
+})
+```
+
+- [ ] **Step 2: 优化 isRecommendationForbidden 正则**
+
+将：
+```typescript
+const FORBIDDEN_PATTERNS = [
+  /生成.*正文/,
+  /写.*正文/,
+  /生成.*章节内容/,
+  /生成.*正文章节/,
+  /章节正文/,
+  /写正文/,
+  /生成正文/,
+]
+```
+
+替换为：
+```typescript
+const FORBIDDEN_PATTERNS = [
+  /生成.*(章节?|对应|相关).?正文/,
+  /写.*(章节?|对应|相关).?正文/,
+  /生成正文/,
+  /写正文/,
+  /开始写正文/,
+  /生成章节内容/,
+]
+```
+
+- [ ] **Step 3: 运行测试**
+
+Run: `npx vitest run src/lib/novel/outline-next-step.spec.ts`
+Expected: 全部 PASS
+
+- [ ] **Step 4: 提交**
+
+```
+git add src/lib/novel/outline-next-step.ts src/lib/novel/outline-next-step.spec.ts
+git commit -m "优化isRecommendationForbidden精确度避免误杀"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 9: 面板集成状态机</h3>
+
+<p><strong>问题 F5</strong>：状态机定义了 intent_analysis/waiting_user_input 但面板未使用。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+
+- [ ] **Step 1: 引入状态机状态**
+
+在面板主组件中（约 L1168 附近），添加：
+
+```typescript
+  const [outlineWorkflowStage, setOutlineWorkflowStage] = useState<OutlineWorkflowStage>("idle");
+```
+
+添加 import：
+```typescript
+import {
+  type OutlineWorkflowStage,
+  createInitialOutlineWorkflowState,
+  transitionOutlineWorkflow,
+  canTransitionOutlineWorkflow,
+} from "@/lib/novel/outline-workflow-state"
+```
+
+- [ ] **Step 2: 在关键流程节点转换状态**
+
+在 `handleGenerateSection` 中，发送意图分析前：
+```typescript
+if (canTransitionOutlineWorkflow(outlineWorkflowStage, "intent_analysis")) {
+  setOutlineWorkflowStage("intent_analysis");
+}
+```
+
+在流结束回调中，clear 分支自动注入生成前：
+```typescript
+if (canTransitionOutlineWorkflow(outlineWorkflowStage, "sufficiency_check")) {
+  setOutlineWorkflowStage("sufficiency_check");
+}
+```
+
+在 needs_input 分支：
+```typescript
+if (canTransitionOutlineWorkflow(outlineWorkflowStage, "waiting_user_input")) {
+  setOutlineWorkflowStage("waiting_user_input");
+}
+```
+
+在用户选择推荐后（onSendMessage 回调中）：
+```typescript
+if (canTransitionOutlineWorkflow(outlineWorkflowStage, "sufficiency_check")) {
+  setOutlineWorkflowStage("sufficiency_check");
+}
+```
+
+在生成完成（流结束且 intentPhase 为 generation）时：
+```typescript
+if (canTransitionOutlineWorkflow(outlineWorkflowStage, "saved")) {
+  setOutlineWorkflowStage("saved");
+}
+```
+
+- [ ] **Step 3: 在面板标题区域显示当前状态**
+
+在面板顶栏（约 L2800 附近），在现有标题旁添加状态标签：
+
+```tsx
+{outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
+  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+    {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
+     outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
+     outlineWorkflowStage === "sufficiency_check" ? "生成中" :
+     "处理中"}
+  </span>
+) : null}
+```
+
+- [ ] **Step 4: 运行 typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 5: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.tsx
+git commit -m "面板集成状态机驱动流程"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 10: 新增面板集成测试</h3>
+
+<p><strong>问题 M3</strong>：缺少面板集成测试。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.spec.tsx`
+
+- [ ] **Step 1: 在现有测试文件中新增集成测试**
+
+在 `src/components/sources/outline-chat-panel.spec.tsx` 末尾添加：
+
+```typescript
+it("handleGenerateSection 发送意图分析 prompt 并设置 intentPhase", () => {
+  renderOutlineChatPanel();
+  const generateButtons = screen.getAllByRole("button", { name: /章节细纲|人物小传|组织势力/ });
+  // 点击第一个生成按钮
+  if (generateButtons.length > 0) {
+    fireEvent.click(generateButtons[0]);
+    // 验证 handleSend 被调用且 intentPhase 为 intent_analysis
+    const lastCall = mockHandleSend.mock.calls[mockHandleSend.mock.calls.length - 1];
+    expect(lastCall?.[2]?.intentPhase).toBe("intent_analysis");
+  }
+});
+
+it("intent_clarity 解析后 clear 自动注入生成 prompt", () => {
+  // 验证 stripStructuredMarkers 被正确调用
+  // 验证显示内容中不含 intent_clarity JSON 块
+  renderOutlineChatPanel();
+  // 模拟一条包含 intent_clarity 的 assistant 消息
+  const store = useOutlineChatStore.getState();
+  const convId = store.activeConversationId ?? store.createConversation();
+  store.addMessage(convId, {
+    id: "test-msg-1",
+    role: "assistant",
+    content: `<!-- intent_clarity -->\n{"clarity":"clear","module":"章节细纲","analysis":"3章缺细纲","detectedScope":"第1-3章","missingItems":[],"options":[],"question":""}\n<!-- /intent_clarity -->`,
+    intentPhase: "intent_analysis",
+    intentClarityResult: {
+      clarity: "clear",
+      module: "章节细纲",
+      analysis: "3章缺细纲",
+      detectedScope: "第1-3章",
+      missingItems: [],
+      options: [],
+      question: "",
+    },
+  });
+  // 重新渲染
+  rerenderOutlineChatPanel();
+  // 验证显示内容中不包含 intent_clarity 标记
+  expect(screen.queryByText(/intent_clarity/)).toBeNull();
+});
+```
+
+注意：需要根据现有测试的 mock 结构调整。如果测试使用的是真实组件渲染，需确保 mock 了 handleSend。
+
+- [ ] **Step 2: 运行测试**
+
+Run: `npx vitest run src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 全部 PASS
+
+- [ ] **Step 3: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.spec.tsx
+git commit -m "新增面板集成测试"
+```
+
+</div>
+
+<h2><span class="phase-tag phase-4">第四阶段</span>性能与兼容性打磨（P3）</h2>
+
+<div class="callout callout-success">
+  <strong>目标</strong>：性能优化、兼容性保障、边界场景处理。预估 4.5h。
+</div>
+
+<div class="task-block">
+
+<h3>Task 11: 性能优化</h3>
+
+<p><strong>问题 P1-P3</strong>：buildOutlineStages 频繁重计算、组件未 memo、正则替换效率低。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-workflow-stages.tsx`
+- Modify: `src/lib/novel/outline-stage-trace.ts`
+
+- [ ] **Step 1: 对 OutlineWorkflowStages 添加 React.memo**
+
+将 `OutlineWorkflowStages` 导出改为：
+
+```typescript
+export const OutlineWorkflowStages = React.memo(function OutlineWorkflowStages(props: OutlineStageInput) {
+  const stages = buildOutlineStages(props)
+  const visibleStages = stages.filter((s) => s.status !== "hidden")
+
+  const defaultOpenId = stages.find((s) => s.status === "active")?.kind ?? null
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
+
+  if (visibleStages.length === 0) return null
+
+  return (
+    <div className="mb-2 space-y-1">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+        <span>思考过程</span>
+      </div>
+      {visibleStages.map((stage) => {
+        const isOpen = openMap[stage.kind] ?? (stage.status === "active")
+        return (
+          <StageRow
+            key={stage.kind}
+            stage={stage}
+            open={isOpen}
+            onToggle={() => setOpenMap((prev) => ({ ...prev, [stage.kind]: !isOpen }))}
+          />
+        )
+      })}
+    </div>
+  )
+})
+```
+
+- [ ] **Step 2: 优化 hasGenerationStarted 避免全文正则替换**
+
+在 `outline-stage-trace.ts` 中，将：
+
+```typescript
+function hasGenerationStarted(content: string): boolean {
+  const withoutThinking = content.replace(THINKING_PATTERN, "")
+  const withoutClarity = withoutThinking.replace(INTENT_CLARITY_PATTERN, "")
+  return withoutClarity.trim().length > 0
+}
+```
+
+替换为：
+
+```typescript
+function hasGenerationStarted(content: string): boolean {
+  if (!content) return false
+  let idx = 0
+  while (idx < content.length) {
+    const thinkStart = content.indexOf("<think", idx)
+    const clarityStart = content.indexOf("<!-- intent_clarity", idx)
+    if (thinkStart === -1 && clarityStart === -1) {
+      return content.slice(idx).trim().length > 0
+    }
+    const nextMark = Math.min(
+      thinkStart === -1 ? Infinity : thinkStart,
+      clarityStart === -1 ? Infinity : clarityStart,
+    )
+    if (nextMark > idx && content.slice(idx, nextMark).trim().length > 0) {
+      return true
+    }
+    const thinkEnd = content.indexOf("</think>", thinkStart)
+    const clarityEnd = content.indexOf("<!-- /intent_clarity -->", clarityStart)
+    idx = Math.max(
+      thinkStart >= 0 && thinkEnd >= 0 ? thinkEnd + 8 : 0,
+      clarityStart >= 0 && clarityEnd >= 0 ? clarityEnd + 24 : 0,
+      nextMark + 1,
+    )
+  }
+  return false
+}
+```
+
+- [ ] **Step 3: 运行测试**
+
+Run: `npx vitest run src/lib/novel/outline-stage-trace.spec.ts`
+Expected: 全部 PASS
+
+- [ ] **Step 4: 提交**
+
+```
+git add src/components/sources/outline-workflow-stages.tsx src/lib/novel/outline-stage-trace.ts
+git commit -m "性能优化：React.memo和indexOf替代正则替换"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 12: 兼容性保障</h3>
+
+<p><strong>问题 C1-C3</strong>：旧数据兼容、AI格式遵从度fallback、弱模型降级。</p>
+
+**Files:**
+- Modify: `src/components/sources/outline-chat-panel.tsx`
+- Modify: `src/components/sources/outline-workflow-stages.tsx`
+
+- [ ] **Step 1: 弱模型降级 — 无工具调用时显示简化状态**
+
+在 `OutlineWorkflowStages` 组件中，当 `visibleStages.length === 0` 但 `isStreaming` 为 true 时，显示简化状态：
+
+将：
+```typescript
+  if (visibleStages.length === 0) return null
+```
+
+替换为：
+```typescript
+  if (visibleStages.length === 0) {
+    if (isStreaming) {
+      return (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span>生成中...</span>
+        </div>
+      )
+    }
+    return null
+  }
+```
+
+- [ ] **Step 2: 验证旧数据兼容 — 检查可选字段安全访问**
+
+在 `OutlineAssistantMessage` 中，所有新增字段访问均使用可选链 `?.`：
+- `msg.intentClarityResult?.clarity` — 安全
+- `msg.nextStepRecommendation?.recommendations` — 安全
+- `msg.intentPhase` — 安全（undefined 时不会触发任何分支）
+
+确认无需额外修改。
+
+- [ ] **Step 3: 运行 typecheck + 全量测试**
+
+Run: `npx tsc --noEmit`
+Run: `npx vitest run src/lib/novel/outline-intent-clarity.spec.ts src/lib/novel/outline-stage-trace.spec.ts src/lib/novel/outline-next-step.spec.ts src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 无错误，全部 PASS
+
+- [ ] **Step 4: 提交**
+
+```
+git add src/components/sources/outline-chat-panel.tsx src/components/sources/outline-workflow-stages.tsx
+git commit -m "兼容性保障：弱模型降级显示、旧数据安全访问"
+```
+
+</div>
+
+<div class="task-block">
+
+<h3>Task 13: 最终回归验证</h3>
+
+**Files:** 无新修改
+
+- [ ] **Step 1: 运行全部新增模块测试**
+
+Run: `npx vitest run src/lib/novel/outline-intent-clarity.spec.ts src/lib/novel/outline-stage-trace.spec.ts src/lib/novel/outline-next-step.spec.ts`
+Expected: 全部 PASS
+
+- [ ] **Step 2: 运行大纲面板测试**
+
+Run: `npx vitest run src/components/sources/outline-chat-panel.spec.tsx`
+Expected: 全部 PASS
+
+- [ ] **Step 3: 运行 AI 会话面板测试（回归验证）**
+
+Run: `npx vitest run src/components/chat/agent-tool-call-message.spec.tsx`
+Expected: 全部 PASS
+
+- [ ] **Step 4: 运行 TypeScript 全量编译检查**
+
+Run: `npx tsc --noEmit`
+Expected: 无错误
+
+- [ ] **Step 5: 确认 git 状态**
+
+Run: `git log --oneline -15`
+确认所有 13 个任务的 commit 都在 dagangshengji 分支上
+
+- [ ] **Step 6: 标记任务完成**
+
+所有优化任务完成，更新 todo 列表。
+
+</div>
+
+</body>
+</html>

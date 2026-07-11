@@ -21,7 +21,7 @@ function doPeriodicSave(): void {
   const state = useChatStore.getState()
   if (Object.keys(state.streamingContents).length > 0) return
   if (state.conversations.length === 0) return
-  saveChatHistory(project.path, state.conversations, state.messages, state.maxHistoryMessages)
+  saveChatHistory(project.path, state.conversations, state.messages, state.maxHistoryMessages, state.runStates)
     .catch((err) => console.error("兜底保存失败:", err))
 }
 
@@ -48,7 +48,7 @@ export function setupAutoSave(): void {
       const project = useWikiStore.getState().project
       // 只在有会话数据时才保存，防止清空 store 时误写入空数据覆盖历史
       if (project && isTauri() && latestState.conversations.length > 0) {
-        saveChatHistory(project.path, latestState.conversations, latestState.messages, latestState.maxHistoryMessages).catch((err) => console.error("自动保存失败:", err))
+        saveChatHistory(project.path, latestState.conversations, latestState.messages, latestState.maxHistoryMessages, latestState.runStates).catch((err) => console.error("自动保存失败:", err))
       }
     }, 2000)
   })

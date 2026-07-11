@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI大纲会话窗口交互重构 — 完成度评估与优化分析报告</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #232733;
+    --border: #2d3142;
+    --text: #e6e8ed;
+    --text-muted: #9aa0ae;
+    --accent: #6cb6ff;
+    --accent-2: #8b7bf0;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.4rem; margin-top: 2.5rem; margin-bottom: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h3 { font-size: 1.15rem; margin-top: 1.8rem; margin-bottom: 0.8rem; color: var(--accent-2); }
+  h4 { font-size: 1rem; margin-top: 1.2rem; margin-bottom: 0.5rem; color: var(--text); }
+  p { margin-bottom: 0.8rem; }
+  ul, ol { margin-left: 1.5rem; margin-bottom: 0.8rem; }
+  li { margin-bottom: 0.3rem; }
+  code {
+    background: var(--surface-2);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+    font-size: 0.88em;
+    color: var(--amber);
+  }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; text-align: left; }
+  th { background: var(--surface-2); color: var(--accent); font-weight: 600; }
+  tr:nth-child(even) { background: var(--surface); }
+  .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .callout { background: var(--surface); border-left: 3px solid var(--accent); padding: 0.8rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  .callout-warn { border-left-color: var(--warning); }
+  .callout-danger { border-left-color: var(--danger); }
+  .callout-success { border-left-color: var(--success); }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+  .badge-full { background: rgba(74,222,128,0.15); color: var(--success); }
+  .badge-partial { background: rgba(251,191,36,0.15); color: var(--warning); }
+  .badge-missing { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .badge-low { background: rgba(107,182,255,0.15); color: var(--accent); }
+  .progress-bar { background: var(--surface-2); border-radius: 8px; height: 20px; overflow: hidden; margin: 0.5rem 0; }
+  .progress-fill { height: 100%; border-radius: 8px; transition: width 0.3s; }
+  .progress-fill.green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+  .progress-fill.yellow { background: linear-gradient(90deg, #eab308, #fbbf24); }
+  .progress-fill.red { background: linear-gradient(90deg, #ef4444, #f87171); }
+  .severity-critical { color: var(--danger); font-weight: 700; }
+  .severity-high { color: #fb923c; font-weight: 700; }
+  .severity-medium { color: var(--warning); font-weight: 700; }
+  .severity-low { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>AI大纲会话窗口交互重构 — 完成度评估与优化分析</h1>
+<p class="meta">
+  审查日期：2026-07-10<br>
+  审查范围：方案B（显式意图闸门阶段 + 独立阶段状态机）全部实现<br>
+  对照文档：2026-07-09-ai-outline-intent-staged-workflow-design.html
+</p>
+
+<h2 id="completion">一、完成度评估</h2>
+
+<h3>总体完成度</h3>
+
+<div class="progress-bar"><div class="progress-fill green" style="width: 72%"></div></div>
+<p style="text-align: center; margin-top: 0.3rem;"><strong>72%</strong> — 框架已搭建，核心流程可运行，但关键交互细节和运行时数据填充存在明显缺口</p>
+
+<h3>逐项完成度评估表</h3>
+
+<table>
+  <tr><th>功能需求</th><th>设计规格要求</th><th>实际实现</th><th>完成度</th></tr>
+
+  <tr>
+    <td><strong>意图清晰度分析层</strong></td>
+    <td>点击模块按钮→意图分析prompt→AI输出intent_clarity JSON→前端解析决定分支</td>
+    <td>parseIntentClarity + buildIntentAnalysisPrompt 已实现；handleGenerateSection 已改造为两阶段；流结束回调中解析 clear 自动注入生成</td>
+    <td><span class="badge badge-full">85%</span></td>
+  </tr>
+  <tr>
+    <td>needs_input 推荐选项渲染</td>
+    <td>AI提供4类推荐选项（A/B/C/D），用户点选后自动构造对应模块prompt并发送</td>
+    <td>推荐选项卡片已渲染，但点击回调仅通过 addMessage 注入用户消息文本，<strong>未调用 handleGenerateSection</strong>，无法触发完整两阶段流程</td>
+    <td><span class="badge badge-partial">40%</span></td>
+  </tr>
+  <tr>
+    <td>"自定义"选项聚焦输入框</td>
+    <td>选择D时聚焦输入框，等待用户自由输入</td>
+    <td>仅注释"聚焦输入框（暂不实现）"，<strong>无任何实现</strong></td>
+    <td><span class="badge badge-missing">0%</span></td>
+  </tr>
+  <tr>
+    <td>防无限循环</td>
+    <td>用户回复后直接注入生成prompt，不再二次分析</td>
+    <td>clear 分支自动注入生成，但 needs_input 用户选择后只添加文本消息，未跳过意图分析直接进入生成</td>
+    <td><span class="badge badge-partial">50%</span></td>
+  </tr>
+  <tr>
+    <td><strong>渐进式阶段展示</strong></td>
+    <td>7阶段按事件驱动出现，hidden不渲染，done折叠摘要，active展开详情</td>
+    <td>buildOutlineStages 实现7阶段+hidden/active/done 状态；OutlineWorkflowStages 组件渲染折叠/展开</td>
+    <td><span class="badge badge-partial">60%</span></td>
+  </tr>
+  <tr>
+    <td>阶段摘要信息</td>
+    <td>✓ 任务理解 · {意图标签}（置信度{百分比}） · {耗时}</td>
+    <td>summary 和 details 字段始终为空字符串/空数组，<strong>无运行时数据填充</strong></td>
+    <td><span class="badge badge-missing">5%</span></td>
+  </tr>
+  <tr>
+    <td>阶段过渡动画</td>
+    <td>opacity 0→1 + translateY(4px→0)，250ms ease-out</td>
+    <td>CSS fadeIn keyframe 实现了 opacity + translateY 动画，但 translateY 初始值为 1（Tailwind单位）而非 4px</td>
+    <td><span class="badge badge-partial">80%</span></td>
+  </tr>
+  <tr>
+    <td><strong>文件输出结构</strong></td>
+    <td>每章/每项一个独立文件，outputMode配置（per_chapter/per_item/single）</td>
+    <td>outputMode 字段已在 configs 中定义，但 <strong>生成流程未使用 outputMode</strong> 控制实际输出行为</td>
+    <td><span class="badge badge-partial">30%</span></td>
+  </tr>
+  <tr>
+    <td><strong>批量保存确认</strong></td>
+    <td>支持部分取消，用户可取消勾选其中部分文件</td>
+    <td>deselectedFiles + checkbox 完整实现，确认按钮正确过滤</td>
+    <td><span class="badge badge-full">100%</span></td>
+  </tr>
+  <tr>
+    <td><strong>下一步推荐机制</strong></td>
+    <td>AI输出next_step JSON，前端渲染推荐卡片，点击触发对应模块生成</td>
+    <td>parseNextStep + isRecommendationForbidden 已实现；推荐卡片已渲染；但点击回调仅注入文本消息，<strong>未调用 handleGenerateSection</strong></td>
+    <td><span class="badge badge-partial">50%</span></td>
+  </tr>
+  <tr>
+    <td>严禁推荐正文生成</td>
+    <td>AI大纲面板禁止推荐正文生成</td>
+    <td>isRecommendationForbidden 正则匹配6种模式，buildNextStepPromptSuffix 明确约束</td>
+    <td><span class="badge badge-full">95%</span></td>
+  </tr>
+  <tr>
+    <td><strong>状态机扩展</strong></td>
+    <td>新增 intent_analysis / waiting_user_input 阶段及转移规则</td>
+    <td>类型定义和 ALLOWED_TRANSITIONS 已更新，但 <strong>核心面板未实际使用状态机</strong>驱动流程</td>
+    <td><span class="badge badge-partial">35%</span></td>
+  </tr>
+  <tr>
+    <td><strong>系统提示词改造</strong></td>
+    <td>新增意图分析阶段约束和 intent_clarity / next_step 输出格式</td>
+    <td>buildOutlineAgentSystemPrompt 新增了意图分析和下一步推荐输出约束</td>
+    <td><span class="badge badge-full">90%</span></td>
+  </tr>
+  <tr>
+    <td>不改动共享文件</td>
+    <td>workflow-trace.ts / agent-workflow-panel.tsx 不修改</td>
+    <td>经 git diff 验证，共享文件未被修改</td>
+    <td><span class="badge badge-full">100%</span></td>
+  </tr>
+  <tr>
+    <td>TypeScript 类型安全</td>
+    <td>所有新增和修改文件通过 typecheck</td>
+    <td>tsc --noEmit 通过，无类型错误</td>
+    <td><span class="badge badge-full">100%</span></td>
+  </tr>
+</table>
+
+<h2 id="gaps">二、设计偏差与未实现项</h2>
+
+<table>
+  <tr><th>#</th><th>偏差项</th><th>设计要求</th><th>实际实现</th><th>影响</th></tr>
+
+  <tr>
+    <td>1</td>
+    <td>推荐选项点击回调</td>
+    <td>点击推荐后自动构造对应模块的生成prompt并通过 handleGenerateSection 触发</td>
+    <td>点击后仅通过 addMessage 注入文本消息，无法触发两阶段流程</td>
+    <td class="severity-critical">核心交互断裂</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>"自定义"选项行为</td>
+    <td>选择D时聚焦输入框，等待用户自由输入</td>
+    <td>完全未实现</td>
+    <td class="severity-high">用户无法自定义范围</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>防无限循环机制</td>
+    <td>用户选择后直接注入生成prompt，不再做意图分析</td>
+    <td>needs_input 用户选择后仅添加文本消息，下一轮仍可能触发意图分析</td>
+    <td class="severity-critical">可能陷入循环</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>阶段摘要数据</td>
+    <td>✓ 任务理解 · {意图标签}（置信度{百分比}） · {耗时}</td>
+    <td>summary/details 始终为空，用户只看到阶段标题</td>
+    <td class="severity-high">用户体验缺失</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>outputMode 实际使用</td>
+    <td>per_chapter 生成多文件，per_item 每项一文件</td>
+    <td>outputMode 字段已定义但生成流程未读取，实际行为仍依赖AI自觉</td>
+    <td class="severity-medium">功能未落地</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>状态机实际驱动</td>
+    <td>outline-workflow-state 的阶段转换驱动面板UI</td>
+    <td>状态机类型和转换已定义，但面板未使用它，仍用 intentPhase 字段手动控制</td>
+    <td class="severity-medium">架构未闭环</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>intent_clarity 显示内容清理</td>
+    <td>clear 时 AI 只输出 JSON 不生成正文，前端应隐藏 JSON 块</td>
+    <td>显示内容中仍包含 <!-- intent_clarity --> JSON 块文本</td>
+    <td class="severity-high">UI 展示混乱</td>
+  </tr>
+  <tr>
+    <td>8</td>
+    <td>next_step 显示内容清理</td>
+    <td>next_step JSON 块不应出现在正文显示中</td>
+    <td>显示内容中仍包含 <!-- next_step --> JSON 块文本</td>
+    <td class="severity-high">UI 展示混乱</td>
+  </tr>
+</table>
+
+<h2 id="optimization">三、六维优化分析</h2>
+
+<h3>3.1 功能完整性</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>F1</td>
+    <td>推荐选项点击回调未连接 handleGenerateSection，点击后仅注入文本消息而非触发生成流程</td>
+    <td><span class="severity-critical">致命</span></td>
+    <td>将 handleGenerateSection 通过 props 传入 OutlineAssistantMessage；推荐选项点击时调用 onGenerateSection(config.title, config.requestHint)；下一步推荐同理</td>
+    <td>推荐点击立即触发生成，流程闭环</td>
+  </tr>
+  <tr>
+    <td>F2</td>
+    <td>"自定义"选项（D）完全未实现，用户无法自由输入生成范围</td>
+    <td><span class="severity-high">高</span></td>
+    <td>将 inputRef 通过 props 传入，选择D时调用 inputRef.current?.focus()；或在推荐卡片下方插入临时输入框</td>
+    <td>用户可自由描述范围，4类选项完整可用</td>
+  </tr>
+  <tr>
+    <td>F3</td>
+    <td>needs_input 用户选择后未跳过意图分析，可能二次触发意图分析导致循环</td>
+    <td><span class="severity-critical">致命</span></td>
+    <td>用户选择推荐后，调用 handleSend(buildGenerationPrompt(...), [], { intentPhase: "generation" })，直接进入生成阶段</td>
+    <td>防止无限循环，流程单向推进</td>
+  </tr>
+  <tr>
+    <td>F4</td>
+    <td>outputMode 字段已定义但生成流程未使用，per_chapter/per_item 行为无程序保障</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>在 buildGenerationPrompt 中根据 outputMode 生成不同的文件输出要求提示；在 saveOutlineSaveRequests 中按 outputMode 校验文件数量</td>
+    <td>每章/每项一文件有程序保障</td>
+  </tr>
+  <tr>
+    <td>F5</td>
+    <td>状态机定义了 intent_analysis/waiting_user_input 但面板未使用状态机驱动流程</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>在面板中引入 outlineWorkflowState，通过状态机转换驱动UI阶段切换（如显示"意图分析中..."、"等待选择..."等）</td>
+    <td>流程状态可追溯、可调试</td>
+  </tr>
+</table>
+
+<h3>3.2 性能优化</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>P1</td>
+    <td>buildOutlineStages 在每次渲染时重新计算全部阶段状态，流式输出期间频繁调用</td>
+    <td><span class="severity-low">低</span></td>
+    <td>使用 useMemo 缓存结果，仅在 toolCalls/content/isStreaming 变化时重新计算</td>
+    <td>减少不必要的重计算</td>
+  </tr>
+  <tr>
+    <td>P2</td>
+    <td>OutlineWorkflowStages 组件未做 React.memo 优化，每条消息渲染都会触发重建</td>
+    <td><span class="severity-low">低</span></td>
+    <td>对 OutlineWorkflowStages 和 StageRow 组件添加 React.memo</td>
+    <td>避免无关消息的重复渲染</td>
+  </tr>
+  <tr>
+    <td>P3</td>
+    <td>hasGenerationStarted 使用正则替换判断内容是否存在，对长文本效率低</td>
+    <td><span class="severity-low">低</span></td>
+    <td>改用 string.indexOf 或标记位检测，避免全文正则替换</td>
+    <td>长文本场景下减少GC压力</td>
+  </tr>
+</table>
+
+<h3>3.3 代码质量</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>Q1</td>
+    <td>推荐选项和下一步推荐的点击回调内直接操作 useOutlineChatStore.getState()，绕过了面板的流程控制</td>
+    <td><span class="severity-high">高</span></td>
+    <td>通过 props 传递 onGenerateSection 和 onSendMessage 回调，而非直接操作 store</td>
+    <td>流程控制集中、可测试、可调试</td>
+  </tr>
+  <tr>
+    <td>Q2</td>
+    <td>handleGenerateSection 的 useCallback 依赖数组包含 lastIntentTitle/lastIntentHint/setLastIntentResult，但这些状态在闭包中使用可能过期</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>使用 useRef 保存意图上下文，或改用 useOutlineChatStore 存储，避免闭包过期问题</td>
+    <td>消除闭包陷阱，意图信息可靠</td>
+  </tr>
+  <tr>
+    <td>Q3</td>
+    <td>buildOutlineStages 中阶段激活逻辑用布尔数组+索引匹配，可读性差且难扩展</td>
+    <td><span class="severity-low">低</span></td>
+    <td>改用显式阶段映射表：每个阶段定义 activateIf 函数，迭代计算状态</td>
+    <td>可读性提升，新增阶段只需加一行</td>
+  </tr>
+  <tr>
+    <td>Q4</td>
+    <td>isRecommendationForbidden 使用6个正则匹配，可能误杀合法推荐（如"生成组织势力正文说明"）</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>增加白名单机制或改为精确匹配"生成.*章节?正文"/"写正文"等更精确的模式</td>
+    <td>减少误判，提升推荐精度</td>
+  </tr>
+</table>
+
+<h3>3.4 用户体验</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>U1</td>
+    <td>intent_clarity JSON 块和 next_step JSON 块在正文显示中未过滤，用户看到原始 JSON</td>
+    <td><span class="severity-high">高</span></td>
+    <td>在 displayContent 生成逻辑中，移除 <!-- intent_clarity --> 和 <!-- next_step --> 标记块；复用已有的 extractBodyContent 思路</td>
+    <td>界面干净，只显示有意义的内容</td>
+  </tr>
+  <tr>
+    <td>U2</td>
+    <td>阶段摘要信息为空，用户只看到"✓ 任务理解"而非"✓ 任务理解 · 识别为生成章节细纲 · 1.2s"</td>
+    <td><span class="severity-high">高</span></td>
+    <td>在 buildOutlineStages 中填充 summary：从 toolCalls 提取工具名/结果，从 intentClarity 提取分析摘要，计算耗时</td>
+    <td>用户可快速理解每个阶段的执行结果</td>
+  </tr>
+  <tr>
+    <td>U3</td>
+    <td>clear 意图分析后自动注入生成时，无过渡提示，用户可能困惑为何AI在"自言自语"</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>自动注入前插入一条系统消息"意图清晰，开始生成..."，或在阶段面板中显示"自动进入生成阶段"</td>
+    <td>流程可感知，用户理解当前状态</td>
+  </tr>
+  <tr>
+    <td>U4</td>
+    <td>needs_input 推荐选项区域缺少"已分析N章，M章缺失细纲"的上下文信息</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>在推荐选项上方渲染 intentClarityResult.analysis 作为上下文摘要</td>
+    <td>用户决策有依据</td>
+  </tr>
+  <tr>
+    <td>U5</td>
+    <td>下一步推荐缺少"已完成模块"的视觉标识，用户不知道刚完成了什么</td>
+    <td><span class="severity-low">低</span></td>
+    <td>在推荐卡片上方添加 completedModule + completedScope 摘要行</td>
+    <td>流程连贯感增强</td>
+  </tr>
+</table>
+
+<h3>3.5 兼容性</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>C1</td>
+    <td>旧会话历史消息无 intentPhase / intentClarityResult 字段，加载后渲染可能异常</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>OutlineChatMessage 新增字段均为可选，已有安全访问（?.），但需验证旧数据加载后推荐区域不误渲染</td>
+    <td>旧数据兼容无渲染错误</td>
+  </tr>
+  <tr>
+    <td>C2</td>
+    <td>AI模型可能不遵循 intent_clarity / next_step 输出格式，导致解析失败</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>parseIntentClarity / parseNextStep 返回 null 时，回退到原有行为（直接显示AI完整回复），不阻断用户流程</td>
+    <td>模型能力不足时不影响基本使用</td>
+  </tr>
+  <tr>
+    <td>C3</td>
+    <td>不支持工具调用的模型（无 route_task）会导致所有阶段始终 hidden</td>
+    <td><span class="severity-low">低</span></td>
+    <td>当无工具调用时，如果 isStreaming 为 true 则显示简化的"生成中..."状态</td>
+    <td>弱模型也有基本状态反馈</td>
+  </tr>
+</table>
+
+<h3>3.6 可维护性</h3>
+
+<table>
+  <tr><th>#</th><th>问题描述</th><th>严重程度</th><th>建议解决方案</th><th>预期改进效果</th></tr>
+
+  <tr>
+    <td>M1</td>
+    <td>outline-chat-panel.tsx 文件过大（2100+行），新增功能后继续膨胀</td>
+    <td><span class="severity-high">高</span></td>
+    <td>将 OutlineAssistantMessage 拆分为独立文件；将推荐选项和下一步推荐提取为 IntentOptionsCard / NextStepCard 独立组件</td>
+    <td>单一职责，便于独立测试和修改</td>
+  </tr>
+  <tr>
+    <td>M2</td>
+    <td>意图分析 prompt 拼接逻辑分散在 buildIntentAnalysisPrompt 和 buildOutlineAgentSystemPrompt 中，维护时需同时修改两处</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>将意图分析约束集中到 buildIntentAnalysisPrompt，系统提示词中只引用"请遵循意图分析协议"</td>
+    <td>单一来源，减少不一致风险</td>
+  </tr>
+  <tr>
+    <td>M3</td>
+    <td>测试仅覆盖解析函数（outline-intent-clarity/outline-next-step/outline-stage-trace），未覆盖面板集成逻辑</td>
+    <td><span class="severity-medium">中</span></td>
+    <td>添加集成测试：模拟AI返回intent_clarity → 验证自动注入生成；模拟needs_input → 验证推荐渲染</td>
+    <td>端到端流程有保障</td>
+  </tr>
+</table>
+
+<h2 id="priority">四、优化优先级排序</h2>
+
+<h3>优先级矩阵</h3>
+
+<table>
+  <tr><th>优先级</th><th>编号</th><th>问题描述</th><th>维度</th><th>预估工时</th></tr>
+
+  <tr style="background: rgba(248,113,113,0.1);">
+    <td><span class="severity-critical">P0 致命</span></td>
+    <td>F1</td>
+    <td>推荐选项点击回调未连接 handleGenerateSection</td>
+    <td>功能完整性</td>
+    <td>2h</td>
+  </tr>
+  <tr style="background: rgba(248,113,113,0.1);">
+    <td><span class="severity-critical">P0 致命</span></td>
+    <td>F3</td>
+    <td>needs_input 用户选择后未跳过意图分析，可能循环</td>
+    <td>功能完整性</td>
+    <td>1.5h</td>
+  </tr>
+  <tr style="background: rgba(248,113,113,0.1);">
+    <td><span class="severity-critical">P0 致命</span></td>
+    <td>U1</td>
+    <td>intent_clarity / next_step JSON 块未从显示内容中过滤</td>
+    <td>用户体验</td>
+    <td>1h</td>
+  </tr>
+
+  <tr style="background: rgba(251,191,36,0.08);">
+    <td><span class="severity-high">P1 高</span></td>
+    <td>F2</td>
+    <td>"自定义"选项（D）完全未实现</td>
+    <td>功能完整性</td>
+    <td>1.5h</td>
+  </tr>
+  <tr style="background: rgba(251,191,36,0.08);">
+    <td><span class="severity-high">P1 高</span></td>
+    <td>U2</td>
+    <td>阶段摘要信息为空（无意图标签/耗时等）</td>
+    <td>用户体验</td>
+    <td>3h</td>
+  </tr>
+  <tr style="background: rgba(251,191,36,0.08);">
+    <td><span class="severity-high">P1 高</span></td>
+    <td>Q1</td>
+    <td>推荐点击回调直接操作 store，绕过面板流程控制</td>
+    <td>代码质量</td>
+    <td>2h</td>
+  </tr>
+  <tr style="background: rgba(251,191,36,0.08);">
+    <td><span class="severity-high">P1 高</span></td>
+    <td>M1</td>
+    <td>outline-chat-panel.tsx 过大，需拆分</td>
+    <td>可维护性</td>
+    <td>3h</td>
+  </tr>
+
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>F4</td>
+    <td>outputMode 字段已定义但生成流程未使用</td>
+    <td>功能完整性</td>
+    <td>2h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>F5</td>
+    <td>状态机未实际驱动面板流程</td>
+    <td>功能完整性</td>
+    <td>4h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>U3</td>
+    <td>clear 自动注入时无过渡提示</td>
+    <td>用户体验</td>
+    <td>1h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>U4</td>
+    <td>推荐选项缺少上下文分析摘要</td>
+    <td>用户体验</td>
+    <td>0.5h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>Q2</td>
+    <td>handleGenerateSection 闭包中可能使用过期的 lastIntentTitle</td>
+    <td>代码质量</td>
+    <td>1h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>Q4</td>
+    <td>isRecommendationForbidden 可能误杀合法推荐</td>
+    <td>代码质量</td>
+    <td>1h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>M2</td>
+    <td>意图分析 prompt 逻辑分散</td>
+    <td>可维护性</td>
+    <td>1.5h</td>
+  </tr>
+  <tr style="background: rgba(107,182,255,0.08);">
+    <td><span class="severity-medium">P2 中</span></td>
+    <td>M3</td>
+    <td>缺少面板集成测试</td>
+    <td>可维护性</td>
+    <td>3h</td>
+  </tr>
+
+  <tr>
+    <td><span class="severity-low">P3 低</span></td>
+    <td>P1-P3</td>
+    <td>性能优化（useMemo/memo/indexOf）</td>
+    <td>性能</td>
+    <td>2h</td>
+  </tr>
+  <tr>
+    <td><span class="severity-low">P3 低</span></td>
+    <td>C1-C3</td>
+    <td>兼容性保障（旧数据/弱模型）</td>
+    <td>兼容性</td>
+    <td>2h</td>
+  </tr>
+  <tr>
+    <td><span class="severity-low">P3 低</span></td>
+    <td>U5</td>
+    <td>推荐区域缺少完成模块标识</td>
+    <td>用户体验</td>
+    <td>0.5h</td>
+  </tr>
+  <tr>
+    <td><span class="severity-low">P3 低</span></td>
+    <td>Q3</td>
+    <td>buildOutlineStages 激活逻辑可读性优化</td>
+    <td>代码质量</td>
+    <td>1h</td>
+  </tr>
+</table>
+
+<h2 id="summary">五、实施建议</h2>
+
+<h3>第一阶段：修复致命问题（预估 4.5h）</h3>
+
+<div class="callout callout-danger">
+  <strong>目标</strong>：让两阶段流程真正可运行，推荐点击能触发生成，显示内容干净。
+</div>
+
+<ol>
+  <li><strong>F1 + F3 + Q1</strong>：通过 props 将 onGenerateSection 和 onSendMessage 传入 OutlineAssistantMessage；推荐选项和下一步推荐点击时调用对应回调；needs_input 用户选择后直接调用 handleSend(buildGenerationPrompt(...), [], { intentPhase: "generation" }) 跳过意图分析</li>
+  <li><strong>U1</strong>：在 displayContent 生成逻辑中移除 intent_clarity 和 next_step 标记块，复用 extractBodyContent 的思路或新增 stripStructuredMarkers 工具函数</li>
+</ol>
+
+<h3>第二阶段：补全交互细节（预估 6h）</h3>
+
+<div class="callout callout-warn">
+  <strong>目标</strong>：4类选项完整可用，阶段信息可读，用户体验可感知。
+</div>
+
+<ol>
+  <li><strong>F2</strong>：实现"自定义"选项，将 inputRef 传入或添加临时输入框</li>
+  <li><strong>U2</strong>：在 buildOutlineStages 中从 agentToolCalls / intentClarityResult 提取摘要信息，填充 summary 字段</li>
+  <li><strong>U3 + U4</strong>：自动注入前显示过渡提示；推荐选项上方显示分析摘要</li>
+  <li><strong>M1（部分）</strong>：将推荐选项和下一步推荐提取为独立组件</li>
+</ol>
+
+<h3>第三阶段：架构完善与质量提升（预估 9h）</h3>
+
+<div class="callout">
+  <strong>目标</strong>：outputMode 真正生效，状态机驱动流程，测试覆盖完整。
+</div>
+
+<ol>
+  <li><strong>F4</strong>：在 buildGenerationPrompt 和保存流程中使用 outputMode</li>
+  <li><strong>F5</strong>：面板引入状态机驱动</li>
+  <li><strong>M3</strong>：添加集成测试</li>
+  <li><strong>Q2 + Q4 + M2</strong>：闭包修复、推荐过滤优化、prompt 逻辑集中</li>
+</ol>
+
+<h3>第四阶段：性能与兼容性打磨（预估 4.5h）</h3>
+
+<ol>
+  <li>性能优化：useMemo / React.memo / indexOf</li>
+  <li>兼容性：旧数据加载验证、弱模型降级</li>
+  <li>边界场景：超长内容、网络中断、模型切换等</li>
+</ol>
+
+<h2 id="risk">六、风险提示</h2>
+
+<div class="callout callout-danger">
+  <ol>
+    <li><strong>AI 输出格式遵从度不可控</strong>：intent_clarity 和 next_step 依赖 AI 严格按格式输出。如模型能力不足或指令被忽略，整个两阶段流程将失效。建议增加 fallback 机制：解析失败时回退到原有直接生成行为。</li>
+    <li><strong>意图分析额外一轮 API 调用</strong>：clear 情况下先做意图分析再自动注入生成，等于多一轮 API 请求。对于意图已经很明确的场景，这增加了延迟。建议在 buildIntentAnalysisPrompt 中加入"如已有足够信息，尽量输出 clear"的引导。</li>
+    <li><strong>闭包过期风险</strong>：lastIntentTitle/lastIntentHint 在 handleSend 的 useCallback 闭包中使用，如果用户在意图分析期间切换会话，可能拿到过期值。建议改用 useRef。</li>
+  </ol>
+</div>
+
+</body>
+</html>

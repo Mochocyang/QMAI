@@ -303,14 +303,11 @@ describe("chat-panel agent reference integration", () => {
     expect(source).not.toContain("await streamChat(")
   })
 
-  it("clears confirmed chapter blueprint with finally after followup send", () => {
-    const sendIndex = source.indexOf('handleSendRef.current(followupText, [], "执行已确认计划")')
-    const clearIndex = source.indexOf("confirmedBlueprintRef.current = null", sendIndex)
-    const finallyIndex = source.lastIndexOf("finally", clearIndex)
-
-    expect(sendIndex).toBeGreaterThan(-1)
-    expect(clearIndex).toBeGreaterThan(sendIndex)
-    expect(finallyIndex).toBeGreaterThan(sendIndex)
+  it("passes the confirmed blueprint and captured conversation to the scoped followup run", () => {
+    expect(source).toContain(
+      'handleSendRef.current(followupText, [], "执行已确认计划", confirmedBlueprint, capturedConvId)',
+    )
+    expect(source).not.toContain("confirmedBlueprintRef")
   })
 
   it("routes continue-unfinished through the ReAct send path with compact display text", () => {
@@ -359,7 +356,8 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
     expect(source).toContain("planContent")
     expect(source).toContain("fullContent")
     expect(source).toContain("conversationId")
-    expect(source).toContain("chapterPlanResolverRef")
+    expect(source).toContain("pendingChapterPlans")
+    expect(source).toContain("chapterPlanResolversRef")
   })
 
   it("provides closeChapterPlanDialog and requestChapterPlanConfirm helpers", () => {
@@ -408,7 +406,8 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 
     const afterPlanConfirm = source.slice(planConfirmIndex, followupIndex)
     expect(afterPlanConfirm).not.toContain("streamSessionGuardRef.current.isActive")
-    expect(afterPlanConfirm).toContain("setActiveConversation(capturedConvId)")
+    expect(afterPlanConfirm).not.toContain("setActiveConversation(capturedConvId)")
+    expect(afterPlanConfirm).toContain("capturedConvId")
   })
 
   it("disables Plan Execute protocol for confirmed plan follow-up messages and fast mode", () => {
@@ -419,15 +418,15 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 
   it("renders ChapterPlanConfirmDialog in JSX bound to pendingChapterPlan", () => {
     expect(source).toContain("<ChapterPlanConfirmDialog")
-    expect(source).toContain("pendingChapterPlan.open")
+    expect(source).toContain("{pendingChapterPlan &&")
     expect(source).toContain("pendingChapterPlan.planContent")
   })
 
   it("wires dialog actions to closeChapterPlanDialog", () => {
-    expect(source).toContain('closeChapterPlanDialog("confirm")')
-    expect(source).toContain('closeChapterPlanDialog("skip")')
-    expect(source).toContain('closeChapterPlanDialog("cancel")')
-    expect(source).toContain('closeChapterPlanDialog({ modify:')
+    expect(source).toContain('closeChapterPlanDialog(pendingChapterPlan.conversationId, "confirm")')
+    expect(source).toContain('closeChapterPlanDialog(pendingChapterPlan.conversationId, "skip")')
+    expect(source).toContain('closeChapterPlanDialog(pendingChapterPlan.conversationId, "cancel")')
+    expect(source).toContain('closeChapterPlanDialog(pendingChapterPlan.conversationId, { modify:')
   })
 
   it("records a visible cancellation when the chapter plan dialog is cancelled", () => {
@@ -521,14 +520,14 @@ describe("aiWorkflowMode store 读取", () => {
 
 describe("resolver 卸载清理", () => {
   it("useEffect 卸载钩子中清理章节计划 pending resolver", () => {
-    expect(source).toMatch(/chapterPlanResolverRef\.current = null/)
-    expect(source).toMatch(/return \(\) => \{[\s\S]*?chapterPlanResolverRef\.current/)
+    expect(source).toContain("Object.values(chapterPlanResolversRef.current)")
+    expect(source).toContain("chapterPlanResolversRef.current = {}")
   })
 })
 
 describe("章节计划弹窗输入框禁用一致性", () => {
-  it("pendingChapterPlan.open 时禁用主输入框", () => {
-    expect(source).toMatch(/disabled=\{isStreaming \|\| pendingChapterPlan\.open\}/)
+  it("当前会话存在 pendingChapterPlan 时禁用主输入框", () => {
+    expect(source).toMatch(/disabled=\{isStreaming \|\| Boolean\(pendingChapterPlan\)\}/)
     expect(source).not.toContain("pendingSoulDialog.open")
   })
 })

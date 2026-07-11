@@ -1,7 +1,7 @@
 import { create } from "zustand"
 
-export type OutlineTaskStatus = "ingesting" | "done" | "error"
-export type OutlineTaskKind = "ingest"
+export type OutlineTaskStatus = "ingesting" | "done" | "error" | "generated"
+export type OutlineTaskKind = "ingest" | "generate" | "refine"
 
 export interface OutlineGenerationTask {
   id: string

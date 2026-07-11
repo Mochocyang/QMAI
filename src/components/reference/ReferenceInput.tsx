@@ -24,6 +24,8 @@ interface ReferenceInputProps {
   tokens: ReferenceToken[]
   placeholder?: string
   disabled?: boolean
+  submitDisabled?: boolean
+  submitDisabledReason?: string
   isStreaming?: boolean
   leftFooterControls?: ReactNode
   rightControls?: ReactNode
@@ -57,6 +59,8 @@ export function ReferenceInput({
   tokens,
   placeholder = "输入提示词，或 @ 引用内容...",
   disabled = false,
+  submitDisabled = false,
+  submitDisabledReason,
   isStreaming = false,
   leftFooterControls,
   rightControls,
@@ -73,7 +77,7 @@ export function ReferenceInput({
   const [inputHeight, setInputHeight] = useState(loadSavedInputHeight)
   const text = isControlled ? value : draft
   const inputDisabled = disabled || isStreaming
-  const canSubmit = text.trim().length > 0 && !inputDisabled
+  const canSubmit = text.trim().length > 0 && !inputDisabled && !submitDisabled
 
   const notifyChange = useCallback(
     (nextText: string, nextTokens: ReferenceToken[]) => {
@@ -119,9 +123,9 @@ export function ReferenceInput({
 
   const handleSubmit = useCallback(() => {
     const plainText = (textareaRef.current?.value ?? text).trim()
-    if (!plainText || inputDisabled) return
+    if (!plainText || inputDisabled || submitDisabled) return
     onSubmit(plainText, tokens)
-  }, [inputDisabled, onSubmit, text, tokens])
+  }, [inputDisabled, onSubmit, submitDisabled, text, tokens])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -271,7 +275,7 @@ export function ReferenceInput({
               className="rounded-md bg-primary p-1.5 text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              title="发送消息"
+              title={submitDisabled ? (submitDisabledReason ?? "暂时无法发送") : "发送消息"}
               aria-label="发送消息"
             >
               <ArrowUp className="h-4 w-4" />

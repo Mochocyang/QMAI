@@ -53,4 +53,38 @@ describe("OutlineMultiAgentPanel", () => {
     expect(html).toContain("多 Agent 失败数量超过阈值：2/3")
     expect(html).toContain("题材 Agent：结构化输出 JSON 解析失败")
   })
+  it("显示等待和重试状态，不显示槽位", () => {
+    const run: OutlineMultiAgentRunState = {
+      mode: "multi-agent",
+      status: "running",
+      maxConcurrency: 3,
+      agents: [
+        {
+          id: "waiting-agent",
+          name: "人物关系 Agent",
+          kind: "character",
+          skillNames: ["人物设计"],
+          taskPrompt: "等待世界观 Agent 完成",
+          status: "waiting",
+        },
+        {
+          id: "retry-agent",
+          name: "伏笔审查 Agent",
+          kind: "foreshadowing",
+          skillNames: ["伏笔审查"],
+          taskPrompt: "审查伏笔回收",
+          status: "retrying",
+          retryCount: 1,
+        },
+      ],
+      merge: { status: "pending" },
+    }
+
+    const html = renderToStaticMarkup(<OutlineMultiAgentPanel run={run} />)
+    expect(html).toContain("等待中")
+    expect(html).toContain("重试中")
+    expect(html).toContain("（1/1）")
+    expect(html).not.toContain("槽位")
+  })
+
 })

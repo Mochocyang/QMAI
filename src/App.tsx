@@ -61,6 +61,7 @@ function App() {
     try {
       const savedChat = await loadChatHistory(proj.path)
       if (!isCurrentProject(proj)) return
+      useChatStore.getState().setLoadedRunStates(savedChat.runStates)
       if (savedChat.conversations.length > 0) {
         useChatStore.getState().setConversations(savedChat.conversations)
         useChatStore.getState().setMessages(savedChat.messages)
@@ -197,6 +198,7 @@ function App() {
                 chatState.conversations,
                 chatState.messages,
                 chatState.maxHistoryMessages,
+                chatState.runStates,
               ).catch((err) => console.error("关闭前保存聊天历史失败:", err))
             }
             const reviewState = useReviewStore.getState()

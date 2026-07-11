@@ -1,5 +1,7 @@
 export type OutlineWorkflowStage =
   | "idle"
+  | "intent_analysis"
+  | "waiting_user_input"
   | "collecting_requirements"
   | "sufficiency_check"
   | "generation_plan"
@@ -20,7 +22,9 @@ export interface OutlineWorkflowState {
 }
 
 const ALLOWED_TRANSITIONS: Record<OutlineWorkflowStage, OutlineWorkflowStage[]> = {
-  idle: ["collecting_requirements"],
+  idle: ["intent_analysis", "collecting_requirements"],
+  intent_analysis: ["sufficiency_check", "waiting_user_input"],
+  waiting_user_input: ["sufficiency_check"],
   collecting_requirements: ["sufficiency_check"],
   sufficiency_check: ["generation_plan", "collecting_requirements"],
   generation_plan: ["waiting_user_confirm"],

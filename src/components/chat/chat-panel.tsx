@@ -1,12 +1,13 @@
 import { useRef, useEffect, useCallback, useState, useMemo, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, ChevronDown, Check, History } from "lucide-react"
+import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, ChevronDown, Check, History, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
 import { ChatModelSelector } from "./chat-model-selector"
 import { useSourceFiles } from "./chat-shared"
+import { useStreamingText } from "@/hooks/use-streaming-text"
 import {
   ChapterPlanConfirmDialog,
   extractChapterPlan,
@@ -15,12 +16,17 @@ import {
   isChapterPlanExecutionFollowup,
 } from "./chapter-plan-confirm-dialog"
 import { useChatStore, type DisplayMessage } from "@/stores/chat-store"
+import { useShallow } from "zustand/react/shallow"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { DeAiSkillPicker } from "@/components/skill-library/de-ai-skill-picker"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
+import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon"
+import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog"
+import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
+import { toast } from "@/lib/toast"
 import {
   chapterProvider,
   createChatHistoryProvider,
@@ -32,6 +38,7 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
+import { ToolRegistry } from "@/lib/agent/registry"
 import {
   runChapterPlanRevision as runChapterPlanRevisionModel,
   runChapterPlanSelfCheck as runChapterPlanSelfCheckModel,
@@ -65,6 +72,10 @@ import {
   getConversationTabTitle,
   splitConversationToolbarItems,
 } from "@/lib/workspace-layout"
+import {
+  canCreateNewConversation,
+  EMPTY_CONVERSATION_CREATE_REASON,
+} from "@/lib/conversation-create-guard"
 import { saveAiChatModel } from "@/lib/project-store"
 import {
   buildGoldenThreeChapterDirective,
@@ -416,16 +427,18 @@ function recordChapterPlanExecutionCancelled(messageId: string): void {
   }))
 }
 
-function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) => void }) {
+function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId: string) => void }) {
   const { t } = useTranslation()
   const novelMode = useWikiStore((s) => s.novelMode)
   const conversations = useChatStore((s) => s.conversations)
   const activeConversationId = useChatStore((s) => s.activeConversationId)
   const messages = useChatStore((s) => s.messages)
-  const streamingContents = useChatStore((s) => s.streamingContents)
+  const runStates = useChatStore((s) => s.runStates)
   const createConversation = useChatStore((s) => s.createConversation)
   const deleteConversation = useChatStore((s) => s.deleteConversation)
   const setActiveConversation = useChatStore((s) => s.setActiveConversation)
+  const stopConversationRun = useChatStore((s) => s.stopConversationRun)
+  const clearStreaming = useChatStore((s) => s.clearStreaming)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -433,14 +446,24 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
   const historyButtonRef = useRef<HTMLButtonElement | null>(null)
   const historyDropdownRef = useRef<HTMLDivElement | null>(null)
   const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
-  const isStreamingConversation = (convId: string) => convId in streamingContents
+  const isStreamingConversation = (convId: string) => runStates[convId]?.status === "running"
   const { topConversations, historyConversations } = splitConversationToolbarItems(
     conversations,
     activeConversationId,
     isStreamingConversation,
   )
   const historyCount = historyConversations.length
+  const hasSentUserMessage = activeConversationId
+    ? messages.some((message) =>
+        message.conversationId === activeConversationId && message.role === "user",
+      )
+    : false
+  const canCreateConversation = canCreateNewConversation(
+    activeConversationId,
+    hasSentUserMessage,
+  )
 
   // 点击历史记录浮层外部关闭
   useEffect(() => {
@@ -525,8 +548,12 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
     return messages.filter((m) => m.conversationId === convId).length
   }
 
-  function handleDeleteConversation(convId: string) {
-    onAbortStream(convId)
+  function deleteConversationNow(convId: string) {
+    onBeforeDelete(convId)
+    const runId = useChatStore.getState().runStates[convId]?.runId
+    chatConversationRunRegistry.abort(convId)
+    stopConversationRun(convId, runId)
+    clearStreaming(convId)
     deleteConversation(convId)
     const proj = useWikiStore.getState().project
     if (proj) {
@@ -534,59 +561,83 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
     }
   }
 
+  function handleDeleteConversation(convId: string) {
+    if (runStates[convId]?.status === "running") {
+      setPendingDeleteId(convId)
+      return
+    }
+    deleteConversationNow(convId)
+  }
+
   function renderConversationChip(conv: { id: string; title: string; updatedAt: number }) {
     const isActive = conv.id === activeConversationId
-    const isThisStreaming = conv.id in streamingContents
+    const runState = runStates[conv.id]
     const msgCount = getMessageCount(conv.id)
     return (
-      <button
+      <div
         key={conv.id}
-        type="button"
-        className={`group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+        className={`group flex shrink-0 items-center rounded-full border px-1 text-xs transition-colors ${
           isActive
             ? "border-primary/40 bg-background text-foreground shadow-sm"
             : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
         }`}
-        onClick={() => setActiveConversation(conv.id)}
         onMouseEnter={() => setHoveredId(conv.id)}
         onMouseLeave={() => setHoveredId(null)}
-        title={conv.title}
       >
-        {isThisStreaming && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />}
-        <span className="max-w-[140px] truncate font-medium">
-          {getConversationTabTitle(conv.title, 10)}
-        </span>
-        <span className="text-[10px] opacity-70">{msgCount}</span>
-        <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
-        {hoveredId === conv.id && (
-          <span
-            className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDeleteConversation(conv.id)
-            }}
-          >
-            <Trash2 className="h-3 w-3" />
-          </span>
-        )}
-      </button>
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-full px-2 py-1.5"
+          onClick={() => setActiveConversation(conv.id)}
+          title={conv.title}
+        >
+          <ConversationRunStatusIcon state={runState} />
+          <span className="max-w-[140px] truncate font-medium">{getConversationTabTitle(conv.title, 10)}</span>
+          <span className="text-[10px] opacity-70">{msgCount}</span>
+          <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
+        </button>
+        <button
+          type="button"
+          className={`rounded p-0.5 text-muted-foreground hover:text-destructive focus:opacity-100 ${hoveredId === conv.id ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"}`}
+          aria-label="删除会话"
+          onClick={() => handleDeleteConversation(conv.id)}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
     )
   }
 
   // 顶部统一为三段式：新建写作绘画 / 正在工作的绘画 / 绘画历史记录
   return (
+    <>
     <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
         {/* 1. 新建写作绘画 */}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="qmai-new-conversation-button shrink-0 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
-          onClick={() => createConversation()}
-          title={t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
-          aria-label={t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
+        <span
+          className="inline-flex shrink-0"
+          title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}
         >
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="qmai-new-conversation-button shrink-0 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+            onClick={() => createConversation()}
+            disabled={!canCreateConversation}
+            title={canCreateConversation
+              ? t(novelMode ? "novel.chat.newChat" : "chat.newChat")
+              : EMPTY_CONVERSATION_CREATE_REASON}
+            aria-label={t(novelMode ? "novel.chat.newChat" : "chat.newChat")}
+            aria-describedby={!canCreateConversation
+              ? "chat-new-conversation-disabled-reason"
+              : undefined}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+          {!canCreateConversation && (
+            <span id="chat-new-conversation-disabled-reason" className="sr-only">
+              {EMPTY_CONVERSATION_CREATE_REASON}
+            </span>
+          )}
+        </span>
 
         {/* 2. 正在工作的绘画：当前、生成中和今日保留项，最多显示三个 */}
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
@@ -642,6 +693,15 @@ function ConversationTabs({ onAbortStream }: { onAbortStream: (convId: string) =
             )}
         </div>
     </div>
+    <ConversationDeleteConfirmDialog
+      open={pendingDeleteId !== null}
+      onCancel={() => setPendingDeleteId(null)}
+      onConfirm={() => {
+        if (pendingDeleteId) deleteConversationNow(pendingDeleteId)
+        setPendingDeleteId(null)
+      }}
+    />
+    </>
   )
 }
 
@@ -650,12 +710,12 @@ export function ChatPanel() {
   useSourceFiles() // Keep source file cache warm
   const activeConversationId = useChatStore((s) => s.activeConversationId)
   const streamingContents = useChatStore((s) => s.streamingContents)
+  const runStates = useChatStore((s) => s.runStates)
   const mode = useChatStore((s) => s.mode)
   const startStreaming = useChatStore((s) => s.startStreaming)
   const finalizeStream = useChatStore((s) => s.finalizeStream)
   const clearStreaming = useChatStore((s) => s.clearStreaming)
   const createConversation = useChatStore((s) => s.createConversation)
-  const setActiveConversation = useChatStore((s) => s.setActiveConversation)
   const removeLastAssistantMessage = useChatStore((s) => s.removeLastAssistantMessage)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const isConversationStreaming = useChatStore((s) => s.isConversationStreaming)
@@ -666,10 +726,19 @@ export function ChatPanel() {
   const consumePendingReferenceTokens = useChatStore((s) => s.consumePendingReferenceTokens)
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
   // Derive active messages via selector to re-render on message changes
-  const allMessages = useChatStore((s) => s.messages)
-  const activeMessages = activeConversationId
-    ? allMessages.filter((m) => m.conversationId === activeConversationId)
-    : []
+  // 使用 useShallow 避免过滤数组返回新引用导致 useSyncExternalStore 无限重渲染（Zustand v5）
+  const activeMessages = useChatStore(
+    useShallow((s) =>
+      activeConversationId ? s.messages.filter((m) => m.conversationId === activeConversationId) : [],
+    ),
+  )
+  // 预计算最后一条 assistant 消息的索引，O(n) 而非 O(n²)
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = activeMessages.length - 1; i >= 0; i--) {
+      if (activeMessages[i].role === "assistant") return i
+    }
+    return -1
+  }, [activeMessages])
   const activeConversation = activeConversationId
     ? conversations.find((conversation) => conversation.id === activeConversationId) ?? null
     : null
@@ -678,6 +747,10 @@ export function ChatPanel() {
   const streamingContent = activeConversationId ? streamingContents[activeConversationId] ?? "" : ""
   // 当前活跃会话是否正在流式生成
   const isStreaming = activeConversationId ? isConversationStreaming(activeConversationId) : false
+  const concurrencyFull = !isStreaming && Object.values(runStates).filter((state) => state.status === "running").length >= 3
+  const concurrencyLimitReason = "普通 AI 会话最多同时运行 3 个任务，请等待任一任务结束后再发送。"
+  // 对齐 Zed StreamingTextBuffer：16ms tick 逐步揭示，平滑打字机效果
+  const batchedStreamingContent = useStreamingText(streamingContent, isStreaming)
 
   const project = useWikiStore((s) => s.project)
   const projectPath = project?.path ? normalizePath(project.path) : ""
@@ -691,13 +764,13 @@ export function ChatPanel() {
   const setChatEditModeEnabled = useWikiStore((s) => s.setChatEditModeEnabled)
   const selectedFile = useWikiStore((s) => s.selectedFile)
 
-  const abortControllersRef = useRef<Record<string, AbortController>>({})
   const streamSessionGuardRef = useRef(createStreamSessionGuard())
   const activeStreamSessionsRef = useRef<Record<string, number>>({})
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [deAiSkillWarningMessage, setDeAiSkillWarningMessage] = useState<string>("")
@@ -826,9 +899,6 @@ export function ChatPanel() {
     ],
   )
   // 存储用户最近确认的章节计划，供 run_chapter_workflow 兜底注入，不依赖模型是否自觉传参。
-  const confirmedBlueprintRef = useRef<string | null>(null)
-  const getConfirmedBlueprint = useCallback(() => confirmedBlueprintRef.current ?? undefined, [])
-  const chapterPlanContextRef = useRef<ContextPack | null>(null)
   const {
     config: agentConfig,
     registry: agentRegistry,
@@ -837,8 +907,8 @@ export function ChatPanel() {
     skillConfig: agentSkillConfig,
     writingSkills: agentUserWritingSkills,
     mcpCapabilities: agentMcpCapabilities,
-  } = useAgentConfig(agentSystemPrompt, getConfirmedBlueprint)
-  const runChapterPlanSelfCheck = useCallback(async (planContent: string) => {
+  } = useAgentConfig(agentSystemPrompt)
+  const runChapterPlanSelfCheck = useCallback(async (planContent: string, contextPack?: ContextPack | null) => {
     const trimmedPlan = planContent.trim()
     if (!trimmedPlan) {
       throw new Error("没有可自检的章节计划")
@@ -850,7 +920,7 @@ export function ChatPanel() {
     return runChapterPlanSelfCheckModel(
       agentConfig.llmConfig,
       trimmedPlan,
-      buildChapterPlanSelfCheckContext(chapterPlanContextRef.current),
+      buildChapterPlanSelfCheckContext(contextPack ?? null),
     )
   }, [agentConfig?.llmConfig])
   const runChapterPlanRevision = useCallback(async (planContent: string, selfCheckResult: string) => {
@@ -906,21 +976,25 @@ export function ChatPanel() {
     [agentSkillConfig, conversations, outlineConversations],
   )
   // === Stage C: 章节计划确认 ===
-  const [pendingChapterPlan, setPendingChapterPlan] = useState<{
-    open: boolean
+  const [pendingChapterPlans, setPendingChapterPlans] = useState<Record<string, {
     planContent: string
     fullContent: string
     conversationId: string
-  }>({ open: false, planContent: "", fullContent: "", conversationId: "" })
-  const chapterPlanResolverRef = useRef<((action: "confirm" | "skip" | "cancel" | { modify: string }) => void) | null>(null)
-  const handleSendRef = useRef<(text: string, tokens?: ReferenceToken[], displayText?: string) => Promise<void>>(() => Promise.resolve())
+    contextPack?: ContextPack | null
+  }>>({})
+  const pendingChapterPlan = activeConversationId ? pendingChapterPlans[activeConversationId] : undefined
+  const chapterPlanResolversRef = useRef<Record<string, (action: "confirm" | "skip" | "cancel" | { modify: string }) => void>>({})
+  const handleSendRef = useRef<(text: string, tokens?: ReferenceToken[], displayText?: string, planBlueprint?: string, targetConversationId?: string) => Promise<void>>(() => Promise.resolve())
   const lastWritingTaskRouteRef = useRef<Record<string, TaskRouteResult>>({})
 
   const closeChapterPlanDialog = useCallback(
-    (action: "confirm" | "skip" | "cancel" | { modify: string }) => {
-      const resolver = chapterPlanResolverRef.current
-      chapterPlanResolverRef.current = null
-      setPendingChapterPlan({ open: false, planContent: "", fullContent: "", conversationId: "" })
+    (conversationId: string, action: "confirm" | "skip" | "cancel" | { modify: string }) => {
+      const resolver = chapterPlanResolversRef.current[conversationId]
+      delete chapterPlanResolversRef.current[conversationId]
+      setPendingChapterPlans((plans) => {
+        const { [conversationId]: _, ...rest } = plans
+        return rest
+      })
       resolver?.(action)
     },
     [],
@@ -928,22 +1002,28 @@ export function ChatPanel() {
 
   useEffect(() => {
     return () => {
-      if (chapterPlanResolverRef.current) {
-        chapterPlanResolverRef.current("cancel")
-        chapterPlanResolverRef.current = null
-      }
+      Object.values(chapterPlanResolversRef.current).forEach((resolver) => resolver("cancel"))
+      chapterPlanResolversRef.current = {}
     }
   }, [])
 
   const requestChapterPlanConfirm = useCallback(
-    (planContent: string, fullContent: string, conversationId: string) => {
-      setPendingChapterPlan({ open: true, planContent, fullContent, conversationId })
+    (planContent: string, fullContent: string, conversationId: string, contextPack?: ContextPack | null) => {
+      setPendingChapterPlans((plans) => ({
+        ...plans,
+        [conversationId]: { planContent, fullContent, conversationId, contextPack },
+      }))
       return new Promise<"confirm" | "skip" | "cancel" | { modify: string }>((resolve) => {
-        chapterPlanResolverRef.current = resolve
+        chapterPlanResolversRef.current[conversationId] = resolve
       })
     },
     [],
   )
+  const cancelPendingChapterPlan = useCallback((conversationId: string) => {
+    if (chapterPlanResolversRef.current[conversationId]) {
+      closeChapterPlanDialog(conversationId, "cancel")
+    }
+  }, [closeChapterPlanDialog])
 
   const handleSaveAsChapter = useCallback(async (content: string) => {
     if (!project) return
@@ -1012,16 +1092,45 @@ export function ChatPanel() {
   // 聊天数据存在全局 Zustand store 中，切回来时仍可看到生成结果
   // 删除会话时会单独 abort 该会话的请求（见 abortConversationStream）
 
+  // 切换会话时重置滚动位置到顶部
+  const prevConvIdRef = useRef(activeConversationId)
+  useEffect(() => {
+    if (prevConvIdRef.current !== activeConversationId) {
+      prevConvIdRef.current = activeConversationId
+      const container = scrollContainerRef.current
+      if (container) {
+        container.scrollTop = 0
+        lastScrollTopRef.current = 0
+        userScrolledUpRef.current = false
+        setShowScrollToBottom(false)
+      }
+    }
+  }, [activeConversationId])
+
   // Auto-scroll to bottom when messages change or streaming content updates
   // But stop if user manually scrolled up
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
     if (!userScrolledUpRef.current) {
-      container.scrollTop = container.scrollHeight
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      })
       lastScrollTopRef.current = container.scrollTop
     }
-  }, [activeMessages, streamingContent])
+  }, [activeMessages, batchedStreamingContent])
+
+  const handleScrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    userScrolledUpRef.current = false
+    setShowScrollToBottom(false)
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: "smooth",
+    })
+  }, [])
 
   // Detect user scroll: if user scrolls up, stop auto-scroll; if at bottom, resume
   useEffect(() => {
@@ -1037,11 +1146,12 @@ export function ChatPanel() {
       } else if (atBottom) {
         userScrolledUpRef.current = false
       }
+      setShowScrollToBottom(userScrolledUpRef.current && isStreaming)
       lastScrollTopRef.current = currentScrollTop
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)
-  }, [activeConversationId])
+  }, [activeConversationId, isStreaming])
 
   // Reset scroll lock when streaming ends or conversation changes
   useEffect(() => {
@@ -1088,7 +1198,7 @@ export function ChatPanel() {
   // 切换会话时不再中断后台生成——每个会话独立运行
 
   const handleSend = useCallback(
-    async (text: string, tokens: ReferenceToken[] = [], displayText?: string) => {
+    async (text: string, tokens: ReferenceToken[] = [], displayText?: string, planBlueprint?: string, targetConversationId?: string) => {
       const plainText = text.trim()
       const userVisibleText = (displayText ?? plainText).trim()
       const planExecutionFollowup = isChapterPlanExecutionFollowup(plainText)
@@ -1113,7 +1223,7 @@ export function ChatPanel() {
         return
       }
 
-      let convId = useChatStore.getState().activeConversationId
+      let convId = targetConversationId ?? useChatStore.getState().activeConversationId
       if (!convId) {
         convId = createConversation()
       }
@@ -1142,12 +1252,13 @@ export function ChatPanel() {
 
       if (taskRoute && SIMULATION_INTENTS.has(taskRoute.intent)) {
         const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)
-        setConversationInputDraft(capturedConvId, "")
-        setFallbackReferenceText("")
-        setReferenceTokensByConversation((drafts) => {
-          const withoutCaptured = setReferenceTokensForConversation(drafts, capturedConvId, [])
-          return setReferenceTokensForConversation(withoutCaptured, referenceDraftConversationId, [])
-        })
+        if (!targetConversationId) {
+          setConversationInputDraft(capturedConvId, "")
+          setFallbackReferenceText("")
+          setReferenceTokensByConversation((drafts) =>
+            setReferenceTokensForConversation(drafts, referenceDraftConversationId, []),
+          )
+        }
 
         const hasFramework = !!activeBinding
         useStorySimulationStore.getState().initWithPreset({
@@ -1164,6 +1275,12 @@ export function ChatPanel() {
           isAgentRunning: false,
         }))
 
+        return
+      }
+
+      const runId = crypto.randomUUID()
+      if (!useChatStore.getState().startConversationRun(capturedConvId, runId)) {
+        setDeAiSkillWarningMessage(concurrencyLimitReason)
         return
       }
 
@@ -1186,17 +1303,19 @@ export function ChatPanel() {
         : undefined
 
       const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)
-      setConversationInputDraft(capturedConvId, "")
-      setFallbackReferenceText("")
-      setReferenceTokensByConversation((drafts) => {
-        const withoutCaptured = setReferenceTokensForConversation(drafts, capturedConvId, [])
-        return setReferenceTokensForConversation(withoutCaptured, referenceDraftConversationId, [])
-      })
+      if (!targetConversationId) {
+        setConversationInputDraft(capturedConvId, "")
+        setFallbackReferenceText("")
+        setReferenceTokensByConversation((drafts) =>
+          setReferenceTokensForConversation(drafts, referenceDraftConversationId, []),
+        )
+      }
       startStreaming(capturedConvId)
       const sessionId = streamSessionGuardRef.current.start(capturedConvId)
       activeStreamSessionsRef.current[capturedConvId] = sessionId
 
       const controller = new AbortController()
+      chatConversationRunRegistry.register(capturedConvId, controller)
 
       /* === Context trace + pre-plugin chain === */
       let contextTrace = createContextTrace(assistantMessage.id)
@@ -1208,8 +1327,8 @@ export function ChatPanel() {
       let prePluginResult: PrePluginChainResult | null = null
       const shouldRunNovelPrePluginChain = novelMode && (aiWorkflowMode !== "fast" || planExecuteActive)
       void shouldRunNovelPrePluginChain
-      abortControllersRef.current[capturedConvId] = controller
       let hasAgentError = false
+      let lastAgentError = "生成失败"
 
       const markDone = (record?: AgentRunRecord) => {
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
@@ -1234,6 +1353,7 @@ export function ChatPanel() {
 
       const markError = (error: Error) => {
         hasAgentError = true
+        lastAgentError = error.message || "生成失败"
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
           content: message.content
@@ -1251,7 +1371,7 @@ export function ChatPanel() {
           callback?.()
           clearStreaming(capturedConvId)
           delete activeStreamSessionsRef.current[capturedConvId]
-          delete abortControllersRef.current[capturedConvId]
+          chatConversationRunRegistry.remove(capturedConvId, controller)
         })
       }
 
@@ -1430,6 +1550,22 @@ export function ChatPanel() {
         } satisfies AgentMessage)),
         { role: "user", content: userContent },
       ]
+      const sessionRegistry = new ToolRegistry()
+      agentRegistry.list().forEach((tool) => sessionRegistry.register(tool))
+      if (planBlueprint) {
+        const workflowTool = agentRegistry.get("run_chapter_workflow")
+        if (workflowTool) {
+          sessionRegistry.register({
+            ...workflowTool,
+            execute: (params, signal, context) => workflowTool.execute({
+              ...params,
+              planBlueprint: typeof params.planBlueprint === "string" && params.planBlueprint.trim()
+                ? params.planBlueprint
+                : planBlueprint,
+            }, signal, context),
+          })
+        }
+      }
 
       try {
         const record = await runAiChatSession({
@@ -1443,7 +1579,7 @@ export function ChatPanel() {
             requestOverrides: agentConfig.requestOverrides,
           },
           enabledToolNames: prePluginResult?.enabledToolNames,
-          registry: agentRegistry,
+          registry: sessionRegistry,
           messages: agentMessages,
           signal: controller.signal,
           callbacks: {
@@ -1480,10 +1616,15 @@ export function ChatPanel() {
                 isAgentRunning: false,
               }))
             },
-            onError: markError,
+            onError: (error) => {
+              if (controller.signal.aborted) return
+              if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+              markError(error)
+            },
           },
         })
 
+        if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
         finishAgentSession(() => {
           if (!hasAgentError) {
@@ -1535,6 +1676,20 @@ export function ChatPanel() {
             markDone(record)
           }
         })
+        if (hasAgentError) {
+          useChatStore.getState().failConversationRun(capturedConvId, lastAgentError, runId)
+          toast.error(lastAgentError, {
+            title: "AI 会话生成失败",
+            persistent: true,
+            dedupeKey: `chat-run-failed:${capturedConvId}:${lastAgentError}`,
+          })
+        } else {
+          useChatStore.getState().finishConversationRun(
+            capturedConvId,
+            useChatStore.getState().activeConversationId,
+            runId,
+          )
+        }
         if (!hasAgentError && planExecuteActive) {
           const storeState = useChatStore.getState()
           const lastAssistant = storeState.messages.find(
@@ -1543,42 +1698,43 @@ export function ChatPanel() {
           const fullContent = lastAssistant?.content || record.finalText || ""
           const extracted = extractChapterPlan(fullContent)
           if (extracted) {
-            chapterPlanContextRef.current = contextPack
             const action = await requestChapterPlanConfirm(
               extracted.plan,
               fullContent,
               capturedConvId,
+              contextPack,
             )
             if (action === "cancel") {
               recordChapterPlanExecutionCancelled(assistantMessage.id)
-              chapterPlanContextRef.current = null
             } else {
               let followupText: string
+              let confirmedBlueprint: string | undefined
               if (action === "confirm") {
-                confirmedBlueprintRef.current = extracted.plan
+                confirmedBlueprint = extracted.plan
                 followupText = buildPlanConfirmMessage(extracted.plan)
               } else if (action === "skip") {
                 followupText = buildPlanSkipMessage()
               } else {
-                confirmedBlueprintRef.current = action.modify
+                confirmedBlueprint = action.modify
                 followupText = buildPlanConfirmMessage(action.modify)
               }
-              setActiveConversation(capturedConvId)
-              try {
-                await handleSendRef.current(followupText, [], "执行已确认计划")
-              } finally {
-                // followup 成功、失败或被中断都清理，避免后续无关调用误注入旧计划。
-                confirmedBlueprintRef.current = null
-                chapterPlanContextRef.current = null
-              }
+              await handleSendRef.current(followupText, [], "执行已确认计划", confirmedBlueprint, capturedConvId)
             }
           }
         }
       } catch (error) {
+        if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+        const errorMessage = error instanceof Error ? error.message : String(error)
         finishAgentSession(() => {
-          if (contextTrace) contextTrace = finishTrace(contextTrace, "error", error instanceof Error ? error.message : String(error))
+          if (contextTrace) contextTrace = finishTrace(contextTrace, "error", errorMessage)
           markError(error instanceof Error ? error : new Error(String(error)))
+        })
+        useChatStore.getState().failConversationRun(capturedConvId, errorMessage, runId)
+        toast.error(errorMessage, {
+          title: "AI 会话生成失败",
+          persistent: true,
+          dedupeKey: `chat-run-failed:${capturedConvId}:${errorMessage}`,
         })
       }
     },
@@ -1605,7 +1761,6 @@ export function ChatPanel() {
       referenceDraftConversationId,
       requestChapterPlanConfirm,
       selectedFile,
-      setActiveConversation,
       setConversationInputDraft,
       startStreaming,
     ],
@@ -1624,8 +1779,9 @@ export function ChatPanel() {
         message.role === "assistant" &&
         message.isAgentRunning
       ))
-    abortControllersRef.current[convId]?.abort()
-    delete abortControllersRef.current[convId]
+    const runId = useChatStore.getState().runStates[convId]?.runId
+    chatConversationRunRegistry.abort(convId)
+    useChatStore.getState().stopConversationRun(convId, runId)
     const finalizeStopped = () => {
       finalizeStream(`${currentStreamingContent ? `${currentStreamingContent}\n\n` : ""}已停止生成。`, [], convId)
       delete activeStreamSessionsRef.current[convId]
@@ -1646,6 +1802,15 @@ export function ChatPanel() {
         }
         delete activeStreamSessionsRef.current[convId]
       })
+    } else if (runningAssistant) {
+      updateAgentAssistantMessage(runningAssistant.id, (message) => ({
+        ...message,
+        content: message.content ? `${message.content}\n\n已停止生成。` : "已停止生成。",
+        agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled"),
+        agentStages: settleRunningAgentStages(message.agentStages, "cancelled"),
+        isAgentRunning: false,
+      }))
+      clearStreaming(convId)
     } else if (currentStreamingContent !== undefined) {
       finalizeStopped()
     }
@@ -1721,17 +1886,11 @@ export function ChatPanel() {
   const hasAssistantMessages = activeMessages.some((m) => m.role === "assistant")
   const showWriteButton = mode === "ingest" && !isStreaming && hasAssistantMessages
 
-  // 删除会话时 abort 该会话的流式请求
-  const abortConversationStream = useCallback((convId: string) => {
-    abortControllersRef.current[convId]?.abort()
-    delete abortControllersRef.current[convId]
-  }, [])
-
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <ConversationTabs onAbortStream={abortConversationStream} />
+      <ConversationTabs onBeforeDelete={cancelPendingChapterPlan} />
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {!activeConversationId ? (
           <div className="flex flex-1 items-center justify-center text-muted-foreground">
             <div className="text-center">
@@ -1744,14 +1903,11 @@ export function ChatPanel() {
           <>
             <div
               ref={scrollContainerRef}
-              className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+              className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2"
             >
-              {/* key 强制在切换会话时重新挂载消息列表，避免旧会话内容残留 */}
-              <div key={activeConversationId} className="flex flex-col gap-3">
+              <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
                 {activeMessages.map((msg, idx) => {
-                  // Check if this is the last assistant message
-                  const isLastAssistant = msg.role === "assistant" &&
-                    !activeMessages.slice(idx + 1).some((m) => m.role === "assistant")
+                  const isLastAssistant = msg.role === "assistant" && idx === lastAssistantIndex
                   return (
                     <ChatMessage
                       key={msg.id}
@@ -1768,10 +1924,21 @@ export function ChatPanel() {
                     />
                   )
                 })}
-                {isStreaming && streamingContent && <StreamingMessage content={streamingContent} />}
+                {isStreaming && batchedStreamingContent && <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />}
                 <div ref={bottomRef} />
               </div>
             </div>
+
+            {showScrollToBottom && (
+              <button
+                type="button"
+                onClick={handleScrollToBottom}
+                className="absolute bottom-20 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/90 shadow-md backdrop-blur-sm transition-all hover:bg-accent"
+                title="回到最新"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </button>
+            )}
 
             {showWriteButton && (
               <div className="border-t px-3 py-2">
@@ -1978,8 +2145,10 @@ export function ChatPanel() {
             <ReferenceInput
               value={referenceText}
               tokens={currentTokens}
-              disabled={isStreaming || pendingChapterPlan.open}
+              disabled={isStreaming || Boolean(pendingChapterPlan)}
               isStreaming={isStreaming}
+              submitDisabled={concurrencyFull}
+              submitDisabledReason={concurrencyFull ? concurrencyLimitReason : undefined}
               onStop={handleStop}
               rightControls={
                 <ChatModelSelector
@@ -2013,17 +2182,17 @@ export function ChatPanel() {
             onClose={() => setReferencePickerOpen(false)}
           />
         </div>
-        {pendingChapterPlan.open && (
+        {pendingChapterPlan && (
           <ChapterPlanConfirmDialog
-            open={pendingChapterPlan.open}
+            open
             planContent={pendingChapterPlan.planContent}
             aiWorkflowMode={aiWorkflowMode}
-            onConfirm={() => closeChapterPlanDialog("confirm")}
-            onSkip={() => closeChapterPlanDialog("skip")}
-            onModify={(modified) => closeChapterPlanDialog({ modify: modified })}
-            onSelfCheck={runChapterPlanSelfCheck}
+            onConfirm={() => closeChapterPlanDialog(pendingChapterPlan.conversationId, "confirm")}
+            onSkip={() => closeChapterPlanDialog(pendingChapterPlan.conversationId, "skip")}
+            onModify={(modified) => closeChapterPlanDialog(pendingChapterPlan.conversationId, { modify: modified })}
+            onSelfCheck={(planContent) => runChapterPlanSelfCheck(planContent, pendingChapterPlan.contextPack)}
             onRevisePlan={runChapterPlanRevision}
-            onCancel={() => closeChapterPlanDialog("cancel")}
+            onCancel={() => closeChapterPlanDialog(pendingChapterPlan.conversationId, "cancel")}
           />
         )}
       </div>

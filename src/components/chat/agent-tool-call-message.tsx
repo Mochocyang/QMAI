@@ -8,6 +8,8 @@ export type ToolCallRecord = AgentRunRecord["toolCalls"][number]
 interface AgentToolCallMessageProps {
   toolCalls: ToolCallRecord[] | undefined
   contextTrace?: ContextTrace | null
+  thinkingContent?: string
+  thinkingStreaming?: boolean
   onConfirmSave?: (call: ToolCallRecord & { preview?: string }) => void
   onReject?: (call: ToolCallRecord & { preview?: string }) => void
 }
@@ -15,6 +17,8 @@ interface AgentToolCallMessageProps {
 export function AgentToolCallMessage({
   toolCalls,
   contextTrace,
+  thinkingContent,
+  thinkingStreaming,
   onConfirmSave,
   onReject,
 }: AgentToolCallMessageProps) {
@@ -22,6 +26,8 @@ export function AgentToolCallMessage({
     <AgentWorkflowPanel
       toolCalls={toolCalls}
       contextTrace={contextTrace}
+      thinkingContent={thinkingContent}
+      thinkingStreaming={thinkingStreaming}
       onConfirmSave={onConfirmSave}
       onReject={onReject}
     />

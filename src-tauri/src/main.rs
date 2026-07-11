@@ -12,6 +12,17 @@ fn set_proxy_env(config: proxy::ProxyConfig) -> String {
     summary
 }
 
+#[tauri::command]
+fn log_error(message: String, stack: String, component_stack: String) {
+    eprintln!("[frontend-error] message: {}", message);
+    if !stack.is_empty() {
+        eprintln!("[frontend-error] stack: {}", stack);
+    }
+    if !component_stack.is_empty() {
+        eprintln!("[frontend-error] component-stack: {}", component_stack);
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -102,6 +113,7 @@ fn main() {
             commands::backup::import_backup,
             commands::backup::read_backup_manifest,
             set_proxy_env,
+            log_error,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

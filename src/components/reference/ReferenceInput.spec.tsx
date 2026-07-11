@@ -154,7 +154,9 @@ describe("ReferenceInput", () => {
     const leftControl = Array.from(footer?.querySelectorAll("button") ?? [])
       .find((button) => button.textContent === "生成大纲")
     const referenceButton = footer?.querySelector("[aria-label='引用内容']")
-    expect(Boolean(leftControl?.compareDocumentPosition(referenceButton!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    expect(leftControl).toBeTruthy()
+    expect(referenceButton).toBeTruthy()
+    expect(Boolean(leftControl!.compareDocumentPosition(referenceButton!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
   it("shows a stop action in the footer while streaming", async () => {
@@ -333,5 +335,44 @@ describe("ReferenceInput", () => {
 
     expect(host.textContent).not.toContain("@第二章")
     expect(onChange).toHaveBeenLastCalledWith("", [])
+  })
+  it("keeps editing and references enabled when only submit is disabled", async () => {
+    const onChange = vi.fn()
+    const onSubmit = vi.fn()
+    const onAtTrigger = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <ReferenceInput
+          value="等待发送"
+          tokens={[]}
+          submitDisabled
+          submitDisabledReason="当前已有 3 个会话正在生成"
+          onChange={onChange}
+          onSubmit={onSubmit}
+          onAtTrigger={onAtTrigger}
+          rightControls={<button type="button">模型选择</button>}
+        />,
+      )
+    })
+
+    const editor = host.querySelector("textarea") as HTMLTextAreaElement
+    const send = host.querySelector<HTMLButtonElement>("[aria-label='发送消息']")
+    const reference = host.querySelector<HTMLButtonElement>("[aria-label='引用内容']")
+    expect(editor.disabled).toBe(false)
+    expect(reference?.disabled).toBe(false)
+    expect(send?.disabled).toBe(true)
+    expect(send?.title).toBe("当前已有 3 个会话正在生成")
+    expect(host.textContent).toContain("模型选择")
+
+    await act(async () => {
+      dispatchTextareaInput(editor, "继续编辑")
+      reference?.click()
+      editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
+    })
+
+    expect(onChange).toHaveBeenCalledWith("继续编辑", [])
+    expect(onAtTrigger).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })

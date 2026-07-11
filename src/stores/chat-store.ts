@@ -4,6 +4,14 @@ import type { AgentRunRecord, AgentStageTrace } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
 import i18n from "@/i18n"
+import {
+  canStartConversationRun as canStartRun,
+  failConversationRun as createFailedRunState,
+  finishConversationRun as createFinishedRunState,
+  normalizeLoadedRunStates,
+  stopConversationRun as createStoppedRunState,
+  type ConversationRunStates,
+} from "@/lib/conversation-run-state"
 
 export interface Conversation {
   id: string
@@ -41,6 +49,7 @@ interface ChatState {
   messages: DisplayMessage[]
   /** 按会话 ID 存储流式内容，支持多会话同时生成 */
   streamingContents: Record<string, string>
+  runStates: ConversationRunStates
   pendingReferenceTokens: ReferenceToken[]
   mode: "chat" | "ingest"
   ingestSource: string | null
@@ -59,6 +68,12 @@ interface ChatState {
   addMessage: (role: DisplayMessage["role"], content: string) => void
   setMessages: (messages: DisplayMessage[]) => void
   setConversations: (conversations: Conversation[]) => void
+  startConversationRun: (id: string, runId?: string) => boolean
+  finishConversationRun: (id: string, activeId: string | null, runId?: string) => void
+  failConversationRun: (id: string, error: string, runId?: string) => void
+  stopConversationRun: (id: string, runId?: string) => void
+  setLoadedRunStates: (states: ConversationRunStates | undefined) => void
+  canStartConversationRun: (id: string) => boolean
   /** 开始指定会话的流式生成 */
   startStreaming: (conversationId: string) => void
   /** 追加 token 到指定会话的流式内容 */
@@ -102,6 +117,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeConversationId: null,
   messages: [],
   streamingContents: {},
+  runStates: {},
   pendingReferenceTokens: [],
   mode: "chat",
   ingestSource: null,
@@ -135,15 +151,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : state.activeConversationId
       // 清理该会话的流式状态
       const { [id]: _, ...restStreaming } = state.streamingContents
+      const { [id]: __, ...restRunStates } = state.runStates
       return {
         conversations: remaining,
         messages: state.messages.filter((m) => m.conversationId !== id),
         activeConversationId: newActiveId,
         streamingContents: restStreaming,
+        runStates: restRunStates,
       }
     }),
 
-  setActiveConversation: (id) => set({ activeConversationId: id }),
+  setActiveConversation: (id) =>
+    set((state) => {
+      const runState = id ? state.runStates[id] : undefined
+      return {
+        activeConversationId: id,
+        runStates:
+          id && runState?.status === "completed_unread"
+            ? { ...state.runStates, [id]: createStoppedRunState() }
+            : state.runStates,
+      }
+    }),
 
   renameConversation: (id, title) =>
     set((state) => ({
@@ -212,6 +240,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setMessages: (messages) => set({ messages }),
 
   setConversations: (conversations) => set({ conversations }),
+
+  startConversationRun: (id, runId) => {
+    if (!canStartRun(get().runStates, id)) return false
+    set((state) => ({ runStates: { ...state.runStates, [id]: { status: "running", updatedAt: Date.now(), runId } } }))
+    return true
+  },
+
+  finishConversationRun: (id, activeId, runId) =>
+    set((state) => {
+      const current = state.runStates[id]
+      if (!state.conversations.some((conversation) => conversation.id === id)) return state
+      if (current?.status !== "running" || current.runId !== runId) return state
+      return { runStates: { ...state.runStates, [id]: createFinishedRunState(id, activeId) } }
+    }),
+
+  failConversationRun: (id, error, runId) =>
+    set((state) => {
+      const current = state.runStates[id]
+      if (!state.conversations.some((conversation) => conversation.id === id)) return state
+      if (current?.status !== "running" || current.runId !== runId) return state
+      return { runStates: { ...state.runStates, [id]: createFailedRunState(error) } }
+    }),
+
+  stopConversationRun: (id, runId) =>
+    set((state) => {
+      const current = state.runStates[id]
+      if (current?.status !== "running" || current.runId !== runId) return state
+      return { runStates: { ...state.runStates, [id]: createStoppedRunState() } }
+    }),
+
+  setLoadedRunStates: (states) => set({ runStates: normalizeLoadedRunStates(states) }),
+
+  canStartConversationRun: (id) => canStartRun(get().runStates, id),
 
   startStreaming: (conversationId) =>
     set((state) => ({

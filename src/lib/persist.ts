@@ -1,6 +1,7 @@
 import { writeFile, readFile, createDirectory } from "@/commands/fs"
 import type { ReviewItem } from "@/stores/review-store"
 import type { DisplayMessage, Conversation } from "@/stores/chat-store"
+import { normalizeLoadedRunStates, type ConversationRunStates } from "@/lib/conversation-run-state"
 import { normalizePath } from "@/lib/path-utils"
 
 const MAX_RETRIES = 3
@@ -101,6 +102,22 @@ export async function loadReviewItems(projectPath: string): Promise<ReviewItem[]
 interface PersistedChatData {
   conversations: Conversation[]
   messages: DisplayMessage[]
+  runStates: ConversationRunStates
+}
+
+interface ConversationManifest {
+  conversations: Conversation[]
+  runStates?: ConversationRunStates
+}
+
+function normalizeConversationRunStates(
+  conversations: Conversation[],
+  runStates: ConversationRunStates | undefined,
+): ConversationRunStates {
+  const conversationIds = new Set(conversations.map((conversation) => conversation.id))
+  return Object.fromEntries(
+    Object.entries(normalizeLoadedRunStates(runStates)).filter(([id]) => conversationIds.has(id)),
+  )
 }
 
 function normalizeConversation(conv: Conversation): Conversation {
@@ -118,7 +135,8 @@ export async function saveChatHistory(
   projectPath: string,
   conversations: Conversation[],
   messages: DisplayMessage[],
-  maxMessages?: number
+  maxMessages?: number,
+  runStates: ConversationRunStates = {},
 ): Promise<void> {
   const pp = normalizePath(projectPath)
   const release = acquireSaveLock(`chat:${pp}`)
@@ -130,7 +148,7 @@ export async function saveChatHistory(
     await withRetry(
       () => writeFile(
         `${pp}/.qmai/conversations.json`,
-        JSON.stringify(conversations, null, 2),
+        JSON.stringify({ conversations, runStates }, null, 2),
       ),
       "saveChatHistory(conversations)",
     )
@@ -164,7 +182,15 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
   try {
     // Try new format: separate files per conversation
     const convContent = await readFile(`${pp}/.qmai/conversations.json`)
-    const conversations = safeParseArray<Conversation>(convContent, "conversations").map(normalizeConversation)
+    const parsedManifest = JSON.parse(convContent) as Conversation[] | ConversationManifest
+    const rawConversations = Array.isArray(parsedManifest)
+      ? parsedManifest
+      : Array.isArray(parsedManifest?.conversations)
+        ? parsedManifest.conversations
+        : []
+    const conversations = rawConversations.map(normalizeConversation)
+    const rawRunStates = Array.isArray(parsedManifest) ? {} : parsedManifest.runStates
+    const runStates = normalizeConversationRunStates(conversations, rawRunStates)
 
     const allMessages: DisplayMessage[] = []
     for (const conv of conversations) {
@@ -177,7 +203,7 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
       }
     }
 
-    return { conversations, messages: allMessages }
+    return { conversations, messages: allMessages, runStates }
   } catch {
     // Fall back to old format
     try {
@@ -199,23 +225,25 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
           ...m,
           conversationId: "default",
         }))
-        return { conversations: [defaultConv], messages: migratedMessages }
+        return { conversations: [defaultConv], messages: migratedMessages, runStates: {} }
       }
 
       // Old combined format
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const data = parsed as PersistedChatData
+        const conversations = Array.isArray(data.conversations)
+          ? data.conversations.map(normalizeConversation)
+          : []
         return {
-          conversations: Array.isArray(data.conversations)
-            ? data.conversations.map(normalizeConversation)
-            : [],
+          conversations,
           messages: Array.isArray(data.messages) ? data.messages : [],
+          runStates: normalizeConversationRunStates(conversations, data.runStates),
         }
       }
       console.warn("persist: 聊天历史数据格式无效")
-      return { conversations: [], messages: [] }
+      return { conversations: [], messages: [], runStates: {} }
     } catch {
-      return { conversations: [], messages: [] }
+      return { conversations: [], messages: [], runStates: {} }
     }
   }
 }

@@ -1,6 +1,3 @@
-import { readFileSync, readdirSync } from "node:fs"
-import { join } from "node:path"
-
 export type ChapterPositionType =
   | "opening"
   | "development"
@@ -146,41 +143,6 @@ export function checkAdjacentEmotionClustering(
     }
   }
   return warnings
-}
-
-/**
- * 从卷纲 Markdown 文件中解析章节定位数据。
- *
- * 卷纲 Markdown 的"章节定位分布表"格式为：
- * | 章 | 定位 | 压力级(1-5) | 情绪强度(1-10) | 说明 |
- * | --- | --- | --- | --- | --- |
- * | 1 | 开场 | 2 | 5 | 介绍 |
- *
- * @param projectPath - 项目根路径
- * @param volumeNumber - 卷号
- * @returns 解析出的章节定位数组
- */
-export function getChapterPositionsFromOutline(
-  projectPath: string,
-  volumeNumber: number,
-): ChapterPosition[] {
-  const searchLocations = [projectPath, join(projectPath, "outlines")]
-
-  for (const dir of searchLocations) {
-    try {
-      const files = readdirSync(dir)
-      const pattern = `卷纲_第${volumeNumber}卷`
-      const matched = files.find((f) => f.startsWith(pattern) && f.endsWith(".md"))
-      if (matched) {
-        const content = readFileSync(join(dir, matched), "utf-8")
-        return parsePositionTableFromMarkdown(content)
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return []
 }
 
 /**

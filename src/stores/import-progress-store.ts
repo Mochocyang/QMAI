@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { normalizePath } from "@/lib/path-utils"
 
-export type ImportProgressKind = "chapter" | "outline"
+export type ImportProgressKind = "chapter" | "outline" | "outline_generation" | "outline_refinement"
 export type ImportProgressStatus = "running" | "done" | "cancelled" | "error"
 
 export interface ImportProgressTask {
@@ -90,7 +90,7 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
   finishTask: (taskId, status, patch = {}) => {
     const task = get().tasks.find((item) => item.id === taskId)
     get().updateTask(taskId, { ...patch, status, cancelling: false })
-    if (task?.kind === "outline" && status !== "running") {
+    if (task?.kind === "outline" || task?.kind === "outline_generation" || task?.kind === "outline_refinement") {
       void import("@/lib/novel/outline-generation").then(({ reconcileStaleOutlineIngestTasks }) => {
         reconcileStaleOutlineIngestTasks(task.projectPath)
       })
@@ -104,7 +104,7 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
     if (!task) return
     task.abortController?.abort()
     get().updateTask(taskId, { status: "cancelled", cancelling: false, activeTitles: [] })
-    if (task.kind === "outline") {
+    if (task.kind === "outline" || task.kind === "outline_generation" || task.kind === "outline_refinement") {
       void import("@/lib/novel/outline-generation").then(({ reconcileStaleOutlineIngestTasks }) => {
         reconcileStaleOutlineIngestTasks(task.projectPath)
       })

@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;

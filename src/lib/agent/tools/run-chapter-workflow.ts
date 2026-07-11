@@ -1,7 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type {
-  ChapterWorkflowEvent,
   DeepChapterGenerationCallbacks,
   DeepChapterGenerationDeps,
   DeepChapterGenerationInput,
@@ -23,10 +22,6 @@ export interface RunChapterWorkflowToolOptions {
   runDeepChapterGeneration: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
-  /**
-   * 当 AI 未在工具调用参数中携带 planBlueprint 时，从这里兜底取已确认的章节计划。
-   * 保证用户确认的计划为强制约束，不依赖模型是否遵守自然语言提示。
-   */
   getPlanBlueprint?: () => string | undefined
 }
 
@@ -57,22 +52,6 @@ function normalizeParams(params: Record<string, unknown>): RunChapterWorkflowPar
         ? resolveAiWorkflowMode(params.workflowMode)
         : undefined,
     planBlueprint: typeof params.planBlueprint === "string" ? params.planBlueprint : undefined,
-  }
-}
-
-function workflowEventToToolEvent(parentCallId: string, event: ChapterWorkflowEvent): AgentToolEvent {
-  return {
-    type: event.type === "started" ? "call_started" : event.type === "error" ? "error" : "result",
-    callId: `${parentCallId}:${event.name}`,
-    parentCallId,
-    name: event.name,
-    params: {
-      title: event.title,
-      ...(event.detail ? { detail: event.detail } : {}),
-      ...(event.params ?? {}),
-    },
-    result: event.result ?? event.detail ?? event.title,
-    timestamp: event.timestamp,
   }
 }
 
@@ -120,29 +99,32 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
         return "错误：缺少 userRequest，无法运行章节工作流。"
       }
 
-     const parentCallId = context?.callId ?? `run_chapter_workflow:${Date.now()}`
-     const emitToolEvent = context?.onToolEvent ?? options.onToolEvent
-     const emitActivityEvent = context?.onActivityEvent ?? options.onActivityEvent
-      // 兜底：AI 未在工具调用参数中携带 planBlueprint 时，从外部 getter 补上，
-      // 保证用户确认的计划一定进入章节生成链路，不依赖模型是否遵守自然语言提示。
+      const parentCallId = context?.callId ?? `run_chapter_workflow:${Date.now()}`
+      const emitToolEvent = context?.onToolEvent ?? options.onToolEvent
       const planBlueprint = params.planBlueprint?.trim() || options.getPlanBlueprint?.()?.trim() || undefined
+
+      const enhancedUserRequest = planBlueprint
+        ? `${userRequest}\n\n【章节计划】\n${planBlueprint}`
+        : userRequest
+
       const result = await options.runDeepChapterGeneration(
         {
           projectPath: options.projectPath,
-          userRequest,
+          userRequest: enhancedUserRequest,
           chapterNumber: params.chapterNumber,
           llmConfig: options.llmConfig,
-          aiWorkflowMode: params.workflowMode ?? options.aiWorkflowMode,
-          planBlueprint,
         },
         {
-          onWorkflowEvent: (event) => {
-            emitToolEvent?.(workflowEventToToolEvent(parentCallId, event))
+          onThinking: (_content) => {
           },
-          onActivityEvent: (event) => {
-            emitActivityEvent?.({
-              ...event,
-              toolCallId: event.toolCallId ?? parentCallId,
+          onFinalContent: (content) => {
+            emitToolEvent?.({
+              type: "result",
+              callId: parentCallId,
+              name: "run_chapter_workflow",
+              params: {},
+              result: content,
+              timestamp: Date.now(),
             })
           },
         },
@@ -154,8 +136,6 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
         "章节工作流完成。",
         `是否返修：${result.revised ? "是" : "否"}`,
         `任务书：${result.taskBrief}`,
-        result.executionReport ? `执行报告：\n${result.executionReport}` : "",
-        result.planCompliance ? `计划履约度：\n${result.planCompliance}` : "",
         "",
         "最终正文：",
         result.finalContent,

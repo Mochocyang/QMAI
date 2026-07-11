@@ -23,6 +23,11 @@ function statusLabel(status: OutlineMultiAgentStepStatus | OutlineMultiAgentRunS
       return "规划中"
     case "running":
       return "运行中"
+    case "retrying":
+      return "重试中"
+    case "waiting":
+    case "pending":
+      return "等待中"
     case "merging":
       return "合并中"
     case "fallback":
@@ -39,7 +44,7 @@ function statusLabel(status: OutlineMultiAgentStepStatus | OutlineMultiAgentRunS
 }
 
 function StatusIcon({ status }: { status: OutlineMultiAgentStepStatus | OutlineMultiAgentRunState["status"] }) {
-  if (status === "running" || status === "planning" || status === "merging") {
+  if (status === "running" || status === "retrying" || status === "planning" || status === "merging") {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600 dark:text-sky-400" />
   }
   if (status === "done") {
@@ -95,10 +100,12 @@ export function OutlineMultiAgentPanel({ run }: OutlineMultiAgentPanelProps) {
               <span className={cn(
                 "inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground",
                 agent.status === "error" && "text-red-600 dark:text-red-400",
+                agent.status === "retrying" && "text-amber-600 dark:text-amber-400",
                 agent.status === "done" && "text-emerald-700 dark:text-emerald-300",
               )}>
                 <StatusIcon status={agent.status} />
                 {statusLabel(agent.status)}
+                {agent.status === "retrying" ? "（1/1）" : ""}
               </span>
             </div>
             <div className="mt-1.5 grid gap-1.5 pl-5 leading-5 text-muted-foreground">

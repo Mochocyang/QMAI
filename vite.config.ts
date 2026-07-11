@@ -101,5 +101,13 @@ export default defineConfig(async () => ({
     // The loader itself is a no-op if the file is absent, so this is
     // safe to keep on for every test run.
     setupFiles: ["./src/test-helpers/load-test-env.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/cypress/**",
+      "**/.{idea,git,cache,output,temp}/**",
+      "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*",
+      "**/.worktrees/**",
+    ],
   },
 }))

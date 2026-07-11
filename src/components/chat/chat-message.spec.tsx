@@ -171,7 +171,7 @@ describe("agent stage stream integration", () => {
     expect(html).toContain("放弃")
   })
 
-  it("keeps old tool workflow fallback when structured stages are absent", () => {
+  it("shows event stream when tool calls are present", () => {
     const message: DisplayMessage = {
       id: "assistant-2",
       role: "assistant",
@@ -193,8 +193,9 @@ describe("agent stage stream integration", () => {
 
     const html = renderToStaticMarkup(<ChatMessage message={message} />)
 
-    expect(html).toContain("思考过程")
+    expect(html).toContain("读取章节")
     expect(html).toContain("完成。")
+    expect(html).toContain("耗时")
   })
 })
 

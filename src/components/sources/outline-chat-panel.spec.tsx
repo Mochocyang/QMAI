@@ -1,11 +1,144 @@
+// @vitest-environment jsdom
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { describe, expect, it } from "vitest"
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { OutlineChatPanel } from "./outline-chat-panel"
+import {
+  useOutlineChatStore,
+  type OutlineChatConversation,
+  type OutlineChatMessage,
+} from "../../stores/outline-chat-store"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
 const outlineSectionConfigsSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-section-configs.ts"), "utf8")
 
+const mountedRoots: Array<{ container: HTMLDivElement; root: Root }> = []
+
+function conversation(messages: OutlineChatMessage[] = []): OutlineChatConversation {
+  return {
+    id: "outline-active",
+    title: "测试大纲会话",
+    createdAt: 100,
+    updatedAt: 100,
+    messages,
+  }
+}
+
+function setOutlineConversations(
+  conversations: OutlineChatConversation[],
+  activeConversationId: string | null,
+) {
+  useOutlineChatStore.setState({
+    conversations,
+    activeConversationId,
+    streamingContents: {},
+    runStates: {},
+    loaded: true,
+    pendingReferenceTokens: [],
+  })
+}
+
+async function renderOutlineChatPanel() {
+  const container = document.createElement("div")
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  mountedRoots.push({ container, root })
+  await act(async () => {
+    root.render(<OutlineChatPanel onClose={() => {}} />)
+  })
+  return container
+}
+
+function getNewConversationButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>(
+    ".qmai-new-conversation-button",
+  )
+  expect(button).not.toBeNull()
+  return button as HTMLButtonElement
+}
+
+beforeEach(() => {
+  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+    .IS_REACT_ACT_ENVIRONMENT = true
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    value: vi.fn(),
+  })
+  setOutlineConversations([], null)
+})
+
+afterEach(async () => {
+  while (mountedRoots.length > 0) {
+    const mounted = mountedRoots.pop()
+    if (!mounted) continue
+    await act(async () => {
+      mounted.root.unmount()
+    })
+    mounted.container.remove()
+  }
+  setOutlineConversations([], null)
+})
+
 describe("OutlineChatPanel controls", () => {
+  it("根据当前大纲会话的已发送用户消息实时控制新建按钮", async () => {
+    const container = await renderOutlineChatPanel()
+    let button = getNewConversationButton(container)
+    expect(button.disabled).toBe(false)
+    expect(button.getAttribute("aria-describedby")).toBeNull()
+
+    await act(async () => {
+      setOutlineConversations([conversation()], "outline-active")
+    })
+    button = getNewConversationButton(container)
+    expect(button.disabled).toBe(true)
+    expect(button.parentElement?.title).toBe(
+      "请先发送当前会话内容，再新建对话。",
+    )
+    expect(button.title).toBe("请先发送当前会话内容，再新建对话。")
+    const reasonId = button.getAttribute("aria-describedby")
+    expect(reasonId).toBe("outline-new-conversation-disabled-reason")
+    expect(container.querySelector(`#${reasonId}`)?.textContent).toBe(
+      "请先发送当前会话内容，再新建对话。",
+    )
+
+    await act(async () => {
+      setOutlineConversations([
+        conversation([{ id: "assistant-1", role: "assistant", content: "仅有助手消息" }]),
+      ], "outline-active")
+    })
+    button = getNewConversationButton(container)
+    expect(button.disabled).toBe(true)
+    expect(button.parentElement?.title).toBe(
+      "请先发送当前会话内容，再新建对话。",
+    )
+    expect(button.title).toBe("请先发送当前会话内容，再新建对话。")
+    expect(button.getAttribute("aria-describedby")).toBe(
+      "outline-new-conversation-disabled-reason",
+    )
+    expect(
+      container.querySelector("#outline-new-conversation-disabled-reason")
+        ?.textContent,
+    ).toBe("请先发送当前会话内容，再新建对话。")
+
+    await act(async () => {
+      useOutlineChatStore.getState().addMessage("outline-active", {
+        id: "user-1",
+        role: "user",
+        content: "已发送内容",
+      })
+    })
+    button = getNewConversationButton(container)
+    expect(button.disabled).toBe(false)
+    expect(button.title).toBe("新建大纲对话")
+    expect(button.getAttribute("aria-describedby")).toBeNull()
+    expect(
+      container.querySelector("#outline-new-conversation-disabled-reason"),
+    ).toBeNull()
+  })
+
   it("uses the shared accent new conversation button style", () => {
     expect(source).toContain("qmai-new-conversation-button")
     expect(source).toContain('aria-label="新建大纲对话"')
@@ -234,17 +367,28 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("fallbackReason")
   })
 
-  it("子 Agent 结构化输出为空或解析失败时会自动重试一次", () => {
-    expect(source).toContain("retrySubAgentMessages")
-    expect(source).toContain("结构化输出解析失败")
-    expect(source).toContain("请只重新输出一个合法 JSON 对象")
-    expect(source).toContain("subAgentRetryRun")
+  it("子 Agent 重试统一由依赖调度器控制为一次", () => {
+    expect(source).toContain("onStatusChange: (event)")
+    expect(source).toContain('event.status === "retrying"')
+    expect(source).not.toContain("retrySubAgentMessages")
+    expect(source).not.toContain("subAgentRetryRun")
   })
 
-  it("keeps wizard prompt bubbles readable and stops streaming in the original conversation", () => {
-    expect(source).toContain("streamingConversationIdRef")
-    expect(source).toContain("streamingConversationIdRef.current = convId")
-    expect(source).toContain("streamingConversationIdRef.current ?? activeConversationId")
+  it("接入动态 Agent 规划并在规划无效时保留规则规划", () => {
+    expect(source).toContain("buildDynamicOutlinePlannerPrompt")
+    expect(source).toContain("parseDynamicOutlinePlan")
+    expect(source).toContain("outlineWritingSkills.map((skill)")
+    expect(source).toContain("targetConversation?.contextSummary")
+    expect(source).toContain("existingModules: outlineSources")
+    expect(source).toContain("let subAgentPlan = fallbackSubAgentPlan")
+    expect(source).toContain("if (dynamicPlan.ok) subAgentPlan = dynamicPlan.plan")
+    expect(source).not.toContain("failureFallbackThreshold")
+  })
+
+  it("keeps wizard prompt bubbles readable and stops streaming in the selected conversation", () => {
+    expect(source).toContain("outlineConversationRunRegistry")
+    expect(source).toContain("const capturedConvId = convId")
+    expect(source).toContain("outlineConversationRunRegistry.abort(activeConversationId)")
     expect(source).toContain('className="block whitespace-pre-wrap break-words"')
   })
 

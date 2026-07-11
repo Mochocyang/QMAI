@@ -3,10 +3,10 @@ import {
   checkChapterPositioningDistribution,
   checkAdjacentEmotionClustering,
   parsePositionTableFromMarkdown,
-  getChapterPositionsFromOutline,
   type ChapterPosition,
   type GenrePositioningBaseline,
 } from "./chapter-positioning"
+import { getChapterPositionsFromOutline } from "./chapter-positioning-fs"
 
 // ==================== 辅助工厂函数 ====================
 

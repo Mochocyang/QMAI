@@ -121,4 +121,27 @@ export const PROMPTS = {
     "### 禁忌表达",
     "{tabooExpressions}",
   ].join("\n"),
+
+  outlineGeneration: (genre: string, scale: string, premise: string, context: string) =>
+    [
+      "你是一位专业的小说大纲设计师。",
+      "",
+      `## 小说类型：${genre}`,
+      `## 故事规模：${scale}`,
+      `## 核心设定：${premise}`,
+      "",
+      "## 已有项目资料",
+      context,
+      "",
+      "## 任务要求",
+      "请根据以上信息，设计一个完整、有吸引力的小说大纲，包括：",
+      "1. 核心故事概念与主题",
+      "2. 主要人物设定（主角、重要配角、反派）",
+      "3. 故事世界观与背景设定",
+      "4. 整体故事结构（分卷/分篇规划）",
+      "5. 关键情节节点与转折点",
+      "6. 主要伏笔与悬念线",
+      "",
+      "请使用 Markdown 格式输出，保持结构清晰、层次分明。",
+    ].join("\n"),
 } as const

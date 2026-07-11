@@ -35,7 +35,6 @@ import { loadFrameworks, loadSimulationResults, deleteSimulationResult } from "@
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 import { createDirectory, fileExists, listDirectory, preprocessFile, readFile, writeFile } from "@/commands/fs"
-import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
 import {
   loadDismantlingLibrary,
@@ -681,7 +680,6 @@ export function SidebarPanel() {
   const enqueueChatReferenceTokens = useChatStore((s) => s.enqueueReferenceTokens)
   const enqueueOutlineReferenceTokens = useOutlineChatStore((s) => s.enqueueReferenceTokens)
   const setOutlineChatOpen = useOutlineGenerationStore((s) => s.setPanelOpen)
-  const dataVersion = useWikiStore((s) => s.dataVersion)
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
