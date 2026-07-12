@@ -124,6 +124,7 @@ describe("BookAnalysisLibraryLayout", () => {
         extractingStyle={false}
         extractingCharacters={false}
         addingToSoul={false}
+        importTaskPanel={<div>批量导入任务</div>}
         storyFrameworks={storyFrameworks}
         onSelectBook={vi.fn()}
         onSelectCharacter={vi.fn()}
@@ -140,6 +141,14 @@ describe("BookAnalysisLibraryLayout", () => {
     )
 
     expect(html).toContain("拆书库")
+    expect(html).toContain("批量导入任务")
+    const headerTextIndex = html.indexOf("管理作品文风、角色 Skill 和小说人物绑定。")
+    const importTaskPanelIndex = html.indexOf(">批量导入任务</div>")
+    const bookContentTitleIndex = html.indexOf('<h3 class="text-lg font-semibold">凡人修仙传</h3>')
+    expect(headerTextIndex).toBeGreaterThanOrEqual(0)
+    expect(importTaskPanelIndex).toBeGreaterThan(headerTextIndex)
+    expect(bookContentTitleIndex).toBeGreaterThan(importTaskPanelIndex)
+    expect(html).toContain('class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5"')
     expect(html).toContain("启用文风")
     expect(html).toContain("凡人修仙传")
     expect(html).toContain("作品文风")

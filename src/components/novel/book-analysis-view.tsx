@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
+import { BookAnalysisImportTaskPanel } from "./book-analysis-import-task-panel"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 import { BookAnalysisResultViewer } from "./book-analysis-result-viewer"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
+import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
@@ -32,6 +34,7 @@ import {
 } from "@/lib/novel/book-analysis/story-framework-extraction"
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "@/lib/novel/plot-framework-library"
 import type { PlotFramework } from "@/lib/novel/plot-framework"
+import type { BatchImportCandidate } from "@/lib/novel/book-analysis/batch-import-types"
 import { OutlineCreatorDialog } from "./outline-editor"
 
 interface StoryFrameworkSelectionData {
@@ -91,6 +94,21 @@ export function BookAnalysisView() {
   const currentResult = useBookAnalysisStore((s) => s.currentResult)
   const showResultViewer = useBookAnalysisStore((s) => s.showResultViewer)
   const setShowResultViewer = useBookAnalysisStore((s) => s.setShowResultViewer)
+  const importBatches = useBookAnalysisImportStore((s) => s.batches)
+  const importTasks = useBookAnalysisImportStore((s) => s.tasks)
+  const importPanelCollapsed = useBookAnalysisImportStore((s) => s.panelCollapsed)
+  const importRevision = useBookAnalysisImportStore((s) => s.revision)
+  const initializeImportProject = useBookAnalysisImportStore((s) => s.initializeProject)
+  const createImportBatch = useBookAnalysisImportStore((s) => s.createBatch)
+  const continueImportTask = useBookAnalysisImportStore((s) => s.continueTask)
+  const regenerateImportTask = useBookAnalysisImportStore((s) => s.regenerateTask)
+  const cancelImportTask = useBookAnalysisImportStore((s) => s.cancelTask)
+  const cancelAllQueuedImportTasks = useBookAnalysisImportStore((s) => s.cancelAllQueued)
+  const setImportPanelCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
+  const disposeImportStore = useBookAnalysisImportStore((s) => s.dispose)
+  const importRevisionBaselineRef = useRef({ projectPath: currentProject?.path ?? null, revision: importRevision })
+  const importInitializationSequenceRef = useRef(0)
+  const importInitializationTokenRef = useRef<{ sequence: number; projectPath: string } | null>(null)
 
   // 角色识别 LLM 配置（feature/llm-character-recognizer）
   const baseLlmConfig = useWikiStore((s) => s.llmConfig)
@@ -187,6 +205,49 @@ export function BookAnalysisView() {
   })
 
   useEffect(() => {
+    if (!currentProject?.path) return
+
+    const projectPath = currentProject.path
+    const initializationToken = { sequence: ++importInitializationSequenceRef.current, projectPath }
+    importInitializationTokenRef.current = initializationToken
+    importRevisionBaselineRef.current = { projectPath, revision: useBookAnalysisImportStore.getState().revision }
+    void initializeImportProject(projectPath).then(() => {
+      if (importInitializationTokenRef.current !== initializationToken) return
+      const importState = useBookAnalysisImportStore.getState()
+      if (currentProject.path === projectPath && importState.projectPath === projectPath) {
+        importRevisionBaselineRef.current = { projectPath, revision: importState.revision }
+      }
+    }).catch((error) => {
+      if (useBookAnalysisImportStore.getState().projectPath !== projectPath) return
+      console.error("加载批量导入任务失败", error)
+      toast.error("加载批量导入任务失败，请稍后重试。")
+    }).finally(() => {
+      if (importInitializationTokenRef.current === initializationToken) importInitializationTokenRef.current = null
+    })
+
+    return () => {
+      void disposeImportStore().catch((error) => {
+        console.error("释放批量导入任务失败", error)
+      })
+    }
+  }, [currentProject?.path, initializeImportProject, disposeImportStore])
+
+  useEffect(() => {
+    const projectPath = currentProject?.path ?? null
+    const baseline = importRevisionBaselineRef.current
+    if (!projectPath || baseline.projectPath !== projectPath || importInitializationTokenRef.current?.projectPath === projectPath) {
+      importRevisionBaselineRef.current = { projectPath, revision: importRevision }
+      return
+    }
+    if (importRevision <= baseline.revision) {
+      importRevisionBaselineRef.current = { projectPath, revision: importRevision }
+      return
+    }
+    importRevisionBaselineRef.current = { projectPath, revision: importRevision }
+    useBookAnalysisStore.getState().triggerSidebarRefresh()
+  }, [currentProject?.path, importRevision])
+
+  useEffect(() => {
     void reloadLibraryState()
   }, [currentProject?.path, tasks.length, sidebarRefreshCounter, reloadLibraryState])
 
@@ -233,81 +294,6 @@ export function BookAnalysisView() {
       depth: "standard" as AnalysisDepth,
     })
   }, [pendingRecognitionTaskId, tasks, chapterSelectionData, setChapterSelectionData])
-
-  const handleStartAnalysis = async (config: {
-    sourceType: "file"
-    sourcePath: string
-  }) => {
-    if (!currentProject?.path) {
-      console.error("没有打开的项目")
-      return
-    }
-
-    // 新导入：先清空上一本书残留的识别结果（fix：导入 B 仍弹出 A 的角色弹窗）。
-    clearRecognition()
-
-    const abortController = new AbortController()
-
-    const taskId = startTask(currentProject.path, {
-      sourceType: config.sourceType,
-      sourcePath: config.sourcePath,
-      selectedChapters: [],
-    }, abortController)
-
-    setInputDialogOpen(false)
-
-    try {
-      const { splitNovelIntoChapters } = await import("@/lib/novel/book-analysis/analysis-engine")
-      const { useWikiStore } = await import("@/stores/wiki-store")
-      const storeState = useWikiStore.getState()
-      const analysisLlmConfig = resolveDefaultModel(storeState.llmConfig)
-      const updateTaskProgress = useBookAnalysisStore.getState().updateTaskProgress
-      const updateTaskMetadata = useBookAnalysisStore.getState().updateTaskMetadata
-
-      const splitResult = await splitNovelIntoChapters(
-        config.sourcePath,
-        currentProject.path,
-        analysisLlmConfig,
-        (progress) => {
-          updateTaskProgress(taskId, {
-            stage: progress.stage as any,
-            stageLabel: progress.stageLabel,
-            completed: progress.completed,
-            total: progress.total,
-            percentage: progress.percentage,
-            currentItem: progress.currentItem,
-          })
-        },
-        abortController.signal
-      )
-
-      if (splitResult.success) {
-        updateTaskMetadata(taskId, splitResult.metadata)
-
-        useBookAnalysisStore.getState().updateTaskBookData(taskId, splitResult.bookId, splitResult.chapters, splitResult.bookPath)
-
-        useBookAnalysisStore.getState().triggerSidebarRefresh()
-
-        await reloadLibraryState()
-
-        setChapterSelectionData({
-          taskId,
-          bookPath: splitResult.bookPath,
-          chapters: splitResult.chapters,
-          metadata: splitResult.metadata,
-          abortController,
-          selectedChapterIds: [],
-          depth: "standard" as AnalysisDepth,
-        })
-      }
-    } catch (error) {
-      const errorTaskFn = useBookAnalysisStore.getState().errorTask
-      const errorMessage = error instanceof Error ? error.message : "分析失败"
-      if (!errorMessage.includes("取消") && !errorMessage.includes("已停止")) {
-        errorTaskFn(taskId, errorMessage)
-      }
-    }
-  }
 
   const handleChapterSelectionCancel = () => {
     if (chapterSelectionData) {
@@ -457,6 +443,52 @@ export function BookAnalysisView() {
     }
   }
 
+  const handleStartAnalysis = useCallback(async function handleStartAnalysis(files: BatchImportCandidate[]) {
+    await createImportBatch(files)
+    setInputDialogOpen(false)
+  }, [createImportBatch])
+
+  const runImportTaskAction = useCallback((action: () => Promise<void>, failureMessage: string) => {
+    void action().catch((error) => {
+      console.error(failureMessage, error)
+      toast.error(`${failureMessage}：${error instanceof Error ? error.message : String(error)}`)
+    })
+  }, [])
+
+  const handleContinueImportTask = useCallback((taskId: string) => {
+    runImportTaskAction(() => continueImportTask(taskId), "继续导入失败")
+  }, [continueImportTask, runImportTaskAction])
+
+  const handleRegenerateImportTask = useCallback((taskId: string) => {
+    runImportTaskAction(() => regenerateImportTask(taskId), "重新生成失败")
+  }, [regenerateImportTask, runImportTaskAction])
+
+  const handleCancelImportTask = useCallback((taskId: string) => {
+    runImportTaskAction(() => cancelImportTask(taskId), "取消导入失败")
+  }, [cancelImportTask, runImportTaskAction])
+
+  const handleCancelAllQueuedImportTasks = useCallback((batchId: string) => {
+    runImportTaskAction(() => cancelAllQueuedImportTasks(batchId), "取消等待任务失败")
+  }, [cancelAllQueuedImportTasks, runImportTaskAction])
+
+  const handleSelectBook = useCallback((bookId: string) => {
+    const book = libraryState.books.find((item) => item.id === bookId)
+    setSelectedBookId(bookId)
+    setSelectedCharacterId(null)
+    clearRecognition()
+    const analysisStore = useBookAnalysisStore.getState()
+    analysisStore.setSelectedLibraryBookId(bookId)
+    if (book) analysisStore.setCurrentResult(toBookAnalysisResult(book))
+  }, [clearRecognition, libraryState.books])
+
+  const handleOpenImportedBook = useCallback((bookId: string) => {
+    if (!libraryState.books.some((item) => item.id === bookId)) {
+      toast.error("未找到已导入作品，请刷新后重试。")
+      return
+    }
+    handleSelectBook(bookId)
+  }, [handleSelectBook, libraryState.books])
+
   const libraryLayout = (
     <BookAnalysisLibraryLayout
       state={libraryState}
@@ -467,13 +499,20 @@ export function BookAnalysisView() {
       extractingStoryFramework={storyFrameworkExtracting}
       addingToSoul={addingToSoul}
       storyFrameworks={storyFrameworks}
-      onSelectBook={(bookId) => {
-        const book = libraryState.books.find((item) => item.id === bookId)
-        setSelectedBookId(bookId)
-        setSelectedCharacterId(null)
-        clearRecognition()
-        if (book) useBookAnalysisStore.getState().setCurrentResult(toBookAnalysisResult(book))
-      }}
+      importTaskPanel={
+        <BookAnalysisImportTaskPanel
+          batches={importBatches}
+          tasks={importTasks}
+          collapsed={importPanelCollapsed}
+          onCollapsedChange={setImportPanelCollapsed}
+          onContinue={handleContinueImportTask}
+          onRegenerate={handleRegenerateImportTask}
+          onCancel={handleCancelImportTask}
+          onCancelAllQueued={handleCancelAllQueuedImportTasks}
+          onOpenBook={handleOpenImportedBook}
+        />
+      }
+      onSelectBook={handleSelectBook}
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
       onExtractStyle={handleLibraryExtractStyle}

@@ -1,17 +1,32 @@
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { useEffect, useRef, useState } from "react"
+import { AlertCircle, FileText, X } from "lucide-react"
+import { getFileSize } from "@/commands/fs"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { FileText, AlertCircle } from "lucide-react"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import type { BatchImportCandidate } from "@/lib/novel/book-analysis/batch-import-types"
+import { normalizePath } from "@/lib/path-utils"
 
 interface BookAnalysisInputDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (config: {
-    sourceType: "file"
-    sourcePath: string
-  }) => void
+  onSubmit: (files: BatchImportCandidate[]) => Promise<void> | void
+}
+
+function getFileName(path: string) {
+  return path.split(/[\\/]/).pop() || path
+}
+
+function getPathKey(path: string) {
+  const normalizedPath = normalizePath(path)
+  const isWindowsPath = /^[A-Za-z]:\//.test(normalizedPath) || normalizedPath.startsWith("//")
+  return isWindowsPath ? normalizedPath.toLowerCase() : normalizedPath
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Number((bytes / 1024).toFixed(1))} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${Number((bytes / 1024 / 1024).toFixed(1))} MB`
+  return `${Number((bytes / 1024 / 1024 / 1024).toFixed(1))} GB`
 }
 
 export function BookAnalysisInputDialog({
@@ -19,14 +34,68 @@ export function BookAnalysisInputDialog({
   onOpenChange,
   onSubmit,
 }: BookAnalysisInputDialogProps) {
-  const [filePath, setFilePath] = useState("")
+  const [files, setFiles] = useState<BatchImportCandidate[]>([])
   const [error, setError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const filesRef = useRef<BatchImportCandidate[]>([])
+  const isSubmittingRef = useRef(false)
+  const isSelectingRef = useRef(false)
+  const openRef = useRef(open)
+  const sessionTokenRef = useRef(0)
+  const selectionTokenRef = useRef(0)
+  openRef.current = open
 
-  const handleSelectFile = async () => {
+  const replaceFiles = (
+    nextFiles: BatchImportCandidate[] | ((currentFiles: BatchImportCandidate[]) => BatchImportCandidate[]),
+  ) => {
+    setFiles((currentFiles) => {
+      const resolvedFiles = typeof nextFiles === "function" ? nextFiles(currentFiles) : nextFiles
+      filesRef.current = resolvedFiles
+      return resolvedFiles
+    })
+  }
+
+  const resetDialogState = () => {
+    sessionTokenRef.current += 1
+    selectionTokenRef.current += 1
+    filesRef.current = []
+    isSubmittingRef.current = false
+    isSelectingRef.current = false
+    setFiles([])
+    setError("")
+    setIsSubmitting(false)
+    setIsSelecting(false)
+  }
+
+  useEffect(() => {
+    if (!open) resetDialogState()
+
+    return () => {
+      sessionTokenRef.current += 1
+      selectionTokenRef.current += 1
+    }
+  }, [open])
+
+  const isSelectionSessionActive = (sessionToken: number, selectionToken: number) => (
+    openRef.current
+    && sessionTokenRef.current === sessionToken
+    && selectionTokenRef.current === selectionToken
+  )
+
+  const handleSelectFiles = async () => {
+    if (isSubmittingRef.current || isSelectingRef.current) return
+
+    isSelectingRef.current = true
+    setIsSelecting(true)
+    const sessionToken = sessionTokenRef.current
+    const selectionToken = ++selectionTokenRef.current
     try {
       const { open: openDialog } = await import("@tauri-apps/plugin-dialog")
+      if (!isSelectionSessionActive(sessionToken, selectionToken)) return
+
       const selected = await openDialog({
-        multiple: false,
+        multiple: true,
         filters: [
           {
             name: "文本文件",
@@ -34,97 +103,175 @@ export function BookAnalysisInputDialog({
           },
         ],
       })
+      if (!isSelectionSessionActive(sessionToken, selectionToken)) return
 
-      if (selected && typeof selected === "string") {
-        setFilePath(selected)
-        setError("")
+      const selectedPaths = (typeof selected === "string" ? [selected] : selected ?? [])
+        .filter((path): path is string => typeof path === "string")
+      const knownPaths = new Set(filesRef.current.map((file) => getPathKey(file.sourcePath)))
+      const nextFiles: BatchImportCandidate[] = []
+      const failureMessages: string[] = []
+
+      for (const sourcePath of selectedPaths) {
+        const fileName = getFileName(sourcePath)
+        if (!fileName.toLowerCase().endsWith(".txt")) {
+          failureMessages.push(`仅支持 TXT 文件，已跳过“${fileName}”`)
+          continue
+        }
+
+        const pathKey = getPathKey(sourcePath)
+        if (knownPaths.has(pathKey)) {
+          failureMessages.push(`重复文件“${fileName}”，已跳过`)
+          continue
+        }
+        knownPaths.add(pathKey)
+
+        try {
+          const fileSize = await getFileSize(sourcePath)
+          if (!isSelectionSessionActive(sessionToken, selectionToken)) return
+          nextFiles.push({ sourcePath, fileName, fileSize })
+        } catch (err) {
+          if (!isSelectionSessionActive(sessionToken, selectionToken)) return
+          failureMessages.push(`读取文件“${fileName}”失败，已跳过该文件`)
+          console.error(err)
+        }
       }
+
+      if (!isSelectionSessionActive(sessionToken, selectionToken)) return
+      if (nextFiles.length > 0) {
+        replaceFiles((currentFiles) => [...currentFiles, ...nextFiles])
+      }
+      setError(failureMessages.join("\n"))
     } catch (err) {
-      setError("选择文件失败")
+      if (!isSelectionSessionActive(sessionToken, selectionToken)) return
+      setError("选择文件失败，请重试")
       console.error(err)
+    } finally {
+      if (isSelectionSessionActive(sessionToken, selectionToken)) {
+        isSelectingRef.current = false
+        setIsSelecting(false)
+      }
     }
   }
 
-  const handleSubmit = () => {
-    setError("")
+  const handleRemove = (index: number) => {
+    if (isSubmittingRef.current || isSelectingRef.current) return
+    replaceFiles((currentFiles) => currentFiles.filter((_, fileIndex) => fileIndex !== index))
+  }
 
-    if (!filePath.trim()) {
-      setError("请选择一个TXT文件")
-      return
+  const handleSubmit = async () => {
+    if (isSubmittingRef.current || isSelectingRef.current || filesRef.current.length === 0) return
+
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
+    setError("")
+    selectionTokenRef.current += 1
+    const sessionToken = sessionTokenRef.current
+    const submittedFiles = [...filesRef.current]
+    const submittedPathKeys = new Set(submittedFiles.map((file) => getPathKey(file.sourcePath)))
+
+    try {
+      await onSubmit(submittedFiles)
+      if (sessionTokenRef.current !== sessionToken) return
+      replaceFiles((currentFiles) => (
+        currentFiles.filter((file) => !submittedPathKeys.has(getPathKey(file.sourcePath)))
+      ))
+    } catch (err) {
+      if (sessionTokenRef.current !== sessionToken) return
+      setError("开始导入失败，请重试")
+      console.error(err)
+    } finally {
+      if (sessionTokenRef.current === sessionToken) {
+        isSubmittingRef.current = false
+        setIsSubmitting(false)
+      }
     }
-
-    onSubmit({
-      sourceType: "file",
-      sourcePath: filePath,
-    })
-
-    // 重置表单
-    setFilePath("")
-    setError("")
   }
 
-  const handleCancel = () => {
-    setError("")
-    setFilePath("")
-    onOpenChange(false)
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      if (isSubmittingRef.current || isSelectingRef.current) return
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
   }
+
+  const isBusy = isSelecting || isSubmitting
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="flex max-h-[85vh] flex-col sm:max-w-[640px]"
+        showCloseButton={!isBusy}
+      >
         <DialogHeader>
-          <DialogTitle>拆书作品</DialogTitle>
+          <DialogTitle>批量导入小说</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          {/* 文件选择 */}
-          <div className="space-y-2">
-            <Label>选择小说文件</Label>
-            <div className="flex gap-2">
-              <Input
-                value={filePath}
-                placeholder="点击右侧按钮选择TXT文件..."
-                readOnly
-                className="flex-1"
-              />
-              <Button onClick={handleSelectFile} variant="outline">
-                <FileText className="h-4 w-4 mr-2" />
-                浏览
-              </Button>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">已选择 {files.length} 本小说</p>
+              <p className="text-xs text-muted-foreground">仅支持 TXT 文件</p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              支持UTF-8和GBK编码的TXT文件，建议大小在50MB以内
-            </p>
+            <Button onClick={handleSelectFiles} variant="outline" disabled={isBusy}>
+              <FileText className="mr-2 h-4 w-4" />
+              {isSelecting ? "正在读取…" : files.length > 0 ? "继续添加" : "选择文件"}
+            </Button>
           </div>
 
-          {/* 错误提示 */}
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {files.length === 0 ? (
+              <div className="flex min-h-28 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                暂未选择小说文件
+              </div>
+            ) : (
+              files.map((file, index) => (
+                <div key={getPathKey(file.sourcePath)} className="flex items-start gap-3 rounded-md border p-3">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium">{file.fileName}</p>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatFileSize(file.fileSize)}
+                      </span>
+                    </div>
+                    <p className="mt-1 break-all text-xs text-muted-foreground">{file.sourcePath}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    aria-label={`移除${file.fileName}`}
+                    disabled={isBusy}
+                    onClick={() => handleRemove(index)}
+                  >
+                    <X className="mr-1 h-4 w-4" />
+                    移除
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
           {error && (
-            <div className="flex items-start gap-2 p-3 bg-destructive/10 text-destructive rounded-md">
-              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <span className="text-sm">{error}</span>
+            <div
+              role="alert"
+              className="flex max-h-32 items-start gap-2 overflow-y-auto rounded-md bg-destructive/10 p-3 text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="whitespace-pre-line text-sm">{error}</span>
             </div>
           )}
-
-          {/* 说明 */}
-          <div className="p-4 bg-muted rounded-md text-sm text-muted-foreground space-y-2">
-            <p className="font-medium text-foreground">导入后可进行：</p>
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li>自动识别章节，可选择需要分析的章节范围</li>
-              <li>提取小说中的所有角色及其性格特征</li>
-              <li>为每个角色生成可复用的 Skill 技能</li>
-              <li>将角色添加到自定义灵魂库，绑定到自己的作品中</li>
-            </ul>
-            <p className="text-xs mt-3 text-muted-foreground/80">
-              💡 提示：大型小说（500+章）分析耗时较长，支持随时暂停和继续
-            </p>
-          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isBusy}>
             取消
           </Button>
-          <Button onClick={handleSubmit}>开始拆书</Button>
+          <Button onClick={handleSubmit} disabled={files.length === 0 || isBusy}>
+            {isSubmitting ? "正在导入…" : "开始导入"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

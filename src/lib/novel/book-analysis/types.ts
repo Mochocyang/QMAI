@@ -284,7 +284,8 @@ export interface BookAnalysisLibrary {
 export interface BookLibraryEntry {
   bookId: string
   sourcePath: string         // 标准化路径
-  contentHash: string        // fingerprintFileSample 结果
+  contentHash: string        // 旧版 fingerprintFileSample 采样指纹，保留以兼容已有索引
+  contentSha256?: string      // 规范化完整正文的 SHA-256；旧版索引可能不存在
   title: string
   author?: string
   totalChapters: number

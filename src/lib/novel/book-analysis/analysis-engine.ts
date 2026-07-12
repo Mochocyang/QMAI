@@ -42,6 +42,48 @@ export interface SplitChaptersResult {
   }>
 }
 
+export interface ParsedNovelChapter {
+  title: string
+  content: string
+  order: number
+}
+
+export function parseNovelChapters(content: string): ParsedNovelChapter[] {
+  const chapterRegex = /第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*/gi
+  const matches = Array.from(content.matchAll(chapterRegex))
+
+  if (matches.length === 0) {
+    throw new Error("未能识别到章节标记，请确保小说文件包含\"第X章\"格式的章节标题")
+  }
+
+  return matches.map((match, index) => {
+    const startIdx = match.index!
+    const endIdx = matches[index + 1]?.index ?? content.length
+    return {
+      title: match[0].trim(),
+      content: content.slice(startIdx, endIdx).trim(),
+      order: index + 1,
+    }
+  })
+}
+
+export function buildChapterMarkdown(
+  bookId: string,
+  chapter: ParsedNovelChapter,
+): string {
+  void bookId
+  const chapterId = `ch-${String(chapter.order).padStart(4, "0")}`
+  return `---
+id: ${chapterId}
+title: ${chapter.title}
+order: ${chapter.order}
+wordCount: ${chapter.content.length}
+---
+
+${chapter.content}
+`
+}
+
 /**
  * 创建拆书分析目录结构
  */
@@ -120,13 +162,7 @@ export async function splitNovelIntoChapters(
   })
 
   // 章节拆分（支持多种格式）
-  const chapterRegex = /第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*/gi
-  const matches = Array.from(content.matchAll(chapterRegex))
-
-  if (matches.length === 0) {
-    throw new Error("未能识别到章节标记，请确保小说文件包含\"第X章\"格式的章节标题")
-  }
-
+  const parsedChapters = parseNovelChapters(content)
   const chapters: Array<{
     id: string
     title: string
@@ -135,56 +171,38 @@ export async function splitNovelIntoChapters(
     path: string
   }> = []
 
-  const totalChapters = matches.length
+  const totalChapters = parsedChapters.length
   let totalWords = 0
 
-  for (let i = 0; i < matches.length; i++) {
+  for (const chapter of parsedChapters) {
     if (signal?.aborted) {
       throw new Error("用户取消分析")
     }
 
-    const match = matches[i]
-    const title = match[0].trim()
-    const startIdx = match.index!
-    const endIdx = matches[i + 1]?.index ?? content.length
-
-    const chapterContent = content.slice(startIdx, endIdx).trim()
-    const wordCount = chapterContent.length
+    const chapterId = `ch-${String(chapter.order).padStart(4, "0")}`
+    const chapterPath = joinPath(bookPath, "chapters", `${chapterId}.md`)
+    const wordCount = chapter.content.length
     totalWords += wordCount
 
-    const chapterId = `ch-${String(i + 1).padStart(4, "0")}`
-    const chapterPath = joinPath(bookPath, "chapters", `${chapterId}.md`)
-
-    // 生成 markdown 格式
-    const markdown = `---
-id: ${chapterId}
-title: ${title}
-order: ${i + 1}
-wordCount: ${wordCount}
----
-
-${chapterContent}
-`
-
-    await writeFile(chapterPath, markdown)
+    await writeFile(chapterPath, buildChapterMarkdown(bookId, chapter))
 
     chapters.push({
       id: chapterId,
-      title,
-      order: i + 1,
+      title: chapter.title,
+      order: chapter.order,
       wordCount,
       path: chapterPath,
     })
 
     // 更新进度
-    const progress = Math.floor(10 + (i + 1) / totalChapters * 20)
+    const progress = Math.floor(10 + chapter.order / totalChapters * 20)
     onProgress?.({
       stage: "splitting_chapters",
       stageLabel: "拆分章节中",
-      completed: i + 1,
+      completed: chapter.order,
       total: totalChapters,
       percentage: progress,
-      currentItem: title,
+      currentItem: chapter.title,
     })
   }
 

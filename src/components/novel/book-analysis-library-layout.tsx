@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Plus, RefreshCw, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
@@ -15,6 +16,7 @@ interface BookAnalysisLibraryLayoutProps {
   extractingStoryFramework: boolean
   addingToSoul: boolean
   storyFrameworks?: PlotFramework[]
+  importTaskPanel?: ReactNode
   onSelectBook: (bookId: string) => void
   onSelectCharacter: (characterId: string) => void
   onImportNovel: () => void
@@ -36,6 +38,7 @@ export function BookAnalysisLibraryLayout({
   extractingStoryFramework,
   addingToSoul,
   storyFrameworks = [],
+  importTaskPanel,
   onSelectCharacter,
   onImportNovel,
   onExtractStyle,
@@ -83,6 +86,7 @@ export function BookAnalysisLibraryLayout({
             </Button>
           </div>
         </header>
+        {importTaskPanel}
         {selectedBook ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
             <div>
