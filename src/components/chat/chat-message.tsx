@@ -288,7 +288,7 @@ export function ChatMessage({
               />
             </div>
           )}
-        {saveStatus && (
+        {isLastAssistant && saveStatus && (
           <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
         )}
       </div>
@@ -977,6 +977,37 @@ function formatThinkingForDisplay(content: string): string {
 function StreamingWorkflowBlock({ content }: { content: string }) {
   const displayContent = useMemo(() => formatThinkingForDisplay(content), [content])
   const { title } = useMemo(() => getThinkingBlockMeta(content, true), [content])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledUpRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    if (!userScrolledUpRef.current) {
+      container.scrollTop = container.scrollHeight
+      lastScrollTopRef.current = container.scrollTop
+    }
+  }, [displayContent])
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    lastScrollTopRef.current = container.scrollTop
+    const handleScroll = () => {
+      const threshold = 40
+      const currentScrollTop = container.scrollTop
+      const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < threshold
+      if (currentScrollTop < lastScrollTopRef.current - 1) {
+        userScrolledUpRef.current = true
+      } else if (atBottom) {
+        userScrolledUpRef.current = false
+      }
+      lastScrollTopRef.current = currentScrollTop
+    }
+    container.addEventListener("scroll", handleScroll)
+    return () => container.removeEventListener("scroll", handleScroll)
+  }, [])
 
   return (
     <div className="w-full min-w-0 rounded-md border border-dashed border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 px-2.5 py-2 min-h-[3rem]">
@@ -984,7 +1015,10 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
         <span className="text-sm animate-pulse">📋</span>
         <span className="text-xs font-medium text-blue-700 dark:text-blue-400">{title}</span>
       </div>
-      <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+      <div
+        ref={scrollRef}
+        className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+      >
         {displayContent}
         <span className="text-blue-500"><StreamingSpinner /></span>
       </div>

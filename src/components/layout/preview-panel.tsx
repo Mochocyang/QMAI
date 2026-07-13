@@ -218,6 +218,7 @@ export function PreviewPanel() {
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
+  const pendingScrollRestoreRef = useRef<number | null>(null)
   // Snapshot of what was most recently loaded from disk. Milkdown re-emits
   // `markdownUpdated` on initial parse (before the user types anything),
   // which used to trigger an auto-save that could write back a placeholder
@@ -277,11 +278,29 @@ export function PreviewPanel() {
     rememberLoadedChapter(normalizedPath, diskContent)
     fileContentRef.current = diskContent
     if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
+      const scrollTop = wikiEditorRef.current?.getImmersiveScrollTop()
+      if (scrollTop != null) {
+        pendingScrollRestoreRef.current = scrollTop
+      }
       setFileContent(diskContent)
       setDiskSyncEpoch((epoch) => epoch + 1)
     }
     return true
   }, [rememberLoadedChapter, setFileContent])
+
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestoreRef.current
+    if (pending == null) return
+    pendingScrollRestoreRef.current = null
+    const restore = () => wikiEditorRef.current?.setImmersiveScrollTop(pending)
+    restore()
+    // WritingTextarea autofocus/caret-to-end can scrollIntoView after mount;
+    // re-apply on the next frames so the restored position sticks.
+    requestAnimationFrame(() => {
+      restore()
+      requestAnimationFrame(restore)
+    })
+  }, [diskSyncEpoch, selectedFile])
 
   const syncDiskBeforeAction = useCallback(async () => {
     const path = selectedFileRef.current

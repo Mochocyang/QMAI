@@ -2031,11 +2031,11 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                         {isRunning
                           ? formatImportProgressRunningLabel(task, kindLabel)
                           : task.status === "done"
-                            ? `${kindLabel}提取完成`
+                            ? (task.message || `${kindLabel}提取完成`)
                             : task.status === "error"
-                              ? `${kindLabel}提取失败`
+                              ? (task.message || `${kindLabel}提取失败`)
                               : task.status === "cancelled"
-                                ? `${kindLabel}提取已取消`
+                                ? (task.message || `${kindLabel}提取已取消`)
                                 : task.message ?? ""}
                       </span>
                     </span>

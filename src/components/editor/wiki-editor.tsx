@@ -579,6 +579,8 @@ interface WikiEditorProps {
 
 export interface WikiEditorHandle {
   getCurrentMarkdown: () => string | null;
+  getImmersiveScrollTop: () => number | null;
+  setImmersiveScrollTop: (scrollTop: number) => void;
 }
 
 function wrapBareMathBlocks(text: string): string {
@@ -602,6 +604,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
     ref,
   ) {
     const writingTextareaRef = useRef<WritingTextareaHandle>(null);
+    const immersiveScrollRef = useRef<HTMLDivElement>(null);
     // Default to read mode (ReactMarkdown render). Edit mode swaps
     // in Milkdown WYSIWYG. We default to read because:
     //   1. Milkdown's commonmark/gfm preset has no wikilink schema,
@@ -640,6 +643,14 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
           const liveBody = writingTextareaRef.current?.getLiveBodyMarkdown();
           if (liveBody == null) return null;
           return rawBlock + liveBody;
+        },
+        getImmersiveScrollTop: () => {
+          const el = immersiveScrollRef.current;
+          return el ? el.scrollTop : null;
+        },
+        setImmersiveScrollTop: (scrollTop: number) => {
+          const el = immersiveScrollRef.current;
+          if (el) el.scrollTop = scrollTop;
         },
       }),
       [rawBlock],
@@ -684,6 +695,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
           </div>
         ) : immersiveWriting ? (
           <div
+            ref={immersiveScrollRef}
             className="immersive-scroll-container flex h-full w-full flex-col overflow-auto"
             style={{
               scrollbarWidth: "thin",

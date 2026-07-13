@@ -138,6 +138,15 @@
     --brand-800: oklch(0.22 0.052 178);
 }
 
+/* Keep native number steppers readable when the app switches color schemes. */
+input[type="number"] {
+    color-scheme: light;
+}
+
+.dark input[type="number"] {
+    color-scheme: dark;
+}
+
 :root.visual-cangzhu {
     --background: oklch(0.95 0.021 91);
     --foreground: oklch(0.25 0.035 160);
