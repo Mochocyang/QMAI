@@ -42,7 +42,6 @@ function SkillOptionsProbe() {
       <span data-testid="effective-name">{options.effectiveName}</span>
       <span data-testid="current-id">{options.currentSkillId}</span>
       <span data-testid="default-id">{options.defaultSkillId}</span>
-      <span data-testid="modified-count">{options.modifiedSkillIds.length}</span>
     </div>
   )
 }
@@ -85,7 +84,7 @@ describe("DeAiSkillPicker", () => {
     })
   })
 
-  it("shows the effective de-AI skill and marks modified skills", async () => {
+  it("shows the effective de-AI skill", async () => {
     const { container, root } = await renderPicker()
 
     const button = container.querySelector<HTMLButtonElement>("button")
@@ -96,7 +95,7 @@ describe("DeAiSkillPicker", () => {
       button?.click()
     })
 
-    expect(container.textContent).toContain("已修改")
+    expect(container.textContent).not.toContain("已修改")
 
     cleanup(root, container)
   })
@@ -172,7 +171,6 @@ describe("DeAiSkillPicker", () => {
           }]}
           currentSkillId="built-in:comprehensive"
           defaultSkillId="built-in:comprehensive"
-          modifiedSkillIds={["built-in:comprehensive"]}
           onPick={vi.fn()}
         />,
       )
@@ -181,7 +179,7 @@ describe("DeAiSkillPicker", () => {
     expect(container.textContent).toContain("综合去AI味-项目版")
     expect(container.textContent).toContain("当前")
     expect(container.textContent).toContain("默认")
-    expect(container.textContent).toContain("已修改")
+    expect(container.textContent).not.toContain("已修改")
 
     await act(async () => {
       root.render(
@@ -192,7 +190,6 @@ describe("DeAiSkillPicker", () => {
           skills={[]}
           currentSkillId={null}
           defaultSkillId={null}
-          modifiedSkillIds={[]}
           onPick={vi.fn()}
         />,
       )

@@ -169,6 +169,8 @@ export async function runChapterPlanSelfCheck(
       onDone: () => {},
       onError: (error) => { streamError = error },
     },
+    undefined,
+    { reasoning: { mode: "off" } },
   )
   if (streamError) throw streamError
   return parseChapterPlanSelfCheckResult(result.trim()).formattedText || "自检完成，未返回具体结果。"
@@ -212,6 +214,8 @@ export async function runChapterPlanRevision(
       onDone: () => {},
       onError: (error) => { streamError = error },
     },
+    undefined,
+    { reasoning: { mode: "off" } },
   )
   if (streamError) throw streamError
   return result.trim() || "修订失败：模型未返回修订计划。"

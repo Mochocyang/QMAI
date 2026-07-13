@@ -1666,7 +1666,6 @@ export function PreviewPanel() {
             skills={chapterDeAiOptions.skills}
             currentSkillId={chapterDeAiOptions.currentSkillId}
             defaultSkillId={chapterDeAiOptions.defaultSkillId}
-            modifiedSkillIds={chapterDeAiOptions.modifiedSkillIds}
             onClose={() => {
               setDeAiSkillPickerOpen(false)
               setPendingSelectionForDeAi(null)

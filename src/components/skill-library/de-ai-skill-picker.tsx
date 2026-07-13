@@ -22,7 +22,6 @@ interface DeAiSkillOptionsPanelProps {
   skills: DeAiSkill[]
   currentSkillId?: string | null
   defaultSkillId?: string | null
-  modifiedSkillIds: string[]
   onPick: (skillId: string) => void
   onClose?: () => void
 }
@@ -52,7 +51,6 @@ export function DeAiSkillOptionsPanel({
   skills,
   currentSkillId,
   defaultSkillId,
-  modifiedSkillIds,
   onPick,
   onClose,
 }: DeAiSkillOptionsPanelProps) {
@@ -133,11 +131,6 @@ export function DeAiSkillOptionsPanel({
                 默认
               </span>
             ) : null}
-            {modifiedSkillIds.includes(skill.id) ? (
-              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">
-                已修改
-              </span>
-            ) : null}
           </div>
           {skill.description ? (
             <div className="mt-0.5 truncate text-xs text-muted-foreground">{skill.description}</div>
@@ -167,10 +160,9 @@ export function DeAiSkillPicker({
     effectiveName,
     currentSkillId,
     defaultSkillId,
-    modifiedSkillIds,
     loadError,
   } = useDeAiSkillOptions({ projectPath: project?.path, selectedSkillId: value })
-  const triggerTitle = buttonLabel === "技能库" ? "技能库：选择写作 Skill 或去AI味 Skill" : `当前去AI味 Skill：${effectiveName}`
+  const triggerTitle = buttonLabel === "技能库" ? "技能库：选择去AI味 Skill" : `当前去AI味 Skill：${effectiveName}`
   const iconTriggerDescription = buttonLabel === "技能库"
     ? `${triggerTitle}。点击打开技能选择`
     : `${triggerTitle}。点击选择去AI味 Skill`
@@ -227,7 +219,6 @@ export function DeAiSkillPicker({
             skills={skills}
             currentSkillId={currentSkillId}
             defaultSkillId={defaultSkillId}
-            modifiedSkillIds={modifiedSkillIds}
             onClose={() => setOpen(false)}
             onPick={(skillId) => {
               onChange(skillId)

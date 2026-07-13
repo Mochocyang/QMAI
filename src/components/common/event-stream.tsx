@@ -1,10 +1,10 @@
-import { memo, useState, useEffect, useMemo, useRef } from "react"
+import { memo, useEffect, useMemo, useRef } from "react"
 import type { TimelineEvent } from "./timeline-types"
 import { groupTimelineEvents } from "./timeline-grouping"
 import { ThinkingEvent } from "./timeline-thinking-event"
 import { ToolCallEvent } from "./timeline-tool-event"
 import { getToolCallGroupRenderKey, ToolCallGroup } from "./timeline-tool-group"
-import { ArrowDown, Brain, Clock3, Hash } from "lucide-react"
+import { Brain, Clock3, Hash } from "lucide-react"
 
 interface EventStreamProps {
   events: TimelineEvent[]
@@ -15,7 +15,6 @@ interface EventStreamProps {
 
 function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: EventStreamProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [showScrollButton, setShowScrollButton] = useState(false)
   const userScrolledRef = useRef(false)
   const groupedEvents = useMemo(() => groupTimelineEvents(events), [events])
 
@@ -34,14 +33,6 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
     return `${minutes}分${seconds}秒`
   }
 
-  const scrollToBottom = () => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
-      userScrolledRef.current = false
-      setShowScrollButton(false)
-    }
-  }
-
   useEffect(() => {
     if (!isStreaming) return
     const container = containerRef.current
@@ -52,10 +43,8 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
       const atBottom = scrollHeight - scrollTop - clientHeight < 30
       if (!atBottom) {
         userScrolledRef.current = true
-        setShowScrollButton(true)
       } else {
         userScrolledRef.current = false
-        setShowScrollButton(false)
       }
     }
 
@@ -63,10 +52,9 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
     return () => container.removeEventListener("scroll", handleScroll)
   }, [isStreaming])
 
-  // 流式结束后重置滚动按钮状态，避免 ArrowDown 残留遮挡底部耗时统计
+  // 流式结束后重置滚动锁定状态
   useEffect(() => {
     if (!isStreaming) {
-      setShowScrollButton(false)
       userScrolledRef.current = false
     }
   }, [isStreaming])
@@ -153,17 +141,6 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
           </div>
         )}
       </div>
-
-      {showScrollButton && (
-        <button
-          type="button"
-          onClick={scrollToBottom}
-          className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-background border border-border shadow-md hover:bg-accent transition-colors text-foreground/70 hover:text-foreground"
-          title="回到最新"
-        >
-          <ArrowDown className="h-3.5 w-3.5" />
-        </button>
-      )}
     </div>
   )
 }

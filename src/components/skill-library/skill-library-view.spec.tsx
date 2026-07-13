@@ -303,7 +303,7 @@ describe("SkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("marks modified skills in the list and detail header", async () => {
+  it("does not show modified badges after saving skill changes", async () => {
     const { container, root } = await renderLibrary()
     const nameInput = container.querySelector<HTMLInputElement>('[data-testid="skill-name-input"]')
     const contentInput = container.querySelector<HTMLTextAreaElement>('[data-testid="skill-content-input"]')
@@ -316,8 +316,8 @@ describe("SkillLibraryView", () => {
       container.querySelector<HTMLButtonElement>('[data-testid="skill-save-button"]')?.click()
     })
 
-    expect(container.querySelectorAll('[data-testid="skill-modified-badge"]').length).toBeGreaterThanOrEqual(2)
-    expect(container.textContent).toContain("已修改")
+    expect(container.querySelectorAll('[data-testid="skill-modified-badge"]').length).toBe(0)
+    expect(container.textContent).not.toContain("已修改")
 
     cleanup(root, container)
   })

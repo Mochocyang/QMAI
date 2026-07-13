@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
   isDeAiSkillConfigCorruptError,
-  isDeAiSkillModified,
   loadDeAiSkillConfig,
   resolveAvailableDeAiSkills,
   resolveEffectiveDeAiSkill,
@@ -22,7 +21,6 @@ interface DeAiSkillOptionsState {
   effectiveName: string
   currentSkillId: string | null
   defaultSkillId: string | null
-  modifiedSkillIds: string[]
   loadError: string
 }
 
@@ -38,7 +36,6 @@ export function useDeAiSkillOptions({
     effectiveName: "技能",
     currentSkillId: null,
     defaultSkillId: null,
-    modifiedSkillIds: [],
     loadError: "",
   })
 
@@ -59,7 +56,6 @@ export function useDeAiSkillOptions({
           effectiveName: effectiveSkill?.name ?? "未启用",
           currentSkillId: effectiveSkill?.id ?? null,
           defaultSkillId: config.defaultSkillId,
-          modifiedSkillIds: skills.filter((skill) => isDeAiSkillModified(config, skill.id)).map((skill) => skill.id),
           loadError: "",
         })
       })
@@ -71,7 +67,6 @@ export function useDeAiSkillOptions({
           effectiveName: isDeAiSkillConfigCorruptError(error) ? "配置损坏" : "未启用",
           currentSkillId: null,
           defaultSkillId: null,
-          modifiedSkillIds: [],
           loadError: getDeAiSkillLoadErrorMessage(error),
         })
       })

@@ -1471,6 +1471,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     lastScrollTopRef.current = container.scrollTop;
   }, [activeMessages, batchedStreamingContent]);
 
+  // 重新进入面板时滚动到最后一条消息
+  // AI 大纲消息渲染较重（StreamingMarkdown、时间线、工具调用等），
+  // 重新挂载时 DOM 渲染较慢，auto-scroll effect 首次执行时 scrollHeight 不是最终值。
+  // 在多个时间点尝试滚动，覆盖不同渲染速度，最后一次必定到底。
+  useEffect(() => {
+    const timers = [100, 300, 600, 1000, 1500].map((delay) =>
+      window.setTimeout(() => {
+        const container = scrollRef.current;
+        if (!container || userScrolledUpRef.current) return;
+        container.scrollTop = container.scrollHeight;
+        lastScrollTopRef.current = container.scrollTop;
+      }, delay),
+    );
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, []);
+
   const handleScrollToBottom = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -2381,6 +2397,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             clearDraft: false,
             intentPhase: "generation",
             systemGenerated: true,
+            forceRefresh: true,
           });
         }
         return { started: true, sent: true };
@@ -2507,7 +2524,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const intentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
           const generationPrompt = buildGenerationPrompt(intentContext.title, intentContext.hint, scope, intentContext.outputMode);
           const references = outlineReferenceTokens;
-          const result = await handleSend(generationPrompt, references, { conversationId: capturedConvId, intentPhase: "generation", clearDraft: false, systemGenerated: true });
+          const result = await handleSend(generationPrompt, references, { conversationId: capturedConvId, intentPhase: "generation", clearDraft: false, systemGenerated: true, forceRefresh: true });
           if (result.sent) {
             if (shouldClearOutlineReferences({
               invocationConversationId: capturedConvId,
