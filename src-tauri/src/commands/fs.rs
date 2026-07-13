@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Read as IoRead;
+use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
@@ -1134,6 +1134,122 @@ pub async fn write_file(path: String, contents: String) -> Result<(), String> {
         .map_err(|e| format!("write_file blocking task join error: {e}"))?
 }
 
+/// Atomically replace the destination with a sibling temporary file.
+#[cfg(windows)]
+fn replace_export_file_atomically(temp: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let existing: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let new: Vec<u16> = destination.as_os_str().encode_wide().chain(Some(0)).collect();
+    let result = unsafe {
+        MoveFileExW(
+            existing.as_ptr(),
+            new.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(format!("原子替换导出文件失败: {}", std::io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_export_file_atomically(temp: &Path, destination: &Path) -> Result<(), String> {
+    fs::rename(temp, destination).map_err(|e| format!("原子替换导出文件失败: {e}"))
+}
+
+fn do_write_export_file_with_replace<F>(path: &str, bytes: &[u8], replace: F) -> Result<(), String>
+where
+    F: FnOnce(&Path, &Path) -> Result<(), String>,
+{
+    run_guarded("write_export_file", || {
+        // 保存窗口返回的是用户选定的外部路径，绝不能经过项目路径虚拟化。
+        let destination = Path::new(path);
+        let parent = destination
+            .parent()
+            .ok_or_else(|| "导出路径缺少父目录".to_string())?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("创建导出目录失败 '{}': {e}", parent.display()))?;
+        let file_name = destination
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "qmai-export".to_string());
+        let temp = parent.join(format!(
+            ".{file_name}.{}.export.tmp",
+            chrono::Utc::now()
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis())
+        ));
+
+        file_sync::mark_app_write_path(&temp);
+        file_sync::mark_app_write_path(destination);
+        let write_result = (|| {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+                .map_err(|e| format!("创建导出临时文件失败 '{}': {e}", temp.display()))?;
+            file.write_all(bytes)
+                .map_err(|e| format!("写入导出临时文件失败 '{}': {e}", temp.display()))?;
+            file.sync_all()
+                .map_err(|e| format!("同步导出临时文件失败 '{}': {e}", temp.display()))?;
+            drop(file);
+            replace(&temp, destination)
+        })();
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        write_result?;
+        file_sync::mark_app_write_path(destination);
+        Ok(())
+    })
+}
+
+/// Write export payloads as exact bytes so ZIP-based DOCX files are not UTF-8 re-encoded.
+pub fn do_write_export_file(path: &str, bytes: &[u8]) -> Result<(), String> {
+    do_write_export_file_with_replace(path, bytes, replace_export_file_atomically)
+}
+
+const MAX_EXPORT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_EXPORT_BASE64_LENGTH: usize = ((MAX_EXPORT_BYTES + 2) / 3) * 4;
+
+fn validate_export_base64_length(length: usize) -> Result<(), String> {
+    if length > MAX_EXPORT_BASE64_LENGTH {
+        Err("导出文件超过 64 MiB 限制，请缩小导出范围。".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+pub fn do_write_export_file_base64(path: &str, contents_base64: &str) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    validate_export_base64_length(contents_base64.len())?;
+    let bytes = B64
+        .decode(contents_base64)
+        .map_err(|e| format!("导出文件数据解码失败: {e}"))?;
+    if bytes.len() > MAX_EXPORT_BYTES {
+        return Err("导出文件超过 64 MiB 限制，请缩小导出范围。".to_string());
+    }
+    do_write_export_file(path, &bytes)
+}
+
+#[tauri::command]
+pub async fn write_export_file(path: String, contents_base64: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        do_write_export_file_base64(&path, &contents_base64)
+    })
+    .await
+    .map_err(|e| format!("write_export_file blocking task join error: {e}"))?
+}
 /// Core logic for `write_file_atomic`, callable from both Tauri commands and Axum handlers.
 pub fn do_write_file_atomic(path: &str, contents: &str) -> Result<(), String> {
     run_guarded("write_file_atomic", || {
@@ -1802,6 +1918,121 @@ mod tests {
         let mut f = fs::File::create(&path).unwrap();
         f.write_all(bytes).unwrap();
         path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn write_export_file_uses_dialog_path_without_project_path_rewrite() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-export-exact-path-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = root.join("wiki").join(".llm-wiki").join("export.docx");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        do_write_export_file(&path.to_string_lossy(), b"exact-path").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"exact-path");
+        assert!(!root.join("QM").join(".qmai").join("export.docx").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn write_export_file_atomically_replaces_existing_file() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-export-atomic-success-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("export.docx");
+        fs::write(&path, b"old-content").unwrap();
+
+        do_write_export_file(&path.to_string_lossy(), b"new-content").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"new-content");
+        let leftovers: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path() != path)
+            .collect();
+        assert!(leftovers.is_empty(), "临时文件未清理: {leftovers:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn write_export_file_replace_failure_keeps_old_file_and_removes_temp_file() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-export-atomic-failure-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("export.docx");
+        fs::write(&path, b"old-content").unwrap();
+
+        let result = do_write_export_file_with_replace(
+            &path.to_string_lossy(),
+            b"new-content",
+            |_temp, _destination| Err("模拟原子替换失败".to_string()),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"old-content");
+        let leftovers: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path() != path)
+            .collect();
+        assert!(leftovers.is_empty(), "临时文件未清理: {leftovers:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn write_export_file_preserves_binary_bytes() {
+        let path = std::env::temp_dir().join(format!(
+            "qmai-export-center-{}.docx",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let expected = vec![0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0x80];
+
+        do_write_export_file(&path.to_string_lossy(), &expected).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), expected);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn write_export_file_enforces_64_mib_boundary() {
+        assert!(validate_export_base64_length(MAX_EXPORT_BASE64_LENGTH).is_ok());
+        let error = validate_export_base64_length(MAX_EXPORT_BASE64_LENGTH + 4).unwrap_err();
+        assert!(error.contains("64 MiB"));
+    }
+
+    #[test]
+    fn write_export_file_decodes_base64_before_writing() {
+        let path = std::env::temp_dir().join(format!(
+            "qmai-export-center-base64-{}.docx",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let expected = vec![0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0x80];
+
+        do_write_export_file_base64(&path.to_string_lossy(), "UEsDBP8AgA==").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), expected);
+        let _ = fs::remove_file(path);
     }
 
     #[test]

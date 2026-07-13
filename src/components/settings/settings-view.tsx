@@ -13,6 +13,7 @@ import {
   HeartHandshake,
   Archive,
   FileText,
+  Download,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -40,6 +41,7 @@ import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
+import { ExportCenterSection } from "./sections/export-center-section"
 
 type CategoryId =
   | "llm"
@@ -52,6 +54,7 @@ type CategoryId =
   | "usage-guide"
   | "maintenance"
   | "data-management"
+  | "export-center"
   | "feedback"
   | "contact-support"
   | "classification"
@@ -66,6 +69,7 @@ interface Category {
   /** Optional muted subtitle under the label (e.g. novel → model setup). */
   hintKey?: string
   icon: typeof Bot
+  defaultLabel?: string
 }
 
 const CATEGORIES: Category[] = [
@@ -79,6 +83,7 @@ const CATEGORIES: Category[] = [
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
+  { id: "export-center", labelKey: "settings.categories.exportCenter", defaultLabel: "导出中心", icon: Download },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "contact-support", labelKey: "settings.categories.contactSupport", icon: HeartHandshake },
   { id: "classification", labelKey: "settings.categories.classification", icon: FileText },
@@ -539,6 +544,8 @@ export function SettingsView() {
         return <MaintenanceSection />
       case "data-management":
         return <DataManagementSection />
+      case "export-center":
+        return <ExportCenterSection currentProject={project} />
       case "feedback":
         return <FeedbackSection />
       case "contact-support":
@@ -585,7 +592,7 @@ export function SettingsView() {
                   }`}
                 />
                 <span className="flex min-w-0 flex-1 flex-col items-start">
-                  <span className="truncate">{t(c.labelKey)}</span>
+                  <span className="truncate">{t(c.labelKey, { defaultValue: c.defaultLabel })}</span>
                   {c.hintKey ? (
                     <span className={`truncate text-[10px] leading-tight ${
                       isActive ? "text-sidebar-accent-foreground/70" : "text-sidebar-foreground/55"
