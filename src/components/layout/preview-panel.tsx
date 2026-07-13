@@ -19,7 +19,6 @@ import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getNextChatExpanded } from "./chat-layout"
-import { DeAiPreviewDialog } from "@/components/novel/de-ai-preview-dialog"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { DeAiSkillOptionsPanel } from "@/components/skill-library/de-ai-skill-picker"
 import { useDeAiSkillOptions } from "@/components/skill-library/use-de-ai-skill-options"
@@ -47,7 +46,6 @@ import {
   buildPolishSelectionMessages,
   rebuildChapterBody,
   replaceChapterBodySelection,
-  replaceWholeChapterBody,
   splitChapterHeading,
   type ChapterBodySelection,
   type ChapterSelectionAction,
@@ -57,6 +55,10 @@ import { registerEditorDiskSyncHandler } from "@/lib/editor-disk-sync-session"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate } from "@/lib/novel/de-ai-batch/chapter-apply"
+import { toast } from "@/lib/toast"
+import { useDeAiTaskStore } from "@/stores/de-ai-task-store"
+import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
+import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -193,13 +195,12 @@ export function PreviewPanel() {
   const [outlineSnapshotNumber, setOutlineSnapshotNumber] = useState<number | null>(null)
   const [outlineIngested, setOutlineIngested] = useState(false)
   const [showCognition, setShowCognition] = useState(false)
-  const [deAiProcessing, setDeAiProcessing] = useState(false)
-  const [deAiPreviewOpen, setDeAiPreviewOpen] = useState(false)
-  const [deAiSourceContent, setDeAiSourceContent] = useState("")
-  const [deAiCandidateContent, setDeAiCandidateContent] = useState("")
-  const [deAiSkillName, setDeAiSkillName] = useState("")
-  const [deAiModelName, setDeAiModelName] = useState("")
-  const [deAiSkillMemoryWarning, setDeAiSkillMemoryWarning] = useState("")
+  const currentChapterDeAiProcessing = useDeAiTaskStore((s) =>
+    selectedFile ? s.isChapterProcessing(selectedFile) : false
+  )
+  const deAiReviewOpen = useDeAiTaskStore((s) => s.reviewOpen)
+  const deAiReviewChapterId = useDeAiTaskStore((s) => s.reviewChapterId)
+  const deAiTasks = useDeAiTaskStore((s) => s.tasks)
   const [selectionTransformOpen, setSelectionTransformOpen] = useState(false)
   const [selectionTransformAction, setSelectionTransformAction] = useState<ChapterSelectionAction | null>(null)
   const [selectionTransformSelection, setSelectionTransformSelection] = useState<ChapterBodySelection | null>(null)
@@ -228,7 +229,6 @@ export function PreviewPanel() {
   const lastLoadedByPathRef = useRef<Map<string, string>>(new Map())
   const fileContentRef = useRef(fileContent)
   const selectedFileRef = useRef<string | null>(selectedFile)
-  const deAiSkillMemoryWarningRef = useRef("")
   const deAiSkillPickerRef = useRef<HTMLDivElement | null>(null)
   const chapterToolbarRef = useRef<HTMLDivElement | null>(null)
   const titleMeasureRef = useRef<HTMLSpanElement | null>(null)
@@ -342,15 +342,7 @@ export function PreviewPanel() {
 
   useEffect(() => {
     setChapterDeAiSkillId(undefined)
-    deAiSkillMemoryWarningRef.current = ""
-    setDeAiSkillMemoryWarning("")
   }, [project?.path])
-
-  const formatDeAiStatus = useCallback((status: string) => {
-    const warning = deAiSkillMemoryWarningRef.current || deAiSkillMemoryWarning
-    if (!status) return warning
-    return warning ? `${warning}；${status}` : status
-  }, [deAiSkillMemoryWarning])
 
   useEffect(() => {
     if (!deAiSkillPickerOpen) return
@@ -445,9 +437,6 @@ export function PreviewPanel() {
     }
     selectedFileRef.current = selectedFile
     setSelectionTransformOpen(false)
-    setDeAiPreviewOpen(false)
-    setDeAiSkillName("")
-    setDeAiModelName("")
     setSelectionTransformSkillName("")
     setSelectionTransformModelName("")
     setLoadedFilePath(null)
@@ -734,7 +723,7 @@ export function PreviewPanel() {
     </div>
   ) : null
   const chapterDeAiSkillName = chapterHeader ? chapterDeAiOptions.effectiveName : "未启用"
-  const chapterDeAiButtonLabel = deAiProcessing ? "处理中" : "去AI味"
+  const chapterDeAiButtonLabel = currentChapterDeAiProcessing ? "处理中" : "去AI味"
   const chapterDeAiButtonTitle = `当前去AI味 Skill：${chapterDeAiSkillName}`
 
   useEffect(() => {
@@ -1027,19 +1016,24 @@ export function PreviewPanel() {
   const runWholeChapterDeAi = useCallback(async (skillContent: string, skillName: string) => {
     await syncDiskBeforeAction()
     const source = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
-    if (!source.trim()) return
-    setDeAiProcessing(true)
-    setDeAiSkillName(skillName)
+    if (!source.trim() || !selectedFile || !project) return
     const state = useWikiStore.getState()
     const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "deAi")
     const modelLabel = formatResolvedModelLabel(llmConfig, state.providerConfigs)
-    setDeAiModelName(modelLabel)
     if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
-      setDeAiProcessing(false)
-      setSaveStatus("未配置可用的 AI 模型，无法去AI味")
+      toast.error("未配置可用的 AI 模型，无法去AI味")
       return
     }
-    setSaveStatus(formatDeAiStatus(`去AI味处理中，使用 Skill：${skillName}，模型：${modelLabel}...`))
+    const chapterTitle = typeof chapterHeader === "string" ? chapterHeader : (chapterHeader?.heading ?? selectedFile)
+    const taskId = useDeAiTaskStore.getState().startTask({
+      projectPath: project.path,
+      chapterPath: selectedFile,
+      chapterTitle,
+      skillId: chapterDeAiOptions.currentSkillId ?? null,
+      skillName,
+      modelName: modelLabel,
+      sourceContent: source,
+    })
     let result = ""
     try {
       await streamChat(
@@ -1050,54 +1044,19 @@ export function PreviewPanel() {
             result += token
           },
           onDone: () => {
-            setDeAiSourceContent(source)
-            setDeAiCandidateContent(result)
-            setDeAiPreviewOpen(true)
-            setDeAiProcessing(false)
-            setSaveStatus(formatDeAiStatus(`本次使用 Skill：${skillName}，模型：${modelLabel}`))
+            useDeAiTaskStore.getState().finishTask(taskId, result)
           },
           onError: (error) => {
             console.error("去AI味处理失败:", error)
-            setDeAiProcessing(false)
+            useDeAiTaskStore.getState().failTask(taskId, error.message ?? String(error))
           },
         },
       )
     } catch (err) {
       console.error("去AI味处理失败:", err)
-      setDeAiProcessing(false)
+      useDeAiTaskStore.getState().failTask(taskId, String(err))
     }
-  }, [formatDeAiStatus, syncDiskBeforeAction])
-
-  const handleDeAiApply = useCallback(() => {
-    setDeAiPreviewOpen(false)
-    setDeAiSkillName("")
-    setDeAiModelName("")
-    handleSave(replaceWholeChapterBody(fileContent, deAiCandidateContent))
-  }, [deAiCandidateContent, fileContent, handleSave])
-
-  const handleDeAiSaveDraft = useCallback(async () => {
-    if (!selectedFile || !project) return
-    const normalizedPath = selectedFile.replace(/\\/g, "/")
-    const dir = normalizedPath.substring(0, normalizedPath.lastIndexOf("/") + 1)
-    const fileName = normalizedPath.split("/").pop() || "file"
-    const baseName = fileName.replace(/\.md$/, "")
-    const draftPath = normalizePath(`${dir}${baseName}-去AI味稿.md`)
-    try {
-      await writeFile(draftPath, deAiCandidateContent)
-      const tree = await listDirectory(normalizePath(project.path))
-      setFileTree(tree)
-      bumpDataVersion()
-      setDeAiPreviewOpen(false)
-    } catch (err) {
-      console.error("另存去AI味草稿失败:", err)
-    }
-  }, [selectedFile, project, deAiCandidateContent, setFileTree, bumpDataVersion])
-
-  const handleDeAiClose = useCallback(() => {
-    setDeAiPreviewOpen(false)
-    setDeAiSkillName("")
-    setDeAiModelName("")
-  }, [])
+  }, [syncDiskBeforeAction, selectedFile, project, chapterHeader, chapterDeAiOptions.currentSkillId])
 
   const runSelectionTransform = useCallback(async (
     action: ChapterSelectionAction,
@@ -1123,10 +1082,6 @@ export function PreviewPanel() {
     const modelLabel = formatResolvedModelLabel(llmConfig, state.providerConfigs)
     setSelectionTransformSkillName(action === "de-ai" ? skillName ?? "" : "")
     setSelectionTransformModelName(action === "de-ai" ? modelLabel : "")
-    const transformStatus = action === "de-ai" && skillName
-      ? `${actionLabel}处理中，使用 Skill：${skillName}，模型：${modelLabel}...`
-      : `${actionLabel}处理中...`
-    setSaveStatus(action === "de-ai" ? formatDeAiStatus(transformStatus) : transformStatus)
 
     let result = ""
     try {
@@ -1147,12 +1102,11 @@ export function PreviewPanel() {
             setSelectionTransformCandidateContent(result)
             setSelectionTransformSkillName(action === "de-ai" ? skillName ?? "" : "")
             setSelectionTransformOpen(true)
-            setSaveStatus(formatDeAiStatus(""))
           },
           onError: (error) => {
             if (selectedFileRef.current !== actionFile) return
             console.error(`${actionLabel}失败:`, error)
-            setSaveStatus(`${actionLabel}失败：${error.message}`)
+            toast.error(`${actionLabel}失败：${error.message}`)
           },
         },
       )
@@ -1160,17 +1114,15 @@ export function PreviewPanel() {
       const message = err instanceof Error ? err.message : String(err)
       if (selectedFileRef.current !== actionFile) return
       console.error(`${actionLabel}失败:`, err)
-      setSaveStatus(`${actionLabel}失败：${message}`)
+      toast.error(`${actionLabel}失败：${message}`)
     }
-  }, [formatDeAiStatus, syncDiskBeforeAction])
+  }, [syncDiskBeforeAction])
 
   const openDeAiSkillPicker = useCallback((selection: ChapterBodySelection | null, anchor?: HTMLElement | null) => {
-    if (deAiProcessing) return
+    if (currentChapterDeAiProcessing && !selection) return
     setPendingSelectionForDeAi(selection)
     setDeAiSkillPickerPosition(getDeAiSkillPickerPosition(anchor))
     setDeAiSkillPickerOpen(true)
-    deAiSkillMemoryWarningRef.current = ""
-    setDeAiSkillMemoryWarning("")
     if (chapterDeAiOptions.loadError) {
       setSaveStatus(chapterDeAiOptions.loadError)
       return
@@ -1180,7 +1132,7 @@ export function PreviewPanel() {
       return
     }
     setSaveStatus("")
-  }, [chapterDeAiOptions.loadError, chapterDeAiOptions.loading, chapterDeAiOptions.skills.length, deAiProcessing])
+  }, [chapterDeAiOptions.loadError, chapterDeAiOptions.loading, chapterDeAiOptions.skills.length, currentChapterDeAiProcessing])
 
   const handlePickedDeAiSkill = useCallback(async (skillId: string) => {
     const selection = pendingSelectionForDeAi
@@ -1201,14 +1153,10 @@ export function PreviewPanel() {
       try {
         const config = await loadDeAiSkillConfig(project.path)
         await saveDeAiSkillConfig(project.path, setLastChapterDeAiSkill(config, skill.id))
-        deAiSkillMemoryWarningRef.current = ""
-        setDeAiSkillMemoryWarning("")
         bumpDataVersion()
       } catch (err) {
         console.error("保存章节去AI味 Skill 选择失败:", err)
-        deAiSkillMemoryWarningRef.current = "未能记住本次去AI味 Skill 选择，本次处理仍会继续"
-        setDeAiSkillMemoryWarning("未能记住本次去AI味 Skill 选择，本次处理仍会继续")
-        setSaveStatus("未能记住本次去AI味 Skill 选择，本次处理仍会继续")
+        toast.error("未能记住本次去AI味 Skill 选择，本次处理仍会继续")
       }
     }
 
@@ -1424,7 +1372,7 @@ export function PreviewPanel() {
                         setChapterToolbarMoreOpen(false)
                         void openDeAiSkillPicker(null, e.currentTarget)
                       }}
-                      disabled={deAiProcessing}
+                      disabled={currentChapterDeAiProcessing}
                       className="block w-full rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                       title={chapterDeAiButtonTitle}
                     >
@@ -1531,7 +1479,7 @@ export function PreviewPanel() {
               <button
                 type="button"
                 onClick={(e) => void openDeAiSkillPicker(null, e.currentTarget)}
-                disabled={deAiProcessing}
+                disabled={currentChapterDeAiProcessing}
                 className="max-w-[11rem] shrink-0 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                 title={chapterDeAiButtonTitle}
               >
@@ -1714,16 +1662,127 @@ export function PreviewPanel() {
           />
         </div>
       ) : null}
-      <DeAiPreviewDialog
-        open={deAiPreviewOpen}
-        sourceContent={deAiSourceContent}
-        candidateContent={deAiCandidateContent}
-        skillName={deAiSkillName}
-        modelName={deAiModelName}
-        onApply={handleDeAiApply}
-        onSaveDraft={() => void handleDeAiSaveDraft()}
-        onClose={handleDeAiClose}
-      />
+      {(() => {
+        const readyTasks = deAiTasks.filter(
+          (t) => t.status === "ready" || t.status === "confirmed" || t.status === "cancelled"
+        )
+        if (readyTasks.length === 0) return null
+        const now = Date.now()
+        const reviewChapters = readyTasks.map((t, index) => ({
+          version: 1 as const,
+          id: t.id,
+          taskId: "de-ai-chapter-review",
+          title: t.chapterTitle,
+          order: index,
+          sourcePath: t.chapterPath,
+          sourceContent: t.sourceContent,
+          candidateContent: t.candidateContent,
+          status: (t.status === "confirmed" ? "confirmed" : t.status === "cancelled" ? "cancelled" : "ready") as DeAiBatchChapter["status"],
+          runId: null,
+          generation: 1,
+          error: null,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        }))
+        const reviewRecord: DeAiBatchTaskRecord = {
+          task: {
+            version: 1 as const,
+            id: "de-ai-chapter-review",
+            projectPath: project?.path ?? "",
+            workId: "chapter-de-ai",
+            workTitle: "去AI味审查",
+            modelKey: "",
+            skillId: readyTasks[0]?.skillId ?? null,
+            skillName: readyTasks[0]?.skillName ?? "",
+            skillContent: "",
+            status: "completed",
+            chapterIds: readyTasks.map((t) => t.id),
+            error: null,
+            createdAt: now,
+            startedAt: now,
+            completedAt: now,
+            updatedAt: now,
+          },
+          chapters: reviewChapters as unknown as DeAiBatchChapter[],
+        }
+        return (
+          <DeAiBatchReviewDialog
+            open={deAiReviewOpen}
+            record={reviewRecord}
+            currentChapterId={deAiReviewChapterId}
+            onSelectChapter={(id) => useDeAiTaskStore.getState().setReviewChapter(id)}
+            onConfirm={async (_taskId, chapterId) => {
+              const task = deAiTasks.find((t) => t.id === chapterId)
+              if (!task || !project) return
+              try {
+                await applyOpenChapterBodyUpdate({
+                  path: task.chapterPath,
+                  candidateContent: task.candidateContent,
+                  currentOpenPath: () => selectedFile,
+                  currentMarkdown: () => wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current,
+                  invalidatePendingSave: () => { /* handled by runExternalUpdate */ },
+                  runExternalUpdate: async (_path, write) => {
+                    await write()
+                    return Date.now()
+                  },
+                  markEditorSession: () => { /* no-op */ },
+                  writeFileAtomic: async (filePath, content) => {
+                    await writeFile(filePath, content)
+                  },
+                  commitEditor: (content) => {
+                    setFileContent(content)
+                  },
+                  bumpDataVersion: () => {
+                    bumpDataVersion()
+                  },
+                })
+                useDeAiTaskStore.getState().confirmTask(chapterId)
+                toast.success(`${task.chapterTitle} 去AI味结果已保存`)
+              } catch (err) {
+                console.error("保存去AI味结果失败:", err)
+                toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+              }
+            }}
+            onRegenerate={async (_taskId, chapterId) => {
+              const task = deAiTasks.find((t) => t.id === chapterId)
+              if (!task || !project) return
+              useDeAiTaskStore.getState().updateTask(chapterId, {
+                status: "processing",
+                candidateContent: "",
+                error: null,
+              })
+              const state = useWikiStore.getState()
+              const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "deAi")
+              if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+                useDeAiTaskStore.getState().failTask(chapterId, "未配置可用的 AI 模型")
+                return
+              }
+              let result = ""
+              try {
+                await streamChat(
+                  llmConfig,
+                  buildDeAiRewriteMessages(task.sourceContent, ""),
+                  {
+                    onToken: (token) => { result += token },
+                    onDone: () => {
+                      useDeAiTaskStore.getState().finishTask(chapterId, result)
+                    },
+                    onError: (error) => {
+                      useDeAiTaskStore.getState().failTask(chapterId, error.message ?? String(error))
+                    },
+                  },
+                )
+              } catch (err) {
+                useDeAiTaskStore.getState().failTask(chapterId, String(err))
+              }
+            }}
+            onCancelChapter={(_taskId, chapterId) => {
+              useDeAiTaskStore.getState().cancelTask(chapterId)
+            }}
+            onClose={() => useDeAiTaskStore.getState().closeReview()}
+          />
+        )
+      })()}
       <TextTransformPreviewDialog
         open={selectionTransformOpen}
         title={selectionTransformAction === "polish" ? "AI润色预览" : "去AI味预览"}

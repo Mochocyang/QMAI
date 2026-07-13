@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Sparkles, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -13,6 +13,7 @@ import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
+import { useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
@@ -1969,6 +1970,7 @@ export function KnowledgeTree({
 export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?: () => void }) {
   const project = useWikiStore((s) => s.project)
   const tasks = useImportProgressStore((s) => s.tasks)
+  const deAiTasks = useDeAiTaskStore((s) => s.tasks)
   const [expanded, setExpanded] = useState(false)
 
   const projectTasks = useMemo(() => {
@@ -1979,9 +1981,17 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }, [project, tasks])
 
+  const projectDeAiTasks = useMemo(() => {
+    if (!project) return []
+    const projectPath = normalizePath(project.path)
+    return deAiTasks
+      .filter((t) => t.projectPath === projectPath && t.status === "processing")
+      .sort((a, b) => b.createdAt - a.createdAt)
+  }, [project, deAiTasks])
+
   const runningTasks = projectTasks.filter((t) => t.status === "running")
-  const hasRunning = runningTasks.length > 0
-  const hasAnyTask = projectTasks.length > 0
+  const hasRunning = runningTasks.length > 0 || projectDeAiTasks.length > 0
+  const hasAnyTask = projectTasks.length > 0 || projectDeAiTasks.length > 0
 
   useEffect(() => {
     if (hasRunning) setExpanded(true)
@@ -2008,7 +2018,8 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
       {expanded && (
         <div className="ml-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-xs text-muted-foreground">
           {hasAnyTask ? (
-            projectTasks.slice(0, 20).map((task) => {
+            <>
+            {projectTasks.slice(0, 20).map((task) => {
               const kindLabel = task.kind === "outline" ? "AI 大纲" : "章节"
               const progressPercent = task.total > 0
                 ? Math.round((task.completed / task.total) * 100)
@@ -2075,7 +2086,21 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                   )}
                 </div>
               )
-            })
+            })}
+            {projectDeAiTasks.map((task) => (
+              <div key={task.id} className="space-y-1 rounded-md bg-muted/30 px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                  <span className="truncate text-foreground font-medium">
+                    去AI味：{task.chapterTitle}
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Skill：{task.skillName} · 模型：{task.modelName}
+                </div>
+              </div>
+            ))}
+            </>
           ) : (
             <div className="rounded-md bg-muted/40 px-2 py-2">暂无提取任务</div>
           )}
