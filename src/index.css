@@ -83,6 +83,15 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Keep native number steppers readable when the app switches color schemes. */
+input[type="number"] {
+    color-scheme: light;
+}
+
+.dark input[type="number"] {
+    color-scheme: dark;
+}
+
 :root.visual-cangzhu {
     --background: oklch(0.95 0.021 91);
     --foreground: oklch(0.25 0.035 160);

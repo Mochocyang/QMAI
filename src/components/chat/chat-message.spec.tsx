@@ -76,6 +76,17 @@ describe("chapter save preview sync regression", () => {
     expect(source).not.toContain("applyPendingChapterSave")
     expect(source).not.toContain("保存到章节后面")
   })
+
+  it("clears chapter save status on new send and conversation switch", () => {
+    const panelSource = readFileSync(resolve(__dirname, "chat-panel.tsx"), "utf8")
+    const messageSource = readFileSync(resolve(__dirname, "chat-message.tsx"), "utf8")
+
+    expect(panelSource).toContain('setChapterSaveStatus("")')
+    expect(panelSource).toMatch(/setDeAiSkillWarningMessage\(""\)[\s\S]*?setChapterSaveStatus\(""\)/)
+    expect(panelSource).toMatch(/userScrolledUpRef\.current = false[\s\S]*?setChapterSaveStatus\(""\)[\s\S]*?\}, \[activeConversationId\]\)/)
+    expect(panelSource).toContain("saveStatus={isLastAssistant ? chapterSaveStatus : undefined}")
+    expect(messageSource).toContain("isLastAssistant && saveStatus")
+  })
 })
 
 describe("deep chapter unfinished continuation action", () => {

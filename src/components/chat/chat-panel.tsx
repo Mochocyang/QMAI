@@ -351,6 +351,8 @@ export function ChatPanel() {
 
   useEffect(() => {
     userScrolledUpRef.current = false
+    // 切换会话时清空上一会话的章节保存状态，避免「已保存为第X章」残留
+    setChapterSaveStatus("")
   }, [activeConversationId])
 
   // 加载故事框架绑定状态
@@ -390,6 +392,8 @@ export function ChatPanel() {
     async (text: string) => {
       // Auto-create a conversation if none is active
       setDeAiSkillWarningMessage("")
+      // 新一轮对话清空上一轮的章节保存提示，避免「已保存为第X章」残留在新消息下方
+      setChapterSaveStatus("")
       let convId = useChatStore.getState().activeConversationId
       if (!convId) {
         convId = createConversation()
@@ -1504,7 +1508,7 @@ export function ChatPanel() {
                       onSaveAsChapter={handleSaveAsChapter}
                       onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                       onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
-                      saveStatus={chapterSaveStatus}
+                      saveStatus={isLastAssistant ? chapterSaveStatus : undefined}
                       isSaving={isSavingChapter}
                     />
                   )
