@@ -135,10 +135,23 @@ export function ChangelogSection() {
             ) : null}
 
             {updateStatus === "error" ? (
-              <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
-                <AlertCircle className="h-4 w-4" />
-                {errorMessage || "检查更新失败"}
-              </span>
+              <div className="flex flex-col gap-1">
+                <span className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+                  <AlertCircle className="h-4 w-4" />
+                  {errorMessage || "检查更新失败"}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                  可前往官网下载最新版本：
+                  <a
+                    href="https://www.qmai.pro"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    www.qmai.pro
+                  </a>
+                </span>
+              </div>
             ) : null}
           </div>
         ) : (
