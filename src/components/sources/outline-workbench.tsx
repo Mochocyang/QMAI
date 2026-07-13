@@ -26,6 +26,21 @@ export function OutlineWorkbench() {
     }
   }, [outlineChatWidth])
 
+  // 窗口缩小时自动 clamp 面板宽度，避免面板超出容器 50%
+  useEffect(() => {
+    const handleResize = () => {
+      setOutlineChatWidth((prev) => {
+        if (typeof prev !== "number") return prev
+        if (!containerRef.current) return prev
+        const rect = containerRef.current.getBoundingClientRect()
+        const maxWidth = Math.max(OUTLINE_CHAT_MIN_WIDTH, Math.floor(rect.width * 0.5))
+        return prev > maxWidth ? maxWidth : prev
+      })
+    }
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
+
   const startHorizontalResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault()
     document.body.style.cursor = "col-resize"

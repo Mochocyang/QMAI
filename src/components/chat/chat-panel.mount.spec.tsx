@@ -95,12 +95,12 @@ describe("ChatPanel mount 基础设施", () => {
     await view.unmount()
   })
 
-  it("输入工具栏单独显示计划执行开关，可与模式下拉按钮并列使用", async () => {
+  it("输入工具栏单独显示计划开关，可与模式下拉按钮并列使用", async () => {
     const view = await renderChatPanel({ activeConversation: true })
 
     expect(view.container.textContent).toContain("标准")
-    expect(view.container.textContent).toContain("计划执行")
-    expect(view.container.querySelector('[aria-label="开启计划执行模式"]')).not.toBeNull()
+    expect(view.container.textContent).toContain("计划")
+    expect(view.container.querySelector('[aria-label="开启计划模式"]')).not.toBeNull()
 
     await view.unmount()
   })

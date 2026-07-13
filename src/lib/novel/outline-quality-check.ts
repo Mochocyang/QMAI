@@ -176,7 +176,7 @@ export function buildOutlineGenerationQualityFeedback(input: {
       "重要要求：",
       "1. 必须输出修订后的完整章纲正文（使用标准 Markdown 格式），不能只输出修改摘要或说明。",
       "2. 系统会自动从你的回复正文中提取完整内容并保存，你不需要在 JSON 中重复输出 content。",
-      "3. 在回复末尾附加 outlineSaveRequest JSON，只需包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent 等元数据。",
+      "3. 在回复末尾附加 outlineSaveRequest JSON，只需包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent 等元数据。fileType 只能用英文枚举（outline/volume-outline/chapter-outline/character/setting/foreshadowing/organization/quality-report），writeMode 只能用英文枚举（create/append/replace/patch），targetFolder 必须是相对路径（如「章纲」），禁止绝对路径。",
       "4. 正文中必须包含完整的章纲所有必填章节，不能省略未修改的部分。",
     ].join("\n"),
   };

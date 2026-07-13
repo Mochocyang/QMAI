@@ -117,7 +117,7 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("planExecuteEnabled")
     expect(source).toContain("setPlanExecuteEnabled")
     expect(source).toContain("aiSessionPlanExecuteLabel")
-    expect(source).toContain("计划执行")
+    expect(source).toContain("计划")
     expect(source).toContain("aria-pressed={planExecuteEnabled && aiWorkflowMode !== \"fast\"}")
     expect(source).toContain("disabled={aiWorkflowMode === \"fast\"}")
   })
@@ -290,7 +290,7 @@ describe("chat-panel agent reference integration", () => {
 
   it("settles visible tool calls when generation is cancelled from any chat confirmation path", () => {
     expect(source).toContain('agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled")')
-    expect(source).toContain("已取消计划执行，未进入正文生成。")
+    expect(source).toContain("已取消计划，未进入正文生成。")
     expect(source).toContain("已停止生成。")
   })
 
@@ -431,7 +431,7 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 
   it("records a visible cancellation when the chapter plan dialog is cancelled", () => {
     expect(source).toContain("recordChapterPlanExecutionCancelled")
-    expect(source).toContain("已取消计划执行，未进入正文生成。")
+    expect(source).toContain("已取消计划，未进入正文生成。")
     expect(source).toContain("用户取消了章节计划确认")
     expect(source).toContain('settleRunningAgentStages(message.agentStages, "cancelled")')
     expect(source).toContain('if (action === "cancel")')

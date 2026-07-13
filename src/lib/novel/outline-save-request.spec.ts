@@ -173,4 +173,110 @@ describe("outline-save-request", () => {
     expect(feedback).toContain("fileName")
     expect(feedback).toContain("不会写入文件")
   })
+
+  it("将中文 fileType「大纲」归一化为 outline", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "大纲",
+        fileName: "总纲.md",
+        fileType: "大纲",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "正文",
+      },
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].fileType).toBe("outline")
+  })
+
+  it("将中文 fileType「人物小传」归一化为 character", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "人物小传",
+        fileName: "角色-林风.md",
+        fileType: "人物小传",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "正文",
+      },
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].fileType).toBe("character")
+  })
+
+  it("将 writeMode「overwrite」归一化为 create", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "章纲",
+        fileName: "章纲-第001章.md",
+        fileType: "chapter-outline",
+        writeMode: "overwrite",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "正文",
+      },
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].writeMode).toBe("create")
+  })
+
+  it("将 targetFolder 绝对路径剥离为相对文件夹名", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "C:/book/wiki/outlines/人物小传",
+        fileName: "角色-林风.md",
+        fileType: "character",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "正文",
+      },
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].targetFolder).toBe("人物小传")
+  })
+
+  it("同时修复中文 fileType、overwrite、绝对路径三种错误", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequests: [
+        {
+          targetFolder: "C:/book/wiki/outlines/大纲",
+          fileName: "总纲.md",
+          fileType: "大纲",
+          writeMode: "overwrite",
+          referencedSkills: [],
+          sourceIntent: "生成总纲",
+          content: "正文",
+        },
+        {
+          targetFolder: "C:/book/wiki/outlines/人物小传",
+          fileName: "角色-林风.md",
+          fileType: "人物小传",
+          writeMode: "overwrite",
+          referencedSkills: [],
+          sourceIntent: "生成角色",
+          content: "正文",
+        },
+      ],
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(2)
+    expect(result.requests[0].fileType).toBe("outline")
+    expect(result.requests[0].writeMode).toBe("create")
+    expect(result.requests[0].targetFolder).toBe("大纲")
+    expect(result.requests[1].fileType).toBe("character")
+    expect(result.requests[1].writeMode).toBe("create")
+    expect(result.requests[1].targetFolder).toBe("人物小传")
+  })
 })

@@ -63,6 +63,55 @@ const ALLOWED_WRITE_MODES = new Set<OutlineSaveRequestWriteMode>([
   "patch",
 ])
 
+const FILE_TYPE_ALIASES: Record<string, OutlineSaveRequestFileType> = {
+  "大纲": "outline",
+  "卷纲": "volume-outline",
+  "章纲": "chapter-outline",
+  "人物小传": "character",
+  "人物": "character",
+  "角色": "character",
+  "设定": "setting",
+  "伏笔": "foreshadowing",
+  "组织": "organization",
+  "势力": "organization",
+  "质量检查": "quality-report",
+}
+
+const WRITE_MODE_ALIASES: Record<string, OutlineSaveRequestWriteMode> = {
+  "overwrite": "create",
+  "write": "create",
+  "save": "create",
+  "new": "create",
+  "override": "replace",
+}
+
+function normalizeFileTypeAlias(value: string): string {
+  const trimmed = value.trim()
+  if (ALLOWED_FILE_TYPES.has(trimmed as OutlineSaveRequestFileType)) return trimmed
+  return FILE_TYPE_ALIASES[trimmed] ?? trimmed
+}
+
+function normalizeWriteModeAlias(value: string): string {
+  const trimmed = value.trim().toLowerCase()
+  if (ALLOWED_WRITE_MODES.has(trimmed as OutlineSaveRequestWriteMode)) return trimmed
+  return WRITE_MODE_ALIASES[trimmed] ?? trimmed
+}
+
+function stripAbsoluteToRelativeFolder(value: string): string {
+  const normalized = normalizePath(value).trim()
+  if (!normalized) return normalized
+  if (!normalized.startsWith("/") && !normalized.startsWith("\\") && !/^[a-zA-Z]:[\\/]/.test(normalized)) {
+    return normalized
+  }
+  const marker = "wiki/outlines/"
+  const markerIndex = normalized.toLowerCase().indexOf(marker)
+  if (markerIndex >= 0) {
+    return normalized.slice(markerIndex + marker.length)
+  }
+  const parts = normalized.split("/").filter(Boolean)
+  return parts.length > 0 ? parts[parts.length - 1] : normalized
+}
+
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = []
   const fencePattern = /```(?:json)?\s*([\s\S]*?)```/gi
@@ -105,10 +154,10 @@ function normalizeRequest(raw: unknown, index: number): {
   }
 
   const errors: string[] = []
-  const targetFolder = String(raw.targetFolder ?? "").trim()
+  const targetFolder = stripAbsoluteToRelativeFolder(String(raw.targetFolder ?? "").trim())
   const fileName = String(raw.fileName ?? "").trim()
-  const fileType = String(raw.fileType ?? "") as OutlineSaveRequestFileType
-  const writeMode = String(raw.writeMode ?? "") as OutlineSaveRequestWriteMode
+  const fileType = normalizeFileTypeAlias(String(raw.fileType ?? "")) as OutlineSaveRequestFileType
+  const writeMode = normalizeWriteModeAlias(String(raw.writeMode ?? "")) as OutlineSaveRequestWriteMode
   const content = String(raw.content ?? "").trim()
 
   for (const [field, value] of Object.entries({

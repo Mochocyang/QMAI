@@ -18,6 +18,14 @@ const FALLBACK_PLAN_SECTION_PATTERNS = [
   /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?风险与兜底/u,
 ]
 
+const EXTRA_PLAN_KEYWORD_PATTERNS = [
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:任务目标|创作目标|写作目标)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:执行步骤|执行计划|写作步骤|创作步骤)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:缺失资料|缺失信息|缺失内容)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:确认后动作|确认动作|后续动作)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:计划概览|创作计划|写作计划|章节计划)/u,
+]
+
 export function extractChapterPlan(fullContent: string): { plan: string; body: string } | null {
   const startIdx = fullContent.indexOf(CHAPTER_PLAN_MARKER_START)
   if (startIdx < 0) return extractUnmarkedChapterPlan(fullContent)
@@ -34,9 +42,10 @@ export function extractChapterPlan(fullContent: string): { plan: string; body: s
 function extractUnmarkedChapterPlan(fullContent: string): { plan: string; body: string } | null {
   const plan = fullContent.trim()
   if (!plan) return null
-  const matchedSections = FALLBACK_PLAN_SECTION_PATTERNS.filter((pattern) => pattern.test(plan)).length
-  const hasRequiredOpening = FALLBACK_PLAN_SECTION_PATTERNS[0].test(plan)
-  if (!hasRequiredOpening || matchedSections < 4) return null
+  const allPatterns = [...FALLBACK_PLAN_SECTION_PATTERNS, ...EXTRA_PLAN_KEYWORD_PATTERNS]
+  const matchedSections = allPatterns.filter((pattern) => pattern.test(plan)).length
+  // 至少匹配 2 个计划相关段落即认为是计划内容
+  if (matchedSections < 2) return null
   return { plan, body: "" }
 }
 

@@ -124,7 +124,7 @@ const shouldRunNovelPrePluginChain = false
 const taskRoute = shouldRunNovelPrePluginChain ? rawTaskRoute : null
 const selectedSkillsPrompt = ""
 const aiSessionWorkflowModeLabel = "AI 会话执行模式"
-const aiSessionPlanExecuteLabel = "计划执行模式"
+const aiSessionPlanExecuteLabel = "计划模式"
 const aiWorkflowModeOptions: Array<{
   mode: AiWorkflowMode
   label: string
@@ -409,15 +409,15 @@ function recordChapterPlanExecutionCancelled(messageId: string): void {
     id: `chapter_plan_cancelled:${messageId}:${timestamp}`,
     stageId: "write_confirmation",
     kind: "stage_output",
-    title: "已取消计划执行",
+    title: "已取消计划",
     content: "用户取消了章节计划确认，未进入正文生成。",
     timestamp,
   })
   updateAgentAssistantMessage(messageId, (message) => ({
     ...message,
     content: message.content
-      ? `${message.content}\n\n已取消计划执行，未进入正文生成。`
-      : "已取消计划执行，未进入正文生成。",
+      ? `${message.content}\n\n已取消计划，未进入正文生成。`
+      : "已取消计划，未进入正文生成。",
     agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "cancelled"),
     agentStages: applyAgentActivityEvent(
       settleRunningAgentStages(message.agentStages, "cancelled"),
@@ -2066,17 +2066,17 @@ export function ChatPanel() {
                                   : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                               } disabled:cursor-not-allowed disabled:opacity-50`}
                               onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)}
-                              title={aiWorkflowMode === "fast" ? "快速模式下不支持计划执行，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划执行模式" : "开启计划执行模式"}
-                              aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划执行，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划执行模式" : "开启计划执行模式"}
+                              title={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
+                              aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
                             />
                           )}
                         >
                           <ListChecks className="mr-1 h-3.5 w-3.5" />
-                          计划执行
+                          计划
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">
                           {aiWorkflowMode === "fast"
-                            ? "快速模式下不支持计划执行，请切换到标准或严格模式。"
+                            ? "快速模式下不支持计划，请切换到标准或严格模式。"
                             : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}
                         </TooltipContent>
                       </Tooltip>
