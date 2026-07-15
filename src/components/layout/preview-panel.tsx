@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
-import { deleteFile, fileExists, readFile, writeFile, writeFileAtomic, listDirectory } from "@/commands/fs"
+import { deleteFile, fileExists, readFile, writeFileAtomic, writeFileIfAbsent, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-editor"
@@ -54,11 +54,12 @@ import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorDiskSyncHandler } from "@/lib/editor-disk-sync-session"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
-import { applyOpenChapterBodyUpdate } from "@/lib/novel/de-ai-batch/chapter-apply"
+import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { toast } from "@/lib/toast"
-import { useDeAiTaskStore } from "@/stores/de-ai-task-store"
+import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
+import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -187,6 +188,7 @@ export function PreviewPanel() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveGenerationRef = useRef(0)
   const chapterExternalUpdateCoordinator = useMemo(() => createChapterExternalUpdateCoordinator(), [])
+  const applyDeAiBatchChapter = useMemo(() => createDeAiBatchChapterApplier(), [])
   const wikiEditorRef = useRef<WikiEditorHandle>(null)
   const [isSavingFinal, setIsSavingFinal] = useState(false)
   const [saveStatus, setSaveStatus] = useState<string>("")
@@ -198,10 +200,12 @@ export function PreviewPanel() {
   const currentChapterDeAiProcessing = useDeAiTaskStore((s) =>
     selectedFile ? s.isChapterProcessing(selectedFile) : false
   )
-  const deAiReviewOpen = useDeAiTaskStore((s) => s.reviewOpen)
-  const deAiReviewChapterId = useDeAiTaskStore((s) => s.reviewChapterId)
+  const deAiReviewOpen = useDeAiTaskStore((s) => selectProjectDeAiReview(s, project?.path).open)
+  const deAiReviewChapterId = useDeAiTaskStore((s) => selectProjectDeAiReview(s, project?.path).chapterId)
   const deAiTasks = useDeAiTaskStore((s) => s.tasks)
   const [selectionTransformOpen, setSelectionTransformOpen] = useState(false)
+  const [deAiDraftSaving, setDeAiDraftSaving] = useState(false)
+  const deAiDraftSavingRef = useRef(false)
   const [selectionTransformAction, setSelectionTransformAction] = useState<ChapterSelectionAction | null>(null)
   const [selectionTransformSelection, setSelectionTransformSelection] = useState<ChapterBodySelection | null>(null)
   const [selectionTransformSourceContent, setSelectionTransformSourceContent] = useState("")
@@ -1031,6 +1035,7 @@ export function PreviewPanel() {
       chapterTitle,
       skillId: chapterDeAiOptions.currentSkillId ?? null,
       skillName,
+      skillContent,
       modelName: modelLabel,
       sourceContent: source,
     })
@@ -1179,6 +1184,41 @@ export function PreviewPanel() {
     }
     await runWholeChapterDeAi(skill.content, skill.name)
   }, [bumpDataVersion, chapterDeAiOptions.skills, pendingSelectionForDeAi, project, runSelectionTransform, runWholeChapterDeAi])
+
+  const handleDeAiSaveDraft = useCallback(async (chapterPath: string, candidateContent: string) => {
+    if (!project || !candidateContent || deAiDraftSavingRef.current) return
+    const draftProjectId = project.id
+    const draftProjectPath = normalizePath(project.path)
+    deAiDraftSavingRef.current = true
+    setDeAiDraftSaving(true)
+    try {
+      const draftPath = await saveDeAiDraftWithoutOverwrite(
+        chapterPath,
+        candidateContent,
+        writeFileIfAbsent,
+      )
+
+      if (useWikiStore.getState().project?.id === draftProjectId) {
+        try {
+          const tree = await listDirectory(draftProjectPath)
+          if (useWikiStore.getState().project?.id === draftProjectId) {
+            setFileTree(tree)
+          }
+        } catch (err) {
+          console.error("另存去AI味草稿后刷新文件树失败:", err)
+        }
+        bumpDataVersion()
+      }
+
+      toast.success(`已另存草稿：${draftPath.split("/").pop() ?? draftPath}`)
+    } catch (err) {
+      console.error("另存去AI味草稿失败:", err)
+      toast.error(`另存草稿失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      deAiDraftSavingRef.current = false
+      setDeAiDraftSaving(false)
+    }
+  }, [bumpDataVersion, project, setFileTree])
 
   const handleSelectionAction = useCallback((action: ChapterSelectionAction, selection: ChapterBodySelection) => {
     if (action === "de-ai") {
@@ -1675,10 +1715,14 @@ export function PreviewPanel() {
         </div>
       ) : null}
       {(() => {
-        const readyTasks = deAiTasks.filter(
+        const projectDeAiTasks = selectProjectDeAiTasks(deAiTasks, project?.path)
+        const readyTasks = projectDeAiTasks.filter(
           (t) => t.status === "ready" || t.status === "confirmed" || t.status === "cancelled"
         )
-        if (readyTasks.length === 0 && !deAiReviewOpen) return null
+        if (!project || readyTasks.length === 0) return null
+        const currentReviewChapterId = readyTasks.some((task) => task.id === deAiReviewChapterId)
+          ? deAiReviewChapterId
+          : readyTasks[0]?.id ?? null
         const now = Date.now()
         const reviewChapters = readyTasks.map((t, index) => ({
           version: 1 as const,
@@ -1718,46 +1762,32 @@ export function PreviewPanel() {
           chapters: reviewChapters as unknown as DeAiBatchChapter[],
         }
         return (
-          <DeAiBatchReviewDialog
-            open={deAiReviewOpen}
-            record={reviewRecord}
-            currentChapterId={deAiReviewChapterId}
-            onSelectChapter={(id) => useDeAiTaskStore.getState().setReviewChapter(id)}
-            onConfirm={async (_taskId, chapterId) => {
-              const task = deAiTasks.find((t) => t.id === chapterId)
-              if (!task || !project) return
+           <DeAiBatchReviewDialog
+             open={deAiReviewOpen && readyTasks.length > 0}
+             record={reviewRecord}
+             currentChapterId={currentReviewChapterId}
+             pending={deAiDraftSaving}
+            onSelectChapter={(id) => useDeAiTaskStore.getState().setReviewChapter(project.path, id)}
+             onConfirm={async (_taskId, chapterId) => {
+              const task = readyTasks.find((t) => t.id === chapterId)
+              if (!task) return
               try {
-                await applyOpenChapterBodyUpdate({
-                  path: task.chapterPath,
-                  candidateContent: task.candidateContent,
-                  currentOpenPath: () => selectedFile,
-                  currentMarkdown: () => wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current,
-                  invalidatePendingSave: () => { /* handled by runExternalUpdate */ },
-                  runExternalUpdate: async (_path, write) => {
-                    await write()
-                    return Date.now()
-                  },
-                  markEditorSession: () => { /* no-op */ },
-                  writeFileAtomic: async (filePath, content) => {
-                    await writeFile(filePath, content)
-                  },
-                  commitEditor: (content) => {
-                    setFileContent(content)
-                  },
-                  bumpDataVersion: () => {
-                    bumpDataVersion()
-                  },
-                })
+                await applyDeAiBatchChapter(task.chapterPath, task.candidateContent)
                 useDeAiTaskStore.getState().confirmTask(chapterId)
                 toast.success(`${task.chapterTitle} 去AI味结果已保存`)
               } catch (err) {
                 console.error("保存去AI味结果失败:", err)
                 toast.error(`保存失败：${err instanceof Error ? err.message : String(err)}`)
-              }
-            }}
-            onRegenerate={async (_taskId, chapterId) => {
-              const task = deAiTasks.find((t) => t.id === chapterId)
-              if (!task || !project) return
+               }
+             }}
+             onSaveDraft={async (_taskId, chapterId) => {
+               const task = readyTasks.find((item) => item.id === chapterId)
+               if (!task) return
+               await handleDeAiSaveDraft(task.chapterPath, task.candidateContent)
+             }}
+             onRegenerate={async (_taskId, chapterId) => {
+              const task = readyTasks.find((t) => t.id === chapterId)
+              if (!task) return
               useDeAiTaskStore.getState().updateTask(chapterId, {
                 status: "processing",
                 candidateContent: "",
@@ -1773,7 +1803,7 @@ export function PreviewPanel() {
               try {
                 await streamChat(
                   llmConfig,
-                  buildDeAiRewriteMessages(task.sourceContent, ""),
+                  buildDeAiRewriteMessages(task.sourceContent, task.skillContent),
                   {
                     onToken: (token) => { result += token },
                     onDone: () => {
@@ -1791,7 +1821,7 @@ export function PreviewPanel() {
             onCancelChapter={(_taskId, chapterId) => {
               useDeAiTaskStore.getState().cancelTask(chapterId)
             }}
-            onClose={() => useDeAiTaskStore.getState().closeReview()}
+            onClose={() => useDeAiTaskStore.getState().closeReview(project.path)}
           />
         )
       })()}

@@ -4,7 +4,6 @@ import type { ChatMessage } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
 import { contextPackToPrompt, buildContextPack, type ContextPack } from "./context-engine"
-import { buildCharacterAuraContext } from "./character-aura"
 import { resolveNovelModel } from "./model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { rethrowIfUserAbort } from "@/lib/user-abort"
@@ -39,6 +38,11 @@ export interface ReviewChapterOptions extends NovelReviewCallbacks {
    * 场景序列、信息流、伏笔动作和结尾钩子，偏离按 error 标记。
    */
   planBlueprint?: string
+  /**
+   * 严格工作流需要区分“没有问题”和“审稿执行失败”。
+   * 普通手动审稿保持原有兼容行为，失败时仍返回空结果。
+   */
+  throwOnFailure?: boolean
 }
 
 /** 角色一致性相关的审查维度，用于 characterOnly 轻量审查模式 */
@@ -207,10 +211,16 @@ export async function reviewChapter(
     state.novelConfig,
     "review",
   )
-  if (!hasUsableLlm(llmConfig, state.providerConfigs)) return []
+  if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+    if (options.throwOnFailure) throw new Error("未配置可用的审稿模型")
+    return []
+  }
 
   const novelMode = state.novelMode
-  if (!novelMode) return []
+  if (!novelMode) {
+    if (options.throwOnFailure) throw new Error("当前项目未启用小说模式")
+    return []
+  }
 
   // 复用调用方已构建的 contextPack；没有才自行构建。
   const baseContextPack = options.contextPack ?? await buildContextPack(
@@ -224,6 +234,7 @@ export async function reviewChapter(
   // 这里把 chapterContent 加入 matchingText 重新匹配，确保审查阶段能看到初稿新角色的完整光环。
   let contextPack = baseContextPack
   try {
+    const { buildCharacterAuraContext } = await import("./character-aura")
     const draftCharacterAuras = await buildCharacterAuraContext(projectPath, baseContextPack.task, {
       matchingText: [
         baseContextPack.chapterGoal,
@@ -253,11 +264,16 @@ ${langReminder}`
   // 章节超长时分段审查，合并所有段的审查结果
   const chunks = splitChapterForReview(chapterContent)
   const stageThinking = new Map<string, string>()
+  const reviewController = new AbortController()
+  const reviewSignal = signal
+    ? combineSignals(signal, reviewController.signal)
+    : reviewController.signal
 
   try {
     // 并行审查所有分段，缩短超长章节审查时延
     const chunkResults = await Promise.all(chunks.map(async (chunk, i) => {
-      if (signal?.aborted) throw new Error("已停止生成")
+      try {
+      if (reviewSignal.aborted) throw new Error("已停止生成")
       const chunkContent = chunks.length > 1
         ? `【第${i + 1}段/共${chunks.length}段】\n${chunk}`
         : chunk
@@ -282,19 +298,25 @@ ${langReminder}`
         stageTitle,
         options,
         stageThinking,
-        signal,
+        reviewSignal,
         reviewReasoningEffort,
       )
 
       const jsonMatch = extractJsonArray(result)
       if (!jsonMatch) {
         console.warn(`[Novel Review] No JSON array found in chunk ${i + 1}:`, result.slice(0, 500))
+        if (options.throwOnFailure) {
+          throw new Error(`第 ${i + 1} 段审稿未返回结构化 JSON 结果`)
+        }
         return []
       }
 
       const parsed = JSON.parse(jsonMatch)
       if (!Array.isArray(parsed)) {
         console.warn(`[Novel Review] Parsed result is not an array in chunk ${i + 1}:`, parsed)
+        if (options.throwOnFailure) {
+          throw new Error(`第 ${i + 1} 段审稿结果不是 JSON 数组`)
+        }
         return []
       }
 
@@ -306,12 +328,19 @@ ${langReminder}`
         relatedMemory: String(item.relatedMemory || ""),
         suggestion: String(item.suggestion || ""),
       }))
+      } catch (error) {
+        reviewController.abort()
+        throw error
+      }
     }))
 
     return chunkResults.flat()
   } catch (err) {
     rethrowIfUserAbort(err, signal)
     console.error("[Novel Review] Failed:", err)
+    if (options.throwOnFailure) {
+      throw err instanceof Error ? err : new Error(String(err))
+    }
     return []
   }
 }
@@ -358,6 +387,7 @@ async function runReviewStage(
   let result = ""
   let reasoning = ""
   const renderThinking = () => {
+    if (signal?.aborted) return
     const combined = reasoning
       ? `${reasoning}${result ? `\n\n${result}` : ""}`
       : result
@@ -365,12 +395,14 @@ async function runReviewStage(
   }
   const streamCallbacks: StreamCallbacks = {
     onToken: (token: string) => {
+      if (signal?.aborted) return
       result += token
       renderThinking()
     },
     // 审稿模型多为推理模型，分阶段分析走 reasoning 通道：捕获后用于 thinking 展示，
     // 但不计入 result，最终 JSON 只从 content（result）解析，避免分析文字污染 JSON。
     onReasoningToken: (token: string) => {
+      if (signal?.aborted) return
       reasoning += token
       renderThinking()
     },

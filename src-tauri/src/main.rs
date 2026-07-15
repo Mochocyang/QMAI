@@ -60,6 +60,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::fs::read_file,
             commands::fs::write_file,
+            commands::fs::write_file_if_absent,
             commands::fs::write_file_atomic,
             commands::fs::list_directory,
             commands::fs::copy_file,

@@ -5728,7 +5728,7 @@ checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 
 [[package]]
 name = "qmai"
-version = "2.2.35"
+version = "2.2.36"
 dependencies = [
  "arrow-array",
  "arrow-schema",

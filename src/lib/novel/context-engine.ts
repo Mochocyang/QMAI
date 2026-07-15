@@ -10,7 +10,6 @@ import { buildRevisionDirectives } from "./revision-feedback"
 import { extractChapterOutlineStatus } from "./outline-quality-check"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { getChapterVolumes } from "./volume"
-import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
@@ -221,6 +220,7 @@ async function buildContextPackFromRawData(
   const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback)
   
   // 构建角色氛围上下文（依赖其他数据）
+  const { buildCharacterAuraContext } = await import("./character-aura")
   const characterAuras = await buildCharacterAuraContext(context.projectPath, context.task, {
     matchingText: joinNonEmpty([
       chapterGoal,

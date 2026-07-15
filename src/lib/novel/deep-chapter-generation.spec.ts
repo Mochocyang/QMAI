@@ -20,6 +20,12 @@ import {
 } from "./deep-chapter-prompts"
 import { contractToTaskBriefText, createEmptyContract, type ChapterExecutionContract } from "./chapter-execution-contract"
 
+const loadSmartDeAiSkillMock = vi.hoisted(() => vi.fn(async () => null))
+
+vi.mock("./de-ai-adapter", () => ({
+  loadSmartDeAiSkill: loadSmartDeAiSkillMock,
+}))
+
 const llmConfig = {
   provider: "custom",
   apiKey: "test-key",
@@ -149,6 +155,78 @@ function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = [])
 }
 
 describe("runDeepChapterGeneration", () => {
+  it("uses the confirmed plan when retrieving context and selecting the de-AI skill", async () => {
+    const deps = createDeps()
+    const planBlueprint = "确认计划：新角色顾舟在北塔登场，并带出铜钥匙。"
+    loadSmartDeAiSkillMock.mockClear()
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint,
+      },
+      {},
+      deps,
+    )
+
+    expect(deps.buildContextPack).toHaveBeenCalledWith(
+      "E:/Novel",
+      expect.stringContaining(planBlueprint),
+      3,
+    )
+    expect(loadSmartDeAiSkillMock).toHaveBeenCalledWith(
+      "E:/Novel",
+      expect.stringContaining(planBlueprint),
+      expect.any(Object),
+    )
+  })
+
+  it("persists the confirmed plan and execution contract in resume checkpoints", async () => {
+    const checkpoints: DeepChapterGenerationResumeCheckpoint[] = []
+    const planBlueprint = "确认计划：新角色顾舟在北塔登场，并带出铜钥匙。"
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint,
+      },
+      { onCheckpoint: (checkpoint) => checkpoints.push(checkpoint) },
+      createDeps(),
+    )
+
+    const reviewCheckpoint = checkpoints.find((checkpoint) => checkpoint.stage === "after_review")
+    expect(reviewCheckpoint).toMatchObject({
+      planBlueprint,
+      executionContract,
+    })
+
+    const resumeDeps = createDeps()
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        resumeCheckpoint: reviewCheckpoint,
+      },
+      {},
+      resumeDeps,
+    )
+
+    expect(resumeDeps.runChapterExecutionContractBuild).not.toHaveBeenCalled()
+    expect(resumeDeps.buildContextPack).toHaveBeenCalledWith(
+      "E:/Novel",
+      expect.stringContaining(planBlueprint),
+      3,
+    )
+  })
+
   it("keeps the word-count target in planning and draft prompts without forcing later review stages", () => {
     const reviewResults: NovelReviewResult[] = [{
       severity: "error",
@@ -294,20 +372,30 @@ describe("runDeepChapterGeneration", () => {
     const deps = {
       ...createDeps(),
       runChapterExecutionContractBuild: vi.fn(async () => executionContract),
-      runChapterExecutionReportCheck: vi.fn(async () => ({
-        status: "fail" as const,
-        sceneResults: [{
-          id: "S1",
-          passed: false,
-          missing: ["主角进入旧屋"],
-          evidence: "正文停在门外。",
-          repairInstruction: "补写主角进入旧屋。",
-        }],
-        mustDoResults: [],
-        mustAvoidResults: [],
-        finalHookPassed: true,
-        repairItems: ["S1 缺少主角进入旧屋"],
-      })),
+      runChapterExecutionReportCheck: vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: "fail" as const,
+          sceneResults: [{
+            id: "S1",
+            passed: false,
+            missing: ["主角进入旧屋"],
+            evidence: "正文停在门外。",
+            repairInstruction: "补写主角进入旧屋。",
+          }],
+          mustDoResults: [],
+          mustAvoidResults: [],
+          finalHookPassed: true,
+          repairItems: ["S1 缺少主角进入旧屋"],
+        })
+        .mockResolvedValueOnce({
+          status: "pass" as const,
+          sceneResults: [{ id: "S1", passed: true, missing: [], evidence: "已进入旧屋。", repairInstruction: "" }],
+          mustDoResults: [],
+          mustAvoidResults: [],
+          finalHookPassed: true,
+          repairItems: [],
+        }),
       runChapterPlanComplianceCheck: vi.fn(async () => "不应调用旧履约检查"),
       runChapterPlanDeviationRepair: vi.fn(async (_config, _plan, _content, compliance) => {
         expect(String(compliance)).toContain("S1 缺少主角进入旧屋")
@@ -437,6 +525,56 @@ describe("runDeepChapterGeneration", () => {
     expect(activityEvents.some((event) => event.stageId === "plan_compliance")).toBe(false)
   })
 
+  it("does not complete an execution repair that returns the original content", async () => {
+    const workflowEvents: Array<{ type: string; name: string }> = []
+    const failedReport = {
+      status: "fail" as const,
+      sceneResults: [{
+        id: "S1",
+        passed: false,
+        missing: ["主角进入旧屋"],
+        evidence: "正文停在门外。",
+        repairInstruction: "补写主角进入旧屋。",
+      }],
+      mustDoResults: [],
+      mustAvoidResults: [],
+      finalHookPassed: true,
+      repairItems: ["S1 缺少主角进入旧屋"],
+    }
+    const deps = {
+      ...createDeps(),
+      runChapterExecutionContractBuild: vi.fn(async () => executionContract),
+      runChapterExecutionReportCheck: vi.fn(async () => failedReport),
+      runChapterPlanDeviationRepair: vi.fn(async (
+        _config: LlmConfig,
+        _plan: string,
+        content: string,
+      ) => content),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "确认计划：主角进入旧屋。",
+      },
+      { onWorkflowEvent: (event) => workflowEvents.push(event) },
+      deps,
+    )
+
+    expect(result.revised).toBe(false)
+    expect(workflowEvents).toContainEqual(expect.objectContaining({
+      type: "error",
+      name: "chapter_execution_repair",
+    }))
+    expect(workflowEvents).not.toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_execution_repair",
+    }))
+  })
+
   it("keeps final content when execution report generation fails", async () => {
     const deps = {
       ...createDeps(),
@@ -509,6 +647,32 @@ describe("runDeepChapterGeneration", () => {
     expect(events.some((event) => event.name === "chapter_plan_compliance")).toBe(true)
   })
 
+  it("does not emit a completed workflow event when plan compliance fails", async () => {
+    const deps = {
+      ...createLegacyPlanComplianceDeps(),
+      runChapterPlanComplianceCheck: vi.fn(async () => {
+        throw new Error("履约检查服务不可用")
+      }),
+    }
+    const events: Array<{ type: string; name: string }> = []
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "确认计划：旧屋揭示，章末脚步声钩子。",
+      },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )
+
+    expect(result.planCompliance).toContain("履约检查服务不可用")
+    expect(events.filter((event) => event.name === "chapter_plan_compliance").map((event) => event.type))
+      .toEqual(["started", "error"])
+  })
+
   it("publishes final content before waiting for blueprint compliance", async () => {
     const order: string[] = []
     const deps = {
@@ -570,15 +734,22 @@ describe("runDeepChapterGeneration", () => {
     const activityEvents: AgentActivityEvent[] = []
     const deps = {
       ...createLegacyPlanComplianceDeps(),
-      runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
-        status: "partial_deviation",
-        summary: "结尾钩子缺失。",
-        deviations: [{
-          point: "章末钩子",
-          evidence: "正文没有门外第二个人影。",
-          suggestion: "只在结尾补入门外第二个人影，导向下一章。",
-        }],
-      })),
+      runChapterPlanComplianceCheck: vi
+        .fn()
+        .mockResolvedValueOnce(JSON.stringify({
+          status: "partial_deviation",
+          summary: "结尾钩子缺失。",
+          deviations: [{
+            point: "章末钩子",
+            evidence: "正文没有门外第二个人影。",
+            suggestion: "只在结尾补入门外第二个人影，导向下一章。",
+          }],
+        }))
+        .mockResolvedValueOnce(JSON.stringify({
+          status: "compliant",
+          summary: "返修后已符合计划。",
+          deviations: [],
+        })),
       runChapterPlanDeviationRepair: vi.fn(async (
         _config: LlmConfig,
         plan: string,
@@ -609,6 +780,7 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(deps.runChapterPlanDeviationRepair).toHaveBeenCalledOnce()
+    expect(deps.runChapterPlanComplianceCheck).toHaveBeenCalledTimes(2)
     expect(result.finalContent).toBe(repairedContent)
     expect(result.revised).toBe(true)
     expect(result.planCompliance).toContain("计划偏离点返修：已完成")
@@ -624,6 +796,77 @@ describe("runDeepChapterGeneration", () => {
     expect(repairEvent?.content).toContain("正文已更新")
     expect(repairEvent?.content).toContain("返修前")
     expect(repairEvent?.content).toContain("返修后")
+  })
+
+  it("keeps the original content when a plan repair returns it unchanged", async () => {
+    const workflowEvents: Array<{ type: string; name: string }> = []
+    const deps = {
+      ...createLegacyPlanComplianceDeps(),
+      runChapterPlanComplianceCheck: vi.fn(async () => JSON.stringify({
+        status: "partial_deviation",
+        summary: "章末钩子缺失。",
+        deviations: [{ point: "章末钩子", evidence: "未出现人影。", suggestion: "补入人影。" }],
+      })),
+      runChapterPlanDeviationRepair: vi.fn(async (
+        _config: LlmConfig,
+        _plan: string,
+        content: string,
+      ) => content),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "确认计划：章末必须出现门外第二个人影。",
+      },
+      { onWorkflowEvent: (event) => workflowEvents.push(event) },
+      deps,
+    )
+
+    expect(result.revised).toBe(false)
+    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(workflowEvents).toContainEqual(expect.objectContaining({
+      type: "error",
+      name: "chapter_plan_deviation_repair",
+    }))
+    expect(workflowEvents).not.toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_plan_deviation_repair",
+    }))
+  })
+
+  it("rejects a structurally valid plan repair when the compliance recheck still fails", async () => {
+    const repairedContent = chapterText("复检仍偏离的返修正文", 3000)
+    const deviation = JSON.stringify({
+      status: "partial_deviation",
+      summary: "章末钩子仍然缺失。",
+      deviations: [{ point: "章末钩子", evidence: "仍未出现人影。", suggestion: "补入人影。" }],
+    })
+    const deps = {
+      ...createLegacyPlanComplianceDeps(),
+      runChapterPlanComplianceCheck: vi.fn(async () => deviation),
+      runChapterPlanDeviationRepair: vi.fn(async () => repairedContent),
+    }
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        planBlueprint: "确认计划：章末必须出现门外第二个人影。",
+      },
+      {},
+      deps,
+    )
+
+    expect(deps.runChapterPlanComplianceCheck).toHaveBeenCalledTimes(2)
+    expect(result.revised).toBe(false)
+    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).not.toBe(repairedContent)
   })
 
   it("does not repair final content when plan compliance is mostly compliant", async () => {
@@ -810,6 +1053,28 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("未发现阻断问题")
   })
 
+  it("reports strict review failures without claiming that no blocking issues were found", async () => {
+    const deps = createDeps()
+    vi.mocked(deps.reviewChapter).mockRejectedValueOnce(new Error("审稿服务不可用"))
+    const thinking: string[] = []
+    const events: Array<{ type: string; name: string }> = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      {
+        onThinking: (content) => thinking.push(content),
+        onWorkflowEvent: (event) => events.push(event),
+      },
+      deps,
+    )
+
+    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(thinking.join("\n")).toContain("AI 审稿失败")
+    expect(thinking.join("\n")).not.toContain("AI 审稿完成，未发现阻断问题")
+    expect(events.filter((event) => event.name === "chapter_review").map((event) => event.type))
+      .toEqual(["started", "error"])
+  })
+
   it("emits structured activity events for context extraction and stage outputs", async () => {
     const deps = createDeps()
     const activityEvents: AgentActivityEvent[] = []
@@ -976,13 +1241,16 @@ describe("runDeepChapterGeneration", () => {
     expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
 
     const standardDeps = createDeps()
+    const standardThinking: string[] = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
-      {},
+      { onThinking: (content) => standardThinking.push(content) },
       standardDeps,
     )
     expect(standardDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(standardDeps.reviewChapter).not.toHaveBeenCalled()
+    expect(standardThinking.join("\n")).toContain("阶段4：标准完成")
+    expect(standardThinking.join("\n")).not.toContain("快速模式")
 
     const strictDeps = createDeps()
     await runDeepChapterGeneration(
@@ -1176,6 +1444,35 @@ describe("runDeepChapterGeneration", () => {
     )).resolves.toMatchObject({ finalContent: expect.any(String) })
 
     expect(thinking.length).toBeGreaterThan(0)
+  })
+
+  it("stops promptly while context building is still pending", async () => {
+    const deps = createDeps()
+    let releaseContext!: (value: ContextPack) => void
+    const pendingContext = new Promise<ContextPack>((resolve) => {
+      releaseContext = resolve
+    })
+    vi.mocked(deps.buildContextPack).mockReturnValueOnce(pendingContext)
+    const controller = new AbortController()
+
+    const generation = runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      {},
+      deps,
+      controller.signal,
+    )
+    await vi.waitFor(() => expect(deps.buildContextPack).toHaveBeenCalledTimes(1))
+    controller.abort()
+
+    const outcome = await Promise.race([
+      generation.then(() => "resolved", (error) => error instanceof Error ? error.message : String(error)),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 50)),
+    ])
+    releaseContext(contextPack)
+    await generation.catch(() => {})
+
+    expect(outcome).toBe("已停止生成")
+    expect(deps.streamChat).not.toHaveBeenCalled()
   })
 
   it("revises once when review returns blocking errors", async () => {

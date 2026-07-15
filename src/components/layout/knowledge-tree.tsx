@@ -931,7 +931,7 @@ export function KnowledgeTree({
 
     const targetFolderPath = `${getDirName(renamingFolderPath)}/${makeSafeFileSlug(newName, "folder")}`
     if (targetFolderPath !== renamingFolderPath && await fileExists(targetFolderPath)) {
-      window.alert("目标文件夹已存在，请换一个名称。")
+      window.alert(t("knowledgeTree.renameTargetFolderExists"))
       return
     }
 
@@ -945,7 +945,7 @@ export function KnowledgeTree({
         const destPath = `${targetFolderPath}/${relativePath}`
         await createDirectory(getDirName(destPath)).catch(() => {})
         if (await fileExists(destPath)) {
-          window.alert("目标文件已存在，请先改名或选择其他文件夹。")
+          window.alert(t("knowledgeTree.renameTargetFileExists"))
           return
         }
         await copyFile(sourcePath, destPath)
@@ -963,13 +963,13 @@ export function KnowledgeTree({
       }
     } catch (error) {
       console.error("[KnowledgeTree] folder rename failed:", error)
-      window.alert("重命名文件夹失败，请稍后重试。")
+      window.alert(t("knowledgeTree.renameFolderFailed"))
     } finally {
       setRenamingFolderBusy(false)
       setRenamingFolderPath(null)
       setRenameFolderValue("")
     }
-  }, [project, renamingFolderPath, renamingFolderBusy, renameFolderValue, sectionNodes, refreshCurrentTree, selectedFile, setSelectedFile, onRemovePendingPage])
+  }, [project, renamingFolderPath, renamingFolderBusy, renameFolderValue, sectionNodes, refreshCurrentTree, selectedFile, setSelectedFile, onRemovePendingPage, t])
 
   const cancelRenameFolder = useCallback(() => {
     if (renamingFolderBusy) return

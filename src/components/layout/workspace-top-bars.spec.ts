@@ -11,7 +11,7 @@ describe("workspace top bars", () => {
   it("uses one fixed height for the chapter sidebar, editor toolbar, AI chat and outline chat headers", () => {
     expect(sidebarSource).toContain('className="flex h-12 shrink-0 items-center justify-between border-b px-3"')
     expect(previewSource).toContain('className="flex h-12 shrink-0 items-center border-b px-3"')
-    expect(chatSource).toContain('className="flex h-12 shrink-0 items-center border-b bg-muted/20 px-2"')
+    expect(chatSource).toContain('className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2"')
     expect(outlineChatSource).toContain('className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2"')
   })
 

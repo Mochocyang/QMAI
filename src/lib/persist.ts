@@ -11,19 +11,17 @@ const RETRY_DELAY_MS = 500
 
 /**
  * 按项目路径的写入锁，防止同一项目的多个保存操作并发写入。
- * 当某个项目正在保存时，后续的保存请求会被跳过（最新数据会被下一次保存覆盖）。
+ * 当某个项目正在保存时，后续保存按调用顺序等待，确保最新状态不会丢失。
  */
 const saveLocks = new Map<string, Promise<void>>()
 
 /**
  * 获取指定项目的写入锁。
- * 如果已有保存操作在进行中，返回 null 表示跳过本次保存。
- * 否则返回一个 release 函数，调用后释放锁。
+ * 如果已有保存操作在进行中，等待它释放后再获取锁。
  */
-function acquireSaveLock(projectPath: string): (() => void) | null {
-  if (saveLocks.has(projectPath)) {
-    console.warn(`persist: 项目 ${projectPath} 正在保存中，跳过本次保存`)
-    return null
+async function acquireSaveLock(projectPath: string): Promise<() => void> {
+  while (saveLocks.has(projectPath)) {
+    await saveLocks.get(projectPath)
   }
   let release: () => void = () => {}
   const lock = new Promise<void>((resolve) => {
@@ -78,8 +76,7 @@ async function ensureDir(projectPath: string): Promise<void> {
 
 export async function saveReviewItems(projectPath: string, items: ReviewItem[]): Promise<void> {
   const pp = normalizePath(projectPath)
-  const release = acquireSaveLock(`review:${pp}`)
-  if (!release) return // 已有保存操作在进行中，跳过
+  const release = await acquireSaveLock(`review:${pp}`)
   try {
     await ensureDir(pp)
     await withRetry(
@@ -142,8 +139,7 @@ export async function saveChatHistory(
   runStates: ConversationRunStates = {},
 ): Promise<void> {
   const pp = normalizePath(projectPath)
-  const release = acquireSaveLock(`chat:${pp}`)
-  if (!release) return // 已有保存操作在进行中，跳过
+  const release = await acquireSaveLock(`chat:${pp}`)
   try {
     await ensureDir(pp)
 
@@ -157,22 +153,19 @@ export async function saveChatHistory(
     )
 
     // Save each conversation's messages separately
-    const byConversation = new Map<string, DisplayMessage[]>()
+    const byConversation = new Map<string, DisplayMessage[]>(
+      conversations.map((conversation) => [conversation.id, []]),
+    )
     const persistedSnapshotIds = new Set<string>()
     for (const msg of messages) {
-      const list = byConversation.get(msg.conversationId) ?? []
+      const list = byConversation.get(msg.conversationId)
+      if (!list) continue
       list.push(msg)
-      byConversation.set(msg.conversationId, list)
     }
 
     for (const [convId, msgs] of byConversation) {
       // Keep last N messages per conversation
       const toSave = msgs.slice(-(maxMessages || 100))
-      for (const message of toSave) {
-        if (message.contextHubSnapshot?.surface === "ai-chat") {
-          persistedSnapshotIds.add(message.contextHubSnapshot.id)
-        }
-      }
       await withRetry(
         () => writeFile(
           `${pp}/.qmai/chats/${convId}.json`,
@@ -180,6 +173,11 @@ export async function saveChatHistory(
         ),
         `saveChatHistory(chat:${convId})`,
       )
+      for (const message of toSave) {
+        if (message.contextHubSnapshot?.surface === "ai-chat") {
+          persistedSnapshotIds.add(message.contextHubSnapshot.id)
+        }
+      }
     }
 
     try {

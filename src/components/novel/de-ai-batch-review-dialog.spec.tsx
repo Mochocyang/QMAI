@@ -80,6 +80,7 @@ function callbacks() {
   return {
     onSelectChapter: vi.fn(),
     onConfirm: vi.fn(),
+    onSaveDraft: vi.fn(),
     onRegenerate: vi.fn(),
     onCancelChapter: vi.fn(),
     onClose: vi.fn(),
@@ -168,6 +169,14 @@ describe("DeAiBatchReviewDialog", () => {
     expect(props.onCancelChapter).toHaveBeenCalledWith("task-a", "chapter-1")
   })
 
+  it("候选结果可以另存草稿且只传当前章", () => {
+    const props = render()
+
+    act(() => button("另存草稿").click())
+
+    expect(props.onSaveDraft).toHaveBeenCalledWith("task-a", "chapter-1")
+  })
+
   it("生成中保留旧候选并禁用确认和重复重新生成", () => {
     render("chapter-2")
 
@@ -210,5 +219,6 @@ describe("DeAiBatchReviewDialog", () => {
     expect(content?.className).toContain("overflow-y-auto")
     expect(button("确认当前章").disabled).toBe(true)
     expect(button("重新生成").disabled).toBe(true)
+    expect(button("另存草稿").disabled).toBe(true)
     expect(button("取消当前章").disabled).toBe(true)
   })})

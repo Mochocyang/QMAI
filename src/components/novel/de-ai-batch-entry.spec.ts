@@ -8,12 +8,16 @@ const wikiStore = readFileSync("src/stores/wiki-store.ts", "utf8")
 const novelSection = readFileSync("src/components/settings/sections/novel-section.tsx", "utf8")
 
 describe("de-ai batch entry and settings", () => {
-  it("在主布局挂载批量工作区但保留现有单章预览入口", () => {
-    expect(appLayout).toContain("<DeAiBatchWorkspace")
-    expect(previewPanel).toContain("<DeAiPreviewDialog")
+  it("uses the chapter task queue without restoring the retired floating batch workspace", () => {
+    expect(appLayout).not.toContain("<DeAiBatchWorkspace")
+    expect(previewPanel).toContain("<DeAiBatchReviewDialog")
     expect(previewPanel).toContain("runWholeChapterDeAi")
     expect(previewPanel).toContain("registerEditorExternalUpdateHandler")
-    expect(previewPanel).toContain("applyOpenChapterBodyUpdate")
+    expect(previewPanel).toContain("createDeAiBatchChapterApplier")
+    expect(previewPanel).toContain("await applyDeAiBatchChapter(task.chapterPath, task.candidateContent)")
+    expect(previewPanel).toContain("saveDeAiDraftWithoutOverwrite")
+    expect(previewPanel).toContain("writeFileIfAbsent")
+    expect(previewPanel).toContain("deAiDraftSaving")
     expect(previewPanel).toContain("chapterExternalUpdateCoordinator.flushBeforeLeave(path")
     expect(batchWorkspace).toContain("resolveDeAiBatchModelKey")
     expect(batchWorkspace).not.toContain("`${llmConfig.provider}/${llmConfig.model}`")
@@ -25,6 +29,12 @@ describe("de-ai batch entry and settings", () => {
     expect(batchWorkspace).toContain("pendingTaskIds.has(reviewTaskId)")
     expect(batchWorkspace).toContain("操作失败")
     expect(batchWorkspace).not.toMatch(/void useDeAiBatchStore\.getState\(\)\.(?:continueTask|cancelTask|confirmChapter|regenerateChapter|cancelChapter)/)
+  })
+
+  it("keeps review tasks project-scoped and reuses the selected skill when regenerating", () => {
+    expect(previewPanel).toContain("selectProjectDeAiTasks(deAiTasks, project?.path)")
+    expect(previewPanel).toContain("skillContent,")
+    expect(previewPanel).toContain("buildDeAiRewriteMessages(task.sourceContent, task.skillContent)")
   })
 
   it("小说设置包含默认 3、范围 1–5 的批量并发设置", () => {

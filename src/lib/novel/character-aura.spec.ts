@@ -6,7 +6,10 @@ vi.mock("@/commands/fs", () => ({
     if (path.endsWith("/.qmai/character-aura.json")) {
       return JSON.stringify({
         customAuras: [],
-        bindings: [{ characterName: "小晴", auraId: "builtin-li-qingzhao" }],
+        bindings: [
+          { characterName: "小晴", auraId: "builtin-li-qingzhao" },
+          { characterName: "小云", auraId: "builtin-li-qingzhao" },
+        ],
       })
     }
     return ""
@@ -25,5 +28,12 @@ describe("buildCharacterAuraContext", () => {
     expect(context).toContain("小晴")
     expect(context).toContain("李清照")
     expect(context).toContain("角色灵魂必须服从大纲")
+  })
+
+  it("matches a simplified bound name when the task uses traditional Chinese", async () => {
+    const context = await buildCharacterAuraContext("E:/Novel", "小雲推開舊屋的門")
+
+    expect(context).toContain("小云")
+    expect(context).toContain("李清照")
   })
 })

@@ -11,7 +11,7 @@ import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore } from "@/stores/wiki-store"
 import { pinyin } from "pinyin-pro"
-import * as OpenCC from "opencc-js"
+import * as OpenCC from "opencc-js/t2cn"
 
 /** 把中文文本转为无音调小写拼音，用于拼音模糊匹配 */
 function toPinyin(text: string): string {

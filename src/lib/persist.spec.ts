@@ -99,6 +99,59 @@ describe("chat context summary persistence", () => {
     expect(JSON.parse(messageCall[1])[0].contextHubSnapshot).toEqual(contextHubSnapshot)
   })
 
+  it("writes an empty message file when an existing conversation is cleared", async () => {
+    await saveChatHistory("E:/Novel", [{
+      id: "chat-1",
+      title: "会话",
+      createdAt: 1,
+      updatedAt: 2,
+      deAiMode: false,
+    }], [])
+
+    const messageCall = fsMocks.writeFile.mock.calls.find(([path]) => path.endsWith("/.qmai/chats/chat-1.json"))
+    expect(messageCall).toBeDefined()
+    expect(JSON.parse(messageCall![1])).toEqual([])
+    expect(contextHubMocks.pruneSnapshots).toHaveBeenCalledWith("ai-chat", [])
+  })
+
+  it("queues overlapping saves so the newest chat state is not discarded", async () => {
+    const conversation = {
+      id: "chat-1",
+      title: "会话",
+      createdAt: 1,
+      updatedAt: 2,
+      deAiMode: false,
+    }
+    let releaseFirstManifestWrite: (() => void) | undefined
+    let manifestWriteCount = 0
+    fsMocks.writeFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("/.qmai/conversations.json") && manifestWriteCount++ === 0) {
+        await new Promise<void>((resolve) => {
+          releaseFirstManifestWrite = resolve
+        })
+      }
+    })
+
+    const firstSave = saveChatHistory("E:/Novel", [conversation], [{
+      id: "old-message",
+      role: "assistant",
+      content: "旧消息",
+      timestamp: 1,
+      conversationId: "chat-1",
+    }])
+    await vi.waitFor(() => expect(releaseFirstManifestWrite).toBeTypeOf("function"))
+
+    const clearSave = saveChatHistory("E:/Novel", [conversation], [])
+    releaseFirstManifestWrite?.()
+    await Promise.all([firstSave, clearSave])
+
+    const messageWrites = fsMocks.writeFile.mock.calls.filter(([path]) =>
+      path.endsWith("/.qmai/chats/chat-1.json")
+    )
+    expect(messageWrites).toHaveLength(2)
+    expect(JSON.parse(messageWrites.at(-1)![1])).toEqual([])
+  })
+
   it("prunes AI chat snapshots using only references that were actually persisted", async () => {
     const stats = {
       hits: 1, refreshed: 0, failures: 0,

@@ -1134,6 +1134,42 @@ pub async fn write_file(path: String, contents: String) -> Result<(), String> {
         .map_err(|e| format!("write_file blocking task join error: {e}"))?
 }
 
+/// Create a file only when the destination does not already exist.
+pub fn do_write_file_if_absent(path: &str, contents: &str) -> Result<bool, String> {
+    run_guarded("write_file_if_absent", || {
+        let path = resolve_project_storage_path(path);
+        let p = Path::new(&path);
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create parent dirs for '{}': {}", path, e))?;
+        }
+
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(p)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(error) => return Err(format!("Failed to create file '{}': {}", path, error)),
+        };
+        file_sync::mark_app_write_path(p);
+        file.write_all(contents.as_bytes())
+            .map_err(|e| format!("Failed to write file '{}': {}", path, e))?;
+        file.sync_all()
+            .map_err(|e| format!("Failed to sync file '{}': {}", path, e))?;
+        file_sync::mark_app_write_path(p);
+        Ok(true)
+    })
+}
+
+#[tauri::command]
+pub async fn write_file_if_absent(path: String, contents: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || do_write_file_if_absent(&path, &contents))
+        .await
+        .map_err(|e| format!("write_file_if_absent blocking task join error: {e}"))?
+}
+
 /// Atomically replace the destination with a sibling temporary file.
 #[cfg(windows)]
 fn replace_export_file_atomically(temp: &Path, destination: &Path) -> Result<(), String> {
@@ -1915,6 +1951,27 @@ mod tests {
 
         assert_eq!(chapter.size, Some(12));
         assert!(chapter.mtime_ms.is_some());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn write_file_if_absent_never_overwrites_an_existing_file() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-write-if-absent-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("draft.md");
+
+        assert!(do_write_file_if_absent(&path.to_string_lossy(), "first").unwrap());
+        assert!(
+            !do_write_file_if_absent(&path.to_string_lossy(), "second").unwrap()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
 
         let _ = fs::remove_dir_all(root);
     }

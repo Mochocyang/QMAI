@@ -110,7 +110,11 @@ it("默认二进制写入桥接在 Rust 后端实现并注册", () => {
   expect(fsSource).toContain("STANDARD as B64")
   expect(fsSource).toContain(".decode(contents_base64)")
   expect(fsSource).toContain("write_export_file_decodes_base64_before_writing")
-  expect(fsSource).not.toContain("let path = resolve_project_storage_path(path);\n        let p = Path::new(&path);\n        if let Some(parent) = p.parent()")
+  const exportImplementation = fsSource.slice(
+    fsSource.indexOf("fn do_write_export_file_with_replace"),
+    fsSource.indexOf("const MAX_EXPORT_BYTES"),
+  )
+  expect(exportImplementation).not.toContain("resolve_project_storage_path")
   expect(fsSource).toContain("do_write_export_file_with_replace")
   expect(fsSource).toContain("replace_export_file_atomically")
   expect(fsSource).toContain("write_export_file_uses_dialog_path_without_project_path_rewrite")

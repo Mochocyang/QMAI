@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   BookOpenCheck,
@@ -20,11 +20,8 @@ import {
 import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
-import { SoulSidebarPanel } from "./soul-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
-import { BookAnalysisSidebarPanel } from "./book-analysis-sidebar-panel"
 import { FrameworkList } from "@/components/novel/story-simulation/framework-list"
-import { SkillLibrarySidebarPanel } from "@/components/skill-library/skill-library-view"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
@@ -69,6 +66,21 @@ import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
 import type { ReferenceToken } from "@/lib/reference/types"
+
+const SoulSidebarPanel = lazy(async () => {
+  const mod = await import("./soul-sidebar-panel")
+  return { default: mod.SoulSidebarPanel }
+})
+
+const BookAnalysisSidebarPanel = lazy(async () => {
+  const mod = await import("./book-analysis-sidebar-panel")
+  return { default: mod.BookAnalysisSidebarPanel }
+})
+
+const UnifiedSkillLibrarySidebarPanel = lazy(async () => {
+  const mod = await import("@/components/skill-library/unified-skill-library-view")
+  return { default: mod.UnifiedSkillLibrarySidebarPanel }
+})
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
 
@@ -121,6 +133,16 @@ function SearchHistoryPanel() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SidebarPanelLoading() {
+  const { t } = useTranslation()
+  return (
+    <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+      <span>{t("common.loading", { defaultValue: "加载中..." })}</span>
     </div>
   )
 }
@@ -1222,11 +1244,19 @@ export function SidebarPanel() {
   }
 
   if (activeView === "soul") {
-    return <SoulSidebarPanel />
+    return (
+      <Suspense fallback={<SidebarPanelLoading />}>
+        <SoulSidebarPanel />
+      </Suspense>
+    )
   }
 
-  if (activeView === "skillLibrary") {
-    return <SkillLibrarySidebarPanel />
+  if (activeView === "skillLibrary" || activeView === "writingSkillLibrary") {
+    return (
+      <Suspense fallback={<SidebarPanelLoading />}>
+        <UnifiedSkillLibrarySidebarPanel />
+      </Suspense>
+    )
   }
 
   if (activeView === "reviewCenter") {
@@ -1234,7 +1264,11 @@ export function SidebarPanel() {
   }
 
   if (activeView === "bookAnalysis") {
-    return <BookAnalysisSidebarPanel />
+    return (
+      <Suspense fallback={<SidebarPanelLoading />}>
+        <BookAnalysisSidebarPanel />
+      </Suspense>
+    )
   }
 
   if (activeView === "search") {
@@ -1332,9 +1366,9 @@ export function SidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-semibold">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
             <PanelHeaderWithHelp
               title={isChapter ? t("sidebar.knowledge") : t("sidebar.files")}
               helpKey={isChapter ? "chapter" : "outline"}

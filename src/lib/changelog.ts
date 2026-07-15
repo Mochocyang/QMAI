@@ -7,6 +7,54 @@ export interface ChangelogEntry {
   };
 }
 
+const TWO_POINT_TWO_THIRTY_SIX_CHANGELOG: ChangelogEntry = {
+  version: "2.2.36",
+  date: "2026-07-15",
+  highlights: {
+    en: [
+      "Confirmed chapter plans now participate in context retrieval and de-AI Skill selection, and resume checkpoints preserve both the plan and execution contract.",
+      "Plan and execution repairs are accepted only after meaningful content changes and a successful compliance recheck, preventing false success reports.",
+      "Strict review now reports unavailable review models as failures and cancels sibling chunk requests when one review chunk fails.",
+      "De-AI review tasks stay isolated by project and case-sensitive path, while Save as Draft uses no-overwrite file creation and cannot refresh another project's file tree.",
+      "Overlapping chat and review saves are queued so the newest cleared or updated state is not lost.",
+      "Reduced initial frontend loading by lazy-loading optional views and separating Sigma, graph, language, and editor vendor bundles.",
+    ],
+    zh: [
+      "确认计划现在会参与上下文检索和去 AI 味 Skill 选择，恢复检查点同时保留计划与执行清单。",
+      "计划返修和执行清单返修只有在正文发生有效变化且复检通过后才会采用，避免错误提示返修成功。",
+      "严格审稿会把审稿模型不可用明确报告为失败，并在任一分段失败时取消同批其他审稿请求。",
+      "去 AI 味审查任务按项目和大小写敏感路径隔离；另存草稿采用不覆盖写入，且不会把旧项目文件树写入新项目界面。",
+      "聊天与审查的并发保存改为排队执行，清空或更新后的最新状态不会再被丢弃。",
+      "搜索、技能库等可选页面改为按需加载，并拆分图谱、语言处理和编辑器依赖，降低首次加载开销。",
+    ],
+  },
+};
+
+const TWO_POINT_TWO_THIRTY_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "2.2.35",
+  date: "2026-07-15",
+  highlights: {
+    en: [
+      "Added a project-level context hub shared by AI Chat and AI Outline, with reusable source caches, session summaries, automatic invalidation, and inspectable cache snapshots.",
+      "Restored the full AI chapter workflow so fast, standard, and strict modes again route through confirmed plans, execution contracts, compliance checks, execution reports, and targeted repair.",
+      "Fixed multi-chapter de-AI review so background chapter results are actually written before success is shown, and review tasks stay isolated to the current project.",
+      "De-AI regeneration now reuses the originally selected Skill instead of silently falling back to an empty Skill prompt.",
+      "Improved AI Outline auto-save, plan confirmation, scrolling, and responsive panel sizing.",
+      "Removed inaccurate millisecond duration labels from AI Chat and AI Outline execution details.",
+      "Improved update failure guidance with a direct fallback link to the official download site.",
+    ],
+    zh: [
+      "新增项目级上下文中控：AI 对话与 AI 大纲共享资料缓存和会话摘要，支持自动失效、缓存命中统计与完整快照查看。",
+      "恢复完整 AI 章节工作流：快速、标准、严格模式重新接入确认计划、执行契约、履约检查、执行报告和定向返修。",
+      "修复多章节去 AI 味审查未写盘却提示成功的问题，并将审查任务严格隔离到当前项目。",
+      "去 AI 味重新生成会继续使用首次选择的 Skill，不再退回空 Skill 提示词。",
+      "修复 AI 大纲自动保存、计划确认、滚动定位和面板宽度自适应问题。",
+      "移除 AI 对话与 AI 大纲执行详情中不准确的毫秒耗时显示。",
+      "更新检查失败时增加官网下载安装入口。",
+    ],
+  },
+};
+
 const TWO_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
   version: "2.2.10",
   date: "2026-06-09",
@@ -796,6 +844,10 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === TWO_POINT_TWO_THIRTY_SIX_CHANGELOG.version)
+    return [TWO_POINT_TWO_THIRTY_SIX_CHANGELOG];
+  if (version === TWO_POINT_TWO_THIRTY_FIVE_CHANGELOG.version)
+    return [TWO_POINT_TWO_THIRTY_FIVE_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_THREE_CHANGELOG.version)
     return [TWO_POINT_TWO_THIRTY_THREE_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_TWO_CHANGELOG.version)
@@ -861,6 +913,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    TWO_POINT_TWO_THIRTY_SIX_CHANGELOG,
+    TWO_POINT_TWO_THIRTY_FIVE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_THREE_CHANGELOG,
     TWO_POINT_TWO_THIRTY_TWO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_ONE_CHANGELOG,

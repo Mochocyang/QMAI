@@ -38,6 +38,21 @@ export default defineConfig(async () => ({
       output: {
         manualChunks(id: string) {
           if (id.includes("node_modules")) {
+            if (id.includes("opencc-js")) {
+              return "opencc-vendor"
+            }
+            if (id.includes("pinyin-pro")) {
+              return "pinyin-vendor"
+            }
+            if (id.includes("js-yaml")) {
+              return "yaml-vendor"
+            }
+            if (id.includes("@react-sigma") || id.includes("sigma")) {
+              return "sigma-vendor"
+            }
+            if (id.includes("graphology")) {
+              return "graphology-vendor"
+            }
             if (id.includes("react") || id.includes("scheduler")) {
               return "react-vendor"
             }
@@ -50,16 +65,6 @@ export default defineConfig(async () => ({
             if (id.includes("cytoscape")) {
               return "cytoscape-vendor"
             }
-            if (id.includes("@react-sigma") || id.includes("sigma")) {
-              return "sigma-vendor"
-            }
-            if (id.includes("graphology")) {
-              return "graphology-vendor"
-            }
-          }
-          // Split large book-analysis modules into their own chunk
-          if (id.includes("/src/lib/novel/book-analysis/")) {
-            return "book-analysis-vendor"
           }
           return undefined
         },

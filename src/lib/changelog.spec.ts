@@ -6,7 +6,9 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 27)).toEqual([
+    expect(versions.slice(0, 29)).toEqual([
+      "2.2.36",
+      "2.2.35",
       "2.2.33",
       "2.2.32",
       "2.2.31",
@@ -35,7 +37,7 @@ describe("changelog", () => {
       "2.2.0",
       "2.1.0",
     ])
-    expect(versions[27]).toBe("2.0.0")
+    expect(versions[29]).toBe("2.0.0")
 
     for (let patch = 1; patch <= 6; patch += 1) {
       expect(versions).not.toContain(`2.2.${patch}`)
@@ -61,6 +63,17 @@ describe("changelog", () => {
     expect(release.highlights.en.join("\n")).toContain("Major release")
     expect(release.highlights.en.join("\n")).toContain("Review Center")
     expect(release.highlights.en.join("\n")).toContain("AI Rewrite")
+  })
+
+  it("returns the 2.2.36 reliability release notes", () => {
+    const release = currentVersionChangelog("2.2.36")[0]
+    const zh = release.highlights.zh.join("\n")
+
+    expect(release.version).toBe("2.2.36")
+    expect(zh).toContain("确认计划")
+    expect(zh).toContain("严格审稿")
+    expect(zh).toContain("草稿")
+    expect(zh).toContain("并发保存")
   })
 
   it("returns the 2.2.0 changelog entry", () => {

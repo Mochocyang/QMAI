@@ -1,8 +1,16 @@
 import { Suspense, lazy } from "react";
 import { useWikiStore } from "@/stores/wiki-store";
 import { WritingWorkspace } from "./writing-workspace";
-import { SearchView } from "@/components/search/search-view";
-import { UnifiedSkillLibraryView } from "@/components/skill-library/unified-skill-library-view";
+
+const SearchView = lazy(async () => {
+  const mod = await import("@/components/search/search-view");
+  return { default: mod.SearchView };
+});
+
+const UnifiedSkillLibraryView = lazy(async () => {
+  const mod = await import("@/components/skill-library/unified-skill-library-view");
+  return { default: mod.UnifiedSkillLibraryView };
+});
 
 const AIChatTabContainer = lazy(async () => {
   const mod = await import("@/components/chat/ai-chat-tab-container");
@@ -58,7 +66,7 @@ const StorySimulationView = lazy(async () => {
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading...
+      加载中...
     </div>
   );
 }
@@ -88,7 +96,11 @@ export function ContentArea() {
         );
         break;
       case "search":
-        content = <SearchView />;
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <SearchView />
+          </Suspense>
+        );
         break;
       case "soul":
         content = (

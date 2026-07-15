@@ -31,6 +31,7 @@ export interface DeAiBatchReviewDialogProps {
   pending?: boolean
   onSelectChapter(chapterId: string): void
   onConfirm(taskId: string, chapterId: string): void
+  onSaveDraft?(taskId: string, chapterId: string): void
   onRegenerate(taskId: string, chapterId: string): void
   onCancelChapter(taskId: string, chapterId: string): void
   onClose(): void
@@ -82,6 +83,7 @@ export function DeAiBatchReviewDialog({
   pending = false,
   onSelectChapter,
   onConfirm,
+  onSaveDraft,
   onRegenerate,
   onCancelChapter,
   onClose,
@@ -89,6 +91,7 @@ export function DeAiBatchReviewDialog({
   const [mobileTab, setMobileTab] = useState<"source" | "candidate">("source")
   const chapter = record?.chapters.find((item) => item.id === currentChapterId) ?? record?.chapters[0] ?? null
   const canConfirm = !pending && chapter?.status === "ready" && !!chapter.candidateContent
+  const canSaveDraft = !pending && !!onSaveDraft && !!chapter?.candidateContent && chapter.status !== "generating"
   const canRegenerate = !pending && !!chapter && chapter.status !== "generating" && chapter.status !== "confirmed"
   const canCancel = !pending && !!chapter && chapter.status !== "confirmed" && chapter.status !== "cancelled"
 
@@ -213,6 +216,16 @@ export function DeAiBatchReviewDialog({
           >
             重新生成
           </Button>
+          {onSaveDraft ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canSaveDraft}
+              onClick={() => { if (record && chapter) onSaveDraft(record.task.id, chapter.id) }}
+            >
+              另存草稿
+            </Button>
+          ) : null}
           <Button
             type="button"
             disabled={!canConfirm}

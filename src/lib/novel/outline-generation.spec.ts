@@ -121,7 +121,7 @@ describe("outline-generation context fallback", () => {
     const prompt = await buildOutlineGenerationPrompt("E:/Novel", "通用", "短篇", "测试")
 
     expect(prompt).toContain("测试")
-    expect(prompt).toContain("请为以下小说生成大纲")
+    expect(prompt).toContain("请根据以上信息，设计一个完整、有吸引力的小说大纲")
   })
 
   it("returns an empty refinement context when context loading fails", async () => {

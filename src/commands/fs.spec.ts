@@ -9,6 +9,7 @@ import {
   subscribeProjectFileMutations,
   writeFile,
   writeFileAtomic,
+  writeFileIfAbsent,
 } from "./fs"
 
 describe("project file mutation notifications", () => {
@@ -40,6 +41,26 @@ describe("project file mutation notifications", () => {
 
     await expect(writeFile("E:/Novel/wiki/chapters/1.md", "一")).rejects.toThrow("磁盘错误")
     expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it("notifies only when an absent file is actually created", async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeProjectFileMutations(listener)
+    invokeMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    await expect(writeFileIfAbsent("E:/Novel/wiki/chapters/draft.md", "一")).resolves.toBe(false)
+    await expect(writeFileIfAbsent("E:/Novel/wiki/chapters/draft-2.md", "二")).resolves.toBe(true)
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "write_file_if_absent", {
+      path: "E:/Novel/wiki/chapters/draft.md",
+      contents: "一",
+    })
+    expect(listener).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledWith({
+      type: "write",
+      path: "E:/Novel/wiki/chapters/draft-2.md",
+    })
     unsubscribe()
   })
 })

@@ -45,6 +45,12 @@ export async function writeFileAtomic(path: string, contents: string): Promise<v
   notifyProjectFileMutation({ type: "write", path })
 }
 
+export async function writeFileIfAbsent(path: string, contents: string): Promise<boolean> {
+  const created = await invoke<boolean>("write_file_if_absent", { path, contents })
+  if (created) notifyProjectFileMutation({ type: "write", path })
+  return created
+}
+
 /**
  * List a directory tree. Dot-prefixed entries (`.claude`, `.env`,
  * `.qmai`, …) are hidden by default; pass `includeHidden: true`

@@ -15,9 +15,10 @@ describe("AI 大纲工作台页面接入", () => {
   })
 
   it("大纲文件树接入左侧大纲侧栏而不是主内容区", () => {
-    expect(sidebarPanelSource).toContain("OutlineFileTreePanel")
-    expect(sidebarPanelSource).toContain('activeView === "sources" && novelMode')
-    expect(sidebarPanelSource).toContain("<OutlineFileTreePanel")
+    expect(sidebarPanelSource).toContain('activeView === "sources"')
+    expect(sidebarPanelSource).toContain('setMode("files")')
+    expect(sidebarPanelSource).toContain("<KnowledgeTree")
+    expect(sidebarPanelSource).toContain('filterType={isChapter ? "chapter" : "outline"}')
     expect(readFileSync(resolve(__dirname, "outline-workbench.tsx"), "utf8")).not.toContain("OutlineFileTree")
     expect(readFileSync(resolve(__dirname, "outline-workbench.tsx"), "utf8")).not.toContain("outline-tree-pane")
   })
@@ -29,11 +30,13 @@ describe("AI 大纲工作台页面接入", () => {
     expect(toolbarSource).not.toContain('mode="refine"')
   })
 
-  it("移除旧的非对话式大纲生成组件和深度生成模块", () => {
+  it("移除旧的非对话式生成界面且不把独立生成模块接回工作台", () => {
     expect(existsSync(resolve(__dirname, "outline-generator-dialog.tsx"))).toBe(false)
-    expect(existsSync(resolve(__dirname, "../../lib/novel/outline-generation.ts"))).toBe(false)
-    expect(existsSync(resolve(__dirname, "../../lib/novel/deep-outline-generation.ts"))).toBe(false)
-    expect(promptTemplatesSource).not.toContain("outlineGeneration:")
+    expect(existsSync(resolve(__dirname, "../../lib/novel/outline-generation.ts"))).toBe(true)
+    expect(existsSync(resolve(__dirname, "../../lib/novel/deep-outline-generation.ts"))).toBe(true)
+    expect(sourcesViewSource).not.toContain("runDeepOutlineGeneration")
+    expect(toolbarSource).not.toContain("runDeepOutlineGeneration")
+    expect(promptTemplatesSource).toContain("outlineGeneration:")
     expect(promptTemplatesSource).not.toContain("outlineRefinementGeneration:")
   })
 })

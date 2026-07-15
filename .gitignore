@@ -29,6 +29,7 @@ tests/
 src/test-helpers/*
 !src/test-helpers/
 !src/test-helpers/load-test-env.ts
+!src/test-helpers/fs-temp.ts
 **/*.test.ts
 **/*.test.tsx
 !src/lib/chat-copy-content.test.ts
@@ -40,6 +41,10 @@ src/test-helpers/*
 !src/lib/chat-request-budget.test.ts
 !src/lib/context-budget.test.ts
 !src/lib/ingest.prompt.test.ts
+!src/components/layout/chat-layout.test.ts
+!src/i18n/i18n-parity.test.ts
+!src/lib/hardcoded-ui-chinese-i18n.test.ts
+!src/lib/project-store.integration.test.ts
 
 # === 根目录文档（仅本地保留）===
 /docs/
@@ -81,9 +86,13 @@ De-AI-Prompt-Enhancer-Writer-Booster-SKILL-main.zip
 .codex-*.log
 .trae/
 .vscode/
+/.zed/
 
 # === 杂项 ===
 /1.txt
+/nul
+/xiufuzonghebug-分支说明.md
+/zed-design-standard.html
 
 # === 开发调试产物（勿提交根目录）===
 /test-mocks-*-report.json

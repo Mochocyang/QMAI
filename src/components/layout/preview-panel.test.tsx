@@ -34,15 +34,15 @@ describe("preview-panel final chapter save state", () => {
   })
 
   it("shows the actual skill used by de-AI actions", () => {
-    expect(source).toContain("deAiSkillName")
+    expect(source).toContain("chapterDeAiSkillName")
     expect(source).toContain("selectionTransformSkillName")
+    expect(source).toContain("当前去AI味 Skill")
     expect(source).toContain("本次使用 Skill")
-    expect(source).toContain("去AI味处理中，使用 Skill")
   })
 
   it("keeps the chapter de-AI toolbar button label short while preserving the skill picker state", () => {
     expect(source).toContain("chapterDeAiOptions.effectiveName")
-    expect(source).toContain('const chapterDeAiButtonLabel = deAiProcessing ? "处理中" : "去AI味"')
+    expect(source).toContain('const chapterDeAiButtonLabel = currentChapterDeAiProcessing ? "处理中" : "去AI味"')
     expect(source).not.toContain("`去AI味：${chapterDeAiSkillName}`")
     expect(source).toContain("currentSkillId={chapterDeAiOptions.currentSkillId}")
     expect(source).toContain("defaultSkillId={chapterDeAiOptions.defaultSkillId}")
@@ -73,10 +73,10 @@ describe("preview-panel final chapter save state", () => {
     expect(source).toContain("}, [project?.path])")
   })
 
-  it("keeps the remember-skill warning visible during de-AI processing", () => {
-    expect(source).toContain("deAiSkillMemoryWarning")
-    expect(source).toContain("formatDeAiStatus")
-    expect(source).toContain("setDeAiSkillMemoryWarning(\"未能记住本次去AI味 Skill 选择，本次处理仍会继续\")")
+  it("reports remember-skill failures without replacing de-AI processing state", () => {
+    expect(source).toContain('toast.error("未能记住本次去AI味 Skill 选择，本次处理仍会继续")')
+    expect(source).not.toContain("deAiSkillMemoryWarning")
+    expect(source).not.toContain("setDeAiSkillMemoryWarning")
   })
 
   it("closes the chapter de-AI skill picker when clicking outside it", () => {
@@ -134,6 +134,11 @@ describe("preview-panel final chapter save state", () => {
     expect(source).not.toContain("canArchiveDraft")
     expect(source).not.toContain("handleArchiveDraft")
     expect(source).not.toContain('t("novel.chapter.archiveDraft")')
+  })
+
+  it("does not apply a saved draft tree after the active project changes", () => {
+    expect(source).toContain("const draftProjectId = project.id")
+    expect(source).toContain("useWikiStore.getState().project?.id === draftProjectId")
   })
 
   it("does not mount a newly selected markdown file before it loads", () => {
