@@ -195,7 +195,35 @@ describe("agent stage stream integration", () => {
 
     expect(html).toContain("读取章节")
     expect(html).toContain("完成。")
-    expect(html).toContain("耗时")
+    expect(html).not.toContain("耗时")
+    expect(html).not.toContain("1ms")
+  })
+})
+
+describe("AI 对话上下文中控入口", () => {
+  it("只有中控快照时仍显示生成详情入口", () => {
+    const message: DisplayMessage = {
+      id: "assistant-context-hub",
+      role: "assistant",
+      content: "回答正文",
+      timestamp: 10,
+      conversationId: "chat-1",
+      contextHubSnapshot: {
+        id: "assistant-context-hub",
+        surface: "ai-chat",
+        createdAt: 10,
+        stats: {
+          hits: 2, refreshed: 1, failures: 0,
+          stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
+          candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
+          expanded: false, providerCacheEnabled: true,
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ChatMessage message={message} />)
+
+    expect(html).toContain("查看生成详情")
   })
 })
 

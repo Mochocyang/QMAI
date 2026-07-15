@@ -122,6 +122,7 @@ import { useStreamingText } from "@/hooks/use-streaming-text";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
+import { ContextHubDetails } from "@/components/common/context-hub-details";
 import {
   ReferenceInput,
   type InsertReferenceTokens,
@@ -165,10 +166,17 @@ import {
   shouldUseWebResearch,
 } from "@/lib/web-research";
 import {
-  buildOutlineContextSummary,
   planOutlineAgentHistory,
   planOutlineContextReuse,
 } from "@/lib/novel/outline-context-reuse";
+import {
+  buildContextHubSystemContent,
+  buildSessionContextSummary,
+  flattenContextHubSystemContent,
+  getContextHub,
+  type ContextHubResult,
+  type ContextHubSnapshotRef,
+} from "@/lib/context-hub";
 import {
   getConversationTabTitle,
   splitConversationToolbarItems,
@@ -940,6 +948,12 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
+      {msg.contextHubSnapshot ? (
+        <ContextHubDetails
+          reference={msg.contextHubSnapshot}
+          projectPath={projectPath}
+        />
+      ) : null}
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
@@ -1808,9 +1822,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ? useOutlineChatStore
               .getState()
               .conversations.find((conversation) => conversation.id === convId)
-              ?.contextSummary
+              ?.contextSummary?.text
           : undefined;
-      const historyPlan = planOutlineAgentHistory({
+      let historyPlan = planOutlineAgentHistory({
         history: historyBeforeSend,
         contextDecision,
         cachedSummary,
@@ -1850,8 +1864,46 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       userScrolledUpRef.current = false;
       let hiddenToolCalls: AgentRunRecord["toolCalls"] = [];
       let followUpGenerationPrompt: string | null = null;
+      let contextHubResult: ContextHubResult | null = null;
 
       try {
+        const contextHub = getContextHub(normalizePath(project.path));
+        contextHubResult = await contextHub.prepare({
+          projectPath: normalizePath(project.path),
+          surface: "ai-outline",
+          sessionId: capturedConvId,
+          task: prompt,
+          intent: options.intentPhase === "generation" ? "generate" : "question",
+          references: tokens.map(describeReferenceForOutlineAgent),
+          messages: historyBeforeSend,
+          existingSummary: forceRefresh ? undefined : targetConversation?.contextSummary,
+          tokenBudget: novelConfig.contextTokenBudget > 0
+            ? novelConfig.contextTokenBudget
+            : undefined,
+          forceRefresh,
+        });
+        if (contextHubResult) {
+          try {
+            const contextHubSnapshot = await contextHub.saveSnapshot(assistantId, contextHubResult);
+            if (isCurrentRun()) {
+              updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+                ...message,
+                contextHubSnapshot,
+              }));
+            }
+          } catch (error) {
+            console.warn("AI 大纲上下文快照保存失败，继续生成：", error);
+          }
+        }
+        if (contextHubResult && contextDecision.mode === "reuse") {
+          historyPlan = planOutlineAgentHistory({
+            history: historyBeforeSend,
+            contextDecision,
+            cachedSummary: contextHubResult.sessionSummary || undefined,
+            summaryInSystem: true,
+          });
+        }
+
         let webResearchMarkdown = "";
         let outlineSources = [...initialSources];
         if (shouldUseWebResearch(prompt)) {
@@ -1873,13 +1925,32 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           (): DeAiSkillConfig | null => null,
         );
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
-        const systemPrompt = buildOutlineAgentSystemPrompt({
+        const baseSystemPrompt = buildOutlineAgentSystemPrompt({
+          projectName: project.name,
+        });
+        const legacySystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
           webResearchContext: webResearchMarkdown,
           soulDoc,
         }) + `\n\n## 本轮上下文策略\n${contextDecision.instruction}\n\n${historyPlan.instruction}`;
+        const commonDynamicParts = [
+          webResearchMarkdown ? `## 本轮联网资料\n${webResearchMarkdown}` : "",
+          `## 本轮上下文策略\n${contextDecision.instruction}\n\n${historyPlan.instruction}`,
+        ];
+        const buildOutlineRunSystemContent = (extraRules = ""): AgentMessage["content"] => (
+          contextHubResult
+            ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult, [
+                ...commonDynamicParts,
+                extraRules,
+              ])
+            : [legacySystemPrompt, extraRules].filter(Boolean).join("\n\n")
+        );
+        const primarySystemContent = buildOutlineRunSystemContent();
+        const systemPrompt = typeof primarySystemContent === "string"
+          ? primarySystemContent
+          : flattenContextHubSystemContent(primarySystemContent);
         const agentMessages: AgentMessage[] = [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: primarySystemContent },
           ...historyPlan.messages,
           {
             role: "user",
@@ -1930,6 +2001,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   : OUTLINE_CHAT_DISABLED_TOOLS,
                 contextDecision.disabledTools,
               ),
+              ...(contextHubResult
+                ? { readTextFile: contextHubResult.readFile }
+                : {}),
             },
           );
           return { agentConfig, registry };
@@ -2016,7 +2090,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const plannerPrompt = buildDynamicOutlinePlannerPrompt({
             userTask: prompt,
             projectSummary: [
-              targetConversation?.contextSummary,
+              targetConversation?.contextSummary?.text,
               contextDecision.instruction,
               historyPlan.instruction,
             ].filter(Boolean).join("\n"),
@@ -2034,7 +2108,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             const plannerRun = await runOutlineAgentOnce([
               {
                 role: "system",
-                content: "你只负责规划大纲子 Agent 任务图，不执行大纲生成，不调用工具，只输出 JSON。",
+                content: buildOutlineRunSystemContent(
+                  "你只负责规划大纲子 Agent 任务图，不执行大纲生成，不调用工具，只输出 JSON。",
+                ),
               },
               { role: "user", content: plannerPrompt },
             ], {
@@ -2088,14 +2164,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               const subAgentMessages: AgentMessage[] = [
                 {
                   role: "system",
-                  content: [
-                    systemPrompt,
-                    "",
+                  content: buildOutlineRunSystemContent([
                     "## 子 Agent 运行规则",
                     `当前身份：${subAgentPlan.name}`,
                     "你只能处理本 Agent 负责的维度，禁止写入文件。",
                     "必须输出符合 AI 大纲子 Agent JSON 协议的 JSON，不要输出额外说明。",
-                  ].join("\n"),
+                  ].join("\n")),
                 },
                 ...historyPlan.messages,
                 {
@@ -2164,13 +2238,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               const mergeMessages: AgentMessage[] = [
                 {
                   role: "system",
-                  content: [
-                    systemPrompt,
-                    "",
+                  content: buildOutlineRunSystemContent([
                     "## 合并 Agent 运行规则",
                     "你负责合并多个子 Agent 的结构化结果，形成最终可预览的大纲草稿。",
                     "输出必须是用户可直接阅读和保存的大纲正文，不要输出内部调度报告。",
-                  ].join("\n"),
+                  ].join("\n")),
                 },
                 ...historyPlan.messages,
                 {
@@ -2355,11 +2427,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
 
         const nextContextSummaryPayload = {
-          contextSummary: buildOutlineContextSummary([
-            ...historyBeforeSend,
-            { role: "user", content: prompt },
-            { role: "assistant", content: finalContent },
-          ]),
+          contextSummary: buildSessionContextSummary({
+            messages: [
+              ...historyBeforeSend,
+              { role: "user", content: prompt },
+              { role: "assistant", content: finalContent },
+            ],
+            dependencies: contextHubResult?.dependencies ?? {},
+          }),
         };
         if (!isCurrentRun()) return { started: true, sent: false };
         setConversationContextSummary(convId, nextContextSummaryPayload.contextSummary);
@@ -2598,9 +2673,53 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       );
 
       try {
+        let contextHubResult: ContextHubResult | null = null;
+        try {
+          const contextHub = getContextHub(normalizePath(project.path));
+          contextHubResult = await contextHub.prepare({
+            projectPath: normalizePath(project.path),
+            surface: "ai-outline",
+            sessionId: capturedConvId,
+            task: `继续未完成的 AI 大纲多 Agent 任务：${failedAgentIds.join("、")}`,
+            intent: "generate",
+            messages: conv.messages.map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+            existingSummary: conv.contextSummary,
+            tokenBudget: novelConfig.contextTokenBudget > 0
+              ? novelConfig.contextTokenBudget
+              : undefined,
+          });
+          if (contextHubResult) {
+            try {
+              const contextHubSnapshot = await contextHub.saveSnapshot(`${messageId}:${runId}`, contextHubResult);
+              if (isCurrentRun()) {
+                updateOutlineAssistantMessage(capturedConvId, messageId, (message) => ({
+                  ...message,
+                  contextHubSnapshot,
+                }));
+              }
+            } catch (error) {
+              console.warn("AI 大纲续传上下文快照保存失败，继续生成：", error);
+            }
+          }
+        } catch (error) {
+          console.warn("AI 大纲续传上下文中控准备失败，继续使用原有流程：", error);
+        }
         const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null);
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
-        const systemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, soulDoc });
+        const baseSystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name });
+        const legacySystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, soulDoc });
+        const buildResumeSystemContent = (extraRules: string): AgentMessage["content"] => (
+          contextHubResult
+            ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult, [extraRules])
+            : [legacySystemPrompt, extraRules].filter(Boolean).join("\n\n")
+        );
+        const primarySystemContent = buildResumeSystemContent("");
+        const systemPrompt = typeof primarySystemContent === "string"
+          ? primarySystemContent
+          : flattenContextHubSystemContent(primarySystemContent);
         const buildConfig = (_skillNames: string[], disableWriteTools: boolean) => {
           const r = new ToolRegistry();
           const c = buildAgentConfig(effectiveModelId, systemPrompt, r, {
@@ -2620,6 +2739,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             getOutlineConversations: () => mapOutlineConversationsForModel(useOutlineChatStore.getState().conversations),
             llmConfig: effectiveLlmConfig,
             disabledTools: disableWriteTools ? OUTLINE_CHAT_DISABLED_TOOLS : [],
+            ...(contextHubResult
+              ? { readTextFile: contextHubResult.readFile }
+              : {}),
           });
           return { agentConfig: c, registry: r };
         };
@@ -2652,7 +2774,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             let runText = "";
             let agentError: Error | null = null;
             await new AgentRunner().run(agentConfig, reg, [
-              { role: "system", content: [systemPrompt, "", "## 子 Agent 运行规则", `当前身份：${subAgentPlan.name}`, "你只能处理本 Agent 负责的维度，禁止写入文件。", "必须输出符合 AI 大纲子 Agent JSON 协议的 JSON，不要输出额外说明。"].join("\n") },
+              { role: "system", content: buildResumeSystemContent(["## 子 Agent 运行规则", `当前身份：${subAgentPlan.name}`, "你只能处理本 Agent 负责的维度，禁止写入文件。", "必须输出符合 AI 大纲子 Agent JSON 协议的 JSON，不要输出额外说明。"].join("\n")) },
               { role: "user", content: subAgentPlan.taskPrompt },
             ], {
               onText: (chunk) => { runText += chunk; },
@@ -2677,7 +2799,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             let mergeText = "";
             let mergeError: Error | null = null;
             await new AgentRunner().run(agentConfig, reg, [
-              { role: "system", content: [systemPrompt, "", "## 合并 Agent 运行规则", "你负责合并多个子 Agent 的结构化结果，形成最终可预览的大纲草稿。", "输出必须是用户可直接阅读和保存的大纲正文，不要输出内部调度报告。"].join("\n") },
+              { role: "system", content: buildResumeSystemContent(["## 合并 Agent 运行规则", "你负责合并多个子 Agent 的结构化结果，形成最终可预览的大纲草稿。", "输出必须是用户可直接阅读和保存的大纲正文，不要输出内部调度报告。"].join("\n")) },
               { role: "user", content: ["请合并以下 AI 大纲子 Agent 结果，解决冲突并输出最终大纲草稿。", "", "## 子 Agent 结构化结果", JSON.stringify(subAgentResults, null, 2)].join("\n") },
             ], {
               onText: (chunk) => {
@@ -2745,7 +2867,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           updateOutlineAssistantMessage(capturedConvId, messageId, (message) => ({
             ...message,
             content: resumeResult.finalText,
+            sources: Array.from(new Set([
+              ...(message.sources ?? []),
+            ])),
           }));
+        }
+        const completedConversation = useOutlineChatStore.getState().conversations
+          .find((conversation) => conversation.id === capturedConvId);
+        if (completedConversation) {
+          setConversationContextSummary(capturedConvId, buildSessionContextSummary({
+            messages: completedConversation.messages,
+            dependencies: contextHubResult?.dependencies ?? {},
+          }));
+          void useOutlineChatStore.getState().saveToDisk();
         }
       } catch (err) {
         const aborted = controller.signal.aborted || (err instanceof Error ? err.message : "").toLowerCase().includes("aborted");
@@ -2757,7 +2891,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         clearStreamingContent(capturedConvId);
       }
     },
-    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent],
+    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent, setConversationContextSummary],
   );
 
   const handleFocusInput = useCallback(() => {
@@ -2882,8 +3016,34 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const regenerationInput = buildOutlineRegenerationInput(targetMessages);
         const lastUserRequest = regenerationInput.request;
         const historyMessages = regenerationInput.history satisfies AgentMessage[];
-        let result = "";
         const assistantId = crypto.randomUUID();
+        let contextHubSnapshot: ContextHubSnapshotRef | undefined;
+        let contextHubResult: ContextHubResult | null = null;
+        try {
+          const contextHub = getContextHub(normalizePath(project.path));
+          contextHubResult = await contextHub.prepare({
+            projectPath: normalizePath(project.path),
+            surface: "ai-outline",
+            sessionId: capturedConvId,
+            task: lastUserRequest,
+            intent: "generate",
+            messages: historyMessages,
+            existingSummary: undefined,
+            tokenBudget: novelConfig.contextTokenBudget > 0
+              ? novelConfig.contextTokenBudget
+              : undefined,
+          });
+          if (contextHubResult && isCurrentRun()) {
+            try {
+              contextHubSnapshot = await contextHub.saveSnapshot(assistantId, contextHubResult);
+            } catch (error) {
+              console.warn("AI 大纲重新生成上下文快照保存失败，继续生成：", error);
+            }
+          }
+        } catch (error) {
+          console.warn("AI 大纲重新生成上下文中控准备失败，继续使用原有流程：", error);
+        }
+        let result = "";
 
         addMessage(capturedConvId, {
           id: assistantId,
@@ -2892,6 +3052,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           sources: [],
           agentToolCalls: [],
           isAgentRunning: true,
+          contextHubSnapshot,
         });
 
         const skillConfig = await loadDeAiSkillConfig(project.path).catch(
@@ -2899,10 +3060,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
         const registry = new ToolRegistry();
-        const systemPrompt = buildOutlineAgentSystemPrompt({
+        const baseSystemPrompt = buildOutlineAgentSystemPrompt({
+          projectName: project.name,
+        });
+        const legacySystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
           soulDoc,
         });
+        const systemContent: AgentMessage["content"] = contextHubResult
+          ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult)
+          : legacySystemPrompt;
+        const systemPrompt = typeof systemContent === "string"
+          ? systemContent
+          : flattenContextHubSystemContent(systemContent);
         const agentConfig = buildAgentConfig(
           effectiveModelId,
           systemPrompt,
@@ -2932,6 +3102,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               ),
             llmConfig: effectiveLlmConfig,
             disabledTools: OUTLINE_CHAT_DISABLED_TOOLS,
+            ...(contextHubResult
+              ? { readTextFile: contextHubResult.readFile }
+              : {}),
           },
         );
         let agentError: Error | null = null;
@@ -2939,7 +3112,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           agentConfig,
           registry,
           [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: systemContent },
             ...historyMessages,
             { role: "user", content: lastUserRequest },
           ],
@@ -2988,7 +3161,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (agentError) throw agentError;
         if (!isCurrentRun()) return;
 
-        const sources = outlineToolCallsToSources(record.toolCalls);
+        const sources = [
+          ...outlineToolCallsToSources(record.toolCalls),
+        ];
         const nextStepExtraction = extractNextStep(
           result || record.finalText || "AI大纲未返回内容。",
           { allowFallback: true, completedModule: "当前模块" },
@@ -3019,6 +3194,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             nextStepRecommendation: nextStepExtraction.recommendation,
           }),
         );
+        setConversationContextSummary(capturedConvId, buildSessionContextSummary({
+          messages: [
+            ...historyMessages,
+            { role: "user", content: lastUserRequest },
+            { role: "assistant", content: finalContent },
+          ],
+          dependencies: contextHubResult?.dependencies ?? {},
+        }));
         if (!isCurrentRun()) return;
         await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         if (!isCurrentRun()) return;
@@ -3072,6 +3255,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       startConversationRun,
       finishConversationRun,
       failConversationRun,
+      setConversationContextSummary,
     ],
   );
 

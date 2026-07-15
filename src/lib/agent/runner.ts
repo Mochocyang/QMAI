@@ -23,6 +23,13 @@ export class ModelDoesNotSupportToolsError extends Error {
   }
 }
 
+function messageContentText(content: AgentMessage["content"]): string {
+  if (typeof content === "string") return content
+  return content
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("")
+}
+
 function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
   const resolvedTimeoutMs = timeoutMs ?? TOOL_EXECUTE_TIMEOUT_MS
   if (resolvedTimeoutMs <= 0) return operation
@@ -49,7 +56,7 @@ export class AgentRunner {
     const projectPath = config.projectPath
     const taskGoal =
       config.taskGoal ||
-      [...messages].reverse().find((m) => m.role === "user")?.content ||
+      messageContentText([...messages].reverse().find((m) => m.role === "user")?.content ?? "") ||
       "未命名任务"
     let taskBreakpoint: TaskBreakpoint | null = projectPath
       ? createTaskBreakpoint({

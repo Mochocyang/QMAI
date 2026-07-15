@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { DataSourceRegistry, type DataSource, type ContextLoadContext } from "./context-data-source"
 
 const context: ContextLoadContext = {
@@ -13,6 +13,19 @@ const context: ContextLoadContext = {
 }
 
 describe("DataSourceRegistry", () => {
+  it("uses an optional load adapter without changing the source contract", async () => {
+    const load = vi.fn(async () => "原始值")
+    const adapter = {
+      load: vi.fn(async (_source, _context, directLoad) => `缓存:${await directLoad()}`),
+    }
+    const registry = new DataSourceRegistry({ loadAdapter: adapter })
+    registry.register({ name: "outline", priority: 1, load })
+
+    await expect(registry.loadAll(context)).resolves.toMatchObject({ outline: "缓存:原始值" })
+    expect(adapter.load).toHaveBeenCalledOnce()
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it("replaces undefined snapshot payloads with default values", async () => {
     const registry = new DataSourceRegistry()
     const snapshotsSource: DataSource<unknown> = {

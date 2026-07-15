@@ -10,6 +10,8 @@ export interface FileNode {
   name: string
   path: string
   is_dir: boolean
+  mtimeMs?: number
+  size?: number
   children?: FileNode[]
 }
 

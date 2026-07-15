@@ -57,6 +57,7 @@ export interface ToolFactoryOptions {
   runDeepChapterGeneration?: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   getPlanBlueprint?: () => string | undefined
+  readTextFile?: (path: string) => Promise<string>
 }
 
 export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFactoryOptions): void {
@@ -69,13 +70,13 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
   const shouldRegister = (name: string) =>
     !disabledTools.has(name) && (!enabledToolNames || enabledToolNames.has(name))
 
-  if (shouldRegister("read_chapter")) registry.register(createReadChapterTool(chaptersDir))
-  if (shouldRegister("read_outline")) registry.register(createReadOutlineTool(outlinesDir))
-  if (shouldRegister("read_memory")) registry.register(createReadMemoryTool(memoryDir))
-  if (shouldRegister("read_deduction")) registry.register(createReadDeductionTool(simDir))
+  if (shouldRegister("read_chapter")) registry.register(createReadChapterTool(chaptersDir, options.readTextFile))
+  if (shouldRegister("read_outline")) registry.register(createReadOutlineTool(outlinesDir, options.readTextFile))
+  if (shouldRegister("read_memory")) registry.register(createReadMemoryTool(memoryDir, options.readTextFile))
+  if (shouldRegister("read_deduction")) registry.register(createReadDeductionTool(simDir, options.readTextFile))
   if (shouldRegister("read_chat_history")) registry.register(createReadChatHistoryTool(options.getChatConversations()))
   if (shouldRegister("read_outline_history")) registry.register(createReadOutlineHistoryTool(options.getOutlineConversations()))
-  if (shouldRegister("search_chapters")) registry.register(createSearchChaptersTool(chaptersDir))
+  if (shouldRegister("search_chapters")) registry.register(createSearchChaptersTool(chaptersDir, options.readTextFile))
   if (shouldRegister("list_chapters")) registry.register(createListChaptersTool(chaptersDir))
   if (shouldRegister("list_outlines")) registry.register(createListOutlinesTool(outlinesDir))
   if (shouldRegister("list_memories")) registry.register(createListMemoriesTool(memoryDir))

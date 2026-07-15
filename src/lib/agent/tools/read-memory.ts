@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readMarkdownResource } from "./read-markdown-resource"
+import { readMarkdownResource, type ReadTextFile } from "./read-markdown-resource"
 import { readFile } from "@/commands/fs"
 
 const MEMORY_ALIAS_FILES: Array<{ fileName: string; label: string; patterns: RegExp[] }> = [
@@ -52,14 +52,18 @@ function resolveMemoryAliasFiles(name: string): Array<{ fileName: string; label:
   })
 }
 
-async function readMemoryAliases(memoryDir: string, name: string): Promise<string | null> {
+async function readMemoryAliases(
+  memoryDir: string,
+  name: string,
+  readTextFile: ReadTextFile,
+): Promise<string | null> {
   const aliasFiles = resolveMemoryAliasFiles(name)
   if (aliasFiles.length === 0) return null
 
   const sections: string[] = []
   for (const alias of aliasFiles) {
     try {
-      const content = await readFile(`${memoryDir}/${alias.fileName}`)
+      const content = await readTextFile(`${memoryDir}/${alias.fileName}`)
       if (content.trim()) {
         sections.push(`## ${alias.label}\n\n${content}`)
       }
@@ -72,7 +76,10 @@ async function readMemoryAliases(memoryDir: string, name: string): Promise<strin
   return `已读取记忆条目「${name}」对应的结构化记忆：\n\n${sections.join("\n\n---\n\n")}`
 }
 
-export function createReadMemoryTool(memoryDir: string): Tool {
+export function createReadMemoryTool(
+  memoryDir: string,
+  readTextFile: ReadTextFile = readFile,
+): Tool {
   return {
     name: "read_memory",
     description: "读取记忆库中的指定条目内容。参数 name 为记忆条目名称，或 path 为完整文件路径。",
@@ -85,10 +92,10 @@ export function createReadMemoryTool(memoryDir: string): Tool {
       const hasExplicitPath = typeof params.path === "string" && params.path.trim()
       const name = typeof params.name === "string" ? params.name.trim() : ""
       if (!hasExplicitPath && name) {
-        const aliasResult = await readMemoryAliases(memoryDir, name)
+        const aliasResult = await readMemoryAliases(memoryDir, name, readTextFile)
         if (aliasResult) return aliasResult
       }
-      return readMarkdownResource(memoryDir, params, "记忆条目")
+      return readMarkdownResource(memoryDir, params, "记忆条目", readTextFile)
     },
   }
 }

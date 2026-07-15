@@ -39,6 +39,7 @@ import {
 import type { ReferenceToken } from "@/lib/reference/types"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
 import { ToolRegistry } from "@/lib/agent/registry"
+import { registerAllBuiltInTools } from "@/lib/agent/tools"
 import {
   runChapterPlanRevision as runChapterPlanRevisionModel,
   runChapterPlanSelfCheck as runChapterPlanSelfCheckModel,
@@ -116,6 +117,15 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import { joinPath } from "@/lib/path-utils"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
+import {
+  buildContextHubSystemContent,
+  buildSessionContextSummary,
+  flattenContextHubSystemContent,
+  getContextHub,
+  selectContextHistoryMessages,
+  type ContextHubResult,
+  type ContextIntent,
+} from "@/lib/context-hub"
 
 
 /* spec-test patterns */
@@ -342,6 +352,18 @@ function buildAgentUserContent(text: string, tokens: ReferenceToken[]): string {
     "用户希望你参考下列内容。请不要臆测引用正文；如需具体内容，请使用可用工具按路径、标题、技能ID或会话ID读取。",
     ...tokens.map(describeReferenceForAgent),
   ].join("\n")
+}
+
+function resolveChatContextIntent(
+  route: TaskRouteResult | null,
+  deAiEnabled: boolean,
+): ContextIntent {
+  if (deAiEnabled || route?.intent === "review_chapter") return "review"
+  if (route?.intent === "lint_chapter") return "lint"
+  if (!route || route.intent === "general_chat" || route.intent.endsWith("_query") || route.intent === "search_plot") {
+    return "question"
+  }
+  return "generate"
 }
 
 const SIMULATION_INTENTS = new Set([
@@ -1327,7 +1349,10 @@ export function ChatPanel() {
       let effectiveTaskRoute = taskRoute
       let contextPack: ContextPack | null = null
       void contextPack
+      let contextHubResult: ContextHubResult | null = null
       let novelContextPrompt: string = ""
+      let taskDirective = ""
+      let goldenDirective = ""
       let prePluginResult: PrePluginChainResult | null = null
       const shouldRunNovelPrePluginChain = novelMode && (aiWorkflowMode !== "fast" || planExecuteActive)
       void shouldRunNovelPrePluginChain
@@ -1403,6 +1428,46 @@ export function ChatPanel() {
           }
         : taskRoute
 
+      if (novelMode && effectiveTaskRoute) {
+        const contextHub = getContextHub(pp)
+        const novelConfig = useWikiStore.getState().novelConfig
+        try {
+          contextHubResult = await contextHub.prepare({
+            projectPath: pp,
+            surface: "ai-chat",
+            sessionId: capturedConvId,
+            task: plainText,
+            intent: resolveChatContextIntent(
+              effectiveTaskRoute,
+              Boolean(activeConv?.deAiMode || activeConv?.selectedDeAiSkillId),
+            ),
+            chapterNumber: effectiveTaskRoute.chapterNumber,
+            references: tokens.map(describeReferenceForAgent),
+            messages: activeConvMessages.map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+            existingSummary: activeConv?.contextSummary,
+            tokenBudget: novelConfig.contextTokenBudget > 0
+              ? novelConfig.contextTokenBudget
+              : undefined,
+          })
+          if (contextHubResult) {
+            try {
+              const contextHubSnapshot = await contextHub.saveSnapshot(assistantMessage.id, contextHubResult)
+              updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                ...message,
+                contextHubSnapshot,
+              }))
+            } catch (error) {
+              console.warn("上下文快照保存失败，继续生成：", error)
+            }
+          }
+        } catch (error) {
+          console.warn("上下文中控准备失败，继续使用原有流程：", error)
+        }
+      }
+
       if (shouldRunNovelPrePluginChain && effectiveTaskRoute) {
         try {
           prePluginResult = await runNovelPrePluginChain({
@@ -1422,6 +1487,9 @@ export function ChatPanel() {
               mcpCapabilities: agentMcpCapabilities,
               selectedFile,
             },
+            deps: contextHubResult
+              ? { buildContextPack: async () => contextHubResult.contextPack }
+              : undefined,
           })
         } catch (e) {
           console.warn("Pre-plugin chain failed:", e)
@@ -1472,11 +1540,14 @@ export function ChatPanel() {
 
       if (novelMode && effectiveTaskRoute) {
         try {
-          const taskDirective = buildTaskDirective(effectiveTaskRoute)
+          taskDirective = buildTaskDirective(effectiveTaskRoute)
           const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
-          const goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
-          const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
-          contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
+          goldenDirective = buildGoldenThreeChapterDirective(goldenThreeChapter)
+          if (contextHubResult) {
+            contextPack = contextHubResult.contextPack
+          } else {
+            const { buildContextPack, contextPackToPrompt } = await import("@/lib/novel/context-engine")
+            contextPack = await buildContextPack(pp, plainText, effectiveTaskRoute.chapterNumber).catch(() => ({
             task: plainText,
             chapterGoal: "",
             outline: "",
@@ -1498,15 +1569,16 @@ export function ChatPanel() {
             mustAvoid: "",
             nextChapterAdvice: "",
             revisionDirectives: "",
-          }))
-          const novelConfig = useWikiStore.getState().novelConfig
-          const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
-          novelContextPrompt = [
-            taskDirective,
-            goldenDirective,
-            "## 小说上下文包",
-            contextPackToPrompt(contextPack, budget),
-          ].filter(Boolean).join("\n\n")
+            }))
+            const novelConfig = useWikiStore.getState().novelConfig
+            const budget = novelConfig.contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined
+            novelContextPrompt = [
+              taskDirective,
+              goldenDirective,
+              "## 小说上下文包",
+              contextPackToPrompt(contextPack, budget),
+            ].filter(Boolean).join("\n\n")
+          }
         } catch (error) {
           console.warn("构建Agent小说上下文失败:", error)
         }
@@ -1521,6 +1593,7 @@ export function ChatPanel() {
       }
 
       const prePluginSystemPrompt = prePluginResult?.finalSystemPrompt?.trim()
+      const prePluginSystemRulesPrompt = prePluginResult?.finalSystemRulesPrompt?.trim()
       const baseSystemPrompt = [
         prePluginSystemPrompt || sessionAgentSystemPrompt,
         qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
@@ -1540,6 +1613,21 @@ export function ChatPanel() {
         : [
             baseSystemPrompt,
           ].filter(Boolean).join("\n")
+      const contextHubSoftwareRules = prePluginSystemRulesPrompt || sessionAgentSystemPrompt
+      const contextHubSystemContent = contextHubResult
+        ? buildContextHubSystemContent(contextHubSoftwareRules, contextHubResult, [
+            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
+            prePluginSystemRulesPrompt ? "" : taskDirective,
+            goldenDirective,
+            prePluginSystemRulesPrompt ? "" : selectedSkillsPrompt,
+            !prePluginSystemRulesPrompt && prePluginResult?.selectedSkills?.length
+              ? `## 当前会话写作技能\n${buildSelectedSkillsPrompt(prePluginResult.selectedSkills)}`
+              : "",
+          ])
+        : null
+      const systemPromptForConfig = contextHubSystemContent
+        ? flattenContextHubSystemContent(contextHubSystemContent)
+        : effectiveSystemPrompt
 
       const deAiMode = activeConv?.deAiMode ?? false
       const rawUserContent = buildAgentUserContent(plainText, tokens)
@@ -1547,8 +1635,11 @@ export function ChatPanel() {
         ? injectDeAiDirective(rawUserContent, deAiMode)
         : rawUserContent
       const agentMessages: AgentMessage[] = [
-        { role: "system", content: effectiveSystemPrompt },
-        ...activeConvMessages.map((message) => ({
+        { role: "system", content: contextHubSystemContent ?? effectiveSystemPrompt },
+        ...selectContextHistoryMessages(
+          activeConvMessages,
+          contextHubResult?.sessionSummary,
+        ).map((message) => ({
           role: message.role,
           content: message.content,
         } satisfies AgentMessage)),
@@ -1556,6 +1647,24 @@ export function ChatPanel() {
       ]
       const sessionRegistry = new ToolRegistry()
       agentRegistry.list().forEach((tool) => sessionRegistry.register(tool))
+      if (contextHubResult) {
+        registerAllBuiltInTools(sessionRegistry, {
+          wikiPath: `${pp}/wiki`,
+          getSkillConfig: () => agentSkillConfig,
+          getUserSkills: () => agentUserWritingSkills,
+          getSearchApiConfig: () => useWikiStore.getState().searchApiConfig,
+          getChatConversations: () => [],
+          getOutlineConversations: () => [],
+          readTextFile: contextHubResult.readFile,
+          enabledToolNames: [
+            "read_chapter",
+            "read_outline",
+            "read_memory",
+            "read_deduction",
+            "search_chapters",
+          ],
+        })
+      }
       if (planBlueprint) {
         const workflowTool = agentRegistry.get("run_chapter_workflow")
         if (workflowTool) {
@@ -1577,7 +1686,7 @@ export function ChatPanel() {
           projectPath,
           agentConfig: {
             ...agentConfig,
-            systemPrompt: effectiveSystemPrompt,
+            systemPrompt: systemPromptForConfig,
             projectPath,
             taskGoal: plainText,
             requestOverrides: agentConfig.requestOverrides,
@@ -1633,7 +1742,10 @@ export function ChatPanel() {
         finishAgentSession(() => {
           if (!hasAgentError) {
             if (contextTrace && effectiveTaskRoute) {
-              const traceInfo = buildInitialContextTraceInfo(effectiveTaskRoute, prePluginResult, { workflowMode: aiWorkflowMode })
+              const traceInfo = buildInitialContextTraceInfo(effectiveTaskRoute, prePluginResult, {
+                workflowMode: aiWorkflowMode,
+                contextHub: contextHubResult?.stats,
+              })
               contextTrace = setContextInfo(contextTrace, traceInfo)
               const storeStateForValidation = useChatStore.getState()
               const lastAssistantForValidation = storeStateForValidation.messages.find(
@@ -1680,6 +1792,22 @@ export function ChatPanel() {
             markDone(record)
           }
         })
+        if (!hasAgentError && contextHubResult) {
+          const completedMessages = useChatStore.getState().messages
+            .filter((message) => (
+              message.conversationId === capturedConvId
+              && (message.role === "user" || message.role === "assistant")
+              && !message.discarded
+              && !message.isAgentRunning
+            ))
+          useChatStore.getState().setConversationContextSummary(
+            capturedConvId,
+            buildSessionContextSummary({
+              messages: completedMessages,
+              dependencies: contextHubResult.dependencies,
+            }),
+          )
+        }
         if (hasAgentError) {
           useChatStore.getState().failConversationRun(capturedConvId, lastAgentError, runId)
           toast.error(lastAgentError, {
@@ -1747,9 +1875,11 @@ export function ChatPanel() {
       agentConfig,
       agentMcpCapabilities,
       agentRegistry,
+      agentSkillConfig,
       agentSkillConfigLoaded,
       agentSupportsTools,
       agentSystemPrompt,
+      agentUserWritingSkills,
       aiWorkflowMode,
       availableAgentSkills,
       chatEditModeEnabled,
@@ -1823,7 +1953,9 @@ export function ChatPanel() {
   const handleRegenerate = useCallback(async () => {
     // 直接从 store 获取最新状态，避免闭包旧值
     const storeState = useChatStore.getState()
-    if (storeState.streamingContents[storeState.activeConversationId ?? ""] !== undefined) return
+    const capturedConversationId = storeState.activeConversationId
+    if (!capturedConversationId) return
+    if (storeState.streamingContents[capturedConversationId] !== undefined) return
     // Find the last user message in active conversation
     const active = storeState.getActiveMessages()
     const lastUserMsg = [...active].reverse().find((m) => m.role === "user")
@@ -1839,6 +1971,7 @@ export function ChatPanel() {
         messages: s.messages.filter((m) => m.id !== lastUser.id),
       }))
     }
+    store.setConversationContextSummary(capturedConversationId, undefined)
     handleSend(lastUserMsg.content, lastUserMsg.attachedReferences ?? [])
   }, [removeLastAssistantMessage, handleSend])
 

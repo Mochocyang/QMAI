@@ -1,5 +1,6 @@
 import type { Tool } from "../types"
 import { listDirectory, readFile } from "@/commands/fs"
+import type { ReadTextFile } from "./read-markdown-resource"
 
 interface ChapterSearchMatch {
   chapterName: string
@@ -29,7 +30,10 @@ function createLeadingSnippet(content: string): string {
   return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized
 }
 
-export function createSearchChaptersTool(chaptersDir: string): Tool {
+export function createSearchChaptersTool(
+  chaptersDir: string,
+  readTextFile: ReadTextFile = readFile,
+): Tool {
   return {
     name: "search_chapters",
     description: "按关键词在所有章节中搜索匹配内容。参数 keyword 为搜索关键词。",
@@ -63,7 +67,7 @@ export function createSearchChaptersTool(chaptersDir: string): Tool {
 
         let content: string
         try {
-          content = await readFile(file.path)
+          content = await readTextFile(file.path)
         } catch {
           failedFiles.push(file.name)
           continue

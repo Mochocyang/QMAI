@@ -4,6 +4,7 @@ import type { ToolCallStatus } from "./types"
 import type { AiWorkflowMode } from "./workflow-mode"
 import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
 import type { CapabilityKind, CapabilityPermission } from "./capabilities/types"
+import type { ContextHubStats } from "@/lib/context-hub/types"
 
 export type TraceToolCategory = "read" | "write" | "action" | "virtual"
 
@@ -120,6 +121,7 @@ export interface ClassificationVersionInfo {
   retrievalHits: TraceRetrievalHit[]
   trimmedSections: string[]
   contextBudget?: TraceContextBudget
+  contextHub?: ContextHubStats
     resultProtocol?: TraceResultProtocol
     postWriteCheck?: PostWriteCheck
     fallbackReason?: string

@@ -1395,6 +1395,13 @@ fn build_tree(
         // fail to match Rust-returned `\` paths.
         let path_str = virtualize_project_storage_path(&entry_path);
         let is_dir = entry_path.is_dir();
+        let metadata = if is_dir { None } else { entry.metadata().ok() };
+        let mtime_ms = metadata
+            .as_ref()
+            .and_then(|value| value.modified().ok())
+            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|value| u64::try_from(value.as_millis()).ok());
+        let size = metadata.as_ref().map(std::fs::Metadata::len);
 
         let children = if is_dir {
             let kids = build_tree(&entry_path, depth + 1, max_depth, include_hidden)?;
@@ -1411,6 +1418,8 @@ fn build_tree(
             name,
             path: path_str,
             is_dir,
+            mtime_ms,
+            size,
             children,
         });
     }
@@ -1888,6 +1897,27 @@ pub async fn get_file_md5(path: String) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn directory_tree_includes_file_version_metadata() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-tree-metadata-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("chapter.md"), b"chapter body").unwrap();
+
+        let nodes = build_tree(&root, 0, 2, false).unwrap();
+        let chapter = nodes.iter().find(|node| node.name == "chapter.md").unwrap();
+
+        assert_eq!(chapter.size, Some(12));
+        assert!(chapter.mtime_ms.is_some());
+
+        let _ = fs::remove_dir_all(root);
+    }
 
     /// Write `bytes` to a fresh tmp path with `.pdf` suffix and return
     /// the path (the OS tmpdir is NOT cleaned up — acceptable for tests).

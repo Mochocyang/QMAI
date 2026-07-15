@@ -12,15 +12,8 @@ export function getToolCallGroupRenderKey(group: ToolCallGroupItem): string {
   return `tool-group:${JSON.stringify([group.kind, group.items[0]?.id ?? group.id])}`
 }
 
-function formatDuration(durationMs?: number): string {
-  if (!durationMs || durationMs <= 0) return ""
-  if (durationMs < 1000) return `${durationMs}ms`
-  return `${(durationMs / 1000).toFixed(1)}s`
-}
-
 function ToolCallGroupImpl({ group, style }: ToolCallGroupProps) {
   const [expanded, setExpanded] = useState(false)
-  const duration = formatDuration(group.durationMs)
   const Chevron = expanded ? ChevronDown : ChevronRight
 
   return (
@@ -36,7 +29,6 @@ function ToolCallGroupImpl({ group, style }: ToolCallGroupProps) {
         <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-emerald-500/45" />
         <span className="min-w-0 flex-1 break-words text-foreground/75">{group.label}</span>
         <span className="shrink-0 text-[10px]">{group.items.length}项</span>
-        {duration && <span className="shrink-0 text-[10px] text-muted-foreground/50">{duration}</span>}
       </button>
 
       {expanded && (

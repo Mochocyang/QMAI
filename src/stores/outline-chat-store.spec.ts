@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const fsMocks = vi.hoisted(() => ({ createDirectory: vi.fn(), readFile: vi.fn(), writeFile: vi.fn() }))
+const contextHubMocks = vi.hoisted(() => ({
+  getContextHub: vi.fn(),
+  pruneSnapshots: vi.fn(),
+}))
 vi.mock("@/commands/fs", () => fsMocks)
+vi.mock("@/lib/context-hub/context-hub", () => ({
+  getContextHub: contextHubMocks.getContextHub,
+}))
 
 import type { OutlineChatConversation } from "./outline-chat-store"
 import { useOutlineChatStore } from "./outline-chat-store"
@@ -18,6 +25,10 @@ beforeEach(() => {
   fsMocks.createDirectory.mockReset().mockResolvedValue(undefined)
   fsMocks.readFile.mockReset()
   fsMocks.writeFile.mockReset().mockResolvedValue(undefined)
+  contextHubMocks.pruneSnapshots.mockReset().mockResolvedValue(undefined)
+  contextHubMocks.getContextHub.mockReset().mockReturnValue({
+    pruneSnapshots: contextHubMocks.pruneSnapshots,
+  })
   useWikiStore.setState({ project: null })
   useOutlineChatStore.setState({
     conversations: [], activeConversationId: null, streamingContents: {}, runStates: {}, loaded: false, pendingReferenceTokens: [],
@@ -27,6 +38,22 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 describe("outline-chat-store", () => {
+  it("加载时把旧字符串上下文摘要迁移为带依赖的结构", async () => {
+    useWikiStore.setState({ project: { id: "p", name: "Novel", path: "E:/Novel" } })
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({
+      conversations: [{ ...conversation("legacy-summary"), contextSummary: "旧大纲摘要" }],
+      activeConversationId: "legacy-summary",
+    }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    expect(useOutlineChatStore.getState().conversations[0].contextSummary).toEqual({
+      text: "旧大纲摘要",
+      dependencies: {},
+      updatedAt: 0,
+    })
+  })
+
   it("按会话隔离流式内容，并支持追加、读取和单独清理", () => {
     useOutlineChatStore.setState({ conversations: [conversation("a"), conversation("b")] })
     const store = useOutlineChatStore.getState()
@@ -110,6 +137,33 @@ describe("outline-chat-store", () => {
     expect(saved.streamingContents).toBeUndefined()
   })
 
+  it("保存成功后使用当前大纲历史引用清理快照", async () => {
+    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    const stored = conversation("a")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "大纲",
+      contextHubSnapshot: {
+        id: "outline-ref",
+        surface: "ai-outline",
+        createdAt: 10,
+        stats: {
+          hits: 1, refreshed: 0, failures: 0,
+          stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
+          candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
+          expanded: false, providerCacheEnabled: true,
+        },
+      },
+    }]
+    useOutlineChatStore.setState({ conversations: [stored] })
+
+    await useOutlineChatStore.getState().saveToDisk()
+
+    expect(contextHubMocks.getContextHub).toHaveBeenCalledWith("C:/Book")
+    expect(contextHubMocks.pruneSnapshots).toHaveBeenCalledWith("ai-outline", ["outline-ref"])
+  })
+
   it("仅运行状态变化也会自动保存", async () => {
     useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
     useOutlineChatStore.setState({ conversations: [conversation("a")] })
@@ -168,6 +222,22 @@ describe("outline-chat-store", () => {
     stored.messages = [
       { id: "new", role: "user", content: structured.summary, novelGenerationRequest: structured },
       { id: "old", role: "user", content: "legacy body" },
+      {
+        id: "assistant",
+        role: "assistant",
+        content: "大纲正文",
+        contextHubSnapshot: {
+          id: "assistant",
+          surface: "ai-outline",
+          createdAt: 10,
+          stats: {
+            hits: 1, refreshed: 0, failures: 0,
+            stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
+            candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
+            expanded: false, providerCacheEnabled: true,
+          },
+        },
+      },
     ]
     useOutlineChatStore.setState({ conversations: [stored], activeConversationId: "persisted" })
     await useOutlineChatStore.getState().saveToDisk()
@@ -179,6 +249,7 @@ describe("outline-chat-store", () => {
     expect(messages[0].content).toBe(structured.summary)
     expect(getOutlineMessageModelContent(messages[0])).toBe("full model workflow")
     expect(getOutlineMessageModelContent(messages[1])).toBe("legacy body")
+    expect(messages[2].contextHubSnapshot).toMatchObject({ id: "assistant", createdAt: 10 })
   })
 
   it.each([

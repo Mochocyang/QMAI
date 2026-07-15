@@ -24,9 +24,13 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         const route = input.effectiveTaskRoute || input.taskRoute
 
         const parts: string[] = []
+        const rulesParts: string[] = []
 
         const base = baseSystemPrompt || (input.agentConfig as any)?.systemPrompt || ""
-        if (base) parts.push(base)
+        if (base) {
+          parts.push(base)
+          rulesParts.push(base)
+        }
 
         if (input.novelSystemPrompt) {
           parts.push(input.novelSystemPrompt)
@@ -35,13 +39,16 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         const selectedSkillsPrompt = buildSelectedSkillsPrompt(input.selectedSkills)
         if (selectedSkillsPrompt) {
           parts.push(selectedSkillsPrompt)
+          rulesParts.push(selectedSkillsPrompt)
         }
 
         if (input.planExecuteEnabled && input.aiWorkflowMode) {
           const routeForPlan = input.effectiveTaskRoute || input.taskRoute
           const isWritingTask = routeForPlan?.intent && WRITING_INTENTS.has(routeForPlan.intent)
           if (isWritingTask) {
-            parts.push(buildChapterPlanProtocol(input.aiWorkflowMode))
+            const planProtocol = buildChapterPlanProtocol(input.aiWorkflowMode)
+            parts.push(planProtocol)
+            rulesParts.push(planProtocol)
           }
         }
 
@@ -49,11 +56,13 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           const taskDirective = buildDirective(route)
           if (taskDirective) {
             parts.push(taskDirective)
+            rulesParts.push(taskDirective)
           }
         }
 
         const finalSystemPrompt = parts.join("\n\n")
-        return { finalSystemPrompt }
+        const finalSystemRulesPrompt = rulesParts.join("\n\n")
+        return { finalSystemPrompt, finalSystemRulesPrompt }
       } catch (error) {
         onError?.(error instanceof Error ? error : new Error(String(error)))
         return {}

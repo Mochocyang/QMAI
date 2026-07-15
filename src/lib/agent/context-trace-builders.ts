@@ -3,16 +3,18 @@ import type { TraceContextInfo } from "./context-trace"
 import type { DataSourceCategory, RouteSource } from "@/lib/novel/classification"
 import type { TaskRouteResult } from "@/lib/novel/task-router"
 import type { AiWorkflowMode } from "./workflow-mode"
+import type { ContextHubStats } from "@/lib/context-hub/types"
 
 export function buildInitialContextTraceInfo(
   route: TaskRouteResult,
   prePluginResult?: Partial<PrePluginChainResult> | null,
-  options?: { workflowMode?: AiWorkflowMode },
+  options?: { workflowMode?: AiWorkflowMode; contextHub?: ContextHubStats },
 ): TraceContextInfo {
   return {
     intent: route.intent as any,
     confidence: route.confidence,
     workflowMode: options?.workflowMode,
+    contextHub: options?.contextHub,
     routeSource: (prePluginResult?.routeSource as RouteSource | undefined) ?? "default",
     loadedSources: [],
     blockedSources: (prePluginResult?.blockedSources as DataSourceCategory[] | undefined) ?? [],

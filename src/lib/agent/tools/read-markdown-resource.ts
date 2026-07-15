@@ -12,6 +12,8 @@ interface DirectoryCandidate {
   children: MarkdownCandidate[]
 }
 
+export type ReadTextFile = (path: string) => Promise<string>
+
 function ensureMarkdownName(name: string): string {
   return name.toLowerCase().endsWith(".md") ? name : `${name}.md`
 }
@@ -131,6 +133,7 @@ export async function readMarkdownResource(
   baseDir: string,
   params: Record<string, unknown>,
   label: string,
+  readTextFile: ReadTextFile = readFile,
 ): Promise<string> {
   const name = typeof params.name === "string" ? params.name.trim() : ""
   const explicitPath = typeof params.path === "string" ? params.path.trim() : ""
@@ -138,7 +141,7 @@ export async function readMarkdownResource(
 
   if (explicitPath) {
     try {
-      return await readFile(explicitPath)
+      return await readTextFile(explicitPath)
     } catch {
       return `错误：无法读取${label}「${displayName}」，请确认文件存在`
     }
@@ -150,7 +153,7 @@ export async function readMarkdownResource(
 
   const directPath = `${baseDir}/${ensureMarkdownName(name)}`
   try {
-    return await readFile(directPath)
+    return await readTextFile(directPath)
   } catch {
     // 继续用目录候选纠错。
   }
@@ -167,7 +170,7 @@ export async function readMarkdownResource(
   const singleMatch = pickSingleMatch(name, files)
   if (singleMatch) {
     try {
-      return await readFile(singleMatch.path)
+      return await readTextFile(singleMatch.path)
     } catch {
       return `错误：已匹配到${label}「${singleMatch.name}」，但无法读取文件，请确认文件存在`
     }

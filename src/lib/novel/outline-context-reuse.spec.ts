@@ -120,6 +120,28 @@ describe("AI 大纲上下文复用策略", () => {
     expect(plan.sources).toContain("摘要: 已复用上下文摘要缓存")
   })
 
+  it("摘要已在系统上下文时不重复注入摘要消息", () => {
+    const history = [
+      { role: "user" as const, content: "初始目标" },
+      { role: "assistant" as const, content: "初始结论" },
+      { role: "user" as const, content: "最近问题" },
+      { role: "assistant" as const, content: "最近回答" },
+    ]
+    const plan = planOutlineAgentHistory({
+      history,
+      contextDecision: planOutlineContextReuse({
+        hasPriorAssistantAnswer: true,
+        attachedReferenceCount: 0,
+        inputText: "继续",
+      }),
+      cachedSummary: "系统中的会话摘要",
+      summaryInSystem: true,
+    })
+
+    expect(plan.messages).toEqual(history.slice(-2))
+    expect(plan.messages.some((message) => message.content === "系统中的会话摘要")).toBe(false)
+  })
+
   it("估算上下文预算并计算压缩节省", () => {
     const original = [
       { role: "user" as const, content: "生成大纲" + "需求".repeat(500) },

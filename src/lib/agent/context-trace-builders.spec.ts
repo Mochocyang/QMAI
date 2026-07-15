@@ -59,6 +59,34 @@ describe("context trace builders", () => {
     expect(info.workflowMode).toBe("strict")
   })
 
+  it("carries context hub statistics into initial trace context", () => {
+    const contextHub = {
+      hits: 4,
+      refreshed: 1,
+      failures: 0,
+      stableTokens: 1200,
+      summaryTokens: 180,
+      dynamicTokens: 420,
+      candidateTokens: 3200,
+      estimatedSavedTokens: 1400,
+      estimatedSavedPercent: 44,
+      expanded: false,
+      providerCacheEnabled: true,
+    }
+
+    const info = buildInitialContextTraceInfo(
+      {
+        intent: "write_chapter",
+        confidence: 0.91,
+        extractedParams: {},
+      } as any,
+      null,
+      { contextHub },
+    )
+
+    expect(info.contextHub).toEqual(contextHub)
+  })
+
   it("carries selected skill metadata into initial trace context", () => {
     const info = buildInitialContextTraceInfo(
       {

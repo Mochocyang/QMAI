@@ -88,7 +88,8 @@ describe("AgentToolCallMessage", () => {
     expect(host.textContent).toContain("生成记忆写入草稿「写入资料」")
     expect(host.textContent).toContain("应用技能「去AI味」")
     expect(host.textContent).toContain("搜索章节关键词「李明」")
-    expect(host.textContent).toContain("耗时")
+    expect(host.textContent).not.toContain("耗时")
+    expect(host.textContent).not.toMatch(/\d+(?:\.\d+)?(?:ms|s)/)
     expect(host.textContent).toContain("工具 5 次")
     expect(host.textContent).not.toMatch(/[⏱🔢💡]/u)
 
@@ -318,7 +319,7 @@ describe("AgentToolCallMessage", () => {
 
     expect(host.textContent).toContain("已读取章节")
     expect(host.textContent).toContain("2项")
-    expect(host.textContent).toContain("50ms")
+    expect(host.textContent).not.toContain("50ms")
     expect(host.textContent).toContain("工具 2 次")
     expect(host.textContent).not.toContain("读取章节《第1章》")
     expect(host.textContent).not.toContain("读取章节《第2章》")

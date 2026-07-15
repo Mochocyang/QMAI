@@ -88,6 +88,29 @@ describe("AgentRunner", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  it("passes cacheable system content blocks through to the provider layer", async () => {
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("完成")
+      cb.onDone()
+    })
+    const cacheableSystem: AgentMessage = {
+      role: "system",
+      content: [
+        { type: "text", text: "稳定核心", cacheControl: true },
+        { type: "text", text: "动态上下文" },
+      ],
+    }
+
+    await runner.run(
+      { maxRounds: 1, tools: [], systemPrompt: "", llmConfig: mockLlmConfig },
+      registry,
+      [cacheableSystem, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+    )
+
+    expect(mockStreamChat.mock.calls[0][1][0]).toEqual(cacheableSystem)
+  })
+
   it("executes tool calls and continues the loop", async () => {
     const tool: Tool = {
       name: "read_chapter",

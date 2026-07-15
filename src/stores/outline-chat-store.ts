@@ -3,6 +3,8 @@ import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
+import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
+import { normalizeSessionContextSummary } from "@/lib/context-hub/session-summary"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
 import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
@@ -87,6 +89,7 @@ export interface OutlineChatMessage {
   intentClarityResult?: IntentClarityResult | null
   nextStepRecommendation?: NextStepRecommendation | null
   novelGenerationRequest?: NovelGenerationRequestPackage
+  contextHubSnapshot?: ContextHubSnapshotRef
 }
 
 export interface OutlineChatConversation {
@@ -96,7 +99,7 @@ export interface OutlineChatConversation {
   updatedAt: number
   messages: OutlineChatMessage[]
   modelId?: string
-  contextSummary?: string
+  contextSummary?: SessionContextSummary
 }
 
 interface OutlineChatState {
@@ -114,7 +117,7 @@ interface OutlineChatState {
   removeLastMessage: (convId: string) => void
   deleteConversation: (id: string) => void
   setConversationModel: (id: string, modelId: string) => void
-  setConversationContextSummary: (id: string, contextSummary: string) => void
+  setConversationContextSummary: (id: string, contextSummary: SessionContextSummary) => void
   setStreamingContent: (conversationId: string, content: string) => void
   appendStreamingContent: (conversationId: string, content: string) => void
   clearStreamingContent: (conversationId: string) => void
@@ -174,6 +177,21 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
       const dir = path.replace(/[/\\][^/\\]+$/, "")
       await createDirectory(dir)
       await writeFile(path, JSON.stringify(snapshot, null, 2))
+      const projectPath = path.slice(0, -"/.qmai/outline-chats.json".length)
+      const referencedIds = new Set<string>()
+      for (const conversation of snapshot.conversations) {
+        for (const message of conversation.messages) {
+          if (message.contextHubSnapshot?.surface === "ai-outline") {
+            referencedIds.add(message.contextHubSnapshot.id)
+          }
+        }
+      }
+      try {
+        const { getContextHub } = await import("@/lib/context-hub/context-hub")
+        await getContextHub(projectPath).pruneSnapshots("ai-outline", [...referencedIds])
+      } catch {
+        // Snapshot cleanup is optional and must not make outline history saving fail.
+      }
     } catch {
     }
   }
@@ -371,6 +389,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
       }
       const conversations = (data.conversations ?? []).map((conversation) => ({
         ...conversation,
+        contextSummary: normalizeSessionContextSummary(conversation.contextSummary),
         updatedAt: conversation.updatedAt ?? conversation.createdAt ?? Date.now(),
         messages: conversation.messages.map((message) => ({
           ...message,

@@ -43,6 +43,7 @@ export interface OutlineAgentHistoryInput {
   history: OutlineAgentHistoryMessage[]
   contextDecision: OutlineContextReuseDecision
   cachedSummary?: string
+  summaryInSystem?: boolean
 }
 
 export interface OutlineAgentHistoryPlan {
@@ -125,11 +126,14 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
   const level: OutlineContextPressureLevel =
     history.length > 6 || totalChars > 6_000 ? "high" : totalChars > 2_500 ? "medium" : "low"
   const compactedMessages = level === "high" ? compactOutlineHistory(history) : history.slice(-4)
-  const messages = input.cachedSummary?.trim()
-    ? [
+  const cachedSummary = input.cachedSummary?.trim()
+  const messages = cachedSummary
+    ? input.summaryInSystem
+      ? compactedMessages.slice(-2)
+      : [
         {
           role: "assistant" as const,
-          content: input.cachedSummary.trim(),
+          content: cachedSummary,
         },
         ...compactedMessages.slice(-2),
       ]
@@ -138,7 +142,7 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
     level === "high"
       ? "已压缩历史上下文：仅保留首轮目标、最近关键结论和最近对话，避免重复消耗 Token。"
       : "已裁剪历史上下文：仅保留最近有效对话，避免重复发送旧过程。",
-    input.cachedSummary?.trim()
+    cachedSummary
       ? "已复用上下文摘要缓存；摘要只作为历史提要，当前用户新输入优先级更高。"
       : "",
     "不要把工具调用过程、来源列表或内部思考当成新的创作事实；以最终大纲结论为准。",
@@ -150,7 +154,7 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
     instruction,
     sources: [
       "过程: 已隐藏重复工具过程",
-      ...(input.cachedSummary?.trim() ? ["摘要: 已复用上下文摘要缓存"] : []),
+      ...(cachedSummary ? ["摘要: 已复用上下文摘要缓存"] : []),
     ],
     showThinkingProcess: false,
     showToolProcess: false,

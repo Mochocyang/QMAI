@@ -123,6 +123,46 @@ describe("prompt caching cache_control breakpoints", () => {
     ])
   })
 
+  it("preserves a cache breakpoint in Anthropic top-level system content", () => {
+    const body = getProviderConfig(customConfig({ apiMode: "anthropic_messages" }))
+      .buildBody([{
+        role: "system",
+        content: [
+          { type: "text", text: "软件规则\n" },
+          { type: "text", text: "稳定项目核心", cacheControl: true },
+          { type: "text", text: "\n动态上下文" },
+        ],
+      }]) as Record<string, unknown>
+
+    expect(body.system).toEqual([
+      { type: "text", text: "软件规则\n" },
+      { type: "text", text: "稳定项目核心", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "\n动态上下文" },
+    ])
+  })
+
+  it("keeps legacy Anthropic system strings unchanged without a breakpoint", () => {
+    const body = getProviderConfig(customConfig({ apiMode: "anthropic_messages" }))
+      .buildBody([{ role: "system", content: "原有系统提示词" }]) as Record<string, unknown>
+
+    expect(body.system).toBe("原有系统提示词")
+  })
+
+  it("ignores cache markers safely on Gemini while preserving all text", () => {
+    const body = getProviderConfig(customConfig({
+      provider: "google",
+      model: "gemini-2.5-pro",
+    })).buildBody([{
+      role: "system",
+      content: [
+        { type: "text", text: "稳定项目核心", cacheControl: true },
+        { type: "text", text: "动态上下文" },
+      ],
+    }]) as Record<string, any>
+
+    expect(body.systemInstruction.parts).toEqual([{ text: "稳定项目核心动态上下文" }])
+  })
+
   it("collapses the same blocks to a byte-identical string for OpenAI-compatible wires (cache marker ignored)", () => {
     const body = getProviderConfig(customConfig({ apiMode: "chat_completions" }))
       .buildBody(cachedMessage) as Record<string, unknown>

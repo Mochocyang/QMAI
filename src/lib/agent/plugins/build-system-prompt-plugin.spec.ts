@@ -35,6 +35,10 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.finalSystemPrompt).toContain("三翻四抖")
     expect(result.finalSystemPrompt).toContain("三次转折，四次震惊。")
     expect(result.finalSystemPrompt).toContain("task directive")
+    expect(result.finalSystemRulesPrompt).toContain("base prompt")
+    expect(result.finalSystemRulesPrompt).toContain("本次启用 Skill")
+    expect(result.finalSystemRulesPrompt).toContain("task directive")
+    expect(result.finalSystemRulesPrompt).not.toContain("context prompt")
   })
 
   it("does not inject chapter plan protocol from standard mode unless Plan Execute is enabled", async () => {
@@ -99,6 +103,8 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.finalSystemPrompt).toContain("禁止违背")
     expect(result.finalSystemPrompt).toContain("可自由发挥")
     expect(result.finalSystemPrompt).toContain("planBlueprint")
+    expect(result.finalSystemRulesPrompt).toContain("章节主编策划协议")
+    expect(result.finalSystemRulesPrompt).not.toContain("context prompt")
     const finalPrompt = result.finalSystemPrompt ?? ""
     expect(finalPrompt.length).toBeLessThan(3000)
   })

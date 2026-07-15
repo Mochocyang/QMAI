@@ -7,16 +7,42 @@ interface RawProject {
   path: string
 }
 
+export type ProjectFileMutation = {
+  type: "write" | "delete"
+  path: string
+}
+
+const projectFileMutationListeners = new Set<(event: ProjectFileMutation) => void>()
+
+export function subscribeProjectFileMutations(
+  listener: (event: ProjectFileMutation) => void,
+): () => void {
+  projectFileMutationListeners.add(listener)
+  return () => projectFileMutationListeners.delete(listener)
+}
+
+function notifyProjectFileMutation(event: ProjectFileMutation): void {
+  for (const listener of projectFileMutationListeners) {
+    try {
+      listener(event)
+    } catch (error) {
+      console.warn("文件变更订阅处理失败：", error)
+    }
+  }
+}
+
 export async function readFile(path: string): Promise<string> {
   return invoke<string>("read_file", { path })
 }
 
 export async function writeFile(path: string, contents: string): Promise<void> {
-  return invoke<void>("write_file", { path, contents })
+  await invoke<void>("write_file", { path, contents })
+  notifyProjectFileMutation({ type: "write", path })
 }
 
 export async function writeFileAtomic(path: string, contents: string): Promise<void> {
-  return invoke<void>("write_file_atomic", { path, contents })
+  await invoke<void>("write_file_atomic", { path, contents })
+  notifyProjectFileMutation({ type: "write", path })
 }
 
 /**
@@ -95,7 +121,8 @@ export async function preprocessFile(path: string): Promise<string> {
 }
 
 export async function deleteFile(path: string): Promise<void> {
-  return invoke("delete_file", { path })
+  await invoke("delete_file", { path })
+  notifyProjectFileMutation({ type: "delete", path })
 }
 
 export async function findRelatedWikiPages(

@@ -56,17 +56,6 @@ function formatWordCount(content?: unknown): string {
   return count > 0 ? `(${count}字)` : ""
 }
 
-function formatDuration(startedAt: number, finishedAt: number): string {
-  const ms = finishedAt - startedAt
-  if (ms <= 0) return ""
-  if (ms < 1000) return `（${(ms / 1000).toFixed(1)}s）`
-  if (ms < 60000) return `（${(ms / 1000).toFixed(1)}s）`
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `（${minutes}m${secs}s）`
-}
-
 export function getToolCallDescription(name: string, params: Record<string, unknown>): string {
   switch (name) {
     case "read_chapter": {
@@ -256,8 +245,6 @@ function TimelineItem({
     () => getToolCallDescription(call.name, call.params),
     [call.name, call.params],
   )
-  const duration = formatDuration(call.startedAt, call.finishedAt)
-
   const cardClass = hasError
     ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300 border-solid"
     : isCancelled
@@ -301,7 +288,6 @@ function TimelineItem({
             <span className="col-start-2 col-span-3 min-w-0 break-words text-muted-foreground">
               <span className="line-clamp-2">
                 {description}
-                {duration && <span className="ml-1 text-[10px] opacity-70">{duration}</span>}
               </span>
             </span>
           </button>

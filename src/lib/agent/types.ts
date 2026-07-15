@@ -1,5 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
-import type { RequestOverrides } from "../llm-providers"
+import type { ChatMessage, RequestOverrides } from "../llm-providers"
 
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array" | "integer"
@@ -133,7 +133,7 @@ export interface AgentRunCallbacks {
 
 export interface AgentMessage {
   role: "system" | "user" | "assistant" | "tool"
-  content: string
+  content: ChatMessage["content"]
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[]
   tool_call_id?: string
   name?: string

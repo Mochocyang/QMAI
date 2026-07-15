@@ -14,7 +14,11 @@ import { buildCharacterAuraContext } from "./character-aura"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import type { FileNode } from "@/types/wiki"
-import { DataSourceRegistry, type ContextLoadContext } from "./context-data-source"
+import {
+  DataSourceRegistry,
+  type ContextLoadContext,
+  type DataSourceLoadAdapter,
+} from "./context-data-source"
 import { getAllDataSources, getDataSourcesForCategories } from "./context-data-sources"
 import type { DataSourceCategory } from "./classification"
 
@@ -85,7 +89,7 @@ export async function buildContextPack(
   projectPath: string,
   task: string,
   chapterNumber?: number,
-  options?: { categories?: DataSourceCategory[] },
+  options?: { categories?: DataSourceCategory[]; loadAdapter?: DataSourceLoadAdapter },
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
   const novelMode = useWikiStore.getState().novelMode
@@ -97,7 +101,7 @@ export async function buildContextPack(
   const context = buildLoadContext(pp, task, chapterNumber)
   
   // 创建数据源注册器并加载所有数据
-  const registry = createDataSourceRegistry(options?.categories)
+  const registry = createDataSourceRegistry(options?.categories, options?.loadAdapter)
   const rawData = await registry.loadAll(context)
   
   // 从原始数据构建上下文包
@@ -131,8 +135,11 @@ function buildLoadContext(
 /**
  * 创建并配置数据源注册器
  */
-function createDataSourceRegistry(categories?: DataSourceCategory[]): DataSourceRegistry {
-  const registry = new DataSourceRegistry()
+function createDataSourceRegistry(
+  categories?: DataSourceCategory[],
+  loadAdapter?: DataSourceLoadAdapter,
+): DataSourceRegistry {
+  const registry = new DataSourceRegistry({ loadAdapter })
   registry.registerAll(categories?.length ? getDataSourcesForCategories(categories) : getAllDataSources())
   
   return registry

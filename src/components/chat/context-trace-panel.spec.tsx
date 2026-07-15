@@ -2,8 +2,134 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { ContextTracePanel } from "./context-trace-panel"
 import type { ContextTrace } from "@/lib/agent/context-trace"
+import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 describe("ContextTracePanel selected skills", () => {
+  it("renders local cache and token composition without claiming a provider hit", () => {
+    const trace: ContextTrace = {
+      id: "trace-context-hub",
+      startedAt: 1,
+      finishedAt: 5,
+      status: "done",
+      toolCalls: [],
+      contextInfo: {
+        intent: "write_chapter",
+        confidence: 0.9,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+        contextHub: {
+          hits: 4,
+          refreshed: 1,
+          failures: 0,
+          stableTokens: 1200,
+          summaryTokens: 180,
+          dynamicTokens: 420,
+          candidateTokens: 3200,
+          estimatedSavedTokens: 1400,
+          estimatedSavedPercent: 44,
+          expanded: false,
+          providerCacheEnabled: true,
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
+
+    expect(html).toContain("上下文中控")
+    expect(html).not.toContain("4ms")
+    expect(html).toContain("本地缓存：命中 4，刷新 1，失败 0")
+    expect(html).toContain("稳定核心 1,200 Token")
+    expect(html).toContain("会话摘要 180 Token")
+    expect(html).toContain("动态片段 420 Token")
+    expect(html).toContain("项目资料预计节省 1,400 Token（44%）")
+    expect(html).toContain("已启用稳定前缀缓存")
+    expect(html).not.toContain("供应商已确认命中")
+  })
+
+  it("only reports a confirmed provider hit when cached token usage exists", () => {
+    const trace: ContextTrace = {
+      id: "trace-provider-cache-hit",
+      startedAt: 1,
+      finishedAt: 5,
+      status: "done",
+      toolCalls: [],
+      contextInfo: {
+        intent: "generate_outline",
+        confidence: 0.9,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+        contextHub: {
+          hits: 0,
+          refreshed: 2,
+          failures: 0,
+          stableTokens: 900,
+          summaryTokens: 0,
+          dynamicTokens: 300,
+          candidateTokens: 1800,
+          estimatedSavedTokens: 600,
+          estimatedSavedPercent: 33,
+          expanded: true,
+          providerCacheEnabled: true,
+          providerCachedTokens: 768,
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
+
+    expect(html).toContain("低置信度扩展：已启用")
+    expect(html).toContain("供应商已确认命中 768 Token")
+  })
+
+  it("uses the shared cache viewer when a persisted snapshot reference exists", () => {
+    const trace: ContextTrace = {
+      id: "trace-snapshot",
+      startedAt: 1,
+      status: "done",
+      toolCalls: [],
+      contextInfo: {
+        intent: "generate_outline",
+        confidence: 0.9,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+      },
+    }
+    const contextHubSnapshot: ContextHubSnapshotRef = {
+      id: "assistant:1",
+      surface: "ai-chat",
+      createdAt: 10,
+      stats: {
+        hits: 2,
+        refreshed: 1,
+        failures: 0,
+        stableTokens: 100,
+        summaryTokens: 20,
+        dynamicTokens: 30,
+        candidateTokens: 300,
+        estimatedSavedTokens: 150,
+        estimatedSavedPercent: 50,
+        expanded: false,
+        providerCacheEnabled: true,
+      },
+    }
+
+    const html = renderToStaticMarkup(
+      <ContextTracePanel trace={trace} contextHubSnapshot={contextHubSnapshot} />,
+    )
+
+    expect(html).toContain("展开上下文中控")
+    expect(html).toContain("本地缓存：命中 2，刷新 1，失败 0")
+  })
+
   it("renders web search trace entries in the overview", () => {
     const trace: ContextTrace = {
       id: "trace-web",

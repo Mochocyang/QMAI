@@ -1,7 +1,6 @@
 ﻿import { useState, useRef, useEffect } from "react"
 import {
   X,
-  Clock,
   Zap,
   Database,
   ShieldAlert,
@@ -41,6 +40,8 @@ import {
 } from "@/lib/novel/classification"
 import { cn } from "@/lib/utils"
 import { ToolCallTimeline } from "./tool-call-timeline"
+import { ContextHubDetails } from "@/components/common/context-hub-details"
+import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 interface RebuildRetrievalResult {
   success: boolean
@@ -50,6 +51,7 @@ interface RebuildRetrievalResult {
 
 interface ContextTracePanelProps {
   trace: ContextTrace | null
+  contextHubSnapshot?: ContextHubSnapshotRef
   projectPath?: string | null
   onClose?: () => void
   className?: string
@@ -86,18 +88,6 @@ const ROUTE_SOURCE_LABELS: Record<RouteSource, string> = {
 }
 
 type TabType = "overview" | "timeline"
-
-function formatDuration(startedAt: number, finishedAt?: number): string {
-  const end = finishedAt || Date.now()
-  const ms = end - startedAt
-  if (ms <= 0) return "0ms"
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${minutes}m${secs}s`
-}
 
 function StatusBadge({ status }: { status: ContextTrace["status"] }) {
   if (status === "running") {
@@ -356,6 +346,7 @@ function RetrievalIndexSection({
 
 function OverviewTab({
   contextInfo,
+  contextHubSnapshot,
   projectPath,
   onUpgraded,
   onRebuildRetrievalIndex,
@@ -364,6 +355,7 @@ function OverviewTab({
   lastRebuildResult,
 }: {
   contextInfo: TraceContextInfo | undefined
+  contextHubSnapshot?: ContextHubSnapshotRef
   projectPath?: string | null
   onUpgraded?: () => void
   onRebuildRetrievalIndex?: () => Promise<RebuildRetrievalResult>
@@ -393,6 +385,9 @@ function OverviewTab({
     }
   }
   if (!contextInfo) {
+    if (contextHubSnapshot) {
+      return <ContextHubDetails reference={contextHubSnapshot} projectPath={projectPath} className="mt-0 border-t-0 pt-0" />
+    }
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Layers className="mb-3 h-10 w-10 text-muted-foreground/40" />
@@ -421,6 +416,54 @@ function OverviewTab({
         label="路由来源"
         value={ROUTE_SOURCE_LABELS[contextInfo.routeSource] || contextInfo.routeSource}
       />
+
+      {contextHubSnapshot && (
+        <>
+          <div className="my-1 h-px bg-border/60" />
+          <ContextHubDetails
+            reference={contextHubSnapshot}
+            projectPath={projectPath}
+            className="mt-0 border-t-0 pt-2"
+          />
+        </>
+      )}
+
+      {contextInfo.contextHub && !contextHubSnapshot && (
+        <>
+          <div className="my-1 h-px bg-border/60" />
+          <div className="py-2">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
+                <Database className="h-3.5 w-3.5" />
+              </div>
+              <div className="text-[11px] font-medium text-foreground">上下文中控</div>
+            </div>
+            <div className="ml-9 space-y-1 text-[11px] text-muted-foreground">
+              <div>
+                本地缓存：命中 {contextInfo.contextHub.hits.toLocaleString()}，刷新 {contextInfo.contextHub.refreshed.toLocaleString()}，失败 {contextInfo.contextHub.failures.toLocaleString()}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>稳定核心 {contextInfo.contextHub.stableTokens.toLocaleString()} Token</span>
+                <span>会话摘要 {contextInfo.contextHub.summaryTokens.toLocaleString()} Token</span>
+                <span>动态片段 {contextInfo.contextHub.dynamicTokens.toLocaleString()} Token</span>
+              </div>
+              <div>
+                项目资料预计节省 {contextInfo.contextHub.estimatedSavedTokens.toLocaleString()} Token（{contextInfo.contextHub.estimatedSavedPercent}%）
+              </div>
+              <div>
+                低置信度扩展：{contextInfo.contextHub.expanded ? "已启用" : "未启用"}
+              </div>
+              {contextInfo.contextHub.providerCachedTokens != null ? (
+                <div className="font-medium text-green-600 dark:text-green-400">
+                  供应商已确认命中 {contextInfo.contextHub.providerCachedTokens.toLocaleString()} Token
+                </div>
+              ) : contextInfo.contextHub.providerCacheEnabled ? (
+                <div>已启用稳定前缀缓存</div>
+              ) : null}
+            </div>
+          </div>
+        </>
+      )}
 
       {contextInfo.selectedCapabilities && contextInfo.selectedCapabilities.length > 0 && (
         <>
@@ -1034,6 +1077,7 @@ function CopyTraceButton({ trace }: { trace: ContextTrace }) {
 
 export function ContextTracePanel({
   trace,
+  contextHubSnapshot,
   projectPath,
   onClose,
   className,
@@ -1046,8 +1090,6 @@ export function ContextTracePanel({
 
   if (!trace) return null
 
-  const duration = formatDuration(trace.startedAt, trace.finishedAt)
-
   return (
     <div className={cn("", className)}>
       <CollapsiblePanel
@@ -1057,10 +1099,6 @@ export function ContextTracePanel({
         rightContent={
           <div className="flex items-center gap-2">
             <StatusBadge status={trace.status} />
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              <span className="tabular-nums">{duration}</span>
-            </div>
             <CopyTraceButton trace={trace} />
             {onClose && (
               <button
@@ -1111,6 +1149,7 @@ export function ContextTracePanel({
           {activeTab === "overview" ? (
             <OverviewTab
               contextInfo={trace.contextInfo}
+              contextHubSnapshot={contextHubSnapshot}
               projectPath={projectPath}
               onRebuildRetrievalIndex={onRebuildRetrievalIndex}
               retrievalIndexHasIndex={retrievalIndexHasIndex}

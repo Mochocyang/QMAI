@@ -3,6 +3,7 @@ import type { ChatMessage } from "@/lib/llm-client"
 import type { AgentRunRecord, AgentStageTrace } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
+import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
 import i18n from "@/i18n"
 import {
   canStartConversationRun as canStartRun,
@@ -21,6 +22,7 @@ export interface Conversation {
   deAiMode: boolean
   selectedDeAiSkillId?: string | null
   inputDraft?: string
+  contextSummary?: SessionContextSummary
 }
 
 export interface MessageReference {
@@ -41,6 +43,7 @@ export interface DisplayMessage {
   isAgentRunning?: boolean
   attachedReferences?: ReferenceToken[]
   contextTrace?: ContextTrace
+  contextHubSnapshot?: ContextHubSnapshotRef
 }
 
 interface ChatState {
@@ -63,6 +66,7 @@ interface ChatState {
   setConversationDeAiMode: (id: string, deAiMode: boolean) => void
   setConversationDeAiSkillId: (id: string, skillId: string | null | undefined) => void
   setConversationInputDraft: (id: string, draft: string) => void
+  setConversationContextSummary: (id: string, contextSummary: SessionContextSummary | undefined) => void
 
   // Message management
   addMessage: (role: DisplayMessage["role"], content: string) => void
@@ -198,6 +202,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.id === id ? { ...c, inputDraft: draft } : c
+      ),
+    })),
+
+  setConversationContextSummary: (id, contextSummary) =>
+    set((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation.id === id
+          ? { ...conversation, contextSummary, updatedAt: Date.now() }
+          : conversation
       ),
     })),
 

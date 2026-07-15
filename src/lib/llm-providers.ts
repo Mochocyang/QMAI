@@ -494,18 +494,38 @@ function toAnthropicContent(content: string | ContentBlock[]): unknown {
   })
 }
 
-/**
- * Anthropic's top-level `system` field is a string, not blocks.
- * If a caller puts images inside a system message we drop them —
- * Anthropic doesn't accept system-level images today, and silently
- * losing them is the lesser evil compared to the request 400ing
- * out for "Unsupported content block in system".
- */
+/** Anthropic accepts top-level system as a string or text-block array. */
 function flattenAnthropicSystem(content: string | ContentBlock[]): string {
   if (typeof content === "string") return content
   return content
     .map((b) => (b.type === "text" ? b.text : ""))
     .join("")
+}
+
+function buildAnthropicSystem(messages: ChatMessage[]): string | unknown[] | undefined {
+  const hasCacheControl = messages.some(
+    (message) => Array.isArray(message.content)
+      && message.content.some((block) => block.type === "text" && block.cacheControl),
+  )
+  if (!hasCacheControl) {
+    return messages.map((message) => flattenAnthropicSystem(message.content)).join("\n") || undefined
+  }
+
+  const blocks: unknown[] = []
+  for (const [messageIndex, message] of messages.entries()) {
+    if (messageIndex > 0) blocks.push({ type: "text", text: "\n" })
+    if (typeof message.content === "string") {
+      if (message.content) blocks.push({ type: "text", text: message.content })
+      continue
+    }
+    for (const block of message.content) {
+      if (block.type !== "text") continue
+      blocks.push(block.cacheControl
+        ? { type: "text", text: block.text, cache_control: { type: "ephemeral" } }
+        : { type: "text", text: block.text })
+    }
+  }
+  return blocks.length > 0 ? blocks : undefined
 }
 
 function buildAnthropicBody(
@@ -516,9 +536,7 @@ function buildAnthropicBody(
   const conversationMessages = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role, content: toAnthropicContent(m.content) }))
-  const system =
-    systemMessages.map((m) => flattenAnthropicSystem(m.content)).join("\n") ||
-    undefined
+  const system = buildAnthropicSystem(systemMessages)
 
   // Anthropic Messages uses top_p / top_k (Python-style snake_case), a
   // mandatory `max_tokens`, and `stop_sequences` instead of `stop`.

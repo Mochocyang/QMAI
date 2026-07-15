@@ -3,6 +3,8 @@ import type { ReviewItem } from "@/stores/review-store"
 import type { DisplayMessage, Conversation } from "@/stores/chat-store"
 import { normalizeLoadedRunStates, type ConversationRunStates } from "@/lib/conversation-run-state"
 import { normalizePath } from "@/lib/path-utils"
+import { normalizeSessionContextSummary } from "@/lib/context-hub/session-summary"
+import { getContextHub } from "@/lib/context-hub/context-hub"
 
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 500
@@ -128,6 +130,7 @@ function normalizeConversation(conv: Conversation): Conversation {
       conv.selectedDeAiSkillId === null || typeof conv.selectedDeAiSkillId === "string"
         ? conv.selectedDeAiSkillId
         : undefined,
+    contextSummary: normalizeSessionContextSummary(conv.contextSummary),
   }
 }
 
@@ -155,6 +158,7 @@ export async function saveChatHistory(
 
     // Save each conversation's messages separately
     const byConversation = new Map<string, DisplayMessage[]>()
+    const persistedSnapshotIds = new Set<string>()
     for (const msg of messages) {
       const list = byConversation.get(msg.conversationId) ?? []
       list.push(msg)
@@ -164,6 +168,11 @@ export async function saveChatHistory(
     for (const [convId, msgs] of byConversation) {
       // Keep last N messages per conversation
       const toSave = msgs.slice(-(maxMessages || 100))
+      for (const message of toSave) {
+        if (message.contextHubSnapshot?.surface === "ai-chat") {
+          persistedSnapshotIds.add(message.contextHubSnapshot.id)
+        }
+      }
       await withRetry(
         () => writeFile(
           `${pp}/.qmai/chats/${convId}.json`,
@@ -171,6 +180,12 @@ export async function saveChatHistory(
         ),
         `saveChatHistory(chat:${convId})`,
       )
+    }
+
+    try {
+      await getContextHub(pp).pruneSnapshots("ai-chat", [...persistedSnapshotIds])
+    } catch {
+      // Snapshot cleanup is optional and must not make chat history saving fail.
     }
   } finally {
     release()

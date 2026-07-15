@@ -24,11 +24,18 @@ import {
   type OutlineChatConversation,
   type OutlineChatMessage,
 } from "../../stores/outline-chat-store"
+import type { AgentMessage } from "@/lib/agent/types"
+import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
 const outlineSectionConfigsSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-section-configs.ts"), "utf8")
 
 const mountedRoots: Array<{ container: HTMLDivElement; root: Root }> = []
+
+function agentMessageContentText(content: AgentMessage["content"]): string {
+  if (typeof content === "string") return content
+  return content.map((block) => block.type === "text" ? block.text : "").join("")
+}
 
 function conversation(messages: OutlineChatMessage[] = []): OutlineChatConversation {
   return {
@@ -111,6 +118,38 @@ afterEach(async () => {
 })
 
 describe("OutlineChatPanel controls", () => {
+
+  it("在 AI 大纲回复下方独立显示上下文中控摘要", async () => {
+    const contextHubSnapshot: ContextHubSnapshotRef = {
+      id: "outline-assistant-1",
+      surface: "ai-outline",
+      createdAt: 10,
+      stats: {
+        hits: 3,
+        refreshed: 2,
+        failures: 0,
+        stableTokens: 1200,
+        summaryTokens: 60,
+        dynamicTokens: 420,
+        candidateTokens: 3000,
+        estimatedSavedTokens: 1320,
+        estimatedSavedPercent: 44,
+        expanded: false,
+        providerCacheEnabled: true,
+      },
+    }
+    setOutlineConversations([conversation([{
+      id: "outline-assistant-1",
+      role: "assistant",
+      content: "大纲正文",
+      contextHubSnapshot,
+    }])], "outline-active")
+
+    const container = await renderOutlineChatPanel()
+
+    expect(container.textContent).toContain("上下文中控")
+    expect(container.textContent).toContain("本地缓存：命中 3，刷新 2，失败 0")
+  })
 
   it.each([
     ["继续完善人物弧光", "A"],
@@ -461,7 +500,7 @@ describe("OutlineChatPanel controls", () => {
   it("后续普通追问复用 AI 大纲上下文并节流资料读取工具", () => {
     expect(source).toContain("planOutlineContextReuse")
     expect(source).toContain("planOutlineAgentHistory")
-    expect(source).toContain("buildOutlineContextSummary")
+    expect(source).toContain("buildSessionContextSummary")
     expect(source).toContain("contextDecision")
     expect(source).toContain("historyPlan")
     expect(source).toContain("contextDecision.instruction")
@@ -483,11 +522,21 @@ describe("OutlineChatPanel controls", () => {
 
   it("将 AI 大纲上下文摘要持久化到会话字段而不是组件内存缓存", () => {
     expect(source).toContain("contextSummary:")
-    expect(source).toContain("buildOutlineContextSummary")
+    expect(source).toContain("buildSessionContextSummary")
+    expect(source).toContain("dependencies: contextHubResult?.dependencies")
     // 上下文摘要已通过 setConversationContextSummary 持久化到会话字段
     expect(source).toContain("setConversationContextSummary")
     expect(source).not.toContain("contextSummaryByConversation")
     expect(source).not.toContain("setContextSummaryByConversation")
+  })
+
+  it("主发送、续传多 Agent 和重新生成统一接入上下文中控快照", () => {
+    expect(source.match(/contextHub\.prepare\(/g)).toHaveLength(3)
+    expect(source.match(/readTextFile: contextHubResult\.readFile/g)).toHaveLength(3)
+    expect(source.match(/\.saveSnapshot\(/g)).toHaveLength(3)
+    expect(source).toContain("<ContextHubDetails")
+    expect(source).not.toContain("formatContextHubStatsForDetails")
+    expect(source.match(/buildContextHubSystemContent\(/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
   })
 
   it("keeps outline reference chips as tool-readable hints instead of preloading file contents", () => {
@@ -579,7 +628,8 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain('import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel"')
     expect(source).toContain("multiAgentRun")
     expect(source).toContain("updateOutlineMultiAgentRun")
-    expect(source).toContain("<OutlineMultiAgentPanel run={msg.multiAgentRun} />")
+    expect(source).toContain("<OutlineMultiAgentPanel")
+    expect(source).toContain("run={msg.multiAgentRun}")
     expect(source).toContain("status: \"pending\"")
     expect(source).toContain("status: \"running\"")
     expect(source).toContain("status: \"merging\"")
@@ -887,7 +937,9 @@ describe("OutlineChatPanel controls", () => {
     ].join("\n")
     const fallbackCalls: Array<{ modelId: string; messages: Array<{ role: string; content: string }> }> = []
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, messages, callbacks) => {
-      const system = messages.find((message) => message.role === "system")?.content ?? ""
+      const system = agentMessageContentText(
+        messages.find((message) => message.role === "system")?.content ?? "",
+      )
       if (system.includes("\u53ea\u8d1f\u8d23\u89c4\u5212\u5927\u7eb2\u5b50 Agent \u4efb\u52a1\u56fe")) {
         return { toolCalls: [], roundsUsed: 1, finalText: "{}" }
       }
@@ -956,7 +1008,9 @@ describe("OutlineChatPanel controls", () => {
     let subAgentCallCount = 0
     let fallbackCallCount = 0
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
-      const system = messages.find((message) => message.role === "system")?.content ?? ""
+      const system = agentMessageContentText(
+        messages.find((message) => message.role === "system")?.content ?? "",
+      )
       if (system.includes("\u53ea\u8d1f\u8d23\u89c4\u5212\u5927\u7eb2\u5b50 Agent \u4efb\u52a1\u56fe")) {
         return { toolCalls: [], roundsUsed: 1, finalText: "{}" }
       }

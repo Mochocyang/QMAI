@@ -37,6 +37,7 @@ import { AgentStageStream } from "@/components/chat/agent-stage-stream";
 import { ReferenceChip } from "@/components/reference/ReferenceChip";
 import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
+import { ContextHubDetails } from "@/components/common/context-hub-details";
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode";
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver";
@@ -113,9 +114,10 @@ export function ChatMessage({
     canContinueUnfinishedDeepChapter(message.content),
   );
   const hasContextTrace = Boolean(
-    message.contextTrace &&
-    (message.contextTrace.toolCalls.length > 0 ||
-      message.contextTrace.contextInfo),
+    message.contextHubSnapshot ||
+    (message.contextTrace &&
+      (message.contextTrace.toolCalls.length > 0 ||
+        message.contextTrace.contextInfo)),
   );
 
   // 仅对最后一条流式助手消息提取 thinking，避免历史消息重复提取
@@ -276,16 +278,24 @@ export function ChatMessage({
         {isAssistant &&
           !message.discarded &&
           contextTraceExpanded &&
-          message.contextTrace && (
+          (message.contextTrace || message.contextHubSnapshot) && (
             <div className="mt-1">
-              <ContextTracePanel
-                trace={message.contextTrace}
-                projectPath={projectPath}
-                onRebuildRetrievalIndex={onRebuildRetrievalIndex}
-                retrievalIndexHasIndex={retrievalIndexHasIndex}
-                isRebuildingRetrievalIndex={isRebuildingRetrievalIndex}
-                lastRebuildResult={lastRebuildRetrievalResult}
-              />
+              {message.contextTrace ? (
+                <ContextTracePanel
+                  trace={message.contextTrace}
+                  contextHubSnapshot={message.contextHubSnapshot}
+                  projectPath={projectPath}
+                  onRebuildRetrievalIndex={onRebuildRetrievalIndex}
+                  retrievalIndexHasIndex={retrievalIndexHasIndex}
+                  isRebuildingRetrievalIndex={isRebuildingRetrievalIndex}
+                  lastRebuildResult={lastRebuildRetrievalResult}
+                />
+              ) : message.contextHubSnapshot ? (
+                <ContextHubDetails
+                  reference={message.contextHubSnapshot}
+                  projectPath={projectPath}
+                />
+              ) : null}
             </div>
           )}
         {isLastAssistant && saveStatus && (

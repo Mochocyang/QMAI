@@ -4,7 +4,7 @@ import { groupTimelineEvents } from "./timeline-grouping"
 import { ThinkingEvent } from "./timeline-thinking-event"
 import { ToolCallEvent } from "./timeline-tool-event"
 import { getToolCallGroupRenderKey, ToolCallGroup } from "./timeline-tool-group"
-import { Brain, Clock3, Hash } from "lucide-react"
+import { Brain, Hash } from "lucide-react"
 
 interface EventStreamProps {
   events: TimelineEvent[]
@@ -24,14 +24,6 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
     if (event.kind === "tool_group") return count + event.data.items.length
     return count
   }, 0)
-
-  const formatDuration = (ms: number): string => {
-    if (ms < 1000) return `${ms}ms`
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-    const minutes = Math.floor(ms / 60000)
-    const seconds = ((ms % 60000) / 1000).toFixed(0)
-    return `${minutes}分${seconds}秒`
-  }
 
   useEffect(() => {
     if (!isStreaming) return
@@ -122,12 +114,6 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
               animation: "slideInUp 300ms ease-out",
             }}
           >
-            {totalDurationMs !== undefined && (
-              <span className="flex items-center gap-1">
-                <Clock3 aria-hidden="true" className="h-3 w-3" />
-                <span>耗时 {formatDuration(totalDurationMs)}</span>
-              </span>
-            )}
             {totalTokens !== undefined && (
               <span className="flex items-center gap-1">
                 <Hash aria-hidden="true" className="h-3 w-3" />

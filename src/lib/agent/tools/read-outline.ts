@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { readMarkdownResource } from "./read-markdown-resource"
+import { readMarkdownResource, type ReadTextFile } from "./read-markdown-resource"
 import { listDirectory, readFile } from "@/commands/fs"
 
 function deriveProjectPathFromOutlinesDir(outlinesDir: string): string | null {
@@ -13,7 +13,10 @@ function outlineSnapshotOrder(name: string): number {
   return match?.[1] ? Number.parseInt(match[1], 10) : Number.MAX_SAFE_INTEGER
 }
 
-async function readOutlineSnapshots(outlinesDir: string): Promise<string | null> {
+async function readOutlineSnapshots(
+  outlinesDir: string,
+  readTextFile: ReadTextFile,
+): Promise<string | null> {
   const projectPath = deriveProjectPathFromOutlinesDir(outlinesDir)
   if (!projectPath) return null
 
@@ -35,7 +38,7 @@ async function readOutlineSnapshots(outlinesDir: string): Promise<string | null>
   const sections: string[] = []
   for (const file of files) {
     try {
-      const content = await readFile(file.path)
+      const content = await readTextFile(file.path)
       if (content.trim()) {
         sections.push(`## ${file.name}\n\n${content}`)
       }
@@ -52,7 +55,10 @@ async function readOutlineSnapshots(outlinesDir: string): Promise<string | null>
   ].join("\n")
 }
 
-export function createReadOutlineTool(outlinesDir: string): Tool {
+export function createReadOutlineTool(
+  outlinesDir: string,
+  readTextFile: ReadTextFile = readFile,
+): Tool {
   return {
     name: "read_outline",
     description: "读取指定大纲文件的完整内容。参数 path 为大纲文件的完整路径，或 name 为大纲名称。",
@@ -62,7 +68,7 @@ export function createReadOutlineTool(outlinesDir: string): Tool {
       path: { type: "string", description: "大纲文件完整路径（可选，与 name 二选一）" },
     },
     execute: async (params) => {
-      const result = await readMarkdownResource(outlinesDir, params, "大纲")
+      const result = await readMarkdownResource(outlinesDir, params, "大纲", readTextFile)
       if (!result.startsWith("错误：无法读取大纲")) return result
 
       const name = typeof params.name === "string" ? params.name : ""
@@ -70,7 +76,7 @@ export function createReadOutlineTool(outlinesDir: string): Tool {
       const broadOutlineRequest = /大纲|outline/i.test(`${name} ${path}`)
       if (!broadOutlineRequest) return result
 
-      return (await readOutlineSnapshots(outlinesDir)) ?? result
+      return (await readOutlineSnapshots(outlinesDir, readTextFile)) ?? result
     },
   }
 }

@@ -25,6 +25,7 @@ export interface PrePluginInput {
   selectedCapabilities?: SelectedCapabilityTrace[]
   novelSystemPrompt?: string
   finalSystemPrompt?: string
+  finalSystemRulesPrompt?: string
   shouldStop?: boolean
   stopReason?: string
   [key: string]: unknown
@@ -39,6 +40,7 @@ export interface PrePluginOutput {
   enabledToolNames?: string[]
   novelSystemPrompt?: string
   finalSystemPrompt?: string
+  finalSystemRulesPrompt?: string
   shouldStop?: boolean
   stopReason?: string
   [key: string]: unknown

@@ -57,13 +57,6 @@ const STATUS_COLOR: Record<ToolCallEventItem["status"], string> = {
   cancelled: "text-muted-foreground",
 }
 
-function formatDuration(startedAt?: number, finishedAt?: number): string {
-  if (startedAt === undefined || finishedAt === undefined || finishedAt <= startedAt) return ""
-  const ms = finishedAt - startedAt
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
-}
-
 function formatParamValue(value: unknown): string {
   if (typeof value === "string") return value
   if (value === undefined) return "undefined"
@@ -74,7 +67,6 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
   const [expanded, setExpanded] = useState(false)
   const isRunning = event.status === "running"
   const isError = event.status === "error"
-  const duration = formatDuration(event.startedAt, event.finishedAt)
   const CategoryIcon = CATEGORY_ICON[event.category]
   const StatusIcon = STATUS_ICON[event.status]
   const statusLabel = STATUS_LABEL[event.status]
@@ -113,11 +105,6 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
         )}>
           {event.description}
         </span>
-        {duration && (
-          <span className="mt-0.5 shrink-0 text-[10px] text-muted-foreground/50">
-            {duration}
-          </span>
-        )}
         <span className={cn(
           "ml-1 mt-0.5 flex shrink-0 items-center gap-1 text-[10px]",
           STATUS_COLOR[event.status],
