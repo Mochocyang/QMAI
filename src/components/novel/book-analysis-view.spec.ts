@@ -43,6 +43,8 @@ const mocks = vi.hoisted(() => {
   const regenerateTask = vi.fn()
   const cancelImportTask = vi.fn()
   const cancelAllQueued = vi.fn()
+  const deleteFailedTask = vi.fn()
+  const renameCompletedTask = vi.fn()
   const dispose = vi.fn()
   const setPanelCollapsed = vi.fn()
   const triggerSidebarRefresh = vi.fn()
@@ -101,6 +103,8 @@ const mocks = vi.hoisted(() => {
       regenerateTask,
       cancelTask: cancelImportTask,
       cancelAllQueued,
+      deleteFailedTask,
+      renameCompletedTask,
       setPanelCollapsed,
       dispose,
     },
@@ -110,6 +114,8 @@ const mocks = vi.hoisted(() => {
     regenerateTask,
     cancelImportTask,
     cancelAllQueued,
+    deleteFailedTask,
+    renameCompletedTask,
     dispose,
     setPanelCollapsed,
     triggerSidebarRefresh,
@@ -215,6 +221,8 @@ vi.mock("./book-analysis-import-task-panel", async () => {
         React.createElement("button", { type: "button", onClick: () => props.onRegenerate("task-regenerate") }, "重新生成任务"),
         React.createElement("button", { type: "button", onClick: () => props.onCancel("task-cancel") }, "取消任务"),
         React.createElement("button", { type: "button", onClick: () => props.onCancelAllQueued("batch-1") }, "取消批次等待"),
+        React.createElement("button", { type: "button", onClick: () => props.onDeleteFailed("task-failed") }, "删除失败任务"),
+        React.createElement("button", { type: "button", onClick: () => props.onRenameCompleted("task-completed", "新名字") }, "重命名完成任务"),
         React.createElement("button", { type: "button", onClick: () => props.onOpenBook("book-1") }, "打开导入作品"),
       )
     },
@@ -359,6 +367,8 @@ beforeEach(() => {
   mocks.regenerateTask.mockReset().mockResolvedValue(undefined)
   mocks.cancelImportTask.mockReset().mockResolvedValue(undefined)
   mocks.cancelAllQueued.mockReset().mockResolvedValue(undefined)
+  mocks.deleteFailedTask.mockReset().mockResolvedValue(undefined)
+  mocks.renameCompletedTask.mockReset().mockResolvedValue(undefined)
   mocks.dispose.mockReset().mockResolvedValue(undefined)
   mocks.setPanelCollapsed.mockReset()
   mocks.triggerSidebarRefresh.mockReset().mockImplementation(() => { mocks.oldState.sidebarRefreshCounter += 1 })
@@ -479,12 +489,16 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
     await clickButton("重新生成任务")
     await clickButton("取消任务")
     await clickButton("取消批次等待")
+    await clickButton("删除失败任务")
+    await clickButton("重命名完成任务")
 
     expect(mocks.setPanelCollapsed).toHaveBeenCalledWith(true)
     expect(mocks.continueTask).toHaveBeenCalledWith("task-continue")
     expect(mocks.regenerateTask).toHaveBeenCalledWith("task-regenerate")
     expect(mocks.cancelImportTask).toHaveBeenCalledWith("task-cancel")
     expect(mocks.cancelAllQueued).toHaveBeenCalledWith("batch-1")
+    expect(mocks.deleteFailedTask).toHaveBeenCalledWith("task-failed")
+    expect(mocks.renameCompletedTask).toHaveBeenCalledWith("task-completed", "新名字")
   })
 
   it("打开 A 后普通选择 B 不回跳并同步状态", async () => {

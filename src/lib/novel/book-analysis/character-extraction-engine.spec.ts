@@ -14,6 +14,18 @@ vi.mock("@/commands/fs", () => ({
   writeFile: vi.fn(async () => undefined),
 }))
 
+const { analyzeSixDimensionsMock } = vi.hoisted(() => ({
+  analyzeSixDimensionsMock: vi.fn(async ({ character }: any) => ({ character })),
+}))
+vi.mock("./six-dimension-engine", () => ({
+  analyzeSixDimensions: (input: unknown) => analyzeSixDimensionsMock(input),
+  DEPTH_DESCRIPTIONS: {
+    fast: { label: "快速" },
+    standard: { label: "标准" },
+    deep: { label: "深入" },
+  },
+}))
+
 // mock streamChat：第一组调用 reject，第二组调用 resolve 一个有效 profile
 const streamChatMock = vi.fn()
 vi.mock("@/lib/llm-client", () => ({
@@ -47,8 +59,9 @@ vi.mock("./simple-extraction-engine", () => ({
   }),
 }))
 
-import { extractSingleCharacter } from "./character-extraction-engine"
-import type { ExtractedCharacter } from "./types"
+import { readFile } from "@/commands/fs"
+import { extractCharactersFromChapters, extractSingleCharacter } from "./character-extraction-engine"
+import type { ExtractedCharacter, RecognizedCharacter } from "./types"
 import type { LlmConfig } from "@/stores/wiki-store"
 
 const fakeLlmConfig: LlmConfig = {
@@ -79,6 +92,48 @@ const fakeCharacter: ExtractedCharacter = {
 
 beforeEach(() => {
   streamChatMock.mockReset()
+  analyzeSixDimensionsMock.mockClear()
+})
+
+describe("extractCharactersFromChapters 目标角色约束", () => {
+  it("只深度分析并执行六维分析用户勾选的角色", async () => {
+    vi.mocked(readFile).mockImplementation(async (path: string) => {
+      const order = path.includes("chapter-2") ? 2 : 1
+      return `---\ntitle: 第${order}章\norder: ${order}\n---\n林烬与乌鸦同时出现。`
+    })
+    streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
+      expect(messages[0].content).toContain('角色"林烬"')
+      handlers.onToken(JSON.stringify({
+        name: "林烬",
+        category: "protagonist",
+        personality: "冷静",
+      }))
+      handlers.onDone()
+    })
+    const selected: RecognizedCharacter = {
+      id: "char-linjing",
+      name: "林烬",
+      aliases: [],
+      appearances: 2,
+      chapterIndices: [0, 1],
+      importanceScore: 90,
+      category: "主角",
+      sourceBook: "book-1",
+    }
+
+    const result = await extractCharactersFromChapters({
+      bookPath: "E:/Novel/book-analysis/book-1",
+      selectedChapterIds: ["chapter-1", "chapter-2"],
+      llmConfig: fakeLlmConfig,
+      depth: "standard",
+      targetCharacters: [selected],
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(analyzeSixDimensionsMock).toHaveBeenCalledTimes(1)
+    expect(analyzeSixDimensionsMock.mock.calls[0][0].character.name).toBe("林烬")
+    expect(result.characters.map((character) => character.name)).toEqual(["林烬"])
+  })
 })
 
 describe("extractSingleCharacter (fix/character-reextract-and-loading-state)", () => {

@@ -15,9 +15,11 @@ import { ReferenceChip } from "./ReferenceChip"
 export type InsertReferenceTokens = ((tokens: ReferenceToken[]) => void) | null
 
 const REFERENCE_INPUT_HEIGHT_KEY = "qmai-reference-input-height"
-const DEFAULT_REFERENCE_INPUT_HEIGHT = 56
-const MIN_REFERENCE_INPUT_HEIGHT = 48
-const MAX_REFERENCE_INPUT_HEIGHT = 220
+// Keep enough space below the workflow-mode trigger for its three-option menu.
+// Saved heights from older versions are clamped to this new lower bound.
+const DEFAULT_REFERENCE_INPUT_HEIGHT = 192
+const MIN_REFERENCE_INPUT_HEIGHT = 192
+const MAX_REFERENCE_INPUT_HEIGHT = 300
 
 interface ReferenceInputProps {
   value?: string

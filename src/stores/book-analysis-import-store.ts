@@ -7,6 +7,7 @@ import {
 import { reserveUniqueTitle } from "@/lib/novel/book-analysis/batch-import-hash"
 import {
   cacheTaskSource,
+  deleteFailedBatchImportTask,
   loadBatchImportBatches,
   loadBatchImportTasks,
   saveBatchImportBatch,
@@ -20,6 +21,7 @@ import type {
 import {
   findBookLibraryEntryBySha256,
   loadBookLibrary,
+  renameBookLibraryEntry,
 } from "@/lib/novel/book-analysis/library-store"
 
 const OPEN_PANEL_STATUSES = new Set(["queued", "copying", "splitting", "interrupted", "failed"])
@@ -81,6 +83,8 @@ export interface BookAnalysisImportState {
   regenerateTask(taskId: string): Promise<void>
   cancelTask(taskId: string): Promise<void>
   cancelAllQueued(batchId: string): Promise<void>
+  deleteFailedTask(taskId: string): Promise<void>
+  renameCompletedTask(taskId: string, title: string): Promise<void>
   setPanelCollapsed(collapsed: boolean): void
   dispose(): Promise<void>
 }
@@ -437,6 +441,60 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
         } finally {
           matchingTasks.forEach((task) => cancellingTaskIds.delete(task.id))
         }
+      },
+
+      deleteFailedTask: async (taskId) => {
+        const current = scheduler
+        const projectPath = get().projectPath
+        const token = generation
+        if (!current || !projectPath) throw new Error("请先初始化拆书项目")
+        const task = get().tasks.find((item) => item.id === taskId)
+        if (!task) throw new Error("找不到导入任务")
+        if (task.status !== "failed") throw new Error("只能删除导入失败的任务")
+        await deleteFailedBatchImportTask(projectPath, taskId)
+        if (!isCurrent(token, projectPath, current)) return
+        schedulerTaskIds.delete(taskId)
+        current.forgetTerminalTask(taskId)
+        set((state) => ({
+          tasks: state.tasks.filter((item) => item.id !== taskId),
+          batches: state.batches
+            .map((batch) => ({ ...batch, taskIds: batch.taskIds.filter((id) => id !== taskId) }))
+            .filter((batch) => batch.taskIds.length > 0),
+        }))
+      },
+
+      renameCompletedTask: async (taskId, rawTitle) => {
+        const current = scheduler
+        const projectPath = get().projectPath
+        const token = generation
+        if (!current || !projectPath) throw new Error("请先初始化拆书项目")
+        const task = get().tasks.find((item) => item.id === taskId)
+        if (!task) throw new Error("找不到导入任务")
+        if (task.status !== "completed") throw new Error("只能重命名已完成的任务")
+        const title = rawTitle.trim()
+        if (!title) throw new Error("作品名称不能为空")
+        const oldTitle = task.finalTitle || task.requestedTitle
+        if (title === oldTitle) return
+
+        await renameBookLibraryEntry(projectPath, task.bookId, title)
+        const renamed = { ...task, finalTitle: title, updatedAt: Date.now() }
+        try {
+          await saveBatchImportTask(renamed)
+        } catch (error) {
+          try {
+            await renameBookLibraryEntry(projectPath, task.bookId, oldTitle)
+          } catch (rollbackError) {
+            console.error("批量导入任务重命名：回滚作品名称失败", rollbackError)
+          }
+          throw error
+        }
+        if (!isCurrent(token, projectPath, current)) return
+        current.syncTerminalTask(renamed)
+        set((state) => ({
+          tasks: state.tasks.map((item) => item.id === taskId ? renamed : item),
+          revision: state.revision + 1,
+        }))
+        options.onRevision?.()
       },
 
       setPanelCollapsed: (panelCollapsed) => set({ panelCollapsed, panelTouched: true }),

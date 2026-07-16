@@ -11,6 +11,8 @@ export interface BatchImportScheduler {
   regenerateTask(taskId: string): Promise<void>
   cancelTask(taskId: string): Promise<void>
   cancelAllQueued(batchId: string): Promise<void>
+  syncTerminalTask(task: BatchImportTask): void
+  forgetTerminalTask(taskId: string): void
   subscribe(listener: (tasks: BatchImportTask[]) => void): () => void
   dispose(): Promise<void>
 }
@@ -306,6 +308,22 @@ export function createBatchImportScheduler(options: {
     }
   }
 
+  function syncTerminalTask(task: BatchImportTask): void {
+    const current = tasks.get(task.id)
+    if (!current || !["failed", "cancelled", "skipped", "completed"].includes(task.status)) return
+    tasks.set(task.id, task)
+    notify()
+  }
+
+  function forgetTerminalTask(taskId: string): void {
+    const task = tasks.get(taskId)
+    if (!task || !["failed", "cancelled", "skipped", "completed"].includes(task.status)) return
+    // 终态会在 executeTask 的 finally 释放 runningIds；通知到 UI 后用户可能立即删除，
+    // 此时允许先忘记任务，finally 不再依赖 tasks 中的这条记录。
+    tasks.delete(taskId)
+    notify()
+  }
+
   function subscribe(listener: (tasks: BatchImportTask[]) => void): () => void {
     if (disposed) return () => undefined
     listeners.add(listener)
@@ -345,6 +363,8 @@ export function createBatchImportScheduler(options: {
     regenerateTask: (taskId) => trackMutation(() => regenerateTask(taskId)),
     cancelTask: (taskId) => disposed ? Promise.resolve() : trackMutation(() => cancelTask(taskId)),
     cancelAllQueued: (batchId) => disposed ? Promise.resolve() : trackMutation(() => cancelAllQueued(batchId)),
+    syncTerminalTask,
+    forgetTerminalTask,
     subscribe,
     dispose,
   }

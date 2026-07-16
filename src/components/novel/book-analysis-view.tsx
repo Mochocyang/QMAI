@@ -104,6 +104,8 @@ export function BookAnalysisView() {
   const regenerateImportTask = useBookAnalysisImportStore((s) => s.regenerateTask)
   const cancelImportTask = useBookAnalysisImportStore((s) => s.cancelTask)
   const cancelAllQueuedImportTasks = useBookAnalysisImportStore((s) => s.cancelAllQueued)
+  const deleteFailedImportTask = useBookAnalysisImportStore((s) => s.deleteFailedTask)
+  const renameCompletedImportTask = useBookAnalysisImportStore((s) => s.renameCompletedTask)
   const setImportPanelCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
   const disposeImportStore = useBookAnalysisImportStore((s) => s.dispose)
   const importRevisionBaselineRef = useRef({ projectPath: currentProject?.path ?? null, revision: importRevision })
@@ -471,6 +473,14 @@ export function BookAnalysisView() {
     runImportTaskAction(() => cancelAllQueuedImportTasks(batchId), "取消等待任务失败")
   }, [cancelAllQueuedImportTasks, runImportTaskAction])
 
+  const handleDeleteFailedImportTask = useCallback((taskId: string) => {
+    runImportTaskAction(() => deleteFailedImportTask(taskId), "删除失败任务失败")
+  }, [deleteFailedImportTask, runImportTaskAction])
+
+  const handleRenameCompletedImportTask = useCallback((taskId: string, title: string) => {
+    runImportTaskAction(() => renameCompletedImportTask(taskId, title), "重命名作品失败")
+  }, [renameCompletedImportTask, runImportTaskAction])
+
   const handleSelectBook = useCallback((bookId: string) => {
     const book = libraryState.books.find((item) => item.id === bookId)
     setSelectedBookId(bookId)
@@ -509,6 +519,8 @@ export function BookAnalysisView() {
           onRegenerate={handleRegenerateImportTask}
           onCancel={handleCancelImportTask}
           onCancelAllQueued={handleCancelAllQueuedImportTasks}
+          onDeleteFailed={handleDeleteFailedImportTask}
+          onRenameCompleted={handleRenameCompletedImportTask}
           onOpenBook={handleOpenImportedBook}
         />
       }

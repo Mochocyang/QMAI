@@ -31,6 +31,7 @@ vi.mock("@/commands/fs", () => ({
 import {
   cacheTaskSource,
   cleanupCompletedTaskWorkspaceUnlocked,
+  deleteFailedBatchImportTask,
   importTaskDir,
   importTasksRoot,
   loadBatchImportBatches,
@@ -122,6 +123,36 @@ describe("batch import storage", () => {
     expect(importTaskDir("E:\\Novel\\", "task-1")).toBe(
       "E:/Novel/book-analysis/import-tasks/task-1",
     )
+  })
+
+  it("删除失败任务时同步移除批次引用和空批次", async () => {
+    const failed = makeTask({ status: "failed", error: "导入失败", completedAt: 200 })
+    seedTask(failed)
+    const root = importTasksRoot(failed.projectPath)
+    fsMocks.directories.add(root)
+    fsMocks.files.set(`${root}/batches.json`, JSON.stringify([{
+      version: 1,
+      id: failed.batchId,
+      projectPath: failed.projectPath,
+      taskIds: [failed.id],
+      createdAt: 100,
+      updatedAt: 100,
+    }]))
+
+    await deleteFailedBatchImportTask(failed.projectPath, failed.id)
+
+    expect(fsMocks.files.has(`${importTaskDir(failed.projectPath, failed.id)}/task.json`)).toBe(false)
+    expect(JSON.parse(fsMocks.files.get(`${root}/batches.json`)!)).toEqual([])
+  })
+
+  it("拒绝删除非失败任务", async () => {
+    const completed = makeTask({ status: "completed", completedAt: 200 })
+    seedTask(completed)
+
+    await expect(deleteFailedBatchImportTask(completed.projectPath, completed.id)).rejects.toThrow(
+      "只能删除导入失败的任务",
+    )
+    expect(fsMocks.files.has(`${importTaskDir(completed.projectPath, completed.id)}/task.json`)).toBe(true)
   })
 
   it("任务根目录不存在时返回空列表", async () => {

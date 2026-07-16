@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
 import React from "react"
 import { createRoot } from "react-dom/client"
 import { act } from "react"
-import type { LlmConfig, ProviderConfigs, SearchApiConfig } from "@/stores/wiki-store"
+import { DEFAULT_NOVEL_CONFIG, type LlmConfig, type NovelConfig, type ProviderConfigs, type SearchApiConfig } from "@/stores/wiki-store"
 import type { WikiProject } from "@/types/wiki"
 import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { OutlineChatConversation } from "@/stores/outline-chat-store"
@@ -29,6 +29,8 @@ interface StoreStates {
     dataVersion: number
     llmConfig: LlmConfig
     providerConfigs: ProviderConfigs
+    defaultLlmModel: string
+    novelConfig: NovelConfig
     searchApiConfig: SearchApiConfig
     mcpConfig: McpConfig
     aiWorkflowMode: AiWorkflowMode
@@ -57,7 +59,15 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
     project: null as WikiProject | null,
     dataVersion: 0,
     llmConfig: baseLlmConfig,
-    providerConfigs: {} as ProviderConfigs,
+    providerConfigs: {
+      openai: {
+        enabled: true,
+        apiKey: "test-key",
+        savedModels: [{ id: "gpt-4o", name: "GPT-4o", model: "gpt-4o", createdAt: 1 }],
+      },
+    } as ProviderConfigs,
+    defaultLlmModel: "",
+    novelConfig: { ...DEFAULT_NOVEL_CONFIG },
     searchApiConfig: {
       provider: "none",
       apiKey: "",
@@ -256,6 +266,59 @@ describe("useAgentConfig", () => {
     expect(result.config?.tools.length).toBeGreaterThan(0)
     expect(result.registry.list().some((tool) => tool.name === "read_chapter")).toBe(true)
     expect(result.registry.list().some((tool) => tool.name === "apply_skill")).toBe(true)
+
+    await cleanup()
+  }, 15000)
+
+  it("uses the default model for Agent orchestration while preserving the chat model for chapter writing", async () => {
+    const providerConfigs: ProviderConfigs = {
+      custom: {
+        enabled: true,
+        apiKey: "test-key",
+        savedModels: [
+          { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
+          { id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 2 },
+        ],
+      },
+    }
+    const { result, cleanup } = await renderHook("test prompt", {
+      wiki: {
+        aiChatModel: "custom/writer-model",
+        defaultLlmModel: "custom/workflow-model",
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+        providerConfigs,
+        project: { path: "/tmp/project" } as WikiProject,
+      },
+      skillConfig: {
+        version: 1,
+        defaultSkillId: "built-in:comprehensive",
+        disabledSkillIds: [],
+        projectSkills: [],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      },
+    })
+
+    expect(result.config?.modelId).toBe("workflow-model")
+    expect(result.config?.llmConfig.model).toBe("workflow-model")
+
+    const workflowTool = result.registry.get("run_chapter_workflow")
+    const deepChapterModule = await import("@/lib/novel/deep-chapter-generation")
+    const runDeepChapterGeneration = vi.mocked(deepChapterModule.runDeepChapterGeneration)
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    })
+    await workflowTool?.execute({ userRequest: "写第三章" })
+    expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({ llmConfig: expect.objectContaining({ model: "writer-model" }) }),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
 
     await cleanup()
   }, 15000)

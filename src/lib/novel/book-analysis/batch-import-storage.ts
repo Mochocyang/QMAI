@@ -306,6 +306,59 @@ export async function saveBatchImportBatch(batch: BatchImportBatch): Promise<voi
   })
 }
 
+export async function deleteFailedBatchImportTask(
+  projectPath: string,
+  taskId: string,
+): Promise<void> {
+  assertValidTaskId(taskId)
+  const projectKey = normalizeProjectKey(projectPath)
+  await withBatchImportTaskLock(projectKey, taskId, async () => {
+    const taskPath = taskFilePath(projectKey, taskId)
+    if (!(await fileExists(taskPath))) throw new Error(`找不到批量导入任务：${taskId}`)
+    const parsed = JSON.parse(await readFile(taskPath)) as unknown
+    const validationError = validatePersistedTask(parsed, projectKey, taskId)
+    if (validationError) throw new Error(validationError)
+    if ((parsed as BatchImportTask).status !== "failed") {
+      throw new Error("只能删除导入失败的任务")
+    }
+
+    await withProjectLock(projectKey, async () => {
+      const batchesPath = `${importTasksRoot(projectKey)}/batches.json`
+      const hadBatchesFile = await fileExists(batchesPath)
+      const originalRaw = hadBatchesFile ? await readFile(batchesPath) : null
+      let batches: BatchImportBatch[] = []
+      if (originalRaw !== null) {
+        const original = JSON.parse(originalRaw) as unknown
+        if (!Array.isArray(original)) throw new Error("批量导入批次数据无效")
+        batches = original.filter((item): item is BatchImportBatch => isBatchImportBatch(item, projectKey))
+      }
+      const nextBatches = batches
+        .map((batch) => ({
+          ...batch,
+          taskIds: batch.taskIds.filter((id) => id !== taskId),
+          updatedAt: batch.taskIds.includes(taskId) ? Date.now() : batch.updatedAt,
+        }))
+        .filter((batch) => batch.taskIds.length > 0)
+
+      if (originalRaw !== null) {
+        await writeFileAtomic(batchesPath, JSON.stringify(nextBatches, null, 2))
+      }
+      try {
+        await deleteFile(importTaskDir(projectKey, taskId))
+      } catch (error) {
+        if (originalRaw !== null) {
+          try {
+            await writeFileAtomic(batchesPath, originalRaw)
+          } catch (rollbackError) {
+            console.error("删除批量导入任务：回滚批次记录失败", rollbackError)
+          }
+        }
+        throw error
+      }
+    })
+  })
+}
+
 export async function cacheTaskSource(
   task: BatchImportTask,
 ): Promise<BatchImportTask> {

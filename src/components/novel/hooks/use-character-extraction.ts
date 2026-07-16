@@ -92,6 +92,7 @@ export function useCharacterExtraction({
         depth,
         bookTitle: metadata.title,
         bookAuthor: metadata.author,
+        targetCharacters: userPicked,
         onProgress: (progress) => {
           updateTaskProgress(taskId, {
             stage: progress.stage as any,

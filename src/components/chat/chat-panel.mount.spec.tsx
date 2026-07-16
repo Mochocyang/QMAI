@@ -6,6 +6,7 @@ import { clearTaskBreakpoint, loadTaskBreakpoint } from "@/lib/agent/task-breakp
 import type { Conversation } from "@/stores/chat-store"
 import { useChatStore } from "@/stores/chat-store"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
+import { deleteFile } from "@/commands/fs"
 
 const breakpoint = {
   taskId: "task_resume_1",
@@ -229,6 +230,40 @@ describe("ChatPanel mount 基础设施", () => {
     expect(document.body.textContent).toContain("停止并删除会话？")
     await click(Array.from(document.body.querySelectorAll("button")).find((button) => button.textContent === "取消") ?? null)
     expect(useChatStore.getState().conversations.some((item) => item.id === "conv-running")).toBe(true)
+    await view.unmount()
+  })
+
+  it("一键清理只删除历史会话并保留顶部当前会话", async () => {
+    const deleteFileMock = vi.mocked(deleteFile)
+    deleteFileMock.mockClear()
+    const view = await renderChatPanel({
+      activeConversationId: "conv-current",
+      conversations: [
+        conversation("conv-current", "当前会话", Date.now()),
+        conversation("conv-history-a", "历史会话 A", 100),
+        conversation("conv-history-b", "历史会话 B", 200),
+      ],
+      messages: [
+        { id: "current", role: "user", content: "保留", timestamp: 300, conversationId: "conv-current" },
+        { id: "history-a", role: "user", content: "删除 A", timestamp: 100, conversationId: "conv-history-a" },
+        { id: "history-b", role: "assistant", content: "删除 B", timestamp: 200, conversationId: "conv-history-b" },
+      ],
+    })
+
+    await click(view.container.querySelector('[aria-label="novel.chat.conversationHistory"]'))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    await click(document.body.querySelector('[aria-label="chat.clearHistory"]'))
+    expect(document.body.textContent).toContain("chat.clearHistoryTitle")
+    await click(Array.from(document.body.querySelectorAll("button"))
+      .find((button) => button.textContent === "chat.clearHistoryConfirm") ?? null)
+
+    const state = useChatStore.getState()
+    expect(state.conversations.map((item) => item.id)).toEqual(["conv-current"])
+    expect(state.messages.map((item) => item.id)).toEqual(["current"])
+    expect(deleteFileMock).toHaveBeenCalledWith("C:/QMAI_C/QMAI-main/.qmai/chats/conv-history-a.json")
+    expect(deleteFileMock).toHaveBeenCalledWith("C:/QMAI_C/QMAI-main/.qmai/chats/conv-history-b.json")
     await view.unmount()
   })
 

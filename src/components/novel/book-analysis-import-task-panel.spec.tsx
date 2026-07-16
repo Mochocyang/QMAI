@@ -49,6 +49,8 @@ const callbacks = () => ({
   onRegenerate: vi.fn(),
   onCancel: vi.fn(),
   onCancelAllQueued: vi.fn(),
+  onDeleteFailed: vi.fn(),
+  onRenameCompleted: vi.fn(),
   onOpenBook: vi.fn(),
 })
 
@@ -313,6 +315,45 @@ describe("BookAnalysisImportTaskPanel", () => {
     expect(Array.from(host.querySelectorAll("button")).map((button) => button.textContent?.trim())).toEqual([
       "收起导入任务",
     ])
+  })
+
+  it("确认后删除失败任务", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const task = createTask("failed")
+    const props = renderPanel([task])
+
+    clickButton("删除")
+
+    expect(confirm).toHaveBeenCalledWith("确定删除导入失败的任务《作品-task-failed》吗？")
+    expect(props.onDeleteFailed).toHaveBeenCalledWith(task.id)
+  })
+
+  it("已完成任务通过行内输入触发重命名", () => {
+    const task = createTask("completed")
+    const props = renderPanel([task])
+
+    clickButton("重命名")
+    const input = host.querySelector(`input[aria-label="输入作品《${task.finalTitle}》的新名称"]`) as HTMLInputElement
+    expect(input).not.toBeNull()
+    expect(input.value).toBe(task.finalTitle)
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "  新名字  ")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    clickButton("保存")
+
+    expect(props.onRenameCompleted).toHaveBeenCalledWith(task.id, "新名字")
+  })
+
+  it("行内重命名可以取消且不会提交", () => {
+    const task = createTask("completed")
+    const props = renderPanel([task])
+
+    clickButton("重命名")
+    clickButton("取消")
+
+    expect(host.querySelector("input")).toBeNull()
+    expect(props.onRenameCompleted).not.toHaveBeenCalled()
   })
 
   it("折叠状态完全受控，任务进度更新不会自行展开", () => {

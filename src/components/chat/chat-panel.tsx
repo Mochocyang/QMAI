@@ -25,6 +25,7 @@ import { ReferenceInput, type InsertReferenceTokens } from "@/components/referen
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
 import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon"
 import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog"
+import { ConversationHistoryClearDialog } from "@/components/common/conversation-history-clear-dialog"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
 import { toast } from "@/lib/toast"
 import {
@@ -470,6 +471,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   const historyDropdownRef = useRef<HTMLDivElement | null>(null)
   const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [pendingClearHistoryIds, setPendingClearHistoryIds] = useState<string[] | null>(null)
 
   const isStreamingConversation = (convId: string) => runStates[convId]?.status === "running"
   const { topConversations, historyConversations } = splitConversationToolbarItems(
@@ -592,6 +594,16 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
     deleteConversationNow(convId)
   }
 
+  function requestClearHistory() {
+    setPendingClearHistoryIds(historyConversations.map((conversation) => conversation.id))
+    setHistoryOpen(false)
+  }
+
+  function clearHistoryNow() {
+    pendingClearHistoryIds?.forEach((conversationId) => deleteConversationNow(conversationId))
+    setPendingClearHistoryIds(null)
+  }
+
   function renderConversationChip(conv: { id: string; title: string; updatedAt: number }) {
     const isActive = conv.id === activeConversationId
     const runState = runStates[conv.id]
@@ -704,6 +716,24 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
                 className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
                 style={historyDropdownStyle}
               >
+              {historyCount > 0 && (
+                <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
+                  <span className="text-xs text-muted-foreground">
+                    {t("chat.historyConversationCount", { count: historyCount })}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={t("chat.clearHistory")}
+                    onClick={requestClearHistory}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {t("chat.clearHistory")}
+                  </Button>
+                </div>
+              )}
               {historyCount === 0 ? (
                 <div className="px-2 py-3 text-center text-xs text-muted-foreground">
                   {t(novelMode ? "novel.chat.noHistoryConversations" : "chat.noHistoryConversations")}
@@ -723,6 +753,12 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
         if (pendingDeleteId) deleteConversationNow(pendingDeleteId)
         setPendingDeleteId(null)
       }}
+    />
+    <ConversationHistoryClearDialog
+      open={pendingClearHistoryIds !== null}
+      count={pendingClearHistoryIds?.length ?? 0}
+      onCancel={() => setPendingClearHistoryIds(null)}
+      onConfirm={clearHistoryNow}
     />
     </>
   )
@@ -1242,7 +1278,7 @@ export function ChatPanel() {
         return
       }
       if (!agentSupportsTools) {
-        setDeAiSkillWarningMessage("当前模型不支持Agent功能，请更换模型")
+        setDeAiSkillWarningMessage("Agent 调度模型不支持工具调用，请更换小说设置中的默认模型")
         return
       }
       if (!agentSkillConfigLoaded || !agentConfig) {

@@ -22,9 +22,11 @@ const mocks = vi.hoisted(() => {
     loadBatchImportBatches: vi.fn(),
     saveBatchImportTask: vi.fn(),
     saveBatchImportBatch: vi.fn(),
+    deleteFailedBatchImportTask: vi.fn(),
     cacheTaskSource: vi.fn(),
     loadBookLibrary: vi.fn(),
     findBookLibraryEntryBySha256: vi.fn(),
+    renameBookLibraryEntry: vi.fn(),
     fileExists: vi.fn(),
     readFile: vi.fn(),
   }
@@ -39,6 +41,8 @@ vi.mock("@/lib/novel/book-analysis/batch-import-scheduler", () => ({
       regenerateTask: vi.fn().mockResolvedValue(undefined),
       cancelTask: vi.fn().mockResolvedValue(undefined),
       cancelAllQueued: vi.fn().mockResolvedValue(undefined),
+      syncTerminalTask: vi.fn(),
+      forgetTerminalTask: vi.fn(),
       subscribe: vi.fn((nextListener: (tasks: BatchImportTask[]) => void) => {
         listener = nextListener
         nextListener([])
@@ -58,12 +62,14 @@ vi.mock("@/lib/novel/book-analysis/batch-import-storage", () => ({
   loadBatchImportBatches: mocks.loadBatchImportBatches,
   saveBatchImportTask: mocks.saveBatchImportTask,
   saveBatchImportBatch: mocks.saveBatchImportBatch,
+  deleteFailedBatchImportTask: mocks.deleteFailedBatchImportTask,
   cacheTaskSource: mocks.cacheTaskSource,
 }))
 
 vi.mock("@/lib/novel/book-analysis/library-store", () => ({
   loadBookLibrary: mocks.loadBookLibrary,
   findBookLibraryEntryBySha256: mocks.findBookLibraryEntryBySha256,
+  renameBookLibraryEntry: mocks.renameBookLibraryEntry,
 }))
 
 vi.mock("@/commands/fs", () => ({
@@ -131,8 +137,10 @@ describe("book analysis import store", () => {
     mocks.loadBatchImportBatches.mockResolvedValue([])
     mocks.saveBatchImportTask.mockResolvedValue(undefined)
     mocks.saveBatchImportBatch.mockResolvedValue(undefined)
+    mocks.deleteFailedBatchImportTask.mockResolvedValue(undefined)
     mocks.loadBookLibrary.mockResolvedValue({ version: 1, entries: [] })
     mocks.findBookLibraryEntryBySha256.mockResolvedValue(undefined)
+    mocks.renameBookLibraryEntry.mockImplementation(async (_path: string, bookId: string, title: string) => ({ bookId, title }))
     mocks.fileExists.mockResolvedValue(false)
     mocks.readFile.mockResolvedValue("[]")
     mocks.cacheTaskSource.mockImplementation(async (task: BatchImportTask) => ({
@@ -643,5 +651,62 @@ describe("book analysis import store", () => {
     expect(store.getState().tasks.map((task) => task.status)).toEqual(["failed", "queued"])
     expect(store.getState().tasks[0].error).toContain("缓存源文件失败")
     expect(mocks.schedulers[0].enqueue).toHaveBeenCalledWith([store.getState().tasks[1]])
+  })
+
+  it("删除失败任务后同步清理内存批次并让调度器忘记任务", async () => {
+    const failed = makeTask("failed-task", { status: "failed", error: "导入失败", completedAt: 200 })
+    const batch = { ...persistedBatch(PROJECT_A), id: failed.batchId, taskIds: [failed.id] }
+    mocks.loadBatchImportTasks.mockResolvedValue([failed])
+    mocks.loadBatchImportBatches.mockResolvedValue([batch])
+    const store = createBookAnalysisImportStore()
+    await store.getState().initializeProject(PROJECT_A)
+
+    await store.getState().deleteFailedTask(failed.id)
+
+    expect(mocks.deleteFailedBatchImportTask).toHaveBeenCalledWith(PROJECT_A, failed.id)
+    expect(mocks.schedulers[0].forgetTerminalTask).toHaveBeenCalledWith(failed.id)
+    expect(store.getState().tasks).toEqual([])
+    expect(store.getState().batches).toEqual([])
+  })
+
+  it("重命名已完成任务时同步作品名称、任务记录并增加 revision", async () => {
+    const completed = makeTask("completed-task", {
+      status: "completed",
+      finalTitle: "旧名字",
+      completedAt: 200,
+    })
+    mocks.loadBatchImportTasks.mockResolvedValue([completed])
+    const onRevision = vi.fn()
+    const store = createBookAnalysisImportStore({ onRevision })
+    await store.getState().initializeProject(PROJECT_A)
+
+    await store.getState().renameCompletedTask(completed.id, "  新名字  ")
+
+    expect(mocks.renameBookLibraryEntry).toHaveBeenCalledWith(PROJECT_A, completed.bookId, "新名字")
+    expect(mocks.saveBatchImportTask).toHaveBeenCalledWith(expect.objectContaining({
+      id: completed.id,
+      finalTitle: "新名字",
+    }))
+    expect(mocks.schedulers[0].syncTerminalTask).toHaveBeenCalledWith(expect.objectContaining({ finalTitle: "新名字" }))
+    expect(store.getState().tasks[0].finalTitle).toBe("新名字")
+    expect(store.getState().revision).toBe(1)
+    expect(onRevision).toHaveBeenCalledOnce()
+  })
+
+  it("任务记录重命名保存失败时回滚作品名称", async () => {
+    const completed = makeTask("completed-task", {
+      status: "completed",
+      finalTitle: "旧名字",
+      completedAt: 200,
+    })
+    mocks.loadBatchImportTasks.mockResolvedValue([completed])
+    const store = createBookAnalysisImportStore()
+    await store.getState().initializeProject(PROJECT_A)
+    mocks.saveBatchImportTask.mockRejectedValueOnce(new Error("任务保存失败"))
+
+    await expect(store.getState().renameCompletedTask(completed.id, "新名字")).rejects.toThrow("任务保存失败")
+
+    expect(mocks.renameBookLibraryEntry.mock.calls.map(([, , title]) => title)).toEqual(["新名字", "旧名字"])
+    expect(store.getState().tasks[0].finalTitle).toBe("旧名字")
   })
 })

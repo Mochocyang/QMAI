@@ -31,6 +31,8 @@ export interface CharacterExtractionInput {
   bookTitle?: string
   /** 作者 */
   bookAuthor?: string
+  /** 已在上一步识别并由用户勾选的角色；提供后只分析这些角色，不再重新识别全书角色。 */
+  targetCharacters?: RecognizedCharacter[]
   onProgress?: (progress: {
     stage: string
     stageLabel: string
@@ -257,59 +259,75 @@ export async function extractCharactersFromChapters(
     throw new Error("未能读取到任何章节内容")
   }
 
-  // 第二阶段：识别所有角色（逐章分析）
+  // 第二阶段：未指定目标角色时，兼容旧入口并逐章识别所有角色。
   const characterMentions = new Map<string, {
     count: number
     importance: number
     chapters: number[]
   }>()
 
-  for (let i = 0; i < chapters.length; i++) {
-    if (signal?.aborted) {
-      throw new Error("用户取消分析")
-    }
+  if (input.targetCharacters === undefined) {
+    for (let i = 0; i < chapters.length; i++) {
+      if (signal?.aborted) {
+        throw new Error("用户取消分析")
+      }
 
-    const chapter = chapters[i]
+      const chapter = chapters[i]
 
-    onProgress?.({
-      stage: "extracting_characters",
-      stageLabel: "识别角色中",
-      completed: i,
-      total: chapters.length * 2,
-      percentage: 30 + Math.floor((i / chapters.length) * 20),
-      currentItem: chapter.title,
-    })
+      onProgress?.({
+        stage: "extracting_characters",
+        stageLabel: "识别角色中",
+        completed: i,
+        total: chapters.length * 2,
+        percentage: 30 + Math.floor((i / chapters.length) * 20),
+        currentItem: chapter.title,
+      })
 
-    const identified = await identifyCharactersInChapter(
-      chapter.content,
-      chapter.title,
-      chapter.order,
-      llmConfig,
-      signal
-    )
+      const identified = await identifyCharactersInChapter(
+        chapter.content,
+        chapter.title,
+        chapter.order,
+        llmConfig,
+        signal
+      )
 
-    // 汇总角色出现次数
-    for (const char of identified) {
-      const existing = characterMentions.get(char.name)
-      if (existing) {
-        existing.count++
-        existing.importance = Math.max(existing.importance, char.importance)
-        existing.chapters.push(chapter.order)
-      } else {
-        characterMentions.set(char.name, {
-          count: 1,
-          importance: char.importance,
-          chapters: [chapter.order],
-        })
+      // 汇总角色出现次数
+      for (const char of identified) {
+        const existing = characterMentions.get(char.name)
+        if (existing) {
+          existing.count++
+          existing.importance = Math.max(existing.importance, char.importance)
+          existing.chapters.push(chapter.order)
+        } else {
+          characterMentions.set(char.name, {
+            count: 1,
+            importance: char.importance,
+            chapters: [chapter.order],
+          })
+        }
       }
     }
   }
 
   // 第三阶段：深度分析重要角色（importance >= 5）
-  const importantCharacters = Array.from(characterMentions.entries())
-    .filter(([_, data]) => data.importance >= 5)
-    .sort((a, b) => b[1].importance - a[1].importance)
-    .slice(0, 20) // 最多分析前20个重要角色
+  const importantCharacters: Array<[string, { count: number; importance: number; chapters: number[] }]> =
+    input.targetCharacters !== undefined
+      ? input.targetCharacters.map((character) => {
+          const appearedChapterOrders = character.chapterIndices
+            .map((index) => chapters[index]?.order)
+            .filter((order): order is number => order !== undefined)
+          return [character.name, {
+            count: character.appearances,
+            importance: Math.max(1, Math.min(10, Math.ceil(character.importanceScore / 10))),
+            chapters: appearedChapterOrders.length > 0
+              ? appearedChapterOrders
+              : chapters.map((chapter) => chapter.order),
+          }]
+        })
+      : Array.from(characterMentions.entries())
+          .filter(([_, data]) => data.importance >= 5)
+          .sort((a, b) => b[1].importance - a[1].importance)
+          .slice(0, 20) // 最多分析前20个重要角色
 
   const characters: ExtractedCharacter[] = []
 

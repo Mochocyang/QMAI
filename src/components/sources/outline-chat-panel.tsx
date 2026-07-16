@@ -199,6 +199,7 @@ import { IntentOptionsCard } from "@/components/sources/outline-intent-options-c
 import { NextStepCard } from "@/components/sources/outline-next-step-card";
 import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon";
 import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog";
+import { ConversationHistoryClearDialog } from "@/components/common/conversation-history-clear-dialog";
 import {
   canCreateNewConversation,
   EMPTY_CONVERSATION_CREATE_REASON,
@@ -1253,6 +1254,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
+  const [pendingClearHistoryIds, setPendingClearHistoryIds] = useState<string[] | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -3550,6 +3552,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     setPendingDeleteConversationId(null);
   }, [clearStreamingContent, deleteConversation, pendingDeleteConversationId, stopConversationRun]);
 
+  const requestClearHistory = useCallback(() => {
+    setPendingClearHistoryIds(historyConversations.map((conversation) => conversation.id));
+    setHistoryOpen(false);
+  }, [historyConversations]);
+
+  const confirmClearHistory = useCallback(() => {
+    for (const conversationId of pendingClearHistoryIds ?? []) {
+      const runningState = useOutlineChatStore.getState().runStates[conversationId];
+      outlineConversationRunRegistry.abort(conversationId);
+      if (runningState?.status === "running" && runningState.runId) {
+        stopConversationRun(conversationId, runningState.runId);
+      }
+      clearStreamingContent(conversationId);
+      deleteConversation(conversationId);
+    }
+    setPendingClearHistoryIds(null);
+  }, [clearStreamingContent, deleteConversation, pendingClearHistoryIds, stopConversationRun]);
+
   const outlineRunLimitReached = activeConversationId
     ? !isStreaming && !canStartConversationRun(activeConversationId)
     : Object.values(runStates).filter((state) => state.status === "running").length >= 3;
@@ -3668,6 +3688,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
                   style={historyDropdownStyle}
                 >
+                  {historyCount > 0 ? (
+                    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
+                      <span className="text-xs text-muted-foreground">共 {historyCount} 条</span>
+                      <button
+                        type="button"
+                        aria-label="一键清理会话历史"
+                        onClick={requestClearHistory}
+                        className="inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        一键清理
+                      </button>
+                    </div>
+                  ) : null}
                   {historyCount === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-muted-foreground">
                       暂无历史大纲对话
@@ -3888,6 +3922,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           open={pendingDeleteConversationId !== null}
           onCancel={() => setPendingDeleteConversationId(null)}
           onConfirm={confirmDeleteRunningConversation}
+        />
+        <ConversationHistoryClearDialog
+          open={pendingClearHistoryIds !== null}
+          count={pendingClearHistoryIds?.length ?? 0}
+          onCancel={() => setPendingClearHistoryIds(null)}
+          onConfirm={confirmClearHistory}
         />
         {saveConfirmState ? (
           <OutlineSaveConfirmDialog

@@ -30,6 +30,7 @@ import {
   findBookLibraryEntryBySha256,
   loadBookLibrary,
   removeBookLibraryEntry,
+  renameBookLibraryEntry,
   upsertBookLibraryEntry,
 } from "./library-store"
 
@@ -114,6 +115,24 @@ describe("library-store", () => {
       libraryFilePath,
       JSON.stringify({ version: 1, entries: [entry({ bookId: "book-2", title: "B" })] }, null, 2),
     )
+  })
+
+  it("renameBookLibraryEntry: 同步更新索引和 metadata", async () => {
+    seedLibrary([entry()])
+    const metadataPath = `${projectPath}/book-analysis/book-1/metadata.json`
+    memStore.set(metadataPath, JSON.stringify({ title: "A", updatedAt: 1 }))
+
+    await renameBookLibraryEntry(projectPath, "book-1", "  新名字  ")
+
+    expect((await loadBookLibrary(projectPath)).entries[0].title).toBe("新名字")
+    expect(JSON.parse(memStore.get(metadataPath)!).title).toBe("新名字")
+  })
+
+  it("renameBookLibraryEntry: 拒绝与其他作品重名", async () => {
+    seedLibrary([entry(), entry({ bookId: "book-2", title: "B" })])
+    memStore.set(`${projectPath}/book-analysis/book-1/metadata.json`, JSON.stringify({ title: "A" }))
+
+    await expect(renameBookLibraryEntry(projectPath, "book-1", "B")).rejects.toThrow("作品名称“B”已存在")
   })
 
   it("removeBookLibraryEntry: 条目不存在时不重写索引", async () => {

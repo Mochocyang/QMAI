@@ -1,5 +1,7 @@
+import { useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import type {
   BatchImportBatch,
   BatchImportTask,
@@ -15,6 +17,8 @@ interface BookAnalysisImportTaskPanelProps {
   onRegenerate: (taskId: string) => void
   onCancel: (taskId: string) => void
   onCancelAllQueued: (batchId: string) => void
+  onDeleteFailed: (taskId: string) => void
+  onRenameCompleted: (taskId: string, title: string) => void
   onOpenBook: (bookId: string) => void
 }
 
@@ -53,10 +57,21 @@ function TaskActions({
   onRegenerate,
   onCancel,
   onOpenBook,
-}: Pick<BookAnalysisImportTaskPanelProps, "onContinue" | "onRegenerate" | "onCancel" | "onOpenBook"> & {
+  onDeleteFailed,
+  onRenameCompleted,
+}: Pick<BookAnalysisImportTaskPanelProps, "onContinue" | "onRegenerate" | "onCancel" | "onOpenBook" | "onDeleteFailed" | "onRenameCompleted"> & {
   task: BatchImportTask
 }) {
   const title = getTaskTitle(task)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState("")
+
+  const submitRename = () => {
+    const nextTitle = renameValue.trim()
+    if (!nextTitle || nextTitle === title) return
+    onRenameCompleted(task.id, nextTitle)
+    setRenaming(false)
+  }
 
   if (["queued", "copying", "splitting"].includes(task.status)) {
     return (
@@ -80,6 +95,18 @@ function TaskActions({
         >
           重新生成
         </Button>
+        {task.status === "failed" && (
+          <Button
+            size="xs"
+            variant="outline"
+            aria-label={`删除失败任务《${title}》`}
+            onClick={() => {
+              if (window.confirm(`确定删除导入失败的任务《${title}》吗？`)) onDeleteFailed(task.id)
+            }}
+          >
+            删除
+          </Button>
+        )}
       </div>
     )
   }
@@ -98,10 +125,54 @@ function TaskActions({
   }
 
   if (task.status === "completed") {
+    if (renaming) {
+      return (
+        <form
+          className="flex min-w-0 shrink items-center gap-1"
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitRename()
+          }}
+        >
+          <Input
+            autoFocus
+            className="h-7 w-40"
+            value={renameValue}
+            aria-label={`输入作品《${title}》的新名称`}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault()
+                setRenaming(false)
+              }
+            }}
+          />
+          <Button size="xs" type="submit" disabled={!renameValue.trim() || renameValue.trim() === title}>
+            保存
+          </Button>
+          <Button size="xs" type="button" variant="ghost" onClick={() => setRenaming(false)}>
+            取消
+          </Button>
+        </form>
+      )
+    }
     return (
-      <Button size="xs" variant="outline" aria-label={`打开作品《${title}》`} onClick={() => onOpenBook(task.bookId)}>
-        打开作品
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          size="xs"
+          variant="outline"
+          aria-label={`重命名作品《${title}》`}
+          onClick={() => {
+            setRenameValue(title)
+            setRenaming(true)
+          }}
+        >
+          重命名
+        </Button>
+        <Button size="xs" variant="outline" aria-label={`打开作品《${title}》`} onClick={() => onOpenBook(task.bookId)}>
+          打开作品
+        </Button>
+      </div>
     )
   }
 
@@ -164,6 +235,8 @@ export function BookAnalysisImportTaskPanel({
   onRegenerate,
   onCancel,
   onCancelAllQueued,
+  onDeleteFailed,
+  onRenameCompleted,
   onOpenBook,
 }: BookAnalysisImportTaskPanelProps) {
   if (tasks.length === 0) return null
@@ -274,6 +347,8 @@ export function BookAnalysisImportTaskPanel({
                         onRegenerate={onRegenerate}
                         onCancel={onCancel}
                         onOpenBook={onOpenBook}
+                        onDeleteFailed={onDeleteFailed}
+                        onRenameCompleted={onRenameCompleted}
                       />
                     </article>
                   )

@@ -95,6 +95,52 @@ export async function removeBookLibraryEntry(
     await saveBookLibraryUnlocked(projectPath, { ...library, entries })
   })
 }
+
+export async function renameBookLibraryEntry(
+  projectPath: string,
+  bookId: string,
+  rawTitle: string,
+): Promise<BookLibraryEntry> {
+  const title = rawTitle.trim()
+  if (!title) throw new Error("作品名称不能为空")
+
+  return withProjectLock(normalizePath(projectPath), async () => {
+    const library = await loadBookLibraryStrictUnlocked(projectPath)
+    const index = library.entries.findIndex((entry) => entry.bookId === bookId)
+    if (index < 0) throw new Error("作品库中找不到该作品")
+    if (library.entries.some((entry) => entry.bookId !== bookId && entry.title === title)) {
+      throw new Error(`作品名称“${title}”已存在`)
+    }
+
+    const current = library.entries[index]
+    if (current.title === title) return current
+
+    const metadataPath = joinPath(projectPath, "book-analysis", bookId, "metadata.json")
+    const metadataRaw = await readFile(metadataPath)
+    const metadata = JSON.parse(metadataRaw) as unknown
+    if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+      throw new Error("作品元数据无效")
+    }
+
+    const now = Date.now()
+    const renamedEntry = { ...current, title, updatedAt: now }
+    const renamedMetadata = { ...metadata, title, updatedAt: now }
+    await writeFileAtomic(metadataPath, JSON.stringify(renamedMetadata, null, 2))
+    try {
+      const entries = [...library.entries]
+      entries[index] = renamedEntry
+      await saveBookLibraryUnlocked(projectPath, { ...library, entries })
+    } catch (error) {
+      try {
+        await writeFileAtomic(metadataPath, metadataRaw)
+      } catch (rollbackError) {
+        console.error("作品重命名：回滚 metadata 失败", rollbackError)
+      }
+      throw error
+    }
+    return renamedEntry
+  })
+}
 export async function findBookLibraryEntry(
   projectPath: string,
   sourcePath: string,

@@ -414,6 +414,13 @@ describe("OutlineChatPanel controls", () => {
     expect(source).not.toContain("conversations.map((conv) => (")
   })
 
+  it("provides one-click clearing for outline conversation history", () => {
+    expect(source).toContain('aria-label="一键清理会话历史"')
+    expect(source).toContain("requestClearHistory")
+    expect(source).toContain("confirmClearHistory")
+    expect(source).toContain("<ConversationHistoryClearDialog")
+  })
+
   it("passes confirm and reject handlers into the outline tool workflow", () => {
     expect(source).toContain("handleConfirmToolSave")
     expect(source).toContain("handleRejectTool")

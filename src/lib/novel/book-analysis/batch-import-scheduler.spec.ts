@@ -642,4 +642,17 @@ describe("createBatchImportScheduler", () => {
     expect(mocks.saveBatchImportTask.mock.calls.at(-1)?.[0].status).toBe("cancelled")
     expect(mocks.saveBatchImportTask.mock.calls.some(([task]) => task.status === "completed")).toBe(false)
   })
+
+  it("可同步重命名终态任务并彻底忘记已删除任务", () => {
+    const scheduler = createBatchImportScheduler({ projectPath: PROJECT_PATH })
+    const getTasks = latestTasks(scheduler)
+    const completed = makeTask("task-1", { status: "completed", finalTitle: "旧名字" })
+    scheduler.enqueue([completed])
+
+    scheduler.syncTerminalTask({ ...completed, finalTitle: "新名字" })
+    expect(getTasks()[0].finalTitle).toBe("新名字")
+
+    scheduler.forgetTerminalTask(completed.id)
+    expect(getTasks()).toEqual([])
+  })
 })
