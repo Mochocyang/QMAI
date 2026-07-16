@@ -155,6 +155,88 @@ function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = [])
 }
 
 describe("runDeepChapterGeneration", () => {
+  it("routes workflow, prose, and de-AI stages to their configured models", async () => {
+    const previousState = useWikiStore.getState()
+    useWikiStore.setState({
+      aiChatModel: "custom/writer-model",
+      defaultLlmModel: "custom/workflow-model",
+      providerConfigs: {
+        custom: {
+          enabled: true,
+          apiKey: "test-key",
+          savedModels: [
+            { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
+            { id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 2 },
+            { id: "review", name: "Review", model: "review-model", createdAt: 3 },
+            { id: "de-ai", name: "De-AI", model: "de-ai-model", createdAt: 4 },
+          ],
+        },
+      },
+      novelConfig: {
+        ...previousState.novelConfig,
+        defaultLlmModel: "custom/workflow-model",
+        reviewModel: "custom/review-model",
+        deAiModel: "custom/de-ai-model",
+        deepPreviousChaptersAnalysis: false,
+      },
+    })
+
+    try {
+      const deps = createDeps([{
+        severity: "error",
+        type: "plot",
+        message: "需要返修",
+        evidence: "正文",
+        relatedMemory: "大纲",
+        suggestion: "修正偏差",
+      }])
+      const calledModels: string[] = []
+      vi.mocked(deps.streamChat).mockImplementation(async (
+        config: LlmConfig,
+        messages: ChatMessage[],
+        callbacks: StreamCallbacks,
+      ) => {
+        calledModels.push(config.model)
+        const prompt = messagesPromptText(messages)
+        const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+          ? chapterText("最终去AI味正文")
+          : prompt.includes("返修")
+            ? chapterText("返修正文内容")
+            : prompt.includes("正文")
+              ? chapterText("初稿正文内容")
+              : "写作任务书内容"
+        callbacks.onToken(content)
+        callbacks.onDone()
+      })
+
+      await runDeepChapterGeneration(
+        {
+          projectPath: "E:/Novel",
+          userRequest: "生成第三章",
+          chapterNumber: 3,
+          llmConfig: { ...llmConfig, model: "writer-model" },
+          aiWorkflowMode: "strict",
+        },
+        {},
+        deps,
+      )
+
+      expect(calledModels).toEqual([
+        "workflow-model",
+        "writer-model",
+        "writer-model",
+        "de-ai-model",
+      ])
+    } finally {
+      useWikiStore.setState({
+        aiChatModel: previousState.aiChatModel,
+        defaultLlmModel: previousState.defaultLlmModel,
+        providerConfigs: previousState.providerConfigs,
+        novelConfig: previousState.novelConfig,
+      })
+    }
+  })
+
   it("uses the confirmed plan when retrieving context and selecting the de-AI skill", async () => {
     const deps = createDeps()
     const planBlueprint = "确认计划：新角色顾舟在北塔登场，并带出铜钥匙。"

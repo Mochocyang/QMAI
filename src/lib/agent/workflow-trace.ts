@@ -190,6 +190,18 @@ export function getWorkflowToolDescription(call: WorkflowToolCall): string {
       return "返修后角色一致性复审"
     case "chapter_final_polish":
       return "简单审查与去AI味"
+    case "chapter_execution_report":
+      return "检查章节执行清单"
+    case "chapter_execution_repair":
+      return "返修执行清单失败项"
+    case "chapter_execution_recheck":
+      return "复检章节执行清单"
+    case "chapter_plan_compliance":
+      return "检查章节计划履约度"
+    case "chapter_plan_deviation_repair":
+      return "返修章节计划偏离点"
+    case "chapter_plan_deviation_recheck":
+      return "复检章节计划履约度"
     case "chapter_complete":
       return "完成多任务写作循环"
     default:

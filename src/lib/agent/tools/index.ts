@@ -53,6 +53,8 @@ export interface ToolFactoryOptions {
   enabledToolNames?: string[]
   disabledTools?: string[]
   llmConfig?: LlmConfig
+  /** 章节正文专用模型。Agent 调度可使用默认模型，但正文仍必须使用聊天框模型。 */
+  chapterWritingLlmConfig?: LlmConfig
   aiWorkflowMode?: LegacyAiWorkflowMode
   runDeepChapterGeneration?: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
@@ -98,13 +100,13 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
   if (
     shouldRegister("run_chapter_workflow") &&
     options.projectPath &&
-    options.llmConfig &&
+    (options.chapterWritingLlmConfig || options.llmConfig) &&
     options.aiWorkflowMode &&
     options.runDeepChapterGeneration
   ) {
     registry.register(createRunChapterWorkflowTool({
       projectPath: options.projectPath,
-      llmConfig: options.llmConfig,
+      llmConfig: options.chapterWritingLlmConfig || options.llmConfig!,
       aiWorkflowMode: options.aiWorkflowMode,
       runDeepChapterGeneration: options.runDeepChapterGeneration,
       onToolEvent: options.onToolEvent,

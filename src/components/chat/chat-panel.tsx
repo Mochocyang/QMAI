@@ -1278,7 +1278,7 @@ export function ChatPanel() {
         return
       }
       if (!agentSupportsTools) {
-        setDeAiSkillWarningMessage("当前模型不支持Agent功能，请更换模型")
+        setDeAiSkillWarningMessage("Agent 调度模型不支持工具调用，请更换小说设置中的默认模型")
         return
       }
       if (!agentSkillConfigLoaded || !agentConfig) {

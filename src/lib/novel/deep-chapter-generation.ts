@@ -20,7 +20,7 @@ import {
   contextPackToPrompt,
   type ContextPack,
 } from "./context-engine";
-import { resolveNovelModel } from "./model-resolver";
+import { resolveDefaultModel, resolveNovelModel } from "./model-resolver";
 import { reviewChapter, type NovelReviewResult } from "./review-adapter";
 import type { TaskRouteResult } from "./task-router";
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters";
@@ -481,6 +481,7 @@ export async function runDeepChapterGeneration(
   const resumeCheckpoint = input.resumeCheckpoint;
   const novelConfig = useWikiStore.getState().novelConfig;
   const writingConfig = resolveWritingConfig(input.llmConfig);
+  const workflowConfig = resolveDefaultModel(input.llmConfig);
   const deAiConfig = resolveNovelModel(input.llmConfig, novelConfig, "deAi");
   const workflowProfile = resolveChapterWorkflowProfile(input.aiWorkflowMode);
   const lengthSpec = resolveCurrentChapterLengthSpec();
@@ -505,7 +506,7 @@ export async function runDeepChapterGeneration(
   if (!executionContract && workflowProfile.runExecutionContractBuild && planBlueprint) {
     try {
       const buildContract = deps.runChapterExecutionContractBuild || runChapterExecutionContractBuild;
-      executionContract = await buildContract(writingConfig, planBlueprint, signal);
+      executionContract = await buildContract(workflowConfig, planBlueprint, signal);
     } catch (error) {
       rethrowIfUserAbort(error, signal);
       console.warn("[Deep Chapter] 执行清单生成失败，使用本地兜底解析:", error);
@@ -556,7 +557,7 @@ export async function runDeepChapterGeneration(
       previousChaptersAnalysis = await analyzePreviousChapters(
         input.projectPath,
         input.chapterNumber,
-        writingConfig,
+        workflowConfig,
         3,
         signal,
       );
@@ -760,7 +761,7 @@ export async function runDeepChapterGeneration(
       },
       () =>
         collectModelText(
-          writingConfig,
+          workflowConfig,
           [
             {
               role: "user",
@@ -1393,7 +1394,7 @@ export async function runDeepChapterGeneration(
           detail: "按场景验收标准逐项检查最终正文。",
           params: workflowBaseParams,
         },
-        () => runReport(writingConfig, executionContract!, finalContent, signal),
+        () => runReport(workflowConfig, executionContract!, finalContent, signal),
         (value) => executionReportToToolSummary(value),
         (value) => ({
           status: value.status,
@@ -1446,7 +1447,7 @@ export async function runDeepChapterGeneration(
                 detail: "返修后再次检查执行清单失败项是否消除。",
                 params: workflowBaseParams,
               },
-              () => runReport(writingConfig, executionContract!, repairedCandidate, signal),
+              () => runReport(workflowConfig, executionContract!, repairedCandidate, signal),
               (value) => executionReportToToolSummary(value),
               (value) => ({
                 status: value.status,
@@ -1514,7 +1515,7 @@ export async function runDeepChapterGeneration(
       planCompliance = await runChapterWorkflowStep(
         callbacks,
         complianceStep,
-        () => runCompliance(writingConfig, planExecutionSummary, finalContent, signal),
+        () => runCompliance(workflowConfig, planExecutionSummary, finalContent, signal),
         (value) => value ? "计划履约度检查完成。" : "计划履约度检查完成，未返回具体结果。",
         (value) => ({ hasComplianceResult: Boolean(value?.trim()) }),
       );
@@ -1573,7 +1574,7 @@ export async function runDeepChapterGeneration(
                 callbacks,
                 recheckStep,
                 () => runCompliance(
-                  writingConfig,
+                  workflowConfig,
                   planExecutionSummary,
                   repairedCandidate,
                   signal,
