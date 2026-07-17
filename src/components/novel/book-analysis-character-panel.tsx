@@ -6,21 +6,23 @@ interface BookAnalysisCharacterPanelProps {
   book: BookAnalysisLibraryBook
   selectedCharacterId: string | null
   addingToSoul: boolean
+  onOpenSkillSelection: () => void
   onSelectCharacter: (characterId: string) => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
 }
 
 const categoryLabels: Record<string, string> = {
   protagonist: "主角",
-  antagonist: "反派",
+  antagonist: "配角",
   supporting: "配角",
-  minor: "次要",
+  minor: "次要配角",
 }
 
 export function BookAnalysisCharacterPanel({
   book,
   selectedCharacterId,
   addingToSoul,
+  onOpenSkillSelection,
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
 }: BookAnalysisCharacterPanelProps) {
@@ -44,15 +46,18 @@ export function BookAnalysisCharacterPanel({
           <h3 className="text-sm font-semibold">角色 Skill</h3>
           <p className="mt-1 text-xs text-muted-foreground">选择角色 Skill 加入自定义灵魂库。</p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul(selectedSkill.id)}
-          disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {addButtonLabel}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={onOpenSkillSelection}>选择角色生成 Skill</Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul(selectedSkill.id)}
+            disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            {addButtonLabel}
+          </Button>
+        </div>
       </div>
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: "minmax(220px, 320px) 1fr" }}>
         <div className="min-h-0 space-y-2 overflow-y-auto border-r p-3">

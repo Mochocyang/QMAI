@@ -19,8 +19,6 @@ export interface CharacterSelectionPanelProps {
   onToggle: (id: string) => void
   onSelectAllMain: () => void
   onClear: () => void
-  onDeepExtract: () => void
-  onSimpleExtract: () => void
   onCancel: () => void
   /** 关闭弹窗（X / 返回）：应回到章节选择页，而不是取消整个任务。默认回退到 onCancel。 */
   onClose?: () => void
@@ -36,8 +34,6 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
     onToggle,
     onSelectAllMain,
     onClear,
-    onDeepExtract,
-    onSimpleExtract,
     onCancel,
     onClose,
   } = props
@@ -57,8 +53,6 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
   }, [characters, search, sortBy])
 
   const selectedCount = selectedIds.length
-  const canExtract = selectedCount > 0
-
   return (
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -141,21 +135,6 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
 
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={dismiss}>返回章节</Button>
-          <Button
-            disabled={!canExtract}
-            onClick={onDeepExtract}
-            variant="default"
-          >
-            🎯 深度 6 维提取 {selectedCount} 个角色
-          </Button>
-          <Button
-            disabled={!canExtract}
-            onClick={onSimpleExtract}
-            variant="default"
-            className="bg-amber-500 hover:bg-amber-600"
-          >
-            ⚡ 简单提取 {selectedCount} 个角色
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

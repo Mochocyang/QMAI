@@ -64,13 +64,14 @@ function renderPanel(
         addingToSoul={false}
         onSelectCharacter={vi.fn()}
         onAddSelectedSkillsToSoul={vi.fn()}
+        onOpenSkillSelection={vi.fn()}
         {...props}
       />,
     )
   })
   return {
     container,
-    addButton: container.querySelector("button") as HTMLButtonElement,
+    addButton: Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("自定义灵魂")) as HTMLButtonElement,
     cleanup: () => {
       act(() => root.unmount())
       document.body.removeChild(container)

@@ -36,8 +36,6 @@ interface ChapterSelectionPanelProps {
   onToggleCharacter?: (id: string) => void
   onSelectAllMain?: () => void
   onClearSelection?: () => void
-  onDeepExtract?: () => void
-  onSimpleExtract?: () => void
   /** 关闭"角色选择"弹窗：回到章节选择页，不取消任务 */
   onCharacterPickerClose?: () => void
   /** 同步"分析中"状态给父组件 */
@@ -68,8 +66,6 @@ export function ChapterSelectionPanel({
   onToggleCharacter,
   onSelectAllMain,
   onClearSelection,
-  onDeepExtract,
-  onSimpleExtract,
   onCharacterPickerClose,
   onAnalyzingChange,
   extractionPhase,
@@ -147,9 +143,7 @@ export function ChapterSelectionPanel({
     !extractionPhase &&
     !!onToggleCharacter &&
     !!onSelectAllMain &&
-    !!onClearSelection &&
-    !!onDeepExtract &&
-    !!onSimpleExtract
+    !!onClearSelection
 
   // 是否正在提取中
   const isExtracting = !!extractionPhase && !extractionProgress?.isCompleted
@@ -449,8 +443,6 @@ export function ChapterSelectionPanel({
           onToggle={onToggleCharacter!}
           onSelectAllMain={onSelectAllMain!}
           onClear={onClearSelection!}
-          onDeepExtract={onDeepExtract!}
-          onSimpleExtract={onSimpleExtract!}
           onCancel={onCancel}
           onClose={onCharacterPickerClose}
         />

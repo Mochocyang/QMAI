@@ -26,6 +26,7 @@ interface BookAnalysisLibraryLayoutProps {
   onCreateOutlineFromFramework?: (frameworkId: string) => void
   onToggleStyle: () => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
+  onOpenSkillSelection?: () => void
   onReextractCharacters: () => void
   onReextractSkill?: (skill: AnalysisSkill) => void
   onConfigureAnalysisTask?: () => void
@@ -49,6 +50,7 @@ export function BookAnalysisLibraryLayout({
   onCreateOutlineFromFramework,
   onToggleStyle,
   onAddSelectedSkillsToSoul,
+  onOpenSkillSelection,
   onReextractCharacters,
   onExtractStoryFramework,
   onExtractStyle,
@@ -112,6 +114,7 @@ export function BookAnalysisLibraryLayout({
         onSelectCharacter={onSelectCharacter}
         onToggleStyle={onToggleStyle}
         onAddSelectedSkillsToSoul={onAddSelectedSkillsToSoul}
+        onOpenSkillSelection={onOpenSkillSelection}
         onReextract={(skill) => {
           if (onReextractSkill) onReextractSkill(skill)
           else if (skill === "characters") onReextractCharacters()

@@ -51,8 +51,6 @@ describe("CharacterSelectionPanel", () => {
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
@@ -70,8 +68,6 @@ describe("CharacterSelectionPanel", () => {
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
@@ -79,15 +75,13 @@ describe("CharacterSelectionPanel", () => {
     cleanup()
   })
 
-  it("未选时两个提取按钮显示 0 个角色", async () => {
+  it("未选时仍显示当前选中数量", async () => {
     const { cleanup } = renderPanel({
       characters,
       selectedIds: [],
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
@@ -95,15 +89,13 @@ describe("CharacterSelectionPanel", () => {
     cleanup()
   })
 
-  it("已选 1 个时按钮显示 1 个角色", async () => {
+  it("已选 1 个时显示选中数量", async () => {
     const { cleanup } = renderPanel({
       characters,
       selectedIds: ["1"],
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
@@ -118,8 +110,6 @@ describe("CharacterSelectionPanel", () => {
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
@@ -127,21 +117,19 @@ describe("CharacterSelectionPanel", () => {
     cleanup()
   })
 
-  it("包含深度和简单提取两个按钮", async () => {
+  it("不再显示简单提取和六维提取入口", async () => {
     const { cleanup } = renderPanel({
       characters,
       selectedIds: ["1"],
       onToggle: vi.fn(),
       onSelectAllMain: vi.fn(),
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()
     const html = getAllBodyHtml()
-    expect(html).toContain("深度 6 维提取")
-    expect(html).toContain("简单提取")
+    expect(html).not.toContain("深度 6 维提取")
+    expect(html).not.toContain("简单提取")
     cleanup()
   })
 
@@ -153,8 +141,6 @@ describe("CharacterSelectionPanel", () => {
       onToggle: vi.fn(),
       onSelectAllMain,
       onClear: vi.fn(),
-      onDeepExtract: vi.fn(),
-      onSimpleExtract: vi.fn(),
       onCancel: vi.fn(),
     })
     await flushAsync()

@@ -6,6 +6,7 @@ import { generateSkillsForCharacters } from "./skill-generator"
 import { replaceAutomaticEvidence } from "./analysis-evidence-store"
 import { rebuildBookAnalysisContextIndex } from "./analysis-context-index"
 import { loadAnalysisManifest, saveAnalysisManifest } from "./analysis-pipeline-storage"
+import { selectCharacterCandidates } from "./character-candidate-selection"
 import type {
   AnalysisEvidenceSnippet,
   BookAnalysisModuleManifest,
@@ -229,17 +230,18 @@ export function createCharacterAnalysisAdapter(
     },
     async aggregate({ chunks }) {
       const merged = mergeCharacterChunkResults(chunks.map((chunk) => chunk.characters))
-      if (merged.length === 0) {
+      const candidates = selectCharacterCandidates(merged)
+      if (candidates.length === 0) {
         throw new Error("所选章节未识别到可提取角色，请确认章节正文包含有姓名的重要角色")
       }
-      return merged
+      return candidates
     },
-    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, signal }) {
+    async publish({ task, bookPath, projectPath, result, evidence }) {
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布角色分析")
       for (const character of result) await dependencies.persistCharacter(bookPath, character)
-      await dependencies.generateSkills(result, metadata, bookPath, llmConfig, undefined, signal)
-      await dependencies.replaceEvidence(bookPath, "characters", evidence)
+      const characterNames = new Set(result.map((character) => character.name))
+      await dependencies.replaceEvidence(bookPath, "characters", evidence.filter((item) => item.tags.some((tag) => characterNames.has(tag))))
 
       const resultPath = normalizePath(joinPath(bookPath, "characters"))
       const updatedAt = dependencies.now()
@@ -253,7 +255,7 @@ export function createCharacterAnalysisAdapter(
             ...task.modules.characters,
             status: "completed",
             resultPath,
-            summary: `提取 ${result.length} 个角色，覆盖第 ${task.modules.characters.range.startOrder}～${task.modules.characters.range.endOrder} 章。`,
+            summary: `识别 ${result.length} 个候选角色，覆盖第 ${task.modules.characters.range.startOrder}～${task.modules.characters.range.endOrder} 章，等待用户选择生成 Skill。`,
             updatedAt,
           },
         },
