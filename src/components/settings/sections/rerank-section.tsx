@@ -42,6 +42,7 @@ const PROVIDER_OPTIONS: Array<{ value: LlmConfig["provider"]; label: string }> =
   { value: "minimax", label: "MiniMax" },
   { value: "claude-code", label: "Claude Code CLI" },
   { value: "codex-cli", label: "Codex CLI" },
+  { value: "cursor-cli", label: "Cursor CLI" },
 ]
 
 export function RerankSection({ draft, setDraft }: Props) {
@@ -68,7 +69,8 @@ export function RerankSection({ draft, setDraft }: Props) {
   const needsApiKey =
     config.provider !== "ollama" &&
     config.provider !== "claude-code" &&
-    config.provider !== "codex-cli"
+    config.provider !== "codex-cli" &&
+    config.provider !== "cursor-cli"
   const hasConfig = config.useMainLlm || Boolean(config.model || config.customEndpoint || config.ollamaUrl)
 
   function handleOpenPanel() {

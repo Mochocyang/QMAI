@@ -11,14 +11,26 @@ export const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "deepseek-reasoner",
   "claude-code",
   "codex-cli",
+  "cursor-cli",
 ]
+
+const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
+  "claude-code",
+  "codex-cli",
+  "cursor-cli",
+])
 
 export interface BuildAgentConfigOptions extends ToolFactoryOptions {
   llmConfig: LlmConfig
   requestOverrides?: AgentConfig["requestOverrides"]
 }
 
-export function modelSupportsTools(modelId: string): boolean {
+export function modelSupportsTools(
+  modelId: string,
+  provider?: LlmConfig["provider"],
+): boolean {
+  if (provider && TOOL_UNSUPPORTED_PROVIDERS.has(provider)) return false
+
   const id = modelId.trim().toLowerCase()
   if (!id) return false
 

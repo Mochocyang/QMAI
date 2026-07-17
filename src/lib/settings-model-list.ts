@@ -1,5 +1,6 @@
 import { getProviderConfig, withCustomOriginHeader } from "@/lib/llm-providers"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
+import { ensureCursorProxyRunning, restartCursorProxyWithAuth, withCursorProxyEndpoint } from "@/lib/cursor-cli-proxy"
 import { isDirectRerankEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
@@ -182,12 +183,36 @@ export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelList
     return fetchLocalCliModel(config)
   }
 
-  const { url, headers } = buildModelsUrl(config)
-  const result = await fetchModelList(url, headers, config.model)
-  if (config.provider === "google") {
-    return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
+  let runtimeConfig = config
+  if (config.provider === "cursor-cli") {
+    const endpoint = await ensureCursorProxyRunning(config)
+    runtimeConfig = withCursorProxyEndpoint(config, endpoint)
   }
-  return result
+
+  const { url, headers } = buildModelsUrl(runtimeConfig)
+
+  const load = async () => {
+    const result = await fetchModelList(url, headers, runtimeConfig.model)
+    if (runtimeConfig.provider === "google") {
+      return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
+    }
+    return result
+  }
+
+  try {
+    return await load()
+  } catch (error) {
+    if (runtimeConfig.provider !== "cursor-cli") throw error
+    const message = error instanceof Error ? error.message : String(error)
+    if (!/authentication required|CURSOR_API_KEY|CURSOR_AUTH_TOKEN/i.test(message)) {
+      throw error
+    }
+    const endpoint = await restartCursorProxyWithAuth(runtimeConfig)
+    runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
+    const retry = buildModelsUrl(runtimeConfig)
+    const result = await fetchModelList(retry.url, retry.headers, runtimeConfig.model)
+    return result
+  }
 }
 
 export async function fetchEmbeddingModelList(config: EmbeddingConfig): Promise<LlmModelListResult> {

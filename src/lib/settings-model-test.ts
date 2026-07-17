@@ -33,6 +33,12 @@ function ensureModel(model: string, emptyMessage: string): string {
 export function normalizeModelTestError(error: Error): Error {
   const message = error.message
 
+  if (message === "Load failed" || /failed to fetch|networkerror|load failed/i.test(message)) {
+    return new Error(
+      "无法连接模型接口（Load failed）。若使用 Cursor CLI，请先在设置中重新检查 CLI 状态，确认 proxy 已拉起后再测。",
+    )
+  }
+
   if (/insufficient account balance/i.test(message)) {
     return new Error("当前中转站账户余额不足，或该模型没有可用额度，请先充值或切换可用模型。")
   }

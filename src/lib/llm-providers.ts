@@ -1007,6 +1007,29 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         `${provider} provider uses subprocess transport; getProviderConfig should not be called for it`,
       )
 
+    case "cursor-cli": {
+      // OpenAI-compatible HTTP via local cursor-api-proxy.
+      const endpoint = (customEndpoint || "http://127.0.0.1:8765/v1").replace(/\/+$/, "")
+      const base = normalizeEndpoint(endpoint, "chat_completions").normalized.replace(/\/+$/, "")
+      const url = /\/chat\/completions$/i.test(base)
+        ? base
+        : `${base}/chat/completions`
+      const key = apiKey.trim() || "unused"
+      return {
+        url,
+        headers: withCustomOriginHeader({
+          "Content-Type": JSON_CONTENT_TYPE,
+          Authorization: `Bearer ${key}`,
+        }, url),
+        buildBody: (messages, overrides) => ({
+          ...buildOpenAiCompatibleBody(config, messages, overrides),
+          model,
+        }),
+        parseStream: parseOpenAiLine,
+        parseUsage: parseOpenAiUsage,
+      }
+    }
+
     case "custom": {
       // Custom endpoints can speak either OpenAI's /chat/completions
       // wire or Anthropic's /v1/messages wire. The field `apiMode` on

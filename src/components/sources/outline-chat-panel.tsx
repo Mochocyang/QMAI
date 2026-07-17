@@ -1774,7 +1774,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         });
         return { started: false, sent: false };
       }
-      if (!modelSupportsTools(effectiveModelId)) {
+      if (!modelSupportsTools(effectiveModelId, effectiveLlmConfig.provider)) {
         addMessage(convId, {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -3084,7 +3084,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         });
         return;
       }
-      if (!modelSupportsTools(effectiveModelId)) {
+      if (!modelSupportsTools(effectiveModelId, effectiveLlmConfig.provider)) {
         addMessage(activeConversationId, {
           id: crypto.randomUUID(),
           role: "assistant",

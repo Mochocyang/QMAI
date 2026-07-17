@@ -71,6 +71,32 @@ describe("hasUsableLlm", () => {
     expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
 
+  it("accepts cursor-cli when the preset is enabled without an API key", () => {
+    const providers: ProviderConfigs = {
+      "cursor-cli": { enabled: true },
+    }
+    const cfg: LlmConfig = {
+      ...baseCfg,
+      provider: "cursor-cli",
+      apiKey: "",
+      model: "composer-2-fast",
+      customEndpoint: "http://127.0.0.1:8765/v1",
+    }
+    expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("rejects cursor-cli when the preset is not enabled", () => {
+    const providers: ProviderConfigs = {}
+    const cfg: LlmConfig = {
+      ...baseCfg,
+      provider: "cursor-cli",
+      apiKey: "",
+      model: "composer-2-fast",
+      customEndpoint: "http://127.0.0.1:8765/v1",
+    }
+    expect(hasUsableLlm(cfg, providers)).toBe(false)
+  })
+
   it("accepts ollama without apiKey when enabled", () => {
     const providers: ProviderConfigs = {
       "ollama-local": { enabled: true, model: "qwen2.5" },

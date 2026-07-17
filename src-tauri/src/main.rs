@@ -53,6 +53,7 @@ fn main() {
             }
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
+            app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::mcp_stdio::McpStdioState::default());
             Ok(())
@@ -96,6 +97,10 @@ fn main() {
             commands::codex_cli::codex_cli_detect,
             commands::codex_cli::codex_cli_spawn,
             commands::codex_cli::codex_cli_kill,
+            commands::cursor_cli::cursor_cli_detect,
+            commands::cursor_cli::cursor_proxy_status,
+            commands::cursor_cli::cursor_proxy_ensure,
+            commands::cursor_cli::cursor_proxy_stop,
             commands::extract_images::extract_pdf_images_cmd,
             commands::extract_images::extract_office_images_cmd,
             commands::extract_images::extract_and_save_pdf_images_cmd,

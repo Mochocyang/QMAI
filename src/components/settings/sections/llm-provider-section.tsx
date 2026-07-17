@@ -163,6 +163,7 @@ function PresetRow({
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
   const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli"
+  const isCursorCliProvider = preset.provider === "cursor-cli"
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
@@ -172,11 +173,13 @@ function PresetRow({
   const hasConfig = !!apiKey || !!ov.baseUrl || !!ov.model || !!ov.azureApiVersion || !!ov.azureModelFamily
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
-  // Ollama ditto for its local-only model.
+  // Ollama ditto for its local-only model. Cursor CLI uses cursor-api-proxy;
+  // bridge auth key is optional (only if CURSOR_BRIDGE_API_KEY is set).
   const needsApiKey =
     preset.provider !== "ollama" &&
     preset.provider !== "claude-code" &&
-    preset.provider !== "codex-cli"
+    preset.provider !== "codex-cli" &&
+    preset.provider !== "cursor-cli"
 
   const resolvedConfig = useMemo(
     () => resolveConfig(preset, ov, useWikiStore.getState().llmConfig),
@@ -244,8 +247,9 @@ function PresetRow({
         id: `model-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: modelId,
         model: modelId,
-        apiKey: apiKey,
-        customEndpoint: baseUrl,
+        apiKey: apiKey || undefined,
+        // Cursor CLI endpoint is managed dynamically — never bake 8765 into saved models.
+        customEndpoint: isCursorCliProvider ? undefined : (baseUrl || undefined),
         createdAt: Date.now(),
       }
       updatedModels = [...currentSaved, newModel]
@@ -416,6 +420,22 @@ function PresetRow({
 
           {preset.provider === "claude-code" && <ClaudeCliStatusPill />}
           {preset.provider === "codex-cli" && <CodexCliStatusPill />}
+          {isCursorCliProvider && <CursorCliStatusPill />}
+
+          {isCursorCliProvider && (
+            <div className="space-y-2">
+              <Label>{t("settings.sections.llm.cursorBridgeApiKey")}</Label>
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => onChange({ apiKey: e.target.value })}
+                placeholder={t("settings.sections.llm.cursorBridgeApiKeyPlaceholder")}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.sections.llm.cursorBridgeApiKeyHint")}
+              </p>
+            </div>
+          )}
 
           {isLocalCliProvider && (
             <div className="space-y-2 rounded-md border p-3">
@@ -582,6 +602,16 @@ function PresetRow({
           <SavedModelsManager
             savedModels={ov.savedModels ?? []}
             onChange={(models) => onChange({ savedModels: models })}
+            hideEndpoint={isCursorCliProvider}
+            buildTestConfig={(saved) => ({
+              ...resolvedConfig,
+              model: saved.model,
+              apiKey: saved.apiKey?.trim() || resolvedConfig.apiKey,
+              // Cursor CLI ignores saved endpoints; other providers may override.
+              customEndpoint: isCursorCliProvider
+                ? resolvedConfig.customEndpoint
+                : (saved.customEndpoint?.trim() || resolvedConfig.customEndpoint),
+            })}
           />
 
           <div className="space-y-2">
@@ -1134,6 +1164,151 @@ function CodexCliStatusPill() {
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
               </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CursorCliStatusPill() {
+  const { t } = useTranslation()
+  const [state, setState] = useState<"loading" | "ok" | "err">("loading")
+  const [agent, setAgent] = useState<DetectResult | null>(null)
+  const [proxyError, setProxyError] = useState<string | null>(null)
+  const [proxyHealthy, setProxyHealthy] = useState(false)
+  const [proxyBase, setProxyBase] = useState<string | null>(null)
+
+  async function detect() {
+    setState("loading")
+    setProxyError(null)
+    if (!isTauri()) {
+      setAgent({
+        installed: false,
+        version: null,
+        path: null,
+        error: t("settings.sections.llm.cliStatus.desktopOnly"),
+      })
+      setProxyHealthy(false)
+      setState("err")
+      return
+    }
+    try {
+      const { detectCursorCli, getCursorProxyStatus, ensureCursorProxyRunning } =
+        await import("@/lib/cursor-cli-proxy")
+      const agentResult = await detectCursorCli()
+      setAgent(agentResult)
+
+      let status = await getCursorProxyStatus()
+      let ensureError: string | null = null
+      try {
+        const endpoint = await ensureCursorProxyRunning(
+          { provider: "cursor-cli" },
+          { forceRestart: true },
+        )
+        status = await getCursorProxyStatus()
+        setProxyBase(status.base_url || endpoint.replace(/\/v1$/i, ""))
+      } catch (e) {
+        ensureError = e instanceof Error ? e.message : String(e)
+      }
+      setProxyHealthy(status.healthy)
+      setProxyError(ensureError ?? (status.healthy ? null : status.error))
+      if (status.base_url) setProxyBase(status.base_url)
+
+      const ok = agentResult.installed && status.healthy
+      setState(ok ? "ok" : "err")
+    } catch (e) {
+      setAgent({
+        installed: false,
+        version: null,
+        path: null,
+        error: e instanceof Error ? e.message : String(e),
+      })
+      setProxyHealthy(false)
+      setState("err")
+    }
+  }
+
+  useEffect(() => {
+    void detect()
+  }, [])
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="m-0">{t("settings.sections.llm.cliStatus.title")}</Label>
+        <button
+          type="button"
+          onClick={() => void detect()}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          disabled={state === "loading"}
+        >
+          {state === "loading"
+            ? t("settings.sections.llm.cliStatus.checking")
+            : t("settings.sections.llm.cliStatus.recheck")}
+        </button>
+      </div>
+      <div
+        className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+          state === "ok"
+            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            : state === "err"
+              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              : "border-border bg-background/50 text-muted-foreground"
+        }`}
+      >
+        {state === "loading" && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {state === "ok" && <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        {state === "err" && <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        <div className="min-w-0 flex-1 space-y-0.5">
+          {state === "loading" && <div>{t("settings.sections.llm.cliStatus.cursorDetecting")}</div>}
+          {state !== "loading" && (
+            <>
+              <div>
+                {agent?.installed
+                  ? t("settings.sections.llm.cliStatus.cursorAgentReady", {
+                      versionSuffix: agent.version ? ` ${agent.version}` : "",
+                    })
+                  : (agent?.error ?? t("settings.sections.llm.cliStatus.cursorAgentUnavailable"))}
+              </div>
+              {agent?.path && (
+                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                  {agent.path}
+                </div>
+              )}
+              <div>
+                {proxyHealthy
+                  ? t("settings.sections.llm.cliStatus.cursorProxyReady", {
+                      baseUrl: proxyBase ?? "",
+                    })
+                  : (proxyError ?? t("settings.sections.llm.cliStatus.cursorProxyUnavailable"))}
+              </div>
+              <div className="text-muted-foreground">
+                {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                  agent login
+                </code>{" "}
+                {t("settings.sections.llm.cliStatus.cursorAuthErrorSuffix")}
+              </div>
+              {!agent?.installed && (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
+                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                    curl https://cursor.com/install -fsS | bash
+                  </code>{" "}
+                  {t("settings.sections.llm.cliStatus.installSuffix")}
+                </div>
+              )}
+              {agent?.installed && !proxyHealthy && (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
+                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                    npx cursor-api-proxy
+                  </code>{" "}
+                  {t("settings.sections.llm.cliStatus.installSuffix")}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -111,7 +111,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
 
   return useMemo(() => {
     const agentLlmConfig = resolveDefaultModel(baseLlmConfig)
-    const supportsTools = modelSupportsTools(agentLlmConfig.model)
+    const supportsTools = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
 
     if (!supportsTools || !projectPath || !skillConfigLoaded) {
       return {

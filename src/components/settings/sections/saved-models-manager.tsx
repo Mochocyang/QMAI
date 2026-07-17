@@ -1,16 +1,21 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus, Edit, Trash2, Check, X, Download, TestTube } from "lucide-react"
+import { Plus, Edit, Trash2, Download, TestTube, Check, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "@/lib/toast"
-import type { SavedModel } from "@/stores/wiki-store"
+import { testSettingsLlmModel, normalizeModelTestError } from "@/lib/settings-model-test"
+import type { LlmConfig, SavedModel } from "@/stores/wiki-store"
 
 interface SavedModelsManagerProps {
   savedModels: SavedModel[]
   onChange: (models: SavedModel[]) => void
+  /** Build a full LlmConfig for connectivity tests (provider + live endpoint). */
+  buildTestConfig: (model: SavedModel) => LlmConfig
+  /** Hide per-model endpoint UI (e.g. Cursor CLI uses a managed local proxy). */
+  hideEndpoint?: boolean
 }
 
 interface ModelFormData {
@@ -21,7 +26,12 @@ interface ModelFormData {
   description: string
 }
 
-export function SavedModelsManager({ savedModels, onChange }: SavedModelsManagerProps) {
+export function SavedModelsManager({
+  savedModels,
+  onChange,
+  buildTestConfig,
+  hideEndpoint = false,
+}: SavedModelsManagerProps) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -69,7 +79,9 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
       name: formData.name.trim(),
       model: formData.model.trim(),
       apiKey: formData.apiKey.trim() || undefined,
-      customEndpoint: formData.customEndpoint.trim() || undefined,
+      customEndpoint: hideEndpoint
+        ? undefined
+        : (formData.customEndpoint.trim() || undefined),
       description: formData.description.trim() || undefined,
       createdAt: editingId
         ? savedModels.find((m) => m.id === editingId)?.createdAt || Date.now()
@@ -128,37 +140,13 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
   async function handleTestModel(model: SavedModel) {
     setTestingModel(model.id)
     try {
-      const endpoint = model.customEndpoint || ""
-      const apiKey = model.apiKey || ""
-
-      if (!endpoint) {
-        toast.error("该模型未配置接口地址")
-        return
-      }
-
-      const response = await fetch(`${endpoint}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: model.model,
-          messages: [{ role: "user", content: "Hi" }],
-          max_tokens: 10,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      toast.success(`模型 ${model.name} 可正常使用`)
-      console.log("Test response:", data)
+      const result = await testSettingsLlmModel(buildTestConfig(model))
+      toast.success(`模型 ${model.name} 可正常使用：${result.content.slice(0, 40)}`)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "未知错误")
+      const normalized = error instanceof Error
+        ? normalizeModelTestError(error)
+        : new Error(String(error))
+      toast.error(normalized.message || "未知错误")
     } finally {
       setTestingModel(null)
     }
@@ -226,7 +214,7 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
                 <p className="text-xs text-muted-foreground line-clamp-2">{model.description}</p>
               )}
 
-              {model.customEndpoint && (
+              {!hideEndpoint && model.customEndpoint && (
                 <p className="truncate text-xs text-muted-foreground">
                   <span className="font-medium">接口：</span>
                   {model.customEndpoint}
@@ -307,20 +295,22 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="model-endpoint">
-                {t("settings.sections.llm.savedModels.customEndpoint")}
-              </Label>
-              <Input
-                id="model-endpoint"
-                value={formData.customEndpoint}
-                onChange={(e) => setFormData({ ...formData, customEndpoint: e.target.value })}
-                placeholder={t("settings.sections.llm.savedModels.customEndpointPlaceholder")}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("settings.sections.llm.savedModels.customEndpointHint")}
-              </p>
-            </div>
+            {!hideEndpoint && (
+              <div className="space-y-2">
+                <Label htmlFor="model-endpoint">
+                  {t("settings.sections.llm.savedModels.customEndpoint")}
+                </Label>
+                <Input
+                  id="model-endpoint"
+                  value={formData.customEndpoint}
+                  onChange={(e) => setFormData({ ...formData, customEndpoint: e.target.value })}
+                  placeholder={t("settings.sections.llm.savedModels.customEndpointPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sections.llm.savedModels.customEndpointHint")}
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="model-description">
@@ -335,27 +325,31 @@ export function SavedModelsManager({ savedModels, onChange }: SavedModelsManager
             </div>
 
             <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleFetchModels}
-                disabled={fetchingModels || !formData.customEndpoint.trim()}
-                className="flex-1"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                {fetchingModels ? "拉取中..." : "拉取模型"}
-              </Button>
+              {!hideEndpoint && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleFetchModels}
+                  disabled={fetchingModels || !formData.customEndpoint.trim()}
+                  className="flex-1"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {fetchingModels ? "拉取中..." : "拉取模型"}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
                   if (formData.model.trim()) {
-                    handleTestModel({
+                    void handleTestModel({
                       id: "temp",
-                      name: formData.name,
+                      name: formData.name || formData.model,
                       model: formData.model,
                       apiKey: formData.apiKey || undefined,
-                      customEndpoint: formData.customEndpoint || undefined,
+                      customEndpoint: hideEndpoint
+                        ? undefined
+                        : (formData.customEndpoint || undefined),
                       createdAt: Date.now(),
                     })
                   }

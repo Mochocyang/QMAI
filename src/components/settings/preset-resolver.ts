@@ -85,6 +85,22 @@ export function resolveConfig(
     }
   }
 
+  if (preset.provider === "cursor-cli") {
+    // HTTP bridge via cursor-api-proxy. Optional apiKey only if the
+    // proxy was started with CURSOR_BRIDGE_API_KEY.
+    return {
+      provider: "cursor-cli",
+      apiKey,
+      model: ov.model?.trim() || preset.defaultModel || "",
+      ollamaUrl: fallback.ollamaUrl,
+      customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "http://127.0.0.1:8765/v1",
+      maxContextSize,
+      apiMode: "chat_completions",
+      reasoning,
+      localCliIsolation: false,
+    }
+  }
+
   // openai / anthropic / google / minimax — use fixed endpoint baked into the
   // provider dispatch. We still let users override baseUrl via apiKey env if
   // needed by editing manually, but presets for these don't expose it.

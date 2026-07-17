@@ -20,6 +20,7 @@ export type Provider =
   | "minimax"
   | "claude-code"
   | "codex-cli"
+  | "cursor-cli"
 
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
@@ -118,6 +119,27 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "gpt-5.3-codex",
       "gpt-5.3-codex-spark",
       "gpt-5.2",
+    ],
+    suggestedContextSize: 200000,
+  },
+  {
+    id: "cursor-cli",
+    label: "Cursor CLI (local)",
+    hint: "Local `agent` via cursor-api-proxy — no official API key needed",
+    provider: "cursor-cli",
+    baseUrl: "http://127.0.0.1:8765/v1",
+    defaultModel: "composer-2-fast",
+    apiMode: "chat_completions",
+    // Picks aligned with cursor-api-proxy docs/cursor-models-picks.md.
+    suggestedModels: [
+      "auto",
+      "composer-2-fast",
+      "claude-opus-4-7-medium-fast",
+      "claude-opus-4-7-high",
+      "gpt-5.3-codex-high",
+      "gpt-5.3-codex-xhigh",
+      "gpt-5.5-medium",
+      "claude-opus-4-7-thinking-max",
     ],
     suggestedContextSize: 200000,
   },

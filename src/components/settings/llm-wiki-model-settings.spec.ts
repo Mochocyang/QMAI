@@ -31,6 +31,7 @@ describe("QMAI model settings", () => {
       "anthropic",
       "claude-code-cli",
       "codex-cli",
+      "cursor-cli",
       "openai",
       "google",
       "azure",
@@ -106,6 +107,20 @@ describe("QMAI model settings", () => {
     expect(codex.localCliIsolation).toBe(true)
     expect(codex.model).toBe("")
     expect(codex.codexCliTimeoutMinutes).toBe(45)
+
+    const cursor = resolveConfig(
+      preset("cursor-cli"),
+      { baseUrl: "http://127.0.0.1:8765/v1" },
+      fallback,
+    )
+    expect(cursor.provider).toBe("cursor-cli")
+    expect(cursor.customEndpoint).toBe("http://127.0.0.1:8765/v1")
+    expect(cursor.model).toBe("composer-2-fast")
+    expect(cursor.apiKey).toBe("")
+
+    const cursorProvider = getProviderConfig(cursor)
+    expect(cursorProvider.url).toBe("http://127.0.0.1:8765/v1/chat/completions")
+    expect(cursorProvider.headers.Authorization).toBe("Bearer unused")
   })
 
   it("has Chinese labels for the built-in model settings instead of placeholder question marks", () => {

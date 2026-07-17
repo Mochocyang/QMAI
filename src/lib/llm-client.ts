@@ -4,6 +4,7 @@ import { getProviderConfig, type RequestOverrides } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
+import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
@@ -134,7 +135,7 @@ export async function streamChat(
    */
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
-  const runtimeConfig = await resolveRuntimeLocalCliConfig(config)
+  let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
   const configuredWindow = Number.isFinite(runtimeConfig.maxContextSize) && runtimeConfig.maxContextSize > 0
     ? runtimeConfig.maxContextSize
@@ -159,6 +160,11 @@ export async function streamChat(
 
   if (runtimeConfig.provider === "codex-cli") {
     return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, requestOverrides)
+  }
+
+  if (runtimeConfig.provider === "cursor-cli") {
+    const endpoint = await ensureCursorProxyRunning(runtimeConfig)
+    runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
   }
 
   const providerConfig = getProviderConfig(runtimeConfig)
