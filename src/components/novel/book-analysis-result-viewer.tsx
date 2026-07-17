@@ -10,7 +10,6 @@ import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
 import { importBookAnalysisSkillsAsAuras, type ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
-import { extractSingleCharacter } from "@/lib/novel/book-analysis/character-extraction-engine"
 import { analyzeWritingStyle } from "@/lib/novel/book-analysis/style-extraction-engine"
 import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
 import { upsertWritingStylePreset, setEnabledWritingStyle, getEnabledWritingStyle } from "@/lib/novel/writing-style-store"
@@ -39,10 +38,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   const [selectedAuraId, setSelectedAuraId] = useState("")
   // feature/fix-viewer-ui：多选小说人物
   const [selectedNovelCharacterIds, setSelectedNovelCharacterIds] = useState<Set<string>>(new Set())
-  // feature/book-analysis-reuse：顶栏「重新提取角色」按钮
-  const [reextractOpen, setReextractOpen] = useState(false)
-  const [reextractDepth, setReextractDepth] = useState<"simple" | "six-dimension">("simple")
-  const [reextractRunning, setReextractRunning] = useState(false)
   // feature/book-style-extraction：作品文风提取 / 启用
   const [styleExtracting, setStyleExtracting] = useState(false)
   const [styleEnabledSourceBook, setStyleEnabledSourceBook] = useState<string | null>(null)
@@ -120,59 +115,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     ? [...characters].sort((a, b) => b.importance - a.importance || a.name.localeCompare(b.name, "zh-CN"))
     : characters
 
-  const handleReextractAll = async () => {
-    if (!currentProject?.path || !effectiveResult || reextractRunning) return
-    setReextractRunning(true)
-    try {
-      const reextractStoreState = useWikiStore.getState()
-      const reextractLlmConfig = resolveDefaultModel(reextractStoreState.llmConfig)
-      if (!hasUsableLlm(reextractLlmConfig, reextractStoreState.providerConfigs)) {
-        toast.error("未配置 LLM，请先在设置中配置")
-        return
-      }
-      // 修复：bookPath 实际写入路径是 book-analysis/{bookId}，不是 book-analysis/{title}（feature/book-analysis-reuse）
-      const bookId = task?.bookId
-      const bookPath = joinPath(currentProject.path, "book-analysis", bookId ?? "unknown")
-      let updated: ExtractedCharacter[] = []
-      for (const c of characters) {
-        const { character: fresh } = await extractSingleCharacter({
-          bookPath,
-          bookId: bookId ?? "",
-          character: c,
-          mode: reextractDepth === "simple" ? "simple" : "six-dimension",
-          depth: "standard",
-          llmConfig: reextractLlmConfig,
-          signal: undefined,
-        })
-        updated.push(fresh)
-      }
-      // 写回 result metadata 触发展示刷新
-      // 关键修复（fix/character-reextract-and-loading-state v2）：
-      //   viewer 的 effectiveResult 已改为优先从 task 派生，所以更新 tasks 即可；
-      //   这里再同步 currentResult，保持数据一致性。
-      const storeState = useBookAnalysisStore.getState()
-      if (storeState.currentResult) {
-        storeState.setCurrentResult({
-          ...storeState.currentResult,
-          characters: updated,
-        })
-      }
-      useBookAnalysisStore.setState((s) => ({
-        tasks: s.tasks.map((t) =>
-          t.projectPath === normalizedProjectPath && t.status === "completed"
-            ? { ...t, characters: updated, updatedAt: Date.now() }
-            : t,
-        ),
-      }))
-      toast.success(`已重新提取 ${updated.length} 个角色`)
-      setReextractOpen(false)
-    } catch (err) {
-      toast.error(`重新提取失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setReextractRunning(false)
-    }
-  }
-
   // feature/book-style-extraction：提取作品级写作文风
   const handleExtractStyle = async () => {
     if (!currentProject?.path || styleExtracting) return
@@ -223,123 +165,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     } catch (err) {
       toast.error(`操作失败：${err instanceof Error ? err.message : String(err)}`)
     }
-  }
-
-  // feature/book-analysis-reuse：详情卡「单角色再次提取 / 深度提取」- 改为后台任务
-  // 修复（fix/character-reextract-and-loading-state）：
-  //   - 改为按角色 id 跟踪后台提取状态，支持同时跑多个单角色提取
-  //   - 详情卡按钮根据当前 selectedCharacter 自己的 reextracting 状态显示「提取中...」
-  //   - 传入 `bookTitle` 让 six-dimension 模式的 prompt 正确
-  //   - 后台跑时 toast 显式提示「可在查看其他角色或关闭此页面」
-  const [singleReextractingIds, setSingleReextractingIds] = useState<Set<string>>(new Set())
-  const handleSingleReextract = async (
-    character: ExtractedCharacter,
-    mode: "simple" | "six-dimension",
-  ) => {
-    console.log('[单角色提取] 开始:', character.name, mode)
-
-    if (!currentProject?.path || !effectiveResult) {
-      console.log('[单角色提取] 缺少项目路径或结果')
-      toast.error("缺少项目信息")
-      return
-    }
-
-    const storeState = useWikiStore.getState()
-    const llmConfig = resolveDefaultModel(storeState.llmConfig)
-    if (!hasUsableLlm(llmConfig, storeState.providerConfigs)) {
-      console.log('[单角色提取] 未配置LLM')
-      toast.error("未配置 LLM，请先在设置中配置")
-      return
-    }
-
-    const bookId = task?.bookId
-    if (!bookId) {
-      console.log('[单角色提取] 未找到bookId')
-      toast.error("未找到作品标识")
-      return
-    }
-
-    const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
-    const bookTitle = effectiveResult?.metadata?.title
-    const bookAuthor = (effectiveResult?.metadata as any)?.author
-    console.log('[单角色提取] bookPath:', bookPath, 'bookTitle:', bookTitle)
-
-    // 标记此角色正在后台提取（fix/character-reextract-and-loading-state）
-    setSingleReextractingIds((prev) => {
-      const next = new Set(prev)
-      next.add(character.id)
-      return next
-    })
-
-    // 启动后台任务
-    toast.success(
-      `已开始后台${mode === "simple" ? "简单" : "深度"}提取「${character.name}」，可切换到其他角色或关闭此页面`,
-    )
-
-    // 异步执行，不阻塞UI
-    ;(async () => {
-      try {
-        console.log('[单角色提取] 调用extractSingleCharacter')
-        const { character: fresh } = await extractSingleCharacter({
-          bookPath,
-          bookId,
-          character,
-          mode,
-          depth: mode === "simple" ? "fast" : "deep",
-          llmConfig,
-          bookTitle,
-          bookAuthor,
-          signal: undefined,
-        })
-
-        console.log('[单角色提取] 提取完成:', fresh.name)
-
-        // 关键修复（fix/character-reextract-and-loading-state v2）：
-        //   - viewer 的 effectiveResult 已改为优先从 task 派生（task 是 source of truth），
-        //     所以更新 tasks 数组即可让 UI 刷新。
-        //   - 顺带同步 currentResult 快照，避免其他依赖 currentResult 的逻辑出现数据不一致。
-        const storeState = useBookAnalysisStore.getState()
-        const currentResult = storeState.currentResult
-        if (currentResult) {
-          storeState.setCurrentResult({
-            ...currentResult,
-            characters: (currentResult.characters ?? []).map((c) =>
-              c.id === fresh.id ? fresh : c,
-            ),
-          })
-        }
-        useBookAnalysisStore.setState((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.projectPath === normalizedProjectPath && t.status === "completed"
-              ? {
-                  ...t,
-                  characters: (t.characters ?? []).map((c) => (c.id === fresh.id ? fresh : c)),
-                  updatedAt: Date.now(),
-                }
-              : t,
-          ),
-        }))
-
-        // 如果用户还在查看这个角色，更新显示
-        setSelectedCharacter((prev) => (prev?.id === fresh.id ? fresh : prev))
-
-        toast.success(`「${character.name}」${mode === "simple" ? "简单" : "深度"}提取完成`)
-      } catch (err) {
-        console.error('[单角色提取] 错误:', err)
-        toast.error(
-          `「${character.name}」${mode === "simple" ? "简单" : "深度"}提取失败：${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        )
-      } finally {
-        // 解除后台提取标记（fix/character-reextract-and-loading-state）
-        setSingleReextractingIds((prev) => {
-          const next = new Set(prev)
-          next.delete(character.id)
-          return next
-        })
-      }
-    })()
   }
 
   const handleAddSkillsToSoul = async () => {
@@ -464,42 +289,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setReextractOpen((v) => !v)}
-                disabled={reextractRunning || characters.length === 0}
-              >
-                {reextractRunning ? "提取中..." : "重新提取角色"}
-              </Button>
-              {reextractOpen && (
-                <div className="absolute right-0 top-full mt-1 z-10 w-56 rounded-md border bg-background p-2 shadow-md space-y-2">
-                  <div className="text-xs text-muted-foreground px-1">选择提取方式</div>
-                  <label className="flex items-center gap-2 px-1 text-sm">
-                    <input
-                      type="radio"
-                      name="reextract"
-                      checked={reextractDepth === "simple"}
-                      onChange={() => setReextractDepth("simple")}
-                    />
-                    简单提取(快速)
-                  </label>
-                  <label className="flex items-center gap-2 px-1 text-sm">
-                    <input
-                      type="radio"
-                      name="reextract"
-                      checked={reextractDepth === "six-dimension"}
-                      onChange={() => setReextractDepth("six-dimension")}
-                    />
-                    深度提取(6 维)
-                  </label>
-                  <Button size="sm" className="w-full" onClick={handleReextractAll} disabled={reextractRunning}>
-                    开始
-                  </Button>
-                </div>
-              )}
-            </div>
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="h-5 w-5" />
             </Button>
@@ -819,64 +608,6 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                       </div>
                     </div>
 
-                    {/* feature/book-analysis-reuse：详情卡底部「单角色重提」按钮 */}
-                    {/* 修复（fix/character-reextract-and-loading-state）：按钮根据当前角色是否在后台提取显示不同文案 */}
-                    <div className="pt-4 border-t" onClick={(e) => e.stopPropagation()}>
-                      <div className="text-xs text-muted-foreground mb-2">单角色重提</div>
-                      {selectedCharacter && singleReextractingIds.has(selectedCharacter.id) && (
-                        <div className="text-xs text-primary mb-2">
-                          当前角色「{selectedCharacter.name}」正在后台提取，可切换到其他角色或关闭此页面
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            reextractRunning ||
-                            (!!selectedCharacter && singleReextractingIds.has(selectedCharacter.id))
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            console.log('[按钮点击] 再次提取(简单) - 事件触发', e)
-                            console.log('[按钮点击] selectedCharacter:', selectedCharacter)
-                            if (!selectedCharacter) {
-                              console.error('[按钮点击] selectedCharacter 为空!')
-                              toast.error("未选择角色")
-                              return
-                            }
-                            handleSingleReextract(selectedCharacter, "simple")
-                          }}
-                        >
-                          {selectedCharacter && singleReextractingIds.has(selectedCharacter.id)
-                            ? "提取中..."
-                            : "再次提取(简单)"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            reextractRunning ||
-                            (!!selectedCharacter && singleReextractingIds.has(selectedCharacter.id))
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            console.log('[按钮点击] 深度提取(6维) - 事件触发', e)
-                            console.log('[按钮点击] selectedCharacter:', selectedCharacter)
-                            if (!selectedCharacter) {
-                              console.error('[按钮点击] selectedCharacter 为空!')
-                              toast.error("未选择角色")
-                              return
-                            }
-                            handleSingleReextract(selectedCharacter, "six-dimension")
-                          }}
-                        >
-                          {selectedCharacter && singleReextractingIds.has(selectedCharacter.id)
-                            ? "提取中..."
-                            : "深度提取(6 维)"}
-                        </Button>
-                      </div>
-                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground">

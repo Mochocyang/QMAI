@@ -40,7 +40,10 @@ import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-
 import type { AnalysisChapterRange } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { loadChapterList } from "@/lib/novel/book-analysis/analysis-engine"
 import { BookAnalysisRunDialog } from "./book-analysis-run-dialog"
+import { BookAnalysisCharacterSkillDialog } from "./book-analysis-character-skill-dialog"
 import { OutlineCreatorDialog } from "./outline-editor"
+import { generateSkillsForCharacters } from "@/lib/novel/book-analysis/skill-generator"
+import { selectCharacterCandidates } from "@/lib/novel/book-analysis/character-candidate-selection"
 
 interface StoryFrameworkSelectionData {
   book: BookAnalysisLibraryBook
@@ -95,6 +98,8 @@ export function BookAnalysisView() {
     lockedSkills?: AnalysisSkill[]
     initialRange?: AnalysisChapterRange | null
   } | null>(null)
+  const [characterSkillDialogOpen, setCharacterSkillDialogOpen] = useState(false)
+  const [characterSkillGenerating, setCharacterSkillGenerating] = useState(false)
 
   const currentProject = useWikiStore((s) => s.project)
   const storeSelectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
@@ -196,6 +201,27 @@ export function BookAnalysisView() {
     startTask,
   })
 
+  const handleOpenCharacterSkillSelection = useCallback(() => {
+    if (selectedLibraryBook) setCharacterSkillDialogOpen(true)
+  }, [selectedLibraryBook])
+
+  const handleGenerateSelectedCharacterSkills = useCallback(async (characterIds: string[]) => {
+    if (!selectedLibraryBook || characterIds.length === 0) return
+    const selected = selectCharacterCandidates(selectedLibraryBook.characters).filter((character) => characterIds.includes(character.id))
+    if (selected.length === 0) return
+    setCharacterSkillGenerating(true)
+    try {
+      await generateSkillsForCharacters(selected, selectedLibraryBook.metadata, selectedLibraryBook.path, llmConfig)
+      await reloadLibraryState()
+      setCharacterSkillDialogOpen(false)
+      toast.success(`已生成 ${selected.length} 个角色 Skill，可在角色面板中查看并加入自定义灵魂库。`)
+    } catch (error) {
+      toast.error(`角色 Skill 生成失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setCharacterSkillGenerating(false)
+    }
+  }, [llmConfig, reloadLibraryState, selectedLibraryBook])
+
   // 角色识别钩子
   const {
     handleChapterSelectionConfirm,
@@ -218,8 +244,6 @@ export function BookAnalysisView() {
 
   // 角色特征提取钩子
   const {
-    handleDeepExtract,
-    handleSimpleExtract,
     handleResumeFailedExtraction,
   } = useCharacterExtraction({
     chapterSelectionData,
@@ -399,7 +423,6 @@ export function BookAnalysisView() {
     setRecognizedCharacters(existingCharacters)
     setSelectedCharacterIds(
       existingCharacters
-        .filter((c) => c.category === "主角" || c.category === "配角")
         .map((c) => c.id)
     )
     setRecognitionStatus("done")
@@ -609,6 +632,7 @@ export function BookAnalysisView() {
       onCreateOutlineFromFramework={(frameworkId) => setOutlineCreatorFrameworkId(frameworkId)}
       onToggleStyle={handleLibraryToggleStyle}
       onAddSelectedSkillsToSoul={handleLibraryAddSkillsToSoul}
+      onOpenSkillSelection={handleOpenCharacterSkillSelection}
       onReextractCharacters={handleLibraryReextractCharacters}
       onReextractSkill={openPipelineDialog}
       onConfigureAnalysisTask={openExistingPipelineDialog}
@@ -636,10 +660,27 @@ export function BookAnalysisView() {
         onSubmit={async ({ range, selectedSkills }) => {
           await configureTaskRange(pipelineDialog.taskId, range, selectedSkills)
           setPipelineDialog(null)
-          void startPipelineTask(pipelineDialog.taskId).then(reloadLibraryState).catch((error) => {
+          void startPipelineTask(pipelineDialog.taskId).then(async () => {
+            await reloadLibraryState()
+            if (selectedSkills.includes("characters")) {
+              toast.success("角色信息已提取完成，可选择角色生成 Skill。", {
+                persistent: true,
+                action: { label: "打开角色信息", onClick: handleOpenCharacterSkillSelection },
+              })
+            }
+          }).catch((error) => {
             toast.error(`分析失败：${error instanceof Error ? error.message : String(error)}`)
           })
         }}
+      />
+    )}
+    {selectedLibraryBook && (
+      <BookAnalysisCharacterSkillDialog
+        book={selectedLibraryBook}
+        open={characterSkillDialogOpen}
+        generating={characterSkillGenerating}
+        onOpenChange={setCharacterSkillDialogOpen}
+        onSubmit={handleGenerateSelectedCharacterSkills}
       />
     )}
     </>
@@ -939,8 +980,6 @@ export function BookAnalysisView() {
           onToggleCharacter={handleToggleCharacter}
           onSelectAllMain={handleSelectAllMain}
           onClearSelection={handleClearSelection}
-          onDeepExtract={handleDeepExtract}
-          onSimpleExtract={handleSimpleExtract}
           onCharacterPickerClose={clearRecognition}
           // 提取进度
           extractionPhase={chapterSelectionData.extractionPhase ?? null}

@@ -302,6 +302,10 @@ export async function loadChapterList(bookPath: string): Promise<ChapterSelectio
 
     // 按顺序排序
     chapters.sort((a, b) => a.order - b.order)
+    // 用户选择的是作品中的连续章节序号；导入旧数据可能存在 0 起始或断号，统一为 1..N。
+    chapters.forEach((chapter, index) => {
+      chapter.order = index + 1
+    })
 
     return chapters
   } catch (error) {

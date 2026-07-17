@@ -70,8 +70,8 @@ describe("BookAnalysisResultViewer", () => {
     expect(html).toContain("添加所选角色到自定义灵魂")
     expect(html).toContain("绑定小说人物")
     expect(html).toContain("林烬")
-    // feature/book-analysis-reuse：顶栏重新提取按钮
-    expect(html).toContain("重新提取角色")
+    // 旧的简单/六维重新提取入口已移除
+    expect(html).not.toContain("重新提取角色")
     // 详情卡两个单角色按钮（detail 部分依赖选中角色，断言存在性）
     // 由于该测试 mock 出 1 个角色且未点击选中，按钮区在没选中时不渲染；
     // 单独 it 验证 selectedCharacter 时显示：
@@ -93,7 +93,9 @@ describe("BookAnalysisResultViewer", () => {
         }}
       />,
     )
-    // 默认未选中时不渲染单角色按钮（详情卡才有），所以这一条只验证空状态
+    // 默认未选中时不渲染角色详情操作，所以这一条只验证空状态
     expect(html).toContain("请从左侧选择角色查看详情")
+    expect(html).not.toContain("再次提取(简单)")
+    expect(html).not.toContain("深度提取(6 维)")
   })
 })

@@ -18,6 +18,7 @@ interface BookAnalysisModuleViewProps {
   onSelectCharacter: (id: string) => void
   onToggleStyle: () => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
+  onOpenSkillSelection?: () => void
   onReextract: (skill: AnalysisSkill) => void
   onConfigureTask?: () => void
   onPauseTask?: () => void
@@ -131,7 +132,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
           </div>
         )}
         {active === "characters" && (
-          <BookAnalysisCharacterPanel book={props.book} selectedCharacterId={props.selectedCharacterId} onSelectCharacter={props.onSelectCharacter} addingToSoul={props.addingToSoul} onAddSelectedSkillsToSoul={props.onAddSelectedSkillsToSoul} />
+          <BookAnalysisCharacterPanel book={props.book} selectedCharacterId={props.selectedCharacterId} addingToSoul={props.addingToSoul} onSelectCharacter={props.onSelectCharacter} onAddSelectedSkillsToSoul={props.onAddSelectedSkillsToSoul} onOpenSkillSelection={props.onOpenSkillSelection ?? (() => undefined)} />
         )}
         {active === "story" && props.storyContent}
         {active === "style" && (

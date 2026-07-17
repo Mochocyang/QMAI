@@ -70,7 +70,7 @@ describe("character analysis adapter", () => {
     expect(merged[0].growthArc).toContain("从退让到承担")
   })
 
-  it("发布时统一写角色、生成一次 Skill 并保存角色证据", async () => {
+  it("发布时只保存角色信息，等待用户选择角色后再生成 Skill", async () => {
     const persistCharacter = vi.fn(async () => {})
     const generateSkills = vi.fn(async () => [])
     const replaceEvidence = vi.fn(async () => ({ version: 1 as const, bookId: "book-1", snippets: [], updatedAt: 1 }))
@@ -124,7 +124,7 @@ describe("character analysis adapter", () => {
     })
 
     expect(persistCharacter).toHaveBeenCalledTimes(1)
-    expect(generateSkills).toHaveBeenCalledTimes(1)
+    expect(generateSkills).not.toHaveBeenCalled()
     expect(replaceEvidence).toHaveBeenCalledWith(inputTask.bookPath, "characters", evidence)
     expect(saveManifest).toHaveBeenCalledTimes(1)
     expect(rebuildContextIndex).toHaveBeenCalledWith(inputTask.projectPath)

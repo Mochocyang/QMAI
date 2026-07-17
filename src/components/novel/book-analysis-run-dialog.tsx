@@ -54,6 +54,7 @@ export function BookAnalysisRunDialog({
   }, [end, start])
   const count = range ? range.endOrder - range.startOrder + 1 : 0
   const available = new Set(chapters.map((chapter) => chapter.order))
+  const totalChapters = chapters.length
   const missingChapter = range && count > 0
     ? Array.from({ length: count }, (_, index) => range.startOrder + index).find((order) => !available.has(order))
     : undefined
@@ -65,8 +66,10 @@ export function BookAnalysisRunDialog({
         ? "结束章节不能小于起始章节"
         : count > MAX_ANALYSIS_CHAPTERS
           ? "单次最多分析 100 章，请分批处理"
+          : range.endOrder > totalChapters
+            ? `本作品共 ${totalChapters} 章，最多只能选择第 ${totalChapters} 章`
           : missingChapter !== undefined
-            ? `未找到第 ${missingChapter} 章`
+            ? `第 ${missingChapter} 章不存在，请根据作品实际章节范围选择`
             : ""
   const canSubmit = Boolean(range && !error && skills.length > 0 && !submitting)
 
@@ -91,15 +94,15 @@ export function BookAnalysisRunDialog({
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1 text-sm">
               <span>起始章节</span>
-              <input aria-label="起始章节" type="number" min={1} value={start} onChange={(event) => setStart(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3" />
+              <input aria-label="起始章节" type="number" min={1} max={Math.min(totalChapters, MAX_ANALYSIS_CHAPTERS)} value={start} onChange={(event) => setStart(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3" />
             </label>
             <label className="space-y-1 text-sm">
               <span>结束章节</span>
-              <input aria-label="结束章节" type="number" min={1} value={end} onChange={(event) => setEnd(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3" />
+              <input aria-label="结束章节" type="number" min={1} max={Math.min(totalChapters, MAX_ANALYSIS_CHAPTERS)} value={end} onChange={(event) => setEnd(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3" />
             </label>
           </div>
           <p className="text-xs text-muted-foreground">
-            单次最多分析 100 章。当前作品共 {chapters.length} 章，请分批选择章节范围。
+            当前作品共 {totalChapters} 章；单次最多分析 {MAX_ANALYSIS_CHAPTERS} 章，请选择第 1～{Math.min(totalChapters, MAX_ANALYSIS_CHAPTERS)} 章。
           </p>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <fieldset>
