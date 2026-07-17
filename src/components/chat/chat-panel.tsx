@@ -1097,7 +1097,7 @@ export function ChatPanel() {
         getCopyableAssistantContent(content),
       )
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
-      const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(cleanedContent)
+      const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
       const strategy = decideChapterSaveStrategy({
         selectedChapterNumber: selectedChapterNumber ?? null,
@@ -1126,7 +1126,7 @@ export function ChatPanel() {
           "---",
           "",
         ].join("\n")
-        // 正文内容已经包含标题行，直接拼接即可
+        // 标题只写入 frontmatter，正文只保存实际章节内容，避免重复。
         return `${frontmatter}${bodyContent}\n`
       }
 

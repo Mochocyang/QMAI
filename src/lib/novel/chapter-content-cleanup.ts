@@ -106,57 +106,15 @@ export interface CleanedChapterContent {
 /**
  * 清理生成的章节内容，同时提取标题。
  * 返回对象包含：
- * - content: 清理后的正文（保留标题行）
+ * - content: 清理后的纯正文（移除已提取的标题行）
  * - title: 提取到的标题文字（如 "第3章 初入江湖"），如果没有则为 null
  */
 export function cleanGeneratedChapterContentWithTitle(content: string): CleanedChapterContent {
   const withoutThinking = stripThinkingBlocks(content).replace(/\r\n?/g, "\n")
   const withoutCitations = stripCitationSyntax(withoutThinking)
-
   const allLines = withoutCitations.split("\n")
-
-  // 先提取标题（但不从正文中移除）
-  const { title } = extractLeadingTitle(allLines)
-
-  // 清理其他元信息（引用块、分隔线等）
-  // 注意：使用 stripLeadingMeta，但它会删除标题行。我们需要保留标题。
-  // 所以我们先手动清理非标题的元信息
-  let index = 0
-  const lines = allLines
-
-  // 跳过开头空行
-  while (index < lines.length && !lines[index].trim()) index += 1
-
-  // 如果第一行是标题，跳过它继续清理后面的内容
-  const firstLine = lines[index]?.trim() ?? ""
-  const hasTitleLine = /^#{1,6}\s*第\s*\d+\s*章/.test(firstLine) || /^第\s*\d+\s*章/.test(firstLine)
-  if (hasTitleLine) {
-    index += 1
-    // 跳过标题后的空行
-    while (index < lines.length && !lines[index].trim()) index += 1
-  }
-
-  // 清理引用块
-  while (/^>\s*/.test(lines[index]?.trim() ?? "")) {
-    index += 1
-  }
-
-  // 跳过分隔线前的空行
-  while (index < lines.length && !lines[index].trim()) index += 1
-
-  // 跳过分隔线
-  if (/^[-*_]{3,}$/.test(lines[index]?.trim() ?? "")) {
-    index += 1
-  }
-
-  // 构建清理后的内容：如果有标题，把标题加回去
-  const cleanedLinesAfterMeta = lines.slice(index)
-  const finalLines = hasTitleLine
-    ? [allLines.find((l) => l.trim()) ?? "", "", ...cleanedLinesAfterMeta]
-    : cleanedLinesAfterMeta
-
-  // 清理结尾助手提议
-  const cleanedLines = stripTrailingAssistantOffer(finalLines)
+  const { lines: linesWithoutTitle, title } = extractLeadingTitle(allLines)
+  const cleanedLines = stripTrailingAssistantOffer(stripLeadingMeta(linesWithoutTitle))
 
   const cleanedContent = cleanedLines
     .join("\n")
@@ -186,24 +144,5 @@ export function cleanGeneratedChapterContentWithTitle(content: string): CleanedC
  * 保持向后兼容：返回纯字符串（去掉标题行）。
  */
 export function cleanGeneratedChapterContentForSave(content: string): string {
-  const withoutThinking = stripThinkingBlocks(content).replace(/\r\n?/g, "\n")
-  const withoutCitations = stripCitationSyntax(withoutThinking)
-  const lines = stripTrailingAssistantOffer(stripLeadingMeta(withoutCitations.split("\n")))
-
-  const cleaned = lines
-    .join("\n")
-    .replace(/^\s*[-*_]{3,}\s*$/gm, "")
-    .replace(/\s+([，。！？；：、,.!?;:])/g, "$1")
-    .replace(/[ \t]+$/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-
-  return cleaned
-    .split("\n")
-    .filter((line, index, all) => {
-      if (line.trim()) return true
-      const hasBefore = all.slice(0, index).some((item) => item.trim())
-      const hasAfter = all.slice(index + 1).some((item) => item.trim())
-      return hasBefore && hasAfter
-    })
-    .join("\n")
+  return cleanGeneratedChapterContentWithTitle(content).content
 }
