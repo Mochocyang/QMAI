@@ -39,6 +39,8 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
+import { runDraftReviewSkill } from "@/lib/agent/skills/draft-review-skill"
+import { useDraftReviewStore } from "@/stores/draft-review-store"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { registerAllBuiltInTools } from "@/lib/agent/tools"
 import {
@@ -1847,6 +1849,39 @@ export function ChatPanel() {
                       console.error("[Stage D] AI 自检失败:", err)
                     }
                   })().catch((err) => console.error("[Stage D] 执行失败:", err))
+                }
+                // === Stage E: 草稿校验与修复（硬偏差） ===
+                // 仅在已打开项目时触发；未打开项目时跳过（避免空路径调用 skill）
+                if (chapterContent && !hasChapterPlanMarker && projectPath) {
+                  const draftChapterNumber = effectiveTaskRoute.chapterNumber ?? 0
+                  void (async () => {
+                    try {
+                      useDraftReviewStore.getState().startReview(chapterContent)
+                      useDraftReviewStore.getState().setPhase({
+                        stage: "loading",
+                        description: "正在读取记忆中心...",
+                        progress: 10,
+                      })
+                      const reviewResult = await runDraftReviewSkill(
+                        {
+                          projectPath,
+                          draftChapterText: chapterContent,
+                          draftChapterNumber,
+                          mode: "full",
+                        },
+                        { llmConfig: agentConfig?.llmConfig },
+                      )
+                      useDraftReviewStore.getState().setResult(reviewResult)
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : String(err)
+                      console.error("[Stage E] 草稿校验失败:", err)
+                      useDraftReviewStore.getState().setPhase({
+                        stage: "error",
+                        description: `校验失败：${message}`,
+                        progress: 100,
+                      })
+                    }
+                  })().catch((err) => console.error("[Stage E] 执行失败:", err))
                 }
               }
               contextTrace = finishTrace(contextTrace, "done")
