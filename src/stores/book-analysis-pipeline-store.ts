@@ -122,6 +122,16 @@ export function createBookAnalysisPipelineStore() {
       set({ projectPath, tasks: [], chunks: [], dismissedBatchIds: [] })
       const recovered = await loadAndRecoverAnalysisTasks(projectPath)
       if (token !== generation || get().projectPath !== projectPath) return
+      const currentState = get()
+      const mergedTasks = [...new Map(
+        [...recovered.tasks, ...currentState.tasks].map((task) => [task.id, task]),
+      ).values()]
+      const mergedChunks = [...new Map(
+        [...recovered.chunks, ...currentState.chunks].map((chunk) => [
+          `${chunk.taskId}:${chunk.skill}:${chunk.id}`,
+          chunk,
+        ]),
+      ).values()]
       const nextScheduler = createAnalysisScheduler({
         adapters: {
           characters: characterAnalysisAdapter,
@@ -131,8 +141,9 @@ export function createBookAnalysisPipelineStore() {
         llmConfig: () => resolveDefaultModel(useWikiStore.getState().llmConfig),
       })
       scheduler = nextScheduler
-      nextScheduler.initialize(recovered.tasks, recovered.chunks)
-      setActiveAnalysisSnapshot(projectPath, recovered.tasks)
+      nextScheduler.initialize(mergedTasks, mergedChunks)
+      set({ tasks: mergedTasks, chunks: mergedChunks })
+      setActiveAnalysisSnapshot(projectPath, mergedTasks)
       unsubscribe = nextScheduler.subscribe((snapshot) => {
         if (token !== generation || scheduler !== nextScheduler) return
         set({ tasks: snapshot.tasks, chunks: snapshot.chunks })
