@@ -252,3 +252,24 @@ test("runDuplicateDetection invokes onProgress for loading and detecting", async
 
   expect(stages).toEqual(["loading", "detecting"])
 })
+
+test("runDuplicateDetection emits process logs via onLog", async () => {
+  const logs: string[] = []
+  mockedListDirectory.mockResolvedValue(wikiTree("/Project", 2))
+  mockedReadFile.mockImplementation(async (path) => {
+    const match = path.match(/page-(\d+)\.md$/)
+    const idx = match?.[1] ?? "0"
+    return entityMarkdown(`Page ${idx}`)
+  })
+
+  await runDuplicateDetection("/Project", testLlmConfig, {
+    onLog: (message) => {
+      logs.push(message)
+    },
+  })
+
+  expect(logs.some((line) => line.includes("开始扫描"))).toBe(true)
+  expect(logs.some((line) => line.includes("openai/gpt-4"))).toBe(true)
+  expect(logs.some((line) => line.includes("已读取 2 个"))).toBe(true)
+  expect(logs.some((line) => line.includes("模型分析完成"))).toBe(true)
+})

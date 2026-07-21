@@ -19,7 +19,10 @@ export interface DedupScanCache {
   projectId: string
   scannedAt: number
   scannedPageCount: number | null
+  /** Detection model used for the last scan. */
   modelId?: string
+  /** Merge model preferred when enqueueing from these results. */
+  mergeModelId?: string
   groups: DedupScanCacheEntry[]
 }
 
@@ -70,12 +73,15 @@ function parseCache(raw: unknown): DedupScanCache | null {
     .map(parseEntry)
     .filter((entry): entry is DedupScanCacheEntry => entry !== null)
   const modelId = typeof obj.modelId === "string" ? obj.modelId : undefined
+  const mergeModelId =
+    typeof obj.mergeModelId === "string" ? obj.mergeModelId : undefined
   return {
     version: 1,
     projectId: obj.projectId,
     scannedAt: obj.scannedAt,
     scannedPageCount,
     modelId,
+    mergeModelId,
     groups,
   }
 }
@@ -102,4 +108,29 @@ export async function saveDedupScanCache(
   cache: DedupScanCache,
 ): Promise<void> {
   await writeFile(cacheFilePath(projectPath), JSON.stringify(cache, null, 2))
+}
+
+function groupKey(slugs: readonly string[]): string {
+  return [...slugs].map((s) => s.toLowerCase()).sort().join(",")
+}
+
+/**
+ * Drop a merged candidate group from the on-disk scan cache.
+ * Returns true when the cache was rewritten.
+ */
+export async function removeGroupFromDedupScanCache(
+  projectPath: string,
+  slugs: readonly string[],
+): Promise<boolean> {
+  const cached = await loadDedupScanCache(projectPath)
+  if (!cached) return false
+  const key = groupKey(slugs)
+  const remaining = cached.groups.filter((g) => groupKey(g.group.slugs) !== key)
+  if (remaining.length === cached.groups.length) return false
+  await saveDedupScanCache(projectPath, {
+    ...cached,
+    groups: remaining,
+    scannedAt: Date.now(),
+  })
+  return true
 }

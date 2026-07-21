@@ -31,13 +31,20 @@ import {
   saveDedupScanCache,
   type DedupScanCacheEntry,
 } from "@/lib/dedup-scan-cache"
+import {
+  loadDedupModelPrefs,
+  saveDedupModelPrefs,
+} from "@/lib/dedup-model-prefs"
+import { registerDedupScanSessionApi } from "@/lib/dedup-scan-session"
 import { toast } from "@/lib/toast"
+import { fileExists } from "@/commands/fs"
 import {
   enqueueMerge,
   cancelTask,
   retryTask,
   getQueue,
   getMergeProgress,
+  getMergeLogs,
   groupKey,
   ensureQueueActive,
   onDedupMergeComplete,
@@ -125,14 +132,16 @@ function replaceSharedScanState(state: MaintenanceScanState): void {
 function toScanCache(
   state: MaintenanceScanState,
   projectId: string,
-  modelId: string,
+  detectModelId: string,
+  mergeModelId: string,
 ): Parameters<typeof saveDedupScanCache>[1] {
   return {
     version: 1,
     projectId,
     scannedAt: Date.now(),
     scannedPageCount: state.scannedPageCount,
-    modelId: modelId.trim() || undefined,
+    modelId: detectModelId.trim() || undefined,
+    mergeModelId: mergeModelId.trim() || undefined,
     groups: state.groups as DedupScanCacheEntry[],
   }
 }
@@ -164,9 +173,12 @@ export function MaintenanceSection() {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const project = useWikiStore((s) => s.project)
 
-  const [dedupModelId, setDedupModelId] = useState("")
+  const [detectModelId, setDetectModelId] = useState("")
+  const [mergeModelId, setMergeModelId] = useState("")
+  const [modelsHydrated, setModelsHydrated] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [scanStage, setScanStage] = useState<DedupScanStage | null>(null)
+  const [scanLogs, setScanLogs] = useState<string[]>([])
   const [scanState, setScanState] = useState<MaintenanceScanState>(sharedScanState)
   const [localScanState, setLocalScanState] = useState<MaintenanceScanState | null>(null)
 
@@ -175,24 +187,52 @@ export function MaintenanceSection() {
   useEffect(() => {
     if (!project) {
       setLocalScanState(null)
+      setModelsHydrated(false)
       return
     }
     let cancelled = false
-    void loadDedupScanCache(project.path).then((cached) => {
+    setModelsHydrated(false)
+    void (async () => {
+      const [cached, prefs] = await Promise.all([
+        loadDedupScanCache(project.path),
+        loadDedupModelPrefs(project.path),
+      ])
       if (cancelled) return
+
+      const detectFromDisk =
+        prefs?.detectModelId?.trim() ||
+        cached?.modelId?.trim() ||
+        ""
+      const mergeFromDisk =
+        prefs?.mergeModelId?.trim() ||
+        cached?.mergeModelId?.trim() ||
+        ""
+      // Prefer disk prefs on project open (overwrite empty / stale session).
+      if (detectFromDisk) setDetectModelId(detectFromDisk)
+      if (mergeFromDisk) setMergeModelId(mergeFromDisk)
+
+      // Only keep the in-memory session while a scan is actively running.
+      // Otherwise prefer disk cache — it is updated by the merge queue even
+      // when this section was unmounted, so remount must not revive stale groups.
       if (
         scanStateBelongsToProject(sharedScanState, project) &&
-        (sharedScanState.scanning || sharedScanState.scanCompleted)
+        sharedScanState.scanning
       ) {
         setLocalScanState({ ...sharedScanState })
+        setModelsHydrated(true)
         return
       }
       if (!cached || cached.projectId !== project.id) {
-        setLocalScanState(null)
+        if (
+          scanStateBelongsToProject(sharedScanState, project) &&
+          sharedScanState.scanCompleted
+        ) {
+          setLocalScanState({ ...sharedScanState })
+        } else {
+          setLocalScanState(null)
+        }
+        setModelsHydrated(true)
         return
-      }
-      if (cached.modelId?.trim()) {
-        setDedupModelId((current) => current || cached.modelId!.trim())
       }
       const hydrated: MaintenanceScanState = {
         projectId: project.id,
@@ -205,7 +245,8 @@ export function MaintenanceSection() {
       }
       replaceSharedScanState(hydrated)
       setLocalScanState(hydrated)
-    })
+      setModelsHydrated(true)
+    })()
     return () => {
       cancelled = true
     }
@@ -226,13 +267,24 @@ export function MaintenanceSection() {
   }, [project, localScanState, scanState])
 
   useEffect(() => {
-    setDedupModelId((current) => {
-      if (current.trim()) return current
-      const preferred = defaultLlmModel.trim() || aiChatModel.trim()
-      if (preferred) return preferred
-      return getFirstAvailableModelKey(providerConfigs)
+    if (!modelsHydrated) return
+    const preferred = defaultLlmModel.trim() || aiChatModel.trim()
+    const fallback = preferred || getFirstAvailableModelKey(providerConfigs)
+    setDetectModelId((current) => current.trim() || fallback)
+    setMergeModelId((current) => current.trim() || fallback)
+  }, [modelsHydrated, defaultLlmModel, aiChatModel, providerConfigs])
+
+  // Persist model choices per project after initial hydrate.
+  useEffect(() => {
+    if (!project || !modelsHydrated) return
+    if (!detectModelId.trim() && !mergeModelId.trim()) return
+    void saveDedupModelPrefs(project.path, {
+      detectModelId: detectModelId.trim() || undefined,
+      mergeModelId: mergeModelId.trim() || undefined,
+    }).catch((err) => {
+      console.error("[Maintenance] save model prefs failed:", err)
     })
-  }, [defaultLlmModel, aiChatModel, providerConfigs])
+  }, [project?.id, project?.path, modelsHydrated, detectModelId, mergeModelId])
 
   const hasAvailableModels = useMemo(() => {
     for (const key of Object.keys(providerConfigs)) {
@@ -258,6 +310,7 @@ export function MaintenanceSection() {
     taskId: string
     stage: DedupMergeStage
   } | null>(null)
+  const [mergeLogs, setMergeLogs] = useState<readonly string[]>([])
   const [enqueueingKey, setEnqueueingKey] = useState<string | null>(null)
   const [mergeErrors, setMergeErrors] = useState<Record<string, string>>({})
 
@@ -265,6 +318,7 @@ export function MaintenanceSection() {
     if (!project) {
       setTasks([])
       setMergeProgress(null)
+      setMergeLogs([])
       return
     }
     let cancelled = false
@@ -273,6 +327,7 @@ export function MaintenanceSection() {
         if (!cancelled) {
           setTasks([...getQueue()])
           setMergeProgress(getMergeProgress())
+          setMergeLogs([...getMergeLogs()])
         }
       })
       .catch((err) => {
@@ -281,6 +336,7 @@ export function MaintenanceSection() {
     const id = setInterval(() => {
       setTasks([...getQueue()])
       setMergeProgress(getMergeProgress())
+      setMergeLogs([...getMergeLogs()])
     }, 500)
     return () => {
       cancelled = true
@@ -288,14 +344,25 @@ export function MaintenanceSection() {
     }
   }, [project?.id, project?.path])
 
-  const effectiveDedupConfig = useMemo(
+  const effectiveDetectConfig = useMemo(
     () =>
-      dedupModelId.trim()
-        ? resolveModelConfig(dedupModelId, llmConfig, providerConfigs)
+      detectModelId.trim()
+        ? resolveModelConfig(detectModelId, llmConfig, providerConfigs)
         : resolveDefaultModel(llmConfig),
-    [dedupModelId, llmConfig, providerConfigs],
+    [detectModelId, llmConfig, providerConfigs],
   )
-  const llmReady = hasUsableLlm(effectiveDedupConfig, providerConfigs)
+  const effectiveMergeConfig = useMemo(
+    () =>
+      mergeModelId.trim()
+        ? resolveModelConfig(mergeModelId, llmConfig, providerConfigs)
+        : detectModelId.trim()
+          ? resolveModelConfig(detectModelId, llmConfig, providerConfigs)
+          : resolveDefaultModel(llmConfig),
+    [mergeModelId, detectModelId, llmConfig, providerConfigs],
+  )
+  const detectLlmReady = hasUsableLlm(effectiveDetectConfig, providerConfigs)
+  const mergeLlmReady = hasUsableLlm(effectiveMergeConfig, providerConfigs)
+  const llmReady = detectLlmReady
   const projectReady = !!project
   const activeScanState = useMemo(() => {
     if (!project) return emptyScanState
@@ -324,47 +391,63 @@ export function MaintenanceSection() {
       ) {
         void saveDedupScanCache(
           project.path,
-          toScanCache(next, project.id, dedupModelId),
+          toScanCache(next, project.id, detectModelId, mergeModelId),
         ).catch((err) => {
           console.error("[Maintenance] save scan cache failed:", err)
         })
       }
     },
-    [project, dedupModelId],
+    [project, detectModelId, mergeModelId],
   )
 
   const removeMergedGroup = useCallback(
     (slugs: readonly string[]) => {
-      const active = useWikiStore.getState().project
-      if (!active || !scanStateBelongsToProject(sharedScanState, active)) return
       const key = groupKey(slugs)
+      const active = useWikiStore.getState().project
+      // Drop by slug-set whenever present. Do not gate on belongs-check —
+      // that early-return left stale cards after merge (second merge 404s).
       const remaining = sharedScanState.groups.filter((g) => groupKey(g.group.slugs) !== key)
       if (remaining.length === sharedScanState.groups.length) return
-      applyScanState({ groups: remaining })
+      applyScanState({
+        groups: remaining,
+        ...(active && !sharedScanState.projectId
+          ? {
+              projectId: active.id,
+              projectPath: normalizeProjectPath(active.path),
+            }
+          : {}),
+      })
     },
     [applyScanState],
   )
+
+  // Keep a live bridge so the merge queue can drop cards while this
+  // section is mounted (and disk cache is always updated by the queue).
+  useEffect(() => {
+    registerDedupScanSessionApi({ removeGroup: removeMergedGroup })
+    return () => registerDedupScanSessionApi(null)
+  }, [removeMergedGroup])
 
   useEffect(() => {
     if (!project) return
     return onDedupMergeComplete((task) => {
       if (task.projectId !== project.id) return
-      removeMergedGroup(task.group.slugs)
+      // Session API already removes the group; refresh queue chips.
       setTasks([...getQueue()])
     })
-  }, [project?.id, removeMergedGroup])
+  }, [project?.id])
 
   const handleScan = useCallback(async () => {
     if (!project) return
     const projectPath = normalizeProjectPath(project.path)
     const projectId = project.id
 
-    if (!hasUsableLlm(effectiveDedupConfig, providerConfigs)) {
+    if (!hasUsableLlm(effectiveDetectConfig, providerConfigs)) {
       applyScanState({
         projectId,
         projectPath,
         scanning: false,
-        scanError: t("settings.sections.maintenance.dedup.selectModel", {
+        scanError: t("settings.sections.maintenance.dedup.selectDetectModel", {
           defaultValue: "请先选择检测模型。",
         }),
         groups: [],
@@ -374,8 +457,26 @@ export function MaintenanceSection() {
       return
     }
 
+    const appendScanLog = (message: string) => {
+      const stamp = new Date().toLocaleTimeString()
+      const line = `${stamp}  ${message}`
+      setScanLogs((prev) => [...prev, line])
+      console.log(`[Maintenance Dedup] ${message}`)
+    }
+
     setIsScanning(true)
     setScanStage("loading")
+    setScanLogs([])
+    appendScanLog(
+      detectModelId.trim()
+        ? `检测模型 id：${detectModelId.trim()}`
+        : "未选择检测模型 id，使用默认模型",
+    )
+    appendScanLog(
+      mergeModelId.trim()
+        ? `合并模型 id：${mergeModelId.trim()}（入队时使用）`
+        : "未单独设置合并模型，入队时回退检测模型",
+    )
     applyScanState({
       projectId,
       projectPath,
@@ -388,8 +489,11 @@ export function MaintenanceSection() {
     try {
       const { groups: detected, scannedPageCount } = await runDuplicateDetection(
         projectPath,
-        effectiveDedupConfig,
-        { onProgress: setScanStage },
+        effectiveDetectConfig,
+        {
+          onProgress: setScanStage,
+          onLog: appendScanLog,
+        },
       )
       applyScanState({
         projectId,
@@ -404,11 +508,13 @@ export function MaintenanceSection() {
         scannedPageCount,
       })
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      appendScanLog(`失败：${message}`)
       applyScanState({
         projectId,
         projectPath,
         scanning: false,
-        scanError: err instanceof Error ? err.message : String(err),
+        scanError: message,
         scanCompleted: false,
         scannedPageCount: null,
       })
@@ -416,7 +522,15 @@ export function MaintenanceSection() {
       setIsScanning(false)
       setScanStage(null)
     }
-  }, [project, effectiveDedupConfig, providerConfigs, t, applyScanState])
+  }, [
+    project,
+    effectiveDetectConfig,
+    providerConfigs,
+    t,
+    applyScanState,
+    detectModelId,
+    mergeModelId,
+  ])
 
   const handleCanonicalChange = useCallback(
     (idx: number, slug: string) => {
@@ -442,11 +556,40 @@ export function MaintenanceSection() {
         return next
       })
       try {
+        const pp = normalizeProjectPath(project.path)
+        const missing: string[] = []
+        for (const slug of entry.group.slugs) {
+          const entityPath = `${pp}/wiki/entities/${slug}.md`
+          const conceptPath = `${pp}/wiki/concepts/${slug}.md`
+          const exists =
+            (await fileExists(entityPath)) || (await fileExists(conceptPath))
+          if (!exists) missing.push(slug)
+        }
+        if (missing.length > 0) {
+          removeMergedGroup(entry.group.slugs)
+          const message = t("settings.sections.maintenance.dedup.pagesMissing", {
+            defaultValue: "部分页面已不存在（可能已合并）：{{slugs}}。已从列表移除。",
+            slugs: missing.join(", "),
+          })
+          toast.error(message)
+          return
+        }
+
+        if (!mergeLlmReady) {
+          const message = t("settings.sections.maintenance.dedup.selectMergeModel", {
+            defaultValue: "请先选择合并模型。",
+          })
+          setMergeErrors((prev) => ({ ...prev, [key]: message }))
+          toast.error(message)
+          return
+        }
+
+        const mergeIdForTask = mergeModelId.trim() || detectModelId.trim() || undefined
         await enqueueMerge(
           project.id,
           entry.group,
           entry.canonicalSlug,
-          dedupModelId.trim() || undefined,
+          mergeIdForTask,
         )
         setTasks([...getQueue()])
       } catch (err) {
@@ -458,7 +601,7 @@ export function MaintenanceSection() {
         setEnqueueingKey(null)
       }
     },
-    [project, dedupModelId],
+    [project, mergeModelId, detectModelId, mergeLlmReady, removeMergedGroup, t],
   )
 
   const handleCancel = useCallback(async (taskId: string) => {
@@ -558,30 +701,61 @@ export function MaintenanceSection() {
             })}
           </p>
         )}
-        {projectReady && hasAvailableModels && !llmReady && (
+        {projectReady && hasAvailableModels && !detectLlmReady && (
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            {dedupModelId.trim()
+            {detectModelId.trim()
               ? t("settings.sections.maintenance.noLlm", {
                   defaultValue: "请先配置大模型提供方。",
                 })
-              : t("settings.sections.maintenance.dedup.selectModel", {
+              : t("settings.sections.maintenance.dedup.selectDetectModel", {
                   defaultValue: "请先选择检测模型。",
                 })}
           </p>
         )}
+        {projectReady && hasAvailableModels && detectLlmReady && !mergeLlmReady && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {t("settings.sections.maintenance.dedup.selectMergeModel", {
+              defaultValue: "请先选择合并模型。",
+            })}
+          </p>
+        )}
 
         {projectReady && hasAvailableModels && (
-          <div className="space-y-1.5">
-            <Label className="text-xs">
-              {t("settings.sections.maintenance.dedup.modelLabel", {
-                defaultValue: "检测模型",
-              })}
-            </Label>
-            <ChatModelSelector
-              value={dedupModelId}
-              onChange={setDedupModelId}
-              disabled={scanning}
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                {t("settings.sections.maintenance.dedup.detectModelLabel", {
+                  defaultValue: "检测模型",
+                })}
+              </Label>
+              <ChatModelSelector
+                value={detectModelId}
+                onChange={setDetectModelId}
+                disabled={scanning}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t("settings.sections.maintenance.dedup.detectModelHint", {
+                  defaultValue: "扫描分组用。实体多时上下文更大，建议用更强、上下文更长的模型。",
+                })}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                {t("settings.sections.maintenance.dedup.mergeModelLabel", {
+                  defaultValue: "合并模型",
+                })}
+              </Label>
+              <ChatModelSelector
+                value={mergeModelId}
+                onChange={setMergeModelId}
+                disabled={scanning}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t("settings.sections.maintenance.dedup.mergeModelHint", {
+                  defaultValue: "写合并正文用。输入通常更短，可用相对便宜的模型。",
+                })}
+              </p>
+            </div>
           </div>
         )}
 
@@ -621,6 +795,16 @@ export function MaintenanceSection() {
                     })}
             </div>
           </div>
+        )}
+
+        {(scanning || scanLogs.length > 0) && (
+          <ProcessLogPanel
+            title={t("settings.sections.maintenance.dedup.processLogTitle", {
+              defaultValue: "分析过程日志",
+            })}
+            lines={scanLogs}
+            live={scanning}
+          />
         )}
 
         {scanError && (
@@ -675,6 +859,16 @@ export function MaintenanceSection() {
         pendingPositionByTaskId={pendingPositionByTaskId}
       />
 
+      {mergeLogs.length > 0 && (
+        <ProcessLogPanel
+          title={t("settings.sections.maintenance.dedup.mergeLogTitle", {
+            defaultValue: "合并过程日志",
+          })}
+          lines={mergeLogs}
+          live={!!mergeProgress}
+        />
+      )}
+
       {visibleGroups.map((entry) => {
         const entryKey = groupKey(entry.group.slugs)
         const idx = groups.findIndex((g) => groupKey(g.group.slugs) === entryKey)
@@ -686,6 +880,7 @@ export function MaintenanceSection() {
             task={task}
             mergeProgress={mergeProgress}
             enqueueing={enqueueingKey === entryKey}
+            mergeReady={mergeLlmReady}
             mergeError={mergeErrors[entryKey] ?? null}
             pendingPosition={
               task && task.status === "pending"
@@ -705,6 +900,30 @@ export function MaintenanceSection() {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+function ProcessLogPanel({
+  title,
+  lines,
+  live,
+}: {
+  title: string
+  lines: readonly string[]
+  live?: boolean
+}) {
+  return (
+    <div className="space-y-1.5 rounded border border-border/60 bg-background/80 px-2 py-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        {live ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        <span>{title}</span>
+      </div>
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/90">
+        {lines.length > 0
+          ? lines.join("\n")
+          : "…"}
+      </pre>
+    </div>
+  )
+}
 
 interface QueueOrphanListProps {
   tasks: readonly DedupTask[]
@@ -880,6 +1099,7 @@ interface CardProps {
   task: DedupTask | undefined
   mergeProgress: { taskId: string; stage: DedupMergeStage } | null
   enqueueing: boolean
+  mergeReady: boolean
   mergeError: string | null
   pendingPosition: number
   onCanonicalChange: (slug: string) => void
@@ -894,6 +1114,7 @@ function DuplicateGroupCard({
   task,
   mergeProgress,
   enqueueing,
+  mergeReady,
   mergeError,
   pendingPosition,
   onCanonicalChange,
@@ -982,7 +1203,7 @@ function DuplicateGroupCard({
           <div className="flex flex-wrap gap-2">
             {!task && (
               <>
-                <Button size="sm" onClick={onEnqueue} disabled={enqueueing}>
+                <Button size="sm" onClick={onEnqueue} disabled={enqueueing || !mergeReady}>
                   {enqueueing ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />

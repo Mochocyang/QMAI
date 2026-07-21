@@ -21,6 +21,8 @@ import { normalizePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
+import { removeGroupFromDedupScanCache } from "@/lib/dedup-scan-cache"
+import { removeMergedDedupGroupFromSession } from "@/lib/dedup-scan-session"
 import { executeMerge, type DedupMergeStage } from "@/lib/dedup-runner"
 import type { DuplicateGroup } from "@/lib/dedup"
 
@@ -46,6 +48,7 @@ let currentProjectId = ""
 let currentProjectPath = ""
 let currentAbortController: AbortController | null = null
 let currentMergeProgress: { taskId: string; stage: DedupMergeStage } | null = null
+let currentMergeLogs: string[] = []
 
 type MergeCompleteListener = (task: DedupTask) => void
 const mergeCompleteListeners = new Set<MergeCompleteListener>()
@@ -231,6 +234,11 @@ export function getMergeProgress(): { taskId: string; stage: DedupMergeStage } |
   return currentMergeProgress
 }
 
+/** In-memory process logs for the currently processing merge (not persisted). */
+export function getMergeLogs(): readonly string[] {
+  return currentMergeLogs
+}
+
 export function getQueueSummary(): {
   pending: number
   processing: number
@@ -260,6 +268,7 @@ export function clearQueueState(): void {
   currentProjectPath = ""
   currentAbortController = null
   currentMergeProgress = null
+  currentMergeLogs = []
 }
 
 /**
@@ -278,6 +287,7 @@ export async function pauseQueue(): Promise<void> {
   }
   processing = false
   currentMergeProgress = null
+  currentMergeLogs = []
 
   for (const task of queue) {
     if (task.status === "processing") {
@@ -392,6 +402,9 @@ async function processNext(projectId: string): Promise<void> {
     next.error = "LLM 未配置，请在设置中配置大模型提供方"
     processing = false
     currentMergeProgress = null
+    currentMergeLogs = [
+      `${new Date().toLocaleTimeString()}  LLM 未配置，请在设置中配置大模型提供方`,
+    ]
     await saveQueue(pp)
     return
   }
@@ -402,6 +415,19 @@ async function processNext(projectId: string): Promise<void> {
 
   currentAbortController = new AbortController()
   currentMergeProgress = { taskId: next.id, stage: "loading" }
+  currentMergeLogs = []
+
+  const appendMergeLog = (message: string) => {
+    const stamp = new Date().toLocaleTimeString()
+    currentMergeLogs = [...currentMergeLogs, `${stamp}  ${message}`]
+    console.log(`[Dedup Queue] ${message}`)
+  }
+
+    appendMergeLog(
+    next.modelId?.trim()
+      ? `合并模型 id：${next.modelId.trim()}`
+      : "任务未指定合并 modelId，回退默认模型",
+  )
 
   try {
     await executeMerge(pp, next.group, next.canonicalSlug, llmConfig, {
@@ -409,11 +435,22 @@ async function processNext(projectId: string): Promise<void> {
       onProgress: (stage) => {
         currentMergeProgress = { taskId: next.id, stage }
       },
+      onLog: appendMergeLog,
     })
+
+    // Merge already wrote to disk. Always drop the candidate group from
+    // scan cache + live UI session — even if the active project changed
+    // mid-flight (otherwise the card stays and a second merge 404s).
+    await removeGroupFromDedupScanCache(pp, next.group.slugs).catch((err) => {
+      console.error("[Dedup Queue] failed to update scan cache after merge:", err)
+    })
+    removeMergedDedupGroupFromSession(next.group.slugs)
+
     if (currentProjectId !== projectId) return
 
     currentAbortController = null
     currentMergeProgress = null
+    // Keep logs until the next task starts so the UI can show completion briefly.
     const completedTask = { ...next }
     queue = queue.filter((t) => t.id !== next.id)
     await saveQueue(pp)
@@ -427,6 +464,25 @@ async function processNext(projectId: string): Promise<void> {
     currentAbortController = null
     currentMergeProgress = null
     const message = err instanceof Error ? err.message : String(err)
+    appendMergeLog(`失败：${message}`)
+
+    // Stale candidate after a prior successful merge (UI/list not cleared):
+    // drop it so the user cannot keep retrying a deleted page.
+    const missingPage =
+      /not found on disk|ENOENT|No such file|文件不存在|was the page deleted/i.test(
+        message,
+      )
+    if (missingPage) {
+      await removeGroupFromDedupScanCache(pp, next.group.slugs).catch(() => {})
+      removeMergedDedupGroupFromSession(next.group.slugs)
+      queue = queue.filter((t) => t.id !== next.id)
+      await saveQueue(pp)
+      appendMergeLog("候选页面已不存在，已从列表移除")
+      processing = false
+      processNext(projectId)
+      return
+    }
+
     next.retryCount++
     next.error = message
 

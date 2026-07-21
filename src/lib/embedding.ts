@@ -24,9 +24,34 @@ import { readFile, listDirectory } from "@/commands/fs"
 import { invoke } from "@tauri-apps/api/core"
 import type { EmbeddingConfig } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
+import { mapWithConcurrency } from "@/lib/async-pool"
 import { normalizePath } from "@/lib/path-utils"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { chunkMarkdown, type Chunk } from "@/lib/text-chunker"
+
+/**
+ * Bound concurrent page reindexes. Wider than this mostly burns
+ * embedding-API rate limits / Tauri IPC without wall-clock wins;
+ * narrower leaves HTTP idle. 8 matches the search-read / caption
+ * pool sweet spot used elsewhere.
+ */
+const EMBED_ALL_CONCURRENCY = 8
+
+/**
+ * Serialize LanceDB v2 mutations. Concurrent delete+add on the same
+ * table races (especially first-create), so every upsert/delete
+ * chains through this promise queue regardless of caller.
+ */
+let vectorWriteChain: Promise<void> = Promise.resolve()
+
+function withVectorWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = vectorWriteChain.then(fn, fn)
+  vectorWriteChain = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
 
 // ── Error surfacing ──────────────────────────────────────────────────────
 
@@ -277,16 +302,18 @@ async function vectorUpsertChunks(
   chunks: ChunkUpsertInput[],
 ): Promise<void> {
   const pp = normalizePath(projectPath)
-  await invoke("vector_upsert_chunks", {
-    projectPath: pp,
-    pageId,
-    chunks: chunks.map((c) => ({
-      chunk_index: c.chunkIndex,
-      chunk_text: c.chunkText,
-      heading_path: c.headingPath,
-      embedding: c.embedding.map((v) => Math.fround(v)),
-    })),
-  })
+  await withVectorWriteLock(() =>
+    invoke("vector_upsert_chunks", {
+      projectPath: pp,
+      pageId,
+      chunks: chunks.map((c) => ({
+        chunk_index: c.chunkIndex,
+        chunk_text: c.chunkText,
+        heading_path: c.headingPath,
+        embedding: c.embedding.map((v) => Math.fround(v)),
+      })),
+    }),
+  )
 }
 
 interface ChunkSearchResult {
@@ -313,10 +340,12 @@ async function vectorSearchChunks(
 
 async function vectorDeletePage(projectPath: string, pageId: string): Promise<void> {
   const pp = normalizePath(projectPath)
-  await invoke("vector_delete_page", {
-    projectPath: pp,
-    pageId,
-  })
+  await withVectorWriteLock(() =>
+    invoke("vector_delete_page", {
+      projectPath: pp,
+      pageId,
+    }),
+  )
 }
 
 async function vectorCountChunks(projectPath: string): Promise<number> {
@@ -458,7 +487,7 @@ export async function embedAllPages(
   walk(tree)
 
   let done = 0
-  for (const file of mdFiles) {
+  await mapWithConcurrency(mdFiles, EMBED_ALL_CONCURRENCY, async (file) => {
     try {
       const content = await readFile(file.path)
       const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
@@ -468,8 +497,8 @@ export async function embedAllPages(
       // skip — individual file failure doesn't halt the batch
     }
     done++
-    if (onProgress) onProgress(done, mdFiles.length)
-  }
+    onProgress?.(done, mdFiles.length)
+  })
 
   return done
 }

@@ -28,15 +28,26 @@ export type DedupMergeStage = "loading" | "merging" | "writing"
 
 export type DedupScanStage = "loading" | "detecting"
 
+/** Append-only process log line for UI / console. */
+export type DedupLogFn = (message: string) => void
+
 export interface ExecuteMergeOptions {
   signal?: AbortSignal
   onProgress?: (stage: DedupMergeStage) => void
+  onLog?: DedupLogFn
 }
 
 export interface RunDuplicateDetectionOptions {
   signal?: AbortSignal
   summaries?: EntitySummary[]
   onProgress?: (stage: DedupScanStage) => void
+  onLog?: DedupLogFn
+}
+
+function describeLlm(llmConfig: LlmConfig): string {
+  const provider = llmConfig.provider?.trim() || "unknown"
+  const model = llmConfig.model?.trim() || "unknown"
+  return `${provider}/${model}`
 }
 
 export interface DuplicateDetectionResult {
@@ -214,21 +225,31 @@ export async function runDuplicateDetection(
   llmConfig: LlmConfig,
   options: RunDuplicateDetectionOptions = {},
 ): Promise<DuplicateDetectionResult> {
+  const log = options.onLog
+  log?.(`开始扫描，模型：${describeLlm(llmConfig)}`)
   options.onProgress?.("loading")
+  log?.("正在读取实体 / 概念页面…")
   const summaries =
     options.summaries ?? (await loadAllEntitySummaries(projectPath))
+  log?.(`已读取 ${summaries.length} 个实体 / 概念页面`)
 
   if (summaries.length < 2) {
+    log?.("页面不足 2 个，跳过模型检测")
     return { groups: [], scannedPageCount: summaries.length }
   }
 
   options.onProgress?.("detecting")
   const notDup = await loadNotDuplicates(projectPath)
+  if (notDup.length > 0) {
+    log?.(`已加载 ${notDup.length} 组「非重复」白名单`)
+  }
+  log?.("正在调用模型分析重复候选…")
   const llm = buildDedupLlmCall(llmConfig)
   const groups = await detectDuplicateGroups(summaries, llm, {
     signal: options.signal,
     notDuplicates: notDup,
   })
+  log?.(`模型分析完成，得到 ${groups.length} 组重复候选`)
   return { groups, scannedPageCount: summaries.length }
 }
 
@@ -256,11 +277,17 @@ export async function executeMerge(
   options: ExecuteMergeOptions = {},
 ): Promise<MergeResult> {
   const pp = normalizePath(projectPath)
-  const { signal, onProgress } = options
+  const { signal, onProgress, onLog: log } = options
+
+  log?.(
+    `开始合并 ${group.slugs.join(", ")} → ${canonicalSlug}，模型：${describeLlm(llmConfig)}`,
+  )
 
   // 1. Resolve each group slug to its actual on-disk path + content
   onProgress?.("loading")
+  log?.("正在读取 wiki 页面…")
   const allPages = await loadAllWikiPages(pp)
+  log?.(`已读取 ${allPages.length} 个 wiki 页面`)
   const pathBySlug = new Map<string, string>()
   for (const p of allPages) {
     const base = p.path.split("/").pop() ?? ""
@@ -288,6 +315,7 @@ export async function executeMerge(
 
   const llm = buildDedupLlmCall(llmConfig)
   onProgress?.("merging")
+  log?.("正在调用模型合并正文…")
   const result = await mergeDuplicateGroup(
     {
       group: groupPages,
@@ -297,8 +325,10 @@ export async function executeMerge(
     llm,
     { signal },
   )
+  log?.("模型正文合并完成")
 
   onProgress?.("writing")
+  log?.("正在写入备份与文件…")
 
   // 2. Snapshot backup before any writes. If a write fails partway
   //    through, the user has the pre-merge state intact in
@@ -309,14 +339,19 @@ export async function executeMerge(
     const sanitized = b.path.replace(/[/\\]/g, "_")
     await writeFile(`${backupDir}/${sanitized}`, b.content)
   })
+  log?.(`已备份 ${result.backup.length} 个文件 → ${backupDir}`)
 
   // 3. Write canonical
   await writeFile(`${pp}/${result.canonicalPath}`, result.canonicalContent)
+  log?.(`已写入主条目 ${result.canonicalPath}`)
 
   // 4. Apply rewrites
   await runWithConcurrency(result.rewrites, WIKI_WRITE_CONCURRENCY, async (r) => {
     await writeFile(`${pp}/${r.path}`, r.newContent)
   })
+  if (result.rewrites.length > 0) {
+    log?.(`已改写 ${result.rewrites.length} 个交叉引用页面`)
+  }
 
   // 5. Delete merged-away pages
   await runWithConcurrency(result.pagesToDelete, WIKI_WRITE_CONCURRENCY, async (dead) => {
@@ -325,8 +360,12 @@ export async function executeMerge(
     } catch (err) {
       // Surface as a warning — backup is still safe.
       console.warn(`[dedup] failed to delete ${dead}: ${err}`)
+      log?.(`删除失败（已有备份）：${dead}`)
     }
   })
+  if (result.pagesToDelete.length > 0) {
+    log?.(`已删除 ${result.pagesToDelete.length} 个合并掉的页面`)
+  }
 
   // 6. Rewrite index.md to drop merged-away entries.
   const indexPath = `${pp}/wiki/index.md`
@@ -338,8 +377,10 @@ export async function executeMerge(
     const rewritten = rewriteIndexMd(indexEntry.content, removed)
     if (rewritten !== indexEntry.content) {
       await writeFile(indexPath, rewritten)
+      log?.("已更新 wiki/index.md")
     }
   }
 
+  log?.("合并完成")
   return result
 }
