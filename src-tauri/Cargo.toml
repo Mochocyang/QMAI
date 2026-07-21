@@ -1,6 +1,6 @@
 [package]
 name = "qmai"
-version = "2.2.37"
+version = "3.0.0"
 description = "QMAI - AI writing system for long-form novels"
 authors = ["Mochocyang"]
 edition = "2021"

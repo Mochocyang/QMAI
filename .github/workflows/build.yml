@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "目标 Release Tag（手动触发时上传 Linux 版本到指定 Release）"
-        required: true
-        default: "v2.2.31"
 
 permissions:
   contents: write
@@ -60,17 +54,6 @@ jobs:
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
 
-          - label: linux-x64
-            display_label: Linux x64
-            runner: ubuntu-22.04
-            rust_targets: ""
-            tauri_args: "--bundles appimage,deb"
-            pdfium_asset: "pdfium-linux-x64.tgz"
-            pdfium_library: "libpdfium.so"
-            artifact_globs: |
-              src-tauri/target/**/release/bundle/appimage/*.AppImage
-              src-tauri/target/**/release/bundle/deb/*.deb
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,24 +72,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            protobuf-compiler \
-            wget \
-            xdg-utils
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -252,37 +217,12 @@ jobs:
           fi
           tar -C "$(dirname "$app_path")" -czf "release-assets/QMaiWrite_${version}_${system_label}.app.tar.gz" "$(basename "$app_path")"
 
-      - name: Package Linux release assets
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
-          mkdir -p release-assets
-
-          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
-          if [ -n "$appimage_path" ]; then
-            cp "$appimage_path" "release-assets/QMaiWrite_${version}_linux_X64.AppImage"
-          fi
-
-          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
-          if [ -n "$deb_path" ]; then
-            cp "$deb_path" "release-assets/QMaiWrite_${version}_linux_X64.deb"
-          fi
-
       - name: Attach macOS assets to release
         if: runner.os == 'macOS'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_macOS_* --clobber
-
-      - name: Attach Linux assets to release
-        if: runner.os == 'Linux'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_linux_* --clobber
 
       - name: Build Windows portable
         if: matrix.label == 'windows-x64'
@@ -313,109 +253,5 @@ jobs:
         with:
           name: qmai-${{ matrix.label }}
           path: ${{ matrix.artifact_globs }}
-          if-no-files-found: warn
-          retention-days: 14
-
-  build-linux-only:
-    name: Build Linux x64 (manual)
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-22.04
-    env:
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            protobuf-compiler \
-            wget \
-            xdg-utils
-
-      - name: Install PDFium binary
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pdfium" src-tauri/pdfium
-          curl -L --fail --retry 5 --retry-delay 2 \
-            -o "$RUNNER_TEMP/pdfium.tgz" \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz"
-          tar -xzf "$RUNNER_TEMP/pdfium.tgz" -C "$RUNNER_TEMP/pdfium"
-          cp "$RUNNER_TEMP/pdfium/lib/libpdfium.so" "src-tauri/pdfium/libpdfium.so"
-          ls -la src-tauri/pdfium
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build Tauri app
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles appimage,deb
-
-      - name: Package Linux release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
-          mkdir -p release-assets
-
-          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
-          if [ -n "$appimage_path" ]; then
-            cp "$appimage_path" "release-assets/QMaiWrite_${version}_linux_X64.AppImage"
-          fi
-
-          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
-          if [ -n "$deb_path" ]; then
-            cp "$deb_path" "release-assets/QMaiWrite_${version}_linux_X64.deb"
-          fi
-
-      - name: Upload to target release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${{ inputs.release_tag }}"
-          echo "上传到 Release: $TAG"
-          gh release upload "$TAG" release-assets/QMaiWrite_*_linux_* --clobber
-          echo "上传完成！"
-
-      - name: Upload bundles as workflow artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qmai-linux-x64
-          path: |
-            src-tauri/target/**/release/bundle/appimage/*.AppImage
-            src-tauri/target/**/release/bundle/deb/*.deb
           if-no-files-found: warn
           retention-days: 14

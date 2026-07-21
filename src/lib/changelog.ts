@@ -7,6 +7,33 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "3.0.0",
+  date: "2026-07-22",
+  highlights: {
+    en: [
+      "AI Chat: Real-time streaming with typewriter effect, visible thinking process, tool call chain visualization, plan-before-write mode, @reference system, and 20+ built-in tools.",
+      "AI Outline: Multi-agent collaborative generation with 14-stage workflow, quality check loop, intelligent save classification, and progressive stage tracking.",
+      "De-AI: Batch parallel processing for multiple chapters, three-column review panel (chapter list / original / revised), breakpoint resume, and persistent task storage.",
+      "Brand Visual: Complete 'Cangzhu' brand visual system with signature teal-green color, redesigned welcome page, chat panel styling, and sidebar optimization.",
+      "Context & Memory: CJK-aware context budgeting, three-layer cache system, and user memory system that learns and remembers your writing preferences.",
+      "Export Center: Unified export for chapters/outlines/dismantling/simulations/soul works, supporting TXT and DOCX (self-implemented, no external dependencies).",
+      "Story Simulation: Multi-agent blackboard collaboration, director agent for plot quality evaluation, rumor system, and external tool (MCP) connection support.",
+      "@Reference: Input @ to reference chapters, memories, outlines, simulations, skills, and chat history across both AI Chat and AI Outline.",
+    ],
+    zh: [
+      "AI 对话全面升级：逐字流式输出、思考过程实时可见、工具调用链可视化、写前计划确认、@引用功能，内置 20+ 工具，AI 不再是黑盒",
+      "AI 大纲重构：多智能体协作生成，14 阶段工作流，质量检查闭环，智能分类保存，渐进式阶段追踪",
+      "去 AI 味升级：批量并行处理多章节，三栏审核面板（章节列表/原文/修改后），断点恢复，任务进度持久化",
+      "品牌视觉系统化：苍竹青绿色品牌风格，欢迎页、聊天面板、侧边栏全新设计",
+      "上下文与记忆：中英文自适应上下文预算，三层缓存加速，用户记忆系统自动学习写作偏好",
+      "统一导出中心：支持章节/大纲/拆书库/推演/灵魂作品导出，TXT 和 Word 双格式，完全自研无需安装 Word",
+      "剧情推演升级：多智能体黑板协作，导演智能体评估剧情质量，谣言系统，支持连接外部工具扩展能力",
+      "@ 引用功能：输入 @ 即可引用章节、记忆、大纲、推演、技能和对话历史，AI 对话和 AI 大纲均支持",
+    ],
+  },
+};
+
 const TWO_POINT_TWO_THIRTY_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "2.2.37",
   date: "2026-07-15",
@@ -865,6 +892,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_ZERO_CHANGELOG.version)
+    return [THREE_POINT_ZERO_ZERO_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_SEVEN_CHANGELOG.version)
     return [TWO_POINT_TWO_THIRTY_SEVEN_CHANGELOG];
   if (version === TWO_POINT_TWO_THIRTY_SIX_CHANGELOG.version)
@@ -936,6 +965,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_ZERO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_SEVEN_CHANGELOG,
     TWO_POINT_TWO_THIRTY_SIX_CHANGELOG,
     TWO_POINT_TWO_THIRTY_FIVE_CHANGELOG,
