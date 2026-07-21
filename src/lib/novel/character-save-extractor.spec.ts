@@ -180,4 +180,36 @@ describe("character-save-extractor", () => {
   it("清理角色文件名中的非法字符", () => {
     expect(buildCharacterFileName("男主", "林:辰/一号")).toBe("角色-男主-林-辰-一号.md")
   })
+
+  it("无标题无字段时按段落兜底拆分多角色", () => {
+    const result = extractCharacterSaveDrafts([
+      "张三，男主，京城世家子弟，性格沉稳。",
+      "",
+      "苏晚，女主，江南书香门第，聪慧机敏。",
+    ].join("\n"))
+
+    expect(result.drafts).toHaveLength(2)
+    expect(result.drafts[0]).toMatchObject({
+      characterName: "张三",
+      roleType: "男主",
+      selected: true,
+    })
+    expect(result.drafts[1]).toMatchObject({
+      characterName: "苏晚",
+      roleType: "女主",
+      selected: true,
+    })
+    expect(result.errors[0]).toContain("已按段落自动拆分")
+  })
+
+  it("段落兜底跳过不含角色关键字的段落", () => {
+    const result = extractCharacterSaveDrafts([
+      "张三，京城世家子弟，性格沉稳。",
+      "",
+      "苏晚，女主，江南书香门第，聪慧机敏。",
+    ].join("\n"))
+
+    expect(result.drafts).toHaveLength(1)
+    expect(result.drafts[0].characterName).toBe("苏晚")
+  })
 })

@@ -144,12 +144,65 @@ function extractSingleByFields(content: string): CharacterSaveDraft | null {
   return createDraft(role, name, content, role ? "medium" : "low")
 }
 
+const PARAGRAPH_ROLE_PATTERN = /(男主|女主|男配|女配|反派|导师|盟友|配角|主角)/
+const PARAGRAPH_NAME_PATTERNS = [
+  /(?:姓名|角色名|名字)[：:]\s*([^\n，,。；;]{1,24})/,
+  /^([^\n，,。；:：\-—\s]{1,24})[，,]/,
+  /^([^\n，,。；:：\-—\s]{1,24})\s*[,，]/,
+]
+
+function splitByParagraphs(content: string): CharacterSaveDraft[] {
+  // 按空行或 --- 分割段落
+  const paragraphs = content
+    .split(/\n\s*\n|\n---\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+
+  if (paragraphs.length <= 1) return []
+
+  const drafts: CharacterSaveDraft[] = []
+  for (const para of paragraphs) {
+    // 必须包含角色关键字才认为是角色描述
+    const roleMatch = para.match(PARAGRAPH_ROLE_PATTERN)
+    if (!roleMatch) continue
+
+    // 尝试从段落首行提取名字
+    const firstLine = para.split(/\r?\n/)[0] ?? para
+    let name: string | null = null
+    for (const pattern of PARAGRAPH_NAME_PATTERNS) {
+      const m = firstLine.match(pattern)
+      if (m && m[1]) {
+        name = cleanFieldValue(m[1])
+        if (name) break
+      }
+    }
+    // 没有明确名字时跳过，避免误识别
+    if (!name) continue
+
+    const draft = createDraft(roleMatch[1], name, para, "low")
+    // 段落兜底默认选中，让用户在弹窗中确认
+    draft.selected = true
+    drafts.push(draft)
+  }
+
+  return drafts
+}
+
 export function extractCharacterSaveDrafts(content: string): CharacterSaveExtractionResult {
   const headingDrafts = splitByCharacterHeadings(content)
   if (headingDrafts.length > 0) return { drafts: headingDrafts, errors: [] }
 
   const fieldDraft = extractSingleByFields(content)
   if (fieldDraft) return { drafts: [fieldDraft], errors: [] }
+
+  // 段落兜底：无标题无字段时按段落分割
+  const paragraphDrafts = splitByParagraphs(content)
+  if (paragraphDrafts.length > 0) {
+    return {
+      drafts: paragraphDrafts,
+      errors: [`已按段落自动拆分 ${paragraphDrafts.length} 个角色，请检查命名和角色定位是否准确。`],
+    }
+  }
 
   return {
     drafts: [],
