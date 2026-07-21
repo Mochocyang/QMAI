@@ -1965,8 +1965,21 @@ export function ChatPanel() {
             (m) => m.id === assistantMessage.id && m.role === "assistant",
           )
           const fullContent = lastAssistant?.content || record.finalText || ""
+          // 诊断日志：帮助定位"计划弹窗有时不出现"问题
+          const hasMarker = fullContent.includes("<!-- chapter_plan -->")
+          console.info("[PlanExecute] 检查计划提取", {
+            conversationId: capturedConvId,
+            fullContentLength: fullContent.length,
+            hasChapterPlanMarker: hasMarker,
+            messageContentLength: lastAssistant?.content?.length ?? 0,
+            recordFinalTextLength: record.finalText?.length ?? 0,
+          })
           const extracted = extractChapterPlan(fullContent)
           if (extracted) {
+            console.info("[PlanExecute] 计划提取成功，弹出确认对话框", {
+              planLength: extracted.plan.length,
+              bodyLength: extracted.body.length,
+            })
             const action = await requestChapterPlanConfirm(
               extracted.plan,
               fullContent,
@@ -1989,6 +2002,12 @@ export function ChatPanel() {
               }
               await handleSendRef.current(followupText, [], "执行已确认计划", confirmedBlueprint, capturedConvId)
             }
+          } else {
+            console.warn("[PlanExecute] 计划提取失败，不弹窗", {
+              fullContentLength: fullContent.length,
+              hasChapterPlanMarker: hasMarker,
+              preview: fullContent.slice(0, 200),
+            })
           }
         }
       } catch (error) {

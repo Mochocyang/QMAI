@@ -7,7 +7,6 @@ import {
 } from "@/lib/novel/outline-find-protocol"
 import { buildSelectedSkillsPrompt } from "./select-skills-plugin"
 import { getWorkflowModeLabel, resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "../workflow-mode"
-import { WRITING_INTENTS } from "../plan-execute-policy"
 
 export interface BuildSystemPromptPluginDeps {
   baseSystemPrompt?: string
@@ -50,9 +49,6 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         }
 
         const routeForWriting = input.effectiveTaskRoute || input.taskRoute
-        const isWritingTask = Boolean(
-          routeForWriting?.intent && WRITING_INTENTS.has(routeForWriting.intent),
-        )
 
         if (shouldIncludeOutlineFindProtocol(routeForWriting?.intent)) {
           const outlineProtocol = buildOutlineFindProtocol(routeForWriting?.chapterNumber)
@@ -61,11 +57,13 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         }
 
         if (input.planExecuteEnabled && input.aiWorkflowMode) {
-          if (isWritingTask) {
-            const planProtocol = buildChapterPlanProtocol(input.aiWorkflowMode)
-            parts.push(planProtocol)
-            rulesParts.push(planProtocol)
-          }
+          // 放宽条件：只要用户开启了计划执行就注入计划协议，不再强制要求 isWritingTask。
+          // 原因：routeTask 基于正则匹配覆盖有限，"帮我写一段"、"继续故事" 等写作请求
+          // 会被误识别为 general_chat，导致计划协议不注入、AI 不输出计划、弹窗不出现。
+          // 让 AI 自行判断当前请求是否需要输出计划，避免漏弹窗。
+          const planProtocol = buildChapterPlanProtocol(input.aiWorkflowMode)
+          parts.push(planProtocol)
+          rulesParts.push(planProtocol)
         }
 
         if (route) {

@@ -24,6 +24,14 @@ const EXTRA_PLAN_KEYWORD_PATTERNS = [
   /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:缺失资料|缺失信息|缺失内容)/u,
   /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:确认后动作|确认动作|后续动作)/u,
   /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:计划概览|创作计划|写作计划|章节计划)/u,
+  // 新增：AI 常见但之前未覆盖的计划标题
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:本章概要|章节概要|本章简介|章节简介)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:写作思路|创作思路|写作方向|创作方向)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:情节安排|剧情安排|场景安排|场景计划)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:人物状态|角色状态|人物变化|角色变化)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:伏笔安排|信息揭示|信息流安排)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:章末状态|结尾状态|收束状态)/u,
+  /(?:^|\n)\s*(?:#{1,4}\s*)?(?:\d+[.、]\s*)?(?:本章计划|本章策划|章节策划)/u,
 ]
 
 export function extractChapterPlan(fullContent: string): { plan: string; body: string } | null {
@@ -44,9 +52,13 @@ function extractUnmarkedChapterPlan(fullContent: string): { plan: string; body: 
   if (!plan) return null
   const allPatterns = [...FALLBACK_PLAN_SECTION_PATTERNS, ...EXTRA_PLAN_KEYWORD_PATTERNS]
   const matchedSections = allPatterns.filter((pattern) => pattern.test(plan)).length
-  // 至少匹配 2 个计划相关段落即认为是计划内容
-  if (matchedSections < 2) return null
-  return { plan, body: "" }
+  // 放宽匹配策略：
+  // - matchedSections >= 2：明确是计划，直接返回（原逻辑）
+  // - matchedSections == 1：可能是计划，但要求内容足够长（>=200字）避免短回复误识别
+  // - matchedSections == 0：不是计划
+  if (matchedSections >= 2) return { plan, body: "" }
+  if (matchedSections === 1 && plan.length >= 200) return { plan, body: "" }
+  return null
 }
 
 export function buildPlanConfirmMessage(plan: string): string {
