@@ -20,6 +20,7 @@ import {
 } from "./chapter-ingest"
 import { buildContextPack, type ContextPack } from "./context-engine"
 import { resolveDefaultModel, resolveModelConfig, resolveNovelModel } from "@/lib/novel/model-resolver"
+import { buildPureOutlineMarkdown } from "./outline-markdown"
 
 export type OutlineSectionGenerationKey =
   | "chapterOutlines"
@@ -115,17 +116,7 @@ function getStoryOutlineFileName(): string {
 }
 
 function outlinePageMarkdown(title: string, content: string): string {
-  return [
-    "---",
-    "type: outline",
-    `title: "${title.replace(/"/g, '\\"')}"`,
-    "---",
-    "",
-    `# ${title}`,
-    "",
-    content.trim(),
-    "",
-  ].join("\n")
+  return buildPureOutlineMarkdown(title, content)
 }
 
 function appendContextSection(sections: string[], title: string, content: string | string[]) {

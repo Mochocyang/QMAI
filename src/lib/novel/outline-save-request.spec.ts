@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   characterDraftsToSaveRequests,
   formatOutlineSaveParseFeedback,
@@ -65,7 +65,7 @@ describe("outline-save-request", () => {
     expect(result.errors.join("\n")).toContain("不能使用绝对路径")
   })
 
-  it("创建文件时自动避开同名文件并写入前置信息", async () => {
+  it("创建文件时自动避开同名文件并写入纯 Markdown", async () => {
     const written = new Map<string, string>()
     const existing = new Set(["C:/book/wiki/outlines/章纲/章纲-第001章.md"])
 
@@ -93,7 +93,64 @@ describe("outline-save-request", () => {
       writeMode: "create",
     }])
     expect(written.get("C:/book/wiki/outlines/章纲/章纲-第001章-2.md"))
-      ?.toContain("source_intent: \"生成第001章章纲\"")
+      .toBe("# 章纲-第001章\n\n正文\n")
+  })
+
+  it.each(["replace", "patch"] as const)("未确认时继续跳过 %s 写入", async (writeMode) => {
+    const writeFile = vi.fn()
+
+    const result = await saveOutlineSaveRequests({
+      outlineRoot: "C:/book/wiki/outlines",
+      requests: [{
+        targetFolder: "章纲",
+        fileName: "章纲-第001章.md",
+        fileType: "chapter-outline",
+        writeMode,
+        referencedSkills: [],
+        sourceIntent: "修改第001章章纲",
+        content: "# 最新章纲\n\n正文",
+      }],
+      createDirectory: async () => {},
+      fileExists: async () => true,
+      readFile: async () => "# 原章纲\n\n旧正文\n",
+      writeFile,
+    })
+
+    expect(result.saved).toEqual([])
+    expect(result.skipped.join("\n")).toContain("需要用户明确确认")
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it.each(["replace", "patch"] as const)("用户确认后允许 %s 写入原目标文件", async (writeMode) => {
+    const writeFile = vi.fn()
+
+    const result = await saveOutlineSaveRequests({
+      outlineRoot: "C:/book/wiki/outlines",
+      confirmed: true,
+      requests: [{
+        targetFolder: "章纲",
+        fileName: "章纲-第001章.md",
+        fileType: "chapter-outline",
+        writeMode,
+        referencedSkills: [],
+        sourceIntent: "修改第001章章纲",
+        content: "# 最新章纲\n\n正文",
+      }],
+      createDirectory: async () => {},
+      fileExists: async () => true,
+      readFile: async () => "# 原章纲\n\n旧正文\n",
+      writeFile,
+    })
+
+    expect(writeFile).toHaveBeenCalledWith(
+      "C:/book/wiki/outlines/章纲/章纲-第001章.md",
+      "# 最新章纲\n\n正文\n",
+    )
+    expect(result.saved).toEqual([{
+      path: "C:/book/wiki/outlines/章纲/章纲-第001章.md",
+      fileName: "章纲-第001章.md",
+      writeMode,
+    }])
   })
 
   it("把角色保存草稿转换为人物小传保存请求", () => {

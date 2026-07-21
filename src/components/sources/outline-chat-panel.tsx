@@ -48,10 +48,6 @@ import {
   AgentToolCallMessage,
   type ToolCallRecord,
 } from "@/components/chat/agent-tool-call-message";
-import {
-  OutlineSaveConfirmDialog,
-  type OutlineSaveConfirmPayload,
-} from "@/components/sources/outline-save-confirm-dialog";
 import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog";
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
@@ -112,6 +108,8 @@ import {
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
 } from "@/lib/novel/outline-save-request";
+import { stripOutlineFrontmatter } from "@/lib/novel/outline-markdown";
+import { AiChangeReview, type AiChangeReviewItem } from "@/components/common/ai-change-review";
 import {
   resolveModelConfig,
   resolveNovelModel,
@@ -1470,6 +1468,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     mode: "normal" | "character";
     requests: OutlineSaveRequest[];
     characterDrafts: CharacterSaveDraft[];
+    reviewItems?: AiChangeReviewItem[];
   } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -1537,13 +1536,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   }, [isStreaming]);
 
   const executeConfirmedOutlineSave = useCallback(
-    async (payload: OutlineSaveConfirmPayload) => {
+    async (reviewItems: AiChangeReviewItem[]) => {
       if (!project) return;
       const projectPath = normalizePath(project.path);
-      const requests = payload.characterDrafts.length > 0
-        ? characterDraftsToSaveRequests(payload.characterDrafts, "保存人物小传")
-        : payload.requests;
-      if (requests.length === 0) {
+      const st = saveConfirmState
+      const confirmRequests = st && st.characterDrafts.length > 0
+        ? characterDraftsToSaveRequests(st.characterDrafts, "保存人物小传")
+        : (st?.requests ?? [])
+          .filter((r) => reviewItems.some((ri) => ri.id === `${r.targetFolder}/${r.fileName}`))
+          .map((r) => {
+            const matched = reviewItems.find((ri) => ri.id === `${r.targetFolder}/${r.fileName}`)
+            return matched ? { ...r, content: matched.modifiedContent } : r
+          });
+      if (confirmRequests.length === 0) {
         setSaveStatus("没有选择需要保存的内容。");
         return;
       }
@@ -1552,7 +1557,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       try {
         const saveResult = await saveOutlineSaveRequests({
           outlineRoot: `${projectPath}/wiki/outlines`,
-          requests,
+          confirmed: true,
+          requests: confirmRequests,
           createDirectory,
           fileExists,
           readFile,
@@ -1576,7 +1582,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
       }
     },
-    [project],
+    [project, saveConfirmState],
   );
 
   const handleAutoSaveOutlineRequests = useCallback(
@@ -1668,16 +1674,31 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               mode: "character",
               requests: [],
               characterDrafts: extracted.drafts,
+              reviewItems: extracted.drafts.filter((d) => d.selected).map((d) => ({
+                id: `人物小传/${d.fileName}`,
+                fileName: d.fileName,
+                originalContent: "",
+                modifiedContent: d.content,
+                selected: true,
+              })),
             });
             setSaveStatus("检测到人物小传，请确认要保存的人物角色。");
           } else {
+            const fallbackDrafts = buildFallbackCharacterDraftsFromRequests(
+              split.confirmRequired,
+            );
             setSaveConfirmState({
               title: "请确认要保存的人物角色",
               mode: "character",
               requests: [],
-              characterDrafts: buildFallbackCharacterDraftsFromRequests(
-                split.confirmRequired,
-              ),
+              characterDrafts: fallbackDrafts,
+              reviewItems: fallbackDrafts.filter((d) => d.selected).map((d) => ({
+                id: `人物小传/${d.fileName}`,
+                fileName: d.fileName,
+                originalContent: "",
+                modifiedContent: d.content,
+                selected: true,
+              })),
             });
             setSaveStatus(
               `无法自动拆分角色，请在保存前检查文件名和内容。${extracted.errors.join("；")}`,
@@ -3367,6 +3388,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             mode: "character",
             requests: [],
             characterDrafts: extracted.drafts,
+            reviewItems: extracted.drafts.filter((d) => d.selected).map((d) => ({
+              id: `人物小传/${d.fileName}`,
+              fileName: d.fileName,
+              originalContent: "",
+              modifiedContent: d.content,
+              selected: true,
+            })),
           });
           return;
         }
@@ -3406,6 +3434,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         setSaveConfirmState({
           title: "保存大纲文件",
           mode: "normal",
+          characterDrafts: [],
           requests: [{
             targetFolder: classification.targetFolder,
             fileName: classification.fileName,
@@ -3415,7 +3444,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sourceIntent: "手动保存 AI 大纲结果",
             content: mdContent,
           }],
-          characterDrafts: [],
+          reviewItems: (() => {
+            const req = {
+              targetFolder: classification.targetFolder,
+              fileName: classification.fileName,
+              fileType: classification.fileType,
+              writeMode: "create" as const,
+            }
+            return [{
+              id: `${req.targetFolder}/${req.fileName}`,
+              fileName: req.fileName,
+              originalContent: "",
+              modifiedContent: stripOutlineFrontmatter(mdContent),
+              selected: true,
+              targetFolder: req.targetFolder,
+              writeMode: req.writeMode,
+            }]
+          })(),
         });
       } catch (err) {
         setSaveStatus(
@@ -3930,12 +3975,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onConfirm={confirmClearHistory}
         />
         {saveConfirmState ? (
-          <OutlineSaveConfirmDialog
+          <AiChangeReview
             open
             title={saveConfirmState.title}
-            mode={saveConfirmState.mode}
-            requests={saveConfirmState.requests}
-            characterDrafts={saveConfirmState.characterDrafts}
+            items={saveConfirmState.reviewItems ?? []}
             onClose={() => setSaveConfirmState(null)}
             onConfirm={executeConfirmedOutlineSave}
           />

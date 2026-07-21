@@ -18,6 +18,7 @@ import type { OutlineType } from "@/lib/novel/chapter-meta";
 import { loadPlotFrameworkLibrary } from "@/lib/novel/plot-framework-library";
 import type { PlotFramework } from "@/lib/novel/plot-framework";
 import { runVolumeOutlineQualityCheck, type QualityCheckItem } from "@/lib/novel/outline-quality-check";
+import { buildPureOutlineMarkdown } from "@/lib/novel/outline-markdown";
 
 const OUTLINE_TYPES: { value: OutlineType; labelKey: string }[] = [
   { value: "story-outline", labelKey: "novel.outline.type.story" },
@@ -28,7 +29,7 @@ const OUTLINE_TYPES: { value: OutlineType; labelKey: string }[] = [
 interface OutlineCreatorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 关联的剧情框架 ID（可选，写入章纲 frontmatter 时用） */
+  /** 关联的剧情框架 ID（可选，创建章纲时显示来源） */
   frameworkId?: string;
 }
 
@@ -100,29 +101,8 @@ export function OutlineCreatorDialog({
       const outlinesDir = `${pp}/wiki/outlines`;
       await createDirectory(outlinesDir);
 
-      const escapedTitle = title.trim().replace(/"/g, '\\"');
-      const frontmatterLines = [
-        "---",
-        `title: "${escapedTitle}"`,
-        `type: outline`,
-        `outline_type: ${outlineType}`,
-      ];
-
-      if (outlineType === "volume-outline" && volumeNumber) {
-        frontmatterLines.push(`volume_number: ${volumeNumber}`);
-      }
-      if (outlineType === "chapter-outline" && chapterNumber) {
-        frontmatterLines.push(`chapter_number: ${chapterNumber}`);
-      }
       const effectiveFrameworkId = selectedFrameworkId || frameworkId;
-      if (effectiveFrameworkId && outlineType === "chapter-outline") {
-        frontmatterLines.push(
-          `framework_id: "${effectiveFrameworkId.replace(/"/g, '\\"')}"`,
-        );
-      }
-
-      frontmatterLines.push("---");
-      frontmatterLines.push("");
+      const framework = frameworks.find((item) => item.id === effectiveFrameworkId);
 
       let fileName = title
         .trim()
@@ -137,8 +117,12 @@ export function OutlineCreatorDialog({
       }
 
       const filePath = `${outlinesDir}/${fileName}.md`;
-      const fullContent =
-        frontmatterLines.join("\n") + `# ${title.trim()}\n\n`;
+      const fullContent = buildPureOutlineMarkdown(
+        title.trim(),
+        framework && outlineType === "chapter-outline"
+          ? `> 关联剧情框架：${framework.title}`
+          : "",
+      );
       await writeFile(filePath, fullContent);
 
       const tree = await listDirectory(pp);

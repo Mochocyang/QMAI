@@ -696,11 +696,14 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("uses save confirm dialog for classified outline saves", () => {
-    expect(source).toContain("OutlineSaveConfirmDialog")
+    expect(source).toContain("AiChangeReview")
+    expect(source).toContain("AiChangeReviewItem")
     expect(source).toContain("extractCharacterSaveDrafts")
     expect(source).toContain("classifyOutlineSaveTarget")
     expect(source).toContain("characterDraftsToSaveRequests")
     expect(source).toContain("splitConfirmRequiredSaveRequests")
+    expect(source).toContain("reviewItems")
+    expect(source).toContain("confirmed: true")
   })
 
   it("does not silently auto-save character requests without confirmation", () => {

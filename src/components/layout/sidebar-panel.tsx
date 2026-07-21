@@ -63,6 +63,7 @@ import {
   type ImportedChapter,
 } from "@/lib/novel/chapter-import"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
+import { buildPureOutlineMarkdown } from "@/lib/novel/outline-markdown"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
 import type { ReferenceToken } from "@/lib/reference/types"
@@ -1131,15 +1132,7 @@ export function SidebarPanel() {
         await createDirectory(outlinesRoot).catch(() => {})
         await createDirectory(targetDir).catch(() => {})
         const filePath = await getUniqueWikiPagePath(targetDir, `${makeSafeFileSlug(title)}.md`)
-        const content = [
-          "---",
-          "type: outline",
-          `title: "${title.replace(/"/g, '\\"')}"`,
-          "---",
-          "",
-          `# ${title}`,
-          "",
-        ].join("\n")
+        const content = buildPureOutlineMarkdown(title, "")
         await writeFile(filePath, content)
         setPendingPages((prev) => [
           { path: filePath, title, type: "outline", tags: [] },

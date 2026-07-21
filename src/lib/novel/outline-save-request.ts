@@ -1,5 +1,6 @@
 import { normalizePath } from "@/lib/path-utils"
 import type { CharacterSaveDraft } from "./character-save-extractor"
+import { stripOutlineFrontmatter } from "./outline-markdown"
 
 export type OutlineSaveRequestFileType =
   | "outline"
@@ -318,23 +319,8 @@ export function splitConfirmRequiredSaveRequests(requests: OutlineSaveRequest[])
   }
 }
 
-function escapeYamlString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-}
-
 function buildSaveContent(request: OutlineSaveRequest): string {
-  const skillLine = request.referencedSkills.map((skill) => `  - "${escapeYamlString(skill)}"`).join("\n")
-  const frontmatter = [
-    "---",
-    "type: outline",
-    `outline_type: ${request.fileType}`,
-    `source_intent: "${escapeYamlString(request.sourceIntent)}"`,
-    "referenced_skills:",
-    skillLine || "  []",
-    "---",
-    "",
-  ].join("\n")
-  return `${frontmatter}${request.content.trim()}\n`
+  return stripOutlineFrontmatter(request.content)
 }
 
 async function resolveUniquePath(
@@ -362,6 +348,7 @@ async function resolveUniquePath(
 export async function saveOutlineSaveRequests(input: {
   outlineRoot: string
   requests: OutlineSaveRequest[]
+  confirmed?: boolean
 } & OutlineSaveRequestFs): Promise<OutlineSaveRequestSaveResult> {
   const outlineRoot = normalizePath(input.outlineRoot).replace(/\/+$/, "")
   const result: OutlineSaveRequestSaveResult = { saved: [], skipped: [], errors: [] }
@@ -371,18 +358,29 @@ export async function saveOutlineSaveRequests(input: {
     await input.createDirectory(targetDir)
 
     if (request.writeMode === "replace" || request.writeMode === "patch") {
-      result.skipped.push(`已跳过 ${request.fileName}：${request.writeMode} 需要用户明确确认。`)
+      if (!input.confirmed) {
+        result.skipped.push(`已跳过 ${request.fileName}：${request.writeMode} 需要用户明确确认。`)
+        continue
+      }
+      const targetPath = `${targetDir}/${request.fileName}`
+      await input.writeFile(targetPath, buildSaveContent(request))
+      result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
       continue
     }
 
     if (request.writeMode === "append") {
       const targetPath = `${targetDir}/${request.fileName}`
+      if (input.confirmed) {
+        await input.writeFile(targetPath, buildSaveContent(request))
+        result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
+        continue
+      }
       if (!input.readFile) {
         result.skipped.push(`已跳过 ${request.fileName}：当前环境缺少追加读取能力。`)
         continue
       }
       const original = await input.fileExists(targetPath) ? await input.readFile(targetPath) : ""
-      await input.writeFile(targetPath, `${original.replace(/\s*$/, "\n\n")}${request.content.trim()}\n`)
+      await input.writeFile(targetPath, `${stripOutlineFrontmatter(original).replace(/\s*$/, "\n\n")}${stripOutlineFrontmatter(request.content).trim()}\n`)
       result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
       continue
     }

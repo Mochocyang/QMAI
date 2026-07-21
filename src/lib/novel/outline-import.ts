@@ -2,6 +2,7 @@ import { createDirectory, fileExists, listDirectory, readFile, writeFile } from 
 import { getFileName, getFileStem, getRelativePath, normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { buildPureOutlineMarkdown } from "./outline-markdown"
 
 export const OUTLINE_IMPORT_EXTENSIONS = [
   "md",
@@ -33,41 +34,8 @@ export interface OutlineImportCandidate {
   targetFolders: string[]
 }
 
-function yamlEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-}
-
-function sanitizeImportedBody(content: string): string {
-  let next = content.replace(/^\uFEFF/, "").trim()
-  const frontmatterMatch = next.match(/^---\n[\s\S]*?\n---\n?/)
-  if (frontmatterMatch) {
-    next = next.slice(frontmatterMatch[0].length).trim()
-  }
-  return next
-}
-
 function buildOutlineMarkdown(title: string, content: string): string {
-  const body = sanitizeImportedBody(content)
-  const lines = [
-    "---",
-    "type: outline",
-    `title: "${yamlEscape(title)}"`,
-    "---",
-    "",
-  ]
-
-  if (body.startsWith("#")) {
-    lines.push(body)
-  } else {
-    lines.push(`# ${title}`)
-    if (body) {
-      lines.push("")
-      lines.push(body)
-    }
-  }
-
-  lines.push("")
-  return lines.join("\n")
+  return buildPureOutlineMarkdown(title, content.replace(/^\uFEFF/, ""))
 }
 
 function isOutlineImportablePath(path: string): boolean {

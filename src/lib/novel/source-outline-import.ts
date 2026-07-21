@@ -1,6 +1,7 @@
 import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
 import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
 import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { buildPureOutlineMarkdown } from "./outline-markdown"
 
 export type SourceOutlineImportTarget =
   | "story-outline"
@@ -41,10 +42,6 @@ function getTargetConfig(target: SourceOutlineImportTarget): SourceOutlineImport
   return config
 }
 
-function yamlEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-}
-
 function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "")
 }
@@ -77,25 +74,10 @@ function buildSourceSection(sourcePath: string, relativeSourcePath: string, sour
 }
 
 function buildOutlinePage(
-  config: SourceOutlineImportConfig,
   pageTitle: string,
-  relativeSourcePath: string,
   section: string,
 ): string {
-  const frontmatter = [
-    "---",
-    "type: outline",
-    `title: "${yamlEscape(pageTitle)}"`,
-    ...(config.outlineType ? [`outline_type: ${config.outlineType}`] : []),
-    `outline_category: ${config.category}`,
-    `outline_folder: "${yamlEscape(config.folderName)}"`,
-    `sources: ["${yamlEscape(relativeSourcePath)}"]`,
-    "---",
-    "",
-    `# ${pageTitle}`,
-    "",
-  ]
-  return `${frontmatter.join("\n")}${section}`
+  return buildPureOutlineMarkdown(pageTitle, section)
 }
 
 export async function addSourceToOutlineCategory(
@@ -117,6 +99,6 @@ export async function addSourceToOutlineCategory(
 
   await createDirectory(outlinesDir)
   await createDirectory(targetDir)
-  await writeFile(outlinePath, buildOutlinePage(config, pageTitle, relativeSourcePath, section))
+  await writeFile(outlinePath, buildOutlinePage(pageTitle, section))
   return outlinePath
 }
