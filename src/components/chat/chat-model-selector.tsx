@@ -1,10 +1,11 @@
-import { useState, useMemo, useRef, useEffect } from "react"
+import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, Check } from "lucide-react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { getEffectiveSavedModels } from "@/lib/llm-model-keys"
 
 interface ChatModelSelectorProps {
   value: string
@@ -18,48 +19,47 @@ interface ModelGroup {
   models: SavedModel[]
 }
 
-const DROPDOWN_MAX_HEIGHT = 400
-const DROPDOWN_MIN_HEIGHT = 120
-const DROPDOWN_GAP = 6
+const DROPDOWN_MAX_HEIGHT = 360
+const DROPDOWN_GAP = 4
 
 export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelectorProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const [dropdownStyle, setDropdownStyle] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [dropdownStyle, setDropdownStyle] = useState<{ right: number; bottom: number; width: number; maxHeight: number } | null>(null)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
-  // 按预设/卡片分组：所有启用的内置预设 + 所有启用的自定义卡片
   const modelGroups = useMemo<ModelGroup[]>(() => {
     const groups: ModelGroup[] = []
 
-    // 遍历所有内置预设（非 custom- 开头），过滤已停用的
     const builtinKeys = Object.keys(providerConfigs).filter((k) => !k.startsWith("custom-"))
     for (const key of builtinKeys) {
       const config = providerConfigs[key]
-      // 过滤掉未启用（enabled !== true）的预设
-      if (config.enabled !== true) continue
-      if (config.savedModels && config.savedModels.length > 0) {
+      const hasConfig = config.enabled === true
+        || ((config.apiKey || config.savedModels?.length) && (config.model || config.savedModels?.length))
+      if (!hasConfig) continue
+      const models = getEffectiveSavedModels(config)
+      if (models.length > 0) {
         const preset = LLM_PRESETS.find((p) => p.id === key)
         groups.push({
           id: key,
           label: preset?.label || config.label || key,
-          models: config.savedModels,
+          models,
         })
       }
     }
 
-    // 自定义卡片
     const customKeys = Object.keys(providerConfigs).filter((k) => k.startsWith("custom-"))
     for (const key of customKeys) {
       const config = providerConfigs[key]
-      // 过滤掉已停用（enabled === false）的卡片
       if (config.enabled === false) continue
-      if (config.savedModels && config.savedModels.length > 0) {
+      const models = getEffectiveSavedModels(config)
+      if (models.length > 0) {
         groups.push({
           id: key,
           label: config.label || "自定义模型",
-          models: config.savedModels,
+          models,
         })
       }
     }
@@ -69,7 +69,6 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
 
   const selectedModel = useMemo(() => {
     if (!value) return null
-    // 优先按 "providerId/modelId" 格式精确匹配
     const slashIdx = value.indexOf("/")
     if (slashIdx > 0) {
       const providerId = value.slice(0, slashIdx)
@@ -80,7 +79,6 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         if (found) return found
       }
     }
-    // 回退：按纯模型名匹配（兼容旧数据）
     for (const group of modelGroups) {
       const found = group.models.find((m) => m.model === value)
       if (found) return found
@@ -88,45 +86,62 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     return null
   }, [value, modelGroups])
 
-  if (modelGroups.length === 0) {
-    return null
-  }
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const width = Math.max(rect.width, 280)
+    const right = Math.max(4, viewportWidth - rect.right)
+    const spaceAbove = rect.top
+    const spaceBelow = viewportHeight - rect.bottom
+    let maxHeight: number
+    let bottom: number
+    if (spaceBelow >= 200) {
+      maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, spaceBelow - DROPDOWN_GAP - 4)
+      bottom = viewportHeight - rect.bottom - DROPDOWN_GAP
+    } else {
+      maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(150, spaceAbove - DROPDOWN_GAP - 4))
+      bottom = viewportHeight - rect.top + DROPDOWN_GAP
+    }
+    setDropdownStyle({ right, bottom, width, maxHeight })
+  }, [])
 
   useEffect(() => {
     if (!open) {
       setDropdownStyle(null)
       return
     }
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const width = Math.max(rect.width, 300)
-      const availableAbove = rect.top
-      const availableBelow = window.innerHeight - rect.bottom
-      let top: number
-      let maxHeight: number
-      // 始终优先放下方，只有下方空间不足最小高度时才翻转到上方
-      if (availableBelow < DROPDOWN_MIN_HEIGHT && availableAbove >= DROPDOWN_MIN_HEIGHT) {
-        maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, availableAbove - DROPDOWN_GAP)
-        top = rect.top - maxHeight - DROPDOWN_GAP
-      } else {
-        maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(DROPDOWN_MIN_HEIGHT, availableBelow - DROPDOWN_GAP))
-        top = rect.bottom + DROPDOWN_GAP
-      }
-      setDropdownStyle({
-        left: Math.min(rect.left, window.innerWidth - width - 4),
-        top,
-        width,
-        maxHeight,
+    let frame2 = 0
+    const frame1 = requestAnimationFrame(() => {
+      frame2 = requestAnimationFrame(() => {
+        updatePosition()
       })
-    }
-    const raf = requestAnimationFrame(updatePosition)
-    window.addEventListener("resize", updatePosition)
+    })
+    const handleReposition = () => updatePosition()
+    window.addEventListener("resize", handleReposition)
+    window.addEventListener("scroll", handleReposition, true)
     return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener("resize", updatePosition)
+      cancelAnimationFrame(frame1)
+      cancelAnimationFrame(frame2)
+      window.removeEventListener("resize", handleReposition)
+      window.removeEventListener("scroll", handleReposition, true)
     }
+  }, [open, updatePosition])
+
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open])
+
+  if (modelGroups.length === 0) {
+    return null
+  }
 
   return (
     <div className="relative">
@@ -152,10 +167,11 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             onClick={() => setOpen(false)}
           />
           <div
-            className="fixed rounded-md border bg-popover p-1 shadow-md model-selector-dropdown"
+            ref={dropdownRef}
+            className="fixed rounded-md border bg-popover p-1 shadow-lg model-selector-dropdown"
             style={{
-              left: dropdownStyle.left,
-              top: dropdownStyle.top,
+              right: dropdownStyle.right,
+              bottom: dropdownStyle.bottom,
               width: dropdownStyle.width,
               maxHeight: dropdownStyle.maxHeight,
               overflowY: "auto",

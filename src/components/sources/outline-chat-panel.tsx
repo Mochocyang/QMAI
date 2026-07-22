@@ -117,6 +117,7 @@ import {
   resolveNovelModel,
   resolveUsableModelKey,
 } from "@/lib/novel/model-resolver";
+import { getEffectiveSavedModels } from "@/lib/llm-model-keys";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
 import { useStreamingText } from "@/hooks/use-streaming-text";
 import { highlightCode } from "@/lib/streaming-code-highlight";
@@ -1211,9 +1212,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (key.startsWith("custom-")) {
         if (config.enabled === false) continue;
       } else {
-        if (config.enabled !== true) continue;
+        // 内置预设：已启用，或有有效配置（apiKey + model/savedModels）
+        const hasConfig = config.enabled === true
+          || Boolean((config.apiKey || config.savedModels?.length) && (config.model || config.savedModels?.length));
+        if (!hasConfig) continue;
       }
-      if (config.savedModels && config.savedModels.length > 0) {
+      if (getEffectiveSavedModels(config).length > 0) {
         return true;
       }
     }

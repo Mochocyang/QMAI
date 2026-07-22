@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { useWikiStore } from "@/stores/wiki-store"
-import { getFirstAvailableModelKey } from "@/lib/llm-model-keys"
+import { getFirstAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { normalizePath } from "@/lib/path-utils"
 import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
@@ -292,9 +292,12 @@ export function MaintenanceSection() {
       if (key.startsWith("custom-")) {
         if (config.enabled === false) continue
       } else {
-        if (config.enabled !== true) continue
+        // 内置预设：已启用，或有有效配置（apiKey + model/savedModels）
+        const hasConfig = config.enabled === true
+          || Boolean((config.apiKey || config.savedModels?.length) && (config.model || config.savedModels?.length))
+        if (!hasConfig) continue
       }
-      if (config.savedModels && config.savedModels.length > 0) {
+      if (getEffectiveSavedModels(config).length > 0) {
         return true
       }
     }
