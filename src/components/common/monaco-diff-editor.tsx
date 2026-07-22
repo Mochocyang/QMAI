@@ -1,5 +1,4 @@
-import { useEffect, useRef, lazy, Suspense } from "react"
-import "./monaco-environment"
+import { useEffect, useRef } from "react"
 
 interface MonacoDiffEditorProps {
   originalValue: string
@@ -8,74 +7,56 @@ interface MonacoDiffEditorProps {
   language?: string
 }
 
-const MonacoEditor = lazy(() =>
-  import("@monaco-editor/react").then((mod) => ({ default: mod.DiffEditor })),
-)
-
 export function MonacoDiffEditor({
   originalValue,
   modifiedValue,
   onChange,
-  language = "markdown",
 }: MonacoDiffEditorProps) {
-  const editorRef = useRef<Parameters<NonNullable<import("@monaco-editor/react").DiffEditorProps["onMount"]>>[0] | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const preventSync = useRef(false)
 
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    const modified = editor.getModifiedEditor()
-    const disposable = modified.onDidChangeModelContent(() => {
-      if (preventSync.current) return
-      onChange(modified.getValue())
-    })
-    return () => disposable.dispose()
-  }, [onChange])
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    const model = editor.getModel()
-    if (!model) return
-    const currentModified = model.modified.getValue()
-    if (currentModified !== modifiedValue) {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    if (textarea.value !== modifiedValue) {
       preventSync.current = true
-      model.modified.setValue(modifiedValue)
+      textarea.value = modifiedValue
       preventSync.current = false
     }
   }, [modifiedValue])
 
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const handler = () => {
+      if (preventSync.current) return
+      onChange(textarea.value)
+    }
+    textarea.addEventListener("input", handler)
+    return () => textarea.removeEventListener("input", handler)
+  }, [onChange])
+
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          正在加载编辑器…
+    <div className="grid h-full grid-cols-2 divide-x overflow-hidden">
+      <div className="flex flex-col overflow-hidden">
+        <div className="border-b bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
+          原始内容
         </div>
-      }
-    >
-      <MonacoEditor
-        height="100%"
-        language={language}
-        original={originalValue}
-        modified={modifiedValue}
-        onMount={(editor) => {
-          editorRef.current = editor
-          editor.getModifiedEditor().updateOptions({ readOnly: false })
-        }}
-        options={{
-          readOnly: false,
-          renderSideBySide: true,
-          scrollBeyondLastLine: false,
-          minimap: { enabled: false },
-          lineNumbers: "on",
-          wordWrap: "on",
-          automaticLayout: true,
-          originalEditable: false,
-          diffCodeLens: false,
-          folding: false,
-          renderOverviewRuler: true,
-        }}
-      />
-    </Suspense>
+        <pre className="flex-1 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-relaxed text-muted-foreground">
+          {originalValue || "（该文件尚不存在）"}
+        </pre>
+      </div>
+      <div className="flex flex-col overflow-hidden">
+        <div className="border-b bg-muted/40 px-3 py-1 text-xs font-medium text-green-700 dark:text-green-400">
+          最新内容
+        </div>
+        <textarea
+          ref={textareaRef}
+          aria-label="最新源码"
+          className="flex-1 resize-none overflow-auto whitespace-pre-wrap break-words bg-transparent p-3 font-mono text-xs leading-relaxed outline-none"
+          spellCheck={false}
+        />
+      </div>
+    </div>
   )
 }
