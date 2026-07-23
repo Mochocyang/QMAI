@@ -54,6 +54,17 @@ jobs:
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
 
+          - label: linux-x64
+            display_label: Linux x64
+            runner: ubuntu-22.04
+            rust_targets: ""
+            tauri_args: "--bundles deb,appimage"
+            pdfium_asset: "pdfium-linux-x64.tgz"
+            pdfium_library: "libpdfium.so"
+            artifact_globs: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/appimage/*.AppImage
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,6 +93,12 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Install PDFium binary
         if: matrix.pdfium_asset != ''
@@ -246,6 +263,29 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_portable.exe --clobber
+
+      - name: Package Linux release assets
+        if: matrix.label == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+          deb_path="$(find src-tauri/target -path '*/release/bundle/deb/*.deb' -print -quit)"
+          if [ -n "$deb_path" ]; then
+            cp "$deb_path" "release-assets/QMaiWrite_${version}_linux_X64.deb"
+          fi
+          appimage_path="$(find src-tauri/target -path '*/release/bundle/appimage/*.AppImage' -print -quit)"
+          if [ -n "$appimage_path" ]; then
+            cp "$appimage_path" "release-assets/QMaiWrite_${version}_linux_X64.AppImage"
+          fi
+
+      - name: Attach Linux assets to release
+        if: matrix.label == 'linux-x64'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.ref_name }}" release-assets/QMaiWrite_*_linux_* --clobber
 
       - name: Upload bundles as workflow artifacts
         if: failure()
