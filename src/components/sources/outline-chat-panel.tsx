@@ -1501,10 +1501,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || userScrolledUpRef.current) return;
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: "smooth",
-    });
+    container.scrollTop = container.scrollHeight;
     lastScrollTopRef.current = container.scrollTop;
   }, [activeMessages, streamingContent]);
 

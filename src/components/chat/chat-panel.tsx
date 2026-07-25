@@ -1184,15 +1184,13 @@ export function ChatPanel() {
   }, [activeConversationId])
 
   // Auto-scroll to bottom when messages change or streaming content updates
-  // But stop if user manually scrolled up
+  // But stop if user manually scrolled up. Use instant scroll — smooth fights the
+  // user wheel and stacks animations while tool/thinking updates fire rapidly.
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
     if (!userScrolledUpRef.current) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: "smooth",
-      })
+      container.scrollTop = container.scrollHeight
       lastScrollTopRef.current = container.scrollTop
     }
   }, [activeMessages, batchedStreamingContent])
