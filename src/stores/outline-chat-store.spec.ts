@@ -210,6 +210,32 @@ describe("outline-chat-store", () => {
       conversations: [], activeConversationId: null, pendingReferenceTokens: [], loaded: true,
     })
   })
+
+  it("切书后 reset 再 loadFromDisk 只加载新书会话，不残留旧书历史", async () => {
+    const { resetProjectStores } = await import("@/lib/reset-project-state")
+
+    useWikiStore.setState({ project: { id: "book-a", name: "书A", path: "C:/BookA" } })
+    useOutlineChatStore.setState({
+      conversations: [conversation("from-a")],
+      activeConversationId: "from-a",
+      loaded: true,
+    })
+
+    resetProjectStores()
+    useWikiStore.setState({ project: { id: "book-b", name: "书B", path: "C:/BookB" } })
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({
+      conversations: [conversation("from-b")],
+      activeConversationId: "from-b",
+    }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    const state = useOutlineChatStore.getState()
+    expect(fsMocks.readFile).toHaveBeenCalledWith("C:/BookB/.qmai/outline-chats.json")
+    expect(state.conversations.map((item) => item.id)).toEqual(["from-b"])
+    expect(state.activeConversationId).toBe("from-b")
+    expect(state.loaded).toBe(true)
+  })
   it("persists structured model content and reloads legacy messages", async () => {
     useWikiStore.setState({ project: { name: "??", path: "C:/Book" } })
     const request: OutlineWizardRequest = {

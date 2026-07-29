@@ -11,6 +11,7 @@
 import { pauseQueue as pauseIngestQueue } from "@/lib/ingest-queue"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
+import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useReviewStore } from "@/stores/review-store"
 
 export function resetProjectStores(): void {
@@ -21,6 +22,15 @@ export function resetProjectStores(): void {
     mode: "chat",
     ingestSource: null,
     streamingContents: {},
+  })
+
+  useOutlineChatStore.setState({
+    conversations: [],
+    activeConversationId: null,
+    streamingContents: {},
+    runStates: {},
+    pendingReferenceTokens: [],
+    loaded: false,
   })
 
   useReviewStore.setState({
