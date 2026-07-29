@@ -685,6 +685,11 @@ function PresetRow({
             onChange={(reasoning) => onChange({ reasoning })}
           />
 
+          <FunctionCallingControls
+            enabled={ov.functionCallingEnabled !== false}
+            onChange={(functionCallingEnabled) => onChange({ functionCallingEnabled })}
+          />
+
           <div className="space-y-2 rounded-md border p-3">
             <div>
               <div className="text-sm font-medium">
@@ -729,6 +734,66 @@ function PresetRow({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+export function FunctionCallingControls({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className={`flex items-center justify-between rounded-md border-2 p-3 transition-colors ${
+        enabled
+          ? "border-primary/40 bg-primary/5"
+          : "border-border bg-background"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">
+          {t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {t(
+            "settings.sections.llm.functionCalling.hint",
+            "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具与 MCP），用于兼容不支持工具调用的中转或本地模型。",
+          )}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!enabled)}
+        role="switch"
+        aria-checked={enabled}
+        aria-label={t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
+        className="ml-3 flex shrink-0 items-center gap-2"
+      >
+        <span
+          className={`text-xs font-semibold ${
+            enabled ? "text-primary" : "text-muted-foreground"
+          }`}
+        >
+          {enabled
+            ? t("settings.sections.llm.functionCalling.stateOn", "ON")
+            : t("settings.sections.llm.functionCalling.stateOff", "OFF")}
+        </span>
+        <span
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            enabled ? "bg-primary" : "bg-muted"
+          }`}
+        >
+          <span
+            className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+              enabled ? "translate-x-4.5" : "translate-x-0.5"
+            }`}
+          />
+        </span>
+      </button>
     </div>
   )
 }

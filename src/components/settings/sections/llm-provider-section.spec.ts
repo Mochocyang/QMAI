@@ -24,4 +24,11 @@ describe("LLM provider model controls", () => {
     expect(source).toContain("retryFailed((modelId)")
     expect(source).toContain("重试失败模型")
   })
+
+  it("exposes a per-provider Function Calling toggle", () => {
+    expect(source).toContain("export function FunctionCallingControls")
+    expect(source).toContain("<FunctionCallingControls")
+    expect(source).toContain("functionCallingEnabled")
+    expect(source).toContain('settings.sections.llm.functionCalling.label')
+  })
 })

@@ -1292,12 +1292,12 @@ export function ChatPanel() {
         setDeAiSkillWarningMessage("请先打开一个项目")
         return
       }
-      if (!agentSupportsTools) {
-        setDeAiSkillWarningMessage("Agent 调度模型不支持工具调用，请更换小说设置中的默认模型")
-        return
-      }
       if (!agentSkillConfigLoaded || !agentConfig) {
-        setDeAiSkillWarningMessage("Agent配置仍在加载，请稍后重试")
+        setDeAiSkillWarningMessage(
+          !agentSupportsTools
+            ? "Agent 调度模型不支持工具调用，请更换小说设置中的默认模型"
+            : "Agent配置仍在加载，请稍后重试",
+        )
         return
       }
 
