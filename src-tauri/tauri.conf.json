@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "app"],
     "resources": {
       "../skills/**/*": "skills/"
     },

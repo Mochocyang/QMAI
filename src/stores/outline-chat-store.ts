@@ -9,6 +9,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
 import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
 import { isNovelGenerationRequestPackage, type NovelGenerationRequestPackage } from "@/lib/novel/novel-generation-request-package"
+import type { CharacterAgentResult } from "@/lib/novel/character-multi-agent"
 import {
   canStartConversationRun as canStartRun,
   failConversationRun as createFailedRunState,
@@ -82,6 +83,7 @@ export interface OutlineChatMessage {
   sources?: string[]
   agentToolCalls?: AgentRunRecord["toolCalls"]
   multiAgentRun?: OutlineMultiAgentRunState
+  characterMultiAgentResults?: CharacterAgentResult[]
   showThinkingProcess?: boolean
   isAgentRunning?: boolean
   attachedReferences?: ReferenceToken[]
