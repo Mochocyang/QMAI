@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig, loadSearchApiConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -298,6 +298,10 @@ function App() {
         }
         const savedMcpConfig = await loadMcpConfig()
         useWikiStore.getState().setMcpConfig(savedMcpConfig)
+        const savedSearchApiConfig = await loadSearchApiConfig()
+        if (savedSearchApiConfig) {
+          useWikiStore.getState().setSearchApiConfig(savedSearchApiConfig)
+        }
         const savedProxy = await loadProxyConfig()
         if (savedProxy) {
           useWikiStore.getState().setProxyConfig(savedProxy)

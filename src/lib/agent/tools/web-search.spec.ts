@@ -6,6 +6,12 @@ const webSearchMock = vi.fn()
 
 vi.mock("@/lib/web-search", () => ({
   resolveSearchConfig: (config: SearchApiConfig) => config,
+  providerRequiresApiKey: (provider: SearchApiConfig["provider"]) =>
+    provider === "bocha" ||
+    provider === "qiniu" ||
+    provider === "metaso" ||
+    provider === "tavily" ||
+    provider === "serpapi",
   webSearch: (...args: unknown[]) => webSearchMock(...args),
 }))
 
@@ -43,6 +49,8 @@ describe("createWebSearchTool", () => {
     expect(result.resultCount).toBe(0)
     expect(result.message).toContain("当前未配置外部搜索")
     expect(result.message).toContain("未执行联网搜索")
+    expect(result.message).toContain("设置 → 网页搜索")
+    expect(result.message).toContain("博查")
     expect(webSearchMock).not.toHaveBeenCalled()
   })
 

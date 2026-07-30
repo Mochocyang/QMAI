@@ -13,25 +13,46 @@ import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig }
 
 const SEARCH_PROVIDERS = [
   {
-    id: "tavily",
-    label: "Tavily",
-    hint: "General web search for Deep Research",
-    keyPlaceholder: "Enter your Tavily API key (tavily.com)",
+    id: "bocha",
+    label: "博查 Bocha",
+    hint: "国内推荐 · AI Agent 中文搜索（open.bochaai.com）",
+    keyPlaceholder: "博查 API Key",
     needsApiKey: true,
   },
   {
-    id: "serpapi",
-    label: "SerpApi",
-    hint: "Google, Bing, DuckDuckGo, Scholar, News, Images, Videos, YouTube",
-    keyPlaceholder: "Enter your SerpApi API key (serpapi.com)",
+    id: "qiniu",
+    label: "七牛（百度搜索）",
+    hint: "国内二级 · 百度索引，适合中文新闻与社区（api.qnaigc.com）",
+    keyPlaceholder: "七牛云 AI API Key",
+    needsApiKey: true,
+  },
+  {
+    id: "metaso",
+    label: "秘塔 Metaso",
+    hint: "国内二级 · AI 搜索，结果干净（metaso.cn）",
+    keyPlaceholder: "秘塔 API Key",
     needsApiKey: true,
   },
   {
     id: "searxng",
     label: "SearXNG",
-    hint: "Self-hosted metasearch via the SearXNG JSON API",
+    hint: "自建 · SearXNG JSON API",
     urlPlaceholder: "https://search.example.com",
     needsApiKey: false,
+  },
+  {
+    id: "tavily",
+    label: "Tavily",
+    hint: "国际 · Agent 生态通用搜索（tavily.com）",
+    keyPlaceholder: "Tavily API key",
+    needsApiKey: true,
+  },
+  {
+    id: "serpapi",
+    label: "SerpApi",
+    hint: "国际 · Google / Bing / DuckDuckGo 等 SERP（serpapi.com）",
+    keyPlaceholder: "SerpApi API key",
+    needsApiKey: true,
   },
 ] as const
 
@@ -70,7 +91,7 @@ export function WebSearchSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">{t("settings.sections.webSearch.title")} (Deep Research)</h2>
+        <h2 className="text-xl font-semibold">{t("settings.sections.webSearch.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.webSearch.description")}
         </p>
