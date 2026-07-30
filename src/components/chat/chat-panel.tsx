@@ -1184,15 +1184,13 @@ export function ChatPanel() {
   }, [activeConversationId])
 
   // Auto-scroll to bottom when messages change or streaming content updates
-  // But stop if user manually scrolled up
+  // But stop if user manually scrolled up. Use instant scroll — smooth fights the
+  // user wheel and stacks animations while tool/thinking updates fire rapidly.
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
     if (!userScrolledUpRef.current) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: "smooth",
-      })
+      container.scrollTop = container.scrollHeight
       lastScrollTopRef.current = container.scrollTop
     }
   }, [activeMessages, batchedStreamingContent])
@@ -1294,12 +1292,12 @@ export function ChatPanel() {
         setDeAiSkillWarningMessage("请先打开一个项目")
         return
       }
-      if (!agentSupportsTools) {
-        setDeAiSkillWarningMessage("Agent 调度模型不支持工具调用，请更换小说设置中的默认模型")
-        return
-      }
       if (!agentSkillConfigLoaded || !agentConfig) {
-        setDeAiSkillWarningMessage("Agent配置仍在加载，请稍后重试")
+        setDeAiSkillWarningMessage(
+          !agentSupportsTools
+            ? "Agent 调度模型不支持工具调用，请更换小说设置中的默认模型"
+            : "Agent配置仍在加载，请稍后重试",
+        )
         return
       }
 

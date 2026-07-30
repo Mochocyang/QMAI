@@ -117,7 +117,7 @@ function AgentStageRow({
         </span>
       </button>
       {open && (
-        <div className="mt-1.5 max-h-80 space-y-1.5 overflow-y-auto pr-1 pl-5 text-[12px] leading-5">
+        <div className="mt-1.5 max-h-80 space-y-1.5 overflow-y-auto pr-1 pl-5 text-[12px] leading-5 [contain:content]">
           {stage.events.map((event) => (
             <AgentActivityRow key={event.id} event={event} />
           ))}

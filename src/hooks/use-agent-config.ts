@@ -9,7 +9,7 @@ import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resol
 import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
-import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config"
+import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config"
 import type { AgentConfig } from "@/lib/agent/types"
 import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { buildMcpRuntime } from "@/lib/mcp/runtime"
@@ -111,9 +111,11 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
 
   return useMemo(() => {
     const agentLlmConfig = resolveDefaultModel(baseLlmConfig)
-    const supportsTools = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
+    const modelOk = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
+    const fcEnabled = isFunctionCallingEnabled(agentLlmConfig)
+    const supportsTools = modelOk && fcEnabled
 
-    if (!supportsTools || !projectPath || !skillConfigLoaded) {
+    if (!modelOk || !projectPath || !skillConfigLoaded) {
       return {
         config: null,
         registry: new ToolRegistry(),
@@ -130,10 +132,13 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
     const registry = new ToolRegistry()
     const wikiPath = `${normalizePath(projectPath)}/wiki`
     const novelMode = useWikiStore.getState().novelMode
-    const realMcpConnector = (mcpConfig?.servers ?? []).some((server) => server.enabled && server.command)
+    const realMcpConnector = fcEnabled
+      && (mcpConfig?.servers ?? []).some((server) => server.enabled && server.command)
       ? new RealMcpConnector(mcpConfig)
       : undefined
-    const mcpRuntime = buildMcpRuntime(mcpConfig, undefined, realMcpConnector)
+    const mcpRuntime = fcEnabled
+      ? buildMcpRuntime(mcpConfig, undefined, realMcpConnector)
+      : { mcpTools: [], mcpCapabilities: [], warnings: [] as string[] }
     const config = buildAgentConfig(agentLlmConfig.model, systemPrompt, registry, {
       wikiPath,
       getSkillConfig,
@@ -156,7 +161,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
     return {
       config,
       registry,
-      supportsTools: true,
+      supportsTools,
       skillConfigLoaded: true,
       skillConfig,
       writingSkills,

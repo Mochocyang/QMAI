@@ -16,6 +16,7 @@ interface EventStreamProps {
 function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: EventStreamProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
+  const scrollFrameRef = useRef<number | null>(null)
   const groupedEvents = useMemo(() => groupTimelineEvents(events), [events])
 
   const thinkingCount = events.filter((e) => e.kind === "thinking").length
@@ -33,11 +34,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container
       const atBottom = scrollHeight - scrollTop - clientHeight < 30
-      if (!atBottom) {
-        userScrolledRef.current = true
-      } else {
-        userScrolledRef.current = false
-      }
+      userScrolledRef.current = !atBottom
     }
 
     container.addEventListener("scroll", handleScroll, { passive: true })
@@ -53,8 +50,18 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
 
   useEffect(() => {
     if (!isStreaming || userScrolledRef.current) return
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight
+    if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      if (userScrolledRef.current) return
+      const container = containerRef.current
+      if (container) container.scrollTop = container.scrollHeight
+    })
+    return () => {
+      if (scrollFrameRef.current != null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
     }
   }, [groupedEvents, isStreaming])
 
@@ -74,17 +81,12 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
     <div className="relative w-full min-w-0 max-w-full overflow-x-hidden">
       <div
         ref={containerRef}
-        className="event-stream-scroll max-h-[50vh] w-full min-w-0 max-w-full space-y-0 overflow-x-hidden overflow-y-auto py-1"
+        className="event-stream-scroll max-h-[50vh] w-full min-w-0 max-w-full space-y-0 overflow-x-hidden overflow-y-auto py-1 [contain:content]"
       >
-        {groupedEvents.map((event, idx) => {
-          const delay = Math.min(idx * 50, 300)
-          const animationStyle = {
-            animationDelay: `${delay}ms`,
-            animationFillMode: "backwards" as const,
-          }
+        {groupedEvents.map((event) => {
           if (event.kind === "thinking") {
             return (
-              <div key={`thinking-${idx}-${event.data.id}`} style={animationStyle}>
+              <div key={`thinking-${event.data.id}`}>
                 <ThinkingEvent event={event.data} />
               </div>
             )
@@ -94,12 +96,11 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
               <ToolCallGroup
                 key={getToolCallGroupRenderKey(event.data)}
                 group={event.data}
-                style={animationStyle}
               />
             )
           }
           return (
-            <div key={`tool-${event.data.id}`} style={animationStyle}>
+            <div key={`tool-${event.data.id}`}>
               <ToolCallEvent event={event.data} />
             </div>
           )
@@ -108,11 +109,6 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
         {!isStreaming && (totalDurationMs !== undefined || totalTokens !== undefined) && (
           <div
             className="mt-2 flex items-center gap-3 px-2 pt-2 border-t border-border/50 text-[11px] text-muted-foreground/70"
-            style={{
-              animationDelay: `${Math.min(groupedEvents.length * 50 + 100, 400)}ms`,
-              animationFillMode: "backwards",
-              animation: "slideInUp 300ms ease-out",
-            }}
           >
             {totalTokens !== undefined && (
               <span className="flex items-center gap-1">

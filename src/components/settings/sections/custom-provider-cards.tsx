@@ -9,7 +9,7 @@ import { resolveConfig } from "../preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
-import { ReasoningControls } from "./llm-provider-section"
+import { FunctionCallingControls, ReasoningControls } from "./llm-provider-section"
 
 interface CustomProviderCard {
   id: string
@@ -20,6 +20,7 @@ interface CustomProviderCard {
   model: string
   maxContextSize?: number
   reasoning?: ReasoningConfig
+  functionCallingEnabled?: boolean
   enabled: boolean
   savedModels: SavedModel[]
 }
@@ -44,6 +45,7 @@ export function CustomProviderCards() {
         model: config.model || "",
         maxContextSize: config.maxContextSize,
         reasoning: config.reasoning,
+        functionCallingEnabled: config.functionCallingEnabled,
         enabled: config.enabled ?? true,
         savedModels: config.savedModels || [],
       }
@@ -95,6 +97,7 @@ export function CustomProviderCards() {
       model: updates.model ?? prev.model,
       maxContextSize: updates.maxContextSize ?? prev.maxContextSize,
       reasoning: updates.reasoning ?? prev.reasoning,
+      functionCallingEnabled: updates.functionCallingEnabled ?? prev.functionCallingEnabled,
       enabled: updates.enabled ?? prev.enabled ?? true,
       savedModels: updates.savedModels ?? prev.savedModels,
     }
@@ -231,6 +234,7 @@ function CustomProviderCardItem({
       baseUrl: card.baseUrl,
       apiMode: card.apiMode,
       maxContextSize: card.maxContextSize,
+      functionCallingEnabled: card.functionCallingEnabled,
     }
     return resolveConfig(preset, override, llmConfig)
   }, [card, llmConfig])
@@ -706,6 +710,11 @@ function CustomProviderCardItem({
           <ReasoningControls
             value={card.reasoning ?? { mode: "auto" }}
             onChange={(reasoning) => onUpdate({ reasoning })}
+          />
+
+          <FunctionCallingControls
+            enabled={card.functionCallingEnabled !== false}
+            onChange={(functionCallingEnabled) => onUpdate({ functionCallingEnabled })}
           />
 
           {/* Delete */}

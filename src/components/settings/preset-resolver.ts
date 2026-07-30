@@ -20,6 +20,7 @@ export function resolveConfig(
     ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
+  const functionCallingEnabled = ov.functionCallingEnabled !== false
   const codexCliTimeoutMinutes =
     typeof ov.codexCliTimeoutMinutes === "number" && Number.isFinite(ov.codexCliTimeoutMinutes)
       ? Math.max(1, Math.min(240, Math.floor(ov.codexCliTimeoutMinutes)))
@@ -36,6 +37,7 @@ export function resolveConfig(
       apiMode: ov.apiMode ?? preset.apiMode ?? "chat_completions",
       reasoning,
       localCliIsolation: false,
+      functionCallingEnabled,
     }
   }
 
@@ -49,6 +51,7 @@ export function resolveConfig(
       maxContextSize,
       reasoning,
       localCliIsolation: false,
+      functionCallingEnabled,
     }
   }
 
@@ -64,6 +67,7 @@ export function resolveConfig(
       maxContextSize,
       reasoning,
       localCliIsolation: false,
+      functionCallingEnabled,
     }
   }
 
@@ -82,6 +86,7 @@ export function resolveConfig(
       reasoning,
       localCliIsolation,
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
+      functionCallingEnabled,
     }
   }
 
@@ -98,6 +103,7 @@ export function resolveConfig(
       apiMode: "chat_completions",
       reasoning,
       localCliIsolation: false,
+      functionCallingEnabled,
     }
   }
 
@@ -113,5 +119,6 @@ export function resolveConfig(
     maxContextSize,
     reasoning,
     localCliIsolation: false,
+    functionCallingEnabled,
   }
 }

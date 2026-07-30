@@ -84,6 +84,30 @@ describe("internal request overrides", () => {
     expect(serialized).not.toContain("userMemoryProjectKey")
     expect(serialized).not.toContain("userMemorySessionKey")
   })
+
+  it("sends snake_case tool_choice without leaking camelCase toolChoice", () => {
+    const tools = [{
+      type: "function",
+      function: {
+        name: "read_chapter",
+        description: "read",
+        parameters: { type: "object", properties: {} },
+      },
+    }]
+    const body = getProviderConfig(customConfig()).buildBody(
+      [{ role: "user", content: "测试请求" }],
+      {
+        temperature: 0.2,
+        tools,
+        toolChoice: "auto",
+      },
+    ) as Record<string, unknown>
+
+    expect(body.tools).toEqual(tools)
+    expect(body.tool_choice).toBe("auto")
+    expect(body).not.toHaveProperty("toolChoice")
+    expect(JSON.stringify(body)).not.toContain("toolChoice")
+  })
 })
 
 describe("custom provider headers", () => {

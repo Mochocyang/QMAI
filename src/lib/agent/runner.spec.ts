@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
-import { AgentRunner } from "./runner"
+import { AgentRunner, ModelDoesNotSupportToolsError } from "./runner"
 import { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage } from "./types"
 import type { Tool } from "./types"
@@ -753,6 +753,180 @@ describe("AgentRunner", () => {
         toolChoice: "auto",
       }),
     )
+  })
+
+  it("omits tools when functionCallingEnabled is false on llmConfig", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("普通回复")
+      cb.onDone()
+    })
+
+    await runner.run(
+      {
+        maxRounds: 3,
+        tools: [tool],
+        systemPrompt: "",
+        llmConfig: { ...mockLlmConfig, functionCallingEnabled: false },
+      },
+      registry,
+      [systemMsg, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledWith(
+      expect.objectContaining({ functionCallingEnabled: false }),
+      expect.any(Array),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
+  })
+
+  it("retries once without tools when the API rejects function calling", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    mockStreamChat
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onError(new Error("This model does not support function calling / tools"))
+      })
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onToken("降级正文")
+        cb.onDone()
+      })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+
+    const result = await runner.run(
+      {
+        maxRounds: 3,
+        tools: [tool],
+        systemPrompt: "",
+        llmConfig: mockLlmConfig,
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledTimes(2)
+    expect(mockStreamChat.mock.calls[0][4]).toEqual(expect.objectContaining({
+      tools: expect.any(Array),
+      toolChoice: "auto",
+    }))
+    expect(mockStreamChat.mock.calls[1][4]).toBeUndefined()
+    expect(result.finalText).toBe("降级正文")
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("emits ModelDoesNotSupportToolsError when tool-less retry still fails", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    mockStreamChat
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onError(new Error("does not support function calling"))
+      })
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onError(new Error("upstream 500"))
+      })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+
+    await runner.run(
+      {
+        maxRounds: 3,
+        tools: [tool],
+        systemPrompt: "",
+        llmConfig: mockLlmConfig,
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledTimes(2)
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.any(ModelDoesNotSupportToolsError))
+  })
+
+  it("does not treat unrelated unsupported errors as missing function calling", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onError(new Error("Unsupported parameter: temperature"))
+    })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+
+    await runner.run(
+      {
+        maxRounds: 3,
+        tools: [tool],
+        systemPrompt: "",
+        llmConfig: mockLlmConfig,
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledTimes(1)
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Unsupported parameter: temperature",
+    }))
   })
 
   it("retries a reasoning-only model round once with reasoning disabled", async () => {

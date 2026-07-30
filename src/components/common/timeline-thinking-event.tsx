@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, memo } from "react"
+import { useState, useEffect, useRef, memo, useMemo } from "react"
 import { Brain } from "lucide-react"
 import type { ThinkingEventItem } from "./timeline-types"
 import { StreamingSpinner } from "./streaming-spinner"
+import { getStreamingTailDisplay } from "./streaming-display-text"
 
 interface ThinkingEventProps {
   event: ThinkingEventItem
@@ -27,6 +28,11 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
     wasStreamingRef.current = event.streaming
   }, [event.streaming, event.content])
 
+  const display = useMemo(
+    () => getStreamingTailDisplay(event.content, event.streaming),
+    [event.content, event.streaming],
+  )
+
   if (!event.content) return null
 
   const charCount = event.content.length
@@ -50,7 +56,7 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
   }
 
   return (
-    <div className="px-2 py-1 animate-[slideInUp_300ms_ease-out] group">
+    <div className="px-2 py-1 group">
       <div className="flex items-start gap-2">
         <Brain aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
@@ -71,8 +77,11 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
               </button>
             )}
           </div>
-          <div className="border-l-2 border-amber-400/30 pl-2.5 text-[12px] leading-5 text-foreground/75 whitespace-pre-wrap">
-            {event.content}
+          <div className="border-l-2 border-amber-400/30 pl-2.5 text-[12px] leading-5 text-foreground/75 whitespace-pre-wrap [contain:content]">
+            {display.truncated ? (
+              <div className="mb-1 text-[11px] text-muted-foreground/80">…上文已省略</div>
+            ) : null}
+            {display.text}
             {event.streaming && (
               <span className="inline-block ml-0.5 text-amber-500 dark:text-amber-400 align-text-bottom">
                 <StreamingSpinner />

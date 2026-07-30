@@ -270,6 +270,38 @@ describe("useAgentConfig", () => {
     await cleanup()
   }, 15000)
 
+  it("provider 关闭 Function Calling 时仍返回 config，但 tools 为空", async () => {
+    const { result, cleanup } = await renderHook("test prompt", {
+      wiki: {
+        aiChatModel: "openai/gpt-4o",
+        project: { path: "/tmp/project" } as WikiProject,
+        providerConfigs: {
+          openai: {
+            enabled: true,
+            apiKey: "test-key",
+            functionCallingEnabled: false,
+            savedModels: [{ id: "gpt-4o", name: "GPT-4o", model: "gpt-4o", createdAt: 1 }],
+          },
+        },
+      },
+      skillConfig: {
+        version: 1,
+        defaultSkillId: "built-in:comprehensive",
+        disabledSkillIds: [],
+        projectSkills: [],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      },
+    })
+
+    expect(result.config).not.toBeNull()
+    expect(result.supportsTools).toBe(false)
+    expect(result.config?.tools).toEqual([])
+    expect(result.config?.llmConfig.functionCallingEnabled).toBe(false)
+
+    await cleanup()
+  }, 15000)
+
   it("uses the default model for Agent orchestration while preserving the chat model for chapter writing", async () => {
     const providerConfigs: ProviderConfigs = {
       custom: {

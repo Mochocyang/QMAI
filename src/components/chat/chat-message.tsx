@@ -38,6 +38,7 @@ import { ReferenceChip } from "@/components/reference/ReferenceChip";
 import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
+import { getStreamingTailDisplay } from "@/components/common/streaming-display-text";
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode";
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver";
@@ -987,18 +988,32 @@ function formatThinkingForDisplay(content: string): string {
 function StreamingWorkflowBlock({ content }: { content: string }) {
   const displayContent = useMemo(() => formatThinkingForDisplay(content), [content])
   const { title } = useMemo(() => getThinkingBlockMeta(content, true), [content])
+  const display = useMemo(
+    () => getStreamingTailDisplay(displayContent, true),
+    [displayContent],
+  )
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  const scrollFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     const container = scrollRef.current
-    if (!container) return
-    if (!userScrolledUpRef.current) {
-      container.scrollTop = container.scrollHeight
-      lastScrollTopRef.current = container.scrollTop
+    if (!container || userScrolledUpRef.current) return
+    if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      if (!scrollRef.current || userScrolledUpRef.current) return
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      lastScrollTopRef.current = scrollRef.current.scrollTop
+    })
+    return () => {
+      if (scrollFrameRef.current != null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
     }
-  }, [displayContent])
+  }, [display.text])
 
   useEffect(() => {
     const container = scrollRef.current
@@ -1015,7 +1030,7 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
       }
       lastScrollTopRef.current = currentScrollTop
     }
-    container.addEventListener("scroll", handleScroll)
+    container.addEventListener("scroll", handleScroll, { passive: true })
     return () => container.removeEventListener("scroll", handleScroll)
   }, [])
 
@@ -1027,9 +1042,12 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
       </div>
       <div
         ref={scrollRef}
-        className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
+        className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] [contain:content]"
       >
-        {displayContent}
+        {display.truncated ? (
+          <div className="mb-1 text-[11px] text-blue-700/60 dark:text-blue-400/60">…上文已省略</div>
+        ) : null}
+        {display.text}
         <span className="text-blue-500"><StreamingSpinner /></span>
       </div>
     </div>
@@ -1050,7 +1068,7 @@ function WorkflowBlock({ content }: { content: string }) {
           <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{stageCount} 个阶段</span>
         )}
       </div>
-      <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere] [contain:content]">
         {displayContent}
       </div>
     </div>
