@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { resolveSearchConfig, webSearch } from "@/lib/web-search"
+import { providerRequiresApiKey, resolveSearchConfig, webSearch } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 
 export interface WebSearchToolResult {
@@ -26,7 +26,7 @@ function isSearchConfigured(config: SearchApiConfig | null | undefined): config 
   if (!config) return false
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "none") return false
-  if ((resolved.provider === "tavily" || resolved.provider === "serpapi") && !resolved.apiKey?.trim()) return false
+  if (providerRequiresApiKey(resolved.provider) && !resolved.apiKey?.trim()) return false
   if (resolved.provider === "searxng" && !resolved.searXngUrl?.trim()) return false
   return true
 }
@@ -65,7 +65,7 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
           provider,
           resultCount: 0,
           results: [],
-          message: "当前未配置外部搜索，无法联网查询。未执行联网搜索；我可以基于模型已有知识回答，或你可以先在设置中配置 Web Search 后重试。",
+          message: "当前未配置外部搜索，无法联网查询。未执行联网搜索；我可以基于模型已有知识回答，或你可先在「设置 → 网页搜索」配置博查/七牛/秘塔等后重试。",
         }
         return JSON.stringify(result)
       }

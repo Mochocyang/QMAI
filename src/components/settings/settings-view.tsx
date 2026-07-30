@@ -15,6 +15,7 @@ import {
   FileText,
   Download,
   Brain,
+  Search,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -35,6 +36,7 @@ import { InterfaceSection } from "./sections/interface-section"
 import { NovelSection } from "./sections/novel-section"
 import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
+import { WebSearchSection } from "./sections/web-search-section"
 import { McpSection } from "./sections/mcp-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
@@ -50,6 +52,7 @@ type CategoryId =
   | "rerank"
   | "embedding"
   | "network"
+  | "web-search"
   | "mcp"
   | "interface"
   | "novel"
@@ -80,6 +83,7 @@ const CATEGORIES: Category[] = [
   { id: "rerank", labelKey: "settings.categories.rerank", icon: ListFilter },
   { id: "embedding", labelKey: "settings.categories.embedding", icon: Database },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
+  { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "mcp", labelKey: "settings.categories.mcp", icon: Network },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
@@ -534,6 +538,8 @@ export function SettingsView() {
         return <EmbeddingSection draft={draft} setDraft={setDraft} />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
+      case "web-search":
+        return <WebSearchSection />
       case "mcp":
         return <McpSection />
       case "interface":

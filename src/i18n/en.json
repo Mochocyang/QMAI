@@ -959,7 +959,7 @@
       },
       "webSearch": {
         "title": "Web Search",
-        "description": "Deep Research uses this to fetch fresh external context.",
+        "description": "Configure Agent web search. Prefer Bocha for Chinese; Qiniu (Baidu), Metaso, self-hosted SearXNG, or international Tavily / SerpApi are also available.",
         "expand": "Expand",
         "collapse": "Collapse",
         "activate": "Activate",

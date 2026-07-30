@@ -140,6 +140,12 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
 
   vi.doMock("@/lib/web-search", () => ({
     resolveSearchConfig: (config: SearchApiConfig) => config,
+    providerRequiresApiKey: (provider: SearchApiConfig["provider"]) =>
+      provider === "bocha" ||
+      provider === "qiniu" ||
+      provider === "metaso" ||
+      provider === "tavily" ||
+      provider === "serpapi",
     webSearch: (...args: unknown[]) => webSearchMock(...args),
   }))
 

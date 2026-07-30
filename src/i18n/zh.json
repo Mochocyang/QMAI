@@ -666,7 +666,7 @@
       },
       "webSearch": {
         "title": "网页搜索",
-        "description": "Deep Research 会用它拉取最新的外部上下文。",
+        "description": "配置 Agent 联网搜索。国内推荐博查；也可选七牛（百度）、秘塔，或自建 SearXNG / 国际 Tavily、SerpApi。",
         "expand": "展开",
         "collapse": "收起",
         "activate": "启用",

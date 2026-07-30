@@ -86,6 +86,18 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
   }
 }
 
+const API_KEY_PROVIDERS = new Set<SearchProvider>([
+  "bocha",
+  "qiniu",
+  "metaso",
+  "tavily",
+  "serpapi",
+])
+
+export function providerRequiresApiKey(provider: SearchProvider): boolean {
+  return API_KEY_PROVIDERS.has(provider)
+}
+
 export async function webSearch(
   query: string,
   config: SearchApiConfig,
@@ -93,16 +105,22 @@ export async function webSearch(
 ): Promise<WebSearchResult[]> {
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "none") {
-    throw new Error("Web search not configured. Select a search provider in Settings.")
+    throw new Error("Web search not configured. Select a search provider in Settings → 网页搜索.")
   }
-  if ((resolved.provider === "tavily" || resolved.provider === "serpapi") && !resolved.apiKey) {
-    throw new Error("Web search not configured. Add a Tavily or SerpApi API key in Settings.")
+  if (providerRequiresApiKey(resolved.provider) && !resolved.apiKey?.trim()) {
+    throw new Error("Web search not configured. Add an API key in Settings → 网页搜索.")
   }
   if (resolved.provider === "searxng" && !resolved.searXngUrl?.trim()) {
-    throw new Error("Web search not configured. Add a SearXNG instance URL in Settings.")
+    throw new Error("Web search not configured. Add a SearXNG instance URL in Settings → 网页搜索.")
   }
 
   switch (resolved.provider) {
+    case "bocha":
+      return bochaSearch(query, resolved.apiKey, maxResults)
+    case "qiniu":
+      return qiniuSearch(query, resolved.apiKey, maxResults)
+    case "metaso":
+      return metasoSearch(query, resolved.apiKey, maxResults)
     case "tavily":
       return tavilySearch(query, resolved.apiKey, maxResults)
     case "serpapi":
@@ -199,6 +217,211 @@ function hostnameFromUrl(url: string): string {
   } catch {
     return ""
   }
+}
+
+export function normalizeBochaResults(data: {
+  code?: number | string
+  msg?: string | null
+  message?: string
+  data?: { webPages?: { value?: unknown[] } }
+  webPages?: { value?: unknown[] }
+}, maxResults: number): WebSearchResult[] {
+  // Bocha wraps Bing-style payload as `{ code, data: { webPages } }`.
+  // Also accept a bare `{ webPages }` body for tests / older docs.
+  if (data.code != null && Number(data.code) !== 200) {
+    throw new Error(data.msg?.trim() || data.message?.trim() || `Bocha search failed (code ${data.code})`)
+  }
+  const pages = data.data?.webPages?.value ?? data.webPages?.value ?? []
+  return pages
+    .slice(0, maxResults)
+    .map((item) => {
+      const r = item as {
+        name?: string
+        title?: string
+        url?: string
+        snippet?: string
+        summary?: string
+        siteName?: string
+      }
+      const url = r.url ?? ""
+      return {
+        title: r.name ?? r.title ?? "Untitled",
+        url,
+        // Docs: snippet = short hit; summary = longer page summary (when summary:true).
+        snippet: r.summary ?? r.snippet ?? "",
+        source: r.siteName || hostnameFromUrl(url),
+      }
+    })
+    .filter((item) => item.url.length > 0)
+}
+
+export function normalizeQiniuResults(data: {
+  success?: boolean
+  message?: string
+  data?: { results?: unknown[] }
+}, maxResults: number): WebSearchResult[] {
+  if (data.success !== true) {
+    throw new Error(data.message?.trim() || "Qiniu web search failed")
+  }
+  return (data.data?.results ?? [])
+    .slice(0, maxResults)
+    .map((item) => {
+      const r = item as {
+        title?: string
+        url?: string
+        content?: string
+        source?: string
+      }
+      const url = r.url ?? ""
+      return {
+        title: r.title ?? "Untitled",
+        url,
+        snippet: r.content ?? "",
+        source: r.source || hostnameFromUrl(url),
+      }
+    })
+    .filter((item) => item.url.length > 0)
+}
+
+export function normalizeMetasoResults(data: {
+  webpages?: unknown[]
+}, maxResults: number): WebSearchResult[] {
+  return (data.webpages ?? [])
+    .slice(0, maxResults)
+    .map((item) => {
+      const r = item as {
+        title?: string
+        link?: string
+        url?: string
+        snippet?: string
+        summary?: string
+      }
+      const url = r.link ?? r.url ?? ""
+      return {
+        title: r.title ?? "Untitled",
+        url,
+        snippet: r.snippet ?? r.summary ?? "",
+        source: hostnameFromUrl(url),
+      }
+    })
+    .filter((item) => item.url.length > 0)
+}
+
+async function bochaSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+): Promise<WebSearchResult[]> {
+  const httpFetch = await getHttpFetch()
+  let response: Response
+  try {
+    response = await httpFetch("https://api.bochaai.com/v1/web-search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query,
+        count: maxResults,
+        summary: true,
+        // Official default / skill guidance: let the API rewrite time range from the query.
+        freshness: "noLimit",
+      }),
+    })
+  } catch (err) {
+    if (isFetchNetworkError(err)) {
+      throw new Error(
+        "Network error reaching api.bochaai.com. Check connectivity and whether the Bocha API key is still valid.",
+      )
+    }
+    throw err
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`Bocha search failed (${response.status}): ${errorText}`)
+  }
+
+  return normalizeBochaResults(await response.json(), maxResults)
+}
+
+async function qiniuSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+): Promise<WebSearchResult[]> {
+  const httpFetch = await getHttpFetch()
+  let response: Response
+  try {
+    response = await httpFetch("https://api.qnaigc.com/v1/search/web", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query,
+        max_results: maxResults,
+        search_type: "web",
+      }),
+    })
+  } catch (err) {
+    if (isFetchNetworkError(err)) {
+      throw new Error(
+        "Network error reaching api.qnaigc.com. Check connectivity and whether the Qiniu AI API key is still valid.",
+      )
+    }
+    throw err
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`Qiniu search failed (${response.status}): ${errorText}`)
+  }
+
+  return normalizeQiniuResults(await response.json(), maxResults)
+}
+
+async function metasoSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+): Promise<WebSearchResult[]> {
+  const httpFetch = await getHttpFetch()
+  let response: Response
+  try {
+    response = await httpFetch("https://metaso.cn/api/v1/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        q: query,
+        scope: "webpage",
+        size: maxResults,
+        includeSummary: false,
+        includeRawContent: false,
+        conciseSnippet: false,
+      }),
+    })
+  } catch (err) {
+    if (isFetchNetworkError(err)) {
+      throw new Error(
+        "Network error reaching metaso.cn. Check connectivity and whether the Metaso API key is still valid.",
+      )
+    }
+    throw err
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`Metaso search failed (${response.status}): ${errorText}`)
+  }
+
+  return normalizeMetasoResults(await response.json(), maxResults)
 }
 
 async function tavilySearch(
