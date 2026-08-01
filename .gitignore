@@ -33,6 +33,7 @@ src/test-helpers/*
 **/*.test.ts
 **/*.test.tsx
 !src/lib/chat-copy-content.test.ts
+!src/lib/chapter-formatting.test.ts
 !src/lib/dashboard-issue-actions.test.ts
 !src/lib/tauri-fetch.test.ts
 !src/lib/novel/start-review-run.test.ts
