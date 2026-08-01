@@ -206,6 +206,8 @@ export interface AgentChatMessage {
   agentName?: string
   content: string
   timestamp: string
+  /** Thinking-model chain-of-thought; must be replayed on subsequent turns. */
+  reasoning_content?: string
 }
 
 export interface AgentChatSession {

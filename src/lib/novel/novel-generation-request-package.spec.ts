@@ -35,6 +35,18 @@ describe("???????", () => {
     ])).toEqual([{ role: "user", content: "??????" }, { role: "assistant", content: "??" }])
   })
 
+  it("preserves assistant reasoning_content for model replay", () => {
+    expect(mapOutlineMessagesForModel([
+      { role: "user", content: "继续完善大纲" },
+      { role: "assistant", content: "已更新人物设定", reasoning_content: "先核对冲突" },
+      { role: "assistant", content: "已确认方向", reasoning_content: "" },
+    ])).toEqual([
+      { role: "user", content: "继续完善大纲" },
+      { role: "assistant", content: "已更新人物设定", reasoning_content: "先核对冲突" },
+      { role: "assistant", content: "已确认方向", reasoning_content: "" },
+    ])
+  })
+
   it("????????????", () => {
     const value = createNovelGenerationRequestPackage(request, "??????")
     const messages = [

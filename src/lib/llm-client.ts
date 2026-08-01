@@ -389,12 +389,14 @@ export async function streamChat(
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim()
             recordUsage(trimmed)
+            // Always harvest reasoning first: some gateways emit
+            // reasoning_content and tool_calls on the same SSE line.
+            reasoningCharsObserved += countReasoningCharsInLine(trimmed)
+            recordReasoning(trimmed)
             const toolDelta = parseToolCallDeltaFromLine(trimmed)
             if (toolDelta) {
               callbacks.onToolCallDelta?.(toolDelta)
             } else {
-              reasoningCharsObserved += countReasoningCharsInLine(trimmed)
-              recordReasoning(trimmed)
               const token = providerConfig.parseStream(trimmed)
               if (token !== null) recordToken(token)
             }
@@ -409,13 +411,15 @@ export async function streamChat(
           const trimmed = line.trim()
           if (!trimmed) continue
           recordUsage(trimmed)
+          // Always harvest reasoning first: some gateways emit
+          // reasoning_content and tool_calls on the same SSE line.
+          reasoningCharsObserved += countReasoningCharsInLine(trimmed)
+          recordReasoning(trimmed)
           const toolDelta = parseToolCallDeltaFromLine(trimmed)
           if (toolDelta) {
             callbacks.onToolCallDelta?.(toolDelta)
             continue
           }
-          reasoningCharsObserved += countReasoningCharsInLine(trimmed)
-          recordReasoning(trimmed)
           const token = providerConfig.parseStream(trimmed)
           if (token !== null) recordToken(token)
         }

@@ -196,7 +196,13 @@ export async function interviewAgent(
       if (msg.role === "user") {
         messages.push({ role: "user", content: msg.content })
       } else if (msg.role === "agent") {
-        messages.push({ role: "assistant", content: msg.content })
+        messages.push({
+          role: "assistant",
+          content: msg.content,
+          ...(msg.reasoning_content !== undefined
+            ? { reasoning_content: msg.reasoning_content }
+            : {}),
+        })
       }
     }
 
@@ -212,6 +218,7 @@ export async function interviewAgent(
 
     // 调用 LLM 流式回复
     let fullText = ""
+    let reasoningContent = ""
     let streamError: Error | null = null
 
     await streamChat(
@@ -221,6 +228,9 @@ export async function interviewAgent(
         onToken: (token) => {
           fullText += token
           onToken?.(token)
+        },
+        onReasoningToken: (token) => {
+          reasoningContent += token
         },
         onDone: () => {},
         onError: (err) => {
@@ -241,6 +251,7 @@ export async function interviewAgent(
       agentId: agent.characterId,
       agentName: agent.name,
       content: fullText,
+      reasoning_content: reasoningContent,
       timestamp: new Date().toISOString(),
     }
     session.messages.push(agentMsg)

@@ -427,6 +427,6 @@ export function chatMessagesToLLM(messages: DisplayMessage[]): ChatMessage[] {
   return messages.map((m) => ({
     role: m.role,
     content: m.content,
-    ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
+    ...(m.reasoning_content !== undefined ? { reasoning_content: m.reasoning_content } : {}),
   }))
 }

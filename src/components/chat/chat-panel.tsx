@@ -1406,7 +1406,7 @@ export function ChatPanel() {
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
           content: message.content || record?.finalText || "Agent未返回内容。",
-          ...(accumulatedReasoningContent ? { reasoning_content: accumulatedReasoningContent } : {}),
+          reasoning_content: accumulatedReasoningContent,
           agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls),
           agentStages: settleRunningAgentStages(message.agentStages, "done"),
           references: (() => {
@@ -1432,6 +1432,7 @@ export function ChatPanel() {
           content: message.content
             ? `${message.content}\n\n出错：${error.message}`
             : `出错：${error.message}`,
+          reasoning_content: accumulatedReasoningContent,
           agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error"),
           agentStages: settleRunningAgentStages(message.agentStages, "error"),
           contextTrace: contextTrace || message.contextTrace,
@@ -1704,7 +1705,9 @@ export function ChatPanel() {
         ).map((message) => ({
           role: message.role,
           content: message.content,
-          ...(message.reasoning_content ? { reasoning_content: message.reasoning_content } : {}),
+          ...(message.reasoning_content !== undefined
+            ? { reasoning_content: message.reasoning_content }
+            : {}),
         } satisfies AgentMessage)),
         { role: "user", content: userContent },
       ]
@@ -1807,7 +1810,7 @@ export function ChatPanel() {
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
                 content: finalContent,
-                ...(accumulatedReasoningContent ? { reasoning_content: accumulatedReasoningContent } : {}),
+                reasoning_content: accumulatedReasoningContent,
                 isAgentRunning: false,
               }))
             },

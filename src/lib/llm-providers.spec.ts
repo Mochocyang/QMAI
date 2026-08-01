@@ -23,6 +23,25 @@ function requestBody(config: LlmConfig): Record<string, unknown> {
 }
 
 describe("llm provider reasoning options", () => {
+  it("replays assistant reasoning_content including empty string", () => {
+    const body = getProviderConfig(customConfig()).buildBody([
+      { role: "user", content: "写第一章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "read_chapter", arguments: "{}" },
+        }],
+        reasoning_content: "",
+      },
+      { role: "tool", content: "章节内容", tool_call_id: "call_1", name: "read_chapter" },
+    ]) as { messages: Array<{ reasoning_content?: string }> }
+
+    expect(body.messages[1]?.reasoning_content).toBe("")
+  })
+
   it("sends reasoning_effort for explicit custom OpenAI-compatible reasoning mode", () => {
     const body = requestBody(customConfig({ reasoning: { mode: "high" } }))
 

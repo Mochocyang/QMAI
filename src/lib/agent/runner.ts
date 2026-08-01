@@ -262,12 +262,14 @@ export class AgentRunner {
         return record
       }
 
-      // Add assistant message with tool calls
+      // Add assistant message with tool calls.
+      // DeepSeek/Kimi thinking mode requires reasoning_content on every
+      // tool-call assistant message in subsequent rounds — even "".
       const assistantMsg: AgentMessage = {
         role: "assistant",
         content: roundText || "",
         tool_calls: toolCalls,
-        ...(roundReasoningContent ? { reasoning_content: roundReasoningContent } : {}),
+        reasoning_content: roundReasoningContent,
       }
       workingMessages.push(assistantMsg)
 
