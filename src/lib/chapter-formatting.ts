@@ -1,3 +1,4 @@
+import pangu from "pangu"
 import { parseFrontmatter } from "@/lib/frontmatter"
 
 function isStructuralMarkdownLine(trimmed: string): boolean {
@@ -56,7 +57,8 @@ export function formatChapterWriting(markdown: string): string {
     ) {
       formatted.push("")
     }
-    formatted.push(`　　${trimmed.replace(/^[　 ]+/, "")}`)
+    const content = trimmed.replace(/^[　 ]+/, "")
+    formatted.push(`　　${pangu.spacingText(content)}`)
     pendingBlank = true
     lastKind = "normal"
   }
