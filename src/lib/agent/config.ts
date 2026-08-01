@@ -11,11 +11,13 @@ export const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "deepseek-reasoner",
   "claude-code",
   "codex-cli",
+  "cursor-cli",
 ]
 
 const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
   "codex-cli",
+  "cursor-cli",
 ])
 
 /** cursor-api-proxy 无法返回原生 tool_calls delta，需从文本中解析工具调用。 */
