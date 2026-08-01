@@ -1400,11 +1400,13 @@ export function ChatPanel() {
       void shouldRunNovelPrePluginChain
       let hasAgentError = false
       let lastAgentError = "生成失败"
+      let accumulatedReasoningContent = ""
 
       const markDone = (record?: AgentRunRecord) => {
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
           ...message,
           content: message.content || record?.finalText || "Agent未返回内容。",
+          ...(accumulatedReasoningContent ? { reasoning_content: accumulatedReasoningContent } : {}),
           agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls),
           agentStages: settleRunningAgentStages(message.agentStages, "done"),
           references: (() => {
@@ -1702,6 +1704,7 @@ export function ChatPanel() {
         ).map((message) => ({
           role: message.role,
           content: message.content,
+          ...(message.reasoning_content ? { reasoning_content: message.reasoning_content } : {}),
         } satisfies AgentMessage)),
         { role: "user", content: userContent },
       ]
@@ -1776,6 +1779,9 @@ export function ChatPanel() {
                 content: message.content + chunk,
               }))
             },
+            onReasoningToken: (chunk: string) => {
+              accumulatedReasoningContent += chunk
+            },
               onToolEvent: (event) => {
                 if (contextTrace) {
                   contextTrace = appendWebSearchTrace(contextTrace, event)
@@ -1801,6 +1807,7 @@ export function ChatPanel() {
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
                 content: finalContent,
+                ...(accumulatedReasoningContent ? { reasoning_content: accumulatedReasoningContent } : {}),
                 isAgentRunning: false,
               }))
             },

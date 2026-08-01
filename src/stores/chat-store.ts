@@ -44,6 +44,7 @@ export interface DisplayMessage {
   attachedReferences?: ReferenceToken[]
   contextTrace?: ContextTrace
   contextHubSnapshot?: ContextHubSnapshotRef
+  reasoning_content?: string
 }
 
 interface ChatState {
@@ -426,5 +427,6 @@ export function chatMessagesToLLM(messages: DisplayMessage[]): ChatMessage[] {
   return messages.map((m) => ({
     role: m.role,
     content: m.content,
+    ...(m.reasoning_content ? { reasoning_content: m.reasoning_content } : {}),
   }))
 }

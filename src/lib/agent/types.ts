@@ -123,6 +123,7 @@ export interface AgentStageTrace {
 
 export interface AgentRunCallbacks {
   onText: (chunk: string) => void
+  onReasoningToken?: (chunk: string) => void
   onToolCall: (call: ToolCall) => void
   onToolResult: (callId: string, result: string) => void
   onToolError: (callId: string, error: string) => void
@@ -138,6 +139,7 @@ export interface AgentMessage {
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[]
   tool_call_id?: string
   name?: string
+  reasoning_content?: string
 }
 
 export interface AgentRunRecord {

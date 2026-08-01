@@ -125,7 +125,6 @@ export function BookAnalysisView() {
   const deleteFailedImportTask = useBookAnalysisImportStore((s) => s.deleteFailedTask)
   const renameCompletedImportTask = useBookAnalysisImportStore((s) => s.renameCompletedTask)
   const setImportPanelCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
-  const disposeImportStore = useBookAnalysisImportStore((s) => s.dispose)
   const pipelineTasks = useBookAnalysisPipelineStore((s) => s.tasks)
   const pipelineChunks = useBookAnalysisPipelineStore((s) => s.chunks)
   const initializePipelineProject = useBookAnalysisPipelineStore((s) => s.initializeProject)
@@ -136,7 +135,6 @@ export function BookAnalysisView() {
   const continuePipelineTask = useBookAnalysisPipelineStore((s) => s.continueTask)
   const retryPipelineChunk = useBookAnalysisPipelineStore((s) => s.retryFailedChunk)
   const cancelPipelineTask = useBookAnalysisPipelineStore((s) => s.cancelTask)
-  const disposePipeline = useBookAnalysisPipelineStore((s) => s.dispose)
   const importRevisionBaselineRef = useRef({ projectPath: currentProject?.path ?? null, revision: importRevision })
   const importInitializationSequenceRef = useRef(0)
   const importInitializationTokenRef = useRef<{ sequence: number; projectPath: string } | null>(null)
@@ -279,12 +277,10 @@ export function BookAnalysisView() {
       if (importInitializationTokenRef.current === initializationToken) importInitializationTokenRef.current = null
     })
 
-    return () => {
-      void Promise.all([disposeImportStore(), disposePipeline()]).catch((error) => {
-        console.error("释放批量导入任务失败", error)
-      })
-    }
-  }, [currentProject?.path, initializeImportProject, disposeImportStore, initializePipelineProject, disposePipeline])
+    // 不在卸载时 dispose：调度器在后台持续运行，
+    // 切换页面再返回时通过 initializeProject 的同项目早返回保持进度不丢失。
+    // 项目切换时 initializeProject 内部会自动释放旧调度器。
+  }, [currentProject?.path, initializeImportProject, initializePipelineProject])
 
   useEffect(() => {
     if (!currentProject?.path) return

@@ -120,11 +120,16 @@ export class AgentRunner {
 
       const toolCallDeltas: ToolCallDelta[] = []
       let roundText = ""
+      let roundReasoningContent = ""
       let streamError: Error | undefined
 
       const streamCallbacks: StreamCallbacks = {
         onToken: (t: string) => {
           roundText += t
+        },
+        onReasoningToken: (t: string) => {
+          roundReasoningContent += t
+          callbacks.onReasoningToken?.(t)
         },
         onToolCallDelta: (delta: ToolCallDelta) => {
           toolCallDeltas.push(delta)
@@ -172,6 +177,7 @@ export class AgentRunner {
         attemptedToolsFallback = true
         openaiTools = undefined
         roundText = ""
+        roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
         requestOverrides = buildRequestOverrides(config.requestOverrides)
@@ -210,6 +216,7 @@ export class AgentRunner {
         !isReasoningDisabled(config.llmConfig, requestOverrides)
       ) {
         roundText = ""
+        roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
         requestOverrides = buildRequestOverrides(withReasoningDisabled(config.requestOverrides))
@@ -260,6 +267,7 @@ export class AgentRunner {
         role: "assistant",
         content: roundText || "",
         tool_calls: toolCalls,
+        ...(roundReasoningContent ? { reasoning_content: roundReasoningContent } : {}),
       }
       workingMessages.push(assistantMsg)
 

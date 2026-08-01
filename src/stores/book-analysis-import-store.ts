@@ -335,6 +335,8 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
       initializeProject: (rawPath) => {
         const projectPath = normalizePath(rawPath).replace(/\/+$/, "")
         if (!projectPath) return Promise.reject(new Error("项目路径不能为空"))
+        // 同项目已初始化时跳过重新初始化，避免组件卸载-重挂时清空导入进度
+        if (get().projectPath === projectPath) return Promise.resolve()
         generation += 1
         const token = generation
         const previousScheduler = detachScheduler()

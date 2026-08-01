@@ -111,14 +111,17 @@ export function createBookAnalysisPipelineStore() {
     chunks: [],
     dismissedBatchIds: [],
     async initializeProject(rawPath) {
+      const projectPath = normalizePath(rawPath).replace(/\/+$/, "")
+      if (!projectPath) throw new Error("项目路径不能为空")
+      // 同项目已初始化且调度器仍在运行时，跳过重新初始化，
+      // 避免组件卸载-重挂时清空进度、停止正在运行的分析任务
+      if (get().projectPath === projectPath && scheduler) return
       generation += 1
       const token = generation
       unsubscribe?.()
       unsubscribe = null
       await scheduler?.dispose()
       scheduler = null
-      const projectPath = normalizePath(rawPath).replace(/\/+$/, "")
-      if (!projectPath) throw new Error("项目路径不能为空")
       set({ projectPath, tasks: [], chunks: [], dismissedBatchIds: [] })
       const recovered = await loadAndRecoverAnalysisTasks(projectPath)
       if (token !== generation || get().projectPath !== projectPath) return

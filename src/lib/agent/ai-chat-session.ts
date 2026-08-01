@@ -5,6 +5,7 @@ import { scopeAgentConfigTools } from "./tool-scope"
 
 export interface RunAiChatSessionCallbacks {
   onText: (chunk: string) => void
+  onReasoningToken?: (chunk: string) => void
   onToolEvent?: AgentRunCallbacks["onToolEvent"]
   onActivityEvent?: AgentRunCallbacks["onActivityEvent"]
   onDone: () => void
@@ -38,6 +39,7 @@ export async function runAiChatSession(input: RunAiChatSessionInput): Promise<Ag
     input.messages,
     {
       onText: input.callbacks.onText,
+      onReasoningToken: input.callbacks.onReasoningToken,
       onToolCall: () => {},
       onToolResult: () => {},
       onToolError: () => {},
