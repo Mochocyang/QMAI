@@ -123,6 +123,7 @@ export async function buildSectionBriefing(
   const foreshadowingHints = extractForeshadowingHints(trimmedOutline)
 
   const relevantForeshadowing = fStore.items.filter((f) => {
+    if (f.status === "abandoned") return false
     // 细纲中明确提到了该伏笔的描述
     if (foreshadowingHints.some((hint) => f.description.includes(hint) || hint.includes(f.description.slice(0, 10)))) {
       return true
@@ -156,6 +157,7 @@ export async function buildSectionBriefing(
       const statusLabel =
         f.status === "resolved" ? "已回收"
         : f.status === "advanced" ? "推进中"
+        : f.status === "abandoned" ? "已放弃"
         : "已埋设"
 
       sections.push(

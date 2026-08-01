@@ -12,7 +12,18 @@ import { resolveNovelModel } from "./model-resolver"
 import { emptyCognitionState, mergeCognitionFromSnapshot, loadCognitionState, saveCognitionState } from "./character-cognition"
 import { createEmptyCharacterStateStore, loadCharacterStates, saveCharacterStates, type CharacterStateStore } from "./character-state"
 import { updateTrackingAfterChapter } from "./tracking-updater"
-import { createEmptyForeshadowingStore, loadForeshadowingTracker, saveForeshadowingTracker, type Foreshadowing, type ForeshadowingStore } from "./foreshadowing-tracker"
+import {
+  createEmptyForeshadowingStore,
+  generateForeshadowingId,
+  loadForeshadowingTracker,
+  saveForeshadowingTracker,
+  type Foreshadowing,
+  type ForeshadowingStore,
+} from "./foreshadowing-tracker"
+import {
+  findForeshadowingByNormalizedName,
+  parseForeshadowingChange,
+} from "./foreshadowing-normalize"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
@@ -451,48 +462,7 @@ export async function ingestChapter(
   if (snapshot && snapshot.foreshadowingChanges.length > 0) {
     try {
       const existingForeshadows = await loadForeshadowingTracker(pp)
-      for (const change of snapshot.foreshadowingChanges) {
-        const trimmed = change.trim()
-        if (trimmed.startsWith("新增伏笔") || trimmed.startsWith("新增:")) {
-          const content = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
-          const dashIdx = content.indexOf("-")
-          const name = dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim()
-          const desc = dashIdx > 0 ? content.slice(dashIdx + 1).trim() : ""
-          const newForeshadow: Foreshadowing = {
-            id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-            name,
-            description: desc,
-            status: "planted",
-            plantedChapter: snapshot.chapterNumber,
-            advancedChapters: [],
-            relatedCharacters: [],
-            relatedEvents: [],
-            notes: "",
-          }
-          existingForeshadows.items.push(newForeshadow)
-        } else if (trimmed.startsWith("推进伏笔") || trimmed.startsWith("推进:")) {
-          const content = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
-          const matched = existingForeshadows.items.find(
-            f => f.name === content || content.includes(f.name) || f.name.includes(content)
-          )
-          if (matched) {
-            matched.status = "advanced"
-            if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
-              matched.advancedChapters.push(snapshot.chapterNumber)
-            }
-          }
-        } else if (trimmed.startsWith("回收伏笔") || trimmed.startsWith("回收:")) {
-          const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
-          const matched = existingForeshadows.items.find(
-            f => f.name === content || content.includes(f.name) || f.name.includes(content)
-          )
-          if (matched) {
-            matched.status = "resolved"
-            matched.resolvedChapter = snapshot.chapterNumber
-          }
-        }
-      }
-      existingForeshadows.lastUpdated = new Date().toISOString()
+      applyForeshadowingChangesToStore(existingForeshadows, snapshot)
       await saveForeshadowingTracker(pp, existingForeshadows)
     } catch (err) {
       console.warn("[Chapter Ingest] Foreshadowing update failed:", err instanceof Error ? err.message : err)
@@ -1338,18 +1308,34 @@ async function syncCharacterStateChanges(projectPath: string, snapshot: ChapterS
   await saveCharacterStates(projectPath, existingChars)
 }
 
-function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStore, snapshot: ChapterSnapshot): ForeshadowingStore {
+export function applyForeshadowingChangesToStore(
+  existingForeshadows: ForeshadowingStore,
+  snapshot: ChapterSnapshot,
+): ForeshadowingStore {
   for (const change of snapshot.foreshadowingChanges) {
-    const trimmed = change.trim()
-    if (trimmed.startsWith("新增伏笔") || trimmed.startsWith("新增:")) {
-      const content = trimmed.replace(/^(新增伏笔|新增)[:：]?\s*/, "")
-      const dashIdx = content.indexOf("-")
-      const name = dashIdx > 0 ? content.slice(0, dashIdx).trim() : content.trim()
-      const desc = dashIdx > 0 ? content.slice(dashIdx + 1).trim() : ""
+    const parsed = parseForeshadowingChange(change)
+    if (!parsed) continue
+
+    const matched = findForeshadowingByNormalizedName(existingForeshadows.items, parsed.name)
+
+    if (parsed.kind === "plant") {
+      if (matched) {
+        // Same normalized name already exists → treat as advance (ingest-side dedup)
+        if (matched.status !== "resolved" && matched.status !== "abandoned") {
+          matched.status = "advanced"
+        }
+        if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
+          matched.advancedChapters.push(snapshot.chapterNumber)
+        }
+        if (parsed.description && parsed.description.length > (matched.description?.length ?? 0)) {
+          matched.description = parsed.description
+        }
+        continue
+      }
       const newForeshadow: Foreshadowing = {
-        id: `fs-${snapshot.chapterNumber}-${existingForeshadows.items.length + 1}`,
-        name,
-        description: desc,
+        id: generateForeshadowingId(existingForeshadows),
+        name: parsed.name,
+        description: parsed.description,
         status: "planted",
         plantedChapter: snapshot.chapterNumber,
         advancedChapters: [],
@@ -1358,26 +1344,45 @@ function applyForeshadowingChangesToStore(existingForeshadows: ForeshadowingStor
         notes: "",
       }
       existingForeshadows.items.push(newForeshadow)
-    } else if (trimmed.startsWith("推进伏笔") || trimmed.startsWith("推进:")) {
-      const content = trimmed.replace(/^(推进伏笔|推进)[:：]?\s*/, "").trim()
-      const matched = existingForeshadows.items.find(
-        f => f.name === content || content.includes(f.name) || f.name.includes(content)
-      )
+      continue
+    }
+
+    if (parsed.kind === "advance") {
       if (matched) {
-        matched.status = "advanced"
+        if (matched.status !== "resolved" && matched.status !== "abandoned") {
+          matched.status = "advanced"
+        }
         if (!matched.advancedChapters.includes(snapshot.chapterNumber)) {
           matched.advancedChapters.push(snapshot.chapterNumber)
         }
+        if (parsed.description && parsed.description.length > (matched.description?.length ?? 0)) {
+          matched.description = parsed.description
+        }
       }
-    } else if (trimmed.startsWith("回收伏笔") || trimmed.startsWith("回收:")) {
-      const content = trimmed.replace(/^(回收伏笔|回收)[:：]?\s*/, "").trim()
-      const matched = existingForeshadows.items.find(
-        f => f.name === content || content.includes(f.name) || f.name.includes(content)
-      )
-      if (matched) {
-        matched.status = "resolved"
-        matched.resolvedChapter = snapshot.chapterNumber
+      continue
+    }
+
+    // resolve — if no match, still record as resolved (same as memory-rebuild:
+    // resolve lines often use different wording than the original plant)
+    if (matched) {
+      matched.status = "resolved"
+      matched.resolvedChapter = snapshot.chapterNumber
+      if (parsed.description && parsed.description.length > (matched.description?.length ?? 0)) {
+        matched.description = parsed.description
       }
+    } else {
+      existingForeshadows.items.push({
+        id: generateForeshadowingId(existingForeshadows),
+        name: parsed.name,
+        description: parsed.description,
+        status: "resolved",
+        plantedChapter: snapshot.chapterNumber,
+        advancedChapters: [],
+        resolvedChapter: snapshot.chapterNumber,
+        relatedCharacters: [],
+        relatedEvents: [],
+        notes: "",
+      })
     }
   }
   existingForeshadows.lastUpdated = new Date().toISOString()

@@ -57,7 +57,9 @@ export async function loadForeshadowingTracker(
 }
 
 export function foreshadowingToContextText(store: ForeshadowingStore): string {
-  const unresolved = store.items.filter((f) => f.status !== "resolved")
+  const unresolved = store.items.filter(
+    (f) => f.status !== "resolved" && f.status !== "abandoned",
+  )
   if (unresolved.length === 0) return ""
   return unresolved
     .map(
@@ -97,7 +99,7 @@ export function markForeshadowingAdvanced(
   foreshadowing: Foreshadowing,
   chapter: number,
 ): void {
-  if (foreshadowing.status === "resolved") return
+  if (foreshadowing.status === "resolved" || foreshadowing.status === "abandoned") return
   foreshadowing.status = "advanced"
   if (!foreshadowing.advancedChapters.includes(chapter)) {
     foreshadowing.advancedChapters.push(chapter)

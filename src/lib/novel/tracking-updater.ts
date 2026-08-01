@@ -78,7 +78,9 @@ export async function updateTrackingAfterChapter(
 
   // 5. 构建写作进度并写入 上下文.md
   try {
-    const activeForeshadowing = fStore.items.filter((f) => f.status !== "resolved")
+    const activeForeshadowing = fStore.items.filter(
+      (f) => f.status !== "resolved" && f.status !== "abandoned",
+    )
     const progress: WritingProgress = {
       lastCompletedChapter: chapterNumber,
       lastCompletedChapterTitle: chapterTitle,

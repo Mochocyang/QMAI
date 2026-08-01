@@ -32,7 +32,7 @@ export interface EnhancedCharacterState {
 export type ForeshadowingImportance = "high" | "medium" | "low"
 
 /** 伏笔状态 */
-export type ForeshadowingStatus = "planted" | "advanced" | "resolved"
+export type ForeshadowingStatus = "planted" | "advanced" | "resolved" | "abandoned"
 
 /** 升级后的伏笔 */
 export interface EnhancedForeshadowing {

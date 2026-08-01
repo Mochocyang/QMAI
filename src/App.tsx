@@ -142,6 +142,17 @@ function App() {
     if (!isCurrentProject(proj)) return
 
     try {
+      const {
+        restoreForeshadowingCleanupQueue,
+      } = await import("@/lib/foreshadowing-cleanup-queue")
+      await restoreForeshadowingCleanupQueue(proj.id, proj.path)
+    } catch (err) {
+      console.error("恢复伏笔清理队列失败:", err)
+    }
+
+    if (!isCurrentProject(proj)) return
+
+    try {
       const { startProjectFileSync, stopProjectFileSync } = await import("@/lib/project-file-sync")
       const config = await loadSourceWatchConfig(proj.id, proj.path)
       if (!isCurrentProject(proj)) return

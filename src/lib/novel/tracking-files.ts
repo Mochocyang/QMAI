@@ -137,7 +137,8 @@ function serializeForeshadowingMd(
   items: Foreshadowing[],
   resolved: ResolvedForeshadowingRecord[],
 ): string {
-  const active = items.filter((f) => f.status !== "resolved")
+  const active = items.filter((f) => f.status !== "resolved" && f.status !== "abandoned")
+  const abandoned = items.filter((f) => f.status === "abandoned")
   const resolvedItems = resolved.length > 0
     ? resolved
     : items.filter((f) => f.status === "resolved").map((f) => ({
@@ -145,6 +146,13 @@ function serializeForeshadowingMd(
         resolvedInChapter: f.resolvedChapter ?? 0,
         resolution: `伏笔「${f.name}」在第${f.resolvedChapter}章回收`,
       }))
+
+  const statusLabelOf = (status: string): string => {
+    if (status === "planted") return "已埋设"
+    if (status === "advanced") return "推进中"
+    if (status === "abandoned") return "已放弃"
+    return "推进中"
+  }
 
   const lines: string[] = [
     "# 伏笔追踪",
@@ -156,11 +164,12 @@ function serializeForeshadowingMd(
 
   for (const f of active) {
     const importance = f.importance ?? "medium"
-    const statusLabel = f.status === "planted" ? "已埋设" : "推进中"
+    const statusLabel = statusLabelOf(f.status)
     const expectedChapter = f.expectedResolveChapter ? `第${f.expectedResolveChapter}章` : "待定"
     const relatedChars = (f.relatedCharacters || []).join("、")
+    const content = f.description || f.name
     lines.push(
-      `| ${f.id} | ${f.description} | 第${f.plantedChapter}章 | ${expectedChapter} | ${statusLabel} | ${importance} | ${relatedChars} | ${f.notes} |`,
+      `| ${f.id} | ${content} | 第${f.plantedChapter}章 | ${expectedChapter} | ${statusLabel} | ${importance} | ${relatedChars} | ${f.notes} |`,
     )
   }
 
@@ -169,7 +178,14 @@ function serializeForeshadowingMd(
   for (const r of resolvedItems) {
     const f = items.find((fi) => fi.id === r.id)
     const plantedChapter = f?.plantedChapter ?? "?"
-    lines.push(`| ${r.id} | ${f?.description ?? ""} | 第${plantedChapter}章 | 第${r.resolvedInChapter}章 | ${r.resolution} |`)
+    const content = f?.description || f?.name || ""
+    lines.push(`| ${r.id} | ${content} | 第${plantedChapter}章 | 第${r.resolvedInChapter}章 | ${r.resolution} |`)
+  }
+
+  lines.push("", "## 已放弃伏笔", "| ID | 伏笔内容 | 埋设章节 | 状态 | 备注 |", "|---|---|---|---|---|")
+  for (const f of abandoned) {
+    const content = f.description || f.name
+    lines.push(`| ${f.id} | ${content} | 第${f.plantedChapter}章 | 已放弃 | ${f.notes} |`)
   }
 
   return lines.join("\n")
@@ -182,20 +198,30 @@ function parseForeshadowingMd(content: string, existingStore: ForeshadowingStore
   const lines = content.split("\n")
   let inActive = false
   let inResolved = false
-  const statusMap: Record<string, "planted" | "advanced" | "resolved"> = {
+  const statusMap: Record<string, "planted" | "advanced" | "resolved" | "abandoned"> = {
     "已埋设": "planted",
     "推进中": "advanced",
+    "已放弃": "abandoned",
   }
+  let inAbandoned = false
 
   for (const line of lines) {
     if (line.startsWith("## 活跃伏笔")) {
       inActive = true
       inResolved = false
+      inAbandoned = false
       continue
     }
     if (line.startsWith("## 已回收伏笔")) {
       inActive = false
       inResolved = true
+      inAbandoned = false
+      continue
+    }
+    if (line.startsWith("## 已放弃伏笔")) {
+      inActive = false
+      inResolved = false
+      inAbandoned = true
       continue
     }
 
@@ -244,6 +270,32 @@ function parseForeshadowingMd(content: string, existingStore: ForeshadowingStore
             resolution: parts[4] ?? "",
           })
         }
+      }
+    }
+
+    if (inAbandoned && line.startsWith("|") && !line.startsWith("|---")) {
+      const parts = line.split("|").map((p) => p.trim()).filter(Boolean)
+      if (parts.length >= 4 && parts[0] !== "ID") {
+        const id = parts[0]
+        const existing = existingStore.items.find((f) => f.id === id)
+        const item: Foreshadowing = existing
+          ? { ...existing, status: "abandoned" }
+          : {
+              id,
+              name: (parts[1] || "").slice(0, 20),
+              description: parts[1] || "",
+              status: "abandoned",
+              plantedChapter: 1,
+              advancedChapters: [],
+              relatedCharacters: [],
+              relatedEvents: [],
+              notes: parts[4] || "",
+            }
+        const chapterMatch = parts[2]?.match(/(\d+)/)
+        if (chapterMatch) item.plantedChapter = parseInt(chapterMatch[1], 10)
+        if (parts[4]) item.notes = parts[4]
+        item.status = "abandoned"
+        if (!items.some((f) => f.id === id)) items.push(item)
       }
     }
   }
