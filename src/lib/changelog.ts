@@ -7,6 +7,33 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_THREE_CHANGELOG: ChangelogEntry = {
+  version: "3.0.3",
+  date: "2026-08-01",
+  highlights: {
+    en: [
+      "【Multi-Agent Character Profiles】Generate character profiles with independent agents for each character; auto-plan character list, parallel generation, structured save - no more 'unable to split characters' error.",
+      "【Dismantling Library Resume】Fixed progress list disappearing when switching tabs/pages; tasks continue running in background; breakpoint resume fully functional.",
+      "【Pangu One-Click Formatting】Integrated pangu for automatic spacing between Chinese/English/numbers in body text; titles/lists/tables/code blocks preserved as-is.",
+      "【Reasoning Model Fix】Fixed HTTP 400 error for DeepSeek-R1/Kimi and other reasoning models in multi-turn conversations; reasoning_content properly passed back to API.",
+      "【Web Search Restored】Restored web search settings entry with domestic search sources for Chinese users.",
+      "【Scroll & Context Leak Fix】Fixed writing view scroll lag; fixed AI outline context leaking across different books.",
+      "【Dismantling Result Display】Fixed dismantling tasks showing empty results after completion; toast prompts with 'View Results' button for all skill types.",
+      "【Pause/Cancel Fix】Fixed pause/cancel buttons unresponsive in dismantling library; immediate interrupt of running LLM requests; correct chunk state reset on pause.",
+    ],
+    zh: [
+      "【人物小传多Agent生成】多角色拆分并行生成，自动识别角色定位（男主/女主/配角/反派等），每个角色独立保存，彻底解决「无法自动拆分角色」问题",
+      "【拆文库断点续传完善】修复切换页面/切换Tab后提取进度消失问题，任务后台持续运行不中断，返回即可查看进度",
+      "【一键排版中英混排空格】接入pangu排版引擎，正文中英文、数字之间自动添加半角空格；标题/列表/表格/代码块保持原有格式",
+      "【推理模型多轮对话修复】彻底解决DeepSeek-R1、Kimi等思维模型第二轮对话HTTP 400报错，reasoning_content正确回传API",
+      "【恢复联网搜索功能】设置入口已恢复，接入国内搜索源，国内网络环境可正常使用",
+      "【写作滚动与上下文修复】修复写作界面滚动卡顿问题；修复AI大纲对话在切换书籍后上下文泄漏",
+      "【拆书结果显示修复】修复管道型拆书完成后结果区域为空问题，所有技能类型完成后弹出提示并可查看结果",
+      "【暂停/取消按钮修复】修复拆书库暂停/取消按钮点击无响应问题，点击立即中断正在运行的LLM请求；暂停后区块状态正确重置",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_ONE_CHANGELOG: ChangelogEntry = {
   version: "3.0.1",
   date: "2026-07-23",
@@ -926,6 +953,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_THREE_CHANGELOG.version)
+    return [THREE_POINT_ZERO_THREE_CHANGELOG];
   if (version === THREE_POINT_ZERO_ONE_CHANGELOG.version)
     return [THREE_POINT_ZERO_ONE_CHANGELOG];
   if (version === THREE_POINT_ZERO_ZERO_CHANGELOG.version)
