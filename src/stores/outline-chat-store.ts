@@ -92,6 +92,8 @@ export interface OutlineChatMessage {
   nextStepRecommendation?: NextStepRecommendation | null
   novelGenerationRequest?: NovelGenerationRequestPackage
   contextHubSnapshot?: ContextHubSnapshotRef
+  /** Thinking-model chain-of-thought; must be replayed on subsequent turns. */
+  reasoning_content?: string
 }
 
 export interface OutlineChatConversation {

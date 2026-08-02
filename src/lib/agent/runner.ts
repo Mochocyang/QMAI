@@ -17,6 +17,7 @@ import type { ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage } from "../llm-usage"
 import { trimChatMessagesToBudget } from "../chat-request-budget"
+import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 
 export class ModelDoesNotSupportToolsError extends Error {
@@ -262,13 +263,22 @@ export class AgentRunner {
         return record
       }
 
-      // Add assistant message with tool calls
+      // Add assistant message with tool calls.
+      // DeepSeek/Kimi thinking mode requires reasoning_content on every
+      // tool-call assistant message in subsequent rounds — even "".
       const assistantMsg: AgentMessage = {
         role: "assistant",
         content: roundText || "",
         tool_calls: toolCalls,
-        ...(roundReasoningContent ? { reasoning_content: roundReasoningContent } : {}),
+        reasoning_content: roundReasoningContent,
       }
+      logReasoningReplay("agent.round.tool_assistant", {
+        round: round + 1,
+        contentLen: (roundText || "").length,
+        reasoningLen: roundReasoningContent.length,
+        toolNames: toolCalls.map((call) => call.function.name),
+        workingMessageCount: workingMessages.length + 1,
+      })
       workingMessages.push(assistantMsg)
 
       // Execute each tool call

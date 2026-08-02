@@ -8,12 +8,14 @@ const STATUS_LABELS: Record<string, string> = {
   planted: "已埋设",
   advanced: "推进中",
   resolved: "已回收",
+  abandoned: "已放弃",
 }
 
 const STATUS_COLORS: Record<string, string> = {
   planted: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
   advanced: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   resolved: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  abandoned: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
 }
 
 export function ForeshadowingPanel() {
@@ -31,8 +33,9 @@ export function ForeshadowingPanel() {
       .finally(() => setLoading(false))
   }, [project])
 
-  const unresolved = store?.items.filter(f => f.status !== "resolved") ?? []
+  const unresolved = store?.items.filter(f => f.status !== "resolved" && f.status !== "abandoned") ?? []
   const resolved = store?.items.filter(f => f.status === "resolved") ?? []
+  const abandoned = store?.items.filter(f => f.status === "abandoned") ?? []
 
   if (!project) return null
 
@@ -105,6 +108,28 @@ export function ForeshadowingPanel() {
                       <p className="mt-1 text-xs text-muted-foreground">
                         {t("novel.foreshadowing.resolvedAt", { chapter: f.resolvedChapter ?? "?" })}
                       </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {abandoned.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-xs font-semibold text-zinc-500">
+                  {t("novel.foreshadowing.abandoned", { defaultValue: "已放弃" })} ({abandoned.length})
+                </h3>
+                <div className="space-y-2 opacity-50">
+                  {abandoned.map((f) => (
+                    <div key={f.id} className="rounded-md border p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{f.name}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-xs ${STATUS_COLORS[f.status]}`}>
+                          {STATUS_LABELS[f.status]}
+                        </span>
+                      </div>
+                      {f.notes && (
+                        <p className="mt-1 text-xs text-muted-foreground">{f.notes}</p>
+                      )}
                     </div>
                   ))}
                 </div>

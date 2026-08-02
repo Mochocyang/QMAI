@@ -21,6 +21,7 @@ type OutlineModelMessage = {
   content: string
   novelGenerationRequest?: NovelGenerationRequestPackage
   isAgentRunning?: boolean
+  reasoning_content?: string
 }
 
 type OutlineConversationLike = {
@@ -81,15 +82,25 @@ export function getOutlineMessageModelContent(message: {
     : message.content
 }
 
-export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Array<{ role: "user" | "assistant"; content: string }> {
+export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Array<{
+  role: "user" | "assistant"
+  content: string
+  reasoning_content?: string
+}> {
   return messages
     .filter((message) => message.content.trim() && !message.isAgentRunning)
-    .map((message) => ({ role: message.role, content: getOutlineMessageModelContent(message) }))
+    .map((message) => ({
+      role: message.role,
+      content: getOutlineMessageModelContent(message),
+      ...(message.reasoning_content !== undefined
+        ? { reasoning_content: message.reasoning_content }
+        : {}),
+    }))
 }
 
 export function buildOutlineRegenerationInput(messages: OutlineModelMessage[]): {
   request: string
-  history: Array<{ role: "user" | "assistant"; content: string }>
+  history: Array<{ role: "user" | "assistant"; content: string; reasoning_content?: string }>
   structuredGeneration: boolean
 } {
   const available = messages.filter((message) => message.content.trim() && !message.isAgentRunning)

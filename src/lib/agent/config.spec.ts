@@ -32,6 +32,12 @@ describe("function calling helpers", () => {
     expect(effectiveToolsEnabled("gpt-4o", { ...baseLlm, functionCallingEnabled: false })).toBe(false)
     expect(modelSupportsTools("gpt-4o")).toBe(true)
   })
+
+  it("blocks local CLI providers from agent tools", () => {
+    expect(modelSupportsTools("opus", "claude-code")).toBe(false)
+    expect(modelSupportsTools("gpt-5", "codex-cli")).toBe(false)
+    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(false)
+  })
 })
 
 describe("buildAgentConfig functionCallingEnabled", () => {

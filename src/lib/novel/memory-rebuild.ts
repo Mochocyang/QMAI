@@ -1,4 +1,5 @@
 import type { ChapterSnapshot } from "./chapter-ingest"
+import { normalizeForeshadowingName } from "./foreshadowing-normalize"
 
 const UNCERTAIN_RE = /(可能|也许|似乎|疑似|或许|大概|推测|猜测|尚不确定|未证实)/u
 const PUNCTUATION_RE = /[，。；：？！“”‘’（）《》【】<>]/u
@@ -69,34 +70,6 @@ function appendCandidateSection(lines: string[], candidates: string[]): void {
     lines.push(`- ${item}`)
   }
   lines.push("")
-}
-
-function normalizeForeshadowingName(text: string): { name: string; description: string } {
-  const cleaned = text
-    .trim()
-    .replace(/^(新增伏笔|推进伏笔|回收伏笔|新增|推进|回收)[：:\s-]*/u, "")
-    .trim()
-
-  const quoted = cleaned.match(/[“"']([^“”"']{1,24})[”"']/u)
-  if (quoted?.[1]) {
-    const name = quoted[1].trim().slice(0, 18)
-    const description = cleaned.replace(quoted[0], "").replace(/^[，。；：:、\-\s]+/u, "").trim() || text.trim()
-    return { name, description }
-  }
-
-  const keywordSplit = cleaned.split(/为何|并非|不仅是|存在|成为|将成|将|会|正在|开始|继续|揭示|预示|说明|意味着|指向|却能|不承认/u)
-    .map((item) => item.trim())
-    .filter(Boolean)
-  if (keywordSplit.length >= 2) {
-    return { name: keywordSplit[0].slice(0, 18), description: cleaned }
-  }
-
-  const punctuationSplit = cleaned.split(/[，。；：:？！]/u).map((item) => item.trim()).filter(Boolean)
-  if (punctuationSplit.length >= 2) {
-    return { name: punctuationSplit[0].slice(0, 18), description: cleaned }
-  }
-
-  return { name: cleaned.slice(0, 18), description: cleaned }
 }
 
 function parseSubjectChange(text: string): { subject: string; detail: string } | null {

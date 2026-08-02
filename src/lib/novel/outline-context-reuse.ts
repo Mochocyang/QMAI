@@ -19,6 +19,7 @@ export type OutlineContextPressureLevel = "low" | "medium" | "high"
 export interface OutlineAgentHistoryMessage {
   role: "user" | "assistant" | "tool" | "system"
   content: string
+  reasoning_content?: string
 }
 
 export interface OutlineContextReuseInput {

@@ -22,8 +22,8 @@ describe("cursor-cli provider", () => {
     expect(hasUsableLlm(base, { "cursor-cli": { enabled: true } })).toBe(true)
   })
 
-  it("supports agent tools via text tool-call parsing", () => {
-    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(true)
+  it("is blocked from agent tools like other local CLI providers", () => {
+    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(false)
     expect(modelSupportsTools("gpt-4o", "openai")).toBe(true)
   })
 

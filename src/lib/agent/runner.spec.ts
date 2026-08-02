@@ -88,6 +88,91 @@ describe("AgentRunner", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  it("replays reasoning_content on tool-call assistant messages in the next round", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: { name: { type: "string", description: "name" } },
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      callCount += 1
+      if (callCount === 1) {
+        cb.onReasoningToken?.("先读章节")
+        cb.onToolCallDelta?.({ index: 0, id: "call_reason_1", name: "read_chapter" })
+        cb.onToolCallDelta?.({ index: 0, arguments: '{"name":"ch1"}' })
+        cb.onDone()
+        return
+      }
+      cb.onToken("写完了")
+      cb.onDone()
+    })
+
+    const config: AgentConfig = {
+      maxRounds: 3,
+      tools: [tool],
+      systemPrompt: "You are helpful",
+      llmConfig: mockLlmConfig,
+    }
+    const result = await runner.run(
+      config,
+      registry,
+      [systemMsg, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+    )
+
+    const round2Messages = mockStreamChat.mock.calls[1][1] as AgentMessage[]
+    const toolAssistant = round2Messages.find((message) => message.role === "assistant" && message.tool_calls?.length)
+    expect(toolAssistant?.reasoning_content).toBe("先读章节")
+    expect(result.finalText).toBe("写完了")
+  })
+
+  it("always attaches reasoning_content for tool-call assistants even when empty", async () => {
+    const tool: Tool = {
+      name: "read_chapter",
+      description: "read",
+      category: "read",
+      parameters: { name: { type: "string", description: "name" } },
+      execute: vi.fn().mockResolvedValue("Chapter content"),
+    }
+    registry.register(tool)
+
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      callCount += 1
+      if (callCount === 1) {
+        cb.onToolCallDelta?.({ index: 0, id: "call_empty_reason", name: "read_chapter" })
+        cb.onToolCallDelta?.({ index: 0, arguments: '{"name":"ch1"}' })
+        cb.onDone()
+        return
+      }
+      cb.onToken("完成")
+      cb.onDone()
+    })
+
+    await runner.run(
+      {
+        maxRounds: 3,
+        tools: [tool],
+        systemPrompt: "You are helpful",
+        llmConfig: mockLlmConfig,
+      },
+      registry,
+      [systemMsg, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+    )
+
+    const round2Messages = mockStreamChat.mock.calls[1][1] as AgentMessage[]
+    const toolAssistant = round2Messages.find((message) => message.role === "assistant" && message.tool_calls?.length)
+    expect(toolAssistant).toHaveProperty("reasoning_content", "")
+  })
+
   it("passes cacheable system content blocks through to the provider layer", async () => {
     mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
       cb.onToken("完成")

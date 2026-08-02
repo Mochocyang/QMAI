@@ -60,7 +60,10 @@ export function extractReasoningTextFromLine(rawLine: string): string[] {
 
   try {
     const parsed = JSON.parse(data) as {
-      choices?: Array<{ delta?: { reasoning_content?: string; reasoning?: string } }>
+      choices?: Array<{
+        delta?: { reasoning_content?: string; reasoning?: string }
+        message?: { reasoning_content?: string; reasoning?: string }
+      }>
       type?: string
       delta?: string | { type?: string; text?: string; thinking?: string }
       candidates?: Array<{
@@ -73,6 +76,10 @@ export function extractReasoningTextFromLine(rawLine: string): string[] {
       const delta = choice.delta
       if (typeof delta?.reasoning_content === "string") out.push(delta.reasoning_content)
       if (typeof delta?.reasoning === "string") out.push(delta.reasoning)
+      // Non-streaming / final chunk may put reasoning on message instead of delta.
+      const message = choice.message
+      if (typeof message?.reasoning_content === "string") out.push(message.reasoning_content)
+      if (typeof message?.reasoning === "string") out.push(message.reasoning)
     }
 
     if (

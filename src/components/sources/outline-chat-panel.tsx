@@ -1865,6 +1865,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       let followUpGenerationPrompt: string | null = null;
       let contextHubResult: ContextHubResult | null = null;
       let providerUsage: LlmUsage | undefined;
+      let accumulatedReasoningContent = "";
 
       try {
         const contextHub = getContextHub(normalizePath(project.path));
@@ -2047,12 +2048,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             streamToUser?: boolean;
             statusText?: string;
           } = {},
-        ): Promise<{ text: string; record: AgentRunRecord; error?: Error }> => {
+        ): Promise<{ text: string; record: AgentRunRecord; error?: Error; reasoning_content: string }> => {
           const { agentConfig, registry } = buildConfigForSkillNames(
             optionsForRun.skillNames,
             optionsForRun.disableWriteTools,
           );
           let runText = "";
+          let runReasoningContent = "";
           let agentError: Error | null = null;
           if (optionsForRun.statusText) {
             if (isCurrentRun()) setStreamingContent(capturedConvId, optionsForRun.statusText);
@@ -2074,6 +2076,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     }));
                   }
                 }
+              },
+              onReasoningToken: (chunk) => {
+                runReasoningContent += chunk;
+                accumulatedReasoningContent += chunk;
               },
               onToolCall: () => {},
               onToolResult: () => {},
@@ -2104,7 +2110,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const errMsg = agentError?.message ?? "";
           const isLengthTruncated = errMsg.includes("输出被截断") || errMsg.includes("最大输出 token");
           if (agentError && !isLengthTruncated) throw agentError;
-          return { text: runText || record.finalText, record, error: agentError ?? undefined };
+          return {
+            text: runText || record.finalText,
+            record,
+            error: agentError ?? undefined,
+            reasoning_content: runReasoningContent,
+          };
         };
 
         const runSingleAgentFallback = async () => {
@@ -2550,6 +2561,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
           ...message,
           content: finalContent,
+          reasoning_content: accumulatedReasoningContent,
           sources: finalSources,
           showThinkingProcess: historyPlan.showThinkingProcess,
           agentToolCalls: shouldShowToolProcess
@@ -2678,6 +2690,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           updateOutlineAssistantMessage(convId, assistantId, (message) => ({
             ...message,
             content: partial,
+            reasoning_content: accumulatedReasoningContent,
             agentToolCalls: historyPlan.showToolProcessOnError
               ? settleRunningAgentToolCalls(
                   message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
@@ -2693,6 +2706,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             updateOutlineAssistantMessage(convId, assistantId, (message) => ({
               ...message,
               content: `生成失败：${errorMsg}`,
+              reasoning_content: accumulatedReasoningContent,
               agentToolCalls: historyPlan.showToolProcessOnError
                 ? settleRunningAgentToolCalls(
                     message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
@@ -3357,6 +3371,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           userMemorySessionKey: capturedConvId,
         };
         let agentError: Error | null = null;
+        let accumulatedReasoningContent = "";
         const record = await new AgentRunner().run(
           agentConfig,
           registry,
@@ -3379,6 +3394,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   }),
                 );
               }
+            },
+            onReasoningToken: (chunk) => {
+              accumulatedReasoningContent += chunk;
             },
             onToolCall: () => {},
             onToolResult: () => {},
@@ -3404,6 +3422,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 assistantId,
                 (message) => ({
                   ...message,
+                  reasoning_content: accumulatedReasoningContent,
                   agentToolCalls: settleRunningAgentToolCalls(
                     message.agentToolCalls,
                   ),
@@ -3456,6 +3475,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           (message) => ({
             ...message,
             content: finalContent,
+            reasoning_content: accumulatedReasoningContent,
             sources,
             agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
             isAgentRunning: false,

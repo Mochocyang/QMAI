@@ -70,6 +70,37 @@ describe("streamChat usage", () => {
     expect(onError).not.toHaveBeenCalled()
   })
 
+  it("同行 tool_calls 仍触发 onReasoningToken", async () => {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          'data: {"choices":[{"delta":{"reasoning_content":"需要读章","tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_chapter","arguments":"{}"}}]}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")))
+        controller.close()
+      },
+    })
+    mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }))
+    const onReasoningToken = vi.fn()
+    const onToolCallDelta = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "写第一章" }], {
+      onToken: vi.fn(),
+      onReasoningToken,
+      onToolCallDelta,
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })
+
+    expect(onReasoningToken).toHaveBeenCalledWith("需要读章")
+    expect(onToolCallDelta).toHaveBeenCalledWith(expect.objectContaining({
+      id: "call_1",
+      name: "read_chapter",
+    }))
+  })
+
   it("发送前把总输入限制在模型窗口的 85%", async () => {
     mocks.fetch.mockResolvedValue(new Response([
       'data: {"choices":[{"delta":{"content":"完成"}}]}',

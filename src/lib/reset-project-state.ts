@@ -45,12 +45,14 @@ export function resetProjectStores(): void {
 export async function resetProjectState(): Promise<void> {
   resetProjectStores()
 
-  const [dedupQueueMod, graphMod, fileSyncMod, scheduledImportMod] = await Promise.allSettled([
-    import("@/lib/dedup-queue"),
-    import("@/lib/graph-relevance"),
-    import("@/lib/project-file-sync"),
-    import("@/lib/scheduled-import"),
-  ])
+  const [dedupQueueMod, foreshadowingCleanupQueueMod, graphMod, fileSyncMod, scheduledImportMod] =
+    await Promise.allSettled([
+      import("@/lib/dedup-queue"),
+      import("@/lib/foreshadowing-cleanup-queue"),
+      import("@/lib/graph-relevance"),
+      import("@/lib/project-file-sync"),
+      import("@/lib/scheduled-import"),
+    ])
 
   if (scheduledImportMod.status === "fulfilled") {
     try {
@@ -77,6 +79,19 @@ export async function resetProjectState(): Promise<void> {
     }
   } else {
     console.warn("[Reset Project State] Failed to load dedup-queue:", dedupQueueMod.reason)
+  }
+
+  if (foreshadowingCleanupQueueMod.status === "fulfilled") {
+    try {
+      await foreshadowingCleanupQueueMod.value.pauseForeshadowingCleanupQueue()
+    } catch (err) {
+      console.warn("[Reset Project State] foreshadowing cleanup pauseQueue failed:", err)
+    }
+  } else {
+    console.warn(
+      "[Reset Project State] Failed to load foreshadowing-cleanup-queue:",
+      foreshadowingCleanupQueueMod.reason,
+    )
   }
 
   if (graphMod.status === "fulfilled") {

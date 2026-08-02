@@ -3,6 +3,12 @@ import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import { getProviderConfig, type RequestOverrides } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
+import {
+  formatReasoningReplayRiskForError,
+  isReasoningContentRequiredError,
+  logReasoningReplay,
+  summarizeReasoningReplayRisk,
+} from "./reasoning-replay-debug"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
 import { trimChatMessagesToBudget } from "./chat-request-budget"
@@ -231,6 +237,16 @@ export async function streamChat(
       }
     }
 
+    const requestRisk = summarizeReasoningReplayRisk(budgetedMessages)
+    if (requestRisk.assistantWithTools > 0) {
+      logReasoningReplay("request.before_send", {
+        url: providerConfig.url,
+        model: runtimeConfig.model,
+        messageCount: budgetedMessages.length,
+        ...requestRisk,
+      })
+    }
+
     let requestInit = buildRequestInit(budgetedMessages)
     let response: Response
     try {
@@ -273,6 +289,18 @@ export async function streamChat(
         if (body) errorDetail += ` — ${body}`
       } catch {
         // ignore body read failure
+      }
+      if (isReasoningContentRequiredError(errorDetail)) {
+        const risk = summarizeReasoningReplayRisk(budgetedMessages)
+        logReasoningReplay("request.http_error_reasoning_content", {
+          url: providerConfig.url,
+          model: runtimeConfig.model,
+          status: response.status,
+          errorDetail,
+          ...risk,
+        })
+        // Surface probe in the toast/UI error — console.warn alone stays in WebView DevTools.
+        errorDetail += `\n${formatReasoningReplayRiskForError(risk)}`
       }
       let inputLimitRetrySucceeded = false
       const inputLimit = parseInputLengthLimit(errorDetail)
@@ -370,6 +398,8 @@ export async function streamChat(
     // detector.ts.
     let contentCharsEmitted = 0
     let reasoningCharsObserved = 0
+    let reasoningTokensForwarded = 0
+    let toolCallDeltaCount = 0
     const recordToken = (text: string) => {
       contentCharsEmitted += text.length
       onToken(text)
@@ -377,6 +407,7 @@ export async function streamChat(
     const recordReasoning = (line: string) => {
       const reasoningParts = extractReasoningTextFromLine(line)
       for (const part of reasoningParts) {
+        reasoningTokensForwarded += part.length
         callbacks.onReasoningToken?.(part)
       }
     }
@@ -389,12 +420,15 @@ export async function streamChat(
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim()
             recordUsage(trimmed)
+            // Always harvest reasoning first: some gateways emit
+            // reasoning_content and tool_calls on the same SSE line.
+            reasoningCharsObserved += countReasoningCharsInLine(trimmed)
+            recordReasoning(trimmed)
             const toolDelta = parseToolCallDeltaFromLine(trimmed)
             if (toolDelta) {
+              toolCallDeltaCount += 1
               callbacks.onToolCallDelta?.(toolDelta)
             } else {
-              reasoningCharsObserved += countReasoningCharsInLine(trimmed)
-              recordReasoning(trimmed)
               const token = providerConfig.parseStream(trimmed)
               if (token !== null) recordToken(token)
             }
@@ -409,19 +443,32 @@ export async function streamChat(
           const trimmed = line.trim()
           if (!trimmed) continue
           recordUsage(trimmed)
+          // Always harvest reasoning first: some gateways emit
+          // reasoning_content and tool_calls on the same SSE line.
+          reasoningCharsObserved += countReasoningCharsInLine(trimmed)
+          recordReasoning(trimmed)
           const toolDelta = parseToolCallDeltaFromLine(trimmed)
           if (toolDelta) {
+            toolCallDeltaCount += 1
             callbacks.onToolCallDelta?.(toolDelta)
             continue
           }
-          reasoningCharsObserved += countReasoningCharsInLine(trimmed)
-          recordReasoning(trimmed)
           const token = providerConfig.parseStream(trimmed)
           if (token !== null) recordToken(token)
         }
       }
 
       if (streamUsage) callbacks.onUsage?.(streamUsage)
+
+      if (toolCallDeltaCount > 0 || reasoningCharsObserved > 0) {
+        logReasoningReplay("stream.collected", {
+          model: runtimeConfig.model,
+          contentCharsEmitted,
+          reasoningCharsObserved,
+          reasoningTokensForwarded,
+          toolCallDeltaCount,
+        })
+      }
 
       // Stream ended cleanly. If the model produced thinking tokens
       // but no actual answer, surface that as a clear diagnostic

@@ -357,7 +357,7 @@ export function identifyDeviations(
   // 伏笔冲突：已 planted/advanced 的伏笔被本章提前说破
   if (evidence.foreshadowing?.items) {
     for (const fs of evidence.foreshadowing.items) {
-      if (fs.status === "resolved") continue;
+      if (fs.status === "resolved" || fs.status === "abandoned") continue;
       const hit = revealPatterns.some((p) => p(draft, fs.name));
       if (!hit) continue;
 
@@ -422,7 +422,7 @@ function buildRepairPrompt(
   const foreshadowingBrief =
     evidence.foreshadowing.items.length > 0
       ? evidence.foreshadowing.items
-          .filter((f) => f.status !== "resolved")
+          .filter((f) => f.status !== "resolved" && f.status !== "abandoned")
           .map(
             (f) =>
               `- [${f.status}] ${f.name}：${f.description}（第${f.plantedChapter}章）`,

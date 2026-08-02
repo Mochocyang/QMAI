@@ -4,7 +4,7 @@ export interface ForeshadowingDebtItem {
   id: string
   name: string
   description: string
-  status: "planted" | "advanced" | "resolved"
+  status: "planted" | "advanced" | "resolved" | "abandoned"
   plantedChapter: number
   lastAdvancedChapter?: number
   chaptersSincePlanted: number
@@ -40,7 +40,9 @@ export function analyzeForeshadowingDebt(
   const advancedStale = options?.advancedStale ?? DEFAULT_ADVANCED_STALE
   const densityLimit = options?.densityLimit ?? DEFAULT_DENSITY_LIMIT
 
-  const unresolved = store.items.filter((item) => item.status !== "resolved")
+  const unresolved = store.items.filter(
+    (item) => item.status !== "resolved" && item.status !== "abandoned",
+  )
 
   const items: ForeshadowingDebtItem[] = unresolved.map((item) => {
     const chaptersSincePlanted = currentChapter - item.plantedChapter

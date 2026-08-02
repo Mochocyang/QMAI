@@ -21,13 +21,59 @@ interface ModelGroup {
 
 const DROPDOWN_MAX_HEIGHT = 360
 const DROPDOWN_GAP = 4
+/** Prefer opening downward when at least this much space exists below the trigger. */
+const DROPDOWN_PREFER_BELOW_PX = 200
+
+export type ChatModelDropdownStyle = {
+  right: number
+  width: number
+  maxHeight: number
+} & ({ top: number; bottom?: undefined } | { bottom: number; top?: undefined })
+
+/** Pure layout helper — open below when space allows; otherwise open above. */
+export function getChatModelDropdownStyle(
+  rect: Pick<DOMRect, "top" | "bottom" | "right" | "width">,
+  viewport: { width: number; height: number } = {
+    width: typeof window !== "undefined" ? window.innerWidth : 0,
+    height: typeof window !== "undefined" ? window.innerHeight : 0,
+  },
+): ChatModelDropdownStyle {
+  const width = Math.max(rect.width, 280)
+  const right = Math.max(4, viewport.width - rect.right)
+  const spaceAbove = rect.top
+  const spaceBelow = viewport.height - rect.bottom
+  const openBelow =
+    spaceBelow >= DROPDOWN_PREFER_BELOW_PX || spaceBelow >= spaceAbove
+
+  if (openBelow) {
+    return {
+      right,
+      width,
+      top: rect.bottom + DROPDOWN_GAP,
+      maxHeight: Math.min(
+        DROPDOWN_MAX_HEIGHT,
+        Math.max(120, spaceBelow - DROPDOWN_GAP - 4),
+      ),
+    }
+  }
+
+  return {
+    right,
+    width,
+    bottom: viewport.height - rect.top + DROPDOWN_GAP,
+    maxHeight: Math.min(
+      DROPDOWN_MAX_HEIGHT,
+      Math.max(120, spaceAbove - DROPDOWN_GAP - 4),
+    ),
+  }
+}
 
 export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelectorProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const [dropdownStyle, setDropdownStyle] = useState<{ right: number; bottom: number; width: number; maxHeight: number } | null>(null)
+  const [dropdownStyle, setDropdownStyle] = useState<ChatModelDropdownStyle | null>(null)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
   const modelGroups = useMemo<ModelGroup[]>(() => {
@@ -89,23 +135,12 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current
     if (!trigger) return
-    const rect = trigger.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    const width = Math.max(rect.width, 280)
-    const right = Math.max(4, viewportWidth - rect.right)
-    const spaceAbove = rect.top
-    const spaceBelow = viewportHeight - rect.bottom
-    let maxHeight: number
-    let bottom: number
-    if (spaceBelow >= 200) {
-      maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, spaceBelow - DROPDOWN_GAP - 4)
-      bottom = viewportHeight - rect.bottom - DROPDOWN_GAP
-    } else {
-      maxHeight = Math.min(DROPDOWN_MAX_HEIGHT, Math.max(150, spaceAbove - DROPDOWN_GAP - 4))
-      bottom = viewportHeight - rect.top + DROPDOWN_GAP
-    }
-    setDropdownStyle({ right, bottom, width, maxHeight })
+    setDropdownStyle(
+      getChatModelDropdownStyle(trigger.getBoundingClientRect(), {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    )
   }, [])
 
   useEffect(() => {
@@ -171,6 +206,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             className="fixed rounded-md border bg-popover p-1 shadow-lg model-selector-dropdown"
             style={{
               right: dropdownStyle.right,
+              top: dropdownStyle.top,
               bottom: dropdownStyle.bottom,
               width: dropdownStyle.width,
               maxHeight: dropdownStyle.maxHeight,
