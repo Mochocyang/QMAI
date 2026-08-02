@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
+import { Star } from "lucide-react"
 import { readFile } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import {
   createBlankProjectDeAiSkill,
   getAllDeAiSkills,
@@ -21,10 +23,12 @@ import {
 import type { SkillKind, UserSkill } from "@/lib/novel/skill-library"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
+import { FavoriteListView } from "./favorite-list-view"
 
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
+  { view: "skillFavorites" as const, label: "收藏" },
 ]
 
 type UnifiedSkillCategory = "all" | "writing" | "de-ai" | SkillKind
@@ -37,6 +41,8 @@ interface UnifiedSkillEntry {
   description: string
   content: string
   kinds: SkillKind[]
+  /** toggleFavorite 需要原始技能对象（v3 新增） */
+  rawSkill: UserSkill | DeAiSkill
 }
 
 const unifiedSkillCategories: { id: UnifiedSkillCategory; label: string }[] = [
@@ -57,6 +63,7 @@ function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
     description: skill.description,
     content: skill.content,
     kinds: ["rewrite", "style"],
+    rawSkill: skill,
   }
 }
 
@@ -69,6 +76,7 @@ function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
     description: skill.description,
     content: skill.content,
     kinds: skill.kind,
+    rawSkill: skill,
   }
 }
 
@@ -136,7 +144,11 @@ function importedDeAiSkillFromContent(path: string, content: string): DeAiSkill 
 function SkillLibraryHeader({ compact = false }: { compact?: boolean }) {
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
-  const activeTab = activeView === "writingSkillLibrary" ? "writingSkillLibrary" : "skillLibrary"
+  const activeTab = activeView === "writingSkillLibrary"
+    ? "writingSkillLibrary"
+    : activeView === "skillFavorites"
+    ? "skillFavorites"
+    : "skillLibrary"
 
   return (
     <div className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b ${compact ? "px-2 py-2" : "px-4 py-3"}`}>
@@ -162,7 +174,7 @@ function SkillLibraryHeader({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | "writingSkillLibrary" }) {
+function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | "writingSkillLibrary" | "skillFavorites" }) {
   const project = useWikiStore((s) => s.project)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -294,7 +306,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
             导入
           </button>
         </>
-      ) : (
+      ) : activeTab === "writingSkillLibrary" ? (
         <>
           <button type="button" onClick={() => void handleCreateWritingSkill()} disabled={disabled} className={buttonClass}>
             新建 Skill
@@ -303,7 +315,7 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
             导入
           </button>
         </>
-      )}
+      ) : null}
       {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
     </div>
   )
@@ -311,13 +323,18 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
 
 export function UnifiedSkillLibraryView() {
   const activeView = useWikiStore((s) => s.activeView)
-  const showWritingSkill = activeView === "writingSkillLibrary"
 
   return (
     <div data-testid="unified-skill-library-view" className="flex h-full flex-col overflow-hidden">
       <SkillLibraryHeader />
       <div className="min-h-0 flex-1 overflow-hidden">
-        {showWritingSkill ? <WritingSkillLibraryView /> : <SkillLibraryView />}
+        {activeView === "writingSkillLibrary" ? (
+          <WritingSkillLibraryView />
+        ) : activeView === "skillFavorites" ? (
+          <FavoriteListView />
+        ) : (
+          <SkillLibraryView />
+        )}
       </div>
     </div>
   )
@@ -331,6 +348,8 @@ export function UnifiedSkillLibrarySidebarPanel() {
   const selectedWritingSkillId = useWikiStore((s) => s.selectedWritingSkillLibrarySkillId)
   const setSelectedSkillId = useWikiStore((s) => s.setSelectedSkillLibrarySkillId)
   const setSelectedWritingSkillId = useWikiStore((s) => s.setSelectedWritingSkillLibrarySkillId)
+  const toggleFavorite = useFavoriteSkillStore((s) => s.toggleFavorite)
+  const isFavorited = useFavoriteSkillStore((s) => s.isFavorited)
   const [entries, setEntries] = useState<UnifiedSkillEntry[]>([])
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
@@ -463,6 +482,30 @@ export function UnifiedSkillLibrarySidebarPanel() {
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {entry.type === "writing" ? "写作" : "去AI味"}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const library = entry.type === "writing" ? "writing" : "de-ai"
+                    void toggleFavorite({
+                      library,
+                      skill: entry.rawSkill,
+                      originProjectPath: project?.path,
+                    })
+                  }}
+                  aria-label={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
+                  title={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "取消收藏" : "收藏"}
+                  className={`shrink-0 rounded p-0.5 transition-colors ${
+                    isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId)
+                      ? "text-yellow-500 hover:text-yellow-600"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Star
+                    className="h-3.5 w-3.5"
+                    fill={isFavorited(entry.type === "writing" ? "writing" : "de-ai", entry.sourceId) ? "currentColor" : "none"}
+                  />
+                </button>
               </div>
               <div className="mt-1 truncate text-xs text-muted-foreground">
                 {entry.description || "未填写说明"}

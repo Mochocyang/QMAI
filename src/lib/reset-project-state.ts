@@ -11,6 +11,7 @@
 import { pauseQueue as pauseIngestQueue } from "@/lib/ingest-queue"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useReviewStore } from "@/stores/review-store"
 
@@ -39,6 +40,13 @@ export function resetProjectStores(): void {
 
   useActivityStore.setState({
     items: [],
+  })
+
+  // v4 R7：重置收藏 store 状态
+  // 只清空 currentProjectPath（退出项目后无当前项目）
+  // favorites 全局数据保留；loaded 保持 true（数据已加载，无需重新加载，退出项目后仍可查看收藏 Tab）
+  useFavoriteSkillStore.setState({
+    currentProjectPath: "",
   })
 }
 
