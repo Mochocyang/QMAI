@@ -17,6 +17,7 @@ import type { ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage } from "../llm-usage"
 import { trimChatMessagesToBudget } from "../chat-request-budget"
+import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 
 export class ModelDoesNotSupportToolsError extends Error {
@@ -271,6 +272,13 @@ export class AgentRunner {
         tool_calls: toolCalls,
         reasoning_content: roundReasoningContent,
       }
+      logReasoningReplay("agent.round.tool_assistant", {
+        round: round + 1,
+        contentLen: (roundText || "").length,
+        reasoningLen: roundReasoningContent.length,
+        toolNames: toolCalls.map((call) => call.function.name),
+        workingMessageCount: workingMessages.length + 1,
+      })
       workingMessages.push(assistantMsg)
 
       // Execute each tool call
