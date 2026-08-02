@@ -111,6 +111,7 @@ export function ContentArea() {
         break;
       case "skillLibrary":
       case "writingSkillLibrary":
+      case "skillFavorites":
         content = (
           <Suspense fallback={<LoadingView />}>
             <UnifiedSkillLibraryView />

@@ -7,6 +7,35 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "3.0.4",
+  date: "2026-08-02",
+  highlights: {
+    en: [
+      "[Skill Favorites] Star any skill in the sidebar to save it to a global favorites list; access them from the new 'Favorites' tab.",
+      "[Cross-Project Copy] Copy any favorited skill to the current project with one click; works across different projects.",
+      "[Global Storage] Favorites are stored globally via Tauri plugin-store; they persist across project switches.",
+      "[Content Snapshot] Favoriting captures a content snapshot; favorites remain intact even if the original skill is modified or deleted.",
+      "[Foreshadowing Fix] Fixed foreshadowing ingestion: full/half-width colon compatibility, name normalization, deduplication.",
+      "[Abandoned State] Foreshadowing now supports 'abandoned' status; new cleanup maintenance tool added in Settings.",
+      "[Chat Model Dropdown] Fixed dropdown clipping in chat model selector; now expands upward when space is insufficient.",
+      "[Thinking Mode Fix] Fixed reasoning_content propagation in multi-turn tool calls for thinking models.",
+      "[Dismantling Library Unstable] The dismantling library is currently unstable; usage is not recommended until stabilized.",
+    ],
+    zh: [
+      "【技能库收藏】侧边栏技能卡片新增星标按钮，一键收藏到全局收藏列表，通过新增的「收藏」Tab 集中查看",
+      "【跨项目复制】收藏列表支持「复制到当前项目」，一键将收藏的技能复制到当前打开的项目，跨项目复用更便捷",
+      "【全局存储】收藏数据通过 Tauri plugin-store 全局存储，切换项目不丢失",
+      "【内容快照】收藏时固化技能内容快照，原技能被修改或删除后收藏不会失效",
+      "【伏笔摄取修复】修复伏笔摄取全角/半角冒号兼容、name 字段归一化、重复伏笔去重问题",
+      "【已放弃状态】伏笔新增「已放弃」状态，设置中新增伏笔清理维护工具",
+      "【聊天模型下拉修复】修复聊天模型选择下拉框被裁切问题，空间不足时自动向上展开",
+      "【思维模式修复】修复思维模式多轮工具调用时 reasoning_content 未正确回传问题",
+      "【拆书库不稳定】拆书库目前不稳定，建议暂不使用，待后续版本修复稳定后恢复",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_THREE_CHANGELOG: ChangelogEntry = {
   version: "3.0.3",
   date: "2026-08-01",
@@ -953,6 +982,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_FOUR_CHANGELOG.version)
+    return [THREE_POINT_ZERO_FOUR_CHANGELOG];
   if (version === THREE_POINT_ZERO_THREE_CHANGELOG.version)
     return [THREE_POINT_ZERO_THREE_CHANGELOG];
   if (version === THREE_POINT_ZERO_ONE_CHANGELOG.version)
@@ -1030,6 +1061,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_FOUR_CHANGELOG,
+    THREE_POINT_ZERO_THREE_CHANGELOG,
     THREE_POINT_ZERO_ONE_CHANGELOG,
     THREE_POINT_ZERO_ZERO_CHANGELOG,
     TWO_POINT_TWO_THIRTY_SEVEN_CHANGELOG,

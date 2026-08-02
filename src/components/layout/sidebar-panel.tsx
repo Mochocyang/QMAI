@@ -1244,7 +1244,7 @@ export function SidebarPanel() {
     )
   }
 
-  if (activeView === "skillLibrary" || activeView === "writingSkillLibrary") {
+  if (activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites") {
     return (
       <Suspense fallback={<SidebarPanelLoading />}>
         <UnifiedSkillLibrarySidebarPanel />

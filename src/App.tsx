@@ -175,6 +175,14 @@ function App() {
     await hydrateScheduledImportAfterOpen(proj)
     if (!isCurrentProject(proj)) return
     await hydrateProjectSideStores(proj)
+    if (!isCurrentProject(proj)) return
+    // v3 新增：加载技能收藏（全局存储，但需 project path 用于 originProjectPath 标记）
+    try {
+      const { useFavoriteSkillStore } = await import("@/stores/favorite-skill-store")
+      await useFavoriteSkillStore.getState().load(proj.path)
+    } catch (err) {
+      console.warn("[startup] 加载技能收藏失败:", err)
+    }
   }
 
   useEffect(() => {
