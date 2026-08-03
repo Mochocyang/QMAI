@@ -161,6 +161,7 @@ const UI_PREFERENCE_KEYS: &[&str] = &[
     "uiFontFamily",
     "maxHistoryMessages",
     "lastReadChapter",
+    "projectLastReadChapters",
 ];
 
 fn is_sensitive_key(key: &str) -> bool {

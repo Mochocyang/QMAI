@@ -6,6 +6,30 @@ export function normalizePath(p: string): string {
   return p.replace(/\\/g, "/")
 }
 
+/** Strip trailing slashes after normalize (except bare root forms). */
+export function normalizeComparablePath(p: string): string {
+  return normalizePath(p).replace(/\/+$/, "")
+}
+
+/** True when `path` is `parent` or a descendant under `parent/`. */
+export function isPathInside(path: string, parent: string): boolean {
+  const normalizedPath = normalizeComparablePath(path)
+  const normalizedParent = normalizeComparablePath(parent)
+  if (!normalizedPath || !normalizedParent) return false
+  return (
+    normalizedPath === normalizedParent ||
+    normalizedPath.startsWith(`${normalizedParent}/`)
+  )
+}
+
+/** True when `chapterPath` is a chapter markdown file under the project's wiki/chapters. */
+export function isChapterPathInProject(chapterPath: string, projectPath: string): boolean {
+  const chaptersRoot = `${normalizeComparablePath(projectPath)}/wiki/chapters`
+  const normalizedChapter = normalizeComparablePath(chapterPath)
+  if (!isPathInside(normalizedChapter, chaptersRoot)) return false
+  return normalizedChapter.toLowerCase().endsWith(".md")
+}
+
 /**
  * Join path segments with forward slashes.
  */

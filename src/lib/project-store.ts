@@ -752,14 +752,36 @@ function normalizeRerankConfig(
 }
 
 const LAST_READ_CHAPTER_KEY = "lastReadChapter"
+const PROJECT_LAST_READ_CHAPTER_KEY = "projectLastReadChapters"
 
-export async function saveLastReadChapter(chapterPath: string): Promise<void> {
+export async function saveLastReadChapter(
+  chapterPath: string,
+  projectId?: string,
+): Promise<void> {
   const store = await getStore()
+  if (projectId) {
+    const existing =
+      (await store.get<Record<string, string>>(PROJECT_LAST_READ_CHAPTER_KEY)) ?? {}
+    await store.set(PROJECT_LAST_READ_CHAPTER_KEY, {
+      ...existing,
+      [projectId]: chapterPath,
+    })
+  }
+  // Keep legacy global key as a best-effort fallback for older backups/readers.
   await store.set(LAST_READ_CHAPTER_KEY, chapterPath)
 }
 
-export async function loadLastReadChapter(): Promise<string | null> {
+export async function loadLastReadChapter(projectId?: string): Promise<string | null> {
   const store = await getStore()
+  if (projectId) {
+    const projectChapters =
+      await store.get<Record<string, string>>(PROJECT_LAST_READ_CHAPTER_KEY)
+    const projectPath = projectChapters?.[projectId]
+    if (typeof projectPath === "string" && projectPath) {
+      return projectPath
+    }
+  }
+  // Legacy global key: callers must verify the path belongs to the opened project.
   const path = await store.get<string>(LAST_READ_CHAPTER_KEY)
   return path ?? null
 }

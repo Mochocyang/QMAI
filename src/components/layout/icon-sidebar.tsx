@@ -25,6 +25,7 @@ import logoImg from "@/assets/QM-LOGO.png"
 import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
+import { isChapterPathInProject } from "@/lib/path-utils"
 import {
   isSidebarNavItemId,
   reorderSidebarNavOrder,
@@ -124,6 +125,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSearchPanelOpen = useWikiStore((s) => s.setSearchPanelOpen)
+  const project = useWikiStore((s) => s.project)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const theme = useWikiStore((s) => s.theme)
@@ -198,9 +200,15 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
     const normalizedSelectedFile = selectedFile?.replace(/\\/g, "/") ?? ""
 
     // 离开wiki视图时，保存当前章节路径到sessionStorage，以便切回时恢复
-    if (activeView === "wiki" && view !== "wiki" && normalizedSelectedFile.includes("/wiki/chapters/")) {
+    if (
+      activeView === "wiki" &&
+      view !== "wiki" &&
+      project &&
+      selectedFile &&
+      isChapterPathInProject(selectedFile, project.path)
+    ) {
       try {
-        sessionStorage.setItem("lk-last-chapter-path", selectedFile!)
+        sessionStorage.setItem("lk-last-chapter-path", selectedFile)
       } catch { /* ignore quota errors */ }
     }
 
@@ -227,7 +235,7 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
     // 切换回wiki时，如果selectedFile为空或已被清空，尝试从sessionStorage恢复章节
     if (view === "wiki" && (!normalizedSelectedFile || needsRestoreChapter)) {
       const savedPath = sessionStorage.getItem("lk-last-chapter-path")
-      if (savedPath) {
+      if (savedPath && project && isChapterPathInProject(savedPath, project.path)) {
         setSelectedFile(savedPath)
       }
     }

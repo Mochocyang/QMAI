@@ -53,6 +53,14 @@ export function resetProjectStores(): void {
 export async function resetProjectState(): Promise<void> {
   resetProjectStores()
 
+  // View-switch restore key is process-global; clear so the next project cannot
+  // reopen another book's chapter via icon-sidebar session restore.
+  try {
+    sessionStorage.removeItem("lk-last-chapter-path")
+  } catch {
+    /* ignore quota / unavailable storage */
+  }
+
   const [dedupQueueMod, foreshadowingCleanupQueueMod, graphMod, fileSyncMod, scheduledImportMod] =
     await Promise.allSettled([
       import("@/lib/dedup-queue"),

@@ -4,7 +4,7 @@ vi.mock("@/lib/ingest-queue", () => ({
   pauseQueue: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { resetProjectStores } from "./reset-project-state"
+import { resetProjectState, resetProjectStores } from "./reset-project-state"
 import { useActivityStore } from "@/stores/activity-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
@@ -49,5 +49,26 @@ describe("resetProjectStores", () => {
     })
     expect(useReviewStore.getState().items).toEqual([])
     expect(useActivityStore.getState().items).toEqual([])
+  })
+})
+
+describe("resetProjectState", () => {
+  it("clears the session chapter restore key used by sidebar view switching", async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value)
+      },
+      removeItem: (key: string) => {
+        storage.delete(key)
+      },
+    })
+    sessionStorage.setItem("lk-last-chapter-path", "/books/other/wiki/chapters/212.md")
+
+    await resetProjectState()
+
+    expect(sessionStorage.getItem("lk-last-chapter-path")).toBeNull()
+    vi.unstubAllGlobals()
   })
 })
