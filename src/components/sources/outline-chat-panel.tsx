@@ -1986,6 +1986,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               wikiPath: `${normalizePath(project.path)}/wiki`,
               getSkillConfig: () => skillConfig,
               getUserSkills: () => effectiveOutlineWritingSkills,
+              getSearchApiConfig: () => useWikiStore.getState().searchApiConfig,
               getChatConversations: () => {
                 const state = useChatStore.getState();
                 return state.conversations.map((conversation) => ({
@@ -2940,6 +2941,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             wikiPath: `${normalizePath(project.path)}/wiki`,
             getSkillConfig: () => skillConfig,
             getUserSkills: () => outlineWritingSkills,
+            getSearchApiConfig: () => useWikiStore.getState().searchApiConfig,
             getChatConversations: () => {
               const state = useChatStore.getState();
               return state.conversations.map((conversation) => ({
@@ -3333,6 +3335,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             wikiPath: `${normalizePath(project.path)}/wiki`,
             getSkillConfig: () => skillConfig,
             getUserSkills: () => outlineWritingSkills,
+            getSearchApiConfig: () => useWikiStore.getState().searchApiConfig,
             getChatConversations: () => {
               const state = useChatStore.getState();
               return state.conversations.map((conversation) => ({
