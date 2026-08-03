@@ -92,7 +92,7 @@ import {
   parseDynamicOutlinePlan,
 } from "@/lib/novel/outline-dynamic-agent-planner";
 import { buildScopedOutlineSubAgentContext } from "@/lib/novel/outline-agent-context";
-import { normalizeOutlineMarkdown, prepareOutlineSaveDraft } from "@/lib/outline-save";
+import { prepareOutlineSaveDraft, prepareOutlineSaveSourceContent } from "@/lib/outline-save";
 import {
   type CharacterSaveDraft,
   extractCharacterSaveDrafts,
@@ -919,9 +919,7 @@ function OutlineAssistantMessage({
   }>({ textContent: "", edits: [], hasEdits: false });
   const renderedMarkdownContent = useMemo(() => {
     const rawContent = parsed.textContent || answer;
-    const stripped = stripStructuredMarkers(rawContent);
-    const bodyContent = extractBodyContent(stripped);
-    return normalizeOutlineMarkdown(bodyContent || stripped);
+    return prepareOutlineSaveSourceContent(rawContent);
   }, [answer, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
@@ -1603,10 +1601,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (parsed.requests.length === 0) {
         const repairMeta = pendingRepairMetaRef.current[conversationId];
         if (repairMeta && repairMeta.length > 0) {
-          const body = assistantContent
-            .replace(/```(?:json)?\s*[\s\S]*?```/gi, "")
-            .replace(/```[\s\S]*?```/g, "")
-            .trim();
+          const body = extractBodyContent(assistantContent);
           if (body && isLikelyChapterOutline(body, repairMeta[0].fileName)) {
             const fallbackRequests: OutlineSaveRequest[] = repairMeta.map((meta) => ({
               ...meta,
@@ -3567,9 +3562,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         toast.error("当前没有活跃的对话，无法保存大纲");
         return;
       }
-      const stripped = stripStructuredMarkers(content);
-      const bodyContent = extractBodyContent(stripped);
-      const cleanedContent = cleanNextStepArtifacts(bodyContent || stripped);
+      const cleanedContent = prepareOutlineSaveSourceContent(content);
       if (!cleanedContent.trim()) {
         toast.error("内容为空，无法保存为大纲");
         return;
@@ -3578,6 +3571,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       setSaveStatus("");
       try {
         const draft = prepareOutlineSaveDraft(cleanedContent, []);
+        if (!draft.content.trim()) {
+          toast.error("内容为空，无法保存为大纲");
+          return;
+        }
         const classification = classifyOutlineSaveTarget({
           title: draft.title,
           content: draft.content,
@@ -3622,7 +3619,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
 
         const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim();
-        const mdContent = `# ${classification.fileName.replace(/\.md$/i, "")}\n\n${body}`;
+        const titleHeading = classification.fileName.replace(/\.md$/i, "");
+        const mdContent = body
+          ? `# ${titleHeading}\n\n${body}`
+          : draft.content.trim();
         setSaveConfirmState({
           title: "保存大纲文件",
           mode: "normal",

@@ -10,6 +10,6 @@ describe("markdown preview wrapping", () => {
     expect(filePreviewSource).toContain("overflowWrap: \"anywhere\"")
     expect(wikiReaderSource).toContain("overflowWrap: \"anywhere\"")
     expect(outlineChatSource).toContain("overflowWrap: \"anywhere\"")
-    expect(outlineChatSource).toContain("normalizeOutlineMarkdown")
+    expect(outlineChatSource).toContain("prepareOutlineSaveSourceContent")
   })
 })

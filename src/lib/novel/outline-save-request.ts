@@ -208,10 +208,38 @@ function collectRawRequests(payload: Record<string, unknown>): unknown[] {
   return []
 }
 
+function isOutlineSaveProtocolJson(inner: string): boolean {
+  const trimmed = inner.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false
+  try {
+    const payload = JSON.parse(trimmed) as unknown
+    if (!isRecord(payload)) return false
+    return "outlineSaveRequest" in payload || "outlineSaveRequests" in payload
+  } catch {
+    return /outlineSaveRequests?/i.test(trimmed)
+  }
+}
+
+/**
+ * 从 AI 回复中提取可保存的大纲正文：
+ * - 展开 markdown/md 围栏与无语言标记的正文围栏
+ * - 删除 json 协议块（及无语言标记但内容为 outlineSaveRequest 的围栏）
+ * - 保留其它语言代码围栏原样
+ */
 export function extractBodyContent(text: string): string {
   return text
-    .replace(/```(?:json)?\s*[\s\S]*?```/gi, "")
-    .replace(/```[\s\S]*?```/g, "")
+    .replace(
+      /```([a-zA-Z0-9_+-]*)[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/g,
+      (full, lang: string, inner: string) => {
+        const language = (lang || "").trim().toLowerCase()
+        if (language === "json") return ""
+        if (language === "markdown" || language === "md") return inner.trim()
+        if (!language) {
+          return isOutlineSaveProtocolJson(inner) ? "" : inner.trim()
+        }
+        return full
+      },
+    )
     .trim()
 }
 
@@ -237,16 +265,19 @@ function fillContentFromText(requests: OutlineSaveRequest[], text: string): Outl
   const body = extractBodyContent(text)
   if (!body) return requests
 
+  const fillOne = (request: OutlineSaveRequest, content: string): OutlineSaveRequest =>
+    request.content.trim() ? request : { ...request, content }
+
   if (requests.length === 1) {
-    return requests.map((r) => ({ ...r, content: body }))
+    return requests.map((request) => fillOne(request, body))
   }
 
   const sections = splitBodyByH1(body)
   if (sections.length >= requests.length) {
-    return requests.map((r, i) => ({ ...r, content: sections[i] || body }))
+    return requests.map((request, i) => fillOne(request, sections[i] || body))
   }
 
-  return requests.map((r) => ({ ...r, content: body }))
+  return requests.map((request) => fillOne(request, body))
 }
 
 export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseResult {
@@ -270,14 +301,15 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
   }
 
   const filled = fillContentFromText(requests, text)
-  const stillEmpty = filled.filter((r) => !r.content)
+  const usable = filled.filter((request) => request.content.trim())
+  const stillEmpty = filled.filter((request) => !request.content.trim())
   if (stillEmpty.length > 0) {
     stillEmpty.forEach((_, i) => {
       errors.push(`第 ${i + 1} 个保存请求缺少 content，且无法从正文中提取。`)
     })
   }
 
-  return { requests: filled, errors }
+  return { requests: usable, errors }
 }
 
 export function formatOutlineSaveParseFeedback(errors: string[]): string {
