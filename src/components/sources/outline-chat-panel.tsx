@@ -237,15 +237,12 @@ import {
 
 type OutlineSendResult = { started: boolean; sent: boolean };
 
-const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory"];
-const OUTLINE_CHAT_WIZARD_DISABLED_TOOLS = [
-  ...OUTLINE_CHAT_DISABLED_TOOLS,
-  "write_outline_node",
-];
+const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory", "write_outline_node"];
+const OUTLINE_CHAT_WIZARD_DISABLED_TOOLS = [...OUTLINE_CHAT_DISABLED_TOOLS];
 
 function showOutlineAutoSaveError(message: string) {
   toast.error(message, {
-    title: "自动保存失败",
+    title: "大纲保存失败",
     persistent: true,
     dedupeKey: `outline-auto-save:${message}`,
   });
@@ -351,7 +348,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
     "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
-    "回答必须基于已读取内容进行分析，说明关键判断依据；需要保存大纲时只能使用 write_outline_node；生成可保存内容时必须同时输出 outlineSaveRequest 或 outlineSaveRequests JSON 块供系统自动归档。",
+    "回答必须基于已读取内容进行分析，说明关键判断依据；需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
     "## AI大纲固定分析流程",
     "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
     "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
@@ -384,12 +381,12 @@ export function buildOutlineAgentSystemPrompt(options: {
     "Markdown 格式约束：结构化资料使用一级标题，** 必须成对，不要用代码围栏包裹全文，已有表格必须保留合法分隔行。",
     "## AI 大纲输出协议",
     "当本轮生成了可保存的大纲、卷纲、章纲、人物、设定、伏笔、组织或质量检查内容时，最终回复末尾必须附加一个 json 代码块，顶层字段为 outlineSaveRequest 或 outlineSaveRequests。",
-    "保存请求必须包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent。fileName 必须是 .md 文件，targetFolder 必须是相对路径（仅文件夹名，如「大纲」「人物小传」「章纲」「设定」「伏笔」「组织」「质量检查」「卷纲」），禁止使用绝对路径（如 C:\\... 或 /Users/...）。",
+    "保存请求必须包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent、content。fileName 必须是 .md 文件，targetFolder 必须是相对路径（仅文件夹名，如「大纲」「人物小传」「章纲」「设定」「伏笔」「组织」「质量检查」「卷纲」），禁止使用绝对路径（如 C:\\... 或 /Users/...）。",
     "fileType 只能使用以下英文枚举值（禁止使用中文）：outline（大纲）、volume-outline（卷纲）、chapter-outline（章纲）、character（人物小传）、setting（设定）、foreshadowing（伏笔）、organization（组织）、quality-report（质量检查）。",
     "writeMode 只能使用以下英文枚举值（禁止使用其他值）：create（新建文件）、append（追加到已有文件末尾）、replace（替换已有文件全部内容，需用户确认）、patch（局部修改，需用户确认）。禁止使用 overwrite、write、save 等其他值。",
-    "content 字段说明：content 字段已废弃，不要在 JSON 中填写 content。系统会自动从你的回复正文中提取大纲内容作为保存内容，正文格式就是最终保存的文件格式。",
+    "content 字段强制要求：每个 outlineSaveRequest 必须包含完整 Markdown content，这是最终写入文件的正文。禁止省略 content；禁止只输出确认摘要或下一步推荐却声称已保存。多章时每个章节一个独立 request，各自携带完整章纲 content。",
     "文件名规范：不同类型内容必须使用不同文件名，禁止多项内容写入同一文件。不同角色必须每人一个独立文件（如 角色-主角林风.md、角色-反官方傲.md），严禁将所有角色塞入「角色卡.md」或同一文件。不同势力、不同伏笔、不同卷纲、不同章纲也必须各自独立文件。",
-    "内容完整性强制要求：所有在对话正文中展示给用户的大纲内容，系统会自动提取并保存。你必须为每个生成的大纲模块都创建对应的保存请求（outlineSaveRequest），不能遗漏。如果生成了多个模块，使用 outlineSaveRequests 数组，每个模块一个请求对象。",
+    "内容完整性强制要求：你必须为每个生成的大纲模块都创建对应的保存请求（outlineSaveRequest），不能遗漏。如果生成了多个模块，使用 outlineSaveRequests 数组，每个模块一个请求对象。系统不会静默写入；用户确认后才会落盘。",
     "## Markdown 格式强制要求",
     "所有大纲正文必须使用标准 Markdown 格式输出，严格遵循以下标题层级规范：",
     "- 一级大标题（如全书核心设定、主要人物设定、分卷大纲等）使用 # 标记，独占一行",
@@ -406,7 +403,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     "- **身份：** 穿越者→清水村村民→清水社首领→异姓王→隐士",
     "- **核心技能：** 高中/大学化学知识（有机/无机化学基础）、物理常识、急救知识",
     "- **性格：** 表面冷漠实则心软，前期被动应对，中后期主动布局",
-    "最终回复只输出大纲标题和大纲正文；如果内容需要自动保存，末尾附加 AI 大纲输出协议 JSON 保存块。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
+    "最终回复只输出大纲标题和大纲正文；如果内容需要保存，末尾附加 AI 大纲输出协议 JSON 保存块（含 content）。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
     "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。资料不足以生成完整正文时，先提出最少必要澄清问题，不要用流程说明冒充生成结果。",
     "所有面向用户的回复必须使用中文。",
     options.projectName ? `当前项目：${options.projectName}` : "",
@@ -1494,6 +1491,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const userScrolledUpRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const pendingRepairMetaRef = useRef<Record<string, OutlineSaveRequest[]>>({});
+  const pendingNormalSaveRequestsRef = useRef<OutlineSaveRequest[]>([]);
 
   // Auto-scroll
   useEffect(() => {
@@ -1578,6 +1576,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const names = saveResult.saved.map((item) => item.fileName).join("、");
           setSaveStatus(`已保存 ${saveResult.saved.length} 个文件：${names}`);
           setSaveConfirmState(null);
+          const pendingNormal = pendingNormalSaveRequestsRef.current;
+          if (pendingNormal.length > 0) {
+            pendingNormalSaveRequestsRef.current = [];
+            setSaveConfirmState({
+              title: "请确认要保存的大纲文件",
+              mode: "normal",
+              requests: pendingNormal,
+              characterDrafts: [],
+            });
+            setSaveStatus("检测到可保存大纲，请确认后写入。");
+          }
           return;
         }
         if (saveResult.skipped.length > 0) {
@@ -1608,30 +1617,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               content: body,
             }));
             delete pendingRepairMetaRef.current[conversationId];
-            setSaveStatus("正在自动保存修订后的大纲...");
-            try {
-              const projectPath = normalizePath(project.path);
-              if (!canApply()) return;
-              const saveResult = await saveOutlineSaveRequests({
-                outlineRoot: `${projectPath}/wiki/outlines`,
-                requests: fallbackRequests,
-                createDirectory,
-                fileExists,
-                readFile,
-                writeFile,
-              });
-              if (!canApply()) return;
-              if (saveResult.saved.length > 0) {
-                await refreshProjectState(projectPath);
-                const names = saveResult.saved.map((item) => item.fileName).join("、");
-                setSaveStatus(`已保存修订后的大纲文件：${names}`);
-              } else if (saveResult.errors.length > 0) {
-                showOutlineAutoSaveError(saveResult.errors.slice(0, 2).join("；"));
-              }
-            } catch (error) {
-              if (!canApply()) return;
-              showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
-            }
+            if (!canApply()) return;
+            setSaveConfirmState({
+              title: "请确认要保存的修订大纲",
+              mode: "normal",
+              requests: fallbackRequests,
+              characterDrafts: [],
+            });
+            setSaveStatus("检测到可保存大纲，请确认后写入。");
             return;
           }
         }
@@ -1642,12 +1635,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       }
       delete pendingRepairMetaRef.current[conversationId];
 
-      setSaveStatus("正在自动保存大纲...");
+      if (!canApply()) return;
       try {
-        const projectPath = normalizePath(project.path);
         const split = splitConfirmRequiredSaveRequests(parsed.requests);
-        if (split.confirmRequired.length > 0) {
-          const characterContent = split.confirmRequired
+        const characterRequests = split.confirmRequired.filter(
+          (request) => request.fileType === "character",
+        );
+        const normalRequests = split.confirmRequired.filter(
+          (request) => request.fileType !== "character",
+        );
+
+        pendingNormalSaveRequestsRef.current = [];
+
+        if (characterRequests.length > 0) {
+          const characterContent = characterRequests
             .map((request) => request.content)
             .join("\n\n");
           const extracted = extractCharacterSaveDrafts(characterContent);
@@ -1660,9 +1661,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             });
             setSaveStatus("检测到人物小传，请确认要保存的人物角色。");
           } else {
-            const fallbackDrafts = buildFallbackCharacterDraftsFromRequests(
-              split.confirmRequired,
-            );
+            const fallbackDrafts = buildFallbackCharacterDraftsFromRequests(characterRequests);
             setSaveConfirmState({
               title: "请确认要保存的人物角色",
               mode: "character",
@@ -1673,34 +1672,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               `无法自动拆分角色，请在保存前检查文件名和内容。${extracted.errors.join("；")}`,
             );
           }
+          if (normalRequests.length > 0) {
+            pendingNormalSaveRequestsRef.current = normalRequests;
+          }
+        } else if (normalRequests.length > 0) {
+          setSaveConfirmState({
+            title: "请确认要保存的大纲文件",
+            mode: "normal",
+            requests: normalRequests,
+            characterDrafts: [],
+          });
+          setSaveStatus("检测到可保存大纲，请确认后写入。");
         }
-        if (split.autoSaveable.length === 0) return;
 
-        if (!canApply()) return;
-        const saveResult = await saveOutlineSaveRequests({
-          outlineRoot: `${projectPath}/wiki/outlines`,
-          requests: split.autoSaveable,
-          createDirectory,
-          fileExists,
-          readFile,
-          writeFile,
-        });
-        if (!canApply()) return;
-        if (saveResult.saved.length > 0) {
-          await refreshProjectState(projectPath);
-          const names = saveResult.saved.map((item) => item.fileName).join("、");
-          const skipped = saveResult.skipped.length > 0
-            ? `；${saveResult.skipped.slice(0, 2).join("；")}`
-            : "";
-          setSaveStatus(`已自动保存 ${saveResult.saved.length} 个大纲文件：${names}${skipped}`);
-          return;
-        }
-        if (saveResult.skipped.length > 0) {
-          setSaveStatus(saveResult.skipped.slice(0, 2).join("；"));
-          return;
-        }
-        if (saveResult.errors.length > 0 || parsed.errors.length > 0) {
-          showOutlineAutoSaveError([...saveResult.errors, ...parsed.errors].slice(0, 2).join("；"));
+        if (parsed.errors.length > 0 && characterRequests.length === 0 && normalRequests.length === 0) {
+          showOutlineAutoSaveError(
+            [...parsed.errors].slice(0, 2).join("；"),
+          );
         }
       } catch (error) {
         if (!canApply()) return;

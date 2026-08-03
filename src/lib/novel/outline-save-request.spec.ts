@@ -8,6 +8,22 @@ import {
   splitConfirmRequiredSaveRequests,
 } from "./outline-save-request"
 
+const SAMPLE_CHAPTER_OUTLINE = [
+  "# 章纲-第001章",
+  "",
+  "## 本章目标",
+  "建立开局冲突",
+  "",
+  "## 核心事件",
+  "1. 主角觉醒",
+  "",
+  "## 场景顺序",
+  "1. 客栈",
+  "",
+  "## 章尾钩子",
+  "门外传来脚步声",
+].join("\n")
+
 describe("outline-save-request", () => {
   it("解析 AI 大纲回复中的单个保存请求", () => {
     const result = parseOutlineSaveRequests([
@@ -21,7 +37,7 @@ describe("outline-save-request", () => {
           writeMode: "create",
           referencedSkills: ["ZhanggangSkill/chapter-outline-builder"],
           sourceIntent: "生成第001章章纲",
-          content: "# 章纲-第001章\n\n正文",
+          content: SAMPLE_CHAPTER_OUTLINE,
         },
       }),
       "```",
@@ -184,7 +200,7 @@ describe("outline-save-request", () => {
     }])
   })
 
-  it("自动保存时将 character 请求分离为需要用户确认", () => {
+  it("所有大纲类型均需用户确认，禁止静默自动保存", () => {
     const result = splitConfirmRequiredSaveRequests([
       {
         targetFolder: "人物小传",
@@ -206,8 +222,59 @@ describe("outline-save-request", () => {
       },
     ])
 
-    expect(result.confirmRequired).toHaveLength(1)
-    expect(result.autoSaveable).toHaveLength(1)
+    expect(result.confirmRequired).toHaveLength(2)
+    expect(result.autoSaveable).toHaveLength(0)
+  })
+
+  it("多请求且正文无一级标题拆分时不共用同一份正文回填", () => {
+    const result = parseOutlineSaveRequests([
+      "### 下一步推荐",
+      "",
+      "当前前10章章纲已完成，可继续：",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequests: [
+          {
+            targetFolder: "章纲",
+            fileName: "第1章-分手.md",
+            fileType: "chapter-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "确认写入",
+          },
+          {
+            targetFolder: "章纲",
+            fileName: "第2章-摆烂.md",
+            fileType: "chapter-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "确认写入",
+          },
+        ],
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors.some((item) => item.includes("缺少 content"))).toBe(true)
+  })
+
+  it("拒绝不像章纲的 chapter-outline content", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "章纲",
+        fileName: "第1章-分手.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "确认写入",
+        content: "### 下一步推荐\n\n当前前10章章纲已完成，可继续：",
+      },
+    }))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors.some((item) => item.includes("内容不像章纲"))).toBe(true)
   })
 
   it("保存请求解析失败时返回可操作的中文纠错提示", () => {
@@ -225,10 +292,11 @@ describe("outline-save-request", () => {
 
     const feedback = formatOutlineSaveParseFeedback(parsed.errors)
 
-    expect(feedback).toContain("自动保存失败")
+    expect(feedback).toContain("保存请求解析失败")
     expect(feedback).toContain("请让 AI 重新输出 outlineSaveRequest")
     expect(feedback).toContain("targetFolder")
     expect(feedback).toContain("fileName")
+    expect(feedback).toContain("content")
     expect(feedback).toContain("不会写入文件")
   })
 
@@ -277,7 +345,7 @@ describe("outline-save-request", () => {
         writeMode: "overwrite",
         referencedSkills: [],
         sourceIntent: "测试",
-        content: "正文",
+        content: SAMPLE_CHAPTER_OUTLINE,
       },
     }))
 

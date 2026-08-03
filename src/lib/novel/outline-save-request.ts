@@ -1,5 +1,7 @@
 import { normalizePath } from "@/lib/path-utils"
 import type { CharacterSaveDraft } from "./character-save-extractor"
+import { cleanNextStepArtifacts } from "./outline-next-step"
+import { isLikelyChapterOutline } from "./outline-quality-check"
 import { stripOutlineFrontmatter } from "./outline-markdown"
 
 export type OutlineSaveRequestFileType =
@@ -261,8 +263,14 @@ function splitBodyByH1(body: string): string[] {
   return sections.filter(Boolean)
 }
 
+/** 章纲必须具备结构字段，避免「下一步推荐/确认摘要」因偶含「章纲」二字被误放行 */
+function hasChapterOutlineStructure(content: string, fileName: string): boolean {
+  if (!isLikelyChapterOutline(content, fileName)) return false
+  return /本章目标|核心事件|场景顺序|章尾钩子|章首钩子/.test(content)
+}
+
 function fillContentFromText(requests: OutlineSaveRequest[], text: string): OutlineSaveRequest[] {
-  const body = extractBodyContent(text)
+  const body = cleanNextStepArtifacts(extractBodyContent(text))
   if (!body) return requests
 
   const fillOne = (request: OutlineSaveRequest, content: string): OutlineSaveRequest =>
@@ -274,10 +282,11 @@ function fillContentFromText(requests: OutlineSaveRequest[], text: string): Outl
 
   const sections = splitBodyByH1(body)
   if (sections.length >= requests.length) {
-    return requests.map((request, i) => fillOne(request, sections[i] || body))
+    return requests.map((request, i) => fillOne(request, sections[i] || ""))
   }
 
-  return requests.map((request) => fillOne(request, body))
+  // 多文件且无法按一级标题拆分时，禁止用同一份正文填满所有请求
+  return requests
 }
 
 export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseResult {
@@ -301,13 +310,23 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
   }
 
   const filled = fillContentFromText(requests, text)
-  const usable = filled.filter((request) => request.content.trim())
-  const stillEmpty = filled.filter((request) => !request.content.trim())
-  if (stillEmpty.length > 0) {
-    stillEmpty.forEach((_, i) => {
-      errors.push(`第 ${i + 1} 个保存请求缺少 content，且无法从正文中提取。`)
-    })
-  }
+  const usable: OutlineSaveRequest[] = []
+  filled.forEach((request, index) => {
+    if (!request.content.trim()) {
+      errors.push(`第 ${index + 1} 个保存请求缺少 content，且无法从正文中提取。`)
+      return
+    }
+    if (
+      request.fileType === "chapter-outline"
+      && !hasChapterOutlineStructure(request.content, request.fileName)
+    ) {
+      errors.push(
+        `第 ${index + 1} 个保存请求「${request.fileName}」内容不像章纲（缺少本章目标/核心事件等），已拒绝写入。`,
+      )
+      return
+    }
+    usable.push(request)
+  })
 
   return { requests: usable, errors }
 }
@@ -318,8 +337,8 @@ export function formatOutlineSaveParseFeedback(errors: string[]): string {
   const preview = uniqueErrors.slice(0, 4).join("；")
   const remaining = uniqueErrors.length > 4 ? `；另有 ${uniqueErrors.length - 4} 项未列出` : ""
   return [
-    `自动保存失败：${preview}${remaining}。`,
-    "请让 AI 重新输出 outlineSaveRequest，必须包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent。",
+    `保存请求解析失败：${preview}${remaining}。`,
+    "请让 AI 重新输出 outlineSaveRequest，必须包含 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent、content。",
     "当前内容不会写入文件。",
   ].join("")
 }
@@ -346,8 +365,9 @@ export function splitConfirmRequiredSaveRequests(requests: OutlineSaveRequest[])
   confirmRequired: OutlineSaveRequest[]
 } {
   return {
-    autoSaveable: requests.filter((request) => request.fileType !== "character"),
-    confirmRequired: requests.filter((request) => request.fileType === "character"),
+    // 所有大纲类型均需用户确认后写入，禁止静默落盘
+    autoSaveable: [],
+    confirmRequired: [...requests],
   }
 }
 
