@@ -7,6 +7,27 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_SIX_CHANGELOG: ChangelogEntry = {
+  version: "3.0.6",
+  date: "2026-08-03",
+  highlights: {
+    en: [
+      "[Outline Save Blank Fix] Fixed 'Save as Outline' writing near-empty files due to extractBodyContent stripping markdown fences; empty content no longer writes to disk. (Merged from PR #40, thanks @darknessomi)",
+      "[Outline Silent Save Fix] Outline types no longer auto-save silently; unified through outlineSaveRequests -> confirmation dialog -> write. write_outline_node disabled in outline conversations to prevent double-write.",
+      "[Switch Project Chapter Residue Fix] Fixed chapters from project A still open after switching to project B: lastReadChapter isolated by projectId, path ownership validated on restore, fileContent and session restore keys cleaned.",
+      "[Entity Miss Web Search] When local entities are not found for character/setting questions, agent now proactively enables web_search. (Merged from feat/entity-miss-web-search)",
+      "[Dismantling Library Unstable] The dismantling library is currently unstable; usage is not recommended until stabilized.",
+    ],
+    zh: [
+      "【大纲保存空白修复】修复手动「保存为大纲」因 extractBodyContent 误删 markdown 围栏而写入近空白文件；空 content 不再落盘（合并自 PR #40，感谢 @darknessomi 贡献）",
+      "【大纲静默落盘修复】禁止章纲等大纲类型静默 auto-save，统一走确认弹窗；大纲对话禁用 write_outline_node 切断双写",
+      "【切换项目章节残留修复】修复切换写作项目后仍打开其他项目章节：lastReadChapter 按 projectId 隔离，恢复时校验路径归属",
+      "【实体未命中 web_search】本地实体未命中时主动启用 web_search（合并自 feat/entity-miss-web-search）",
+      "【拆书库不稳定】拆书库目前不稳定，建议暂不使用，待后续版本修复稳定后恢复",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_FIVE_CHANGELOG: ChangelogEntry = {
   version: "3.0.5",
   date: "2026-08-03",
@@ -999,6 +1020,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_SIX_CHANGELOG.version)
+    return [THREE_POINT_ZERO_SIX_CHANGELOG];
   if (version === THREE_POINT_ZERO_FIVE_CHANGELOG.version)
     return [THREE_POINT_ZERO_FIVE_CHANGELOG];
   if (version === THREE_POINT_ZERO_FOUR_CHANGELOG.version)
@@ -1080,6 +1103,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_SIX_CHANGELOG,
     THREE_POINT_ZERO_FIVE_CHANGELOG,
     THREE_POINT_ZERO_FOUR_CHANGELOG,
     THREE_POINT_ZERO_THREE_CHANGELOG,
