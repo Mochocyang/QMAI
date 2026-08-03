@@ -42,12 +42,16 @@ const STRICT_EXTRA_TOOLS = new Set([
   "list_deductions",
 ])
 
+const ENTITY_QUERY_INTENTS = new Set<NovelTaskIntent>(["character_query", "setting_query"])
+
 export interface SelectCapabilitiesInput {
   capabilities: AiCapability[]
   intent: NovelTaskIntent
   mode: LegacyAiWorkflowMode
   userMessage: string
   blockedSources?: DataSourceCategory[]
+  /** 本地实体表为空，或用户消息未命中任何本地实体名 */
+  localEntityMiss?: boolean
 }
 
 export function selectCapabilities(input: SelectCapabilitiesInput): SelectedCapabilityTrace[] {
@@ -81,8 +85,13 @@ function selectionReason(
     if (isExplicitSearchRequest(input.userMessage)) {
       return "user explicitly requested external search"
     }
-    if (input.mode !== "fast" && capability.intents.includes("external_search") && input.intent === "setting_query") {
-      return "task may require external information"
+    if (
+      input.mode !== "fast"
+      && input.localEntityMiss === true
+      && ENTITY_QUERY_INTENTS.has(input.intent)
+      && capability.intents.includes("external_search")
+    ) {
+      return "local entity miss may require external search"
     }
     return null
   }
@@ -157,7 +166,7 @@ function toTrace(capability: AiCapability, reason: string): SelectedCapabilityTr
 
 function isExplicitSearchRequest(message: string): boolean {
   const normalized = message.toLowerCase()
-  return /search|web|internet|online|external|latest|联网|搜索|查资料|外部|最新/.test(normalized)
+  return /search|web|internet|online|external|latest|联网|搜索|搜一下|查一下|查找|查资料|网页|外部|外部资料|最新/.test(normalized)
 }
 
 function isKnowledgeGraphRequest(message: string, intent: NovelTaskIntent): boolean {
