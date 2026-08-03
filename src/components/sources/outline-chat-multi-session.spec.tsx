@@ -75,7 +75,7 @@ describe("OutlineChatPanel 多会话运行状态", () => {
 
   it("自动保存错误使用右下角持久 Toast 且标题栏不再渲染 saveStatus", () => {
     expect(panelSource).toContain("toast.error(message, {")
-    expect(panelSource).toContain('title: "自动保存失败"')
+    expect(panelSource).toContain('title: "大纲保存失败"')
     expect(panelSource).toContain("persistent: true")
     expect(panelSource).toContain("dedupeKey: `outline-auto-save:${message}`")
     expect(panelSource).not.toContain("{saveStatus &&")

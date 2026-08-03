@@ -16,6 +16,7 @@ const toolNames = [
   "write_chapter",
   "web_search",
   "read_web_page",
+  "summarize_search_results",
 ]
 
 function futureMcpCapability(): AiCapability {
@@ -114,7 +115,63 @@ describe("AI capability selector", () => {
     expect(withSearchRequest.map((item) => item.toolName)).toEqual(expect.arrayContaining([
       "web_search",
       "read_web_page",
+      "summarize_search_results",
     ]))
+  })
+
+  it("enables web search for character_query when local entity misses", () => {
+    const capabilities = buildBuiltInToolCapabilities(toolNames)
+
+    const withMiss = selectCapabilities({
+      capabilities,
+      intent: "character_query",
+      mode: "standard",
+      userMessage: "黄蓉是谁",
+      localEntityMiss: true,
+    })
+    const withHit = selectCapabilities({
+      capabilities,
+      intent: "character_query",
+      mode: "standard",
+      userMessage: "黄蓉是谁",
+      localEntityMiss: false,
+    })
+    const explicitLookup = selectCapabilities({
+      capabilities,
+      intent: "character_query",
+      mode: "standard",
+      userMessage: "查一下黄蓉的背景",
+      localEntityMiss: false,
+    })
+
+    expect(withMiss.map((item) => item.toolName)).toEqual(expect.arrayContaining([
+      "web_search",
+      "read_web_page",
+      "summarize_search_results",
+    ]))
+    expect(withMiss).toContainEqual(expect.objectContaining({
+      kind: "web_search",
+      reason: expect.stringContaining("local entity miss"),
+    }))
+    expect(withHit.some((item) => item.kind === "web_search")).toBe(false)
+    expect(explicitLookup.map((item) => item.toolName)).toEqual(expect.arrayContaining([
+      "web_search",
+      "read_web_page",
+    ]))
+  })
+
+  it("does not enable web search for setting_query without miss or explicit request", () => {
+    const capabilities = buildBuiltInToolCapabilities(toolNames)
+
+    const selected = selectCapabilities({
+      capabilities,
+      intent: "setting_query",
+      mode: "standard",
+      userMessage: "这个世界的魔法体系是什么",
+      localEntityMiss: false,
+    })
+
+    expect(selected.some((item) => item.kind === "web_search")).toBe(false)
   })
 
   it("selects chapter workflow tool for standard and strict chapter writing intents", () => {

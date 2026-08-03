@@ -15,7 +15,9 @@ vi.mock("@/lib/web-store", () => ({
 
 import {
   loadAiOutlineModel,
+  loadLastReadChapter,
   saveAiOutlineModel,
+  saveLastReadChapter,
 } from "@/lib/project-store"
 
 describe("AI outline model persistence", () => {
@@ -71,4 +73,32 @@ describe("AI outline model persistence", () => {
     expect(storeMocks.values.get("aiOutlineModel")).toBe("anthropic/manual-model")
   })
 
+})
+
+describe("last read chapter persistence", () => {
+  beforeEach(() => {
+    storeMocks.values.clear()
+    storeMocks.get.mockReset()
+    storeMocks.set.mockReset()
+    storeMocks.get.mockImplementation(async (key: string) => storeMocks.values.get(key))
+    storeMocks.set.mockImplementation(async (key: string, value: unknown) => {
+      storeMocks.values.set(key, value)
+    })
+  })
+
+  it("stores last-read chapters per project id", async () => {
+    await saveLastReadChapter("/books/a/wiki/chapters/1.md", "project-a")
+    await saveLastReadChapter("/books/b/wiki/chapters/2.md", "project-b")
+
+    await expect(loadLastReadChapter("project-a")).resolves.toBe("/books/a/wiki/chapters/1.md")
+    await expect(loadLastReadChapter("project-b")).resolves.toBe("/books/b/wiki/chapters/2.md")
+  })
+
+  it("falls back to legacy global key when project entry is missing", async () => {
+    storeMocks.values.set("lastReadChapter", "/books/legacy/wiki/chapters/9.md")
+
+    await expect(loadLastReadChapter("unknown-project")).resolves.toBe(
+      "/books/legacy/wiki/chapters/9.md",
+    )
+  })
 })

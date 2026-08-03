@@ -24,7 +24,7 @@ import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 import { applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
-import { normalizePath } from "@/lib/path-utils"
+import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
@@ -431,6 +431,7 @@ function App() {
       useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)
     }
     setSelectedFile(null)
+    useWikiStore.getState().setFileContent("")
     setActiveView("wiki")
     useWikiStore.getState().setScheduledImportConfig({
       enabled: false,
@@ -441,17 +442,18 @@ function App() {
     useWikiStore.getState().bumpDataVersion()
     await saveLastProject(proj)
 
-    // 自动打开最后阅读的章节和AI会话窗口
+    // 自动打开最后阅读的章节和AI会话窗口（必须属于当前项目，避免跨书残留）
     try {
       if (isCurrentProject(proj)) {
-        const lastChapterPath = await loadLastReadChapter()
-        if (isCurrentProject(proj) && lastChapterPath) {
-          const normalizedPath = lastChapterPath.replace(/\\/g, "/")
-          if (normalizedPath.includes("/wiki/chapters/")) {
-            const exists = await fileExists(lastChapterPath)
-            if (exists && isCurrentProject(proj)) {
-              setSelectedFile(lastChapterPath)
-            }
+        const lastChapterPath = await loadLastReadChapter(proj.id)
+        if (
+          isCurrentProject(proj) &&
+          lastChapterPath &&
+          isChapterPathInProject(lastChapterPath, proj.path)
+        ) {
+          const exists = await fileExists(lastChapterPath)
+          if (exists && isCurrentProject(proj)) {
+            setSelectedFile(lastChapterPath)
           }
         }
       }
@@ -505,6 +507,7 @@ function App() {
     setProject(null)
     setFileTree([])
     setSelectedFile(null)
+    useWikiStore.getState().setFileContent("")
   }
 
   if (loading) {

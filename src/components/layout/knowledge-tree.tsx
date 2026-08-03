@@ -1292,15 +1292,12 @@ export function KnowledgeTree({
     setSelectedFile(pagePath)
     // 保存最后阅读的章节路径，用于启动时自动打开（仅章节保存，大纲不保存）
     if (pagePath.replace(/\\/g, "/").includes("/wiki/chapters/")) {
-      saveLastReadChapter(pagePath).catch(() => {})
-    }
-    // 同时保存到sessionStorage，用于视图切换时恢复章节定位
-    if (pagePath.replace(/\\/g, "/").includes("/wiki/chapters/")) {
+      saveLastReadChapter(pagePath, project?.id).catch(() => {})
       try {
         sessionStorage.setItem("lk-last-chapter-path", pagePath)
       } catch { /* ignore quota errors */ }
     }
-  }, [renamingPath, setSelectedFile])
+  }, [project?.id, renamingPath, setSelectedFile])
 
   const toggleFolder = useCallback((folderPath: string) => {
     setCollapsedFolders((previous) => ({ ...previous, [folderPath]: !previous[folderPath] }))

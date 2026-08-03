@@ -673,6 +673,59 @@ describe("AgentRunner", () => {
     expect(onToolEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "approval_required", callId: "write_1", preview: "written preview content" }))
   })
 
+  it("marks confirm-required tools as error when preview generation throws", async () => {
+    const tool: Tool = {
+      name: "write_outline_node",
+      description: "",
+      category: "write",
+      permission: "confirm",
+      parameters: {},
+      generatePreview: vi.fn().mockRejectedValue(new Error("无法写入大纲：大纲文件名称必须是 Markdown 文件。")),
+      execute: vi.fn(),
+    }
+    registry.register(tool)
+
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, messages: AgentMessage[], cb: StreamCallbacks) => {
+      callCount++
+      if (callCount === 1) {
+        cb.onToolCallDelta?.({ index: 0, id: "write_outline_1", name: "write_outline_node" })
+        cb.onToolCallDelta?.({ index: 0, arguments: '{"outlineName":"坏目标.txt","nodeTitle":"节点","nodeContent":"正文"}' })
+        cb.onDone()
+      } else {
+        expect(messages[messages.length - 1].content).toContain("预览生成失败")
+        cb.onToken("写入目标无效，已跳过确认。")
+        cb.onDone()
+      }
+    })
+
+    const onToolError = vi.fn()
+    const onToolEvent = vi.fn()
+    const config: AgentConfig = { maxRounds: 3, tools: [tool], systemPrompt: "", llmConfig: mockLlmConfig }
+    const result = await runner.run(
+      config,
+      registry,
+      [systemMsg, userMsg],
+      {
+        onText: vi.fn(),
+        onToolCall: vi.fn(),
+        onToolResult: vi.fn(),
+        onToolError,
+        onToolEvent,
+        onDone: vi.fn(),
+        onError: vi.fn(),
+      },
+      undefined,
+    )
+
+    expect(tool.generatePreview).toHaveBeenCalledTimes(1)
+    expect(tool.execute).not.toHaveBeenCalled()
+    expect(result.toolCalls[0].status).toBe("error")
+    expect(result.toolCalls[0].result).toContain("预览生成失败")
+    expect(onToolError).toHaveBeenCalledWith("write_outline_1", expect.stringContaining("预览生成失败"))
+    expect(onToolEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "error", callId: "write_outline_1" }))
+  })
+
   it("keeps full tool result in record but sends compressed result back to the model", async () => {
     const longResult = `${"开头".repeat(2000)}\n中间内容\n${"结尾".repeat(2000)}`
     const tool: Tool = {

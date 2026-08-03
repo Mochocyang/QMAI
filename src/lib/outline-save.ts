@@ -1,4 +1,7 @@
 import { parseFrontmatter } from "./frontmatter"
+import { stripStructuredMarkers } from "./novel/outline-intent-clarity"
+import { cleanNextStepArtifacts } from "./novel/outline-next-step"
+import { extractBodyContent } from "./novel/outline-save-request"
 
 export interface OutlineSaveDraft {
   title: string
@@ -6,6 +9,16 @@ export interface OutlineSaveDraft {
 }
 
 const DEFAULT_TITLE_PREFIX = "AI大纲"
+
+/**
+ * 将 AI 大纲回复清洗为可展示/可保存的正文（与「保存为大纲」同源）。
+ */
+export function prepareOutlineSaveSourceContent(raw: string): string {
+  const stripped = stripStructuredMarkers(raw)
+  const bodyContent = extractBodyContent(stripped)
+  const cleaned = cleanNextStepArtifacts(bodyContent || stripped)
+  return normalizeOutlineMarkdown(cleaned).trim()
+}
 
 export function prepareOutlineSaveDraft(content: string, existingTitles: string[]): OutlineSaveDraft {
   const parsed = parseFrontmatter(content)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildOutlineNodeWriteContent,
+  normalizeOutlineWriteTarget,
   validateOutlineWriteTarget,
 } from "./write-outline-node"
 
@@ -37,6 +38,17 @@ describe("write-outline-node helpers", () => {
     expect(content).toContain("### 关系")
     expect(content).toContain("- 主角：表面合作，暗中试探")
     expect(content.trim()).not.toMatch(/^\{/)
+  })
+
+  it("为缺少扩展名的大纲目标自动补全 .md", () => {
+    expect(normalizeOutlineWriteTarget("第一卷-有钱了我也还是程序员")).toBe(
+      "第一卷-有钱了我也还是程序员.md",
+    )
+    expect(normalizeOutlineWriteTarget("卷纲/第一卷完整卷纲")).toBe("卷纲/第一卷完整卷纲.md")
+    expect(normalizeOutlineWriteTarget("第一卷完整卷纲.MD")).toBe("第一卷完整卷纲.md")
+    expect(normalizeOutlineWriteTarget("第一卷完整卷纲.md")).toBe("第一卷完整卷纲.md")
+    expect(normalizeOutlineWriteTarget("章纲.txt")).toBe("章纲.txt")
+    expect(validateOutlineWriteTarget(normalizeOutlineWriteTarget("第一卷完整卷纲"))).toBeNull()
   })
 
   it("拒绝不安全的大纲写入目标", () => {

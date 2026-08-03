@@ -1,11 +1,28 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   characterDraftsToSaveRequests,
+  extractBodyContent,
   formatOutlineSaveParseFeedback,
   parseOutlineSaveRequests,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
 } from "./outline-save-request"
+
+const SAMPLE_CHAPTER_OUTLINE = [
+  "# 章纲-第001章",
+  "",
+  "## 本章目标",
+  "建立开局冲突",
+  "",
+  "## 核心事件",
+  "1. 主角觉醒",
+  "",
+  "## 场景顺序",
+  "1. 客栈",
+  "",
+  "## 章尾钩子",
+  "门外传来脚步声",
+].join("\n")
 
 describe("outline-save-request", () => {
   it("解析 AI 大纲回复中的单个保存请求", () => {
@@ -20,7 +37,7 @@ describe("outline-save-request", () => {
           writeMode: "create",
           referencedSkills: ["ZhanggangSkill/chapter-outline-builder"],
           sourceIntent: "生成第001章章纲",
-          content: "# 章纲-第001章\n\n正文",
+          content: SAMPLE_CHAPTER_OUTLINE,
         },
       }),
       "```",
@@ -183,7 +200,7 @@ describe("outline-save-request", () => {
     }])
   })
 
-  it("自动保存时将 character 请求分离为需要用户确认", () => {
+  it("所有大纲类型均需用户确认，禁止静默自动保存", () => {
     const result = splitConfirmRequiredSaveRequests([
       {
         targetFolder: "人物小传",
@@ -205,8 +222,59 @@ describe("outline-save-request", () => {
       },
     ])
 
-    expect(result.confirmRequired).toHaveLength(1)
-    expect(result.autoSaveable).toHaveLength(1)
+    expect(result.confirmRequired).toHaveLength(2)
+    expect(result.autoSaveable).toHaveLength(0)
+  })
+
+  it("多请求且正文无一级标题拆分时不共用同一份正文回填", () => {
+    const result = parseOutlineSaveRequests([
+      "### 下一步推荐",
+      "",
+      "当前前10章章纲已完成，可继续：",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequests: [
+          {
+            targetFolder: "章纲",
+            fileName: "第1章-分手.md",
+            fileType: "chapter-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "确认写入",
+          },
+          {
+            targetFolder: "章纲",
+            fileName: "第2章-摆烂.md",
+            fileType: "chapter-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "确认写入",
+          },
+        ],
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors.some((item) => item.includes("缺少 content"))).toBe(true)
+  })
+
+  it("拒绝不像章纲的 chapter-outline content", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "章纲",
+        fileName: "第1章-分手.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "确认写入",
+        content: "### 下一步推荐\n\n当前前10章章纲已完成，可继续：",
+      },
+    }))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors.some((item) => item.includes("内容不像章纲"))).toBe(true)
   })
 
   it("保存请求解析失败时返回可操作的中文纠错提示", () => {
@@ -224,10 +292,11 @@ describe("outline-save-request", () => {
 
     const feedback = formatOutlineSaveParseFeedback(parsed.errors)
 
-    expect(feedback).toContain("自动保存失败")
+    expect(feedback).toContain("保存请求解析失败")
     expect(feedback).toContain("请让 AI 重新输出 outlineSaveRequest")
     expect(feedback).toContain("targetFolder")
     expect(feedback).toContain("fileName")
+    expect(feedback).toContain("content")
     expect(feedback).toContain("不会写入文件")
   })
 
@@ -276,7 +345,7 @@ describe("outline-save-request", () => {
         writeMode: "overwrite",
         referencedSkills: [],
         sourceIntent: "测试",
-        content: "正文",
+        content: SAMPLE_CHAPTER_OUTLINE,
       },
     }))
 
@@ -335,5 +404,134 @@ describe("outline-save-request", () => {
     expect(result.requests[1].fileType).toBe("character")
     expect(result.requests[1].writeMode).toBe("create")
     expect(result.requests[1].targetFolder).toBe("人物小传")
+  })
+
+  it("前言 + markdown 围栏 + json 时提取完整大纲正文", () => {
+    const body = extractBodyContent([
+      "好的，以下是完整大纲：",
+      "",
+      "```markdown",
+      "# 修仙界总纲",
+      "",
+      "## 世界观",
+      "灵气复苏，门派林立。",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成总纲",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(body).toContain("修仙界总纲")
+    expect(body).toContain("灵气复苏")
+    expect(body).not.toContain("```")
+    expect(body).not.toContain("outlineSaveRequest")
+  })
+
+  it("纯文本大纲 + json 时保留正文并去掉协议块", () => {
+    const body = extractBodyContent([
+      "# 修仙界总纲",
+      "",
+      "## 世界观",
+      "灵气复苏",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成总纲",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(body).toContain("# 修仙界总纲")
+    expect(body).toContain("灵气复苏")
+    expect(body).not.toContain("outlineSaveRequest")
+  })
+
+  it("JSON 已有 content 时不被短前言覆盖", () => {
+    const result = parseOutlineSaveRequests([
+      "已生成大纲：",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "测试",
+          content: "# 修仙界总纲\n\n## 世界观\n灵气复苏",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].content).toContain("灵气复苏")
+    expect(result.requests[0].content).not.toBe("已生成大纲：")
+  })
+
+  it("content 全空且无法从正文提取时剔除 request", () => {
+    const result = parseOutlineSaveRequests([
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "测试",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors.join("\n")).toContain("缺少 content")
+  })
+
+  it("无 content 时从 markdown 围栏正文填充保存请求", () => {
+    const result = parseOutlineSaveRequests([
+      "```markdown",
+      "# 修仙界总纲",
+      "",
+      "## 主线",
+      "夺宝筑基",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成总纲",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].content).toContain("夺宝筑基")
   })
 })

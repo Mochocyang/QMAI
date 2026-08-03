@@ -76,6 +76,22 @@ export function buildOutlineNodeWriteContent(nodeTitle: string, nodeContent: str
   return `## ${nodeTitle}\n\n${trimmed}\n`
 }
 
+/** 补全缺失的 .md；已有其它扩展名时原样返回，交由校验拒绝。 */
+export function normalizeOutlineWriteTarget(outlineName: string): string {
+  const normalized = outlineName.replace(/\\/g, "/").trim()
+  if (!normalized) return normalized
+  const segments = normalized.split("/")
+  const fileName = segments[segments.length - 1] ?? ""
+  if (!fileName || fileName === "." || fileName === "..") return normalized
+  if (/\.md$/i.test(fileName)) {
+    segments[segments.length - 1] = fileName.replace(/\.md$/i, ".md")
+    return segments.join("/")
+  }
+  if (/\.[A-Za-z0-9]+$/.test(fileName)) return normalized
+  segments[segments.length - 1] = `${fileName}.md`
+  return segments.join("/")
+}
+
 export function validateOutlineWriteTarget(outlineName: string): string | null {
   const normalized = outlineName.replace(/\\/g, "/").trim()
   if (!normalized) return "大纲文件名称不能为空。"
@@ -89,6 +105,22 @@ export function validateOutlineWriteTarget(outlineName: string): string | null {
     return "大纲文件名称必须是 Markdown 文件。"
   }
   return null
+}
+
+function resolveOutlineWriteParams(params: Record<string, unknown>): {
+  outlineName: string
+  nodeTitle: string
+  nodeContent: string
+  targetError: string | null
+} {
+  const outlineName = normalizeOutlineWriteTarget(String(params.outlineName ?? ""))
+  params.outlineName = outlineName
+  return {
+    outlineName,
+    nodeTitle: String(params.nodeTitle ?? ""),
+    nodeContent: String(params.nodeContent ?? ""),
+    targetError: validateOutlineWriteTarget(outlineName),
+  }
 }
 
 function buildChapterOutlineQualityText(outlineName: string, content: string): string {
@@ -112,20 +144,17 @@ function buildChapterOutlineQualityText(outlineName: string, content: string): s
 export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
   return {
     name: "write_outline_node",
-    description: "写入或更新大纲节点内容。参数 outlineName 为大纲文件名，nodeTitle 为节点标题，nodeContent 为节点内容。将追加或更新对应节点。",
+    description: "写入或更新大纲节点内容。参数 outlineName 为大纲 Markdown 文件名（可省略 .md，系统会自动补全），nodeTitle 为节点标题，nodeContent 为节点内容。将追加或更新对应节点。",
     category: "write",
     permission: "confirm",
     parameters: {
-      outlineName: { type: "string", description: "大纲文件名称", required: true },
+      outlineName: { type: "string", description: "大纲文件名称（.md；省略扩展名时自动补全）", required: true },
       nodeTitle: { type: "string", description: "节点标题", required: true },
       nodeContent: { type: "string", description: "节点内容", required: true },
     },
     generatePreview: async (params) => {
-      const outlineName = params.outlineName as string
-      const nodeTitle = params.nodeTitle as string
-      const nodeContent = params.nodeContent as string
-      const targetError = validateOutlineWriteTarget(outlineName)
-      if (targetError) return `无法写入大纲：${targetError}`
+      const { outlineName, nodeTitle, nodeContent, targetError } = resolveOutlineWriteParams(params)
+      if (targetError) throw new Error(`无法写入大纲：${targetError}`)
       const path = `${outlinesDir}/${outlineName}`
       const newSection = buildOutlineNodeWriteContent(nodeTitle, nodeContent)
       try {
@@ -140,10 +169,7 @@ export function createWriteOutlineNodeTool(outlinesDir: string): Tool {
       return `将写入大纲「${outlineName}」\n\n预览：\n${newSection}${buildChapterOutlineQualityText(outlineName, newSection)}`
     },
     execute: async (params) => {
-      const outlineName = params.outlineName as string
-      const nodeTitle = params.nodeTitle as string
-      const nodeContent = params.nodeContent as string
-      const targetError = validateOutlineWriteTarget(outlineName)
+      const { outlineName, nodeTitle, nodeContent, targetError } = resolveOutlineWriteParams(params)
       if (targetError) return `错误：${targetError}`
       const path = `${outlinesDir}/${outlineName}`
       const content = buildOutlineNodeWriteContent(nodeTitle, nodeContent)

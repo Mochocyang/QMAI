@@ -494,12 +494,15 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls")
   })
 
-  it("uses an outline-only tool set that cannot write chapters or memory", () => {
+  it("uses an outline-only tool set that cannot write chapters, memory, or outline nodes", () => {
     expect(source).toContain("OUTLINE_CHAT_DISABLED_TOOLS")
     expect(source).toContain('"write_chapter"')
     expect(source).toContain('"write_memory"')
+    expect(source).toContain('"write_outline_node"')
     expect(source).toContain("disabledTools: OUTLINE_CHAT_DISABLED_TOOLS")
-    expect(source).toContain("需要保存大纲时只能使用 write_outline_node")
+    expect(source).toContain("禁止调用 write_outline_node")
+    expect(source).toContain("用户确认后才写入文件")
+    expect(source).toContain("content 字段强制要求")
     expect(source).toContain("核心事件不少于6条")
     expect(source).toContain("用户确认前不得生成完整文件")
   })
@@ -680,12 +683,14 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("includeWarnings: true")
   })
 
-  it("auto-saves structured AI outline save requests from assistant output", () => {
+  it("parses structured AI outline save requests and requires user confirmation before writing", () => {
     expect(source).toContain("parseOutlineSaveRequests")
     expect(source).toContain("formatOutlineSaveParseFeedback")
     expect(source).toContain("saveOutlineSaveRequests")
     expect(source).toContain("outlineSaveRequest")
-    expect(source).toContain("已自动保存")
+    expect(source).toContain("检测到可保存大纲，请确认后写入")
+    expect(source).toContain("请确认要保存的大纲文件")
+    expect(source).not.toContain("已自动保存")
     expect(source).toContain("AI 大纲输出协议")
   })
 
@@ -712,9 +717,11 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("confirmed: true")
   })
 
-  it("does not silently auto-save character requests without confirmation", () => {
+  it("does not silently auto-save outline requests without confirmation", () => {
     expect(source).toContain("confirmRequired")
     expect(source).toContain("请确认要保存的人物角色")
+    expect(source).toContain("请确认要保存的大纲文件")
+    expect(source).toContain("pendingNormalSaveRequestsRef")
   })
 
   it("keeps a confirmation fallback when character extraction fails", () => {

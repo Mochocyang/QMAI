@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("@/commands/fs", () => ({
+  listDirectory: vi.fn(async () => []),
+}))
+
 import { createSelectCapabilitiesPlugin } from "./select-capabilities-plugin"
 import { buildAvailableCapabilities } from "../capabilities/registry"
 import { normalizeUserSkill } from "@/lib/novel/skill-library"

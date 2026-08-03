@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { prepareOutlineSaveDraft } from "./outline-save"
+import { prepareOutlineSaveDraft, prepareOutlineSaveSourceContent } from "./outline-save"
 
 describe("outline save draft", () => {
   it("ignores frontmatter when deriving an outline title", () => {
@@ -48,5 +48,36 @@ describe("outline save draft", () => {
     expect(draft.content).toContain("- 主角用化学戏法立足乱世。")
     expect(draft.content).not.toContain("```markdown")
     expect(draft.content).not.toContain("\\#")
+  })
+
+  it("prepareOutlineSaveSourceContent 保留 markdown 围栏中的大纲正文", () => {
+    const source = prepareOutlineSaveSourceContent([
+      "好的，以下是完整大纲：",
+      "",
+      "```markdown",
+      "# 修仙界总纲",
+      "",
+      "## 世界观",
+      "灵气复苏，门派林立。",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "大纲",
+          fileName: "总纲.md",
+          fileType: "outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成总纲",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(source).toContain("修仙界总纲")
+    expect(source).toContain("灵气复苏")
+    expect(source).not.toContain("outlineSaveRequest")
+    expect(source).not.toContain("```")
   })
 })
