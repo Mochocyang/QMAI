@@ -44,6 +44,15 @@ interface WikiEditorInnerProps {
   onSave: (markdown: string) => void;
 }
 
+/** Prefer CSS `field-sizing: content` when available; otherwise JS scrollHeight. */
+export function supportsFieldSizingContent(): boolean {
+  return (
+    typeof CSS !== "undefined" &&
+    typeof CSS.supports === "function" &&
+    CSS.supports("field-sizing", "content")
+  );
+}
+
 interface WritingTextareaProps {
   content: string;
   onSave: (markdown: string) => void;
@@ -95,6 +104,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
       () => findAllMatches(value, findQuery, { caseSensitive: false }),
       [value, findQuery],
     );
+    const cssAutoHeight = supportsFieldSizingContent();
 
     useImperativeHandle(
       ref,
@@ -152,6 +162,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
 
     const resize = useMemo(
       () => () => {
+        if (cssAutoHeight) return;
         const el = textareaRef.current;
         if (!el) return;
         // 找到外层滚动容器，保存滚动位置防止跳动
@@ -177,14 +188,16 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
           scrollContainer.scrollLeft = savedScrollLeft;
         }
       },
-      [],
+      [cssAutoHeight],
     );
 
     useEffect(() => {
+      if (cssAutoHeight) return;
       resize();
-    }, [value, resize]);
+    }, [value, resize, cssAutoHeight]);
 
     useEffect(() => {
+      if (cssAutoHeight) return;
       const el = textareaRef.current;
       if (!el) return;
       const resizeTarget = el.parentElement ?? el;
@@ -213,7 +226,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
         if (frame !== null) cancelAnimationFrame(frame);
         observer.disconnect();
       };
-    }, [resize]);
+    }, [resize, cssAutoHeight]);
 
     const refreshSelection = useCallback(() => {
       const el = textareaRef.current;
@@ -520,6 +533,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
               fontFamily: "inherit",
               minHeight: "100%",
               height: "auto",
+              ...(cssAutoHeight ? { fieldSizing: "content" as const } : {}),
             }}
             spellCheck={false}
           />
