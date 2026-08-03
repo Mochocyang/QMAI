@@ -48,6 +48,7 @@ const TOOL_LABELS: Record<string, string> = {
   apply_skill: "Apply Skill",
   web_search: "External Search",
   read_web_page: "Read Web Page",
+  summarize_search_results: "Summarize Search Results",
   route_task: "Route Task",
   load_context: "Load Context",
   trim_context: "Trim Context",
@@ -85,8 +86,12 @@ export function buildUserSkillCapabilities(skills: UserSkill[]): AiCapability[] 
   }))
 }
 
+function isWebSearchTool(toolName: string): boolean {
+  return toolName === "web_search" || toolName === "read_web_page" || toolName === "summarize_search_results"
+}
+
 function createToolCapability(toolName: string): AiCapability {
-  const kind: CapabilityKind = toolName === "web_search" || toolName === "read_web_page"
+  const kind: CapabilityKind = isWebSearchTool(toolName)
     ? "web_search"
     : "built_in_tool"
   const permission: CapabilityPermission = toolName.startsWith("write_") ? "confirm" : "auto"
@@ -104,7 +109,7 @@ function createToolCapability(toolName: string): AiCapability {
 }
 
 function toolIntents(toolName: string): CapabilityIntent[] {
-  if (toolName === "web_search" || toolName === "read_web_page") {
+  if (isWebSearchTool(toolName)) {
     return ["external_search", ...QUERY_INTENTS, "general"]
   }
   if (toolName === "write_chapter") return WRITING_INTENTS

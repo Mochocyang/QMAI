@@ -2,6 +2,7 @@ import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { buildAvailableCapabilities } from "../capabilities/registry"
 import { selectCapabilities } from "../capabilities/selector"
 import { resolveAiWorkflowMode } from "../workflow-mode"
+import { detectLocalEntityMiss } from "@/lib/novel/local-entity-names"
 
 const PLAN_PHASE_ALLOWED_TOOLS = new Set([
   "read_chapter",
@@ -18,6 +19,8 @@ const PLAN_PHASE_ALLOWED_TOOLS = new Set([
   "load_context",
   "trim_context",
   "web_search",
+  "read_web_page",
+  "summarize_search_results",
 ])
 
 export function createSelectCapabilitiesPlugin(): PrePlugin {
@@ -36,12 +39,20 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
         mcpCapabilities: input.mcpCapabilities ?? [],
       })
 
+      const mode = resolveAiWorkflowMode(input.aiWorkflowMode)
+      const needsEntityMissCheck =
+        mode !== "fast" && (route.intent === "character_query" || route.intent === "setting_query")
+      const localEntityMiss = needsEntityMissCheck
+        ? await detectLocalEntityMiss(input.projectPath, input.userMessage)
+        : false
+
       const selectedCapabilities = selectCapabilities({
         capabilities: availableCapabilities,
         intent: route.intent,
-        mode: resolveAiWorkflowMode(input.aiWorkflowMode),
+        mode,
         userMessage: input.userMessage,
         blockedSources: input.blockedSources as any,
+        localEntityMiss,
       })
 
       const isPlanPhase = Boolean(input.planExecuteEnabled)

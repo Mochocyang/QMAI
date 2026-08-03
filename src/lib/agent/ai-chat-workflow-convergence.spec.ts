@@ -1,4 +1,10 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/commands/fs", () => ({
+  listDirectory: vi.fn(async () => []),
+}))
+
+import { listDirectory } from "@/commands/fs"
 import { createPrePluginChain } from "./pipeline"
 import { createBuildContextPackPlugin } from "./plugins/build-context-pack-plugin"
 import { createSelectSkillsPlugin } from "./plugins/select-skills-plugin"
@@ -132,6 +138,11 @@ async function runWorkflow(input: {
 }
 
 describe("AI chat workflow convergence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(listDirectory).mockResolvedValue([])
+  })
+
   it("fast polish keeps tool use minimal and does not enable write tools", async () => {
     const result = await runWorkflow({
       userMessage: "帮我润色这句话",
@@ -202,6 +213,40 @@ describe("AI chat workflow convergence", () => {
       kind: "web_search",
       reason: expect.stringContaining("external search"),
     }))
+  })
+
+  it("character_query enables web search when local entity table misses the name", async () => {
+    vi.mocked(listDirectory).mockResolvedValue([])
+
+    const result = await runWorkflow({
+      userMessage: "黄蓉是谁",
+      intent: "character_query",
+      mode: "standard",
+    })
+
+    expect(result.enabledToolNames).toEqual(expect.arrayContaining(["web_search", "read_web_page"]))
+    expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({
+      kind: "web_search",
+      reason: expect.stringContaining("local entity miss"),
+    }))
+  })
+
+  it("character_query does not enable web search when local entity name is present", async () => {
+    vi.mocked(listDirectory).mockImplementation(async (path: string) => {
+      if (path.endsWith("wiki/entities")) {
+        return [{ name: "黄蓉.md", path: "/project/wiki/entities/黄蓉.md", is_dir: false }]
+      }
+      return []
+    })
+
+    const result = await runWorkflow({
+      userMessage: "黄蓉是谁",
+      intent: "character_query",
+      mode: "standard",
+    })
+
+    expect(result.enabledToolNames ?? []).not.toContain("web_search")
+    expect((result.selectedCapabilities ?? []).some((item) => item.kind === "web_search")).toBe(false)
   })
 
   it("strict knowledge graph task can select read-only MCP capability", async () => {
