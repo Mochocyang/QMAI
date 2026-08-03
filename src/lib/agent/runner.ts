@@ -362,7 +362,28 @@ export class AgentRunner {
             const previewFn = tool.generatePreview ?? tool.execute
             preview = await withToolTimeout(previewFn(params, signal, executionContext), tool.executeTimeoutMs)
           } catch (e) {
-            preview = `预览生成失败：${e instanceof Error ? e.message : String(e)}`
+            const errorMsg = `预览生成失败：${e instanceof Error ? e.message : String(e)}`
+            toolCallRecord.status = "error"
+            toolCallRecord.result = errorMsg
+            toolCallRecord.finishedAt = Date.now()
+            record.toolCalls.push(toolCallRecord)
+            callbacks.onToolError(tc.id, errorMsg)
+            callbacks.onToolEvent?.({
+              type: "error",
+              callId: tc.id,
+              name: toolName,
+              params,
+              result: errorMsg,
+              timestamp: toolCallRecord.finishedAt,
+            })
+            workingMessages.push({
+              role: "tool",
+              content: evidenceLedger.format(toolName, params, errorMsg),
+              tool_call_id: tc.id,
+              name: toolName,
+            })
+            await saveToolProgress()
+            continue
           }
           toolCallRecord.status = "approval_required"
           ;(toolCallRecord as any).preview = preview

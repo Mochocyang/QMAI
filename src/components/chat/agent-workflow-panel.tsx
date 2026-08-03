@@ -2,6 +2,7 @@ import { useMemo, useRef, useEffect } from "react"
 import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
+import { normalizeOutlineWriteTarget } from "@/lib/agent/tools/write-outline-node"
 import { createStreamingEventBuilder, compareToolCallsByStartedAt, filterToolCallsForDisplay } from "@/components/common/timeline-types"
 import type { ToolCallEventItem, TimelineToolCategory } from "@/components/common/timeline-types"
 import { EventStream } from "@/components/common/event-stream"
@@ -115,10 +116,11 @@ export function AgentWorkflowPanel({
     const groupedByFile = new Map<string, typeof pendingApprovalCalls>()
     for (const call of pendingApprovalCalls) {
       if (call.name !== "write_outline_node") continue
-      const outlineName = (call.params as Record<string, unknown>)?.outlineName as
+      const rawName = (call.params as Record<string, unknown>)?.outlineName as
         | string
         | undefined
-      if (!outlineName) continue
+      if (!rawName) continue
+      const outlineName = normalizeOutlineWriteTarget(rawName)
       const existing = groupedByFile.get(outlineName) ?? []
       existing.push(call)
       groupedByFile.set(outlineName, existing)
