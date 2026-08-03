@@ -4,7 +4,7 @@ import { act, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, it } from "vitest"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
-import { WikiEditor } from "./wiki-editor"
+import { supportsFieldSizingContent, WikiEditor } from "./wiki-editor"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -42,6 +42,86 @@ describe("WikiEditor immersive writing", () => {
 
     act(() => root.unmount())
     document.body.removeChild(container)
+  })
+
+  it("prefers CSS field-sizing when supported, otherwise keeps JS height sizing", () => {
+    const originalSupports = globalThis.CSS?.supports
+    const cssStub = {
+      supports: (property: string, value?: string) =>
+        property === "field-sizing" && value === "content",
+    }
+    Object.defineProperty(globalThis, "CSS", {
+      configurable: true,
+      writable: true,
+      value: cssStub,
+    })
+    expect(supportsFieldSizingContent()).toBe(true)
+
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    act(() => {
+      root.render(
+        <WikiEditor
+          content={"# 第1章\n\n这是一段正文。"}
+          onSave={() => {}}
+          immersiveWriting
+        />,
+      )
+    })
+
+    const textarea = container.querySelector("textarea")
+    expect(textarea).not.toBeNull()
+    expect(textarea?.style.fieldSizing).toBe("content")
+
+    act(() => root.unmount())
+    document.body.removeChild(container)
+
+    Object.defineProperty(globalThis, "CSS", {
+      configurable: true,
+      writable: true,
+      value: {
+        supports: () => false,
+      },
+    })
+    expect(supportsFieldSizingContent()).toBe(false)
+
+    const fallbackContainer = document.createElement("div")
+    document.body.appendChild(fallbackContainer)
+    const fallbackRoot = createRoot(fallbackContainer)
+
+    act(() => {
+      fallbackRoot.render(
+        <WikiEditor
+          content={"# 第1章\n\n这是一段正文。"}
+          onSave={() => {}}
+          immersiveWriting
+        />,
+      )
+    })
+
+    const fallbackTextarea = fallbackContainer.querySelector("textarea")
+    expect(fallbackTextarea).not.toBeNull()
+    expect(fallbackTextarea?.style.fieldSizing).toBe("")
+
+    act(() => fallbackRoot.unmount())
+    document.body.removeChild(fallbackContainer)
+
+    if (originalSupports) {
+      Object.defineProperty(globalThis, "CSS", {
+        configurable: true,
+        writable: true,
+        value: { supports: originalSupports },
+      })
+    } else {
+      // jsdom may not define CSS.supports
+      Object.defineProperty(globalThis, "CSS", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      })
+    }
   })
 
   it("keeps typing on the inserted line after the parent normalizes chapter content", async () => {
