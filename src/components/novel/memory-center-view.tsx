@@ -1,4 +1,4 @@
-﻿import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
@@ -609,41 +609,41 @@ function MemoryCenterDetailPanel({
     return () => { cancelled = true }
   }, [selectedChapter, detailView])
 
-  if (detailView.kind === "snapshotList") {
-    const chapterCards = detailView.cards.filter((c) => c.chapterNumber > 0)
-    const outlineCards = detailView.cards.filter((c) => c.chapterNumber < 0)
-    const maxChapter = detailView.allChapterNumbers.length > 0 ? detailView.allChapterNumbers[0] : 0
+  // snapshotList 相关计算（移到顶层以遵守 Hooks 规则，避免条件调用 useMemo）
+  const isSnapshotList = detailView.kind === "snapshotList"
+  const chapterCards = isSnapshotList ? detailView.cards.filter((c) => c.chapterNumber > 0) : []
+  const outlineCards = isSnapshotList ? detailView.cards.filter((c) => c.chapterNumber < 0) : []
+  const maxChapter = isSnapshotList && detailView.allChapterNumbers.length > 0 ? detailView.allChapterNumbers[0] : 0
 
-    // 区间筛选
-    const filteredChapterCards = useMemo(() => {
-      const start = rangeStart.trim() ? Number(rangeStart.trim()) : 0
-      const end = rangeEnd.trim() ? Number(rangeEnd.trim()) : 0
-      let filtered = chapterCards
-      if (start > 0 && end > 0 && start <= end) {
-        filtered = chapterCards.filter((c) => c.chapterNumber >= start && c.chapterNumber <= end)
-      } else if (start > 0) {
-        filtered = chapterCards.filter((c) => c.chapterNumber >= start)
-      } else if (end > 0) {
-        filtered = chapterCards.filter((c) => c.chapterNumber <= end)
-      }
-      return filtered
-    }, [chapterCards, rangeStart, rangeEnd])
+  const filteredChapterCards = useMemo(() => {
+    if (!isSnapshotList) return []
+    const start = rangeStart.trim() ? Number(rangeStart.trim()) : 0
+    const end = rangeEnd.trim() ? Number(rangeEnd.trim()) : 0
+    let filtered = chapterCards
+    if (start > 0 && end > 0 && start <= end) {
+      filtered = chapterCards.filter((c) => c.chapterNumber >= start && c.chapterNumber <= end)
+    } else if (start > 0) {
+      filtered = chapterCards.filter((c) => c.chapterNumber >= start)
+    } else if (end > 0) {
+      filtered = chapterCards.filter((c) => c.chapterNumber <= end)
+    }
+    return filtered
+  }, [chapterCards, rangeStart, rangeEnd, isSnapshotList])
 
-    // 默认显示最近15章，区间搜索时显示全部匹配
-    const displayCards = useMemo(() => {
-      if (rangeStart || rangeEnd) return filteredChapterCards
-      return filteredChapterCards.slice(0, DEFAULT_SNAPSHOT_PAGE_SIZE)
-    }, [filteredChapterCards, rangeStart, rangeEnd])
+  const displayCards = useMemo(() => {
+    if (!isSnapshotList) return []
+    if (rangeStart || rangeEnd) return filteredChapterCards
+    return filteredChapterCards.slice(0, DEFAULT_SNAPSHOT_PAGE_SIZE)
+  }, [filteredChapterCards, rangeStart, rangeEnd, isSnapshotList])
 
-    // 章节列表（用于侧边栏选择，显示全部章节）
-    const allChapterNumbers = detailView.allChapterNumbers
+  const allChapterNumbers = isSnapshotList ? detailView.allChapterNumbers : []
 
-    // 选中的章节卡片（优先从缓存取，其次从按需加载取）
-    const selectedCard = useMemo(() => {
-      if (selectedChapter === null) return null
-      return detailView.cards.find((c) => c.chapterNumber === selectedChapter) ?? loadedCard ?? null
-    }, [detailView.cards, selectedChapter, loadedCard])
+  const selectedCard = useMemo(() => {
+    if (!isSnapshotList || selectedChapter === null) return null
+    return detailView.cards.find((c) => c.chapterNumber === selectedChapter) ?? loadedCard ?? null
+  }, [detailView, selectedChapter, loadedCard, isSnapshotList])
 
+  if (isSnapshotList) {
     return (
       <div className="flex h-full gap-0">
         {/* 左侧章节列表 */}

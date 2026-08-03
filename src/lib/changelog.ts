@@ -7,6 +7,23 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "3.0.5",
+  date: "2026-08-03",
+  highlights: {
+    en: [
+      "[Immersive Writing Truncation Fix] Adopted CSS `field-sizing: content` to let the textarea auto-size natively, fixing the bug where the end of chapter body text was clipped when the window was shrunk. Falls back to JS scrollHeight + ResizeObserver when unsupported. (Merged from PR #39, thanks @darknessomi)",
+      "[Memory Center Crash Fix] Fixed 'Application error (React error #300)' when selecting a memory and clicking 'View Memory' in the Memory Center. Root cause: 3 useMemo hooks were placed inside a conditional branch, violating the Rules of Hooks.",
+      "[Dismantling Library Unstable] The dismantling library is currently unstable; usage is not recommended until stabilized.",
+    ],
+    zh: [
+      "【沉浸式写作正文截断修复】采用 CSS `field-sizing: content` 原生方案，彻底修复缩小窗口时沉浸式写作正文末尾内容被截断不可见的问题。不支持时降级为现有 JS scrollHeight + ResizeObserver 逻辑。（合并自 PR #39，感谢 @darknessomi 贡献）",
+      "【记忆中心崩溃修复】修复记忆中心选中记忆后点击「查看记忆」时显示「应用运行出错（React error #300）」的崩溃问题。根因：3 个 useMemo hooks 被放在条件分支内部，违反 React Hooks 规则。",
+      "【拆书库不稳定】拆书库目前不稳定，建议暂不使用，待后续版本修复稳定后恢复",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_FOUR_CHANGELOG: ChangelogEntry = {
   version: "3.0.4",
   date: "2026-08-02",
@@ -982,6 +999,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_FIVE_CHANGELOG.version)
+    return [THREE_POINT_ZERO_FIVE_CHANGELOG];
   if (version === THREE_POINT_ZERO_FOUR_CHANGELOG.version)
     return [THREE_POINT_ZERO_FOUR_CHANGELOG];
   if (version === THREE_POINT_ZERO_THREE_CHANGELOG.version)
@@ -1061,6 +1080,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_FIVE_CHANGELOG,
     THREE_POINT_ZERO_FOUR_CHANGELOG,
     THREE_POINT_ZERO_THREE_CHANGELOG,
     THREE_POINT_ZERO_ONE_CHANGELOG,
