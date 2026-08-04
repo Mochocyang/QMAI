@@ -246,32 +246,34 @@ export function BookAnalysisImportTaskPanel({
 
   return (
     <section
-      className="flex min-h-0 max-h-[45%] flex-col overflow-hidden border-b bg-background px-5 py-3"
+      className="flex min-h-0 max-h-[45%] flex-col overflow-hidden border-b bg-background px-3 py-3"
       aria-label="批量导入任务"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold">批量导入任务</h3>
-          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
-            <span>进行中 {count(["copying", "splitting"])}</span>
-            <span>等待 {count(["queued"])}</span>
-            <span>失败 {count(["failed"])}</span>
-            <span>中断 {count(["interrupted"])}</span>
-            <span>完成 {count(["completed"])}</span>
-            <span>跳过 {count(["skipped"])}</span>
-            <span>取消 {count(["cancelled"])}</span>
-          </p>
+      <div className="flex shrink-0 flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="shrink-0 whitespace-nowrap text-sm font-semibold">批量导入任务</h3>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 shrink-0 px-2"
+            aria-label={collapsed ? "展开导入任务" : "收起导入任务"}
+            aria-controls={taskListId}
+            aria-expanded={!collapsed}
+            onClick={() => onCollapsedChange(!collapsed)}
+          >
+            {collapsed ? <ChevronRight /> : <ChevronDown />}
+            {collapsed ? "展开" : "收起"}
+          </Button>
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-controls={taskListId}
-          aria-expanded={!collapsed}
-          onClick={() => onCollapsedChange(!collapsed)}
-        >
-          {collapsed ? <ChevronRight /> : <ChevronDown />}
-          {collapsed ? "展开导入任务" : "收起导入任务"}
-        </Button>
+        <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
+          <span>进行中 {count(["copying", "splitting"])}</span>
+          <span>等待 {count(["queued"])}</span>
+          <span>失败 {count(["failed"])}</span>
+          <span>中断 {count(["interrupted"])}</span>
+          <span>完成 {count(["completed"])}</span>
+          <span>跳过 {count(["skipped"])}</span>
+          <span>取消 {count(["cancelled"])}</span>
+        </p>
       </div>
 
       {!collapsed && (

@@ -8,7 +8,7 @@ import {
 } from "@/lib/novel/book-analysis/analysis-chunk-planner"
 import {
   loadAndRecoverAnalysisTasks,
-  saveAnalysisChunk,
+  replaceAnalysisTaskChunks,
   saveAnalysisTask,
 } from "@/lib/novel/book-analysis/analysis-pipeline-storage"
 import {
@@ -16,9 +16,11 @@ import {
   normalizeSelectedSkills,
   type AnalysisChapterRange,
   type AnalysisChunkRecord,
+  type AnalysisRuntimeProgress,
   type AnalysisSkill,
   type BookAnalysisPipelineTask,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { createAnalysisScheduler, type AnalysisScheduler } from "@/lib/novel/book-analysis/analysis-scheduler"
 import { characterAnalysisAdapter } from "@/lib/novel/book-analysis/character-analysis-adapter"
 import { storyAnalysisAdapter } from "@/lib/novel/book-analysis/story-analysis-adapter"
@@ -81,6 +83,7 @@ export interface BookAnalysisPipelineState {
   projectPath: string | null
   tasks: BookAnalysisPipelineTask[]
   chunks: AnalysisChunkRecord[]
+  progresses: Record<string, AnalysisRuntimeProgress>
   dismissedBatchIds: string[]
   initializeProject(projectPath: string): Promise<void>
   createAwaitingRangeTask(input: {
@@ -91,6 +94,11 @@ export interface BookAnalysisPipelineState {
     forceNew?: boolean
   }): Promise<BookAnalysisPipelineTask | null>
   configureTaskRange(taskId: string, range: AnalysisChapterRange, selectedSkills?: AnalysisSkill[]): Promise<void>
+  setTaskRecognizedCharacters(taskId: string, characters: RecognizedCharacter[]): Promise<void>
+  failTask(taskId: string, error: string): Promise<void>
+  confirmCharacterSelection(taskId: string, selectedIds: string[]): Promise<void>
+  /** 写入运行时进度（如角色识别）；scheduler 快照不会覆盖以 `:recognition` 结尾的 key */
+  setRuntimeProgress(key: string, progress: AnalysisRuntimeProgress | null): void
   startTask(taskId: string): Promise<void>
   pauseTask(taskId: string): Promise<void>
   continueTask(taskId: string): Promise<void>
@@ -98,6 +106,10 @@ export interface BookAnalysisPipelineState {
   cancelTask(taskId: string): Promise<void>
   dismissBatch(batchId: string): void
   dispose(): Promise<void>
+}
+
+function isRecognitionProgressKey(key: string): boolean {
+  return key.endsWith(":recognition")
 }
 
 export function createBookAnalysisPipelineStore() {
@@ -109,6 +121,7 @@ export function createBookAnalysisPipelineStore() {
     projectPath: null,
     tasks: [],
     chunks: [],
+    progresses: {},
     dismissedBatchIds: [],
     async initializeProject(rawPath) {
       const projectPath = normalizePath(rawPath).replace(/\/+$/, "")
@@ -122,7 +135,7 @@ export function createBookAnalysisPipelineStore() {
       unsubscribe = null
       await scheduler?.dispose()
       scheduler = null
-      set({ projectPath, tasks: [], chunks: [], dismissedBatchIds: [] })
+      set({ projectPath, tasks: [], chunks: [], progresses: {}, dismissedBatchIds: [] })
       const recovered = await loadAndRecoverAnalysisTasks(projectPath)
       if (token !== generation || get().projectPath !== projectPath) return
       const currentState = get()
@@ -145,11 +158,20 @@ export function createBookAnalysisPipelineStore() {
       })
       scheduler = nextScheduler
       nextScheduler.initialize(mergedTasks, mergedChunks)
-      set({ tasks: mergedTasks, chunks: mergedChunks })
+      set({ tasks: mergedTasks, chunks: mergedChunks, progresses: {} })
       setActiveAnalysisSnapshot(projectPath, mergedTasks)
       unsubscribe = nextScheduler.subscribe((snapshot) => {
         if (token !== generation || scheduler !== nextScheduler) return
-        set({ tasks: snapshot.tasks, chunks: snapshot.chunks })
+        set((state) => {
+          const preserved = Object.fromEntries(
+            Object.entries(state.progresses).filter(([key]) => isRecognitionProgressKey(key)),
+          )
+          return {
+            tasks: snapshot.tasks,
+            chunks: snapshot.chunks,
+            progresses: { ...preserved, ...snapshot.progresses },
+          }
+        })
         setActiveAnalysisSnapshot(projectPath, snapshot.tasks)
       })
     },
@@ -188,13 +210,16 @@ export function createBookAnalysisPipelineStore() {
         { maxChunkChars: computeAnalysisChunkCharLimit(llmConfig.maxContextSize) },
       )
       const now = Date.now()
+      const needsCharacterSelection = selectedSkills.includes("characters")
       const configured: BookAnalysisPipelineTask = {
         ...task,
         selectedSkills,
         range,
-        status: "queued",
+        status: needsCharacterSelection ? "awaiting-character-selection" : "queued",
         currentSkill: null,
         error: null,
+        recognizedCharacters: undefined,
+        targetCharacters: undefined,
         modules: Object.fromEntries(ANALYSIS_SKILL_ORDER.map((skill) => [skill, {
           ...task.modules[skill],
           status: selectedSkills.includes(skill) ? "pending" : "skipped",
@@ -222,18 +247,98 @@ export function createBookAnalysisPipelineStore() {
         updatedAt: now,
       })))
       await saveAnalysisTask(configured)
-      for (const chunk of chunks) await saveAnalysisChunk(task.bookPath, chunk)
+      await replaceAnalysisTaskChunks(task.bookPath, taskId, chunks)
       set((state) => ({
         tasks: state.tasks.map((item) => item.id === taskId ? configured : item),
         chunks: [...state.chunks.filter((chunk) => chunk.taskId !== taskId), ...chunks],
       }))
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
     },
+    async setTaskRecognizedCharacters(taskId, characters) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error("未找到分析任务")
+      if (task.status !== "awaiting-character-selection") {
+        throw new Error("当前任务不在待选择角色状态")
+      }
+      const updated: BookAnalysisPipelineTask = {
+        ...task,
+        recognizedCharacters: characters,
+        error: null,
+        updatedAt: Date.now(),
+      }
+      await saveAnalysisTask(updated)
+      set((state) => ({
+        tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
+      }))
+      setActiveAnalysisSnapshot(task.projectPath, get().tasks)
+    },
+    async failTask(taskId, error) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error("未找到分析任务")
+      const updated: BookAnalysisPipelineTask = {
+        ...task,
+        status: "failed",
+        error,
+        updatedAt: Date.now(),
+      }
+      await saveAnalysisTask(updated)
+      set((state) => ({
+        tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
+      }))
+      setActiveAnalysisSnapshot(task.projectPath, get().tasks)
+    },
+    async confirmCharacterSelection(taskId, selectedIds) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error("未找到分析任务")
+      if (task.status !== "awaiting-character-selection") {
+        throw new Error("当前任务不在待选择角色状态")
+      }
+      const recognized = task.recognizedCharacters ?? []
+      if (recognized.length === 0) throw new Error("尚未完成角色识别")
+      const idSet = new Set(selectedIds)
+      const targetCharacters = recognized.filter((character) => idSet.has(character.id))
+      if (targetCharacters.length === 0) throw new Error("请至少选择一个角色")
+      const updated: BookAnalysisPipelineTask = {
+        ...task,
+        targetCharacters,
+        status: "queued",
+        error: null,
+        updatedAt: Date.now(),
+      }
+      await saveAnalysisTask(updated)
+      set((state) => ({
+        tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
+      }))
+      setActiveAnalysisSnapshot(task.projectPath, get().tasks)
+    },
+    setRuntimeProgress(key, progress) {
+      set((state) => {
+        if (progress === null) {
+          if (!(key in state.progresses)) return state
+          const next = { ...state.progresses }
+          delete next[key]
+          return { progresses: next }
+        }
+        return {
+          progresses: {
+            ...state.progresses,
+            [key]: {
+              stageLabel: progress.stageLabel,
+              percentage: Math.max(0, Math.min(100, Math.round(progress.percentage))),
+              ...(progress.currentItem ? { currentItem: progress.currentItem } : {}),
+            },
+          },
+        }
+      })
+    },
     async startTask(taskId) {
       const current = scheduler
       const task = get().tasks.find((item) => item.id === taskId)
       if (!current || !task) throw new Error("分析任务尚未初始化")
       if (!task.range || task.status === "awaiting-range") throw new Error("请先选择章节范围")
+      if (task.status === "awaiting-character-selection") {
+        throw new Error("请先选择要深度分析的角色")
+      }
       const wikiState = useWikiStore.getState()
       if (!hasUsableLlm(resolveDefaultModel(wikiState.llmConfig), wikiState.providerConfigs)) {
         throw new Error("未配置可用模型，请先在设置中配置默认模型")
@@ -253,6 +358,22 @@ export function createBookAnalysisPipelineStore() {
       await scheduler.retryFailedChunk(taskId, skill, chunkId)
     },
     async cancelTask(taskId) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task) throw new Error("未找到分析任务")
+      if (task.status === "awaiting-range" || task.status === "awaiting-character-selection") {
+        const updated: BookAnalysisPipelineTask = {
+          ...task,
+          status: "cancelled",
+          error: null,
+          updatedAt: Date.now(),
+        }
+        await saveAnalysisTask(updated)
+        set((state) => ({
+          tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
+        }))
+        setActiveAnalysisSnapshot(task.projectPath, get().tasks)
+        return
+      }
       if (!scheduler) throw new Error("分析任务尚未初始化")
       await scheduler.cancelTask(taskId)
     },
@@ -267,7 +388,7 @@ export function createBookAnalysisPipelineStore() {
       await scheduler?.dispose()
       scheduler = null
       if (projectPath) clearActiveAnalysisSnapshot(projectPath)
-      set({ projectPath: null, tasks: [], chunks: [], dismissedBatchIds: [] })
+      set({ projectPath: null, tasks: [], chunks: [], progresses: {}, dismissedBatchIds: [] })
     },
   }))
 }

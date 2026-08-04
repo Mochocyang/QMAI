@@ -7,9 +7,7 @@ import {
   ChevronDown,
   CircleHelp,
   Clock3,
-  FilePlus2,
   FileText,
-  FolderPlus,
   GitBranchPlus,
   Plus,
   RefreshCw,
@@ -31,17 +29,8 @@ import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { loadFrameworks, loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import type { StoryFramework } from "@/lib/novel/story-simulation/types"
-import { createDirectory, fileExists, listDirectory, preprocessFile, readFile, writeFile } from "@/commands/fs"
-import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
-import {
-  loadDismantlingLibrary,
-  normalizeDismantlingLibrary,
-  saveDismantlingLibrary,
-  splitDismantlingTextIntoChapters,
-  type DismantlingChapter,
-  type DismantlingLibrary,
-  type DismantlingProject,
-} from "@/lib/novel/dismantling"
+import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
 import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
@@ -58,8 +47,6 @@ import {
   collectChapterImportCandidatesFromFolder,
   importChapterFiles,
   runImportedChapterMemoryExtraction,
-  sortChapterImportCandidates,
-  type ChapterImportCandidate,
   type ImportedChapter,
 } from "@/lib/novel/chapter-import"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
@@ -84,21 +71,6 @@ const UnifiedSkillLibrarySidebarPanel = lazy(async () => {
 })
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
-
-const DISMANTLING_NO_PREPROCESSING_NEEDED = "no preprocessing needed"
-
-function normalizeDismantlingProjectTitle(title: string): string {
-  return title
-    .normalize("NFKC")
-    .trim()
-    .replace(/\.(txt|md|mdx|doc|docx)$/i, "")
-    .replace(/\s+/g, "")
-    .toLowerCase()
-}
-
-function shouldReadDismantlingOriginalFile(preprocessedText: string): boolean {
-  return preprocessedText.trim().toLowerCase() === DISMANTLING_NO_PREPROCESSING_NEEDED
-}
 
 function SearchHistoryPanel() {
   const { t } = useTranslation()
@@ -147,226 +119,6 @@ function SidebarPanelLoading() {
     </div>
   )
 }
-
-export function DismantlingSidebarPanel() {
-  const project = useWikiStore((s) => s.project)
-  const selectedDismantlingProjectId = useWikiStore((s) => s.selectedDismantlingProjectId)
-  const setSelectedDismantlingProjectId = useWikiStore((s) => s.setSelectedDismantlingProjectId)
-  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
-  const [library, setLibrary] = useState<DismantlingLibrary>({ version: 1, projects: [], selectedProjectId: null })
-  const [loading, setLoading] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importStatus, setImportStatus] = useState("")
-
-  useEffect(() => {
-    if (!project?.path) {
-      setLibrary({ version: 1, projects: [], selectedProjectId: null })
-      setSelectedDismantlingProjectId(null)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    void loadDismantlingLibrary(project.path)
-      .then((value) => {
-        if (cancelled) return
-        setLibrary(value)
-        const selected = value.projects.find((item) => item.id === selectedDismantlingProjectId) ?? value.projects[0] ?? null
-        if (selected?.id !== selectedDismantlingProjectId) setSelectedDismantlingProjectId(selected?.id ?? null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [project?.path, selectedDismantlingProjectId, setSelectedDismantlingProjectId])
-
-  async function importDismantlingCandidates(candidates: ChapterImportCandidate[], titleFallback: string) {
-    if (!project?.path || importing) return
-    setImporting(true)
-    setImportStatus("正在提取章节...")
-    try {
-      const normalizedTitle = normalizeDismantlingProjectTitle(titleFallback || "未命名拆文作品")
-      const existingProject = library.projects.find((item) => normalizeDismantlingProjectTitle(item.title) === normalizedTitle)
-      if (existingProject) {
-        setSelectedDismantlingProjectId(existingProject.id)
-        setImportStatus(`已存在相同拆文作品：${existingProject.title}`)
-        window.alert(`已存在相同拆文作品：${existingProject.title}，不会重复显示。`)
-        return
-      }
-
-      const chapters: DismantlingChapter[] = []
-      const sorted = sortChapterImportCandidates(candidates)
-      for (const candidate of sorted) {
-        setImportStatus(`正在提取章节：${candidate.name}`)
-        let content = ""
-        try {
-          content = await preprocessFile(candidate.path)
-          if (shouldReadDismantlingOriginalFile(content)) {
-            content = await readFile(candidate.path)
-          }
-        } catch {
-          content = await readFile(candidate.path)
-        }
-        const split = splitDismantlingTextIntoChapters(content)
-        if (split.length <= 1) {
-          const chapterNumber = chapters.length + 1
-          chapters.push({
-            id: `chapter-${String(chapterNumber).padStart(3, "0")}`,
-            chapterNumber,
-            title: split[0]?.title === "第1章" ? getFileStem(candidate.name) || `第${chapterNumber}章` : split[0]?.title ?? getFileStem(candidate.name),
-            content: split[0]?.content || content,
-            status: "pending",
-          })
-        } else {
-          for (const item of split) {
-            chapters.push({ ...item, id: `chapter-${String(chapters.length + 1).padStart(3, "0")}`, chapterNumber: chapters.length + 1 })
-          }
-        }
-      }
-      if (chapters.length === 0) {
-        window.alert("没有找到可导入的拆文资料。")
-        return
-      }
-      const now = Date.now()
-      const nextProject: DismantlingProject = {
-        id: `dismantling-${now}`,
-        title: titleFallback || "未命名拆文作品",
-        createdAt: now,
-        updatedAt: now,
-        chapters,
-        analyses: [],
-        structureMemory: [],
-        useInChat: false,
-      }
-      const nextLibrary: DismantlingLibrary = {
-        ...library,
-        projects: [nextProject, ...library.projects],
-        selectedProjectId: nextProject.id,
-      }
-      const normalizedLibrary = normalizeDismantlingLibrary(nextLibrary)
-      await saveDismantlingLibrary(project.path, normalizedLibrary)
-      setLibrary(normalizedLibrary)
-      setSelectedDismantlingProjectId(nextProject.id)
-      setImportStatus(`已提取 ${chapters.length} 个章节。`)
-      bumpDataVersion()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      window.alert(`导入失败：${message}`)
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  async function handleImportDismantlingFiles() {
-    if (!project?.path || importing) return
-
-    const { open } = await import("@tauri-apps/plugin-dialog")
-    const selected = await open({
-      multiple: true,
-      title: "导入拆文文件",
-      filters: [{ name: "文档", extensions: ["txt", "md", "mdx", "doc", "docx"] }],
-    })
-    const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
-    if (paths.length === 0) return
-    const candidates = paths.map((path) => ({ path: normalizePath(path), name: getFileName(path) }))
-
-    await importDismantlingCandidates(candidates, getFileStem(candidates[0]?.name ?? "") || "拆文作品")
-  }
-
-  async function handleImportDismantlingFolder() {
-    if (!project?.path || importing) return
-
-    const { open } = await import("@tauri-apps/plugin-dialog")
-    const selected = await open({ directory: true, title: "导入拆文文件夹" })
-    if (!selected || Array.isArray(selected)) return
-    const candidates = await collectChapterImportCandidatesFromFolder(selected)
-    await importDismantlingCandidates(candidates, getFileName(selected) || "拆文作品")
-  }
-
-  async function handleDeleteDismantlingProject(item: DismantlingProject) {
-    if (!project?.path || importing) return
-    const confirmed = window.confirm(`确认删除拆文作品“${item.title}”吗？删除后会移除该作品的章节、拆文结果和结构记忆。`)
-    if (!confirmed) return
-
-    const nextProjects = library.projects.filter((projectItem) => projectItem.id !== item.id)
-    const nextSelectedProjectId = selectedDismantlingProjectId === item.id
-      ? nextProjects[0]?.id ?? null
-      : selectedDismantlingProjectId
-    const normalizedLibrary = normalizeDismantlingLibrary({
-      ...library,
-      projects: nextProjects,
-      selectedProjectId: nextSelectedProjectId,
-    })
-
-    await saveDismantlingLibrary(project.path, normalizedLibrary)
-    setLibrary(normalizedLibrary)
-    setSelectedDismantlingProjectId(normalizedLibrary.selectedProjectId ?? null)
-    setImportStatus(`已删除拆文作品：${item.title}`)
-    bumpDataVersion()
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-foreground">拆文作品</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">独立拆文库</div>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => void handleImportDismantlingFiles()} disabled={importing} title="导入文件">
-            <FilePlus2 className="h-4 w-4" />
-          </Button>
-          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => void handleImportDismantlingFolder()} disabled={importing} title="导入文件夹">
-            <FolderPlus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      {importStatus ? (
-        <div className="border-b px-3 py-2 text-xs text-muted-foreground">
-          {importStatus}
-        </div>
-      ) : null}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
-        {loading ? (
-          <div className="px-2 py-4 text-xs text-muted-foreground">正在读取拆文库...</div>
-        ) : library.projects.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">还没有拆文作品，请使用上方按钮导入文件或文件夹。</div>
-        ) : library.projects.map((item) => (
-          <div
-            key={item.id}
-            className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${selectedDismantlingProjectId === item.id ? "border-primary bg-primary/10" : "bg-background hover:bg-muted"}`}
-          >
-            <button
-              type="button"
-              onClick={() => setSelectedDismantlingProjectId(item.id)}
-              className="flex min-w-0 flex-1 items-start gap-2 text-left"
-            >
-              <BookOpenCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{item.title}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{item.chapters.length} 章 · {item.structureMemory.length} 条结构记忆</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDeleteDismantlingProject(item)}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              title="删除拆文作品"
-              aria-label="删除拆文作品"
-              disabled={importing}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <RawSourcesSection onCancelExtraction={() => {}} />
-    </div>
-  )
-}
-
-void DismantlingSidebarPanel
 
 /** 剧情推演室侧边栏：头部标题+新建按钮 + 框架列表 */
 function StorySimulationSidebarPanel() {

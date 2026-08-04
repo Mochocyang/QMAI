@@ -121,7 +121,6 @@ import { buildSelectedSkillsPrompt } from "@/lib/agent/plugins/select-skills-plu
 import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import { getLoadedCategories, DATA_SOURCE_CATEGORY_LABELS } from "@/lib/novel/classification"
 // import { RetrievalStore } from "@/lib/novel/retrieval"
-// import { RetrievalStatusIndicator } from "@/components/novel/retrieval-status-indicator"
 // import { readFile as fsReadFile, writeFile as fsWriteFile, fileExists, listDirectory, createDirectory as fsCreateDirectory } from "@/commands/fs"
 // import { joinPath } from "@/lib/path-utils"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"

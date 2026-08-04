@@ -56,9 +56,17 @@ export function BookAnalysisSidebarPanel() {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [bookAuraCount, setBookAuraCount] = useState<Record<string, number>>({})
   const [inputOpen, setInputOpen] = useState(false)
-  const multiBatchIds = new Set(importBatches.filter((batch) => batch.taskIds.length > 1 && !batch.panelDismissedAt).map((batch) => batch.id))
-  const visibleBatches = importBatches.filter((batch) => multiBatchIds.has(batch.id))
-  const visibleImportTasks = importTasks.filter((task) => multiBatchIds.has(task.batchId))
+  // 未 dismiss 且仍有任务的 batch 都显示（含失败/取消/完成），以便继续、删除失败、重生成、重命名
+  const visibleBatchIds = new Set(
+    importBatches
+      .filter((batch) => {
+        if (batch.panelDismissedAt) return false
+        return importTasks.some((task) => task.batchId === batch.id)
+      })
+      .map((batch) => batch.id),
+  )
+  const visibleBatches = importBatches.filter((batch) => visibleBatchIds.has(batch.id))
+  const visibleImportTasks = importTasks.filter((task) => visibleBatchIds.has(task.batchId))
 
   // 正在运行的任务：识别已完成的任务退出"运行中"，不再显示 Loader2 转圈
   const runningTasks = tasks.filter((t) => t.status === "running" && t.progress.recognitionStatus !== "done")
@@ -231,27 +239,29 @@ export function BookAnalysisSidebarPanel() {
   return (
     <div className="flex h-full flex-col">
       {/* 标题栏 */}
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
         <div className="min-w-0">
           <PanelHeaderWithHelp title="作品库" helpKey="bookAnalysis" />
           <div className="mt-0.5 text-xs text-muted-foreground">
             已分析 {books.length} 部作品
           </div>
         </div>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
-          onClick={loadBooks}
-          disabled={loading}
-          title="刷新列表"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
-        <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => setInputOpen(true)} title="导入小说">
-          <Plus className="h-4 w-4" />
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            onClick={loadBooks}
+            disabled={loading}
+            title="刷新列表"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={() => setInputOpen(true)} title="导入小说">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <BookAnalysisImportTaskPanel

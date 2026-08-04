@@ -22,6 +22,10 @@ export interface CharacterSelectionPanelProps {
   onCancel: () => void
   /** 关闭弹窗（X / 返回）：应回到章节选择页，而不是取消整个任务。默认回退到 onCancel。 */
   onClose?: () => void
+  /** 确认勾选并开始深度分析 */
+  onConfirm?: () => void
+  confirmLabel?: string
+  confirming?: boolean
   // 受控搜索词和排序（默认内部 state）
   search?: string
   sortBy?: "importance" | "appearances"
@@ -36,6 +40,9 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
     onClear,
     onCancel,
     onClose,
+    onConfirm,
+    confirmLabel = "开始深度分析",
+    confirming = false,
   } = props
   const dismiss = onClose ?? onCancel
   const [search, setSearch] = useState("")
@@ -134,7 +141,16 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={dismiss}>返回章节</Button>
+          <Button variant="ghost" onClick={dismiss} disabled={confirming}>返回章节</Button>
+          {onConfirm && (
+            <Button
+              onClick={onConfirm}
+              disabled={selectedCount === 0 || confirming}
+              data-testid="confirm-character-selection"
+            >
+              {confirming ? "启动中…" : confirmLabel}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

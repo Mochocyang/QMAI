@@ -2,6 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type {
   AnalysisChunkRecord,
   AnalysisEvidenceSnippet,
+  AnalysisRuntimeProgress,
   AnalysisSkill,
   BookAnalysisPipelineTask,
 } from "./analysis-pipeline-types"
@@ -14,11 +15,14 @@ export interface AnalysisSkillContext {
   llmConfig: LlmConfig
 }
 
+export type AnalysisProgressReporter = (progress: AnalysisRuntimeProgress) => void
+
 export interface AnalysisSkillAdapter<TChunk = unknown, TResult = unknown> {
   skill: AnalysisSkill
   runChunk(input: AnalysisSkillContext & {
     chunk: AnalysisChunkRecord
     signal: AbortSignal
+    onProgress?: AnalysisProgressReporter
   }): Promise<{
     result: TChunk
     evidence: AnalysisEvidenceSnippet[]
@@ -26,11 +30,13 @@ export interface AnalysisSkillAdapter<TChunk = unknown, TResult = unknown> {
   aggregate(input: AnalysisSkillContext & {
     chunks: TChunk[]
     signal: AbortSignal
+    onProgress?: AnalysisProgressReporter
   }): Promise<TResult>
   publish(input: AnalysisSkillContext & {
     result: TResult
     evidence: AnalysisEvidenceSnippet[]
     signal: AbortSignal
+    onProgress?: AnalysisProgressReporter
   }): Promise<string>
 }
 

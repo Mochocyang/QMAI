@@ -36,15 +36,22 @@ import {
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "@/lib/novel/plot-framework-library"
 import type { PlotFramework } from "@/lib/novel/plot-framework"
 import type { BatchImportCandidate } from "@/lib/novel/book-analysis/batch-import-types"
-import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-types"
-import type { AnalysisChapterRange } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import {
+  analysisProgressKey,
+  type AnalysisChapterRange,
+  type AnalysisSkill,
+} from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { loadChapterList } from "@/lib/novel/book-analysis/analysis-engine"
 import { BookAnalysisRunDialog } from "./book-analysis-run-dialog"
 import { BookAnalysisCharacterSkillDialog } from "./book-analysis-character-skill-dialog"
+import { CharacterSelectionPanel } from "./character-selection-panel"
 import { OutlineCreatorDialog } from "./outline-editor"
 import { generateSkillsForCharacters } from "@/lib/novel/book-analysis/skill-generator"
 import { selectCharacterCandidates } from "@/lib/novel/book-analysis/character-candidate-selection"
 import { loadBookAnalysisResult } from "@/lib/novel/book-analysis/result-loader"
+import { readFile } from "@/commands/fs"
+import { joinPath } from "@/lib/path-utils"
+import { saveRecognizedCharacters } from "@/lib/novel/book-analysis/recognized-character-store"
 
 interface StoryFrameworkSelectionData {
   book: BookAnalysisLibraryBook
@@ -101,6 +108,11 @@ export function BookAnalysisView() {
   } | null>(null)
   const [characterSkillDialogOpen, setCharacterSkillDialogOpen] = useState(false)
   const [characterSkillGenerating, setCharacterSkillGenerating] = useState(false)
+  const [pipelineCharacterPicker, setPipelineCharacterPicker] = useState<{
+    taskId: string
+    selectedIds: string[]
+  } | null>(null)
+  const [pipelineCharacterConfirming, setPipelineCharacterConfirming] = useState(false)
 
   const currentProject = useWikiStore((s) => s.project)
   const storeSelectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
@@ -127,9 +139,14 @@ export function BookAnalysisView() {
   const setImportPanelCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
   const pipelineTasks = useBookAnalysisPipelineStore((s) => s.tasks)
   const pipelineChunks = useBookAnalysisPipelineStore((s) => s.chunks)
+  const pipelineProgresses = useBookAnalysisPipelineStore((s) => s.progresses)
   const initializePipelineProject = useBookAnalysisPipelineStore((s) => s.initializeProject)
   const createAwaitingRangeTask = useBookAnalysisPipelineStore((s) => s.createAwaitingRangeTask)
   const configureTaskRange = useBookAnalysisPipelineStore((s) => s.configureTaskRange)
+  const setTaskRecognizedCharacters = useBookAnalysisPipelineStore((s) => s.setTaskRecognizedCharacters)
+  const failPipelineTask = useBookAnalysisPipelineStore((s) => s.failTask)
+  const confirmCharacterSelection = useBookAnalysisPipelineStore((s) => s.confirmCharacterSelection)
+  const setRuntimeProgress = useBookAnalysisPipelineStore((s) => s.setRuntimeProgress)
   const startPipelineTask = useBookAnalysisPipelineStore((s) => s.startTask)
   const pausePipelineTask = useBookAnalysisPipelineStore((s) => s.pauseTask)
   const continuePipelineTask = useBookAnalysisPipelineStore((s) => s.continueTask)
@@ -583,6 +600,106 @@ export function BookAnalysisView() {
     })
   }, [selectedLibraryBook, selectedPipelineTask])
 
+  const openPipelineCharacterPicker = useCallback((taskId: string, characters: RecognizedCharacter[]) => {
+    const defaultIds = characters
+      .filter((character) => character.category === "主角" || character.category === "配角")
+      .map((character) => character.id)
+    setPipelineCharacterPicker({
+      taskId,
+      selectedIds: defaultIds.length > 0 ? defaultIds : characters.map((character) => character.id),
+    })
+  }, [])
+
+  const startPipelineWithErrorToast = useCallback((taskId: string) => {
+    void startPipelineTask(taskId).catch((error) => {
+      toast.error(`分析失败：${error instanceof Error ? error.message : String(error)}`)
+    })
+  }, [startPipelineTask])
+
+  const recognizeCharactersForPipelineTask = useCallback(async (
+    taskId: string,
+    bookPath: string,
+    range: AnalysisChapterRange,
+    chapters: Awaited<ReturnType<typeof loadChapterList>>,
+  ) => {
+    const progressKey = analysisProgressKey(taskId, "characters", "recognition")
+    const reportRecognition = (progress: { stageLabel: string; percentage: number; currentItem?: string }) => {
+      setRuntimeProgress(progressKey, progress)
+    }
+    toast.info("正在识别角色，完成后请勾选要深度分析的角色…")
+    reportRecognition({ stageLabel: "准备识别角色", percentage: 2 })
+    try {
+      if (!hasUsableLlm(llmConfig, providerConfigs)) {
+        throw new Error("未配置可用的模型，请先在设置中配置 LLM，再识别角色")
+      }
+      const selectedChapters = chapters
+        .filter((chapter) => chapter.order >= range.startOrder && chapter.order <= range.endOrder)
+        .sort((left, right) => left.order - right.order)
+      if (selectedChapters.length === 0) {
+        throw new Error("所选章节范围内没有可用章节")
+      }
+      const totalChapters = selectedChapters.length
+      const chapterContents: { index: number; content: string }[] = []
+      reportRecognition({
+        stageLabel: `读取章节中（0/${totalChapters}）`,
+        percentage: 5,
+        currentItem: `第 ${range.startOrder}～${range.endOrder} 章，共 ${totalChapters} 章`,
+      })
+      // 让出一帧，避免读章过快时 UI 直接跳到 AI 阶段、看不到 x/y
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      for (let i = 0; i < totalChapters; i++) {
+        const chapter = selectedChapters[i]
+        const chapterPath = joinPath(bookPath, "chapters", `${chapter.chapterId}.md`)
+        const raw = await readFile(chapterPath)
+        const body = raw.replace(/^---[\s\S]*?---\n/, "")
+        chapterContents.push({ index: i, content: body.slice(0, 4000) })
+        const readCount = i + 1
+        reportRecognition({
+          stageLabel: `读取章节中（${readCount}/${totalChapters}）`,
+          percentage: 5 + Math.floor((readCount / totalChapters) * 40),
+          currentItem: `第 ${chapter.order} 章 · ${chapter.title}`,
+        })
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+      reportRecognition({
+        stageLabel: `正在用 AI 识别角色（已读 ${totalChapters}/${totalChapters} 章）`,
+        percentage: 55,
+        currentItem: `第 ${range.startOrder}～${range.endOrder} 章，共 ${totalChapters} 章`,
+      })
+      const { llmRecognizeCharacters } = await import(
+        "@/lib/novel/book-analysis/character-llm-recognizer"
+      )
+      const recognized = await llmRecognizeCharacters({
+        chapters: chapterContents,
+        llmConfig,
+        sourceBook: bookPath,
+      })
+      if (recognized.length === 0) {
+        throw new Error("AI 没有识别出角色，请确认所选章节包含人物，或更换模型后重试")
+      }
+      reportRecognition({
+        stageLabel: `保存识别结果（已读 ${totalChapters}/${totalChapters} 章）`,
+        percentage: 90,
+        currentItem: `${recognized.length} 个角色`,
+      })
+      await saveRecognizedCharacters(bookPath, recognized)
+      await setTaskRecognizedCharacters(taskId, recognized)
+      reportRecognition({
+        stageLabel: `识别出 ${recognized.length} 个角色（已读 ${totalChapters}/${totalChapters} 章）`,
+        percentage: 100,
+      })
+      openPipelineCharacterPicker(taskId, recognized)
+      toast.success(`识别完成：共 ${recognized.length} 个角色，请选择后开始深度分析`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      notifiedPipelineTaskIdsRef.current.add(`${taskId}:failed`)
+      await failPipelineTask(taskId, message).catch(() => undefined)
+      toast.error(`角色识别失败：${message}`)
+    } finally {
+      setRuntimeProgress(progressKey, null)
+    }
+  }, [failPipelineTask, llmConfig, openPipelineCharacterPicker, providerConfigs, setRuntimeProgress, setTaskRecognizedCharacters])
+
   const runImportTaskAction = useCallback((action: () => Promise<void>, failureMessage: string) => {
     void action().catch((error) => {
       console.error(failureMessage, error)
@@ -660,6 +777,7 @@ export function BookAnalysisView() {
       }
       analysisTask={selectedPipelineTask}
       analysisChunks={pipelineChunks.filter((chunk) => chunk.taskId === selectedPipelineTask?.id)}
+      analysisProgresses={pipelineProgresses}
       onSelectBook={handleSelectBook}
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
@@ -672,8 +790,25 @@ export function BookAnalysisView() {
       onReextractCharacters={handleLibraryReextractCharacters}
       onReextractSkill={openPipelineDialog}
       onConfigureAnalysisTask={openExistingPipelineDialog}
-      onPauseAnalysisTask={selectedPipelineTask ? () => void pausePipelineTask(selectedPipelineTask.id) : undefined}
-      onContinueAnalysisTask={selectedPipelineTask ? () => void continuePipelineTask(selectedPipelineTask.id) : undefined}
+      onSelectAnalysisCharacters={
+        selectedPipelineTask?.status === "awaiting-character-selection"
+          && (selectedPipelineTask.recognizedCharacters?.length ?? 0) > 0
+          ? () => openPipelineCharacterPicker(
+              selectedPipelineTask.id,
+              selectedPipelineTask.recognizedCharacters ?? [],
+            )
+          : undefined
+      }
+      onPauseAnalysisTask={selectedPipelineTask ? () => {
+        void pausePipelineTask(selectedPipelineTask.id).catch((error) => {
+          toast.error(`暂停失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      } : undefined}
+      onContinueAnalysisTask={selectedPipelineTask ? () => {
+        void continuePipelineTask(selectedPipelineTask.id).catch((error) => {
+          toast.error(`继续失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      } : undefined}
       onRetryAnalysisTask={selectedPipelineTask ? () => {
         const skill = selectedPipelineTask.currentSkill
         const failedChunkId = skill ? selectedPipelineTask.modules[skill].failedChunkId : null
@@ -682,7 +817,16 @@ export function BookAnalysisView() {
           : continuePipelineTask(selectedPipelineTask.id)
         void retry.catch((error) => toast.error(`重试失败：${error instanceof Error ? error.message : String(error)}`))
       } : undefined}
-      onCancelAnalysisTask={selectedPipelineTask ? () => void cancelPipelineTask(selectedPipelineTask.id) : undefined}
+      onRetryAnalysisChunk={selectedPipelineTask ? (skill, chunkId) => {
+        void retryPipelineChunk(selectedPipelineTask.id, skill, chunkId).catch((error) => {
+          toast.error(`重试区块失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      } : undefined}
+      onCancelAnalysisTask={selectedPipelineTask ? () => {
+        void cancelPipelineTask(selectedPipelineTask.id).catch((error) => {
+          toast.error(`取消失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      } : undefined}
       onDeleteBook={(bookId) => handleLibraryDeleteBook(bookId, selectedBookId)}
     />
     {pipelineDialog && (
@@ -694,41 +838,20 @@ export function BookAnalysisView() {
         initialRange={pipelineDialog.initialRange}
         onOpenChange={(open) => !open && setPipelineDialog(null)}
         onSubmit={async ({ range, selectedSkills }) => {
-          await configureTaskRange(pipelineDialog.taskId, range, selectedSkills)
+          const taskId = pipelineDialog.taskId
+          const chapters = pipelineDialog.chapters
+          const bookPath = useBookAnalysisPipelineStore.getState().tasks.find((t) => t.id === taskId)?.bookPath
+          await configureTaskRange(taskId, range, selectedSkills)
           setPipelineDialog(null)
-          void startPipelineTask(pipelineDialog.taskId).then(async () => {
-            await reloadLibraryState()
-            const completedTask = useBookAnalysisPipelineStore.getState().tasks.find(t => t.id === pipelineDialog.taskId)
-            if (completedTask?.status === "completed") {
-              if (selectedSkills.includes("characters")) {
-                toast.success("角色信息已提取完成，可选择角色生成 Skill。", {
-                  persistent: true,
-                  action: { label: "打开角色信息", onClick: handleOpenCharacterSkillSelection },
-                })
-              } else {
-                toast.success("拆书任务已完成，结果已更新。", {
-                  persistent: true,
-                  action: {
-                    label: "查看结果",
-                    onClick: async () => {
-                      if (completedTask) {
-                        const loadedResult = await loadBookAnalysisResult(completedTask.projectPath, completedTask.bookId)
-                        if (loadedResult) {
-                          useBookAnalysisStore.getState().setCurrentResult(loadedResult)
-                        }
-                        setViewingResultPath(completedTask.projectPath)
-                      }
-                      setShowResultViewer(true)
-                    },
-                  },
-                })
-              }
-            } else if (completedTask?.status === "failed") {
-              toast.error(`分析失败：${completedTask.error || "未知错误"}`)
+          if (selectedSkills.includes("characters")) {
+            if (!bookPath) {
+              toast.error("未找到分析任务作品路径")
+              return
             }
-          }).catch((error) => {
-            toast.error(`分析失败：${error instanceof Error ? error.message : String(error)}`)
-          })
+            await recognizeCharactersForPipelineTask(taskId, bookPath, range, chapters)
+            return
+          }
+          startPipelineWithErrorToast(taskId)
         }}
       />
     )}
@@ -741,6 +864,61 @@ export function BookAnalysisView() {
         onSubmit={handleGenerateSelectedCharacterSkills}
       />
     )}
+    {(() => {
+      const pickerTask = pipelineCharacterPicker
+        ? pipelineTasks.find((task) => task.id === pipelineCharacterPicker.taskId)
+        : null
+      const pickerCharacters = pickerTask?.recognizedCharacters ?? []
+      if (!pipelineCharacterPicker || pickerCharacters.length === 0) return null
+      return (
+        <CharacterSelectionPanel
+          characters={pickerCharacters}
+          selectedIds={pipelineCharacterPicker.selectedIds}
+          onToggle={(id) => {
+            setPipelineCharacterPicker((current) => {
+              if (!current) return current
+              const selected = current.selectedIds.includes(id)
+                ? current.selectedIds.filter((item) => item !== id)
+                : [...current.selectedIds, id]
+              return { ...current, selectedIds: selected }
+            })
+          }}
+          onSelectAllMain={() => {
+            setPipelineCharacterPicker((current) => {
+              if (!current) return current
+              return {
+                ...current,
+                selectedIds: pickerCharacters
+                  .filter((character) => character.category === "主角" || character.category === "配角")
+                  .map((character) => character.id),
+              }
+            })
+          }}
+          onClear={() => {
+            setPipelineCharacterPicker((current) => current ? { ...current, selectedIds: [] } : current)
+          }}
+          onCancel={() => setPipelineCharacterPicker(null)}
+          onClose={() => setPipelineCharacterPicker(null)}
+          confirming={pipelineCharacterConfirming}
+          onConfirm={() => {
+            const taskId = pipelineCharacterPicker.taskId
+            const selectedIds = pipelineCharacterPicker.selectedIds
+            setPipelineCharacterConfirming(true)
+            void confirmCharacterSelection(taskId, selectedIds)
+              .then(() => {
+                setPipelineCharacterPicker(null)
+                startPipelineWithErrorToast(taskId)
+              })
+              .catch((error) => {
+                toast.error(`启动深度分析失败：${error instanceof Error ? error.message : String(error)}`)
+              })
+              .finally(() => {
+                setPipelineCharacterConfirming(false)
+              })
+          }}
+        />
+      )
+    })()}
     </>
   )
 

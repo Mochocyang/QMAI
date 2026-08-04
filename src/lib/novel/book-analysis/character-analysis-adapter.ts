@@ -205,7 +205,7 @@ export function createCharacterAnalysisAdapter(
   const dependencies = { ...defaultDependencies, ...overrides }
   return {
     skill: "characters",
-    async runChunk({ task, bookPath, llmConfig, chunk, signal }) {
+    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress }) {
       const extracted = await dependencies.extractCharacters({
         bookPath,
         selectedChapterIds: chunk.chapterIds,
@@ -213,8 +213,19 @@ export function createCharacterAnalysisAdapter(
         depth: "fast",
         persistResults: false,
         signal,
+        ...(task.targetCharacters && task.targetCharacters.length > 0
+          ? { targetCharacters: task.targetCharacters }
+          : {}),
+        onProgress: (progress) => {
+          onProgress?.({
+            stageLabel: progress.stageLabel,
+            percentage: progress.percentage,
+            currentItem: progress.currentItem ?? progress.currentCharacter,
+          })
+        },
       })
       if (!extracted.success) throw new Error("角色区块分析失败")
+      onProgress?.({ stageLabel: "角色区块分析完成", percentage: 100 })
       return {
         result: { characters: extracted.characters },
         evidence: characterEvidence(
@@ -228,15 +239,18 @@ export function createCharacterAnalysisAdapter(
         ),
       }
     },
-    async aggregate({ chunks }) {
+    async aggregate({ chunks, onProgress }) {
+      onProgress?.({ stageLabel: "正在合并角色候选…", percentage: 93 })
       const merged = mergeCharacterChunkResults(chunks.map((chunk) => chunk.characters))
       const candidates = selectCharacterCandidates(merged)
       if (candidates.length === 0) {
         throw new Error("所选章节未识别到可提取角色，请确认章节正文包含有姓名的重要角色")
       }
+      onProgress?.({ stageLabel: `已选出 ${candidates.length} 个候选角色`, percentage: 95 })
       return candidates
     },
-    async publish({ task, bookPath, projectPath, result, evidence }) {
+    async publish({ task, bookPath, projectPath, result, evidence, onProgress }) {
+      onProgress?.({ stageLabel: "正在保存角色结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布角色分析")
       for (const character of result) await dependencies.persistCharacter(bookPath, character)
@@ -263,6 +277,7 @@ export function createCharacterAnalysisAdapter(
       }
       await dependencies.saveManifest(bookPath, manifest)
       await dependencies.rebuildContextIndex(projectPath)
+      onProgress?.({ stageLabel: "角色结果已发布", percentage: 100 })
       return resultPath
     },
   }

@@ -144,4 +144,57 @@ describe("character analysis adapter", () => {
       signal: new AbortController().signal,
     })).rejects.toThrow("未识别到可提取角色")
   })
+
+  it("runChunk 把 task.targetCharacters 传给 extractCharacters", async () => {
+    const extractCharacters = vi.fn(async () => ({
+      success: true,
+      characters: [character({})],
+      warnings: [],
+    }))
+    const adapter = createCharacterAnalysisAdapter({ extractCharacters })
+    const inputTask = {
+      ...task(),
+      targetCharacters: [{
+        id: "char-1",
+        name: "林远",
+        aliases: [],
+        appearances: 3,
+        chapterIndices: [0, 1],
+        importanceScore: 90,
+        category: "主角" as const,
+        sourceBook: "book-1",
+      }],
+    }
+
+    await adapter.runChunk({
+      task: inputTask,
+      skill: "characters",
+      bookPath: inputTask.bookPath,
+      projectPath: inputTask.projectPath,
+      llmConfig: {} as LlmConfig,
+      chunk: {
+        version: 1,
+        id: "chunk-0001-0010",
+        taskId: inputTask.id,
+        skill: "characters",
+        chapterIds: ["ch-0001"],
+        startOrder: 1,
+        endOrder: 10,
+        wordCount: 1000,
+        status: "running",
+        attempts: 1,
+        resultPath: null,
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        updatedAt: 1,
+      },
+      signal: new AbortController().signal,
+    })
+
+    expect(extractCharacters).toHaveBeenCalledWith(expect.objectContaining({
+      targetCharacters: inputTask.targetCharacters,
+      selectedChapterIds: ["ch-0001"],
+    }))
+  })
 })

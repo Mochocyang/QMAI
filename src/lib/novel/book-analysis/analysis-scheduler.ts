@@ -7,10 +7,12 @@ import {
 } from "./analysis-pipeline-storage"
 import {
   ANALYSIS_SKILL_ORDER,
+  analysisProgressKey,
   normalizeSelectedSkills,
   type AnalysisChunkRecord,
   type AnalysisEvidenceSnippet,
   type AnalysisModuleState,
+  type AnalysisRuntimeProgress,
   type AnalysisSkill,
   type BookAnalysisPipelineTask,
 } from "./analysis-pipeline-types"
@@ -23,6 +25,7 @@ import type {
 export interface AnalysisSchedulerSnapshot {
   tasks: BookAnalysisPipelineTask[]
   chunks: AnalysisChunkRecord[]
+  progresses: Record<string, AnalysisRuntimeProgress>
 }
 
 export interface AnalysisScheduler {
@@ -58,6 +61,16 @@ function copyTask(task: BookAnalysisPipelineTask): BookAnalysisPipelineTask {
     ...task,
     selectedSkills: [...task.selectedSkills],
     range: task.range ? { ...task.range } : null,
+    recognizedCharacters: task.recognizedCharacters?.map((character) => ({
+      ...character,
+      aliases: [...character.aliases],
+      chapterIndices: [...character.chapterIndices],
+    })),
+    targetCharacters: task.targetCharacters?.map((character) => ({
+      ...character,
+      aliases: [...character.aliases],
+      chapterIndices: [...character.chapterIndices],
+    })),
     modules: Object.fromEntries(ANALYSIS_SKILL_ORDER.map((skill) => [skill, {
       ...task.modules[skill],
       range: { ...task.modules[skill].range },
@@ -71,6 +84,14 @@ function copyChunk(chunk: AnalysisChunkRecord): AnalysisChunkRecord {
   return { ...chunk, chapterIds: [...chunk.chapterIds] }
 }
 
+function clampProgress(progress: AnalysisRuntimeProgress): AnalysisRuntimeProgress {
+  return {
+    stageLabel: progress.stageLabel,
+    percentage: Math.max(0, Math.min(100, Math.round(progress.percentage))),
+    ...(progress.currentItem ? { currentItem: progress.currentItem } : {}),
+  }
+}
+
 export function createAnalysisScheduler(options: AnalysisSchedulerOptions): AnalysisScheduler {
   const concurrency = Math.max(1, Math.min(2, Math.floor(options.concurrency ?? 2)))
   const persistTask = options.saveTask ?? saveAnalysisTask
@@ -80,6 +101,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
   const now = options.now ?? Date.now
   const tasks = new Map<string, BookAnalysisPipelineTask>()
   const chunks = new Map<string, AnalysisChunkRecord>()
+  const progresses = new Map<string, AnalysisRuntimeProgress>()
   const taskRuns = new Map<string, Promise<void>>()
   const chunkRuns = new Map<string, Promise<void>>()
   const controllers = new Map<string, AbortController>()
@@ -94,6 +116,9 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     return {
       tasks: [...tasks.values()].map(copyTask),
       chunks: [...chunks.values()].map(copyChunk),
+      progresses: Object.fromEntries(
+        [...progresses.entries()].map(([key, progress]) => [key, { ...progress }]),
+      ),
     }
   }
 
@@ -101,6 +126,37 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     if (disposed) return
     const value = snapshot()
     for (const listener of listeners) listener(value)
+  }
+
+  function reportProgress(key: string, progress: AnalysisRuntimeProgress): void {
+    const next = clampProgress(progress)
+    const prev = progresses.get(key)
+    if (
+      prev
+      && prev.stageLabel === next.stageLabel
+      && prev.currentItem === next.currentItem
+      && Math.abs(prev.percentage - next.percentage) < 1
+    ) {
+      return
+    }
+    progresses.set(key, next)
+    notify()
+  }
+
+  function clearProgress(key: string): void {
+    if (!progresses.delete(key)) return
+    notify()
+  }
+
+  function clearProgressesForTask(taskId: string): void {
+    let changed = false
+    for (const key of [...progresses.keys()]) {
+      if (key.startsWith(`${taskId}:`)) {
+        progresses.delete(key)
+        changed = true
+      }
+    }
+    if (changed) notify()
   }
 
   function resolveLlmConfig(): LlmConfig {
@@ -161,6 +217,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
         updatedAt: startedAt,
       }
       chunks.set(key, running)
+      reportProgress(key, { stageLabel: "准备分析区块…", percentage: 1 })
       await persistChunk(task.bookPath, running)
       notify()
 
@@ -169,10 +226,12 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
           ...contextFor(task, skill),
           chunk: copyChunk(running),
           signal: controller.signal,
+          onProgress: (progress) => reportProgress(key, progress),
         })
         if (controller.signal.aborted) throw new Error("分析任务已取消")
         const completed = await persistCompletedChunk(task.bookPath, running, output)
         chunks.set(key, completed)
+        clearProgress(key)
         notify()
       } catch (error) {
         const failedAt = now()
@@ -185,6 +244,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
           updatedAt: failedAt,
         }
         chunks.set(key, failed)
+        clearProgress(key)
         await persistChunk(task.bookPath, failed)
         notify()
         throw error
@@ -205,6 +265,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
 
   async function markTaskStopped(task: BookAnalysisPipelineTask, status: "paused" | "cancelled"): Promise<void> {
     const stoppedAt = now()
+    clearProgressesForTask(task.id)
     await updateTask({
       ...task,
       status,
@@ -266,19 +327,24 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
             await markTaskStopped(tasks.get(taskId) ?? task, "paused")
             return
           }
+          const expectedIds = new Set(task.modules[skill].chunkIds)
+          // 只调度 pending；failed 需 continue/retry 显式重置后再跑，避免同轮无限重试
           const pending = chunksFor(taskId, skill)
-            .filter((chunk) => chunk.status === "pending" || chunk.status === "failed")
+            .filter((chunk) => expectedIds.has(chunk.id) && chunk.status === "pending")
             .slice(0, concurrency)
           if (pending.length === 0) break
-          const settled = await Promise.allSettled(pending.map((chunk) => runChunk(task!, skill, chunk)))
-          const rejected = settled.find((result): result is PromiseRejectedResult => result.status === "rejected")
-          if (rejected) throw rejected.reason
+          await Promise.allSettled(pending.map((chunk) => runChunk(task!, skill, chunk)))
         }
 
-        const completedChunks = chunksFor(taskId, skill).filter((chunk) => chunk.status === "completed")
         const expectedIds = new Set(task.modules[skill].chunkIds)
-        if (completedChunks.length !== expectedIds.size || completedChunks.some((chunk) => !expectedIds.has(chunk.id))) {
-          throw new Error("章节区块尚未全部完成，无法汇总")
+        const completedChunks = chunksFor(taskId, skill).filter(
+          (chunk) => expectedIds.has(chunk.id) && chunk.status === "completed",
+        )
+        const failedChunks = chunksFor(taskId, skill).filter(
+          (chunk) => expectedIds.has(chunk.id) && (chunk.status === "failed" || chunk.status === "cancelled"),
+        )
+        if (completedChunks.length === 0) {
+          throw new Error(failedChunks[0]?.error || "章节区块尚未全部完成，无法汇总")
         }
 
         const outputs: AnalysisChunkOutput[] = []
@@ -288,22 +354,26 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
           outputs.push(output)
         }
         const aggregateController = new AbortController()
-        const aggregateKey = `${taskId}:${skill}:aggregate`
+        const aggregateKey = analysisProgressKey(taskId, skill, "aggregate")
         controllers.set(aggregateKey, aggregateController)
+        reportProgress(aggregateKey, { stageLabel: "正在汇总…", percentage: 92 })
         let result: unknown
         try {
           result = await options.adapters[skill].aggregate({
             ...contextFor(task, skill),
             chunks: outputs.map((output) => output.result),
             signal: aggregateController.signal,
+            onProgress: (progress) => reportProgress(aggregateKey, progress),
           })
         } finally {
           controllers.delete(aggregateKey)
+          clearProgress(aggregateKey)
         }
         const evidence: AnalysisEvidenceSnippet[] = outputs.flatMap((output) => output.evidence)
         const publishController = new AbortController()
-        const publishKey = `${taskId}:${skill}:publish`
+        const publishKey = analysisProgressKey(taskId, skill, "publish")
         controllers.set(publishKey, publishController)
+        reportProgress(publishKey, { stageLabel: "正在发布结果…", percentage: 96 })
         let resultPath: string
         try {
           resultPath = await options.adapters[skill].publish({
@@ -311,13 +381,18 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
             result,
             evidence,
             signal: publishController.signal,
+            onProgress: (progress) => reportProgress(publishKey, progress),
           })
         } finally {
           controllers.delete(publishKey)
+          clearProgress(publishKey)
         }
 
         task = tasks.get(taskId) ?? task
         const completedAt = now()
+        const partialSummary = failedChunks.length > 0
+          ? `已用 ${completedChunks.length}/${expectedIds.size} 个成功区块完成汇总；${failedChunks.length} 个区块失败已跳过`
+          : undefined
         task = {
           ...task,
           modules: {
@@ -326,8 +401,9 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
               ...task.modules[skill],
               status: "completed",
               completedChunkIds: completedChunks.map((chunk) => chunk.id),
-              failedChunkId: null,
+              failedChunkId: failedChunks[0]?.id ?? null,
               resultPath,
+              summary: partialSummary ?? task.modules[skill].summary,
               updatedAt: completedAt,
             },
           },
@@ -337,6 +413,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
       }
 
       const completedAt = now()
+      clearProgressesForTask(taskId)
       await updateTask({
         ...(tasks.get(taskId) ?? task),
         status: "completed",
@@ -357,6 +434,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
       }
       const failedSkill = task.currentSkill
       const failedAt = now()
+      clearProgressesForTask(taskId)
       await updateTask({
         ...task,
         status: "failed",
@@ -392,12 +470,17 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     initialize(nextTasks, nextChunks) {
       tasks.clear()
       chunks.clear()
+      progresses.clear()
       for (const task of nextTasks) tasks.set(task.id, copyTask(task))
       for (const chunk of nextChunks) chunks.set(chunkKey(chunk), copyChunk(chunk))
       notify()
     },
     async enqueue(task, nextChunks) {
       tasks.set(task.id, copyTask(task))
+      const nextKeys = new Set(nextChunks.map((chunk) => chunkKey(chunk)))
+      for (const [key, chunk] of chunks) {
+        if (chunk.taskId === task.id && !nextKeys.has(key)) chunks.delete(key)
+      }
       for (const chunk of nextChunks) chunks.set(chunkKey(chunk), copyChunk(chunk))
       notify()
       await runTask(task.id)
@@ -415,6 +498,41 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
       if (!task || task.status === "completed") return
       pauseRequested.delete(taskId)
       cancelRequested.delete(taskId)
+      // 断点继续：把失败/取消区块重置为 pending，并恢复失败 Skill
+      for (const chunk of [...chunks.values()].filter((item) => item.taskId === taskId)) {
+        if (chunk.status !== "failed" && chunk.status !== "cancelled") continue
+        const reset = {
+          ...chunk,
+          status: "pending" as const,
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          updatedAt: now(),
+        }
+        chunks.set(chunkKey(chunk), reset)
+        await persistChunk(task.bookPath, reset)
+      }
+      if (task.status === "failed") {
+        const failedSkill = task.currentSkill
+          ?? ANALYSIS_SKILL_ORDER.find((skill) => task.modules[skill].status === "failed")
+          ?? null
+        await updateTask({
+          ...task,
+          status: "queued",
+          error: null,
+          modules: failedSkill ? {
+            ...task.modules,
+            [failedSkill]: {
+              ...task.modules[failedSkill],
+              status: "pending",
+              failedChunkId: null,
+              updatedAt: now(),
+            },
+          } : task.modules,
+          updatedAt: now(),
+        })
+      }
+      notify()
       await runTask(taskId)
     },
     async retryFailedChunk(taskId, skill, chunkId) {
@@ -454,6 +572,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
       disposed = true
       for (const controller of controllers.values()) controller.abort()
       await Promise.allSettled([...taskRuns.values()])
+      progresses.clear()
       listeners.clear()
       permitWaiters.splice(0).forEach((resolve) => resolve())
     },

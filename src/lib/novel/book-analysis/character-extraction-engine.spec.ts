@@ -160,19 +160,74 @@ describe("extractCharactersFromChapters 角色识别失败处理", () => {
     expect(result.characters.map((item) => item.name)).toEqual(["林烬"])
   })
 
-  it("角色识别请求失败时向上返回明确错误", async () => {
+  it("角色识别请求失败时跳过该章并仍返回成功（空结果）", async () => {
     vi.mocked(readFile).mockResolvedValue("---\ntitle: 第一章\norder: 1\n---\n林烬推门而入。")
     streamChatMock.mockImplementationOnce(async (_cfg, _messages, handlers: any) => {
       handlers.onError(new Error("模型连接失败"))
     })
 
-    await expect(extractCharactersFromChapters({
+    const result = await extractCharactersFromChapters({
       bookPath: "E:/Novel/book-analysis/book-1",
       selectedChapterIds: ["chapter-1"],
       llmConfig: fakeLlmConfig,
       depth: "fast",
       persistResults: false,
-    })).rejects.toThrow("角色识别失败")
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.characters).toEqual([])
+    expect(result.warnings?.some((item) => item.includes("角色识别失败"))).toBe(true)
+  })
+
+  it("单个角色详情失败时跳过该角色并保留其他成功结果", async () => {
+    vi.mocked(readFile).mockResolvedValue("---\ntitle: 第一章\norder: 1\n---\n林烬与顾司玥同行。")
+    streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
+      const prompt = messages[0]?.content ?? ""
+      if (prompt.includes('角色"顾司玥"')) {
+        handlers.onError(new Error("JSON Parse error: Unterminated string"))
+        return
+      }
+      handlers.onToken(JSON.stringify({
+        name: "林烬",
+        category: "protagonist",
+        personality: "冷静",
+      }))
+      handlers.onDone()
+    })
+
+    const result = await extractCharactersFromChapters({
+      bookPath: "E:/Novel/book-analysis/book-1",
+      selectedChapterIds: ["chapter-1"],
+      llmConfig: fakeLlmConfig,
+      depth: "fast",
+      persistResults: false,
+      targetCharacters: [
+        {
+          id: "char-linjing",
+          name: "林烬",
+          aliases: [],
+          appearances: 1,
+          chapterIndices: [0],
+          importanceScore: 90,
+          category: "主角",
+          sourceBook: "book-1",
+        },
+        {
+          id: "char-guyue",
+          name: "顾司玥",
+          aliases: [],
+          appearances: 1,
+          chapterIndices: [0],
+          importanceScore: 80,
+          category: "主角",
+          sourceBook: "book-1",
+        },
+      ],
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.characters.map((item) => item.name)).toEqual(["林烬"])
+    expect(result.warnings?.some((item) => item.includes("顾司玥"))).toBe(true)
   })
 })
 

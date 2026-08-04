@@ -2,7 +2,12 @@ import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryState } from "@/lib/novel/book-analysis/library-state"
 import type { PlotFramework } from "@/lib/novel/plot-framework"
-import type { AnalysisChunkRecord, AnalysisSkill, BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import type {
+  AnalysisChunkRecord,
+  AnalysisRuntimeProgress,
+  AnalysisSkill,
+  BookAnalysisPipelineTask,
+} from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 import { BookAnalysisModuleView } from "./book-analysis-module-view"
 
@@ -18,6 +23,7 @@ interface BookAnalysisLibraryLayoutProps {
   importTaskPanel?: ReactNode
   analysisTask?: BookAnalysisPipelineTask | null
   analysisChunks?: AnalysisChunkRecord[]
+  analysisProgresses?: Record<string, AnalysisRuntimeProgress>
   onSelectBook: (bookId: string) => void
   onSelectCharacter: (characterId: string) => void
   onImportNovel: () => void
@@ -30,9 +36,11 @@ interface BookAnalysisLibraryLayoutProps {
   onReextractCharacters: () => void
   onReextractSkill?: (skill: AnalysisSkill) => void
   onConfigureAnalysisTask?: () => void
+  onSelectAnalysisCharacters?: () => void
   onPauseAnalysisTask?: () => void
   onContinueAnalysisTask?: () => void
   onRetryAnalysisTask?: () => void
+  onRetryAnalysisChunk?: (skill: AnalysisSkill, chunkId: string) => void
   onCancelAnalysisTask?: () => void
   onDeleteBook: (bookId: string) => void
 }
@@ -46,6 +54,7 @@ export function BookAnalysisLibraryLayout({
   storyFrameworks = [],
   analysisTask,
   analysisChunks = [],
+  analysisProgresses = {},
   onSelectCharacter,
   onCreateOutlineFromFramework,
   onToggleStyle,
@@ -56,9 +65,11 @@ export function BookAnalysisLibraryLayout({
   onExtractStyle,
   onReextractSkill,
   onConfigureAnalysisTask,
+  onSelectAnalysisCharacters,
   onPauseAnalysisTask,
   onContinueAnalysisTask,
   onRetryAnalysisTask,
+  onRetryAnalysisChunk,
   onCancelAnalysisTask,
 }: BookAnalysisLibraryLayoutProps) {
   const selectedBook = state.books.find((book) => book.id === selectedBookId) ?? state.books[0] ?? null
@@ -107,6 +118,7 @@ export function BookAnalysisLibraryLayout({
         book={selectedBook}
         task={analysisTask}
         chunks={analysisChunks}
+        progresses={analysisProgresses}
         selectedCharacterId={selectedCharacterId}
         storyContent={storyContent}
         extractingStyle={extractingStyle}
@@ -122,9 +134,11 @@ export function BookAnalysisLibraryLayout({
           else onExtractStyle()
         }}
         onConfigureTask={onConfigureAnalysisTask}
+        onSelectCharacters={onSelectAnalysisCharacters}
         onPauseTask={onPauseAnalysisTask}
         onContinueTask={onContinueAnalysisTask}
         onRetryTask={onRetryAnalysisTask}
+        onRetryChunk={onRetryAnalysisChunk}
         onCancelTask={onCancelAnalysisTask}
         />
       </main>
