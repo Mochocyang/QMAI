@@ -7,6 +7,21 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "3.0.7",
+  date: "2026-08-04",
+  highlights: {
+    en: [
+      "[Chinese Chapter Number Routing Fix] Unified task router chapter number token parsing so Chinese number commands like '编写第五章' / '生成第五章' now hit write_chapter with the same high confidence as Arabic numerals. Also fixed continuation/rewrite/polish/review intents and hasExplicitLaterChapterNumber for Chinese chapter numbers. (Merged from PR #42, thanks @darknessomi)",
+      "[Dismantling Library Unstable] The dismantling library is currently unstable; usage is not recommended until stabilized.",
+    ],
+    zh: [
+      "【中文数字章号识别修复】统一任务路由章号 token，使「编写第五章」/「生成第五章」等中文数字指令与阿拉伯数字一样高置信命中写章任务。同步修复续写/改写/润色/审稿意图及 hasExplicitLaterChapterNumber 对中文章号的支持（合并自 PR #42，感谢 @darknessomi 贡献）",
+      "【拆书库不稳定】拆书库目前不稳定，建议暂不使用，待后续版本修复稳定后恢复",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_SIX_CHANGELOG: ChangelogEntry = {
   version: "3.0.6",
   date: "2026-08-03",
@@ -1020,6 +1035,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_SEVEN_CHANGELOG.version)
+    return [THREE_POINT_ZERO_SEVEN_CHANGELOG];
   if (version === THREE_POINT_ZERO_SIX_CHANGELOG.version)
     return [THREE_POINT_ZERO_SIX_CHANGELOG];
   if (version === THREE_POINT_ZERO_FIVE_CHANGELOG.version)
@@ -1103,6 +1120,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_SEVEN_CHANGELOG,
     THREE_POINT_ZERO_SIX_CHANGELOG,
     THREE_POINT_ZERO_FIVE_CHANGELOG,
     THREE_POINT_ZERO_FOUR_CHANGELOG,
