@@ -707,7 +707,7 @@
       "scheduledImport": "Scheduled Import",
       "output": "Output",
       "interface": "Interface",
-      "novel": "Novel",
+      "novel": "Writing Settings",
       "novelHint": "Model settings",
       "userMemory": "Global User Memory",
       "usageGuide": "Usage Guide",
@@ -1072,8 +1072,8 @@
         }
       },
       "novel": {
-        "title": "Novel",
-        "description": "Project-level novel writing mode and revision feedback settings.",
+        "title": "Writing Settings",
+        "description": "Project-level writing mode and revision feedback settings.",
         "feedbackWindow": {
           "title": "Revision feedback window",
           "lookbackChapterCount": "Lookback chapter count",

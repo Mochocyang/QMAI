@@ -206,12 +206,12 @@ export function NovelSection({ draft, setDraft }: Props) {
       <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">
-          {t("settings.sections.novel.title", { defaultValue: "小说设置" })}
+          {t("settings.sections.novel.title", { defaultValue: "写作设置" })}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.novel.description", {
             defaultValue:
-              "项目级写作模式和小说工作流修改反馈窗口控制。",
+              "项目级写作模式和修改反馈窗口设置。",
           })}
         </p>
       </div>

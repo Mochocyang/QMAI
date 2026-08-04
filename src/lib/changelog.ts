@@ -7,6 +7,19 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_NINE_CHANGELOG: ChangelogEntry = {
+  version: "3.0.9",
+  date: "2026-08-04",
+  highlights: {
+    en: [
+      "[Settings Panel Layout Adjustment] Renamed the 'Novel' category in Settings to 'Writing Settings', and moved it from below 'Interface' to below 'Vector Retrieval', placing writing-related settings closer to retrieval model configuration.",
+    ],
+    zh: [
+      "【设置面板布局调整】将设置面板中的「小说」类别更名为「写作设置」，并从「界面」下方调整到「向量检索」下方，使写作相关设置更靠近检索模型配置，符合使用逻辑",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "3.0.8",
   date: "2026-08-04",
@@ -1062,6 +1075,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_NINE_CHANGELOG.version)
+    return [THREE_POINT_ZERO_NINE_CHANGELOG];
   if (version === THREE_POINT_ZERO_EIGHT_CHANGELOG.version)
     return [THREE_POINT_ZERO_EIGHT_CHANGELOG];
   if (version === THREE_POINT_ZERO_SEVEN_CHANGELOG.version)
@@ -1149,6 +1164,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_NINE_CHANGELOG,
     THREE_POINT_ZERO_EIGHT_CHANGELOG,
     THREE_POINT_ZERO_SEVEN_CHANGELOG,
     THREE_POINT_ZERO_SIX_CHANGELOG,

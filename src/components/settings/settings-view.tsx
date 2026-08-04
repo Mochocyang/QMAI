@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bot,
   BookOpen,
@@ -82,11 +82,11 @@ const CATEGORIES: Category[] = [
   { id: "llm", labelKey: "settings.categories.llm", icon: Bot },
   { id: "rerank", labelKey: "settings.categories.rerank", icon: ListFilter },
   { id: "embedding", labelKey: "settings.categories.embedding", icon: Database },
+  { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "mcp", labelKey: "settings.categories.mcp", icon: Network },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
-  { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },

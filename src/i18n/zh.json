@@ -414,7 +414,7 @@
       "scheduledImport": "定时导入",
       "output": "输出偏好",
       "interface": "界面",
-      "novel": "小说",
+      "novel": "写作设置",
       "novelHint": "设置模型",
       "userMemory": "全局用户记忆",
       "usageGuide": "软件使用说明",
@@ -787,8 +787,8 @@
         "sidebarNavOrderHint": "图标顺序可在左侧功能栏中长按拖动调整。"
       },
       "novel": {
-        "title": "小说",
-        "description": "项目级小说写作模式和修改反馈窗口设置。",
+        "title": "写作设置",
+        "description": "项目级写作模式和修改反馈窗口设置。",
         "feedbackWindow": {
           "title": "修改反馈窗口",
           "lookbackChapterCount": "回溯章节数量",
