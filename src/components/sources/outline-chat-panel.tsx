@@ -102,8 +102,8 @@ import {
 import { classifyOutlineSaveTarget } from "@/lib/novel/outline-save-classifier";
 import {
   characterDraftsToSaveRequests,
-  extractBodyContent,
   formatOutlineSaveParseFeedback,
+  mergeOutlineSaveRequests,
   type OutlineSaveRequest,
   parseOutlineSaveRequests,
   saveOutlineSaveRequests,
@@ -1454,18 +1454,62 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       dedupeKey: `outline-operation:${message}`,
     });
   }, []);
-  const [saveConfirmState, setSaveConfirmState] = useState<{
+  type SaveConfirmBatch = {
     title: string;
     mode: "normal" | "character";
     requests: OutlineSaveRequest[];
     characterDrafts: CharacterSaveDraft[];
-  } | null>(null);
+  };
+  const [saveConfirmState, setSaveConfirmState] = useState<SaveConfirmBatch | null>(null);
+  const saveConfirmStateRef = useRef<SaveConfirmBatch | null>(null);
+  const pendingSaveBatchesRef = useRef<SaveConfirmBatch[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const lastScrollTopRef = useRef(0);
-  const pendingNormalSaveRequestsRef = useRef<OutlineSaveRequest[]>([]);
+
+  useEffect(() => {
+    saveConfirmStateRef.current = saveConfirmState;
+  }, [saveConfirmState]);
+
+  const presentOrQueueSaveBatch = useCallback((batch: SaveConfirmBatch) => {
+    const current = saveConfirmStateRef.current;
+    if (!current) {
+      saveConfirmStateRef.current = batch;
+      setSaveConfirmState(batch);
+      return;
+    }
+    // 同为 normal：合并进当前确认框，避免下一轮覆盖导致未确认文件丢失
+    if (current.mode === "normal" && batch.mode === "normal") {
+      const merged: SaveConfirmBatch = {
+        ...current,
+        title: current.title || batch.title,
+        requests: mergeOutlineSaveRequests(current.requests, batch.requests),
+      };
+      saveConfirmStateRef.current = merged;
+      setSaveConfirmState(merged);
+      return;
+    }
+    pendingSaveBatchesRef.current.push(batch);
+  }, []);
+
+  const drainNextSaveBatch = useCallback(() => {
+    const next = pendingSaveBatchesRef.current.shift() ?? null;
+    saveConfirmStateRef.current = next;
+    setSaveConfirmState(next);
+    if (!next) return;
+    setSaveStatus(
+      next.mode === "character"
+        ? "检测到人物小传，请确认要保存的人物角色。"
+        : "检测到可保存大纲，请确认后写入。",
+    );
+  }, [setSaveStatus]);
+
+  const handleCloseSaveConfirm = useCallback(() => {
+    // 丢弃当前 batch，继续展示队列中的下一批，避免关闭人物确认后 normal 成为孤儿
+    drainNextSaveBatch();
+  }, [drainNextSaveBatch]);
 
   // Auto-scroll
   useEffect(() => {
@@ -1549,18 +1593,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           await refreshProjectState(projectPath);
           const names = saveResult.saved.map((item) => item.fileName).join("、");
           setSaveStatus(`已保存 ${saveResult.saved.length} 个文件：${names}`);
-          setSaveConfirmState(null);
-          const pendingNormal = pendingNormalSaveRequestsRef.current;
-          if (pendingNormal.length > 0) {
-            pendingNormalSaveRequestsRef.current = [];
-            setSaveConfirmState({
-              title: "请确认要保存的大纲文件",
-              mode: "normal",
-              requests: pendingNormal,
-              characterDrafts: [],
-            });
-            setSaveStatus("检测到可保存大纲，请确认后写入。");
-          }
+          drainNextSaveBatch();
           return;
         }
         if (saveResult.skipped.length > 0) {
@@ -1574,7 +1607,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
       }
     },
-    [project],
+    [drainNextSaveBatch, project],
   );
 
   const handleAutoSaveOutlineRequests = useCallback(
@@ -1598,38 +1631,48 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           (request) => request.fileType !== "character",
         );
 
-        pendingNormalSaveRequestsRef.current = [];
-
         if (characterRequests.length > 0) {
           const characterContent = characterRequests
             .map((request) => request.content)
             .join("\n\n");
           const extracted = extractCharacterSaveDrafts(characterContent);
-          if (extracted.drafts.length > 0) {
-            setSaveConfirmState({
-              title: "请确认要保存的人物角色",
-              mode: "character",
-              requests: [],
-              characterDrafts: extracted.drafts,
-            });
-            setSaveStatus("检测到人物小传，请确认要保存的人物角色。");
+          const characterDrafts = extracted.drafts.length > 0
+            ? extracted.drafts
+            : buildFallbackCharacterDraftsFromRequests(characterRequests);
+          const characterBatch: SaveConfirmBatch = {
+            title: "请确认要保存的人物角色",
+            mode: "character",
+            requests: [],
+            characterDrafts,
+          };
+          const normalBatch: SaveConfirmBatch | null = normalRequests.length > 0
+            ? {
+                title: "请确认要保存的大纲文件",
+                mode: "normal",
+                requests: normalRequests,
+                characterDrafts: [],
+              }
+            : null;
+
+          // 若当前已有未确认的 normal dialog：先合并同轮 normal，再把人物入队
+          // 否则：先展示/入队人物，同轮 normal 跟在人物之后
+          if (normalBatch && saveConfirmStateRef.current?.mode === "normal") {
+            presentOrQueueSaveBatch(normalBatch);
+            presentOrQueueSaveBatch(characterBatch);
+            setSaveStatus("检测到可保存大纲，请确认后写入。");
           } else {
-            const fallbackDrafts = buildFallbackCharacterDraftsFromRequests(characterRequests);
-            setSaveConfirmState({
-              title: "请确认要保存的人物角色",
-              mode: "character",
-              requests: [],
-              characterDrafts: fallbackDrafts,
-            });
+            presentOrQueueSaveBatch(characterBatch);
+            if (normalBatch) {
+              pendingSaveBatchesRef.current.push(normalBatch);
+            }
             setSaveStatus(
-              `无法自动拆分角色，请在保存前检查文件名和内容。${extracted.errors.join("；")}`,
+              extracted.drafts.length > 0
+                ? "检测到人物小传，请确认要保存的人物角色。"
+                : `无法自动拆分角色，请在保存前检查文件名和内容。${extracted.errors.join("；")}`,
             );
           }
-          if (normalRequests.length > 0) {
-            pendingNormalSaveRequestsRef.current = normalRequests;
-          }
         } else if (normalRequests.length > 0) {
-          setSaveConfirmState({
+          presentOrQueueSaveBatch({
             title: "请确认要保存的大纲文件",
             mode: "normal",
             requests: normalRequests,
@@ -1648,7 +1691,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
       }
     },
-    [project],
+    [presentOrQueueSaveBatch, project],
   );
 
   const handleSend = useCallback(
@@ -3536,7 +3579,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               selected: true,
               confidence: "high",
             }));
-            setSaveConfirmState({
+            presentOrQueueSaveBatch({
               title: "请确认要保存的人物角色",
               mode: "character",
               requests: [],
@@ -3550,7 +3593,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             setSaveStatus(extracted.errors.join("；"));
             return;
           }
-          setSaveConfirmState({
+          presentOrQueueSaveBatch({
             title: "请确认要保存的人物角色",
             mode: "character",
             requests: [],
@@ -3564,7 +3607,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const mdContent = body
           ? `# ${titleHeading}\n\n${body}`
           : draft.content.trim();
-        setSaveConfirmState({
+        presentOrQueueSaveBatch({
           title: "保存大纲文件",
           mode: "normal",
           characterDrafts: [],
@@ -3584,7 +3627,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
       }
     },
-    [activeConversationId, project],
+    [activeConversationId, presentOrQueueSaveBatch, project],
   );
 
   const handleConfirmToolSave = useCallback(
@@ -4036,7 +4079,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             mode={saveConfirmState.mode}
             requests={saveConfirmState.requests}
             characterDrafts={saveConfirmState.characterDrafts}
-            onClose={() => setSaveConfirmState(null)}
+            onClose={handleCloseSaveConfirm}
             onConfirm={executeConfirmedOutlineSave}
           />
         ) : null}

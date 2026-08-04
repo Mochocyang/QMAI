@@ -371,6 +371,33 @@ export function splitConfirmRequiredSaveRequests(requests: OutlineSaveRequest[])
   }
 }
 
+/** 按 targetFolder+fileName 去重合并；同名时以 incoming 覆盖。保留 existing 顺序，新增项追加在末尾。 */
+export function mergeOutlineSaveRequests(
+  existing: OutlineSaveRequest[],
+  incoming: OutlineSaveRequest[],
+): OutlineSaveRequest[] {
+  const keyOf = (request: OutlineSaveRequest) => `${request.targetFolder}\0${request.fileName}`
+  const byKey = new Map<string, OutlineSaveRequest>()
+  for (const request of existing) byKey.set(keyOf(request), request)
+  for (const request of incoming) byKey.set(keyOf(request), request)
+
+  const merged: OutlineSaveRequest[] = []
+  const seen = new Set<string>()
+  for (const request of existing) {
+    const key = keyOf(request)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(byKey.get(key)!)
+  }
+  for (const request of incoming) {
+    const key = keyOf(request)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(byKey.get(key)!)
+  }
+  return merged
+}
+
 function buildSaveContent(request: OutlineSaveRequest): string {
   return stripOutlineFrontmatter(request.content)
 }
