@@ -50,4 +50,21 @@ describe("routeTask chapter generation", () => {
     expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(5)
   })
+
+  it("routes Chinese-numeral chapter write requests with high confidence", () => {
+    for (const text of ["编写第五章", "写第五章", "生成第五章", "编写第 5 章"]) {
+      const route = routeTask(text)
+
+      expect(route.intent).toBe("write_chapter")
+      expect(route.chapterNumber).toBe(5)
+      expect(route.confidence).toBeGreaterThanOrEqual(0.5)
+    }
+  })
+
+  it("keeps Chinese later chapter numbers even when the prompt mentions 开篇 hooks", () => {
+    const route = routeTask("写第五章，开篇要有钩子")
+
+    expect(route.intent).toBe("write_chapter")
+    expect(route.chapterNumber).toBe(5)
+  })
 })

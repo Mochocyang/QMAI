@@ -48,15 +48,19 @@ interface IntentPattern {
   weight: number
 }
 
+/** 章号：阿拉伯数字或中文数字（与 parseChineseChapterNumber 字符集对齐） */
+const CHAPTER_NUM_TOKEN = String.raw`(?:\d+|[一二三四五六七八九十百〇零两]+)`
+const CHAPTER_REF = String.raw`第\s*${CHAPTER_NUM_TOKEN}\s*章`
+
 const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "write_chapter",
     patterns: [
-      /^(写|生成|创作|撰写)\s*(第\s*\d+\s*章|新章节|下一章)/,
-      /^(开始|帮我)(写|创作|生成)\s*(第\s*\d+\s*章|章节)/,
-      /生成\s*(第\s*\d+\s*章|新的?一?章)/,
-      /写\s*第\s*\d+\s*章/,
-      /(根据|按照).*(第\s*[\d一二三四五六七八九十百〇零两]+\s*章).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)?/,
+      new RegExp(String.raw`^(写|生成|创作|撰写)\s*(${CHAPTER_REF}|新章节|下一章)`),
+      new RegExp(String.raw`^(开始|帮我)(写|创作|生成)\s*(${CHAPTER_REF}|章节)`),
+      new RegExp(String.raw`生成\s*(${CHAPTER_REF}|新的?一?章)`),
+      new RegExp(String.raw`写\s*${CHAPTER_REF}`),
+      new RegExp(String.raw`(根据|按照).*(${CHAPTER_REF}).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)?`),
       /(根据|按照).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)/,
     ],
     keywords: ["写章节", "生成章节", "创作章节", "新章节", "写第", "章纲生成正文"],
@@ -66,8 +70,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
     intent: "continue_chapter",
     patterns: [
       /^(继续|续写|接着写|往下写)/,
-      /(继续|续)(写|创作)\s*(第\s*\d+\s*章|当前|这一?章|下去)/,
-      /继续\s*(生成|写|创作|撰写)\s*(第\s*[\d一二三四五六七八九十百〇零两]+\s*章|下一章|当前|这一?章|正文|章节)?/,
+      new RegExp(String.raw`(继续|续)(写|创作)\s*(${CHAPTER_REF}|当前|这一?章|下去)`),
+      new RegExp(String.raw`继续\s*(生成|写|创作|撰写)\s*(${CHAPTER_REF}|下一章|当前|这一?章|正文|章节)?`),
       /接着(写|往下)/,
     ],
     keywords: ["续写", "继续写", "继续生成", "接着写", "往下写", "继续创作"],
@@ -76,8 +80,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "rewrite_chapter",
     patterns: [
-      /^(改写|重写|重新写)\s*(第\s*\d+\s*章|这一段|这段|这一?章)/,
-      /(改写|重写|重新)(写|创作)\s*(第\s*\d+\s*章|这)/,
+      new RegExp(String.raw`^(改写|重写|重新写)\s*(${CHAPTER_REF}|这一段|这段|这一?章)`),
+      new RegExp(String.raw`(改写|重写|重新)(写|创作)\s*(${CHAPTER_REF}|这)`),
       /把.+(改|重写|换一种写法)/,
     ],
     keywords: ["改写", "重写", "重新写", "换一种写法"],
@@ -87,7 +91,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
     intent: "polish_chapter",
     patterns: [
       /^(润色|优化|美化|修饰|精修)/,
-      /(润色|优化|精修)\s*(一下|这段|这一?章|第\s*\d+\s*章)/,
+      new RegExp(String.raw`(润色|优化|精修)\s*(一下|这段|这一?章|${CHAPTER_REF})`),
       /让.+(更|节奏更紧|文笔更好|更流畅)/,
       /帮我.+(润色|优化)/,
     ],
@@ -97,7 +101,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "review_chapter",
     patterns: [
-      /^(审稿|审阅|检查|审核)\s*(第\s*\d+\s*章|这一?章|当前)/,
+      new RegExp(String.raw`^(审稿|审阅|检查|审核)\s*(${CHAPTER_REF}|这一?章|当前)`),
       /(帮我|请)(审稿|审阅|检查)/,
       /有没有.*(人设崩坏|矛盾|问题|错误)/,
       /检查.*(人设|时间线|伏笔|连贯)/,
@@ -325,8 +329,12 @@ function hasNextChapterContinuationWording(text: string): boolean {
 // 文本里顺带提到的“开篇/第一章”只是写作要求或剧情引用。
 function hasExplicitLaterChapterNumber(text: string): boolean {
   const compact = text.replace(/\s+/g, "")
-  const explicit = compact.match(/第(\d+)章/)
-  return Boolean(explicit?.[1] && Number(explicit[1]) > 3)
+  const explicit = compact.match(/第(\d+|[一二三四五六七八九十百〇零两]+)章/)
+  if (!explicit?.[1]) return false
+  const num = /^\d+$/.test(explicit[1])
+    ? Number(explicit[1])
+    : parseChineseChapterNumber(explicit[1])
+  return Number.isFinite(num) && num > 3
 }
 
 // “开篇/开局/首章/开头”这类弱关键词：仅当紧跟写作动词，或请求本身
