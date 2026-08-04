@@ -7,6 +7,33 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ZERO_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "3.0.8",
+  date: "2026-08-04",
+  highlights: {
+    en: [
+      "[Character Selection Gate] Book analysis character deep-dive now uses an identify -> select target characters -> queue deep-dive flow (awaiting-character-selection), avoiding blind deep-dive on all characters. (Merged from PR #43, thanks @darknessomi)",
+      "[Visual Progress] Pipeline/scheduler expose runtime fine-grained progress (phase text + percentage + currentItem), wired to task bar and chunk row UI.",
+      "[JSON Tolerance] LLM dirty JSON now parsed via jsonrepair, reducing character/story/style adapter parse failures.",
+      "[Character Sorting] Character result list panel sorts by importance -> type -> name, important characters first.",
+      "[Orphan Chunk Fix] Reassigning tasks now clears old disk chunks via replaceAnalysisTaskChunks; scheduler/aggregate only honor expectedIds to prevent orphan pending from running LLM.",
+      "[Progress Stuck / Fake 100% Fix] Chunk occupies 0-90%, aggregate/publish uses phase percentage; concurrent running progress accumulates; fixed {total} template not interpolated.",
+      "[Partial Failure Tolerance] Single chapter/character/6-dim failure can skip with warnings; partial chunk failure can still aggregate/publish; all fail only then fail; continue resets failed chunks.",
+      "[UI Cleanup] Cleaned P0 broken-link novel UI (de-ai-batch, dismantling/plot-framework, character-profile, foreshadowing, timeline, clue-board, etc.).",
+    ],
+    zh: [
+      "【角色选择门禁】拆书库角色深度分析增加「识别 → 勾选目标角色 → 再排队深挖」门禁流程，避免对所有角色盲目深挖浪费算力（合并自 PR #43，感谢 @darknessomi 贡献）",
+      "【可视化进度】pipeline/scheduler 暴露运行时细粒度进度（阶段文案+百分比+currentItem），接到任务条/区块行 UI",
+      "【JSON 容错解析】LLM 脏 JSON 经 jsonrepair 解析，降低角色/故事/文风 adapter 解析失败率",
+      "【角色排序】角色结果列表面板按「重要度→类型→名称」排序，重要角色优先展示",
+      "【孤儿区块修复】重配任务时清磁盘旧区块，调度/汇总只认 expectedIds，避免孤儿 pending 误跑 LLM",
+      "【进度钉死修复】chunk 占 0-90%，aggregate/publish 用 phase 百分比，修复 {total} 未插值与假 100%",
+      "【部分失败容忍】单章/单角色/6 维失败可跳过并带 warnings，部分区块失败仍可 aggregate/publish",
+      "【UI 清理】清理 P0 断链 novel UI（de-ai-batch、拆书/情节框架、角色档案、伏笔、时间线、线索板等）",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "3.0.7",
   date: "2026-08-04",
@@ -1035,6 +1062,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ZERO_EIGHT_CHANGELOG.version)
+    return [THREE_POINT_ZERO_EIGHT_CHANGELOG];
   if (version === THREE_POINT_ZERO_SEVEN_CHANGELOG.version)
     return [THREE_POINT_ZERO_SEVEN_CHANGELOG];
   if (version === THREE_POINT_ZERO_SIX_CHANGELOG.version)
@@ -1120,6 +1149,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ZERO_EIGHT_CHANGELOG,
     THREE_POINT_ZERO_SEVEN_CHANGELOG,
     THREE_POINT_ZERO_SIX_CHANGELOG,
     THREE_POINT_ZERO_FIVE_CHANGELOG,
