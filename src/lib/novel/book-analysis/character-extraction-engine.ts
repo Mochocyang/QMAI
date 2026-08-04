@@ -21,6 +21,7 @@ import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
 import { stableCharacterId } from "./character-recognition-engine"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
+import { parseLlmJsonObject } from "./llm-json"
 
 export interface CharacterExtractionInput {
   bookPath: string
@@ -56,6 +57,8 @@ export interface CharacterExtractionInput {
 export interface CharacterExtractionResult {
   success: boolean
   characters: ExtractedCharacter[]
+  /** 部分章节/角色失败时的告警，不阻断整体成功 */
+  warnings?: string[]
 }
 
 /**
@@ -104,34 +107,47 @@ ${chapterContent.substring(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)} ${chapterContent.
 
     if (streamError) throw streamError
 
-    // 解析 JSON
-    const jsonMatch = response.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0]) as { characters?: unknown }
-      if (!Array.isArray(data.characters)) throw new Error("模型返回内容缺少 characters 数组")
-      return data.characters.flatMap((item): Array<{ name: string; aliases: string[]; importance: number }> => {
-        if (!item || typeof item !== "object") return []
-        const candidate = item as Record<string, unknown>
-        const name = typeof candidate.name === "string" ? candidate.name.trim() : ""
-        if (!name) return []
-        const rawImportance = Number(candidate.importance)
-        return [{
-          name,
-          aliases: Array.isArray(candidate.aliases)
-            ? candidate.aliases.filter((alias): alias is string => typeof alias === "string")
-            : [],
-          importance: Number.isFinite(rawImportance)
-            ? Math.max(1, Math.min(10, rawImportance))
-            : 5,
-        }]
-      })
-    }
-
-    throw new Error("模型返回内容不是有效 JSON")
+    const data = parseLlmJsonObject(response)
+    if (!data || !Array.isArray(data.characters)) throw new Error("模型返回内容缺少 characters 数组")
+    return data.characters.flatMap((item): Array<{ name: string; aliases: string[]; importance: number }> => {
+      if (!item || typeof item !== "object") return []
+      const candidate = item as Record<string, unknown>
+      const name = typeof candidate.name === "string" ? candidate.name.trim() : ""
+      if (!name) return []
+      const rawImportance = Number(candidate.importance)
+      return [{
+        name,
+        aliases: Array.isArray(candidate.aliases)
+          ? candidate.aliases.filter((alias): alias is string => typeof alias === "string")
+          : [],
+        importance: Number.isFinite(rawImportance)
+          ? Math.max(1, Math.min(10, rawImportance))
+          : 5,
+      }]
+    })
   } catch (error) {
-    console.error(`Failed to identify characters in chapter ${chapterTitle}:`, error)
     if (signal?.aborted) throw new Error("用户取消分析")
-    throw new Error(`角色识别失败（${chapterTitle}）：${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`角色识别失败（${chapterTitle}），跳过该章：`, message)
+    throw new Error(`角色识别失败（${chapterTitle}）：${message}`)
+  }
+}
+
+async function identifyCharactersInChapterSafe(
+  chapterContent: string,
+  chapterTitle: string,
+  chapterOrder: number,
+  llmConfig: LlmConfig,
+  signal: AbortSignal | undefined,
+  warnings: string[],
+): Promise<Array<{ name: string; aliases: string[]; importance: number }>> {
+  try {
+    return await identifyCharactersInChapter(chapterContent, chapterTitle, chapterOrder, llmConfig, signal)
+  } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.message === "用户取消分析")) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    warnings.push(message)
+    return []
   }
 }
 
@@ -207,49 +223,47 @@ ${corpus}
 
     if (streamError) throw streamError
 
-    // 解析 JSON
-    const jsonMatch = response.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0])
+    const data = parseLlmJsonObject(response)
+    if (!data) throw new Error("模型返回内容不是有效 JSON")
 
-      const character: ExtractedCharacter = {
-        // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
-        id: stableCharacterId(data.name || characterName, ""),
-        name: data.name || characterName,
-        aliases: data.aliases || [],
-        importance: 5, // 默认值，稍后会更新
-        category: data.category || "minor",
-        firstAppearance: relevantChapters[0]?.order || 1,
-        lastAppearance: relevantChapters[relevantChapters.length - 1]?.order || 1,
-        appearanceCount: relevantChapters.length,
-        description: data.description || "",
-        personality: data.personality || "",
-        motivation: typeof data.motivation === "string" ? data.motivation : "",
-        goals: Array.isArray(data.goals) ? data.goals.filter((item: unknown): item is string => typeof item === "string") : [],
-        fears: Array.isArray(data.fears) ? data.fears.filter((item: unknown): item is string => typeof item === "string") : [],
-        growthArc: typeof data.growthArc === "string" ? data.growthArc : "",
-        behaviorPatterns: typeof data.behaviorPatterns === "string" ? data.behaviorPatterns : "",
-        speechStyle: data.speechStyle || "",
-        relationships: data.relationships || [],
-        keyEvents: data.keyEvents || [],
-        representativeQuotes: Array.isArray(data.representativeQuotes)
-          ? data.representativeQuotes.filter((item: unknown): item is { chapterId: string; text: string } => {
-              if (!item || typeof item !== "object") return false
-              const candidate = item as Record<string, unknown>
-              return typeof candidate.chapterId === "string" && typeof candidate.text === "string"
-            })
-          : [],
-        corpus: corpus.substring(0, 10000), // 保留部分语料
-      }
-
-      return character
+    const character: ExtractedCharacter = {
+      // feature/fix-six-dim-extract：用稳定 hash id 替代 Math.random，避免 id 跨调用漂移
+      id: stableCharacterId(typeof data.name === "string" ? data.name : characterName, ""),
+      name: typeof data.name === "string" && data.name ? data.name : characterName,
+      aliases: Array.isArray(data.aliases)
+        ? data.aliases.filter((item): item is string => typeof item === "string")
+        : [],
+      importance: 5, // 默认值，稍后会更新
+      category: (typeof data.category === "string" ? data.category : "minor") as ExtractedCharacter["category"],
+      firstAppearance: relevantChapters[0]?.order || 1,
+      lastAppearance: relevantChapters[relevantChapters.length - 1]?.order || 1,
+      appearanceCount: relevantChapters.length,
+      description: typeof data.description === "string" ? data.description : "",
+      personality: typeof data.personality === "string" ? data.personality : "",
+      motivation: typeof data.motivation === "string" ? data.motivation : "",
+      goals: Array.isArray(data.goals) ? data.goals.filter((item): item is string => typeof item === "string") : [],
+      fears: Array.isArray(data.fears) ? data.fears.filter((item): item is string => typeof item === "string") : [],
+      growthArc: typeof data.growthArc === "string" ? data.growthArc : "",
+      behaviorPatterns: typeof data.behaviorPatterns === "string" ? data.behaviorPatterns : "",
+      speechStyle: typeof data.speechStyle === "string" ? data.speechStyle : "",
+      relationships: Array.isArray(data.relationships) ? data.relationships as ExtractedCharacter["relationships"] : [],
+      keyEvents: Array.isArray(data.keyEvents) ? data.keyEvents as ExtractedCharacter["keyEvents"] : [],
+      representativeQuotes: Array.isArray(data.representativeQuotes)
+        ? data.representativeQuotes.filter((item: unknown): item is { chapterId: string; text: string } => {
+            if (!item || typeof item !== "object") return false
+            const candidate = item as Record<string, unknown>
+            return typeof candidate.chapterId === "string" && typeof candidate.text === "string"
+          })
+        : [],
+      corpus: corpus.substring(0, 10000), // 保留部分语料
     }
 
-    throw new Error("模型返回内容不是有效 JSON")
+    return character
   } catch (error) {
-    console.error(`Failed to analyze character ${characterName}:`, error)
     if (signal?.aborted) throw new Error("用户取消分析")
-    throw new Error(`角色详情提取失败（${characterName}）：${error instanceof Error ? error.message : String(error)}`)
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`角色详情提取失败（${characterName}），跳过该角色：`, message)
+    return null
   }
 }
 
@@ -260,6 +274,7 @@ export async function extractCharactersFromChapters(
   input: CharacterExtractionInput
 ): Promise<CharacterExtractionResult> {
   const { bookPath, selectedChapterIds, llmConfig, onProgress, signal } = input
+  const warnings: string[] = []
 
   onProgress?.({
     stage: "extracting_characters",
@@ -333,12 +348,13 @@ export async function extractCharactersFromChapters(
         currentItem: chapter.title,
       })
 
-      const identified = await identifyCharactersInChapter(
+      const identified = await identifyCharactersInChapterSafe(
         chapter.content,
         chapter.title,
         chapter.order,
         llmConfig,
-        signal
+        signal,
+        warnings,
       )
 
       // 汇总角色出现次数
@@ -397,20 +413,23 @@ export async function extractCharactersFromChapters(
       currentItem: characterName,
     })
 
-    // 获取该角色相关的章节
-    const relevantChapters = chapters.filter(ch => data.chapters.includes(ch.order))
+    // 获取该角色相关的章节；跨 chunk 索引未命中时回退到当前区块全部章节
+    const matchedChapters = chapters.filter(ch => data.chapters.includes(ch.order))
+    const relevantChapters = matchedChapters.length > 0 ? matchedChapters : chapters
 
     const character = await analyzeCharacterDetails(
       characterName,
       relevantChapters,
       llmConfig,
-      signal
+      signal,
     )
 
     if (character) {
       character.importance = data.importance
       character.appearanceCount = data.count
       characters.push(character)
+    } else {
+      warnings.push(`角色详情提取失败（${characterName}）：已跳过`)
     }
   }
 
@@ -463,7 +482,9 @@ export async function extractCharactersFromChapters(
         })
         characters[i] = result.character
       } catch (e) {
-        console.error(`[6d] failed for ${character.name}:`, e)
+        const message = e instanceof Error ? e.message : String(e)
+        console.warn(`[6d] failed for ${character.name}:`, message)
+        warnings.push(`6 维度分析失败（${character.name}）：${message}`)
       }
       // 保存更新后的角色（feature/fix-six-dim-extract：writeFile 失败不应中断整个 6 维流程）
       try {
@@ -486,9 +507,14 @@ export async function extractCharactersFromChapters(
     percentage: 90,
   })
 
+  if (warnings.length > 0) {
+    console.warn(`[角色提取] 部分失败但仍返回成功结果：${warnings.join("；")}`)
+  }
+
   return {
     success: true,
     characters,
+    warnings: warnings.length > 0 ? warnings : undefined,
   }
 }
 

@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Plus, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
@@ -13,9 +14,16 @@ interface BookAnalysisCharacterPanelProps {
 
 const categoryLabels: Record<string, string> = {
   protagonist: "主角",
-  antagonist: "配角",
+  antagonist: "反派",
   supporting: "配角",
   minor: "次要配角",
+}
+
+const categoryOrder: Record<string, number> = {
+  protagonist: 0,
+  antagonist: 1,
+  supporting: 2,
+  minor: 3,
 }
 
 export function BookAnalysisCharacterPanel({
@@ -26,7 +34,17 @@ export function BookAnalysisCharacterPanel({
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
 }: BookAnalysisCharacterPanelProps) {
-  const selectedCharacter = book.characters.find((character) => character.id === selectedCharacterId) ?? book.characters[0] ?? null
+  const sortedCharacters = useMemo(
+    () =>
+      [...book.characters].sort(
+        (a, b) =>
+          b.importance - a.importance ||
+          (categoryOrder[a.category] ?? 99) - (categoryOrder[b.category] ?? 99) ||
+          a.name.localeCompare(b.name, "zh-CN"),
+      ),
+    [book.characters],
+  )
+  const selectedCharacter = sortedCharacters.find((character) => character.id === selectedCharacterId) ?? sortedCharacters[0] ?? null
   const selectedSkill = selectedCharacter
     ? book.skills.find((skill) => skill.characterId === selectedCharacter.id || skill.characterName === selectedCharacter.name) ?? null
     : null
@@ -61,10 +79,10 @@ export function BookAnalysisCharacterPanel({
       </div>
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: "minmax(220px, 320px) 1fr" }}>
         <div className="min-h-0 space-y-2 overflow-y-auto border-r p-3">
-          {book.characters.length === 0 ? (
+          {sortedCharacters.length === 0 ? (
             <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">暂无角色数据。</div>
           ) : (
-            book.characters.map((character) => {
+            sortedCharacters.map((character) => {
               const active = selectedCharacter?.id === character.id
               const hasSkill = book.skills.some((skill) => skill.characterId === character.id || skill.characterName === character.name)
               return (

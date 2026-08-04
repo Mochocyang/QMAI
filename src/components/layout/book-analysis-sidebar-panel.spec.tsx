@@ -51,9 +51,53 @@ vi.mock("@/stores/book-analysis-store", () => ({
     selector ? selector(mockBookAnalysisState) : mockBookAnalysisState,
 }))
 
+const mockImportState = {
+  deletePublishedBook: mockDeletePublishedBook,
+  batches: [] as Array<{
+    version: 1
+    id: string
+    projectPath: string
+    taskIds: string[]
+    panelDismissedAt?: number | null
+    createdAt: number
+    updatedAt: number
+  }>,
+  tasks: [] as Array<{
+    version: 1
+    id: string
+    batchId: string
+    projectPath: string
+    originalPath: string
+    originalFileName: string
+    cachedSourcePath: string
+    sourceSha256: string | null
+    requestedTitle: string
+    finalTitle: string | null
+    bookId: string
+    status: string
+    completed: number
+    total: number
+    error: string | null
+    skipReason: string | null
+    createdAt: number
+    startedAt: number | null
+    completedAt: number | null
+    updatedAt: number
+  }>,
+  createBatch: vi.fn(),
+  continueTask: vi.fn(),
+  regenerateTask: vi.fn(),
+  cancelTask: vi.fn(),
+  cancelAllQueued: vi.fn(),
+  deleteFailedTask: vi.fn(),
+  renameCompletedTask: vi.fn(),
+  panelCollapsed: false,
+  setPanelCollapsed: vi.fn(),
+}
+
 vi.mock("@/stores/book-analysis-import-store", () => ({
   useBookAnalysisImportStore: (selector: (state: any) => unknown) =>
-    selector({ deletePublishedBook: mockDeletePublishedBook }),
+    selector(mockImportState),
 }))
 
 vi.mock("@/lib/toast", () => ({
@@ -91,11 +135,102 @@ beforeEach(async () => {
   vi.clearAllMocks()
   mockWikiState.project = { id: "p1", name: "Novel", path: "/proj" }
   mockBookAnalysisState.tasks = []
+  mockImportState.batches = []
+  mockImportState.tasks = []
+  mockImportState.panelCollapsed = false
   mockDeletePublishedBook.mockResolvedValue(undefined)
   await flushAsync(20)
 })
 
 describe("BookAnalysisSidebarPanel", () => {
+  it("单本导入进行中时侧栏显示导入任务面板", async () => {
+    mockImportState.batches = [{
+      version: 1,
+      id: "batch-single",
+      projectPath: "/proj",
+      taskIds: ["import-1"],
+      panelDismissedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+    mockImportState.tasks = [{
+      version: 1,
+      id: "import-1",
+      batchId: "batch-single",
+      projectPath: "/proj",
+      originalPath: "/books/a.txt",
+      originalFileName: "a.txt",
+      cachedSourcePath: "/proj/cache/a.txt",
+      sourceSha256: null,
+      requestedTitle: "单本小说",
+      finalTitle: null,
+      bookId: "book-import-1",
+      status: "copying",
+      completed: 1,
+      total: 10,
+      error: null,
+      skipReason: null,
+      createdAt: 1,
+      startedAt: 1,
+      completedAt: null,
+      updatedAt: 1,
+    }]
+    vi.mocked(listDirectory).mockResolvedValue([])
+
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+
+    expect(document.querySelector('section[aria-label="批量导入任务"]')).not.toBeNull()
+    expect(document.body.textContent).toContain("单本小说")
+    expect(document.body.textContent).toContain("复制中")
+    cleanup()
+    await flushAsync(20)
+  })
+
+  it("单本导入失败后侧栏仍显示面板以便删除/重试", async () => {
+    mockImportState.batches = [{
+      version: 1,
+      id: "batch-failed",
+      projectPath: "/proj",
+      taskIds: ["import-failed"],
+      panelDismissedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }]
+    mockImportState.tasks = [{
+      version: 1,
+      id: "import-failed",
+      batchId: "batch-failed",
+      projectPath: "/proj",
+      originalPath: "/books/b.txt",
+      originalFileName: "b.txt",
+      cachedSourcePath: "/proj/cache/b.txt",
+      sourceSha256: null,
+      requestedTitle: "失败小说",
+      finalTitle: null,
+      bookId: "book-import-failed",
+      status: "failed",
+      completed: 0,
+      total: 10,
+      error: "复制失败",
+      skipReason: null,
+      createdAt: 1,
+      startedAt: 1,
+      completedAt: 2,
+      updatedAt: 2,
+    }]
+    vi.mocked(listDirectory).mockResolvedValue([])
+
+    const { cleanup } = renderPanel()
+    await flushAsync(50)
+
+    expect(document.querySelector('section[aria-label="批量导入任务"]')).not.toBeNull()
+    expect(document.body.textContent).toContain("失败小说")
+    expect(document.body.textContent).toContain("失败")
+    cleanup()
+    await flushAsync(20)
+  })
+
   it("reopens character processing for a recognition-done running task", async () => {
     mockBookAnalysisState.tasks = [{
       id: "task-recognition-done",

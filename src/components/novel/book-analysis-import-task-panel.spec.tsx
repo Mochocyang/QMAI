@@ -313,7 +313,7 @@ describe("BookAnalysisImportTaskPanel", () => {
 
     renderPanel([createTask("skipped")], props)
     expect(Array.from(host.querySelectorAll("button")).map((button) => button.textContent?.trim())).toEqual([
-      "收起导入任务",
+      "收起",
     ])
   })
 
@@ -360,19 +360,19 @@ describe("BookAnalysisImportTaskPanel", () => {
     const props = renderPanel([createTask("splitting")])
     expect(host.textContent).toContain("作品-task-splitting")
     const collapseButton = Array.from(host.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "收起导入任务",
+      (button) => button.getAttribute("aria-label") === "收起导入任务",
     )
     expect(collapseButton?.getAttribute("aria-controls")).toBe("book-analysis-import-task-list")
     expect(host.querySelector("#book-analysis-import-task-list")).not.toBeNull()
 
-    clickButton("收起导入任务")
+    clickButton("收起")
     expect(props.onCollapsedChange).toHaveBeenCalledWith(true)
 
     renderPanel([{ ...createTask("splitting"), completed: 8 }], props, true)
     expect(host.textContent).not.toContain("作品-task-splitting")
     expect(props.onCollapsedChange).toHaveBeenCalledTimes(1)
 
-    clickButton("展开导入任务")
+    clickButton("展开")
     expect(props.onCollapsedChange).toHaveBeenLastCalledWith(false)
   })
 

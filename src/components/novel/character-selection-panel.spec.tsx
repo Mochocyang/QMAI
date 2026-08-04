@@ -117,7 +117,7 @@ describe("CharacterSelectionPanel", () => {
     cleanup()
   })
 
-  it("不再显示简单提取和六维提取入口", async () => {
+  it("未提供 onConfirm 时不显示深度分析按钮", async () => {
     const { cleanup } = renderPanel({
       characters,
       selectedIds: ["1"],
@@ -128,8 +128,54 @@ describe("CharacterSelectionPanel", () => {
     })
     await flushAsync()
     const html = getAllBodyHtml()
+    expect(html).not.toContain("开始深度分析")
     expect(html).not.toContain("深度 6 维提取")
     expect(html).not.toContain("简单提取")
+    cleanup()
+  })
+
+  it("提供 onConfirm 时显示开始深度分析，未选角色时禁用", async () => {
+    const onConfirm = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: [],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onCancel: vi.fn(),
+      onConfirm,
+    })
+    await flushAsync()
+    const btn = document.body.querySelector(
+      '[data-testid="confirm-character-selection"]',
+    ) as HTMLButtonElement | null
+    expect(btn).toBeTruthy()
+    expect(btn?.textContent).toContain("开始深度分析")
+    expect(btn?.disabled).toBe(true)
+    cleanup()
+  })
+
+  it("已选角色时可点击开始深度分析", async () => {
+    const onConfirm = vi.fn()
+    const { cleanup } = renderPanel({
+      characters,
+      selectedIds: ["1"],
+      onToggle: vi.fn(),
+      onSelectAllMain: vi.fn(),
+      onClear: vi.fn(),
+      onCancel: vi.fn(),
+      onConfirm,
+    })
+    await flushAsync()
+    const btn = document.body.querySelector(
+      '[data-testid="confirm-character-selection"]',
+    ) as HTMLButtonElement
+    expect(btn.disabled).toBe(false)
+    await act(async () => {
+      btn.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(onConfirm).toHaveBeenCalledTimes(1)
     cleanup()
   })
 

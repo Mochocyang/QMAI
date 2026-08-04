@@ -7,6 +7,7 @@ import type {
 } from "./analysis-pipeline-types"
 import {
   loadAndRecoverAnalysisTasks,
+  replaceAnalysisTaskChunks,
   saveAnalysisChunk,
   saveAnalysisTask,
   saveCompletedChunk,
@@ -88,6 +89,16 @@ function createMemoryIo() {
         directories.add(parts.slice(0, index).join("/"))
       }
     },
+    async deleteFile(path) {
+      const normalized = normalize(path)
+      const prefix = `${normalized}/`
+      for (const file of [...files.keys()]) {
+        if (file === normalized || file.startsWith(prefix)) files.delete(file)
+      }
+      for (const directory of [...directories]) {
+        if (directory === normalized || directory.startsWith(prefix)) directories.delete(directory)
+      }
+    },
     async fileExists(path) {
       const normalized = normalize(path)
       return files.has(normalized) || directories.has(normalized)
@@ -160,5 +171,33 @@ describe("analysis pipeline storage", () => {
     expect(completed.resultPath).toContain("chunk-0011-0020.result.json")
     expect(memory.writes.at(-2)).toContain("chunk-0011-0020.result.json")
     expect(memory.writes.at(-1)).toContain("chunk-0011-0020.json")
+  })
+
+  it("replaceAnalysisTaskChunks 清空旧区块文件后再写入新区块", async () => {
+    const memory = createMemoryIo()
+    const current = task()
+    const bookPath = current.bookPath
+    await saveAnalysisTask(current, memory.io)
+    await saveCompletedChunk(bookPath, chunk("chunk-0001-0010", "completed"), { characters: [] }, memory.io, 50)
+    await saveAnalysisChunk(bookPath, chunk("chunk-0011-0020", "pending"), memory.io)
+
+    const next = [{
+      ...chunk("chunk-0001-0005", "pending"),
+      chapterIds: ["ch-1", "ch-2", "ch-3", "ch-4", "ch-5"],
+      startOrder: 1,
+      endOrder: 5,
+      resultPath: null,
+      completedAt: null,
+      status: "pending" as const,
+      attempts: 0,
+      startedAt: null,
+    }]
+    await replaceAnalysisTaskChunks(bookPath, "analysis-1", next, memory.io)
+
+    const recovered = await loadAndRecoverAnalysisTasks("E:/Novel", memory.io)
+    expect(recovered.chunks.map((item) => item.id)).toEqual(["chunk-0001-0005"])
+    expect([...memory.files.keys()].some((path) => path.includes("chunk-0001-0010"))).toBe(false)
+    expect([...memory.files.keys()].some((path) => path.includes("chunk-0011-0020"))).toBe(false)
+    expect([...memory.files.keys()].some((path) => path.includes("chunk-0001-0005.json"))).toBe(true)
   })
 })

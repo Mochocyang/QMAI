@@ -1,5 +1,6 @@
 import {
   createDirectory,
+  deleteFile,
   fileExists,
   listDirectory,
   readFile,
@@ -25,6 +26,7 @@ export interface AnalysisStorageEntry {
 
 export interface AnalysisPipelineStorageIo {
   createDirectory(path: string): Promise<void>
+  deleteFile(path: string): Promise<void>
   fileExists(path: string): Promise<boolean>
   listDirectory(path: string): Promise<AnalysisStorageEntry[]>
   readFile(path: string): Promise<string>
@@ -33,6 +35,7 @@ export interface AnalysisPipelineStorageIo {
 
 const defaultIo: AnalysisPipelineStorageIo = {
   createDirectory,
+  deleteFile,
   fileExists,
   listDirectory: async (path) => listDirectory(path),
   readFile,
@@ -118,6 +121,23 @@ export async function saveAnalysisChunk(
   await ensureTaskDirectories(bookPath, chunk.taskId, io)
   await io.createDirectory(analysisChunkDir(bookPath, chunk.taskId, chunk.skill))
   await io.writeFileAtomic(analysisChunkPath(bookPath, chunk), JSON.stringify(chunk, null, 2))
+}
+
+/** 清空任务下旧区块（含 .result.json）后写入新区块，避免重配范围残留 orphan。 */
+export async function replaceAnalysisTaskChunks(
+  bookPath: string,
+  taskId: string,
+  nextChunks: AnalysisChunkRecord[],
+  io: AnalysisPipelineStorageIo = defaultIo,
+): Promise<void> {
+  assertSafeId(taskId, "分析任务 ID")
+  for (const chunk of nextChunks) {
+    if (chunk.taskId !== taskId) throw new Error("区块不属于当前分析任务")
+  }
+  const root = analysisChunksRoot(bookPath, taskId)
+  if (await io.fileExists(root)) await io.deleteFile(root)
+  await ensureTaskDirectories(bookPath, taskId, io)
+  for (const chunk of nextChunks) await saveAnalysisChunk(bookPath, chunk, io)
 }
 
 export async function saveCompletedChunk<T>(

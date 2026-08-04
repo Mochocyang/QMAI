@@ -116,25 +116,31 @@ export function createStoryAnalysisAdapter(
   const dependencies = { ...defaultDependencies, ...overrides }
   return {
     skill: "story",
-    async runChunk({ task, bookPath, llmConfig, chunk, signal }) {
+    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress }) {
+      onProgress?.({ stageLabel: "读取章节…", percentage: 10 })
       const chapters = await dependencies.loadChapters(bookPath, chunk.chapterIds)
       if (chapters.length !== chunk.chapterIds.length) {
         throw new Error("所选故事章节读取不完整，请检查章节文件后重试")
       }
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法分析故事")
-      const temporaryCharacters = task.modules.characters.status === "completed"
-        ? undefined
-        : (await dependencies.recognizeCharacters({
-            chapters: chapters.map((chapter, index) => ({ index, content: chapter.content })),
-            llmConfig,
-            sourceBook: metadata.title,
-            signal,
-          })).map((character) => ({
-            name: character.name,
-            aliases: character.aliases,
-            category: character.category,
-          }))
+      let temporaryCharacters: Array<{ name: string; aliases: string[]; category: string }> | undefined
+      if (task.modules.characters.status === "completed") {
+        temporaryCharacters = undefined
+      } else {
+        onProgress?.({ stageLabel: "识别临时角色…", percentage: 30 })
+        temporaryCharacters = (await dependencies.recognizeCharacters({
+          chapters: chapters.map((chapter, index) => ({ index, content: chapter.content })),
+          llmConfig,
+          sourceBook: metadata.title,
+          signal,
+        })).map((character) => ({
+          name: character.name,
+          aliases: character.aliases,
+          category: character.category,
+        }))
+      }
+      onProgress?.({ stageLabel: "正在调用模型分析故事框架…", percentage: 50 })
       const markdown = await dependencies.callModel([
         { role: "system", content: "你是严谨的小说故事框架拆解助手，必须输出可复用的中文四段框架。" },
         {
@@ -146,22 +152,29 @@ export function createStoryAnalysisAdapter(
           }),
         },
       ], llmConfig, signal)
+      onProgress?.({ stageLabel: "解析故事框架结果…", percentage: 90 })
       return {
         result: { markdown, rangeChapterIds: chunk.chapterIds },
         evidence: storyEvidence(task.id, task.bookId, chunk.id, chapters, dependencies.now()),
       }
     },
-    async aggregate({ chunks, llmConfig, signal }) {
+    async aggregate({ chunks, llmConfig, signal, onProgress }) {
       if (chunks.length === 0) throw new Error("没有已完成的故事区块可供汇总")
       const rangeChapterIds = chunks.flatMap((chunk) => chunk.rangeChapterIds)
-      if (chunks.length === 1) return { ...chunks[0], rangeChapterIds }
+      if (chunks.length === 1) {
+        onProgress?.({ stageLabel: "单区块无需汇总", percentage: 95 })
+        return { ...chunks[0], rangeChapterIds }
+      }
+      onProgress?.({ stageLabel: "正在调用模型汇总故事框架…", percentage: 93 })
       const markdown = await dependencies.callModel([
         { role: "system", content: "你只汇总已有故事分析，禁止补写未分析章节。" },
         { role: "user", content: buildAggregatePrompt(chunks) },
       ], llmConfig, signal)
+      onProgress?.({ stageLabel: "故事汇总完成", percentage: 95 })
       return { markdown, rangeChapterIds }
     },
-    async publish({ task, bookPath, projectPath, result, evidence }) {
+    async publish({ task, bookPath, projectPath, result, evidence, onProgress }) {
+      onProgress?.({ stageLabel: "正在发布故事框架…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布故事分析")
       const framework = dependencies.buildDraft({
@@ -195,6 +208,7 @@ export function createStoryAnalysisAdapter(
       }
       await dependencies.saveManifest(bookPath, manifest)
       await dependencies.rebuildContextIndex(projectPath)
+      onProgress?.({ stageLabel: "故事框架已发布", percentage: 100 })
       return resultPath
     },
   }

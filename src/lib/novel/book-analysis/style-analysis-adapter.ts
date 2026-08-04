@@ -123,7 +123,8 @@ export function createStyleAnalysisAdapter(
   const dependencies = { ...defaultDependencies, ...overrides }
   return {
     skill: "style",
-    async runChunk({ task, bookPath, llmConfig, chunk, signal }) {
+    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress }) {
+      onProgress?.({ stageLabel: "读取章节样本…", percentage: 10 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法分析文风")
       const blocks: string[] = []
@@ -133,10 +134,12 @@ export function createStyleAnalysisAdapter(
         if (body) blocks.push(`【章节ID：${chapterId}】\n${body}`)
       }
       if (blocks.length !== chunk.chapterIds.length) throw new Error("所选文风章节正文为空，请检查后重试")
+      onProgress?.({ stageLabel: "正在调用模型分析文风…", percentage: 40 })
       const raw = await dependencies.callModel([
         { role: "system", content: "你是专业的小说文风分析助手。只输出用户要求的 JSON，不要解释。" },
         { role: "user", content: buildStyleExtractionPrompt(blocks.join("\n\n———\n\n"), metadata.title) },
       ], llmConfig, signal)
+      onProgress?.({ stageLabel: "解析文风结果…", percentage: 85 })
       const profile = parseStyleProfileResult(raw, chunk.chapterIds)
       const evidence = parseStyleEvidenceResult(raw).flatMap((candidate, index): AnalysisEvidenceSnippet[] => {
         if (!chunk.chapterIds.includes(candidate.chapterId)) return []
@@ -159,12 +162,17 @@ export function createStyleAnalysisAdapter(
           updatedAt: dependencies.now(),
         }]
       })
+      onProgress?.({ stageLabel: "文风区块分析完成", percentage: 95 })
       return { result: { raw, profile }, evidence }
     },
-    async aggregate({ chunks, llmConfig, signal }) {
+    async aggregate({ chunks, llmConfig, signal, onProgress }) {
       if (chunks.length === 0) throw new Error("没有已完成的文风区块可供汇总")
       const evidenceIds: string[] = []
-      if (chunks.length === 1) return mergeStyleChunkProfiles(chunks, evidenceIds, dependencies.now())
+      if (chunks.length === 1) {
+        onProgress?.({ stageLabel: "单区块无需汇总", percentage: 95 })
+        return mergeStyleChunkProfiles(chunks, evidenceIds, dependencies.now())
+      }
+      onProgress?.({ stageLabel: "正在调用模型汇总文风…", percentage: 93 })
       const raw = await dependencies.callModel([
         { role: "system", content: "你只汇总已有文风分析，不分析范围外内容。" },
         { role: "user", content: aggregatePrompt(chunks) },
@@ -172,9 +180,11 @@ export function createStyleAnalysisAdapter(
       const profile = parseStyleProfileResult(raw, chunks.flatMap((chunk) => chunk.profile.sampledChapterIds))
       profile.generatedAt = dependencies.now()
       profile.evidenceIds = evidenceIds
+      onProgress?.({ stageLabel: "文风汇总完成", percentage: 95 })
       return profile
     },
-    async publish({ task, bookPath, projectPath, result, evidence }) {
+    async publish({ task, bookPath, projectPath, result, evidence, onProgress }) {
+      onProgress?.({ stageLabel: "正在发布文风结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布文风分析")
       result.evidenceIds = evidence.map((item) => item.id)
@@ -209,6 +219,7 @@ export function createStyleAnalysisAdapter(
       }
       await dependencies.saveManifest(bookPath, manifest)
       await dependencies.rebuildContextIndex(projectPath)
+      onProgress?.({ stageLabel: "文风结果已发布", percentage: 100 })
       return resultPath
     },
   }

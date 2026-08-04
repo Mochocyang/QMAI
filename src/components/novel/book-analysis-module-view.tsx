@@ -1,7 +1,14 @@
 import { useState, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
-import type { AnalysisChunkRecord, AnalysisChunkStatus, AnalysisSkill, BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import {
+  analysisProgressKey,
+  type AnalysisChunkRecord,
+  type AnalysisChunkStatus,
+  type AnalysisRuntimeProgress,
+  type AnalysisSkill,
+  type BookAnalysisPipelineTask,
+} from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 
@@ -11,6 +18,7 @@ interface BookAnalysisModuleViewProps {
   book: BookAnalysisLibraryBook
   task?: BookAnalysisPipelineTask | null
   chunks?: AnalysisChunkRecord[]
+  progresses?: Record<string, AnalysisRuntimeProgress>
   selectedCharacterId: string | null
   storyContent?: ReactNode
   extractingStyle: boolean
@@ -23,11 +31,40 @@ interface BookAnalysisModuleViewProps {
   onOpenSkillSelection?: () => void
   onReextract: (skill: AnalysisSkill) => void
   onConfigureTask?: () => void
+  onSelectCharacters?: () => void
   onPauseTask?: () => void
   onContinueTask?: () => void
   onRetryTask?: () => void
   onRetryChunk?: (skill: AnalysisSkill, chunkId: string) => void
   onCancelTask?: () => void
+}
+
+function RuntimeProgressBar({ progress, label }: { progress: AnalysisRuntimeProgress; label?: string }) {
+  const percentage = Math.max(0, Math.min(100, progress.percentage))
+  return (
+    <div className="mt-2 space-y-1.5" aria-label={label ?? "分析进度"}>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="truncate text-foreground">{progress.stageLabel}</span>
+        <span className="shrink-0 text-muted-foreground">{percentage}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percentage}
+        aria-label={progress.stageLabel}
+        className="h-2 overflow-hidden rounded-full bg-secondary"
+      >
+        <div
+          className="h-full bg-primary transition-all duration-300"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      {progress.currentItem && (
+        <div className="truncate text-xs text-muted-foreground">{progress.currentItem}</div>
+      )}
+    </div>
+  )
 }
 
 const TABS: Array<{ id: BookAnalysisModuleTab; label: string }> = [
@@ -83,6 +120,8 @@ function taskStatusLabel(status: BookAnalysisPipelineTask["status"]): string {
       return "已完成"
     case "awaiting-range":
       return "待选择章节"
+    case "awaiting-character-selection":
+      return "待选择角色"
     default:
       return status
   }
@@ -117,6 +156,52 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
     : 0
   const currentSkill = props.task?.currentSkill
   const taskBusy = props.task && ["queued", "running", "paused", "failed"].includes(props.task.status)
+  const progresses = props.progresses ?? {}
+  const currentSkillChunks = props.task && currentSkill
+    ? (props.chunks ?? [])
+        .filter((chunk) => chunk.taskId === props.task?.id && chunk.skill === currentSkill)
+        .sort((left, right) => left.startOrder - right.startOrder)
+    : []
+  const currentSkillCompleted = currentSkillChunks.filter((chunk) => chunk.status === "completed").length
+  const currentSkillTotal = props.task && currentSkill
+    ? (props.task.modules[currentSkill].chunkIds.length || currentSkillChunks.length)
+    : 0
+  const phaseRuntimeProgress = (() => {
+    if (!props.task || !currentSkill) return null
+    for (const phase of ["aggregate", "publish"] as const) {
+      const phaseProgress = progresses[analysisProgressKey(props.task.id, currentSkill, phase)]
+      if (phaseProgress) return phaseProgress
+    }
+    return null
+  })()
+  const runningChunkProgresses = props.task && currentSkill
+    ? currentSkillChunks
+        .filter((chunk) => chunk.status === "running")
+        .map((chunk) => progresses[analysisProgressKey(props.task!.id, currentSkill, chunk.id)])
+        .filter((progress): progress is NonNullable<typeof progress> => Boolean(progress))
+    : []
+  const activeRuntimeProgress = phaseRuntimeProgress
+    ?? runningChunkProgresses[0]
+    ?? (() => {
+      if (!props.task || !currentSkill) return null
+      const prefix = `${props.task.id}:${currentSkill}:`
+      return Object.entries(progresses).find(([key]) => key.startsWith(prefix))?.[1] ?? null
+    })()
+  // chunk 阶段占 0–90%；aggregate/publish 直接使用 phase 百分比（适配器报 92–100）
+  const overallPercentage = (() => {
+    if (phaseRuntimeProgress) {
+      return Math.max(90, Math.min(100, Math.round(phaseRuntimeProgress.percentage)))
+    }
+    if (currentSkillTotal <= 0) return activeRuntimeProgress?.percentage ?? 0
+    const runningShare = runningChunkProgresses.reduce(
+      (sum, progress) => sum + Math.max(0, Math.min(100, progress.percentage)) / 100,
+      0,
+    )
+    return Math.min(
+      90,
+      Math.round(((currentSkillCompleted + runningShare) / currentSkillTotal) * 90),
+    )
+  })()
 
   const filteredEvidence = evidenceFilter === "all"
     ? props.book.evidence
@@ -175,19 +260,46 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                 失败原因：{props.task.error}
               </div>
             )}
+            {props.task.status === "running" && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    区块进度 {currentSkillCompleted}/{currentSkillTotal || "?"}
+                    {activeRuntimeProgress ? ` · ${activeRuntimeProgress.stageLabel}` : ""}
+                  </span>
+                  <span>{overallPercentage}%</span>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={overallPercentage}
+                  aria-label="任务整体进度"
+                  className="h-2 overflow-hidden rounded-full bg-secondary"
+                >
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${overallPercentage}%` }}
+                  />
+                </div>
+                {activeRuntimeProgress?.currentItem && (
+                  <div className="truncate text-xs text-muted-foreground">{activeRuntimeProgress.currentItem}</div>
+                )}
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
               {props.task.status === "running" && props.onPauseTask && (
                 <Button size="sm" variant="outline" onClick={props.onPauseTask}>暂停</Button>
               )}
               {props.task.status === "paused" && props.onContinueTask && (
                 <Button size="sm" onClick={props.onContinueTask}>
-                  从断点继续（已完成 {completed}/{total || "?"} 区块）
+                  从断点继续（已完成 {currentSkillCompleted}/{currentSkillTotal || "?"} 区块）
                 </Button>
               )}
               {props.task.status === "failed" && props.onRetryTask && (
                 <Button size="sm" onClick={props.onRetryTask}>重试当前步骤</Button>
               )}
-              {["queued", "running", "paused", "failed"].includes(props.task.status) && props.onCancelTask && (
+              {["awaiting-character-selection", "queued", "running", "paused", "failed"].includes(props.task.status) && props.onCancelTask && (
                 <Button size="sm" variant="outline" onClick={props.onCancelTask}>取消任务</Button>
               )}
             </div>
@@ -204,6 +316,42 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
           </div>
         )}
 
+        {props.task?.status === "awaiting-character-selection" && (() => {
+          const recognitionProgress = progresses[analysisProgressKey(props.task.id, "characters", "recognition")]
+          const hasRecognized = (props.task.recognizedCharacters?.length ?? 0) > 0
+          return (
+            <div className="mb-4 rounded-md border border-primary/30 bg-primary/5 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">
+                    {hasRecognized ? "待选择角色" : "正在识别角色"}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {hasRecognized
+                      ? `已识别 ${props.task.recognizedCharacters!.length} 个角色，请勾选后开始深度分析`
+                      : recognitionProgress
+                        ? (recognitionProgress.currentItem
+                          ? `范围：${recognitionProgress.currentItem}`
+                          : "识别进行中…")
+                        : "准备识别角色…"}
+                  </div>
+                  {recognitionProgress && !hasRecognized && (
+                    <RuntimeProgressBar progress={recognitionProgress} label="角色识别进度" />
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {props.onSelectCharacters && hasRecognized && (
+                    <Button size="sm" onClick={props.onSelectCharacters}>选择角色</Button>
+                  )}
+                  {props.onCancelTask && (
+                    <Button size="sm" variant="outline" onClick={props.onCancelTask}>取消任务</Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
         {skill && (
           <div className="mb-4 space-y-3 border-b pb-3">
             <div className="flex items-start justify-between gap-3">
@@ -212,7 +360,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                 {moduleState && (
                   <div className="mt-1">
                     最近范围：第 {moduleState.range.startOrder}～{moduleState.range.endOrder} 章
-                    {total > 0 ? ` · 完成区块 ${completed}/{total}` : ""}
+                    {total > 0 ? ` · 完成区块 ${completed}/${total}` : ""}
                   </div>
                 )}
                 {moduleState?.summary && <div className="mt-1 break-words">{moduleState.summary}</div>}
@@ -226,6 +374,9 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                     当前区块：第 {tabActiveChunkIndex}/{skillChunks.length} 个（第 {tabActiveChunk.startOrder}～{tabActiveChunk.endOrder} 章）
                   </div>
                 )}
+                {skill && currentSkill === skill && activeRuntimeProgress && (
+                  <RuntimeProgressBar progress={activeRuntimeProgress} label={`${SKILL_LABELS[skill]} 当前阶段`} />
+                )}
               </div>
               <Button variant="outline" size="sm" onClick={() => props.onReextract(skill)}>重新提取</Button>
             </div>
@@ -237,33 +388,46 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                   {moduleState?.resultPath ? " · 结果已发布" : ""}
                 </div>
                 <div className="space-y-1.5">
-                  {skillChunks.map((chunk) => (
-                    <div
-                      key={chunk.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background px-2.5 py-1.5 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <span className="font-medium">第 {chunk.startOrder}～{chunk.endOrder} 章</span>
-                        <span className="ml-2 text-muted-foreground">
-                          {CHUNK_STATUS_LABELS[chunk.status]}
-                          {chunk.attempts > 0 ? ` · 尝试 ${chunk.attempts}` : ""}
-                        </span>
-                        {chunk.error && (
-                          <div className="mt-0.5 break-words text-destructive">{chunk.error}</div>
+                  {skillChunks.map((chunk) => {
+                    const chunkProgress = props.task
+                      ? progresses[analysisProgressKey(props.task.id, skill, chunk.id)]
+                      : undefined
+                    return (
+                      <div
+                        key={chunk.id}
+                        className="rounded border bg-background px-2.5 py-1.5 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="font-medium">第 {chunk.startOrder}～{chunk.endOrder} 章</span>
+                            <span className="ml-2 text-muted-foreground">
+                              {CHUNK_STATUS_LABELS[chunk.status]}
+                              {chunk.attempts > 0 ? ` · 尝试 ${chunk.attempts}` : ""}
+                            </span>
+                            {chunk.error && (
+                              <div className="mt-0.5 break-words text-destructive">{chunk.error}</div>
+                            )}
+                          </div>
+                          {chunk.status === "failed" && props.onRetryChunk && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              onClick={() => props.onRetryChunk?.(skill, chunk.id)}
+                            >
+                              重试此区块
+                            </Button>
+                          )}
+                        </div>
+                        {chunk.status === "running" && chunkProgress && (
+                          <RuntimeProgressBar
+                            progress={chunkProgress}
+                            label={`第 ${chunk.startOrder}～${chunk.endOrder} 章进度`}
+                          />
                         )}
                       </div>
-                      {chunk.status === "failed" && props.onRetryChunk && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7"
-                          onClick={() => props.onRetryChunk?.(skill, chunk.id)}
-                        >
-                          重试此区块
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}

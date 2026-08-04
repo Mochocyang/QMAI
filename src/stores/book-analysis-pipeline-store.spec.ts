@@ -15,6 +15,7 @@ vi.mock("@/lib/novel/book-analysis/analysis-pipeline-storage", async (importOrig
     loadAndRecoverAnalysisTasks: vi.fn(() => recoveryGate.promise),
     saveAnalysisTask: vi.fn(async () => undefined),
     saveAnalysisChunk: vi.fn(async () => undefined),
+    replaceAnalysisTaskChunks: vi.fn(async () => undefined),
   }
 })
 

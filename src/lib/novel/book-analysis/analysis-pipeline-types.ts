@@ -1,9 +1,12 @@
+import type { RecognizedCharacter } from "./types"
+
 export const ANALYSIS_SKILL_ORDER = ["characters", "story", "style"] as const
 
 export type AnalysisSkill = (typeof ANALYSIS_SKILL_ORDER)[number]
 
 export type AnalysisTaskStatus =
   | "awaiting-range"
+  | "awaiting-character-selection"
   | "queued"
   | "running"
   | "paused"
@@ -77,6 +80,10 @@ export interface BookAnalysisPipelineTask {
   status: AnalysisTaskStatus
   currentSkill: AnalysisSkill | null
   modules: Record<AnalysisSkill, AnalysisModuleState>
+  /** 轻量识别结果；供深度分析前的角色勾选面板重开 */
+  recognizedCharacters?: RecognizedCharacter[]
+  /** 用户确认后的深挖目标；有值时角色 adapter 只分析这些角色 */
+  targetCharacters?: RecognizedCharacter[]
   error: string | null
   createdAt: number
   startedAt: number | null
@@ -124,6 +131,21 @@ export interface BookAnalysisModuleManifest {
   bookId: string
   modules: Partial<Record<AnalysisSkill, AnalysisModuleState>>
   updatedAt: number
+}
+
+/** 运行时细进度（仅内存，不落盘） */
+export interface AnalysisRuntimeProgress {
+  stageLabel: string
+  percentage: number
+  currentItem?: string
+}
+
+export function analysisProgressKey(
+  taskId: string,
+  skill: AnalysisSkill,
+  scope: string,
+): string {
+  return `${taskId}:${skill}:${scope}`
 }
 
 export function normalizeSelectedSkills(skills: AnalysisSkill[]): AnalysisSkill[] {

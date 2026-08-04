@@ -111,4 +111,45 @@ describe("BookAnalysisCharacterPanel", () => {
     expect(container.textContent).not.toContain("绑定到小说人物")
     cleanup()
   })
+
+  it("角色列表按重要度降序排列，同重要度按主角/反派/配角排序", () => {
+    const base = book.characters[0]
+    const { container, cleanup } = renderPanel({
+      book: {
+        ...book,
+        characters: [
+          { ...base, id: "c-supporting", name: "配角乙", importance: 5, category: "supporting" },
+          { ...base, id: "c-villain", name: "反派甲", importance: 8, category: "antagonist" },
+          { ...base, id: "c-hero", name: "主角丙", importance: 8, category: "protagonist" },
+          { ...base, id: "c-minor", name: "路人丁", importance: 3, category: "minor" },
+        ],
+        skills: [],
+      },
+      selectedCharacterId: "c-minor",
+    })
+
+    const names = Array.from(container.querySelectorAll("button .truncate")).map((node) => node.textContent)
+    expect(names).toEqual(["主角丙", "反派甲", "配角乙", "路人丁"])
+    cleanup()
+  })
+
+  it("将 antagonist 显示为反派", () => {
+    const { container, cleanup } = renderPanel({
+      book: {
+        ...book,
+        characters: [{
+          ...book.characters[0],
+          id: "char-villain",
+          name: "反派甲",
+          category: "antagonist",
+        }],
+        skills: [],
+      },
+      selectedCharacterId: "char-villain",
+    })
+
+    expect(container.textContent).toMatch(/反派\s*·\s*重要度/)
+    expect(container.textContent).not.toContain("配角 · 重要度")
+    cleanup()
+  })
 })
