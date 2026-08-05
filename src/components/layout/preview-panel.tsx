@@ -4,7 +4,6 @@ import { Check, MoreHorizontal, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
-import { useReviewStore } from "@/stores/review-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, writeFileIfAbsent, listDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
@@ -664,18 +663,14 @@ export function PreviewPanel() {
 
   const phaseLabelMap: Record<FinalChapterSavePhase, string> = {
     saving: t("novel.chapter.savingAsFinal"),
-    reviewing: t("novel.chapter.reviewInProgress"),
     saved: t("novel.chapter.savedAsFinal"),
     reingesting: t("novel.chapter.savingAsFinal"),
     ingested: t("novel.chapter.ingestSuccess"),
-    blocked_by_review: t("novel.chapter.reviewBlockedWithErrors"),
     ingest_failed: t("novel.chapter.ingestFailedRetry"),
     ingest_no_llm: t("novel.chapter.ingestNoLlmKey"),
     ingest_no_chapter_number: "章节已保存为正式章节，但快照生成失败：章节编号无效。请在章节2栏中重命名章节以修正编号。",
     ingest_not_final: "章节已保存为正式章节，但快照生成失败：章节状态异常，请检查章节是否正确标记为终稿。",
     ingest_extract_failed: "章节已保存为正式章节，但快照生成失败：LLM 生成超时或返回格式错误，请重试。",
-    review_warnings: t("novel.chapter.reviewWarningsButProceeding"),
-    review_failed_proceed: t("novel.chapter.reviewFailedProceeding"),
   }
 
   const visibleSaveStatus = (() => {
@@ -830,39 +825,6 @@ export function PreviewPanel() {
     updatePhase(true, "saving")
 
     const novelConfig = useWikiStore.getState().novelConfig
-
-    if (novelConfig.reviewBeforeSave) {
-      updatePhase(true, "reviewing")
-      try {
-        const chapterNumber = chapterFrontmatter.chapterNumber as number | undefined
-        const { reviewChapter } = await import("@/lib/novel/review-adapter")
-        const results = await reviewChapter(project.path, currentContent, chapterNumber)
-        if (results.length > 0) {
-          const reviewStore = useReviewStore.getState()
-          reviewStore.addNovelReviewEntry({
-            id: `chapter-${chapterNumber}-${Date.now()}`,
-            chapterNumber: chapterNumber ?? 0,
-            results,
-            createdAt: new Date().toISOString(),
-            resolved: false,
-          })
-        }
-        const errors = results.filter(r => r.severity === "error")
-        const warnings = results.filter(r => r.severity === "warning")
-
-        if (errors.length > 0) {
-          updatePhase(false, "blocked_by_review", { count: errors.length, warnings: warnings.length })
-          setIsSavingFinal(false)
-          return
-        }
-
-        if (warnings.length > 0) {
-          updatePhase(true, "review_warnings", { count: warnings.length })
-        }
-      } catch {
-        updatePhase(true, "review_failed_proceed")
-      }
-    }
 
     try {
       if (saveTimerRef.current) {

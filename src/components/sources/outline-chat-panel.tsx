@@ -56,15 +56,6 @@ import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog"
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-section-configs";
 import {
   buildOutlineWizardPrompt,
@@ -109,13 +100,6 @@ import {
   type CharacterAgentResult,
 } from "@/lib/novel/character-multi-agent";
 import { classifyOutlineSaveTarget } from "@/lib/novel/outline-save-classifier";
-import {
-  buildOutlineGenerationQualityFeedback,
-  formatChapterOutlineQualityReport,
-  isLikelyChapterOutline,
-  type OutlineGenerationQualityFeedback,
-  summarizeChapterOutlineQuality,
-} from "@/lib/novel/outline-quality-check";
 import {
   characterDraftsToSaveRequests,
   extractBodyContent,
@@ -1470,15 +1454,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       dedupeKey: `outline-operation:${message}`,
     });
   }, []);
-  const [qualityFeedbackStates, setQualityFeedbackStates] =
-    useState<Record<string, OutlineGenerationQualityFeedback>>({});
-  type QualityConfirmState = {
-    feedback: OutlineGenerationQualityFeedback;
-    requests: OutlineSaveRequest[];
-  };
-  const [qualityConfirmStates, setQualityConfirmStates] = useState<Record<string, QualityConfirmState>>({});
-  const qualityFeedbackState = activeConversationId ? qualityFeedbackStates[activeConversationId] ?? null : null;
-  const qualityConfirmState = activeConversationId ? qualityConfirmStates[activeConversationId] ?? null : null;
   const [saveConfirmState, setSaveConfirmState] = useState<{
     title: string;
     mode: "normal" | "character";
@@ -1490,7 +1465,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const lastScrollTopRef = useRef(0);
-  const pendingRepairMetaRef = useRef<Record<string, OutlineSaveRequest[]>>({});
   const pendingNormalSaveRequestsRef = useRef<OutlineSaveRequest[]>([]);
 
   // Auto-scroll
@@ -1608,32 +1582,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (!project || !canApply()) return;
       const parsed = parseOutlineSaveRequests(assistantContent);
       if (parsed.requests.length === 0) {
-        const repairMeta = pendingRepairMetaRef.current[conversationId];
-        if (repairMeta && repairMeta.length > 0) {
-          const body = extractBodyContent(assistantContent);
-          if (body && isLikelyChapterOutline(body, repairMeta[0].fileName)) {
-            const fallbackRequests: OutlineSaveRequest[] = repairMeta.map((meta) => ({
-              ...meta,
-              content: body,
-            }));
-            delete pendingRepairMetaRef.current[conversationId];
-            if (!canApply()) return;
-            setSaveConfirmState({
-              title: "请确认要保存的修订大纲",
-              mode: "normal",
-              requests: fallbackRequests,
-              characterDrafts: [],
-            });
-            setSaveStatus("检测到可保存大纲，请确认后写入。");
-            return;
-          }
-        }
         if (parsed.errors.length > 0) {
           showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
         }
         return;
       }
-      delete pendingRepairMetaRef.current[conversationId];
 
       if (!canApply()) return;
       try {
@@ -2119,7 +2072,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
         let finalText = "";
         let capturedSuccessfulResults: OutlineSubAgentResult[] = [];
-        let capturedCharacterResults: CharacterAgentResult[] = [];
 
         const currentIntentContext = intentContextsRef.current[capturedConvId];
         const isCharacterMultiAgentTask =
@@ -2218,8 +2170,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 if (!isCurrentRun()) return;
               },
             });
-
-            capturedCharacterResults = multiAgentResult.characters;
 
             if (multiAgentResult.characters.length === 0) {
               finalText = await runSingleAgentFallback();
@@ -3693,55 +3643,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     void useOutlineChatStore.getState().saveToDisk();
   }, []);
 
-  const handleRepairQualityFeedback = useCallback(() => {
-    if (!activeConversationId) return;
-    const capturedConvId = activeConversationId;
-    const repairPrompt = qualityFeedbackState?.repairPrompt;
-    if (!repairPrompt) return;
-    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
-    void handleSend(repairPrompt, [], { conversationId: capturedConvId, clearDraft: false, forceRefresh: true });
-  }, [activeConversationId, handleSend, qualityFeedbackState]);
-
-  const handleSaveAsIs = useCallback(async () => {
-    if (!project || !qualityConfirmState || !activeConversationId) return;
-    const capturedConvId = activeConversationId;
-    const { requests } = qualityConfirmState;
-    setQualityConfirmStates((states) => setOutlineSessionValue(states, capturedConvId, null));
-    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
-    if (requests.length === 0) return;
-    setSaveStatus("正在保存大纲...");
-    try {
-      const projectPath = normalizePath(project.path);
-      const saveResult = await saveOutlineSaveRequests({
-        outlineRoot: `${projectPath}/wiki/outlines`,
-        requests,
-        createDirectory,
-        fileExists,
-        readFile,
-        writeFile,
-      });
-      if (saveResult.saved.length > 0) {
-        await refreshProjectState(projectPath);
-        const names = saveResult.saved.map((item) => item.fileName).join("、");
-        setSaveStatus(`已保存 ${saveResult.saved.length} 个大纲文件：${names}`);
-      } else if (saveResult.errors.length > 0) {
-        setSaveStatus(`保存失败：${saveResult.errors.slice(0, 2).join("；")}`);
-      }
-    } catch (error) {
-      setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, [activeConversationId, project, qualityConfirmState, createDirectory, fileExists, readFile, writeFile]);
-
-  const handleAutoFixFromModal = useCallback(() => {
-    if (!activeConversationId) return;
-    const capturedConvId = activeConversationId;
-    const repairPrompt = qualityConfirmState?.feedback.repairPrompt;
-    if (!repairPrompt) return;
-    pendingRepairMetaRef.current[capturedConvId] = qualityConfirmState.requests;
-    setQualityConfirmStates((states) => setOutlineSessionValue(states, capturedConvId, null));
-    setQualityFeedbackStates((states) => setOutlineSessionValue(states, capturedConvId, null));
-    void handleSend(repairPrompt, [], { conversationId: capturedConvId, clearDraft: false, forceRefresh: true });
-  }, [activeConversationId, handleSend, qualityConfirmState]);
 
   const requestDeleteConversation = useCallback((conversationId: string) => {
     if (runStates[conversationId]?.status === "running") {
@@ -3941,18 +3842,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             : null}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {qualityFeedbackState && qualityFeedbackState.status !== "pass" ? (
-            <button
-              type="button"
-              disabled={isStreaming}
-              onClick={handleRepairQualityFeedback}
-              aria-label="修订生成后质量检查发现的问题"
-              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-              title={qualityFeedbackState.summary}
-            >
-              修订质量问题
-            </button>
-          ) : null}
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
@@ -4150,49 +4039,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             onClose={() => setSaveConfirmState(null)}
             onConfirm={executeConfirmedOutlineSave}
           />
-        ) : null}
-        {qualityConfirmState ? (
-          <Dialog open onOpenChange={(open) => {
-            if (!open && activeConversationId) {
-              setQualityConfirmStates((states) => setOutlineSessionValue(states, activeConversationId, null));
-            }
-          }}>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>大纲质量检查发现可修复项</DialogTitle>
-                <DialogDescription className="text-left">
-                  {qualityConfirmState.feedback.summary}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="max-h-48 overflow-y-auto space-y-1 py-2">
-                {qualityConfirmState.feedback.issues.slice(0, 10).map((issue, index) => (
-                  <div key={index} className="flex items-start gap-2 text-sm">
-                    <span className="mt-0.5 shrink-0 text-amber-600">·</span>
-                    <span className="text-muted-foreground">{issue}</span>
-                  </div>
-                ))}
-                {qualityConfirmState.feedback.issues.length > 10 ? (
-                  <div className="text-xs text-muted-foreground">
-                    另有 {qualityConfirmState.feedback.issues.length - 10} 项未列出
-                  </div>
-                ) : null}
-              </div>
-              <DialogFooter className="gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleSaveAsIs}
-                >
-                  按当前内容保存
-                </Button>
-                <Button
-                  onClick={handleAutoFixFromModal}
-                  disabled={isStreaming}
-                >
-                  自动修复
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         ) : null}
       </div>
     </div>

@@ -27,14 +27,6 @@ export interface ChapterOutlineQualitySummary {
   items: QualityCheckItem[];
 }
 
-export interface OutlineGenerationQualityFeedback {
-  status: "pass" | "warn" | "error";
-  title: string;
-  summary: string;
-  issues: string[];
-  repairPrompt: string;
-}
-
 /**
  * 对卷纲 Markdown 内容执行全部质量检查。
  *
@@ -104,81 +96,6 @@ export function summarizeChapterOutlineQuality(content: string): ChapterOutlineQ
     errors,
     warnings,
     items,
-  };
-}
-
-export function formatChapterOutlineQualityReport(
-  summary: ChapterOutlineQualitySummary,
-  options: { maxIssues?: number; includeWarnings?: boolean } = {},
-): string {
-  const maxIssues = Math.max(1, options.maxIssues ?? 5);
-  const errors = Array.from(new Set(summary.errors));
-  const warnings = Array.from(new Set(summary.warnings));
-
-  if (errors.length === 0) {
-    if (warnings.length === 0) return "章纲质量检查通过。";
-    const warningPreview = warnings.slice(0, maxIssues).join("；");
-    const remainingWarnings = warnings.length - Math.min(warnings.length, maxIssues);
-    return [
-      `章纲质量检查通过，但有 ${warnings.length} 项提醒。`,
-      `建议完善：${warningPreview}${remainingWarnings > 0 ? `；另有 ${remainingWarnings} 项未列出` : ""}。`,
-    ].join("");
-  }
-
-  const issuePreview = errors.slice(0, maxIssues).join("；");
-  const remainingIssues = errors.length - Math.min(errors.length, maxIssues);
-  const warningText =
-    options.includeWarnings && warnings.length > 0
-      ? `，另有 ${warnings.length} 项提醒`
-      : "";
-
-  return [
-    `章纲质量检查未通过：${errors.length} 项错误${warningText}。`,
-    `主要缺失：${issuePreview}${remainingIssues > 0 ? `；另有 ${remainingIssues} 项未列出` : ""}。`,
-    "请让 AI 按章纲标准补齐后重新输出完整章纲，再保存。",
-  ].join("");
-}
-
-export function buildOutlineGenerationQualityFeedback(input: {
-  fileType: string;
-  fileName: string;
-  content: string;
-}): OutlineGenerationQualityFeedback | null {
-  if (input.fileType !== "chapter-outline" && !isLikelyChapterOutline(input.content, input.fileName)) {
-    return null;
-  }
-
-  const summary = summarizeChapterOutlineQuality(input.content);
-  const issues = Array.from(new Set([...summary.errors, ...summary.warnings]));
-  if (issues.length === 0) {
-    return {
-      status: "pass",
-      title: "生成后质量检查",
-      summary: `${input.fileName} 章纲质量检查通过。`,
-      issues: [],
-      repairPrompt: "",
-    };
-  }
-
-  const status: "warn" | "error" = summary.valid ? "warn" : "error";
-  const preview = issues.slice(0, 5).join("；");
-  const remaining = issues.length > 5 ? `；另有 ${issues.length - 5} 项未列出` : "";
-  return {
-    status,
-    title: "生成后质量检查",
-    summary: `${input.fileName} 存在 ${issues.length} 个可修复项：${preview}${remaining}。`,
-    issues,
-    repairPrompt: [
-      `请按章纲标准修订「${input.fileName}」。`,
-      "必须补齐以下可修复项，不要改变已确认的剧情方向：",
-      ...issues.slice(0, 12).map((issue, index) => `${index + 1}. ${issue}`),
-      "",
-      "重要要求：",
-      "1. 必须输出修订后的完整章纲正文（使用标准 Markdown 格式），不能只输出修改摘要或说明。",
-      "2. 在回复末尾附加 outlineSaveRequest JSON，必须包含完整 content，以及 targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent。fileType 只能用英文枚举（outline/volume-outline/chapter-outline/character/setting/foreshadowing/organization/quality-report），writeMode 只能用英文枚举（create/append/replace/patch），targetFolder 必须是相对路径（如「章纲」），禁止绝对路径。",
-      "3. 系统解析后会弹出确认，用户确认后才写入文件；禁止省略 content。",
-      "4. 正文中必须包含完整的章纲所有必填章节，不能省略未修改的部分。",
-    ].join("\n"),
   };
 }
 
