@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   finalizeProjectMemoryRebuildMock: vi.fn(),
   refreshProjectStateMock: vi.fn(),
   hasUsableLlmMock: vi.fn(() => true),
+  listDirectoryMock: vi.fn(),
+  outlineSnapshotExistsMock: vi.fn(),
   outlineStore: {
     tasks: [] as Array<{ id: string; projectPath: string; outlinePath: string | null; status: string; message: string; error: string | null; updatedAt: number }>,
     createTask: vi.fn((input: { projectPath: string; outlinePath?: string | null }) => {
@@ -61,6 +63,22 @@ vi.mock("@/lib/has-usable-llm", () => ({
   hasUsableLlm: mocks.hasUsableLlmMock,
 }))
 
+vi.mock("@/commands/fs", async () => {
+  const actual = await vi.importActual<typeof import("@/commands/fs")>("@/commands/fs")
+  return {
+    ...actual,
+    listDirectory: mocks.listDirectoryMock,
+  }
+})
+
+vi.mock("./outline-ingest-utils", async () => {
+  const actual = await vi.importActual<typeof import("./outline-ingest-utils")>("./outline-ingest-utils")
+  return {
+    ...actual,
+    outlineSnapshotExists: mocks.outlineSnapshotExistsMock,
+  }
+})
+
 vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: {
     getState: () => ({
@@ -89,6 +107,7 @@ import {
   buildOutlineRefinementContext,
   formatBulkOutlineIngestResult,
   OutlineIngestNotReadyError,
+  runBulkOutlineIngest,
   runOutlineIngestPaths,
 } from "./outline-generation"
 
@@ -145,6 +164,8 @@ describe("bulk outline ingest", () => {
     mocks.refreshProjectStateMock.mockReset()
     mocks.hasUsableLlmMock.mockReset()
     mocks.hasUsableLlmMock.mockReturnValue(true)
+    mocks.listDirectoryMock.mockReset()
+    mocks.outlineSnapshotExistsMock.mockReset()
     mocks.outlineStore.tasks = []
     mocks.importProgressStore.tasks = []
     mocks.importProgressStore.startTask.mockClear()
@@ -233,5 +254,59 @@ describe("bulk outline ingest", () => {
     expect(message).toContain("失败")
     expect(message).toContain("b")
     expect(message).toContain("JSON 解析失败")
+  })
+
+  it("formats already-extracted empty result", () => {
+    const message = formatBulkOutlineIngestResult({
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      failures: [],
+      emptyReason: "already_extracted",
+    })
+
+    expect(message).toContain("已提取")
+  })
+
+  it("pending mode skips outlines that already have snapshots", async () => {
+    mocks.listDirectoryMock.mockResolvedValueOnce([
+      { path: "E:/Novel/wiki/outlines/a.md", name: "a.md", is_dir: false },
+      { path: "E:/Novel/wiki/outlines/b.md", name: "b.md", is_dir: false },
+    ])
+    mocks.outlineSnapshotExistsMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+    mocks.ingestOutlineMock.mockResolvedValueOnce({
+      snapshot: { chapterId: "outline-b", chapterNumber: -2 },
+      truncated: false,
+      originalLength: 100,
+      bodyLength: 100,
+      bodyBudget: 1000,
+      failureReason: null,
+    })
+
+    const result = await runBulkOutlineIngest("E:/Novel", { mode: "pending" })
+
+    expect(result).toMatchObject({ total: 1, succeeded: 1, failed: 0 })
+    expect(mocks.ingestOutlineMock).toHaveBeenCalledTimes(1)
+    expect(mocks.ingestOutlineMock.mock.calls[0]?.[1]).toContain("b.md")
+  })
+
+  it("pending mode returns already_extracted when nothing is left", async () => {
+    mocks.listDirectoryMock.mockResolvedValueOnce([
+      { path: "E:/Novel/wiki/outlines/a.md", name: "a.md", is_dir: false },
+    ])
+    mocks.outlineSnapshotExistsMock.mockResolvedValueOnce(true)
+
+    const result = await runBulkOutlineIngest("E:/Novel", { mode: "pending" })
+
+    expect(result).toEqual({
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      failures: [],
+      emptyReason: "already_extracted",
+    })
+    expect(mocks.ingestOutlineMock).not.toHaveBeenCalled()
   })
 })
