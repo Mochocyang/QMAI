@@ -99,7 +99,10 @@ import {
   extractContinueUnfinishedDeepChapterContext,
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
-import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
+import {
+  extractChapterBodyFromToolCalls,
+  getCopyableAssistantContent,
+} from "@/lib/chat-copy-content"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import { loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
@@ -1426,17 +1429,25 @@ export function ChatPanel() {
       const markError = (error: Error) => {
         hasAgentError = true
         lastAgentError = error.message || "生成失败"
-        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          content: message.content
-            ? `${message.content}\n\n出错：${error.message}`
-            : `出错：${error.message}`,
-          reasoning_content: accumulatedReasoningContent,
-          agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error"),
-          agentStages: settleRunningAgentStages(message.agentStages, "error"),
-          contextTrace: contextTrace || message.contextTrace,
-          isAgentRunning: false,
-        }))
+        updateAgentAssistantMessage(assistantMessage.id, (message) => {
+          const recoveredChapterBody =
+            extractChapterBodyFromToolCalls(message.agentToolCalls) ||
+            getCopyableAssistantContent(message.content)
+          const baseContent = message.content?.trim()
+            ? message.content
+            : recoveredChapterBody
+          return {
+            ...message,
+            content: baseContent
+              ? `${baseContent}\n\n出错：${error.message}`
+              : `出错：${error.message}`,
+            reasoning_content: accumulatedReasoningContent,
+            agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error"),
+            agentStages: settleRunningAgentStages(message.agentStages, "error"),
+            contextTrace: contextTrace || message.contextTrace,
+            isAgentRunning: false,
+          }
+        })
       }
 
       const finishAgentSession = (callback?: () => void) => {

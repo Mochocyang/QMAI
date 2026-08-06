@@ -217,7 +217,13 @@ export function ChatMessage({
             {novelMode && isLastAssistant && onSaveAsChapter && (
               <button
                 type="button"
-                onClick={() => onSaveAsChapter(message.content)}
+                onClick={() =>
+                  onSaveAsChapter(
+                    getCopyableAssistantContent(message.content, {
+                      toolCalls: message.agentToolCalls,
+                    }),
+                  )
+                }
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
               >
@@ -246,7 +252,10 @@ export function ChatMessage({
               </button>
             )}
             {(hovered || (novelMode && isLastAssistant)) && (
-              <CopyButton content={message.content} />
+              <CopyButton
+                content={message.content}
+                toolCalls={message.agentToolCalls}
+              />
             )}
             {isLastAssistant && onRegenerate && (
               <button
@@ -307,25 +316,43 @@ export function ChatMessage({
   );
 }
 
-function CopyButton({ content }: { content: string }) {
+function CopyButton({
+  content,
+  toolCalls,
+}: {
+  content: string;
+  toolCalls?: ToolCallRecord[];
+}) {
   const [copied, setCopied] = useState(false);
+  const copyable = useMemo(
+    () => getCopyableAssistantContent(content, { toolCalls }),
+    [content, toolCalls],
+  );
+  const hasRecoveredChapterBody =
+    Boolean(copyable) &&
+    (/^出错：/.test(content.trim()) || content.includes("\n\n出错："));
 
   const handleCopy = useCallback(async () => {
-    const clean = getCopyableAssistantContent(content);
-    await navigator.clipboard.writeText(clean);
+    if (!copyable) return;
+    await navigator.clipboard.writeText(copyable);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [content]);
+  }, [copyable]);
 
   return (
     <button
       type="button"
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-      title="复制到剪贴板"
+      disabled={!copyable}
+      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+      title={
+        hasRecoveredChapterBody
+          ? "复制已完成的章节正文（不含错误信息）"
+          : "复制到剪贴板"
+      }
     >
       {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      {copied ? "已复制" : "复制"}
+      {copied ? "已复制" : hasRecoveredChapterBody ? "复制正文" : "复制"}
     </button>
   );
 }
