@@ -3,6 +3,7 @@ import {
   characterDraftsToSaveRequests,
   extractBodyContent,
   formatOutlineSaveParseFeedback,
+  mergeOutlineSaveRequests,
   parseOutlineSaveRequests,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
@@ -224,6 +225,59 @@ describe("outline-save-request", () => {
 
     expect(result.confirmRequired).toHaveLength(2)
     expect(result.autoSaveable).toHaveLength(0)
+  })
+
+  it("mergeOutlineSaveRequests 按路径去重且以新内容覆盖同名", () => {
+    const existing = [
+      {
+        targetFolder: "章纲",
+        fileName: "第11章-入局.md",
+        fileType: "chapter-outline" as const,
+        writeMode: "create" as const,
+        referencedSkills: [],
+        sourceIntent: "第一批",
+        content: "旧11",
+      },
+      {
+        targetFolder: "章纲",
+        fileName: "第12章-交割.md",
+        fileType: "chapter-outline" as const,
+        writeMode: "create" as const,
+        referencedSkills: [],
+        sourceIntent: "第一批",
+        content: "旧12",
+      },
+    ]
+    const incoming = [
+      {
+        targetFolder: "章纲",
+        fileName: "第12章-交割.md",
+        fileType: "chapter-outline" as const,
+        writeMode: "create" as const,
+        referencedSkills: [],
+        sourceIntent: "第二批",
+        content: "新12",
+      },
+      {
+        targetFolder: "章纲",
+        fileName: "第16章-季度会.md",
+        fileType: "chapter-outline" as const,
+        writeMode: "create" as const,
+        referencedSkills: [],
+        sourceIntent: "第二批",
+        content: "新16",
+      },
+    ]
+
+    const merged = mergeOutlineSaveRequests(existing, incoming)
+    expect(merged.map((item) => item.fileName)).toEqual([
+      "第11章-入局.md",
+      "第12章-交割.md",
+      "第16章-季度会.md",
+    ])
+    expect(merged[1].content).toBe("新12")
+    expect(merged[1].sourceIntent).toBe("第二批")
+    expect(merged[0].content).toBe("旧11")
   })
 
   it("多请求且正文无一级标题拆分时不共用同一份正文回填", () => {

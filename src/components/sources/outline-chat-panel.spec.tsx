@@ -721,7 +721,22 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("confirmRequired")
     expect(source).toContain("请确认要保存的人物角色")
     expect(source).toContain("请确认要保存的大纲文件")
-    expect(source).toContain("pendingNormalSaveRequestsRef")
+    expect(source).toContain("pendingSaveBatchesRef")
+    expect(source).toContain("presentOrQueueSaveBatch")
+  })
+
+  it("queues or merges pending outline saves across turns instead of overwriting", () => {
+    expect(source).toContain("mergeOutlineSaveRequests")
+    expect(source).toContain("saveConfirmStateRef")
+    expect(source).toContain("pendingSaveBatchesRef")
+    expect(source).toContain('current.mode === "normal" && batch.mode === "normal"')
+    expect(source).toContain("presentOrQueueSaveBatch")
+    expect(source).toContain("drainNextSaveBatch")
+    // 确认/关闭后继续 drain，避免未确认批次被覆盖丢失
+    expect(source).toContain("drainNextSaveBatch()")
+    expect(source).toContain("onClose={handleCloseSaveConfirm}")
+    expect(source).toContain("handleCloseSaveConfirm")
+    expect(source).not.toContain("pendingNormalSaveRequestsRef")
   })
 
   it("keeps a confirmation fallback when character extraction fails", () => {

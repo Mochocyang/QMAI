@@ -1,6 +1,6 @@
 [package]
 name = "qmai"
-version = "3.1.0"
+version = "3.1.1"
 description = "QMAI - AI writing system for long-form novels"
 authors = ["Mochocyang"]
 edition = "2021"
@@ -21,14 +21,14 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
-tauri-plugin-dialog = "2.7.1"
+tauri-plugin-dialog = "2.7.2"
 tauri-plugin-updater = "2"
 pdfium-render = "0.9"
-tauri-plugin-store = "2.4.2"
+tauri-plugin-store = "2.4.4"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 zip = "2"
 calamine = "0.34.0"
-docx-rs = "0.4.20"
+docx-rs = "0.4.22"
 cfb = "0.7.3"
 encoding_rs = "0.8.35"
 lancedb = "0.27.2"

@@ -188,7 +188,7 @@ function detectOutlineContentType(content: string): "chapter-outline" | "charact
   return "outline"
 }
 
-function extractChapterOutlineTitle(content: string, lines: string[]): string | null {
+function extractChapterOutlineTitle(content: string, _lines: string[]): string | null {
   const chapterMatch = content.match(/第\s*(\d{1,4}|[一二三四五六七八九十百千万]+)\s*章\s*([^\n#：:，,。.]*)/)
   if (chapterMatch) {
     const chapterNum = chapterMatch[1]
@@ -227,7 +227,7 @@ function extractCharacterTitle(content: string, lines: string[]): string | null 
   return null
 }
 
-function extractVolumeOutlineTitle(content: string, lines: string[]): string | null {
+function extractVolumeOutlineTitle(content: string, _lines: string[]): string | null {
   const volumeMatch = content.match(/第\s*(\d+|[一二三四五六七八九十百千万]+)\s*卷\s*([^\n#：:，,。.]*)/)
   if (volumeMatch) {
     const volumeNum = volumeMatch[1]
