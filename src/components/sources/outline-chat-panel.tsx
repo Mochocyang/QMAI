@@ -90,7 +90,6 @@ import {
 } from "@/lib/novel/character-save-extractor";
 import {
   buildCharacterAgentSystemPrompt,
-  buildCharacterAgentUserPrompt,
   buildCharacterAgentPlans,
   buildCharacterPlannerSystemPrompt,
   buildCharacterPlannerUserPrompt,
@@ -187,7 +186,6 @@ import {
   buildIntentAnalysisPrompt,
   parseIntentClarity,
   shouldAutoFollowUpGeneration,
-  stripStructuredMarkers,
   type IntentClarityResult,
 } from "@/lib/novel/outline-intent-clarity";
 import {
@@ -206,8 +204,6 @@ import {
 } from "@/lib/conversation-create-guard";
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
-import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
-import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair";
 import {
   type OutlineWorkflowStage,
   canTransitionOutlineWorkflow,
@@ -1611,7 +1607,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleAutoSaveOutlineRequests = useCallback(
-    async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
+    async (_conversationId: string, assistantContent: string, canApply: () => boolean) => {
       if (!project || !canApply()) return;
       const parsed = parseOutlineSaveRequests(assistantContent);
       if (parsed.requests.length === 0) {
@@ -2035,7 +2031,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           );
           let runText = "";
           let runReasoningContent = "";
-          let agentError: Error | null = null;
+          const agentErrorBox: { current: Error | null } = { current: null };
           if (optionsForRun.statusText) {
             if (isCurrentRun()) setStreamingContent(capturedConvId, optionsForRun.statusText);
           }
@@ -2065,7 +2061,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onToolResult: () => {},
               onToolError: () => {},
               onToolEvent: (event) => {
-                if (!isCurrentRun()) return { started: true, sent: false };
+                if (!isCurrentRun()) return;
                 if (!historyPlan.showToolProcess) {
                   hiddenToolCalls = applyAgentToolEvent(hiddenToolCalls, event);
                   return;
@@ -2080,13 +2076,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               },
               onDone: () => {},
               onError: (error) => {
-                agentError = error;
+                agentErrorBox.current = error;
               },
             },
             controller.signal,
           );
           providerUsage = addLlmUsage(providerUsage, record.usage);
           allToolCalls.push(...record.toolCalls);
+          const agentError = agentErrorBox.current;
           const errMsg = agentError?.message ?? "";
           const isLengthTruncated = errMsg.includes("输出被截断") || errMsg.includes("最大输出 token");
           if (agentError && !isLengthTruncated) throw agentError;

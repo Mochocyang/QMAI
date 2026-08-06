@@ -9,8 +9,8 @@
     "db:migrate": "wrangler d1 execute qmai-analytics-db --remote --file=./schema.sql"
   },
   "devDependencies": {
-    "wrangler": "^3.99.0",
-    "@cloudflare/workers-types": "^4.20241127.0",
-    "typescript": "^5.7.0"
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^3.114.17"
   }
 }
