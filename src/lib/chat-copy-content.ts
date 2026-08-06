@@ -1,6 +1,15 @@
 import { parseAgentResponse } from "@/lib/novel/agent-parser"
 import { cleanGeneratedChapterContentForSave } from "@/lib/novel/chapter-content-cleanup"
 
+const WORKFLOW_FINAL_CONTENT_MARKER = "最终正文："
+const ASSISTANT_ERROR_SUFFIX_RE = /(?:^|\n{1,2})出错：[\s\S]*$/
+
+export type CopyableToolCall = {
+  name: string
+  result?: string
+  status?: string
+}
+
 function stripHiddenAssistantBlocks(content: string): string {
   let result = content
     .replace(/<!--.*?-->/gs, "")
@@ -30,7 +39,37 @@ function isChapterEditPath(filePath: string): boolean {
   return normalized.startsWith("wiki/chapters/") && normalized.endsWith(".md")
 }
 
-export function getCopyableAssistantContent(content: string): string {
+function stripAssistantErrorSuffix(content: string): string {
+  return content.replace(ASSISTANT_ERROR_SUFFIX_RE, "").trim()
+}
+
+/** 从 run_chapter_workflow 工具结果中提取「最终正文」段。 */
+export function extractWorkflowFinalContent(result: string | undefined): string {
+  if (!result?.trim()) return ""
+  const markerIndex = result.lastIndexOf(WORKFLOW_FINAL_CONTENT_MARKER)
+  if (markerIndex < 0) return ""
+  return result.slice(markerIndex + WORKFLOW_FINAL_CONTENT_MARKER.length).replace(/^\n+/, "").trim()
+}
+
+/** 从已完成的章节工作流工具调用中取最新一份最终正文。 */
+export function extractChapterBodyFromToolCalls(
+  toolCalls: CopyableToolCall[] | undefined,
+): string {
+  if (!toolCalls?.length) return ""
+  for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+    const call = toolCalls[i]
+    if (call.name !== "run_chapter_workflow") continue
+    if (call.status === "error" || call.status === "cancelled") continue
+    const body = extractWorkflowFinalContent(call.result)
+    if (body) return body
+  }
+  return ""
+}
+
+export function getCopyableAssistantContent(
+  content: string,
+  options?: { toolCalls?: CopyableToolCall[] },
+): string {
   const parsed = parseAgentResponse(content)
   const chapterEditReplacements = parsed.edits
     .filter((edit) => isChapterEditPath(edit.filePath) && edit.replace.trim())
@@ -41,5 +80,15 @@ export function getCopyableAssistantContent(content: string): string {
     return chapterEditReplacements.join("\n\n").trim()
   }
 
-  return stripHiddenAssistantBlocks(parsed.textContent || content)
+  const fromContent = stripAssistantErrorSuffix(
+    stripHiddenAssistantBlocks(parsed.textContent || content),
+  )
+  if (fromContent) {
+    return fromContent
+  }
+
+  const fromWorkflow = extractChapterBodyFromToolCalls(options?.toolCalls)
+  if (fromWorkflow) return fromWorkflow
+
+  return ""
 }
