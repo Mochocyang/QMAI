@@ -37,6 +37,21 @@ export function replaceWholeChapterBody(currentMarkdown: string, replacementMark
   return rawBlock + rebuildChapterBody(heading, replacementBody)
 }
 
+/**
+ * 去 AI 味对比 / 送模只用“会被写回替换”的正文：去掉 frontmatter、章节标题行、代码围栏包装。
+ * 写回仍走 replaceWholeChapterBody，frontmatter 与原标题会保留。
+ */
+export function extractDeAiChapterText(markdown: string): string {
+  const { body } = parseFrontmatter(markdown)
+  const { body: prose } = splitChapterHeading(body)
+  let normalized = prose.replace(/\r\n?/g, "\n").trim()
+  const fenceMatch = normalized.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)\n?```\s*$/)
+  if (fenceMatch?.[1]) {
+    normalized = fenceMatch[1].replace(/\r\n?/g, "\n").trim()
+  }
+  return normalized
+}
+
 export function buildPolishSelectionMessages(content: string): ChatMessage[] {
   if (!content.trim()) throw new Error("润色内容为空，无法处理")
   return [
