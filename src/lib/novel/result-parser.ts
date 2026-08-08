@@ -92,7 +92,7 @@ export function validateChapterContent(content: string): ChapterValidationResult
     warnings.push("未检测到章节标题")
   }
   if (wordCount < 50) {
-    warnings.push(`字数过少（${wordCount} 字）`)
+    errors.push(`字数过少（${wordCount} 字）`)
   }
   if (wordCount > 20000) {
     warnings.push(`字数超过上限（${wordCount} 字 / 20000 字上限）`)

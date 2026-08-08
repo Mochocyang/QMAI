@@ -3,7 +3,30 @@ import {
   extractChapterBodyFromToolCalls,
   extractWorkflowFinalContent,
   getCopyableAssistantContent,
+  isThinChapterAssistantContent,
+  shouldPreferWorkflowChapterBody,
 } from "./chat-copy-content"
+
+function buildWorkflowResult(body: string): string {
+  return [
+    "章节工作流完成。",
+    "是否返修：是",
+    "任务书：outline",
+    "",
+    "最终正文：",
+    body,
+  ].join("\n")
+}
+
+const LONG_CHAPTER_BODY = [
+  "# 第32章 查分夜",
+  "",
+  "六月下旬的晚上，长泰广场八楼的灯亮到很晚。".repeat(20),
+  "",
+  "陈远坐在评审位前，屏幕上是云记3.0的代码评审页面。".repeat(15),
+  "",
+  "苏晴把手机递过来，两人继续改搜索层级。".repeat(15),
+].join("\n")
 
 test("copies generated chapter edit content instead of surrounding context", () => {
   const content = [
@@ -107,4 +130,63 @@ test("recovers chapter body from tool calls when message content is only an erro
   expect(copied).not.toContain("出错：")
   expect(copied).not.toContain("HTTP 503")
   expect(copied).not.toContain("任务书：")
+})
+
+test("isThinChapterAssistantContent detects completion notices and short text", () => {
+  expect(isThinChapterAssistantContent("第 32 章正文已按章纲重写完成。")).toBe(true)
+  expect(isThinChapterAssistantContent("短文本")).toBe(true)
+  expect(isThinChapterAssistantContent(LONG_CHAPTER_BODY)).toBe(false)
+})
+
+test("shouldPreferWorkflowChapterBody only when assistant is thin and workflow is long", () => {
+  expect(
+    shouldPreferWorkflowChapterBody("第 32 章正文已按章纲重写完成。", LONG_CHAPTER_BODY),
+  ).toBe(true)
+  expect(shouldPreferWorkflowChapterBody(LONG_CHAPTER_BODY, LONG_CHAPTER_BODY)).toBe(false)
+  expect(shouldPreferWorkflowChapterBody("第 32 章正文已按章纲重写完成。", "短草稿")).toBe(false)
+})
+
+test("falls back to workflow final body when assistant content is a completion notice", () => {
+  const copied = getCopyableAssistantContent("第 32 章正文已按章纲重写完成。", {
+    toolCalls: [
+      {
+        name: "run_chapter_workflow",
+        status: "done",
+        result: buildWorkflowResult(LONG_CHAPTER_BODY),
+      },
+    ],
+  })
+
+  expect(copied).toContain("# 第32章 查分夜")
+  expect(copied).toContain("长泰广场八楼")
+  expect(copied).not.toContain("已按章纲重写完成")
+})
+
+test("keeps full assistant chapter body even when workflow also has final content", () => {
+  const assistantBody = [
+    "# 第32章 查分夜",
+    "",
+    "模型按章纲重写后的完整正文从这里开始。".repeat(40),
+    "",
+    "夜宵后苏晴发来周末见。".repeat(20),
+  ].join("\n")
+
+  const copied = getCopyableAssistantContent(assistantBody, {
+    toolCalls: [
+      {
+        name: "run_chapter_workflow",
+        status: "done",
+        result: buildWorkflowResult(LONG_CHAPTER_BODY),
+      },
+    ],
+  })
+
+  expect(copied).toContain("模型按章纲重写后的完整正文")
+  expect(copied).not.toContain("六月下旬的晚上")
+})
+
+test("keeps short assistant content when workflow body is unavailable", () => {
+  expect(getCopyableAssistantContent("第 32 章正文已按章纲重写完成。")).toBe(
+    "第 32 章正文已按章纲重写完成。",
+  )
 })
