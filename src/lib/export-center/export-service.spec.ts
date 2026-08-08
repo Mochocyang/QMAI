@@ -103,6 +103,7 @@ it("Rust 临时文件使用同一可写句柄 write_all 和 sync_all，关闭后
 it("默认二进制写入桥接在 Rust 后端实现并注册", () => {
   const fsSource = readFileSync(resolve(process.cwd(), "src-tauri/src/commands/fs.rs"), "utf8")
   const libSource = readFileSync(resolve(process.cwd(), "src-tauri/src/lib.rs"), "utf8")
+  const mainSource = readFileSync(resolve(process.cwd(), "src-tauri/src/main.rs"), "utf8")
 
   expect(fsSource).toContain("pub async fn write_export_file")
   expect(fsSource).toContain("file.write_all(bytes)")
@@ -124,6 +125,8 @@ it("默认二进制写入桥接在 Rust 后端实现并注册", () => {
   expect(fsSource).toContain("validate_export_base64_length")
   expect(fsSource).toContain("write_export_file_enforces_64_mib_boundary")
   expect(libSource).toContain("commands::fs::write_export_file")
+  // default-run is main.rs; registration only in lib.rs leaves the command dead in the real binary.
+  expect(mainSource).toContain("commands::fs::write_export_file")
   const serviceSource = readFileSync(resolve(process.cwd(), "src/lib/export-center/export-service.ts"), "utf8")
   expect(serviceSource).toContain("contentsBase64: encodeExportBytesBase64(bytes)")
 })
