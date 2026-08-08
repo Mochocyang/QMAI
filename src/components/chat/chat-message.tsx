@@ -62,7 +62,10 @@ interface ChatMessageProps {
   onRegenerate?: () => void;
   novelMode?: boolean;
   projectPath?: string | null;
-  onSaveAsChapter?: (content: string) => void;
+  onSaveAsChapter?: (
+    content: string,
+    toolCalls?: Array<{ name: string; result?: string; status?: string }>,
+  ) => void;
   onContinueNextChapter?: () => void;
   onContinueUnfinished?: () => void;
   onSaveAsDraft?: (content: string) => void;
@@ -218,11 +221,7 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={() =>
-                  onSaveAsChapter(
-                    getCopyableAssistantContent(message.content, {
-                      toolCalls: message.agentToolCalls,
-                    }),
-                  )
+                  onSaveAsChapter(message.content, message.agentToolCalls)
                 }
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"

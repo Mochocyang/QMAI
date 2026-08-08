@@ -48,10 +48,17 @@ title: "第三章 初遇"
       expect(result.warnings).toContain("缺少 frontmatter 元数据")
     })
 
-    it("字数过少应该返回警告", () => {
+    it("字数过少应该返回 invalid", () => {
       const content = "短文本"
       const result = validateChapterContent(content)
-      expect(result.warnings.some((w) => w.includes("字数过少"))).toBe(true)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some((e) => e.includes("字数过少"))).toBe(true)
+    })
+
+    it("完成通知短句应该返回 invalid", () => {
+      const result = validateChapterContent("第 32 章正文已按章纲重写完成。")
+      expect(result.valid).toBe(false)
+      expect(result.errors.some((e) => e.includes("字数过少"))).toBe(true)
     })
   })
 

@@ -20,6 +20,23 @@ function stripThinkingBlocks(content: string): string {
   return result
 }
 
+/** 完成通知类伪标题（如「第 32 章正文已按章纲重写完成。」）不得当作章名。 */
+const CHAPTER_TITLE_STATUS_RE = /(?:完成|重写|已按|生成|工作流)/
+
+/**
+ * 判断一行是否像真实章节标题（「第N章 查分夜」），而不是完成通知。
+ * 要求「第N章」后有分隔与短标题名，且不含完成态动词簇。
+ */
+export function isPlausibleChapterTitleLine(line: string): boolean {
+  const trimmed = line.trim().replace(/^#{1,6}\s*/, "")
+  const match = trimmed.match(/^第\s*\d+\s*章(?:\s*[：:\-—–]?\s*|\s+)(.+)$/)
+  if (!match?.[1]) return false
+  const name = match[1].trim()
+  if (!name || name.length > 40) return false
+  if (CHAPTER_TITLE_STATUS_RE.test(name)) return false
+  return true
+}
+
 /**
  * 从内容开头提取章节标题，并返回清理后的行数组和提取到的标题。
  * 标题格式：# 第X章 标题名 或 第X章 标题名
@@ -32,6 +49,9 @@ function extractLeadingTitle(lines: string[]): { lines: string[]; title: string 
   while (index < lines.length && !lines[index].trim()) index += 1
 
   const firstLine = lines[index]?.trim() ?? ""
+  if (!isPlausibleChapterTitleLine(firstLine)) {
+    return { lines, title: null }
+  }
 
   // 匹配 # 第X章 标题 格式
   const headingMatch = firstLine.match(/^#{1,6}\s*(第\s*\d+\s*章.*)$/)

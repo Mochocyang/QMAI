@@ -3,7 +3,20 @@ import { describe, expect, it } from "vitest"
 import {
   cleanGeneratedChapterContentForSave,
   cleanGeneratedChapterContentWithTitle,
+  isPlausibleChapterTitleLine,
 } from "./chapter-content-cleanup"
+
+describe("isPlausibleChapterTitleLine", () => {
+  it("接受真实章名", () => {
+    expect(isPlausibleChapterTitleLine("# 第32章 查分夜")).toBe(true)
+    expect(isPlausibleChapterTitleLine("第13章 风雪来客")).toBe(true)
+  })
+
+  it("拒绝完成通知伪标题", () => {
+    expect(isPlausibleChapterTitleLine("第 32 章正文已按章纲重写完成。")).toBe(false)
+    expect(isPlausibleChapterTitleLine("# 第32章正文已重写完成")).toBe(false)
+  })
+})
 
 describe("cleanGeneratedChapterContentWithTitle", () => {
   it("提取 Markdown 章节标题，但不把标题重复保存在正文中", () => {
@@ -27,6 +40,14 @@ describe("cleanGeneratedChapterContentWithTitle", () => {
       .toEqual({
         title: null,
         content: "雨落在旧宅门前。\n\n他推门而入。",
+      })
+  })
+
+  it("不把完成通知当作章节标题提取", () => {
+    expect(cleanGeneratedChapterContentWithTitle("第 32 章正文已按章纲重写完成。"))
+      .toEqual({
+        title: null,
+        content: "第 32 章正文已按章纲重写完成。",
       })
   })
 })
