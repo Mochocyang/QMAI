@@ -237,4 +237,41 @@ describe("DeAiBatchReviewDialog", () => {
     expect(button("重新生成").disabled).toBe(true)
     expect(button("另存草稿").disabled).toBe(true)
     expect(button("取消当前章").disabled).toBe(true)
-  })})
+  })
+
+  it("对比时剥离 frontmatter 与标题，只展示正文", () => {
+    const source = record()
+    source.chapters[0] = {
+      ...source.chapters[0],
+      sourceContent: [
+        "---",
+        "type: chapter",
+        "title: 第一章",
+        "chapter_number: 1",
+        "---",
+        "",
+        "# 第一章",
+        "",
+        "第一章原文",
+      ].join("\n"),
+      candidateContent: [
+        "---",
+        "title: 不应出现",
+        "---",
+        "# 假标题",
+        "",
+        "第一章候选",
+      ].join("\n"),
+    }
+    const props = render("chapter-1", callbacks(), source)
+
+    expect(document.body.textContent).toContain("第一章原文")
+    expect(document.body.textContent).not.toContain("chapter_number")
+    expect(document.body.textContent).not.toContain("不应出现")
+    expect(document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="最新源码"]')?.value)
+      .toBe("第一章候选")
+
+    act(() => button("确认当前章").click())
+    expect(props.onConfirm).toHaveBeenCalledWith("task-a", "chapter-1", "第一章候选")
+  })
+})
