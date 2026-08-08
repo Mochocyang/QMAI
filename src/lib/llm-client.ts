@@ -1,6 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
-import { getProviderConfig, type RequestOverrides } from "./llm-providers"
+import { getEffectiveMaxContextSize, getProviderConfig, type RequestOverrides } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import {
@@ -143,9 +143,8 @@ export async function streamChat(
 ): Promise<void> {
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
-  const configuredWindow = Number.isFinite(runtimeConfig.maxContextSize) && runtimeConfig.maxContextSize > 0
-    ? runtimeConfig.maxContextSize
-    : 204_800
+  // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
+  const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
   const outputReserveChars = requestOverrides?.max_tokens
     ? Math.max(0, requestOverrides.max_tokens * 4)
     : Math.floor(configuredWindow * 0.15)

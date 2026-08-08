@@ -2,6 +2,7 @@ import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride }
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint" | "deAi"
@@ -16,8 +17,12 @@ function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, Provider
   return hasUsableLlm(cfg, providerConfigs)
 }
 
+function withEffectiveContextSize(config: LlmConfig): LlmConfig {
+  return { ...config, maxContextSize: getEffectiveMaxContextSize(config) }
+}
+
 function toUnusableConfig(baseConfig: LlmConfig): LlmConfig {
-  return { ...baseConfig, ...UNUSABLE_LLM_CONFIG }
+  return withEffectiveContextSize({ ...baseConfig, ...UNUSABLE_LLM_CONFIG })
 }
 
 export function isModelKeyRegistered(
@@ -69,21 +74,21 @@ export function resolveModelConfig(
     if (override && getEffectiveSavedModels(override).some((m) => m.model === modelId)) {
       const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
       if (template) {
-        return { ...resolveConfig(template, override, baseConfig), model: modelId }
+        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: modelId })
       }
     }
-    return { ...baseConfig, model: modelId }
+    return withEffectiveContextSize({ ...baseConfig, model: modelId })
   }
   // 回退：按纯模型名匹配（兼容旧数据）
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (getEffectiveSavedModels(override).some((m) => m.model === targetModel)) {
       const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
       if (template) {
-        return { ...resolveConfig(template, override, baseConfig), model: targetModel }
+        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: targetModel })
       }
     }
   }
-  return { ...baseConfig, model: targetModel }
+  return withEffectiveContextSize({ ...baseConfig, model: targetModel })
 }
 
 export function resolveUsableModelKey(

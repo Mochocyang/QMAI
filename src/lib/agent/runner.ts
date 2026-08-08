@@ -13,7 +13,7 @@ import {
   saveTaskBreakpoint,
   updateBreakpointStage,
 } from "./task-breakpoint"
-import type { ChatMessage } from "../llm-providers"
+import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage } from "../llm-usage"
 import { trimChatMessagesToBudget } from "../chat-request-budget"
@@ -163,7 +163,8 @@ export class AgentRunner {
         return record
       }
       const streamRound = async () => {
-        const internalBudget = Math.max(1, Math.floor((config.llmConfig.maxContextSize || 204_800) * 0.75))
+        const effectiveContext = getEffectiveMaxContextSize(config.llmConfig)
+        const internalBudget = Math.max(1, Math.floor(effectiveContext * 0.75))
         const compacted = trimChatMessagesToBudget(workingMessages as ChatMessage[], internalBudget) as AgentMessage[]
         workingMessages.splice(0, workingMessages.length, ...compacted)
         await streamChat(

@@ -527,6 +527,25 @@ function isDeepSeekEndpoint(config: LlmConfig): boolean {
   return /deepseek/i.test(config.model) || /deepseek/i.test(config.customEndpoint)
 }
 
+/**
+ * Minimum context window for DeepSeek models. DeepSeek V3/V4 support
+ * up to 1M tokens; the previous default of 64K/200K caused response
+ * truncation on long inputs (bug report).
+ */
+const DEEPSEEK_MIN_CONTEXT_SIZE = 1_000_000
+
+/**
+ * Returns the effective maxContextSize for a given config, applying
+ * model-specific minimums. DeepSeek endpoints get bumped to at least
+ * 1M chars so long prompts aren't silently truncated.
+ */
+export function getEffectiveMaxContextSize(config: LlmConfig): number {
+  if (isDeepSeekEndpoint(config)) {
+    return Math.max(config.maxContextSize || 0, DEEPSEEK_MIN_CONTEXT_SIZE)
+  }
+  return config.maxContextSize || 204_800
+}
+
 function isQwenThinkingModel(model: string): boolean {
   return /qwen[-_]?3/i.test(model)
 }

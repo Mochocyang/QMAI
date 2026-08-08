@@ -1,6 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import type { ContextPack, TrimResult } from "@/lib/novel/context-engine"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
+import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { useWikiStore } from "@/stores/wiki-store"
 
 export interface TrimContextPluginDeps {
@@ -92,7 +93,8 @@ export function createTrimContextPlugin(deps: TrimContextPluginDeps = {}): PrePl
 }
 
 function resolveTokenBudget(input: PrePluginInput): number {
-  const maxContextSize = input.agentConfig?.llmConfig?.maxContextSize
+  const llmConfig = input.agentConfig?.llmConfig
+  const maxContextSize = llmConfig ? getEffectiveMaxContextSize(llmConfig) : undefined
   const contextTokenBudget = useWikiStore.getState().novelConfig?.contextTokenBudget
   return resolveContextPackTokenBudget({
     maxContextSize,

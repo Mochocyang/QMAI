@@ -7,6 +7,19 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
+  version: "3.1.2",
+  date: "2026-08-08",
+  highlights: {
+    en: [
+      "[DeepSeek Context Fix] Fixed response truncation when using DeepSeek models. DeepSeek default context window increased to 1M (1,000,000 tokens); runtime auto-correct applies even when DeepSeek models are selected under Custom preset.",
+    ],
+    zh: [
+      "【DeepSeek 上下文截断修复】修复使用 DeepSeek 模型时回答总是被截断的问题。DeepSeek 默认上下文窗口提升至 100 万 token；即使用户在自定义预设下选择 DeepSeek 模型，运行时也会自动修正为 1M 上下文，不再截断长内容",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_NINE_CHANGELOG: ChangelogEntry = {
   version: "3.0.9",
   date: "2026-08-04",
@@ -1016,6 +1029,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_TWO_CHANGELOG,
   {
     version: "1.0.7",
     date: "2026-06-02",
@@ -1075,6 +1089,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ONE_TWO_CHANGELOG.version)
+    return [THREE_POINT_ONE_TWO_CHANGELOG];
   if (version === THREE_POINT_ZERO_NINE_CHANGELOG.version)
     return [THREE_POINT_ZERO_NINE_CHANGELOG];
   if (version === THREE_POINT_ZERO_EIGHT_CHANGELOG.version)

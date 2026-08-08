@@ -1,6 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ProviderOverride } from "@/stores/wiki-store"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
+import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import type { LlmPreset } from "./llm-presets"
 
 /**
@@ -16,7 +17,7 @@ export function resolveConfig(
   const ov = override ?? {}
   const apiKey = ov.apiKey ?? ""
   const model = ov.model?.trim() || preset.defaultModel || ""
-  const maxContextSize =
+  const rawMaxContextSize =
     ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
@@ -26,37 +27,35 @@ export function resolveConfig(
       ? Math.max(1, Math.min(240, Math.floor(ov.codexCliTimeoutMinutes)))
       : undefined
 
+  let config: LlmConfig
+
   if (preset.provider === "custom") {
-    return {
+    config = {
       provider: "custom",
       apiKey,
       model,
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "",
-      maxContextSize,
+      maxContextSize: rawMaxContextSize,
       apiMode: ov.apiMode ?? preset.apiMode ?? "chat_completions",
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
     }
-  }
-
-  if (preset.provider === "ollama") {
-    return {
+  } else if (preset.provider === "ollama") {
+    config = {
       provider: "ollama",
       apiKey: "",
       model,
       ollamaUrl: ov.baseUrl ?? preset.baseUrl ?? "http://localhost:11434",
       customEndpoint: fallback.customEndpoint,
-      maxContextSize,
+      maxContextSize: rawMaxContextSize,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
     }
-  }
-
-  if (preset.provider === "azure") {
-    return {
+  } else if (preset.provider === "azure") {
+    config = {
       provider: "azure",
       apiKey,
       model,
@@ -64,61 +63,62 @@ export function resolveConfig(
       customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "",
       azureApiVersion: ov.azureApiVersion ?? preset.azureApiVersion ?? AZURE_OPENAI_API_VERSION,
       azureModelFamily: ov.azureModelFamily ?? preset.azureModelFamily ?? "auto",
-      maxContextSize,
+      maxContextSize: rawMaxContextSize,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
     }
-  }
-
-  if (preset.provider === "claude-code" || preset.provider === "codex-cli") {
+  } else if (preset.provider === "claude-code" || preset.provider === "codex-cli") {
     // Subprocess transport — no apiKey, no endpoint URL. Model id is
     // passed straight to the local CLI's model flag when the user
     // explicitly sets one. Leaving it empty lets the local CLI use the
     // machine's own configured default model.
-    return {
+    config = {
       provider: preset.provider,
       apiKey: "",
       model: ov.model?.trim() || "",
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: fallback.customEndpoint,
-      maxContextSize,
+      maxContextSize: rawMaxContextSize,
       reasoning,
       localCliIsolation,
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
       functionCallingEnabled,
     }
-  }
-
-  if (preset.provider === "cursor-cli") {
+  } else if (preset.provider === "cursor-cli") {
     // HTTP bridge via cursor-api-proxy. Optional apiKey only if the
     // proxy was started with CURSOR_BRIDGE_API_KEY.
-    return {
+    config = {
       provider: "cursor-cli",
       apiKey,
       model: ov.model?.trim() || preset.defaultModel || "",
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "http://127.0.0.1:8765/v1",
-      maxContextSize,
+      maxContextSize: rawMaxContextSize,
       apiMode: "chat_completions",
+      reasoning,
+      localCliIsolation: false,
+      functionCallingEnabled,
+    }
+  } else {
+    // openai / anthropic / google / minimax — use fixed endpoint baked into the
+    // provider dispatch. We still let users override baseUrl via apiKey env if
+    // needed by editing manually, but presets for these don't expose it.
+    config = {
+      provider: preset.provider,
+      apiKey,
+      model,
+      ollamaUrl: fallback.ollamaUrl,
+      customEndpoint: fallback.customEndpoint,
+      maxContextSize: rawMaxContextSize,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
     }
   }
 
-  // openai / anthropic / google / minimax — use fixed endpoint baked into the
-  // provider dispatch. We still let users override baseUrl via apiKey env if
-  // needed by editing manually, but presets for these don't expose it.
-  return {
-    provider: preset.provider,
-    apiKey,
-    model,
-    ollamaUrl: fallback.ollamaUrl,
-    customEndpoint: fallback.customEndpoint,
-    maxContextSize,
-    reasoning,
-    localCliIsolation: false,
-    functionCallingEnabled,
-  }
+  // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
+  config.maxContextSize = getEffectiveMaxContextSize(config)
+
+  return config
 }
