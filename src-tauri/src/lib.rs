@@ -10,6 +10,17 @@ fn set_proxy_env(config: proxy::ProxyConfig) -> String {
     summary
 }
 
+#[tauri::command]
+fn log_error(message: String, stack: String, component_stack: String) {
+    eprintln!("[frontend-error] message: {}", message);
+    if !stack.is_empty() {
+        eprintln!("[frontend-error] stack: {}", stack);
+    }
+    if !component_stack.is_empty() {
+        eprintln!("[frontend-error] component-stack: {}", component_stack);
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -110,6 +121,7 @@ pub fn run() {
             commands::writing_wake_lock::acquire_writing_wake_lock,
             commands::writing_wake_lock::release_writing_wake_lock,
             set_proxy_env,
+            log_error,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

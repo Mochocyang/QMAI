@@ -13,8 +13,8 @@ describe("de-ai batch entry and settings", () => {
     expect(previewPanel).toContain("runWholeChapterDeAi")
     expect(previewPanel).toContain("registerEditorExternalUpdateHandler")
     expect(previewPanel).toContain("createDeAiBatchChapterApplier")
-    expect(previewPanel).toContain("await applyDeAiBatchChapter(task.chapterPath, candidateContent)")
-    expect(previewPanel).toContain("updateTask(chapterId, { candidateContent })")
+    expect(previewPanel).toContain("await applyDeAiBatchChapter(task.chapterPath, body)")
+    expect(previewPanel).toContain("updateTask(chapterId, { candidateContent: body })")
     expect(previewPanel).toContain("useDeAiTaskStore.getState().closeReview(project.path)")
     expect(previewPanel).toContain("saveDeAiDraftWithoutOverwrite")
     expect(previewPanel).toContain("writeFileIfAbsent")
@@ -25,7 +25,8 @@ describe("de-ai batch entry and settings", () => {
   it("keeps review tasks project-scoped and reuses the selected skill when regenerating", () => {
     expect(previewPanel).toContain("selectProjectDeAiTasks(deAiTasks, project?.path)")
     expect(previewPanel).toContain("skillContent,")
-    expect(previewPanel).toContain("buildDeAiRewriteMessages(task.sourceContent, task.skillContent)")
+    expect(previewPanel).toContain("extractDeAiChapterText(task.sourceContent)")
+    expect(previewPanel).toContain("buildDeAiRewriteMessages(source, task.skillContent)")
   })
 
   it("小说设置包含默认 3、范围 1–5 的批量并发设置", () => {

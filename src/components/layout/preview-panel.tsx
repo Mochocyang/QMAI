@@ -43,6 +43,7 @@ import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import {
   buildPolishSelectionMessages,
+  extractDeAiChapterText,
   rebuildChapterBody,
   replaceChapterBodySelection,
   splitChapterHeading,
@@ -981,7 +982,8 @@ export function PreviewPanel() {
 
   const runWholeChapterDeAi = useCallback(async (skillContent: string, skillName: string) => {
     await syncDiskBeforeAction()
-    const source = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+    const markdown = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+    const source = extractDeAiChapterText(markdown)
     if (!source.trim() || !selectedFile || !project) return
     const state = useWikiStore.getState()
     const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "deAi")
@@ -1013,7 +1015,7 @@ export function PreviewPanel() {
           },
           onDone: () => {
             doneCalled = true
-            useDeAiTaskStore.getState().finishTask(taskId, result)
+            useDeAiTaskStore.getState().finishTask(taskId, extractDeAiChapterText(result))
           },
           onError: (error) => {
             doneCalled = true
@@ -1025,7 +1027,7 @@ export function PreviewPanel() {
       // 兜底：streamChat 正常返回但未调用 onDone/onError 时，用 result 完成
       if (!doneCalled) {
         if (result.trim()) {
-          useDeAiTaskStore.getState().finishTask(taskId, result)
+          useDeAiTaskStore.getState().finishTask(taskId, extractDeAiChapterText(result))
         } else {
           useDeAiTaskStore.getState().failTask(taskId, "去AI味未返回内容")
         }
@@ -1736,9 +1738,10 @@ export function PreviewPanel() {
              onConfirm={async (_taskId, chapterId, candidateContent) => {
               const task = readyTasks.find((t) => t.id === chapterId)
               if (!task) return
+              const body = extractDeAiChapterText(candidateContent)
               try {
-                await applyDeAiBatchChapter(task.chapterPath, candidateContent)
-                useDeAiTaskStore.getState().updateTask(chapterId, { candidateContent })
+                await applyDeAiBatchChapter(task.chapterPath, body)
+                useDeAiTaskStore.getState().updateTask(chapterId, { candidateContent: body })
                 useDeAiTaskStore.getState().confirmTask(chapterId)
                 useDeAiTaskStore.getState().closeReview(project.path)
                 toast.success(`${task.chapterTitle} 去AI味结果已保存`)
@@ -1750,7 +1753,7 @@ export function PreviewPanel() {
              onSaveDraft={async (_taskId, chapterId, candidateContent) => {
                const task = readyTasks.find((item) => item.id === chapterId)
                if (!task) return
-               await handleDeAiSaveDraft(task.chapterPath, candidateContent)
+               await handleDeAiSaveDraft(task.chapterPath, extractDeAiChapterText(candidateContent))
              }}
              onRegenerate={async (_taskId, chapterId) => {
               const task = readyTasks.find((t) => t.id === chapterId)
@@ -1768,13 +1771,14 @@ export function PreviewPanel() {
               }
               let result = ""
               try {
+                const source = extractDeAiChapterText(task.sourceContent)
                 await streamChat(
                   llmConfig,
-                  buildDeAiRewriteMessages(task.sourceContent, task.skillContent),
+                  buildDeAiRewriteMessages(source, task.skillContent),
                   {
                     onToken: (token) => { result += token },
                     onDone: () => {
-                      useDeAiTaskStore.getState().finishTask(chapterId, result)
+                      useDeAiTaskStore.getState().finishTask(chapterId, extractDeAiChapterText(result))
                     },
                     onError: (error) => {
                       useDeAiTaskStore.getState().failTask(chapterId, error.message ?? String(error))

@@ -14,6 +14,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { AiChangeComparePanel } from "@/components/common/ai-change-compare-panel"
+import { extractDeAiChapterText } from "@/lib/chapter-selection"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 
 const CHAPTER_STATUS: Record<DeAiBatchChapter["status"], string> = {
@@ -90,9 +91,14 @@ export function DeAiBatchReviewDialog({
     ?? record?.chapters[0]
     ?? null
   const candidateDraft = chapter ? candidateDrafts[chapter.id] : undefined
-  const candidateContent = chapter && candidateDraft?.generation === chapter.generation
+  const rawCandidateContent = chapter && candidateDraft?.generation === chapter.generation
     ? candidateDraft.content
     : chapter?.candidateContent ?? ""
+  // 旧任务可能把 frontmatter 一并塞进 source/candidate；对比与编辑都只暴露正文。
+  const originalContent = extractDeAiChapterText(chapter?.sourceContent ?? "")
+  const candidateContent = candidateDraft?.generation === chapter?.generation
+    ? rawCandidateContent
+    : extractDeAiChapterText(rawCandidateContent)
   const candidateEditable = !pending && chapter?.status === "ready"
   const canConfirm = candidateEditable && !!candidateContent.trim()
   const canSaveDraft = !pending
@@ -126,7 +132,7 @@ export function DeAiBatchReviewDialog({
 
   const comparisonPanel = (
     <AiChangeComparePanel
-      originalContent={chapter?.sourceContent ?? ""}
+      originalContent={originalContent}
       modifiedContent={candidateContent}
       originalLabel={"原文"}
       modifiedLabel={"候选"}

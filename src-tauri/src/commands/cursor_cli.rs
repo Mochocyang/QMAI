@@ -283,10 +283,7 @@ pub async fn cursor_proxy_status(state: State<'_, CursorProxyState>) -> Result<P
     let (base, managed) = {
         let guard = state.managed.lock().await;
         (
-            guard
-                .base_url
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PROXY_BASE.to_string()),
+            normalize_proxy_base(guard.base_url.clone()),
             guard.child.is_some(),
         )
     };

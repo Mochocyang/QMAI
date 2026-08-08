@@ -1,6 +1,25 @@
 import { parseAgentResponse } from "@/lib/novel/agent-parser"
 import { cleanGeneratedChapterContentForSave } from "@/lib/novel/chapter-content-cleanup"
 
+const WORKFLOW_FINAL_CONTENT_MARKER = "最终正文："
+const ASSISTANT_ERROR_SUFFIX_RE = /(?:^|\n{1,2})出错：[\s\S]*$/
+
+/** 助手可见内容短于此（去空白）时，视为不足以作为章节正文。 */
+export const THIN_CHAPTER_CONTENT_CHAR_LIMIT = 80
+/** workflow 正文至少这么长（去空白）才值得回退。 */
+export const WORKFLOW_BODY_MIN_CHAR_COUNT = 500
+/** workflow 相对助手内容的最小倍数，避免用略长草稿覆盖短但有效的改写。 */
+export const WORKFLOW_BODY_MIN_RATIO = 5
+
+const COMPLETION_NOTICE_RE =
+  /(?:已按章纲|重写完成|章节工作流完成|正文已.{0,12}完成|已(?:生成|重写|完成).{0,8}正文)/
+
+export type CopyableToolCall = {
+  name: string
+  result?: string
+  status?: string
+}
+
 function stripHiddenAssistantBlocks(content: string): string {
   let result = content
     .replace(/<!--.*?-->/gs, "")
@@ -30,7 +49,64 @@ function isChapterEditPath(filePath: string): boolean {
   return normalized.startsWith("wiki/chapters/") && normalized.endsWith(".md")
 }
 
-export function getCopyableAssistantContent(content: string): string {
+function stripAssistantErrorSuffix(content: string): string {
+  return content.replace(ASSISTANT_ERROR_SUFFIX_RE, "").trim()
+}
+
+function countCompactChars(text: string): number {
+  return text.replace(/\s/g, "").length
+}
+
+/** 助手可见内容是否像短完成通知或过短伪正文。 */
+export function isThinChapterAssistantContent(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) return true
+  const compact = countCompactChars(trimmed)
+  if (compact <= THIN_CHAPTER_CONTENT_CHAR_LIMIT) return true
+  if (compact <= 200 && COMPLETION_NOTICE_RE.test(trimmed)) return true
+  return false
+}
+
+/** 是否应优先采用 workflow「最终正文」而非助手可见短文。 */
+export function shouldPreferWorkflowChapterBody(
+  assistantContent: string,
+  workflowBody: string,
+): boolean {
+  if (!workflowBody.trim()) return false
+  if (!isThinChapterAssistantContent(assistantContent)) return false
+  const workflowChars = countCompactChars(workflowBody)
+  const assistantChars = Math.max(countCompactChars(assistantContent), 1)
+  if (workflowChars < WORKFLOW_BODY_MIN_CHAR_COUNT) return false
+  return workflowChars >= assistantChars * WORKFLOW_BODY_MIN_RATIO
+}
+
+/** 从 run_chapter_workflow 工具结果中提取「最终正文」段。 */
+export function extractWorkflowFinalContent(result: string | undefined): string {
+  if (!result?.trim()) return ""
+  const markerIndex = result.lastIndexOf(WORKFLOW_FINAL_CONTENT_MARKER)
+  if (markerIndex < 0) return ""
+  return result.slice(markerIndex + WORKFLOW_FINAL_CONTENT_MARKER.length).replace(/^\n+/, "").trim()
+}
+
+/** 从已完成的章节工作流工具调用中取最新一份最终正文。 */
+export function extractChapterBodyFromToolCalls(
+  toolCalls: CopyableToolCall[] | undefined,
+): string {
+  if (!toolCalls?.length) return ""
+  for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+    const call = toolCalls[i]
+    if (call.name !== "run_chapter_workflow") continue
+    if (call.status === "error" || call.status === "cancelled") continue
+    const body = extractWorkflowFinalContent(call.result)
+    if (body) return body
+  }
+  return ""
+}
+
+export function getCopyableAssistantContent(
+  content: string,
+  options?: { toolCalls?: CopyableToolCall[] },
+): string {
   const parsed = parseAgentResponse(content)
   const chapterEditReplacements = parsed.edits
     .filter((edit) => isChapterEditPath(edit.filePath) && edit.replace.trim())
@@ -41,5 +117,18 @@ export function getCopyableAssistantContent(content: string): string {
     return chapterEditReplacements.join("\n\n").trim()
   }
 
-  return stripHiddenAssistantBlocks(parsed.textContent || content)
+  const fromContent = stripAssistantErrorSuffix(
+    stripHiddenAssistantBlocks(parsed.textContent || content),
+  )
+  const fromWorkflow = extractChapterBodyFromToolCalls(options?.toolCalls)
+
+  if (fromContent && shouldPreferWorkflowChapterBody(fromContent, fromWorkflow)) {
+    return fromWorkflow
+  }
+  if (fromContent) {
+    return fromContent
+  }
+  if (fromWorkflow) return fromWorkflow
+
+  return ""
 }

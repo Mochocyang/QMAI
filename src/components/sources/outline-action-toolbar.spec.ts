@@ -10,4 +10,11 @@ describe("OutlineActionToolbar", () => {
     expect(source).toContain("setOutlineChatOpen(!outlineChatOpen)")
     expect(source).toContain('aria-pressed={outlineChatOpen}')
   })
+
+  it("asks whether to extract all or only pending outlines before bulk ingest", () => {
+    expect(source).toContain("bulkIngestDialogOpen")
+    expect(source).toContain('handleBulkIngest("pending")')
+    expect(source).toContain('handleBulkIngest("all")')
+    expect(source).toContain('runBulkOutlineIngest(project.path, { mode })')
+  })
 })

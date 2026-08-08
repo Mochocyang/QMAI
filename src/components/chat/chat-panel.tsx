@@ -99,7 +99,11 @@ import {
   extractContinueUnfinishedDeepChapterContext,
   stripContinueUnfinishedDeepChapterContext,
 } from "./chat-resume"
-import { getCopyableAssistantContent } from "@/lib/chat-copy-content"
+import {
+  getCopyableAssistantContent,
+  type CopyableToolCall,
+} from "@/lib/chat-copy-content"
+import { validateChapterBeforeSave } from "@/lib/novel/result-save-guard"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import { loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
@@ -1100,16 +1104,31 @@ export function ChatPanel() {
     }
   }, [closeChapterPlanDialog])
 
-  const handleSaveAsChapter = useCallback(async (content: string) => {
+  const handleSaveAsChapter = useCallback(async (
+    content: string,
+    toolCalls?: CopyableToolCall[],
+  ) => {
     if (!project) return
     const pp = normalizePath(project.path)
     setIsSavingChapter(true)
     setChapterSaveStatus("")
     try {
+      const resolvedContent = getCopyableAssistantContent(content, { toolCalls })
+      const saveGuard = validateChapterBeforeSave(resolvedContent)
+      if (!saveGuard.ok) {
+        setChapterSaveStatus(saveGuard.message || "章节结果校验未通过，已取消保存")
+        return
+      }
+
       // 使用带标题提取的清理函数
       const { content: cleanedContent, title: extractedTitle } = cleanGeneratedChapterContentWithTitle(
-        getCopyableAssistantContent(content),
+        resolvedContent,
       )
+      if (!cleanedContent.trim()) {
+        setChapterSaveStatus("章节正文为空，已取消保存")
+        return
+      }
+
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
@@ -1402,41 +1421,58 @@ export function ChatPanel() {
       let accumulatedReasoningContent = ""
 
       const markDone = (record?: AgentRunRecord) => {
-        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          content: message.content || record?.finalText || "Agent未返回内容。",
-          reasoning_content: accumulatedReasoningContent,
-          agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls),
-          agentStages: settleRunningAgentStages(message.agentStages, "done"),
-          references: (() => {
-            const existingReferences = message.references ?? []
-            const existingPaths = new Set(existingReferences.map((reference) => reference.path))
-            const agentReferences = agentToolCallsToMessageReferences(
-              settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls) ?? [],
-            ).filter((reference) => !existingPaths.has(reference.path))
-            return agentReferences.length > 0
-              ? [...existingReferences, ...agentReferences]
-              : message.references
-          })(),
-          contextTrace: contextTrace || message.contextTrace,
-          isAgentRunning: false,
-        }))
+        updateAgentAssistantMessage(assistantMessage.id, (message) => {
+          const settledTools = settleRunningAgentToolCalls(
+            record?.toolCalls.length ? record.toolCalls : message.agentToolCalls,
+          )
+          const rawContent = message.content || record?.finalText || "Agent未返回内容。"
+          const resolvedContent = getCopyableAssistantContent(rawContent, {
+            toolCalls: settledTools,
+          }) || rawContent
+          return {
+            ...message,
+            content: resolvedContent,
+            reasoning_content: accumulatedReasoningContent,
+            agentToolCalls: settledTools,
+            agentStages: settleRunningAgentStages(message.agentStages, "done"),
+            references: (() => {
+              const existingReferences = message.references ?? []
+              const existingPaths = new Set(existingReferences.map((reference) => reference.path))
+              const agentReferences = agentToolCallsToMessageReferences(
+                settledTools ?? [],
+              ).filter((reference) => !existingPaths.has(reference.path))
+              return agentReferences.length > 0
+                ? [...existingReferences, ...agentReferences]
+                : message.references
+            })(),
+            contextTrace: contextTrace || message.contextTrace,
+            isAgentRunning: false,
+          }
+        })
       }
 
       const markError = (error: Error) => {
         hasAgentError = true
         lastAgentError = error.message || "生成失败"
-        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          content: message.content
-            ? `${message.content}\n\n出错：${error.message}`
-            : `出错：${error.message}`,
-          reasoning_content: accumulatedReasoningContent,
-          agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error"),
-          agentStages: settleRunningAgentStages(message.agentStages, "error"),
-          contextTrace: contextTrace || message.contextTrace,
-          isAgentRunning: false,
-        }))
+        updateAgentAssistantMessage(assistantMessage.id, (message) => {
+          const settledTools = settleRunningAgentToolCalls(message.agentToolCalls, "error")
+          const rawContent = message.content ?? ""
+          const recoveredChapterBody = getCopyableAssistantContent(rawContent, {
+            toolCalls: settledTools,
+          })
+          const baseContent = recoveredChapterBody || rawContent.trim()
+          return {
+            ...message,
+            content: baseContent
+              ? `${baseContent}\n\n出错：${error.message}`
+              : `出错：${error.message}`,
+            reasoning_content: accumulatedReasoningContent,
+            agentToolCalls: settledTools,
+            agentStages: settleRunningAgentStages(message.agentStages, "error"),
+            contextTrace: contextTrace || message.contextTrace,
+            isAgentRunning: false,
+          }
+        })
       }
 
       const finishAgentSession = (callback?: () => void) => {
@@ -1853,9 +1889,24 @@ export function ChatPanel() {
               const lastAssistantForValidation = storeStateForValidation.messages.find(
                 (m) => m.id === assistantMessage.id && m.role === "assistant",
               )
-              const finalContent = lastAssistantForValidation?.content ?? ""
+              const rawFinalContent = lastAssistantForValidation?.content ?? ""
+              const resolvedFinalContent = getCopyableAssistantContent(rawFinalContent, {
+                toolCalls: lastAssistantForValidation?.agentToolCalls ?? record.toolCalls,
+              }) || rawFinalContent
+              if (
+                resolvedFinalContent
+                && resolvedFinalContent !== rawFinalContent
+              ) {
+                updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                  ...message,
+                  content: resolvedFinalContent,
+                }))
+              }
+              const finalContent = resolvedFinalContent
+              let chapterProtocolValid = false
               if (finalContent) {
                 const protocolTrace = buildResultProtocolTrace("chapter", finalContent)
+                chapterProtocolValid = protocolTrace.valid
                 contextTrace = setContextInfo(contextTrace, { ...traceInfo, resultProtocol: protocolTrace })
               }
               // === Stage D: 写后剧情自检 ===
@@ -1865,9 +1916,10 @@ export function ChatPanel() {
                 effectiveTaskRoute.intent === "continue_chapter"
               ) {
                 const chapterContent = finalContent
-                // 排除含 chapter_plan 标记的内容（计划本身不是正文）与空内容
+                // 排除含 chapter_plan 标记的内容（计划本身不是正文）与空内容；
+                // 短完成句等未通过章节协议的结果也不进入自检/草稿校验。
                 const hasChapterPlanMarker = chapterContent.includes("chapter_plan")
-                if (chapterContent && !hasChapterPlanMarker) {
+                if (chapterContent && !hasChapterPlanMarker && chapterProtocolValid) {
                   void (async () => {
                     try {
                       const result = await runPostWriteCheckAI({
@@ -1890,7 +1942,7 @@ export function ChatPanel() {
                 }
                 // === Stage E: 草稿校验与修复（硬偏差） ===
                 // 仅在已打开项目时触发；未打开项目时跳过（避免空路径调用 skill）
-                if (chapterContent && !hasChapterPlanMarker && projectPath) {
+                if (chapterContent && !hasChapterPlanMarker && chapterProtocolValid && projectPath) {
                   const draftChapterNumber = effectiveTaskRoute.chapterNumber ?? 0
                   void (async () => {
                     try {
