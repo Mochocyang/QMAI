@@ -505,6 +505,12 @@
         "emptyValue": "未填写",
         "endpointPreviewWillUse": "将使用",
         "endpointPreviewAutoApply": "，失焦后自动应用",
+        "functionCalling": {
+          "label": "启用 Function Calling",
+          "hint": "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具与 MCP），用于兼容不支持工具调用的中转或本地模型。",
+          "stateOn": "ON",
+          "stateOff": "OFF"
+        },
         "cliStatus": {
           "title": "CLI 状态",
           "checking": "检查中...",

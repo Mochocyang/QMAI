@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { getStableAvailableModelKey } from "@/lib/llm-model-keys"
+import {
+  getStableAvailableModelKey,
+  hasAvailableModels,
+  isProviderAvailable,
+} from "@/lib/llm-model-keys"
 import type { ProviderConfigs } from "@/stores/wiki-store"
 
 function saved(id: string, name = id) {
@@ -8,6 +12,17 @@ function saved(id: string, name = id) {
 }
 
 describe("stable available model keys", () => {
+  it("hard-disables explicit false while keeping configured legacy providers usable", () => {
+    const disabled = { enabled: false, apiKey: "old-key", savedModels: [saved("disabled-model")] }
+    const legacy = { apiKey: "legacy-key", savedModels: [saved("legacy-model")] }
+    const configs: ProviderConfigs = { openai: disabled, anthropic: legacy }
+
+    expect(isProviderAvailable("openai", disabled)).toBe(false)
+    expect(isProviderAvailable("anthropic", legacy)).toBe(true)
+    expect(hasAvailableModels(configs)).toBe(true)
+    expect(getStableAvailableModelKey("legacy-model", configs)).toBe("anthropic/legacy-model")
+  })
+
   it("treats a slash-containing legacy model id as a whole when its prefix is not a provider", () => {
     const configs: ProviderConfigs = {
       openai: { enabled: true, apiKey: "key", savedModels: [saved("vendor/family/model-v1")] },

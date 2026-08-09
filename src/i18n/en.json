@@ -798,6 +798,12 @@
         "emptyValue": "(empty)",
         "endpointPreviewWillUse": "Will use",
         "endpointPreviewAutoApply": "(auto-applies on blur)",
+        "functionCalling": {
+          "label": "Enable Function Calling",
+          "hint": "When disabled, requests through this provider omit tools and tool_choice, including built-in and MCP tools, for compatibility with relays or local models that do not support tool calling.",
+          "stateOn": "ON",
+          "stateOff": "OFF"
+        },
         "cliStatus": {
           "title": "CLI Status",
           "checking": "Checking…",

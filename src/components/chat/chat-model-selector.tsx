@@ -5,7 +5,7 @@ import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
-import { getEffectiveSavedModels } from "@/lib/llm-model-keys"
+import { getEffectiveSavedModels, isProviderAvailable } from "@/lib/llm-model-keys"
 
 interface ChatModelSelectorProps {
   value: string
@@ -82,9 +82,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     const builtinKeys = Object.keys(providerConfigs).filter((k) => !k.startsWith("custom-"))
     for (const key of builtinKeys) {
       const config = providerConfigs[key]
-      const hasConfig = config.enabled === true
-        || ((config.apiKey || config.savedModels?.length) && (config.model || config.savedModels?.length))
-      if (!hasConfig) continue
+      if (!isProviderAvailable(key, config)) continue
       const models = getEffectiveSavedModels(config)
       if (models.length > 0) {
         const preset = LLM_PRESETS.find((p) => p.id === key)
@@ -99,7 +97,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     const customKeys = Object.keys(providerConfigs).filter((k) => k.startsWith("custom-"))
     for (const key of customKeys) {
       const config = providerConfigs[key]
-      if (config.enabled === false) continue
+      if (!isProviderAvailable(key, config)) continue
       const models = getEffectiveSavedModels(config)
       if (models.length > 0) {
         groups.push({

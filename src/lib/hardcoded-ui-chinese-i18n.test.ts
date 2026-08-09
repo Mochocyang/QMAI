@@ -171,7 +171,7 @@ describe("user-facing hardcoded chinese strings", () => {
     expect(maintenanceSection).toContain('t("settings.sections.maintenance.title", { defaultValue: "维护工具" })')
     expect(maintenanceSection).toContain('t("settings.sections.maintenance.description", {')
     expect(maintenanceSection).toContain(
-      'defaultValue:\n              "用于清理资料库的工具：检测并合并那些在多次重新摄取后被大模型以不同名称创建出来的重复实体或概念。",'
+      'defaultValue:\n              "用于清理资料库的工具：检测并合并重复实体/概念，以及清理伏笔追踪器中的重复、噪声与失效条目。",'
     )
     expect(maintenanceSection).toContain('t("settings.sections.maintenance.dedup.title", {')
     expect(maintenanceSection).toContain('defaultValue: "检测重复实体 / 概念"')

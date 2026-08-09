@@ -678,9 +678,6 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("classification.targetFolder")
     expect(source).toContain("classification.fileName")
     expect(source).toContain("保存大纲文件")
-    expect(source).toContain("summarizeChapterOutlineQuality")
-    expect(source).toContain("formatChapterOutlineQualityReport")
-    expect(source).toContain("includeWarnings: true")
   })
 
   it("parses structured AI outline save requests and requires user confirmation before writing", () => {
@@ -692,14 +689,6 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("请确认要保存的大纲文件")
     expect(source).not.toContain("已自动保存")
     expect(source).toContain("AI 大纲输出协议")
-  })
-
-  it("生成后对可保存大纲内容输出质量检查反馈并支持继续修订", () => {
-    expect(source).toContain("buildOutlineGenerationQualityFeedback")
-    expect(source).toContain("qualityFeedback")
-    expect(source).toContain("生成后质量检查")
-    expect(source).toContain("修订质量问题")
-    expect(source).toContain("repairPrompt")
   })
 
   it("uses folder save confirm dialog for classified outline saves", () => {
@@ -758,11 +747,16 @@ describe("OutlineChatPanel controls", () => {
     expect(trigger).toBeDefined()
     await act(async () => {
       trigger?.click()
-      await new Promise((resolve) => setTimeout(resolve, 20))
     })
-    const option = Array.from(document.body.querySelectorAll("button")).find((button) =>
-      button !== trigger && button.textContent?.includes(label),
-    ) as HTMLButtonElement | undefined
+    let option: HTMLButtonElement | undefined
+    for (let attempt = 0; attempt < 50 && !option; attempt += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+      option = Array.from(document.body.querySelectorAll("button")).find((button) =>
+        button !== trigger && button.textContent?.includes(label),
+      ) as HTMLButtonElement | undefined
+    }
     expect(option).toBeDefined()
     await act(async () => {
       option?.click()

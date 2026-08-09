@@ -1,8 +1,9 @@
 import type { ProviderConfigs, ProviderOverride, SavedModel } from "@/stores/wiki-store"
 
-function isProviderAvailable(providerId: string, config: ProviderOverride): boolean {
+export function isProviderAvailable(providerId: string, config: ProviderOverride): boolean {
+  if (config.enabled === false) return false
   if (providerId.startsWith("custom-")) {
-    return config.enabled !== false
+    return true
   }
   // 内置预设：已启用，或有有效配置（apiKey + model/savedModels）
   return config.enabled === true

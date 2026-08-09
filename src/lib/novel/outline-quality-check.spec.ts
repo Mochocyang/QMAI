@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  buildOutlineGenerationQualityFeedback,
   extractChapterOutlineStatus,
-  formatChapterOutlineQualityReport,
   isLikelyChapterOutline,
   runChapterOutlineQualityCheck,
   summarizeChapterOutlineQuality,
@@ -73,43 +71,4 @@ describe("章纲质量检查", () => {
     expect(extractChapterOutlineStatus(content.replace("当前状态：草稿", "当前状态：已确认"))).toBe("已确认")
   })
 
-  it("质量报告应给出可执行的章纲补全建议", () => {
-    const summary = summarizeChapterOutlineQuality("# 章纲-第001章\n\n## 核心事件\n\n- 事件1：只有一个事件")
-    const report = formatChapterOutlineQualityReport(summary, {
-      maxIssues: 3,
-      includeWarnings: true,
-    })
-
-    expect(report).toContain("章纲质量检查未通过")
-    expect(report).toContain("项错误")
-    expect(report).toContain("主要缺失")
-    expect(report).toContain("另有")
-    expect(report).toContain("请让 AI 按章纲标准补齐后重新输出完整章纲，再保存")
-  })
-
-  it("通过但存在提醒时应提示继续完善提醒项", () => {
-    const report = formatChapterOutlineQualityReport({
-      valid: true,
-      errors: [],
-      warnings: ["人物状态缺少「关键配角状态」字段"],
-      items: [],
-    })
-
-    expect(report).toBe("章纲质量检查通过，但有 1 项提醒。建议完善：人物状态缺少「关键配角状态」字段。")
-  })
-
-  it("生成后质量检查应给不完整章纲返回可修复项和修订提示", () => {
-    const feedback = buildOutlineGenerationQualityFeedback({
-      fileType: "chapter-outline",
-      fileName: "章纲-第001章.md",
-      content: "# 章纲-第001章\n\n## 核心事件\n\n- 事件1：只有一个事件",
-    })
-
-    expect(feedback).not.toBeNull()
-    expect(feedback?.status).toBe("error")
-    expect(feedback?.title).toBe("生成后质量检查")
-    expect(feedback?.summary).toContain("可修复项")
-    expect(feedback?.repairPrompt).toContain("请按章纲标准修订")
-    expect(feedback?.repairPrompt).toContain("章纲-第001章.md")
-  })
 })

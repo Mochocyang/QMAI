@@ -20,6 +20,34 @@ const THREE_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
   },
 };
 
+const THREE_POINT_ONE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "3.1.1",
+  date: "2026-08-06",
+  highlights: {
+    en: [
+      "[Outline Save Queue Fix] Pending outline save confirmations are now merged and queued without being overwritten by later generation rounds; normal and character save batches drain in order.",
+      "[Runtime Alignment] Updated frontend and Rust dependencies and aligned local and CI builds with Node.js 24 LTS.",
+    ],
+    zh: [
+      "【大纲保存队列修复】后续生成轮次不再覆盖尚未确认的大纲保存请求；普通大纲批次合并去重，普通与人物批次按顺序排队处理",
+      "【运行环境对齐】更新前端与 Rust 依赖，并将本地和 CI 构建环境统一到 Node.js 24 LTS",
+    ],
+  },
+};
+
+const THREE_POINT_ONE_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "3.1.0",
+  date: "2026-08-06",
+  highlights: {
+    en: [
+      "[Save Flow Simplification] Removed automatic review interception before saving chapters and outlines; manual review in the Review Center remains available.",
+    ],
+    zh: [
+      "【保存流程简化】移除章节和大纲保存前的自动审稿拦截；审稿中心的手动审稿功能保持不变",
+    ],
+  },
+};
+
 const THREE_POINT_ZERO_NINE_CHANGELOG: ChangelogEntry = {
   version: "3.0.9",
   date: "2026-08-04",
@@ -1091,6 +1119,10 @@ export const CHANGELOG: ChangelogEntry[] = [
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
   if (version === THREE_POINT_ONE_TWO_CHANGELOG.version)
     return [THREE_POINT_ONE_TWO_CHANGELOG];
+  if (version === THREE_POINT_ONE_ONE_CHANGELOG.version)
+    return [THREE_POINT_ONE_ONE_CHANGELOG];
+  if (version === THREE_POINT_ONE_ZERO_CHANGELOG.version)
+    return [THREE_POINT_ONE_ZERO_CHANGELOG];
   if (version === THREE_POINT_ZERO_NINE_CHANGELOG.version)
     return [THREE_POINT_ZERO_NINE_CHANGELOG];
   if (version === THREE_POINT_ZERO_EIGHT_CHANGELOG.version)
@@ -1180,6 +1212,9 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_ONE_TWO_CHANGELOG,
+    THREE_POINT_ONE_ONE_CHANGELOG,
+    THREE_POINT_ONE_ZERO_CHANGELOG,
     THREE_POINT_ZERO_NINE_CHANGELOG,
     THREE_POINT_ZERO_EIGHT_CHANGELOG,
     THREE_POINT_ZERO_SEVEN_CHANGELOG,
@@ -1220,7 +1255,10 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_TWO_ZERO_CHANGELOG,
     TWO_POINT_ONE_ZERO_CHANGELOG,
     TWO_POINT_ZERO_CHANGELOG,
-    ...CHANGELOG.filter((entry) => !isMergedOnePointRelease(entry.version)),
+    ...CHANGELOG.filter(
+      (entry) =>
+        entry !== THREE_POINT_ONE_TWO_CHANGELOG &&
+        !isMergedOnePointRelease(entry.version),
+    ),
   ];
 }
-
