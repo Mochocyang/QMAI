@@ -33,7 +33,7 @@ export function createListOutlinesTool(
   return {
     name: "list_outlines",
     description:
-      "列出大纲目录下全部 Markdown 文件（含子目录），并标注 frontmatter 的 type / outline_type。可选参数 chapterNumber 用于在结果中标注本次目标章号。写章节前应先调用本工具，再按 type 分流并用 read_outline 读正文判断哪份对应该章。",
+      "列出大纲目录下全部 Markdown 文件（含子目录），优先标注标准文件夹（大纲/卷纲/章纲/设定等），旧 frontmatter 的 type / outline_type 仅作兼容附加。可选参数 chapterNumber 用于在结果中标注本次目标章号。写章节前应先调用本工具，再按文件夹分流并用 read_outline 读正文判断哪份对应该章。",
     category: "read",
     parameters: {
       chapterNumber: {

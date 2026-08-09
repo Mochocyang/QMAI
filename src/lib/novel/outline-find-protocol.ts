@@ -1,5 +1,5 @@
 /**
- * 写作前找大纲协议：先钉目标章号，再按 type 分流，最后读正文判断归属。
+ * 写作前找大纲协议：先钉目标章号，再按文件夹分流（主路径），旧 type 仅作兼容，最后读正文判断归属。
  * 不依赖文件名规范，也不要求大纲正文写法统一。
  */
 
@@ -27,15 +27,17 @@ export function buildOutlineFindProtocol(targetChapterNumber?: number): string {
     "## 大纲定位协议（写章节前必须遵守）",
     "",
     targetLine,
-    "1. 调用 list_outlines 查看全部大纲候选及其 type / outline_type；先扫一遍有哪些 overview / concept / outline，不要只盯卷纲文件名。",
-    "2. 按 type 分流处理（有 type 用 type；无 type 则读正文判断用途）：",
-    "   - overview（高优先级入口）：应优先 read_outline 读索引，按 related / 文档表发现必须遵守的规则文档与卷纲入口；不要跳过 overview 直接瞎点卷纲。overview 本身不是本章剧情大纲。",
-    "   - concept / 设定类（写作硬约束）：列表中出现的 concept 默认视为全书机制/叙述禁则；写正文前应至少读与本次任务相关的 concept（有 overview 指引时按指引读；无指引时对列出的 concept 做必要性判断并读取关键项）。不要用章号去「匹配」concept，也不要把它们当成卷纲。",
-    "   - outline（及 outline_type 为 story/volume/chapter-outline 等）：主候选；必须 read_outline 读正文，判断是否对应该章 / 当前阶段。",
-    "   - 未知 type：必须读正文判断是卷纲、章纲、设定还是清单。",
-    "3. 同为 outline 也可能不是卷纲（如资产明细、人物表）；禁止只看 type 或文件名就选定。",
-    "4. 确认对应该章的大纲，并已知相关 overview/concept 约束后，再写作或调用 run_chapter_workflow。",
-    "禁止只凭文件名猜测分卷；禁止把 concept/overview 当成章节剧情大纲；禁止在未查看 overview/concept 的情况下只读一份卷纲就开写。",
+    "1. 调用 list_outlines 查看全部大纲候选；优先扫 folder（大纲 / 设定 / 章纲 / 卷纲 / 人物小传等），不要只盯卷纲文件名。",
+    "2. 按文件夹分流（主路径；新项目默认无 type）：",
+    "   - 大纲：索引/总纲入口；应优先 read_outline 读索引，发现必须遵守的规则文档与卷纲入口；本身通常不是本章剧情细纲。",
+    "   - 设定：写作硬约束/机制；写正文前应至少读与本次任务相关的设定。不要用章号去「匹配」设定，也不要把它们当成卷纲。",
+    "   - 章纲：本章主候选；必须 read_outline 读正文，按目标章号定位对应章纲。",
+    "   - 卷纲：卷级候选；确认章号落在该卷后再读。",
+    "   - 人物小传 / 伏笔 / 组织：辅助资料，不当本章剧情大纲。",
+    "3. 兼容（非强制）：若几乎无标准文件夹、却有旧 frontmatter type，可参考 overview≈大纲、concept≈设定、outline≈卷纲/章纲；不要求新项目补 type。",
+    "4. 文件夹与 type 都缺失时，必须读正文判断是卷纲、章纲、设定还是清单；禁止只看文件名就选定。",
+    "5. 确认对应该章的大纲，并已知相关 大纲/设定（或旧 overview/concept）约束后，必须调用 run_chapter_workflow；禁止直接输出终稿正文。",
+    "禁止只凭文件名猜测分卷；禁止把设定/人物小传（或旧 concept/overview）当成章节剧情大纲；禁止在未查看 大纲/设定 的情况下只读一份卷纲就开写。",
   ].join("\n")
 }
 

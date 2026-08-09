@@ -88,6 +88,205 @@ describe("AgentRunner", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  it("nudges and continues when requiredToolsOnce is missing on a no-tool final", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      parameters: {
+        userRequest: { type: "string", description: "request", required: true },
+      },
+      execute: vi.fn().mockResolvedValue("最终正文：\n章节内容"),
+    }
+    registry.register(tool)
+
+    mockStreamChat
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onToken("我直接写完了")
+        cb.onDone()
+      })
+      .mockImplementationOnce(async (_config: unknown, msgs: unknown[], cb: StreamCallbacks) => {
+        const messages = msgs as AgentMessage[]
+        expect(messages.some((message) =>
+          message.role === "system" &&
+          typeof message.content === "string" &&
+          message.content.includes("禁止直接输出章节终稿"),
+        )).toBe(true)
+        cb.onToolCallDelta?.({ index: 0, id: "call_workflow_1", name: "run_chapter_workflow" })
+        cb.onToolCallDelta?.({ index: 0, arguments: '{"userRequest":"写第1章"}' })
+        cb.onDone()
+      })
+      .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+        cb.onToken("最终交付正文")
+        cb.onDone()
+      })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const result = await runner.run(
+      {
+        maxRounds: 4,
+        tools: [tool],
+        systemPrompt: "You are helpful",
+        llmConfig: mockLlmConfig,
+        requiredToolsOnce: ["run_chapter_workflow"],
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(tool.execute).toHaveBeenCalledOnce()
+    expect(callbacks.onDone).toHaveBeenCalledOnce()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+    expect(result.finalText).toBe("最终交付正文")
+    expect(result.roundsUsed).toBe(3)
+    // blocked draft must not stream as final
+    expect(callbacks.onText.mock.calls.flat()).not.toContain("我直接写完了")
+  })
+
+  it("errors on last round when requiredToolsOnce is never called", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      parameters: {
+        userRequest: { type: "string", description: "request", required: true },
+      },
+      execute: vi.fn().mockResolvedValue("ok"),
+    }
+    registry.register(tool)
+
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("直出正文")
+      cb.onDone()
+    })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const result = await runner.run(
+      {
+        maxRounds: 2,
+        tools: [tool],
+        systemPrompt: "You are helpful",
+        llmConfig: mockLlmConfig,
+        requiredToolsOnce: ["run_chapter_workflow"],
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(callbacks.onDone).not.toHaveBeenCalled()
+    expect(callbacks.onError).toHaveBeenCalledOnce()
+    expect(callbacks.onError.mock.calls[0][0].name).toBe("RequiredToolsNotCalledError")
+    expect(result.finalText).toBe("")
+    expect(tool.execute).not.toHaveBeenCalled()
+  })
+
+  it("does not block no-tool finals when requiredToolsOnce is unset", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("ok"),
+    }
+    registry.register(tool)
+
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("普通回复")
+      cb.onDone()
+    })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const result = await runner.run(
+      {
+        maxRounds: 2,
+        tools: [tool],
+        systemPrompt: "You are helpful",
+        llmConfig: mockLlmConfig,
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(result.finalText).toBe("普通回复")
+    expect(callbacks.onDone).toHaveBeenCalledOnce()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("skips required-tools gate after tools fallback disables tools", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      parameters: {},
+      execute: vi.fn().mockResolvedValue("ok"),
+    }
+    registry.register(tool)
+
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks, _signal?: unknown, overrides?: { tools?: unknown }) => {
+      callCount += 1
+      if (callCount === 1 && overrides?.tools) {
+        cb.onError?.(new Error("tools are not supported"))
+        return
+      }
+      cb.onToken("无工具回退正文")
+      cb.onDone()
+    })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const result = await runner.run(
+      {
+        maxRounds: 2,
+        tools: [tool],
+        systemPrompt: "You are helpful",
+        llmConfig: mockLlmConfig,
+        requiredToolsOnce: ["run_chapter_workflow"],
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(result.finalText).toBe("无工具回退正文")
+    expect(callbacks.onDone).toHaveBeenCalledOnce()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
   it("replays reasoning_content on tool-call assistant messages in the next round", async () => {
     const tool: Tool = {
       name: "read_chapter",

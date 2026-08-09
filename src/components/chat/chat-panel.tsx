@@ -39,6 +39,7 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
+import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"
 import { runDraftReviewSkill } from "@/lib/agent/skills/draft-review-skill"
 import { useDraftReviewStore } from "@/stores/draft-review-store"
 import { shouldKeepAwakeForWriting, withWritingWakeLock } from "@/lib/writing-wake-lock"
@@ -324,7 +325,7 @@ function buildChatAgentSystemPrompt(options: {
     if (options.aiWorkflowMode === "fast") {
       lines.push("快速模式下可以读取必要上下文；除非用户明确要求使用工作流或 Skill，否则不要主动调用 run_chapter_workflow。")
     } else {
-      lines.push("章节生成、续写、改写或润色应优先调用 run_chapter_workflow 工具。")
+      lines.push("章节生成、续写、改写或润色必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
     }
   }
   if (options.aiWorkflowMode) {
@@ -1789,6 +1790,13 @@ export function ChatPanel() {
           intent: effectiveTaskRoute?.intent,
           planExecuteActive,
         })
+        const requiredToolsOnce = resolveRequiredToolsOnce({
+          novelMode,
+          intent: effectiveTaskRoute?.intent,
+          mode: aiWorkflowMode,
+          planExecuteActive,
+          enabledToolNames: prePluginResult?.enabledToolNames,
+        })
         const record = await withWritingWakeLock(keepAwake, () => runAiChatSession({
           userMessage: plainText,
           projectPath,
@@ -1797,6 +1805,7 @@ export function ChatPanel() {
             systemPrompt: systemPromptForConfig,
             projectPath,
             taskGoal: plainText,
+            ...(requiredToolsOnce ? { requiredToolsOnce } : {}),
             requestOverrides: {
               ...agentConfig.requestOverrides,
               userMemorySurface: "ai-chat",

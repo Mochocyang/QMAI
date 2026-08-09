@@ -466,7 +466,7 @@ export function buildTaskDirective(route: TaskRouteResult): string {
   ) {
     lines.push(`本次写作目标：第 ${route.chapterNumber} 章。`)
     lines.push(
-      "写正文前先 list_outlines（可传 chapterNumber），再按 type 分流并用 read_outline 读正文，确认对应该章的大纲后再写。",
+      "写正文前先 list_outlines（可传 chapterNumber），再按文件夹分流（优先；旧 type 仅兼容）并用 read_outline 读正文，确认对应该章的大纲后再写。",
     )
   }
 

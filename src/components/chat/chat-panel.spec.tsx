@@ -156,6 +156,13 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("aiWorkflowMode,")
   })
 
+  it("injects requiredToolsOnce for non-fast chapter writing via resolveRequiredToolsOnce", () => {
+    expect(source).toContain('import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"')
+    expect(source).toContain("resolveRequiredToolsOnce({")
+    expect(source).toContain("...(requiredToolsOnce ? { requiredToolsOnce } : {})")
+    expect(source).toContain("必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
+  })
+
   it("does not bypass ReAct for chapter workflow execution", () => {
     expect(source).toContain("runAiChatSession")
     expect(source).toContain("run_chapter_workflow")
