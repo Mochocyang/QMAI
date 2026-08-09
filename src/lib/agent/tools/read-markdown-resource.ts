@@ -1,4 +1,5 @@
 import { listDirectory, readFile } from "@/commands/fs"
+import { isAbsolutePath, isPathInside, normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 
 interface MarkdownCandidate {
@@ -13,6 +14,21 @@ interface DirectoryCandidate {
 }
 
 export type ReadTextFile = (path: string) => Promise<string>
+
+function resolveExplicitResourcePath(baseDir: string, path: string): string | null {
+  const normalizedBase = normalizePath(baseDir).replace(/\/+$/, "")
+  const normalizedPath = normalizePath(path).trim()
+  if (!normalizedBase || !normalizedPath) return null
+
+  let candidate = normalizedPath
+  if (!isAbsolutePath(normalizedPath)) {
+    const segments = normalizedPath.split("/").filter((segment) => segment && segment !== ".")
+    if (segments.some((segment) => segment === "..")) return null
+    candidate = `${normalizedBase}/${segments.join("/")}`
+  }
+
+  return isPathInside(candidate, normalizedBase) ? candidate : null
+}
 
 function ensureMarkdownName(name: string): string {
   return name.toLowerCase().endsWith(".md") ? name : `${name}.md`
@@ -140,8 +156,12 @@ export async function readMarkdownResource(
   const displayName = name || explicitPath
 
   if (explicitPath) {
+    const resolvedPath = resolveExplicitResourcePath(baseDir, explicitPath)
+    if (!resolvedPath) {
+      return `错误：无法读取${label}「${displayName}」，文件路径必须位于${label}目录内`
+    }
     try {
-      return await readTextFile(explicitPath)
+      return await readTextFile(resolvedPath)
     } catch {
       return `错误：无法读取${label}「${displayName}」，请确认文件存在`
     }

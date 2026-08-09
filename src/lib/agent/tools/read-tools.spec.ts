@@ -149,6 +149,26 @@ describe("read tools", () => {
     expect(result).toBe("outline content")
   })
 
+  it("read_outline resolves an explicit relative path inside outlines dir", async () => {
+    vi.mocked(readFile).mockResolvedValue("nested outline content")
+    const tool = createReadOutlineTool("/project/wiki/outlines")
+
+    const result = await tool.execute({ path: "章纲/第9章-谋划.md" })
+
+    expect(result).toBe("nested outline content")
+    expect(readFile).toHaveBeenCalledWith("/project/wiki/outlines/章纲/第9章-谋划.md")
+    expect(readFile).not.toHaveBeenCalledWith("章纲/第9章-谋划.md")
+  })
+
+  it("read_outline rejects an explicit path outside outlines dir", async () => {
+    const tool = createReadOutlineTool("/project/wiki/outlines")
+
+    const result = await tool.execute({ path: "../chapters/第9章.md" })
+
+    expect(result).toContain("文件路径必须位于大纲目录内")
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
   it("read_outline matches punctuation-insensitive outline names", async () => {
     vi.mocked(readFile).mockImplementation(async (path) => {
       if (path === "/project/wiki/outlines/他只想活着大纲.md") return "大纲内容"

@@ -216,19 +216,27 @@ fn cache_path_for(original: &Path) -> std::path::PathBuf {
         .file_name()
         .unwrap_or_default()
         .to_string_lossy();
-
-    // 如果缓存目录创建失败（如根目录无权限），回退到系统临时目录
-    if fs::create_dir_all(&cache_dir).is_err() {
-        return std::env::temp_dir()
-            .join("qmai-cache")
-            .join(format!("{}.txt", file_name));
-    }
     cache_dir.join(format!("{}.txt", file_name))
 }
 
+fn fallback_cache_path(original: &Path) -> std::path::PathBuf {
+    let file_name = original
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    std::env::temp_dir()
+        .join("qmai-cache")
+        .join(format!("{}.txt", file_name))
+}
+
 fn read_cache(original: &Path) -> Option<String> {
-    let cache_path = cache_path_for(original);
     let original_modified = fs::metadata(original).ok()?.modified().ok()?;
+    let preferred_path = cache_path_for(original);
+    let cache_path = if fs::metadata(&preferred_path).is_ok() {
+        preferred_path
+    } else {
+        fallback_cache_path(original)
+    };
     let cache_modified = fs::metadata(&cache_path).ok()?.modified().ok()?;
     if cache_modified >= original_modified {
         fs::read_to_string(&cache_path).ok()
@@ -238,10 +246,18 @@ fn read_cache(original: &Path) -> Option<String> {
 }
 
 fn write_cache(original: &Path, text: &str) -> Result<(), String> {
-    let cache_path = cache_path_for(original);
-    if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent).ok();
-    }
+    let preferred_path = cache_path_for(original);
+    let cache_path = match preferred_path.parent() {
+        Some(parent) if fs::create_dir_all(parent).is_ok() => preferred_path,
+        _ => {
+            let fallback_path = fallback_cache_path(original);
+            if let Some(parent) = fallback_path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create fallback cache directory: {e}"))?;
+            }
+            fallback_path
+        }
+    };
     crate::commands::file_sync::mark_app_write_path(&cache_path);
     fs::write(&cache_path, text)
         .map_err(|e| format!("Failed to write cache: {}", e))
@@ -1933,6 +1949,21 @@ pub async fn get_file_md5(path: String) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn missing_file_read_does_not_create_parent_cache_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-missing-read-cache-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let missing_file = root.join("章纲").join("不存在.md");
+
+        assert!(do_read_file(&missing_file.to_string_lossy()).is_err());
+        assert!(!root.exists(), "读取不存在的文件不应创建缓存目录");
+    }
 
     #[test]
     fn directory_tree_includes_file_version_metadata() {
