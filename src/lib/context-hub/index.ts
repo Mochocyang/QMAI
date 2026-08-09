@@ -1,6 +1,12 @@
-export { ContextHubController, getContextHub } from "./context-hub"
+export {
+  ContextHubController,
+  disposeAllContextHubs,
+  getContextHub,
+  initializeProjectContextCache,
+} from "./context-hub"
 export {
   buildSessionContextSummary,
+  isLegacySessionContextSummary,
   isSessionSummaryFresh,
   normalizeSessionContextSummary,
   selectContextHistoryMessages,
@@ -14,7 +20,9 @@ export type {
   ContextHubSnapshot,
   ContextHubSnapshotRef,
   ContextHubStats,
+  ContextCacheScope,
   ContextIntent,
   ContextSurface,
+  DependencyStamp,
   SessionContextSummary,
 } from "./types"

@@ -4,7 +4,10 @@ import { normalizePath } from "@/lib/path-utils"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
-import { normalizeSessionContextSummary } from "@/lib/context-hub/session-summary"
+import {
+  isLegacySessionContextSummary,
+  normalizeSessionContextSummary,
+} from "@/lib/context-hub/session-summary"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
 import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
@@ -391,6 +394,9 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
         activeConversationId: string | null
         runStates?: ConversationRunStates
       }
+      const hasLegacyContextSummary = (data.conversations ?? []).some((conversation) => (
+        isLegacySessionContextSummary(conversation.contextSummary)
+      ))
       const conversations = (data.conversations ?? []).map((conversation) => ({
         ...conversation,
         contextSummary: normalizeSessionContextSummary(conversation.contextSummary),
@@ -430,6 +436,9 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
         pendingReferenceTokens: [],
         loaded: true,
       })
+      if (hasLegacyContextSummary && generation === loadGeneration && getStoragePath() === path) {
+        await doSave(path, { conversations, activeConversationId, runStates })
+      }
     } catch {
       if (generation !== loadGeneration || getStoragePath() !== path) return
       set({

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ContextHubDetails } from "./context-hub-details"
 import { CONTEXT_CACHE_SCHEMA_VERSION, type ContextHubSnapshot } from "@/lib/context-hub/types"
 
+const dependencyStamp = { fingerprint: "test", sourceCount: 1, kinds: ["outline" as const] }
+
 const snapshot: ContextHubSnapshot = {
   schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
   id: "assistant:1",
@@ -33,19 +35,25 @@ const snapshot: ContextHubSnapshot = {
       key: "data-source:outline",
       sourceName: "outline",
       status: "hit",
+      dependencyStamp: { ...dependencyStamp, sourceCount: 3 },
       dependencyPaths: ["wiki/outlines/main.md"],
+      dependencyPathsTruncated: true,
     },
     {
       key: "stable-core:ai-chat",
       sourceName: "stableCore",
       status: "refreshed",
+      dependencyStamp,
       dependencyPaths: ["wiki/settings/world.md"],
+      dependencyPathsTruncated: false,
     },
     {
       key: "data-source:book-analysis",
       sourceName: "bookAnalysisReferences",
       status: "hit",
+      dependencyStamp,
       dependencyPaths: [".qmai/book-analysis-context.json"],
+      dependencyPathsTruncated: false,
     },
   ],
   stableCore: "稳定核心正文",
@@ -103,6 +111,7 @@ describe("ContextHubDetails", () => {
     expect(host.textContent).toContain("拆书库分析")
     expect(host.textContent).toContain("稳定核心缓存")
     expect(host.textContent).toContain("wiki/outlines/main.md")
+    expect(host.textContent).toContain("另有 2 个文件")
     expect(host.textContent).toContain("稳定核心正文")
     expect(host.textContent).toContain("供应商已确认命中 800 Token（输入占比 50%）")
     expect(host.textContent).toContain("供应商新写入缓存 200 Token")

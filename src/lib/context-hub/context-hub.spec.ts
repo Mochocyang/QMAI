@@ -1,7 +1,21 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ContextPack } from "@/lib/novel/context-engine"
 import { ContextHubController } from "./context-hub"
-import type { CachedArtifact, ContextHubSnapshot, StableBundle } from "./types"
+import type {
+  CachedArtifact,
+  ContextHubSnapshot,
+  ContextSourceKind,
+  DependencyStamp,
+  StableBundle,
+} from "./types"
+
+function stamp(
+  fingerprint = "project-v1",
+  kinds: ContextSourceKind[] = ["outline"],
+  sourceCount = 1,
+): DependencyStamp {
+  return { fingerprint, kinds, sourceCount }
+}
 
 function pack(): ContextPack {
   return {
@@ -35,7 +49,11 @@ function createHarness() {
   const snapshots = new Map<string, ContextHubSnapshot>()
   const registry = {
     refresh: vi.fn(async () => ({ versions: {}, changedPaths: [] as string[] })),
-    getDependencies: vi.fn(() => ({ "E:/Novel/wiki/outlines/main.md": 1 })),
+    getDependencyStamp: vi.fn(async (kinds?: ContextSourceKind[]) => stamp(
+      kinds ? "stable-v1" : "project-v1",
+      kinds ?? ["outline"],
+    )),
+    getDependencyPreview: vi.fn(() => ["E:/Novel/wiki/outlines/main.md"]),
     markDirty: vi.fn(),
     dispose: vi.fn(),
   }
@@ -47,6 +65,7 @@ function createHarness() {
     readSnapshot: vi.fn(async (_surface: string, id: string) => snapshots.get(id) ?? null),
     writeSnapshot: vi.fn(async (value: ContextHubSnapshot) => { snapshots.set(value.id, value) }),
     pruneSnapshots: vi.fn(async () => {}),
+    dispose: vi.fn(),
   }
   const buildContextPack = vi.fn(async () => pack())
   const readFile = vi.fn(async (path: string) => `内容:${path}:${readFile.mock.calls.length}`)
@@ -82,13 +101,13 @@ describe("ContextHubController", () => {
     const harness = createHarness()
     const chat = await harness.controller.prepare({
       ...request,
-      existingSummary: { text: "AI 对话摘要", dependencies: { "E:/Novel/wiki/outlines/main.md": 1 }, updatedAt: 1 },
+      existingSummary: { text: "AI 对话摘要", dependencyFingerprint: "project-v1", updatedAt: 1 },
     })
     const outline = await harness.controller.prepare({
       ...request,
       surface: "ai-outline",
       sessionId: "outline-1",
-      existingSummary: { text: "AI 大纲摘要", dependencies: { "E:/Novel/wiki/outlines/main.md": 1 }, updatedAt: 1 },
+      existingSummary: { text: "AI 大纲摘要", dependencyFingerprint: "project-v1", updatedAt: 1 },
     })
 
     expect(chat?.sessionSummary).toBe("AI 对话摘要")
@@ -101,7 +120,7 @@ describe("ContextHubController", () => {
     const result = await harness.controller.prepare({
       ...request,
       forceRefresh: true,
-      existingSummary: { text: "旧摘要", dependencies: { "E:/Novel/wiki/outlines/main.md": 1 }, updatedAt: 1 },
+      existingSummary: { text: "旧摘要", dependencyFingerprint: "project-v1", updatedAt: 1 },
     })
 
     expect(result?.sessionSummary).toBe("")
@@ -143,13 +162,8 @@ describe("ContextHubController", () => {
   it("keeps the stable core cached when only an unrelated chapter changes", async () => {
     const harness = createHarness()
     let chapterRevision = 1
-    harness.registry.getDependencies.mockImplementation((kinds?: string[]) => (
-      kinds
-        ? { "E:/Novel/wiki/outlines/main.md": 1 }
-        : {
-            "E:/Novel/wiki/outlines/main.md": 1,
-            "E:/Novel/wiki/chapters/chapter-1.md": chapterRevision,
-          }
+    harness.registry.getDependencyStamp.mockImplementation(async (kinds?: ContextSourceKind[]) => (
+      kinds ? stamp("stable-v1", kinds) : stamp(`project-${chapterRevision}`, ["outline", "chapter"], 2)
     ))
 
     await harness.controller.prepare(request)
@@ -163,15 +177,13 @@ describe("ContextHubController", () => {
     }))
   })
 
-  it("keeps the stable core cached when source revisions change but its bytes stay identical", async () => {
+  it("keeps the stable core cached when a refresh leaves its content fingerprint unchanged", async () => {
     const harness = createHarness()
-    let outlineRevision = 1
-    harness.registry.getDependencies.mockImplementation(() => ({
-      "E:/Novel/wiki/outlines/main.md": outlineRevision,
-    }))
+    harness.registry.getDependencyStamp.mockImplementation(async (kinds?: ContextSourceKind[]) => (
+      stamp("outline-content-hash", kinds ?? ["outline"])
+    ))
 
     await harness.controller.prepare(request)
-    outlineRevision = 2
     const second = await harness.controller.prepare({ ...request, task: "继续生成大纲" })
 
     expect(second?.cacheItems).toContainEqual(expect.objectContaining({
@@ -182,9 +194,7 @@ describe("ContextHubController", () => {
 
   it("removes a Windows project root from dependency paths case-insensitively", async () => {
     const harness = createHarness()
-    harness.registry.getDependencies.mockReturnValue({
-      "e:/Novel/wiki/outlines/main.md": 1,
-    })
+    harness.registry.getDependencyPreview.mockReturnValue(["e:/Novel/wiki/outlines/main.md"])
 
     const result = await harness.controller.prepare(request)
 
@@ -269,6 +279,17 @@ describe("ContextHubController", () => {
     const result = await harness.controller.prepare(request)
 
     expect(result).toBeNull()
+    expect(harness.buildContextPack).not.toHaveBeenCalled()
+  })
+
+  it("releases storage and refuses new prepares after disposal", async () => {
+    const harness = createHarness()
+
+    harness.controller.dispose()
+
+    await expect(harness.controller.prepare(request)).resolves.toBeNull()
+    expect(harness.registry.dispose).toHaveBeenCalledOnce()
+    expect(harness.storage.dispose).toHaveBeenCalledOnce()
     expect(harness.buildContextPack).not.toHaveBeenCalled()
   })
 })

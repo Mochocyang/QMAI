@@ -38,7 +38,7 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
 
 describe("outline-chat-store", () => {
-  it("加载时把旧字符串上下文摘要迁移为带依赖的结构", async () => {
+  it("加载时保留旧字符串摘要并自动写回瘦身结构", async () => {
     useWikiStore.setState({ project: { id: "p", name: "Novel", path: "E:/Novel" } })
     fsMocks.readFile.mockResolvedValue(JSON.stringify({
       conversations: [{ ...conversation("legacy-summary"), contextSummary: "旧大纲摘要" }],
@@ -49,9 +49,12 @@ describe("outline-chat-store", () => {
 
     expect(useOutlineChatStore.getState().conversations[0].contextSummary).toEqual({
       text: "旧大纲摘要",
-      dependencies: {},
       updatedAt: 0,
     })
+    expect(fsMocks.writeFile).toHaveBeenCalledWith(
+      "E:/Novel/.qmai/outline-chats.json",
+      expect.not.stringContaining("dependencies"),
+    )
   })
 
   it("按会话隔离流式内容，并支持追加、读取和单独清理", () => {

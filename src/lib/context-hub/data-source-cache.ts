@@ -4,16 +4,20 @@ import type {
   DataSourceLoadAdapter,
 } from "@/lib/novel/context-data-source"
 import { getDataSourceKinds } from "./source-paths"
+import { sha256Text } from "./fingerprint"
 import {
   CONTEXT_CACHE_SCHEMA_VERSION,
   type CachedArtifact,
+  type ContextCacheScope,
   type ContextCacheItemTrace,
   type ContextSourceKind,
+  type DependencyStamp,
 } from "./types"
 
 interface DataSourceCacheRegistry {
   refresh(): Promise<unknown>
-  getDependencies(kinds?: ContextSourceKind[]): Record<string, number>
+  getDependencyStamp(kinds?: ContextSourceKind[]): Promise<DependencyStamp>
+  getDependencyPreview(kinds?: ContextSourceKind[], limit?: number): string[]
 }
 
 interface DataSourceCacheStorage {
@@ -39,6 +43,7 @@ const STATIC_SOURCES = new Set([
   "soulDoc",
   "characterAuras",
   "storyFrameworkBinding",
+  "relatedSettings",
 ])
 
 const CHAPTER_SCOPED_SOURCES = new Set([
@@ -55,6 +60,7 @@ const CHAPTER_SCOPED_SOURCES = new Set([
   "revisionFeedback",
   "cognitionText",
   "sectionBriefing",
+  "retrieval",
 ])
 
 function canonicalize(value: unknown): unknown {
@@ -67,32 +73,23 @@ function canonicalize(value: unknown): unknown {
   )
 }
 
-function hashText(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0")
-}
-
-function sourceRequestKey(sourceName: string, context: ContextLoadContext): string {
+async function sourceRequestKey(sourceName: string, context: ContextLoadContext): Promise<string> {
   const scope = STATIC_SOURCES.has(sourceName)
     ? {}
     : CHAPTER_SCOPED_SOURCES.has(sourceName)
       ? { chapterNumber: context.chapterNumber ?? null, config: context.config }
       : { task: context.task, chapterNumber: context.chapterNumber ?? null, config: context.config }
-  return `data-source:${sourceName}:${hashText(JSON.stringify(canonicalize(scope)))}`
+  return `data-source:${sourceName}:${await sha256Text(JSON.stringify(canonicalize(scope)))}`
 }
 
-function dependenciesMatch(
-  cached: Record<string, number>,
-  current: Record<string, number>,
-): boolean {
-  const cachedEntries = Object.entries(cached)
-  const currentEntries = Object.entries(current)
-  return cachedEntries.length === currentEntries.length
-    && cachedEntries.every(([path, revision]) => current[path] === revision)
+function dependencyStampsMatch(cached: DependencyStamp, current: DependencyStamp): boolean {
+  return cached.fingerprint === current.fingerprint
+}
+
+function cacheScopeFor(sourceName: string): ContextCacheScope {
+  if (STATIC_SOURCES.has(sourceName)) return "static"
+  if (CHAPTER_SCOPED_SOURCES.has(sourceName)) return "chapter"
+  return "task"
 }
 
 function hasCacheableValue(value: unknown): boolean {
@@ -115,12 +112,20 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     directLoad: () => Promise<T>,
   ): Promise<T> {
     await this.options.registry.refresh()
-    const dependencies = this.options.registry.getDependencies(getDataSourceKinds(source.name))
-    const key = sourceRequestKey(source.name, context)
+    const kinds = getDataSourceKinds(source.name)
+    const dependencyStamp = await this.options.registry.getDependencyStamp(kinds)
+    const dependencyPaths = this.options.registry.getDependencyPreview(kinds, 20)
+    const key = await sourceRequestKey(source.name, context)
     const pending = this.pending.get(key)
     if (pending) return pending as Promise<T>
 
-    const operation = this.loadInternal(key, source.name, dependencies, directLoad)
+    const operation = this.loadInternal(
+      key,
+      source.name,
+      dependencyStamp,
+      dependencyPaths,
+      directLoad,
+    )
       .finally(() => this.pending.delete(key))
     this.pending.set(key, operation)
     return operation
@@ -133,6 +138,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
   getTraceItems(): ContextCacheItemTrace[] {
     return this.traceItems.map((item) => ({
       ...item,
+      dependencyStamp: { ...item.dependencyStamp, kinds: [...item.dependencyStamp.kinds] },
       dependencyPaths: [...item.dependencyPaths],
     }))
   }
@@ -140,40 +146,50 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
   private async loadInternal<T>(
     key: string,
     sourceName: string,
-    dependencies: Record<string, number>,
+    dependencyStamp: DependencyStamp,
+    dependencyPaths: string[],
     directLoad: () => Promise<T>,
   ): Promise<T> {
-    const dependencyPaths = Object.keys(dependencies)
+    const trace = (status: ContextCacheItemTrace["status"]): ContextCacheItemTrace => ({
+      key,
+      sourceName,
+      status,
+      dependencyStamp,
+      dependencyPaths,
+      dependencyPathsTruncated: dependencyStamp.sourceCount > dependencyPaths.length,
+    })
     if (!this.options.forceRefresh) {
       try {
         const cached = await this.options.storage.readArtifact<T>(key)
-        if (cached && dependenciesMatch(cached.dependencies, dependencies)) {
+        if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
           this.stats.hits += 1
-          this.traceItems.push({ key, sourceName, status: "hit", dependencyPaths })
+          this.traceItems.push(trace("hit"))
           return cached.value
         }
       } catch {
         this.stats.failures += 1
-        this.traceItems.push({ key, sourceName, status: "failed", dependencyPaths })
+        this.traceItems.push(trace("failed"))
       }
     }
 
     const value = await directLoad()
     this.stats.refreshed += 1
-    this.traceItems.push({ key, sourceName, status: "refreshed", dependencyPaths })
+    this.traceItems.push(trace("refreshed"))
     if (!hasCacheableValue(value)) return value
 
     try {
       await this.options.storage.writeArtifact(key, {
         schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
         key,
+        sourceName,
+        scope: cacheScopeFor(sourceName),
         value,
-        dependencies,
+        dependencyStamp,
         createdAt: Date.now(),
       })
     } catch {
       this.stats.failures += 1
-      this.traceItems.push({ key, sourceName, status: "failed", dependencyPaths })
+      this.traceItems.push(trace("failed"))
     }
     return value
   }

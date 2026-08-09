@@ -2000,7 +2000,7 @@ export function ChatPanel() {
             capturedConvId,
             buildSessionContextSummary({
               messages: completedMessages,
-              dependencies: contextHubResult.dependencies,
+              dependencyFingerprint: contextHubResult.dependencyStamp.fingerprint,
             }),
           )
         }

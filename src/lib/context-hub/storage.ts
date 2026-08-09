@@ -1,8 +1,18 @@
-import { createDirectory, deleteFile, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import {
+  createDirectory,
+  deleteFile,
+  fileExists,
+  getFileSize,
+  listDirectory,
+  readFile,
+  writeFileAtomic,
+} from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { sha256Text } from "./fingerprint"
 import {
   CONTEXT_CACHE_SCHEMA_VERSION,
   type CachedArtifact,
+  type ContextCacheArtifactEntry,
   type ContextCacheManifest,
   type ContextHubSnapshot,
   type ContextSurface,
@@ -15,6 +25,8 @@ export interface ContextHubStorageIo {
   createDirectory(path: string): Promise<void>
   listDirectory(path: string): Promise<Array<{ name: string; path: string; is_dir: boolean; mtimeMs?: number }>>
   deleteFile(path: string): Promise<void>
+  fileExists(path: string): Promise<boolean>
+  getFileSize(path: string): Promise<number>
 }
 
 const defaultIo: ContextHubStorageIo = {
@@ -23,29 +35,19 @@ const defaultIo: ContextHubStorageIo = {
   createDirectory,
   listDirectory: (path) => listDirectory(path, { includeHidden: true, maxDepth: 1 }),
   deleteFile,
+  fileExists,
+  getFileSize,
 }
 
 const SNAPSHOT_CLEANUP_GRACE_MS = 60_000
+const MAX_MANIFEST_BYTES = 32 * 1024 * 1024
+const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
+const MAX_TOTAL_ARTIFACT_BYTES = 128 * 1024 * 1024
+const MAX_ARTIFACT_COUNT = 2048
+const MAX_TASK_ARTIFACTS_PER_SOURCE = 128
 
 function emptyManifest(): ContextCacheManifest {
-  return {
-    schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
-    sources: {},
-    artifacts: {},
-  }
-}
-
-function cloneManifest(manifest: ContextCacheManifest): ContextCacheManifest {
-  return JSON.parse(JSON.stringify(manifest)) as ContextCacheManifest
-}
-
-function artifactFileName(key: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < key.length; index += 1) {
-    hash ^= key.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return `${(hash >>> 0).toString(16).padStart(8, "0")}.json`
+  return { schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION, sources: {}, artifacts: {} }
 }
 
 function parseObject(value: string): Record<string, unknown> | null {
@@ -59,42 +61,134 @@ function parseObject(value: string): Record<string, unknown> | null {
   }
 }
 
+async function hashedFileName(key: string): Promise<string> {
+  return `${await sha256Text(key)}.json`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function isDependencyStamp(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return typeof value.fingerprint === "string"
+    && value.fingerprint.length > 0
+    && Number.isInteger(value.sourceCount)
+    && (value.sourceCount as number) >= 0
+    && Array.isArray(value.kinds)
+    && value.kinds.every((kind) => typeof kind === "string")
+}
+
+function cloneManifest(manifest: ContextCacheManifest): ContextCacheManifest {
+  return {
+    schemaVersion: manifest.schemaVersion,
+    sources: { ...manifest.sources },
+    artifacts: { ...manifest.artifacts },
+  }
+}
+
+function artifactSort(left: ContextCacheArtifactEntry, right: ContextCacheArtifactEntry): number {
+  if (left.scope === "static" && right.scope !== "static") return 1
+  if (right.scope === "static" && left.scope !== "static") return -1
+  return left.createdAt - right.createdAt
+}
+
+function pruneArtifactEntries(
+  entries: Record<string, ContextCacheArtifactEntry>,
+): { artifacts: Record<string, ContextCacheArtifactEntry>; removed: ContextCacheArtifactEntry[] } {
+  const artifacts = { ...entries }
+  const removed: ContextCacheArtifactEntry[] = []
+  const removeKey = (key: string) => {
+    const entry = artifacts[key]
+    if (!entry) return
+    removed.push(entry)
+    delete artifacts[key]
+  }
+
+  const taskGroups = new Map<string, Array<[string, ContextCacheArtifactEntry]>>()
+  for (const pair of Object.entries(artifacts)) {
+    const [key, entry] = pair
+    if (entry.scope !== "task") continue
+    const group = taskGroups.get(entry.sourceName) ?? []
+    group.push([key, entry])
+    taskGroups.set(entry.sourceName, group)
+  }
+  for (const group of taskGroups.values()) {
+    group.sort((left, right) => left[1].createdAt - right[1].createdAt)
+    for (const [key] of group.slice(0, Math.max(0, group.length - MAX_TASK_ARTIFACTS_PER_SOURCE))) {
+      removeKey(key)
+    }
+  }
+
+  const remaining = () => Object.entries(artifacts)
+  let totalBytes = remaining().reduce((sum, [, entry]) => sum + entry.byteSize, 0)
+  const candidates = remaining().sort((left, right) => artifactSort(left[1], right[1]))
+  while (
+    candidates.length > 0
+    && (Object.keys(artifacts).length > MAX_ARTIFACT_COUNT || totalBytes > MAX_TOTAL_ARTIFACT_BYTES)
+  ) {
+    const [key, entry] = candidates.shift()!
+    if (!artifacts[key]) continue
+    totalBytes -= entry.byteSize
+    removeKey(key)
+  }
+  return { artifacts, removed }
+}
+
 export class ContextHubStorage {
   private readonly basePath: string
   private readonly manifestPath: string
   private manifest: ContextCacheManifest | null = null
+  private initialization: Promise<void> | null = null
   private manifestWriteQueue: Promise<void> = Promise.resolve()
   private snapshotOperationQueue: Promise<void> = Promise.resolve()
+  private disposed = false
 
   constructor(
     projectPath: string,
     private readonly io: ContextHubStorageIo = defaultIo,
   ) {
-    this.basePath = `${normalizePath(projectPath)}/.qmai/context-cache/v1`
+    this.basePath = `${normalizePath(projectPath)}/.qmai/context-cache/v2`
     this.manifestPath = `${this.basePath}/manifest.json`
   }
 
+  initialize(): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error("Context Hub storage 已释放"))
+    if (!this.initialization) {
+      this.initialization = this.initializeInternal().catch((error) => {
+        this.initialization = null
+        throw error
+      })
+    }
+    return this.initialization
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.manifest = null
+    this.initialization = null
+  }
+
   async loadManifest(): Promise<ContextCacheManifest> {
-    return cloneManifest(await this.getManifest())
+    await this.initialize()
+    return cloneManifest(this.manifest ?? emptyManifest())
   }
 
   async saveManifest(manifest: ContextCacheManifest): Promise<void> {
+    await this.initialize()
     await this.enqueueManifestWrite(async () => {
-      const current = await this.getManifest()
-      const next = cloneManifest({
-        ...manifest,
+      const current = this.manifest ?? emptyManifest()
+      await this.persistManifest({
         schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
-        artifacts: {
-          ...manifest.artifacts,
-          ...current.artifacts,
-        },
+        sources: { ...manifest.sources },
+        artifacts: { ...current.artifacts },
       })
-      await this.persistManifest(next)
     })
   }
 
   async readArtifact<T>(key: string): Promise<CachedArtifact<T> | null> {
-    const entry = (await this.getManifest()).artifacts[key]
+    await this.initialize()
+    const entry = this.manifest?.artifacts[key]
     if (!entry) return null
     try {
       const raw = parseObject(await this.io.readFile(entry.path))
@@ -103,6 +197,7 @@ export class ContextHubStorage {
         || raw.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
         || raw.key !== key
         || !("value" in raw)
+        || !isDependencyStamp(raw.dependencyStamp)
       ) return null
       return raw as unknown as CachedArtifact<T>
     } catch {
@@ -111,32 +206,47 @@ export class ContextHubStorage {
   }
 
   async writeArtifact<T>(key: string, artifact: CachedArtifact<T>): Promise<void> {
-    await this.ensureBaseDirectories()
-    const artifactPath = `${this.basePath}/artifacts/${artifactFileName(key)}`
+    await this.initialize()
     const value: CachedArtifact<T> = {
       ...artifact,
       schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
       key,
     }
-    await this.io.writeFileAtomic(artifactPath, JSON.stringify(value, null, 2))
+    const serialized = JSON.stringify(value)
+    const byteSize = new TextEncoder().encode(serialized).byteLength
+    if (byteSize > MAX_ARTIFACT_BYTES) return
+    const artifactPath = `${this.basePath}/artifacts/${await hashedFileName(`${key}:${await sha256Text(serialized)}`)}`
 
-    await this.enqueueManifestWrite(async () => {
-      const current = await this.getManifest()
-      const next: ContextCacheManifest = {
-        ...cloneManifest(current),
-        artifacts: {
+    const previous = this.manifest?.artifacts[key]
+    await this.io.writeFileAtomic(artifactPath, serialized)
+    try {
+      await this.enqueueManifestWrite(async () => {
+        const current = this.manifest ?? emptyManifest()
+        const candidate = {
           ...current.artifacts,
           [key]: {
             path: artifactPath,
-            dependencies: { ...artifact.dependencies },
+            sourceName: artifact.sourceName,
+            scope: artifact.scope,
+            dependencyStamp: artifact.dependencyStamp,
+            createdAt: artifact.createdAt,
+            byteSize,
           },
-        },
-      }
-      await this.persistManifest(next)
-    })
+        }
+        const pruned = pruneArtifactEntries(candidate)
+        await this.persistManifest({ ...current, artifacts: pruned.artifacts })
+        const obsoletePaths = pruned.removed.map((entry) => entry.path)
+        if (previous?.path && previous.path !== artifactPath) obsoletePaths.push(previous.path)
+        await Promise.all(obsoletePaths.map((path) => this.safeDelete(path)))
+      })
+    } catch (error) {
+      if (previous?.path !== artifactPath) await this.safeDelete(artifactPath)
+      throw error
+    }
   }
 
   async readStableBundle(surface: ContextSurface): Promise<StableBundle | null> {
+    await this.initialize()
     try {
       const raw = parseObject(await this.io.readFile(this.stableBundlePath(surface)))
       if (
@@ -144,6 +254,7 @@ export class ContextHubStorage {
         || raw.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
         || raw.surface !== surface
         || typeof raw.text !== "string"
+        || !isDependencyStamp(raw.dependencyStamp)
       ) return null
       return raw as unknown as StableBundle
     } catch {
@@ -152,18 +263,19 @@ export class ContextHubStorage {
   }
 
   async writeStableBundle(surface: ContextSurface, bundle: StableBundle): Promise<void> {
-    await this.ensureBaseDirectories()
+    await this.initialize()
     const value: StableBundle = {
       ...bundle,
       schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
       surface,
     }
-    await this.io.writeFileAtomic(this.stableBundlePath(surface), JSON.stringify(value, null, 2))
+    await this.io.writeFileAtomic(this.stableBundlePath(surface), JSON.stringify(value))
   }
 
   async readSnapshot(surface: ContextSurface, id: string): Promise<ContextHubSnapshot | null> {
+    await this.initialize()
     try {
-      const raw = parseObject(await this.io.readFile(this.snapshotPath(surface, id)))
+      const raw = parseObject(await this.io.readFile(await this.snapshotPath(surface, id)))
       if (
         !raw
         || raw.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
@@ -183,20 +295,21 @@ export class ContextHubStorage {
   }
 
   async writeSnapshot(snapshot: ContextHubSnapshot): Promise<void> {
+    await this.initialize()
     await this.enqueueSnapshotOperation(async () => {
-      await this.ensureBaseDirectories()
       const value: ContextHubSnapshot = {
         ...snapshot,
         schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
       }
       await this.io.writeFileAtomic(
-        this.snapshotPath(snapshot.surface, snapshot.id),
-        JSON.stringify(value, null, 2),
+        await this.snapshotPath(snapshot.surface, snapshot.id),
+        JSON.stringify(value),
       )
     })
   }
 
   async pruneSnapshots(surface: ContextSurface, referencedIds: string[]): Promise<void> {
+    await this.initialize()
     await this.enqueueSnapshotOperation(async () => {
       const directory = this.snapshotSurfacePath(surface)
       let nodes: Array<{ name: string; path: string; is_dir: boolean; mtimeMs?: number }>
@@ -206,7 +319,8 @@ export class ContextHubStorage {
         return
       }
       const referencedPaths = new Set(
-        referencedIds.map((id) => this.snapshotPath(surface, id).toLowerCase()),
+        (await Promise.all(referencedIds.map((id) => this.snapshotPath(surface, id))))
+          .map((path) => path.toLowerCase()),
       )
       const cutoff = Date.now() - SNAPSHOT_CLEANUP_GRACE_MS
       for (const node of nodes) {
@@ -222,32 +336,70 @@ export class ContextHubStorage {
         } catch {
         }
         if (createdAt === undefined || createdAt > cutoff) continue
-        try {
-          await this.io.deleteFile(candidate)
-        } catch {
-        }
+        await this.safeDelete(candidate)
       }
     })
   }
 
-  private async getManifest(): Promise<ContextCacheManifest> {
-    if (this.manifest) return this.manifest
+  private async initializeInternal(): Promise<void> {
+    await this.ensureBaseDirectories()
+    const exists = await this.io.fileExists(this.manifestPath).catch(() => false)
+    if (!exists) {
+      this.manifest = emptyManifest()
+      await this.cleanupOrphanArtifacts()
+      return
+    }
+    const size = await this.io.getFileSize(this.manifestPath).catch(() => MAX_MANIFEST_BYTES + 1)
+    if (size > MAX_MANIFEST_BYTES) {
+      await this.resetCache()
+      return
+    }
     try {
       const raw = parseObject(await this.io.readFile(this.manifestPath))
-      if (
-        !raw
-        || raw.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
-        || !raw.sources
-        || !raw.artifacts
-      ) {
-        this.manifest = emptyManifest()
-      } else {
-        this.manifest = raw as unknown as ContextCacheManifest
+      if (!raw || !this.isValidManifest(raw)) {
+        await this.resetCache()
+        return
       }
+      this.manifest = raw as unknown as ContextCacheManifest
     } catch {
-      this.manifest = emptyManifest()
+      await this.resetCache()
+      return
     }
-    return this.manifest
+
+    const current = this.manifest ?? emptyManifest()
+    const pruned = pruneArtifactEntries(current.artifacts)
+    if (pruned.removed.length > 0) {
+      await this.persistManifest({ ...current, artifacts: pruned.artifacts })
+      await Promise.all(pruned.removed.map((entry) => this.safeDelete(entry.path)))
+    }
+    await this.cleanupOrphanArtifacts()
+  }
+
+  private async resetCache(): Promise<void> {
+    await this.safeDelete(this.basePath)
+    this.manifest = emptyManifest()
+    await this.ensureBaseDirectories()
+    await this.cleanupOrphanArtifacts()
+  }
+
+  private async cleanupOrphanArtifacts(): Promise<void> {
+    const directory = `${this.basePath}/artifacts`
+    let nodes: Array<{ name: string; path: string; is_dir: boolean }>
+    try {
+      nodes = await this.io.listDirectory(directory)
+    } catch {
+      return
+    }
+    const referenced = new Set(
+      Object.values(this.manifest?.artifacts ?? {}).map((entry) => normalizePath(entry.path).toLowerCase()),
+    )
+    await Promise.all(nodes
+      .filter((node) => !node.is_dir && node.name.toLowerCase().endsWith(".json"))
+      .map(async (node) => {
+        const path = normalizePath(node.path)
+        if (!this.isDirectSnapshotFile(directory, path)) return
+        if (!referenced.has(path.toLowerCase())) await this.safeDelete(path)
+      }))
   }
 
   private async ensureBaseDirectories(): Promise<void> {
@@ -260,21 +412,49 @@ export class ContextHubStorage {
   }
 
   private enqueueManifestWrite<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.manifestWriteQueue.then(
-      () => operation(),
-      () => operation(),
-    )
-    this.manifestWriteQueue = result.then(
-      () => undefined,
-      () => undefined,
-    )
+    const result = this.manifestWriteQueue.then(operation, operation)
+    this.manifestWriteQueue = result.then(() => undefined, () => undefined)
     return result
   }
 
   private async persistManifest(manifest: ContextCacheManifest): Promise<void> {
-    await this.ensureBaseDirectories()
-    await this.io.writeFileAtomic(this.manifestPath, JSON.stringify(manifest, null, 2))
+    if (this.disposed) throw new Error("Context Hub storage 已释放")
+    await this.io.writeFileAtomic(this.manifestPath, JSON.stringify(manifest))
     this.manifest = manifest
+  }
+
+  private isValidManifest(raw: Record<string, unknown>): boolean {
+    if (
+      raw.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
+      || !isRecord(raw.sources)
+      || !isRecord(raw.artifacts)
+    ) return false
+    for (const source of Object.values(raw.sources)) {
+      if (
+        !isRecord(source)
+        || typeof source.path !== "string"
+        || typeof source.kind !== "string"
+        || !Number.isInteger(source.revision)
+        || (source.revision as number) < 0
+      ) return false
+    }
+    const artifactDirectory = `${this.basePath}/artifacts`
+    for (const artifact of Object.values(raw.artifacts)) {
+      if (
+        !isRecord(artifact)
+        || typeof artifact.path !== "string"
+        || !this.isDirectSnapshotFile(artifactDirectory, normalizePath(artifact.path))
+        || typeof artifact.sourceName !== "string"
+        || !["static", "chapter", "task"].includes(String(artifact.scope))
+        || !isDependencyStamp(artifact.dependencyStamp)
+        || typeof artifact.createdAt !== "number"
+        || !Number.isFinite(artifact.createdAt)
+        || typeof artifact.byteSize !== "number"
+        || !Number.isFinite(artifact.byteSize)
+        || artifact.byteSize < 0
+      ) return false
+    }
+    return true
   }
 
   private stableBundlePath(surface: ContextSurface): string {
@@ -285,8 +465,8 @@ export class ContextHubStorage {
     return `${this.basePath}/snapshots/${surface}`
   }
 
-  private snapshotPath(surface: ContextSurface, id: string): string {
-    return `${this.snapshotSurfacePath(surface)}/${artifactFileName(`snapshot:${id}`)}`
+  private async snapshotPath(surface: ContextSurface, id: string): Promise<string> {
+    return `${this.snapshotSurfacePath(surface)}/${await hashedFileName(`snapshot:${id}`)}`
   }
 
   private isDirectSnapshotFile(directory: string, candidate: string): boolean {
@@ -301,14 +481,15 @@ export class ContextHubStorage {
   }
 
   private enqueueSnapshotOperation<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.snapshotOperationQueue.then(
-      () => operation(),
-      () => operation(),
-    )
-    this.snapshotOperationQueue = result.then(
-      () => undefined,
-      () => undefined,
-    )
+    const result = this.snapshotOperationQueue.then(operation, operation)
+    this.snapshotOperationQueue = result.then(() => undefined, () => undefined)
     return result
+  }
+
+  private async safeDelete(path: string): Promise<void> {
+    try {
+      await this.io.deleteFile(path)
+    } catch {
+    }
   }
 }

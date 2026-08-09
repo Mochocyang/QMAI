@@ -61,6 +61,7 @@ describe("ContextSourceRegistry", () => {
     expect(result).toEqual([writingStyle, simulation])
     expect(calls).toContainEqual(["E:/Novel/.qmai", { includeHidden: true, maxDepth: 1 }])
     expect(calls).toContainEqual(["E:/Novel/.qmai/simulations", { includeHidden: true, maxDepth: 30 }])
+    expect(calls).toContainEqual(["E:/Novel/retrieval", { maxDepth: 30 }])
   })
 
   it("propagates a scan error when an existing directory is unreadable", async () => {
@@ -135,5 +136,56 @@ describe("ContextSourceRegistry", () => {
     await Promise.all([harness.registry.refresh(), harness.registry.refresh()])
 
     expect(harness.scanFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it("changes a collection fingerprint for additions, deletions, and delete-then-recreate", async () => {
+    const firstPath = "E:/Novel/wiki/entities/one.md"
+    const secondPath = "E:/Novel/wiki/entities/two.md"
+    const harness = createHarness([file(firstPath, 1)])
+    harness.hashes.set(firstPath, "one-v1")
+    await harness.registry.refresh()
+    const initial = await harness.registry.getDependencyStamp(["entity"])
+
+    harness.hashes.set(secondPath, "two-v1")
+    harness.setFiles([file(firstPath, 1), file(secondPath, 1)])
+    await harness.registry.refresh()
+    const added = await harness.registry.getDependencyStamp(["entity"])
+    expect(added.sourceCount).toBe(2)
+    expect(added.fingerprint).not.toBe(initial.fingerprint)
+
+    harness.setFiles([])
+    await harness.registry.refresh()
+    const deleted = await harness.registry.getDependencyStamp(["entity"])
+    expect(deleted.sourceCount).toBe(0)
+    expect(deleted.fingerprint).not.toBe(initial.fingerprint)
+
+    harness.hashes.set(firstPath, "one-v2")
+    harness.setFiles([file(firstPath, 2)])
+    await harness.registry.refresh()
+    const recreated = await harness.registry.getDependencyStamp(["entity"])
+    expect(recreated.sourceCount).toBe(1)
+    expect(recreated.fingerprint).not.toBe(initial.fingerprint)
+  })
+
+  it("isolates retrieval fingerprints from unrelated entity changes", async () => {
+    const retrieval = "E:/Novel/retrieval/index.md"
+    const entity = "E:/Novel/wiki/entities/one.md"
+    const harness = createHarness([file(retrieval, 1), file(entity, 1)])
+    harness.hashes.set(retrieval, "retrieval-v1")
+    harness.hashes.set(entity, "entity-v1")
+    await harness.registry.refresh()
+    const initial = await harness.registry.getDependencyStamp(["retrieval"])
+
+    harness.hashes.set(entity, "entity-v2")
+    harness.setFiles([file(retrieval, 1), file(entity, 2)])
+    await harness.registry.refresh()
+    const unchanged = await harness.registry.getDependencyStamp(["retrieval"])
+    expect(unchanged.fingerprint).toBe(initial.fingerprint)
+
+    harness.hashes.set(retrieval, "retrieval-v2")
+    harness.setFiles([file(retrieval, 2), file(entity, 2)])
+    await harness.registry.refresh()
+    const changed = await harness.registry.getDependencyStamp(["retrieval"])
+    expect(changed.fingerprint).not.toBe(initial.fingerprint)
   })
 })

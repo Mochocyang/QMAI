@@ -1,4 +1,6 @@
 import {
+  deleteFile,
+  fileExists,
   readFile as readProjectFile,
   subscribeProjectFileMutations,
   type ProjectFileMutation,
@@ -23,17 +25,21 @@ import {
   type ContextHubSnapshot,
   type ContextHubSnapshotRef,
   type ContextSourceKind,
+  type DependencyStamp,
   type StableBundle,
 } from "./types"
 
 interface HubRegistry {
   refresh(): Promise<SourceRefreshResult>
-  getDependencies(kinds?: ContextSourceKind[]): Record<string, number>
+  getDependencyStamp(kinds?: ContextSourceKind[]): Promise<DependencyStamp>
+  getDependencyPreview(kinds?: ContextSourceKind[], limit?: number): string[]
   markDirty(path: string): void
   dispose(): void
 }
 
 interface HubStorage {
+  initialize?(): Promise<void>
+  dispose?(): void
   readArtifact<T>(key: string): Promise<CachedArtifact<T> | null>
   writeArtifact<T>(key: string, artifact: CachedArtifact<T>): Promise<void>
   readStableBundle(surface: ContextHubRequest["surface"]): Promise<StableBundle | null>
@@ -100,6 +106,7 @@ function withRelativeDependencyPaths(
 ): ContextCacheItemTrace[] {
   return items.map((item) => ({
     ...item,
+    dependencyStamp: { ...item.dependencyStamp, kinds: [...item.dependencyStamp.kinds] },
     dependencyPaths: item.dependencyPaths.map((path) => toProjectRelativePath(projectPath, path)),
   }))
 }
@@ -113,6 +120,7 @@ export class ContextHubController implements ContextHub {
   private readonly unsubscribe: () => void
   private readonly fileCache = new Map<string, string>()
   private readonly pending = new Map<string, Promise<ContextHubResult | null>>()
+  private disposed = false
 
   constructor(projectPath: string, dependencies: ContextHubControllerDependencies = {}) {
     this.projectPath = normalizePath(projectPath)
@@ -128,6 +136,7 @@ export class ContextHubController implements ContextHub {
   }
 
   prepare(request: ContextHubRequest): Promise<ContextHubResult | null> {
+    if (this.disposed) return Promise.resolve(null)
     if (request.intent === "review" || request.intent === "lint") return Promise.resolve(null)
     const key = prepareKey(request)
     const pending = this.pending.get(key)
@@ -137,7 +146,12 @@ export class ContextHubController implements ContextHub {
     return operation
   }
 
+  initialize(): Promise<void> {
+    return this.storage.initialize?.() ?? Promise.resolve()
+  }
+
   async readFile(path: string): Promise<string> {
+    if (this.disposed) throw new Error("Context Hub 已释放")
     const normalized = normalizeContextPath(path)
     const cached = this.fileCache.get(normalized)
     if (cached !== undefined) return cached
@@ -156,6 +170,7 @@ export class ContextHubController implements ContextHub {
       stats: { ...result.stats },
       items: result.cacheItems.map((item) => ({
         ...item,
+        dependencyStamp: { ...item.dependencyStamp, kinds: [...item.dependencyStamp.kinds] },
         dependencyPaths: [...item.dependencyPaths],
       })),
       stableCore: result.stableCore,
@@ -185,14 +200,18 @@ export class ContextHubController implements ContextHub {
   }
 
   markDirty(path: string): void {
+    if (this.disposed) return
     const normalized = normalizeContextPath(path)
     this.fileCache.delete(normalized)
     this.registry.markDirty(normalized)
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.unsubscribe()
     this.registry.dispose()
+    this.storage.dispose?.()
     this.fileCache.clear()
     this.pending.clear()
   }
@@ -208,8 +227,9 @@ export class ContextHubController implements ContextHub {
   private async prepareCached(request: ContextHubRequest): Promise<ContextHubResult> {
     const refresh = await this.registry.refresh()
     for (const path of refresh.changedPaths) this.fileCache.delete(normalizeContextPath(path))
-    const dependencies = this.registry.getDependencies()
-    const stableDependencies = this.registry.getDependencies(STABLE_SOURCE_KINDS)
+    const dependencyStamp = await this.registry.getDependencyStamp()
+    const stableDependencyStamp = await this.registry.getDependencyStamp(STABLE_SOURCE_KINDS)
+    const stableDependencyPaths = this.registry.getDependencyPreview(STABLE_SOURCE_KINDS, 20)
     const warnings: string[] = []
     const cacheAdapter = new DataSourceCacheAdapter({
       registry: this.registry,
@@ -226,14 +246,14 @@ export class ContextHubController implements ContextHub {
       },
     )
     const summaryFresh = !request.forceRefresh
-      && isSessionSummaryFresh(request.existingSummary, dependencies)
+      && isSessionSummaryFresh(request.existingSummary, dependencyStamp.fingerprint)
     if (request.existingSummary && !summaryFresh) {
       warnings.push("项目资料已更新，本轮未使用旧会话摘要。")
     }
     const composed = composeContext({
       contextPack,
       sessionSummary: summaryFresh ? request.existingSummary?.text : undefined,
-      dependencies,
+      dependencyStamp,
       referenceContext: request.references,
       confidence: confidenceFor(request, contextPack),
       tokenBudget: request.tokenBudget,
@@ -248,6 +268,7 @@ export class ContextHubController implements ContextHub {
       const existing = await this.storage.readStableBundle(request.surface)
       if (
         existing
+        && existing.dependencyStamp.fingerprint === stableDependencyStamp.fingerprint
         && existing.text === composed.stableCore
       ) {
         stableHits = 1
@@ -255,14 +276,16 @@ export class ContextHubController implements ContextHub {
           key: `stable-core:${request.surface}`,
           sourceName: "stableCore",
           status: "hit",
-          dependencyPaths: Object.keys(stableDependencies),
+          dependencyStamp: stableDependencyStamp,
+          dependencyPaths: stableDependencyPaths,
+          dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
         })
       } else {
         await this.storage.writeStableBundle(request.surface, {
           schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
           surface: request.surface,
           text: composed.stableCore,
-          dependencies: stableDependencies,
+          dependencyStamp: stableDependencyStamp,
           updatedAt: Date.now(),
         })
         stableRefreshes = 1
@@ -270,7 +293,9 @@ export class ContextHubController implements ContextHub {
           key: `stable-core:${request.surface}`,
           sourceName: "stableCore",
           status: "refreshed",
-          dependencyPaths: Object.keys(stableDependencies),
+          dependencyStamp: stableDependencyStamp,
+          dependencyPaths: stableDependencyPaths,
+          dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
         })
       }
     } catch {
@@ -279,7 +304,9 @@ export class ContextHubController implements ContextHub {
         key: `stable-core:${request.surface}`,
         sourceName: "stableCore",
         status: "failed",
-        dependencyPaths: Object.keys(stableDependencies),
+        dependencyStamp: stableDependencyStamp,
+        dependencyPaths: stableDependencyPaths,
+        dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
       })
       warnings.push("稳定上下文缓存写入失败，本轮已继续使用内存中的最新内容。")
     }
@@ -310,4 +337,25 @@ export function getContextHub(projectPath: string): ContextHubController {
   const hub = new ContextHubController(normalized)
   projectHubs.set(normalized, hub)
   return hub
+}
+
+export function disposeAllContextHubs(): void {
+  for (const hub of projectHubs.values()) hub.dispose()
+  projectHubs.clear()
+}
+
+export async function initializeProjectContextCache(projectPath: string): Promise<void> {
+  const normalized = normalizePath(projectPath)
+  try {
+    await getContextHub(normalized).initialize()
+  } catch (error) {
+    console.warn("[Context Hub] v2 缓存初始化失败，将在首次使用时重试：", error)
+  }
+
+  const legacyPath = `${normalized}/.qmai/context-cache/v1`
+  void fileExists(legacyPath)
+    .then((exists) => exists ? deleteFile(legacyPath) : undefined)
+    .catch((error) => {
+      console.warn("[Context Hub] 旧版缓存后台清理失败，下次打开项目时将重试：", error)
+    })
 }

@@ -4,7 +4,7 @@ import { useOutlineChatStore } from "@/stores/outline-chat-store"
 
 const summary = {
   text: "已确认主角不能提前知道真相。",
-  dependencies: { "E:/Novel/wiki/outlines/main.md": 2 },
+  dependencyFingerprint: "outline-v2",
   updatedAt: 100,
 }
 

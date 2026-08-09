@@ -7,7 +7,7 @@ export interface SessionSummaryMessage {
 
 export interface BuildSessionContextSummaryInput {
   messages: SessionSummaryMessage[]
-  dependencies: Record<string, number>
+  dependencyFingerprint: string
   maxChars?: number
 }
 
@@ -87,38 +87,42 @@ export function buildSessionContextSummary(
 
   return {
     text,
-    dependencies: { ...input.dependencies },
+    dependencyFingerprint: input.dependencyFingerprint,
     updatedAt: Date.now(),
   }
 }
 
 export function isSessionSummaryFresh(
   summary: SessionContextSummary | undefined,
-  currentDependencies: Record<string, number>,
+  currentDependencyFingerprint: string,
 ): boolean {
-  if (!summary) return false
-  return Object.entries(summary.dependencies).every(
-    ([path, revision]) => currentDependencies[path] === revision,
+  return Boolean(
+    summary?.dependencyFingerprint
+    && summary.dependencyFingerprint === currentDependencyFingerprint,
   )
+}
+
+export function isLegacySessionContextSummary(value: unknown): boolean {
+  if (typeof value === "string") return true
+  if (!value || typeof value !== "object") return false
+  const candidate = value as { text?: unknown; dependencies?: unknown; dependencyFingerprint?: unknown }
+  return typeof candidate.text === "string"
+    && typeof candidate.dependencyFingerprint !== "string"
+    && candidate.dependencies !== undefined
 }
 
 export function normalizeSessionContextSummary(value: unknown): SessionContextSummary | undefined {
   if (typeof value === "string") {
-    return { text: value, dependencies: {}, updatedAt: 0 }
+    return { text: value, updatedAt: 0 }
   }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as Partial<SessionContextSummary>
   if (typeof candidate.text !== "string") return undefined
-  const dependencies = candidate.dependencies && typeof candidate.dependencies === "object"
-    ? Object.fromEntries(
-        Object.entries(candidate.dependencies).filter((entry): entry is [string, number] => (
-          typeof entry[1] === "number" && Number.isFinite(entry[1])
-        )),
-      )
-    : {}
   return {
     text: candidate.text,
-    dependencies,
+    ...(typeof candidate.dependencyFingerprint === "string" && candidate.dependencyFingerprint
+      ? { dependencyFingerprint: candidate.dependencyFingerprint }
+      : {}),
     updatedAt: typeof candidate.updatedAt === "number" && Number.isFinite(candidate.updatedAt)
       ? candidate.updatedAt
       : 0,

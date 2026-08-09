@@ -81,6 +81,11 @@ function CacheItemGroup({ status, items }: { status: ContextCacheItemStatus; ite
                 {item.dependencyPaths.map((path) => (
                   <li key={path} className="break-all">{path}</li>
                 ))}
+                {item.dependencyPathsTruncated ? (
+                  <li className="text-foreground/60">
+                    另有 {Math.max(0, item.dependencyStamp.sourceCount - item.dependencyPaths.length).toLocaleString()} 个文件，按集合指纹校验
+                  </li>
+                ) : null}
               </ul>
             )}
           </div>

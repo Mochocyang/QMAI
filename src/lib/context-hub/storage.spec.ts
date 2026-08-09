@@ -3,8 +3,16 @@ import { ContextHubStorage, type ContextHubStorageIo } from "./storage"
 import {
   CONTEXT_CACHE_SCHEMA_VERSION,
   type CachedArtifact,
+  type ContextCacheManifest,
   type ContextHubSnapshot,
+  type DependencyStamp,
 } from "./types"
+
+const dependencyStamp: DependencyStamp = {
+  fingerprint: "outline-v1",
+  sourceCount: 1,
+  kinds: ["outline"],
+}
 
 function createMemoryIo() {
   const files = new Map<string, string>()
@@ -30,7 +38,15 @@ function createMemoryIo() {
     deleteFile: async (path) => {
       deletedPaths.push(path)
       files.delete(path)
+      for (const filePath of [...files.keys()]) {
+        if (filePath.startsWith(`${path}/`)) files.delete(filePath)
+      }
+      for (const directory of [...directories]) {
+        if (directory === path || directory.startsWith(`${path}/`)) directories.delete(directory)
+      }
     },
+    fileExists: async (path) => files.has(path) || directories.has(path),
+    getFileSize: async (path) => new TextEncoder().encode(files.get(path) ?? "").byteLength,
   }
   return { files, directories, deletedPaths, io, setFailWrite: (value?: (path: string) => boolean) => { failWrite = value } }
 }
@@ -39,8 +55,10 @@ function artifact(value: string, key = "outline:main"): CachedArtifact<string> {
   return {
     schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
     key,
+    sourceName: "outline",
+    scope: "static",
     value,
-    dependencies: { "E:/Novel/wiki/outlines/main.md": 1 },
+    dependencyStamp,
     createdAt: 1,
   }
 }
@@ -68,7 +86,9 @@ function snapshot(id = "assistant:1"): ContextHubSnapshot {
       key: "data-source:outline",
       sourceName: "outline",
       status: "hit",
+      dependencyStamp,
       dependencyPaths: ["wiki/outlines/main.md"],
+      dependencyPathsTruncated: false,
     }],
     stableCore: "稳定核心正文",
     sessionSummary: "会话摘要正文",
@@ -143,7 +163,7 @@ describe("ContextHubStorage", () => {
   it("treats a different schema as an empty cache", async () => {
     const memory = createMemoryIo()
     memory.files.set(
-      "E:/Novel/.qmai/context-cache/v1/manifest.json",
+      "E:/Novel/.qmai/context-cache/v2/manifest.json",
       JSON.stringify({ schemaVersion: 999, sources: { stale: {} }, artifacts: {} }),
     )
 
@@ -166,14 +186,20 @@ describe("ContextHubStorage", () => {
   it("uses one fixed stable bundle file per surface", async () => {
     const memory = createMemoryIo()
     const storage = new ContextHubStorage("E:/Novel", memory.io)
-    const first = { schemaVersion: 1, surface: "ai-chat" as const, text: "一", dependencies: {}, updatedAt: 1 }
+    const first = {
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      surface: "ai-chat" as const,
+      text: "一",
+      dependencyStamp,
+      updatedAt: 1,
+    }
     const second = { ...first, text: "二", updatedAt: 2 }
 
     await storage.writeStableBundle("ai-chat", first)
     await storage.writeStableBundle("ai-chat", second)
 
     expect([...memory.files.keys()].filter((path) => path.includes("stable-bundles"))).toEqual([
-      "E:/Novel/.qmai/context-cache/v1/stable-bundles/ai-chat.json",
+      "E:/Novel/.qmai/context-cache/v2/stable-bundles/ai-chat.json",
     ])
     await expect(storage.readStableBundle("ai-chat")).resolves.toMatchObject({ text: "二" })
   })
@@ -228,7 +254,7 @@ describe("ContextHubStorage", () => {
 
   it("never deletes a path returned from outside the selected snapshot directory", async () => {
     const memory = createMemoryIo()
-    const outsidePath = "E:/Novel/.qmai/context-cache/v1/outside.json"
+    const outsidePath = "E:/Novel/.qmai/context-cache/v2/outside.json"
     memory.files.set(outsidePath, JSON.stringify({ createdAt: 1 }))
     memory.io.listDirectory = async () => [{
       name: "outside.json",
@@ -241,5 +267,192 @@ describe("ContextHubStorage", () => {
 
     expect(memory.deletedPaths).toEqual([])
     expect(memory.files.has(outsidePath)).toBe(true)
+  })
+
+  it("keeps a 10,000-source and 2,000-artifact v2 manifest below 10 MiB", async () => {
+    const memory = createMemoryIo()
+    const manifestPath = "E:/Novel/.qmai/context-cache/v2/manifest.json"
+    const sources = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => {
+      const path = `E:/Novel/wiki/entities/entity-${String(index).padStart(5, "0")}.md`
+      return [path, {
+        path,
+        kind: "entity" as const,
+        mtimeMs: index,
+        size: 100,
+        hash: `hash-${index}`,
+        revision: 1,
+      }]
+    }))
+    const artifacts = Object.fromEntries(Array.from({ length: 2_000 }, (_, index) => [
+      `data-source:searchResults:${index}`,
+      {
+        path: `E:/Novel/.qmai/context-cache/v2/artifacts/${index}.json`,
+        sourceName: `searchResults-${index % 16}`,
+        scope: "task" as const,
+        dependencyStamp: { fingerprint: `fingerprint-${index}`, sourceCount: 10_000, kinds: ["entity" as const] },
+        createdAt: index,
+        byteSize: 100,
+      },
+    ]))
+    const manifest: ContextCacheManifest = {
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      sources,
+      artifacts,
+    }
+    const serialized = JSON.stringify(manifest)
+    memory.files.set(manifestPath, serialized)
+
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(10 * 1024 * 1024)
+    const loaded = await new ContextHubStorage("E:/Novel", memory.io).loadManifest()
+    expect(Object.keys(loaded.sources)).toHaveLength(10_000)
+    expect(Object.keys(loaded.artifacts)).toHaveLength(2_000)
+  })
+
+  it("keeps dependency metadata bounded and does not serialize source paths into artifacts", async () => {
+    const serialized = JSON.stringify(artifact("短值"))
+
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(1024)
+    expect(serialized).not.toContain("wiki/outlines/main.md")
+  })
+
+  it("prunes task-scoped artifacts beyond the per-source limit", async () => {
+    const memory = createMemoryIo()
+    const storage = new ContextHubStorage("E:/Novel", memory.io)
+    for (let index = 0; index < 129; index += 1) {
+      await storage.writeArtifact(
+        `search:${index}`,
+        { ...artifact(`结果${index}`, `search:${index}`), sourceName: "searchResults", scope: "task", createdAt: index },
+      )
+    }
+
+    const manifest = await storage.loadManifest()
+    expect(Object.keys(manifest.artifacts)).toHaveLength(128)
+    expect(manifest.artifacts["search:0"]).toBeUndefined()
+    expect(memory.deletedPaths.some((path) => path.includes("/artifacts/"))).toBe(true)
+  })
+
+  it("enforces the global artifact count limit during initialization", async () => {
+    const memory = createMemoryIo()
+    const manifestPath = "E:/Novel/.qmai/context-cache/v2/manifest.json"
+    const artifacts = Object.fromEntries(Array.from({ length: 2_050 }, (_, index) => [
+      `chapter:${index}`,
+      {
+        path: `E:/Novel/.qmai/context-cache/v2/artifacts/${index}.json`,
+        sourceName: "chapterOutline",
+        scope: "chapter" as const,
+        dependencyStamp,
+        createdAt: index,
+        byteSize: 1,
+      },
+    ]))
+    memory.files.set(manifestPath, JSON.stringify({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      sources: {},
+      artifacts,
+    }))
+
+    const manifest = await new ContextHubStorage("E:/Novel", memory.io).loadManifest()
+
+    expect(Object.keys(manifest.artifacts)).toHaveLength(2_048)
+    expect(manifest.artifacts["chapter:0"]).toBeUndefined()
+  })
+
+  it("enforces the global artifact byte limit during initialization", async () => {
+    const memory = createMemoryIo()
+    const manifestPath = "E:/Novel/.qmai/context-cache/v2/manifest.json"
+    const artifacts = Object.fromEntries(Array.from({ length: 130 }, (_, index) => [
+      `chapter:${index}`,
+      {
+        path: `E:/Novel/.qmai/context-cache/v2/artifacts/${index}.json`,
+        sourceName: "chapterOutline",
+        scope: "chapter" as const,
+        dependencyStamp,
+        createdAt: index,
+        byteSize: 1024 * 1024,
+      },
+    ]))
+    memory.files.set(manifestPath, JSON.stringify({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      sources: {},
+      artifacts,
+    }))
+
+    const manifest = await new ContextHubStorage("E:/Novel", memory.io).loadManifest()
+    const totalBytes = Object.values(manifest.artifacts).reduce((sum, entry) => sum + entry.byteSize, 0)
+
+    expect(totalBytes).toBeLessThanOrEqual(128 * 1024 * 1024)
+    expect(Object.keys(manifest.artifacts)).toHaveLength(128)
+  })
+
+  it("removes a newly written orphan when manifest persistence fails", async () => {
+    const memory = createMemoryIo()
+    const storage = new ContextHubStorage("E:/Novel", memory.io)
+    await storage.initialize()
+    memory.setFailWrite((path) => path.endsWith("/manifest.json"))
+
+    await expect(storage.writeArtifact("outline:orphan", artifact("大纲", "outline:orphan")))
+      .rejects.toThrow("写入失败")
+
+    expect([...memory.files.keys()].filter((path) => path.includes("/artifacts/"))).toEqual([])
+  })
+
+  it("keeps the previous artifact when replacing it fails at manifest persistence", async () => {
+    const memory = createMemoryIo()
+    const storage = new ContextHubStorage("E:/Novel", memory.io)
+    await storage.writeArtifact("outline:main", artifact("旧大纲"))
+    memory.setFailWrite((path) => path.endsWith("/manifest.json"))
+
+    await expect(storage.writeArtifact("outline:main", artifact("新大纲"))).rejects.toThrow("写入失败")
+    memory.setFailWrite()
+
+    await expect(new ContextHubStorage("E:/Novel", memory.io).readArtifact<string>("outline:main"))
+      .resolves.toMatchObject({ value: "旧大纲" })
+    expect([...memory.files.keys()].filter((path) => path.includes("/artifacts/"))).toHaveLength(1)
+  })
+
+  it("does not cache an artifact larger than 8 MiB", async () => {
+    const memory = createMemoryIo()
+    const storage = new ContextHubStorage("E:/Novel", memory.io)
+
+    await storage.writeArtifact("outline:huge", artifact("x".repeat(8 * 1024 * 1024), "outline:huge"))
+
+    expect((await storage.loadManifest()).artifacts).toEqual({})
+    expect([...memory.files.keys()].some((path) => path.includes("/artifacts/"))).toBe(false)
+  })
+
+  it("resets an oversized v2 manifest without parsing it", async () => {
+    const memory = createMemoryIo()
+    const manifestPath = "E:/Novel/.qmai/context-cache/v2/manifest.json"
+    memory.files.set(manifestPath, "x".repeat(32 * 1024 * 1024 + 1))
+
+    const manifest = await new ContextHubStorage("E:/Novel", memory.io).loadManifest()
+
+    expect(manifest).toEqual({ schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION, sources: {}, artifacts: {} })
+    expect(memory.deletedPaths).toContain("E:/Novel/.qmai/context-cache/v2")
+  })
+
+  it("resets a structurally invalid v2 manifest", async () => {
+    const memory = createMemoryIo()
+    const manifestPath = "E:/Novel/.qmai/context-cache/v2/manifest.json"
+    memory.files.set(manifestPath, JSON.stringify({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      sources: {},
+      artifacts: [{ path: "E:/outside.json" }],
+    }))
+
+    const manifest = await new ContextHubStorage("E:/Novel", memory.io).loadManifest()
+
+    expect(manifest).toEqual({ schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION, sources: {}, artifacts: {} })
+    expect(memory.deletedPaths).toContain("E:/Novel/.qmai/context-cache/v2")
+  })
+
+  it("cleans an unindexed artifact during initialization", async () => {
+    const memory = createMemoryIo()
+    const orphan = "E:/Novel/.qmai/context-cache/v2/artifacts/orphan.json"
+    memory.files.set(orphan, "{}")
+
+    await new ContextHubStorage("E:/Novel", memory.io).initialize()
+
+    expect(memory.deletedPaths).toContain(orphan)
   })
 })

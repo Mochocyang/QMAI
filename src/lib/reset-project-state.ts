@@ -14,6 +14,7 @@ import { useChatStore } from "@/stores/chat-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useReviewStore } from "@/stores/review-store"
+import { disposeAllContextHubs } from "@/lib/context-hub/context-hub"
 
 export function resetProjectStores(): void {
   useChatStore.setState({
@@ -51,6 +52,7 @@ export function resetProjectStores(): void {
 }
 
 export async function resetProjectState(): Promise<void> {
+  disposeAllContextHubs()
   resetProjectStores()
 
   // View-switch restore key is process-global; clear so the next project cannot

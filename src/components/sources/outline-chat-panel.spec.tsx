@@ -533,7 +533,7 @@ describe("OutlineChatPanel controls", () => {
   it("将 AI 大纲上下文摘要持久化到会话字段而不是组件内存缓存", () => {
     expect(source).toContain("contextSummary:")
     expect(source).toContain("buildSessionContextSummary")
-    expect(source).toContain("dependencies: contextHubResult?.dependencies")
+    expect(source).toContain("dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint")
     // 上下文摘要已通过 setConversationContextSummary 持久化到会话字段
     expect(source).toContain("setConversationContextSummary")
     expect(source).not.toContain("contextSummaryByConversation")

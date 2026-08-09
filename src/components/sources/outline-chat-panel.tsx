@@ -2603,7 +2603,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               { role: "user", content: prompt },
               { role: "assistant", content: finalContent },
             ],
-            dependencies: contextHubResult?.dependencies ?? {},
+            dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
           }),
         };
         if (!isCurrentRun()) return { started: true, sent: false };
@@ -3109,7 +3109,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (completedConversation) {
           setConversationContextSummary(capturedConvId, buildSessionContextSummary({
             messages: completedConversation.messages,
-            dependencies: contextHubResult?.dependencies ?? {},
+            dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
           }));
           void useOutlineChatStore.getState().saveToDisk();
         }
@@ -3464,7 +3464,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             { role: "user", content: lastUserRequest },
             { role: "assistant", content: finalContent },
           ],
-          dependencies: contextHubResult?.dependencies ?? {},
+          dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
         }));
         if (!isCurrentRun()) return;
         await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);

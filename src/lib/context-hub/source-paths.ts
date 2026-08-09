@@ -15,15 +15,15 @@ const DATA_SOURCE_KINDS: Record<string, ContextSourceKind[]> = {
   canonRules: ["setting"],
   writingStyle: ["setting"],
   bookAnalysisReferences: ["book-analysis"],
-  searchResults: ["chapter", "outline", "memory", "setting", "entity"],
-  graphSearchResults: ["chapter", "outline", "memory", "setting", "entity"],
+  searchResults: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
+  graphSearchResults: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
   revisionFeedback: ["chapter", "snapshot"],
   cognitionText: ["entity"],
   soulDoc: ["soul"],
   characterAuras: ["entity"],
   sectionBriefing: ["outline", "snapshot"],
   storyFrameworkBinding: ["outline", "setting", "deduction"],
-  retrieval: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
+  retrieval: ["retrieval"],
 }
 
 export function normalizeContextPath(path: string): string {
@@ -51,6 +51,7 @@ export function classifyContextSourcePath(projectPath: string, path: string): Co
   if (relative === ".novel/timeline.json") return "memory"
   if (relative.startsWith(".novel/snapshots/") || relative.startsWith(".novel/community-summaries/")) return "snapshot"
   if (relative.startsWith(".qmai/simulations/")) return "deduction"
+  if (relative.startsWith("retrieval/")) return "retrieval"
   return "other"
 }
 

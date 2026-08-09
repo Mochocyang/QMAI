@@ -9,8 +9,9 @@ import {
 import { normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 import { classifyContextSourcePath, normalizeContextPath, sortContextSourcePaths } from "./source-paths"
+import { sha256Text } from "./fingerprint"
 import { ContextHubStorage } from "./storage"
-import type { ContextCacheManifest, ContextSourceKind, SourceVersion } from "./types"
+import type { ContextCacheManifest, ContextSourceKind, DependencyStamp, SourceVersion } from "./types"
 
 interface SourceRegistryStorage {
   loadManifest(): Promise<ContextCacheManifest>
@@ -70,6 +71,7 @@ export async function scanProjectContextFiles(
     safeList(`${projectPath}/.novel`, { includeHidden: true, maxDepth: 30 }, io),
     safeList(`${projectPath}/.qmai`, { includeHidden: true, maxDepth: 1 }, io),
     safeList(`${projectPath}/.qmai/simulations`, { includeHidden: true, maxDepth: 30 }, io),
+    safeList(`${projectPath}/retrieval`, { maxDepth: 30 }, io),
   ])
   return flattenFiles(roots.flat())
 }
@@ -78,8 +80,15 @@ function metadataMatches(left: SourceVersion, right: FileNode): boolean {
   return left.mtimeMs === right.mtimeMs && left.size === right.size
 }
 
-function manifestsEqual(left: ContextCacheManifest, right: ContextCacheManifest): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+function toFingerprintPath(projectPath: string, path: string): string {
+  const normalizedProject = normalizeContextPath(projectPath).replace(/\/$/, "")
+  const normalizedPath = normalizeContextPath(path)
+  const prefix = `${normalizedProject}/`
+  const windowsPath = /^[A-Za-z]:\//.test(prefix) && /^[A-Za-z]:\//.test(normalizedPath)
+  const matchesProject = windowsPath
+    ? normalizedPath.toLowerCase().startsWith(prefix.toLowerCase())
+    : normalizedPath.startsWith(prefix)
+  return matchesProject ? normalizedPath.slice(prefix.length) : normalizedPath
 }
 
 export class ContextSourceRegistry {
@@ -91,6 +100,8 @@ export class ContextSourceRegistry {
   private readonly dirtyPaths = new Set<string>()
   private pendingRefresh: Promise<SourceRefreshResult> | null = null
   private versions: Record<string, SourceVersion> = {}
+  private readonly kindStampCache = new Map<ContextSourceKind, Promise<DependencyStamp>>()
+  private readonly combinedStampCache = new Map<string, Promise<DependencyStamp>>()
 
   constructor(projectPath: string, options: ContextSourceRegistryOptions = {}) {
     this.projectPath = normalizePath(projectPath)
@@ -115,18 +126,29 @@ export class ContextSourceRegistry {
     if (kind !== "ignored" && kind !== "other") this.dirtyPaths.add(normalized)
   }
 
-  getDependencies(kinds?: ContextSourceKind[]): Record<string, number> {
-    const allowed = kinds ? new Set(kinds) : null
-    return Object.fromEntries(
-      sortContextSourcePaths(Object.keys(this.versions))
-        .filter((path) => !allowed || allowed.has(this.versions[path].kind))
-        .map((path) => [path, this.versions[path].revision]),
-    )
+  getDependencyStamp(kinds?: ContextSourceKind[]): Promise<DependencyStamp> {
+    const selectedKinds = this.normalizeKinds(kinds)
+    const key = selectedKinds.join("|")
+    const cached = this.combinedStampCache.get(key)
+    if (cached) return cached
+    const pending = this.buildCombinedStamp(selectedKinds)
+    this.combinedStampCache.set(key, pending)
+    return pending
+  }
+
+  getDependencyPreview(kinds?: ContextSourceKind[], limit = 20): string[] {
+    const allowed = new Set(this.normalizeKinds(kinds))
+    return sortContextSourcePaths(Object.keys(this.versions))
+      .filter((path) => allowed.has(this.versions[path].kind))
+      .slice(0, Math.max(0, limit))
   }
 
   dispose(): void {
     this.unsubscribe()
     this.dirtyPaths.clear()
+    this.versions = {}
+    this.kindStampCache.clear()
+    this.combinedStampCache.clear()
   }
 
   private async refreshInternal(): Promise<SourceRefreshResult> {
@@ -142,6 +164,7 @@ export class ContextSourceRegistry {
     const byPath = new Map(relevant.map((node) => [node.path, node]))
     const next: Record<string, SourceVersion> = {}
     const changedPaths: string[] = []
+    let manifestChanged = Object.keys(previous).length !== byPath.size
 
     for (const path of sortContextSourcePaths([...byPath.keys()])) {
       const node = byPath.get(path)!
@@ -162,6 +185,7 @@ export class ContextSourceRegistry {
         hash,
         revision: oldVersion ? oldVersion.revision + (contentChanged ? 1 : 0) : 1,
       }
+      manifestChanged = true
       if (contentChanged) changedPaths.push(path)
     }
 
@@ -170,13 +194,54 @@ export class ContextSourceRegistry {
     }
 
     const nextManifest: ContextCacheManifest = { ...manifest, sources: next }
-    if (!manifestsEqual(manifest, nextManifest)) await this.storage.saveManifest(nextManifest)
+    if (manifestChanged) await this.storage.saveManifest(nextManifest)
     this.versions = next
+    this.kindStampCache.clear()
+    this.combinedStampCache.clear()
     this.dirtyPaths.clear()
 
     return {
       versions: { ...next },
       changedPaths: sortContextSourcePaths([...new Set(changedPaths)]),
+    }
+  }
+
+  private normalizeKinds(kinds?: ContextSourceKind[]): ContextSourceKind[] {
+    const values = kinds ?? Object.values(this.versions).map((version) => version.kind)
+    return [...new Set(values)]
+      .filter((kind) => kind !== "ignored" && kind !== "other")
+      .sort()
+  }
+
+  private getKindStamp(kind: ContextSourceKind): Promise<DependencyStamp> {
+    const cached = this.kindStampCache.get(kind)
+    if (cached) return cached
+    const pending = (async () => {
+      const paths = sortContextSourcePaths(Object.keys(this.versions))
+        .filter((path) => this.versions[path].kind === kind)
+      const canonical = paths.map((path) => {
+        const version = this.versions[path]
+        const relative = toFingerprintPath(this.projectPath, path)
+        return `${relative}\u0000${version.hash ?? `revision:${version.revision}`}`
+      }).join("\n")
+      return {
+        fingerprint: await sha256Text(canonical),
+        sourceCount: paths.length,
+        kinds: [kind],
+      }
+    })()
+    this.kindStampCache.set(kind, pending)
+    return pending
+  }
+
+  private async buildCombinedStamp(kinds: ContextSourceKind[]): Promise<DependencyStamp> {
+    const stamps = await Promise.all(kinds.map((kind) => this.getKindStamp(kind)))
+    return {
+      fingerprint: await sha256Text(
+        stamps.map((stamp) => `${stamp.kinds[0]}:${stamp.sourceCount}:${stamp.fingerprint}`).join("\n"),
+      ),
+      sourceCount: stamps.reduce((sum, stamp) => sum + stamp.sourceCount, 0),
+      kinds: [...kinds],
     }
   }
 }

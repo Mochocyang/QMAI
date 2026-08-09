@@ -22,6 +22,7 @@ describe("context source paths", () => {
     ["E:/Novel/.qmai/book-analysis-context.json", "book-analysis"],
     ["E:/Novel/.qmai/character-aura.json", "entity"],
     ["E:/Novel/.qmai/simulations/latest.json", "deduction"],
+    ["E:/Novel/retrieval/index.md", "retrieval"],
     ["E:/Novel/.qmai/context-cache/v1/manifest.json", "ignored"],
   ] as const)("classifies %s as %s", (path, expected) => {
     expect(classifyContextSourcePath(projectPath, path)).toBe(expected)
@@ -43,5 +44,8 @@ describe("context source paths", () => {
     expect(getDataSourceKinds("recentChapterContents")).toEqual(["chapter"])
     expect(getDataSourceKinds("storyFrameworkBinding")).toEqual(["outline", "setting", "deduction"])
     expect(getDataSourceKinds("bookAnalysisReferences")).toEqual(["book-analysis"])
+    expect(getDataSourceKinds("retrieval")).toEqual(["retrieval"])
+    expect(getDataSourceKinds("searchResults")).toContain("snapshot")
+    expect(getDataSourceKinds("graphSearchResults")).toContain("snapshot")
   })
 })
