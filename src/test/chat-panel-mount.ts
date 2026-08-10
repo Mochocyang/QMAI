@@ -132,6 +132,7 @@ vi.mock("@/commands/fs", () => ({
   deleteFile: vi.fn(async () => {}),
   readFile: vi.fn(async () => ""),
   fileExists: vi.fn(async () => false),
+  getFileSize: vi.fn(async () => 0),
   writeFileAtomic: vi.fn(async () => {}),
   listDirectory: vi.fn(async () => []),
 }))

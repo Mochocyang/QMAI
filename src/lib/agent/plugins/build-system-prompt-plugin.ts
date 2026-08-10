@@ -97,7 +97,7 @@ function buildChapterPlanProtocol(mode: LegacyAiWorkflowMode): string {
     "输出规范：",
     "1. 计划必须整体包裹在 `<!-- chapter_plan -->` 和 `<!-- /chapter_plan -->` 标记中。",
     "2. 计划只供用户确认，正文生成必须等待用户确认后再开始。当前阶段禁用正文生成类工具，只能使用读取类工具收集资料。",
-    "3. 计划必须基于会话上下文包；读取资料前先用 list_chapters、list_outlines、list_memories 确认可用文件名，绝不编造资料名称。list_outlines 后按 type 分流：优先关注 overview（索引）与 concept（硬约束），对 outline 类必须 read_outline 读正文确认对应该章后再写。",
+    "3. 计划必须基于会话上下文包；读取资料前先用 list_chapters、list_outlines、list_memories 确认可用文件名，绝不编造资料名称。list_outlines 后按文件夹分流（优先）：关注 大纲（索引）、设定（硬约束）、章纲（本章主候选）、卷纲；旧 type 仅无标准文件夹时作兼容参考；对章纲/卷纲必须 read_outline 读正文确认对应该章后再写。",
     "4. 计划总长控制在 1200-1800字，避免堆砌分析维度；用结论和执行项表达。",
     "5. 场景必须用 S1/S2/S3 编号，后续正文会按编号执行。",
     "6. 不要使用旧版分析报告式编号标题。",

@@ -1,9 +1,12 @@
-import { writeFile, readFile, createDirectory } from "@/commands/fs"
+import { writeFile, writeFileAtomic, readFile, createDirectory } from "@/commands/fs"
 import type { ReviewItem } from "@/stores/review-store"
 import type { DisplayMessage, Conversation } from "@/stores/chat-store"
 import { normalizeLoadedRunStates, type ConversationRunStates } from "@/lib/conversation-run-state"
 import { normalizePath } from "@/lib/path-utils"
-import { normalizeSessionContextSummary } from "@/lib/context-hub/session-summary"
+import {
+  isLegacySessionContextSummary,
+  normalizeSessionContextSummary,
+} from "@/lib/context-hub/session-summary"
 import { getContextHub } from "@/lib/context-hub/context-hub"
 
 const MAX_RETRIES = 3
@@ -201,6 +204,9 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
       : Array.isArray(parsedManifest?.conversations)
         ? parsedManifest.conversations
         : []
+    const hasLegacyContextSummary = rawConversations.some((conversation) => (
+      isLegacySessionContextSummary(conversation.contextSummary)
+    ))
     const conversations = rawConversations.map(normalizeConversation)
     const rawRunStates = Array.isArray(parsedManifest) ? {} : parsedManifest.runStates
     const runStates = normalizeConversationRunStates(conversations, rawRunStates)
@@ -213,6 +219,17 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
         allMessages.push(...msgs)
       } catch {
         // Conversation file missing, skip
+      }
+    }
+
+    if (hasLegacyContextSummary) {
+      try {
+        await writeFileAtomic(
+          `${pp}/.qmai/conversations.json`,
+          JSON.stringify({ conversations, runStates }, null, 2),
+        )
+      } catch (error) {
+        console.warn("persist: 旧版上下文摘要自动瘦身失败，下次加载时将重试", error)
       }
     }
 
@@ -244,14 +261,26 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
       // Old combined format
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const data = parsed as PersistedChatData
-        const conversations = Array.isArray(data.conversations)
-          ? data.conversations.map(normalizeConversation)
+        const rawConversations = Array.isArray(data.conversations) ? data.conversations : []
+        const hasLegacyContextSummary = rawConversations.some((conversation) => (
+          isLegacySessionContextSummary(conversation.contextSummary)
+        ))
+        const conversations = rawConversations.length > 0
+          ? rawConversations.map(normalizeConversation)
           : []
-        return {
+        const migrated = {
           conversations,
           messages: Array.isArray(data.messages) ? data.messages : [],
           runStates: normalizeConversationRunStates(conversations, data.runStates),
         }
+        if (hasLegacyContextSummary) {
+          try {
+            await saveChatHistory(pp, migrated.conversations, migrated.messages, undefined, migrated.runStates)
+          } catch (error) {
+            console.warn("persist: 旧版合并聊天记录自动迁移失败，下次加载时将重试", error)
+          }
+        }
+        return migrated
       }
       console.warn("persist: 聊天历史数据格式无效")
       return { conversations: [], messages: [], runStates: {} }

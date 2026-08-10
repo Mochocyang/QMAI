@@ -2,7 +2,7 @@ import type { AgentMessage } from "@/lib/agent/types"
 import type { DataSourceCategory } from "@/lib/novel/classification"
 import type { ContextPack } from "@/lib/novel/context-engine"
 
-export const CONTEXT_CACHE_SCHEMA_VERSION = 1
+export const CONTEXT_CACHE_SCHEMA_VERSION = 2
 
 export type ContextSurface = "ai-chat" | "ai-outline"
 export type ContextIntent = "generate" | "question" | "review" | "lint"
@@ -16,8 +16,17 @@ export type ContextSourceKind =
   | "deduction"
   | "soul"
   | "book-analysis"
+  | "retrieval"
   | "other"
   | "ignored"
+
+export interface DependencyStamp {
+  fingerprint: string
+  sourceCount: number
+  kinds: ContextSourceKind[]
+}
+
+export type ContextCacheScope = "static" | "chapter" | "task"
 
 export interface SourceVersion {
   path: string
@@ -31,8 +40,10 @@ export interface SourceVersion {
 export interface CachedArtifact<T = unknown> {
   schemaVersion: number
   key: string
+  sourceName: string
+  scope: ContextCacheScope
   value: T
-  dependencies: Record<string, number>
+  dependencyStamp: DependencyStamp
   createdAt: number
 }
 
@@ -40,19 +51,28 @@ export interface StableBundle {
   schemaVersion: number
   surface: ContextSurface
   text: string
-  dependencies: Record<string, number>
+  dependencyStamp: DependencyStamp
   updatedAt: number
+}
+
+export interface ContextCacheArtifactEntry {
+  path: string
+  sourceName: string
+  scope: ContextCacheScope
+  dependencyStamp: DependencyStamp
+  createdAt: number
+  byteSize: number
 }
 
 export interface ContextCacheManifest {
   schemaVersion: number
   sources: Record<string, SourceVersion>
-  artifacts: Record<string, { path: string; dependencies: Record<string, number> }>
+  artifacts: Record<string, ContextCacheArtifactEntry>
 }
 
 export interface SessionContextSummary {
   text: string
-  dependencies: Record<string, number>
+  dependencyFingerprint?: string
   updatedAt: number
 }
 
@@ -88,7 +108,9 @@ export interface ContextCacheItemTrace {
   key: string
   sourceName: string
   status: ContextCacheItemStatus
+  dependencyStamp: DependencyStamp
   dependencyPaths: string[]
+  dependencyPathsTruncated: boolean
 }
 
 export interface ContextHubSnapshotRef {
@@ -130,7 +152,7 @@ export interface ContextHubResult {
   sessionSummary: string
   dynamicContext: string
   contextPack: ContextPack
-  dependencies: Record<string, number>
+  dependencyStamp: DependencyStamp
   stats: ContextHubStats
   cacheItems: ContextCacheItemTrace[]
   warnings: string[]

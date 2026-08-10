@@ -28,6 +28,7 @@ import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
+import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 
 function App() {
   const project = useWikiStore((s) => s.project)
@@ -417,6 +418,7 @@ function App() {
 
   async function handleProjectOpened(proj: WikiProject) {
     await resetProjectState()
+    await initializeProjectContextCache(proj.path)
 
     setProject(proj)
     useWikiStore.getState().clearTransientTaskState()

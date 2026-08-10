@@ -58,6 +58,11 @@ export interface AgentConfig {
   projectPath?: string
   /** Stage F: 本次任务目标，用于断点恢复 */
   taskGoal?: string
+  /**
+   * 本 run 结束前必须至少发起过一次的工具名。
+   * 缺则拒绝无 tool 终稿并续轮（见 AgentRunner required-tools gate）。
+   */
+  requiredToolsOnce?: string[]
 }
 
 export interface AgentToolEvent {

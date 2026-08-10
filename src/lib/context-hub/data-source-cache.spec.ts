@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ContextLoadContext, DataSource } from "@/lib/novel/context-data-source"
 import { DataSourceCacheAdapter } from "./data-source-cache"
-import type { CachedArtifact, ContextSourceKind } from "./types"
+import type { CachedArtifact, ContextSourceKind, DependencyStamp } from "./types"
 
 const context: ContextLoadContext = {
   projectPath: "E:/Novel",
@@ -22,13 +22,25 @@ function createHarness() {
     outline: { "E:/Novel/wiki/outlines/main.md": 1 },
     setting: { "E:/Novel/wiki/settings/world.md": 1 },
     entity: {},
+    snapshot: {},
   }
   const registry = {
     refresh: vi.fn(async () => ({ versions: {}, changedPaths: [] })),
-    getDependencies: vi.fn((kinds?: ContextSourceKind[]) => Object.assign(
+    getDependencyStamp: vi.fn(async (kinds?: ContextSourceKind[]): Promise<DependencyStamp> => {
+      const dependencies = Object.assign(
+        {},
+        ...(kinds ?? []).map((kind) => revisions[kind] ?? {}),
+      ) as Record<string, number>
+      return {
+        fingerprint: JSON.stringify(dependencies),
+        sourceCount: Object.keys(dependencies).length,
+        kinds: [...(kinds ?? [])],
+      }
+    }),
+    getDependencyPreview: vi.fn((kinds?: ContextSourceKind[]) => Object.keys(Object.assign(
       {},
       ...(kinds ?? []).map((kind) => revisions[kind] ?? {}),
-    )),
+    ))),
   }
   const storage = {
     readArtifact: vi.fn(async (key: string) => artifacts.get(key) ?? null),
@@ -115,5 +127,57 @@ describe("DataSourceCacheAdapter", () => {
       "refreshed",
       "failed",
     ])
+  })
+
+  it("uses chapter scope for retrieval and project scope for related settings", async () => {
+    const harness = createHarness()
+    const retrieval: DataSource<string> = { name: "retrieval", priority: 1, load: async () => "" }
+    const relatedSettings: DataSource<string> = { name: "relatedSettings", priority: 1, load: async () => "" }
+    const loadRetrieval = vi.fn(async () => "检索索引")
+    const loadSettings = vi.fn(async () => "设定")
+
+    await harness.adapter.load(retrieval, context, loadRetrieval)
+    await harness.adapter.load(retrieval, { ...context, task: "完全不同的提示词" }, loadRetrieval)
+    await harness.adapter.load(relatedSettings, context, loadSettings)
+    await harness.adapter.load(relatedSettings, { ...context, task: "另一个任务", chapterNumber: 99 }, loadSettings)
+
+    expect(loadRetrieval).toHaveBeenCalledOnce()
+    expect(loadSettings).toHaveBeenCalledOnce()
+  })
+
+  it("returns a deeply equal value on a cache hit and a forced rebuild", async () => {
+    const harness = createHarness()
+    const source: DataSource<{ outline: string; chapters: number[] }> = {
+      name: "outline",
+      priority: 1,
+      load: async () => ({ outline: "", chapters: [] }),
+    }
+    const expected = { outline: "第一卷", chapters: [1, 2, 3] }
+    const directLoad = vi.fn(async () => ({ ...expected, chapters: [...expected.chapters] }))
+
+    const refreshed = await harness.adapter.load(source, context, directLoad)
+    const hit = await harness.adapter.load(source, context, directLoad)
+    const forcedAdapter = new DataSourceCacheAdapter({
+      registry: harness.registry,
+      storage: harness.storage,
+      forceRefresh: true,
+    })
+    const forced = await forcedAdapter.load(source, context, directLoad)
+
+    expect(hit).toEqual(refreshed)
+    expect(forced).toEqual(refreshed)
+  })
+
+  it("invalidates search results when a snapshot or community-summary file is added", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "searchResults", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => `结果-${directLoad.mock.calls.length}`)
+
+    await harness.adapter.load(source, context, directLoad)
+    await harness.adapter.load(source, context, directLoad)
+    harness.revisions.snapshot!["E:/Novel/.novel/community-summaries/new.json"] = 1
+    await harness.adapter.load(source, context, directLoad)
+
+    expect(directLoad).toHaveBeenCalledTimes(2)
   })
 })

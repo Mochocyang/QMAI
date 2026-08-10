@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const contextHubMocks = vi.hoisted(() => ({
+  disposeAllContextHubs: vi.fn(),
+  getContextHub: vi.fn(() => ({ pruneSnapshots: vi.fn(async () => {}) })),
+}))
+
 vi.mock("@/lib/ingest-queue", () => ({
   pauseQueue: vi.fn().mockResolvedValue(undefined),
 }))
+vi.mock("@/lib/context-hub/context-hub", () => contextHubMocks)
 
 import { resetProjectState, resetProjectStores } from "./reset-project-state"
 import { useActivityStore } from "@/stores/activity-store"
@@ -11,6 +17,7 @@ import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useReviewStore } from "@/stores/review-store"
 
 beforeEach(() => {
+  contextHubMocks.disposeAllContextHubs.mockClear()
   useChatStore.setState({
     conversations: [{ id: "chat-a", title: "chat-a", createdAt: 1, updatedAt: 1, deAiMode: false }],
     messages: [{ id: "m1", role: "user", content: "hi", timestamp: 1, conversationId: "chat-a" }],
@@ -69,6 +76,7 @@ describe("resetProjectState", () => {
     await resetProjectState()
 
     expect(sessionStorage.getItem("lk-last-chapter-path")).toBeNull()
+    expect(contextHubMocks.disposeAllContextHubs).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
   })
 })

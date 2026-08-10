@@ -4,6 +4,8 @@ import type { ContextPack } from "@/lib/novel/context-engine"
 import { composeContext } from "./composer"
 import { estimateContextTokens } from "./token-estimator"
 
+const dependencyStamp = { fingerprint: "test", sourceCount: 0, kinds: [] }
+
 function pack(overrides: Partial<ContextPack> = {}): ContextPack {
   return {
     task: "续写第二章",
@@ -33,7 +35,7 @@ function pack(overrides: Partial<ContextPack> = {}): ContextPack {
 
 describe("composeContext", () => {
   it("keeps the stable core byte-identical with fixed field ordering", () => {
-    const input = { contextPack: pack(), dependencies: { outline: 1 } }
+    const input = { contextPack: pack(), dependencyStamp }
     const first = composeContext(input)
     const second = composeContext(input)
 
@@ -45,7 +47,7 @@ describe("composeContext", () => {
   it("places explicit references ahead of automatically selected dynamic context", () => {
     const result = composeContext({
       contextPack: pack(),
-      dependencies: {},
+      dependencyStamp,
       referenceContext: ["@引用：人物/林默.md\n林默怕水"],
     })
 
@@ -55,7 +57,7 @@ describe("composeContext", () => {
   it("expands to chapter originals when confidence is low", () => {
     const result = composeContext({
       contextPack: pack({ recentChapterContents: ["第一章原文"], searchResults: "补充检索" }),
-      dependencies: {},
+      dependencyStamp,
       confidence: 0.4,
     })
 
@@ -67,7 +69,7 @@ describe("composeContext", () => {
   it("trims low-priority search content before required task facts", () => {
     const result = composeContext({
       contextPack: pack({ searchResults: "低相关背景".repeat(500) }),
-      dependencies: {},
+      dependencyStamp,
       tokenBudget: 180,
       confidence: 0.9,
     })
@@ -85,7 +87,7 @@ describe("composeContext", () => {
         searchResults: "候选检索".repeat(500),
       }),
       sessionSummary: "当前会话已确认：继续第二章，不揭露凶手。",
-      dependencies: {},
+      dependencyStamp,
       confidence: 0.9,
       tokenBudget: 6000,
     })
@@ -99,7 +101,7 @@ describe("composeContext", () => {
         recentChapterContents: ["章节原文".repeat(1000)],
         searchResults: "低优先级检索".repeat(100),
       }),
-      dependencies: {},
+      dependencyStamp,
       confidence: 0.9,
       tokenBudget: 100_000,
     }
@@ -131,7 +133,7 @@ describe("composeContext", () => {
         mustDo: "必须做到".repeat(500),
       }),
       sessionSummary: "会话摘要".repeat(1000),
-      dependencies: {},
+      dependencyStamp,
       tokenBudget: 800,
     })
 
@@ -146,13 +148,13 @@ describe("composeContext", () => {
   it("无显式预算时按模型上下文窗口安全比例计算，而不是写死上限", () => {
     const large = composeContext({
       contextPack: pack(),
-      dependencies: {},
+      dependencyStamp,
       maxContextSize: 204_800,
       tokenBudget: 0,
     })
     const small = composeContext({
       contextPack: pack(),
-      dependencies: {},
+      dependencyStamp,
       maxContextSize: 32_000,
       tokenBudget: 0,
     })

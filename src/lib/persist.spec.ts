@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const fsMocks = vi.hoisted(() => ({
   writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
   readFile: vi.fn(),
   createDirectory: vi.fn(),
 }))
@@ -21,6 +22,7 @@ import { loadChatHistory, saveChatHistory } from "./persist"
 describe("chat context summary persistence", () => {
   beforeEach(() => {
     fsMocks.writeFile.mockReset().mockResolvedValue(undefined)
+    fsMocks.writeFileAtomic.mockReset().mockResolvedValue(undefined)
     fsMocks.createDirectory.mockReset().mockResolvedValue(undefined)
     fsMocks.readFile.mockReset()
     contextHubMocks.pruneSnapshots.mockReset().mockResolvedValue(undefined)
@@ -29,8 +31,8 @@ describe("chat context summary persistence", () => {
     })
   })
 
-  it("saves dependency revisions in the conversation manifest", async () => {
-    const contextSummary = { text: "摘要", dependencies: { outline: 3 }, updatedAt: 10 }
+  it("saves the dependency fingerprint in the conversation manifest", async () => {
+    const contextSummary = { text: "摘要", dependencyFingerprint: "outline-v3", updatedAt: 10 }
     await saveChatHistory("E:/Novel", [{
       id: "chat-1",
       title: "会话",
@@ -63,9 +65,49 @@ describe("chat context summary persistence", () => {
 
     expect(loaded.conversations[0].contextSummary).toEqual({
       text: "旧摘要",
-      dependencies: {},
       updatedAt: 0,
     })
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "E:/Novel/.qmai/conversations.json",
+      expect.not.stringContaining("dependencies"),
+    )
+  })
+
+  it("migrates a legacy combined chat file and removes its dependency table", async () => {
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("/.qmai/chat-history.json")) {
+        return JSON.stringify({
+          conversations: [{
+            id: "chat-legacy",
+            title: "旧会话",
+            createdAt: 1,
+            updatedAt: 2,
+            deAiMode: false,
+            contextSummary: {
+              text: "保留的旧摘要",
+              updatedAt: 2,
+              dependencies: { "E:/Novel/wiki/entities/a.md": 1 },
+            },
+          }],
+          messages: [{
+            id: "message-1",
+            role: "assistant",
+            content: "旧消息",
+            timestamp: 2,
+            conversationId: "chat-legacy",
+          }],
+        })
+      }
+      throw new Error("文件不存在")
+    })
+
+    const loaded = await loadChatHistory("E:/Novel")
+
+    expect(loaded.conversations[0].contextSummary).toEqual({ text: "保留的旧摘要", updatedAt: 2 })
+    const manifestCall = fsMocks.writeFile.mock.calls.find(([path]) => path.endsWith("/.qmai/conversations.json"))
+    expect(manifestCall).toBeDefined()
+    expect(manifestCall![1]).not.toContain("dependencies")
+    expect(manifestCall![1]).toContain("保留的旧摘要")
   })
 
   it("persists the context snapshot reference with an assistant message", async () => {

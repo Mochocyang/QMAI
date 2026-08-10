@@ -113,7 +113,7 @@ import {
   resolveNovelModel,
   resolveUsableModelKey,
 } from "@/lib/novel/model-resolver";
-import { getEffectiveSavedModels } from "@/lib/llm-model-keys";
+import { hasAvailableModels as hasConfiguredModels } from "@/lib/llm-model-keys";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
@@ -204,6 +204,8 @@ import {
 } from "@/lib/conversation-create-guard";
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
+import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
+import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair";
 import {
   type OutlineWorkflowStage,
   canTransitionOutlineWorkflow,
@@ -1194,23 +1196,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
   const historyCount = historyConversations.length;
 
-  const hasAvailableModels = useMemo(() => {
-    for (const key of Object.keys(providerConfigs)) {
-      const config = providerConfigs[key];
-      if (key.startsWith("custom-")) {
-        if (config.enabled === false) continue;
-      } else {
-        // 内置预设：已启用，或有有效配置（apiKey + model/savedModels）
-        const hasConfig = config.enabled === true
-          || Boolean((config.apiKey || config.savedModels?.length) && (config.model || config.savedModels?.length));
-        if (!hasConfig) continue;
-      }
-      if (getEffectiveSavedModels(config).length > 0) {
-        return true;
-      }
-    }
-    return false;
-  }, [providerConfigs]);
+  const hasAvailableModels = useMemo(
+    () => hasConfiguredModels(providerConfigs),
+    [providerConfigs],
+  );
 
   const defaultOutlineLlmConfig = useMemo(
     () => resolveNovelModel(llmConfig, novelConfig, "writing"),
@@ -2524,7 +2513,26 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           completedModule: intentContextsRef.current[capturedConvId]?.title || "当前模块",
         });
         const cleanFinalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
-        const finalContent = cleanFinalContent;
+        const structuredMarkdownEnabled = options.intentPhase === "generation"
+          || options.novelGenerationRequest !== undefined;
+        const finalContent = await finalizeStructuredMarkdownMessage(
+          cleanFinalContent,
+          {
+            enabled: structuredMarkdownEnabled,
+            repairWithAi: ({ content, maxTokens }) => repairMarkdownFormatWithAi({
+              content,
+              llmConfig: effectiveLlmConfig,
+              signal: controller.signal,
+              maxTokens,
+            }),
+            onFailure: () => {
+              if (!isCurrentRun()) return;
+              toast.info("Markdown 格式自动修复未完全通过，已保留内容最完整的版本。", {
+                dedupeKey: "outline-markdown-quality-incomplete",
+              });
+            },
+          },
+        );
         if (!isCurrentRun()) return { started: true, sent: false };
         // 先将流式内容同步为最终内容，确保打字机效果立即终止、切换无跳变
         setStreamingContent(capturedConvId, finalContent);
@@ -2603,7 +2611,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               { role: "user", content: prompt },
               { role: "assistant", content: finalContent },
             ],
-            dependencies: contextHubResult?.dependencies ?? {},
+            dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
           }),
         };
         if (!isCurrentRun()) return { started: true, sent: false };
@@ -3109,7 +3117,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (completedConversation) {
           setConversationContextSummary(capturedConvId, buildSessionContextSummary({
             messages: completedConversation.messages,
-            dependencies: contextHubResult?.dependencies ?? {},
+            dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
           }));
           void useOutlineChatStore.getState().saveToDisk();
         }
@@ -3441,7 +3449,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           { allowFallback: true, completedModule: "当前模块" },
         );
         const cleanFinalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
-        const finalContent = cleanFinalContent;
+        const finalContent = await finalizeStructuredMarkdownMessage(cleanFinalContent, {
+          enabled: regenerationInput.structuredGeneration,
+          repairWithAi: ({ content, maxTokens }) => repairMarkdownFormatWithAi({
+            content,
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+            maxTokens,
+          }),
+          onFailure: () => toast.info("Markdown 格式自动修复未完全通过，已保留内容最完整的版本。", {
+            dedupeKey: "outline-markdown-quality-incomplete",
+          }),
+        });
         if (!isCurrentRun()) return;
         // 先将流式内容同步为最终内容，确保打字机效果立即终止、切换无跳变
         setStreamingContent(capturedConvId, finalContent);
@@ -3464,7 +3483,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             { role: "user", content: lastUserRequest },
             { role: "assistant", content: finalContent },
           ],
-          dependencies: contextHubResult?.dependencies ?? {},
+          dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
         }));
         if (!isCurrentRun()) return;
         await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);

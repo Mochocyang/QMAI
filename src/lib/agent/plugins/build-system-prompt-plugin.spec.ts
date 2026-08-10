@@ -106,7 +106,7 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.finalSystemPrompt).toContain("planBlueprint")
     expect(result.finalSystemPrompt).toContain("大纲定位协议")
     expect(result.finalSystemPrompt).toContain("list_outlines")
-    expect(result.finalSystemPrompt).toContain("按 type 分流")
+    expect(result.finalSystemPrompt).toContain("按文件夹分流")
     expect(result.finalSystemRulesPrompt).toContain("章节主编策划协议")
     expect(result.finalSystemRulesPrompt).not.toContain("context prompt")
     const finalPrompt = result.finalSystemPrompt ?? ""

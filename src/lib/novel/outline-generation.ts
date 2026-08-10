@@ -663,12 +663,20 @@ export interface OutlineIngestFailure {
   reason: string
 }
 
+export type BulkOutlineIngestMode = "all" | "pending"
+
 export interface BulkOutlineIngestResult {
   total: number
   succeeded: number
   failed: number
   cancelled?: boolean
   failures: OutlineIngestFailure[]
+  /** Present when total is 0 and the caller asked for a scoped bulk run. */
+  emptyReason?: "no_outlines" | "already_extracted"
+}
+
+export interface RunBulkOutlineIngestOptions {
+  mode?: BulkOutlineIngestMode
 }
 
 export interface RunOutlineIngestPathsOptions {
@@ -692,7 +700,7 @@ export interface RunOutlineIngestTaskOptions {
   manageProgress?: boolean
 }
 
-import { getOutlineFileName } from "./outline-ingest-utils"
+import { getOutlineFileName, outlineSnapshotExists } from "./outline-ingest-utils"
 
 function buildOutlineIngestFailureReason(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -763,6 +771,9 @@ function buildBulkIngestProgressMessage(result: BulkOutlineIngestResult): string
 
 export function formatBulkOutlineIngestResult(result: BulkOutlineIngestResult): string {
   if (result.total === 0) {
+    if (result.emptyReason === "already_extracted") {
+      return i18n.t("novel.outlineGenerator.bulkIngestAlreadyExtracted")
+    }
     return i18n.t("novel.outlineGenerator.bulkIngestEmpty")
   }
   if (result.cancelled) {
@@ -1054,8 +1065,12 @@ function collectOutlineMarkdownPaths(
   return paths
 }
 
-export async function runBulkOutlineIngest(projectPath: string): Promise<BulkOutlineIngestResult> {
+export async function runBulkOutlineIngest(
+  projectPath: string,
+  options?: RunBulkOutlineIngestOptions,
+): Promise<BulkOutlineIngestResult> {
   const pp = normalizePath(projectPath)
+  const mode: BulkOutlineIngestMode = options?.mode ?? "all"
   let outlinePaths: string[] = []
 
   try {
@@ -1063,7 +1078,24 @@ export async function runBulkOutlineIngest(projectPath: string): Promise<BulkOut
     outlinePaths = collectOutlineMarkdownPaths(tree as Array<{ path: string; name: string; is_dir: boolean; children?: Array<{ path: string; name: string; is_dir: boolean; children?: unknown[] }> }>)
       .sort((a, b) => a.localeCompare(b, "zh-CN"))
   } catch {
-    return { total: 0, succeeded: 0, failed: 0, failures: [] }
+    return { total: 0, succeeded: 0, failed: 0, failures: [], emptyReason: "no_outlines" }
+  }
+
+  if (outlinePaths.length === 0) {
+    return { total: 0, succeeded: 0, failed: 0, failures: [], emptyReason: "no_outlines" }
+  }
+
+  if (mode === "pending") {
+    const pending: string[] = []
+    for (const outlinePath of outlinePaths) {
+      if (!(await outlineSnapshotExists(pp, outlinePath))) {
+        pending.push(outlinePath)
+      }
+    }
+    if (pending.length === 0) {
+      return { total: 0, succeeded: 0, failed: 0, failures: [], emptyReason: "already_extracted" }
+    }
+    outlinePaths = pending
   }
 
   return runOutlineIngestPaths(pp, outlinePaths)

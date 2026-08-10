@@ -61,11 +61,11 @@ export function createReadOutlineTool(
 ): Tool {
   return {
     name: "read_outline",
-    description: "读取指定大纲文件的完整内容。参数 path 为大纲文件的完整路径，或 name 为大纲名称。",
+    description: "读取指定大纲文件的完整内容。参数 path 可为大纲目录内的完整路径或相对路径，或用 name 指定大纲名称。",
     category: "read",
     parameters: {
       name: { type: "string", description: "大纲名称" },
-      path: { type: "string", description: "大纲文件完整路径（可选，与 name 二选一）" },
+      path: { type: "string", description: "大纲文件完整路径或相对大纲目录的路径（可选，与 name 二选一）" },
     },
     execute: async (params) => {
       const result = await readMarkdownResource(outlinesDir, params, "大纲", readTextFile)

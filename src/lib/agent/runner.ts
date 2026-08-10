@@ -19,6 +19,11 @@ import { addLlmUsage } from "../llm-usage"
 import { trimChatMessagesToBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
+import {
+  RequiredToolsNotCalledError,
+  buildRequiredToolNudgeMessage,
+  missingRequiredToolsOnce,
+} from "./required-tools-gate"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -256,6 +261,33 @@ export class AgentRunner {
       }
 
       if (toolCalls.length === 0) {
+        const missingRequired = missingRequiredToolsOnce({
+          requiredToolsOnce: config.requiredToolsOnce,
+          availableToolNames: config.tools.map((tool) => tool.name),
+          calledToolNames: record.toolCalls.map((call) => call.name),
+          toolsEnabled: Boolean(openaiTools),
+        })
+        if (missingRequired.length > 0) {
+          if (roundText.trim() || roundReasoningContent) {
+            workingMessages.push({
+              role: "assistant",
+              content: roundText || "",
+              reasoning_content: roundReasoningContent,
+            })
+          }
+          workingMessages.push({
+            role: "system",
+            content: buildRequiredToolNudgeMessage(missingRequired),
+          })
+          const isLastRound = round >= maxRounds - 1
+          if (isLastRound) {
+            await clearPersistedBreakpoint()
+            callbacks.onError(new RequiredToolsNotCalledError(missingRequired))
+            return record
+          }
+          continue
+        }
+
         finalText = roundText
         record.finalText = finalText
         if (roundText) callbacks.onText(roundText)

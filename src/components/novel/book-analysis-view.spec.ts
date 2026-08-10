@@ -404,14 +404,14 @@ afterEach(async () => {
 afterAll(() => restoreActEnvironment())
 
 describe("BookAnalysisView 批量导入运行时接线", () => {
-  it("挂载和项目切换时初始化对应项目，并在切换和卸载时异步释放", async () => {
+  it("挂载和项目切换时初始化对应项目，切换页面时保留后台调度器", async () => {
     await renderView()
     expect(mocks.initializeProject).toHaveBeenCalledWith("E:/项目甲")
 
     mocks.wikiState.project = { id: "project-b", name: "项目乙", path: "F:/项目乙" }
     await rerenderView()
 
-    expect(mocks.dispose).toHaveBeenCalledTimes(1)
+    expect(mocks.dispose).not.toHaveBeenCalled()
     expect(mocks.initializeProject).toHaveBeenLastCalledWith("F:/项目乙")
 
     await act(async () => {
@@ -419,7 +419,7 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
       await Promise.resolve()
     })
     mounted = false
-    expect(mocks.dispose).toHaveBeenCalledTimes(2)
+    expect(mocks.dispose).not.toHaveBeenCalled()
   })
 
   it("弹窗通过同名批量入口原样提交完整候选列表，并在成功后关闭", async () => {

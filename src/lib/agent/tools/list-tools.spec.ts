@@ -43,17 +43,23 @@ describe("list tools", () => {
     expect(result).toContain("本次目标章号：第 167 章")
   })
 
-  it("list_outlines recursively lists files with type annotations", async () => {
+  it("list_outlines recursively lists files with folder-first annotations", async () => {
     vi.mocked(listDirectory).mockImplementation(async (path: string) => {
       if (path.endsWith("/outlines")) {
         return [
           { name: "全局设定.md", path: `${path}/全局设定.md`, is_dir: false },
           { name: "卷纲", path: `${path}/卷纲`, is_dir: true },
+          { name: "章纲", path: `${path}/章纲`, is_dir: true },
         ]
       }
       if (path.endsWith("/卷纲")) {
         return [
           { name: "第三卷大纲.md", path: `${path}/第三卷大纲.md`, is_dir: false },
+        ]
+      }
+      if (path.endsWith("/章纲")) {
+        return [
+          { name: "第52章-条件.md", path: `${path}/第52章-条件.md`, is_dir: false },
         ]
       }
       return []
@@ -65,14 +71,16 @@ describe("list tools", () => {
       if (path.includes("第三卷大纲")) {
         return `---\ntype: outline\ntitle: "第三卷"\n---\n`
       }
-      return ""
+      return "# 纯 Markdown 章纲\n"
     })
 
     const tool = createListOutlinesTool("/project/wiki/outlines")
     const result = await tool.execute({ chapterNumber: 167 })
     expect(result).toContain("全局设定.md  type=overview")
-    expect(result).toContain("卷纲/第三卷大纲.md  type=outline")
+    expect(result).toContain("卷纲/第三卷大纲.md  folder=卷纲  type=outline")
+    expect(result).toContain("章纲/第52章-条件.md  folder=章纲")
     expect(result).toContain("本次目标章号：第 167 章")
+    expect(result).toContain("优先按文件夹（folder）分流")
   })
 
   it("list_memories returns file list from memory dir", async () => {

@@ -156,6 +156,13 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("aiWorkflowMode,")
   })
 
+  it("injects requiredToolsOnce for non-fast chapter writing via resolveRequiredToolsOnce", () => {
+    expect(source).toContain('import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"')
+    expect(source).toContain("resolveRequiredToolsOnce({")
+    expect(source).toContain("...(requiredToolsOnce ? { requiredToolsOnce } : {})")
+    expect(source).toContain("必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
+  })
+
   it("does not bypass ReAct for chapter workflow execution", () => {
     expect(source).toContain("runAiChatSession")
     expect(source).toContain("run_chapter_workflow")
@@ -284,8 +291,8 @@ describe("chat-panel agent reference integration", () => {
   it("settles running tool calls when the agent session finishes", () => {
     expect(source).toContain("settleRunningAgentToolCalls")
     expect(source).not.toContain("const _settlePattern")
-    expect(source).toContain("agentToolCalls: settleRunningAgentToolCalls(record?.toolCalls.length ? record.toolCalls : message.agentToolCalls)")
-    expect(source).toContain('agentToolCalls: settleRunningAgentToolCalls(message.agentToolCalls, "error")')
+    expect(source).toContain("record?.toolCalls.length ? record.toolCalls : message.agentToolCalls")
+    expect(source).toContain('settleRunningAgentToolCalls(message.agentToolCalls, "error")')
   })
 
   it("settles visible tool calls when generation is cancelled from any chat confirmation path", () => {
@@ -462,7 +469,9 @@ describe("chat-panel post-write check integration (Stage D)", () => {
     const beforeStageDBlock = source.slice(0, stageDIndex)
     expect(beforeStageDBlock).toContain("useChatStore.getState()")
     expect(beforeStageDBlock).toContain("lastAssistantForValidation")
-    expect(beforeStageDBlock).toContain("finalContent = lastAssistantForValidation?.content ??")
+    expect(beforeStageDBlock).toContain("rawFinalContent = lastAssistantForValidation?.content ??")
+    expect(beforeStageDBlock).toContain("getCopyableAssistantContent(rawFinalContent")
+    expect(beforeStageDBlock).toContain("const finalContent = resolvedFinalContent")
     const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
     expect(stageDBlock).toContain("const chapterContent = finalContent")
   })
@@ -477,7 +486,7 @@ describe("chat-panel post-write check integration (Stage D)", () => {
   it("skips empty content to avoid false reports", () => {
     const stageDIndex = source.indexOf("=== Stage D: 写后剧情自检 ===")
     const stageDBlock = source.slice(stageDIndex, stageDIndex + 1200)
-    expect(stageDBlock).toContain("if (chapterContent && !hasChapterPlanMarker)")
+    expect(stageDBlock).toContain("if (chapterContent && !hasChapterPlanMarker && chapterProtocolValid)")
   })
 
   it("writes the check result and meta into contextTrace.contextInfo", () => {

@@ -798,6 +798,12 @@
         "emptyValue": "(empty)",
         "endpointPreviewWillUse": "Will use",
         "endpointPreviewAutoApply": "(auto-applies on blur)",
+        "functionCalling": {
+          "label": "Enable Function Calling",
+          "hint": "When disabled, requests through this provider omit tools and tool_choice, including built-in and MCP tools, for compatibility with relays or local models that do not support tool calling.",
+          "stateOn": "ON",
+          "stateOff": "OFF"
+        },
         "cliStatus": {
           "title": "CLI Status",
           "checking": "Checking…",
@@ -1487,7 +1493,13 @@
       "reingestTitle": "Re-extract initial memory (overwrites the previous extraction)",
       "bulkIngest": "Extract All",
       "bulkIngesting": "Extracting all...",
+      "bulkIngestDialogTitle": "Choose extraction scope",
+      "bulkIngestDialogDescription": "Choose which outlines this bulk extraction should process.",
+      "bulkIngestDialogHint": "“Extract all” overwrites already extracted outline memory. “Unextracted only” skips outlines that already have a snapshot.",
+      "bulkIngestAll": "Extract all",
+      "bulkIngestPending": "Unextracted only",
       "bulkIngestEmpty": "There are no outline documents to extract in the current outline library.",
+      "bulkIngestAlreadyExtracted": "All outlines have already been extracted. Nothing left to process.",
       "bulkIngestResult": "Bulk extraction complete: {{succeeded}} succeeded, {{failed}} failed, {{total}} total.",
       "bulkIngestResultWithFailures": "Bulk extraction complete: {{succeeded}} succeeded, {{failed}} failed, {{total}} total. Failures:",
       "bulkIngestMoreFailures": "{{count}} more outline(s) failed to extract.",

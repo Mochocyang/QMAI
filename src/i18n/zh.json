@@ -505,6 +505,12 @@
         "emptyValue": "未填写",
         "endpointPreviewWillUse": "将使用",
         "endpointPreviewAutoApply": "，失焦后自动应用",
+        "functionCalling": {
+          "label": "启用 Function Calling",
+          "hint": "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具与 MCP），用于兼容不支持工具调用的中转或本地模型。",
+          "stateOn": "ON",
+          "stateOff": "OFF"
+        },
         "cliStatus": {
           "title": "CLI 状态",
           "checking": "检查中...",
@@ -1429,7 +1435,13 @@
       "reingestTitle": "重新提取初始记忆（将覆盖上次提取的内容）",
       "bulkIngest": "一键提取",
       "bulkIngesting": "一键提取中...",
+      "bulkIngestDialogTitle": "选择提取范围",
+      "bulkIngestDialogDescription": "请选择本次一键提取要处理的大纲范围。",
+      "bulkIngestDialogHint": "“提取全部”会覆盖已提取过的大纲记忆；“仅未提取”会跳过已有快照的大纲。",
+      "bulkIngestAll": "提取全部",
+      "bulkIngestPending": "仅未提取",
       "bulkIngestEmpty": "当前大纲库里没有可提取的大纲文档。",
+      "bulkIngestAlreadyExtracted": "所有大纲都已提取过，没有需要处理的未提取大纲。",
       "bulkIngestResult": "一键提取完成：共 {{total}} 个大纲，成功 {{succeeded}} 个，失败 {{failed}} 个。",
       "bulkIngestResultWithFailures": "一键提取完成：共 {{total}} 个大纲，成功 {{succeeded}} 个，失败 {{failed}} 个。失败明细：",
       "bulkIngestMoreFailures": "另有 {{count}} 个大纲提取失败。",

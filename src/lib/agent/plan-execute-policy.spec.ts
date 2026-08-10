@@ -12,18 +12,21 @@ describe("Plan Execute policy", () => {
     expect(shouldRequirePlan(true, "fast", "write_chapter")).toBe(true)
     expect(buildPlanExecutePolicyPrompt("fast")).toContain("快速模式")
     expect(buildPlanExecutePolicyPrompt("fast")).toContain("先给出最短可执行计划")
+    expect(buildPlanExecutePolicyPrompt("fast")).toContain("必须调用 run_chapter_workflow")
   })
 
   it("creates a lightweight plan in standard mode when Plan Execute is enabled", () => {
     expect(shouldRequirePlan(true, "standard", "write_chapter")).toBe(true)
     expect(buildPlanExecutePolicyPrompt("standard")).toContain("标准模式")
     expect(buildPlanExecutePolicyPrompt("standard")).toContain("先创建轻量计划")
+    expect(buildPlanExecutePolicyPrompt("standard")).toContain("必须调用 run_chapter_workflow")
   })
 
   it("requires plan execute and review in strict mode when Plan Execute is enabled", () => {
     expect(shouldRequirePlan(true, "strict", "rewrite_chapter")).toBe(true)
     expect(buildPlanExecutePolicyPrompt("strict")).toContain("必须先计划")
     expect(buildPlanExecutePolicyPrompt("strict")).toContain("执行后审查")
+    expect(buildPlanExecutePolicyPrompt("strict")).toContain("必须调用 run_chapter_workflow")
   })
 
   it("requires a user-facing executable plan instead of workflow narration", () => {

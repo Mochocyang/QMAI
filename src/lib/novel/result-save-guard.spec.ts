@@ -16,4 +16,12 @@ describe("result save guard", () => {
     expect(result.ok).toBe(true)
     expect(result.trace.valid).toBe(true)
   })
+
+  it("blocks completion-notice short text before confirming a draft save", () => {
+    const result = validateChapterBeforeSave("第 32 章正文已按章纲重写完成。")
+
+    expect(result.ok).toBe(false)
+    expect(result.trace.valid).toBe(false)
+    expect(result.message).toContain("字数过少")
+  })
 })

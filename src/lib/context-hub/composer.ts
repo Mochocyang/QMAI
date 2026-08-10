@@ -1,12 +1,12 @@
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { contextPackToPrompt, type ContextPack } from "@/lib/novel/context-engine"
 import { estimateContextTokens } from "./token-estimator"
-import type { ContextHubStats } from "./types"
+import type { ContextHubStats, DependencyStamp } from "./types"
 
 export interface ComposeContextInput {
   contextPack: ContextPack
   sessionSummary?: string
-  dependencies: Record<string, number>
+  dependencyStamp: DependencyStamp
   referenceContext?: string[]
   confidence?: number
   /** Explicit token budget; 0 / undefined = window-derived safe cap. */
@@ -18,7 +18,7 @@ export interface ComposedContext {
   stableCore: string
   sessionSummary: string
   dynamicContext: string
-  dependencies: Record<string, number>
+  dependencyStamp: DependencyStamp
   stats: ContextHubStats
 }
 
@@ -196,7 +196,10 @@ export function composeContext(input: ComposeContextInput): ComposedContext {
     stableCore,
     sessionSummary,
     dynamicContext,
-    dependencies: { ...input.dependencies },
+    dependencyStamp: {
+      ...input.dependencyStamp,
+      kinds: [...input.dependencyStamp.kinds],
+    },
     stats: {
       hits: 0,
       refreshed: 0,
