@@ -51,8 +51,14 @@ describe("chapter-plan-confirm-dialog 纯函数", () => {
       expect(extractChapterPlan("本章目标是制造紧张感，然后直接输出正文。")).toBeNull()
     })
 
-    it("只有开始标记时返回 null", () => {
-      expect(extractChapterPlan(`${CHAPTER_PLAN_MARKER_START}计划内容`)).toBeNull()
+    it("只有开始标记时把剩余内容当作计划（截断容错）", () => {
+      const result = extractChapterPlan(`${CHAPTER_PLAN_MARKER_START}计划内容`)
+      expect(result).not.toBeNull()
+      expect(result!.plan).toBe("计划内容")
+    })
+
+    it("只有开始标记且其后无内容时返回 null", () => {
+      expect(extractChapterPlan(`前文${CHAPTER_PLAN_MARKER_START}   `)).toBeNull()
     })
 
     it("完整标记时正确提取计划", () => {

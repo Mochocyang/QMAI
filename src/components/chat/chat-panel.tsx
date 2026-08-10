@@ -316,15 +316,22 @@ function buildChatAgentSystemPrompt(options: {
     lines.push("当前处于资料写入模式，用户可能希望把对话内容整理写入资料库。")
   }
   if (options.novelMode) {
-    lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
-    lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
-    lines.push("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格；章节标题和正文以外的内容都不要输出。")
+    const planPhase = Boolean(options.planExecuteEnabled) && options.aiWorkflowMode !== "fast"
+    if (planPhase) {
+      // 计划阶段与"只输出正文/必须调 run_chapter_workflow"互斥：同时注入
+      // 会让模型在两套矛盾指令之间随机选择，表现为跳过计划直接产出正文。
+      lines.push("当前处于章节计划阶段：本轮只输出章节创作计划并等待用户确认，禁止输出章节正文，禁止调用 run_chapter_workflow 等正文生成类工具。")
+    } else {
+      lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
+      lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
+      lines.push("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格；章节标题和正文以外的内容都不要输出。")
+    }
     if (options.includeOutlineFindProtocol) {
       lines.push(buildOutlineFindProtocol(options.targetChapterNumber))
     }
     if (options.aiWorkflowMode === "fast") {
       lines.push("快速模式下可以读取必要上下文；除非用户明确要求使用工作流或 Skill，否则不要主动调用 run_chapter_workflow。")
-    } else {
+    } else if (!planPhase) {
       lines.push("章节生成、续写、改写或润色必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
     }
   }
@@ -1797,11 +1804,20 @@ export function ChatPanel() {
           planExecuteActive,
           enabledToolNames: prePluginResult?.enabledToolNames,
         })
+        // 计划阶段硬管控：不依赖任务路由/pre-plugin 是否命中，直接从本轮可用
+        // 工具中移除正文生成与写入类工具（模型的 tools 广告和文本工具调用解析
+        // 都以 config.tools 为准），从根上阻止模型跳过计划直接产出正文。
+        const sessionTools = planExecuteActive
+          ? agentConfig.tools.filter(
+              (tool) => tool.name !== "run_chapter_workflow" && tool.category !== "write",
+            )
+          : agentConfig.tools
         const record = await withWritingWakeLock(keepAwake, () => runAiChatSession({
           userMessage: plainText,
           projectPath,
           agentConfig: {
             ...agentConfig,
+            tools: sessionTools,
             systemPrompt: systemPromptForConfig,
             projectPath,
             taskGoal: plainText,
@@ -1886,6 +1902,14 @@ export function ChatPanel() {
             console.warn("供应商缓存用量快照保存失败，继续保留本地缓存统计：", error)
           }
         }
+        // 计划模式：markDone/getCopyableAssistantContent 会重写消息内容
+        // （剥掉 HTML 注释等隐藏块），先捕获原始文本供后续计划提取使用，
+        // 避免 `<!-- chapter_plan -->` 标记在提取前就被剥掉。
+        const rawAssistantContentForPlan = planExecuteActive
+          ? useChatStore.getState().messages.find((m) => m.id === assistantMessage.id)?.content
+            || record.finalText
+            || ""
+          : ""
         finishAgentSession(() => {
           if (!hasAgentError) {
             if (contextTrace && effectiveTaskRoute) {
@@ -2032,7 +2056,9 @@ export function ChatPanel() {
           const lastAssistant = storeState.messages.find(
             (m) => m.id === assistantMessage.id && m.role === "assistant",
           )
-          const fullContent = lastAssistant?.content || record.finalText || ""
+          // 优先用重写前捕获的原始文本：markDone 会剥掉 HTML 注释，
+          // 只有原始文本还保留 `<!-- chapter_plan -->` 标记。
+          const fullContent = rawAssistantContentForPlan || lastAssistant?.content || record.finalText || ""
           // 诊断日志：帮助定位"计划弹窗有时不出现"问题
           const hasMarker = fullContent.includes("<!-- chapter_plan -->")
           console.info("[PlanExecute] 检查计划提取", {
@@ -2042,7 +2068,15 @@ export function ChatPanel() {
             messageContentLength: lastAssistant?.content?.length ?? 0,
             recordFinalTextLength: record.finalText?.length ?? 0,
           })
+          // 兜底：标记与关键词启发式都失败但确实有内容时，把整段回复
+          // 当作计划弹窗（用户可修改/跳过），替代静默不弹窗。仅对写作类
+          // 请求（或路由未识别的请求）生效，避免普通问答被误当计划。
+          const planFallbackEligible =
+            !effectiveTaskRoute || WRITING_INTENTS.has(effectiveTaskRoute.intent)
           const extracted = extractChapterPlan(fullContent)
+            ?? (planFallbackEligible && fullContent.trim()
+              ? { plan: fullContent.trim(), body: "" }
+              : null)
           if (extracted) {
             console.info("[PlanExecute] 计划提取成功，弹出确认对话框", {
               planLength: extracted.plan.length,

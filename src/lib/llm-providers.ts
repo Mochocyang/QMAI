@@ -96,6 +96,25 @@ interface ProviderConfig {
   buildBody: (messages: ChatMessage[], overrides?: RequestOverrides) => unknown
   parseStream: (line: string) => string | null
   parseUsage: (line: string) => LlmUsage | null
+  /**
+   * Extract the provider's finish/stop reason from an SSE line, so the
+   * stream-end path can distinguish a natural stop from a token-limit
+   * truncation ("length" / "max_tokens" / "MAX_TOKENS" / ...).
+   */
+  parseFinishReason: (line: string) => string | null
+}
+
+/**
+ * Finish/stop reasons that mean the provider cut the output because it
+ * hit a token limit, per wire: OpenAI "length", Anthropic "max_tokens",
+ * Gemini "MAX_TOKENS", Responses "max_output_tokens".
+ */
+export function isTruncationFinishReason(reason: string | null | undefined): boolean {
+  if (!reason) return false
+  const normalized = reason.toLowerCase()
+  return normalized === "length"
+    || normalized === "max_tokens"
+    || normalized === "max_output_tokens"
 }
 
 const JSON_CONTENT_TYPE = "application/json"
@@ -241,6 +260,66 @@ function parseOpenAiUsage(line: string): LlmUsage | null {
         ?? tokenCount(raw.cache_read_input_tokens),
       cacheWriteInputTokens: tokenCount(raw.cache_creation_input_tokens),
     })
+  } catch {
+    return null
+  }
+}
+
+export function parseOpenAiFinishReason(line: string): string | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{ finish_reason?: string | null }>
+    }
+    return parsed.choices?.[0]?.finish_reason ?? null
+  } catch {
+    return null
+  }
+}
+
+export function parseAnthropicFinishReason(line: string): string | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      delta?: { stop_reason?: string | null }
+      message?: { stop_reason?: string | null }
+    }
+    // message_delta events carry delta.stop_reason ("max_tokens" on
+    // truncation); some proxies put it on message.stop_reason instead.
+    return parsed.delta?.stop_reason ?? parsed.message?.stop_reason ?? null
+  } catch {
+    return null
+  }
+}
+
+export function parseGoogleFinishReason(line: string): string | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  try {
+    const parsed = JSON.parse(data) as {
+      candidates?: Array<{ finishReason?: string | null }>
+    }
+    return parsed.candidates?.[0]?.finishReason ?? null
+  } catch {
+    return null
+  }
+}
+
+export function parseResponsesFinishReason(line: string): string | null {
+  if (!line.startsWith("data: ")) return null
+  const data = line.slice(6).trim()
+  if (data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as {
+      response?: {
+        status?: string
+        incomplete_details?: { reason?: string | null }
+      }
+    }
+    return parsed.response?.incomplete_details?.reason ?? null
   } catch {
     return null
   }
@@ -938,6 +1017,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
       }
 
     case "anthropic": {
@@ -951,6 +1031,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseAnthropicLine,
         parseUsage: parseAnthropicUsage,
+        parseFinishReason: parseAnthropicFinishReason,
       }
     }
 
@@ -972,6 +1053,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseGoogleLine,
         parseUsage: parseGoogleUsage,
+        parseFinishReason: parseGoogleFinishReason,
       }
     }
 
@@ -990,6 +1072,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           buildOpenAiCompatibleBody(config, messages, overrides),
         parseStream: parseOpenAiLine,
         parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
       }
     }
 
@@ -1016,6 +1099,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
       }
     }
 
@@ -1035,6 +1119,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseAnthropicLine,
         parseUsage: parseAnthropicUsage,
+        parseFinishReason: parseAnthropicFinishReason,
       }
     }
 
@@ -1068,6 +1153,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         }),
         parseStream: parseOpenAiLine,
         parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
       }
     }
 
@@ -1088,6 +1174,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           }),
           parseStream: parseAnthropicLine,
           parseUsage: parseAnthropicUsage,
+          parseFinishReason: parseAnthropicFinishReason,
         }
       }
       if (mode === "responses") {
@@ -1101,6 +1188,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           buildBody: (messages, overrides) => buildResponsesBody(config, messages, overrides),
           parseStream: parseResponsesLine,
           parseUsage: parseResponsesUsage,
+          parseFinishReason: parseResponsesFinishReason,
         }
       }
       // Defense-in-depth: settings-side EndpointField normalizes URLs on
@@ -1136,6 +1224,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         },
         parseStream: parseOpenAiLine,
         parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
       }
     }
 

@@ -46,6 +46,8 @@ const mockLlmConfig: LlmConfig = {
 const mockStreamChat = vi.fn()
 vi.mock("../llm-client", () => ({
   streamChat: (...args: unknown[]) => mockStreamChat(...args),
+  isOutputTruncatedError: (error: unknown) =>
+    error instanceof Error && error.message.includes("输出被截断"),
 }))
 
 describe("AgentRunner", () => {

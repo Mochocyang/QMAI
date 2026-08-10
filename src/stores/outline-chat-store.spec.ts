@@ -57,16 +57,15 @@ describe("outline-chat-store", () => {
     )
   })
 
-  it("按会话隔离流式内容，并支持追加、读取和单独清理", () => {
+  it("按会话隔离运行状态提示，并支持读取和单独清理", () => {
     useOutlineChatStore.setState({ conversations: [conversation("a"), conversation("b")] })
     const store = useOutlineChatStore.getState()
-    store.setStreamingContent("a", "A")
-    store.appendStreamingContent("a", "内容")
-    store.setStreamingContent("b", "B内容")
-    expect(useOutlineChatStore.getState().streamingContents).toEqual({ a: "A内容", b: "B内容" })
-    expect(useOutlineChatStore.getState().getStreamingContent("a")).toBe("A内容")
+    store.setStreamingContent("a", "A状态")
+    store.setStreamingContent("b", "B状态")
+    expect(useOutlineChatStore.getState().streamingContents).toEqual({ a: "A状态", b: "B状态" })
+    expect(useOutlineChatStore.getState().getStreamingContent("a")).toBe("A状态")
     useOutlineChatStore.getState().clearStreamingContent("a")
-    expect(useOutlineChatStore.getState().streamingContents).toEqual({ b: "B内容" })
+    expect(useOutlineChatStore.getState().streamingContents).toEqual({ b: "B状态" })
   })
 
   it("后台完成显示未读，首次打开后只清除完成未读状态", () => {

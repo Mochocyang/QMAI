@@ -18,6 +18,7 @@ import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { saveLastReadChapter } from "@/lib/project-store"
+import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
 
 function formatImportProgressRunningLabel(task: ImportProgressTask, kindLabel: string): string {
@@ -80,6 +81,7 @@ interface CreateMenuState {
 }
 
 const EMPTY_PENDING_PAGES: WikiPageInfo[] = []
+const PAGE_METADATA_CONCURRENCY = 16
 
 function parseChineseNumber(input: string): number | null {
   const digitMap: Record<string, number> = {
@@ -215,9 +217,20 @@ function getRelativePath(path: string, rootPath: string): string {
     : normalizedPath.split("/").pop() ?? ""
 }
 
-async function cleanupDeletedSourceMemory(
+function enqueueDeletedChapterSourceMemoryCleanup(
   projectPath: string,
-  input: { kind: "chapter" | "outline"; pagePath: string; content?: string },
+  input: { kind: "chapter"; pagePath: string; content?: string },
+): void {
+  void import("@/lib/novel/delete-source-memory")
+    .then(({ deleteNovelSourceMemory }) => deleteNovelSourceMemory(projectPath, input))
+    .catch((error) => {
+      console.warn("[KnowledgeTree] 后台清理章节关联记忆失败:", error)
+    })
+}
+
+async function cleanupDeletedOutlineSourceMemory(
+  projectPath: string,
+  input: { kind: "outline"; pagePath: string },
 ): Promise<void> {
   const { deleteNovelSourceMemory } = await import("@/lib/novel/delete-source-memory")
   await deleteNovelSourceMemory(projectPath, input)
@@ -378,19 +391,23 @@ export function KnowledgeTree({
     if (!project) return
     const projectPath = normalizePath(project.path)
     try {
-      const wikiTree = await listDirectory(`${projectPath}/wiki`)
-      const nextPages: WikiPageInfo[] = []
-      for (const file of flattenMdFiles(wikiTree)) {
-        if (file.name === "index.md" || file.name === "log.md") continue
+      const directoryResults = await Promise.allSettled([
+        listDirectory(`${projectPath}/wiki/chapters`),
+        listDirectory(`${projectPath}/wiki/outlines`),
+      ])
+      const files = directoryResults.flatMap((result) =>
+        result.status === "fulfilled" ? flattenMdFiles(result.value) : [],
+      )
+      const loadedPages = await mapWithConcurrency(files, PAGE_METADATA_CONCURRENCY, async (file) => {
         try {
           const content = await readFile(file.path)
-          const info = parsePageInfo(file.path, file.name, content)
-          if (info) nextPages.push(info)
+          return parsePageInfo(file.path, file.name, content)
         } catch {
           // Ignore unreadable pages in the navigator.
+          return null
         }
-      }
-      setPages(nextPages)
+      })
+      setPages(loadedPages.filter((page): page is WikiPageInfo => page !== null))
     } catch (error) {
       console.error("[KnowledgeTree] loadPages failed:", error)
       setPages([])
@@ -791,6 +808,7 @@ export function KnowledgeTree({
 
   const handleDeleteClick = useCallback(async (pagePath: string) => {
     if (!project) return
+    if (deletingPath === pagePath) return
     if (armedPath !== pagePath) {
       setArmedPath(pagePath)
       return
@@ -807,28 +825,36 @@ export function KnowledgeTree({
         } catch { /* ignore */ }
       }
       await moveFileToTrash(projectPath, pagePath, filterType)
-      try {
-        await cleanupDeletedSourceMemory(projectPath, {
-          kind: filterType,
+      setPages((previous) => previous.filter((page) => page.path !== pagePath))
+      onRemovePendingPage?.(pagePath)
+      if (selectedFile === pagePath) setSelectedFile(null)
+      setDeletingPath(null)
+      if (filterType === "chapter") {
+        enqueueDeletedChapterSourceMemoryCleanup(projectPath, {
+          kind: "chapter",
           pagePath,
           content: sourceContent,
         })
-      } catch (e) {
-        // 记忆清理失败不影响文件删除本身
-        console.warn("[KnowledgeTree] 清理关联记忆失败:", e)
+      } else {
+        try {
+          await cleanupDeletedOutlineSourceMemory(projectPath, {
+            kind: "outline",
+            pagePath,
+          })
+        } catch (e) {
+          // 记忆清理失败不影响文件删除本身
+          console.warn("[KnowledgeTree] 清理关联记忆失败:", e)
+        }
       }
-      await loadPages()
-      onRemovePendingPage?.(pagePath)
       const tree = await listDirectory(projectPath)
       setFileTree(tree)
       bumpDataVersion()
-      if (selectedFile === pagePath) setSelectedFile(null)
     } catch (error) {
       console.error("[KnowledgeTree] delete failed:", error)
     } finally {
       setDeletingPath(null)
     }
-  }, [project, armedPath, filterType, loadPages, onRemovePendingPage, setFileTree, bumpDataVersion, selectedFile, setSelectedFile])
+  }, [project, deletingPath, armedPath, filterType, onRemovePendingPage, setFileTree, bumpDataVersion, selectedFile, setSelectedFile])
 
   const handleDeleteFolder = useCallback(async (folderPath: string) => {
     if (!project) return
@@ -853,11 +879,25 @@ export function KnowledgeTree({
       const projectPath = normalizePath(project.path)
       for (const filePath of mdFiles) {
         try {
+          let sourceContent: string | undefined
+          if (fileKind === "chapter") {
+            try {
+              sourceContent = await readFile(filePath)
+            } catch { /* ignore */ }
+          }
           await moveFileToTrash(projectPath, filePath, fileKind)
-          await cleanupDeletedSourceMemory(projectPath, {
-            kind: fileKind,
-            pagePath: filePath,
-          })
+          if (fileKind === "chapter") {
+            enqueueDeletedChapterSourceMemoryCleanup(projectPath, {
+              kind: "chapter",
+              pagePath: filePath,
+              content: sourceContent,
+            })
+          } else {
+            await cleanupDeletedOutlineSourceMemory(projectPath, {
+              kind: "outline",
+              pagePath: filePath,
+            })
+          }
         } catch (e) {
           // 单个文件删除失败不影响整体流程（如文件已不存在的幽灵条目）
           console.warn("[KnowledgeTree] 删除文件失败，继续处理下一个:", filePath, e)
@@ -1462,6 +1502,7 @@ export function KnowledgeTree({
       const isChapterChecked = filterType === "chapter" && selectedChapterPaths.has(normalizedPath)
       const isArmed = armedPath === normalizedPath
       const isDeleting = deletingPath === normalizedPath
+      const showDeleteLoading = filterType === "outline" && isDeleting
       const isDragSource = dragSource === normalizedPath
       const chapterIndex = chapterIndexMap.get(normalizedPath)
       const isInsertTarget = isDragging && dragInsertIndex !== null && chapterIndex !== undefined && chapterIndex === dragInsertIndex && !isDragSource
@@ -1563,8 +1604,8 @@ export function KnowledgeTree({
           ) : null}
           <DeleteButton
             armed={isArmed}
-            deleting={isDeleting}
-            className={`mr-1 transition-opacity ${isArmed || isDeleting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+            deleting={showDeleteLoading}
+            className={`mr-1 transition-opacity ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             onClick={() => void handleDeleteClick(normalizedPath)}
             name={page.title}
           />

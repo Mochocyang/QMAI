@@ -1,4 +1,4 @@
-import { streamChat } from "../llm-client"
+import { isOutputTruncatedError, streamChat } from "../llm-client"
 import type { StreamCallbacks } from "../llm-client"
 import { isFunctionCallingEnabled, providerUsesTextToolCalls } from "./config"
 import { accumulateToolCalls, parseTextToolCalls } from "./tool-call-parser"
@@ -238,6 +238,18 @@ export class AgentRunner {
       if (streamError) {
         if (attemptedToolsFallback) {
           return failToolsUnsupported()
+        }
+        // Token-limit truncation: keep the partial round text so callers
+        // can show it and offer continuation, instead of dropping the
+        // whole round on the floor.
+        if (
+          isOutputTruncatedError(streamError) &&
+          toolCallDeltas.length === 0 &&
+          roundText.trim()
+        ) {
+          finalText = roundText
+          record.finalText = finalText
+          callbacks.onText(roundText)
         }
         callbacks.onError(streamError)
         return record

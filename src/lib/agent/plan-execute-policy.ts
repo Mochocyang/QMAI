@@ -48,7 +48,7 @@ export function buildPlanExecutePolicyPrompt(mode: LegacyAiWorkflowMode): string
       "计划必须简短，最多 5 条，只写将要读取和执行的关键步骤。",
       "执行后审查结果是否满足用户请求、项目设定和输出边界。",
       executablePlanFormat,
-      "如果是章节生成、续写、改写或润色，必须调用 run_chapter_workflow；未调用前禁止输出章节终稿。",
+      "本轮是计划阶段：禁止输出章节正文，禁止调用 run_chapter_workflow。用户确认计划后才进入执行阶段，届时章节生成、续写、改写或润色必须调用 run_chapter_workflow。",
     ].join("\n")
   }
 
@@ -57,6 +57,6 @@ export function buildPlanExecutePolicyPrompt(mode: LegacyAiWorkflowMode): string
     "标准模式：先创建轻量计划，再快速执行。",
     "计划最多 3 条，不能替代正文，不能把计划混入最终章节正文。",
     executablePlanFormat,
-    "如果是章节生成、续写、改写或润色，必须调用 run_chapter_workflow；未调用前禁止输出章节终稿。",
+    "本轮是计划阶段：禁止输出章节正文，禁止调用 run_chapter_workflow。用户确认计划后才进入执行阶段，届时章节生成、续写、改写或润色必须调用 run_chapter_workflow。",
   ].join("\n")
 }
