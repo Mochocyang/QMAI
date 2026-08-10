@@ -1,6 +1,11 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
-import { getEffectiveMaxContextSize, getProviderConfig, type RequestOverrides } from "./llm-providers"
+import {
+  getEffectiveMaxContextSize,
+  getProviderConfig,
+  isTruncationFinishReason,
+  type RequestOverrides,
+} from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import {
@@ -55,6 +60,24 @@ async function streamViaCodexCli(
 
 const NETWORK_RETRY_DELAYS_MS = [30_000, 60_000, 90_000, 120_000]
 export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * Stable marker for token-limit truncation errors. Callers that want to
+ * tolerate truncation (keep the partial text and offer "继续") match on
+ * this prefix — see outline-chat-panel's isLengthTruncated check.
+ */
+export const OUTPUT_TRUNCATED_ERROR_MARKER = "输出被截断"
+
+export function buildOutputTruncatedError(finishReason: string): Error {
+  return new Error(
+    `${OUTPUT_TRUNCATED_ERROR_MARKER}：模型已达到最大输出 token 上限（finish_reason=${finishReason}）。` +
+    `已生成的内容已保留，可输入"继续"让模型补全剩余部分，或提高最大输出 token 后重试。`,
+  )
+}
+
+export function isOutputTruncatedError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(OUTPUT_TRUNCATED_ERROR_MARKER)
+}
 
 export function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
   return /client not allowed/i.test(errorDetail) && /tauri-plugin-http/i.test(errorDetail)
@@ -399,9 +422,14 @@ export async function streamChat(
     let reasoningCharsObserved = 0
     let reasoningTokensForwarded = 0
     let toolCallDeltaCount = 0
+    let finishReason: string | null = null
     const recordToken = (text: string) => {
       contentCharsEmitted += text.length
       onToken(text)
+    }
+    const recordFinishReason = (line: string) => {
+      const reason = providerConfig.parseFinishReason(line)
+      if (reason) finishReason = reason
     }
     const recordReasoning = (line: string) => {
       const reasoningParts = extractReasoningTextFromLine(line)
@@ -419,6 +447,7 @@ export async function streamChat(
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim()
             recordUsage(trimmed)
+            recordFinishReason(trimmed)
             // Always harvest reasoning first: some gateways emit
             // reasoning_content and tool_calls on the same SSE line.
             reasoningCharsObserved += countReasoningCharsInLine(trimmed)
@@ -442,6 +471,7 @@ export async function streamChat(
           const trimmed = line.trim()
           if (!trimmed) continue
           recordUsage(trimmed)
+          recordFinishReason(trimmed)
           // Always harvest reasoning first: some gateways emit
           // reasoning_content and tool_calls on the same SSE line.
           reasoningCharsObserved += countReasoningCharsInLine(trimmed)
@@ -487,6 +517,16 @@ export async function streamChat(
             `请关闭模型思考、切换到非推理模型，或缩短输入后重试。`,
           ),
         )
+        return
+      }
+
+      // The provider explicitly told us the output was cut at the token
+      // limit. Surface it as a distinct, tolerable error so callers can
+      // keep the partial text and offer continuation, instead of parsing
+      // a silently half-finished response.
+      const finalFinishReason: string | null = finishReason
+      if (finalFinishReason && isTruncationFinishReason(finalFinishReason)) {
+        onError(buildOutputTruncatedError(finalFinishReason))
         return
       }
 

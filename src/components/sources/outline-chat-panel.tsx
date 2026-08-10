@@ -137,6 +137,7 @@ import {
 import type { ReferenceToken } from "@/lib/reference/types";
 import { useChatStore } from "@/stores/chat-store";
 import { AgentRunner } from "@/lib/agent/runner";
+import { isReasoningOnlyResponseError } from "@/lib/reasoning-retry";
 import { ToolRegistry } from "@/lib/agent/registry";
 import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config";
 import type { AgentMessage, AgentRunRecord } from "@/lib/agent/types";
@@ -564,19 +565,6 @@ function updateOutlineAssistantMessage(
   }));
 }
 
-function removeOutlineMessage(conversationId: string, messageId: string): void {
-  useOutlineChatStore.setState((state) => ({
-    conversations: state.conversations.map((conversation) =>
-      conversation.id === conversationId
-        ? {
-            ...conversation,
-            messages: conversation.messages.filter((message) => message.id !== messageId),
-          }
-        : conversation,
-    ),
-  }));
-}
-
 function describeOutlineSubAgentTask(agent: OutlineSubAgentPlan): string {
   switch (agent.kind) {
     case "outline":
@@ -837,7 +825,7 @@ function OutlineAssistantMessage({
   msg,
   index,
   isStreaming,
-  streamingContent,
+  runStatusText,
   activeMessagesLength,
   copied,
   projectPath,
@@ -857,7 +845,7 @@ function OutlineAssistantMessage({
   msg: import("@/stores/outline-chat-store").OutlineChatMessage;
   index: number;
   isStreaming: boolean;
-  streamingContent: string;
+  runStatusText: string;
   activeMessagesLength: number;
   copied: string | null;
   projectPath: string | null;
@@ -880,9 +868,8 @@ function OutlineAssistantMessage({
   >([]);
   const [editDismissed, setEditDismissed] = useState(false);
 
-  const displayContent =
-    msg.content ||
-    (isStreaming && index === activeMessagesLength - 1 ? streamingContent : "");
+  // 消息内容是唯一内容通道；运行状态提示单独渲染，绝不混入正文
+  const displayContent = msg.content;
   const { thinking, answer } = useMemo(
     () => separateThinking(displayContent),
     [displayContent],
@@ -938,9 +925,14 @@ function OutlineAssistantMessage({
         onConfirmSave={onConfirmToolSave}
         onReject={onRejectTool}
       />
+      {messageIsStreaming && !msg.content && runStatusText ? (
+        <div className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
+          {runStatusText}
+        </div>
+      ) : null}
       <StreamingMarkdown
         content={renderedMarkdownContent}
-        isStreaming={isStreaming && index === activeMessagesLength - 1}
+        isStreaming={messageIsStreaming}
         renderCommitted={(text) => (
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
@@ -1149,9 +1141,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     (s) => s.setActiveConversation,
   );
   const addMessage = useOutlineChatStore((s) => s.addMessage);
-  const replaceLastAssistant = useOutlineChatStore(
-    (s) => s.replaceLastAssistant,
-  );
   const deleteConversation = useOutlineChatStore((s) => s.deleteConversation);
   const setConversationModel = useOutlineChatStore(
     (s) => s.setConversationModel,
@@ -1823,13 +1812,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         isAgentRunning: true,
         intentPhase: options.intentPhase,
       });
-      setStreamingContent(capturedConvId, "");
+      clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
       let hiddenToolCalls: AgentRunRecord["toolCalls"] = [];
       let followUpGenerationPrompt: string | null = null;
       let contextHubResult: ContextHubResult | null = null;
       let providerUsage: LlmUsage | undefined;
       let accumulatedReasoningContent = "";
+      // 已生成的用户可见文本。streamingContents 只承载状态提示不存内容，
+      // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
+      // 避免整段结果被静默丢弃。
+      let bestGeneratedText = "";
 
       try {
         const contextHub = getContextHub(normalizePath(project.path));
@@ -2033,8 +2026,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 runText += chunk;
                 if (optionsForRun.streamToUser) {
                   result += chunk;
+                  bestGeneratedText = result;
                   if (isCurrentRun()) {
-                    setStreamingContent(capturedConvId, result);
                     updateOutlineAssistantMessage(convId, assistantId, (message) => ({
                       ...message,
                       content: result,
@@ -2141,12 +2134,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             setStreamingContent(capturedConvId, "角色规划未识别到明确角色，按单 Agent 模式生成...");
             finalText = await runSingleAgentFallback();
           } else {
-            const headerContent = `# 人物小传\n\n共识别到 ${characterPlans.length} 个角色，正在并行生成...\n\n`;
             updateOutlineAssistantMessage(convId, assistantId, (message) => ({
               ...message,
               content: `# 人物小传生成中\n\n共识别到 ${characterPlans.length} 个角色，正在并行生成...`,
             }));
-            setStreamingContent(capturedConvId, headerContent);
 
             const completedByIndex: (CharacterAgentResult | null)[] = new Array(characterPlans.length).fill(null);
 
@@ -2189,7 +2180,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 if (!isCurrentRun()) return;
                 completedByIndex[result.plan.index] = result;
                 const newContent = rebuildAccumulated();
-                setStreamingContent(capturedConvId, newContent);
+                bestGeneratedText = newContent;
                 updateOutlineAssistantMessage(convId, assistantId, (message) => ({
                   ...message,
                   content: newContent,
@@ -2480,7 +2471,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           finalText = await runSingleAgentFallback();
         }
 
-        if (!isCurrentRun()) return { started: true, sent: false };
+        if (finalText.trim()) bestGeneratedText = finalText;
+        if (!isCurrentRun()) {
+          // run 已被停止或替换：跳过后续处理，但已生成的内容仍要写入消息，
+          // 不能因为状态闸门而静默丢弃整段结果。
+          if (finalText.trim()) {
+            updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+              ...message,
+              content: finalText,
+              reasoning_content: accumulatedReasoningContent,
+              isAgentRunning: false,
+            }));
+            void useOutlineChatStore.getState().saveToDisk();
+          }
+          return { started: true, sent: false };
+        }
         if (contextHubResult && providerUsage) {
           try {
             const contextHubSnapshot = await persistContextHubProviderUsage(
@@ -2533,13 +2538,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             },
           },
         );
-        if (!isCurrentRun()) return { started: true, sent: false };
-        // 先将流式内容同步为最终内容，确保打字机效果立即终止、切换无跳变
-        setStreamingContent(capturedConvId, finalContent);
+        if (finalContent.trim()) bestGeneratedText = finalContent;
+        // 内容已直接写入消息，这里只需清掉运行状态提示
+        if (isCurrentRun()) clearStreamingContent(capturedConvId);
         const visibleToolCalls = allToolCalls.length ? allToolCalls : [];
         const shouldShowToolProcess =
           historyPlan.showToolProcess ||
           visibleToolCalls.some((call) => call.status === "approval_required");
+        // 最终内容提交不受 run 状态闸门限制：即使运行状态已被切换/停止，
+        // 已生成的结果也必须写入消息，只有后续 UI 副作用才需要闸门。
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
           ...message,
           content: finalContent,
@@ -2554,6 +2561,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           isAgentRunning: false,
           nextStepRecommendation: nextStepExtraction.recommendation,
         }));
+        if (!isCurrentRun()) {
+          void useOutlineChatStore.getState().saveToDisk();
+          return { started: true, sent: false };
+        }
 
         // 解析意图清晰度结果
         const intentResult = parseIntentClarity(finalContent);
@@ -2646,7 +2657,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }));
         }
         void useOutlineChatStore.getState().saveToDisk();
-        if (isCurrentRun()) clearStreamingContent(capturedConvId);
         setCapturedWorkflowStage("idle");
         finishConversationRun(
           capturedConvId,
@@ -2666,52 +2676,46 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         const aborted = controller.signal.aborted || errorMsg.toLowerCase().includes("aborted");
-        if (aborted || !isCurrentRun()) return { started: true, sent: false };
-        const partial = useOutlineChatStore.getState().getStreamingContent(capturedConvId);
-        if (partial) {
-          updateOutlineAssistantMessage(convId, assistantId, (message) => ({
-            ...message,
-            content: partial,
-            reasoning_content: accumulatedReasoningContent,
-            agentToolCalls: historyPlan.showToolProcessOnError
-              ? settleRunningAgentToolCalls(
-                  message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
-                  "error",
-                  Date.now(),
-                   errorMsg,
-                )
-              : [],
-            isAgentRunning: false,
-          }));
-        } else {
-          if (errorMsg && !aborted) {
-            updateOutlineAssistantMessage(convId, assistantId, (message) => ({
-              ...message,
-              content: `生成失败：${errorMsg}`,
-              reasoning_content: accumulatedReasoningContent,
-              agentToolCalls: historyPlan.showToolProcessOnError
-                ? settleRunningAgentToolCalls(
-                    message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
-                    "error",
-                    Date.now(),
-                    errorMsg,
-                  )
-                : [],
-              isAgentRunning: false,
-            }));
-          } else if (isCurrentRun()) {
-            removeOutlineMessage(capturedConvId, assistantId);
-          }
-        }
-        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        // streamingContents 只承载状态提示，不再存内容；可保留内容唯一来源
+        // 是 bestGeneratedText。无论中断原因如何，已生成的内容都必须落进
+        // 消息，绝不静默删除整条回复。
+        const partial = bestGeneratedText.trim() ? bestGeneratedText : "";
+        const reasoningOnlyFailure =
+          err instanceof Error && isReasoningOnlyResponseError(err) && Boolean(accumulatedReasoningContent.trim());
+        updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+          ...message,
+          content: partial
+            ? aborted
+              ? `${partial}\n\n---\n\n⚠️ 生成已停止，以上为已生成的内容。`
+              : `${partial}\n\n---\n\n⚠️ 生成中断：${errorMsg || "未知错误"}`
+            : aborted
+              ? message.content || "已停止生成。"
+              : `生成失败：${errorMsg || "未知错误"}`,
+          reasoning_content: accumulatedReasoningContent,
+          // 模型只输出思考没输出正文时，强制展示思考过程，
+          // 让用户明白"看着生成完了却没有结果"的原因。
+          showThinkingProcess: reasoningOnlyFailure ? true : message.showThinkingProcess,
+          agentToolCalls: historyPlan.showToolProcessOnError
+            ? settleRunningAgentToolCalls(
+                message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls,
+                aborted ? "cancelled" : "error",
+                Date.now(),
+                aborted ? undefined : errorMsg,
+              )
+            : [],
+          isAgentRunning: false,
+        }));
         if (isCurrentRun()) {
+          clearStreamingContent(capturedConvId);
           setCapturedWorkflowStage("idle");
           failConversationRun(capturedConvId, errorMsg || "未知错误", runId);
-          toast.error(errorMsg || "未知错误", {
-            title: "大纲生成失败",
-            persistent: true,
-            dedupeKey: `outline-run:${capturedConvId}:${errorMsg}`,
-          });
+          if (!aborted) {
+            toast.error(errorMsg || "未知错误", {
+              title: "大纲生成失败",
+              persistent: true,
+              dedupeKey: `outline-run:${capturedConvId}:${errorMsg}`,
+            });
+          }
         }
         void useOutlineChatStore.getState().saveToDisk();
         return { started: true, sent: false };
@@ -2733,7 +2737,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       forceRefreshNext,
       addMessage,
       setConversationContextSummary,
-      replaceLastAssistant,
       handleAutoSaveOutlineRequests,
       outlineWritingSkills,
       setStreamingContent,
@@ -3019,7 +3022,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onText: (chunk) => {
                 mergeText += chunk;
                 if (isCurrentRun()) {
-                  setStreamingContent(capturedConvId, mergeText);
                   updateOutlineAssistantMessage(capturedConvId, messageId, (message) => ({
                     ...message,
                     content: mergeText,
@@ -3162,28 +3164,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     const runningState = useOutlineChatStore.getState().runStates[activeConversationId];
     if (runningState?.status !== "running" || !runningState.runId) return;
     outlineConversationRunRegistry.abort(activeConversationId);
-    const partial = useOutlineChatStore.getState().getStreamingContent(activeConversationId);
-    const conversation = useOutlineChatStore.getState().conversations
-      .find((item) => item.id === activeConversationId);
-    const lastMessage = conversation?.messages[conversation.messages.length - 1];
-    if (partial) {
-      if (lastMessage?.role === "assistant") {
-        updateOutlineAssistantMessage(activeConversationId, lastMessage.id, (message) => ({
-          ...message,
-          content: partial,
-          isAgentRunning: false,
-        }));
-      }
-    } else {
-      if (lastMessage?.role === "assistant" && lastMessage.isAgentRunning) {
-        removeOutlineMessage(activeConversationId, lastMessage.id);
-      }
-    }
+    // 内容只存在于消息里（onText 直接写消息），streamingContents 仅承载
+    // 状态提示文本。这里只需中止运行并清理状态；已生成内容由 handleSend /
+    // handleRegenerate 的 catch 分支在 abort 传播后统一收尾落盘。
     clearStreamingContent(activeConversationId);
     stopConversationRun(activeConversationId, runningState.runId);
   }, [
     activeConversationId,
-    replaceLastAssistant,
     clearStreamingContent,
     stopConversationRun,
   ]);
@@ -3250,14 +3237,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         ),
       }));
 
-      setStreamingContent(capturedConvId, "");
+      clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
+      const assistantId = crypto.randomUUID();
+      let assistantAdded = false;
+      let accumulatedReasoningContent = "";
 
       try {
         const regenerationInput = buildOutlineRegenerationInput(targetMessages);
         const lastUserRequest = regenerationInput.request;
         const historyMessages = regenerationInput.history satisfies AgentMessage[];
-        const assistantId = crypto.randomUUID();
         let contextHubSnapshot: ContextHubSnapshotRef | undefined;
         let contextHubResult: ContextHubResult | null = null;
         try {
@@ -3294,6 +3283,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           isAgentRunning: true,
           contextHubSnapshot,
         });
+        assistantAdded = true;
 
         const skillConfig = await loadDeAiSkillConfig(project.path).catch(
           (): DeAiSkillConfig | null => null,
@@ -3355,7 +3345,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           userMemorySessionKey: capturedConvId,
         };
         let agentError: Error | null = null;
-        let accumulatedReasoningContent = "";
         const record = await new AgentRunner().run(
           agentConfig,
           registry,
@@ -3368,7 +3357,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             onText: (chunk) => {
               result += chunk;
               if (isCurrentRun()) {
-                setStreamingContent(capturedConvId, result);
                 updateOutlineAssistantMessage(
                   capturedConvId,
                   assistantId,
@@ -3462,8 +3450,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }),
         });
         if (!isCurrentRun()) return;
-        // 先将流式内容同步为最终内容，确保打字机效果立即终止、切换无跳变
-        setStreamingContent(capturedConvId, finalContent);
         updateOutlineAssistantMessage(
           capturedConvId,
           assistantId,
@@ -3488,7 +3474,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (!isCurrentRun()) return;
         await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         if (!isCurrentRun()) return;
-        if (isCurrentRun()) clearStreamingContent(capturedConvId);
+        clearStreamingContent(capturedConvId);
         finishConversationRun(
           capturedConvId,
           useOutlineChatStore.getState().activeConversationId,
@@ -3498,18 +3484,39 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         const aborted = controller.signal.aborted || errorMsg.toLowerCase().includes("aborted");
-        if (aborted || !isCurrentRun()) return;
-        const partial = useOutlineChatStore.getState().getStreamingContent(capturedConvId);
-        if (partial) {
-          replaceLastAssistant(capturedConvId, partial);
-        } else {
-          if (errorMsg && !aborted) {
-            replaceLastAssistant(capturedConvId, `生成失败：${errorMsg}`);
-          }
+        // 内容唯一存在于消息里（onText 直接写入）。这里只负责收尾：
+        // 保留已生成内容、补错误/停止占位、结束消息运行态，绝不删除内容。
+        if (assistantAdded) {
+          updateOutlineAssistantMessage(capturedConvId, assistantId, (message) => ({
+            ...message,
+            content: message.content.trim()
+              ? aborted
+                ? `${message.content}\n\n---\n\n⚠️ 生成已停止，以上为已生成的内容。`
+                : `${message.content}\n\n---\n\n⚠️ 生成中断：${errorMsg || "未知错误"}`
+              : aborted
+                ? "已停止生成。"
+                : `生成失败：${errorMsg || "未知错误"}`,
+            reasoning_content: accumulatedReasoningContent,
+            agentToolCalls: settleRunningAgentToolCalls(
+              message.agentToolCalls,
+              aborted ? "cancelled" : "error",
+              Date.now(),
+              aborted ? undefined : errorMsg,
+            ),
+            isAgentRunning: false,
+          }));
+        } else if (!aborted && isCurrentRun()) {
+          addMessage(capturedConvId, {
+            id: assistantId,
+            role: "assistant",
+            content: `生成失败：${errorMsg || "未知错误"}`,
+          });
         }
-        if (isCurrentRun()) clearStreamingContent(capturedConvId);
-        if (isCurrentRun()) {
-          failConversationRun(capturedConvId, errorMsg || "未知错误", runId);
+        void useOutlineChatStore.getState().saveToDisk();
+        if (!isCurrentRun()) return;
+        clearStreamingContent(capturedConvId);
+        failConversationRun(capturedConvId, errorMsg || "未知错误", runId);
+        if (!aborted) {
           toast.error(errorMsg || "未知错误", {
             title: "大纲生成失败",
             persistent: true,
@@ -3530,10 +3537,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       activeConv,
       activeConversationId,
       addMessage,
-      replaceLastAssistant,
       handleAutoSaveOutlineRequests,
       outlineWritingSkills,
-      setStreamingContent,
       clearStreamingContent,
       startConversationRun,
       finishConversationRun,
@@ -3939,7 +3944,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   msg={msg}
                   index={i}
                   isStreaming={isStreaming}
-                  streamingContent={streamingContent}
+                  runStatusText={streamingContent}
                   activeMessagesLength={activeMessages.length}
                   copied={copied}
                   projectPath={project?.path ?? null}

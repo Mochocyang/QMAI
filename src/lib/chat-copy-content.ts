@@ -21,8 +21,11 @@ export type CopyableToolCall = {
 }
 
 function stripHiddenAssistantBlocks(content: string): string {
+  // 剥掉隐藏的 HTML 注释，但保留 chapter_plan 标记：计划模式靠
+  // `<!-- chapter_plan -->` / `<!-- /chapter_plan -->` 从最终消息中提取
+  // 计划并弹确认窗，这里剥掉会导致确认弹窗永远走不到标记路径。
   let result = content
-    .replace(/<!--.*?-->/gs, "")
+    .replace(/<!--(?!\s*\/?\s*chapter_plan\s*-->).*?-->/gs, "")
 
   // 1. 移除完整的 <think>...</think> 或 <thinking>...</thinking> 块
   result = result.replace(/<think(?:ing)?>\s*[\s\S]*?<\/think(?:ing)?>\s*/gi, "")

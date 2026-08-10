@@ -190,3 +190,21 @@ test("keeps short assistant content when workflow body is unavailable", () => {
     "第 32 章正文已按章纲重写完成。",
   )
 })
+
+test("preserves chapter_plan markers while stripping other hidden comments", () => {
+  const content = [
+    '<!-- next_step {"module":"章纲"} -->',
+    "<!-- chapter_plan -->",
+    "### 1. 本章目标",
+    "- 推进主线，完成反转。",
+    "<!-- /chapter_plan -->",
+    "计划已生成，请确认。",
+  ].join("\n")
+
+  const copied = getCopyableAssistantContent(content)
+
+  expect(copied).toContain("<!-- chapter_plan -->")
+  expect(copied).toContain("<!-- /chapter_plan -->")
+  expect(copied).toContain("本章目标")
+  expect(copied).not.toContain("next_step")
+})

@@ -39,7 +39,13 @@ export function extractChapterPlan(fullContent: string): { plan: string; body: s
   if (startIdx < 0) return extractUnmarkedChapterPlan(fullContent)
   const contentStart = startIdx + CHAPTER_PLAN_MARKER_START.length
   const endIdx = fullContent.indexOf(CHAPTER_PLAN_MARKER_END, contentStart)
-  if (endIdx < 0) return null
+  if (endIdx < 0) {
+    // 有开始标记但缺结束标记（输出被截断或模型漏写）：把开始标记之后的
+    // 全部内容当作计划，而不是直接判定失败导致不弹确认窗。
+    const truncatedPlan = fullContent.slice(contentStart).trim()
+    if (!truncatedPlan) return null
+    return { plan: truncatedPlan, body: fullContent.slice(0, startIdx).trim() }
+  }
   const plan = fullContent.slice(contentStart, endIdx).trim()
   const beforePlan = fullContent.slice(0, startIdx).trim()
   const afterPlan = fullContent.slice(endIdx + CHAPTER_PLAN_MARKER_END.length).trim()

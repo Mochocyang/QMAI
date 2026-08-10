@@ -270,7 +270,7 @@ describe("OutlineChatPanel controls", () => {
     expect(toastSpy).toHaveBeenCalledWith("发送失败，推荐操作已恢复，请稍后重试。", expect.objectContaining({ dedupeKey: expect.any(String) }))
   })
 
-  it("停止大纲生成时保留部分内容并清理运行状态", async () => {
+  it("停止大纲生成时清理运行状态提示且不把状态提示写入消息", async () => {
     const controller = new AbortController()
     outlineConversationRunRegistry.register("outline-active", controller)
     setOutlineConversations([conversation([{
@@ -279,7 +279,7 @@ describe("OutlineChatPanel controls", () => {
       content: "",
       isAgentRunning: true,
     }])], "outline-active", {
-      streamingContents: { "outline-active": "部分大纲" },
+      streamingContents: { "outline-active": "正在运行：世界观 Agent" },
       runStates: {
         "outline-active": { status: "running", updatedAt: 200, runId: "outline-run" },
       },
@@ -292,6 +292,8 @@ describe("OutlineChatPanel controls", () => {
     expect(statusIcon?.hasAttribute("data-slot")).toBe(false)
     expect(container.textContent).not.toContain("\u6b63\u5728\u751f\u6210...")
     expect(container.querySelector(".animate-pulse.rounded-md.border.bg-sky-50")).toBeNull()
+    // 运行状态提示以独立状态行展示
+    expect(container.textContent).toContain("正在运行：世界观 Agent")
 
     const stopButton = container.querySelector<HTMLButtonElement>('[aria-label="停止生成"]')
     expect(stopButton).not.toBeNull()
@@ -304,15 +306,15 @@ describe("OutlineChatPanel controls", () => {
     expect(controller.signal.aborted).toBe(true)
     expect(state.runStates["outline-active"]?.status).toBe("idle")
     expect(state.streamingContents["outline-active"]).toBeUndefined()
+    // 状态提示不会被当成内容写入消息；已生成内容由生成流程 catch 分支收尾
     expect(stoppedConversation?.messages).toEqual([expect.objectContaining({
       id: "assistant-running",
       role: "assistant",
-      content: "部分大纲",
-      isAgentRunning: false,
+      content: "",
     })])
   })
 
-  it("停止无部分内容的大纲生成时删除助手占位消息", async () => {
+  it("停止无部分内容的大纲生成时保留助手占位消息，由生成流程收尾", async () => {
     const controller = new AbortController()
     outlineConversationRunRegistry.register("outline-active", controller)
     setOutlineConversations([conversation([{
@@ -338,7 +340,10 @@ describe("OutlineChatPanel controls", () => {
     expect(controller.signal.aborted).toBe(true)
     expect(state.runStates["outline-active"]?.status).toBe("idle")
     expect(state.streamingContents["outline-active"]).toBeUndefined()
-    expect(stoppedConversation?.messages).toEqual([])
+    // 不再删除占位消息：AgentRunner 整轮结束才回调文本，停止瞬间可能已有
+    // 未送达的内容，改由 handleSend 的 catch 分支统一落盘或写停止占位。
+    expect(stoppedConversation?.messages).toHaveLength(1)
+    expect(stoppedConversation?.messages[0]?.id).toBe("assistant-running-empty")
   })
 
   it("根据当前大纲会话的已发送用户消息实时控制新建按钮", async () => {

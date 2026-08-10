@@ -112,6 +112,7 @@ export interface OutlineChatConversation {
 interface OutlineChatState {
   conversations: OutlineChatConversation[]
   activeConversationId: string | null
+  /** 仅承载生成过程中的运行状态提示文本；正文内容始终直接写入消息，不经过这里。 */
   streamingContents: Record<string, string>
   runStates: ConversationRunStates
   loaded: boolean
@@ -126,7 +127,6 @@ interface OutlineChatState {
   setConversationModel: (id: string, modelId: string) => void
   setConversationContextSummary: (id: string, contextSummary: SessionContextSummary) => void
   setStreamingContent: (conversationId: string, content: string) => void
-  appendStreamingContent: (conversationId: string, content: string) => void
   clearStreamingContent: (conversationId: string) => void
   getStreamingContent: (conversationId: string) => string
   startConversationRun: (id: string, runId: string) => boolean
@@ -318,12 +318,6 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
 
   setStreamingContent: (conversationId, content) => set((state) => ({
     streamingContents: { ...state.streamingContents, [conversationId]: content },
-  })),
-  appendStreamingContent: (conversationId, content) => set((state) => ({
-    streamingContents: {
-      ...state.streamingContents,
-      [conversationId]: (state.streamingContents[conversationId] ?? "") + content,
-    },
   })),
   clearStreamingContent: (conversationId) => set((state) => {
     const { [conversationId]: _, ...streamingContents } = state.streamingContents
