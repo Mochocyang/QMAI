@@ -1395,7 +1395,7 @@ async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSn
   await saveForeshadowingTracker(projectPath, existingForeshadows)
 }
 
-async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+export async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
 
   const cognitionState = snapshots.reduce(
@@ -1582,14 +1582,36 @@ export async function listSnapshots(projectPath: string): Promise<number[]> {
   }
 }
 
-export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number): Promise<void> {
+export async function deleteChapterSnapshotArtifacts(projectPath: string, chapterNumber: number): Promise<boolean> {
   const pp = normalizePath(projectPath)
   const jsonPath = snapshotJsonPath(pp, chapterNumber)
   const mdPath = snapshotMarkdownPath(pp, chapterNumber)
   const historyDir = snapshotHistoryDir(pp, chapterNumber)
-  try { if (await fileExists(jsonPath)) await deleteFile(jsonPath) } catch { /* ignore */ }
-  try { if (await fileExists(mdPath)) await deleteFile(mdPath) } catch { /* ignore */ }
-  try { if (await fileExists(historyDir)) await deleteFile(historyDir) } catch { /* ignore */ }
+  let deleted = false
+  try {
+    if (await fileExists(jsonPath)) {
+      await deleteFile(jsonPath)
+      deleted = true
+    }
+  } catch { /* ignore */ }
+  try {
+    if (await fileExists(mdPath)) {
+      await deleteFile(mdPath)
+      deleted = true
+    }
+  } catch { /* ignore */ }
+  try {
+    if (await fileExists(historyDir)) {
+      await deleteFile(historyDir)
+      deleted = true
+    }
+  } catch { /* ignore */ }
+  return deleted
+}
+
+export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number): Promise<void> {
+  const pp = normalizePath(projectPath)
+  await deleteChapterSnapshotArtifacts(pp, chapterNumber)
   await rebuildDerivedMemoryFromSnapshots(pp)
   clearGraphCache()
   useWikiStore.getState().bumpDataVersion()
