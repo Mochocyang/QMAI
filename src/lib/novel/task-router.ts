@@ -50,14 +50,17 @@ interface IntentPattern {
 
 /** 章号：阿拉伯数字或中文数字（与 parseChineseChapterNumber 字符集对齐） */
 const CHAPTER_NUM_TOKEN = String.raw`(?:\d+|[一二三四五六七八九十百〇零两]+)`
-const CHAPTER_REF = String.raw`第\s*${CHAPTER_NUM_TOKEN}\s*章`
+// 无“第”格式仅接受大于 10 的阿拉伯数字，避免把“写 5 章”（数量）
+// 误判为“写第 5 章”（序号）。11 及以上更符合省略“第”的章节号表达。
+const BARE_CHAPTER_NUM_TOKEN = String.raw`(?:1[1-9]|[2-9]\d|[1-9]\d{2,})`
+const CHAPTER_REF = String.raw`(?:第\s*${CHAPTER_NUM_TOKEN}|${BARE_CHAPTER_NUM_TOKEN})\s*章`
 
 const INTENT_PATTERNS: IntentPattern[] = [
   {
     intent: "write_chapter",
     patterns: [
-      new RegExp(String.raw`^(写|生成|创作|撰写)\s*(${CHAPTER_REF}|新章节|下一章)`),
-      new RegExp(String.raw`^(开始|帮我)(写|创作|生成)\s*(${CHAPTER_REF}|章节)`),
+      new RegExp(String.raw`^(写|编写|生成|创作|撰写)\s*(${CHAPTER_REF}|新章节|下一章)`),
+      new RegExp(String.raw`^(开始|帮我)(写|编写|创作|生成)\s*(${CHAPTER_REF}|章节)`),
       new RegExp(String.raw`生成\s*(${CHAPTER_REF}|新的?一?章)`),
       new RegExp(String.raw`写\s*${CHAPTER_REF}`),
       new RegExp(String.raw`(根据|按照).*(${CHAPTER_REF}).*(章纲|大纲|细纲).*(生成|写|创作|撰写).*(正文|章节)?`),
@@ -221,6 +224,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
 const CHAPTER_NUMBER_PATTERNS = [
   /第\s*(\d+)\s*章/,
   /第\s*([一二三四五六七八九十百〇零两]+)\s*章/,
+  new RegExp(String.raw`(${BARE_CHAPTER_NUM_TOKEN})\s*章`),
   /chapter\s*(\d+)/i,
   /ch\.?\s*(\d+)/i,
 ]
@@ -325,15 +329,16 @@ function hasNextChapterContinuationWording(text: string): boolean {
   return NEXT_CHAPTER_CONTINUATION_RE.test(text.replace(/\s+/g, ""))
 }
 
-// 全文出现明确的“第N章”（N>3）时，说明用户的目标章节并非开篇章节，
+// 全文出现明确的“第N章”或“N章”（N>3）时，说明用户的目标章节并非开篇章节，
 // 文本里顺带提到的“开篇/第一章”只是写作要求或剧情引用。
 function hasExplicitLaterChapterNumber(text: string): boolean {
   const compact = text.replace(/\s+/g, "")
-  const explicit = compact.match(/第(\d+|[一二三四五六七八九十百〇零两]+)章/)
-  if (!explicit?.[1]) return false
-  const num = /^\d+$/.test(explicit[1])
-    ? Number(explicit[1])
-    : parseChineseChapterNumber(explicit[1])
+  const explicit = compact.match(new RegExp(String.raw`(?:第(${CHAPTER_NUM_TOKEN})|(${BARE_CHAPTER_NUM_TOKEN}))章`))
+  const token = explicit?.[1] ?? explicit?.[2]
+  if (!token) return false
+  const num = /^\d+$/.test(token)
+    ? Number(token)
+    : parseChineseChapterNumber(token)
   return Number.isFinite(num) && num > 3
 }
 
