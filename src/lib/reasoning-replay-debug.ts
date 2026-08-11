@@ -70,10 +70,8 @@ export function probeReasoningMessages(messages: ChatMessage[]): ReasoningMessag
 function emitToTauriTerminal(line: string): void {
   if (!isTauri()) return
   void import("@tauri-apps/api/core")
-    .then(({ invoke }) => invoke("log_error", {
+    .then(({ invoke }) => invoke("log_diagnostic", {
       message: line,
-      stack: "",
-      componentStack: "",
     }))
     .catch(() => {})
 }

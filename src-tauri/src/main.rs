@@ -23,6 +23,11 @@ fn log_error(message: String, stack: String, component_stack: String) {
     }
 }
 
+#[tauri::command]
+fn log_diagnostic(message: String) {
+    eprintln!("[frontend-diagnostic] message: {}", message);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -124,6 +129,7 @@ fn main() {
             commands::writing_wake_lock::release_writing_wake_lock,
             set_proxy_env,
             log_error,
+            log_diagnostic,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
