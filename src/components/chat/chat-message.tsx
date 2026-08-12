@@ -27,7 +27,8 @@ import {
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import { readFile } from "@/commands/fs";
-import { normalizePath, getFileName } from "@/lib/path-utils";
+import { normalizePath } from "@/lib/path-utils";
+import { resolveCitedPagePath } from "@/lib/resolve-cited-page-path";
 import { refreshProjectState } from "@/lib/project-refresh";
 import { getLastQueryPages } from "@/components/chat/chat-shared";
 import { FileEditPreview } from "@/components/chat/file-edit-preview";
@@ -450,40 +451,25 @@ function CitedReferencesPanel({
     let cancelled = false;
     Promise.all(
       citedPages.map(async (page) => {
-        // Try the path verbatim first, then the same fallback set
-        // the click-handler uses below — keeps "is the file on
-        // disk" check consistent across the panel.
-        const id = getFileName(
-          page.path.replace(/^wiki\//, "").replace(/\.md$/, ""),
-        );
-        const candidates = [
-          `${pp}/${page.path}`,
-          `${pp}/wiki/entities/${id}.md`,
-          `${pp}/wiki/concepts/${id}.md`,
-          `${pp}/wiki/sources/${id}.md`,
-          `${pp}/wiki/queries/${id}.md`,
-          `${pp}/wiki/synthesis/${id}.md`,
-          `${pp}/wiki/comparisons/${id}.md`,
-          `${pp}/wiki/${id}.md`,
-        ];
-        for (const candidate of candidates) {
-          try {
-            const text = await readFile(candidate);
-            // Reset stateful regex.lastIndex by `new RegExp(...)` —
-            // module-level `g` regexes carry state across calls
-            // and would skip matches on the second invocation.
-            const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags);
-            const matches = [...text.matchAll(re)];
-            const info: CitedImageInfo = {
-              count: matches.length,
-              firstUrl: matches.length > 0 ? matches[0][1] : null,
-            };
-            return [page.path, info] as const;
-          } catch {
-            // try next candidate
-          }
+        // Same resolver the click-handler uses — nested outlines and
+        // wiki/QM aliases stay consistent across the panel.
+        const resolved = await resolveCitedPagePath(pp, page.path);
+        if (!resolved) return [page.path, { count: 0, firstUrl: null }] as const;
+        try {
+          const text = await readFile(resolved);
+          // Reset stateful regex.lastIndex by `new RegExp(...)` —
+          // module-level `g` regexes carry state across calls
+          // and would skip matches on the second invocation.
+          const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags);
+          const matches = [...text.matchAll(re)];
+          const info: CitedImageInfo = {
+            count: matches.length,
+            firstUrl: matches.length > 0 ? matches[0][1] : null,
+          };
+          return [page.path, info] as const;
+        } catch {
+          return [page.path, { count: 0, firstUrl: null }] as const;
         }
-        return [page.path, { count: 0, firstUrl: null }] as const;
       }),
     ).then((entries) => {
       if (cancelled) return;
@@ -570,29 +556,14 @@ function CitedReferencesPanel({
           const openCitedPage = async () => {
             if (!project) return;
             const pp = normalizePath(project.path);
-            const id = getFileName(
-              page.path.replace(/^wiki\//, "").replace(/\.md$/, ""),
-            );
-            const candidates = [
-              `${pp}/${page.path}`,
-              `${pp}/wiki/entities/${id}.md`,
-              `${pp}/wiki/concepts/${id}.md`,
-              `${pp}/wiki/sources/${id}.md`,
-              `${pp}/wiki/queries/${id}.md`,
-              `${pp}/wiki/synthesis/${id}.md`,
-              `${pp}/wiki/comparisons/${id}.md`,
-              `${pp}/wiki/${id}.md`,
-            ];
-            for (const candidate of candidates) {
-              try {
-                await readFile(candidate);
-                setSelectedFile(candidate);
-                return;
-              } catch {
-                // try next
-              }
+            const resolved = await resolveCitedPagePath(pp, page.path);
+            if (resolved) {
+              setSelectedFile(resolved);
+              return;
             }
-            setSelectedFile(`${pp}/${page.path}`);
+            // Do not fall back to invented shallow paths like
+            // wiki/chapters/第40章.md — they are usually wrong and only
+            // produce "No such file". Folder citations (章纲/卷纲) stay closed.
           };
           return (
             // Outer is a div, NOT a button — we have two click

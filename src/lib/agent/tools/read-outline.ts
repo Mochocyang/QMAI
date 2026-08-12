@@ -69,11 +69,16 @@ export function createReadOutlineTool(
     },
     execute: async (params) => {
       const result = await readMarkdownResource(outlinesDir, params, "大纲", readTextFile)
+      // Directory listings and successful reads keep params.path / content as-is.
       if (!result.startsWith("错误：无法读取大纲")) return result
 
-      const name = typeof params.name === "string" ? params.name : ""
-      const path = typeof params.path === "string" ? params.path : ""
-      const broadOutlineRequest = /大纲|outline/i.test(`${name} ${path}`)
+      const name = typeof params.name === "string" ? params.name.trim() : ""
+      const path = typeof params.path === "string" ? params.path.trim() : ""
+      // Only the broad "给我大纲/outline" request falls back to snapshots.
+      // Paths like 大纲/章纲 must NOT match just because they contain 大纲 —
+      // that previously turned folder clicks into snapshot citations.
+      const broadOutlineRequest = /^(大纲|outline)s?$/i.test(name)
+        || /^(大纲|outline)s?$/i.test(path)
       if (!broadOutlineRequest) return result
 
       return (await readOutlineSnapshots(outlinesDir, readTextFile)) ?? result

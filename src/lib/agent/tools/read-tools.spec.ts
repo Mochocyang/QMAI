@@ -179,14 +179,68 @@ describe("read tools", () => {
     ])
 
     const tool = createReadOutlineTool("/project/wiki/outlines")
-    const result = await tool.execute({ name: "他，只想活着-大纲" })
+    const params: Record<string, unknown> = { name: "他，只想活着-大纲" }
+    const result = await tool.execute(params)
 
     expect(result).toBe("大纲内容")
     expect(readFile).toHaveBeenCalledWith("/project/wiki/outlines/他，只想活着-大纲.md")
     expect(readFile).toHaveBeenCalledWith("/project/wiki/outlines/他只想活着大纲.md")
+    expect(params.path).toBe("/project/wiki/outlines/他只想活着大纲.md")
   })
 
-  it("read_outline falls back to outline snapshots when wiki outlines are empty", async () => {
+  it("read_outline writes the nested resolved path back into params", async () => {
+    vi.mocked(readFile).mockImplementation(async (path) => {
+      if (path === "/project/wiki/outlines/设定/写作通则.md") return "通则"
+      throw new Error("missing")
+    })
+    vi.mocked(listDirectory).mockImplementation(async (path) => {
+      if (path === "/project/wiki/outlines") {
+        return [{ name: "设定", path: "/project/wiki/outlines/设定", is_dir: true }]
+      }
+      if (path === "/project/wiki/outlines/设定") {
+        return [{
+          name: "写作通则.md",
+          path: "/project/wiki/outlines/设定/写作通则.md",
+          is_dir: false,
+        }]
+      }
+      return []
+    })
+
+    const tool = createReadOutlineTool("/project/wiki/outlines")
+    const params: Record<string, unknown> = { name: "写作通则" }
+    const result = await tool.execute(params)
+
+    expect(result).toBe("通则")
+    expect(params.path).toBe("/project/wiki/outlines/设定/写作通则.md")
+  })
+
+  it("read_outline reports directories without inventing a .md path", async () => {
+    vi.mocked(readFile).mockRejectedValue(new Error("missing"))
+    vi.mocked(listDirectory).mockImplementation(async (path) => {
+      if (path === "/project/wiki/outlines") {
+        return [{ name: "卷纲", path: "/project/wiki/outlines/卷纲", is_dir: true }]
+      }
+      if (path === "/project/wiki/outlines/卷纲") {
+        return [{
+          name: "第一卷.md",
+          path: "/project/wiki/outlines/卷纲/第一卷.md",
+          is_dir: false,
+        }]
+      }
+      return []
+    })
+
+    const tool = createReadOutlineTool("/project/wiki/outlines")
+    const params: Record<string, unknown> = { name: "卷纲" }
+    const result = await tool.execute(params)
+
+    expect(result).toContain("是目录，不是单个大纲")
+    expect(result).toContain("第一卷")
+    expect(params.path).toBeUndefined()
+  })
+
+  it("read_outline falls back to outline snapshots only for a bare 大纲 request", async () => {
     vi.mocked(readFile).mockImplementation(async (path) => {
       if (path === "/project/.novel/snapshots/outline-312.snapshot.md") return "# 大纲快照一"
       if (path === "/project/.novel/snapshots/outline-765.snapshot.md") return "# 大纲快照二"
@@ -204,12 +258,35 @@ describe("read tools", () => {
     })
 
     const tool = createReadOutlineTool("/project/wiki/outlines")
-    const result = await tool.execute({ name: "他，只想活着-大纲" })
+    const result = await tool.execute({ name: "大纲" })
 
     expect(result).toContain("已读取大纲快照")
     expect(result).toContain("大纲快照一")
     expect(result).toContain("大纲快照二")
     expect(result).not.toContain("请确认文件存在")
+  })
+
+  it("read_outline does not treat 大纲/章纲 as a broad snapshot request", async () => {
+    vi.mocked(readFile).mockRejectedValue(new Error("missing"))
+    vi.mocked(listDirectory).mockImplementation(async (path) => {
+      if (path === "/project/wiki/outlines") {
+        return [{ name: "章纲", path: "/project/wiki/outlines/章纲", is_dir: true }]
+      }
+      if (path === "/project/wiki/outlines/章纲") {
+        return [{
+          name: "第41章-暑假不是假期.md",
+          path: "/project/wiki/outlines/章纲/第41章-暑假不是假期.md",
+          is_dir: false,
+        }]
+      }
+      return []
+    })
+
+    const tool = createReadOutlineTool("/project/wiki/outlines")
+    const result = await tool.execute({ path: "大纲/章纲" })
+
+    expect(result).toContain("是目录，不是单个大纲")
+    expect(result).not.toContain("已读取大纲快照")
   })
 
   it("read_deduction reads from simulations dir", async () => {
