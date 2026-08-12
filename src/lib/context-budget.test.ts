@@ -142,47 +142,46 @@ describe("outline request budget", () => {
 })
 
 describe("chapter request budget", () => {
-  it.each([
-    [2_000, 8_000],
-    [3_000, 8_000],
-    [6_000, 13_000],
-  ])("derives generation output for %i target chars", (chapterTargetChars, outputTokens) => {
+  it("uses window-fraction generation output with a 15360 floor", () => {
     const plan = planChapterRequestBudget({
       maxContextSize: 204_800,
-      chapterTargetChars,
+      chapterTargetChars: 3_000,
       stage: "generation",
     })
-    expect(plan.outputTokens).toBe(outputTokens)
+    // 0.15 × 204800 = 30720, already above the 15360 floor.
+    expect(plan.outputTokens).toBe(30_720)
     expect(
       plan.outputTokens + plan.contextTokenBudget + plan.scaffoldReserveTokens,
     ).toBeLessThanOrEqual(plan.windowTokens)
   })
 
-  it("keeps chapter output tied to target length, not to the window", () => {
-    // A 3000-character chapter needs the same output on a 1M model as on a 200K
-    // one, so the generous window must not inflate the request.
+  it("scales generation output with the window past the floor", () => {
     expect(planChapterRequestBudget({
       maxContextSize: 1_000_000,
       chapterTargetChars: 3_000,
       stage: "generation",
-    }).outputTokens).toBe(8_000)
+    }).outputTokens).toBe(150_000)
   })
 
-  it("bounds the generation output by the declared output cap", () => {
+  it("lets the declared output cap win over the generation floor", () => {
     expect(planChapterRequestBudget({
       maxContextSize: 204_800,
       chapterTargetChars: 6_000,
       stage: "generation",
-      maxOutputTokens: 4_096,
-    }).outputTokens).toBe(4_096)
+      maxOutputTokens: 8_192,
+    }).outputTokens).toBe(8_192)
   })
 
-  it("uses 4096 tokens for task analysis", () => {
+  it("uses analysis fraction of the window for task analysis", () => {
     expect(planChapterRequestBudget({
       maxContextSize: 204_800,
       chapterTargetChars: 3_000,
       stage: "analysis",
-    }).outputTokens).toBe(4_096)
+    }).outputTokens).toBe(8_192)
+    expect(planChapterRequestBudget({
+      maxContextSize: 1_000_000,
+      stage: "analysis",
+    }).outputTokens).toBe(40_000)
   })
 })
 

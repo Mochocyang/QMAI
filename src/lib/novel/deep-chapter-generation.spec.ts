@@ -1248,8 +1248,9 @@ describe("runDeepChapterGeneration", () => {
 
     expect(overrides.length).toBeGreaterThan(0)
     expect(overrides.every((item) => typeof item?.max_tokens === "number")).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 4_096)).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 8_000)).toBe(true)
+    // Shared window clamps to 204800: analysis 0.04 → 8192, generation 0.15 → 30720.
+    expect(overrides.some((item) => item?.max_tokens === 8_192)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
   })
 
   it("raises stage output to the floor the configured reasoning level needs", async () => {
@@ -1277,7 +1278,11 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(overrides.length).toBeGreaterThan(0)
-    expect(overrides.every((item) => item?.max_tokens === 16_384)).toBe(true)
+    // Analysis is raised to the 16384 thinking floor; generation stays at
+    // the larger window-fraction budget (30720 on the shared 204800 window).
+    expect(overrides.every((item) => (item?.max_tokens ?? 0) >= 16_384)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 16_384)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
   })
 
   it("preserves configured model reasoning for chapter generation calls", async () => {

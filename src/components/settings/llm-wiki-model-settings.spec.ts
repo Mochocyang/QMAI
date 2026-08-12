@@ -72,7 +72,7 @@ describe("QMAI model settings", () => {
     const groq = preset("groq")
     expect(groq.suggestedModels).not.toContain("mixtral-8x7b-32768")
     expect(groq.suggestedModels).not.toContain("gemma2-9b-it")
-    expect(groq.defaultModel).toBe("llama-3.3-70b-versatile")
+    expect(groq.defaultModel).toBe("openai/gpt-oss-120b")
   })
 
   it("resolves DeepSeek to an OpenAI-compatible custom endpoint", () => {

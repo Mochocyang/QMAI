@@ -2,6 +2,14 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { streamChat, type ChatMessage, type RequestOverrides, type StreamCallbacks } from "@/lib/llm-client"
+import {
+  planOutlineRequestBudget,
+  type OutlineBudgetStage,
+} from "@/lib/context-budget"
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+} from "@/lib/llm-providers"
 import { USER_ABORT_MESSAGE } from "@/lib/user-abort"
 
 export interface DeepOutlineGenerationInput {
@@ -69,6 +77,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", partial)),
+    "analysis",
   )
   callbacks.onThinking?.(formatStageThinking("阶段2：大纲任务书", taskBrief))
 
@@ -78,6 +87,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", partial)),
+    "generation",
   )
   callbacks.onThinking?.(formatStageThinking("阶段3：大纲草稿", [
     draftContent,
@@ -91,6 +101,7 @@ export async function runDeepOutlineGeneration(
     deps,
     signal,
     (partial) => callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", partial)),
+    "analysis",
   )
   callbacks.onThinking?.(formatStageThinking("阶段4：大纲自检", selfCheck))
   callbacks.onThinking?.(formatStageThinking("阶段5：完成", "采用自检后的大纲草稿作为最终输出。"))
@@ -110,9 +121,16 @@ async function collectModelText(
   deps: DeepOutlineGenerationDeps,
   signal?: AbortSignal,
   onUpdate?: (content: string) => void,
+  budgetStage: OutlineBudgetStage = "generation",
 ): Promise<string> {
   let content = ""
   let streamError: Error | null = null
+  const requestBudget = planOutlineRequestBudget({
+    maxContextSize: config.maxContextSize,
+    stage: budgetStage,
+    maxOutputTokens: getEffectiveMaxOutputTokens(config),
+    thinkingFloorTokens: thinkingMinMaxTokens(config.reasoning ?? { mode: "auto" }),
+  })
 
   await deps.streamChat(
     config,
@@ -128,7 +146,10 @@ async function collectModelText(
       },
     },
     signal,
-    { reasoning: config.reasoning },
+    {
+      reasoning: config.reasoning,
+      max_tokens: requestBudget.outputTokens,
+    },
   )
 
   if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE)

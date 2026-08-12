@@ -152,6 +152,16 @@ export function resolveContextPackTokenBudget(
 
 export const MIN_LLM_OUTPUT_TOKENS = 512
 
+/** Share of the window reserved for analysis / planning responses (task brief, etc.). */
+export const ANALYSIS_OUTPUT_FRAC = 0.04
+
+/**
+ * Floor for chapter-generation output budgets, ≈1.5 万字 at the CJK
+ * 1-char-per-token estimator. Window-fraction planning may raise this, but
+ * never drops below it — unless the user's maxOutputTokens cap is lower.
+ */
+export const CHAPTER_GENERATION_OUTPUT_FLOOR = 15_360
+
 export class LlmContextBudgetError extends Error {
   constructor(message = "模型上下文不足：无法同时容纳系统提示、当前用户请求和最小输出空间。") {
     super(message)
@@ -257,13 +267,6 @@ export interface PlanChapterRequestBudgetInput {
   thinkingFloorTokens?: number
 }
 
-function chapterMaxOutputTokens(targetChars?: number): number {
-  const target = Number.isFinite(targetChars) && (targetChars as number) > 0
-    ? Math.max(2_000, Math.min(6_000, Math.round(targetChars as number)))
-    : 3_000
-  return target === 3_000 ? 8_000 : Math.max(8_000, Math.ceil((target + 500) * 2))
-}
-
 export function planChapterRequestBudget(
   input: PlanChapterRequestBudgetInput,
 ): LlmRequestBudgetPlan {
@@ -272,14 +275,18 @@ export function planChapterRequestBudget(
     normalizedWindow,
     input.contextTokenBudget,
   )
-  // Chapter output is sized from the user's target chapter length rather than
-  // a share of the window: a 3000-character chapter needs the same output on a
-  // 200K model as on a 1M one.
+  // Analysis and generation both scale with the window. Generation also keeps
+  // a 15_360-token floor so a short target-char setting cannot starve the
+  // draft; the user's maxOutputTokens cap still wins when it is lower.
+  const desiredOutputTokens = input.stage === "analysis"
+    ? Math.floor(normalizedWindow * ANALYSIS_OUTPUT_FRAC)
+    : Math.max(
+      CHAPTER_GENERATION_OUTPUT_FLOOR,
+      Math.floor(normalizedWindow * RESPONSE_RESERVE_FRAC),
+    )
   return planLlmRequestBudget({
     maxContextSize: normalizedWindow,
-    desiredOutputTokens: input.stage === "analysis"
-      ? 4_096
-      : chapterMaxOutputTokens(input.chapterTargetChars),
+    desiredOutputTokens,
     requestedContextTokens: genericContextCap,
     scaffoldReserveTokens: 8_000,
     minimumContextTokens: 2_000,
@@ -289,12 +296,6 @@ export function planChapterRequestBudget(
 }
 
 export type OutlineBudgetStage = "analysis" | "generation"
-
-/** Share of the window the outline's own response may claim. Reuses the
- *  response reserve the rest of the budgeting layer already assumes. */
-const OUTLINE_GENERATION_OUTPUT_FRAC = RESPONSE_RESERVE_FRAC
-/** Analysis passes summarise rather than draft, so they need far less. */
-const OUTLINE_ANALYSIS_OUTPUT_FRAC = 0.04
 
 export interface PlanOutlineRequestBudgetInput {
   maxContextSize?: number
@@ -311,8 +312,8 @@ export function planOutlineRequestBudget(
   // Scales with the window instead of stepping through fixed tiers, and is
   // then bounded by the user's declared output cap inside the kernel.
   const desiredOutputTokens = Math.floor(normalizedWindow * (input.stage === "analysis"
-    ? OUTLINE_ANALYSIS_OUTPUT_FRAC
-    : OUTLINE_GENERATION_OUTPUT_FRAC))
+    ? ANALYSIS_OUTPUT_FRAC
+    : RESPONSE_RESERVE_FRAC))
   const genericContextCap = computeNovelContextTokenBudget(
     normalizedWindow,
     input.contextTokenBudget,

@@ -669,26 +669,37 @@ export async function runDeepChapterGeneration(
     ? Math.min(...sharedContextWindows)
     : input.llmConfig.maxContextSize;
 
-  // 大纲与其余上下文共用同一窗口预算：按单章目标字数×2预留输出，再分配资料包。
-  const sharedMaxOutputTokens = getEffectiveMaxOutputTokens(input.llmConfig);
-  const sharedThinkingFloor = thinkingMinMaxTokens(
-    input.llmConfig.reasoning ?? { mode: "auto" },
-  );
+  // 大纲与其余上下文共用同一窗口预算：资料包按三阶段最小窗分配。
+  // 输出上限与思考地板按各阶段实际调用的模型重算，不再只读入口 llmConfig。
   const chapterAnalysisBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "analysis",
-    maxOutputTokens: sharedMaxOutputTokens,
-    thinkingFloorTokens: sharedThinkingFloor,
+    maxOutputTokens: getEffectiveMaxOutputTokens(workflowConfig),
+    thinkingFloorTokens: thinkingMinMaxTokens(
+      workflowConfig.reasoning ?? { mode: "auto" },
+    ),
   });
   const chapterGenerationBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
-    maxOutputTokens: sharedMaxOutputTokens,
-    thinkingFloorTokens: sharedThinkingFloor,
+    maxOutputTokens: getEffectiveMaxOutputTokens(writingConfig),
+    thinkingFloorTokens: thinkingMinMaxTokens(
+      writingConfig.reasoning ?? { mode: "auto" },
+    ),
+  });
+  const chapterDeAiBudget = planChapterRequestBudget({
+    maxContextSize: sharedContextWindow,
+    contextTokenBudget: novelConfig.contextTokenBudget,
+    chapterTargetChars: novelConfig.chapterTargetChars,
+    stage: "generation",
+    maxOutputTokens: getEffectiveMaxOutputTokens(deAiConfig),
+    thinkingFloorTokens: thinkingMinMaxTokens(
+      deAiConfig.reasoning ?? { mode: "auto" },
+    ),
   });
   const totalContextTokenBudget = chapterGenerationBudget.contextTokenBudget;
   const analysisRequestOverrides: RequestOverrides = {
@@ -696,6 +707,9 @@ export async function runDeepChapterGeneration(
   };
   const generationRequestOverrides: RequestOverrides = {
     max_tokens: chapterGenerationBudget.outputTokens,
+  };
+  const deAiRequestOverrides: RequestOverrides = {
+    max_tokens: chapterDeAiBudget.outputTokens,
   };
   // Same density as the token estimator / trimContextPack (CJK 1, English 4).
   const charsPerToken = charsPerTokenForLanguage();
@@ -1384,7 +1398,7 @@ export async function runDeepChapterGeneration(
             signal,
             customDeAiSkill || undefined,
             cachePrefix,
-            generationRequestOverrides,
+            deAiRequestOverrides,
           ),
         (value) =>
           `简单审查与去AI味完成，最终正文约 ${countChapterChars(value)} 字。`,

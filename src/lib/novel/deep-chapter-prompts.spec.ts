@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
-  DEEP_CHAPTER_MAX_OUTPUT_TOKENS,
   DEEP_CHAPTER_MIN_CHARS,
   DEEP_CHAPTER_TARGET_CHARS,
   buildDeepChapterBriefPrompt,
@@ -16,22 +15,17 @@ describe("resolveChapterLengthSpec", () => {
     expect(spec.targetChars).toBe(DEEP_CHAPTER_TARGET_CHARS)
     expect(spec.minChars).toBe(DEEP_CHAPTER_MIN_CHARS)
     expect(spec.draftMaxChars).toBe(DEEP_CHAPTER_DRAFT_MAX_CHARS)
-    expect(spec.maxOutputTokens).toBe(DEEP_CHAPTER_MAX_OUTPUT_TOKENS)
+    expect(spec).not.toHaveProperty("maxOutputTokens")
   })
 
-  it("derives all thresholds from a configured chapter target (issue #8)", () => {
+  it("derives char thresholds from a configured chapter target (issue #8)", () => {
     const spec = resolveChapterLengthSpec(2000)
 
     expect(spec.targetChars).toBe(2000)
     expect(spec.minChars).toBeLessThan(2000)
     expect(spec.minChars).toBeGreaterThan(1000)
     expect(spec.draftMaxChars).toBe(2500)
-  })
-
-  it("scales output token budget up for long chapters", () => {
-    const spec = resolveChapterLengthSpec(6000)
-
-    expect(spec.maxOutputTokens).toBeGreaterThan(DEEP_CHAPTER_MAX_OUTPUT_TOKENS)
+    expect(spec).not.toHaveProperty("maxOutputTokens")
   })
 
   it("clamps unreasonable targets", () => {

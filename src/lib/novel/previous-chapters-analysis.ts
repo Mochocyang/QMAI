@@ -1,7 +1,11 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { searchWiki } from "@/lib/search"
-import { computeContextBudget } from "@/lib/context-budget"
+import { computeContextBudget, planChapterRequestBudget } from "@/lib/context-budget"
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+} from "@/lib/llm-providers"
 
 /** 前情正文占分析模型窗口的比例；其余留给分析指令与模型输出。 */
 const PREVIOUS_BODY_WINDOW_FRAC = 0.5
@@ -76,8 +80,14 @@ export async function analyzePreviousChapters(
   // 构建分析prompt
   const analysisPrompt = buildPreviousChaptersAnalysisPrompt(budgetedChapters, currentChapterNumber)
 
-  // 调用LLM分析
+  // 调用LLM分析：显式挂 analysis 比例预算，避免只靠内核默认 generation 比例。
   const { streamChat } = await import("@/lib/llm-client")
+  const analysisBudget = planChapterRequestBudget({
+    maxContextSize: llmConfig.maxContextSize,
+    stage: "analysis",
+    maxOutputTokens: getEffectiveMaxOutputTokens(llmConfig),
+    thinkingFloorTokens: thinkingMinMaxTokens(llmConfig.reasoning ?? { mode: "auto" }),
+  })
   let analysis = ""
 
   await streamChat(
@@ -89,6 +99,7 @@ export async function analyzePreviousChapters(
       onError: () => {},
     },
     signal,
+    { max_tokens: analysisBudget.outputTokens },
   )
 
   if (signal?.aborted) throw new Error("已停止生成")
