@@ -13,7 +13,14 @@ import {
   isReasoningOnlyResponseError,
   withReasoningDisabled,
 } from "@/lib/reasoning-retry";
-import { computeWritingContextPackTokenBudget } from "@/lib/context-budget";
+import {
+  charsPerTokenForLanguage,
+  planChapterRequestBudget,
+} from "@/lib/context-budget";
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+} from "@/lib/llm-providers";
 import { USER_ABORT_MESSAGE, rethrowIfUserAbort, throwIfAborted } from "@/lib/user-abort";
 import {
   buildContextPack,
@@ -146,10 +153,6 @@ const defaultDeps: DeepChapterGenerationDeps = {
 const REPEAT_CHECK_MIN_CHARS = 600;
 const REPEAT_WINDOW_CHARS = 120;
 const REPEAT_HIT_LIMIT = 3;
-/** chars/token approximation used to convert the token budget to characters
- *  for the outline cap (mirrors context-budget.ts / contextPackToPrompt). */
-const DEEP_CHAPTER_CHARS_PER_TOKEN = 4;
-
 function hasUsableChapterExecutionContract(contract: ChapterExecutionContract | null): contract is ChapterExecutionContract {
   if (!contract) return false;
   const hasSceneChecks = contract.sceneSteps.some((step) =>
@@ -667,13 +670,36 @@ export async function runDeepChapterGeneration(
     : input.llmConfig.maxContextSize;
 
   // 大纲与其余上下文共用同一窗口预算：按单章目标字数×2预留输出，再分配资料包。
-  const totalContextTokenBudget = computeWritingContextPackTokenBudget({
+  const sharedMaxOutputTokens = getEffectiveMaxOutputTokens(input.llmConfig);
+  const sharedThinkingFloor = thinkingMinMaxTokens(
+    input.llmConfig.reasoning ?? { mode: "auto" },
+  );
+  const chapterAnalysisBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
+    stage: "analysis",
+    maxOutputTokens: sharedMaxOutputTokens,
+    thinkingFloorTokens: sharedThinkingFloor,
   });
-  const totalContextCharBudget =
-    totalContextTokenBudget * DEEP_CHAPTER_CHARS_PER_TOKEN;
+  const chapterGenerationBudget = planChapterRequestBudget({
+    maxContextSize: sharedContextWindow,
+    contextTokenBudget: novelConfig.contextTokenBudget,
+    chapterTargetChars: novelConfig.chapterTargetChars,
+    stage: "generation",
+    maxOutputTokens: sharedMaxOutputTokens,
+    thinkingFloorTokens: sharedThinkingFloor,
+  });
+  const totalContextTokenBudget = chapterGenerationBudget.contextTokenBudget;
+  const analysisRequestOverrides: RequestOverrides = {
+    max_tokens: chapterAnalysisBudget.outputTokens,
+  };
+  const generationRequestOverrides: RequestOverrides = {
+    max_tokens: chapterGenerationBudget.outputTokens,
+  };
+  // Same density as the token estimator / trimContextPack (CJK 1, English 4).
+  const charsPerToken = charsPerTokenForLanguage();
+  const totalContextCharBudget = totalContextTokenBudget * charsPerToken;
   const outlineCharCap = Math.floor(
     totalContextCharBudget * DEEP_CHAPTER_OUTLINE_MAX_FRAC,
   );
@@ -705,7 +731,7 @@ export async function runDeepChapterGeneration(
   const restContextTokenBudget = Math.max(
     DEEP_CHAPTER_REST_TOKEN_FLOOR,
     totalContextTokenBudget -
-      Math.ceil(outlineText.length / DEEP_CHAPTER_CHARS_PER_TOKEN),
+      Math.ceil(outlineText.length / charsPerToken),
   );
   const contextPrompt = [
     previousChaptersAnalysis
@@ -793,7 +819,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段2：写作任务书", partial),
             ),
-          undefined,
+          analysisRequestOverrides,
           cachePrefix,
         ),
       (value) => `写作任务书完成，约 ${countChapterChars(value)} 字。`,
@@ -867,7 +893,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段3：正文初稿", partial),
             ),
-          undefined,
+          generationRequestOverrides,
           cachePrefix,
         ),
       (value) => `正文初稿完成，约 ${countChapterChars(value)} 字。`,
@@ -907,7 +933,7 @@ export async function runDeepChapterGeneration(
               callbacks.onThinking?.(
                 formatStageThinking("阶段3：正文扩写补足", partial),
               ),
-            undefined,
+            generationRequestOverrides,
             cachePrefix,
           ),
         (value) => `正文扩写补足完成，约 ${countChapterChars(value)} 字。`,
@@ -1205,7 +1231,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段5：自动返修", partial),
             ),
-          undefined,
+          generationRequestOverrides,
           cachePrefix,
         ),
       (value) =>
@@ -1358,6 +1384,7 @@ export async function runDeepChapterGeneration(
             signal,
             customDeAiSkill || undefined,
             cachePrefix,
+            generationRequestOverrides,
           ),
         (value) =>
           `简单审查与去AI味完成，最终正文约 ${countChapterChars(value)} 字。`,
@@ -1706,6 +1733,7 @@ async function finalPolishChapter(
   signal?: AbortSignal,
   customDeAiSkill?: string,
   cachePrefix?: string,
+  requestOverrides?: RequestOverrides,
 ): Promise<string> {
   assertNotAborted(signal);
   callbacks.onThinking?.(
@@ -1737,7 +1765,7 @@ async function finalPolishChapter(
       callbacks.onThinking?.(
         formatStageThinking("阶段6：简单审查与去AI味", partial),
       ),
-    undefined,
+    requestOverrides,
     cachePrefix,
   );
   assertNotAborted(signal);

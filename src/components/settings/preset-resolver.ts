@@ -1,8 +1,11 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ProviderOverride } from "@/stores/wiki-store"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
-import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import type { LlmPreset } from "./llm-presets"
+import {
+  normalizeUserLlmContextSize,
+  normalizeUserLlmMaxOutputTokens,
+} from "@/lib/llm-context-size"
 
 /**
  * Build a full LlmConfig from a preset template + the user's saved
@@ -17,8 +20,12 @@ export function resolveConfig(
   const ov = override ?? {}
   const apiKey = ov.apiKey ?? ""
   const model = ov.model?.trim() || preset.defaultModel || ""
-  const rawMaxContextSize =
-    ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize
+  const rawMaxContextSize = normalizeUserLlmContextSize(
+    ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize,
+  )
+  const rawMaxOutputTokens = normalizeUserLlmMaxOutputTokens(
+    ov.maxOutputTokens ?? preset.suggestedMaxOutputTokens ?? fallback.maxOutputTokens,
+  )
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const functionCallingEnabled = ov.functionCallingEnabled !== false
@@ -37,6 +44,7 @@ export function resolveConfig(
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "",
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       apiMode: ov.apiMode ?? preset.apiMode ?? "chat_completions",
       reasoning,
       localCliIsolation: false,
@@ -50,6 +58,7 @@ export function resolveConfig(
       ollamaUrl: ov.baseUrl ?? preset.baseUrl ?? "http://localhost:11434",
       customEndpoint: fallback.customEndpoint,
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
@@ -64,6 +73,7 @@ export function resolveConfig(
       azureApiVersion: ov.azureApiVersion ?? preset.azureApiVersion ?? AZURE_OPENAI_API_VERSION,
       azureModelFamily: ov.azureModelFamily ?? preset.azureModelFamily ?? "auto",
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
@@ -80,6 +90,7 @@ export function resolveConfig(
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: fallback.customEndpoint,
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       reasoning,
       localCliIsolation,
       codexCliTimeoutMinutes: preset.provider === "codex-cli" ? codexCliTimeoutMinutes : undefined,
@@ -95,6 +106,7 @@ export function resolveConfig(
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "http://127.0.0.1:8765/v1",
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       apiMode: "chat_completions",
       reasoning,
       localCliIsolation: false,
@@ -111,14 +123,12 @@ export function resolveConfig(
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: fallback.customEndpoint,
       maxContextSize: rawMaxContextSize,
+      maxOutputTokens: rawMaxOutputTokens,
       reasoning,
       localCliIsolation: false,
       functionCallingEnabled,
     }
   }
-
-  // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
-  config.maxContextSize = getEffectiveMaxContextSize(config)
 
   return config
 }

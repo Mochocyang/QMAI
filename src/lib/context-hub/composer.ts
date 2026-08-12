@@ -11,7 +11,7 @@ export interface ComposeContextInput {
   confidence?: number
   /** Explicit token budget; 0 / undefined = window-derived safe cap. */
   tokenBudget?: number
-  /** Model context window in characters (wiki-store `maxContextSize`). */
+  /** Model context window in tokens (wiki-store `maxContextSize`). */
   maxContextSize?: number
 }
 export interface ComposedContext {

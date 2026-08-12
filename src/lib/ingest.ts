@@ -1220,9 +1220,9 @@ function clampNumber(value: number, min: number, max: number): number {
 export function computeIngestSourceBudget(
   maxContextSize: number | undefined,
   stableContextLength: number,
-  langScale?: number,
+  charsPerToken?: number,
 ): number {
-  const { maxCtx, responseReserve } = computeContextBudget(maxContextSize, langScale)
+  const { maxCtx, responseReserve } = computeContextBudget(maxContextSize, charsPerToken)
   const stableReserve = Math.min(Math.floor(maxCtx * 0.25), Math.max(12_000, stableContextLength))
   const instructionReserve = Math.max(12_000, Math.floor(maxCtx * 0.08))
   const available = maxCtx - responseReserve - stableReserve - instructionReserve
@@ -1230,22 +1230,28 @@ export function computeIngestSourceBudget(
   return clampNumber(Math.floor(available), LONG_SOURCE_MIN_BUDGET, upper)
 }
 
+/**
+ * Output ladder for wiki page generation, stepped off the model's token
+ * window. Compares the window directly rather than a language-scaled
+ * character budget: a model's output ceiling does not shrink because the UI
+ * is in Chinese, and the old comparison dropped CJK users a whole tier.
+ */
 export function computeIngestGenerationMaxTokens(
   maxContextSize: number | undefined,
-  langScale?: number,
 ): number {
-  const { maxCtx } = computeContextBudget(maxContextSize, langScale)
-  if (maxCtx >= 512_000) return INGEST_GENERATION_TOKENS_512K
-  if (maxCtx >= 256_000) return INGEST_GENERATION_TOKENS_256K
-  if (maxCtx >= 128_000) return INGEST_GENERATION_TOKENS_128K
+  const windowTokens = typeof maxContextSize === "number" && maxContextSize > 0
+    ? maxContextSize
+    : DEFAULT_INGEST_WINDOW_TOKENS
+  if (windowTokens >= 512_000) return INGEST_GENERATION_TOKENS_512K
+  if (windowTokens >= 256_000) return INGEST_GENERATION_TOKENS_256K
+  if (windowTokens >= 128_000) return INGEST_GENERATION_TOKENS_128K
   return INGEST_GENERATION_TOKENS_DEFAULT
 }
 
 export function computeIngestReviewMaxTokens(
   maxContextSize: number | undefined,
-  langScale?: number,
 ): number {
-  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize, langScale) / 2)))
+  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize) / 2)))
 }
 
 /**
@@ -1257,13 +1263,14 @@ export function computeIngestReviewMaxTokens(
  */
 export function computeIngestAnalysisMaxTokens(
   maxContextSize: number | undefined,
-  langScale?: number,
 ): number {
-  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize, langScale) / 2)))
+  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize) / 2)))
 }
 
 /** chars/token the ingest budgeting assumes; mirrors context-budget.ts. */
 const INGEST_CHARS_PER_TOKEN = 4
+/** Window assumed when the config carries none; mirrors context-budget.ts. */
+const DEFAULT_INGEST_WINDOW_TOKENS = 204_800
 /** Smallest output allowance we will still request when the window is nearly
  *  full — below this a response is useless, so we accept a tiny overflow risk
  *  rather than emitting nothing. */
@@ -1274,19 +1281,19 @@ const INGEST_OUTPUT_TOKEN_FLOOR = 512
  * model's real token window. `desiredTokens` is the ladder value; we only ever
  * reduce it when the prompt already leaves less room than the ladder wants.
  *
- * Language-aware: CJK text is ~2.3x denser, so the same prompt consumes more
- * real tokens and leaves less room for output. The raw (unscaled) window is
- * the real token capacity (English-calibrated 4:1); the effective scale
- * recovers the true chars/token for the active language.
+ * Language-aware: CJK text is denser, so the same prompt consumes more real
+ * tokens and leaves less room for output. The English-calibrated window (4:1)
+ * recovers the real token capacity; the ratio against the active language's
+ * window recovers that language's true chars/token.
  */
 export function fitIngestOutputToWindow(
   maxContextSize: number | undefined,
   promptChars: number,
   desiredTokens: number,
-  langScale?: number,
+  charsPerToken?: number,
 ): number {
-  const rawWindow = computeContextBudget(maxContextSize, 1).maxCtx
-  const scaledWindow = computeContextBudget(maxContextSize, langScale).maxCtx
+  const rawWindow = computeContextBudget(maxContextSize, INGEST_CHARS_PER_TOKEN).maxCtx
+  const scaledWindow = computeContextBudget(maxContextSize, charsPerToken).maxCtx
   const scale = rawWindow > 0 ? scaledWindow / rawWindow : 1
   const windowTokens = rawWindow / INGEST_CHARS_PER_TOKEN
   const inputTokens = promptChars / (INGEST_CHARS_PER_TOKEN * scale)

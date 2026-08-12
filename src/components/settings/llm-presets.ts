@@ -1,4 +1,5 @@
 import type { AzureModelFamily } from "@/stores/wiki-store"
+import { MIN_USER_LLM_CONTEXT_SIZE } from "@/lib/llm-context-size"
 
 /**
  * Curated LLM provider presets.
@@ -56,8 +57,15 @@ export interface LlmPreset {
   suggestedModels?: string[]
   /** Custom providers only: which wire protocol to speak. */
   apiMode?: CustomApiMode
-  /** Suggested context window; user can override. */
+  /** Suggested context window in tokens, from the model's spec sheet; user can override. */
   suggestedContextSize?: number
+  /**
+   * Suggested maximum output in tokens, from the model's spec sheet; user can
+   * override. Only fill this in where the figure has a source — a wrong value
+   * here either wastes the model's capacity or gets the request rejected.
+   * Omitted presets fall back to `DEFAULT_USER_LLM_MAX_OUTPUT_TOKENS`.
+   */
+  suggestedMaxOutputTokens?: number
 }
 
 const RAW_LLM_PRESETS: LlmPreset[] = [
@@ -87,7 +95,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "claude-3-5-sonnet-20241022",
       "claude-3-5-haiku-20241022",
     ],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "claude-code-cli",
@@ -105,7 +113,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "claude-sonnet-4-5-20250929",
       "claude-haiku-4-5-20251001",
     ],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "codex-cli",
@@ -120,7 +128,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "gpt-5.3-codex-spark",
       "gpt-5.2",
     ],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "cursor-cli",
@@ -141,7 +149,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "gpt-5.5-medium",
       "claude-opus-4-7-thinking-max",
     ],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "openai",
@@ -163,7 +171,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "o1-mini",
       "gpt-4-turbo",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "google",
@@ -191,7 +199,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://your-resource.openai.azure.com",
     defaultModel: "your-deployment-name",
     azureApiVersion: "2024-10-21",
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "deepseek",
@@ -212,6 +220,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "deepseek-reasoner",
     ],
     suggestedContextSize: 1000000,
+    // DeepSeek-V4: 1000K context / 384K max output, per the published spec.
+    suggestedMaxOutputTokens: 393216,
   },
   {
     id: "atlascloud",
@@ -240,7 +250,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "openai/gpt-5.5",
       "google/gemini-3.5-flash",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "groq",
@@ -250,19 +260,17 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
     apiMode: "chat_completions",
-    // Groq hosts open-weight models; list stays current-practical picks.
+    // Writing workflows require at least 204800 tokens of context.
     suggestedModels: [
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",
       "llama-3.1-70b-versatile",
-      "mixtral-8x7b-32768",
-      "gemma2-9b-it",
       "moonshotai/kimi-k2-instruct",
       "openai/gpt-oss-120b",
       "openai/gpt-oss-20b",
       "qwen/qwen3-32b",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "xai",
@@ -282,7 +290,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "grok-code-fast-1",
       "grok-2-vision-1212",
     ],
-    suggestedContextSize: 131072,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "nvidia-nim",
@@ -319,7 +327,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "mistralai/mixtral-8x22b-instruct",
       "mistralai/mistral-large-2-instruct",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "kimi",
@@ -407,7 +415,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "glm-4v-plus",
       "glm-zero-preview",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "minimax-global",
@@ -422,7 +430,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     // dropped — users who still need them can type the id into the
     // custom input.
     suggestedModels: ["MiniMax-M3", "MiniMax-M2.7"],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "minimax-cn",
@@ -433,7 +441,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     defaultModel: "MiniMax-M3",
     apiMode: "anthropic_messages",
     suggestedModels: ["MiniMax-M3", "MiniMax-M2.7"],
-    suggestedContextSize: 200000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "bailian-coding",
@@ -466,7 +474,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "qwen3-coder-next",
       "glm-4.7",
     ],
-    suggestedContextSize: 131072,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "xiaomi-mimo",
@@ -521,7 +529,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "GLM-4.7",
       "DeepSeek-V3",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "ollama-local",
@@ -531,7 +539,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "http://localhost:11434",
     // Intentionally no suggestedModels: local set depends on what the
     // user has actually pulled / loaded. Kept as free-text input.
-    suggestedContextSize: 32768,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "ollama-cloud",
@@ -548,7 +556,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "kimi-k2:1t",
       "deepseek-v3.1:671b",
     ],
-    suggestedContextSize: 128000,
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "custom",
@@ -563,9 +571,23 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
   },
 ]
 
-export const LLM_PRESETS: LlmPreset[] = RAW_LLM_PRESETS.filter(
-  (preset, index) => preset.id !== "custom" || index === 0,
-)
+const ALL_LLM_PRESETS: LlmPreset[] = RAW_LLM_PRESETS
+  .filter((preset, index) => preset.id !== "custom" || index === 0)
+  .map((preset) => ({
+    ...preset,
+    suggestedContextSize: Math.max(
+      preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE,
+      MIN_USER_LLM_CONTEXT_SIZE,
+    ),
+  }))
+
+/** All providers remain visible and default to at least the writing floor. */
+export const LLM_PRESETS: LlmPreset[] = ALL_LLM_PRESETS
+
+/** Resolve provider configurations by their stable preset id. */
+export function findLlmPresetById(id: string): LlmPreset | undefined {
+  return ALL_LLM_PRESETS.find((preset) => preset.id === id)
+}
 
 /**
  * Best-effort reverse lookup: given the current LlmConfig fields, which

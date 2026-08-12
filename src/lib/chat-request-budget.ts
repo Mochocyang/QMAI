@@ -1,4 +1,6 @@
 import type { ChatMessage, ContentBlock } from "./llm-providers"
+import { LlmContextBudgetError } from "./context-budget"
+import { estimateContextTokens } from "./context-hub/token-estimator"
 
 const HISTORY_TRUNCATED_MARKER = "[history truncated]\n"
 const CONTENT_TRUNCATED_MARKER = "\n[内容已压缩，保留首尾]\n"
@@ -119,6 +121,274 @@ function groupHistory(messages: ChatMessage[]): ChatMessage[][] {
     groups.push([message])
   }
   return groups
+}
+
+const MESSAGE_OVERHEAD_TOKENS = 4
+
+function contentTokenLength(content: ChatMessage["content"]): number {
+  if (typeof content === "string") return estimateContextTokens(content)
+  return content.reduce((sum, block) => {
+    if (block.type === "text") return sum + estimateContextTokens(block.text)
+    return sum + estimateContextTokens(block.dataBase64)
+  }, 0)
+}
+
+function toolMetadataTokens(message: ChatMessage): number {
+  const toolCallTokens = message.tool_calls?.reduce(
+    (sum, call) => sum + estimateContextTokens(
+      `${call.id}\n${call.function.name}\n${call.function.arguments}`,
+    ),
+    0,
+  ) ?? 0
+  return toolCallTokens + estimateContextTokens(
+    `${message.tool_call_id ?? ""}\n${message.name ?? ""}`,
+  )
+}
+
+function messageTokenLength(message: ChatMessage): number {
+  return MESSAGE_OVERHEAD_TOKENS + contentTokenLength(message.content) + toolMetadataTokens(message)
+}
+
+function minimumMessageTokenLength(message: ChatMessage, requireContent: boolean): number {
+  const fixedMetadataTokens = MESSAGE_OVERHEAD_TOKENS + estimateContextTokens(
+    `${message.tool_call_id ?? ""}\n${message.name ?? ""}`,
+  )
+  const minimumToolTokens = message.tool_calls?.reduce(
+    (sum, call) => sum + estimateContextTokens(`${call.id}\n${call.function.name}\n{}`),
+    0,
+  ) ?? 0
+  return fixedMetadataTokens + minimumToolTokens + (requireContent ? 1 : 0)
+}
+
+export function estimateChatMessagesTokens(messages: ChatMessage[]): number {
+  return messages.reduce((sum, message) => sum + messageTokenLength(message), 0)
+}
+
+export function estimateRequestScaffoldTokens(tools: unknown): number {
+  if (!tools) return 0
+  try {
+    return estimateContextTokens(JSON.stringify(tools))
+  } catch {
+    return 0
+  }
+}
+
+function clampTextToTokenBudget(
+  text: string,
+  maxTokens: number,
+  preserveHead: boolean,
+): string {
+  if (estimateContextTokens(text) <= maxTokens) return text
+  if (maxTokens <= 0) return ""
+  let low = 0
+  let high = text.length
+  let best = ""
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2)
+    const candidate = preserveHead
+      ? clampHeadTail(text, mid)
+      : clampTail(text, mid)
+    if (estimateContextTokens(candidate) <= maxTokens) {
+      best = candidate
+      low = mid + 1
+    } else {
+      high = mid - 1
+    }
+  }
+  return best
+}
+
+function trimContentToTokenBudget(
+  content: ChatMessage["content"],
+  maxTokens: number,
+  preserveHead = false,
+): ChatMessage["content"] {
+  if (typeof content === "string") {
+    return clampTextToTokenBudget(content, maxTokens, preserveHead)
+  }
+  let remaining = maxTokens
+  const reversed: ContentBlock[] = []
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const block = content[index]
+    if (!block) continue
+    if (block.type !== "text") {
+      const tokens = estimateContextTokens(block.dataBase64)
+      if (tokens <= remaining) {
+        reversed.push(block)
+        remaining -= tokens
+      }
+      continue
+    }
+    const text = clampTextToTokenBudget(block.text, remaining, preserveHead)
+    if (text) {
+      reversed.push({ ...block, text })
+      remaining -= estimateContextTokens(text)
+    }
+    if (remaining <= 0) break
+  }
+  return reversed.reverse()
+}
+
+function trimMessageToTokenBudget(
+  message: ChatMessage,
+  maxTokens: number,
+  preserveHead = false,
+): ChatMessage {
+  const fixedMetadataTokens = MESSAGE_OVERHEAD_TOKENS + estimateContextTokens(
+    `${message.tool_call_id ?? ""}\n${message.name ?? ""}`,
+  )
+  const originalToolCalls = message.tool_calls
+  const minimumToolTokens = originalToolCalls?.reduce(
+    (sum, call) => sum + estimateContextTokens(`${call.id}\n${call.function.name}\n{}`),
+    0,
+  ) ?? 0
+  const contentBudget = Math.max(0, maxTokens - fixedMetadataTokens - minimumToolTokens)
+  const content = trimContentToTokenBudget(message.content, contentBudget, preserveHead)
+  let remaining = Math.max(
+    0,
+    maxTokens - fixedMetadataTokens - contentTokenLength(content),
+  )
+  const toolCalls = originalToolCalls?.map((call) => {
+    const fixed = estimateContextTokens(`${call.id}\n${call.function.name}\n`)
+    const fullArguments = estimateContextTokens(call.function.arguments)
+    const argumentsValue = fixed + fullArguments <= remaining
+      ? call.function.arguments
+      : "{}"
+    remaining = Math.max(
+      0,
+      remaining - fixed - estimateContextTokens(argumentsValue),
+    )
+    return {
+      ...call,
+      function: { ...call.function, arguments: argumentsValue },
+    }
+  })
+  return {
+    ...message,
+    content,
+    ...(toolCalls ? { tool_calls: toolCalls } : {}),
+  }
+}
+
+function hasNonEmptyContent(message: ChatMessage | undefined): boolean {
+  if (!message) return false
+  if (typeof message.content === "string") return message.content.trim().length > 0
+  return message.content.some((block) => block.type !== "text" || block.text.trim().length > 0)
+}
+
+/**
+ * Token-aware request trimmer. Tool-call/result groups stay paired; system
+ * constraints and the latest user request may be shortened but never emptied.
+ */
+export function trimChatMessagesToTokenBudget(
+  messages: ChatMessage[],
+  maxTokens: number,
+): ChatMessage[] {
+  if (messages.length === 0) return messages
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) throw new LlmContextBudgetError()
+  if (estimateChatMessagesTokens(messages) <= maxTokens) return messages
+
+  const leadingSystems: ChatMessage[] = []
+  let firstNonSystem = 0
+  while (firstNonSystem < messages.length && messages[firstNonSystem]?.role === "system") {
+    leadingSystems.push(messages[firstNonSystem]!)
+    firstNonSystem += 1
+  }
+  const bodyGroups = groupHistory(messages.slice(firstNonSystem))
+  let latestUserGroup = -1
+  for (let index = bodyGroups.length - 1; index >= 0; index -= 1) {
+    if (bodyGroups[index]!.some((message) => message.role === "user")) {
+      latestUserGroup = index
+      break
+    }
+  }
+  const retainedGroups = bodyGroups.map((group, index) => ({
+    group,
+    protected: index === latestUserGroup || index === bodyGroups.length - 1,
+  }))
+  let next = [...leadingSystems, ...retainedGroups.flatMap((entry) => entry.group)]
+
+  while (estimateChatMessagesTokens(next) > maxTokens) {
+    const removableIndex = retainedGroups.findIndex((entry) => !entry.protected)
+    if (removableIndex < 0) break
+    retainedGroups.splice(removableIndex, 1)
+    next = [...leadingSystems, ...retainedGroups.flatMap((entry) => entry.group)]
+  }
+  if (estimateChatMessagesTokens(next) <= maxTokens) return next
+
+  // Systems that survived group-dropping. Mid-conversation system messages
+  // (e.g. the required-tool nudge pushed by AgentRunner) are ordinary history
+  // and may legitimately be gone by now; only what is still here has to stay
+  // non-empty through compression. Comparing against the original list by
+  // position instead would misalign the moment any system is dropped, and
+  // report a budget failure for a trim that actually succeeded.
+  // Compression below replaces entries in place, so these indices stay valid.
+  const protectedSystemIndices = next.reduce<number[]>((indices, message, index) => {
+    if (message.role === "system" && hasNonEmptyContent(message)) indices.push(index)
+    return indices
+  }, [])
+
+  let latestUserIndex = -1
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    if (next[index]?.role === "user") {
+      latestUserIndex = index
+      break
+    }
+  }
+
+  // Old assistant/tool payloads are expendable before protected instructions.
+  for (let index = 0; index < next.length && estimateChatMessagesTokens(next) > maxTokens; index += 1) {
+    if (index === latestUserIndex || next[index]?.role === "system") continue
+    const current = next[index]!
+    const excess = estimateChatMessagesTokens(next) - maxTokens
+    next[index] = trimMessageToTokenBudget(
+      current,
+      Math.max(
+        minimumMessageTokenLength(current, false),
+        messageTokenLength(current) - excess,
+      ),
+    )
+  }
+
+  // System messages remain non-empty and retain both ends when compressed.
+  for (let index = 0; index < next.length && estimateChatMessagesTokens(next) > maxTokens; index += 1) {
+    if (next[index]?.role !== "system") continue
+    const current = next[index]!
+    const excess = estimateChatMessagesTokens(next) - maxTokens
+    next[index] = trimMessageToTokenBudget(
+      current,
+      Math.max(
+        minimumMessageTokenLength(current, true),
+        messageTokenLength(current) - excess,
+      ),
+      true,
+    )
+  }
+
+  if (latestUserIndex >= 0 && estimateChatMessagesTokens(next) > maxTokens) {
+    const current = next[latestUserIndex]!
+    const excess = estimateChatMessagesTokens(next) - maxTokens
+    next[latestUserIndex] = trimMessageToTokenBudget(
+      current,
+      Math.max(
+        minimumMessageTokenLength(current, true),
+        messageTokenLength(current) - excess,
+      ),
+      true,
+    )
+  }
+
+  const protectedSystemsValid = protectedSystemIndices
+    .every((index) => hasNonEmptyContent(next[index]))
+  const latestUserValid = latestUserIndex < 0 || hasNonEmptyContent(next[latestUserIndex])
+  if (
+    estimateChatMessagesTokens(next) > maxTokens
+    || !protectedSystemsValid
+    || !latestUserValid
+  ) {
+    throw new LlmContextBudgetError()
+  }
+  return next
 }
 
 /**

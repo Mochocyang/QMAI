@@ -1,9 +1,10 @@
 import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride } from "@/stores/wiki-store"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
+import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
+import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint" | "deAi"
 
@@ -18,7 +19,12 @@ function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, Provider
 }
 
 function withEffectiveContextSize(config: LlmConfig): LlmConfig {
-  return { ...config, maxContextSize: getEffectiveMaxContextSize(config) }
+  const normalized = normalizeUserLlmConfig(config)
+  return {
+    ...normalized,
+    maxContextSize: getEffectiveMaxContextSize(normalized),
+    maxOutputTokens: getEffectiveMaxOutputTokens(normalized),
+  }
 }
 
 function toUnusableConfig(baseConfig: LlmConfig): LlmConfig {
@@ -72,7 +78,7 @@ export function resolveModelConfig(
     const modelId = targetModel.slice(slashIdx + 1)
     const override = providerConfigs[providerId]
     if (override && getEffectiveSavedModels(override).some((m) => m.model === modelId)) {
-      const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
+      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
       if (template) {
         return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: modelId })
       }
@@ -82,7 +88,7 @@ export function resolveModelConfig(
   // 回退：按纯模型名匹配（兼容旧数据）
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (getEffectiveSavedModels(override).some((m) => m.model === targetModel)) {
-      const template = LLM_PRESETS.find((p) => p.id === providerId) ?? LLM_PRESETS.find((p) => p.id === "custom")
+      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
       if (template) {
         return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: targetModel })
       }

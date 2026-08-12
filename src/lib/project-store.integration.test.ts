@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { realFs, createTempProject, writeFileRaw, fileExists, readFileRaw } from "@/test-helpers/fs-temp"
-import type { NovelConfig, RevisionFeedbackWindowConfig, SourceWatchConfig, RerankConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig, ProviderConfigs, RevisionFeedbackWindowConfig, SourceWatchConfig, RerankConfig } from "@/stores/wiki-store"
 import type { McpConfig } from "@/lib/mcp/config"
 
 vi.mock("@/commands/fs", () => realFs)
@@ -38,6 +38,8 @@ import {
   loadSourceWatchConfig,
   saveMcpConfig,
   loadMcpConfig,
+  loadLlmConfig,
+  loadProviderConfigs,
 } from "./project-store"
 
 let tmp: { path: string; cleanup: () => Promise<void> }
@@ -49,6 +51,79 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await tmp.cleanup()
+})
+
+it("silently migrates legacy main and provider context sizes on load", async () => {
+  const llmConfig: LlmConfig = {
+    provider: "custom",
+    apiKey: "key",
+    model: "model-a",
+    customEndpoint: "https://example.com/v1",
+    ollamaUrl: "",
+    maxContextSize: 128_000,
+  }
+  const providerConfigs: ProviderConfigs = {
+    custom: {
+      apiKey: "key",
+      model: "model-a",
+      maxContextSize: 32_768,
+      enabled: false,
+    },
+  }
+  inMemoryStore.set("llmConfig", llmConfig)
+  inMemoryStore.set("providerConfigs", providerConfigs)
+
+  expect((await loadLlmConfig())?.maxContextSize).toBe(204_800)
+  expect((await loadProviderConfigs())?.custom?.maxContextSize).toBe(204_800)
+  expect((inMemoryStore.get("llmConfig") as LlmConfig).maxContextSize).toBe(204_800)
+  expect((inMemoryStore.get("providerConfigs") as ProviderConfigs).custom?.enabled).toBe(false)
+})
+
+describe("DeepSeek window migration", () => {
+  it("lifts a stale saved window to 1M once, then leaves the user in control", async () => {
+    // The runtime used to force DeepSeek to 1M, hiding whatever was saved.
+    // Removing that forcing would expose these stale values, so they are
+    // lifted once — after which a deliberate reduction must stick.
+    inMemoryStore.set("llmConfig", {
+      provider: "custom",
+      apiKey: "key",
+      model: "deepseek-chat",
+      customEndpoint: "https://api.deepseek.com/v1",
+      ollamaUrl: "",
+      maxContextSize: 262_144,
+    } satisfies LlmConfig)
+    inMemoryStore.set("providerConfigs", {
+      deepseek: { apiKey: "key", model: "deepseek-chat", maxContextSize: 262_144 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(1_000_000)
+    expect((await loadProviderConfigs())?.deepseek?.maxContextSize).toBe(1_000_000)
+
+    inMemoryStore.set("llmConfig", {
+      ...(inMemoryStore.get("llmConfig") as LlmConfig),
+      maxContextSize: 262_144,
+    })
+    inMemoryStore.set("providerConfigs", {
+      deepseek: { apiKey: "key", model: "deepseek-chat", maxContextSize: 262_144 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(262_144)
+    expect((await loadProviderConfigs())?.deepseek?.maxContextSize).toBe(262_144)
+  })
+
+  it("leaves third-party hosts serving DeepSeek models alone", async () => {
+    // 1M is DeepSeek's own figure; gateways reselling the model set their own.
+    inMemoryStore.set("llmConfig", {
+      provider: "custom",
+      apiKey: "key",
+      model: "deepseek-ai/deepseek-v4-pro",
+      customEndpoint: "https://api.atlascloud.ai/v1",
+      ollamaUrl: "",
+      maxContextSize: 262_144,
+    } satisfies LlmConfig)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(262_144)
+  })
 })
 
 function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {

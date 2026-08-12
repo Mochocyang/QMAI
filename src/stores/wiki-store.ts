@@ -31,6 +31,10 @@ import {
 } from "@/lib/visual-style-settings"
 import { DEFAULT_AI_WORKFLOW_MODE, resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
+import {
+  normalizeProviderConfigs,
+  normalizeUserLlmConfig,
+} from "@/lib/llm-context-size"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -140,7 +144,11 @@ interface LlmConfig {
   customEndpoint: string
   azureApiVersion?: string
   azureModelFamily?: AzureModelFamily
-  maxContextSize: number // max context window in characters
+  /** The model's context window, in TOKENS, as published on its spec sheet. */
+  maxContextSize: number
+  /** The model's maximum output, in TOKENS. A capability ceiling, not a
+   *  per-request size: what actually gets sent is min(workflow need, this). */
+  maxOutputTokens?: number
   apiMode?: CustomApiMode
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
@@ -443,6 +451,7 @@ export interface ProviderOverride {
   azureModelFamily?: AzureModelFamily
   apiMode?: CustomApiMode
   maxContextSize?: number
+  maxOutputTokens?: number
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
@@ -902,14 +911,16 @@ export const useWikiStore = create<WikiState>((set) => ({
   visualStyle: readStoredVisualStyle(),
   sidebarNavConfig: readStoredSidebarNavConfig(),
 
-  setLlmConfig: (llmConfig) => set({ llmConfig }),
+  setLlmConfig: (llmConfig) => set({ llmConfig: normalizeUserLlmConfig(llmConfig) }),
   setAiChatModel: (aiChatModel) => set({ aiChatModel }),
   setAiOutlineModel: (aiOutlineModel) => set((state) => ({
     aiOutlineModel,
     aiOutlineModelRevision: state.aiOutlineModelRevision + 1,
   })),
   setDefaultLlmModel: (defaultLlmModel) => set({ defaultLlmModel }),
-  setProviderConfigs: (providerConfigs) => set({ providerConfigs }),
+  setProviderConfigs: (providerConfigs) => set({
+    providerConfigs: normalizeProviderConfigs(providerConfigs),
+  }),
   setActivePresetId: (activePresetId) => set({ activePresetId }),
   setSearchApiConfig: (searchApiConfig) => set({ searchApiConfig }),
   setMcpConfig: (mcpConfig) => set({ mcpConfig }),

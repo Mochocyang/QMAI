@@ -2,8 +2,10 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import {
   getEffectiveMaxContextSize,
+  getEffectiveMaxOutputTokens,
   getProviderConfig,
   isTruncationFinishReason,
+  thinkingMinMaxTokens,
   type RequestOverrides,
 } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
@@ -16,7 +18,12 @@ import {
 } from "./reasoning-replay-debug"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
-import { trimChatMessagesToBudget } from "./chat-request-budget"
+import {
+  estimateChatMessagesTokens,
+  estimateRequestScaffoldTokens,
+  trimChatMessagesToTokenBudget,
+} from "./chat-request-budget"
+import { RESPONSE_RESERVE_FRAC, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
 
@@ -131,6 +138,8 @@ function parseToolCallDeltaFromLine(line: string): { index: number; id?: string;
       arguments: toolCall.function?.arguments,
     }
   } catch {
+    // A malformed SSE line is not fatal: skip it and keep the stream alive.
+    // The only error reachable here is JSON.parse's SyntaxError.
     return null
   }
 }
@@ -166,16 +175,62 @@ export async function streamChat(
 ): Promise<void> {
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
-  // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
-  const outputReserveChars = requestOverrides?.max_tokens
-    ? Math.max(0, requestOverrides.max_tokens * 4)
-    : Math.floor(configuredWindow * 0.15)
-  const requestInputBudget = Math.max(1, Math.min(
-    Math.floor(configuredWindow * 0.85),
-    configuredWindow - outputReserveChars,
-  ))
-  const budgetedMessages = trimChatMessagesToBudget(preparedMessages, requestInputBudget)
+  const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
+  const outputCap = getEffectiveMaxOutputTokens(runtimeConfig)
+  const thinkingFloorTokens = thinkingMinMaxTokens(runtimeConfig.reasoning ?? { mode: "auto" })
+  const runtimeBudget = planLlmRequestBudget({
+    maxContextSize: configuredWindow,
+    // Without an explicit request the response reserve is only used to size
+    // the INPUT trim; it is not sent as max_tokens unless thinking needs it
+    // (see shouldSendMaxTokens below).
+    desiredOutputTokens: requestOverrides?.max_tokens
+      ?? Math.floor(configuredWindow * RESPONSE_RESERVE_FRAC),
+    scaffoldReserveTokens: toolScaffoldTokens,
+    minimumContextTokens: 64,
+    maxOutputTokensCap: outputCap,
+    thinkingFloorTokens,
+  })
+  let effectiveOutputTokens = runtimeBudget.outputTokens
+  // Emit max_tokens when the caller asked for one, or when explicit thinking
+  // needs a known output allowance (otherwise OpenAI-compatible paths keep
+  // thinking on against an unknown provider default). auto/off without a
+  // caller value still omits the field so long-form keeps the provider default.
+  let shouldSendMaxTokens =
+    requestOverrides?.max_tokens !== undefined || thinkingFloorTokens > 0
+  let budgetedMessages: import("./llm-providers").ChatMessage[]
+  try {
+    budgetedMessages = trimChatMessagesToTokenBudget(
+      preparedMessages,
+      runtimeBudget.inputTokenBudget - toolScaffoldTokens,
+    )
+  } catch {
+    // Protected system/current-user content did not fit beside the desired output.
+    // Retry locally with the 512-token floor; no provider request is made on failure.
+    const minimumOutputTokens = 512
+    const maximumInputTokens = runtimeBudget.windowTokens
+      - toolScaffoldTokens
+      - minimumOutputTokens
+    budgetedMessages = trimChatMessagesToTokenBudget(
+      preparedMessages,
+      maximumInputTokens,
+    )
+    effectiveOutputTokens = Math.max(
+      minimumOutputTokens,
+      Math.min(
+        runtimeBudget.outputTokens,
+        runtimeBudget.windowTokens
+          - toolScaffoldTokens
+          - estimateChatMessagesTokens(budgetedMessages),
+      ),
+    )
+    // The input was trimmed against a reserved output slot, so that slot has
+    // to be declared even if the caller never asked for one.
+    shouldSendMaxTokens = true
+  }
+  const effectiveRequestOverrides: RequestOverrides = shouldSendMaxTokens
+    ? { ...requestOverrides, max_tokens: effectiveOutputTokens }
+    : { ...requestOverrides }
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
@@ -183,11 +238,11 @@ export async function streamChat(
   // HTTP. Dispatch before getProviderConfig — that function throws for
   // this provider because it has no URL/headers.
   if (runtimeConfig.provider === "claude-code") {
-    return streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, callbacks, signal, requestOverrides)
+    return streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
   }
 
   if (runtimeConfig.provider === "codex-cli") {
-    return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, requestOverrides)
+    return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
   }
 
   if (runtimeConfig.provider === "cursor-cli") {
@@ -230,7 +285,7 @@ export async function streamChat(
     const buildRequestInit = (nextMessages: import("./llm-providers").ChatMessage[]): RequestInit => ({
       method: "POST",
       headers: providerConfig.headers,
-      body: JSON.stringify(providerConfig.buildBody(nextMessages, requestOverrides)),
+      body: JSON.stringify(providerConfig.buildBody(nextMessages, effectiveRequestOverrides)),
       signal: combinedSignal,
     })
 
@@ -327,9 +382,26 @@ export async function streamChat(
       let inputLimitRetrySucceeded = false
       const inputLimit = parseInputLengthLimit(errorDetail)
       if (inputLimit) {
-        const retryRequestInit = buildRequestInit(
-          trimChatMessagesToBudget(budgetedMessages, Math.floor(inputLimit.maxLength * 0.85)),
+        const currentInputTokens = estimateChatMessagesTokens(budgetedMessages)
+        // The provider reports the overshoot in characters; we trim in tokens.
+        // Applying the ratio across units is a heuristic, not an exact
+        // conversion — it only has to land us under the limit, and the 0.85
+        // factor absorbs the imprecision.
+        const shrinkRatio = Math.min(1, inputLimit.maxLength / Math.max(1, inputLimit.inputLength))
+        const retryInputTokenBudget = Math.max(
+          1,
+          Math.floor(currentInputTokens * shrinkRatio * 0.85),
         )
+        let retryMessages: import("./llm-providers").ChatMessage[]
+        try {
+          retryMessages = trimChatMessagesToTokenBudget(budgetedMessages, retryInputTokenBudget)
+        } catch {
+          // Even the protected messages exceed the provider's limit; there is
+          // nothing left to shrink, so report the original limit.
+          onError(new Error(inputLengthLimitMessage(inputLimit)))
+          return
+        }
+        const retryRequestInit = buildRequestInit(retryMessages)
         if (retryRequestInit.body === requestInit.body) {
           onError(new Error(inputLengthLimitMessage(inputLimit)))
           return

@@ -16,7 +16,7 @@ import {
 import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage } from "../llm-usage"
-import { trimChatMessagesToBudget } from "../chat-request-budget"
+import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 import {
@@ -168,9 +168,23 @@ export class AgentRunner {
         return record
       }
       const streamRound = async () => {
+        // maxContextSize is already a token count; the remaining quarter of the
+        // window covers the response and prompt scaffolding.
         const effectiveContext = getEffectiveMaxContextSize(config.llmConfig)
         const internalBudget = Math.max(1, Math.floor(effectiveContext * 0.75))
-        const compacted = trimChatMessagesToBudget(workingMessages as ChatMessage[], internalBudget) as AgentMessage[]
+        let compacted: AgentMessage[]
+        try {
+          compacted = trimChatMessagesToTokenBudget(
+            workingMessages as ChatMessage[],
+            internalBudget,
+          ) as AgentMessage[]
+        } catch {
+          // streamChat retries with a 512-token output floor before giving up;
+          // surface a readable reason instead of the bare budget error.
+          throw new Error(
+            "模型上下文不足：当前对话即使压缩后仍放不下系统提示与最新请求。请缩短输入，或在设置中调高该模型的上下文窗口。",
+          )
+        }
         workingMessages.splice(0, workingMessages.length, ...compacted)
         await streamChat(
           config.llmConfig,

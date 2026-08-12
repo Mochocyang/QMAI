@@ -1,4 +1,8 @@
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
+import {
+  normalizeUserLlmContextSize,
+  normalizeUserLlmMaxOutputTokens,
+} from "@/lib/llm-context-size"
 
 const trimEnv = (value: unknown): string => {
   return typeof value === "string" ? value.trim() : ""
@@ -6,7 +10,12 @@ const trimEnv = (value: unknown): string => {
 
 const readContextSize = (): number => {
   const raw = Number(trimEnv(import.meta.env.VITE_QMAI_LLM_CONTEXT_SIZE))
-  return Number.isFinite(raw) && raw > 0 ? raw : 204800
+  return normalizeUserLlmContextSize(raw)
+}
+
+const readMaxOutputTokens = (): number => {
+  const raw = Number(trimEnv(import.meta.env.VITE_QMAI_LLM_MAX_OUTPUT_TOKENS))
+  return normalizeUserLlmMaxOutputTokens(raw)
 }
 
 export function loadEnvLlmDefault(): {
@@ -21,6 +30,7 @@ export function loadEnvLlmDefault(): {
   if (!apiKey || !customEndpoint || !model) return null
 
   const maxContextSize = readContextSize()
+  const maxOutputTokens = readMaxOutputTokens()
   const config: LlmConfig = {
     provider: "custom",
     apiKey,
@@ -28,6 +38,7 @@ export function loadEnvLlmDefault(): {
     ollamaUrl: "http://localhost:11434",
     customEndpoint,
     maxContextSize,
+    maxOutputTokens,
     apiMode: "chat_completions",
     reasoning: { mode: "auto" },
   }
@@ -41,6 +52,7 @@ export function loadEnvLlmDefault(): {
         baseUrl: customEndpoint,
         apiMode: "chat_completions",
         maxContextSize,
+        maxOutputTokens,
         reasoning: { mode: "auto" },
       },
     },

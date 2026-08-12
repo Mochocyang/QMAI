@@ -1,77 +1,50 @@
 /**
- * Pure budget allocator for chat context assembly.
+ * Pure budget allocator for LLM request assembly.
  *
- * Given an LLM's `maxContextSize` (in characters — see wiki-store.ts;
- * yes, that's a quirky unit, but tokens-vs-chars conversion lives
- * elsewhere), compute the per-section character budgets used by
- * chat-panel when packing the prompt.
+ * `maxContextSize` is the model's context window in TOKENS — it is copied
+ * straight from the provider's spec sheet (Gemini 1M, Kimi 256K, …) by the
+ * settings UI. Two domains are derived from it here:
  *
- * Why this is its own module:
- *   - The math has corner cases that deserve their own tests
- *     (tiny configs, huge configs, the legacy 30K cap removal).
- *   - Inlining it in chat-panel.tsx made it untestable in isolation.
+ *   - Token domain (`planLlmRequestBudget` and the chapter/outline planners):
+ *     works in the same unit as the window, so no conversion happens at all.
+ *     This is the authoritative allocator — it guarantees input + output fit.
+ *   - Character domain (`computeContextBudget`): converts the token window
+ *     into how many CHARACTERS of prompt text will fit, for the callers that
+ *     slice raw strings. The conversion rate is language-dependent, which is
+ *     what `charsPerTokenForLanguage` supplies.
  *
- * The shape of the budget:
- *
- *   ┌─────────────────────────────────────────────────────┐
- *   │              maxCtx (100%)                          │
- *   ├──────┬───────────────┬──────────────────┬───────────┤
- *   │ idx  │   pages       │  history + sys   │  resp     │
- *   │  5%  │    50%        │    ~30%          │   15%     │
- *   └──────┴───────────────┴──────────────────┴───────────┘
- *
- * `historyAndSystem` isn't returned because it's not enforced as a
- * single budget — system prompt is roughly fixed-size, and history
- * is gated by `maxHistoryMessages` (count, not bytes). The leftover
- * just provides headroom.
- *
- * The response reserve is a "passive" reservation: we don't pass
- * `max_tokens: responseReserve / 3` to the LLM (yet — that's a
- * follow-up). We just refuse to fill above (maxCtx - responseReserve)
- * so the LLM has room to actually answer.
+ * The two must never both apply a language factor to the same value: the
+ * token domain already speaks tokens, so scaling it by language would count
+ * the same density twice.
  */
 
 import i18n from "@/i18n"
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 /** Result of `computeContextBudget`. All values are character counts. */
 export interface ContextBudget {
-  /** The model's full context window (always populated; falls back
-   *  to a sensible default when caller passes 0/undefined). */
+  /** How many characters of prompt text the model's token window holds,
+   *  at the active language's density. Falls back to a sensible default
+   *  when the caller passes 0/undefined. */
   maxCtx: number
   /** Characters NOT to be filled with prompt content — left empty so
    *  the LLM has room to write its response. */
   responseReserve: number
-  /** Wiki index summary budget. ~5% — enough to list every page's
-   *  title without occupying serious budget. */
-  indexBudget: number
-  /** Total characters available for retrieved wiki page content. */
-  pageBudget: number
-  /** Per-page truncation cap. A single page won't be embedded longer
-   *  than this even if `pageBudget` would allow it. Scales with
-   *  pageBudget (used to be hard-capped at 30,000 chars regardless
-   *  of context size — that wasted budget on long-context models). */
-  maxPageSize: number
 }
 
 const DEFAULT_MAX_CTX = 204_800
-const RESPONSE_RESERVE_FRAC = 0.15
-const INDEX_BUDGET_FRAC = 0.05
-const PAGE_BUDGET_FRAC = 0.5
-const PER_PAGE_FRAC = 0.3
-const PER_PAGE_FLOOR = 5_000
+export const RESPONSE_RESERVE_FRAC = 0.15
 
-/** Approximate characters per token the whole budgeting layer assumes.
- *  `maxContextSize` is expressed in CHARACTERS under the English-ish
- *  assumption of ~4 chars/token (see contextPackToPrompt). */
+/** Characters per token for English-ish text — the conventional 4:1. */
 const CHARS_PER_TOKEN = 4
-/** Empirical chars/token for CJK (Chinese/Japanese/Korean) text. CJK is
- *  ~2.3x denser than English, so the same character budget maps to far
- *  more tokens and can overflow the model window. */
-const CHARS_PER_TOKEN_CJK = 1.7
-/** Effective-window multiplier for CJK UIs. Shrinks the character budget
- *  so its TOKEN footprint matches what the English assumption expects,
- *  keeping token usage comparable across languages. ≈ 0.425. */
-const CJK_CONTEXT_SCALE = CHARS_PER_TOKEN_CJK / CHARS_PER_TOKEN
+/** Characters per token for CJK text. Deliberately 1.0 to match
+ *  `src/lib/context-hub/token-estimator.ts`, which counts one CJK character
+ *  as one token. A looser value here would let the character budgets admit
+ *  more text than the token estimator allows, so the surplus would be packed
+ *  in and then trimmed back out in `streamChat` — wasted work and lost
+ *  content. Real tokenizers land around 1–1.5 chars/token, so 1.0 is the
+ *  safe end. */
+const CHARS_PER_TOKEN_CJK = 1
 
 function isCjkLanguage(lang: string | undefined): boolean {
   if (!lang) return false
@@ -80,59 +53,39 @@ function isCjkLanguage(lang: string | undefined): boolean {
 }
 
 /**
- * Window scale for a UI language. English (and any non-CJK language)
- * returns 1 → zero behavioural change. CJK returns `CJK_CONTEXT_SCALE`
- * so the character budgets translate to a safe token footprint.
+ * How many characters one token holds in a given UI language, used to turn
+ * the model's token window into a character budget.
  *
  * `lang` defaults to the active i18n language; pass an explicit value
  * (e.g. in tests) to keep the calculation deterministic.
  */
-export function contextScaleForLanguage(lang?: string): number {
+export function charsPerTokenForLanguage(lang?: string): number {
   const resolved =
     lang ?? (typeof i18n?.language === "string" ? i18n.language : undefined)
-  return isCjkLanguage(resolved) ? CJK_CONTEXT_SCALE : 1
+  return isCjkLanguage(resolved) ? CHARS_PER_TOKEN_CJK : CHARS_PER_TOKEN
 }
 
 /**
- * Compute character budgets from the LLM's max context window.
+ * Convert the model's token window into character budgets.
  *
- * Falsy `maxContextSize` (0 / NaN / undefined) falls back to the
- * pre-Phase-1 default of 200K chars so existing configs don't break.
+ * Falsy `maxContextSize` (0 / NaN / undefined) falls back to the default
+ * 200K-token window so existing configs don't break.
  */
 export function computeContextBudget(
   maxContextSize: number | undefined,
-  langScale: number = contextScaleForLanguage(),
+  charsPerToken: number = charsPerTokenForLanguage(),
 ): ContextBudget {
-  const rawMaxCtx =
+  const windowTokens =
     typeof maxContextSize === "number" && maxContextSize > 0
       ? maxContextSize
       : DEFAULT_MAX_CTX
-  const scale = typeof langScale === "number" && langScale > 0 ? langScale : 1
-  const maxCtx = Math.max(1, Math.floor(rawMaxCtx * scale))
-
-  const responseReserve = Math.floor(maxCtx * RESPONSE_RESERVE_FRAC)
-  const indexBudget = Math.floor(maxCtx * INDEX_BUDGET_FRAC)
-  const pageBudget = Math.floor(maxCtx * PAGE_BUDGET_FRAC)
-
-  // Per-page cap rules:
-  //   - At minimum, allow PER_PAGE_FLOOR (5K) so a small config still
-  //     fits one short page.
-  //   - At maximum, never exceed pageBudget itself — for tiny configs
-  //     where pageBudget < 5K, the floor would otherwise allow a
-  //     single page bigger than the entire page budget, which then
-  //     gets entirely rejected by tryAddPage in chat-panel.
-  //   - Otherwise scale linearly with pageBudget at PER_PAGE_FRAC (30%).
-  const maxPageSize = Math.min(
-    pageBudget,
-    Math.max(PER_PAGE_FLOOR, Math.floor(pageBudget * PER_PAGE_FRAC)),
-  )
+  const density =
+    typeof charsPerToken === "number" && charsPerToken > 0 ? charsPerToken : CHARS_PER_TOKEN
+  const maxCtx = Math.max(1, Math.floor(windowTokens * density))
 
   return {
     maxCtx,
-    responseReserve,
-    indexBudget,
-    pageBudget,
-    maxPageSize,
+    responseReserve: Math.floor(maxCtx * RESPONSE_RESERVE_FRAC),
   }
 }
 
@@ -156,18 +109,21 @@ const NOVEL_CONTEXT_TOKEN_FLOOR = 4_000
  * clamped to the window-derived cap; when unset the cap itself is used so
  * the injection is never truly unbounded.
  *
- * Unit note: `maxContextSize` is in CHARACTERS while `contextPackToPrompt`
- * expects a TOKEN budget (~4 chars/token), hence the division.
+ * Stays entirely in the token domain: the window is already tokens and the
+ * consumer wants tokens, so there is no character round-trip and no language
+ * factor. Language density is the token estimator's job.
  */
 export function computeNovelContextTokenBudget(
   maxContextSize: number | undefined,
   requestedTokenBudget?: number,
-  langScale?: number,
 ): number {
-  const { maxCtx } = computeContextBudget(maxContextSize, langScale)
+  const windowTokens =
+    typeof maxContextSize === "number" && maxContextSize > 0
+      ? maxContextSize
+      : DEFAULT_MAX_CTX
   const cap = Math.max(
     NOVEL_CONTEXT_TOKEN_FLOOR,
-    Math.floor((maxCtx * NOVEL_CONTEXT_FRAC) / CHARS_PER_TOKEN),
+    Math.floor(windowTokens * NOVEL_CONTEXT_FRAC),
   )
   if (requestedTokenBudget && requestedTokenBudget > 0) {
     return Math.min(requestedTokenBudget, cap)
@@ -179,7 +135,6 @@ export interface ResolveContextPackTokenBudgetInput {
   maxContextSize?: number
   /** User setting; 0 / undefined = auto from window. */
   contextTokenBudget?: number
-  langScale?: number
 }
 
 /**
@@ -192,63 +147,210 @@ export function resolveContextPackTokenBudget(
   return computeNovelContextTokenBudget(
     input.maxContextSize,
     input.contextTokenBudget,
-    input.langScale,
   )
 }
 
-/** Output reserve multiplier: chapter target chars × this factor. */
+export const MIN_LLM_OUTPUT_TOKENS = 512
+
+export class LlmContextBudgetError extends Error {
+  constructor(message = "模型上下文不足：无法同时容纳系统提示、当前用户请求和最小输出空间。") {
+    super(message)
+    this.name = "LlmContextBudgetError"
+  }
+}
+
+/**
+ * Headroom kept between our token estimates and the model's real window.
+ * Estimation is approximate in both directions (tokenizer differences,
+ * scaffolding we don't see), so we plan against 90% of the advertised
+ * window. This replaces an earlier `/ 4`, which looked like a safety factor
+ * but was actually a character-to-token conversion applied to a value that
+ * was already in tokens — shrinking every window to a quarter of its size.
+ */
+const LLM_WINDOW_SAFETY_FRAC = 0.9
+
+export interface LlmRequestBudgetInput {
+  maxContextSize?: number
+  desiredOutputTokens: number
+  requestedContextTokens?: number
+  scaffoldReserveTokens: number
+  minimumContextTokens?: number
+  minimumOutputTokens?: number
+  /** The model's declared maximum output, from the user's settings. Output
+   *  is never planned above this even when the window could hold more. */
+  maxOutputTokensCap?: number
+  /** Output the active reasoning level needs before it can produce any final
+   *  content (`thinkingMinMaxTokens`). Raises the plan, but stays subject to
+   *  the cap and the window — unlike a floor applied to the request body,
+   *  which would silently break the conservation guaranteed here. */
+  thinkingFloorTokens?: number
+}
+
+export interface LlmRequestBudgetPlan {
+  windowTokens: number
+  outputTokens: number
+  contextTokenBudget: number
+  scaffoldReserveTokens: number
+  inputTokenBudget: number
+}
+
+function finiteNonNegative(value: number | undefined, fallback = 0): number {
+  return Number.isFinite(value) && (value as number) > 0
+    ? Math.floor(value as number)
+    : fallback
+}
+
+/** Token-domain conservation kernel shared by chapter and outline workflows. */
+export function planLlmRequestBudget(input: LlmRequestBudgetInput): LlmRequestBudgetPlan {
+  const rawWindow = Number.isFinite(input.maxContextSize) && (input.maxContextSize as number) > 0
+    ? Math.floor(input.maxContextSize as number)
+    : normalizeUserLlmContextSize(undefined)
+  const windowTokens = Math.max(1, Math.floor(rawWindow * LLM_WINDOW_SAFETY_FRAC))
+  const scaffoldReserveTokens = finiteNonNegative(input.scaffoldReserveTokens)
+  const minimumOutputTokens = Math.max(
+    MIN_LLM_OUTPUT_TOKENS,
+    finiteNonNegative(input.minimumOutputTokens, MIN_LLM_OUTPUT_TOKENS),
+  )
+  const outputCap = finiteNonNegative(input.maxOutputTokensCap, Number.MAX_SAFE_INTEGER)
+  const desiredOutputTokens = Math.max(
+    minimumOutputTokens,
+    finiteNonNegative(input.desiredOutputTokens, minimumOutputTokens),
+  )
+  // The thinking floor may not push output past what the model can emit.
+  const thinkingFloorTokens = Math.min(finiteNonNegative(input.thinkingFloorTokens), outputCap)
+  const targetOutputTokens = Math.max(desiredOutputTokens, thinkingFloorTokens)
+  const minimumContextTokens = finiteNonNegative(input.minimumContextTokens)
+  const available = windowTokens - scaffoldReserveTokens
+  if (available < minimumOutputTokens) throw new LlmContextBudgetError()
+
+  // Keep the requested minimum context where possible, then allocate output.
+  // If both cannot fit, context is the degradable side; output never drops below 512.
+  const outputCeiling = Math.max(
+    minimumOutputTokens,
+    Math.min(outputCap, available - minimumContextTokens),
+  )
+  const outputTokens = Math.min(targetOutputTokens, outputCeiling)
+  const remainingForContext = Math.max(0, available - outputTokens)
+  const requestedContextTokens = finiteNonNegative(input.requestedContextTokens)
+  const contextTokenBudget = requestedContextTokens > 0
+    ? Math.min(requestedContextTokens, remainingForContext)
+    : remainingForContext
+  const inputTokenBudget = windowTokens - outputTokens
+
+  return {
+    windowTokens,
+    outputTokens,
+    contextTokenBudget,
+    scaffoldReserveTokens,
+    inputTokenBudget,
+  }
+}
+
+export type ChapterBudgetStage = "analysis" | "generation"
+
+export interface PlanChapterRequestBudgetInput {
+  maxContextSize?: number
+  contextTokenBudget?: number
+  chapterTargetChars?: number
+  stage: ChapterBudgetStage
+  maxOutputTokens?: number
+  thinkingFloorTokens?: number
+}
+
+function chapterMaxOutputTokens(targetChars?: number): number {
+  const target = Number.isFinite(targetChars) && (targetChars as number) > 0
+    ? Math.max(2_000, Math.min(6_000, Math.round(targetChars as number)))
+    : 3_000
+  return target === 3_000 ? 8_000 : Math.max(8_000, Math.ceil((target + 500) * 2))
+}
+
+export function planChapterRequestBudget(
+  input: PlanChapterRequestBudgetInput,
+): LlmRequestBudgetPlan {
+  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  const genericContextCap = computeNovelContextTokenBudget(
+    normalizedWindow,
+    input.contextTokenBudget,
+  )
+  // Chapter output is sized from the user's target chapter length rather than
+  // a share of the window: a 3000-character chapter needs the same output on a
+  // 200K model as on a 1M one.
+  return planLlmRequestBudget({
+    maxContextSize: normalizedWindow,
+    desiredOutputTokens: input.stage === "analysis"
+      ? 4_096
+      : chapterMaxOutputTokens(input.chapterTargetChars),
+    requestedContextTokens: genericContextCap,
+    scaffoldReserveTokens: 8_000,
+    minimumContextTokens: 2_000,
+    maxOutputTokensCap: input.maxOutputTokens,
+    thinkingFloorTokens: input.thinkingFloorTokens,
+  })
+}
+
+export type OutlineBudgetStage = "analysis" | "generation"
+
+/** Share of the window the outline's own response may claim. Reuses the
+ *  response reserve the rest of the budgeting layer already assumes. */
+const OUTLINE_GENERATION_OUTPUT_FRAC = RESPONSE_RESERVE_FRAC
+/** Analysis passes summarise rather than draft, so they need far less. */
+const OUTLINE_ANALYSIS_OUTPUT_FRAC = 0.04
+
+export interface PlanOutlineRequestBudgetInput {
+  maxContextSize?: number
+  contextTokenBudget?: number
+  stage: OutlineBudgetStage
+  maxOutputTokens?: number
+  thinkingFloorTokens?: number
+}
+
+export function planOutlineRequestBudget(
+  input: PlanOutlineRequestBudgetInput,
+): LlmRequestBudgetPlan {
+  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  // Scales with the window instead of stepping through fixed tiers, and is
+  // then bounded by the user's declared output cap inside the kernel.
+  const desiredOutputTokens = Math.floor(normalizedWindow * (input.stage === "analysis"
+    ? OUTLINE_ANALYSIS_OUTPUT_FRAC
+    : OUTLINE_GENERATION_OUTPUT_FRAC))
+  const genericContextCap = computeNovelContextTokenBudget(
+    normalizedWindow,
+    input.contextTokenBudget,
+  )
+  return planLlmRequestBudget({
+    maxContextSize: normalizedWindow,
+    desiredOutputTokens,
+    requestedContextTokens: genericContextCap,
+    scaffoldReserveTokens: 8_192,
+    minimumContextTokens: 4_000,
+    maxOutputTokensCap: input.maxOutputTokens,
+    thinkingFloorTokens: input.thinkingFloorTokens,
+  })
+}
+
+/** Legacy compatibility constant retained for callers/tests that compare old reserves. */
 export const WRITING_OUTPUT_RESERVE_MULTIPLIER = 2
-/** Minimum scaffold reserve for writing prompts (instructions / outline shell). */
-const WRITING_SCAFFOLD_RESERVE_FLOOR = 8_000
-const WRITING_SCAFFOLD_RESERVE_FRAC = 0.08
 
 export interface ComputeWritingContextPackTokenBudgetInput {
   maxContextSize?: number
   contextTokenBudget?: number
   chapterTargetChars?: number
-  langScale?: number
+  maxOutputTokens?: number
 }
 
 /**
- * Deep-chapter ContextPack budget: window minus output reserve (target×2)
- * and scaffold, then clamped by the general window cap / user budget.
+ * Compatibility wrapper over the shared chapter-generation budget strategy.
  */
 export function computeWritingContextPackTokenBudget(
   input: ComputeWritingContextPackTokenBudgetInput,
 ): number {
-  const langScale = input.langScale
-  const { maxCtx } = computeContextBudget(input.maxContextSize, langScale)
-  // Inline clamp mirrors resolveChapterLengthSpec without importing deep-chapter-prompts
-  // (avoids circular deps). Keep in sync with DEEP_CHAPTER 2000–6000 bounds.
-  const rawTarget = input.chapterTargetChars
-  const target = Number.isFinite(rawTarget) && (rawTarget as number) > 0
-    ? Math.max(2_000, Math.min(6_000, Math.round(rawTarget as number)))
-    : 3_000
-  // Same formula as resolveChapterLengthSpec.maxOutputTokens.
-  const maxOutputTokens = target === 3_000
-    ? 8_000
-    : Math.max(8_000, Math.ceil((target + 500) * 2))
-  // User redundancy: 2× target chars at CJK density (~1.7 chars/token), then take the
-  // larger of that vs the chapter maxOutputTokens so generation headroom is real.
-  const targetReserveTokens = Math.ceil(
-    (target * WRITING_OUTPUT_RESERVE_MULTIPLIER) / CHARS_PER_TOKEN_CJK,
-  )
-  const outputReserveTokens = Math.max(targetReserveTokens, maxOutputTokens)
-  const outputReserveChars = outputReserveTokens * CHARS_PER_TOKEN
-  const scaffoldReserveChars = Math.max(
-    WRITING_SCAFFOLD_RESERVE_FLOOR,
-    Math.floor(maxCtx * WRITING_SCAFFOLD_RESERVE_FRAC),
-  )
-  const availableChars = Math.max(0, maxCtx - outputReserveChars - scaffoldReserveChars)
-  // Do not inflate with NOVEL_CONTEXT_TOKEN_FLOOR: that would steal the output reserve
-  // on small windows. Prefer leaving room for chapter generation.
-  const derivedTokens = Math.max(0, Math.floor(availableChars / CHARS_PER_TOKEN))
-  const windowCap = computeNovelContextTokenBudget(input.maxContextSize, 0, langScale)
-  const autoTokens = Math.min(derivedTokens, windowCap)
-  if (input.contextTokenBudget && input.contextTokenBudget > 0) {
-    return Math.min(input.contextTokenBudget, autoTokens)
-  }
-  return autoTokens
+  return planChapterRequestBudget({
+    maxContextSize: input.maxContextSize,
+    contextTokenBudget: input.contextTokenBudget,
+    chapterTargetChars: input.chapterTargetChars,
+    stage: "generation",
+    maxOutputTokens: input.maxOutputTokens,
+  }).contextTokenBudget
 }
 
 /** Legacy single-pass outline ingest floor; kept so small windows still behave predictably. */
@@ -264,15 +366,15 @@ function clampBudget(value: number, min: number, max: number): number {
  * Character budget for the outline body in `ingestOutline`.
  *
  * Reserves space for fixed prompts and JSON output, then allocates the
- * remainder to the outline markdown. Scales with `maxContextSize` and
- * CJK language scale like other budget helpers.
+ * remainder to the outline markdown. Scales with `maxContextSize` and the
+ * active language's character density like other character-domain helpers.
  */
 export function computeOutlineIngestBodyBudget(
   maxContextSize: number | undefined,
   promptOverheadChars: number,
-  langScale?: number,
+  charsPerToken?: number,
 ): number {
-  const { maxCtx, responseReserve } = computeContextBudget(maxContextSize, langScale)
+  const { maxCtx, responseReserve } = computeContextBudget(maxContextSize, charsPerToken)
   const outputReserve = Math.max(responseReserve, Math.floor(maxCtx * 0.15))
   const instructionReserve = Math.max(promptOverheadChars, Math.floor(maxCtx * 0.08))
   const available = maxCtx - outputReserve - instructionReserve

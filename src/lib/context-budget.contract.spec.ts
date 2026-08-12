@@ -2,11 +2,10 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
-  computeContextBudget,
   computeNovelContextTokenBudget,
   computeWritingContextPackTokenBudget,
+  planChapterRequestBudget,
   resolveContextPackTokenBudget,
-  WRITING_OUTPUT_RESERVE_MULTIPLIER,
 } from "./context-budget"
 
 describe("context pack budget contracts", () => {
@@ -15,50 +14,44 @@ describe("context pack budget contracts", () => {
       const general = resolveContextPackTokenBudget({
         maxContextSize,
         contextTokenBudget: 0,
-        langScale: 1,
       })
       const writing = computeWritingContextPackTokenBudget({
         maxContextSize,
         contextTokenBudget: 0,
         chapterTargetChars: 3_000,
-        langScale: 1,
       })
       expect(Number.isFinite(general)).toBe(true)
       expect(Number.isFinite(writing)).toBe(true)
       expect(general).toBeGreaterThan(0)
       expect(writing).toBeGreaterThan(0)
-      expect(general).toBeLessThanOrEqual(computeNovelContextTokenBudget(maxContextSize, 0, 1))
-      expect(writing).toBeLessThanOrEqual(general)
+      expect(general).toBeLessThanOrEqual(computeNovelContextTokenBudget(maxContextSize, 0))
+      const normalizedGeneral = resolveContextPackTokenBudget({
+        maxContextSize: Math.max(204_800, maxContextSize),
+        contextTokenBudget: 0,
+      })
+      expect(writing).toBeLessThanOrEqual(normalizedGeneral)
     }
   })
 
-  it("writing budget collapses to zero when the window cannot fit output reserve", () => {
+  it("writing adapter migrates a legacy small window before allocating", () => {
     const writing = computeWritingContextPackTokenBudget({
       maxContextSize: 32_000,
       chapterTargetChars: 3_000,
-      langScale: 1,
     })
-    expect(writing).toBe(0)
+    expect(writing).toBe(133_120)
   })
 
   it("writing pack leaves room for output-token reserve plus scaffold", () => {
     for (const chapterTargetChars of [2_000, 3_000, 6_000]) {
       for (const maxContextSize of [64_000, 204_800]) {
-        const { maxCtx } = computeContextBudget(maxContextSize, 1)
-        const packTokens = computeWritingContextPackTokenBudget({
+        const plan = planChapterRequestBudget({
           maxContextSize,
           chapterTargetChars,
-          langScale: 1,
+          stage: "generation",
         })
-        const maxOutputTokens = chapterTargetChars === 3_000
-          ? 8_000
-          : Math.max(8_000, Math.ceil((chapterTargetChars + 500) * 2))
-        const targetReserveTokens = Math.ceil(
-          (chapterTargetChars * WRITING_OUTPUT_RESERVE_MULTIPLIER) / 1.7,
-        )
-        const outputReserveChars = Math.max(targetReserveTokens, maxOutputTokens) * 4
-        const scaffold = Math.max(8_000, Math.floor(maxCtx * 0.08))
-        expect(packTokens * 4 + outputReserveChars + scaffold).toBeLessThanOrEqual(maxCtx)
+        expect(
+          plan.contextTokenBudget + plan.outputTokens + plan.scaffoldReserveTokens,
+        ).toBeLessThanOrEqual(plan.windowTokens)
       }
     }
   })
@@ -77,7 +70,8 @@ describe("context pack budget contracts", () => {
 
   it("deep chapter no longer hard-codes a 32000 context budget", () => {
     const source = readFileSync(resolve(__dirname, "./novel/deep-chapter-generation.ts"), "utf8")
-    expect(source).toContain("computeWritingContextPackTokenBudget({")
+    expect(source).toContain("planChapterRequestBudget({")
+    expect(source).toContain("max_tokens: chapterGenerationBudget.outputTokens")
     expect(source).not.toContain("DEEP_CHAPTER_CONTEXT_TOKEN_BUDGET")
   })
 })

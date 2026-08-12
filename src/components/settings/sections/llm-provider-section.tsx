@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode, type SavedModel } from "@/stores/wiki-store"
 import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
+import { OutputTokensSelector } from "../output-tokens-selector"
 import { resolveConfig } from "../preset-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
@@ -17,6 +18,32 @@ import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
+import {
+  MIN_USER_LLM_CONTEXT_SIZE,
+  normalizeProviderOverride,
+  normalizeUserLlmMaxOutputTokens,
+} from "@/lib/llm-context-size"
+import { thinkingMinMaxTokens } from "@/lib/llm-providers"
+
+/**
+ * Raise the declared output ceiling when the chosen reasoning level needs more
+ * room than it currently allows.
+ *
+ * Thinking and the final answer share one output allowance. When the ceiling is
+ * too low the request layer drops thinking rather than silently inflating
+ * `max_tokens` past what the model accepts, so the fix belongs here: adjust the
+ * user's own setting, at the moment they change the level, where they can see
+ * and undo it.
+ */
+export function withOutputRoomForReasoning(
+  reasoning: ReasoningConfig,
+  currentMaxOutputTokens: number | undefined,
+): ProviderOverride {
+  const required = thinkingMinMaxTokens(reasoning)
+  const current = normalizeUserLlmMaxOutputTokens(currentMaxOutputTokens)
+  if (required <= current) return { reasoning }
+  return { reasoning, maxOutputTokens: normalizeUserLlmMaxOutputTokens(required) }
+}
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -51,7 +78,10 @@ export function LlmProviderSection() {
   }
 
   function updateOverride(id: string, patch: ProviderOverride) {
-    const merged: ProviderOverride = { ...(providerConfigs[id] ?? {}), ...patch }
+    const merged: ProviderOverride = normalizeProviderOverride({
+      ...(providerConfigs[id] ?? {}),
+      ...patch,
+    })
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
     persist(next, activePresetId).catch(() => {})
@@ -88,10 +118,22 @@ export function LlmProviderSection() {
         </p>
       </div>
 
+      <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <div className="font-medium">
+            {t("settings.sections.llm.longWritingContextTitle")}
+          </div>
+          <p className="mt-0.5 text-xs leading-relaxed">
+            {t("settings.sections.llm.longWritingContextHint")}
+          </p>
+        </div>
+      </div>
+
       {/* Custom Provider Cards - 放在顶部 */}
       <CustomProviderCards />
 
-      {/* Built-in Presets - 内置预设，过滤掉通用的"自定义模型"预设 */}
+      {/* Keep every provider; each provider defaults to at least the writing floor. */}
       <div className="space-y-2">
         {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => {
           const ov = providerConfigs[preset.id]
@@ -158,7 +200,10 @@ function PresetRow({
   const baseUrl = ov.baseUrl ?? preset.baseUrl ?? ""
   const azureApiVersion = ov.azureApiVersion ?? preset.azureApiVersion ?? AZURE_OPENAI_API_VERSION
   const azureModelFamily = ov.azureModelFamily ?? preset.azureModelFamily ?? "auto"
-  const context = ov.maxContextSize ?? preset.suggestedContextSize ?? 131072
+  const context = ov.maxContextSize ?? preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE
+  const maxOutputTokens = normalizeUserLlmMaxOutputTokens(
+    ov.maxOutputTokens ?? preset.suggestedMaxOutputTokens,
+  )
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
@@ -680,9 +725,18 @@ function PresetRow({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>{t("settings.sections.llm.maxOutputTokens")}</Label>
+            <OutputTokensSelector
+              value={maxOutputTokens}
+              contextWindow={context}
+              onChange={(v) => onChange({ maxOutputTokens: v })}
+            />
+          </div>
+
           <ReasoningControls
             value={reasoning}
-            onChange={(reasoning) => onChange({ reasoning })}
+            onChange={(next) => onChange(withOutputRoomForReasoning(next, maxOutputTokens))}
           />
 
           <FunctionCallingControls

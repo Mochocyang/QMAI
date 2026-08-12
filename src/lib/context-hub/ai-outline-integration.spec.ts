@@ -34,9 +34,12 @@ describe("AI outline context hub integration", () => {
     expect(source).toContain("contextHub.saveSnapshot(`${messageId}:${runId}`, contextHubResult)")
   })
 
-  it("passes model window size so unlimited token budget scales safely", () => {
-    expect(source).toContain("tokenBudget: novelConfig.contextTokenBudget,")
+  it("passes the shared workflow budget and model window to Context Hub", () => {
+    expect(source).toContain("tokenBudget: outlineRequestBudget.contextTokenBudget,")
+    expect(source).toContain("tokenBudget: resumeRequestBudget.contextTokenBudget,")
+    expect(source).toContain("tokenBudget: regenerationRequestBudget.contextTokenBudget,")
     expect(source).toContain("maxContextSize: effectiveLlmConfig.maxContextSize,")
-    expect(source).not.toContain("contextTokenBudget > 0")
+    expect(source).toContain("max_tokens: requestBudget.outputTokens")
+    expect(source).not.toContain("max_tokens: Math.max(")
   })
 })

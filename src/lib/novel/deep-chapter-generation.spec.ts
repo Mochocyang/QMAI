@@ -1211,7 +1211,7 @@ describe("runDeepChapterGeneration", () => {
     expect(capturedPrompts[1]).toContain("冷峻克制")
   })
 
-  it("does not pass app-side max_tokens limits to deep chapter model calls", async () => {
+  it("binds analysis and generation budgets to deep chapter model calls", async () => {
     const deps = createDeps()
     const overrides: Array<RequestOverrides | undefined> = []
     vi.mocked(deps.streamChat).mockImplementation(async (
@@ -1235,13 +1235,49 @@ describe("runDeepChapterGeneration", () => {
     })
 
     await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        // Auto reasoning carries no output floor, so the per-stage budgets show through.
+        llmConfig: { ...llmConfig, reasoning: { mode: "auto" } },
+      },
+      {},
+      deps,
+    )
+
+    expect(overrides.length).toBeGreaterThan(0)
+    expect(overrides.every((item) => typeof item?.max_tokens === "number")).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 4_096)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 8_000)).toBe(true)
+  })
+
+  it("raises stage output to the floor the configured reasoning level needs", async () => {
+    const deps = createDeps()
+    const overrides: Array<RequestOverrides | undefined> = []
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+      _signal,
+      requestOverrides,
+    ) => {
+      overrides.push(requestOverrides)
+      const prompt = messagesPromptText(messages)
+      callbacks.onToken(prompt.includes("正文") ? chapterText("思考档位正文", 3000) : "写作任务书内容")
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      // llmConfig requests "high" reasoning, which needs 16384 output tokens
+      // before it can emit any final content.
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig },
       {},
       deps,
     )
 
     expect(overrides.length).toBeGreaterThan(0)
-    expect(overrides.every((item) => item?.max_tokens === undefined)).toBe(true)
+    expect(overrides.every((item) => item?.max_tokens === 16_384)).toBe(true)
   })
 
   it("preserves configured model reasoning for chapter generation calls", async () => {
@@ -1309,7 +1345,12 @@ describe("runDeepChapterGeneration", () => {
 
     expect(result.finalContent).toContain("最终兜底正文")
     expect(overrides[0]?.reasoning).toBeUndefined()
-    expect(overrides[1]).toEqual({ reasoning: { mode: "off" } })
+    expect(overrides[1]).toEqual({
+      // Budgets are planned once per run, from the configured "high" reasoning
+      // level; the retry only turns thinking off, and max_tokens is a ceiling.
+      max_tokens: 16_384,
+      reasoning: { mode: "off" },
+    })
   })
 
   it("uses fast, standard, and strict workflow routes", async () => {
