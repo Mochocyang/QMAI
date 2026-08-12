@@ -35,9 +35,9 @@ describe("resolveChapterLengthSpec", () => {
     expect(resolveChapterLengthSpec(999999).targetChars).toBe(CHAPTER_TARGET_CHARS_MAX)
   })
 
-  it("honors a configured target outside the old 2000–6000 hard clamp", () => {
-    expect(resolveChapterLengthSpec(800).targetChars).toBe(800)
-    expect(resolveChapterLengthSpec(12000).targetChars).toBe(12000)
+  it("honors a configured target inside 1000–10000 that the old 2000–6000 clamp would have rewritten", () => {
+    expect(resolveChapterLengthSpec(1500).targetChars).toBe(1500)
+    expect(resolveChapterLengthSpec(8000).targetChars).toBe(8000)
   })
 })
 

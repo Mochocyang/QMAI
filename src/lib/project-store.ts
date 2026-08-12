@@ -18,6 +18,7 @@ import {
   normalizeProviderConfigs,
   normalizeUserLlmConfig,
 } from "@/lib/llm-context-size"
+import { CHAPTER_TARGET_CHARS_MAX, CHAPTER_TARGET_CHARS_MIN } from "@/lib/novel/deep-chapter-prompts"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -793,7 +794,10 @@ function normalizeNovelConfig(
     contextTokenBudget: 0,
     recentSummaryWindow: Math.max(1, Math.min(30, config.recentSummaryWindow ?? DEFAULT_NOVEL_CONFIG.recentSummaryWindow)),
     searchTopK: Math.max(1, Math.min(20, config.searchTopK ?? DEFAULT_NOVEL_CONFIG.searchTopK)),
-    chapterTargetChars: Math.max(500, Math.min(20000, config.chapterTargetChars ?? DEFAULT_NOVEL_CONFIG.chapterTargetChars)),
+    chapterTargetChars: Math.max(
+      CHAPTER_TARGET_CHARS_MIN,
+      Math.min(CHAPTER_TARGET_CHARS_MAX, config.chapterTargetChars ?? DEFAULT_NOVEL_CONFIG.chapterTargetChars),
+    ),
     autoIngestOnSave: config.autoIngestOnSave ?? DEFAULT_NOVEL_CONFIG.autoIngestOnSave,
     autoExtractOnImport: config.autoExtractOnImport ?? DEFAULT_NOVEL_CONFIG.autoExtractOnImport,
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,

@@ -46,6 +46,10 @@ const reviewAdapter = readFileSync(
   resolve(__dirname, "./novel/review-adapter.ts"),
   "utf8",
 )
+const projectStore = readFileSync(
+  resolve(__dirname, "./project-store.ts"),
+  "utf8",
+)
 const chatPanel = readFileSync(
   resolve(__dirname, "../components/chat/chat-panel.tsx"),
   "utf8",
@@ -60,11 +64,13 @@ describe("writing settings still reach runtime", () => {
     expect(novelSection).toContain("updateMaxHistoryMessages")
   })
 
-  it("keeps chapter target chars UI and runtime clamp on the same 500–20000 range", () => {
-    expect(CHAPTER_TARGET_CHARS_MIN).toBe(500)
-    expect(CHAPTER_TARGET_CHARS_MAX).toBe(20000)
+  it("keeps chapter target chars UI and runtime clamp on the same 1000–10000 range", () => {
+    expect(CHAPTER_TARGET_CHARS_MIN).toBe(1000)
+    expect(CHAPTER_TARGET_CHARS_MAX).toBe(10_000)
     expect(novelSection).toContain("CHAPTER_TARGET_CHARS_MIN")
     expect(novelSection).toContain("CHAPTER_TARGET_CHARS_MAX")
+    expect(projectStore).toContain("CHAPTER_TARGET_CHARS_MIN")
+    expect(projectStore).toContain("CHAPTER_TARGET_CHARS_MAX")
     expect(novelSection).not.toContain("Math.max(2000, Math.min(6000")
   })
 

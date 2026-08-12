@@ -13,11 +13,11 @@ const THREE_POINT_ONE_FIVE_CHANGELOG: ChangelogEntry = {
   highlights: {
     en: [
       "[MiMo Thinking Fix] Fixed Xiaomi MiMo models hitting the thinking token cap and producing no response. MiMo is now correctly recognized as a chat-template thinking model, so the auto-retry with thinking disabled works properly. Also added max_tokens protection for all OpenAI-compatible thinking models (Qwen3, MiMo, DeepSeek, GLM-5+) to ensure the response has enough room for both reasoning and answer.",
-      "[Writing Settings] Wired de-AI batch concurrency to the chapter queue, stopped silently clamping chapter target length to 2000–6000, persisted the revision-feedback window and chat history immediately, applied retrieval Top-K to graph search, enabled prior-chapter analysis in standard mode, and removed the dead AI-review toggle superseded by workflow modes.",
+      "[Writing Settings] Wired de-AI batch concurrency to the chapter queue, clamped chapter target length to 1000–10000 (matching the writing-settings UI), persisted the revision-feedback window and chat history immediately, applied retrieval Top-K to graph search, enabled prior-chapter analysis in standard mode, and removed the dead AI-review toggle superseded by workflow modes.",
     ],
     zh: [
       "【小米 MiMo 思考上限修复】修复使用小米 MiMo 模型时频繁提示「思考上限」、只输出思考内容不出正文的问题。MiMo 现在被正确识别为 chat_template_kwargs 类型思考模型，自动关闭思考重试可正常生效；同时为所有 OpenAI 兼容思考模型（Qwen3、MiMo、DeepSeek、GLM-5+）增加 max_tokens 输出保护，确保思考和正文都有足够 token 空间，不再因思考耗尽输出配额而空响应",
-      "【写作设置生效修复】批量去 AI 味并发数接到当前章节队列；单章目标字数不再被运行时钳成 2000–6000；修改反馈窗口与对话历史立即落盘；检索 TOPK 同时约束图谱检索；前情分析在标准模式也可生效；移除已被工作流模式架空的「AI 审稿与自动返修」开关",
+      "【写作设置生效修复】批量去 AI 味并发数接到当前章节队列；单章目标字数钳制为 1000–10000（与写作设置 UI 一致）；修改反馈窗口与对话历史立即落盘；检索 TOPK 同时约束图谱检索；前情分析在标准模式也可生效；移除已被工作流模式架空的「AI 审稿与自动返修」开关",
     ],
   },
 };
