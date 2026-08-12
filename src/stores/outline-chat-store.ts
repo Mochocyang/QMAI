@@ -8,6 +8,10 @@ import {
   isLegacySessionContextSummary,
   normalizeSessionContextSummary,
 } from "@/lib/context-hub/session-summary"
+import {
+  normalizeContextUsageSnapshot,
+  type ContextUsageSnapshot,
+} from "@/lib/context-usage"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
 import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
@@ -107,6 +111,7 @@ export interface OutlineChatConversation {
   messages: OutlineChatMessage[]
   modelId?: string
   contextSummary?: SessionContextSummary
+  lastContextUsage?: ContextUsageSnapshot
 }
 
 interface OutlineChatState {
@@ -126,6 +131,7 @@ interface OutlineChatState {
   deleteConversation: (id: string) => void
   setConversationModel: (id: string, modelId: string) => void
   setConversationContextSummary: (id: string, contextSummary: SessionContextSummary) => void
+  setConversationContextUsage: (id: string, lastContextUsage: ContextUsageSnapshot | undefined) => void
   setStreamingContent: (conversationId: string, content: string) => void
   clearStreamingContent: (conversationId: string) => void
   getStreamingContent: (conversationId: string) => string
@@ -316,6 +322,16 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
     scheduleSave()
   },
 
+  setConversationContextUsage: (id, lastContextUsage) => {
+    const now = Date.now()
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, lastContextUsage, updatedAt: now } : c
+      ),
+    }))
+    scheduleSave()
+  },
+
   setStreamingContent: (conversationId, content) => set((state) => ({
     streamingContents: { ...state.streamingContents, [conversationId]: content },
   })),
@@ -394,6 +410,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
       const conversations = (data.conversations ?? []).map((conversation) => ({
         ...conversation,
         contextSummary: normalizeSessionContextSummary(conversation.contextSummary),
+        lastContextUsage: normalizeContextUsageSnapshot(conversation.lastContextUsage),
         updatedAt: conversation.updatedAt ?? conversation.createdAt ?? Date.now(),
         messages: conversation.messages.map((message) => ({
           ...message,

@@ -142,6 +142,7 @@ export class AgentRunner {
         },
         onUsage: (usage) => {
           record.usage = addLlmUsage(record.usage, usage)
+          callbacks.onUsage?.(record.usage)
         },
         onDone: () => {
           // stream finished

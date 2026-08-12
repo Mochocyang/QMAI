@@ -262,7 +262,24 @@
     "typeAMessage": "输入消息...",
     "selectModel": "选择模型",
     "searchModel": "搜索模型...",
-    "noModelFound": "未找到匹配的模型"
+    "noModelFound": "未找到匹配的模型",
+    "contextUsage": {
+      "title": "上下文用量",
+      "percentFull": "{{percent}}% 已占用",
+      "tokens": "Tokens",
+      "fullHint": "上下文接近上限，建议新建对话以保持项目设定与写作质量。",
+      "newConversation": "新建对话",
+      "segments": {
+        "softwareRules": "系统规则",
+        "toolDefinitions": "工具定义",
+        "stableCore": "项目稳定核心",
+        "sessionSummary": "会话摘要",
+        "dynamicContext": "本轮动态上下文",
+        "history": "对话历史",
+        "toolResults": "工具回读",
+        "currentInput": "当前输入"
+      }
+    }
   },
   "search": {
     "title": "搜索",

@@ -391,7 +391,24 @@
     "saveAsDraft": "Save as draft",
     "selectModel": "Select model",
     "searchModel": "Search models...",
-    "noModelFound": "No matching model"
+    "noModelFound": "No matching model",
+    "contextUsage": {
+      "title": "Context Usage",
+      "percentFull": "{{percent}}% Full",
+      "tokens": "Tokens",
+      "fullHint": "Context is nearly full. Start a new conversation to keep project rules and writing quality.",
+      "newConversation": "New conversation",
+      "segments": {
+        "softwareRules": "System prompt",
+        "toolDefinitions": "Tool definitions",
+        "stableCore": "Stable project core",
+        "sessionSummary": "Session summary",
+        "dynamicContext": "Dynamic context",
+        "history": "Conversation",
+        "toolResults": "Tool results",
+        "currentInput": "Current input"
+      }
+    }
   },
   "search": {
     "title": "Search",

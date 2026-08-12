@@ -63,6 +63,7 @@ interface ChatMessageProps {
   novelMode?: boolean;
   projectPath?: string | null;
   onSaveAsChapter?: (
+    messageId: string,
     content: string,
     toolCalls?: Array<{ name: string; result?: string; status?: string }>,
   ) => void;
@@ -221,7 +222,7 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={() =>
-                  onSaveAsChapter(message.content, message.agentToolCalls)
+                  onSaveAsChapter(message.id, message.content, message.agentToolCalls)
                 }
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"

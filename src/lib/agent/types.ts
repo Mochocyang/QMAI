@@ -134,6 +134,8 @@ export interface AgentRunCallbacks {
   onToolError: (callId: string, error: string) => void
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
+  /** Cumulative prompt/usage so far across agent rounds. */
+  onUsage?: (usage: LlmUsage) => void
   onDone: () => void
   onError: (error: Error) => void
 }
