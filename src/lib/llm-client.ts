@@ -175,26 +175,29 @@ export async function streamChat(
 ): Promise<void> {
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
-  // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
   const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
   const outputCap = getEffectiveMaxOutputTokens(runtimeConfig)
+  const thinkingFloorTokens = thinkingMinMaxTokens(runtimeConfig.reasoning ?? { mode: "auto" })
   const runtimeBudget = planLlmRequestBudget({
     maxContextSize: configuredWindow,
     // Without an explicit request the response reserve is only used to size
-    // the INPUT trim; it is not sent as max_tokens (see below).
+    // the INPUT trim; it is not sent as max_tokens unless thinking needs it
+    // (see shouldSendMaxTokens below).
     desiredOutputTokens: requestOverrides?.max_tokens
       ?? Math.floor(configuredWindow * RESPONSE_RESERVE_FRAC),
     scaffoldReserveTokens: toolScaffoldTokens,
     minimumContextTokens: 64,
     maxOutputTokensCap: outputCap,
-    thinkingFloorTokens: thinkingMinMaxTokens(runtimeConfig.reasoning ?? { mode: "auto" }),
+    thinkingFloorTokens,
   })
   let effectiveOutputTokens = runtimeBudget.outputTokens
-  // Only surface max_tokens when the caller asked for one. Inventing a value
-  // would replace the provider's own default with our estimate, capping every
-  // long-form generation that deliberately left it unset.
-  let shouldSendMaxTokens = requestOverrides?.max_tokens !== undefined
+  // Emit max_tokens when the caller asked for one, or when explicit thinking
+  // needs a known output allowance (otherwise OpenAI-compatible paths keep
+  // thinking on against an unknown provider default). auto/off without a
+  // caller value still omits the field so long-form keeps the provider default.
+  let shouldSendMaxTokens =
+    requestOverrides?.max_tokens !== undefined || thinkingFloorTokens > 0
   let budgetedMessages: import("./llm-providers").ChatMessage[]
   try {
     budgetedMessages = trimChatMessagesToTokenBudget(

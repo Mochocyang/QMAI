@@ -112,9 +112,13 @@ export function CustomProviderCards() {
       maxContextSize: normalizeUserLlmContextSize(
         updates.maxContextSize ?? prev.maxContextSize,
       ),
-      maxOutputTokens: normalizeUserLlmMaxOutputTokens(
-        updates.maxOutputTokens ?? prev.maxOutputTokens,
-      ),
+      ...(updates.maxOutputTokens !== undefined || prev.maxOutputTokens !== undefined
+        ? {
+            maxOutputTokens: normalizeUserLlmMaxOutputTokens(
+              updates.maxOutputTokens ?? prev.maxOutputTokens,
+            ),
+          }
+        : {}),
       reasoning: updates.reasoning ?? prev.reasoning,
       functionCallingEnabled: updates.functionCallingEnabled ?? prev.functionCallingEnabled,
       enabled: updates.enabled ?? prev.enabled ?? true,

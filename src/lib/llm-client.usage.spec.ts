@@ -3,7 +3,13 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat } from "./llm-client"
 import { estimateChatMessagesTokens } from "./chat-request-budget"
 import type { ChatMessage } from "./llm-providers"
-import { LlmContextBudgetError } from "./context-budget"
+import { thinkingMinMaxTokens } from "./llm-providers"
+import {
+  LlmContextBudgetError,
+  RESPONSE_RESERVE_FRAC,
+  planLlmRequestBudget,
+} from "./context-budget"
+import { normalizeUserLlmMaxOutputTokens } from "./llm-context-size"
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -161,6 +167,55 @@ describe("streamChat usage", () => {
 
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
     expect(JSON.parse(String(request.body))).not.toHaveProperty("max_tokens")
+  })
+
+  it("reasoning.mode=auto 且调用方未传 max_tokens 时请求体仍省略该字段", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"完成"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+
+    await streamChat(
+      { ...config, reasoning: { mode: "auto" } },
+      [{ role: "user", content: "写第一章" }],
+      { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+    )
+
+    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(request.body))).not.toHaveProperty("max_tokens")
+  })
+
+  it("reasoning.mode=high 且调用方未传 max_tokens 时发送预算规划的 max_tokens", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"完成"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+
+    const reasoning = { mode: "high" as const }
+    const thinkingFloorTokens = thinkingMinMaxTokens(reasoning)
+    expect(thinkingFloorTokens).toBeGreaterThan(0)
+    const planned = planLlmRequestBudget({
+      maxContextSize: config.maxContextSize,
+      desiredOutputTokens: Math.floor(config.maxContextSize * RESPONSE_RESERVE_FRAC),
+      scaffoldReserveTokens: 0,
+      minimumContextTokens: 64,
+      maxOutputTokensCap: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens),
+      thinkingFloorTokens,
+    })
+
+    await streamChat(
+      { ...config, reasoning },
+      [{ role: "user", content: "写第一章" }],
+      { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+    )
+
+    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      max_tokens: planned.outputTokens,
+    })
+    expect(planned.outputTokens).toBeGreaterThanOrEqual(thinkingFloorTokens)
   })
 
   it("调用方显式传入的超大 max_tokens 收敛到输出上限", async () => {

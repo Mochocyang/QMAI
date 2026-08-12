@@ -1,4 +1,7 @@
-import { resolveContextPackTokenBudget } from "@/lib/context-budget"
+import {
+  charsPerTokenForLanguage,
+  resolveContextPackTokenBudget,
+} from "@/lib/context-budget"
 import { listDirectory, readFile } from "@/commands/fs"
 import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
@@ -1198,7 +1201,9 @@ export function trimContextPack(
   const resolvedTokenBudget = tokenBudget && tokenBudget > 0
     ? tokenBudget
     : resolveContextPackTokenBudget({ maxContextSize: options?.maxContextSize })
-  const targetChars = resolvedTokenBudget * 4
+  // Match the token estimator: CJK ≈ 1 char/token, English ≈ 4 chars/token.
+  // A hardcoded ×4 over-admits Chinese after maxContextSize became real tokens.
+  const targetChars = Math.floor(resolvedTokenBudget * charsPerTokenForLanguage())
 
   if (totalChars <= targetChars) {
     for (const { title, content } of fieldData) {

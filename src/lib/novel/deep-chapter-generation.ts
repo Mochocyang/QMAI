@@ -13,7 +13,10 @@ import {
   isReasoningOnlyResponseError,
   withReasoningDisabled,
 } from "@/lib/reasoning-retry";
-import { planChapterRequestBudget } from "@/lib/context-budget";
+import {
+  charsPerTokenForLanguage,
+  planChapterRequestBudget,
+} from "@/lib/context-budget";
 import {
   getEffectiveMaxOutputTokens,
   thinkingMinMaxTokens,
@@ -150,10 +153,6 @@ const defaultDeps: DeepChapterGenerationDeps = {
 const REPEAT_CHECK_MIN_CHARS = 600;
 const REPEAT_WINDOW_CHARS = 120;
 const REPEAT_HIT_LIMIT = 3;
-/** chars/token approximation used to convert the token budget to characters
- *  for the outline cap (mirrors context-budget.ts / contextPackToPrompt). */
-const DEEP_CHAPTER_CHARS_PER_TOKEN = 4;
-
 function hasUsableChapterExecutionContract(contract: ChapterExecutionContract | null): contract is ChapterExecutionContract {
   if (!contract) return false;
   const hasSceneChecks = contract.sceneSteps.some((step) =>
@@ -698,8 +697,9 @@ export async function runDeepChapterGeneration(
   const generationRequestOverrides: RequestOverrides = {
     max_tokens: chapterGenerationBudget.outputTokens,
   };
-  const totalContextCharBudget =
-    totalContextTokenBudget * DEEP_CHAPTER_CHARS_PER_TOKEN;
+  // Same density as the token estimator / trimContextPack (CJK 1, English 4).
+  const charsPerToken = charsPerTokenForLanguage();
+  const totalContextCharBudget = totalContextTokenBudget * charsPerToken;
   const outlineCharCap = Math.floor(
     totalContextCharBudget * DEEP_CHAPTER_OUTLINE_MAX_FRAC,
   );
@@ -731,7 +731,7 @@ export async function runDeepChapterGeneration(
   const restContextTokenBudget = Math.max(
     DEEP_CHAPTER_REST_TOKEN_FLOOR,
     totalContextTokenBudget -
-      Math.ceil(outlineText.length / DEEP_CHAPTER_CHARS_PER_TOKEN),
+      Math.ceil(outlineText.length / charsPerToken),
   );
   const contextPrompt = [
     previousChaptersAnalysis
