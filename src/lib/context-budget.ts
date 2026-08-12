@@ -104,10 +104,10 @@ const NOVEL_CONTEXT_TOKEN_FLOOR = 4_000
  * the model's context window, leaving room for the chapter output and
  * prompt scaffolding.
  *
- * `requestedTokenBudget` is the user's `novelConfig.contextTokenBudget`
- * (0 / undefined = "no explicit limit"). When set it is honored but still
- * clamped to the window-derived cap; when unset the cap itself is used so
- * the injection is never truly unbounded.
+ * Context pack budget always scales from the model window. An optional
+ * `requestedTokenBudget` remains only for internal planners that already
+ * computed a tighter allocation (e.g. after reserving output tokens); the
+ * user-facing novel setting has been removed and is never consulted.
  *
  * Stays entirely in the token domain: the window is already tokens and the
  * consumer wants tokens, so there is no character round-trip and no language
@@ -133,7 +133,10 @@ export function computeNovelContextTokenBudget(
 
 export interface ResolveContextPackTokenBudgetInput {
   maxContextSize?: number
-  /** User setting; 0 / undefined = auto from window. */
+  /**
+   * Optional precomputed allocation (planner / composer). Not a user setting.
+   * 0 / undefined = auto from window.
+   */
   contextTokenBudget?: number
 }
 

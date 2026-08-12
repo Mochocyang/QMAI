@@ -1903,7 +1903,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         : "analysis";
       const outlineRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
-        contextTokenBudget: novelConfig.contextTokenBudget,
         stage: outlineBudgetStage,
         maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
         thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
@@ -2070,7 +2069,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ? outlineRequestBudget
             : planOutlineRequestBudget({
                 maxContextSize: effectiveLlmConfig.maxContextSize,
-                contextTokenBudget: novelConfig.contextTokenBudget,
                 stage: budgetStage,
                 maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
                 thinkingFloorTokens: thinkingMinMaxTokens(
@@ -2977,7 +2975,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       }
       const resumeRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
-        contextTokenBudget: novelConfig.contextTokenBudget,
         stage: "generation",
         maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
         thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
@@ -3406,7 +3403,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         let contextHubResult: ContextHubResult | null = null;
         const regenerationRequestBudget = planOutlineRequestBudget({
           maxContextSize: effectiveLlmConfig.maxContextSize,
-          contextTokenBudget: novelConfig.contextTokenBudget,
           stage: "generation",
           maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
           thinkingFloorTokens: thinkingMinMaxTokens(

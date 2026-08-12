@@ -1582,7 +1582,6 @@ export function ChatPanel() {
 
       if (novelMode && effectiveTaskRoute) {
         const contextHub = getContextHub(pp)
-        const novelConfig = useWikiStore.getState().novelConfig
         try {
           contextHubResult = await contextHub.prepare({
             projectPath: pp,
@@ -1600,7 +1599,6 @@ export function ChatPanel() {
               content: message.content,
             })),
             existingSummary: activeConv?.contextSummary,
-            tokenBudget: novelConfig.contextTokenBudget,
             maxContextSize: agentConfig.llmConfig.maxContextSize,
           })
           if (contextHubResult) {
@@ -1722,10 +1720,8 @@ export function ChatPanel() {
             nextChapterAdvice: "",
             revisionDirectives: "",
             }))
-            const novelConfig = useWikiStore.getState().novelConfig
             const budget = resolveContextPackTokenBudget({
               maxContextSize: agentConfig.llmConfig.maxContextSize,
-              contextTokenBudget: novelConfig.contextTokenBudget,
             })
             novelContextPrompt = [
               taskDirective,

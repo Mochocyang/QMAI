@@ -307,6 +307,7 @@ interface SourceWatchConfig {
 }
 
 export interface NovelConfig {
+  /** @deprecated Always 0 (auto from model window). Kept for config schema compatibility. */
   contextTokenBudget: number
   recentSummaryWindow: number
   searchTopK: number

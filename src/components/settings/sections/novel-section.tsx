@@ -298,26 +298,6 @@ export function NovelSection({ draft, setDraft }: Props) {
 
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <Label>{t("novel.settings.contextTokenBudget")}</Label>
-              {settingTooltip("contextTokenBudgetHelp")}
-            </div>
-            <Input
-              type="number"
-              min={0}
-              max={200000}
-              value={draft.novelConfig.contextTokenBudget}
-              onChange={(e) => updateNovelConfig({
-                contextTokenBudget: Math.max(0, Math.min(200000, Number(e.target.value) || 0)),
-              })}
-              className="w-32"
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("novel.settings.contextTokenBudgetHint")}
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
               <Label>{t("novel.settings.chatHistoryLength")}</Label>
               {settingTooltip("chatHistoryLengthHint")}
             </div>

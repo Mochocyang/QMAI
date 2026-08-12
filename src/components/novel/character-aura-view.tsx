@@ -361,7 +361,6 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       const effectiveConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
       const contextPrompt = contextPackToPrompt(previewPack, resolveContextPackTokenBudget({
         maxContextSize: effectiveConfig.maxContextSize,
-        contextTokenBudget: novelConfig.contextTokenBudget,
       }))
       const messages: ChatMessage[] = [
         {

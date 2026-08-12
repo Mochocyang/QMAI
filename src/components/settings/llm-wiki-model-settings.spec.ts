@@ -32,6 +32,8 @@ describe("QMAI model settings", () => {
     )
     expect(source).toContain("settings.sections.llm.longWritingContextTitle")
     expect(source).toContain("settings.sections.llm.longWritingContextHint")
+    expect(source).toContain("settings.sections.llm.longWritingContextDocs")
+    expect(source).toContain("https://global.modelmesh.info/model")
   })
 
   it("keeps every built-in provider and gives each one at least 204800", () => {
@@ -150,7 +152,10 @@ describe("QMAI model settings", () => {
     expect(llm.apiKeyPlaceholder).toBe("输入 API Key")
     expect(llm.activeBadge).toBe("当前使用")
     expect(llm.longWritingContextTitle).toContain("至少 200K")
-    expect(llm.longWritingContextHint).toContain("204800")
+    expect(llm.longWritingContextHint).toContain("手动配置")
+    expect(llm.longWritingContextHint).toContain("最大")
+    expect(llm.longWritingContextHint).toContain("输出")
+    expect(llm.longWritingContextDocs).toBe("参考文档")
     expect(JSON.stringify(llm)).not.toContain("??")
   })
 })

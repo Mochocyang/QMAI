@@ -673,7 +673,6 @@ export async function runDeepChapterGeneration(
   // 输出上限与思考地板按各阶段实际调用的模型重算，不再只读入口 llmConfig。
   const chapterAnalysisBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
-    contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "analysis",
     maxOutputTokens: getEffectiveMaxOutputTokens(workflowConfig),
@@ -683,7 +682,6 @@ export async function runDeepChapterGeneration(
   });
   const chapterGenerationBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
-    contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
     maxOutputTokens: getEffectiveMaxOutputTokens(writingConfig),
@@ -693,7 +691,6 @@ export async function runDeepChapterGeneration(
   });
   const chapterDeAiBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
-    contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
     maxOutputTokens: getEffectiveMaxOutputTokens(deAiConfig),

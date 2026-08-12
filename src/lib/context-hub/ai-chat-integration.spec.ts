@@ -38,8 +38,9 @@ describe("AI chat context hub integration", () => {
     )
   })
 
-  it("passes resolved context budget from the model window when novel budget is unlimited", () => {
-    expect(source).toContain("tokenBudget: novelConfig.contextTokenBudget,")
+  it("derives context budget from the model window instead of a user novel setting", () => {
+    expect(source).not.toContain("tokenBudget: novelConfig.contextTokenBudget,")
     expect(source).toContain("maxContextSize: agentConfig.llmConfig.maxContextSize,")
+    expect(source).toContain("resolveContextPackTokenBudget({")
   })
 })
