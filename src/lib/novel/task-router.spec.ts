@@ -61,6 +61,25 @@ describe("routeTask chapter generation", () => {
     }
   })
 
+  it("routes chapter write requests without 第 with high confidence", () => {
+    for (const [text, chapterNumber] of [["编写 11 章", 11], ["编写 229 章", 229], ["编写第 5 章", 5]] as const) {
+      const route = routeTask(text)
+
+      expect(route.intent).toBe("write_chapter")
+      expect(route.chapterNumber).toBe(chapterNumber)
+      expect(route.confidence).toBeGreaterThanOrEqual(0.5)
+    }
+  })
+
+  it("does not treat small bare numerals as chapter sequence numbers", () => {
+    for (const text of ["写三章", "编写 5 章", "编写 10 章"]) {
+      const route = routeTask(text)
+
+      expect(route.intent).toBe("general_chat")
+      expect(route.chapterNumber).toBeUndefined()
+    }
+  })
+
   it("keeps Chinese later chapter numbers even when the prompt mentions 开篇 hooks", () => {
     const route = routeTask("写第五章，开篇要有钩子")
 
