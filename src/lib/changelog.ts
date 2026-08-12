@@ -7,6 +7,29 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_SIX_CHANGELOG: ChangelogEntry = {
+  version: "3.1.6",
+  date: "2026-08-13",
+  highlights: {
+    en: [
+      "[Context Budget Rework] Unified context budget planning into the token domain with a 90% window safety factor, added an explicit output-token ceiling (user settings cap always wins), and fixed the CJK context-pack density so the window is no longer shrunk to a quarter of its size.",
+      "[Output Budget as Window Fraction] Chapter generation, outline, and analysis output budgets now scale with the model window (chapter generation keeps a 15,360-token floor); max_tokens is always sent on HTTP providers and adjusted down automatically when the endpoint reports its limit.",
+      "[Context Usage Ring] AI Chat now shows a context-usage ring; whole-chapter histories collapse by disk-save state. Generation detail statistics were reworked and token wording unified; the obsolete in-settings context-token budget was removed.",
+      "[Chapter Instruction Parsing] Writing instructions that omit the '第' prefix (e.g. '写5章') are now recognized with the same confidence as '第五章'.",
+      "[Cited Path Fix] Fixed fabricated citation paths in chat references and false outline-directory references.",
+      "[Writing Settings Alignment] Writing settings were re-wired to the real runtime path; per-chapter target length clamped to 1000–10000 to match the settings UI; the dead deep-mode AI-review switch was removed.",
+    ],
+    zh: [
+      "【上下文预算重构】统一上下文预算到 token 域并按窗口 90% 安全系数规划；新增输出 token 上限配置（用户设置上限始终优先）；修复 CJK 资料包密度换算，不再把窗口缩小到四分之一",
+      "【输出预算改为窗口比例】章节生成、大纲、分析的输出预算随模型窗口缩放（章节生成保底 15360 token）；HTTP 提供商始终外发 max_tokens，接口报出上限时自动下调重试",
+      "【上下文用量圆环】AI 会话新增上下文用量圆环，按落盘状态折叠整章历史；重做生成详情统计口径并统一 Token 表达；移除设置中架空的上下文 Token 预算",
+      "【章节写作指令增强】省略「第」字的章节写作指令（如「写5章」）与「第五章」同置信度识别（合并自 PR #47）",
+      "【引用路径修复】修复聊天引用路径虚造与大纲目录误引用（合并自 PR #49）",
+      "【写作设置对齐】写作设置重新接到真实运行路径；单章目标字数钳制为 1000–10000 与设置 UI 一致；删除已架空的深度模式审稿开关",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_FIVE_CHANGELOG: ChangelogEntry = {
   version: "3.1.5",
   date: "2026-08-12",
@@ -1072,6 +1095,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_SIX_CHANGELOG,
   THREE_POINT_ONE_FIVE_CHANGELOG,
   THREE_POINT_ONE_TWO_CHANGELOG,
   {
@@ -1133,6 +1157,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ONE_SIX_CHANGELOG.version)
+    return [THREE_POINT_ONE_SIX_CHANGELOG];
   if (version === THREE_POINT_ONE_TWO_CHANGELOG.version)
     return [THREE_POINT_ONE_TWO_CHANGELOG];
   if (version === THREE_POINT_ONE_ONE_CHANGELOG.version)
