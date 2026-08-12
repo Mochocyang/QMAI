@@ -19,8 +19,8 @@ export interface ContextHubStatsSummaryProps {
   className?: string
 }
 
-function formatEstimated(tokens: number): string {
-  return `${tokens.toLocaleString()} 估算 Token`
+function formatTokens(tokens: number): string {
+  return `${tokens.toLocaleString()} Token`
 }
 
 export function ProviderCacheUsage({ stats }: { stats: ContextHubStats }) {
@@ -74,23 +74,23 @@ export function ContextHubStatsSummary({
         </div>
       ) : null}
       <div className="mt-0.5 text-[11px] text-muted-foreground">
-        {`稳定核心 ${formatEstimated(stats.stableTokens)}　会话摘要 ${formatEstimated(stats.summaryTokens)}　动态片段 ${formatEstimated(stats.dynamicTokens)}`}
+        {`稳定核心 ${formatTokens(stats.stableTokens)}　会话摘要 ${formatTokens(stats.summaryTokens)}　动态片段 ${formatTokens(stats.dynamicTokens)}`}
       </div>
       {showComposed && stats.composedTokens !== undefined && stats.budgetTokens !== undefined ? (
         <div className="mt-0.5 text-[11px] text-muted-foreground">
-          中控注入估算 {stats.composedTokens.toLocaleString()} / 中控预算 {stats.budgetTokens.toLocaleString()}
+          中控注入 {stats.composedTokens.toLocaleString()} / 中控预算 {stats.budgetTokens.toLocaleString()}
           （{stats.utilizationPercent ?? 0}%）
         </div>
       ) : null}
       {showMemory && stats.memoryCandidateCount !== undefined ? (
         <div className="mt-0.5 text-[11px] text-muted-foreground">
           用户记忆：候选 {stats.memoryCandidateCount}，命中 {stats.memorySelectedCount ?? 0}，
-          过滤 {stats.memoryFilteredCount ?? 0}，注入约 {stats.memoryEstimatedTokens ?? 0} 估算 Token
+          过滤 {stats.memoryFilteredCount ?? 0}，注入约 {stats.memoryEstimatedTokens ?? 0} Token
         </div>
       ) : null}
       <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
         <div>
-          上下文压缩预计减少 {formatEstimated(stats.estimatedSavedTokens)}（{stats.estimatedSavedPercent}%）
+          上下文压缩预计减少 {formatTokens(stats.estimatedSavedTokens)}（{stats.estimatedSavedPercent}%）
         </div>
         <div>低置信度扩展：{stats.expanded ? "已启用" : "未启用"}</div>
         <ProviderCacheUsage stats={stats} />

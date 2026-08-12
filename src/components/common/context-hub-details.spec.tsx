@@ -96,7 +96,7 @@ describe("ContextHubDetails", () => {
 
     expect(host.textContent).toContain("上下文中控")
     expect(host.textContent).toContain("本轮数据源：命中 3，重载 2，无数据 0，fallback 0，失败 0")
-    expect(host.textContent).toContain("估算 Token")
+    expect(host.textContent).toContain("Token")
     expect(host.textContent).not.toContain("稳定核心正文")
 
     const expandButton = host.querySelector<HTMLButtonElement>('button[aria-label="展开上下文中控"]')
