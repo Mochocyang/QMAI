@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useDeferredValue,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -119,14 +120,17 @@ import {
   type OutlineBudgetStage,
 } from "@/lib/context-budget";
 import {
+  getEffectiveMaxContextSize,
   getEffectiveMaxOutputTokens,
   thinkingMinMaxTokens,
 } from "@/lib/llm-providers";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
+import { ContextUsageRing } from "@/components/chat/context-usage-ring";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
+import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 import {
   ReferenceInput,
   type InsertReferenceTokens,
@@ -178,11 +182,19 @@ import {
   buildContextHubSystemContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
+  buildLlmRequestDiagnostics,
   getContextHub,
   persistContextHubProviderUsage,
   type ContextHubResult,
   type ContextHubSnapshotRef,
 } from "@/lib/context-hub";
+import type { UserMemoryDecision } from "@/lib/user-memory/decision-trace";
+import {
+  buildContextUsageSnapshot,
+  calibrateContextUsageSnapshot,
+  composeLiveContextUsage,
+} from "@/lib/context-usage";
+import { selectContextHistoryMessages } from "@/lib/context-hub/session-summary";
 import { addLlmUsage, type LlmUsage } from "@/lib/llm-usage";
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service";
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service";
@@ -241,6 +253,37 @@ function showOutlineAutoSaveError(message: string) {
 
 function mergeDisabledTools(...groups: Array<readonly string[] | undefined>): string[] {
   return Array.from(new Set(groups.flatMap((group) => group ?? [])));
+}
+
+function messageContentToText(content: AgentMessage["content"]): string {
+  if (typeof content === "string") return content;
+  return content.map((block) => (block.type === "text" ? block.text : "")).join("");
+}
+
+function persistOutlineConversationContextUsage(input: {
+  conversationId: string
+  windowTokens: number
+  systemPrompt: string
+  contextHubResult?: ContextHubResult | null
+  historyMessages?: Array<{ content: string }>
+  currentInput?: string
+  usage?: LlmUsage
+}): void {
+  useOutlineChatStore.getState().setConversationContextUsage(
+    input.conversationId,
+    calibrateContextUsageSnapshot(
+      buildContextUsageSnapshot({
+        windowTokens: input.windowTokens,
+        softwareRules: input.systemPrompt,
+        stableTokens: input.contextHubResult?.stats.stableTokens,
+        summaryTokens: input.contextHubResult?.stats.summaryTokens,
+        dynamicTokens: input.contextHubResult?.stats.dynamicTokens,
+        historyTexts: (input.historyMessages ?? []).map((message) => message.content),
+        currentInput: input.currentInput,
+      }),
+      input.usage,
+    ),
+  );
 }
 
 const OUTLINE_CHAT_SKILL_ROUTES = [
@@ -917,6 +960,9 @@ function OutlineAssistantMessage({
     },
     [projectPath],
   );
+  const currentContextHubSnapshot = msg.contextHubSnapshot
+    ? parseContextHubSnapshotRef(msg.contextHubSnapshot)
+    : null;
 
   return (
     <>
@@ -945,9 +991,9 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
-      {msg.contextHubSnapshot ? (
+      {currentContextHubSnapshot ? (
         <ContextHubDetails
-          reference={msg.contextHubSnapshot}
+          reference={currentContextHubSnapshot}
           projectPath={projectPath}
         />
       ) : null}
@@ -1222,6 +1268,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const effectiveOutlineModelId = storedOutlineModelId || fallbackOutlineModelId;
 
   const [inputValue, setInputValue] = useState("");
+  const deferredInputValue = useDeferredValue(inputValue);
+  const liveContextUsage = useMemo(() => {
+    const historyMessages = selectContextHistoryMessages(
+      activeMessages.filter((message) => message.role === "user" || message.role === "assistant"),
+      activeConv?.contextSummary?.text,
+    );
+    return composeLiveContextUsage(activeConv?.lastContextUsage, {
+      windowTokens: getEffectiveMaxContextSize(llmConfig),
+      sessionSummaryText: activeConv?.contextSummary?.text ?? "",
+      historyTexts: historyMessages.map((message) => message.content),
+      currentInput: deferredInputValue,
+    });
+  }, [
+    activeConv?.contextSummary?.text,
+    activeConv?.lastContextUsage,
+    activeMessages,
+    deferredInputValue,
+    llmConfig,
+  ]);
   const [outlineReferenceTokens, setOutlineReferenceTokens] = useState<
     ReferenceToken[]
   >([]);
@@ -1826,6 +1891,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       let followUpGenerationPrompt: string | null = null;
       let contextHubResult: ContextHubResult | null = null;
       let providerUsage: LlmUsage | undefined;
+      let memoryDecision: UserMemoryDecision | null | undefined;
+      let llmRequestCount = 0;
       let accumulatedReasoningContent = "";
       // 已生成的用户可见文本。streamingContents 只承载状态提示不存内容，
       // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
@@ -1836,7 +1903,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         : "analysis";
       const outlineRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
-        contextTokenBudget: novelConfig.contextTokenBudget,
         stage: outlineBudgetStage,
         maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
         thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
@@ -2003,7 +2069,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ? outlineRequestBudget
             : planOutlineRequestBudget({
                 maxContextSize: effectiveLlmConfig.maxContextSize,
-                contextTokenBudget: novelConfig.contextTokenBudget,
                 stage: budgetStage,
                 maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
                 thinkingFloorTokens: thinkingMinMaxTokens(
@@ -2093,6 +2158,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             controller.signal,
           );
           providerUsage = addLlmUsage(providerUsage, record.usage);
+          llmRequestCount += Math.max(1, record.roundsUsed || 1);
+          if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+            memoryDecision = record.userMemoryDecision;
+          }
           allToolCalls.push(...record.toolCalls);
           const agentError = agentErrorBox.current;
           const errMsg = agentError?.message ?? "";
@@ -2524,6 +2593,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               assistantId,
               contextHubResult,
               providerUsage,
+              {
+                memoryDecision: memoryDecision ?? null,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  providerUsage,
+                  Math.max(1, llmRequestCount || 1),
+                ),
+              },
             );
             if (contextHubSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(convId, assistantId, (message) => ({
@@ -2534,6 +2610,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           } catch (error) {
             console.warn("AI 大纲供应商缓存用量快照保存失败，继续保留本地缓存统计：", error);
           }
+        }
+        {
+          const userMessage = agentMessages.find((message) => message.role === "user");
+          persistOutlineConversationContextUsage({
+            conversationId: convId,
+            windowTokens: getEffectiveMaxContextSize(effectiveLlmConfig),
+            systemPrompt: contextHubResult ? baseSystemPrompt : systemPrompt,
+            contextHubResult,
+            historyMessages: historyPlan.messages.map((message) => ({
+              content: messageContentToText(message.content),
+            })),
+            currentInput: userMessage ? messageContentToText(userMessage.content) : prompt,
+            usage: providerUsage,
+          });
         }
 
         const finalSources = Array.from(
@@ -2885,7 +2975,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       }
       const resumeRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
-        contextTokenBudget: novelConfig.contextTokenBudget,
         stage: "generation",
         maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
         thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
@@ -2905,6 +2994,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       try {
         let contextHubResult: ContextHubResult | null = null;
         let providerUsage: LlmUsage | undefined;
+        let memoryDecision: UserMemoryDecision | null | undefined;
+        let llmRequestCount = 0;
         try {
           const contextHub = getContextHub(normalizePath(project.path));
           contextHubResult = await contextHub.prepare({
@@ -3041,6 +3132,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { agentError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+              memoryDecision = record.userMemoryDecision;
+            }
             if (agentError) throw agentError;
             return runText;
           },
@@ -3075,6 +3170,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { mergeError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+              memoryDecision = record.userMemoryDecision;
+            }
             if (mergeError) throw mergeError;
             return mergeText || "AI大纲未返回内容。";
           },
@@ -3100,6 +3199,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               `${messageId}:${runId}`,
               contextHubResult,
               providerUsage,
+              {
+                memoryDecision: memoryDecision ?? null,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  providerUsage,
+                  Math.max(1, llmRequestCount || 1),
+                ),
+              },
             );
             if (contextHubSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(capturedConvId, messageId, (message) => ({
@@ -3111,6 +3217,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             console.warn("AI 大纲续传供应商缓存用量快照保存失败，继续保留本地缓存统计：", error);
           }
         }
+        persistOutlineConversationContextUsage({
+          conversationId: capturedConvId,
+          windowTokens: getEffectiveMaxContextSize(effectiveLlmConfig),
+          systemPrompt: contextHubResult ? baseSystemPrompt : systemPrompt,
+          contextHubResult,
+          usage: providerUsage,
+        });
 
         // 更新最终状态
         updateOutlineMultiAgentRun(capturedConvId, messageId, (run) => {
@@ -3290,7 +3403,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         let contextHubResult: ContextHubResult | null = null;
         const regenerationRequestBudget = planOutlineRequestBudget({
           maxContextSize: effectiveLlmConfig.maxContextSize,
-          contextTokenBudget: novelConfig.contextTokenBudget,
           stage: "generation",
           maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
           thinkingFloorTokens: thinkingMinMaxTokens(
@@ -3466,6 +3578,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               assistantId,
               contextHubResult,
               record.usage,
+              {
+                memoryDecision: record.userMemoryDecision,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  record.usage,
+                  Math.max(1, record.roundsUsed || 1),
+                ),
+              },
             );
             if (updatedSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(capturedConvId, assistantId, (message) => ({
@@ -3477,6 +3596,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             console.warn("AI 大纲重新生成供应商缓存用量快照保存失败，继续保留本地缓存统计：", error);
           }
         }
+        persistOutlineConversationContextUsage({
+          conversationId: capturedConvId,
+          windowTokens: getEffectiveMaxContextSize(effectiveLlmConfig),
+          systemPrompt: contextHubResult ? baseSystemPrompt : systemPrompt,
+          contextHubResult,
+          historyMessages: historyMessages.map((message) => ({
+            content: messageContentToText(message.content),
+          })),
+          currentInput: lastUserRequest,
+          usage: record.usage,
+        });
 
         const sources = [
           ...outlineToolCallsToSources(record.toolCalls),
@@ -4085,12 +4215,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onAtTrigger={() => setReferencePickerOpen(true)}
           insertTokensRef={insertReferenceTokensRef}
           leftFooterControls={
-            <TooltipProvider delay={200}>
-              <OutlineGenerationMenu
-                disabled={submitDisabled}
-                onGenerate={handleGenerateSection}
+            <>
+              <ContextUsageRing
+                usage={liveContextUsage}
+                onCreateConversation={() => createConversation()}
               />
-            </TooltipProvider>
+              <TooltipProvider delay={200}>
+                <OutlineGenerationMenu
+                  disabled={submitDisabled}
+                  onGenerate={handleGenerateSection}
+                />
+              </TooltipProvider>
+            </>
           }
           rightControls={
             hasAvailableModels ? (

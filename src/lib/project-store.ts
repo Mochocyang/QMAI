@@ -18,6 +18,7 @@ import {
   normalizeProviderConfigs,
   normalizeUserLlmConfig,
 } from "@/lib/llm-context-size"
+import { CHAPTER_TARGET_CHARS_MAX, CHAPTER_TARGET_CHARS_MIN } from "@/lib/novel/deep-chapter-prompts"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -588,15 +589,17 @@ function novelConfigFilePath(projectPath: string): string {
 }
 
 export async function saveNovelConfig(config: NovelConfig, projectId?: string, projectPath?: string): Promise<void> {
+  const normalized = normalizeNovelConfig(config)
+  if (!normalized) return
   const store = await getStore()
   if (projectId) {
     const existing = (await store.get<Record<string, NovelConfig>>(PROJECT_NOVEL_CONFIG_KEY)) ?? {}
-    await store.set(PROJECT_NOVEL_CONFIG_KEY, { ...existing, [projectId]: config })
+    await store.set(PROJECT_NOVEL_CONFIG_KEY, { ...existing, [projectId]: normalized })
   }
-  await store.set(NOVEL_CONFIG_KEY, config)
+  await store.set(NOVEL_CONFIG_KEY, normalized)
   if (projectPath) {
     try {
-      await writeFile(novelConfigFilePath(projectPath), JSON.stringify(config, null, 2))
+      await writeFile(novelConfigFilePath(projectPath), JSON.stringify(normalized, null, 2))
     } catch {
       // non-critical
     }
@@ -788,14 +791,16 @@ function normalizeNovelConfig(
 ): NovelConfig | null {
   if (!config) return null
   return {
-    contextTokenBudget: Math.max(0, config.contextTokenBudget ?? DEFAULT_NOVEL_CONFIG.contextTokenBudget),
+    contextTokenBudget: 0,
     recentSummaryWindow: Math.max(1, Math.min(30, config.recentSummaryWindow ?? DEFAULT_NOVEL_CONFIG.recentSummaryWindow)),
     searchTopK: Math.max(1, Math.min(20, config.searchTopK ?? DEFAULT_NOVEL_CONFIG.searchTopK)),
-    chapterTargetChars: Math.max(500, Math.min(20000, config.chapterTargetChars ?? DEFAULT_NOVEL_CONFIG.chapterTargetChars)),
+    chapterTargetChars: Math.max(
+      CHAPTER_TARGET_CHARS_MIN,
+      Math.min(CHAPTER_TARGET_CHARS_MAX, config.chapterTargetChars ?? DEFAULT_NOVEL_CONFIG.chapterTargetChars),
+    ),
     autoIngestOnSave: config.autoIngestOnSave ?? DEFAULT_NOVEL_CONFIG.autoIngestOnSave,
     autoExtractOnImport: config.autoExtractOnImport ?? DEFAULT_NOVEL_CONFIG.autoExtractOnImport,
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
-    deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     defaultLlmModel: config.defaultLlmModel ?? DEFAULT_NOVEL_CONFIG.defaultLlmModel,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,

@@ -1,7 +1,7 @@
 import type { AgentConfig } from "./types"
 import type { TaskRouteResult } from "@/lib/novel/task-router"
 import type { ContextPack } from "@/lib/novel/context-engine"
-import type { LegacyAiWorkflowMode } from "./workflow-mode"
+import type { AiWorkflowMode } from "./workflow-mode"
 import type { UserSkill } from "@/lib/novel/skill-library"
 import type { AiCapability, SelectedCapabilityTrace } from "./capabilities/types"
 
@@ -16,7 +16,7 @@ export interface PrePluginInput {
   taskRoute?: TaskRouteResult | null
   effectiveTaskRoute?: TaskRouteResult | null
   contextPack?: ContextPack | null
-  aiWorkflowMode?: LegacyAiWorkflowMode
+  aiWorkflowMode?: AiWorkflowMode
   planExecuteEnabled?: boolean
   availableSkills?: UserSkill[]
   selectedSkills?: UserSkill[]

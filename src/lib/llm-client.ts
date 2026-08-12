@@ -26,6 +26,7 @@ import {
 import { RESPONSE_RESERVE_FRAC, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
+import type { UserMemoryDecision } from "./user-memory/decision-trace"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -37,6 +38,8 @@ export interface StreamCallbacks {
   /** 工具调用流式 delta，用于累积 tool_calls */
   onToolCallDelta?: (delta: { index: number; id?: string; name?: string; arguments?: string }) => void
   onUsage?: (usage: LlmUsage) => void
+  /** Decision produced while preparing this request's messages (request-scoped). */
+  onUserMemoryDecision?: (decision: UserMemoryDecision | null) => void
   onDone: () => void
   onError: (error: Error) => void
 }
@@ -158,6 +161,32 @@ function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number
   return `输入内容过长：本次请求约 ${limit.inputLength} 字符，接口最大允许 ${limit.maxLength} 字符。请减少历史上下文、缩短章节正文，或确认当前接口是否真的支持所选模型的上下文长度。`
 }
 
+/**
+ * Detect provider rejections of an oversized max_tokens / max_output_tokens
+ * request. Returns the highest value the model will accept when the error
+ * reports one; otherwise null.
+ */
+export function parseMaxTokensLimit(errorDetail: string): number | null {
+  const patterns = [
+    /max[_ ]?(?:output[_ ]?)?tokens?\s*(?:of\s+|is\s+|=\s*)?([\d,]+)\s*(?:is\s+)?(?:too\s+(?:large|high)|exceeds|above|greater than)/i,
+    /(?:max[_ ]?(?:output[_ ]?)?tokens?|maximum\s+output)\s*(?:must be|should be|limited to|capped at|<=|≤)\s*([\d,]+)/i,
+    /(?:supports?|allows?|accepts?)\s+(?:at most|up to|a maximum of)\s*([\d,]+)\s*(?:output\s+)?tokens?/i,
+    /max[_ ]?(?:completion|output)[_ ]?tokens?\s*(?:cannot exceed|must not exceed|<=|≤)\s*([\d,]+)/i,
+    /(?:this model|model)\s+(?:has a )?(?:maximum|max)\s+(?:of\s+)?([\d,]+)\s*(?:output\s+)?tokens?/i,
+  ]
+  for (const pattern of patterns) {
+    const match = pattern.exec(errorDetail)
+    if (!match) continue
+    const value = Number(match[1]?.replace(/,/g, ""))
+    if (Number.isFinite(value) && value >= 512) return Math.floor(value)
+  }
+  return null
+}
+
+function isLocalCliProvider(provider: LlmConfig["provider"]): boolean {
+  return provider === "claude-code" || provider === "codex-cli" || provider === "cursor-cli"
+}
+
 export async function streamChat(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
@@ -174,16 +203,17 @@ export async function streamChat(
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
-  const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
+  const { messages: preparedMessages, decision: userMemoryDecision } = applyGlobalUserMemoryToMessages(
+    messages,
+    requestOverrides,
+  )
+  callbacks.onUserMemoryDecision?.(userMemoryDecision)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
   const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
   const outputCap = getEffectiveMaxOutputTokens(runtimeConfig)
   const thinkingFloorTokens = thinkingMinMaxTokens(runtimeConfig.reasoning ?? { mode: "auto" })
   const runtimeBudget = planLlmRequestBudget({
     maxContextSize: configuredWindow,
-    // Without an explicit request the response reserve is only used to size
-    // the INPUT trim; it is not sent as max_tokens unless thinking needs it
-    // (see shouldSendMaxTokens below).
     desiredOutputTokens: requestOverrides?.max_tokens
       ?? Math.floor(configuredWindow * RESPONSE_RESERVE_FRAC),
     scaffoldReserveTokens: toolScaffoldTokens,
@@ -192,12 +222,10 @@ export async function streamChat(
     thinkingFloorTokens,
   })
   let effectiveOutputTokens = runtimeBudget.outputTokens
-  // Emit max_tokens when the caller asked for one, or when explicit thinking
-  // needs a known output allowance (otherwise OpenAI-compatible paths keep
-  // thinking on against an unknown provider default). auto/off without a
-  // caller value still omits the field so long-form keeps the provider default.
-  let shouldSendMaxTokens =
-    requestOverrides?.max_tokens !== undefined || thinkingFloorTokens > 0
+  // HTTP providers always receive the planned max_tokens so every vendor
+  // follows the same window-fraction rule. Local CLI transports have no
+  // equivalent flag and warn in DEV when the field is present.
+  const shouldSendMaxTokens = !isLocalCliProvider(runtimeConfig.provider)
   let budgetedMessages: import("./llm-providers").ChatMessage[]
   try {
     budgetedMessages = trimChatMessagesToTokenBudget(
@@ -224,13 +252,13 @@ export async function streamChat(
           - estimateChatMessagesTokens(budgetedMessages),
       ),
     )
-    // The input was trimmed against a reserved output slot, so that slot has
-    // to be declared even if the caller never asked for one.
-    shouldSendMaxTokens = true
   }
-  const effectiveRequestOverrides: RequestOverrides = shouldSendMaxTokens
+  let effectiveRequestOverrides: RequestOverrides = shouldSendMaxTokens
     ? { ...requestOverrides, max_tokens: effectiveOutputTokens }
-    : { ...requestOverrides }
+    : (() => {
+      const { max_tokens: _ignored, ...rest } = requestOverrides ?? {}
+      return rest
+    })()
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
@@ -282,10 +310,13 @@ export async function streamChat(
   }
 
   try {
-    const buildRequestInit = (nextMessages: import("./llm-providers").ChatMessage[]): RequestInit => ({
+    const buildRequestInit = (
+      nextMessages: import("./llm-providers").ChatMessage[],
+      overrides: RequestOverrides = effectiveRequestOverrides,
+    ): RequestInit => ({
       method: "POST",
       headers: providerConfig.headers,
-      body: JSON.stringify(providerConfig.buildBody(nextMessages, effectiveRequestOverrides)),
+      body: JSON.stringify(providerConfig.buildBody(nextMessages, overrides)),
       signal: combinedSignal,
     })
 
@@ -379,7 +410,7 @@ export async function streamChat(
         // Surface probe in the toast/UI error — console.warn alone stays in WebView DevTools.
         errorDetail += `\n${formatReasoningReplayRiskForError(risk)}`
       }
-      let inputLimitRetrySucceeded = false
+      let httpRetrySucceeded = false
       const inputLimit = parseInputLengthLimit(errorDetail)
       if (inputLimit) {
         const currentInputTokens = estimateChatMessagesTokens(budgetedMessages)
@@ -414,7 +445,7 @@ export async function streamChat(
           return
         }
         if (response.ok) {
-          inputLimitRetrySucceeded = true
+          httpRetrySucceeded = true
         } else {
           let retryErrorDetail = `HTTP ${response.status}: ${response.statusText}`
           try {
@@ -427,8 +458,40 @@ export async function streamChat(
           return
         }
       }
+      const reportedMaxTokens = !httpRetrySucceeded ? parseMaxTokensLimit(errorDetail) : null
       if (
-        !inputLimitRetrySucceeded &&
+        reportedMaxTokens !== null
+        && typeof effectiveRequestOverrides.max_tokens === "number"
+        && reportedMaxTokens < effectiveRequestOverrides.max_tokens
+      ) {
+        effectiveOutputTokens = reportedMaxTokens
+        effectiveRequestOverrides = {
+          ...effectiveRequestOverrides,
+          max_tokens: reportedMaxTokens,
+        }
+        requestInit = buildRequestInit(budgetedMessages, effectiveRequestOverrides)
+        try {
+          response = await sendRequest(requestInit)
+        } catch (err) {
+          onError(err instanceof Error ? err : new Error(String(err)))
+          return
+        }
+        if (response.ok) {
+          httpRetrySucceeded = true
+        } else {
+          let retryErrorDetail = `HTTP ${response.status}: ${response.statusText}`
+          try {
+            const retryBody = await response.text()
+            if (retryBody) retryErrorDetail += ` — ${retryBody}`
+          } catch {
+            // ignore body read failure
+          }
+          onError(new Error(retryErrorDetail))
+          return
+        }
+      }
+      if (
+        !httpRetrySucceeded &&
         response.status === 404 &&
         (runtimeConfig.provider === "azure" ||
           (runtimeConfig.provider === "custom" && isAzureOpenAiEndpoint(runtimeConfig.customEndpoint)))
@@ -440,7 +503,7 @@ export async function streamChat(
         )
         return
       }
-      if (!inputLimitRetrySucceeded && shouldRetryWithBrowserFetch(errorDetail) && typeof globalThis.fetch === "function") {
+      if (!httpRetrySucceeded && shouldRetryWithBrowserFetch(errorDetail) && typeof globalThis.fetch === "function") {
         try {
           response = await globalThis.fetch(providerConfig.url, requestInit)
         } catch (err) {
@@ -459,7 +522,7 @@ export async function streamChat(
           onError(new Error(retryErrorDetail))
           return
         }
-      } else if (!inputLimitRetrySucceeded) {
+      } else if (!httpRetrySucceeded) {
         onError(new Error(errorDetail))
         return
       }

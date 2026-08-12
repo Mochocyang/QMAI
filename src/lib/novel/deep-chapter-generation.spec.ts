@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { DEFAULT_NOVEL_CONFIG, useWikiStore, type LlmConfig } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import type { AgentActivityEvent } from "@/lib/agent/types"
 import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
@@ -45,6 +45,7 @@ const contextPack: ContextPack = {
   characterStates: "主角谨慎，但急于确认真相。",
   soulDoc: "",
   characterAuras: "",
+  storyFrameworkBinding: "",
   cognitionStates: "主角不知道旧屋主人真实身份。",
   foreshadowingStates: "匿名信、锈钥匙尚未回收。",
   timeline: "雨夜，当晚十点。",
@@ -1248,8 +1249,9 @@ describe("runDeepChapterGeneration", () => {
 
     expect(overrides.length).toBeGreaterThan(0)
     expect(overrides.every((item) => typeof item?.max_tokens === "number")).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 4_096)).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 8_000)).toBe(true)
+    // Shared window clamps to 204800: analysis 0.04 → 8192, generation 0.15 → 30720.
+    expect(overrides.some((item) => item?.max_tokens === 8_192)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
   })
 
   it("raises stage output to the floor the configured reasoning level needs", async () => {
@@ -1277,7 +1279,11 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(overrides.length).toBeGreaterThan(0)
-    expect(overrides.every((item) => item?.max_tokens === 16_384)).toBe(true)
+    // Analysis is raised to the 16384 thinking floor; generation stays at
+    // the larger window-fraction budget (30720 on the shared 204800 window).
+    expect(overrides.every((item) => (item?.max_tokens ?? 0) >= 16_384)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 16_384)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
   })
 
   it("preserves configured model reasoning for chapter generation calls", async () => {
@@ -1383,32 +1389,6 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
-  })
-
-  it("keeps AI review mandatory in strict mode even when the global deep chapter review switch is off", async () => {
-    const previousNovelConfig = useWikiStore.getState().novelConfig
-    useWikiStore.setState({
-      novelConfig: {
-        ...DEFAULT_NOVEL_CONFIG,
-        ...previousNovelConfig,
-        deepChapterReview: false,
-      },
-    })
-    try {
-      const deps = createDeps()
-      const events: Array<{ name: string; result?: string }> = []
-
-      await runDeepChapterGeneration(
-        { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
-        { onWorkflowEvent: (event) => events.push(event) },
-        deps,
-      )
-
-      expect(deps.reviewChapter).toHaveBeenCalled()
-      expect(events.find((event) => event.name === "chapter_review" && event.result)?.result).toContain("AI 审稿完成")
-    } finally {
-      useWikiStore.setState({ novelConfig: previousNovelConfig })
-    }
   })
 
   it("emits visible workflow events for the chapter multi-task loop", async () => {

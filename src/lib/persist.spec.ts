@@ -116,7 +116,7 @@ describe("chat context summary persistence", () => {
       surface: "ai-chat",
       createdAt: 10,
       stats: {
-        hits: 1, refreshed: 2, failures: 0,
+        cacheHits: 1, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
         stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
         candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
         expanded: false, providerCacheEnabled: true,
@@ -196,7 +196,7 @@ describe("chat context summary persistence", () => {
 
   it("prunes AI chat snapshots using only references that were actually persisted", async () => {
     const stats = {
-      hits: 1, refreshed: 0, failures: 0,
+      cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
       stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
       candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
       expanded: false, providerCacheEnabled: true,

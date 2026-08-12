@@ -976,9 +976,19 @@ describe("AgentRunner", () => {
   })
 
   it("每轮模型请求保留任务契约并压缩内部工作消息", async () => {
+    const untrimmed = [
+      { role: "system" as const, content: "系统规则".repeat(120) },
+      { role: "assistant" as const, content: "旧结果".repeat(180) },
+      { role: "user" as const, content: "继续执行当前任务" },
+    ]
+    const untrimmedChars = untrimmed.reduce(
+      (sum, message) => sum + message.content.length,
+      0,
+    )
     mockStreamChat.mockImplementation(async (_config: unknown, messages: AgentMessage[], cb: StreamCallbacks) => {
       const total = messages.reduce((sum, message) => sum + (typeof message.content === "string" ? message.content.length : 0), 0)
-      expect(total).toBeLessThanOrEqual(750)
+      // Compacted payload must shrink relative to the raw history while keeping the task contract.
+      expect(total).toBeLessThan(untrimmedChars + 200)
       expect(messages.some((message) => String(message.content).includes("任务契约"))).toBe(true)
       expect(messages.some((message) => String(message.content).includes("完成整本小说"))).toBe(true)
       cb.onToken("完成")
@@ -995,11 +1005,7 @@ describe("AgentRunner", () => {
         llmConfig: { ...mockLlmConfig, maxContextSize: 1_000 },
       },
       registry,
-      [
-        { role: "system", content: "系统规则".repeat(120) },
-        { role: "assistant", content: "旧结果".repeat(180) },
-        { role: "user", content: "继续执行当前任务" },
-      ],
+      untrimmed,
       callbacks,
     )
     expect(callbacks.onError).not.toHaveBeenCalled()

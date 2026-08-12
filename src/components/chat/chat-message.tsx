@@ -27,7 +27,8 @@ import {
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import { readFile } from "@/commands/fs";
-import { normalizePath, getFileName } from "@/lib/path-utils";
+import { normalizePath } from "@/lib/path-utils";
+import { resolveCitedPagePath } from "@/lib/resolve-cited-page-path";
 import { refreshProjectState } from "@/lib/project-refresh";
 import { getLastQueryPages } from "@/components/chat/chat-shared";
 import { FileEditPreview } from "@/components/chat/file-edit-preview";
@@ -39,6 +40,7 @@ import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
 import { getStreamingTailDisplay } from "@/components/common/streaming-display-text";
+import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode";
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver";
@@ -63,6 +65,7 @@ interface ChatMessageProps {
   novelMode?: boolean;
   projectPath?: string | null;
   onSaveAsChapter?: (
+    messageId: string,
     content: string,
     toolCalls?: Array<{ name: string; result?: string; status?: string }>,
   ) => void;
@@ -117,8 +120,11 @@ export function ChatMessage({
     onContinueUnfinished &&
     canContinueUnfinishedDeepChapter(message.content),
   );
+  const currentContextHubSnapshot = message.contextHubSnapshot
+    ? parseContextHubSnapshotRef(message.contextHubSnapshot)
+    : null;
   const hasContextTrace = Boolean(
-    message.contextHubSnapshot ||
+    currentContextHubSnapshot ||
     (message.contextTrace &&
       (message.contextTrace.toolCalls.length > 0 ||
         message.contextTrace.contextInfo)),
@@ -221,7 +227,7 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={() =>
-                  onSaveAsChapter(message.content, message.agentToolCalls)
+                  onSaveAsChapter(message.id, message.content, message.agentToolCalls)
                 }
                 disabled={isSaving}
                 className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
@@ -287,21 +293,21 @@ export function ChatMessage({
         {isAssistant &&
           !message.discarded &&
           contextTraceExpanded &&
-          (message.contextTrace || message.contextHubSnapshot) && (
+          (message.contextTrace || currentContextHubSnapshot) && (
             <div className="mt-1">
               {message.contextTrace ? (
                 <ContextTracePanel
                   trace={message.contextTrace}
-                  contextHubSnapshot={message.contextHubSnapshot}
+                  contextHubSnapshot={currentContextHubSnapshot ?? undefined}
                   projectPath={projectPath}
                   onRebuildRetrievalIndex={onRebuildRetrievalIndex}
                   retrievalIndexHasIndex={retrievalIndexHasIndex}
                   isRebuildingRetrievalIndex={isRebuildingRetrievalIndex}
                   lastRebuildResult={lastRebuildRetrievalResult}
                 />
-              ) : message.contextHubSnapshot ? (
+              ) : currentContextHubSnapshot ? (
                 <ContextHubDetails
-                  reference={message.contextHubSnapshot}
+                  reference={currentContextHubSnapshot}
                   projectPath={projectPath}
                 />
               ) : null}
@@ -449,40 +455,25 @@ function CitedReferencesPanel({
     let cancelled = false;
     Promise.all(
       citedPages.map(async (page) => {
-        // Try the path verbatim first, then the same fallback set
-        // the click-handler uses below — keeps "is the file on
-        // disk" check consistent across the panel.
-        const id = getFileName(
-          page.path.replace(/^wiki\//, "").replace(/\.md$/, ""),
-        );
-        const candidates = [
-          `${pp}/${page.path}`,
-          `${pp}/wiki/entities/${id}.md`,
-          `${pp}/wiki/concepts/${id}.md`,
-          `${pp}/wiki/sources/${id}.md`,
-          `${pp}/wiki/queries/${id}.md`,
-          `${pp}/wiki/synthesis/${id}.md`,
-          `${pp}/wiki/comparisons/${id}.md`,
-          `${pp}/wiki/${id}.md`,
-        ];
-        for (const candidate of candidates) {
-          try {
-            const text = await readFile(candidate);
-            // Reset stateful regex.lastIndex by `new RegExp(...)` —
-            // module-level `g` regexes carry state across calls
-            // and would skip matches on the second invocation.
-            const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags);
-            const matches = [...text.matchAll(re)];
-            const info: CitedImageInfo = {
-              count: matches.length,
-              firstUrl: matches.length > 0 ? matches[0][1] : null,
-            };
-            return [page.path, info] as const;
-          } catch {
-            // try next candidate
-          }
+        // Same resolver the click-handler uses — nested outlines and
+        // wiki/QM aliases stay consistent across the panel.
+        const resolved = await resolveCitedPagePath(pp, page.path);
+        if (!resolved) return [page.path, { count: 0, firstUrl: null }] as const;
+        try {
+          const text = await readFile(resolved);
+          // Reset stateful regex.lastIndex by `new RegExp(...)` —
+          // module-level `g` regexes carry state across calls
+          // and would skip matches on the second invocation.
+          const re = new RegExp(CITED_IMAGE_RE.source, CITED_IMAGE_RE.flags);
+          const matches = [...text.matchAll(re)];
+          const info: CitedImageInfo = {
+            count: matches.length,
+            firstUrl: matches.length > 0 ? matches[0][1] : null,
+          };
+          return [page.path, info] as const;
+        } catch {
+          return [page.path, { count: 0, firstUrl: null }] as const;
         }
-        return [page.path, { count: 0, firstUrl: null }] as const;
       }),
     ).then((entries) => {
       if (cancelled) return;
@@ -569,29 +560,14 @@ function CitedReferencesPanel({
           const openCitedPage = async () => {
             if (!project) return;
             const pp = normalizePath(project.path);
-            const id = getFileName(
-              page.path.replace(/^wiki\//, "").replace(/\.md$/, ""),
-            );
-            const candidates = [
-              `${pp}/${page.path}`,
-              `${pp}/wiki/entities/${id}.md`,
-              `${pp}/wiki/concepts/${id}.md`,
-              `${pp}/wiki/sources/${id}.md`,
-              `${pp}/wiki/queries/${id}.md`,
-              `${pp}/wiki/synthesis/${id}.md`,
-              `${pp}/wiki/comparisons/${id}.md`,
-              `${pp}/wiki/${id}.md`,
-            ];
-            for (const candidate of candidates) {
-              try {
-                await readFile(candidate);
-                setSelectedFile(candidate);
-                return;
-              } catch {
-                // try next
-              }
+            const resolved = await resolveCitedPagePath(pp, page.path);
+            if (resolved) {
+              setSelectedFile(resolved);
+              return;
             }
-            setSelectedFile(`${pp}/${page.path}`);
+            // Do not fall back to invented shallow paths like
+            // wiki/chapters/第40章.md — they are usually wrong and only
+            // produce "No such file". Folder citations (章纲/卷纲) stay closed.
           };
           return (
             // Outer is a div, NOT a button — we have two click

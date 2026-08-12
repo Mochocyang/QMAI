@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
 import type { ContextHubResult, ContextHubSnapshotRef, ContextHubStats } from "./types"
-import { applyProviderUsageToStats, persistContextHubProviderUsage } from "./provider-usage"
+import {
+  applyProviderUsageToStats,
+  buildLlmRequestDiagnostics,
+  persistContextHubProviderUsage,
+} from "./provider-usage"
 import type { UserMemoryDecision } from "@/lib/user-memory/decision-trace"
+import { setLatestUserMemoryDecision } from "@/lib/user-memory/decision-trace"
 
 const baseStats: ContextHubStats = {
-  hits: 2,
-  refreshed: 1,
-  failures: 0,
+  cacheHits: 2,
+  reloaded: 1,
+  empty: 0,
+  fallbackUsed: 0,
+  readFailed: 0,
+  writeFailed: 0,
   stableTokens: 1000,
   summaryTokens: 100,
   dynamicTokens: 300,
@@ -19,17 +27,26 @@ const baseStats: ContextHubStats = {
 
 describe("context hub provider usage", () => {
   it("stores confirmed cache usage without changing local cache counters", () => {
-    expect(applyProviderUsageToStats(baseStats, {
+    const next = applyProviderUsageToStats(baseStats, {
       inputTokens: 1600,
       outputTokens: 200,
       cachedInputTokens: 800,
       cacheWriteInputTokens: 300,
-    })).toEqual({
-      ...baseStats,
+    })
+    expect(next).toMatchObject({
+      cacheHits: 2, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
       providerUsageReported: true,
       providerInputTokens: 1600,
       providerCachedTokens: 800,
       providerCacheWriteTokens: 300,
+      requestDiagnostics: {
+        requestCount: 1,
+        providerUsageAvailable: true,
+        inputTokens: 1600,
+        outputTokens: 200,
+        cacheReadTokens: 800,
+        cacheWriteTokens: 300,
+      },
     })
   })
 
@@ -55,7 +72,18 @@ describe("context hub provider usage", () => {
     })
   })
 
-  it("updates the persisted snapshot after the model response", async () => {
+  it("persist 必须使用显式 memoryDecision，不读取全局 latest", async () => {
+    setLatestUserMemoryDecision({
+      createdAt: 1,
+      surface: "ai-chat",
+      projectKey: "other",
+      sessionKey: "other",
+      candidateCount: 99,
+      selectedRuleIds: ["leak"],
+      filtered: [],
+      injectedChars: 1,
+      estimatedTokens: 1,
+    })
     const reference: ContextHubSnapshotRef = {
       id: "assistant:1",
       surface: "ai-chat",
@@ -64,19 +92,35 @@ describe("context hub provider usage", () => {
     }
     const saveSnapshot = vi.fn(async () => reference)
     const result = { stats: { ...baseStats } } as ContextHubResult
+    const decision: UserMemoryDecision = {
+      createdAt: 2,
+      surface: "ai-chat",
+      projectKey: "p1",
+      sessionKey: "s1",
+      candidateCount: 3,
+      selectedRuleIds: ["r1"],
+      filtered: [],
+      injectedChars: 10,
+      estimatedTokens: 3,
+    }
 
-    await expect(persistContextHubProviderUsage(
+    await persistContextHubProviderUsage(
       { saveSnapshot },
       "assistant:1",
       result,
       { inputTokens: 1600, cachedInputTokens: 800 },
-    )).resolves.toBe(reference)
+      {
+        memoryDecision: decision,
+        requestDiagnostics: buildLlmRequestDiagnostics(
+          { inputTokens: 1600, cachedInputTokens: 800 },
+          2,
+        ),
+      },
+    )
 
-    expect(result.stats).toMatchObject({
-      providerUsageReported: true,
-      providerInputTokens: 1600,
-      providerCachedTokens: 800,
-    })
+    expect(result.stats.memoryCandidateCount).toBe(3)
+    expect(result.stats.memorySelectedCount).toBe(1)
+    expect(result.stats.requestDiagnostics?.requestCount).toBe(2)
     expect(saveSnapshot).toHaveBeenCalledWith("assistant:1", result)
   })
 })

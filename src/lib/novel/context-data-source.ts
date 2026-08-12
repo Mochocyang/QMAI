@@ -34,6 +34,8 @@ export interface DataSourceLoadAdapter {
     context: ContextLoadContext,
     directLoad: () => Promise<T>,
   ): Promise<T>
+  recordReadFailed?(sourceName: string): void
+  recordFallbackUsed?(sourceName: string): void
 }
 
 export interface DataSourceRegistryOptions {
@@ -90,12 +92,13 @@ export class DataSourceRegistry {
   }
 
   private async loadSources(sources: DataSource<any>[], context: ContextLoadContext): Promise<Record<string, any>> {
+    const adapter = this.options.loadAdapter
 
     const promises = sources.map(async (source): Promise<DataSourceResult> => {
       try {
         const directLoad = () => source.load(context)
-        const loadedValue = this.options.loadAdapter
-          ? await this.options.loadAdapter.load(source, context, directLoad)
+        const loadedValue = adapter
+          ? await adapter.load(source, context, directLoad)
           : await directLoad()
         const value = loadedValue === undefined || loadedValue === null
           ? this.getDefaultValue(source.name)
@@ -103,19 +106,26 @@ export class DataSourceRegistry {
         return { name: source.name, value, error: null }
       } catch (error) {
         console.warn(`[DataSource] ${source.name} failed to load:`, error)
-        
-        // 尝试使用降级策略
+        adapter?.recordReadFailed?.(source.name)
+
+        if (!source.fallback) {
+          return {
+            name: source.name,
+            value: this.getDefaultValue(source.name),
+            error: error as Error,
+          }
+        }
+
         try {
-          const fallbackValue = source.fallback 
-            ? await source.fallback(context) 
-            : this.getDefaultValue(source.name)
+          const fallbackValue = await source.fallback(context)
+          adapter?.recordFallbackUsed?.(source.name)
           return { name: source.name, value: fallbackValue, error: error as Error }
         } catch (fallbackError) {
           console.warn(`[DataSource] ${source.name} fallback also failed:`, fallbackError)
-          return { 
-            name: source.name, 
-            value: this.getDefaultValue(source.name), 
-            error: fallbackError as Error 
+          return {
+            name: source.name,
+            value: this.getDefaultValue(source.name),
+            error: fallbackError as Error,
           }
         }
       }
@@ -123,7 +133,6 @@ export class DataSourceRegistry {
 
     const results = await Promise.all(promises)
 
-    // 转换为记录对象
     return results.reduce((acc, { name, value }) => {
       acc[name] = value
       return acc
@@ -160,8 +169,14 @@ export class DataSourceRegistry {
       revisionFeedback: [],
       cognitionText: "",
       soulDoc: "",
-      characterAuras: "",
       sectionBriefing: "",
+      storyFrameworkBinding: "",
+      retrieval: {
+        recentSummaries: [],
+        characterStates: "",
+        foreshadowingSignals: [],
+        timeline: "",
+      },
     }
     return defaults[sourceName] ?? null
   }

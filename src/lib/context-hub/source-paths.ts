@@ -20,7 +20,6 @@ const DATA_SOURCE_KINDS: Record<string, ContextSourceKind[]> = {
   revisionFeedback: ["chapter", "snapshot"],
   cognitionText: ["entity"],
   soulDoc: ["soul"],
-  characterAuras: ["entity"],
   sectionBriefing: ["outline", "snapshot"],
   storyFrameworkBinding: ["outline", "setting", "deduction"],
   retrieval: ["retrieval"],

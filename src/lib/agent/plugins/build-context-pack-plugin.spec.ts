@@ -13,6 +13,7 @@ const mockContextPack: ContextPack = {
   characterStates: "人物状态",
   soulDoc: "灵魂文档",
   characterAuras: "",
+  storyFrameworkBinding: "",
   cognitionStates: "认知状态",
   foreshadowingStates: "伏笔状态",
   timeline: "时间线",
@@ -232,6 +233,7 @@ describe("Task3: Plugin Chain Integration", () => {
     const mockBuild = vi.fn().mockResolvedValue({
       ...mockContextPack,
       characterAuras: "需要确认的角色光环",
+      storyFrameworkBinding: "",
     })
 
     const chain = createPrePluginChain([
@@ -257,6 +259,7 @@ describe("Task3: Plugin Chain Integration", () => {
     const mockBuild = vi.fn().mockResolvedValue({
       ...mockContextPack,
       characterAuras: "",
+      storyFrameworkBinding: "",
     })
 
     const chain = createPrePluginChain([

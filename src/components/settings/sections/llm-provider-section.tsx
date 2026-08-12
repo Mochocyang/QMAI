@@ -18,12 +18,15 @@ import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
+import { ResourceLink } from "../resource-link"
 import {
   MIN_USER_LLM_CONTEXT_SIZE,
   normalizeProviderOverride,
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
+
+const MODEL_PARAM_DOCS_URL = "https://global.modelmesh.info/model"
 
 /**
  * Raise the declared output ceiling when the chosen reasoning level needs more
@@ -118,15 +121,21 @@ export function LlmProviderSection() {
         </p>
       </div>
 
-      <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+      <div className="flex gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-white">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>
+        <div className="min-w-0 space-y-1.5">
           <div className="font-medium">
             {t("settings.sections.llm.longWritingContextTitle")}
           </div>
-          <p className="mt-0.5 text-xs leading-relaxed">
+          <p className="text-xs leading-relaxed">
             {t("settings.sections.llm.longWritingContextHint")}
           </p>
+          <ResourceLink
+            href={MODEL_PARAM_DOCS_URL}
+            title={t("settings.sections.llm.longWritingContextDocs")}
+          >
+            {t("settings.sections.llm.longWritingContextDocs")}
+          </ResourceLink>
         </div>
       </div>
 

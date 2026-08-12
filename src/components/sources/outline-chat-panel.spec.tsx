@@ -125,9 +125,7 @@ describe("OutlineChatPanel controls", () => {
       surface: "ai-outline",
       createdAt: 10,
       stats: {
-        hits: 3,
-        refreshed: 2,
-        failures: 0,
+        cacheHits: 3, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
         stableTokens: 1200,
         summaryTokens: 60,
         dynamicTokens: 420,
@@ -148,7 +146,7 @@ describe("OutlineChatPanel controls", () => {
     const container = await renderOutlineChatPanel()
 
     expect(container.textContent).toContain("上下文中控")
-    expect(container.textContent).toContain("本轮缓存事件：命中 3，刷新 2，失败 0")
+    expect(container.textContent).toContain("本轮数据源：命中 3，重载 2，无数据 0，fallback 0，失败 0")
   })
 
   it.each([

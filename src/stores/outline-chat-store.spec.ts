@@ -151,7 +151,7 @@ describe("outline-chat-store", () => {
         surface: "ai-outline",
         createdAt: 10,
         stats: {
-          hits: 1, refreshed: 0, failures: 0,
+          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
           stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
           candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
           expanded: false, providerCacheEnabled: true,
@@ -259,7 +259,7 @@ describe("outline-chat-store", () => {
           surface: "ai-outline",
           createdAt: 10,
           stats: {
-            hits: 1, refreshed: 0, failures: 0,
+            cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
             stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
             candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
             expanded: false, providerCacheEnabled: true,

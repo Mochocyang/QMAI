@@ -31,7 +31,9 @@ describe("global user memory request integration", () => {
     saveGlobalUserMemoryConfig({ ...loadGlobalUserMemoryConfig(storage), autoRead: false }, storage)
     const messages: ChatMessage[] = [{ role: "user", content: "续写下一章" }]
 
-    expect(applyGlobalUserMemoryToMessages(messages, {}, storage)).toBe(messages)
+    const result = applyGlobalUserMemoryToMessages(messages, {}, storage)
+    expect(result.messages).toBe(messages)
+    expect(result.decision).not.toBeNull()
   })
 
   it("写作任务只注入相关规则", () => {
@@ -42,8 +44,9 @@ describe("global user memory request integration", () => {
       { role: "user", content: "续写下一章正文" },
     ], { userMemorySurface: "chapter-writing" }, storage)
 
-    expect(String(result[0]?.content)).toContain("写作保持幽默")
-    expect(String(result[0]?.content)).toContain("回答时先给结论")
+    expect(String(result.messages[0]?.content)).toContain("写作保持幽默")
+    expect(String(result.messages[0]?.content)).toContain("回答时先给结论")
+    expect(result.decision?.selectedRuleIds.length).toBeGreaterThan(0)
   })
 
   it("审查任务不注入创作文风并保留缓存块", () => {
@@ -57,7 +60,7 @@ describe("global user memory request integration", () => {
       { role: "user", content: "请审查这一章" },
     ]
     const result = applyGlobalUserMemoryToMessages(messages, { userMemorySurface: "review" }, storage)
-    const blocks = result[0]?.content
+    const blocks = result.messages[0]?.content
 
     expect(Array.isArray(blocks)).toBe(true)
     expect(blocks).toEqual(expect.arrayContaining([
@@ -72,7 +75,10 @@ describe("global user memory request integration", () => {
     withRules(storage)
     const messages: ChatMessage[] = [{ role: "user", content: "分析用户偏好" }]
 
-    expect(applyGlobalUserMemoryToMessages(messages, { skipUserMemory: true }, storage)).toBe(messages)
+    expect(applyGlobalUserMemoryToMessages(messages, { skipUserMemory: true }, storage)).toEqual({
+      messages,
+      decision: null,
+    })
   })
 
   it("后台提取器跳过记忆时不覆盖最近一次用户请求决策", () => {
@@ -104,9 +110,10 @@ describe("global user memory request integration", () => {
       { role: "user", content: "请回答" },
     ], { userMemorySurface: "ai-chat", userMemoryProjectKey: "p1", userMemorySessionKey: "s1" }, storage)
 
-    expect(JSON.stringify(result)).toContain("会话规则")
+    expect(JSON.stringify(result.messages)).toContain("会话规则")
+    expect(result.decision).toMatchObject({ projectKey: "p1", sessionKey: "s1" })
+    expect(result.decision?.selectedRuleIds.length).toBe(3)
     expect(getLatestUserMemoryDecision()).toMatchObject({ projectKey: "p1", sessionKey: "s1" })
-    expect(getLatestUserMemoryDecision()?.selectedRuleIds.length).toBe(3)
   })
 
   it("仅手动模式过滤自动规则并记录过滤原因", () => {
@@ -123,7 +130,8 @@ describe("global user memory request integration", () => {
     }, storage)
 
     const messages = [{ role: "user" as const, content: "请回答" }]
-    expect(applyGlobalUserMemoryToMessages(messages, { userMemorySurface: "ai-chat" }, storage)).toBe(messages)
-    expect(getLatestUserMemoryDecision()?.filtered).toContainEqual({ ruleId: "auto", reason: "disabled" })
+    const result = applyGlobalUserMemoryToMessages(messages, { userMemorySurface: "ai-chat" }, storage)
+    expect(result.messages).toBe(messages)
+    expect(result.decision?.filtered).toContainEqual({ ruleId: "auto", reason: "disabled" })
   })
 })

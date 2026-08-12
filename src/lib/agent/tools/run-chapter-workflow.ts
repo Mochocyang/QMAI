@@ -1,5 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
-import { resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type {
   ChapterWorkflowEvent,
   DeepChapterGenerationCallbacks,
@@ -19,7 +19,7 @@ export type RunDeepChapterGeneration = (
 export interface RunChapterWorkflowToolOptions {
   projectPath: string
   llmConfig: LlmConfig
-  aiWorkflowMode: LegacyAiWorkflowMode
+  aiWorkflowMode: AiWorkflowMode
   runDeepChapterGeneration: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
@@ -34,7 +34,7 @@ interface RunChapterWorkflowParams {
   intent?: string
   userRequest?: string
   chapterNumber?: number
-  workflowMode?: LegacyAiWorkflowMode
+  workflowMode?: AiWorkflowMode
   planBlueprint?: string
 }
 
@@ -54,7 +54,7 @@ function normalizeParams(params: Record<string, unknown>): RunChapterWorkflowPar
     chapterNumber: toNumber(params.chapterNumber),
     workflowMode:
       params.workflowMode === "fast" || params.workflowMode === "standard" || params.workflowMode === "strict"
-        ? resolveAiWorkflowMode(params.workflowMode)
+        ? params.workflowMode
         : undefined,
     planBlueprint: typeof params.planBlueprint === "string" ? params.planBlueprint : undefined,
   }

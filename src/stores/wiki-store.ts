@@ -29,7 +29,7 @@ import {
   resolveStoredVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style-settings"
-import { DEFAULT_AI_WORKFLOW_MODE, resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import { DEFAULT_AI_WORKFLOW_MODE, type AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
 import {
   normalizeProviderConfigs,
@@ -307,6 +307,7 @@ interface SourceWatchConfig {
 }
 
 export interface NovelConfig {
+  /** @deprecated Always 0 (auto from model window). Kept for config schema compatibility. */
   contextTokenBudget: number
   recentSummaryWindow: number
   searchTopK: number
@@ -314,10 +315,8 @@ export interface NovelConfig {
   chapterTargetChars: number
   autoIngestOnSave: boolean
   autoExtractOnImport: boolean
-  /** 深度生成阶段0：读取并 LLM 分析前几章完整正文。关闭可省一次调用，记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
+  /** 前情分析：读取并 LLM 分析前几章完整正文。快速模式始终跳过；标准/严格模式跟随此开关。关闭时记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
   deepPreviousChaptersAnalysis: boolean
-  /** 深度生成阶段4-5：AI 审稿 + 自动返修。关闭则初稿直接进入简单审查与去AI味，省审稿与返修调用（默认开）。 */
-  deepChapterReview: boolean
   /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
   reviewReasoningEffort: "low" | "medium" | "high"
   /** 默认模型（工作流）：拆文库、剧情推演室、去重等。空字符串表示跟随 AI 会话模型。 */
@@ -328,7 +327,7 @@ export interface NovelConfig {
   extractModel: string
   /** 去 AI 味：章节预览去 AI 味、深度生成阶段6。空字符串表示跟随默认模型。 */
   deAiModel: string
-  /** 批量去 AI 味同时运行的作品 Agent 数，范围 1–5。 */
+  /** 批量去 AI 味同时运行的章节数，范围 1–5。 */
   deAiBatchConcurrency: number
   /** 社区摘要自动提取：开启后每 N 章用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（默认开）。 */
   communitySummaryEnabled: boolean
@@ -348,7 +347,6 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoIngestOnSave: true,
   autoExtractOnImport: true,
   deepPreviousChaptersAnalysis: false,
-  deepChapterReview: true,
   reviewReasoningEffort: "high",
   defaultLlmModel: "",
   writingModel: "",
@@ -603,8 +601,6 @@ interface WikiState {
   chatEditModeEnabled: boolean
   aiWorkflowMode: AiWorkflowMode
   planExecuteEnabled: boolean
-  /** 深度模式状态：跨视图切换保持开启 */
-  deepChapterEnabled: boolean
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
   communitySummaryError: string | null
@@ -673,9 +669,8 @@ interface WikiState {
   setSourceWatchConfig: (sourceWatchConfig: SourceWatchConfig) => void
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
-  setAiWorkflowMode: (mode: LegacyAiWorkflowMode) => void
+  setAiWorkflowMode: (mode: AiWorkflowMode) => void
   setPlanExecuteEnabled: (enabled: boolean) => void
-  setDeepChapterEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
@@ -891,7 +886,6 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatEditModeEnabled: false,
   aiWorkflowMode: DEFAULT_AI_WORKFLOW_MODE,
   planExecuteEnabled: false,
-  deepChapterEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
   searchHistory: [],
@@ -933,18 +927,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
-  setAiWorkflowMode: (aiWorkflowMode) => {
-    const resolvedMode = resolveAiWorkflowMode(aiWorkflowMode)
-    set({
-      aiWorkflowMode: resolvedMode,
-      deepChapterEnabled: resolvedMode === "strict",
-    })
-  },
+  setAiWorkflowMode: (aiWorkflowMode) => set({ aiWorkflowMode }),
   setPlanExecuteEnabled: (planExecuteEnabled) => set({ planExecuteEnabled }),
-  setDeepChapterEnabled: (deepChapterEnabled) => set({
-    deepChapterEnabled,
-    aiWorkflowMode: deepChapterEnabled ? "strict" : DEFAULT_AI_WORKFLOW_MODE,
-  }),
   setNovelConfig: (config) => set((state) => ({
     novelConfig: { ...state.novelConfig, ...config },
     ...(config.defaultLlmModel !== undefined

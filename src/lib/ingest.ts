@@ -6,7 +6,12 @@ import {
   writeFile,
   listDirectory,
 } from "@/commands/fs"
-import { computeContextBudget } from "@/lib/context-budget"
+import {
+  ANALYSIS_OUTPUT_FRAC,
+  RESPONSE_RESERVE_FRAC,
+  computeContextBudget,
+} from "@/lib/context-budget"
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -65,10 +70,6 @@ const LONG_SOURCE_CHUNK_MIN = 12_000
 const LONG_SOURCE_CHUNK_MAX = 60_000
 const LONG_SOURCE_DIGEST_MAX = 15_000
 const LONG_SOURCE_CHUNK_ANALYSIS_MAX = 40_000
-const INGEST_GENERATION_TOKENS_DEFAULT = 8_192
-const INGEST_GENERATION_TOKENS_128K = 16_384
-const INGEST_GENERATION_TOKENS_256K = 24_576
-const INGEST_GENERATION_TOKENS_512K = 32_768
 const REVIEW_STAGE_MIN_SIGNAL_CHARS = 10_000
 const REVIEW_STAGE_MIN_FILE_BLOCKS = 4
 
@@ -1231,46 +1232,37 @@ export function computeIngestSourceBudget(
 }
 
 /**
- * Output ladder for wiki page generation, stepped off the model's token
- * window. Compares the window directly rather than a language-scaled
- * character budget: a model's output ceiling does not shrink because the UI
- * is in Chinese, and the old comparison dropped CJK users a whole tier.
+ * Output budget for wiki page generation: window × RESPONSE_RESERVE_FRAC.
+ * Same formula every other long-form path uses; fitIngestOutputToWindow still
+ * clamps against remaining room after the packed prompt.
  */
 export function computeIngestGenerationMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  const windowTokens = typeof maxContextSize === "number" && maxContextSize > 0
-    ? maxContextSize
-    : DEFAULT_INGEST_WINDOW_TOKENS
-  if (windowTokens >= 512_000) return INGEST_GENERATION_TOKENS_512K
-  if (windowTokens >= 256_000) return INGEST_GENERATION_TOKENS_256K
-  if (windowTokens >= 128_000) return INGEST_GENERATION_TOKENS_128K
-  return INGEST_GENERATION_TOKENS_DEFAULT
+  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * RESPONSE_RESERVE_FRAC))
 }
 
 export function computeIngestReviewMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize) / 2)))
+  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * ANALYSIS_OUTPUT_FRAC))
 }
 
 /**
- * Output-token budget for the intermediate analysis passes (whole-source
- * analysis and per-chunk long-source analysis). Previously hard-coded to
- * 4096; now scales off the generation ladder so larger context windows get
- * a richer analysis, while staying capped well below a full page-generation
- * pass. Small windows retain the original 4096 floor.
+ * Output-token budget for intermediate analysis passes (whole-source and
+ * per-chunk). Uses the shared analysis fraction of the window.
  */
 export function computeIngestAnalysisMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  return Math.min(8_192, Math.max(4_096, Math.floor(computeIngestGenerationMaxTokens(maxContextSize) / 2)))
+  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * ANALYSIS_OUTPUT_FRAC))
 }
 
 /** chars/token the ingest budgeting assumes; mirrors context-budget.ts. */
 const INGEST_CHARS_PER_TOKEN = 4
-/** Window assumed when the config carries none; mirrors context-budget.ts. */
-const DEFAULT_INGEST_WINDOW_TOKENS = 204_800
 /** Smallest output allowance we will still request when the window is nearly
  *  full — below this a response is useless, so we accept a tiny overflow risk
  *  rather than emitting nothing. */
@@ -1278,8 +1270,8 @@ const INGEST_OUTPUT_TOKEN_FLOOR = 512
 
 /**
  * Clamp a desired output-token count so that (packed prompt + output) fits the
- * model's real token window. `desiredTokens` is the ladder value; we only ever
- * reduce it when the prompt already leaves less room than the ladder wants.
+ * model's real token window. `desiredTokens` is the window-fraction budget; we
+ * only ever reduce it when the prompt already leaves less room than that.
  *
  * Language-aware: CJK text is denser, so the same prompt consumes more real
  * tokens and leaves less room for output. The English-calibrated window (4:1)

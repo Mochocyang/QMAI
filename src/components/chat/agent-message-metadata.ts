@@ -9,14 +9,20 @@ function stringParam(params: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
-function normalizeReferencePath(path: string): string {
+/** Project-relative wiki path; maps legacy QM/ → wiki/ for UI virtualization. */
+export function normalizeReferencePath(path: string): string {
   const normalized = path.replace(/\\/g, "/")
   const lower = normalized.toLowerCase()
   const wikiIndex = lower.lastIndexOf("/wiki/")
-  if (wikiIndex >= 0) return normalized.slice(wikiIndex + 1)
+  const qmIndex = lower.lastIndexOf("/qm/")
+  const knowledgeIndex = Math.max(wikiIndex, qmIndex)
+  if (knowledgeIndex >= 0) {
+    const sliced = normalized.slice(knowledgeIndex + 1)
+    return sliced.replace(/^QM\//i, "wiki/")
+  }
   const qmaiIndex = lower.lastIndexOf("/.qmai/")
   if (qmaiIndex >= 0) return normalized.slice(qmaiIndex + 1)
-  return normalized.replace(/^\/+/, "")
+  return normalized.replace(/^\/+/, "").replace(/^QM\//i, "wiki/")
 }
 
 function titleFromPath(path: string): string {
@@ -24,26 +30,60 @@ function titleFromPath(path: string): string {
   return fileName.replace(/\.[^.]+$/, "")
 }
 
+function isDirectoryToolResult(result: string): boolean {
+  return /」是目录，不是单个/.test(result) || /」是目录，但目录下没有找到/.test(result)
+}
+
+function isSnapshotFallbackResult(result: string): boolean {
+  return result.includes("已读取大纲快照")
+}
+
+function isErrorToolResult(result: string): boolean {
+  return result.startsWith("错误") || result.startsWith("错误：") || result.startsWith("错误:")
+}
+
+function looksLikeMarkdownFilePath(path: string): boolean {
+  return /\.md$/i.test(path.replace(/\\/g, "/"))
+}
+
 function referenceFromReadTool(call: AgentRunRecord["toolCalls"][number]): MessageReference | null {
   if (call.status !== "done") return null
+  if (
+    isErrorToolResult(call.result)
+    || isDirectoryToolResult(call.result)
+    || isSnapshotFallbackResult(call.result)
+  ) {
+    return null
+  }
 
   const name = stringParam(call.params, "name")
   const path = stringParam(call.params, "path")
 
   switch (call.name) {
     case "read_chapter": {
-      const referencePath = path ? normalizeReferencePath(path) : name ? `wiki/chapters/${name}.md` : ""
-      if (!referencePath) return null
-      return { title: name || titleFromPath(referencePath), path: referencePath }
+      // Prefer a real .md path (tool mutates params.path to the resolved file).
+      // Never invent wiki/chapters/第40章.md — real files are usually 第40章-标题.md.
+      if (path && looksLikeMarkdownFilePath(path)) {
+        const referencePath = normalizeReferencePath(path)
+        return { title: name || titleFromPath(referencePath), path: referencePath }
+      }
+      return null
     }
     case "read_outline": {
-      const referencePath = path ? normalizeReferencePath(path) : name ? `wiki/outlines/${name}.md` : ""
-      if (!referencePath) return null
-      return { title: name || titleFromPath(referencePath), path: referencePath }
+      if (path && looksLikeMarkdownFilePath(path)) {
+        const referencePath = normalizeReferencePath(path)
+        return { title: name || titleFromPath(referencePath), path: referencePath }
+      }
+      // Bare name / folder path without a resolved .md file must not become a citation.
+      return null
     }
     case "read_memory": {
+      if (path && looksLikeMarkdownFilePath(path)) {
+        const referencePath = normalizeReferencePath(path)
+        return { title: name || titleFromPath(referencePath), path: referencePath }
+      }
       if (!name) return null
-      return { title: name, path: `wiki/memory/${name}.md` }
+      return { title: name, path: `wiki/memory/${name.replace(/\.md$/i, "")}.md` }
     }
     case "read_deduction": {
       if (!name) return null

@@ -6,9 +6,10 @@ import {
 } from "@/lib/azure-openai"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import {
-  MIN_USER_LLM_CONTEXT_SIZE,
+  normalizeUserLlmContextSize,
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
+import { RESPONSE_RESERVE_FRAC } from "./context-budget"
 import type { LlmUsage } from "./llm-usage"
 import type { UserMemorySurface } from "./user-memory/types"
 
@@ -674,7 +675,7 @@ function isDeepSeekEndpoint(config: LlmConfig): boolean {
  * them.
  */
 export function getEffectiveMaxContextSize(config: LlmConfig): number {
-  return config.maxContextSize || MIN_USER_LLM_CONTEXT_SIZE
+  return normalizeUserLlmContextSize(config.maxContextSize)
 }
 
 /** The declared output ceiling to plan against, in tokens. */
@@ -924,7 +925,21 @@ function buildAnthropicSystem(messages: ChatMessage[]): string | unknown[] | und
   return blocks.length > 0 ? blocks : undefined
 }
 
+function defaultAnthropicMaxTokens(config: LlmConfig): number {
+  // Anthropic requires max_tokens. Prefer the same window-fraction plan the
+  // HTTP kernel uses; never fall back to a vendor-hardcoded 4096.
+  const windowTokens = getEffectiveMaxContextSize(config)
+  return Math.max(
+    512,
+    Math.min(
+      getEffectiveMaxOutputTokens(config),
+      Math.floor(windowTokens * RESPONSE_RESERVE_FRAC),
+    ),
+  )
+}
+
 function buildAnthropicBody(
+  config: LlmConfig,
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
@@ -941,7 +956,7 @@ function buildAnthropicBody(
     messages: conversationMessages,
     ...(system !== undefined ? { system } : {}),
     stream: true,
-    max_tokens: overrides?.max_tokens ?? 4096,
+    max_tokens: overrides?.max_tokens ?? defaultAnthropicMaxTokens(config),
     ...(overrides?.temperature !== undefined ? { temperature: overrides.temperature } : {}),
     ...(overrides?.top_p !== undefined ? { top_p: overrides.top_p } : {}),
     ...(overrides?.top_k !== undefined ? { top_k: overrides.top_k } : {}),
@@ -956,7 +971,7 @@ function buildAnthropicBodyWithReasoning(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
-  const body = buildAnthropicBody(messages, overrides)
+  const body = buildAnthropicBody(config, messages, overrides)
   const reasoning = effectiveReasoning(config, overrides)
   if (reasoning.mode === "auto" || reasoning.mode === "off") return body
 

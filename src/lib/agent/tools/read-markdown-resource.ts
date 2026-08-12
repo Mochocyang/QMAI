@@ -15,6 +15,11 @@ interface DirectoryCandidate {
 
 export type ReadTextFile = (path: string) => Promise<string>
 
+export type ReadMarkdownResourceOutcome =
+  | { kind: "file"; content: string; resolvedPath: string }
+  | { kind: "directory"; content: string }
+  | { kind: "error"; content: string }
+
 function resolveExplicitResourcePath(baseDir: string, path: string): string | null {
   const normalizedBase = normalizePath(baseDir).replace(/\/+$/, "")
   const normalizedPath = normalizePath(path).trim()
@@ -145,12 +150,34 @@ function findDirectoryMatch(query: string, directories: DirectoryCandidate[]): D
   return directories.find((directory) => normalizeResourceName(directory.name) === normalizedQuery) ?? null
 }
 
+/**
+ * Resolve and read a markdown resource. On success, mutates `params.path` to the
+ * absolute file that was actually read so citation builders don't invent a
+ * shallow `wiki/outlines/<name>.md` path that drops nested folders (设定/章纲/…).
+ */
 export async function readMarkdownResource(
   baseDir: string,
   params: Record<string, unknown>,
   label: string,
   readTextFile: ReadTextFile = readFile,
 ): Promise<string> {
+  const outcome = await resolveMarkdownResource(baseDir, params, label, readTextFile)
+  if (outcome.kind === "file") {
+    params.path = outcome.resolvedPath
+    if (typeof params.name !== "string" || !params.name.trim()) {
+      const fileName = outcome.resolvedPath.replace(/\\/g, "/").split("/").pop() ?? ""
+      params.name = fileName.replace(/\.md$/i, "")
+    }
+  }
+  return outcome.content
+}
+
+export async function resolveMarkdownResource(
+  baseDir: string,
+  params: Record<string, unknown>,
+  label: string,
+  readTextFile: ReadTextFile = readFile,
+): Promise<ReadMarkdownResourceOutcome> {
   const name = typeof params.name === "string" ? params.name.trim() : ""
   const explicitPath = typeof params.path === "string" ? params.path.trim() : ""
   const displayName = name || explicitPath
@@ -158,46 +185,64 @@ export async function readMarkdownResource(
   if (explicitPath) {
     const resolvedPath = resolveExplicitResourcePath(baseDir, explicitPath)
     if (!resolvedPath) {
-      return `错误：无法读取${label}「${displayName}」，文件路径必须位于${label}目录内`
+      return {
+        kind: "error",
+        content: `错误：无法读取${label}「${displayName}」，文件路径必须位于${label}目录内`,
+      }
     }
     try {
-      return await readTextFile(resolvedPath)
+      const content = await readTextFile(resolvedPath)
+      return { kind: "file", content, resolvedPath }
     } catch {
-      return `错误：无法读取${label}「${displayName}」，请确认文件存在`
+      // May be a directory path, or a bare folder name with .md wrongly appended.
+      // Fall through to directory / fuzzy resolution using the basename.
     }
   }
 
-  if (!name) {
-    return `错误：缺少${label}名称或文件路径`
+  const queryName = name
+    || (explicitPath ? stripMarkdownExt(explicitPath.replace(/\\/g, "/").split("/").pop() ?? "") : "")
+  if (!queryName) {
+    return { kind: "error", content: `错误：缺少${label}名称或文件路径` }
   }
 
-  const directPath = `${baseDir}/${ensureMarkdownName(name)}`
+  const directPath = `${baseDir}/${ensureMarkdownName(queryName)}`
   try {
-    return await readTextFile(directPath)
+    const content = await readTextFile(directPath)
+    return { kind: "file", content, resolvedPath: normalizePath(directPath) }
   } catch {
     // 继续用目录候选纠错。
   }
 
   const { files, directories } = await collectMarkdownCandidates(baseDir)
-  const directoryMatch = findDirectoryMatch(name, directories)
+  const directoryMatch = findDirectoryMatch(queryName, directories)
   if (directoryMatch) {
     const nestedList = formatCandidateList(directoryMatch.children)
-    return nestedList
-      ? `「${name}」是目录，不是单个${label}。可读取以下条目：\n${nestedList}`
-      : `「${name}」是目录，但目录下没有找到可读取的 .md 条目。`
+    return {
+      kind: "directory",
+      content: nestedList
+        ? `「${queryName}」是目录，不是单个${label}。可读取以下条目：\n${nestedList}`
+        : `「${queryName}」是目录，但目录下没有找到可读取的 .md 条目。`,
+    }
   }
 
-  const singleMatch = pickSingleMatch(name, files)
+  const singleMatch = pickSingleMatch(queryName, files)
   if (singleMatch) {
     try {
-      return await readTextFile(singleMatch.path)
+      const content = await readTextFile(singleMatch.path)
+      return { kind: "file", content, resolvedPath: normalizePath(singleMatch.path) }
     } catch {
-      return `错误：已匹配到${label}「${singleMatch.name}」，但无法读取文件，请确认文件存在`
+      return {
+        kind: "error",
+        content: `错误：已匹配到${label}「${singleMatch.name}」，但无法读取文件，请确认文件存在`,
+      }
     }
   }
 
   const available = formatCandidateList(files)
-  return available
-    ? `错误：无法读取${label}「${displayName}」。可用候选：\n${available}`
-    : `错误：无法读取${label}「${displayName}」，请确认文件存在`
+  return {
+    kind: "error",
+    content: available
+      ? `错误：无法读取${label}「${displayName}」。可用候选：\n${available}`
+      : `错误：无法读取${label}「${displayName}」，请确认文件存在`,
+  }
 }

@@ -39,6 +39,17 @@ describe("llm provider reasoning options", () => {
     expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 3_584 })
   })
 
+  it("defaults Anthropic max_tokens to the window-fraction reserve, not 4096", () => {
+    const body = getProviderConfig(customConfig({
+      apiMode: "anthropic_messages",
+      maxContextSize: 204_800,
+    })).buildBody(
+      [{ role: "user", content: "请回答。" }],
+    ) as { max_tokens: number }
+
+    expect(body.max_tokens).toBe(30_720)
+  })
+
   it("does not inflate an Anthropic output budget too small for explicit thinking", () => {
     const body = getProviderConfig(customConfig({
       apiMode: "anthropic_messages",

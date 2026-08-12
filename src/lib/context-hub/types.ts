@@ -76,10 +76,41 @@ export interface SessionContextSummary {
   updatedAt: number
 }
 
+export type StablePrefixStatus = "unchanged" | "updated" | "persist_failed"
+
+export type ContextFragmentDisposition =
+  | "kept"
+  | "truncated"
+  | "budget_dropped"
+  | "policy_excluded"
+
+export interface ContextFragmentTrace {
+  title: string
+  layer: "stable" | "summary" | "dynamic"
+  disposition: ContextFragmentDisposition
+  candidateEstimatedTokens: number
+  injectedEstimatedTokens: number
+}
+
+export interface LlmRequestDiagnostics {
+  requestCount: number
+  providerUsageAvailable: boolean
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+}
+
+/** Generation-details stats: source traces + independent stablePrefixStatus; token fields are estimates. */
 export interface ContextHubStats {
-  hits: number
-  refreshed: number
-  failures: number
+  cacheHits: number
+  reloaded: number
+  empty: number
+  fallbackUsed: number
+  readFailed: number
+  writeFailed: number
+  stablePrefixStatus?: StablePrefixStatus
+  /** Estimated tokens (local heuristic). */
   stableTokens: number
   summaryTokens: number
   dynamicTokens: number
@@ -92,7 +123,9 @@ export interface ContextHubStats {
   providerInputTokens?: number
   providerCachedTokens?: number
   providerCacheWriteTokens?: number
+  /** Hub injection budget (estimated domain). */
   budgetTokens?: number
+  /** Hub injection total (estimated); not full-window occupancy. */
   composedTokens?: number
   utilizationPercent?: number
   memoryCandidateCount?: number
@@ -100,9 +133,19 @@ export interface ContextHubStats {
   memoryFilteredCount?: number
   memoryInjectedChars?: number
   memoryEstimatedTokens?: number
+  fragmentTraces?: ContextFragmentTrace[]
+  requestDiagnostics?: LlmRequestDiagnostics
 }
 
-export type ContextCacheItemStatus = "hit" | "refreshed" | "failed"
+export type ContextCacheItemStatus =
+  | "cache_hit"
+  | "reloaded"
+  | "empty"
+  | "fallback_used"
+  | "read_failed"
+  | "write_failed"
+
+export type ContextSourceTraceStatus = ContextCacheItemStatus
 
 export interface ContextCacheItemTrace {
   key: string
@@ -112,6 +155,8 @@ export interface ContextCacheItemTrace {
   dependencyPaths: string[]
   dependencyPathsTruncated: boolean
 }
+
+export type ContextSourceTrace = ContextCacheItemTrace
 
 export interface ContextHubSnapshotRef {
   id: string
@@ -126,6 +171,7 @@ export interface ContextHubSnapshot extends ContextHubSnapshotRef {
   stableCore: string
   sessionSummary: string
   dynamicContext: string
+  warnings?: string[]
 }
 
 export interface ContextHubRequest {
@@ -167,4 +213,132 @@ export interface ContextHub {
   pruneSnapshots(surface: ContextSurface, referencedIds: string[]): Promise<void>
   markDirty(path: string): void
   dispose(): void
+}
+
+export function emptyContextHubStats(): ContextHubStats {
+  return {
+    cacheHits: 0,
+    reloaded: 0,
+    empty: 0,
+    fallbackUsed: 0,
+    readFailed: 0,
+    writeFailed: 0,
+    stableTokens: 0,
+    summaryTokens: 0,
+    dynamicTokens: 0,
+    candidateTokens: 0,
+    estimatedSavedTokens: 0,
+    estimatedSavedPercent: 0,
+    expanded: false,
+    providerCacheEnabled: false,
+  }
+}
+
+const CURRENT_ITEM_STATUSES = new Set<ContextCacheItemStatus>([
+  "cache_hit",
+  "reloaded",
+  "empty",
+  "fallback_used",
+  "read_failed",
+  "write_failed",
+])
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+/** True only for the current stats shape. Legacy hits/refreshed/failures payloads are rejected. */
+export function isCurrentContextHubStats(raw: unknown): raw is ContextHubStats {
+  if (!raw || typeof raw !== "object") return false
+  const source = raw as Record<string, unknown>
+  return isFiniteNumber(source.cacheHits)
+    && isFiniteNumber(source.reloaded)
+    && isFiniteNumber(source.empty)
+    && isFiniteNumber(source.fallbackUsed)
+    && isFiniteNumber(source.readFailed)
+    && isFiniteNumber(source.writeFailed)
+    && isFiniteNumber(source.stableTokens)
+    && isFiniteNumber(source.summaryTokens)
+    && isFiniteNumber(source.dynamicTokens)
+    && isFiniteNumber(source.candidateTokens)
+    && isFiniteNumber(source.estimatedSavedTokens)
+    && isFiniteNumber(source.estimatedSavedPercent)
+    && typeof source.expanded === "boolean"
+    && typeof source.providerCacheEnabled === "boolean"
+}
+
+function isCurrentCacheItemStatus(status: unknown): status is ContextCacheItemStatus {
+  return typeof status === "string" && CURRENT_ITEM_STATUSES.has(status as ContextCacheItemStatus)
+}
+
+/** Disk/UI parse: reject legacy or corrupt snapshots instead of remapping fields. */
+export function parseContextHubSnapshot(raw: unknown): ContextHubSnapshot | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  if (
+    source.schemaVersion !== CONTEXT_CACHE_SCHEMA_VERSION
+    || typeof source.id !== "string"
+    || (source.surface !== "ai-chat" && source.surface !== "ai-outline")
+    || typeof source.createdAt !== "number"
+    || typeof source.stableCore !== "string"
+    || typeof source.sessionSummary !== "string"
+    || typeof source.dynamicContext !== "string"
+    || !Array.isArray(source.items)
+    || !isCurrentContextHubStats(source.stats)
+  ) return null
+  if (source.warnings !== undefined && !Array.isArray(source.warnings)) return null
+
+  const items: ContextCacheItemTrace[] = []
+  for (const item of source.items) {
+    if (!item || typeof item !== "object") return null
+    const entry = item as Record<string, unknown>
+    if (
+      typeof entry.key !== "string"
+      || typeof entry.sourceName !== "string"
+      || !isCurrentCacheItemStatus(entry.status)
+      || !entry.dependencyStamp
+      || typeof entry.dependencyStamp !== "object"
+      || !Array.isArray(entry.dependencyPaths)
+    ) return null
+    items.push({
+      key: entry.key,
+      sourceName: entry.sourceName,
+      status: entry.status,
+      dependencyStamp: entry.dependencyStamp as DependencyStamp,
+      dependencyPaths: entry.dependencyPaths.filter((path): path is string => typeof path === "string"),
+      dependencyPathsTruncated: Boolean(entry.dependencyPathsTruncated),
+    })
+  }
+
+  return {
+    schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+    id: source.id,
+    surface: source.surface,
+    createdAt: source.createdAt,
+    stats: source.stats,
+    items,
+    stableCore: source.stableCore,
+    sessionSummary: source.sessionSummary,
+    dynamicContext: source.dynamicContext,
+    ...(Array.isArray(source.warnings)
+      ? { warnings: source.warnings.filter((warning): warning is string => typeof warning === "string") }
+      : {}),
+  }
+}
+
+export function parseContextHubSnapshotRef(raw: unknown): ContextHubSnapshotRef | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  if (
+    typeof source.id !== "string"
+    || (source.surface !== "ai-chat" && source.surface !== "ai-outline")
+    || typeof source.createdAt !== "number"
+    || !isCurrentContextHubStats(source.stats)
+  ) return null
+  return {
+    id: source.id,
+    surface: source.surface,
+    createdAt: source.createdAt,
+    stats: source.stats,
+  }
 }

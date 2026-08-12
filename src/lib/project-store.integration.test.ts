@@ -135,7 +135,6 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     autoIngestOnSave: true,
     autoExtractOnImport: true,
     deepPreviousChaptersAnalysis: false,
-    deepChapterReview: true,
     reviewReasoningEffort: "high",
     writingModel: "claude-4-sonnet",
     reviewModel: "claude-4-sonnet",
@@ -216,7 +215,7 @@ describe("novelConfig — project-directory persistence", () => {
     const config = makeNovelConfig({ contextTokenBudget: 100000, searchTopK: 15 })
     await saveNovelConfig(config, "proj-1", tmp.path)
     const loaded = await loadNovelConfig("proj-1", tmp.path)
-    expect(loaded).toEqual(config)
+    expect(loaded).toEqual({ ...config, contextTokenBudget: 0 })
   })
 
   it("persists to .qmai/novel-config.json", async () => {
@@ -224,7 +223,7 @@ describe("novelConfig — project-directory persistence", () => {
     expect(await fileExists(`${tmp.path}/.qmai/novel-config.json`)).toBe(true)
     const raw = await readFileRaw(`${tmp.path}/.qmai/novel-config.json`)
     const parsed = JSON.parse(raw)
-    expect(parsed.contextTokenBudget).toBe(200000)
+    expect(parsed.contextTokenBudget).toBe(0)
   })
 
   it("returns null when neither file nor store has data", async () => {
@@ -283,6 +282,7 @@ describe("novelConfig — project-directory persistence", () => {
     )
     const loaded = await loadNovelConfig("proj-legacy", tmp.path)
     expect(loaded?.autoExtractOnImport).toBe(true)
+    expect(loaded?.contextTokenBudget).toBe(0)
   })
 })
 

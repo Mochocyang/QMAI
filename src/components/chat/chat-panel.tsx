@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, useMemo, type CSSProperties } from "react"
+import { useRef, useEffect, useCallback, useState, useMemo, useDeferredValue, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, ChevronDown, Check, History, ArrowDown } from "lucide-react"
@@ -134,12 +134,22 @@ import {
   buildContextHubSystemContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
+  buildLlmRequestDiagnostics,
   getContextHub,
   persistContextHubProviderUsage,
   selectContextHistoryMessages,
   type ContextHubResult,
   type ContextIntent,
 } from "@/lib/context-hub"
+import { buildAgentHistoryMessages } from "@/lib/context-hub/chapter-body-injection"
+import {
+  buildContextUsageSnapshot,
+  calibrateContextUsageSnapshot,
+  composeLiveContextUsage,
+} from "@/lib/context-usage"
+import { toOpenAITools } from "@/lib/agent/tools-schema"
+import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
+import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service"
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service"
 
@@ -289,7 +299,6 @@ function buildSelectedSkillsActivityContent(skills: UserSkill[] | undefined): st
 function buildChatAgentSystemPrompt(options: {
   novelMode: boolean
   mode: "chat" | "ingest"
-  deepChapterEnabled: boolean
   chatEditModeEnabled: boolean
   aiWorkflowMode?: AiWorkflowMode
   planExecuteEnabled?: boolean
@@ -870,7 +879,6 @@ export function ChatPanel() {
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
   const [isSavingChapter, setIsSavingChapter] = useState(false)
-  const deepChapterEnabled = useWikiStore((s) => s.deepChapterEnabled)
   // 故事框架绑定状态
   const [activeBinding, setActiveBinding] = useState<{ binding: FrameworkBinding; framework: StoryFramework } | null>(null)
   const [fallbackReferenceText, setFallbackReferenceText] = useState("")
@@ -967,7 +975,6 @@ export function ChatPanel() {
       buildChatAgentSystemPrompt({
         novelMode,
         mode,
-        deepChapterEnabled,
         chatEditModeEnabled,
         aiWorkflowMode,
         planExecuteEnabled: aiWorkflowMode !== "fast" && planExecuteEnabled,
@@ -977,7 +984,6 @@ export function ChatPanel() {
     [
       activeBinding?.framework.title,
       chatEditModeEnabled,
-      deepChapterEnabled,
       mode,
       novelMode,
       aiWorkflowMode,
@@ -995,6 +1001,43 @@ export function ChatPanel() {
     writingSkills: agentUserWritingSkills,
     mcpCapabilities: agentMcpCapabilities,
   } = useAgentConfig(agentSystemPrompt)
+  const deferredReferenceText = useDeferredValue(referenceText)
+  const liveContextUsage = useMemo(() => {
+    const historyMessages = selectContextHistoryMessages(
+      activeMessages.filter((message) => (
+        (message.role === "user" || message.role === "assistant")
+        && !message.discarded
+        && !message.isAgentRunning
+      )),
+      activeConversation?.contextSummary?.text,
+    )
+    const measuredAt = activeConversation?.lastContextUsage?.measuredAt ?? 0
+    const pendingToolResultTexts = activeMessages
+      .filter((message) => message.isAgentRunning)
+      .flatMap((message) => message.agentToolCalls ?? [])
+      .filter((call) => (
+        call.status === "done"
+        && typeof call.result === "string"
+        && call.result.trim().length > 0
+        && (call.finishedAt ?? 0) > measuredAt
+      ))
+      .map((call) => call.result)
+    return composeLiveContextUsage(activeConversation?.lastContextUsage, {
+      windowTokens: agentConfig?.llmConfig
+        ? getEffectiveMaxContextSize(agentConfig.llmConfig)
+        : undefined,
+      sessionSummaryText: activeConversation?.contextSummary?.text ?? "",
+      historyTexts: historyMessages.map((message) => message.content),
+      currentInput: deferredReferenceText,
+      pendingToolResultTexts,
+    })
+  }, [
+    activeConversation?.contextSummary?.text,
+    activeConversation?.lastContextUsage,
+    activeMessages,
+    agentConfig?.llmConfig,
+    deferredReferenceText,
+  ])
   const runChapterPlanSelfCheck = useCallback(async (planContent: string, contextPack?: ContextPack | null) => {
     const trimmedPlan = planContent.trim()
     if (!trimmedPlan) {
@@ -1113,6 +1156,7 @@ export function ChatPanel() {
   }, [closeChapterPlanDialog])
 
   const handleSaveAsChapter = useCallback(async (
+    messageId: string,
     content: string,
     toolCalls?: CopyableToolCall[],
   ) => {
@@ -1176,6 +1220,11 @@ export function ChatPanel() {
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
       const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
       await writeFile(chapterPath, chapterMarkdown)
+      useChatStore.getState().setMessageChapterRef(messageId, {
+        chapterNumber: targetChapterNumber,
+        path: chapterPath,
+        savedAt: Date.now(),
+      })
       setChapterSaveStatus(`已保存为${chapterTitle}`)
       useWikiStore.getState().setSelectedFile(chapterPath)
       useWikiStore.getState().setFileContent(chapterMarkdown)
@@ -1519,7 +1568,6 @@ export function ChatPanel() {
       const sessionAgentSystemPrompt = buildChatAgentSystemPrompt({
         novelMode,
         mode,
-        deepChapterEnabled,
         chatEditModeEnabled,
         aiWorkflowMode,
         planExecuteEnabled: planExecuteActive,
@@ -1534,7 +1582,6 @@ export function ChatPanel() {
 
       if (novelMode && effectiveTaskRoute) {
         const contextHub = getContextHub(pp)
-        const novelConfig = useWikiStore.getState().novelConfig
         try {
           contextHubResult = await contextHub.prepare({
             projectPath: pp,
@@ -1552,7 +1599,6 @@ export function ChatPanel() {
               content: message.content,
             })),
             existingSummary: activeConv?.contextSummary,
-            tokenBudget: novelConfig.contextTokenBudget,
             maxContextSize: agentConfig.llmConfig.maxContextSize,
           })
           if (contextHubResult) {
@@ -1659,6 +1705,7 @@ export function ChatPanel() {
             characterStates: "",
             soulDoc: "",
             characterAuras: "",
+            storyFrameworkBinding: "",
             cognitionStates: "",
             foreshadowingStates: "",
             sectionBriefing: "",
@@ -1673,10 +1720,8 @@ export function ChatPanel() {
             nextChapterAdvice: "",
             revisionDirectives: "",
             }))
-            const novelConfig = useWikiStore.getState().novelConfig
             const budget = resolveContextPackTokenBudget({
               maxContextSize: agentConfig.llmConfig.maxContextSize,
-              contextTokenBudget: novelConfig.contextTokenBudget,
             })
             novelContextPrompt = [
               taskDirective,
@@ -1740,18 +1785,20 @@ export function ChatPanel() {
       const userContent = !effectiveDeAiSkill && deAiMode
         ? injectDeAiDirective(rawUserContent, deAiMode)
         : rawUserContent
+      const readChapterToolAvailable = !prePluginResult?.enabledToolNames
+        || prePluginResult.enabledToolNames.includes("read_chapter")
+      const historyForModel = selectContextHistoryMessages(
+        activeConvMessages,
+        contextHubResult?.sessionSummary,
+      )
+      const historyMessages = await buildAgentHistoryMessages(historyForModel, {
+        projectPath: pp,
+        novelMode,
+        readChapterToolAvailable,
+      })
       const agentMessages: AgentMessage[] = [
         { role: "system", content: contextHubSystemContent ?? effectiveSystemPrompt },
-        ...selectContextHistoryMessages(
-          activeConvMessages,
-          contextHubResult?.sessionSummary,
-        ).map((message) => ({
-          role: message.role,
-          content: message.content,
-          ...(message.reasoning_content !== undefined
-            ? { reasoning_content: message.reasoning_content }
-            : {}),
-        } satisfies AgentMessage)),
+        ...historyMessages,
         { role: "user", content: userContent },
       ]
       const sessionRegistry = new ToolRegistry()
@@ -1812,6 +1859,25 @@ export function ChatPanel() {
               (tool) => tool.name !== "run_chapter_workflow" && tool.category !== "write",
             )
           : agentConfig.tools
+        const advertisedTools = prePluginResult?.enabledToolNames
+          ? sessionTools.filter((tool) => prePluginResult.enabledToolNames!.includes(tool.name))
+          : sessionTools
+        const usageSnapshotBase = buildContextUsageSnapshot({
+          windowTokens: getEffectiveMaxContextSize(agentConfig.llmConfig),
+          softwareRules: contextHubResult ? contextHubSoftwareRules : systemPromptForConfig,
+          toolDefinitionsJson: JSON.stringify(toOpenAITools(advertisedTools)),
+          stableTokens: contextHubResult?.stats.stableTokens,
+          summaryTokens: contextHubResult?.stats.summaryTokens,
+          dynamicTokens: contextHubResult?.stats.dynamicTokens,
+          historyTexts: historyMessages.map((message) => (
+            typeof message.content === "string"
+              ? message.content
+              : message.content.map((block) => block.type === "text" ? block.text : "").join("")
+          )),
+          currentInput: userContent,
+        })
+        // Seed this turn's baseline so the ring can grow with tool reads before the first usage report.
+        useChatStore.getState().setConversationContextUsage(capturedConvId, usageSnapshotBase)
         const record = await withWritingWakeLock(keepAwake, () => runAiChatSession({
           userMessage: plainText,
           projectPath,
@@ -1864,6 +1930,13 @@ export function ChatPanel() {
                   agentStages: applyAgentActivityEvent(message.agentStages, event),
                 }))
               },
+              onUsage: (usage) => {
+                if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+                useChatStore.getState().setConversationContextUsage(
+                  capturedConvId,
+                  calibrateContextUsageSnapshot(usageSnapshotBase, usage),
+                )
+              },
               onDone: () => {
               if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
               const finalContent = useChatStore.getState().streamingContents[capturedConvId] ?? ""
@@ -1884,6 +1957,10 @@ export function ChatPanel() {
 
         if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+        useChatStore.getState().setConversationContextUsage(
+          capturedConvId,
+          calibrateContextUsageSnapshot(usageSnapshotBase, record.usage),
+        )
         if (contextHubResult && record.usage) {
           try {
             const contextHubSnapshot = await persistContextHubProviderUsage(
@@ -1891,6 +1968,13 @@ export function ChatPanel() {
               assistantMessage.id,
               contextHubResult,
               record.usage,
+              {
+                memoryDecision: record.userMemoryDecision,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  record.usage,
+                  Math.max(1, record.roundsUsed || 1),
+                ),
+              },
             )
             if (contextHubSnapshot) {
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
@@ -2151,7 +2235,6 @@ export function ChatPanel() {
       chatEditModeEnabled,
       clearStreaming,
       createConversation,
-      deepChapterEnabled,
       maxHistoryMessages,
       mode,
       novelMode,
@@ -2554,6 +2637,12 @@ export function ChatPanel() {
               submitDisabled={concurrencyFull}
               submitDisabledReason={concurrencyFull ? concurrencyLimitReason : undefined}
               onStop={handleStop}
+              leftFooterControls={
+                <ContextUsageRing
+                  usage={liveContextUsage}
+                  onCreateConversation={() => createConversation()}
+                />
+              }
               rightControls={
                 <ChatModelSelector
                   value={aiChatModel}

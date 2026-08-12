@@ -61,9 +61,7 @@ describe("context trace builders", () => {
 
   it("carries context hub statistics into initial trace context", () => {
     const contextHub = {
-      hits: 4,
-      refreshed: 1,
-      failures: 0,
+      cacheHits: 4, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
       stableTokens: 1200,
       summaryTokens: 180,
       dynamicTokens: 420,

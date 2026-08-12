@@ -55,6 +55,7 @@ import { registerEditorDiskSyncHandler } from "@/lib/editor-disk-sync-session"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
+import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
 import { toast } from "@/lib/toast"
 import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
@@ -1003,9 +1004,12 @@ export function PreviewPanel() {
       modelName: modelLabel,
       sourceContent: source,
     })
+    const release = await acquireDeAiChapterSlot()
     let result = ""
     let doneCalled = false
     try {
+      const current = useDeAiTaskStore.getState().tasks.find((task) => task.id === taskId)
+      if (!current || current.status === "cancelled") return
       await streamChat(
         llmConfig,
         buildDeAiRewriteMessages(source, skillContent),
@@ -1037,6 +1041,8 @@ export function PreviewPanel() {
       if (!doneCalled) {
         useDeAiTaskStore.getState().failTask(taskId, String(err))
       }
+    } finally {
+      release()
     }
   }, [syncDiskBeforeAction, selectedFile, project, chapterHeader, chapterDeAiOptions.currentSkillId])
 
@@ -1769,8 +1775,11 @@ export function PreviewPanel() {
                 useDeAiTaskStore.getState().failTask(chapterId, "未配置可用的 AI 模型")
                 return
               }
+              const release = await acquireDeAiChapterSlot()
               let result = ""
               try {
+                const current = useDeAiTaskStore.getState().tasks.find((item) => item.id === chapterId)
+                if (!current || current.status === "cancelled") return
                 const source = extractDeAiChapterText(task.sourceContent)
                 await streamChat(
                   llmConfig,
@@ -1787,6 +1796,8 @@ export function PreviewPanel() {
                 )
               } catch (err) {
                 useDeAiTaskStore.getState().failTask(chapterId, String(err))
+              } finally {
+                release()
               }
             }}
             onCancelChapter={(_taskId, chapterId) => {

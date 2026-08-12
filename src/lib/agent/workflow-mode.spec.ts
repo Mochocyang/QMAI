@@ -11,9 +11,9 @@ describe("workflow mode", () => {
     expect(DEFAULT_AI_WORKFLOW_MODE).toBe("standard")
   })
 
-  it("maps the legacy deep chapter toggle to the new workflow mode", () => {
-    expect(resolveAiWorkflowMode(false)).toBe("standard")
-    expect(resolveAiWorkflowMode(true)).toBe("strict")
+  it("defaults nullish values to the standard workflow mode", () => {
+    expect(resolveAiWorkflowMode(null)).toBe("standard")
+    expect(resolveAiWorkflowMode(undefined)).toBe("standard")
   })
 
   it("accepts explicit active workflow modes without changing them", () => {

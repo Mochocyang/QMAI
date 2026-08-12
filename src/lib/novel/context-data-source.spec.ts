@@ -64,4 +64,45 @@ describe("DataSourceRegistry", () => {
     expect(loaded.fallbackRecentSummaries).toEqual([])
     expect(loaded.outline).toBe("")
   })
+
+  it("records read_failed without fallback_used when the source has no fallback", async () => {
+    const adapter = {
+      load: vi.fn(async () => {
+        throw new Error("磁盘损坏")
+      }),
+      recordReadFailed: vi.fn(),
+      recordFallbackUsed: vi.fn(),
+    }
+    const registry = new DataSourceRegistry({ loadAdapter: adapter })
+    registry.register({
+      name: "outline",
+      priority: 1,
+      load: async () => "不应调用",
+    })
+
+    await expect(registry.loadAll(context)).resolves.toMatchObject({ outline: "" })
+    expect(adapter.recordReadFailed).toHaveBeenCalledWith("outline")
+    expect(adapter.recordFallbackUsed).not.toHaveBeenCalled()
+  })
+
+  it("records fallback_used only after a real source.fallback succeeds", async () => {
+    const adapter = {
+      load: vi.fn(async () => {
+        throw new Error("主路径失败")
+      }),
+      recordReadFailed: vi.fn(),
+      recordFallbackUsed: vi.fn(),
+    }
+    const registry = new DataSourceRegistry({ loadAdapter: adapter })
+    registry.register({
+      name: "outline",
+      priority: 1,
+      load: async () => "不应调用",
+      fallback: async () => "降级大纲",
+    })
+
+    await expect(registry.loadAll(context)).resolves.toMatchObject({ outline: "降级大纲" })
+    expect(adapter.recordReadFailed).toHaveBeenCalledWith("outline")
+    expect(adapter.recordFallbackUsed).toHaveBeenCalledWith("outline")
+  })
 })

@@ -5,7 +5,6 @@ import { estimateChatMessagesTokens } from "./chat-request-budget"
 import type { ChatMessage } from "./llm-providers"
 import { thinkingMinMaxTokens } from "./llm-providers"
 import {
-  LlmContextBudgetError,
   RESPONSE_RESERVE_FRAC,
   planLlmRequestBudget,
 } from "./context-budget"
@@ -13,6 +12,7 @@ import { normalizeUserLlmMaxOutputTokens } from "./llm-context-size"
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
+  streamClaudeCodeCli: vi.fn(),
 }))
 
 vi.mock("./tauri-fetch", () => ({
@@ -22,6 +22,10 @@ vi.mock("./tauri-fetch", () => ({
 
 vi.mock("./local-cli-config", () => ({
   resolveRuntimeLocalCliConfig: vi.fn(async (config: LlmConfig) => config),
+}))
+
+vi.mock("./claude-cli-transport", () => ({
+  streamClaudeCodeCli: (...args: unknown[]) => mocks.streamClaudeCodeCli(...args),
 }))
 
 const config: LlmConfig = {
@@ -36,6 +40,7 @@ const config: LlmConfig = {
 describe("streamChat usage", () => {
   beforeEach(() => {
     mocks.fetch.mockReset()
+    mocks.streamClaudeCodeCli.mockReset()
   })
 
   it("requests and emits OpenAI stream usage once", async () => {
@@ -117,11 +122,15 @@ describe("streamChat usage", () => {
       "",
     ].join("\n"), { status: 200 }))
 
-    // 1843-token window (2048 × 0.9) against ~1800 tokens of CJK input, so the
-    // trim has to bite while leaving the protected messages intact.
-    await streamChat({ ...config, maxContextSize: 2_048 }, [
-      { role: "system", content: "系统".repeat(450) },
-      { role: "user", content: `任务目标：续写。${"正文".repeat(450)}结尾限制：保持人物关系。` },
+    // Window clamps to ≥204800; overflow with a large middle user turn so trim
+    // must drop history while keeping the system + current-user ends intact.
+    const windowTokens = 204_800
+    const outputReserve = Math.floor(windowTokens * RESPONSE_RESERVE_FRAC)
+    await streamChat({ ...config, maxContextSize: windowTokens }, [
+      { role: "system", content: "系统".repeat(20_000) },
+      { role: "user", content: "旧请求".repeat(90_000) },
+      { role: "assistant", content: "旧回复".repeat(90_000) },
+      { role: "user", content: `任务目标：续写。${"正文".repeat(40_000)}结尾限制：保持人物关系。` },
     ], {
       onToken: vi.fn(),
       onDone: vi.fn(),
@@ -133,31 +142,58 @@ describe("streamChat usage", () => {
       messages: ChatMessage[]
       max_tokens?: number
     }
-    expect(estimateChatMessagesTokens(body.messages)).toBeLessThanOrEqual(1_331)
+    expect(estimateChatMessagesTokens(body.messages)).toBeLessThanOrEqual(
+      windowTokens - outputReserve,
+    )
     expect(String(body.messages[0]?.content).trim()).not.toBe("")
     expect(body.messages.at(-1)?.content).toContain("任务目标")
     expect(body.messages.at(-1)?.content).toContain("保持人物关系")
   })
 
-  it("上下文无法容纳最小输出时明确失败且不调用供应商", async () => {
-    await expect(streamChat({ ...config, maxContextSize: 512 }, [
-      { role: "system", content: "系统约束" },
-      { role: "user", content: "生成第一卷完整大纲" },
-    ], {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
-    })).rejects.toBeInstanceOf(LlmContextBudgetError)
-
-    expect(mocks.fetch).not.toHaveBeenCalled()
-  })
-
-  it("调用方未传 max_tokens 时请求体不带该字段", async () => {
+  it("超大受保护消息在归一化窗口下会被压缩后仍发送", async () => {
+    // With maxContextSize clamped to ≥204800, the old "tiny window → hard fail"
+    // path is unreachable through streamChat; protected ends are compressed
+    // instead so the request can still leave.
     mocks.fetch.mockResolvedValue(new Response([
       'data: {"choices":[{"delta":{"content":"完成"}}]}',
       "data: [DONE]",
       "",
     ].join("\n"), { status: 200 }))
+
+    await streamChat({ ...config, maxContextSize: 204_800 }, [
+      { role: "system", content: "系统".repeat(120_000) },
+      { role: "user", content: "生成".repeat(120_000) },
+    ], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(String((mocks.fetch.mock.calls[0][1] as RequestInit).body)) as {
+      messages: ChatMessage[]
+    }
+    expect(estimateChatMessagesTokens(body.messages)).toBeLessThan(204_800)
+    expect(String(body.messages[0]?.content).trim()).not.toBe("")
+    expect(String(body.messages.at(-1)?.content).trim()).not.toBe("")
+  })
+
+  it("调用方未传 max_tokens 时仍外发窗口比例预算", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"完成"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+
+    const planned = planLlmRequestBudget({
+      maxContextSize: config.maxContextSize,
+      desiredOutputTokens: Math.floor(
+        Math.max(204_800, config.maxContextSize) * RESPONSE_RESERVE_FRAC,
+      ),
+      scaffoldReserveTokens: 0,
+      minimumContextTokens: 64,
+      maxOutputTokensCap: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens),
+    })
 
     await streamChat(config, [{ role: "user", content: "写第一章" }], {
       onToken: vi.fn(),
@@ -166,15 +202,27 @@ describe("streamChat usage", () => {
     })
 
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
-    expect(JSON.parse(String(request.body))).not.toHaveProperty("max_tokens")
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      max_tokens: planned.outputTokens,
+    })
   })
 
-  it("reasoning.mode=auto 且调用方未传 max_tokens 时请求体仍省略该字段", async () => {
+  it("reasoning.mode=auto 且调用方未传 max_tokens 时仍外发窗口比例预算", async () => {
     mocks.fetch.mockResolvedValue(new Response([
       'data: {"choices":[{"delta":{"content":"完成"}}]}',
       "data: [DONE]",
       "",
     ].join("\n"), { status: 200 }))
+
+    const planned = planLlmRequestBudget({
+      maxContextSize: config.maxContextSize,
+      desiredOutputTokens: Math.floor(
+        Math.max(204_800, config.maxContextSize) * RESPONSE_RESERVE_FRAC,
+      ),
+      scaffoldReserveTokens: 0,
+      minimumContextTokens: 64,
+      maxOutputTokensCap: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens),
+    })
 
     await streamChat(
       { ...config, reasoning: { mode: "auto" } },
@@ -183,7 +231,9 @@ describe("streamChat usage", () => {
     )
 
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
-    expect(JSON.parse(String(request.body))).not.toHaveProperty("max_tokens")
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      max_tokens: planned.outputTokens,
+    })
   })
 
   it("reasoning.mode=high 且调用方未传 max_tokens 时发送预算规划的 max_tokens", async () => {
@@ -196,9 +246,10 @@ describe("streamChat usage", () => {
     const reasoning = { mode: "high" as const }
     const thinkingFloorTokens = thinkingMinMaxTokens(reasoning)
     expect(thinkingFloorTokens).toBeGreaterThan(0)
+    const windowTokens = Math.max(204_800, config.maxContextSize)
     const planned = planLlmRequestBudget({
-      maxContextSize: config.maxContextSize,
-      desiredOutputTokens: Math.floor(config.maxContextSize * RESPONSE_RESERVE_FRAC),
+      maxContextSize: windowTokens,
+      desiredOutputTokens: Math.floor(windowTokens * RESPONSE_RESERVE_FRAC),
       scaffoldReserveTokens: 0,
       minimumContextTokens: 64,
       maxOutputTokensCap: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens),
@@ -235,6 +286,64 @@ describe("streamChat usage", () => {
 
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
     expect(JSON.parse(String(request.body))).toMatchObject({ max_tokens: 65_536 })
+  })
+
+  it("本地 CLI 供应商不外发 max_tokens", async () => {
+    mocks.streamClaudeCodeCli.mockImplementation(async (
+      _config: LlmConfig,
+      _messages: ChatMessage[],
+      callbacks: { onToken: (token: string) => void; onDone: () => void },
+      _signal?: AbortSignal,
+      overrides?: { max_tokens?: number },
+    ) => {
+      expect(overrides).not.toHaveProperty("max_tokens")
+      callbacks.onToken("ok")
+      callbacks.onDone()
+    })
+
+    await streamChat(
+      {
+        ...config,
+        provider: "claude-code",
+        model: "claude-sonnet-5",
+      },
+      [{ role: "user", content: "写第一章" }],
+      { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+      { max_tokens: 30_720 },
+    )
+
+    expect(mocks.fetch).not.toHaveBeenCalled()
+    expect(mocks.streamClaudeCodeCli).toHaveBeenCalledTimes(1)
+  })
+
+  it("服务商回报 max_tokens 超限时按其上限重试一次", async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          error: {
+            message: "max_tokens is too large: this model supports at most 8192 output tokens",
+          },
+        }),
+        { status: 400 },
+      ))
+      .mockResolvedValueOnce(new Response([
+        'data: {"choices":[{"delta":{"content":"完成"}}]}',
+        "data: [DONE]",
+        "",
+      ].join("\n"), { status: 200 }))
+
+    const onError = vi.fn()
+    await streamChat(config, [{ role: "user", content: "写第一章" }], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError,
+    })
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(2)
+    const retryBody = JSON.parse(String((mocks.fetch.mock.calls[1][1] as RequestInit).body))
+    expect(retryBody.max_tokens).toBe(8_192)
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it("脏 SSE 行不会中断整轮流式响应", async () => {

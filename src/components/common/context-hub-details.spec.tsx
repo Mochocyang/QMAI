@@ -14,9 +14,7 @@ const snapshot: ContextHubSnapshot = {
   surface: "ai-chat",
   createdAt: 10,
   stats: {
-    hits: 3,
-    refreshed: 2,
-    failures: 0,
+    cacheHits: 3, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
     stableTokens: 1200,
     summaryTokens: 60,
     dynamicTokens: 420,
@@ -34,7 +32,7 @@ const snapshot: ContextHubSnapshot = {
     {
       key: "data-source:outline",
       sourceName: "outline",
-      status: "hit",
+      status: "cache_hit",
       dependencyStamp: { ...dependencyStamp, sourceCount: 3 },
       dependencyPaths: ["wiki/outlines/main.md"],
       dependencyPathsTruncated: true,
@@ -42,7 +40,7 @@ const snapshot: ContextHubSnapshot = {
     {
       key: "stable-core:ai-chat",
       sourceName: "stableCore",
-      status: "refreshed",
+      status: "reloaded",
       dependencyStamp,
       dependencyPaths: ["wiki/settings/world.md"],
       dependencyPathsTruncated: false,
@@ -50,7 +48,7 @@ const snapshot: ContextHubSnapshot = {
     {
       key: "data-source:book-analysis",
       sourceName: "bookAnalysisReferences",
-      status: "hit",
+      status: "cache_hit",
       dependencyStamp,
       dependencyPaths: [".qmai/book-analysis-context.json"],
       dependencyPathsTruncated: false,
@@ -97,8 +95,8 @@ describe("ContextHubDetails", () => {
     })
 
     expect(host.textContent).toContain("上下文中控")
-    expect(host.textContent).toContain("命中 3")
-    expect(host.textContent).toContain("刷新 2")
+    expect(host.textContent).toContain("本轮数据源：命中 3，重载 2，无数据 0，fallback 0，失败 0")
+    expect(host.textContent).toContain("Token")
     expect(host.textContent).not.toContain("稳定核心正文")
 
     const expandButton = host.querySelector<HTMLButtonElement>('button[aria-label="展开上下文中控"]')
@@ -109,7 +107,8 @@ describe("ContextHubDetails", () => {
     expect(loadSnapshot).toHaveBeenCalledWith(reference)
     expect(host.textContent).toContain("大纲资料")
     expect(host.textContent).toContain("拆书库分析")
-    expect(host.textContent).toContain("稳定核心缓存")
+    expect(host.textContent).toContain("稳定核心前缀")
+    expect(host.textContent).toContain("缓存失效范围预览")
     expect(host.textContent).toContain("wiki/outlines/main.md")
     expect(host.textContent).toContain("另有 2 个文件")
     expect(host.textContent).toContain("稳定核心正文")
@@ -150,6 +149,38 @@ describe("ContextHubDetails", () => {
 
     expect(host.textContent).toContain("命中 3")
     expect(host.textContent).toContain("上下文快照不可用")
+  })
+
+  it("hides legacy hits/refreshed/failures snapshot refs", async () => {
+    const legacyReference = {
+      id: "assistant:legacy",
+      surface: "ai-chat" as const,
+      createdAt: 11,
+      stats: {
+        hits: 4,
+        refreshed: 1,
+        failures: 2,
+        stableTokens: 10,
+        summaryTokens: 0,
+        dynamicTokens: 5,
+        candidateTokens: 20,
+        estimatedSavedTokens: 5,
+        estimatedSavedPercent: 25,
+        expanded: false,
+        providerCacheEnabled: false,
+      },
+    }
+
+    await act(async () => {
+      root.render(
+        <ContextHubDetails
+          reference={legacyReference as never}
+          loadSnapshot={async () => null}
+        />,
+      )
+    })
+
+    expect(host.textContent).toBe("")
   })
 
   it("reloads an expanded snapshot when the same message receives a newer snapshot", async () => {

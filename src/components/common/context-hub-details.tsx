@@ -2,13 +2,17 @@ import { useEffect, useState } from "react"
 import { ChevronDown, ChevronUp, Database, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getContextHub } from "@/lib/context-hub/context-hub"
-import type {
-  ContextCacheItemStatus,
-  ContextCacheItemTrace,
-  ContextHubSnapshot,
-  ContextHubSnapshotRef,
-  ContextHubStats,
+import {
+  isCurrentContextHubStats,
+  type ContextCacheItemStatus,
+  type ContextCacheItemTrace,
+  type ContextHubSnapshot,
+  type ContextHubSnapshotRef,
+  type ContextHubStats,
 } from "@/lib/context-hub/types"
+import { ContextHubStatsSummary, ProviderCacheUsage } from "./context-hub-stats-summary"
+
+export { ProviderCacheUsage }
 
 type ContextSection = "stableCore" | "sessionSummary" | "dynamicContext"
 
@@ -39,18 +43,29 @@ const SOURCE_LABELS: Record<string, string> = {
   revisionFeedback: "修订反馈",
   cognitionText: "人物认知",
   soulDoc: "作品灵魂",
-  characterAuras: "人物气质",
-  sectionBriefing: "小节简报",
-  stableCore: "稳定核心缓存",
+  sectionBriefing: "本节简报",
+  storyFrameworkBinding: "故事框架绑定",
+  retrieval: "检索索引",
+  stableCore: "稳定核心前缀",
 }
 
 const STATUS_LABELS: Record<ContextCacheItemStatus, string> = {
-  hit: "命中",
-  refreshed: "已刷新",
-  failed: "失败",
+  cache_hit: "命中",
+  reloaded: "重载",
+  empty: "无数据",
+  fallback_used: "fallback",
+  read_failed: "读取失败",
+  write_failed: "写入失败",
 }
 
-const STATUS_ORDER: ContextCacheItemStatus[] = ["hit", "refreshed", "failed"]
+const STATUS_ORDER: ContextCacheItemStatus[] = [
+  "cache_hit",
+  "reloaded",
+  "empty",
+  "fallback_used",
+  "write_failed",
+  "read_failed",
+]
 
 const SECTION_LABELS: Record<ContextSection, string> = {
   stableCore: "稳定核心",
@@ -59,7 +74,7 @@ const SECTION_LABELS: Record<ContextSection, string> = {
 }
 
 function getSourceLabel(sourceName: string): string {
-  return SOURCE_LABELS[sourceName] ?? "其他上下文"
+  return SOURCE_LABELS[sourceName] ?? sourceName
 }
 
 function CacheItemGroup({ status, items }: { status: ContextCacheItemStatus; items: ContextCacheItemTrace[] }) {
@@ -78,6 +93,7 @@ function CacheItemGroup({ status, items }: { status: ContextCacheItemStatus; ite
             </div>
             {item.dependencyPaths.length > 0 && (
               <ul className="ml-4 mt-1 space-y-0.5 border-l border-border/70 pl-2">
+                <li className="text-foreground/60">缓存失效范围预览</li>
                 {item.dependencyPaths.map((path) => (
                   <li key={path} className="break-all">{path}</li>
                 ))}
@@ -95,36 +111,6 @@ function CacheItemGroup({ status, items }: { status: ContextCacheItemStatus; ite
   )
 }
 
-export function ProviderCacheUsage({ stats }: { stats: ContextHubStats }) {
-  const cachedTokens = stats.providerCachedTokens
-  const inputTokens = stats.providerInputTokens
-  const hitPercent = cachedTokens !== undefined && inputTokens !== undefined && inputTokens > 0
-    ? Math.min(100, Math.round((cachedTokens / inputTokens) * 100))
-    : null
-
-  return (
-    <>
-      {cachedTokens !== undefined ? (
-        cachedTokens > 0 ? (
-          <div className="font-medium text-green-600 dark:text-green-400">
-            供应商已确认命中 {cachedTokens.toLocaleString()} Token
-            {hitPercent !== null ? `（输入占比 ${hitPercent}%）` : ""}
-          </div>
-        ) : (
-          <div>供应商已确认本次未命中缓存（0 Token）</div>
-        )
-      ) : stats.providerUsageReported ? (
-        <div>供应商已返回 Token 用量，但未提供缓存命中明细</div>
-      ) : stats.providerCacheEnabled ? (
-        <div>已发送稳定前缀，是否命中以供应商返回为准</div>
-      ) : null}
-      {(stats.providerCacheWriteTokens ?? 0) > 0 && (
-        <div>供应商新写入缓存 {stats.providerCacheWriteTokens?.toLocaleString()} Token</div>
-      )}
-    </>
-  )
-}
-
 export function ContextHubDetails({
   reference,
   projectPath,
@@ -135,10 +121,11 @@ export function ContextHubDetails({
   const [snapshot, setSnapshot] = useState<ContextHubSnapshot | null | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [activeSection, setActiveSection] = useState<ContextSection>("stableCore")
-  const stats = reference.stats
+  // Legacy hits/refreshed/failures refs are display-only history — drop them.
+  const stats = isCurrentContextHubStats(reference.stats) ? reference.stats : null
 
   useEffect(() => {
-    if (!expanded) return
+    if (!stats || !expanded) return
     let cancelled = false
     setSnapshot(undefined)
     setLoading(true)
@@ -156,7 +143,10 @@ export function ContextHubDetails({
     }
     void read()
     return () => { cancelled = true }
-  }, [expanded, loadSnapshot, projectPath, reference.createdAt, reference.id])
+  }, [expanded, loadSnapshot, projectPath, reference.createdAt, reference.id, stats])
+
+  const warnings = snapshot?.warnings ?? []
+  if (!stats) return null
 
   return (
     <div className={cn("mt-2 min-w-0 border-t border-border/60 pt-2", className)}>
@@ -172,22 +162,12 @@ export function ContextHubDetails({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-xs font-medium text-foreground">上下文中控</span>
-          <span className="mt-0.5 block text-[11px] text-muted-foreground">
-            本轮缓存事件：命中 {stats.hits.toLocaleString()}，刷新 {stats.refreshed.toLocaleString()}，失败 {stats.failures.toLocaleString()}
-          </span>
-          <span className="mt-0.5 block text-[11px] text-muted-foreground">
-            稳定核心 {stats.stableTokens.toLocaleString()} Token　会话摘要 {stats.summaryTokens.toLocaleString()} Token　动态片段 {stats.dynamicTokens.toLocaleString()} Token
-          </span>
-          {stats.composedTokens !== undefined && stats.budgetTokens !== undefined ? (
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              最终上下文占用 {stats.composedTokens.toLocaleString()} / {stats.budgetTokens.toLocaleString()} Token（{stats.utilizationPercent ?? 0}%）
-            </span>
-          ) : null}
-          {stats.memoryCandidateCount !== undefined ? (
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              用户记忆：候选 {stats.memoryCandidateCount}，命中 {stats.memorySelectedCount ?? 0}，过滤 {stats.memoryFilteredCount ?? 0}，注入约 {stats.memoryEstimatedTokens ?? 0} Token
-            </span>
-          ) : null}
+          <ContextHubStatsSummary
+            stats={stats}
+            warnings={expanded ? warnings : []}
+            showComposed
+            showMemory
+          />
         </span>
         {expanded
           ? <ChevronUp aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -196,12 +176,6 @@ export function ContextHubDetails({
 
       {expanded && (
         <div className="ml-8 mt-2 min-w-0">
-          <div className="mb-2 space-y-0.5 text-[11px] text-muted-foreground">
-            <div>上下文压缩预计减少 {stats.estimatedSavedTokens.toLocaleString()} Token（{stats.estimatedSavedPercent}%）</div>
-            <div>低置信度扩展：{stats.expanded ? "已启用" : "未启用"}</div>
-            <ProviderCacheUsage stats={stats} />
-          </div>
-
           {loading ? (
             <div className="py-3 text-[11px] text-muted-foreground">正在读取上下文快照...</div>
           ) : snapshot === null ? (
@@ -243,6 +217,30 @@ export function ContextHubDetails({
           ) : null}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Stats-only surface for generation details without a full snapshot body. */
+export function ContextHubStatsOnly({
+  stats,
+  className,
+}: {
+  stats: ContextHubStats
+  className?: string
+}) {
+  if (!isCurrentContextHubStats(stats)) return null
+  return (
+    <div className={cn("mt-2 min-w-0 border-t border-border/60 pt-2", className)}>
+      <div className="flex w-full min-w-0 items-start gap-2">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
+          <Database aria-hidden="true" className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-foreground">上下文中控</div>
+          <ContextHubStatsSummary stats={stats} showComposed showMemory />
+        </div>
+      </div>
     </div>
   )
 }

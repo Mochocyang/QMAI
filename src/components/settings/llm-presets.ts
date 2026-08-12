@@ -81,19 +81,17 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "Anthropic (Claude)",
     hint: "Official Claude API",
     provider: "anthropic",
-    defaultModel: "claude-sonnet-4-5-20250929",
-    // Cross-referenced with hermes-agent/hermes_cli/models.py:233-242.
-    // Both shortened and dated aliases work on api.anthropic.com.
+    defaultModel: "claude-sonnet-5",
+    // 2026-08 lineup from platform.claude.com model overview. Retired
+    // 3.5 / Sonnet-4 dated IDs dropped; type them manually if still needed.
     suggestedModels: [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-opus-4-8",
       "claude-opus-4-7",
       "claude-opus-4-6",
       "claude-sonnet-4-6",
-      "claude-sonnet-4-5-20250929",
-      "claude-haiku-4-5-20251001",
-      "claude-opus-4-5-20251101",
-      "claude-sonnet-4-20250514",
-      "claude-3-5-sonnet-20241022",
-      "claude-3-5-haiku-20241022",
+      "claude-haiku-4-5",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -102,16 +100,18 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "Claude Code CLI (local)",
     hint: "Uses the local `claude` binary — no API key needed",
     provider: "claude-code",
-    defaultModel: "claude-sonnet-4-6",
+    defaultModel: "claude-sonnet-5",
     // Mirrors anthropic preset; the CLI forwards to the same Anthropic
     // backend, so model ids are identical. Users with a subscription
     // can pick Opus/Sonnet/Haiku here without paying an API key bill.
     suggestedModels: [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-opus-4-8",
       "claude-opus-4-7",
       "claude-opus-4-6",
       "claude-sonnet-4-6",
-      "claude-sonnet-4-5-20250929",
-      "claude-haiku-4-5-20251001",
+      "claude-haiku-4-5",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -156,38 +156,34 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "OpenAI (GPT)",
     hint: "Official OpenAI API",
     provider: "openai",
-    defaultModel: "gpt-4o",
-    // Current public GPT models on api.openai.com. Reasoning models and
-    // the 4.1 family are both exposed under the chat/completions route.
+    defaultModel: "gpt-5.5",
+    // 2026-08 api.openai.com lineup (GPT-5.5 / 5.4 family). Context preset
+    // stops at the 272K long-context pricing inflection; users can raise it.
     suggestedModels: [
-      "gpt-4o",
-      "gpt-4o-mini",
-      "gpt-4.1",
-      "gpt-4.1-mini",
-      "gpt-4.1-nano",
-      "o3",
-      "o3-mini",
-      "o1",
-      "o1-mini",
-      "gpt-4-turbo",
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-5.4-pro",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5.2",
     ],
-    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
+    suggestedContextSize: 272_000,
   },
   {
     id: "google",
     label: "Google (Gemini)",
     hint: "Generative Language API",
     provider: "google",
-    defaultModel: "gemini-2.5-flash",
-    // 2.5 generation is the current stable; 2.0 kept as fallback.
+    defaultModel: "gemini-3.6-flash",
+    // 2026-08 Gemini API: Flash line is at 3.6; Pro flagship is still the
+    // 3.1 preview — gemini-3.5-pro / 3.6-pro are not published yet.
     suggestedModels: [
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-2.0-flash",
-      "gemini-2.0-flash-lite",
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-flash-lite",
     ],
     suggestedContextSize: 1000000,
   },
@@ -198,6 +194,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     provider: "azure",
     baseUrl: "https://your-resource.openai.azure.com",
     defaultModel: "your-deployment-name",
+    // Still on the deployment-style URL builder; keep a GA date-based
+    // api-version that those endpoints accept. Foundry v1 is a different path.
     azureApiVersion: "2024-10-21",
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -258,17 +256,15 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "api.groq.com",
     provider: "custom",
     baseUrl: "https://api.groq.com/openai/v1",
-    defaultModel: "llama-3.3-70b-versatile",
+    defaultModel: "openai/gpt-oss-120b",
     apiMode: "chat_completions",
-    // Writing workflows require at least 204800 tokens of context.
+    // 2026-08: llama-3.3-70b / llama-3.1-8b shut down 2026-08-16; qwen3-32b
+    // and llama-4-scout already retired. Prefer gpt-oss / qwen3.6 / MiniMax.
     suggestedModels: [
-      "llama-3.3-70b-versatile",
-      "llama-3.1-8b-instant",
-      "llama-3.1-70b-versatile",
-      "moonshotai/kimi-k2-instruct",
       "openai/gpt-oss-120b",
       "openai/gpt-oss-20b",
-      "qwen/qwen3-32b",
+      "qwen/qwen3.6-27b",
+      "minimaxai/minimax-m2.7",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -278,17 +274,17 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "api.x.ai",
     provider: "custom",
     baseUrl: "https://api.x.ai/v1",
-    defaultModel: "grok-3",
+    defaultModel: "grok-4.5",
     apiMode: "chat_completions",
+    // Live GET /v1/language-models (2026-07) returns exactly these six text
+    // models. Trap: `grok-latest` aliases grok-4.3, not grok-4.5.
     suggestedModels: [
-      "grok-4-latest",
-      "grok-4",
-      "grok-3",
-      "grok-3-mini",
-      "grok-3-fast",
-      "grok-3-mini-fast",
-      "grok-code-fast-1",
-      "grok-2-vision-1212",
+      "grok-4.5",
+      "grok-4.3",
+      "grok-4.20-0309-reasoning",
+      "grok-4.20-0309-non-reasoning",
+      "grok-4.20-multi-agent-0309",
+      "grok-build-0.1",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -305,27 +301,21 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     // per-user from build.nvidia.com. Full catalog is huge and
     // changes often — this is a practical subset; users can type any
     // other id into the custom input.
-    defaultModel: "meta/llama-3.3-70b-instruct",
+    defaultModel: "meta/llama-4-maverick-17b-128e-instruct",
     suggestedModels: [
-      // NVIDIA's own reasoning / agentic models
       "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-      "nvidia/nemotron-3-super-120b-a12b",
       "nvidia/nemotron-3-nano-30b-a3b",
-      // Meta Llama family
+      "meta/llama-4-maverick-17b-128e-instruct",
       "meta/llama-3.3-70b-instruct",
       "meta/llama-3.1-405b-instruct",
-      "meta/llama-3.1-70b-instruct",
-      // Popular third-party agentic / open-weight
-      "deepseek-ai/deepseek-v3.2",
+      "deepseek-ai/deepseek-v4-pro",
+      "deepseek-ai/deepseek-v4-flash",
       "moonshotai/kimi-k2.6",
       "qwen/qwen3.5-397b-a17b",
+      "qwen/qwen3-coder-480b-a35b-instruct",
       "minimaxai/minimax-m2.7",
-      "minimaxai/minimax-m2.5",
-      "z-ai/glm5",
+      "mistralai/mistral-large-3-675b-instruct-2512",
       "openai/gpt-oss-120b",
-      // Mistral family
-      "mistralai/mixtral-8x22b-instruct",
-      "mistralai/mistral-large-2-instruct",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
@@ -548,13 +538,15 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     provider: "custom",
     baseUrl: "https://ollama.com/v1",
     apiMode: "chat_completions",
-    // Ollama Cloud catalog rotates frequently — keep short common picks.
+    // 2026-08 cloud catalog: deepseek-v3.1 / kimi-k2:1t / qwen3-coder:480b
+    // retired in favor of v4 / k2.6 / qwen3.5.
     suggestedModels: [
       "gpt-oss:120b",
       "gpt-oss:20b",
-      "qwen3-coder:480b",
-      "kimi-k2:1t",
-      "deepseek-v3.1:671b",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "qwen3.5:397b",
+      "kimi-k2.6",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },

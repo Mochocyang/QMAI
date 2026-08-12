@@ -28,6 +28,7 @@ function pack(): ContextPack {
     characterStates: "",
     soulDoc: "现实主义悬疑",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "",
     timeline: "",
@@ -143,17 +144,21 @@ describe("ContextHubController", () => {
     const first = await harness.controller.prepare(request)
     const second = await harness.controller.prepare({ ...request, task: "继续生成大纲" })
 
+    expect(first?.stats.stablePrefixStatus).toBe("updated")
+    expect(second?.stats.stablePrefixStatus).toBe("unchanged")
+    // Stable prefix must not inflate data-source hit counters.
+    expect(second?.stats.cacheHits).toBe(0)
     expect(first?.cacheItems).toEqual([
       expect.objectContaining({
         sourceName: "stableCore",
-        status: "refreshed",
+        status: "reloaded",
         dependencyPaths: ["wiki/outlines/main.md"],
       }),
     ])
     expect(second?.cacheItems).toEqual([
       expect.objectContaining({
         sourceName: "stableCore",
-        status: "hit",
+        status: "cache_hit",
         dependencyPaths: ["wiki/outlines/main.md"],
       }),
     ])
@@ -170,9 +175,10 @@ describe("ContextHubController", () => {
     chapterRevision = 2
     const second = await harness.controller.prepare({ ...request, task: "继续生成大纲" })
 
+    expect(second?.stats.stablePrefixStatus).toBe("unchanged")
     expect(second?.cacheItems).toContainEqual(expect.objectContaining({
       sourceName: "stableCore",
-      status: "hit",
+      status: "cache_hit",
       dependencyPaths: ["wiki/outlines/main.md"],
     }))
   })
@@ -186,10 +192,24 @@ describe("ContextHubController", () => {
     await harness.controller.prepare(request)
     const second = await harness.controller.prepare({ ...request, task: "继续生成大纲" })
 
+    expect(second?.stats.stablePrefixStatus).toBe("unchanged")
     expect(second?.cacheItems).toContainEqual(expect.objectContaining({
       sourceName: "stableCore",
-      status: "hit",
+      status: "cache_hit",
     }))
+  })
+
+  it("persists warnings on the snapshot body", async () => {
+    const harness = createHarness()
+    const result = await harness.controller.prepare({
+      ...request,
+      existingSummary: { text: "旧摘要", dependencyFingerprint: "stale", updatedAt: 1 },
+    })
+    expect(result?.warnings.length).toBeGreaterThan(0)
+    const reference = await harness.controller.saveSnapshot("assistant:warn", result!)
+    await expect(harness.controller.readSnapshot(reference)).resolves.toMatchObject({
+      warnings: result?.warnings,
+    })
   })
 
   it("removes a Windows project root from dependency paths case-insensitively", async () => {

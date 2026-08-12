@@ -39,16 +39,12 @@ interface ChatInputProps {
   leftControls?: ReactNode
   bottomLeftControls?: ReactNode
   rightControls?: ReactNode
-  /** @deprecated 请使用 leftControls 代替 */
-  leadingControls?: ReactNode
-  /** @deprecated 请使用 leftControls 代替 */
-  footerControls?: ReactNode
   value?: string
   onChange?: (value: string) => void
 }
 
-export function ChatInput({ onSend, onStop, isStreaming, placeholder, leftControls, bottomLeftControls, rightControls, leadingControls, footerControls, value: controlledValue, onChange }: ChatInputProps) {
-  const leftToolbarContent = leftControls ?? leadingControls ?? footerControls
+export function ChatInput({ onSend, onStop, isStreaming, placeholder, leftControls, bottomLeftControls, rightControls, value: controlledValue, onChange }: ChatInputProps) {
+  const leftToolbarContent = leftControls
   const bottomLeftToolbarContent = bottomLeftControls
   const rightToolbarContent = rightControls
   const activeConversationId = useChatStore((state) => state.activeConversationId)

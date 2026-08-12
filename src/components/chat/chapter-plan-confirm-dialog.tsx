@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { X, Check, SkipForward, Edit3, ListChecks } from "lucide-react"
-import type { AiWorkflowMode, LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
-import { getWorkflowModeLabel, resolveAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
+import { getWorkflowModeLabel } from "@/lib/agent/workflow-mode"
 export { buildChapterPlanSelfCheckPrompt } from "@/lib/novel/chapter-plan-self-check"
 
 export const CHAPTER_PLAN_MARKER_START = "<!-- chapter_plan -->"
@@ -91,7 +91,7 @@ export function isChapterPlanExecutionFollowup(content: string): boolean {
 interface ChapterPlanConfirmDialogProps {
   open: boolean
   planContent: string
-  aiWorkflowMode: LegacyAiWorkflowMode
+  aiWorkflowMode: AiWorkflowMode
   onConfirm: () => void
   onSkip: () => void
   onModify?: (modifiedPlan: string) => void
@@ -111,8 +111,7 @@ export function ChapterPlanConfirmDialog({
   onRevisePlan,
   onCancel,
 }: ChapterPlanConfirmDialogProps) {
-  const resolvedAiWorkflowMode: AiWorkflowMode = resolveAiWorkflowMode(aiWorkflowMode)
-  const workflowModeLabel = getWorkflowModeLabel(resolvedAiWorkflowMode)
+  const workflowModeLabel = getWorkflowModeLabel(aiWorkflowMode)
   const [editing, setEditing] = useState(false)
   const [editedContent, setEditedContent] = useState(planContent)
   const [selfChecking, setSelfChecking] = useState(false)

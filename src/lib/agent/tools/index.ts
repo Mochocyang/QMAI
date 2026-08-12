@@ -1,6 +1,6 @@
 import type { ToolRegistry } from "../registry"
 import type { AgentToolEvent, Tool } from "../types"
-import type { LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { createReadChapterTool } from "./read-chapter"
 import { createReadOutlineTool } from "./read-outline"
 import { createReadMemoryTool } from "./read-memory"
@@ -61,7 +61,7 @@ export interface ToolFactoryOptions {
   llmConfig?: LlmConfig
   /** 章节正文专用模型。Agent 调度可使用默认模型，但正文仍必须使用聊天框模型。 */
   chapterWritingLlmConfig?: LlmConfig
-  aiWorkflowMode?: LegacyAiWorkflowMode
+  aiWorkflowMode?: AiWorkflowMode
   runDeepChapterGeneration?: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   getPlanBlueprint?: () => string | undefined

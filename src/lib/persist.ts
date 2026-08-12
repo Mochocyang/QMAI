@@ -7,6 +7,7 @@ import {
   isLegacySessionContextSummary,
   normalizeSessionContextSummary,
 } from "@/lib/context-hub/session-summary"
+import { normalizeContextUsageSnapshot } from "@/lib/context-usage"
 import { getContextHub } from "@/lib/context-hub/context-hub"
 
 const MAX_RETRIES = 3
@@ -131,6 +132,7 @@ function normalizeConversation(conv: Conversation): Conversation {
         ? conv.selectedDeAiSkillId
         : undefined,
     contextSummary: normalizeSessionContextSummary(conv.contextSummary),
+    lastContextUsage: normalizeContextUsageSnapshot(conv.lastContextUsage),
   }
 }
 

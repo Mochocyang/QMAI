@@ -59,18 +59,64 @@ describe("DataSourceCacheAdapter", () => {
     await expect(harness.adapter.load(source, context, directLoad)).resolves.toBe("大纲")
 
     expect(directLoad).toHaveBeenCalledOnce()
-    expect(harness.adapter.getStats()).toMatchObject({ hits: 1, refreshed: 1, failures: 0 })
+    expect(harness.adapter.getStats()).toMatchObject({
+      cacheHits: 1,
+      reloaded: 1,
+      empty: 0,
+      writeFailed: 0,
+      readFailed: 0,
+    })
+    // One primary status per key: second load replaces reloaded with cache_hit.
     expect(harness.adapter.getTraceItems()).toEqual([
       expect.objectContaining({
         sourceName: "outline",
-        status: "refreshed",
+        status: "cache_hit",
         dependencyPaths: ["E:/Novel/wiki/outlines/main.md"],
       }),
-      expect.objectContaining({
-        sourceName: "outline",
-        status: "hit",
-        dependencyPaths: ["E:/Novel/wiki/outlines/main.md"],
-      }),
+    ])
+  })
+
+  it("marks empty values as empty and does not count them as reloaded", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => "")
+
+    await harness.adapter.load(source, context, directLoad)
+    await harness.adapter.load(source, context, directLoad)
+
+    expect(directLoad).toHaveBeenCalledTimes(2)
+    expect(harness.storage.writeArtifact).not.toHaveBeenCalled()
+    expect(harness.adapter.getStats()).toMatchObject({
+      empty: 2,
+      reloaded: 0,
+      cacheHits: 0,
+    })
+    expect(harness.adapter.getTraceItems().map((item) => item.status)).toEqual(["empty"])
+  })
+
+  it("records write_failed as the primary status without a second list item", async () => {
+    const harness = createHarness()
+    harness.storage.writeArtifact.mockRejectedValue(new Error("磁盘已满"))
+    const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }
+
+    await expect(harness.adapter.load(source, context, async () => "新大纲")).resolves.toBe("新大纲")
+    expect(harness.adapter.getStats()).toMatchObject({
+      reloaded: 1,
+      writeFailed: 1,
+    })
+    expect(harness.adapter.getTraceItems().map((item) => item.status)).toEqual(["write_failed"])
+  })
+
+  it("records read_failed then fallback_used as a single primary outcome", () => {
+    const harness = createHarness()
+    harness.adapter.recordReadFailed("outline")
+    harness.adapter.recordFallbackUsed("outline")
+    expect(harness.adapter.getStats()).toMatchObject({
+      readFailed: 1,
+      fallbackUsed: 1,
+    })
+    expect(harness.adapter.getTraceItems()).toEqual([
+      expect.objectContaining({ sourceName: "outline", status: "fallback_used" }),
     ])
   })
 
@@ -102,31 +148,6 @@ describe("DataSourceCacheAdapter", () => {
     ])
 
     expect(directLoad).toHaveBeenCalledOnce()
-  })
-
-  it("does not register empty values as cache hits", async () => {
-    const harness = createHarness()
-    const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }
-    const directLoad = vi.fn(async () => "")
-
-    await harness.adapter.load(source, context, directLoad)
-    await harness.adapter.load(source, context, directLoad)
-
-    expect(directLoad).toHaveBeenCalledTimes(2)
-    expect(harness.storage.writeArtifact).not.toHaveBeenCalled()
-  })
-
-  it("returns fresh data when cache writes fail", async () => {
-    const harness = createHarness()
-    harness.storage.writeArtifact.mockRejectedValue(new Error("磁盘已满"))
-    const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }
-
-    await expect(harness.adapter.load(source, context, async () => "新大纲")).resolves.toBe("新大纲")
-    expect(harness.adapter.getStats().failures).toBe(1)
-    expect(harness.adapter.getTraceItems().map((item) => item.status)).toEqual([
-      "refreshed",
-      "failed",
-    ])
   })
 
   it("uses chapter scope for retrieval and project scope for related settings", async () => {

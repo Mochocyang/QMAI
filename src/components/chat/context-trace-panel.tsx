@@ -40,8 +40,12 @@ import {
 } from "@/lib/novel/classification"
 import { cn } from "@/lib/utils"
 import { ToolCallTimeline } from "./tool-call-timeline"
-import { ContextHubDetails, ProviderCacheUsage } from "@/components/common/context-hub-details"
-import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
+import { ContextHubDetails, ContextHubStatsOnly } from "@/components/common/context-hub-details"
+import {
+  isCurrentContextHubStats,
+  parseContextHubSnapshotRef,
+  type ContextHubSnapshotRef,
+} from "@/lib/context-hub/types"
 
 interface RebuildRetrievalResult {
   success: boolean
@@ -365,6 +369,12 @@ function OverviewTab({
 }) {
   const [upgradeStatus, setUpgradeStatus] = useState<"idle" | "confirming" | "loading" | "success" | "error">("idle")
   const [upgradeError, setUpgradeError] = useState<string | null>(null)
+  const currentHubSnapshot = contextHubSnapshot
+    ? parseContextHubSnapshotRef(contextHubSnapshot)
+    : null
+  const currentHubStats = contextInfo?.contextHub && isCurrentContextHubStats(contextInfo.contextHub)
+    ? contextInfo.contextHub
+    : null
 
   const handleUpgradeClassification = async () => {
     if (!projectPath) return
@@ -385,8 +395,8 @@ function OverviewTab({
     }
   }
   if (!contextInfo) {
-    if (contextHubSnapshot) {
-      return <ContextHubDetails reference={contextHubSnapshot} projectPath={projectPath} className="mt-0 border-t-0 pt-0" />
+    if (currentHubSnapshot) {
+      return <ContextHubDetails reference={currentHubSnapshot} projectPath={projectPath} className="mt-0 border-t-0 pt-0" />
     }
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -417,45 +427,21 @@ function OverviewTab({
         value={ROUTE_SOURCE_LABELS[contextInfo.routeSource] || contextInfo.routeSource}
       />
 
-      {contextHubSnapshot && (
+      {currentHubSnapshot && (
         <>
           <div className="my-1 h-px bg-border/60" />
           <ContextHubDetails
-            reference={contextHubSnapshot}
+            reference={currentHubSnapshot}
             projectPath={projectPath}
             className="mt-0 border-t-0 pt-2"
           />
         </>
       )}
 
-      {contextInfo.contextHub && !contextHubSnapshot && (
+      {currentHubStats && !currentHubSnapshot && (
         <>
           <div className="my-1 h-px bg-border/60" />
-          <div className="py-2">
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-                <Database className="h-3.5 w-3.5" />
-              </div>
-              <div className="text-[11px] font-medium text-foreground">上下文中控</div>
-            </div>
-            <div className="ml-9 space-y-1 text-[11px] text-muted-foreground">
-              <div>
-                本轮缓存事件：命中 {contextInfo.contextHub.hits.toLocaleString()}，刷新 {contextInfo.contextHub.refreshed.toLocaleString()}，失败 {contextInfo.contextHub.failures.toLocaleString()}
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <span>稳定核心 {contextInfo.contextHub.stableTokens.toLocaleString()} Token</span>
-                <span>会话摘要 {contextInfo.contextHub.summaryTokens.toLocaleString()} Token</span>
-                <span>动态片段 {contextInfo.contextHub.dynamicTokens.toLocaleString()} Token</span>
-              </div>
-              <div>
-                上下文压缩预计减少 {contextInfo.contextHub.estimatedSavedTokens.toLocaleString()} Token（{contextInfo.contextHub.estimatedSavedPercent}%）
-              </div>
-              <div>
-                低置信度扩展：{contextInfo.contextHub.expanded ? "已启用" : "未启用"}
-              </div>
-              <ProviderCacheUsage stats={contextInfo.contextHub} />
-            </div>
-          </div>
+          <ContextHubStatsOnly stats={currentHubStats} className="mt-0 border-t-0 pt-2" />
         </>
       )}
 

@@ -1,10 +1,15 @@
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
+import { planOutlineRequestBudget } from "@/lib/context-budget"
 import { getOutputLanguage } from "@/lib/output-language"
 import { getFileName, normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import i18n from "@/i18n"
-import type { ChatMessage } from "@/lib/llm-providers"
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+  type ChatMessage,
+} from "@/lib/llm-providers"
 import { PROMPTS } from "@/lib/novel/prompt-templates"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useImportProgressStore } from "@/stores/import-progress-store"
@@ -205,6 +210,7 @@ function emptyOutlineContextPack(task: string): ContextPack {
     characterStates: "",
     soulDoc: "",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "",
     timeline: "",
@@ -254,6 +260,16 @@ function buildSectionRefinementPrompt(
   ].join("\n")
 }
 
+function outlineGenerationOverrides(llmConfig: LlmConfig) {
+  const budget = planOutlineRequestBudget({
+    maxContextSize: llmConfig.maxContextSize,
+    stage: "generation",
+    maxOutputTokens: getEffectiveMaxOutputTokens(llmConfig),
+    thinkingFloorTokens: thinkingMinMaxTokens(llmConfig.reasoning ?? { mode: "auto" }),
+  })
+  return { max_tokens: budget.outputTokens }
+}
+
 async function streamOutlineSectionContent(
   llmConfig: LlmConfig,
   context: string,
@@ -272,7 +288,7 @@ async function streamOutlineSectionContent(
     onError: (err) => {
       streamError = err
     },
-  }, signal)
+  }, signal, outlineGenerationOverrides(llmConfig))
 
   if (streamError) throw streamError
   return content.trim()
@@ -426,7 +442,7 @@ export async function generateOutlineFile(
     onError: (err) => {
       streamError = err
     },
-  }, signal)
+  }, signal, outlineGenerationOverrides(llmConfig))
 
   if (streamError) {
     throw streamError

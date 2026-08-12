@@ -60,6 +60,15 @@ describe("context pack budget contracts", () => {
     const source = readFileSync(resolve(__dirname, "../components/chat/chat-panel.tsx"), "utf8")
     expect(source).toContain("resolveContextPackTokenBudget({")
     expect(source).not.toContain("contextTokenBudget > 0 ? novelConfig.contextTokenBudget : undefined")
+    expect(source).not.toContain("novelConfig.contextTokenBudget")
+  })
+
+  it("settings UI no longer exposes a user context token budget", () => {
+    const source = readFileSync(
+      resolve(__dirname, "../components/settings/sections/novel-section.tsx"),
+      "utf8",
+    )
+    expect(source).not.toContain("contextTokenBudget")
   })
 
   it("context-engine never uses Infinity for pack trimming", () => {

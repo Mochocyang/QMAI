@@ -5,26 +5,27 @@ import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
 export const DEEP_CHAPTER_DRAFT_MAX_CHARS = 3500
-export const DEEP_CHAPTER_MAX_OUTPUT_TOKENS = 8000
+/** 与写作设置 UI 的单章目标字数范围保持一致，避免设置值被运行时悄悄钳死。 */
+export const CHAPTER_TARGET_CHARS_MIN = 1000
+export const CHAPTER_TARGET_CHARS_MAX = 10_000
 
-/** 章节生成字数规格：由设置中的“单章目标字数”推算（issue #8）。 */
+/** 章节生成字数规格：由设置中的“单章目标字数”推算（issue #8）。
+ *  输出 token 预算由 planChapterRequestBudget 按窗口比例规划，不再挂在此规格上。 */
 export interface ChapterLengthSpec {
   targetChars: number
   minChars: number
   draftMaxChars: number
-  maxOutputTokens: number
 }
 
 export const DEFAULT_CHAPTER_LENGTH_SPEC: ChapterLengthSpec = {
   targetChars: DEEP_CHAPTER_TARGET_CHARS,
   minChars: DEEP_CHAPTER_MIN_CHARS,
   draftMaxChars: DEEP_CHAPTER_DRAFT_MAX_CHARS,
-  maxOutputTokens: DEEP_CHAPTER_MAX_OUTPUT_TOKENS,
 }
 
 export function resolveChapterLengthSpec(targetChars?: number): ChapterLengthSpec {
   const target = Number.isFinite(targetChars) && (targetChars as number) > 0
-    ? Math.max(2000, Math.min(6000, Math.round(targetChars as number)))
+    ? Math.max(CHAPTER_TARGET_CHARS_MIN, Math.min(CHAPTER_TARGET_CHARS_MAX, Math.round(targetChars as number)))
     : DEEP_CHAPTER_TARGET_CHARS
   if (target === DEEP_CHAPTER_TARGET_CHARS) return DEFAULT_CHAPTER_LENGTH_SPEC
   return {
@@ -32,8 +33,6 @@ export function resolveChapterLengthSpec(targetChars?: number): ChapterLengthSpe
     // 与默认 2200/3000 保持同一比例，最低不少于 300 字
     minChars: Math.max(300, Math.round(target * (DEEP_CHAPTER_MIN_CHARS / DEEP_CHAPTER_TARGET_CHARS))),
     draftMaxChars: target + (DEEP_CHAPTER_DRAFT_MAX_CHARS - DEEP_CHAPTER_TARGET_CHARS),
-    // 中文正文约 1-2 token/字，给草稿上限留足输出空间
-    maxOutputTokens: Math.max(DEEP_CHAPTER_MAX_OUTPUT_TOKENS, Math.ceil((target + 500) * 2)),
   }
 }
 
