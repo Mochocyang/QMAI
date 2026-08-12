@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { ChatMessage } from "./llm-client"
-import { trimChatMessagesToBudget } from "./chat-request-budget"
+import {
+  estimateChatMessagesTokens,
+  estimateRequestScaffoldTokens,
+  trimChatMessagesToBudget,
+  trimChatMessagesToTokenBudget,
+} from "./chat-request-budget"
+import { LlmContextBudgetError } from "./context-budget"
 
 function text(length: number, char = "x"): string {
   return char.repeat(length)
@@ -115,5 +121,52 @@ describe("trimChatMessagesToBudget", () => {
     expect(trimmed.some((message) => message.tool_calls?.some((call) => call.id === "call-old"))).toBe(false)
     expect(trimmed.some((message) => message.tool_call_id === "call-old")).toBe(false)
     expect(trimmed.at(-1)?.content).toBe("现在只回答新的问题")
+  })
+})
+
+describe("trimChatMessagesToTokenBudget", () => {
+  it("uses CJK-aware estimation for Chinese, English, and mixed content", () => {
+    const chinese = [{ role: "user" as const, content: "中".repeat(100) }]
+    const english = [{ role: "user" as const, content: "a".repeat(100) }]
+    const mixed = [{ role: "user" as const, content: `${"中".repeat(50)}${"a".repeat(100)}` }]
+    expect(estimateChatMessagesTokens(chinese)).toBeGreaterThan(estimateChatMessagesTokens(english))
+    expect(estimateChatMessagesTokens(mixed)).toBeGreaterThan(estimateChatMessagesTokens(english))
+    expect(estimateChatMessagesTokens(mixed)).toBeLessThan(estimateChatMessagesTokens(chinese))
+  })
+
+  it("counts tool schema as request scaffold", () => {
+    const small = estimateRequestScaffoldTokens([{ type: "function", function: { name: "read" } }])
+    const large = estimateRequestScaffoldTokens([{
+      type: "function",
+      function: {
+        name: "read",
+        description: "读取资料".repeat(100),
+        parameters: { type: "object", properties: { path: { type: "string" } } },
+      },
+    }])
+    expect(small).toBeGreaterThan(0)
+    expect(large).toBeGreaterThan(small)
+  })
+
+  it("drops old tool protocol groups and preserves non-empty system/current user content", () => {
+    const messages: ChatMessage[] = [
+      { role: "system", content: `系统约束：${"规则".repeat(500)}` },
+      { role: "assistant", content: "", tool_calls: [{ id: "old", type: "function", function: { name: "read", arguments: "{}" } }] },
+      { role: "tool", content: "旧结果".repeat(1_000), tool_call_id: "old", name: "read" },
+      { role: "user", content: `任务目标：${"正文".repeat(1_000)}结尾限制：保持人物关系。` },
+    ]
+    const trimmed = trimChatMessagesToTokenBudget(messages, 500)
+    expect(estimateChatMessagesTokens(trimmed)).toBeLessThanOrEqual(500)
+    expect(trimmed.some((message) => message.tool_call_id === "old")).toBe(false)
+    expect(String(trimmed[0]?.content).trim()).not.toBe("")
+    expect(String(trimmed.at(-1)?.content)).toContain("任务目标")
+    expect(String(trimmed.at(-1)?.content)).toContain("保持人物关系")
+  })
+
+  it("fails explicitly instead of emptying protected messages", () => {
+    expect(() => trimChatMessagesToTokenBudget([
+      { role: "system", content: "必须遵守约束" },
+      { role: "user", content: "生成第一卷完整大纲" },
+    ], 5)).toThrow(LlmContextBudgetError)
   })
 })

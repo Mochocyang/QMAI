@@ -1211,7 +1211,7 @@ describe("runDeepChapterGeneration", () => {
     expect(capturedPrompts[1]).toContain("冷峻克制")
   })
 
-  it("does not pass app-side max_tokens limits to deep chapter model calls", async () => {
+  it("binds analysis and generation budgets to deep chapter model calls", async () => {
     const deps = createDeps()
     const overrides: Array<RequestOverrides | undefined> = []
     vi.mocked(deps.streamChat).mockImplementation(async (
@@ -1241,7 +1241,9 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(overrides.length).toBeGreaterThan(0)
-    expect(overrides.every((item) => item?.max_tokens === undefined)).toBe(true)
+    expect(overrides.every((item) => typeof item?.max_tokens === "number")).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 4_096)).toBe(true)
+    expect(overrides.some((item) => item?.max_tokens === 8_000)).toBe(true)
   })
 
   it("preserves configured model reasoning for chapter generation calls", async () => {
@@ -1309,7 +1311,10 @@ describe("runDeepChapterGeneration", () => {
 
     expect(result.finalContent).toContain("最终兜底正文")
     expect(overrides[0]?.reasoning).toBeUndefined()
-    expect(overrides[1]).toEqual({ reasoning: { mode: "off" } })
+    expect(overrides[1]).toEqual({
+      max_tokens: 4_096,
+      reasoning: { mode: "off" },
+    })
   })
 
   it("uses fast, standard, and strict workflow routes", async () => {

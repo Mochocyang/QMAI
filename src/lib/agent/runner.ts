@@ -16,7 +16,7 @@ import {
 import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage } from "../llm-usage"
-import { trimChatMessagesToBudget } from "../chat-request-budget"
+import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 import {
@@ -169,8 +169,11 @@ export class AgentRunner {
       }
       const streamRound = async () => {
         const effectiveContext = getEffectiveMaxContextSize(config.llmConfig)
-        const internalBudget = Math.max(1, Math.floor(effectiveContext * 0.75))
-        const compacted = trimChatMessagesToBudget(workingMessages as ChatMessage[], internalBudget) as AgentMessage[]
+        const internalBudget = Math.max(1, Math.floor((effectiveContext / 4) * 0.75))
+        const compacted = trimChatMessagesToTokenBudget(
+          workingMessages as ChatMessage[],
+          internalBudget,
+        ) as AgentMessage[]
         workingMessages.splice(0, workingMessages.length, ...compacted)
         await streamChat(
           config.llmConfig,

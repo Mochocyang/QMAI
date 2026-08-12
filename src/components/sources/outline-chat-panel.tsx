@@ -114,6 +114,10 @@ import {
   resolveUsableModelKey,
 } from "@/lib/novel/model-resolver";
 import { hasAvailableModels as hasConfiguredModels } from "@/lib/llm-model-keys";
+import {
+  planOutlineRequestBudget,
+  type OutlineBudgetStage,
+} from "@/lib/context-budget";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
@@ -1823,6 +1827,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
       // 避免整段结果被静默丢弃。
       let bestGeneratedText = "";
+      const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "generation"
+        ? "generation"
+        : "analysis";
+      const outlineRequestBudget = planOutlineRequestBudget({
+        maxContextSize: effectiveLlmConfig.maxContextSize,
+        contextTokenBudget: novelConfig.contextTokenBudget,
+        stage: outlineBudgetStage,
+      });
 
       try {
         const contextHub = getContextHub(normalizePath(project.path));
@@ -1835,7 +1847,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           references: tokens.map(describeReferenceForOutlineAgent),
           messages: historyBeforeSend,
           existingSummary: forceRefresh ? undefined : targetConversation?.contextSummary,
-          tokenBudget: novelConfig.contextTokenBudget,
+          tokenBudget: outlineRequestBudget.contextTokenBudget,
           maxContextSize: effectiveLlmConfig.maxContextSize,
           forceRefresh,
         });
@@ -1934,6 +1946,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const buildConfigForSkillNames = (
           skillNames: string[] | undefined,
           disableWriteTools: boolean | undefined,
+          budgetStage: OutlineBudgetStage = outlineBudgetStage,
         ) => {
           const registry = new ToolRegistry();
           const effectiveOutlineWritingSkills = prioritizeOutlineSkills(
@@ -1980,15 +1993,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 : {}),
             },
           );
+          const requestBudget = budgetStage === outlineBudgetStage
+            ? outlineRequestBudget
+            : planOutlineRequestBudget({
+                maxContextSize: effectiveLlmConfig.maxContextSize,
+                contextTokenBudget: novelConfig.contextTokenBudget,
+                stage: budgetStage,
+              });
           return {
             agentConfig: {
               ...agentConfig,
               requestOverrides: {
                 ...agentConfig.requestOverrides,
-                max_tokens: Math.max(
-                  agentConfig.requestOverrides?.max_tokens ?? 0,
-                  32768,
-                ),
+                max_tokens: requestBudget.outputTokens,
                 userMemorySurface: "ai-outline" as const,
                 userMemoryProjectKey: normalizePath(project.path),
                 userMemorySessionKey: capturedConvId,
@@ -2005,11 +2022,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             disableWriteTools?: boolean;
             streamToUser?: boolean;
             statusText?: string;
+            budgetStage?: OutlineBudgetStage;
           } = {},
         ): Promise<{ text: string; record: AgentRunRecord; error?: Error; reasoning_content: string }> => {
           const { agentConfig, registry } = buildConfigForSkillNames(
             optionsForRun.skillNames,
             optionsForRun.disableWriteTools,
+            optionsForRun.budgetStage,
           );
           let runText = "";
           let runReasoningContent = "";
@@ -2167,6 +2186,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   skillNames: options.preferredSkillNames,
                   disableWriteTools: true,
                   streamToUser: false,
+                  budgetStage: "analysis",
                 });
                 if (charRun.error) {
                   throw new Error(charRun.error.message);
@@ -2239,6 +2259,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               skillNames: [],
               disableWriteTools: true,
               statusText: "正在动态规划 Agent 任务…",
+              budgetStage: "analysis",
             });
             const dynamicPlan = parseDynamicOutlinePlan(
               plannerRun.text,
@@ -2852,6 +2873,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         toast.error("请先在设置中配置并选择一个可用的 AI 模型。");
         return;
       }
+      const resumeRequestBudget = planOutlineRequestBudget({
+        maxContextSize: effectiveLlmConfig.maxContextSize,
+        contextTokenBudget: novelConfig.contextTokenBudget,
+        stage: "generation",
+      });
 
       const capturedConvId = activeConversationId;
       const runId = crypto.randomUUID();
@@ -2880,7 +2906,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               content: message.content,
             })),
             existingSummary: conv.contextSummary,
-            tokenBudget: novelConfig.contextTokenBudget,
+            tokenBudget: resumeRequestBudget.contextTokenBudget,
             maxContextSize: effectiveLlmConfig.maxContextSize,
           });
           if (contextHubResult) {
@@ -2953,6 +2979,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               ...c,
               requestOverrides: {
                 ...c.requestOverrides,
+                max_tokens: resumeRequestBudget.outputTokens,
                 userMemorySurface: "ai-outline" as const,
                 userMemoryProjectKey: normalizePath(project.path),
                 userMemorySessionKey: capturedConvId,
@@ -3249,6 +3276,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const historyMessages = regenerationInput.history satisfies AgentMessage[];
         let contextHubSnapshot: ContextHubSnapshotRef | undefined;
         let contextHubResult: ContextHubResult | null = null;
+        const regenerationRequestBudget = planOutlineRequestBudget({
+          maxContextSize: effectiveLlmConfig.maxContextSize,
+          contextTokenBudget: novelConfig.contextTokenBudget,
+          stage: "generation",
+        });
         try {
           const contextHub = getContextHub(normalizePath(project.path));
           contextHubResult = await contextHub.prepare({
@@ -3259,7 +3291,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             intent: "generate",
             messages: historyMessages,
             existingSummary: undefined,
-            tokenBudget: novelConfig.contextTokenBudget,
+            tokenBudget: regenerationRequestBudget.contextTokenBudget,
             maxContextSize: effectiveLlmConfig.maxContextSize,
           });
           if (contextHubResult && isCurrentRun()) {
@@ -3340,6 +3372,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
         agentConfig.requestOverrides = {
           ...agentConfig.requestOverrides,
+          max_tokens: regenerationRequestBudget.outputTokens,
           userMemorySurface: "ai-outline",
           userMemoryProjectKey: normalizePath(project.path),
           userMemorySessionKey: capturedConvId,

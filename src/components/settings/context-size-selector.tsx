@@ -1,10 +1,6 @@
-const CONTEXT_PRESETS = [
-  { value: 4096, label: "4K" },
-  { value: 8192, label: "8K" },
-  { value: 16384, label: "16K" },
-  { value: 32768, label: "32K" },
-  { value: 65536, label: "64K" },
-  { value: 131072, label: "128K" },
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
+
+export const CONTEXT_PRESETS = [
   { value: 204800, label: "200K" },
   { value: 262144, label: "256K" },
   { value: 524288, label: "512K" },
@@ -24,8 +20,9 @@ export function ContextSizeSelector({
   value: number
   onChange: (v: number) => void
 }) {
+  const normalizedValue = normalizeUserLlmContextSize(value)
   const closestIndex = CONTEXT_PRESETS.reduce((best, preset, i) => {
-    return Math.abs(preset.value - value) < Math.abs(CONTEXT_PRESETS[best].value - value)
+    return Math.abs(preset.value - normalizedValue) < Math.abs(CONTEXT_PRESETS[best].value - normalizedValue)
       ? i
       : best
   }, 0)
@@ -34,9 +31,9 @@ export function ContextSizeSelector({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium">{formatSize(value)}</span>
+        <span className="text-sm font-medium">{formatSize(normalizedValue)}</span>
         <span className="text-xs text-muted-foreground">
-          ~{Math.floor((value * 0.6) / 1000)}K chars for wiki content
+          ~{Math.floor((normalizedValue * 0.6) / 1000)}K chars for wiki content
         </span>
       </div>
       <input

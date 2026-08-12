@@ -4,7 +4,7 @@ import { ChevronDown, Check } from "lucide-react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { getEffectiveSavedModels, isProviderAvailable } from "@/lib/llm-model-keys"
 
 interface ChatModelSelectorProps {
@@ -85,7 +85,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
       if (!isProviderAvailable(key, config)) continue
       const models = getEffectiveSavedModels(config)
       if (models.length > 0) {
-        const preset = LLM_PRESETS.find((p) => p.id === key)
+        const preset = findLlmPresetById(key)
         groups.push({
           id: key,
           label: preset?.label || config.label || key,

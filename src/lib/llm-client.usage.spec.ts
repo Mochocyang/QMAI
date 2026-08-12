@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat } from "./llm-client"
+import { estimateChatMessagesTokens } from "./chat-request-budget"
+import type { ChatMessage } from "./llm-providers"
+import { LlmContextBudgetError } from "./context-budget"
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -101,14 +104,14 @@ describe("streamChat usage", () => {
     }))
   })
 
-  it("发送前把总输入限制在模型窗口的 85%", async () => {
+  it("发送前按 token 预算裁剪并保持系统与当前请求非空", async () => {
     mocks.fetch.mockResolvedValue(new Response([
       'data: {"choices":[{"delta":{"content":"完成"}}]}',
       "data: [DONE]",
       "",
     ].join("\n"), { status: 200 }))
 
-    await streamChat({ ...config, maxContextSize: 1_000 }, [
+    await streamChat({ ...config, maxContextSize: 4_096 }, [
       { role: "system", content: "系统".repeat(450) },
       { role: "user", content: `任务目标：续写。${"正文".repeat(450)}结尾限制：保持人物关系。` },
     ], {
@@ -118,10 +121,27 @@ describe("streamChat usage", () => {
     })
 
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
-    const body = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> }
-    const total = body.messages.reduce((sum, message) => sum + message.content.length, 0)
-    expect(total).toBeLessThanOrEqual(850)
+    const body = JSON.parse(String(request.body)) as {
+      messages: ChatMessage[]
+      max_tokens: number
+    }
+    expect(estimateChatMessagesTokens(body.messages)).toBeLessThanOrEqual(512)
+    expect(body.max_tokens).toBe(512)
+    expect(String(body.messages[0]?.content).trim()).not.toBe("")
     expect(body.messages.at(-1)?.content).toContain("任务目标")
     expect(body.messages.at(-1)?.content).toContain("保持人物关系")
+  })
+
+  it("上下文无法容纳最小输出时明确失败且不调用供应商", async () => {
+    await expect(streamChat({ ...config, maxContextSize: 2_000 }, [
+      { role: "system", content: "系统约束" },
+      { role: "user", content: "生成第一卷完整大纲" },
+    ], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })).rejects.toBeInstanceOf(LlmContextBudgetError)
+
+    expect(mocks.fetch).not.toHaveBeenCalled()
   })
 })

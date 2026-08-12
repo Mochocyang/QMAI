@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { getProviderConfig } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
 import zh from "@/i18n/zh.json"
@@ -23,7 +25,16 @@ function preset(id: string) {
 }
 
 describe("QMAI model settings", () => {
-  it("includes the built-in provider rows below the custom row", () => {
+  it("renders the 200K long-writing requirement on the LLM settings page", () => {
+    const source = readFileSync(
+      resolve(__dirname, "sections/llm-provider-section.tsx"),
+      "utf8",
+    )
+    expect(source).toContain("settings.sections.llm.longWritingContextTitle")
+    expect(source).toContain("settings.sections.llm.longWritingContextHint")
+  })
+
+  it("keeps every built-in provider and gives each one at least 204800", () => {
     expect(LLM_PRESETS[0]?.id).toBe("custom")
 
     expect(LLM_PRESETS.map((item) => item.id)).toEqual([
@@ -52,6 +63,16 @@ describe("QMAI model settings", () => {
       "ollama-local",
       "ollama-cloud",
     ])
+    for (const item of LLM_PRESETS) {
+      expect(item.suggestedContextSize).toBeGreaterThanOrEqual(204_800)
+    }
+  })
+
+  it("removes only known models below the writing window from suggestions", () => {
+    const groq = preset("groq")
+    expect(groq.suggestedModels).not.toContain("mixtral-8x7b-32768")
+    expect(groq.suggestedModels).not.toContain("gemma2-9b-it")
+    expect(groq.defaultModel).toBe("llama-3.3-70b-versatile")
   })
 
   it("resolves DeepSeek to an OpenAI-compatible custom endpoint", () => {
@@ -128,6 +149,8 @@ describe("QMAI model settings", () => {
     expect(llm.collapse).toBe("收起配置")
     expect(llm.apiKeyPlaceholder).toBe("输入 API Key")
     expect(llm.activeBadge).toBe("当前使用")
+    expect(llm.longWritingContextTitle).toContain("至少 200K")
+    expect(llm.longWritingContextHint).toContain("204800")
     expect(JSON.stringify(llm)).not.toContain("??")
   })
 })

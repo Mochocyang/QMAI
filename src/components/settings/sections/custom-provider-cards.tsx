@@ -10,6 +10,7 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
 import { FunctionCallingControls, ReasoningControls } from "./llm-provider-section"
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 interface CustomProviderCard {
   id: string
@@ -43,7 +44,7 @@ export function CustomProviderCards() {
         baseUrl: config.baseUrl || "",
         apiKey: config.apiKey || "",
         model: config.model || "",
-        maxContextSize: config.maxContextSize,
+        maxContextSize: normalizeUserLlmContextSize(config.maxContextSize),
         reasoning: config.reasoning,
         functionCallingEnabled: config.functionCallingEnabled,
         enabled: config.enabled ?? true,
@@ -61,6 +62,7 @@ export function CustomProviderCards() {
       baseUrl: "",
       apiKey: "",
       model: "",
+      maxContextSize: normalizeUserLlmContextSize(undefined),
       enabled: true,
       savedModels: [],
     }
@@ -75,6 +77,7 @@ export function CustomProviderCards() {
         baseUrl: newCard.baseUrl,
         apiKey: newCard.apiKey,
         model: newCard.model,
+        maxContextSize: newCard.maxContextSize,
         enabled: true,
         savedModels: newCard.savedModels,
       },
@@ -95,7 +98,9 @@ export function CustomProviderCards() {
       baseUrl: updates.baseUrl ?? prev.baseUrl,
       apiKey: updates.apiKey ?? prev.apiKey,
       model: updates.model ?? prev.model,
-      maxContextSize: updates.maxContextSize ?? prev.maxContextSize,
+      maxContextSize: normalizeUserLlmContextSize(
+        updates.maxContextSize ?? prev.maxContextSize,
+      ),
       reasoning: updates.reasoning ?? prev.reasoning,
       functionCallingEnabled: updates.functionCallingEnabled ?? prev.functionCallingEnabled,
       enabled: updates.enabled ?? prev.enabled ?? true,

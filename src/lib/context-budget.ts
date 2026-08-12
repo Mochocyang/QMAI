@@ -32,6 +32,7 @@
  */
 
 import i18n from "@/i18n"
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 /** Result of `computeContextBudget`. All values are character counts. */
 export interface ContextBudget {
@@ -196,11 +197,152 @@ export function resolveContextPackTokenBudget(
   )
 }
 
-/** Output reserve multiplier: chapter target chars × this factor. */
+export const MIN_LLM_OUTPUT_TOKENS = 512
+
+export class LlmContextBudgetError extends Error {
+  constructor(message = "模型上下文不足：无法同时容纳系统提示、当前用户请求和最小输出空间。") {
+    super(message)
+    this.name = "LlmContextBudgetError"
+  }
+}
+
+export interface LlmRequestBudgetInput {
+  maxContextSize?: number
+  desiredOutputTokens: number
+  requestedContextTokens?: number
+  scaffoldReserveTokens: number
+  minimumContextTokens?: number
+  minimumOutputTokens?: number
+}
+
+export interface LlmRequestBudgetPlan {
+  windowTokens: number
+  outputTokens: number
+  contextTokenBudget: number
+  scaffoldReserveTokens: number
+  inputTokenBudget: number
+}
+
+function finiteNonNegative(value: number | undefined, fallback = 0): number {
+  return Number.isFinite(value) && (value as number) > 0
+    ? Math.floor(value as number)
+    : fallback
+}
+
+/** Token-domain conservation kernel shared by chapter and outline workflows. */
+export function planLlmRequestBudget(input: LlmRequestBudgetInput): LlmRequestBudgetPlan {
+  const rawWindow = Number.isFinite(input.maxContextSize) && (input.maxContextSize as number) > 0
+    ? Math.floor(input.maxContextSize as number)
+    : normalizeUserLlmContextSize(undefined)
+  const windowTokens = Math.floor(rawWindow / CHARS_PER_TOKEN)
+  const scaffoldReserveTokens = finiteNonNegative(input.scaffoldReserveTokens)
+  const minimumOutputTokens = Math.max(
+    MIN_LLM_OUTPUT_TOKENS,
+    finiteNonNegative(input.minimumOutputTokens, MIN_LLM_OUTPUT_TOKENS),
+  )
+  const desiredOutputTokens = Math.max(
+    minimumOutputTokens,
+    finiteNonNegative(input.desiredOutputTokens, minimumOutputTokens),
+  )
+  const minimumContextTokens = finiteNonNegative(input.minimumContextTokens)
+  const available = windowTokens - scaffoldReserveTokens
+  if (available < minimumOutputTokens) throw new LlmContextBudgetError()
+
+  // Keep the requested minimum context where possible, then allocate output.
+  // If both cannot fit, context is the degradable side; output never drops below 512.
+  const outputTokens = Math.min(
+    desiredOutputTokens,
+    Math.max(minimumOutputTokens, available - minimumContextTokens),
+  )
+  const remainingForContext = Math.max(0, available - outputTokens)
+  const requestedContextTokens = finiteNonNegative(input.requestedContextTokens)
+  const contextTokenBudget = requestedContextTokens > 0
+    ? Math.min(requestedContextTokens, remainingForContext)
+    : remainingForContext
+  const inputTokenBudget = windowTokens - outputTokens
+
+  return {
+    windowTokens,
+    outputTokens,
+    contextTokenBudget,
+    scaffoldReserveTokens,
+    inputTokenBudget,
+  }
+}
+
+export type ChapterBudgetStage = "analysis" | "generation"
+
+export interface PlanChapterRequestBudgetInput {
+  maxContextSize?: number
+  contextTokenBudget?: number
+  chapterTargetChars?: number
+  stage: ChapterBudgetStage
+  langScale?: number
+}
+
+function chapterMaxOutputTokens(targetChars?: number): number {
+  const target = Number.isFinite(targetChars) && (targetChars as number) > 0
+    ? Math.max(2_000, Math.min(6_000, Math.round(targetChars as number)))
+    : 3_000
+  return target === 3_000 ? 8_000 : Math.max(8_000, Math.ceil((target + 500) * 2))
+}
+
+export function planChapterRequestBudget(
+  input: PlanChapterRequestBudgetInput,
+): LlmRequestBudgetPlan {
+  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  const genericContextCap = computeNovelContextTokenBudget(
+    normalizedWindow,
+    input.contextTokenBudget,
+    input.langScale,
+  )
+  return planLlmRequestBudget({
+    maxContextSize: normalizedWindow,
+    desiredOutputTokens: input.stage === "analysis"
+      ? 4_096
+      : chapterMaxOutputTokens(input.chapterTargetChars),
+    requestedContextTokens: genericContextCap,
+    scaffoldReserveTokens: 8_000,
+    minimumContextTokens: 2_000,
+  })
+}
+
+export type OutlineBudgetStage = "analysis" | "generation"
+
+export interface PlanOutlineRequestBudgetInput {
+  maxContextSize?: number
+  contextTokenBudget?: number
+  stage: OutlineBudgetStage
+  langScale?: number
+}
+
+export function planOutlineRequestBudget(
+  input: PlanOutlineRequestBudgetInput,
+): LlmRequestBudgetPlan {
+  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  const desiredOutputTokens = input.stage === "analysis"
+    ? 8_192
+    : normalizedWindow < 262_144
+      ? 16_384
+      : normalizedWindow < 524_288
+        ? 24_576
+        : 32_768
+  const genericContextCap = computeNovelContextTokenBudget(
+    normalizedWindow,
+    input.contextTokenBudget,
+    input.langScale,
+  )
+  return planLlmRequestBudget({
+    maxContextSize: normalizedWindow,
+    desiredOutputTokens,
+    requestedContextTokens: genericContextCap,
+    scaffoldReserveTokens: 8_192,
+    minimumContextTokens: 4_000,
+  })
+}
+
+/** Legacy compatibility constant retained for callers/tests that compare old reserves. */
 export const WRITING_OUTPUT_RESERVE_MULTIPLIER = 2
-/** Minimum scaffold reserve for writing prompts (instructions / outline shell). */
-const WRITING_SCAFFOLD_RESERVE_FLOOR = 8_000
-const WRITING_SCAFFOLD_RESERVE_FRAC = 0.08
 
 export interface ComputeWritingContextPackTokenBudgetInput {
   maxContextSize?: number
@@ -210,45 +352,18 @@ export interface ComputeWritingContextPackTokenBudgetInput {
 }
 
 /**
- * Deep-chapter ContextPack budget: window minus output reserve (target×2)
- * and scaffold, then clamped by the general window cap / user budget.
+ * Compatibility wrapper over the shared chapter-generation budget strategy.
  */
 export function computeWritingContextPackTokenBudget(
   input: ComputeWritingContextPackTokenBudgetInput,
 ): number {
-  const langScale = input.langScale
-  const { maxCtx } = computeContextBudget(input.maxContextSize, langScale)
-  // Inline clamp mirrors resolveChapterLengthSpec without importing deep-chapter-prompts
-  // (avoids circular deps). Keep in sync with DEEP_CHAPTER 2000–6000 bounds.
-  const rawTarget = input.chapterTargetChars
-  const target = Number.isFinite(rawTarget) && (rawTarget as number) > 0
-    ? Math.max(2_000, Math.min(6_000, Math.round(rawTarget as number)))
-    : 3_000
-  // Same formula as resolveChapterLengthSpec.maxOutputTokens.
-  const maxOutputTokens = target === 3_000
-    ? 8_000
-    : Math.max(8_000, Math.ceil((target + 500) * 2))
-  // User redundancy: 2× target chars at CJK density (~1.7 chars/token), then take the
-  // larger of that vs the chapter maxOutputTokens so generation headroom is real.
-  const targetReserveTokens = Math.ceil(
-    (target * WRITING_OUTPUT_RESERVE_MULTIPLIER) / CHARS_PER_TOKEN_CJK,
-  )
-  const outputReserveTokens = Math.max(targetReserveTokens, maxOutputTokens)
-  const outputReserveChars = outputReserveTokens * CHARS_PER_TOKEN
-  const scaffoldReserveChars = Math.max(
-    WRITING_SCAFFOLD_RESERVE_FLOOR,
-    Math.floor(maxCtx * WRITING_SCAFFOLD_RESERVE_FRAC),
-  )
-  const availableChars = Math.max(0, maxCtx - outputReserveChars - scaffoldReserveChars)
-  // Do not inflate with NOVEL_CONTEXT_TOKEN_FLOOR: that would steal the output reserve
-  // on small windows. Prefer leaving room for chapter generation.
-  const derivedTokens = Math.max(0, Math.floor(availableChars / CHARS_PER_TOKEN))
-  const windowCap = computeNovelContextTokenBudget(input.maxContextSize, 0, langScale)
-  const autoTokens = Math.min(derivedTokens, windowCap)
-  if (input.contextTokenBudget && input.contextTokenBudget > 0) {
-    return Math.min(input.contextTokenBudget, autoTokens)
-  }
-  return autoTokens
+  return planChapterRequestBudget({
+    maxContextSize: input.maxContextSize,
+    contextTokenBudget: input.contextTokenBudget,
+    chapterTargetChars: input.chapterTargetChars,
+    stage: "generation",
+    langScale: input.langScale,
+  }).contextTokenBudget
 }
 
 /** Legacy single-pass outline ingest floor; kept so small windows still behave predictably. */

@@ -16,7 +16,12 @@ import {
 } from "./reasoning-replay-debug"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
-import { trimChatMessagesToBudget } from "./chat-request-budget"
+import {
+  estimateChatMessagesTokens,
+  estimateRequestScaffoldTokens,
+  trimChatMessagesToTokenBudget,
+} from "./chat-request-budget"
+import { LlmContextBudgetError, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
 
@@ -130,7 +135,8 @@ function parseToolCallDeltaFromLine(line: string): { index: number; id?: string;
       name: toolCall.function?.name,
       arguments: toolCall.function?.arguments,
     }
-  } catch {
+  } catch (error) {
+    if (!(error instanceof LlmContextBudgetError)) throw error
     return null
   }
 }
@@ -168,14 +174,46 @@ export async function streamChat(
   const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
   // Apply model-specific context size minimums (e.g. DeepSeek → 1M)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
-  const outputReserveChars = requestOverrides?.max_tokens
-    ? Math.max(0, requestOverrides.max_tokens * 4)
-    : Math.floor(configuredWindow * 0.15)
-  const requestInputBudget = Math.max(1, Math.min(
-    Math.floor(configuredWindow * 0.85),
-    configuredWindow - outputReserveChars,
-  ))
-  const budgetedMessages = trimChatMessagesToBudget(preparedMessages, requestInputBudget)
+  const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
+  const runtimeBudget = planLlmRequestBudget({
+    maxContextSize: configuredWindow,
+    desiredOutputTokens: requestOverrides?.max_tokens
+      ?? Math.floor(configuredWindow * 0.15 / 4),
+    scaffoldReserveTokens: toolScaffoldTokens,
+    minimumContextTokens: 64,
+  })
+  let effectiveOutputTokens = runtimeBudget.outputTokens
+  let budgetedMessages: import("./llm-providers").ChatMessage[]
+  try {
+    budgetedMessages = trimChatMessagesToTokenBudget(
+      preparedMessages,
+      runtimeBudget.inputTokenBudget - toolScaffoldTokens,
+    )
+  } catch {
+    // Protected system/current-user content did not fit beside the desired output.
+    // Retry locally with the 512-token floor; no provider request is made on failure.
+    const minimumOutputTokens = 512
+    const maximumInputTokens = runtimeBudget.windowTokens
+      - toolScaffoldTokens
+      - minimumOutputTokens
+    budgetedMessages = trimChatMessagesToTokenBudget(
+      preparedMessages,
+      maximumInputTokens,
+    )
+    effectiveOutputTokens = Math.max(
+      minimumOutputTokens,
+      Math.min(
+        runtimeBudget.outputTokens,
+        runtimeBudget.windowTokens
+          - toolScaffoldTokens
+          - estimateChatMessagesTokens(budgetedMessages),
+      ),
+    )
+  }
+  const effectiveRequestOverrides: RequestOverrides = {
+    ...requestOverrides,
+    max_tokens: effectiveOutputTokens,
+  }
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
@@ -183,11 +221,11 @@ export async function streamChat(
   // HTTP. Dispatch before getProviderConfig — that function throws for
   // this provider because it has no URL/headers.
   if (runtimeConfig.provider === "claude-code") {
-    return streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, callbacks, signal, requestOverrides)
+    return streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
   }
 
   if (runtimeConfig.provider === "codex-cli") {
-    return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, requestOverrides)
+    return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
   }
 
   if (runtimeConfig.provider === "cursor-cli") {
@@ -230,7 +268,7 @@ export async function streamChat(
     const buildRequestInit = (nextMessages: import("./llm-providers").ChatMessage[]): RequestInit => ({
       method: "POST",
       headers: providerConfig.headers,
-      body: JSON.stringify(providerConfig.buildBody(nextMessages, requestOverrides)),
+      body: JSON.stringify(providerConfig.buildBody(nextMessages, effectiveRequestOverrides)),
       signal: combinedSignal,
     })
 
@@ -327,8 +365,14 @@ export async function streamChat(
       let inputLimitRetrySucceeded = false
       const inputLimit = parseInputLengthLimit(errorDetail)
       if (inputLimit) {
+        const currentInputTokens = estimateChatMessagesTokens(budgetedMessages)
+        const shrinkRatio = Math.min(1, inputLimit.maxLength / Math.max(1, inputLimit.inputLength))
+        const retryInputTokenBudget = Math.max(
+          1,
+          Math.floor(currentInputTokens * shrinkRatio * 0.85),
+        )
         const retryRequestInit = buildRequestInit(
-          trimChatMessagesToBudget(budgetedMessages, Math.floor(inputLimit.maxLength * 0.85)),
+          trimChatMessagesToTokenBudget(budgetedMessages, retryInputTokenBudget),
         )
         if (retryRequestInit.body === requestInit.body) {
           onError(new Error(inputLengthLimitMessage(inputLimit)))

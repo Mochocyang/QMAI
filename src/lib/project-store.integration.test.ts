@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { realFs, createTempProject, writeFileRaw, fileExists, readFileRaw } from "@/test-helpers/fs-temp"
-import type { NovelConfig, RevisionFeedbackWindowConfig, SourceWatchConfig, RerankConfig } from "@/stores/wiki-store"
+import type { LlmConfig, NovelConfig, ProviderConfigs, RevisionFeedbackWindowConfig, SourceWatchConfig, RerankConfig } from "@/stores/wiki-store"
 import type { McpConfig } from "@/lib/mcp/config"
 
 vi.mock("@/commands/fs", () => realFs)
@@ -38,6 +38,8 @@ import {
   loadSourceWatchConfig,
   saveMcpConfig,
   loadMcpConfig,
+  loadLlmConfig,
+  loadProviderConfigs,
 } from "./project-store"
 
 let tmp: { path: string; cleanup: () => Promise<void> }
@@ -49,6 +51,32 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await tmp.cleanup()
+})
+
+it("silently migrates legacy main and provider context sizes on load", async () => {
+  const llmConfig: LlmConfig = {
+    provider: "custom",
+    apiKey: "key",
+    model: "model-a",
+    customEndpoint: "https://example.com/v1",
+    ollamaUrl: "",
+    maxContextSize: 128_000,
+  }
+  const providerConfigs: ProviderConfigs = {
+    custom: {
+      apiKey: "key",
+      model: "model-a",
+      maxContextSize: 32_768,
+      enabled: false,
+    },
+  }
+  inMemoryStore.set("llmConfig", llmConfig)
+  inMemoryStore.set("providerConfigs", providerConfigs)
+
+  expect((await loadLlmConfig())?.maxContextSize).toBe(204_800)
+  expect((await loadProviderConfigs())?.custom?.maxContextSize).toBe(204_800)
+  expect((inMemoryStore.get("llmConfig") as LlmConfig).maxContextSize).toBe(204_800)
+  expect((inMemoryStore.get("providerConfigs") as ProviderConfigs).custom?.enabled).toBe(false)
 })
 
 function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {

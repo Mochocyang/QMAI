@@ -936,12 +936,13 @@ function buildAnthropicBodyWithReasoning(
         : reasoning.mode === "medium"
           ? 4096
         : 8192
-  const budgetTokens = Math.max(1024, budget)
-  const minAnswerTokens = 4096
-  const minTotalTokens = budgetTokens + minAnswerTokens
-  if ((body.max_tokens as number) < minTotalTokens) {
-    body.max_tokens = minTotalTokens
-  }
+  const maxOutputTokens = body.max_tokens as number
+  const minimumAnswerTokens = 512
+  const availableThinkingTokens = maxOutputTokens - minimumAnswerTokens
+  // Anthropic requires at least 1024 thinking tokens. Never inflate max_tokens
+  // beyond the workflow plan; disable explicit thinking when it cannot fit.
+  if (availableThinkingTokens < 1024) return body
+  const budgetTokens = Math.min(Math.max(1024, budget), availableThinkingTokens)
   body.thinking = { type: "enabled", budget_tokens: budgetTokens }
   delete body.temperature
   delete body.top_p

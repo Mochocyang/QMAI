@@ -14,6 +14,10 @@ import {
 } from "@/lib/visual-style-settings"
 import { normalizePath } from "@/lib/path-utils"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
+import {
+  normalizeProviderConfigs,
+  normalizeUserLlmConfig,
+} from "@/lib/llm-context-size"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -57,12 +61,16 @@ const ACTIVE_PRESET_KEY = "activePresetId"
 
 export async function saveLlmConfig(config: LlmConfig): Promise<void> {
   const store = await getStore()
-  await store.set(LLM_CONFIG_KEY, config)
+  await store.set(LLM_CONFIG_KEY, normalizeUserLlmConfig(config))
 }
 
 export async function loadLlmConfig(): Promise<LlmConfig | null> {
   const store = await getStore()
-  return (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
+  const saved = (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
+  if (!saved) return null
+  const normalized = normalizeUserLlmConfig(saved)
+  if (normalized !== saved) await store.set(LLM_CONFIG_KEY, normalized)
+  return normalized
 }
 
 export async function saveAiChatModel(model: string): Promise<void> {
@@ -105,12 +113,16 @@ export async function loadDefaultLlmModel(): Promise<string | null> {
 
 export async function saveProviderConfigs(configs: ProviderConfigs): Promise<void> {
   const store = await getStore()
-  await store.set(PROVIDER_CONFIGS_KEY, configs)
+  await store.set(PROVIDER_CONFIGS_KEY, normalizeProviderConfigs(configs))
 }
 
 export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
   const store = await getStore()
-  return (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  const saved = (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  if (!saved) return null
+  const normalized = normalizeProviderConfigs(saved)
+  if (normalized !== saved) await store.set(PROVIDER_CONFIGS_KEY, normalized)
+  return normalized
 }
 
 export async function saveActivePresetId(id: string | null): Promise<void> {

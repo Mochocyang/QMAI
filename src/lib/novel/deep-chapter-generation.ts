@@ -13,7 +13,7 @@ import {
   isReasoningOnlyResponseError,
   withReasoningDisabled,
 } from "@/lib/reasoning-retry";
-import { computeWritingContextPackTokenBudget } from "@/lib/context-budget";
+import { planChapterRequestBudget } from "@/lib/context-budget";
 import { USER_ABORT_MESSAGE, rethrowIfUserAbort, throwIfAborted } from "@/lib/user-abort";
 import {
   buildContextPack,
@@ -667,11 +667,25 @@ export async function runDeepChapterGeneration(
     : input.llmConfig.maxContextSize;
 
   // 大纲与其余上下文共用同一窗口预算：按单章目标字数×2预留输出，再分配资料包。
-  const totalContextTokenBudget = computeWritingContextPackTokenBudget({
+  const chapterAnalysisBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
+    stage: "analysis",
   });
+  const chapterGenerationBudget = planChapterRequestBudget({
+    maxContextSize: sharedContextWindow,
+    contextTokenBudget: novelConfig.contextTokenBudget,
+    chapterTargetChars: novelConfig.chapterTargetChars,
+    stage: "generation",
+  });
+  const totalContextTokenBudget = chapterGenerationBudget.contextTokenBudget;
+  const analysisRequestOverrides: RequestOverrides = {
+    max_tokens: chapterAnalysisBudget.outputTokens,
+  };
+  const generationRequestOverrides: RequestOverrides = {
+    max_tokens: chapterGenerationBudget.outputTokens,
+  };
   const totalContextCharBudget =
     totalContextTokenBudget * DEEP_CHAPTER_CHARS_PER_TOKEN;
   const outlineCharCap = Math.floor(
@@ -793,7 +807,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段2：写作任务书", partial),
             ),
-          undefined,
+          analysisRequestOverrides,
           cachePrefix,
         ),
       (value) => `写作任务书完成，约 ${countChapterChars(value)} 字。`,
@@ -867,7 +881,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段3：正文初稿", partial),
             ),
-          undefined,
+          generationRequestOverrides,
           cachePrefix,
         ),
       (value) => `正文初稿完成，约 ${countChapterChars(value)} 字。`,
@@ -907,7 +921,7 @@ export async function runDeepChapterGeneration(
               callbacks.onThinking?.(
                 formatStageThinking("阶段3：正文扩写补足", partial),
               ),
-            undefined,
+            generationRequestOverrides,
             cachePrefix,
           ),
         (value) => `正文扩写补足完成，约 ${countChapterChars(value)} 字。`,
@@ -1205,7 +1219,7 @@ export async function runDeepChapterGeneration(
             callbacks.onThinking?.(
               formatStageThinking("阶段5：自动返修", partial),
             ),
-          undefined,
+          generationRequestOverrides,
           cachePrefix,
         ),
       (value) =>
@@ -1358,6 +1372,7 @@ export async function runDeepChapterGeneration(
             signal,
             customDeAiSkill || undefined,
             cachePrefix,
+            generationRequestOverrides,
           ),
         (value) =>
           `简单审查与去AI味完成，最终正文约 ${countChapterChars(value)} 字。`,
@@ -1706,6 +1721,7 @@ async function finalPolishChapter(
   signal?: AbortSignal,
   customDeAiSkill?: string,
   cachePrefix?: string,
+  requestOverrides?: RequestOverrides,
 ): Promise<string> {
   assertNotAborted(signal);
   callbacks.onThinking?.(
@@ -1737,7 +1753,7 @@ async function finalPolishChapter(
       callbacks.onThinking?.(
         formatStageThinking("阶段6：简单审查与去AI味", partial),
       ),
-    undefined,
+    requestOverrides,
     cachePrefix,
   );
   assertNotAborted(signal);

@@ -17,7 +17,7 @@ import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
-import { LLM_PRESETS } from "@/components/settings/llm-presets"
+import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
@@ -303,7 +303,7 @@ function App() {
           // `llmConfig` snapshot from a previous launch would keep the
           // old value. Overrides still win, so an explicit user choice
           // is preserved.
-          const preset = LLM_PRESETS.find((p) => p.id === savedActivePreset)
+          const preset = findLlmPresetById(savedActivePreset)
           if (preset) {
             const currentFallback = useWikiStore.getState().llmConfig
             const override = (savedProviderConfigs ?? {})[savedActivePreset]

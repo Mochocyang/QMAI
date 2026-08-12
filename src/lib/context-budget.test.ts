@@ -5,6 +5,10 @@ import {
   computeWritingContextPackTokenBudget,
   contextScaleForLanguage,
   resolveContextPackTokenBudget,
+  planChapterRequestBudget,
+  planLlmRequestBudget,
+  planOutlineRequestBudget,
+  LlmContextBudgetError,
   WRITING_OUTPUT_RESERVE_MULTIPLIER,
 } from "./context-budget"
 
@@ -22,6 +26,104 @@ describe("computeContextBudget", () => {
     expect(b.responseReserve).toBe(30_000)
     expect(b.indexBudget).toBe(10_000)
     expect(b.pageBudget).toBe(100_000)
+  })
+})
+
+describe("shared LLM request budget", () => {
+  it("keeps the token conservation invariant", () => {
+    const plan = planLlmRequestBudget({
+      maxContextSize: 204_800,
+      desiredOutputTokens: 16_384,
+      requestedContextTokens: 40_000,
+      scaffoldReserveTokens: 8_192,
+      minimumContextTokens: 4_000,
+    })
+    expect(plan).toMatchObject({
+      windowTokens: 51_200,
+      outputTokens: 16_384,
+      contextTokenBudget: 26_624,
+      scaffoldReserveTokens: 8_192,
+      inputTokenBudget: 34_816,
+    })
+    expect(
+      plan.outputTokens + plan.contextTokenBudget + plan.scaffoldReserveTokens,
+    ).toBeLessThanOrEqual(plan.windowTokens)
+  })
+
+  it("reduces output but never below 512 before rejecting an impossible window", () => {
+    const reduced = planLlmRequestBudget({
+      maxContextSize: 4_096,
+      desiredOutputTokens: 8_192,
+      scaffoldReserveTokens: 256,
+      minimumContextTokens: 400,
+    })
+    expect(reduced.outputTokens).toBe(512)
+    expect(reduced.contextTokenBudget).toBe(256)
+    expect(() => planLlmRequestBudget({
+      maxContextSize: 2_000,
+      desiredOutputTokens: 8_192,
+      scaffoldReserveTokens: 64,
+    })).toThrow(LlmContextBudgetError)
+  })
+})
+
+describe("outline request budget", () => {
+  it.each([
+    [204_800, 8_192, 16_384],
+    [262_143, 8_192, 16_384],
+    [262_144, 8_192, 24_576],
+    [524_287, 8_192, 24_576],
+    [524_288, 8_192, 32_768],
+    [1_000_000, 8_192, 32_768],
+  ])("uses stage tiers at window %i", (maxContextSize, analysis, generation) => {
+    expect(planOutlineRequestBudget({
+      maxContextSize,
+      stage: "analysis",
+      langScale: 1,
+    }).outputTokens).toBe(analysis)
+    expect(planOutlineRequestBudget({
+      maxContextSize,
+      stage: "generation",
+      langScale: 1,
+    }).outputTokens).toBe(generation)
+  })
+
+  it("silently raises a legacy 128K window to 204800", () => {
+    const plan = planOutlineRequestBudget({
+      maxContextSize: 128_000,
+      stage: "generation",
+      langScale: 1,
+    })
+    expect(plan.windowTokens).toBe(51_200)
+    expect(plan.outputTokens).toBe(16_384)
+  })
+})
+
+describe("chapter request budget", () => {
+  it.each([
+    [2_000, 8_000],
+    [3_000, 8_000],
+    [6_000, 13_000],
+  ])("derives generation output for %i target chars", (chapterTargetChars, outputTokens) => {
+    const plan = planChapterRequestBudget({
+      maxContextSize: 204_800,
+      chapterTargetChars,
+      stage: "generation",
+      langScale: 1,
+    })
+    expect(plan.outputTokens).toBe(outputTokens)
+    expect(
+      plan.outputTokens + plan.contextTokenBudget + plan.scaffoldReserveTokens,
+    ).toBeLessThanOrEqual(plan.windowTokens)
+  })
+
+  it("uses 4096 tokens for task analysis", () => {
+    expect(planChapterRequestBudget({
+      maxContextSize: 204_800,
+      chapterTargetChars: 3_000,
+      stage: "analysis",
+      langScale: 1,
+    }).outputTokens).toBe(4_096)
   })
 })
 

@@ -17,6 +17,7 @@ import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
 import { CustomProviderCards } from "./custom-provider-cards"
+import { normalizeProviderOverride } from "@/lib/llm-context-size"
 
 export function LlmProviderSection() {
   const { t } = useTranslation()
@@ -51,7 +52,10 @@ export function LlmProviderSection() {
   }
 
   function updateOverride(id: string, patch: ProviderOverride) {
-    const merged: ProviderOverride = { ...(providerConfigs[id] ?? {}), ...patch }
+    const merged: ProviderOverride = normalizeProviderOverride({
+      ...(providerConfigs[id] ?? {}),
+      ...patch,
+    })
     const next = { ...providerConfigs, [id]: merged }
     setProviderConfigs(next)
     persist(next, activePresetId).catch(() => {})
@@ -88,10 +92,22 @@ export function LlmProviderSection() {
         </p>
       </div>
 
+      <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <div className="font-medium">
+            {t("settings.sections.llm.longWritingContextTitle")}
+          </div>
+          <p className="mt-0.5 text-xs leading-relaxed">
+            {t("settings.sections.llm.longWritingContextHint")}
+          </p>
+        </div>
+      </div>
+
       {/* Custom Provider Cards - 放在顶部 */}
       <CustomProviderCards />
 
-      {/* Built-in Presets - 内置预设，过滤掉通用的"自定义模型"预设 */}
+      {/* Keep every provider; each provider defaults to at least the writing floor. */}
       <div className="space-y-2">
         {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => {
           const ov = providerConfigs[preset.id]

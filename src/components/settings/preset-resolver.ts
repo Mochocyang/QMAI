@@ -3,6 +3,7 @@ import type { ProviderOverride } from "@/stores/wiki-store"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import type { LlmPreset } from "./llm-presets"
+import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 /**
  * Build a full LlmConfig from a preset template + the user's saved
@@ -17,8 +18,9 @@ export function resolveConfig(
   const ov = override ?? {}
   const apiKey = ov.apiKey ?? ""
   const model = ov.model?.trim() || preset.defaultModel || ""
-  const rawMaxContextSize =
-    ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize
+  const rawMaxContextSize = normalizeUserLlmContextSize(
+    ov.maxContextSize ?? preset.suggestedContextSize ?? fallback.maxContextSize,
+  )
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const functionCallingEnabled = ov.functionCallingEnabled !== false

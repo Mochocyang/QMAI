@@ -23,6 +23,35 @@ function requestBody(config: LlmConfig): Record<string, unknown> {
 }
 
 describe("llm provider reasoning options", () => {
+  it("keeps Anthropic thinking inside the caller's max_tokens budget", () => {
+    const body = getProviderConfig(customConfig({
+      apiMode: "anthropic_messages",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "请回答。" }],
+      { max_tokens: 4_096 },
+    ) as {
+      max_tokens: number
+      thinking?: { type: string; budget_tokens: number }
+    }
+
+    expect(body.max_tokens).toBe(4_096)
+    expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 3_584 })
+  })
+
+  it("does not inflate an Anthropic output budget too small for explicit thinking", () => {
+    const body = getProviderConfig(customConfig({
+      apiMode: "anthropic_messages",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "请回答。" }],
+      { max_tokens: 512 },
+    ) as Record<string, unknown>
+
+    expect(body.max_tokens).toBe(512)
+    expect(body).not.toHaveProperty("thinking")
+  })
+
   it("replays assistant reasoning_content including empty string", () => {
     const body = getProviderConfig(customConfig()).buildBody([
       { role: "user", content: "写第一章" },
