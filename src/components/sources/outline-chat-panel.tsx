@@ -118,6 +118,10 @@ import {
   planOutlineRequestBudget,
   type OutlineBudgetStage,
 } from "@/lib/context-budget";
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+} from "@/lib/llm-providers";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
@@ -1834,6 +1838,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         maxContextSize: effectiveLlmConfig.maxContextSize,
         contextTokenBudget: novelConfig.contextTokenBudget,
         stage: outlineBudgetStage,
+        maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
+        thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
       });
 
       try {
@@ -1999,6 +2005,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 maxContextSize: effectiveLlmConfig.maxContextSize,
                 contextTokenBudget: novelConfig.contextTokenBudget,
                 stage: budgetStage,
+                maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
+                thinkingFloorTokens: thinkingMinMaxTokens(
+                  effectiveLlmConfig.reasoning ?? { mode: "auto" },
+                ),
               });
           return {
             agentConfig: {
@@ -2877,6 +2887,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         maxContextSize: effectiveLlmConfig.maxContextSize,
         contextTokenBudget: novelConfig.contextTokenBudget,
         stage: "generation",
+        maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
+        thinkingFloorTokens: thinkingMinMaxTokens(effectiveLlmConfig.reasoning ?? { mode: "auto" }),
       });
 
       const capturedConvId = activeConversationId;
@@ -3280,6 +3292,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           maxContextSize: effectiveLlmConfig.maxContextSize,
           contextTokenBudget: novelConfig.contextTokenBudget,
           stage: "generation",
+          maxOutputTokens: getEffectiveMaxOutputTokens(effectiveLlmConfig),
+          thinkingFloorTokens: thinkingMinMaxTokens(
+            effectiveLlmConfig.reasoning ?? { mode: "auto" },
+          ),
         });
         try {
           const contextHub = getContextHub(normalizePath(project.path));

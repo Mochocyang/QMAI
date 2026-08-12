@@ -19,9 +19,9 @@ describe("computeOutlineIngestBodyBudget", () => {
     expect(small).toBeGreaterThan(0)
   })
 
-  it("applies CJK language scale", () => {
-    const english = computeOutlineIngestBodyBudget(128_000, promptOverhead, 1)
-    const cjk = computeOutlineIngestBodyBudget(128_000, promptOverhead, 0.425)
+  it("gives CJK fewer characters because each token holds less text", () => {
+    const english = computeOutlineIngestBodyBudget(128_000, promptOverhead, 4)
+    const cjk = computeOutlineIngestBodyBudget(128_000, promptOverhead, 1)
     expect(cjk).toBeLessThan(english)
   })
 })

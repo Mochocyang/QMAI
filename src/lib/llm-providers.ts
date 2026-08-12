@@ -5,6 +5,10 @@ import {
   isAzureOpenAiEndpoint,
 } from "@/lib/azure-openai"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
+import {
+  MIN_USER_LLM_CONTEXT_SIZE,
+  normalizeUserLlmMaxOutputTokens,
+} from "@/lib/llm-context-size"
 import type { LlmUsage } from "./llm-usage"
 import type { UserMemorySurface } from "./user-memory/types"
 
@@ -603,16 +607,20 @@ function reasoningEffort(reasoning: ReasoningConfig): "low" | "medium" | "high" 
 }
 
 /**
- * Minimum total output tokens (thinking + final answer) required when
- * chain-of-thought is explicitly enabled.  Without this floor the API's
- * default `max_tokens` can be too small to hold both the reasoning trace
- * and the final content — the model spends every token on `reasoning_content`
- * and produces zero `content`, which surfaces as the "思考上限" error.
+ * Total output tokens (thinking + final answer) a reasoning level needs in
+ * order to produce anything useful. Below this the model spends the whole
+ * allowance on `reasoning_content` and returns zero `content`, which surfaces
+ * as the "思考上限" error.
  *
- * Mirrors the protection already present in `buildAnthropicBodyWithReasoning`
- * (budget_tokens + 4096 answer reserve).
+ * This is a pure query. Two consumers act on it, both *before* the request
+ * body is built: `planLlmRequestBudget` raises the planned output to this
+ * floor (still bounded by the user's output cap and the context window), and
+ * the settings UI raises the user's configured output cap when they pick a
+ * reasoning level that needs more. Nothing may inflate `max_tokens` at
+ * body-build time — that happens after budgeting and would break the
+ * window conservation the planner just established.
  */
-function thinkingMinMaxTokens(reasoning: ReasoningConfig): number {
+export function thinkingMinMaxTokens(reasoning: ReasoningConfig): number {
   switch (reasoning.mode) {
     case "low":
       return 4096
@@ -631,12 +639,24 @@ function thinkingMinMaxTokens(reasoning: ReasoningConfig): number {
   }
 }
 
-function ensureMinMaxTokens(body: Record<string, unknown>, min: number): void {
-  if (min <= 0) return
-  const current = body.max_tokens
-  if (typeof current !== "number" || current < min) {
-    body.max_tokens = min
-  }
+/**
+ * Whether explicit thinking can be honoured within the output allowance the
+ * caller already decided on. An absent `max_tokens` means the provider
+ * default applies and we have no basis to judge, so thinking stays on.
+ *
+ * OpenAI-compatible endpoints expose thinking as a boolean with no budget
+ * field, so the only remedy when it does not fit is to turn thinking off —
+ * unlike the Anthropic path, which can shrink `budget_tokens` instead.
+ */
+function thinkingFitsInOutputBudget(
+  body: Record<string, unknown>,
+  reasoning: ReasoningConfig,
+): boolean {
+  const required = thinkingMinMaxTokens(reasoning)
+  if (required <= 0) return true
+  const planned = body.max_tokens
+  if (typeof planned !== "number") return true
+  return planned >= required
 }
 
 function isDeepSeekEndpoint(config: LlmConfig): boolean {
@@ -644,22 +664,22 @@ function isDeepSeekEndpoint(config: LlmConfig): boolean {
 }
 
 /**
- * Minimum context window for DeepSeek models. DeepSeek V3/V4 support
- * up to 1M tokens; the previous default of 64K/200K caused response
- * truncation on long inputs (bug report).
- */
-const DEEPSEEK_MIN_CONTEXT_SIZE = 1_000_000
-
-/**
- * Returns the effective maxContextSize for a given config, applying
- * model-specific minimums. DeepSeek endpoints get bumped to at least
- * 1M chars so long prompts aren't silently truncated.
+ * The context window to plan against, in tokens.
+ *
+ * Deliberately just the user's setting plus a fallback. Model-specific
+ * minimums used to be forced here, which meant the value in the settings UI
+ * and the value actually used could differ with nothing on screen to say so —
+ * for DeepSeek the window slider had no effect at all. Model defaults belong
+ * in the presets (`suggestedContextSize`), where the user can see and change
+ * them.
  */
 export function getEffectiveMaxContextSize(config: LlmConfig): number {
-  if (isDeepSeekEndpoint(config)) {
-    return Math.max(config.maxContextSize || 0, DEEPSEEK_MIN_CONTEXT_SIZE)
-  }
-  return config.maxContextSize || 204_800
+  return config.maxContextSize || MIN_USER_LLM_CONTEXT_SIZE
+}
+
+/** The declared output ceiling to plan against, in tokens. */
+export function getEffectiveMaxOutputTokens(config: LlmConfig): number {
+  return normalizeUserLlmMaxOutputTokens(config.maxOutputTokens)
 }
 
 /**
@@ -781,8 +801,11 @@ function buildOpenAiCompatibleBody(
     if (reasoning.mode === "off") {
       body.thinking = { type: "disabled" }
     } else if (reasoning.mode !== "auto") {
+      if (!thinkingFitsInOutputBudget(body, reasoning)) {
+        body.thinking = { type: "disabled" }
+        return body
+      }
       body.thinking = { type: "enabled" }
-      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
       const effort = reasoningEffort(reasoning)
       if (effort) {
         body.reasoning_effort = effort
@@ -791,14 +814,18 @@ function buildOpenAiCompatibleBody(
     return body
   }
 
+  // 思考放不下时改为关闭，同时压掉 reasoning_effort，避免请求体自相矛盾
+  let thinkingSuppressed = false
+
   // chat_template_kwargs 类型思考模型（Qwen3、MiMo）
   // 同时检查模型名称和端点URL，双重保险确保MiMo等模型被正确识别
   if (isChatTemplateThinkingModel(config.model) || isMiMoEndpoint(config)) {
     if (reasoning.mode === "off") {
       body.chat_template_kwargs = { enable_thinking: false }
     } else if (reasoning.mode !== "auto") {
-      body.chat_template_kwargs = { enable_thinking: true }
-      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
+      const fits = thinkingFitsInOutputBudget(body, reasoning)
+      body.chat_template_kwargs = { enable_thinking: fits }
+      if (!fits) thinkingSuppressed = true
     }
   }
 
@@ -807,13 +834,18 @@ function buildOpenAiCompatibleBody(
     if (reasoning.mode === "off") {
       body.thinking = { type: "disabled" }
     } else if (reasoning.mode !== "auto") {
-      body.thinking = { type: "enabled" }
-      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
+      const fits = thinkingFitsInOutputBudget(body, reasoning)
+      body.thinking = { type: fits ? "enabled" : "disabled" }
+      if (!fits) thinkingSuppressed = true
     }
   }
 
   const effort = reasoningEffort(reasoning)
-  if ((config.provider === "openai" || config.provider === "azure" || config.provider === "custom") && effort) {
+  if (
+    !thinkingSuppressed
+    && (config.provider === "openai" || config.provider === "azure" || config.provider === "custom")
+    && effort
+  ) {
     body.reasoning_effort = effort
   }
 

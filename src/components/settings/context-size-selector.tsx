@@ -1,16 +1,19 @@
+import { useTranslation } from "react-i18next"
 import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 export const CONTEXT_PRESETS = [
   { value: 204800, label: "200K" },
   { value: 262144, label: "256K" },
+  { value: 307200, label: "300K" },
+  { value: 409600, label: "400K" },
   { value: 524288, label: "512K" },
   { value: 1000000, label: "1M" },
 ]
 
-function formatSize(chars: number): string {
-  if (chars >= 1000000) return `${(chars / 1000000).toFixed(1)}M characters`
-  if (chars >= 1000) return `${Math.round(chars / 1000)}K characters`
-  return `${chars} characters`
+function formatSize(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1024) return `${Math.round(tokens / 1024)}K`
+  return String(tokens)
 }
 
 export function ContextSizeSelector({
@@ -20,6 +23,7 @@ export function ContextSizeSelector({
   value: number
   onChange: (v: number) => void
 }) {
+  const { t } = useTranslation()
   const normalizedValue = normalizeUserLlmContextSize(value)
   const closestIndex = CONTEXT_PRESETS.reduce((best, preset, i) => {
     return Math.abs(preset.value - normalizedValue) < Math.abs(CONTEXT_PRESETS[best].value - normalizedValue)
@@ -31,9 +35,8 @@ export function ContextSizeSelector({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium">{formatSize(normalizedValue)}</span>
-        <span className="text-xs text-muted-foreground">
-          ~{Math.floor((normalizedValue * 0.6) / 1000)}K chars for wiki content
+        <span className="text-sm font-medium">
+          {t("settings.sections.llm.contextWindowValue", { value: formatSize(normalizedValue) })}
         </span>
       </div>
       <input
@@ -62,6 +65,9 @@ export function ContextSizeSelector({
           </button>
         ))}
       </div>
+      <p className="text-[10px] text-muted-foreground mt-1">
+        {t("settings.sections.llm.contextWindowHint")}
+      </p>
     </div>
   )
 }

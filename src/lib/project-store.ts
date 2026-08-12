@@ -51,6 +51,49 @@ export async function addToRecentProjects(
 }
 
 const LLM_CONFIG_KEY = "llmConfig"
+// Separate markers per store slot: the two loaders run independently and in no
+// guaranteed order, so a shared marker would let whichever ran first cancel the
+// other's migration.
+const DEEPSEEK_WINDOW_MIGRATION_KEYS = {
+  llmConfig: "deepseekWindowMigratedV1.llmConfig",
+  providerConfigs: "deepseekWindowMigratedV1.providerConfigs",
+} as const
+/** DeepSeek's official published context window. */
+const DEEPSEEK_OFFICIAL_CONTEXT_SIZE = 1_000_000
+/** Preset id whose configuration is known to target api.deepseek.com. */
+const DEEPSEEK_PRESET_ID = "deepseek"
+
+function isDeepSeekOfficialEndpoint(endpoint: string | undefined): boolean {
+  return typeof endpoint === "string" && /api\.deepseek\.com/i.test(endpoint)
+}
+
+/**
+ * One-time lift of saved DeepSeek windows to the official 1M.
+ *
+ * The window used to be forced to 1M at request time, which hid whatever the
+ * user had actually saved. Now that the forcing is gone those stale values
+ * would take effect, so they get raised once — in the user's own settings,
+ * where they can see and change it. The marker makes this genuinely one-time:
+ * without it, anyone who deliberately lowered the window afterwards would find
+ * it raised again on every launch, which is the hardcoding we just removed.
+ *
+ * Scoped to DeepSeek's own endpoint. Third-party hosts serving DeepSeek models
+ * (Atlas Cloud, Ollama Cloud, Volcengine) set their own limits, and the 1M
+ * figure has no authority there.
+ */
+async function hasRunDeepSeekWindowMigration(
+  slot: keyof typeof DEEPSEEK_WINDOW_MIGRATION_KEYS,
+): Promise<boolean> {
+  const store = await getStore()
+  return (await store.get<boolean>(DEEPSEEK_WINDOW_MIGRATION_KEYS[slot])) === true
+}
+
+async function markDeepSeekWindowMigrationDone(
+  slot: keyof typeof DEEPSEEK_WINDOW_MIGRATION_KEYS,
+): Promise<void> {
+  const store = await getStore()
+  await store.set(DEEPSEEK_WINDOW_MIGRATION_KEYS[slot], true)
+}
 const AI_CHAT_MODEL_KEY = "aiChatModel"
 const AI_OUTLINE_MODEL_KEY = "aiOutlineModel"
 let aiOutlineModelSaveRevision = 0
@@ -68,7 +111,16 @@ export async function loadLlmConfig(): Promise<LlmConfig | null> {
   const store = await getStore()
   const saved = (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
   if (!saved) return null
-  const normalized = normalizeUserLlmConfig(saved)
+  let normalized = normalizeUserLlmConfig(saved)
+  if (!(await hasRunDeepSeekWindowMigration("llmConfig"))) {
+    if (
+      isDeepSeekOfficialEndpoint(normalized.customEndpoint)
+      && normalized.maxContextSize < DEEPSEEK_OFFICIAL_CONTEXT_SIZE
+    ) {
+      normalized = { ...normalized, maxContextSize: DEEPSEEK_OFFICIAL_CONTEXT_SIZE }
+    }
+    await markDeepSeekWindowMigrationDone("llmConfig")
+  }
   if (normalized !== saved) await store.set(LLM_CONFIG_KEY, normalized)
   return normalized
 }
@@ -120,7 +172,21 @@ export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
   const store = await getStore()
   const saved = (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
   if (!saved) return null
-  const normalized = normalizeProviderConfigs(saved)
+  let normalized = normalizeProviderConfigs(saved)
+  if (!(await hasRunDeepSeekWindowMigration("providerConfigs"))) {
+    const deepseek = normalized[DEEPSEEK_PRESET_ID]
+    if (
+      deepseek
+      && deepseek.maxContextSize !== undefined
+      && deepseek.maxContextSize < DEEPSEEK_OFFICIAL_CONTEXT_SIZE
+    ) {
+      normalized = {
+        ...normalized,
+        [DEEPSEEK_PRESET_ID]: { ...deepseek, maxContextSize: DEEPSEEK_OFFICIAL_CONTEXT_SIZE },
+      }
+    }
+    await markDeepSeekWindowMigrationDone("providerConfigs")
+  }
   if (normalized !== saved) await store.set(PROVIDER_CONFIGS_KEY, normalized)
   return normalized
 }

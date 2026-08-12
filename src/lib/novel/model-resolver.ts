@@ -2,7 +2,7 @@ import { useWikiStore, type LlmConfig, type NovelConfig, type ProviderOverride }
 import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
+import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
 import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
 
@@ -20,7 +20,11 @@ function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, Provider
 
 function withEffectiveContextSize(config: LlmConfig): LlmConfig {
   const normalized = normalizeUserLlmConfig(config)
-  return { ...normalized, maxContextSize: getEffectiveMaxContextSize(normalized) }
+  return {
+    ...normalized,
+    maxContextSize: getEffectiveMaxContextSize(normalized),
+    maxOutputTokens: getEffectiveMaxOutputTokens(normalized),
+  }
 }
 
 function toUnusableConfig(baseConfig: LlmConfig): LlmConfig {

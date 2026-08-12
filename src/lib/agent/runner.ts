@@ -168,12 +168,23 @@ export class AgentRunner {
         return record
       }
       const streamRound = async () => {
+        // maxContextSize is already a token count; the remaining quarter of the
+        // window covers the response and prompt scaffolding.
         const effectiveContext = getEffectiveMaxContextSize(config.llmConfig)
-        const internalBudget = Math.max(1, Math.floor((effectiveContext / 4) * 0.75))
-        const compacted = trimChatMessagesToTokenBudget(
-          workingMessages as ChatMessage[],
-          internalBudget,
-        ) as AgentMessage[]
+        const internalBudget = Math.max(1, Math.floor(effectiveContext * 0.75))
+        let compacted: AgentMessage[]
+        try {
+          compacted = trimChatMessagesToTokenBudget(
+            workingMessages as ChatMessage[],
+            internalBudget,
+          ) as AgentMessage[]
+        } catch {
+          // streamChat retries with a 512-token output floor before giving up;
+          // surface a readable reason instead of the bare budget error.
+          throw new Error(
+            "模型上下文不足：当前对话即使压缩后仍放不下系统提示与最新请求。请缩短输入，或在设置中调高该模型的上下文窗口。",
+          )
+        }
         workingMessages.splice(0, workingMessages.length, ...compacted)
         await streamChat(
           config.llmConfig,

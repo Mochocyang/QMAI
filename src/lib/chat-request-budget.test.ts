@@ -169,4 +169,33 @@ describe("trimChatMessagesToTokenBudget", () => {
       { role: "user", content: "生成第一卷完整大纲" },
     ], 5)).toThrow(LlmContextBudgetError)
   })
+
+  it("compresses the same input whether or not a mid-conversation system exists", () => {
+    // AgentRunner pushes a required-tool system message into the middle of the
+    // history. It is droppable history, so validating the survivors against the
+    // original system list by position misaligned and rejected a trim that had
+    // actually succeeded.
+    const leading: ChatMessage = { role: "system", content: `系统约束：${"规则".repeat(500)}` }
+    const history: ChatMessage[] = [
+      { role: "user", content: "早前请求".repeat(200) },
+      { role: "assistant", content: "早前回复".repeat(200) },
+    ]
+    const current: ChatMessage = {
+      role: "user",
+      content: `任务目标：${"正文".repeat(1_000)}结尾限制：保持人物关系。`,
+    }
+    const withoutMidSystem = trimChatMessagesToTokenBudget([leading, ...history, current], 500)
+    const withMidSystem = trimChatMessagesToTokenBudget([
+      leading,
+      ...history,
+      { role: "system", content: "本轮必须调用 read_chapter。" },
+      current,
+    ], 500)
+
+    expect(estimateChatMessagesTokens(withMidSystem)).toBeLessThanOrEqual(500)
+    expect(String(withMidSystem[0]?.content).trim()).not.toBe("")
+    expect(String(withMidSystem.at(-1)?.content)).toContain("任务目标")
+    expect(withMidSystem.map((message) => message.role))
+      .toEqual(withoutMidSystem.map((message) => message.role))
+  })
 })

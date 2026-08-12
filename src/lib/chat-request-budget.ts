@@ -316,6 +316,18 @@ export function trimChatMessagesToTokenBudget(
   }
   if (estimateChatMessagesTokens(next) <= maxTokens) return next
 
+  // Systems that survived group-dropping. Mid-conversation system messages
+  // (e.g. the required-tool nudge pushed by AgentRunner) are ordinary history
+  // and may legitimately be gone by now; only what is still here has to stay
+  // non-empty through compression. Comparing against the original list by
+  // position instead would misalign the moment any system is dropped, and
+  // report a budget failure for a trim that actually succeeded.
+  // Compression below replaces entries in place, so these indices stay valid.
+  const protectedSystemIndices = next.reduce<number[]>((indices, message, index) => {
+    if (message.role === "system" && hasNonEmptyContent(message)) indices.push(index)
+    return indices
+  }, [])
+
   let latestUserIndex = -1
   for (let index = next.length - 1; index >= 0; index -= 1) {
     if (next[index]?.role === "user") {
@@ -366,9 +378,8 @@ export function trimChatMessagesToTokenBudget(
     )
   }
 
-  const protectedSystemsValid = messages
-    .filter((message) => message.role === "system" && hasNonEmptyContent(message))
-    .every((_message, index) => hasNonEmptyContent(next.filter((entry) => entry.role === "system")[index]))
+  const protectedSystemsValid = protectedSystemIndices
+    .every((index) => hasNonEmptyContent(next[index]))
   const latestUserValid = latestUserIndex < 0 || hasNonEmptyContent(next[latestUserIndex])
   if (
     estimateChatMessagesTokens(next) > maxTokens

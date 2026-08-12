@@ -14,6 +14,10 @@ import {
   withReasoningDisabled,
 } from "@/lib/reasoning-retry";
 import { planChapterRequestBudget } from "@/lib/context-budget";
+import {
+  getEffectiveMaxOutputTokens,
+  thinkingMinMaxTokens,
+} from "@/lib/llm-providers";
 import { USER_ABORT_MESSAGE, rethrowIfUserAbort, throwIfAborted } from "@/lib/user-abort";
 import {
   buildContextPack,
@@ -667,17 +671,25 @@ export async function runDeepChapterGeneration(
     : input.llmConfig.maxContextSize;
 
   // 大纲与其余上下文共用同一窗口预算：按单章目标字数×2预留输出，再分配资料包。
+  const sharedMaxOutputTokens = getEffectiveMaxOutputTokens(input.llmConfig);
+  const sharedThinkingFloor = thinkingMinMaxTokens(
+    input.llmConfig.reasoning ?? { mode: "auto" },
+  );
   const chapterAnalysisBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "analysis",
+    maxOutputTokens: sharedMaxOutputTokens,
+    thinkingFloorTokens: sharedThinkingFloor,
   });
   const chapterGenerationBudget = planChapterRequestBudget({
     maxContextSize: sharedContextWindow,
     contextTokenBudget: novelConfig.contextTokenBudget,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
+    maxOutputTokens: sharedMaxOutputTokens,
+    thinkingFloorTokens: sharedThinkingFloor,
   });
   const totalContextTokenBudget = chapterGenerationBudget.contextTokenBudget;
   const analysisRequestOverrides: RequestOverrides = {

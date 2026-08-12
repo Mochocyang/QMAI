@@ -144,7 +144,11 @@ interface LlmConfig {
   customEndpoint: string
   azureApiVersion?: string
   azureModelFamily?: AzureModelFamily
-  maxContextSize: number // max context window in characters
+  /** The model's context window, in TOKENS, as published on its spec sheet. */
+  maxContextSize: number
+  /** The model's maximum output, in TOKENS. A capability ceiling, not a
+   *  per-request size: what actually gets sent is min(workflow need, this). */
+  maxOutputTokens?: number
   apiMode?: CustomApiMode
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
@@ -447,6 +451,7 @@ export interface ProviderOverride {
   azureModelFamily?: AzureModelFamily
   apiMode?: CustomApiMode
   maxContextSize?: number
+  maxOutputTokens?: number
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number

@@ -37,7 +37,7 @@ export interface VirtualToolContext {
   contextPack?: ContextPack
   /** ContextPack token budget; resolved from model window when omitted. */
   tokenBudget?: number
-  /** Session model context window in characters. */
+  /** Session model context window in tokens. */
   maxContextSize?: number
 }
 
@@ -52,7 +52,7 @@ export interface ToolFactoryOptions {
   mcpTools?: Tool[]
   draftMode?: boolean
   projectPath?: string
-  /** Session model context window in characters (for trim_context defaults). */
+  /** Session model context window in tokens (for trim_context defaults). */
   maxContextSize?: number
   sourceConversationId?: string
   sourceMessageId?: string

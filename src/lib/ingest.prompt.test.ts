@@ -8,28 +8,29 @@ import {
   splitSourceIntoSemanticChunks,
 } from "./ingest"
 
-// langScale=1 pins these ladder-math tests to the English window so they
-// stay deterministic regardless of the active UI language (default zh).
+// The character-domain helpers take chars/token explicitly (4 = English-ish,
+// 1 = CJK) so they stay deterministic regardless of the active UI language.
 describe("long-source ingest planning", () => {
   it("scales generation output tokens with the configured context window", () => {
-    expect(computeIngestGenerationMaxTokens(64_000, 1)).toBe(8_192)
-    expect(computeIngestGenerationMaxTokens(128_000, 1)).toBe(16_384)
-    expect(computeIngestGenerationMaxTokens(256_000, 1)).toBe(24_576)
-    expect(computeIngestGenerationMaxTokens(1_000_000, 1)).toBe(32_768)
-    expect(computeIngestReviewMaxTokens(1_000_000, 1)).toBe(8_192)
+    expect(computeIngestGenerationMaxTokens(64_000)).toBe(8_192)
+    expect(computeIngestGenerationMaxTokens(128_000)).toBe(16_384)
+    expect(computeIngestGenerationMaxTokens(256_000)).toBe(24_576)
+    expect(computeIngestGenerationMaxTokens(1_000_000)).toBe(32_768)
+    expect(computeIngestReviewMaxTokens(1_000_000)).toBe(8_192)
   })
 
-  it("drops to a lower output tier under CJK scaling for the same window", () => {
-    // 128000 chars * 0.425 ≈ 54400 → below the 128K tier → default 8192.
-    expect(computeIngestGenerationMaxTokens(128_000, 0.425)).toBe(8_192)
+  it("picks the output tier from the token window alone", () => {
+    // A model's output ceiling is a property of the model, not of the UI
+    // language, so the tier no longer moves with character density.
+    expect(computeIngestGenerationMaxTokens(128_000)).toBe(16_384)
   })
 
   it("scales analysis output tokens with the window but caps at 8192 (floor 4096)", () => {
     // Small window keeps the legacy 4096 floor.
-    expect(computeIngestAnalysisMaxTokens(64_000, 1)).toBe(4_096)
+    expect(computeIngestAnalysisMaxTokens(64_000)).toBe(4_096)
     // Larger windows scale up but never exceed the 8192 cap.
-    expect(computeIngestAnalysisMaxTokens(128_000, 1)).toBe(8_192)
-    expect(computeIngestAnalysisMaxTokens(1_000_000, 1)).toBe(8_192)
+    expect(computeIngestAnalysisMaxTokens(128_000)).toBe(8_192)
+    expect(computeIngestAnalysisMaxTokens(1_000_000)).toBe(8_192)
   })
 
   it("scales source budget from the configured context window instead of a fixed 50k cap", () => {
@@ -41,9 +42,9 @@ describe("long-source ingest planning", () => {
     expect(large).toBeLessThanOrEqual(300_000)
   })
 
-  it("shrinks the source budget under CJK scaling", () => {
-    const en = computeIngestSourceBudget(1_000_000, 8_000, 1)
-    const zh = computeIngestSourceBudget(1_000_000, 8_000, 0.425)
+  it("gives CJK fewer characters than English for the same token window", () => {
+    const en = computeIngestSourceBudget(200_000, 8_000, 4)
+    const zh = computeIngestSourceBudget(200_000, 8_000, 1)
     expect(zh).toBeLessThan(en)
   })
 
@@ -52,9 +53,9 @@ describe("long-source ingest planning", () => {
   })
 
   it("shrinks output tokens so prompt + output fits the window", () => {
-    // 64000-char window → 16000 tokens; 60000-char prompt → 15000 tokens in;
-    // only 1000 tokens left for output.
-    expect(fitIngestOutputToWindow(64_000, 60_000, 8_192, 1)).toBe(1_000)
+    // 64000-token window; a 60000-character CJK prompt is 60000 tokens in,
+    // leaving 4000 for output.
+    expect(fitIngestOutputToWindow(64_000, 60_000, 8_192, 1)).toBe(4_000)
   })
 
   it("falls back to the output floor when the prompt already overflows", () => {
@@ -62,8 +63,8 @@ describe("long-source ingest planning", () => {
   })
 
   it("leaves less output room for CJK prompts than English ones", () => {
-    const en = fitIngestOutputToWindow(64_000, 40_000, 8_192, 1)
-    const zh = fitIngestOutputToWindow(64_000, 40_000, 8_192, 0.425)
+    const en = fitIngestOutputToWindow(64_000, 250_000, 8_192, 4)
+    const zh = fitIngestOutputToWindow(64_000, 250_000, 8_192, 1)
     expect(zh).toBeLessThan(en)
   })
 

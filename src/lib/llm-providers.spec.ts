@@ -165,31 +165,28 @@ describe("llm provider reasoning options", () => {
     expect(body).not.toHaveProperty("thinking")
   })
 
-  it("boosts max_tokens for MiMo when thinking is enabled without explicit max_tokens", () => {
+  it("leaves max_tokens absent for MiMo thinking when the caller did not set one", () => {
     const body = requestBody(customConfig({
       model: "mimo-v2.5-pro",
       reasoning: { mode: "high" },
     }))
 
-    expect(body.max_tokens).toBe(16384)
+    expect(body).not.toHaveProperty("max_tokens")
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
   })
 
-  it("boosts max_tokens for MiMo via endpoint detection", () => {
+  it("leaves max_tokens absent for MiMo detected by endpoint", () => {
     const body = requestBody(customConfig({
       model: "custom-alias",
       customEndpoint: "https://token-plan-cn.xiaomimimo.com/v1",
       reasoning: { mode: "medium" },
     }))
 
-    expect(body.max_tokens).toBe(8192)
+    expect(body).not.toHaveProperty("max_tokens")
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
   })
 
-  it("does not override explicit larger max_tokens for MiMo thinking", () => {
-    const body = requestBody(customConfig({
-      model: "mimo-v2.5-pro",
-      reasoning: { mode: "high" },
-    }))
-    // Build body with explicit max_tokens override
+  it("never rewrites an explicit max_tokens for MiMo thinking", () => {
     const bodyWithOverride = getProviderConfig(customConfig({
       model: "mimo-v2.5-pro",
       reasoning: { mode: "high" },
@@ -199,7 +196,36 @@ describe("llm provider reasoning options", () => {
     ) as Record<string, unknown>
 
     expect(bodyWithOverride.max_tokens).toBe(32000)
-    expect(body.max_tokens).toBe(16384)
+    expect(bodyWithOverride.chat_template_kwargs).toEqual({ enable_thinking: true })
+  })
+
+  it("turns MiMo thinking off when the planned output cannot hold it", () => {
+    const body = getProviderConfig(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "test" }],
+      { max_tokens: 2048 },
+    ) as Record<string, unknown>
+
+    expect(body.max_tokens).toBe(2048)
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
+    expect(body).not.toHaveProperty("reasoning_effort")
+  })
+
+  it("turns GLM-5 thinking off when the planned output cannot hold it", () => {
+    const body = getProviderConfig(customConfig({
+      model: "glm-5-plus",
+      customEndpoint: "https://open.bigmodel.cn/api/paas/v4",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "test" }],
+      { max_tokens: 2048 },
+    ) as Record<string, unknown>
+
+    expect(body.max_tokens).toBe(2048)
+    expect(body.thinking).toEqual({ type: "disabled" })
+    expect(body).not.toHaveProperty("reasoning_effort")
   })
 
   it("does not set max_tokens for MiMo when thinking is off", () => {
@@ -220,23 +246,38 @@ describe("llm provider reasoning options", () => {
     expect(body).not.toHaveProperty("max_tokens")
   })
 
-  it("boosts max_tokens for Qwen3 thinking at medium level", () => {
+  it("leaves max_tokens absent for Qwen3 thinking at medium level", () => {
     const body = requestBody(customConfig({
       model: "qwen3-235b-a22b",
       reasoning: { mode: "medium" },
     }))
 
-    expect(body.max_tokens).toBe(8192)
+    expect(body).not.toHaveProperty("max_tokens")
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
   })
 
-  it("boosts max_tokens for DeepSeek thinking at low level", () => {
+  it("leaves max_tokens absent for DeepSeek thinking at low level", () => {
     const body = requestBody(customConfig({
       model: "deepseek-v4-flash",
       reasoning: { mode: "low" },
     }))
 
     expect(body.thinking).toEqual({ type: "enabled" })
-    expect(body.max_tokens).toBe(4096)
+    expect(body).not.toHaveProperty("max_tokens")
+  })
+
+  it("turns DeepSeek thinking off when the planned output cannot hold it", () => {
+    const body = getProviderConfig(customConfig({
+      model: "deepseek-v4-flash",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "test" }],
+      { max_tokens: 2048 },
+    ) as Record<string, unknown>
+
+    expect(body.max_tokens).toBe(2048)
+    expect(body.thinking).toEqual({ type: "disabled" })
+    expect(body).not.toHaveProperty("reasoning_effort")
   })
 
   it.each<ReasoningMode>(["max", "custom"])("maps Responses API %s reasoning to high effort", (mode) => {

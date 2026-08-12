@@ -111,7 +111,9 @@ describe("streamChat usage", () => {
       "",
     ].join("\n"), { status: 200 }))
 
-    await streamChat({ ...config, maxContextSize: 4_096 }, [
+    // 1843-token window (2048 × 0.9) against ~1800 tokens of CJK input, so the
+    // trim has to bite while leaving the protected messages intact.
+    await streamChat({ ...config, maxContextSize: 2_048 }, [
       { role: "system", content: "系统".repeat(450) },
       { role: "user", content: `任务目标：续写。${"正文".repeat(450)}结尾限制：保持人物关系。` },
     ], {
@@ -123,17 +125,16 @@ describe("streamChat usage", () => {
     const request = mocks.fetch.mock.calls[0][1] as RequestInit
     const body = JSON.parse(String(request.body)) as {
       messages: ChatMessage[]
-      max_tokens: number
+      max_tokens?: number
     }
-    expect(estimateChatMessagesTokens(body.messages)).toBeLessThanOrEqual(512)
-    expect(body.max_tokens).toBe(512)
+    expect(estimateChatMessagesTokens(body.messages)).toBeLessThanOrEqual(1_331)
     expect(String(body.messages[0]?.content).trim()).not.toBe("")
     expect(body.messages.at(-1)?.content).toContain("任务目标")
     expect(body.messages.at(-1)?.content).toContain("保持人物关系")
   })
 
   it("上下文无法容纳最小输出时明确失败且不调用供应商", async () => {
-    await expect(streamChat({ ...config, maxContextSize: 2_000 }, [
+    await expect(streamChat({ ...config, maxContextSize: 512 }, [
       { role: "system", content: "系统约束" },
       { role: "user", content: "生成第一卷完整大纲" },
     ], {
@@ -143,5 +144,72 @@ describe("streamChat usage", () => {
     })).rejects.toBeInstanceOf(LlmContextBudgetError)
 
     expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it("调用方未传 max_tokens 时请求体不带该字段", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"完成"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+
+    await streamChat(config, [{ role: "user", content: "写第一章" }], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })
+
+    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(request.body))).not.toHaveProperty("max_tokens")
+  })
+
+  it("调用方显式传入的超大 max_tokens 收敛到输出上限", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"完成"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+
+    await streamChat(
+      { ...config, maxContextSize: 1_000_000, maxOutputTokens: 65_536 },
+      [{ role: "user", content: "写第一章" }],
+      { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+      { max_tokens: 300_000 },
+    )
+
+    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(request.body))).toMatchObject({ max_tokens: 65_536 })
+  })
+
+  it("脏 SSE 行不会中断整轮流式响应", async () => {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          'data: {"choices":[{"delta":{"content":"前半"}}]}',
+          "data: {不是合法 JSON",
+          'data: {"choices":[{"delta":{"content":"后半"}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")))
+        controller.close()
+      },
+    })
+    mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }))
+    const onToken = vi.fn()
+    const onDone = vi.fn()
+    const onError = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "写第一章" }], {
+      onToken,
+      onDone,
+      onError,
+    })
+
+    expect(onToken).toHaveBeenCalledWith("前半")
+    expect(onToken).toHaveBeenCalledWith("后半")
+    expect(onDone).toHaveBeenCalledOnce()
+    expect(onError).not.toHaveBeenCalled()
   })
 })

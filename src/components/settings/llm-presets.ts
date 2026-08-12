@@ -57,8 +57,15 @@ export interface LlmPreset {
   suggestedModels?: string[]
   /** Custom providers only: which wire protocol to speak. */
   apiMode?: CustomApiMode
-  /** Suggested character-budget window; user can override. */
+  /** Suggested context window in tokens, from the model's spec sheet; user can override. */
   suggestedContextSize?: number
+  /**
+   * Suggested maximum output in tokens, from the model's spec sheet; user can
+   * override. Only fill this in where the figure has a source — a wrong value
+   * here either wastes the model's capacity or gets the request rejected.
+   * Omitted presets fall back to `DEFAULT_USER_LLM_MAX_OUTPUT_TOKENS`.
+   */
+  suggestedMaxOutputTokens?: number
 }
 
 const RAW_LLM_PRESETS: LlmPreset[] = [
@@ -213,6 +220,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "deepseek-reasoner",
     ],
     suggestedContextSize: 1000000,
+    // DeepSeek-V4: 1000K context / 384K max output, per the published spec.
+    suggestedMaxOutputTokens: 393216,
   },
   {
     id: "atlascloud",
@@ -251,8 +260,7 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     baseUrl: "https://api.groq.com/openai/v1",
     defaultModel: "llama-3.3-70b-versatile",
     apiMode: "chat_completions",
-    // The writing floor is 204800 characters, approximately 51200 model
-    // tokens. Models below that real context window are not suggested.
+    // Writing workflows require at least 204800 tokens of context.
     suggestedModels: [
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",

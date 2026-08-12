@@ -5,12 +5,21 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useWikiStore, type ProviderOverride, type SavedModel, type ReasoningConfig } from "@/stores/wiki-store"
 import { ContextSizeSelector } from "../context-size-selector"
+import { OutputTokensSelector } from "../output-tokens-selector"
 import { resolveConfig } from "../preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { useTranslation } from "react-i18next"
-import { FunctionCallingControls, ReasoningControls } from "./llm-provider-section"
-import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
+import {
+  FunctionCallingControls,
+  ReasoningControls,
+  withOutputRoomForReasoning,
+} from "./llm-provider-section"
+import {
+  MIN_USER_LLM_CONTEXT_SIZE,
+  normalizeUserLlmContextSize,
+  normalizeUserLlmMaxOutputTokens,
+} from "@/lib/llm-context-size"
 
 interface CustomProviderCard {
   id: string
@@ -20,6 +29,7 @@ interface CustomProviderCard {
   apiKey: string
   model: string
   maxContextSize?: number
+  maxOutputTokens?: number
   reasoning?: ReasoningConfig
   functionCallingEnabled?: boolean
   enabled: boolean
@@ -45,6 +55,7 @@ export function CustomProviderCards() {
         apiKey: config.apiKey || "",
         model: config.model || "",
         maxContextSize: normalizeUserLlmContextSize(config.maxContextSize),
+        maxOutputTokens: config.maxOutputTokens,
         reasoning: config.reasoning,
         functionCallingEnabled: config.functionCallingEnabled,
         enabled: config.enabled ?? true,
@@ -100,6 +111,9 @@ export function CustomProviderCards() {
       model: updates.model ?? prev.model,
       maxContextSize: normalizeUserLlmContextSize(
         updates.maxContextSize ?? prev.maxContextSize,
+      ),
+      maxOutputTokens: normalizeUserLlmMaxOutputTokens(
+        updates.maxOutputTokens ?? prev.maxOutputTokens,
       ),
       reasoning: updates.reasoning ?? prev.reasoning,
       functionCallingEnabled: updates.functionCallingEnabled ?? prev.functionCallingEnabled,
@@ -706,15 +720,25 @@ function CustomProviderCardItem({
           <div className="space-y-2">
             <Label className="text-xs">{t("settings.sections.llm.contextWindow")}</Label>
             <ContextSizeSelector
-              value={card.maxContextSize ?? 131072}
+              value={card.maxContextSize ?? MIN_USER_LLM_CONTEXT_SIZE}
               onChange={(v) => onUpdate({ maxContextSize: v })}
+            />
+          </div>
+
+          {/* Output ceiling */}
+          <div className="space-y-2">
+            <Label className="text-xs">{t("settings.sections.llm.maxOutputTokens")}</Label>
+            <OutputTokensSelector
+              value={card.maxOutputTokens}
+              contextWindow={card.maxContextSize ?? MIN_USER_LLM_CONTEXT_SIZE}
+              onChange={(v) => onUpdate({ maxOutputTokens: v })}
             />
           </div>
 
           {/* Reasoning / thinking */}
           <ReasoningControls
             value={card.reasoning ?? { mode: "auto" }}
-            onChange={(reasoning) => onUpdate({ reasoning })}
+            onChange={(next) => onUpdate(withOutputRoomForReasoning(next, card.maxOutputTokens))}
           />
 
           <FunctionCallingControls

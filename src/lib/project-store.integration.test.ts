@@ -79,6 +79,53 @@ it("silently migrates legacy main and provider context sizes on load", async () 
   expect((inMemoryStore.get("providerConfigs") as ProviderConfigs).custom?.enabled).toBe(false)
 })
 
+describe("DeepSeek window migration", () => {
+  it("lifts a stale saved window to 1M once, then leaves the user in control", async () => {
+    // The runtime used to force DeepSeek to 1M, hiding whatever was saved.
+    // Removing that forcing would expose these stale values, so they are
+    // lifted once — after which a deliberate reduction must stick.
+    inMemoryStore.set("llmConfig", {
+      provider: "custom",
+      apiKey: "key",
+      model: "deepseek-chat",
+      customEndpoint: "https://api.deepseek.com/v1",
+      ollamaUrl: "",
+      maxContextSize: 262_144,
+    } satisfies LlmConfig)
+    inMemoryStore.set("providerConfigs", {
+      deepseek: { apiKey: "key", model: "deepseek-chat", maxContextSize: 262_144 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(1_000_000)
+    expect((await loadProviderConfigs())?.deepseek?.maxContextSize).toBe(1_000_000)
+
+    inMemoryStore.set("llmConfig", {
+      ...(inMemoryStore.get("llmConfig") as LlmConfig),
+      maxContextSize: 262_144,
+    })
+    inMemoryStore.set("providerConfigs", {
+      deepseek: { apiKey: "key", model: "deepseek-chat", maxContextSize: 262_144 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(262_144)
+    expect((await loadProviderConfigs())?.deepseek?.maxContextSize).toBe(262_144)
+  })
+
+  it("leaves third-party hosts serving DeepSeek models alone", async () => {
+    // 1M is DeepSeek's own figure; gateways reselling the model set their own.
+    inMemoryStore.set("llmConfig", {
+      provider: "custom",
+      apiKey: "key",
+      model: "deepseek-ai/deepseek-v4-pro",
+      customEndpoint: "https://api.atlascloud.ai/v1",
+      ollamaUrl: "",
+      maxContextSize: 262_144,
+    } satisfies LlmConfig)
+
+    expect((await loadLlmConfig())?.maxContextSize).toBe(262_144)
+  })
+})
+
 function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
   return {
     contextTokenBudget: 200000,

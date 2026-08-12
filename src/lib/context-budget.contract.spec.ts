@@ -14,23 +14,20 @@ describe("context pack budget contracts", () => {
       const general = resolveContextPackTokenBudget({
         maxContextSize,
         contextTokenBudget: 0,
-        langScale: 1,
       })
       const writing = computeWritingContextPackTokenBudget({
         maxContextSize,
         contextTokenBudget: 0,
         chapterTargetChars: 3_000,
-        langScale: 1,
       })
       expect(Number.isFinite(general)).toBe(true)
       expect(Number.isFinite(writing)).toBe(true)
       expect(general).toBeGreaterThan(0)
       expect(writing).toBeGreaterThan(0)
-      expect(general).toBeLessThanOrEqual(computeNovelContextTokenBudget(maxContextSize, 0, 1))
+      expect(general).toBeLessThanOrEqual(computeNovelContextTokenBudget(maxContextSize, 0))
       const normalizedGeneral = resolveContextPackTokenBudget({
         maxContextSize: Math.max(204_800, maxContextSize),
         contextTokenBudget: 0,
-        langScale: 1,
       })
       expect(writing).toBeLessThanOrEqual(normalizedGeneral)
     }
@@ -40,9 +37,8 @@ describe("context pack budget contracts", () => {
     const writing = computeWritingContextPackTokenBudget({
       maxContextSize: 32_000,
       chapterTargetChars: 3_000,
-      langScale: 1,
     })
-    expect(writing).toBe(33_280)
+    expect(writing).toBe(133_120)
   })
 
   it("writing pack leaves room for output-token reserve plus scaffold", () => {
@@ -51,7 +47,6 @@ describe("context pack budget contracts", () => {
         const plan = planChapterRequestBudget({
           maxContextSize,
           chapterTargetChars,
-          langScale: 1,
           stage: "generation",
         })
         expect(
