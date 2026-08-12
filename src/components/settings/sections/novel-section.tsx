@@ -6,13 +6,16 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
-import { saveNovelConfig, saveDefaultLlmModel } from "@/lib/project-store"
+import { saveNovelConfig, saveDefaultLlmModel, saveRevisionFeedbackWindowConfig, saveMaxHistoryMessages } from "@/lib/project-store"
 import { getFirstAvailableModelKey, hasAvailableModels } from "@/lib/llm-model-keys"
+import { notifyDeAiChapterConcurrencyChanged } from "@/lib/novel/de-ai-batch/chapter-concurrency"
+import { CHAPTER_TARGET_CHARS_MAX, CHAPTER_TARGET_CHARS_MIN } from "@/lib/novel/deep-chapter-prompts"
+import { useChatStore } from "@/stores/chat-store"
 
 import { testNovelModel, type TestableNovelModelTask } from "@/lib/novel/novel-model-test"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import type { NovelConfig } from "@/stores/wiki-store"
+import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
 
 interface Props {
   draft: SettingsDraft
@@ -100,6 +103,8 @@ function NovelModelPickerBlock({
 export function NovelSection({ draft, setDraft }: Props) {
   const { t } = useTranslation()
   const setNovelConfigStore = useWikiStore((s) => s.setNovelConfig)
+  const setRevisionFeedbackWindowConfig = useWikiStore((s) => s.setRevisionFeedbackWindowConfig)
+  const setMaxHistoryMessages = useChatStore((s) => s.setMaxHistoryMessages)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
@@ -131,6 +136,22 @@ export function NovelSection({ draft, setDraft }: Props) {
     setDraft("novelConfig", newConfig)
     setNovelConfigStore(patch)
     await saveNovelConfig(newConfig, project?.id, project?.path)
+    if (patch.deAiBatchConcurrency !== undefined) {
+      notifyDeAiChapterConcurrencyChanged()
+    }
+  }
+
+  const updateFeedbackWindow = async (patch: Partial<RevisionFeedbackWindowConfig>) => {
+    const next = { ...draft.revisionFeedbackWindowConfig, ...patch }
+    setDraft("revisionFeedbackWindowConfig", next)
+    setRevisionFeedbackWindowConfig(next)
+    await saveRevisionFeedbackWindowConfig(next, project?.id, project?.path)
+  }
+
+  const updateMaxHistoryMessages = async (count: number) => {
+    setDraft("maxHistoryMessages", count)
+    setMaxHistoryMessages(count)
+    await saveMaxHistoryMessages(count, project?.id, project?.path)
   }
 
   const updateWorkflowDefaultModel = async (model: string) => {
@@ -263,10 +284,13 @@ export function NovelSection({ draft, setDraft }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="de-ai-batch-concurrency-setting">批量去 AI 味并发作品数</Label>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="de-ai-batch-concurrency-setting">{t("novel.settings.deAiBatchConcurrency")}</Label>
+              {settingTooltip("deAiBatchConcurrencyHint")}
+            </div>
             <Input
               id="de-ai-batch-concurrency-setting"
-              aria-label="批量去 AI 味并发作品数"
+              aria-label={t("novel.settings.deAiBatchConcurrency")}
               type="number"
               min={1}
               max={5}
@@ -276,7 +300,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               })}
               className="w-24"
             />
-            <p className="text-xs text-muted-foreground">默认同时处理 3 个作品，可设置 1–5；超出后按添加顺序排队。</p>
+            <p className="text-xs text-muted-foreground">{t("novel.settings.deAiBatchConcurrencyHint")}</p>
           </div>
 
           <div className="space-y-2">
@@ -308,7 +332,7 @@ export function NovelSection({ draft, setDraft }: Props) {
                   <button
                     key={n}
                     type="button"
-                    onClick={() => setDraft("maxHistoryMessages", n)}
+                    onClick={() => void updateMaxHistoryMessages(n)}
                     className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
                       active
                         ? "border-primary bg-primary text-primary-foreground"
@@ -335,12 +359,15 @@ export function NovelSection({ draft, setDraft }: Props) {
             </div>
             <Input
               type="number"
-              min={500}
-              max={20000}
+              min={CHAPTER_TARGET_CHARS_MIN}
+              max={CHAPTER_TARGET_CHARS_MAX}
               step={100}
               value={draft.novelConfig.chapterTargetChars}
               onChange={(e) => updateNovelConfig({
-                chapterTargetChars: Math.max(500, Math.min(20000, Number(e.target.value) || 3000)),
+                chapterTargetChars: Math.max(
+                  CHAPTER_TARGET_CHARS_MIN,
+                  Math.min(CHAPTER_TARGET_CHARS_MAX, Number(e.target.value) || 3000),
+                ),
               })}
               className="w-32"
             />
@@ -384,26 +411,6 @@ export function NovelSection({ draft, setDraft }: Props) {
               <span
                 className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
                   draft.novelConfig.deepPreviousChaptersAnalysis ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              <Label>{t("novel.settings.deepChapterReview")}</Label>
-              {settingTooltip("deepChapterReviewHint")}
-            </div>
-            <button
-              type="button"
-              onClick={() => updateNovelConfig({ deepChapterReview: !draft.novelConfig.deepChapterReview })}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                draft.novelConfig.deepChapterReview ? "bg-primary" : "bg-input"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                  draft.novelConfig.deepChapterReview ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>
@@ -562,8 +569,7 @@ export function NovelSection({ draft, setDraft }: Props) {
               type="number"
               min={0}
               value={draft.revisionFeedbackWindowConfig.lookbackChapterCount}
-              onChange={(event) => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
+              onChange={(event) => void updateFeedbackWindow({
                 lookbackChapterCount: Math.max(0, Number(event.target.value) || 0),
               })}
               className="w-24 rounded-md border bg-background px-3 py-1.5 text-sm"
@@ -595,8 +601,7 @@ export function NovelSection({ draft, setDraft }: Props) {
             </div>
             <button
               type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
+              onClick={() => void updateFeedbackWindow({
                 currentChapterIncludeShouldImprove: !draft.revisionFeedbackWindowConfig.currentChapterIncludeShouldImprove,
               })}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
@@ -630,8 +635,7 @@ export function NovelSection({ draft, setDraft }: Props) {
             </div>
             <button
               type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
+              onClick={() => void updateFeedbackWindow({
                 previousChapterCarryEnabled: !draft.revisionFeedbackWindowConfig.previousChapterCarryEnabled,
               })}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
@@ -665,8 +669,7 @@ export function NovelSection({ draft, setDraft }: Props) {
             </div>
             <button
               type="button"
-              onClick={() => setDraft("revisionFeedbackWindowConfig", {
-                ...draft.revisionFeedbackWindowConfig,
+              onClick={() => void updateFeedbackWindow({
                 lookbackIncludeMustFixOnly: !draft.revisionFeedbackWindowConfig.lookbackIncludeMustFixOnly,
               })}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${

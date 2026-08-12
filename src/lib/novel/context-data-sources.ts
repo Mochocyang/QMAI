@@ -433,7 +433,8 @@ export const graphSearchResultsDataSource: DataSource<string> = {
     return await searchGraphRelevantContent(
       context.projectPath,
       context.task,
-      context.chapterNumber
+      context.chapterNumber,
+      context.config.searchTopK,
     )
   },
 }

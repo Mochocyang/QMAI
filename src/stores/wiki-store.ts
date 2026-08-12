@@ -315,9 +315,9 @@ export interface NovelConfig {
   chapterTargetChars: number
   autoIngestOnSave: boolean
   autoExtractOnImport: boolean
-  /** 深度生成阶段0：读取并 LLM 分析前几章完整正文。关闭可省一次调用，记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
+  /** 前情分析：读取并 LLM 分析前几章完整正文。快速模式始终跳过；标准/严格模式跟随此开关。关闭时记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
   deepPreviousChaptersAnalysis: boolean
-  /** 深度生成阶段4-5：AI 审稿 + 自动返修。关闭则初稿直接进入简单审查与去AI味，省审稿与返修调用（默认开）。 */
+  /** @deprecated 已被聊天栏工作流模式取代：严格模式始终审稿，快速/标准模式跳过。保留字段仅兼容旧配置。 */
   deepChapterReview: boolean
   /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
   reviewReasoningEffort: "low" | "medium" | "high"
@@ -329,7 +329,7 @@ export interface NovelConfig {
   extractModel: string
   /** 去 AI 味：章节预览去 AI 味、深度生成阶段6。空字符串表示跟随默认模型。 */
   deAiModel: string
-  /** 批量去 AI 味同时运行的作品 Agent 数，范围 1–5。 */
+  /** 批量去 AI 味同时运行的章节数，范围 1–5。 */
   deAiBatchConcurrency: number
   /** 社区摘要自动提取：开启后每 N 章用 LLM 为图谱社区生成叙事摘要，用于回答全局性问题（默认开）。 */
   communitySummaryEnabled: boolean

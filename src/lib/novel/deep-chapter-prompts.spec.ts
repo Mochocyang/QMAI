@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  CHAPTER_TARGET_CHARS_MAX,
+  CHAPTER_TARGET_CHARS_MIN,
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
   DEEP_CHAPTER_MIN_CHARS,
   DEEP_CHAPTER_TARGET_CHARS,
@@ -28,9 +30,14 @@ describe("resolveChapterLengthSpec", () => {
     expect(spec).not.toHaveProperty("maxOutputTokens")
   })
 
-  it("clamps unreasonable targets", () => {
-    expect(resolveChapterLengthSpec(10).targetChars).toBe(2000)
-    expect(resolveChapterLengthSpec(999999).targetChars).toBe(6000)
+  it("clamps unreasonable targets to the writing-settings range", () => {
+    expect(resolveChapterLengthSpec(10).targetChars).toBe(CHAPTER_TARGET_CHARS_MIN)
+    expect(resolveChapterLengthSpec(999999).targetChars).toBe(CHAPTER_TARGET_CHARS_MAX)
+  })
+
+  it("honors a configured target outside the old 2000–6000 hard clamp", () => {
+    expect(resolveChapterLengthSpec(800).targetChars).toBe(800)
+    expect(resolveChapterLengthSpec(12000).targetChars).toBe(12000)
   })
 })
 

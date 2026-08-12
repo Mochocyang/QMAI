@@ -983,7 +983,9 @@ export async function searchGraphRelevantContent(
   pp: string,
   task: string,
   _chapterNumber: number | undefined,
+  limit = 10,
 ): Promise<string> {
+  const topK = Math.max(1, Math.floor(limit) || 10)
   try {
     const { buildRetrievalGraph, getRelatedNodes } = await import("@/lib/graph-relevance")
     const graph = await buildRetrievalGraph(pp)
@@ -1039,7 +1041,7 @@ export async function searchGraphRelevantContent(
     scoredNodes.sort((a, b) => b.relevance - a.relevance)
     const topNodes = await rerankCandidates(
       task,
-      scoredNodes.slice(0, 10).map((node, index) => ({
+      scoredNodes.slice(0, topK).map((node, index) => ({
         id: `graph:${index}:${node.title}`,
         title: node.title,
         snippet: node.snippet,
@@ -1047,10 +1049,10 @@ export async function searchGraphRelevantContent(
         relevance: node.relevance,
       })),
       {
-        topK: 10,
+        topK,
         purpose: "用于补充图谱关联上下文，优先保留和当前任务最直接相关的关联节点。",
       },
-    ).catch(() => scoredNodes.slice(0, 10))
+    ).catch(() => scoredNodes.slice(0, topK))
 
     const nodeResults = topNodes.length > 0
       ? topNodes.map(
@@ -1062,7 +1064,7 @@ export async function searchGraphRelevantContent(
     let communityResults = ""
     try {
       const { searchCommunitySummaries } = await import("./community-summary")
-      communityResults = await searchCommunitySummaries(pp, task, 3)
+      communityResults = await searchCommunitySummaries(pp, task, topK)
     } catch {
       // 社区摘要检索失败不影响主流程
     }

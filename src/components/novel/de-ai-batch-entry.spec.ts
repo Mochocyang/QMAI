@@ -29,10 +29,11 @@ describe("de-ai batch entry and settings", () => {
     expect(previewPanel).toContain("buildDeAiRewriteMessages(source, task.skillContent)")
   })
 
-  it("小说设置包含默认 3、范围 1–5 的批量并发设置", () => {
+  it("小说设置包含默认 3、范围 1–5 的批量并发设置，并接到章节去 AI 味队列", () => {
     expect(wikiStore).toContain("deAiBatchConcurrency: 3")
     expect(novelSection).toContain("min={1}")
     expect(novelSection).toContain("max={5}")
     expect(novelSection).toContain("deAiBatchConcurrency")
+    expect(previewPanel).toContain("acquireDeAiChapterSlot")
   })
 })

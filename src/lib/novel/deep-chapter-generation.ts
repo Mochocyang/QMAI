@@ -219,7 +219,6 @@ export function shouldUseDeepChapterGeneration(
 
 interface ChapterWorkflowProfile {
   mode: AiWorkflowMode;
-  runPreviousChaptersAnalysis: boolean;
   runExecutionContractBuild: boolean;
   runAiReview: boolean;
   runFinalPolish: boolean;
@@ -236,7 +235,6 @@ function resolveChapterWorkflowProfile(
   if (resolvedMode === "fast") {
     return {
       mode: "fast",
-      runPreviousChaptersAnalysis: false,
       runExecutionContractBuild: false,
       runAiReview: false,
       runFinalPolish: false,
@@ -249,7 +247,6 @@ function resolveChapterWorkflowProfile(
   if (resolvedMode === "standard") {
     return {
       mode: "standard",
-      runPreviousChaptersAnalysis: false,
       runExecutionContractBuild: false,
       runAiReview: false,
       runFinalPolish: false,
@@ -261,7 +258,6 @@ function resolveChapterWorkflowProfile(
   }
   return {
     mode: "strict",
-    runPreviousChaptersAnalysis: true,
     runExecutionContractBuild: true,
     runAiReview: true,
     runFinalPolish: true,
@@ -539,10 +535,11 @@ export async function runDeepChapterGeneration(
   // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
   let customDeAiSkill: string | null = null;
 
-  // 阶段0：前情分析（仅当章节号>1，且设置开启时；记忆库的近期摘要与上一章结尾仍会注入）
+  // 阶段0：前情分析。快速模式始终跳过；标准/严格模式跟随写作设置。
+  // 记忆库的近期摘要与上一章结尾仍会注入。
   let previousChaptersAnalysis = "";
   if (
-    workflowProfile.runPreviousChaptersAnalysis &&
+    workflowProfile.mode !== "fast" &&
     input.chapterNumber &&
     input.chapterNumber > 1 &&
     !resumeCheckpoint &&
@@ -1028,9 +1025,9 @@ export async function runDeepChapterGeneration(
     "校验与修正",
     "检查正文完整性、剧情连续性、人物一致性和阻断问题。",
   );
-  const shouldRunAiReview =
-    workflowProfile.runAiReview &&
-    (workflowProfile.mode === "strict" || novelConfig.deepChapterReview);
+  // 审稿由工作流模式决定：严格模式始终审稿，快速/标准模式跳过。
+  // 旧的「深度模式审稿」开关已被模式选择器取代。
+  const shouldRunAiReview = workflowProfile.runAiReview;
   if (!hasCheckpointReview(resumeCheckpoint)) {
     if (!shouldRunAiReview) {
       completeChapterWorkflowStep(
@@ -1285,9 +1282,7 @@ export async function runDeepChapterGeneration(
   });
 
   // 阶段5.5：返修后复审（只在发生了返修时执行，只审查角色一致性维度，降低token消耗，不再自动返修避免循环）
-  const shouldRunPostRevisionReview =
-    workflowProfile.runPostRevisionReview &&
-    (workflowProfile.mode === "strict" || novelConfig.deepChapterReview);
+  const shouldRunPostRevisionReview = workflowProfile.runPostRevisionReview;
   if (revised && shouldRunPostRevisionReview) {
     const postRevisionWorkflowStep: ChapterWorkflowStepSpec = {
       name: "chapter_post_revision_review",
