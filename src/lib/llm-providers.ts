@@ -602,6 +602,43 @@ function reasoningEffort(reasoning: ReasoningConfig): "low" | "medium" | "high" 
   return null
 }
 
+/**
+ * Minimum total output tokens (thinking + final answer) required when
+ * chain-of-thought is explicitly enabled.  Without this floor the API's
+ * default `max_tokens` can be too small to hold both the reasoning trace
+ * and the final content — the model spends every token on `reasoning_content`
+ * and produces zero `content`, which surfaces as the "思考上限" error.
+ *
+ * Mirrors the protection already present in `buildAnthropicBodyWithReasoning`
+ * (budget_tokens + 4096 answer reserve).
+ */
+function thinkingMinMaxTokens(reasoning: ReasoningConfig): number {
+  switch (reasoning.mode) {
+    case "low":
+      return 4096
+    case "medium":
+      return 8192
+    case "high":
+    case "max":
+      return 16384
+    case "custom":
+      if (reasoning.budgetTokens !== undefined) {
+        return reasoning.budgetTokens + 4096
+      }
+      return 8192
+    default:
+      return 0
+  }
+}
+
+function ensureMinMaxTokens(body: Record<string, unknown>, min: number): void {
+  if (min <= 0) return
+  const current = body.max_tokens
+  if (typeof current !== "number" || current < min) {
+    body.max_tokens = min
+  }
+}
+
 function isDeepSeekEndpoint(config: LlmConfig): boolean {
   return /deepseek/i.test(config.model) || /deepseek/i.test(config.customEndpoint)
 }
@@ -625,8 +662,50 @@ export function getEffectiveMaxContextSize(config: LlmConfig): number {
   return config.maxContextSize || 204_800
 }
 
-function isQwenThinkingModel(model: string): boolean {
-  return /qwen[-_]?3/i.test(model)
+/**
+ * Models that control chain-of-thought via the vLLM/SGLang-standard
+ * `chat_template_kwargs.enable_thinking` boolean.
+ *
+ * Covers:
+ *  - Qwen3 / Qwen3.5 / Qwen3.6 / Qwen3-Coder  (qwen3 prefix)
+ *  - Xiaomi MiMo v2.x  (mimo-v2-pro, mimo-v2.5-pro, mimo-v2-flash, …)
+ *
+ * When `enable_thinking` is false the model suppresses reasoning_content
+ * entirely; when true it streams CoT through that field before the
+ * final `content`. Third-party vLLM gateways serving these models use
+ * the same parameter, so model-name matching is sufficient.
+ */
+function isChatTemplateThinkingModel(model: string): boolean {
+  return /qwen[-_]?3/i.test(model) || /mimo/i.test(model)
+}
+
+/**
+ * Endpoint-level fallback for Xiaomi MiMo. If the user kept the default
+ * model name but changed nothing else, model-name matching already
+ * catches it. This also covers custom model ids on the MiMo Token Plan
+ * gateways (api.xiaomimimo.com / token-plan-cn.xiaomimimo.com).
+ */
+function isMiMoEndpoint(config: LlmConfig): boolean {
+  return /xiaomimimo\.com/i.test(config.customEndpoint)
+}
+
+/**
+ * GLM-5+ models on the official Zhipu BigModel API control thinking
+ * through a top-level `thinking` object: `{ type: "enabled" }` or
+ * `{ type: "disabled" }`. GLM-4.x and earlier do not support this
+ * parameter — sending it would cause a 400, so the version gate matters.
+ *
+ * Third-party GLM deployments (Atlas Cloud, NVIDIA NIM, vLLM self-host)
+ * may use a different convention; we only apply this adaptation to the
+ * official bigmodel.cn endpoint.
+ */
+function isGLMThinkingModel(model: string): boolean {
+  return /glm[-_]?5/i.test(model)
+}
+
+function isZhipuEndpoint(config: LlmConfig): boolean {
+  return /bigmodel\.cn/i.test(config.customEndpoint)
+    || /(^|[/:.])zhipu([/:.]|$)/i.test(config.customEndpoint)
 }
 
 function isKimiEndpoint(config: LlmConfig): boolean {
@@ -703,6 +782,7 @@ function buildOpenAiCompatibleBody(
       body.thinking = { type: "disabled" }
     } else if (reasoning.mode !== "auto") {
       body.thinking = { type: "enabled" }
+      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
       const effort = reasoningEffort(reasoning)
       if (effort) {
         body.reasoning_effort = effort
@@ -711,11 +791,24 @@ function buildOpenAiCompatibleBody(
     return body
   }
 
-  if (isQwenThinkingModel(config.model)) {
+  // chat_template_kwargs 类型思考模型（Qwen3、MiMo）
+  // 同时检查模型名称和端点URL，双重保险确保MiMo等模型被正确识别
+  if (isChatTemplateThinkingModel(config.model) || isMiMoEndpoint(config)) {
     if (reasoning.mode === "off") {
       body.chat_template_kwargs = { enable_thinking: false }
     } else if (reasoning.mode !== "auto") {
       body.chat_template_kwargs = { enable_thinking: true }
+      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
+    }
+  }
+
+  // GLM-5+ 模型（智谱BigModel官方端点）使用顶层 thinking 对象控制思考
+  if (isGLMThinkingModel(config.model) && isZhipuEndpoint(config)) {
+    if (reasoning.mode === "off") {
+      body.thinking = { type: "disabled" }
+    } else if (reasoning.mode !== "auto") {
+      body.thinking = { type: "enabled" }
+      ensureMinMaxTokens(body, thinkingMinMaxTokens(reasoning))
     }
   }
 

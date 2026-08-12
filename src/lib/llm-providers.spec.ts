@@ -68,6 +68,148 @@ describe("llm provider reasoning options", () => {
     expect(body).not.toHaveProperty("reasoning_effort")
   })
 
+  it("enables MiMo thinking via model name when reasoning is enabled", () => {
+    const body = requestBody(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "high" },
+    }))
+
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
+  })
+
+  it("disables MiMo thinking via model name when reasoning is off", () => {
+    const body = requestBody(customConfig({
+      model: "MiMo-v2-pro",
+      reasoning: { mode: "off" },
+    }))
+
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
+  })
+
+  it("enables MiMo thinking via xiaomimimo.com endpoint even with custom model name", () => {
+    const body = requestBody(customConfig({
+      model: "custom-model-alias",
+      customEndpoint: "https://api.xiaomimimo.com/v1",
+      reasoning: { mode: "high" },
+    }))
+
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: true })
+  })
+
+  it("disables MiMo thinking via xiaomimimo.com endpoint when reasoning is off", () => {
+    const body = requestBody(customConfig({
+      model: "some-alias",
+      customEndpoint: "https://token-plan-cn.xiaomimimo.com/v1",
+      reasoning: { mode: "off" },
+    }))
+
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
+  })
+
+  it("enables GLM-5 thinking on bigmodel.cn when reasoning is enabled", () => {
+    const body = requestBody(customConfig({
+      model: "glm-5-plus",
+      customEndpoint: "https://open.bigmodel.cn/api/paas/v4",
+      reasoning: { mode: "high" },
+    }))
+
+    expect(body.thinking).toEqual({ type: "enabled" })
+  })
+
+  it("disables GLM-5 thinking on bigmodel.cn when reasoning is off", () => {
+    const body = requestBody(customConfig({
+      model: "GLM-5",
+      customEndpoint: "https://open.bigmodel.cn/api/paas/v4",
+      reasoning: { mode: "off" },
+    }))
+
+    expect(body.thinking).toEqual({ type: "disabled" })
+  })
+
+  it("does not send GLM thinking object for non-Zhipu endpoints", () => {
+    const body = requestBody(customConfig({
+      model: "glm-5-self-hosted",
+      customEndpoint: "https://my-vllm.example.com/v1",
+      reasoning: { mode: "high" },
+    }))
+
+    expect(body).not.toHaveProperty("thinking")
+  })
+
+  it("boosts max_tokens for MiMo when thinking is enabled without explicit max_tokens", () => {
+    const body = requestBody(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "high" },
+    }))
+
+    expect(body.max_tokens).toBe(16384)
+  })
+
+  it("boosts max_tokens for MiMo via endpoint detection", () => {
+    const body = requestBody(customConfig({
+      model: "custom-alias",
+      customEndpoint: "https://token-plan-cn.xiaomimimo.com/v1",
+      reasoning: { mode: "medium" },
+    }))
+
+    expect(body.max_tokens).toBe(8192)
+  })
+
+  it("does not override explicit larger max_tokens for MiMo thinking", () => {
+    const body = requestBody(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "high" },
+    }))
+    // Build body with explicit max_tokens override
+    const bodyWithOverride = getProviderConfig(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "high" },
+    })).buildBody(
+      [{ role: "user", content: "test" }],
+      { max_tokens: 32000 },
+    ) as Record<string, unknown>
+
+    expect(bodyWithOverride.max_tokens).toBe(32000)
+    expect(body.max_tokens).toBe(16384)
+  })
+
+  it("does not set max_tokens for MiMo when thinking is off", () => {
+    const body = requestBody(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "off" },
+    }))
+
+    expect(body).not.toHaveProperty("max_tokens")
+  })
+
+  it("does not set max_tokens for MiMo in auto mode", () => {
+    const body = requestBody(customConfig({
+      model: "mimo-v2.5-pro",
+      reasoning: { mode: "auto" },
+    }))
+
+    expect(body).not.toHaveProperty("max_tokens")
+  })
+
+  it("boosts max_tokens for Qwen3 thinking at medium level", () => {
+    const body = requestBody(customConfig({
+      model: "qwen3-235b-a22b",
+      reasoning: { mode: "medium" },
+    }))
+
+    expect(body.max_tokens).toBe(8192)
+  })
+
+  it("boosts max_tokens for DeepSeek thinking at low level", () => {
+    const body = requestBody(customConfig({
+      model: "deepseek-v4-flash",
+      reasoning: { mode: "low" },
+    }))
+
+    expect(body.thinking).toEqual({ type: "enabled" })
+    expect(body.max_tokens).toBe(4096)
+  })
+
   it.each<ReasoningMode>(["max", "custom"])("maps Responses API %s reasoning to high effort", (mode) => {
     const body = requestBody(customConfig({
       apiMode: "responses",

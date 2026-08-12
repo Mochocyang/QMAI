@@ -7,6 +7,19 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "3.1.5",
+  date: "2026-08-12",
+  highlights: {
+    en: [
+      "[MiMo Thinking Fix] Fixed Xiaomi MiMo models hitting the thinking token cap and producing no response. MiMo is now correctly recognized as a chat-template thinking model, so the auto-retry with thinking disabled works properly. Also added max_tokens protection for all OpenAI-compatible thinking models (Qwen3, MiMo, DeepSeek, GLM-5+) to ensure the response has enough room for both reasoning and answer.",
+    ],
+    zh: [
+      "【小米 MiMo 思考上限修复】修复使用小米 MiMo 模型时频繁提示「思考上限」、只输出思考内容不出正文的问题。MiMo 现在被正确识别为 chat_template_kwargs 类型思考模型，自动关闭思考重试可正常生效；同时为所有 OpenAI 兼容思考模型（Qwen3、MiMo、DeepSeek、GLM-5+）增加 max_tokens 输出保护，确保思考和正文都有足够 token 空间，不再因思考耗尽输出配额而空响应",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
   version: "3.1.2",
   date: "2026-08-08",
@@ -1057,6 +1070,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_FIVE_CHANGELOG,
   THREE_POINT_ONE_TWO_CHANGELOG,
   {
     version: "1.0.7",
