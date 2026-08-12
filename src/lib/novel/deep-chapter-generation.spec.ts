@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { DEFAULT_NOVEL_CONFIG, useWikiStore, type LlmConfig } from "@/stores/wiki-store"
+import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import type { AgentActivityEvent } from "@/lib/agent/types"
 import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
@@ -1389,32 +1389,6 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
-  })
-
-  it("keeps AI review mandatory in strict mode even when the global deep chapter review switch is off", async () => {
-    const previousNovelConfig = useWikiStore.getState().novelConfig
-    useWikiStore.setState({
-      novelConfig: {
-        ...DEFAULT_NOVEL_CONFIG,
-        ...previousNovelConfig,
-        deepChapterReview: false,
-      },
-    })
-    try {
-      const deps = createDeps()
-      const events: Array<{ name: string; result?: string }> = []
-
-      await runDeepChapterGeneration(
-        { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
-        { onWorkflowEvent: (event) => events.push(event) },
-        deps,
-      )
-
-      expect(deps.reviewChapter).toHaveBeenCalled()
-      expect(events.find((event) => event.name === "chapter_review" && event.result)?.result).toContain("AI 审稿完成")
-    } finally {
-      useWikiStore.setState({ novelConfig: previousNovelConfig })
-    }
   })
 
   it("emits visible workflow events for the chapter multi-task loop", async () => {

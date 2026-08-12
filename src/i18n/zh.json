@@ -1242,8 +1242,6 @@
       "reviewBeforeSaveHint": "开启后，保存正式章节前会先调用审稿模型检查连贯性、设定冲突和需要修复的问题。",
       "deepPreviousChaptersAnalysis": "前情分析（额外调用）",
       "deepPreviousChaptersAnalysisHint": "开启后，标准/严格模式在生成第2章及以后时会先读取并用 LLM 分析前几章完整正文，连贯性更强但每章多一次调用、更费 Token。快速模式始终跳过。关闭时仍会注入记忆库的近期摘要与上一章结尾。默认关闭以省 Token。",
-      "deepChapterReview": "深度模式：AI 审稿与自动返修",
-      "deepChapterReviewHint": "此开关已被聊天栏的快速/标准/严格模式取代：严格模式始终审稿与返修，快速和标准模式跳过。保留仅兼容旧配置。",
       "reviewReasoningEffort": "审稿思考档位",
       "reviewReasoningEffortHint": "控制 AI 审稿（含六维审查）的思考深度。档位越低越省 Token、越快，但连贯性与设定冲突的把关会变弱。默认「高」。",
       "taskModelsTitle": "分环节指定模型（写小说）",

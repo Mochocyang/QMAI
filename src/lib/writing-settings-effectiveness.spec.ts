@@ -54,6 +54,18 @@ const chatPanel = readFileSync(
   resolve(__dirname, "../components/chat/chat-panel.tsx"),
   "utf8",
 )
+const wikiStore = readFileSync(
+  resolve(__dirname, "../stores/wiki-store.ts"),
+  "utf8",
+)
+const zhI18n = readFileSync(
+  resolve(__dirname, "../i18n/zh.json"),
+  "utf8",
+)
+const enI18n = readFileSync(
+  resolve(__dirname, "../i18n/en.json"),
+  "utf8",
+)
 
 describe("writing settings still reach runtime", () => {
   it("persists novelConfig, feedback window, and chat history immediately from the writing settings panel", () => {
@@ -97,8 +109,12 @@ describe("writing settings still reach runtime", () => {
     expect(deepChapter).not.toContain("runPreviousChaptersAnalysis")
   })
 
-  it("does not expose the dead deepChapterReview toggle that workflow modes already replaced", () => {
+  it("deletes the dead deepChapterReview switch instead of keeping an unused config field", () => {
     expect(novelSection).not.toContain("deepChapterReview")
+    expect(wikiStore).not.toContain("deepChapterReview")
+    expect(projectStore).not.toContain("deepChapterReview")
+    expect(zhI18n).not.toContain("deepChapterReview")
+    expect(enI18n).not.toContain("deepChapterReview")
     expect(deepChapter).toContain("const shouldRunAiReview = workflowProfile.runAiReview")
     expect(deepChapter).not.toContain("novelConfig.deepChapterReview")
   })

@@ -1026,7 +1026,6 @@ export async function runDeepChapterGeneration(
     "检查正文完整性、剧情连续性、人物一致性和阻断问题。",
   );
   // 审稿由工作流模式决定：严格模式始终审稿，快速/标准模式跳过。
-  // 旧的「深度模式审稿」开关已被模式选择器取代。
   const shouldRunAiReview = workflowProfile.runAiReview;
   if (!hasCheckpointReview(resumeCheckpoint)) {
     if (!shouldRunAiReview) {

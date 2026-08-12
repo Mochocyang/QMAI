@@ -801,7 +801,6 @@ function normalizeNovelConfig(
     autoIngestOnSave: config.autoIngestOnSave ?? DEFAULT_NOVEL_CONFIG.autoIngestOnSave,
     autoExtractOnImport: config.autoExtractOnImport ?? DEFAULT_NOVEL_CONFIG.autoExtractOnImport,
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
-    deepChapterReview: config.deepChapterReview ?? DEFAULT_NOVEL_CONFIG.deepChapterReview,
     reviewReasoningEffort: config.reviewReasoningEffort ?? DEFAULT_NOVEL_CONFIG.reviewReasoningEffort,
     defaultLlmModel: config.defaultLlmModel ?? DEFAULT_NOVEL_CONFIG.defaultLlmModel,
     writingModel: config.writingModel ?? DEFAULT_NOVEL_CONFIG.writingModel,
