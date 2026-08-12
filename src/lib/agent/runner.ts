@@ -142,7 +142,13 @@ export class AgentRunner {
         },
         onUsage: (usage) => {
           record.usage = addLlmUsage(record.usage, usage)
-          callbacks.onUsage?.(record.usage)
+          if (record.usage) callbacks.onUsage?.(record.usage)
+        },
+        onUserMemoryDecision: (decision) => {
+          if (record.userMemoryDecision === undefined) {
+            record.userMemoryDecision = decision
+            callbacks.onUserMemoryDecision?.(decision)
+          }
         },
         onDone: () => {
           // stream finished

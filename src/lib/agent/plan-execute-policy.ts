@@ -1,4 +1,4 @@
-import { resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "./workflow-mode"
+import type { AiWorkflowMode } from "./workflow-mode"
 import type { NovelTaskIntent } from "@/lib/novel/task-router"
 
 const WRITING_INTENT_LIST: readonly NovelTaskIntent[] = [
@@ -13,15 +13,14 @@ export const WRITING_INTENTS = new Set<NovelTaskIntent>(WRITING_INTENT_LIST)
 
 export function shouldRequirePlan(
   planExecuteEnabled: boolean,
-  _mode: LegacyAiWorkflowMode,
+  _mode: AiWorkflowMode,
   intent?: string | null,
 ): boolean {
   if (!planExecuteEnabled) return false
   return Boolean(intent && WRITING_INTENTS.has(intent as NovelTaskIntent))
 }
 
-export function buildPlanExecutePolicyPrompt(mode: LegacyAiWorkflowMode): string {
-  const resolvedMode = resolveAiWorkflowMode(mode)
+export function buildPlanExecutePolicyPrompt(mode: AiWorkflowMode): string {
   const executablePlanFormat = [
     "计划必须是给用户确认的可执行计划，不要把工具流程说明当成计划。",
     "计划必须整体包裹在 `<!-- chapter_plan -->` 和 `<!-- /chapter_plan -->` 标记中。",
@@ -31,7 +30,7 @@ export function buildPlanExecutePolicyPrompt(mode: LegacyAiWorkflowMode): string
     "如果资料缺失，必须在“缺失资料”里说明，并基于已读取内容继续制定可执行方案。",
   ].join("\n")
 
-  if (resolvedMode === "fast") {
+  if (mode === "fast") {
     return [
       "Plan Execute：当前已开启计划执行。",
       "快速模式：用户已主动开启计划执行，先给出最短可执行计划再直接执行。",
@@ -41,7 +40,7 @@ export function buildPlanExecutePolicyPrompt(mode: LegacyAiWorkflowMode): string
     ].join("\n")
   }
 
-  if (resolvedMode === "strict") {
+  if (mode === "strict") {
     return [
       "Plan Execute：当前已开启计划执行。",
       "严格模式：必须先计划，再执行，再执行后审查。",

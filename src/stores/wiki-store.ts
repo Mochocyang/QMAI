@@ -29,7 +29,7 @@ import {
   resolveStoredVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style-settings"
-import { DEFAULT_AI_WORKFLOW_MODE, resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode"
+import { DEFAULT_AI_WORKFLOW_MODE, type AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
 import {
   normalizeProviderConfigs,
@@ -603,8 +603,6 @@ interface WikiState {
   chatEditModeEnabled: boolean
   aiWorkflowMode: AiWorkflowMode
   planExecuteEnabled: boolean
-  /** 深度模式状态：跨视图切换保持开启 */
-  deepChapterEnabled: boolean
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
   communitySummaryError: string | null
@@ -673,9 +671,8 @@ interface WikiState {
   setSourceWatchConfig: (sourceWatchConfig: SourceWatchConfig) => void
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
-  setAiWorkflowMode: (mode: LegacyAiWorkflowMode) => void
+  setAiWorkflowMode: (mode: AiWorkflowMode) => void
   setPlanExecuteEnabled: (enabled: boolean) => void
-  setDeepChapterEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
@@ -891,7 +888,6 @@ export const useWikiStore = create<WikiState>((set) => ({
   chatEditModeEnabled: false,
   aiWorkflowMode: DEFAULT_AI_WORKFLOW_MODE,
   planExecuteEnabled: false,
-  deepChapterEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
   searchHistory: [],
@@ -933,18 +929,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
-  setAiWorkflowMode: (aiWorkflowMode) => {
-    const resolvedMode = resolveAiWorkflowMode(aiWorkflowMode)
-    set({
-      aiWorkflowMode: resolvedMode,
-      deepChapterEnabled: resolvedMode === "strict",
-    })
-  },
+  setAiWorkflowMode: (aiWorkflowMode) => set({ aiWorkflowMode }),
   setPlanExecuteEnabled: (planExecuteEnabled) => set({ planExecuteEnabled }),
-  setDeepChapterEnabled: (deepChapterEnabled) => set({
-    deepChapterEnabled,
-    aiWorkflowMode: deepChapterEnabled ? "strict" : DEFAULT_AI_WORKFLOW_MODE,
-  }),
   setNovelConfig: (config) => set((state) => ({
     novelConfig: { ...state.novelConfig, ...config },
     ...(config.defaultLlmModel !== undefined

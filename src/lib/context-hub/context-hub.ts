@@ -27,6 +27,7 @@ import {
   type ContextSourceKind,
   type DependencyStamp,
   type StableBundle,
+  type StablePrefixStatus,
 } from "./types"
 
 interface HubRegistry {
@@ -56,7 +57,7 @@ type BuildContextPack = (
   options?: { categories?: DataSourceCategory[]; loadAdapter?: DataSourceLoadAdapter },
 ) => Promise<ContextPack>
 
-const STABLE_SOURCE_KINDS: ContextSourceKind[] = ["soul", "setting", "entity", "outline"]
+const STABLE_SOURCE_KINDS: ContextSourceKind[] = ["soul", "setting", "entity", "outline", "deduction"]
 
 export interface ContextHubControllerDependencies {
   registry?: HubRegistry
@@ -109,6 +110,12 @@ function withRelativeDependencyPaths(
     dependencyStamp: { ...item.dependencyStamp, kinds: [...item.dependencyStamp.kinds] },
     dependencyPaths: item.dependencyPaths.map((path) => toProjectRelativePath(projectPath, path)),
   }))
+}
+
+function stableItemStatus(status: StablePrefixStatus): ContextCacheItemTrace["status"] {
+  if (status === "unchanged") return "cache_hit"
+  if (status === "updated") return "reloaded"
+  return "write_failed"
 }
 
 export class ContextHubController implements ContextHub {
@@ -176,6 +183,7 @@ export class ContextHubController implements ContextHub {
       stableCore: result.stableCore,
       sessionSummary: result.sessionSummary,
       dynamicContext: result.dynamicContext,
+      warnings: [...result.warnings],
     }
     try {
       await this.storage.writeSnapshot(snapshot)
@@ -261,9 +269,7 @@ export class ContextHubController implements ContextHub {
     })
     const cacheStats = cacheAdapter.getStats()
     const cacheItems = cacheAdapter.getTraceItems()
-    let stableHits = 0
-    let stableRefreshes = 0
-    let stableFailures = 0
+    let stablePrefixStatus: StablePrefixStatus = "updated"
     try {
       const existing = await this.storage.readStableBundle(request.surface)
       if (
@@ -271,15 +277,7 @@ export class ContextHubController implements ContextHub {
         && existing.dependencyStamp.fingerprint === stableDependencyStamp.fingerprint
         && existing.text === composed.stableCore
       ) {
-        stableHits = 1
-        cacheItems.push({
-          key: `stable-core:${request.surface}`,
-          sourceName: "stableCore",
-          status: "hit",
-          dependencyStamp: stableDependencyStamp,
-          dependencyPaths: stableDependencyPaths,
-          dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
-        })
+        stablePrefixStatus = "unchanged"
       } else {
         await this.storage.writeStableBundle(request.surface, {
           schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
@@ -288,28 +286,21 @@ export class ContextHubController implements ContextHub {
           dependencyStamp: stableDependencyStamp,
           updatedAt: Date.now(),
         })
-        stableRefreshes = 1
-        cacheItems.push({
-          key: `stable-core:${request.surface}`,
-          sourceName: "stableCore",
-          status: "refreshed",
-          dependencyStamp: stableDependencyStamp,
-          dependencyPaths: stableDependencyPaths,
-          dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
-        })
+        stablePrefixStatus = "updated"
       }
     } catch {
-      stableFailures = 1
-      cacheItems.push({
-        key: `stable-core:${request.surface}`,
-        sourceName: "stableCore",
-        status: "failed",
-        dependencyStamp: stableDependencyStamp,
-        dependencyPaths: stableDependencyPaths,
-        dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
-      })
+      stablePrefixStatus = "persist_failed"
       warnings.push("稳定上下文缓存写入失败，本轮已继续使用内存中的最新内容。")
     }
+
+    cacheItems.push({
+      key: `stable-core:${request.surface}`,
+      sourceName: "stableCore",
+      status: stableItemStatus(stablePrefixStatus),
+      dependencyStamp: stableDependencyStamp,
+      dependencyPaths: stableDependencyPaths,
+      dependencyPathsTruncated: stableDependencyStamp.sourceCount > stableDependencyPaths.length,
+    })
 
     return {
       ...composed,
@@ -317,9 +308,13 @@ export class ContextHubController implements ContextHub {
       contextPack,
       stats: {
         ...composed.stats,
-        hits: cacheStats.hits + stableHits,
-        refreshed: cacheStats.refreshed + stableRefreshes,
-        failures: cacheStats.failures + stableFailures,
+        cacheHits: cacheStats.cacheHits,
+        reloaded: cacheStats.reloaded,
+        empty: cacheStats.empty,
+        fallbackUsed: cacheStats.fallbackUsed,
+        readFailed: cacheStats.readFailed,
+        writeFailed: cacheStats.writeFailed,
+        stablePrefixStatus,
       },
       cacheItems: withRelativeDependencyPaths(this.projectPath, cacheItems),
       warnings,

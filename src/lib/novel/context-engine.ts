@@ -42,6 +42,8 @@ const FIELD_PRIORITY: Record<string, number> = {
   previousChapterEnding: 8,
   characterStates: 9,
   characterAuras: 10,
+  /** Keep with stable core fields; must not share a slot with characterAuras. */
+  storyFrameworkBinding: 5.5,
   foreshadowingStates: 11,
   recentChapterContents: 12,
   revisionDirectives: 13,
@@ -78,6 +80,8 @@ export interface ContextPack {
   characterStates: string
   soulDoc: string
   characterAuras: string
+  /** Active story-framework binding text; empty when unbound. */
+  storyFrameworkBinding: string
   cognitionStates: string
   foreshadowingStates: string
   sectionBriefing?: string
@@ -255,6 +259,9 @@ async function buildContextPackFromRawData(
     soulDoc: rawData.soulDoc,
     sectionBriefing: rawData.sectionBriefing || "",
     characterAuras,
+    storyFrameworkBinding: typeof rawData.storyFrameworkBinding === "string"
+      ? rawData.storyFrameworkBinding
+      : "",
     cognitionStates: rawData.cognitionText,
     foreshadowingStates,
     timeline,
@@ -404,6 +411,7 @@ function emptyPack(task: string): ContextPack {
     characterStates: "",
     soulDoc: "",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "",
     sectionBriefing: "",
@@ -1100,6 +1108,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.mustAvoid.title", fieldKey: "mustAvoid" },
   { titleKey: "novel.contextPack.nextChapterAdvice.title", fieldKey: "nextChapterAdvice" },
   { titleKey: "novel.contextPack.soulDoc", fieldKey: "soulDoc" },
+  { titleKey: "novel.contextPack.storyFrameworkBinding", fieldKey: "storyFrameworkBinding" },
   { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives" },
   { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline" },
   { titleKey: "novel.contextPack.recentChapterContents", fieldKey: "recentChapterContents" },

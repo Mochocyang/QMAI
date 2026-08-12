@@ -213,7 +213,7 @@ describe("AI 对话上下文中控入口", () => {
         surface: "ai-chat",
         createdAt: 10,
         stats: {
-          hits: 2, refreshed: 1, failures: 0,
+          cacheHits: 2, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
           stableTokens: 100, summaryTokens: 20, dynamicTokens: 30,
           candidateTokens: 300, estimatedSavedTokens: 150, estimatedSavedPercent: 50,
           expanded: false, providerCacheEnabled: true,

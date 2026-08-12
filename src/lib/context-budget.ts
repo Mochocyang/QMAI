@@ -329,9 +329,6 @@ export function planOutlineRequestBudget(
   })
 }
 
-/** Legacy compatibility constant retained for callers/tests that compare old reserves. */
-export const WRITING_OUTPUT_RESERVE_MULTIPLIER = 2
-
 export interface ComputeWritingContextPackTokenBudgetInput {
   maxContextSize?: number
   contextTokenBudget?: number

@@ -47,8 +47,6 @@ export interface OutlineSubAgentStatusEvent {
 export interface OutlineMultiAgentRunInput {
   plan: OutlineSubAgentPlan[]
   maxConcurrency?: number
-  /** @deprecated 部分 Agent 失败不再触发整体降级。 */
-  failureFallbackThreshold?: number
   runSubAgent: (plan: OutlineSubAgentPlan) => Promise<string>
   runSingleAgentFallback: () => Promise<string>
   mergeResults: (results: OutlineSubAgentResult[]) => Promise<string>

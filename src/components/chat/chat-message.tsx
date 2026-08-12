@@ -40,6 +40,7 @@ import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
 import { getStreamingTailDisplay } from "@/components/common/streaming-display-text";
+import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 
 import { convertLatexToUnicode } from "@/lib/latex-to-unicode";
 import { resolveMarkdownImageSrc } from "@/lib/markdown-image-resolver";
@@ -119,8 +120,11 @@ export function ChatMessage({
     onContinueUnfinished &&
     canContinueUnfinishedDeepChapter(message.content),
   );
+  const currentContextHubSnapshot = message.contextHubSnapshot
+    ? parseContextHubSnapshotRef(message.contextHubSnapshot)
+    : null;
   const hasContextTrace = Boolean(
-    message.contextHubSnapshot ||
+    currentContextHubSnapshot ||
     (message.contextTrace &&
       (message.contextTrace.toolCalls.length > 0 ||
         message.contextTrace.contextInfo)),
@@ -289,21 +293,21 @@ export function ChatMessage({
         {isAssistant &&
           !message.discarded &&
           contextTraceExpanded &&
-          (message.contextTrace || message.contextHubSnapshot) && (
+          (message.contextTrace || currentContextHubSnapshot) && (
             <div className="mt-1">
               {message.contextTrace ? (
                 <ContextTracePanel
                   trace={message.contextTrace}
-                  contextHubSnapshot={message.contextHubSnapshot}
+                  contextHubSnapshot={currentContextHubSnapshot ?? undefined}
                   projectPath={projectPath}
                   onRebuildRetrievalIndex={onRebuildRetrievalIndex}
                   retrievalIndexHasIndex={retrievalIndexHasIndex}
                   isRebuildingRetrievalIndex={isRebuildingRetrievalIndex}
                   lastRebuildResult={lastRebuildRetrievalResult}
                 />
-              ) : message.contextHubSnapshot ? (
+              ) : currentContextHubSnapshot ? (
                 <ContextHubDetails
-                  reference={message.contextHubSnapshot}
+                  reference={currentContextHubSnapshot}
                   projectPath={projectPath}
                 />
               ) : null}

@@ -21,9 +21,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          hits: 4,
-          refreshed: 1,
-          failures: 0,
+          cacheHits: 4, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
           stableTokens: 1200,
           summaryTokens: 180,
           dynamicTokens: 420,
@@ -40,12 +38,13 @@ describe("ContextTracePanel selected skills", () => {
 
     expect(html).toContain("上下文中控")
     expect(html).not.toContain("4ms")
-    expect(html).toContain("本轮缓存事件：命中 4，刷新 1，失败 0")
-    expect(html).toContain("稳定核心 1,200 Token")
-    expect(html).toContain("会话摘要 180 Token")
-    expect(html).toContain("动态片段 420 Token")
-    expect(html).toContain("上下文压缩预计减少 1,400 Token（44%）")
+    expect(html).toContain("本轮数据源：命中 4，重载 1，无数据 0，fallback 0，失败 0")
+    expect(html).toContain("稳定核心 1,200 估算 Token")
+    expect(html).toContain("会话摘要 180 估算 Token")
+    expect(html).toContain("动态片段 420 估算 Token")
+    expect(html).toContain("上下文压缩预计减少 1,400 估算 Token（44%）")
     expect(html).toContain("已发送稳定前缀，是否命中以供应商返回为准")
+    expect(html).toContain("实际用量不可用")
     expect(html).not.toContain("供应商已确认命中")
   })
 
@@ -65,9 +64,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          hits: 0,
-          refreshed: 2,
-          failures: 0,
+          cacheHits: 0, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
           stableTokens: 900,
           summaryTokens: 0,
           dynamicTokens: 300,
@@ -112,9 +109,7 @@ describe("ContextTracePanel selected skills", () => {
       surface: "ai-chat",
       createdAt: 10,
       stats: {
-        hits: 2,
-        refreshed: 1,
-        failures: 0,
+        cacheHits: 2, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
         stableTokens: 100,
         summaryTokens: 20,
         dynamicTokens: 30,
@@ -131,7 +126,7 @@ describe("ContextTracePanel selected skills", () => {
     )
 
     expect(html).toContain("展开上下文中控")
-    expect(html).toContain("本轮缓存事件：命中 2，刷新 1，失败 0")
+    expect(html).toContain("本轮数据源：命中 2，重载 1，无数据 0，fallback 0，失败 0")
   })
 
   it("renders web search trace entries in the overview", () => {

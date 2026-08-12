@@ -210,6 +210,7 @@ function emptyOutlineContextPack(task: string): ContextPack {
     characterStates: "",
     soulDoc: "",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "",
     timeline: "",

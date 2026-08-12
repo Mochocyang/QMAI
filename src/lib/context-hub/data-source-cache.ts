@@ -11,6 +11,7 @@ import {
   type ContextCacheScope,
   type ContextCacheItemTrace,
   type ContextSourceKind,
+  type ContextSourceTraceStatus,
   type DependencyStamp,
 } from "./types"
 
@@ -32,16 +33,18 @@ export interface DataSourceCacheAdapterOptions {
 }
 
 export interface DataSourceCacheStats {
-  hits: number
-  refreshed: number
-  failures: number
+  cacheHits: number
+  reloaded: number
+  empty: number
+  fallbackUsed: number
+  readFailed: number
+  writeFailed: number
 }
 
 const STATIC_SOURCES = new Set([
   "canonRules",
   "writingStyle",
   "soulDoc",
-  "characterAuras",
   "storyFrameworkBinding",
   "relatedSettings",
 ])
@@ -92,7 +95,7 @@ function cacheScopeFor(sourceName: string): ContextCacheScope {
   return "task"
 }
 
-function hasCacheableValue(value: unknown): boolean {
+export function hasCacheableValue(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0
   if (Array.isArray(value)) return value.length > 0
   if (value && typeof value === "object") return Object.keys(value).length > 0
@@ -101,7 +104,14 @@ function hasCacheableValue(value: unknown): boolean {
 
 export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
   private readonly pending = new Map<string, Promise<unknown>>()
-  private readonly stats: DataSourceCacheStats = { hits: 0, refreshed: 0, failures: 0 }
+  private readonly stats: DataSourceCacheStats = {
+    cacheHits: 0,
+    reloaded: 0,
+    empty: 0,
+    fallbackUsed: 0,
+    readFailed: 0,
+    writeFailed: 0,
+  }
   private readonly traceItems: ContextCacheItemTrace[] = []
 
   constructor(private readonly options: DataSourceCacheAdapterOptions) {}
@@ -131,6 +141,21 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     return operation
   }
 
+  /**
+   * Registry calls this when source.load throws. If fallback later succeeds,
+   * recordFallbackUsed replaces the primary list status with fallback_used while
+   * keeping both counters.
+   */
+  recordReadFailed(sourceName: string, dependencyStamp?: DependencyStamp): void {
+    this.upsertSyntheticTrace(sourceName, "read_failed", dependencyStamp)
+    this.stats.readFailed += 1
+  }
+
+  recordFallbackUsed(sourceName: string, dependencyStamp?: DependencyStamp): void {
+    this.upsertSyntheticTrace(sourceName, "fallback_used", dependencyStamp)
+    this.stats.fallbackUsed += 1
+  }
+
   getStats(): DataSourceCacheStats {
     return { ...this.stats }
   }
@@ -143,6 +168,33 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     }))
   }
 
+  private upsertTrace(item: ContextCacheItemTrace): void {
+    const existingIndex = this.traceItems.findIndex((entry) => entry.key === item.key)
+    if (existingIndex >= 0) {
+      this.traceItems[existingIndex] = item
+      return
+    }
+    this.traceItems.push(item)
+  }
+
+  private upsertSyntheticTrace(
+    sourceName: string,
+    status: ContextSourceTraceStatus,
+    dependencyStamp?: DependencyStamp,
+  ): void {
+    const kinds = getDataSourceKinds(sourceName)
+    const stamp = dependencyStamp ?? { fingerprint: "", sourceCount: 0, kinds }
+    const paths = this.options.registry.getDependencyPreview(kinds, 20)
+    this.upsertTrace({
+      key: `data-source:${sourceName}:outcome`,
+      sourceName,
+      status,
+      dependencyStamp: stamp,
+      dependencyPaths: paths,
+      dependencyPathsTruncated: stamp.sourceCount > paths.length,
+    })
+  }
+
   private async loadInternal<T>(
     key: string,
     sourceName: string,
@@ -150,7 +202,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     dependencyPaths: string[],
     directLoad: () => Promise<T>,
   ): Promise<T> {
-    const trace = (status: ContextCacheItemTrace["status"]): ContextCacheItemTrace => ({
+    const makeTrace = (status: ContextSourceTraceStatus): ContextCacheItemTrace => ({
       key,
       sourceName,
       status,
@@ -158,24 +210,28 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
       dependencyPaths,
       dependencyPathsTruncated: dependencyStamp.sourceCount > dependencyPaths.length,
     })
+
     if (!this.options.forceRefresh) {
       try {
         const cached = await this.options.storage.readArtifact<T>(key)
         if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
-          this.stats.hits += 1
-          this.traceItems.push(trace("hit"))
+          this.stats.cacheHits += 1
+          this.upsertTrace(makeTrace("cache_hit"))
           return cached.value
         }
       } catch {
-        this.stats.failures += 1
-        this.traceItems.push(trace("failed"))
+        // Corrupted/missing cache artifact: rebuild from source without counting as source failure.
       }
     }
 
     const value = await directLoad()
-    this.stats.refreshed += 1
-    this.traceItems.push(trace("refreshed"))
-    if (!hasCacheableValue(value)) return value
+    if (!hasCacheableValue(value)) {
+      this.stats.empty += 1
+      this.upsertTrace(makeTrace("empty"))
+      return value
+    }
+
+    this.stats.reloaded += 1
 
     try {
       await this.options.storage.writeArtifact(key, {
@@ -187,9 +243,11 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
         dependencyStamp,
         createdAt: Date.now(),
       })
+      this.upsertTrace(makeTrace("reloaded"))
     } catch {
-      this.stats.failures += 1
-      this.traceItems.push(trace("failed"))
+      this.stats.writeFailed += 1
+      // One primary list item: write_failed (reload still counted in reloaded).
+      this.upsertTrace(makeTrace("write_failed"))
     }
     return value
   }

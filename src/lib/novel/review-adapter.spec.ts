@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     characterStates: "主角谨慎，小晴仍然隐瞒她知道族谱。 ",
     soulDoc: "项目灵魂：悬疑、克制、现实压力。",
     characterAuras: "主角表达克制，不会突然热血喊口号。",
+    storyFrameworkBinding: "",
     cognitionStates: "主角不知道族谱已经被人换过。",
     foreshadowingStates: "旧钥匙、族谱缺页、门缝冷光都未回收。",
     timeline: "雨夜，进入祠堂前后不超过一小时。",

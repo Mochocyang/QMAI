@@ -134,6 +134,7 @@ import {
   buildContextHubSystemContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
+  buildLlmRequestDiagnostics,
   getContextHub,
   persistContextHubProviderUsage,
   selectContextHistoryMessages,
@@ -298,7 +299,6 @@ function buildSelectedSkillsActivityContent(skills: UserSkill[] | undefined): st
 function buildChatAgentSystemPrompt(options: {
   novelMode: boolean
   mode: "chat" | "ingest"
-  deepChapterEnabled: boolean
   chatEditModeEnabled: boolean
   aiWorkflowMode?: AiWorkflowMode
   planExecuteEnabled?: boolean
@@ -879,7 +879,6 @@ export function ChatPanel() {
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
   const [isSavingChapter, setIsSavingChapter] = useState(false)
-  const deepChapterEnabled = useWikiStore((s) => s.deepChapterEnabled)
   // 故事框架绑定状态
   const [activeBinding, setActiveBinding] = useState<{ binding: FrameworkBinding; framework: StoryFramework } | null>(null)
   const [fallbackReferenceText, setFallbackReferenceText] = useState("")
@@ -976,7 +975,6 @@ export function ChatPanel() {
       buildChatAgentSystemPrompt({
         novelMode,
         mode,
-        deepChapterEnabled,
         chatEditModeEnabled,
         aiWorkflowMode,
         planExecuteEnabled: aiWorkflowMode !== "fast" && planExecuteEnabled,
@@ -986,7 +984,6 @@ export function ChatPanel() {
     [
       activeBinding?.framework.title,
       chatEditModeEnabled,
-      deepChapterEnabled,
       mode,
       novelMode,
       aiWorkflowMode,
@@ -1571,7 +1568,6 @@ export function ChatPanel() {
       const sessionAgentSystemPrompt = buildChatAgentSystemPrompt({
         novelMode,
         mode,
-        deepChapterEnabled,
         chatEditModeEnabled,
         aiWorkflowMode,
         planExecuteEnabled: planExecuteActive,
@@ -1711,6 +1707,7 @@ export function ChatPanel() {
             characterStates: "",
             soulDoc: "",
             characterAuras: "",
+            storyFrameworkBinding: "",
             cognitionStates: "",
             foreshadowingStates: "",
             sectionBriefing: "",
@@ -1881,9 +1878,7 @@ export function ChatPanel() {
               ? message.content
               : message.content.map((block) => block.type === "text" ? block.text : "").join("")
           )),
-          currentInput: typeof userContent === "string"
-            ? userContent
-            : userContent.map((block) => block.type === "text" ? block.text : "").join(""),
+          currentInput: userContent,
         })
         // Seed this turn's baseline so the ring can grow with tool reads before the first usage report.
         useChatStore.getState().setConversationContextUsage(capturedConvId, usageSnapshotBase)
@@ -1977,6 +1972,13 @@ export function ChatPanel() {
               assistantMessage.id,
               contextHubResult,
               record.usage,
+              {
+                memoryDecision: record.userMemoryDecision,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  record.usage,
+                  Math.max(1, record.roundsUsed || 1),
+                ),
+              },
             )
             if (contextHubSnapshot) {
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
@@ -2237,7 +2239,6 @@ export function ChatPanel() {
       chatEditModeEnabled,
       clearStreaming,
       createConversation,
-      deepChapterEnabled,
       maxHistoryMessages,
       mode,
       novelMode,

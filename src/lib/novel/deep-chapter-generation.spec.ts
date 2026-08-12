@@ -45,6 +45,7 @@ const contextPack: ContextPack = {
   characterStates: "主角谨慎，但急于确认真相。",
   soulDoc: "",
   characterAuras: "",
+  storyFrameworkBinding: "",
   cognitionStates: "主角不知道旧屋主人真实身份。",
   foreshadowingStates: "匿名信、锈钥匙尚未回收。",
   timeline: "雨夜，当晚十点。",

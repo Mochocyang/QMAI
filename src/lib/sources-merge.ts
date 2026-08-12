@@ -169,8 +169,6 @@ export function mergeArrayFieldsIntoContent(
   return changed ? result : newContent
 }
 
-// ─── Backward-compatible single-field exports ─────────────────────
-
 /**
  * Extract `sources: [...]` from a wiki page's frontmatter.
  * Handles inline and block forms; strips quotes; returns [] when
@@ -201,18 +199,4 @@ export function mergeSourcesLists(
   incoming: readonly string[],
 ): string[] {
   return mergeLists(existing, incoming)
-}
-
-/**
- * Sources-only convenience wrapper — equivalent to
- * `mergeArrayFieldsIntoContent(newContent, existingContent, ["sources"])`.
- * Kept for ingest-flow callers that pre-date the multi-field
- * generalization; new code should prefer the generic version which
- * also unions tags / related.
- */
-export function mergeSourcesIntoContent(
-  newContent: string,
-  existingContent: string | null,
-): string {
-  return mergeArrayFieldsIntoContent(newContent, existingContent, ["sources"])
 }

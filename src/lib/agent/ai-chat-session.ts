@@ -9,6 +9,7 @@ export interface RunAiChatSessionCallbacks {
   onToolEvent?: AgentRunCallbacks["onToolEvent"]
   onActivityEvent?: AgentRunCallbacks["onActivityEvent"]
   onUsage?: AgentRunCallbacks["onUsage"]
+  onUserMemoryDecision?: AgentRunCallbacks["onUserMemoryDecision"]
   onDone: () => void
   onError: (error: Error) => void
 }
@@ -47,6 +48,7 @@ export async function runAiChatSession(input: RunAiChatSessionInput): Promise<Ag
       onToolEvent: input.callbacks.onToolEvent,
       onActivityEvent: input.callbacks.onActivityEvent,
       onUsage: input.callbacks.onUsage,
+      onUserMemoryDecision: input.callbacks.onUserMemoryDecision,
       onDone: input.callbacks.onDone,
       onError: input.callbacks.onError,
     },

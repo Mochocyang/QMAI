@@ -11,6 +11,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { sha256Text } from "./fingerprint"
 import {
   CONTEXT_CACHE_SCHEMA_VERSION,
+  parseContextHubSnapshot,
   type CachedArtifact,
   type ContextCacheArtifactEntry,
   type ContextCacheManifest,
@@ -288,7 +289,7 @@ export class ContextHubStorage {
         || typeof raw.sessionSummary !== "string"
         || typeof raw.dynamicContext !== "string"
       ) return null
-      return raw as unknown as ContextHubSnapshot
+      return parseContextHubSnapshot(raw)
     } catch {
       return null
     }

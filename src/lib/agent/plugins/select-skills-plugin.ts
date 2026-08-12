@@ -1,5 +1,5 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
-import { resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "../workflow-mode"
+import { resolveAiWorkflowMode, type AiWorkflowMode } from "../workflow-mode"
 import type { NovelTaskIntent } from "@/lib/novel/task-router"
 import type { SkillKind, SkillStage, UserSkill } from "@/lib/novel/skill-library"
 import { filterSkillsForSkillRoute, filterSkillsForSkillRoutes, inferSkillRoute, type SkillRoute } from "@/lib/novel/skill-route"
@@ -74,35 +74,34 @@ export function createSelectSkillsPlugin(): PrePlugin {
 export function selectSkillsForRoute(
   skills: UserSkill[],
   intent: NovelTaskIntent,
-  mode: LegacyAiWorkflowMode,
+  mode: AiWorkflowMode,
 ): UserSkill[] {
-  const resolvedMode = resolveAiWorkflowMode(mode)
-  if (resolvedMode === "fast") return []
+  if (mode === "fast") return []
 
-  const modeSkills = skills.filter((skill) => skill.modes.includes(resolvedMode))
+  const modeSkills = skills.filter((skill) => skill.modes.includes(mode))
   if (modeSkills.length === 0) return []
 
   if (WRITING_INTENTS.has(intent)) {
-    return selectWritingSkills(modeSkills, resolvedMode)
+    return selectWritingSkills(modeSkills, mode)
   }
 
   if (intent === "generate_outline") {
-    return selectOutlineSkills(modeSkills, resolvedMode)
+    return selectOutlineSkills(modeSkills, mode)
   }
 
   if (REVIEW_INTENTS.has(intent)) {
-    return selectByShape(modeSkills, resolvedMode, {
+    return selectByShape(modeSkills, mode, {
       kinds: ["review", "knowledge", "output"],
       stages: ["review", "output"],
-      limit: resolvedMode === "strict" ? 8 : 5,
+      limit: mode === "strict" ? 8 : 5,
     })
   }
 
   if (QUERY_INTENTS.has(intent)) {
-    return selectByShape(modeSkills, resolvedMode, {
+    return selectByShape(modeSkills, mode, {
       kinds: ["knowledge", "review", "output"],
       stages: ["planning", "review", "output"],
-      limit: resolvedMode === "strict" ? 6 : 3,
+      limit: mode === "strict" ? 6 : 3,
     })
   }
 

@@ -1,15 +1,12 @@
 export type AiWorkflowMode = "fast" | "standard" | "strict"
-export type LegacyAiWorkflowMode = AiWorkflowMode
 
 export const DEFAULT_AI_WORKFLOW_MODE: AiWorkflowMode = "standard"
 
-export function resolveAiWorkflowMode(value: boolean | LegacyAiWorkflowMode | null | undefined): AiWorkflowMode {
-  if (value === true) return "strict"
-  if (value === false || value == null) return DEFAULT_AI_WORKFLOW_MODE
-  return value
+export function resolveAiWorkflowMode(value: AiWorkflowMode | null | undefined): AiWorkflowMode {
+  return value ?? DEFAULT_AI_WORKFLOW_MODE
 }
 
-export function getWorkflowModeLabel(mode: LegacyAiWorkflowMode): string {
+export function getWorkflowModeLabel(mode: AiWorkflowMode): string {
   switch (mode) {
     case "fast":
       return "快速"

@@ -130,6 +130,7 @@ import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
+import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 import {
   ReferenceInput,
   type InsertReferenceTokens,
@@ -181,11 +182,13 @@ import {
   buildContextHubSystemContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
+  buildLlmRequestDiagnostics,
   getContextHub,
   persistContextHubProviderUsage,
   type ContextHubResult,
   type ContextHubSnapshotRef,
 } from "@/lib/context-hub";
+import type { UserMemoryDecision } from "@/lib/user-memory/decision-trace";
 import {
   buildContextUsageSnapshot,
   calibrateContextUsageSnapshot,
@@ -957,6 +960,9 @@ function OutlineAssistantMessage({
     },
     [projectPath],
   );
+  const currentContextHubSnapshot = msg.contextHubSnapshot
+    ? parseContextHubSnapshotRef(msg.contextHubSnapshot)
+    : null;
 
   return (
     <>
@@ -985,9 +991,9 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
-      {msg.contextHubSnapshot ? (
+      {currentContextHubSnapshot ? (
         <ContextHubDetails
-          reference={msg.contextHubSnapshot}
+          reference={currentContextHubSnapshot}
           projectPath={projectPath}
         />
       ) : null}
@@ -1885,6 +1891,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       let followUpGenerationPrompt: string | null = null;
       let contextHubResult: ContextHubResult | null = null;
       let providerUsage: LlmUsage | undefined;
+      let memoryDecision: UserMemoryDecision | null | undefined;
+      let llmRequestCount = 0;
       let accumulatedReasoningContent = "";
       // 已生成的用户可见文本。streamingContents 只承载状态提示不存内容，
       // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
@@ -2152,6 +2160,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             controller.signal,
           );
           providerUsage = addLlmUsage(providerUsage, record.usage);
+          llmRequestCount += Math.max(1, record.roundsUsed || 1);
+          if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+            memoryDecision = record.userMemoryDecision;
+          }
           allToolCalls.push(...record.toolCalls);
           const agentError = agentErrorBox.current;
           const errMsg = agentError?.message ?? "";
@@ -2583,6 +2595,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               assistantId,
               contextHubResult,
               providerUsage,
+              {
+                memoryDecision: memoryDecision ?? null,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  providerUsage,
+                  Math.max(1, llmRequestCount || 1),
+                ),
+              },
             );
             if (contextHubSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(convId, assistantId, (message) => ({
@@ -2978,6 +2997,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       try {
         let contextHubResult: ContextHubResult | null = null;
         let providerUsage: LlmUsage | undefined;
+        let memoryDecision: UserMemoryDecision | null | undefined;
+        let llmRequestCount = 0;
         try {
           const contextHub = getContextHub(normalizePath(project.path));
           contextHubResult = await contextHub.prepare({
@@ -3114,6 +3135,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { agentError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+              memoryDecision = record.userMemoryDecision;
+            }
             if (agentError) throw agentError;
             return runText;
           },
@@ -3148,6 +3173,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { mergeError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+              memoryDecision = record.userMemoryDecision;
+            }
             if (mergeError) throw mergeError;
             return mergeText || "AI大纲未返回内容。";
           },
@@ -3173,6 +3202,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               `${messageId}:${runId}`,
               contextHubResult,
               providerUsage,
+              {
+                memoryDecision: memoryDecision ?? null,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  providerUsage,
+                  Math.max(1, llmRequestCount || 1),
+                ),
+              },
             );
             if (contextHubSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(capturedConvId, messageId, (message) => ({
@@ -3546,6 +3582,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               assistantId,
               contextHubResult,
               record.usage,
+              {
+                memoryDecision: record.userMemoryDecision,
+                requestDiagnostics: buildLlmRequestDiagnostics(
+                  record.usage,
+                  Math.max(1, record.roundsUsed || 1),
+                ),
+              },
             );
             if (updatedSnapshot && isCurrentRun()) {
               updateOutlineAssistantMessage(capturedConvId, assistantId, (message) => ({

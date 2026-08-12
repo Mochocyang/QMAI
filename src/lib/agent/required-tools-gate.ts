@@ -1,6 +1,6 @@
 import type { NovelTaskIntent } from "@/lib/novel/task-router"
 import { OUTLINE_FIND_CHAPTER_INTENTS } from "@/lib/novel/outline-find-protocol"
-import { resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "./workflow-mode"
+import type { AiWorkflowMode } from "./workflow-mode"
 
 export interface RequiredToolsGateInput {
   requiredToolsOnce?: string[] | null
@@ -50,7 +50,7 @@ export class RequiredToolsNotCalledError extends Error {
 export interface ResolveRequiredToolsOnceInput {
   novelMode: boolean
   intent?: string | null
-  mode?: LegacyAiWorkflowMode | null
+  mode?: AiWorkflowMode | null
   planExecuteActive: boolean
   enabledToolNames?: string[] | null
 }
@@ -66,7 +66,7 @@ export function resolveRequiredToolsOnce(
   if (!input.intent || !OUTLINE_FIND_CHAPTER_INTENTS.has(input.intent as NovelTaskIntent)) {
     return undefined
   }
-  const mode = input.mode == null ? "strict" : resolveAiWorkflowMode(input.mode)
+  const mode = input.mode ?? "strict"
   if (mode === "fast") return undefined
 
   const enabled = input.enabledToolNames

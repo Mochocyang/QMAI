@@ -26,6 +26,7 @@ import {
 import { RESPONSE_RESERVE_FRAC, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
+import type { UserMemoryDecision } from "./user-memory/decision-trace"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -37,6 +38,8 @@ export interface StreamCallbacks {
   /** 工具调用流式 delta，用于累积 tool_calls */
   onToolCallDelta?: (delta: { index: number; id?: string; name?: string; arguments?: string }) => void
   onUsage?: (usage: LlmUsage) => void
+  /** Decision produced while preparing this request's messages (request-scoped). */
+  onUserMemoryDecision?: (decision: UserMemoryDecision | null) => void
   onDone: () => void
   onError: (error: Error) => void
 }
@@ -200,7 +203,11 @@ export async function streamChat(
   requestOverrides?: RequestOverrides,
 ): Promise<void> {
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
-  const preparedMessages = applyGlobalUserMemoryToMessages(messages, requestOverrides)
+  const { messages: preparedMessages, decision: userMemoryDecision } = applyGlobalUserMemoryToMessages(
+    messages,
+    requestOverrides,
+  )
+  callbacks.onUserMemoryDecision?.(userMemoryDecision)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
   const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
   const outputCap = getEffectiveMaxOutputTokens(runtimeConfig)

@@ -12,7 +12,18 @@ export {
   selectContextHistoryMessages,
 } from "./session-summary"
 export { buildContextHubSystemContent, flattenContextHubSystemContent } from "./prompt-content"
-export { applyProviderUsageToStats, persistContextHubProviderUsage } from "./provider-usage"
+export {
+  applyProviderUsageToStats,
+  buildLlmRequestDiagnostics,
+  mergeLlmRequestDiagnostics,
+  persistContextHubProviderUsage,
+} from "./provider-usage"
+export {
+  emptyContextHubStats,
+  isCurrentContextHubStats,
+  parseContextHubSnapshot,
+  parseContextHubSnapshotRef,
+} from "./types"
 export type {
   ContextHub,
   ContextHubRequest,

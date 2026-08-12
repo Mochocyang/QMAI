@@ -136,6 +136,7 @@ export interface AgentRunCallbacks {
   onActivityEvent?: (event: AgentActivityEvent) => void
   /** Cumulative prompt/usage so far across agent rounds. */
   onUsage?: (usage: LlmUsage) => void
+  onUserMemoryDecision?: (decision: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null) => void
   onDone: () => void
   onError: (error: Error) => void
 }
@@ -164,6 +165,8 @@ export interface AgentRunRecord {
   roundsUsed: number
   finalText: string
   usage?: LlmUsage
+  /** Memory decision from the first LLM round that applied user memory. */
+  userMemoryDecision?: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null
 }
 
 export const DEFAULT_MAX_ROUNDS = 15

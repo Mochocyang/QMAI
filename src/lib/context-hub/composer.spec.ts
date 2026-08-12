@@ -17,6 +17,7 @@ function pack(overrides: Partial<ContextPack> = {}): ContextPack {
     characterStates: "林默：保持怀疑",
     soulDoc: "克制、现实主义悬疑",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "旧车票尚未解释",
     timeline: "第二天清晨",
@@ -42,6 +43,34 @@ describe("composeContext", () => {
     expect(first.stableCore).toBe(second.stableCore)
     expect(first.stableCore.indexOf("作品灵魂")).toBeLessThan(first.stableCore.indexOf("大纲骨架"))
     expect(first.stableCore).not.toContain("updatedAt")
+  })
+
+  it("injects story framework binding into the stable core when present", () => {
+    const result = composeContext({
+      contextPack: pack({
+        storyFrameworkBinding: "# 故事框架绑定\n- 框架标题：测试框架\n- 目标章节数：100",
+      }),
+      dependencyStamp,
+    })
+    expect(result.stableCore).toContain("故事框架绑定")
+    expect(result.stableCore).toContain("测试框架")
+  })
+
+  it("keeps candidate, injected and saved tokens conserved under one fragment pipeline", () => {
+    const result = composeContext({
+      contextPack: pack({
+        recentChapterContents: Array.from({ length: 8 }, (_, index) => `第${index + 1}章原文：${"情节".repeat(400)}`),
+        searchResults: "低优先级".repeat(200),
+      }),
+      sessionSummary: "会话摘要内容",
+      dependencyStamp,
+      confidence: 0.9,
+      tokenBudget: 1200,
+    })
+    expect(result.stats.estimatedSavedTokens).toBe(
+      Math.max(0, result.stats.candidateTokens - (result.stats.composedTokens ?? 0)),
+    )
+    expect(result.stats.fragmentTraces?.length).toBeGreaterThan(0)
   })
 
   it("places explicit references ahead of automatically selected dynamic context", () => {
@@ -111,15 +140,15 @@ describe("composeContext", () => {
       sessionSummary: "会话摘要".repeat(100),
       referenceContext: ["显式引用".repeat(100)],
     })
-    const baseComposed = base.stats.stableTokens + base.stats.summaryTokens + base.stats.dynamicTokens
-    const supplementedComposed = supplemented.stats.stableTokens
-      + supplemented.stats.summaryTokens
-      + supplemented.stats.dynamicTokens
 
-    expect(base.stats.estimatedSavedTokens).toBeGreaterThan(0)
-    expect(supplemented.stats.estimatedSavedTokens).toBe(base.stats.estimatedSavedTokens)
-    expect(supplemented.stats.candidateTokens - base.stats.candidateTokens)
-      .toBe(supplementedComposed - baseComposed)
+    expect(base.stats.estimatedSavedTokens).toBe(
+      Math.max(0, base.stats.candidateTokens - (base.stats.composedTokens ?? 0)),
+    )
+    expect(supplemented.stats.estimatedSavedTokens).toBe(
+      Math.max(0, supplemented.stats.candidateTokens - (supplemented.stats.composedTokens ?? 0)),
+    )
+    expect(supplemented.stats.candidateTokens).toBeGreaterThan(base.stats.candidateTokens)
+    expect(supplemented.stats.composedTokens ?? 0).toBeGreaterThan(base.stats.composedTokens ?? 0)
   })
 
   it("稳定核心和必需片段都不能突破总 Token 预算", () => {

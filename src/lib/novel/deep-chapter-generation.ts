@@ -6,7 +6,7 @@ import {
   type StreamCallbacks,
 } from "@/lib/llm-client";
 import { useWikiStore } from "@/stores/wiki-store";
-import { resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "@/lib/agent/workflow-mode";
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode";
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types";
 import {
   isReasoningDisabled,
@@ -69,7 +69,7 @@ export interface DeepChapterGenerationInput {
   goldenThreeChapter?: GoldenThreeChapterRequest;
   dismantlingReferenceDirective?: string;
   llmConfig: LlmConfig;
-  aiWorkflowMode?: LegacyAiWorkflowMode;
+  aiWorkflowMode?: AiWorkflowMode;
   resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint;
   /** 用户在会话层确认的章节计划，作为写作任务书的权威依据注入 brief 阶段。 */
   planBlueprint?: string;
@@ -230,9 +230,9 @@ interface ChapterWorkflowProfile {
 }
 
 function resolveChapterWorkflowProfile(
-  mode: LegacyAiWorkflowMode | undefined,
+  mode: AiWorkflowMode | undefined,
 ): ChapterWorkflowProfile {
-  const resolvedMode = mode == null ? "strict" : resolveAiWorkflowMode(mode);
+  const resolvedMode = mode ?? "strict";
   if (resolvedMode === "fast") {
     return {
       mode: "fast",
@@ -2286,6 +2286,7 @@ async function safeBuildChapterContextPack(
       characterStates: "",
       soulDoc: "",
       characterAuras: "",
+      storyFrameworkBinding: "",
       cognitionStates: "",
       foreshadowingStates: "",
       timeline: "",

@@ -70,9 +70,7 @@ function snapshot(id = "assistant:1"): ContextHubSnapshot {
     surface: "ai-chat",
     createdAt: 10,
     stats: {
-      hits: 1,
-      refreshed: 2,
-      failures: 0,
+      cacheHits: 1, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
       stableTokens: 100,
       summaryTokens: 20,
       dynamicTokens: 80,
@@ -85,7 +83,7 @@ function snapshot(id = "assistant:1"): ContextHubSnapshot {
     items: [{
       key: "data-source:outline",
       sourceName: "outline",
-      status: "hit",
+      status: "cache_hit",
       dependencyStamp,
       dependencyPaths: ["wiki/outlines/main.md"],
       dependencyPathsTruncated: false,

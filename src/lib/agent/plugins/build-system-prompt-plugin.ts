@@ -6,7 +6,7 @@ import {
   stripOutlineFindProtocol,
 } from "@/lib/novel/outline-find-protocol"
 import { buildSelectedSkillsPrompt } from "./select-skills-plugin"
-import { getWorkflowModeLabel, resolveAiWorkflowMode, type LegacyAiWorkflowMode } from "../workflow-mode"
+import { getWorkflowModeLabel, type AiWorkflowMode } from "../workflow-mode"
 
 export interface BuildSystemPromptPluginDeps {
   baseSystemPrompt?: string
@@ -85,9 +85,9 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
   }
 }
 
-function buildChapterPlanProtocol(mode: LegacyAiWorkflowMode): string {
+function buildChapterPlanProtocol(mode: AiWorkflowMode): string {
   // mode 仅用于在协议头标注当前工作流强度，不改变计划结构。
-  const modeLabel = getWorkflowModeLabel(resolveAiWorkflowMode(mode))
+  const modeLabel = getWorkflowModeLabel(mode)
   return [
     "## 章节主编策划协议（本章策划案）",
     "",

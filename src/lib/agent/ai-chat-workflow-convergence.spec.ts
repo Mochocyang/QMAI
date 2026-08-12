@@ -25,6 +25,7 @@ const contextPack: ContextPack = {
   characterStates: "人物状态",
   soulDoc: "作品灵魂",
   characterAuras: "",
+  storyFrameworkBinding: "",
   cognitionStates: "",
   foreshadowingStates: "",
   timeline: "",

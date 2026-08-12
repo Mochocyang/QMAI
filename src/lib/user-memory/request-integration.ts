@@ -1,11 +1,20 @@
 import type { ChatMessage, ContentBlock, RequestOverrides } from "@/lib/llm-providers"
 import { compileUserMemorySkill } from "./compiler"
-import { buildUserMemoryDecision, setLatestUserMemoryDecision } from "./decision-trace"
+import {
+  buildUserMemoryDecision,
+  setLatestUserMemoryDecision,
+  type UserMemoryDecision,
+} from "./decision-trace"
 import { governUserMemoryConfig } from "./governance"
 import { evaluateUserMemoryRule, inferUserMemorySurface, selectUserMemoryRules } from "./selector"
 import { loadGlobalUserMemoryConfig, saveGlobalUserMemoryConfig } from "./store"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
+
+export interface ApplyUserMemoryResult {
+  messages: ChatMessage[]
+  decision: UserMemoryDecision | null
+}
 
 function contentText(content: ChatMessage["content"]): string {
   if (typeof content === "string") return content
@@ -22,8 +31,10 @@ export function applyGlobalUserMemoryToMessages(
   messages: ChatMessage[],
   overrides: Pick<RequestOverrides, "skipUserMemory" | "userMemorySurface" | "userMemoryProjectKey" | "userMemorySessionKey"> = {},
   storage?: StorageLike,
-): ChatMessage[] {
-  if (overrides.skipUserMemory) return messages
+): ApplyUserMemoryResult {
+  if (overrides.skipUserMemory) {
+    return { messages, decision: null }
+  }
   const loadedConfig = loadGlobalUserMemoryConfig(storage)
   const config = governUserMemoryConfig(loadedConfig)
   const task = contentText([...messages].reverse().find((message) => message.role === "user")?.content ?? "")
@@ -47,7 +58,7 @@ export function applyGlobalUserMemoryToMessages(
     if (reason) return [{ ruleId: rule.id, reason }]
     return selectedIds.has(rule.id) ? [] : [{ ruleId: rule.id, reason: "shadowed" as const }]
   })
-  setLatestUserMemoryDecision(buildUserMemoryDecision({
+  const decision = buildUserMemoryDecision({
     rules: config.rules,
     selected,
     filtered,
@@ -55,8 +66,10 @@ export function applyGlobalUserMemoryToMessages(
     surface,
     projectKey: overrides.userMemoryProjectKey,
     sessionKey: overrides.userMemorySessionKey,
-  }))
-  if (!prompt) return messages
+  })
+  // Keep latest for settings feedback UI only — generation details must use the returned decision.
+  setLatestUserMemoryDecision(decision)
+  if (!prompt) return { messages, decision }
   const now = Date.now()
   saveGlobalUserMemoryConfig({
     ...config,
@@ -66,8 +79,13 @@ export function applyGlobalUserMemoryToMessages(
     updatedAt: Math.max(config.updatedAt, now),
   }, storage)
   const systemIndex = messages.findIndex((message) => message.role === "system")
-  if (systemIndex < 0) return [{ role: "system", content: prompt }, ...messages]
-  return messages.map((message, index) => index === systemIndex
-    ? { ...message, content: appendToSystem(message.content, prompt) }
-    : message)
+  if (systemIndex < 0) {
+    return { messages: [{ role: "system", content: prompt }, ...messages], decision }
+  }
+  return {
+    messages: messages.map((message, index) => index === systemIndex
+      ? { ...message, content: appendToSystem(message.content, prompt) }
+      : message),
+    decision,
+  }
 }

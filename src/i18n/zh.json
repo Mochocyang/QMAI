@@ -1654,6 +1654,7 @@
       "characterStates": "## 当前人物状态",
       "characterAuras": "## 角色灵魂",
       "soulDoc": "## 项目灵魂",
+      "storyFrameworkBinding": "## 故事框架绑定",
       "cognitionStates": "## 角色认知状态",
       "foreshadowingStates": "## 当前伏笔状态",
       "timeline": "## 时间线",

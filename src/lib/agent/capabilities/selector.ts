@@ -1,6 +1,6 @@
 import type { DataSourceCategory } from "@/lib/novel/classification"
 import type { NovelTaskIntent } from "@/lib/novel/task-router"
-import { resolveAiWorkflowMode, type AiWorkflowMode, type LegacyAiWorkflowMode } from "../workflow-mode"
+import { resolveAiWorkflowMode, type AiWorkflowMode } from "../workflow-mode"
 import type { AiCapability, SelectedCapabilityTrace } from "./types"
 
 const WRITING_INTENTS = new Set<NovelTaskIntent>([
@@ -47,7 +47,7 @@ const ENTITY_QUERY_INTENTS = new Set<NovelTaskIntent>(["character_query", "setti
 export interface SelectCapabilitiesInput {
   capabilities: AiCapability[]
   intent: NovelTaskIntent
-  mode: LegacyAiWorkflowMode
+  mode: AiWorkflowMode
   userMessage: string
   blockedSources?: DataSourceCategory[]
   /** 本地实体表为空，或用户消息未命中任何本地实体名 */

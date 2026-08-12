@@ -57,7 +57,6 @@ const DATA_SOURCE_CATEGORY_MAP: Record<string, DataSourceCategory[]> = {
   revisionFeedback: ["revision"],
   cognitionText: ["character_states"],
   soulDoc: ["soul"],
-  characterAuras: ["character_states", "soul"],
   storyFrameworkBinding: ["settings", "outline"],
 }
 
@@ -483,18 +482,6 @@ export const soulDocDataSource: DataSource<string> = {
 }
 
 /**
- * 角色氛围数据源（依赖其他数据源的结果，需要后处理）
- */
-export const characterAurasDataSource: DataSource<string> = {
-  name: "characterAuras",
-  priority: 18,
-  async load(_context: ContextLoadContext): Promise<string> {
-    // 这个数据源需要依赖其他数据，将在主函数中单独处理
-    return ""
-  },
-}
-
-/**
  * 本节速记数据源
  * 根据细纲筛选角色状态、伏笔和世界观约束，priority=0（最优先）
  */
@@ -512,21 +499,18 @@ export const sectionBriefingDataSource: DataSource<string> = {
 /**
  * 故事框架绑定数据源
  * 加载当前激活的框架绑定，构建注入 AI 会话的上下文文本。
+ * 无绑定 / 框架缺失 → 空字符串（由缓存层记 empty）；真实 I/O 异常上抛。
  */
 export const storyFrameworkBindingDataSource: DataSource<string> = {
   name: "storyFrameworkBinding",
   priority: 19,
   async load(context: ContextLoadContext): Promise<string> {
-    try {
-      const binding = await loadBinding(context.projectPath)
-      if (!binding) return ""
-      const frameworks = await loadFrameworks(context.projectPath)
-      const framework = frameworks.find((f) => f.id === binding.frameworkId)
-      if (!framework) return ""
-      return buildBindingContext(binding, framework)
-    } catch {
-      return ""
-    }
+    const binding = await loadBinding(context.projectPath)
+    if (!binding) return ""
+    const frameworks = await loadFrameworks(context.projectPath)
+    const framework = frameworks.find((f) => f.id === binding.frameworkId)
+    if (!framework) return ""
+    return buildBindingContext(binding, framework)
   },
 }
 
