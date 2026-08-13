@@ -7,6 +7,21 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "3.1.8",
+  date: "2026-08-13",
+  highlights: {
+    en: [
+      "[app-state Persistence Fix] On startup, a corrupted or truncated app-state.json is now recovered from its .bak backup; plugin-store truncating writes are disabled in favor of atomic persist, and empty/near-empty configs are refused so they cannot overwrite the existing config.",
+      "[Skill Routing Fix] Unified the canonical skill route for outline and body generation so deterministic workflows no longer call apply_skill repeatedly or guess the wrong skill; fixed auto-generation after intent analysis, internal prompt display, and tool error states.",
+    ],
+    zh: [
+      "【app-state 持久化防丢失】启动时自动从 .bak 备份恢复损坏或被截断的 app-state.json；关闭 plugin-store 的截断写入，改为原子持久化；拒绝用无实质内容的配置覆盖现有配置，防止配置被清空",
+      "【Skill 路由修复】统一大纲与正文的规范 Skill 路由，确定性工作流不再重复调用或猜错 apply_skill；修复意图分析后自动生成、内部 Prompt 展示与工具错误状态",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "3.1.7",
   date: "2026-08-13",
@@ -1110,6 +1125,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_EIGHT_CHANGELOG,
   THREE_POINT_ONE_SEVEN_CHANGELOG,
   THREE_POINT_ONE_SIX_CHANGELOG,
   THREE_POINT_ONE_FIVE_CHANGELOG,
@@ -1173,6 +1189,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ONE_EIGHT_CHANGELOG.version)
+    return [THREE_POINT_ONE_EIGHT_CHANGELOG];
   if (version === THREE_POINT_ONE_SEVEN_CHANGELOG.version)
     return [THREE_POINT_ONE_SEVEN_CHANGELOG];
   if (version === THREE_POINT_ONE_SIX_CHANGELOG.version)
