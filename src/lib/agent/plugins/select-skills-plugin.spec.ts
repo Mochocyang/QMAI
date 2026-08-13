@@ -23,7 +23,7 @@ const availableSkills = [
   skill({ id: "conflict", name: "冲突升级", kind: ["structure"], stages: ["drafting"], modes: ["standard", "strict"] }),
   skill({ id: "plot-review", name: "剧情自检", kind: ["review"], stages: ["review"], modes: ["standard", "strict"] }),
   skill({ id: "output-protocol", name: "正文输出协议", kind: ["output"], stages: ["output"], modes: ["fast", "standard", "strict"] }),
-  skill({ id: "de-ai", name: "去AI味", kind: ["style"], stages: ["rewrite", "output"], modes: ["fast", "standard", "strict"] }),
+  skill({ id: "de-ai", name: "基础去AI味", kind: ["style"], stages: ["rewrite", "output"], modes: ["fast", "standard", "strict"] }),
   skill({ id: "mainline", name: "主线检查", kind: ["review"], stages: ["review"], modes: ["strict"] }),
   skill({ id: "foreshadow", name: "伏笔管理", kind: ["structure", "review"], stages: ["planning", "review"], modes: ["strict"] }),
   skill({ id: "pace", name: "节奏检查", kind: ["review"], stages: ["review"], modes: ["strict"] }),
@@ -47,7 +47,7 @@ describe("SelectSkillsPlugin", () => {
 
     expect(result.selectedSkills?.map((item) => item.name)).toEqual([
       "正文输出协议",
-      "去AI味",
+      "基础去AI味",
     ])
   })
 
@@ -78,7 +78,7 @@ describe("SelectSkillsPlugin", () => {
 
     expect(result.selectedSkills?.map((item) => item.name)).toEqual([
       "正文输出协议",
-      "去AI味",
+      "基础去AI味",
     ])
   })
 
@@ -113,6 +113,7 @@ describe("SelectSkillsPlugin", () => {
 
     expect(result.selectedSkills?.map((item) => item.name)).toEqual([
       "正文输出协议",
+      "基础去AI味",
     ])
   })
 
@@ -202,5 +203,19 @@ describe("SelectSkillsPlugin", () => {
     ], "write_chapter", "strict")
 
     expect(selected.map((item) => item.name)).toEqual(["正文输出协议", "场景描写"])
+  })
+
+  it("injects canonical drafting and scene skills before Chinese helpers", () => {
+    const selected = selectSkillsForRoute([
+      skill({ id: "long", name: "long-form-drafting", kind: ["output"], stages: ["drafting"], modes: ["standard", "strict"], categoryId: SKILL_ROUTE_CATEGORY_IDS.writing }),
+      skill({ id: "combat", name: "combat-action", kind: ["style"], stages: ["drafting"], modes: ["standard", "strict"], categoryId: SKILL_ROUTE_CATEGORY_IDS.writing }),
+      skill({ id: "protocol", name: "正文输出协议", kind: ["output"], stages: ["output"], modes: ["standard", "strict"], categoryId: SKILL_ROUTE_CATEGORY_IDS.writing }),
+    ], "write_chapter", "standard", "编写一章战斗场景")
+
+    expect(selected.map((item) => item.name)).toEqual([
+      "long-form-drafting",
+      "combat-action",
+      "正文输出协议",
+    ])
   })
 })

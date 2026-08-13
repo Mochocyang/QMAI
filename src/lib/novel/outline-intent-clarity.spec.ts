@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildIntentPhaseSystemRules,
+  classifyDirectOutlineGenerationRequest,
   parseIntentClarity,
+  parseIntentClarityProtocol,
   shouldAutoFollowUpGeneration,
   stripStructuredMarkers,
 } from "./outline-intent-clarity"
@@ -38,6 +41,61 @@ describe("parseIntentClarity", () => {
 {invalid json}
 <!-- /intent_clarity -->`
     expect(parseIntentClarity(text)).toBeNull()
+  })
+
+  it("兼容现场 status clear 且缺少闭合标记的完整 JSON", () => {
+    const text = `<!-- intent_clarity -->
+{"status":"clear","intent":"完善既有第236章章纲","target":"章纲/第236章-远洋投送.md","scope":"补充细节","basis":["第235章"],"writeMode":"replace"}`
+    const outcome = parseIntentClarityProtocol(text)
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.result.clarity).toBe("clear")
+    expect(outcome.result.module).toBe("章节细纲")
+    expect(outcome.result.detectedScope).toBe("补充细节")
+    expect(outcome.result.analysis).toBe("完善既有第236章章纲")
+    expect(outcome.result.normalizationSource).toBe("legacy_status_unclosed")
+  })
+
+  it("未闭合且 JSON 截断时返回明确协议错误", () => {
+    const outcome = parseIntentClarityProtocol(
+      '<!-- intent_clarity -->\n{"status":"clear","scope":"第236章"',
+    )
+    expect(outcome).toEqual({
+      kind: "invalid",
+      error: "意图分析 JSON 不完整或缺失",
+    })
+  })
+})
+
+describe("classifyDirectOutlineGenerationRequest", () => {
+  it("识别直接章纲完善请求", () => {
+    expect(classifyDirectOutlineGenerationRequest("把236章大纲补充详细")).toEqual({
+      module: "章节细纲",
+    })
+  })
+
+  it("不把普通冲突问答误判为生成请求", () => {
+    expect(classifyDirectOutlineGenerationRequest("第236章有哪些冲突")).toBeNull()
+  })
+
+  it("识别人物、设定和伏笔的修改请求", () => {
+    expect(classifyDirectOutlineGenerationRequest("完善人物小传")?.module).toBe("人物小传")
+    expect(classifyDirectOutlineGenerationRequest("重写世界观设定")?.module).toBe("背景设定")
+    expect(classifyDirectOutlineGenerationRequest("补充伏笔计划")?.module).toBe("伏笔计划")
+    expect(classifyDirectOutlineGenerationRequest("生成故事大纲")?.module).toBe("故事大纲")
+    expect(classifyDirectOutlineGenerationRequest("完善分卷大纲")?.module).toBe("卷纲")
+    expect(classifyDirectOutlineGenerationRequest("补充力量体系")?.module).toBe("力量体系")
+    expect(classifyDirectOutlineGenerationRequest("细化地点设定")?.module).toBe("地理设定")
+  })
+})
+
+describe("buildIntentPhaseSystemRules", () => {
+  it("意图分析阶段要求完整协议，生成阶段禁止再次输出", () => {
+    const analysis = buildIntentPhaseSystemRules("intent_analysis")
+    expect(analysis).toContain('"clarity":"clear|needs_input"')
+    expect(analysis).toContain("<!-- /intent_clarity -->")
+    expect(analysis).toContain("禁止使用 status")
+    expect(buildIntentPhaseSystemRules("generation")).toContain("禁止再次输出 intent_clarity")
   })
 })
 

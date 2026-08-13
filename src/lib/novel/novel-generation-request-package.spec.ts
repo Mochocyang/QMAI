@@ -5,6 +5,7 @@ import {
   getNovelGenerationModelContent,
   getOutlineMessageModelContent,
   isExplicitStructuredGenerationFollowUp,
+  isInternalOutlineMessage,
   mapOutlineConversationsForModel,
   mapOutlineMessagesForModel,
 } from "./novel-generation-request-package"
@@ -45,6 +46,23 @@ describe("???????", () => {
       { role: "assistant", content: "已更新人物设定", reasoning_content: "先核对冲突" },
       { role: "assistant", content: "已确认方向", reasoning_content: "" },
     ])
+  })
+
+  it("keeps hidden internal prompts in model history while identifying legacy UI leaks", () => {
+    const internal = {
+      role: "user" as const,
+      content: "继续生成",
+      modelContent: "请按内部完整工作流生成正文",
+      visibility: "internal" as const,
+    }
+    expect(isInternalOutlineMessage(internal)).toBe(true)
+    expect(mapOutlineMessagesForModel([internal])).toEqual([
+      { role: "user", content: "请按内部完整工作流生成正文" },
+    ])
+    expect(isInternalOutlineMessage({
+      role: "user",
+      content: "请按「AI大纲生成工作流」生成「章节细纲」。\n## PRD 3.1 主流程要求\n禁止再次输出 intent_clarity",
+    })).toBe(true)
   })
 
   it("????????????", () => {

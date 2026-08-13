@@ -92,4 +92,19 @@ describe("write tools", () => {
 
     expect(result).toContain("三次转折，四次震惊。")
   })
+
+  it("apply_skill rejects unsafe partial names", async () => {
+    vi.mocked(getAllDeAiSkills).mockReturnValue([])
+    const tool = createApplySkillTool(
+      () => null,
+      () => [{
+        id: "skillhub:long-form-drafting",
+        name: "long-form-drafting",
+        content: "long form rules",
+      }] as any,
+    )
+
+    expect(await tool.execute({ skillName: "long-form" })).toBe("错误：未找到 Skill「long-form」")
+    expect(await tool.execute({ skillName: "long-form-drafting" })).toContain("long form rules")
+  })
 })

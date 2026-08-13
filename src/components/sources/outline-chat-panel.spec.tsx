@@ -119,6 +119,43 @@ afterEach(async () => {
 
 describe("OutlineChatPanel controls", () => {
 
+  it("上下文圆环使用 AI 大纲选中模型的窗口而不是全局模型窗口", async () => {
+    useWikiStore.setState({
+      llmConfig: {
+        ...useWikiStore.getState().llmConfig,
+        provider: "openai",
+        apiKey: "test-key",
+        model: "gpt-4o",
+        maxContextSize: 204_800,
+      },
+      aiOutlineModel: "openai/gpt-4o",
+      providerConfigs: {
+        openai: {
+          apiKey: "test-key",
+          enabled: true,
+          maxContextSize: 409_600,
+          savedModels: [{ id: "gpt-4o", model: "gpt-4o", name: "GPT-4o", createdAt: 1 }],
+        },
+      },
+    })
+    setOutlineConversations([{
+      ...conversation(),
+      lastContextUsage: {
+        windowTokens: 204_800,
+        totalTokens: 100_000,
+        measuredAt: 1,
+        estimated: false,
+        segments: [{ key: "dynamicContext", tokens: 100_000 }],
+      },
+    }], "outline-active")
+
+    const container = await renderOutlineChatPanel()
+    const ring = container.querySelector<HTMLButtonElement>('[aria-label="上下文用量"]')
+
+    expect(ring).not.toBeNull()
+    expect(ring?.textContent).toBe("24")
+  })
+
   it("在 AI 大纲回复下方独立显示上下文中控摘要", async () => {
     const contextHubSnapshot: ContextHubSnapshotRef = {
       id: "outline-assistant-1",
@@ -440,7 +477,7 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("InsertReferenceTokens")
     expect(source).toContain("outlineReferenceTokens")
     expect(source).toContain("onAtTrigger={() => setReferencePickerOpen(true)}")
-    expect(source).toContain("onSubmit={handleSend}")
+    expect(source).toContain("onSubmit={handleDirectSubmit}")
     expect(source).not.toContain("<ChatInput")
     expect(source).not.toContain('from "@/components/chat/chat-input"')
   })
@@ -479,6 +516,26 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("请优先使用工具读取引用内容")
   })
 
+  it("hides internal prompts and legacy intent handoff bubbles without removing model history", async () => {
+    setOutlineConversations([conversation([
+      { id: "u1", role: "user", content: "把236章大纲补充详细" },
+      { id: "a1", role: "assistant", content: "意图明确" },
+      {
+        id: "u2",
+        role: "user",
+        content: "请按「AI大纲生成工作流」生成「章节细纲」。\n## PRD 3.1 主流程要求\n禁止再次输出 intent_clarity",
+      },
+      { id: "u3", role: "user", content: "✓ 意图明确（章节细纲），开始生成..." },
+      { id: "a2", role: "assistant", content: "# 第236章章纲" },
+    ])], "outline-active")
+
+    const container = await renderOutlineChatPanel()
+    expect(container.textContent).toContain("把236章大纲补充详细")
+    expect(container.textContent).toContain("第236章章纲")
+    expect(container.textContent).not.toContain("PRD 3.1 主流程要求")
+    expect(container.textContent).not.toContain("✓ 意图明确")
+  })
+
   it("routes outline chat sends through AgentRunner with built-in tools", () => {
     expect(source).toContain("AgentRunner")
     expect(source).toContain("buildAgentConfig")
@@ -502,7 +559,8 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain('"write_chapter"')
     expect(source).toContain('"write_memory"')
     expect(source).toContain('"write_outline_node"')
-    expect(source).toContain("disabledTools: OUTLINE_CHAT_DISABLED_TOOLS")
+    expect(source).toContain("disabledTools: mergeDisabledTools(")
+    expect(source).toContain("OUTLINE_CHAT_DISABLED_TOOLS,")
     expect(source).toContain("禁止调用 write_outline_node")
     expect(source).toContain("用户确认后才写入文件")
     expect(source).toContain("content 字段强制要求")
@@ -577,6 +635,129 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("再调用 read_outline、read_chapter、read_memory、read_deduction")
     expect(source).toContain("分析冲突、缺口、伏笔、角色动机和章节承接")
     expect(source).toContain("最后再生成大纲建议")
+  })
+
+  it("直接章纲完善请求按意图分析和正文生成两阶段执行，并保留原请求与引用", async () => {
+    const reference = {
+      id: "chapter-outline-236",
+      category: "outline" as const,
+      title: "第236章-远洋投送",
+      displayTitle: "第236章-远洋投送",
+      path: "章纲/第236章-远洋投送.md",
+    }
+    const calls: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      const system = agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? "")
+      const user = agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? "")
+      calls.push({ system, user })
+      const text = system.includes("本轮阶段：意图分析")
+        ? `<!-- intent_clarity -->\n{"clarity":"clear","module":"章节细纲","analysis":"范围明确","detectedScope":"第236章","missingItems":[],"options":[],"question":""}\n<!-- /intent_clarity -->`
+        : "# 第236章 远洋投送\n\n## 本章目标\n完善远洋投送细节。"
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active", { pendingReferenceTokens: [reference] })
+    const container = await renderOutlineChatPanel()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "把236章大纲补充详细")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (calls.length >= 2 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(calls).toHaveLength(2)
+    expect(calls[0].system).toContain("本轮阶段：意图分析")
+    expect(calls[0].system).toContain("<!-- /intent_clarity -->")
+    expect(calls[1].system).toContain("本轮阶段：正文生成")
+    expect(calls[1].system).toContain("禁止再次输出 intent_clarity")
+    expect(calls[1].user).toContain("把236章大纲补充详细")
+    expect(calls[1].user).toContain("第236章-远洋投送")
+    const current = useOutlineChatStore.getState().conversations[0]
+    expect(current.messages.findLast((message) => message.role === "assistant")?.content).toContain("完善远洋投送细节")
+  })
+
+  it("needs_input 停在推荐选项，不自动进入正文生成", async () => {
+    const protocolText = `<!-- intent_clarity -->\n{"clarity":"needs_input","module":"章节细纲","analysis":"范围不足","detectedScope":"","missingItems":["章节范围"],"options":[{"id":"A","label":"生成最近章节","description":"最近5章"},{"id":"D","label":"自定义","description":"自行说明"}],"question":"请确认章节范围"}\n<!-- /intent_clarity -->`
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(protocolText)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: protocolText }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "补充章节大纲")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (runSpy.mock.calls.length === 1 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    expect(container.textContent).toContain("请确认章节范围")
+    expect(container.textContent).toContain("生成最近章节")
+    expect(useOutlineChatStore.getState().conversations[0].messages.findLast((message) => message.role === "assistant")?.intentClarityResult?.clarity).toBe("needs_input")
+  })
+
+  it("历史未闭合 status clear 消息只显示手动继续生成，不在加载时调用模型", async () => {
+    let sentSystem = ""
+    let sentUser = ""
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      sentSystem = agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? "")
+      sentUser = agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? "")
+      const text = "# 第236章\n\n## 本章目标\n补全远洋投送。"
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation([
+      { id: "u236", role: "user", content: "把236章大纲补充详细" },
+      { id: "a236", role: "assistant", content: '<!-- intent_clarity -->\n{"status":"clear","intent":"完善第236章章纲","target":"章纲/第236章.md","scope":"第236章"}' },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    expect(container.textContent).toContain("继续生成")
+    expect(container.textContent).not.toContain('"status":"clear"')
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent?.includes("保存为大纲"))).toBe(false)
+    expect(runSpy).not.toHaveBeenCalled()
+
+    const continueButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("继续生成"))
+    await act(async () => {
+      continueButton?.click()
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (runSpy.mock.calls.length === 1 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    expect(sentSystem).toContain("本轮阶段：正文生成")
+    expect(sentUser).toContain("把236章大纲补充详细")
+    expect(useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content).toContain("补全远洋投送")
+  })
+
+  it("无效意图 JSON 显示协议错误且不提供保存入口", async () => {
+    setOutlineConversations([conversation([
+      { id: "u-invalid", role: "user", content: "完善章纲" },
+      { id: "a-invalid", role: "assistant", content: '<!-- intent_clarity -->\n{"clarity":"clear"' },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    expect(container.textContent).toContain("意图分析格式无效，尚未开始生成")
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent?.includes("保存为大纲"))).toBe(false)
   })
 
   it("routes every outline generation menu item through the PRD 3.1 content workflow", () => {
@@ -1135,6 +1316,35 @@ describe("OutlineChatPanel controls", () => {
     const answer = useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content ?? ""
     expect(answer).toContain("# \u4eba\u7269\u8bbe\u5b9a")
     expect(answer).not.toContain("```markdown")
+  })
+
+  it("生成阶段重新生成若再次返回意图标记则报错并阻止循环", async () => {
+    const protocolText = `<!-- intent_clarity -->\n{"clarity":"clear","module":"章节细纲","analysis":"重复分析","detectedScope":"第236章","missingItems":[],"options":[],"question":""}\n<!-- /intent_clarity -->`
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(protocolText)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: protocolText }
+    })
+    setOutlineConversations([conversation([
+      { id: "u-generation", role: "user", content: "直接生成第236章章纲" },
+      { id: "a-generation", role: "assistant", content: "# 旧章纲", intentPhase: "generation" },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((item) => item.textContent?.includes("重新生成"))
+    await act(async () => {
+      button?.click()
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    const assistant = useOutlineChatStore.getState().conversations[0].messages.at(-1)
+    expect(assistant?.intentProtocolError).toContain("已阻止重复意图分析和自动循环")
+    expect(container.textContent).toContain("已阻止重复意图分析和自动循环")
+    expect(container.textContent).not.toContain("继续生成")
   })
 
   it.each(["\u751f\u6210\u4eba\u7269\u8bbe\u5b9a", "\u751f\u6210\u4e16\u754c\u89c2", "\u7ee7\u7eed\u5b8c\u5584\u4eba\u7269\u5173\u7cfb", "\u7ee7\u7eed\u8865\u5145\u4e16\u754c\u89c2", "\u7ec6\u5316\u5f53\u524d\u5927\u7eb2", "\u7ee7\u7eed\u5b8c\u5584\u5f53\u524d\u6a21\u5757"])("structured next step triggers Markdown finalization: %s", async (label) => {

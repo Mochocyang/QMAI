@@ -15,7 +15,7 @@ import {
 } from "./task-breakpoint"
 import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
-import { addLlmUsage } from "../llm-usage"
+import { addLlmUsage, mergeLlmUsageSnapshot, type LlmUsage } from "../llm-usage"
 import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
@@ -24,6 +24,7 @@ import {
   buildRequiredToolNudgeMessage,
   missingRequiredToolsOnce,
 } from "./required-tools-gate"
+import { isToolErrorResult } from "./tool-result"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -128,6 +129,7 @@ export class AgentRunner {
       let roundText = ""
       let roundReasoningContent = ""
       let streamError: Error | undefined
+      let roundUsage: LlmUsage | undefined
 
       const streamCallbacks: StreamCallbacks = {
         onToken: (t: string) => {
@@ -141,8 +143,8 @@ export class AgentRunner {
           toolCallDeltas.push(delta)
         },
         onUsage: (usage) => {
-          record.usage = addLlmUsage(record.usage, usage)
-          if (record.usage) callbacks.onUsage?.(record.usage)
+          roundUsage = mergeLlmUsageSnapshot(roundUsage, usage)
+          if (roundUsage) callbacks.onUsage?.(roundUsage)
         },
         onUserMemoryDecision: (decision) => {
           if (record.userMemoryDecision === undefined) {
@@ -208,6 +210,7 @@ export class AgentRunner {
         roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
+        roundUsage = undefined
         requestOverrides = buildRequestOverrides(config.requestOverrides)
         await streamRound()
       }
@@ -247,6 +250,7 @@ export class AgentRunner {
         roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
+        roundUsage = undefined
         requestOverrides = buildRequestOverrides(withReasoningDisabled(config.requestOverrides))
         try {
           await streamRound()
@@ -254,6 +258,11 @@ export class AgentRunner {
           callbacks.onError(err instanceof Error ? err : new Error(String(err)))
           return record
         }
+      }
+
+      if (roundUsage) {
+        record.lastRequestUsage = { ...roundUsage }
+        record.usage = addLlmUsage(record.usage, roundUsage)
       }
 
       if (streamError) {
@@ -478,17 +487,30 @@ export class AgentRunner {
         try {
           const result = await withToolTimeout(tool.execute(params, signal, executionContext), tool.executeTimeoutMs)
           toolCallRecord.result = result
-          toolCallRecord.status = "done"
           toolCallRecord.finishedAt = Date.now()
-          callbacks.onToolResult(tc.id, result)
-          callbacks.onToolEvent?.({
-            type: "result",
-            callId: tc.id,
-            name: toolName,
-            params,
-            result,
-            timestamp: toolCallRecord.finishedAt,
-          })
+          if (isToolErrorResult(result)) {
+            toolCallRecord.status = "error"
+            callbacks.onToolError(tc.id, result)
+            callbacks.onToolEvent?.({
+              type: "error",
+              callId: tc.id,
+              name: toolName,
+              params,
+              result,
+              timestamp: toolCallRecord.finishedAt,
+            })
+          } else {
+            toolCallRecord.status = "done"
+            callbacks.onToolResult(tc.id, result)
+            callbacks.onToolEvent?.({
+              type: "result",
+              callId: tc.id,
+              name: toolName,
+              params,
+              result,
+              timestamp: toolCallRecord.finishedAt,
+            })
+          }
         } catch (err) {
           toolCallRecord.status = "error"
           toolCallRecord.result = `错误: ${err instanceof Error ? err.message : String(err)}`

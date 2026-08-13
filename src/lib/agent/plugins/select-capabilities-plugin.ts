@@ -3,6 +3,7 @@ import { buildAvailableCapabilities } from "../capabilities/registry"
 import { selectCapabilities } from "../capabilities/selector"
 import { resolveAiWorkflowMode } from "../workflow-mode"
 import { detectLocalEntityMiss } from "@/lib/novel/local-entity-names"
+import { getOutlineSkillNames, getWritingSkillNames } from "@/lib/novel/skill-route-registry"
 
 const PLAN_PHASE_ALLOWED_TOOLS = new Set([
   "read_chapter",
@@ -61,10 +62,17 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
             (cap) => cap.toolName && PLAN_PHASE_ALLOWED_TOOLS.has(cap.toolName),
           )
         : selectedCapabilities
+      const injectedSkillIds = new Set((input.selectedSkills ?? []).map((skill) => skill.id))
+      const deterministicSkillNames = route.intent === "generate_outline"
+        ? getOutlineSkillNames(input.userMessage)
+        : getWritingSkillNames(route.intent, input.userMessage)
+      const capabilitiesWithoutDuplicateSkillTool = injectedSkillIds.size > 0 || deterministicSkillNames.length > 0
+        ? filteredCapabilities.filter((capability) => capability.toolName !== "apply_skill")
+        : filteredCapabilities
 
       return {
-        selectedCapabilities: filteredCapabilities,
-        enabledToolNames: filteredCapabilities
+        selectedCapabilities: capabilitiesWithoutDuplicateSkillTool,
+        enabledToolNames: capabilitiesWithoutDuplicateSkillTool
           .map((capability) => capability.toolName)
           .filter((name): name is string => Boolean(name)),
       }

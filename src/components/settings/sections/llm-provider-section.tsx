@@ -121,13 +121,13 @@ export function LlmProviderSection() {
         </p>
       </div>
 
-      <div className="flex gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-white">
+      <div className="flex gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0 space-y-1.5">
           <div className="font-medium">
             {t("settings.sections.llm.longWritingContextTitle")}
           </div>
-          <p className="text-xs leading-relaxed">
+          <p className="text-xs leading-relaxed text-emerald-800/80 dark:text-emerald-200/75">
             {t("settings.sections.llm.longWritingContextHint")}
           </p>
           <ResourceLink

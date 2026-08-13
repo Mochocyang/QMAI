@@ -252,8 +252,28 @@ describe("SelectCapabilitiesPlugin", () => {
       .filter((n): n is string => Boolean(n))
 
     expect(toolNames).toContain("write_chapter")
-    expect(toolNames).toContain("apply_skill")
+    expect(toolNames).not.toContain("apply_skill")
     expect(toolNames).toContain("run_chapter_workflow")
     expect(toolNames).toContain("read_chapter")
+  })
+
+  it("removes apply_skill when deterministic skills are already injected", async () => {
+    const plugin = createSelectCapabilitiesPlugin()
+    const availableCapabilities = buildAvailableCapabilities({
+      toolNames: ["read_chapter", "apply_skill", "run_chapter_workflow"],
+    })
+    const result = await plugin.run({
+      userMessage: "写第一章",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "strict",
+      availableCapabilities,
+      selectedSkills: [{ id: "skillhub:long-form-drafting" }] as any,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+    })
+
+    expect(result.enabledToolNames).not.toContain("apply_skill")
+    expect(result.enabledToolNames).toContain("run_chapter_workflow")
   })
 })

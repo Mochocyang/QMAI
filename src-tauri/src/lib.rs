@@ -1,3 +1,5 @@
+mod app_state;
+mod atomic_file;
 mod commands;
 mod panic_guard;
 mod proxy;
@@ -46,6 +48,7 @@ pub fn run() {
             if let Ok(dir) = app.path().resource_dir() {
                 commands::fs::set_resource_dir_hint(dir);
             }
+            app_state::prepare_app_state_store(app.handle());
             if let Ok(dir) = app.path().app_data_dir() {
                 let store_path = dir.join("app-state.json");
                 eprintln!("[proxy] reading from {}", store_path.display());
@@ -121,6 +124,7 @@ pub fn run() {
             commands::backup::export_backup,
             commands::backup::import_backup,
             commands::backup::read_backup_manifest,
+            app_state::write_app_state_atomic,
             commands::writing_wake_lock::acquire_writing_wake_lock,
             commands::writing_wake_lock::release_writing_wake_lock,
             set_proxy_env,
