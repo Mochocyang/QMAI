@@ -260,14 +260,14 @@ const PROXY_CONFIG_KEY = "proxyConfig"
 export async function saveProxyConfig(config: ProxyConfig): Promise<void> {
   const store = await getStore()
   await store.set(PROXY_CONFIG_KEY, config)
-  // Force-flush to disk. The store is opened with `autoSave: true`,
-  // which is a 100ms debounce — not an immediate write. For most
-  // settings that's fine, but the proxy config is on the startup
-  // critical path: the Rust setup hook reads `app-state.json` on
-  // launch to apply HTTP_PROXY / HTTPS_PROXY / NO_PROXY. If the
-  // user saves and quits within the debounce window the disk
-  // value would lag behind in-memory, and the next launch would
-  // boot with the wrong proxy.
+  // Force-flush to disk. `set()` only schedules a 100ms debounce
+  // persist — not an immediate write. For most settings that's
+  // fine, but the proxy config is on the startup critical path:
+  // the Rust setup hook reads `app-state.json` on launch to apply
+  // HTTP_PROXY / HTTPS_PROXY / NO_PROXY. If the user saves and
+  // quits within the debounce window the disk value would lag
+  // behind in-memory, and the next launch would boot with the
+  // wrong proxy.
   await store.save()
 }
 

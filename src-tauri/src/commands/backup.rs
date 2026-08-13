@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use zip::write::ZipWriter;
 use zip::CompressionMethod;
 
+use crate::app_state;
 use crate::panic_guard::run_guarded;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,7 +296,9 @@ fn restore_app_state_via_store(
     app_state_json: &serde_json::Value,
 ) -> Result<(), String> {
     let store = app
-        .store("app-state.json")
+        .store_builder("app-state.json")
+        .disable_auto_save()
+        .build()
         .map_err(|e| format!("无法加载应用状态存储: {e}"))?;
 
     store.clear();
@@ -308,8 +311,7 @@ fn restore_app_state_via_store(
         store.set(key.clone(), value.clone());
     }
 
-    store
-        .save()
+    crate::app_state::persist_plugin_store(app)
         .map_err(|e| format!("保存应用状态存储失败: {e}"))?;
 
     Ok(())
@@ -1011,9 +1013,7 @@ pub fn do_import_backup<F: Fn(&BackupProgressPayload)>(
                     && manifest_contents.credentials);
             let merged_app_state =
                 merge_app_state_file(&app_state_path, app_state_json, replace_app_state)?;
-            let app_state_str = serde_json::to_string_pretty(&merged_app_state)
-                .map_err(|e| format!("序列化 app-state 失败: {e}"))?;
-            fs::write(&app_state_path, app_state_str.as_bytes())
+            crate::app_state::persist_app_state_object(app_state_dir, &merged_app_state)
                 .map_err(|e| format!("写入 app-state.json 失败: {e}"))?;
 
             app_state = Some(merged_app_state);
@@ -1203,15 +1203,10 @@ pub async fn export_backup(
             .app_data_dir()
             .map_err(|err| format!("无法获取 app_data_dir: {err}"))?;
 
-        let app_state_path = match app.store("app-state.json") {
-            Ok(store) => {
-                if let Err(e) = store.save() {
-                    eprintln!("保存 app-state 存储失败: {e}");
-                }
-                app_data_dir.join("app-state.json")
-            }
+        let app_state_path = match app_state::persist_plugin_store(&app) {
+            Ok(path) => path,
             Err(e) => {
-                eprintln!("无法获取 app-state 存储句柄: {e}");
+                eprintln!("保存 app-state 存储失败: {e}");
                 app_data_dir.join("app-state.json")
             }
         };
@@ -1241,11 +1236,8 @@ pub async fn import_backup(
             .app_data_dir()
             .map_err(|err| format!("无法获取 app_data_dir: {err}"))?;
 
-        if let Ok(store) = app.store("app-state.json") {
-            store
-                .save()
-                .map_err(|error| format!("导入前保存当前应用状态失败: {error}"))?;
-        }
+        app_state::persist_plugin_store(&app)
+            .map_err(|error| format!("导入前保存当前应用状态失败: {error}"))?;
 
         let app_clone = app.clone();
         let result = do_import_backup(params, &app_data_dir, move |payload| {
