@@ -7,6 +7,21 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "3.1.7",
+  date: "2026-08-13",
+  highlights: {
+    en: [
+      "[PDF Support Removed] Removed PDF/PDFium support and the raw-source import UI. PDFium parser, PDF text/image extraction commands, and PDFium binaries in packaging/CI/portable builds are gone; reading a leftover .pdf now returns an 'unsupported extraction' placeholder instead of breaking as UTF-8.",
+      "[Source Sidebar & Watch Removed] Removed the unmounted raw-source import sidebar and the hidden watch/scheduled-import settings; opening a project or saving settings no longer starts raw/sources watching or scheduled import. Office text parsing, outline view, chapter import, and memory wiki remain.",
+    ],
+    zh: [
+      "【移除 PDF 支持与原始资料导入 UI】产品主路径（章节、拆书）不依赖 PDF，本次移除 PDFium 解析器、PDF 抽文本/抽图命令以及打包/CI/便携版中的 PDFium 二进制；对残留 .pdf 文件返回「不支持提取」占位，不再按 UTF-8 读取导致异常",
+      "【移除资料侧栏与监视/定时导入设置】删除未挂载的「原始资料」导入侧栏和已隐藏的监控/定时导入设置；打开项目与保存设置不再启动 raw/sources 监视或定时导入；Office 解析、大纲视图、章节导入与记忆 wiki 保留不受影响",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_SIX_CHANGELOG: ChangelogEntry = {
   version: "3.1.6",
   date: "2026-08-13",
@@ -1095,6 +1110,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_SEVEN_CHANGELOG,
   THREE_POINT_ONE_SIX_CHANGELOG,
   THREE_POINT_ONE_FIVE_CHANGELOG,
   THREE_POINT_ONE_TWO_CHANGELOG,
@@ -1157,6 +1173,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ONE_SEVEN_CHANGELOG.version)
+    return [THREE_POINT_ONE_SEVEN_CHANGELOG];
   if (version === THREE_POINT_ONE_SIX_CHANGELOG.version)
     return [THREE_POINT_ONE_SIX_CHANGELOG];
   if (version === THREE_POINT_ONE_TWO_CHANGELOG.version)
