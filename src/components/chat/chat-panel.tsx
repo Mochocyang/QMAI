@@ -283,9 +283,15 @@ function buildWorkflowRouteActivityContent(
   ].join("\n")
 }
 
-function buildSelectedSkillsActivityContent(skills: UserSkill[] | undefined): string {
+function buildSelectedSkillsActivityContent(
+  skills: UserSkill[] | undefined,
+  missingSkillNames: string[] = [],
+): string {
+  const missingText = missingSkillNames.length > 0
+    ? `\n缺失或已禁用：${missingSkillNames.join("、")}。未强制启用。`
+    : ""
   if (!skills || skills.length === 0) {
-    return "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。"
+    return `本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。${missingText}`
   }
   return skills
     .map((skill, index) => {
@@ -293,7 +299,7 @@ function buildSelectedSkillsActivityContent(skills: UserSkill[] | undefined): st
       const kindText = skill.kind.length > 0 ? skill.kind.join("、") : "未标注类型"
       return `${index + 1}. ${skill.name}｜阶段：${stageText}｜类型：${kindText}｜优先级：${skill.priority ?? 50}`
     })
-    .join("\n")
+    .join("\n") + missingText
 }
 
 function buildChatAgentSystemPrompt(options: {
@@ -1667,7 +1673,10 @@ export function ChatPanel() {
           stageId: "capability_selection",
           kind: "skill_used",
           title: "本次启用 Skill",
-          content: buildSelectedSkillsActivityContent(prePluginResult?.selectedSkills),
+          content: buildSelectedSkillsActivityContent(
+            prePluginResult?.selectedSkills,
+            (prePluginResult?.missingSkillNames as string[] | undefined) ?? [],
+          ),
           timestamp: now + 1,
         })
         updateAgentAssistantMessage(assistantMessage.id, (message) => ({
@@ -1959,7 +1968,10 @@ export function ChatPanel() {
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
         useChatStore.getState().setConversationContextUsage(
           capturedConvId,
-          calibrateContextUsageSnapshot(usageSnapshotBase, record.usage),
+          calibrateContextUsageSnapshot(
+            usageSnapshotBase,
+            record.lastRequestUsage ?? record.usage,
+          ),
         )
         if (contextHubResult && record.usage) {
           try {
@@ -1967,7 +1979,7 @@ export function ChatPanel() {
               getContextHub(pp),
               assistantMessage.id,
               contextHubResult,
-              record.usage,
+              record.lastRequestUsage ?? record.usage,
               {
                 memoryDecision: record.userMemoryDecision,
                 requestDiagnostics: buildLlmRequestDiagnostics(

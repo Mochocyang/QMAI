@@ -19,6 +19,8 @@ export interface NovelGenerationRequestPackage {
 type OutlineModelMessage = {
   role: "user" | "assistant"
   content: string
+  modelContent?: string
+  visibility?: "visible" | "internal"
   novelGenerationRequest?: NovelGenerationRequestPackage
   isAgentRunning?: boolean
   reasoning_content?: string
@@ -75,8 +77,10 @@ export function getNovelGenerationModelContent(request: NovelGenerationRequestPa
 
 export function getOutlineMessageModelContent(message: {
   content: string
+  modelContent?: string
   novelGenerationRequest?: NovelGenerationRequestPackage
 }): string {
+  if (message.modelContent?.trim()) return message.modelContent
   return message.novelGenerationRequest
     ? getNovelGenerationModelContent(message.novelGenerationRequest)
     : message.content
@@ -88,7 +92,7 @@ export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Arr
   reasoning_content?: string
 }> {
   return messages
-    .filter((message) => message.content.trim() && !message.isAgentRunning)
+    .filter((message) => getOutlineMessageModelContent(message).trim() && !message.isAgentRunning)
     .map((message) => ({
       role: message.role,
       content: getOutlineMessageModelContent(message),
@@ -96,6 +100,20 @@ export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Arr
         ? { reasoning_content: message.reasoning_content }
         : {}),
     }))
+}
+
+export function isInternalOutlineMessage(message: {
+  role: "user" | "assistant"
+  content: string
+  visibility?: "visible" | "internal"
+}): boolean {
+  if (message.visibility === "internal") return true
+  if (message.role !== "user") return false
+  const content = message.content.trim()
+  if (content.startsWith("✓ 意图明确（") && content.includes("开始生成")) return true
+  return content.startsWith("请按「AI大纲生成工作流」生成「")
+    && content.includes("## PRD 3.1 主流程要求")
+    && content.includes("禁止再次输出 intent_clarity")
 }
 
 export function buildOutlineRegenerationInput(messages: OutlineModelMessage[]): {

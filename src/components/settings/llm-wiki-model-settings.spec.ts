@@ -34,6 +34,8 @@ describe("QMAI model settings", () => {
     expect(source).toContain("settings.sections.llm.longWritingContextHint")
     expect(source).toContain("settings.sections.llm.longWritingContextDocs")
     expect(source).toContain("https://global.modelmesh.info/model")
+    expect(source).toContain("text-emerald-800 dark:text-emerald-200")
+    expect(source).not.toContain("bg-emerald-500/10 px-3 py-2 text-sm text-white")
   })
 
   it("keeps every built-in provider and gives each one at least 204800", () => {

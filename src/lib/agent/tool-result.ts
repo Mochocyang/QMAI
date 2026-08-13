@@ -1,4 +1,10 @@
+const TOOL_ERROR_PREFIX = /^\s*错误\s*[：:]/
+
 export const DEFAULT_TOOL_RESULT_CONTEXT_LIMIT = 6000
+
+export function isToolErrorResult(result: string): boolean {
+  return TOOL_ERROR_PREFIX.test(result)
+}
 
 export function formatToolResultForModel(
   toolName: string,

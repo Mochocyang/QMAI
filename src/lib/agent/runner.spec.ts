@@ -399,6 +399,7 @@ describe("AgentRunner", () => {
 
   it("aggregates provider usage across agent rounds", async () => {
     let round = 0
+    const onUsage = vi.fn()
     mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
       round += 1
       if (round === 1) {
@@ -415,7 +416,7 @@ describe("AgentRunner", () => {
       { maxRounds: 2, tools: [], systemPrompt: "", llmConfig: mockLlmConfig },
       registry,
       [systemMsg, userMsg],
-      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onUsage, onDone: vi.fn(), onError: vi.fn() },
     )
 
     expect(result.usage).toEqual({
@@ -423,6 +424,12 @@ describe("AgentRunner", () => {
       outputTokens: 100,
       cachedInputTokens: 1100,
     })
+    expect(result.lastRequestUsage).toEqual({
+      inputTokens: 700,
+      outputTokens: 80,
+      cachedInputTokens: 500,
+    })
+    expect(onUsage).toHaveBeenLastCalledWith(result.lastRequestUsage)
   })
 
   it("executes tool calls and continues the loop", async () => {
@@ -772,6 +779,48 @@ describe("AgentRunner", () => {
 
     expect(onToolError).toHaveBeenCalledOnce()
   })
+
+  it.each(["错误：未找到 Skill", "错误: read failed"])(
+    "treats an error-prefixed tool result as an error and still lets the model recover: %s",
+    async (toolResult) => {
+      const tool: Tool = {
+        name: "soft_error_tool",
+        description: "",
+        category: "read",
+        parameters: {},
+        execute: vi.fn().mockResolvedValue(toolResult),
+      }
+      registry.register(tool)
+      mockStreamChat
+        .mockImplementationOnce(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+          cb.onToolCallDelta?.({ index: 0, id: "soft_error_1", name: "soft_error_tool" })
+          cb.onToolCallDelta?.({ index: 0, arguments: "{}" })
+          cb.onDone()
+        })
+        .mockImplementationOnce(async (_config: unknown, messages: unknown[], cb: StreamCallbacks) => {
+          expect(JSON.stringify(messages)).toContain(toolResult)
+          cb.onToken("已改用其他方法恢复")
+          cb.onDone()
+        })
+
+      const onToolError = vi.fn()
+      const onToolResult = vi.fn()
+      const onToolEvent = vi.fn()
+      const result = await runner.run(
+        { maxRounds: 3, tools: [tool], systemPrompt: "", llmConfig: mockLlmConfig },
+        registry,
+        [systemMsg, userMsg],
+        { onText: vi.fn(), onToolCall: vi.fn(), onToolResult, onToolError, onToolEvent, onDone: vi.fn(), onError: vi.fn() },
+        undefined,
+      )
+
+      expect(onToolResult).not.toHaveBeenCalled()
+      expect(onToolError).toHaveBeenCalledWith("soft_error_1", toolResult)
+      expect(onToolEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "error", result: toolResult }))
+      expect(result.toolCalls[0].status).toBe("error")
+      expect(result.finalText).toBe("已改用其他方法恢复")
+    },
+  )
 
   it("allows long-running workflow tools to opt out of the generic 30 second timeout", async () => {
     vi.useFakeTimers()

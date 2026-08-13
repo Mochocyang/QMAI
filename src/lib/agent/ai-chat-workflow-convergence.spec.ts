@@ -196,7 +196,6 @@ describe("AI chat workflow convergence", () => {
       "read_memory",
       "search_chapters",
       "write_chapter",
-      "apply_skill",
     ]))
     expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({ kind: "user_skill", skillId: "three-turns" }))
     expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({ toolName: "write_chapter", permission: "confirm" }))

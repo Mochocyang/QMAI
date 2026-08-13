@@ -87,6 +87,10 @@ export interface OutlineChatMessage {
   id: string
   role: "user" | "assistant"
   content: string
+  /** 发给模型的完整内容；与用户界面展示内容分离。 */
+  modelContent?: string
+  /** internal 消息参与模型历史，但不渲染为用户气泡。 */
+  visibility?: "visible" | "internal"
   sources?: string[]
   agentToolCalls?: AgentRunRecord["toolCalls"]
   multiAgentRun?: OutlineMultiAgentRunState
@@ -96,6 +100,7 @@ export interface OutlineChatMessage {
   attachedReferences?: ReferenceToken[]
   intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"
   intentClarityResult?: IntentClarityResult | null
+  intentProtocolError?: string
   nextStepRecommendation?: NextStepRecommendation | null
   novelGenerationRequest?: NovelGenerationRequestPackage
   contextHubSnapshot?: ContextHubSnapshotRef

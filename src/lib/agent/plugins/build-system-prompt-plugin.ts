@@ -47,6 +47,14 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           parts.push(selectedSkillsPrompt)
           rulesParts.push(selectedSkillsPrompt)
         }
+        const missingSkillNames = Array.isArray(input.missingSkillNames)
+          ? input.missingSkillNames.filter((name): name is string => typeof name === "string")
+          : []
+        if (missingSkillNames.length > 0) {
+          const diagnostic = `## Skill 路由诊断\n以下确定性 Skill 缺失或已被用户禁用，禁止通过 apply_skill 强制启用：${missingSkillNames.join("、")}。请按已加载规则继续，并向用户保留该诊断。`
+          parts.push(diagnostic)
+          rulesParts.push(diagnostic)
+        }
 
         const routeForWriting = input.effectiveTaskRoute || input.taskRoute
 

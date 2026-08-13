@@ -14,9 +14,86 @@ export interface IntentClarityResult {
   missingItems: string[]
   options: IntentClarityOption[]
   question: string
+  normalizationSource?: "canonical" | "legacy_status" | "legacy_unclosed" | "legacy_status_unclosed"
 }
 
-const CLARITY_PATTERN = /<!--\s*intent_clarity\s*-->([\s\S]*?)<!--\s*\/intent_clarity\s*-->/i
+export type IntentClarityParseOutcome =
+  | { kind: "none" }
+  | { kind: "valid"; result: IntentClarityResult }
+  | { kind: "invalid"; error: string }
+
+export interface DirectOutlineGenerationRequest {
+  module: string
+}
+
+const INTENT_OPEN_PATTERN = /<!--\s*intent_clarity\s*-->/i
+const INTENT_CLOSE_PATTERN = /<!--\s*\/intent_clarity\s*-->/i
+const OUTLINE_GENERATION_VERB_PATTERN = /生成|编写|完善|补充|细化|扩写|修改|重写|续写/
+const OUTLINE_GENERATION_TARGETS: Array<{ pattern: RegExp; module: string }> = [
+  { pattern: /(?:第?\s*\d+\s*章[^\n]{0,12}大纲)|章纲|章节细纲|章节大纲/, module: "章节细纲" },
+  { pattern: /卷纲|分卷大纲/, module: "卷纲" },
+  { pattern: /人物|角色/, module: "人物小传" },
+  { pattern: /组织势力|势力设定/, module: "组织势力设定" },
+  { pattern: /力量体系|能力体系/, module: "力量体系" },
+  { pattern: /金手指|系统设定/, module: "金手指设定" },
+  { pattern: /地理设定|地点设定|地图/, module: "地理设定" },
+  { pattern: /背景设定|世界观/, module: "背景设定" },
+  { pattern: /伏笔/, module: "伏笔计划" },
+  { pattern: /大纲质量/, module: "大纲质量检查" },
+  { pattern: /故事大纲|总纲|(?:^|[^章节卷])大纲/, module: "故事大纲" },
+]
+
+function extractCompleteJsonObject(text: string): { json: string; remainder: string } | null {
+  const start = text.indexOf("{")
+  if (start < 0) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (character === "\\") {
+        escaped = true
+      } else if (character === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (character === '"') {
+      inString = true
+    } else if (character === "{") {
+      depth += 1
+    } else if (character === "}") {
+      depth -= 1
+      if (depth === 0) {
+        return {
+          json: text.slice(start, index + 1),
+          remainder: text.slice(index + 1),
+        }
+      }
+    }
+  }
+  return null
+}
+
+function inferModule(raw: Record<string, unknown>): string {
+  const explicitModule = String(raw.module ?? "").trim()
+  if (explicitModule) return explicitModule
+  const legacyDescription = [raw.target, raw.scope, raw.intent]
+    .map((value) => String(value ?? ""))
+    .join(" ")
+  return OUTLINE_GENERATION_TARGETS.find(({ pattern }) => pattern.test(legacyDescription))?.module ?? "大纲"
+}
+
+export function classifyDirectOutlineGenerationRequest(
+  text: string,
+): DirectOutlineGenerationRequest | null {
+  if (!OUTLINE_GENERATION_VERB_PATTERN.test(text)) return null
+  const target = OUTLINE_GENERATION_TARGETS.find(({ pattern }) => pattern.test(text))
+  return target ? { module: target.module } : null
+}
 
 export function shouldAutoFollowUpGeneration(
   intentPhase: "intent_analysis" | "generation" | "waiting_user_input" | undefined,
@@ -25,21 +102,46 @@ export function shouldAutoFollowUpGeneration(
 }
 
 export function parseIntentClarity(text: string): IntentClarityResult | null {
-  const match = text.match(CLARITY_PATTERN)
-  if (!match) return null
+  const outcome = parseIntentClarityProtocol(text)
+  return outcome.kind === "valid" ? outcome.result : null
+}
+
+export function parseIntentClarityProtocol(text: string): IntentClarityParseOutcome {
+  const openMatch = INTENT_OPEN_PATTERN.exec(text)
+  if (!openMatch) return { kind: "none" }
+
+  const payloadStart = openMatch.index + openMatch[0].length
+  const afterOpen = text.slice(payloadStart)
+  const closeMatch = INTENT_CLOSE_PATTERN.exec(afterOpen)
+  const hasClosingMarker = Boolean(closeMatch)
+  const unclosedPayload = hasClosingMarker ? null : extractCompleteJsonObject(afterOpen)
+  const payloadText = hasClosingMarker
+    ? afterOpen.slice(0, closeMatch!.index).trim()
+    : unclosedPayload?.json
+  if (!payloadText) {
+    return { kind: "invalid", error: "意图分析 JSON 不完整或缺失" }
+  }
+  if (!hasClosingMarker && unclosedPayload?.remainder.trim()) {
+    return { kind: "invalid", error: "意图分析缺少闭合标记且 JSON 后仍有额外内容" }
+  }
 
   let payload: unknown
   try {
-    payload = JSON.parse(match[1].trim())
+    payload = JSON.parse(payloadText)
   } catch {
-    return null
+    return { kind: "invalid", error: "意图分析 JSON 无法解析" }
   }
 
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { kind: "invalid", error: "意图分析结果必须是 JSON 对象" }
+  }
 
   const raw = payload as Record<string, unknown>
-  const clarity = String(raw.clarity ?? "")
-  if (clarity !== "clear" && clarity !== "needs_input") return null
+  const usedLegacyStatus = raw.clarity == null && raw.status != null
+  const clarity = String(raw.clarity ?? raw.status ?? "")
+  if (clarity !== "clear" && clarity !== "needs_input") {
+    return { kind: "invalid", error: "意图分析缺少有效的 clarity 字段" }
+  }
 
   const options: IntentClarityOption[] = Array.isArray(raw.options)
     ? raw.options
@@ -53,17 +155,25 @@ export function parseIntentClarity(text: string): IntentClarityResult | null {
         .filter((item) => item.id && item.label)
     : []
 
-  return {
+  const result: IntentClarityResult = {
     clarity,
-    module: String(raw.module ?? ""),
-    analysis: String(raw.analysis ?? ""),
-    detectedScope: String(raw.detectedScope ?? ""),
+    module: inferModule(raw),
+    analysis: String(raw.analysis ?? raw.intent ?? ""),
+    detectedScope: String(raw.detectedScope ?? raw.scope ?? raw.target ?? ""),
     missingItems: Array.isArray(raw.missingItems)
       ? raw.missingItems.filter((item): item is string => typeof item === "string")
       : [],
     options,
     question: String(raw.question ?? ""),
+    normalizationSource: !hasClosingMarker && usedLegacyStatus
+      ? "legacy_status_unclosed"
+      : !hasClosingMarker
+        ? "legacy_unclosed"
+        : usedLegacyStatus
+          ? "legacy_status"
+          : "canonical",
   }
+  return { kind: "valid", result }
 }
 
 export function buildIntentAnalysisPrompt(title: string, requestHint: string): string {
@@ -97,12 +207,36 @@ export function buildIntentAnalysisPrompt(title: string, requestHint: string): s
     "",
     "## 输出格式（必须严格遵守）",
     "<!-- intent_clarity -->",
-    '按 JSON 输出，字段：clarity("clear"|"needs_input")、module、analysis、detectedScope(clear时填写)、missingItems(数组)、options(needs_input时填4个选项，clear时为空数组)、question(needs_input时填写自然语言提问)',
+    '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
     "<!-- /intent_clarity -->",
+    "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
     "",
     "clear 时：只输出上述 JSON，不生成正文。",
-    "needs_input 时：输出 JSON 后，用自然语言在会话中提出澄清问题 + 推荐选项。",
+    "needs_input 时：只输出上述 JSON，在 question 和 options 中提供澄清问题与推荐选项。",
   ].join("\n")
+}
+
+export function buildIntentPhaseSystemRules(
+  intentPhase: "intent_analysis" | "generation" | "waiting_user_input" | undefined,
+): string {
+  if (intentPhase === "intent_analysis") {
+    return [
+      "## 本轮阶段：意图分析",
+      "本轮只判断生成范围，不生成大纲正文。最终输出必须包含且只包含一个完整协议块：",
+      "<!-- intent_clarity -->",
+      '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
+      "<!-- /intent_clarity -->",
+      "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
+    ].join("\n")
+  }
+  if (intentPhase === "generation") {
+    return [
+      "## 本轮阶段：正文生成",
+      "意图分析已经完成。直接生成可保存的大纲正文。",
+      "禁止再次输出 intent_clarity 标记，禁止重新进入意图分析。",
+    ].join("\n")
+  }
+  return ""
 }
 
 export function stripStructuredMarkers(text: string): string {

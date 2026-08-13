@@ -1,5 +1,6 @@
 import { normalizeUserSkill, type SkillKind, type SkillStage, type UserSkill } from "./skill-library"
 import { SKILL_ROUTE_CATEGORY_IDS } from "./skill-route"
+import { validateSkillRouteRegistry } from "./skill-route-registry"
 
 const skillHubModules = import.meta.glob("../../../skills/SkillHub/**/SKILL.md", {
   eager: true,
@@ -87,3 +88,11 @@ export const DEFAULT_SKILL_HUB_SKILLS: UserSkill[] = Object.entries(skillHubModu
   })
   .filter((skill): skill is UserSkill => Boolean(skill))
   .sort((left, right) => left.id.localeCompare(right.id))
+
+export const SKILL_ROUTE_REGISTRY_MISSING_NAMES = validateSkillRouteRegistry(
+  DEFAULT_SKILL_HUB_SKILLS.map((skill) => skill.name),
+)
+
+if (SKILL_ROUTE_REGISTRY_MISSING_NAMES.length > 0) {
+  console.error("Skill 路由注册表包含不存在的 SkillHub 名称：", SKILL_ROUTE_REGISTRY_MISSING_NAMES)
+}

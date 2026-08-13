@@ -134,7 +134,7 @@ export interface AgentRunCallbacks {
   onToolError: (callId: string, error: string) => void
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
-  /** Cumulative prompt/usage so far across agent rounds. */
+  /** Usage for the current/latest provider request. */
   onUsage?: (usage: LlmUsage) => void
   onUserMemoryDecision?: (decision: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null) => void
   onDone: () => void
@@ -164,7 +164,10 @@ export interface AgentRunRecord {
   }[]
   roundsUsed: number
   finalText: string
+  /** Cumulative provider usage across all requests in this agent run. */
   usage?: LlmUsage
+  /** Provider usage for the final request only; used for context-window UI. */
+  lastRequestUsage?: LlmUsage
   /** Memory decision from the first LLM round that applied user memory. */
   userMemoryDecision?: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null
 }

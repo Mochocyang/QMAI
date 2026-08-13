@@ -65,12 +65,19 @@ import {
 } from "@/lib/novel/outline-wizard";
 import {
   createNovelGenerationRequestPackage,
+  getOutlineMessageModelContent,
   mapOutlineMessagesForModel,
   buildOutlineRegenerationInput,
   isExplicitStructuredGenerationFollowUp,
+  isInternalOutlineMessage,
   mapOutlineConversationsForModel,
   type NovelGenerationRequestPackage,
 } from "@/lib/novel/novel-generation-request-package";
+import { buildSelectedSkillsPrompt } from "@/lib/agent/plugins/select-skills-plugin";
+import {
+  getOutlineSkillNames,
+  resolveAvailableSkillsByNames,
+} from "@/lib/novel/skill-route-registry";
 import {
   buildBoundedSubAgentMergePayload,
   type OutlineSubAgentPlan,
@@ -205,8 +212,11 @@ import {
 import { createWriteOutlineNodeTool } from "@/lib/agent/tools/write-outline-node";
 import {
   buildIntentAnalysisPrompt,
-  parseIntentClarity,
+  buildIntentPhaseSystemRules,
+  classifyDirectOutlineGenerationRequest,
+  parseIntentClarityProtocol,
   shouldAutoFollowUpGeneration,
+  stripStructuredMarkers,
   type IntentClarityResult,
 } from "@/lib/novel/outline-intent-clarity";
 import {
@@ -258,6 +268,15 @@ function mergeDisabledTools(...groups: Array<readonly string[] | undefined>): st
 function messageContentToText(content: AgentMessage["content"]): string {
   if (typeof content === "string") return content;
   return content.map((block) => (block.type === "text" ? block.text : "")).join("");
+}
+
+function appendSystemRules(
+  content: AgentMessage["content"],
+  rules: string,
+): AgentMessage["content"] {
+  if (!rules.trim()) return content;
+  if (typeof content === "string") return [content, rules].filter(Boolean).join("\n\n");
+  return [...content, { type: "text", text: rules }];
 }
 
 function persistOutlineConversationContextUsage(input: {
@@ -395,12 +414,17 @@ export function buildOutlineAgentSystemPrompt(options: {
     "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
     "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
     "## 意图清晰度分析阶段",
-    "当用户请求生成大纲分项时，必须先进行意图清晰度分析：",
+    "仅当系统明确标记本轮为“意图分析”时，才输出 intent_clarity；正文生成阶段严禁再次输出该标记。",
+    "当本轮为意图分析时：",
     "1. 调用 list_outlines、list_chapters、read_outline 读取已有资料",
     "2. 判断用户意图是否清晰（能否确定具体生成范围）",
-    "3. 输出 <!-- intent_clarity --> JSON 标记块",
+    "3. 严格输出以下完整协议块：",
+    "<!-- intent_clarity -->",
+    '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
+    "<!-- /intent_clarity -->",
+    "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
     "4. clear 时：只输出 JSON，不生成正文，等待系统自动注入生成指令",
-    "5. needs_input 时：输出 JSON 后用自然语言提出澄清问题 + 4个推荐选项",
+    "5. needs_input 时：只输出 JSON，在 question 和 options 中提供澄清问题与4个推荐选项",
     "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
     "用户选择或回复后，直接进入生成流程，不再二次分析。",
     "",
@@ -506,6 +530,7 @@ function buildGenerationPrompt(
   requestHint: string,
   scope?: string,
   outputMode?: "per_chapter" | "per_item" | "single",
+  originalRequest?: string,
 ): string {
   const outputModeInstruction = outputMode === "per_chapter"
     ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
@@ -515,6 +540,7 @@ function buildGenerationPrompt(
 
   return [
     `请按「AI大纲生成工作流」生成「${title}」。`,
+    originalRequest ? `\n## 原始用户请求\n${originalRequest}\n` : "",
     scope ? `\n## 已确认范围\n${scope}\n` : "",
     "## PRD 3.1 主流程要求",
     "本轮意图分析已经完成，直接使用已确认范围生成完整大纲正文；禁止再次输出 intent_clarity 标记，也不要重新进入意图分析。",
@@ -886,6 +912,7 @@ function OutlineAssistantMessage({
   onConfirmToolSave,
   onRejectTool,
   onSendMessage,
+  onContinueIntentGeneration,
   onResumeMultiAgent,
   resumeMultiAgentDisabled,
   nextStepDisabled,
@@ -906,6 +933,7 @@ function OutlineAssistantMessage({
   onConfirmToolSave: (call: ToolCallRecord & { preview?: string }) => void;
   onRejectTool: (call: ToolCallRecord & { preview?: string }) => void;
   onSendMessage: (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => Promise<boolean>;
+  onContinueIntentGeneration: (messageId: string, result: IntentClarityResult) => Promise<void>;
   onResumeMultiAgent: (messageId: string) => Promise<void>;
   resumeMultiAgentDisabled: boolean;
   nextStepDisabled: boolean;
@@ -927,6 +955,23 @@ function OutlineAssistantMessage({
   );
   const actionContent = answer || displayContent;
   const messageIsStreaming = isStreaming && index === activeMessagesLength - 1;
+  const intentProtocol = useMemo(
+    () => parseIntentClarityProtocol(answer || displayContent),
+    [answer, displayContent],
+  );
+  const intentProtocolError = !messageIsStreaming
+    ? msg.intentProtocolError ?? (intentProtocol.kind === "invalid"
+      ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
+      : undefined)
+    : undefined;
+  const canUseAsOutlineContent = intentProtocol.kind === "none" && !intentProtocolError;
+  const historicalClearIntent = !msg.intentClarityResult
+    && !msg.intentProtocolError
+    && msg.intentPhase !== "generation"
+    && intentProtocol.kind === "valid"
+    && intentProtocol.result.clarity === "clear"
+    ? intentProtocol.result
+    : null;
 
   // Parse for file edits
   const [parsed, setParsed] = useState<{
@@ -936,8 +981,10 @@ function OutlineAssistantMessage({
   }>({ textContent: "", edits: [], hasEdits: false });
   const renderedMarkdownContent = useMemo(() => {
     const rawContent = parsed.textContent || answer;
+    if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
+    if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
     return prepareOutlineSaveSourceContent(rawContent);
-  }, [answer, parsed.textContent]);
+  }, [answer, intentProtocol, msg.intentProtocolError, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
       setParsed({ textContent: "", edits: [], hasEdits: false });
@@ -984,6 +1031,11 @@ function OutlineAssistantMessage({
           {runStatusText}
         </div>
       ) : null}
+      {intentProtocolError ? (
+        <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {intentProtocolError}
+        </div>
+      ) : null}
       <StreamingMarkdown
         content={renderedMarkdownContent}
         isStreaming={messageIsStreaming}
@@ -1022,7 +1074,7 @@ function OutlineAssistantMessage({
         </details>
       ) : null}
       {/* Action buttons */}
-      {actionContent && !isStreaming ? (
+      {actionContent && canUseAsOutlineContent && !isStreaming ? (
         <div className="mt-2 flex gap-2 border-t pt-2">
           <button
             onClick={() => void onSaveAsOutline(actionContent)}
@@ -1042,6 +1094,17 @@ function OutlineAssistantMessage({
             className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50"
           >
             <RefreshCw className="h-3 w-3" /> 重新生成
+          </button>
+        </div>
+      ) : null}
+      {historicalClearIntent && !isStreaming ? (
+        <div className="mt-2 border-t pt-2">
+          <button
+            type="button"
+            onClick={() => void onContinueIntentGeneration(msg.id, historicalClearIntent)}
+            className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-accent"
+          >
+            继续生成
           </button>
         </div>
       ) : null}
@@ -1266,6 +1329,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     providerConfigs,
   ]);
   const effectiveOutlineModelId = storedOutlineModelId || fallbackOutlineModelId;
+  const effectiveOutlineContextWindow = useMemo(() => {
+    let config = resolveNovelModel(llmConfig, novelConfig, "writing");
+    if (effectiveOutlineModelId) {
+      config = resolveModelConfig(
+        effectiveOutlineModelId,
+        config,
+        providerConfigs,
+      );
+    }
+    return getEffectiveMaxContextSize(config);
+  }, [effectiveOutlineModelId, llmConfig, novelConfig, providerConfigs]);
 
   const [inputValue, setInputValue] = useState("");
   const deferredInputValue = useDeferredValue(inputValue);
@@ -1275,7 +1349,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       activeConv?.contextSummary?.text,
     );
     return composeLiveContextUsage(activeConv?.lastContextUsage, {
-      windowTokens: getEffectiveMaxContextSize(llmConfig),
+      windowTokens: effectiveOutlineContextWindow,
       sessionSummaryText: activeConv?.contextSummary?.text ?? "",
       historyTexts: historyMessages.map((message) => message.content),
       currentInput: deferredInputValue,
@@ -1285,7 +1359,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     activeConv?.lastContextUsage,
     activeMessages,
     deferredInputValue,
-    llmConfig,
+    effectiveOutlineContextWindow,
   ]);
   const [outlineReferenceTokens, setOutlineReferenceTokens] = useState<
     ReferenceToken[]
@@ -1311,6 +1385,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     title: string;
     hint: string;
     outputMode?: "per_chapter" | "per_item" | "single";
+    originalRequest?: string;
+    references?: ReferenceToken[];
+    skillNames?: string[];
   }>>({});
   const [outlineWorkflowStages, setOutlineWorkflowStages] = useState<Record<string, OutlineWorkflowStage>>({});
   const outlineWorkflowStage = activeConversationId
@@ -1755,6 +1832,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         intentPhase?: "intent_analysis" | "generation" | "waiting_user_input";
         novelGenerationRequest?: NovelGenerationRequestPackage;
         systemGenerated?: boolean;
+        userMessageVisibility?: "visible" | "internal";
+        userDisplayText?: string;
       } = {},
     ): Promise<OutlineSendResult> => {
       const prompt = inputText.trim();
@@ -1860,7 +1939,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const userMsg: OutlineChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
-        content: options.novelGenerationRequest?.summary ?? prompt,
+        content: options.userDisplayText ?? options.novelGenerationRequest?.summary ?? prompt,
+        ...(options.userDisplayText || options.userMessageVisibility === "internal"
+          ? { modelContent: prompt }
+          : {}),
+        visibility: options.userMessageVisibility ?? "visible",
         novelGenerationRequest: options.novelGenerationRequest,
         attachedReferences: tokens,
       };
@@ -1889,11 +1972,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       userScrolledUpRef.current = false;
       let hiddenToolCalls: AgentRunRecord["toolCalls"] = [];
       let followUpGenerationPrompt: string | null = null;
+      let followUpReferences: ReferenceToken[] = [];
       let contextHubResult: ContextHubResult | null = null;
       let providerUsage: LlmUsage | undefined;
+      let lastProviderUsage: LlmUsage | undefined;
       let memoryDecision: UserMemoryDecision | null | undefined;
       let llmRequestCount = 0;
       let accumulatedReasoningContent = "";
+      const missingSkillNames = new Set<string>();
       // 已生成的用户可见文本。streamingContents 只承载状态提示不存内容，
       // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
       // 避免整段结果被静默丢弃。
@@ -2002,7 +2088,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             },
           ];
         };
-        const primarySystemContent = buildOutlineRunSystemContent();
+        const intentPhaseRules = buildIntentPhaseSystemRules(options.intentPhase);
+        const primarySystemContent = buildOutlineRunSystemContent(intentPhaseRules);
         const systemPrompt = typeof primarySystemContent === "string"
           ? primarySystemContent
           : flattenContextHubSystemContent(primarySystemContent);
@@ -2021,6 +2108,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           budgetStage: OutlineBudgetStage = outlineBudgetStage,
         ) => {
           const registry = new ToolRegistry();
+          const skillResolution = resolveAvailableSkillsByNames(
+            outlineWritingSkills,
+            skillNames ?? [],
+          );
+          for (const name of skillResolution.missingNames) missingSkillNames.add(name);
           const effectiveOutlineWritingSkills = prioritizeOutlineSkills(
             outlineWritingSkills,
             skillNames,
@@ -2059,6 +2151,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   ? OUTLINE_CHAT_WIZARD_DISABLED_TOOLS
                   : OUTLINE_CHAT_DISABLED_TOOLS,
                 contextDecision.disabledTools,
+                (skillNames?.length ?? 0) > 0 ? ["apply_skill"] : [],
               ),
               ...(contextHubResult
                 ? { readTextFile: contextHubResult.readFile }
@@ -2087,6 +2180,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               },
             },
             registry,
+            selectedSkills: skillResolution.skills,
           };
         };
 
@@ -2100,11 +2194,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             budgetStage?: OutlineBudgetStage;
           } = {},
         ): Promise<{ text: string; record: AgentRunRecord; error?: Error; reasoning_content: string }> => {
-          const { agentConfig, registry } = buildConfigForSkillNames(
+          const { agentConfig, registry, selectedSkills } = buildConfigForSkillNames(
             optionsForRun.skillNames,
             optionsForRun.disableWriteTools,
             optionsForRun.budgetStage,
           );
+          const selectedSkillsPrompt = buildSelectedSkillsPrompt(selectedSkills);
+          const runMessages = selectedSkillsPrompt
+            ? messages.map((message, index) => index === 0 && message.role === "system"
+              ? { ...message, content: appendSystemRules(message.content, selectedSkillsPrompt) }
+              : message)
+            : messages;
           let runText = "";
           let runReasoningContent = "";
           const agentErrorBox: { current: Error | null } = { current: null };
@@ -2114,7 +2214,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const record = await new AgentRunner().run(
             agentConfig,
             registry,
-            messages,
+            runMessages,
             {
               onText: (chunk) => {
                 runText += chunk;
@@ -2158,6 +2258,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             controller.signal,
           );
           providerUsage = addLlmUsage(providerUsage, record.usage);
+          lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
           llmRequestCount += Math.max(1, record.roundsUsed || 1);
           if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
             memoryDecision = record.userMemoryDecision;
@@ -2592,7 +2693,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               getContextHub(normalizePath(project.path)),
               assistantId,
               contextHubResult,
-              providerUsage,
+              lastProviderUsage ?? providerUsage,
               {
                 memoryDecision: memoryDecision ?? null,
                 requestDiagnostics: buildLlmRequestDiagnostics(
@@ -2622,7 +2723,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               content: messageContentToText(message.content),
             })),
             currentInput: userMessage ? messageContentToText(userMessage.content) : prompt,
-            usage: providerUsage,
+            usage: lastProviderUsage ?? providerUsage,
           });
         }
 
@@ -2631,16 +2732,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ...contextSources,
             ...outlineSources,
             ...outlineToolCallsToSources(allToolCalls),
+            ...[...missingSkillNames].map((name) => `Skill 缺失（未强制启用）: ${name}`),
           ]),
         );
         const rawFinalContent = finalText || result || "AI大纲未返回内容。";
+        const rawIntentProtocol = parseIntentClarityProtocol(rawFinalContent);
         const nextStepExtraction = extractNextStep(rawFinalContent, {
           allowFallback: options.intentPhase === "generation",
           completedModule: intentContextsRef.current[capturedConvId]?.title || "当前模块",
         });
         const cleanFinalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
-        const structuredMarkdownEnabled = options.intentPhase === "generation"
-          || options.novelGenerationRequest !== undefined;
+        const structuredMarkdownEnabled = (
+          options.intentPhase === "generation" && rawIntentProtocol.kind === "none"
+        ) || options.novelGenerationRequest !== undefined;
         const finalContent = await finalizeStructuredMarkdownMessage(
           cleanFinalContent,
           {
@@ -2660,12 +2764,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           },
         );
         if (finalContent.trim()) bestGeneratedText = finalContent;
+        const intentProtocol = rawIntentProtocol.kind !== "none"
+          ? rawIntentProtocol
+          : parseIntentClarityProtocol(finalContent);
+        const intentProtocolError = options.intentPhase === "intent_analysis"
+          ? intentProtocol.kind === "invalid"
+            ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
+            : intentProtocol.kind === "none"
+              ? "意图分析格式无效，尚未开始生成：模型未返回 intent_clarity 协议块"
+              : undefined
+          : options.intentPhase === "generation" && intentProtocol.kind !== "none"
+            ? "正文生成阶段返回了 intent_clarity，已阻止重复意图分析和自动循环。"
+            : undefined;
         // 内容已直接写入消息，这里只需清掉运行状态提示
         if (isCurrentRun()) clearStreamingContent(capturedConvId);
         const visibleToolCalls = allToolCalls.length ? allToolCalls : [];
         const shouldShowToolProcess =
           historyPlan.showToolProcess ||
-          visibleToolCalls.some((call) => call.status === "approval_required");
+          visibleToolCalls.some((call) => call.status === "approval_required" || call.status === "error");
         // 最终内容提交不受 run 状态闸门限制：即使运行状态已被切换/停止，
         // 已生成的结果也必须写入消息，只有后续 UI 副作用才需要闸门。
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
@@ -2680,7 +2796,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               )
             : [],
           isAgentRunning: false,
-          nextStepRecommendation: nextStepExtraction.recommendation,
+          nextStepRecommendation: intentProtocolError ? null : nextStepExtraction.recommendation,
+          intentProtocolError,
         }));
         if (!isCurrentRun()) {
           void useOutlineChatStore.getState().saveToDisk();
@@ -2688,14 +2805,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
 
         // 解析意图清晰度结果
-        const intentResult = parseIntentClarity(finalContent);
+        const intentResult = intentProtocol.kind === "valid" && !intentProtocolError
+          ? intentProtocol.result
+          : null;
         if (intentResult) {
           const existingContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
           const matchedConfig = !existingContext.title
             ? OUTLINE_SECTION_GENERATION_CONFIGS.find((c) => c.title === intentResult.module)
             : null;
           const updatedContext = matchedConfig
-            ? { title: matchedConfig.title, hint: matchedConfig.requestHint, outputMode: matchedConfig.outputMode }
+            ? {
+                title: matchedConfig.title,
+                hint: matchedConfig.requestHint,
+                outputMode: matchedConfig.outputMode,
+                skillNames: getOutlineSkillNames(matchedConfig.title),
+              }
             : existingContext.title
               ? existingContext
               : { ...existingContext, title: intentResult.module };
@@ -2715,11 +2839,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             if (canTransitionOutlineWorkflow(capturedStage, "sufficiency_check")) {
               setCapturedWorkflowStage("sufficiency_check");
             }
-            addMessage(convId, {
-              id: crypto.randomUUID(),
-              role: "user",
-              content: `✓ 意图明确（${intentResult.module}${intentResult.detectedScope ? `：${intentResult.detectedScope}` : ""}），开始生成...`,
-            });
             const scope = intentResult.detectedScope;
             const capturedIntentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
             followUpGenerationPrompt = buildGenerationPrompt(
@@ -2727,7 +2846,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               capturedIntentContext.hint,
               scope,
               capturedIntentContext.outputMode,
+              capturedIntentContext.originalRequest,
             );
+            followUpReferences = capturedIntentContext.references ?? tokens;
           } else if (intentResult.clarity === "needs_input") {
             const capturedStage = outlineWorkflowStages[capturedConvId] ?? "idle";
             if (canTransitionOutlineWorkflow(capturedStage, "waiting_user_input")) {
@@ -2757,12 +2878,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sessionKey: capturedConvId,
           });
         }
-        await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        if (intentProtocol.kind === "none" && !intentProtocolError) {
+          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        }
         if (!isCurrentRun()) return { started: true, sent: false };
         const firstUser = useOutlineChatStore
           .getState()
           .conversations.find((conversation) => conversation.id === convId)
-          ?.messages.find((message) => message.role === "user");
+          ?.messages.find((message) => message.role === "user" && !isInternalOutlineMessage(message));
         if (firstUser) {
           useOutlineChatStore.setState((state) => ({
             conversations: state.conversations.map((conversation) =>
@@ -2785,11 +2908,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           runId,
         );
         if (followUpGenerationPrompt) {
-          void handleSend(followUpGenerationPrompt, [], {
+          void handleSend(followUpGenerationPrompt, followUpReferences, {
             conversationId: capturedConvId,
             clearDraft: false,
             intentPhase: "generation",
             systemGenerated: true,
+            userMessageVisibility: "internal",
+            preferredSkillNames: intentContextsRef.current[capturedConvId]?.skillNames,
             forceRefresh: true,
           });
         }
@@ -2877,14 +3002,84 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         title,
         hint: requestHint,
         outputMode: config?.outputMode,
+        skillNames: getOutlineSkillNames(title),
       });
       if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
         setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
       }
       const intentPrompt = buildIntentAnalysisPrompt(title, requestHint);
-      void handleSend(intentPrompt, [], { conversationId: capturedConvId, intentPhase: "intent_analysis", systemGenerated: true });
+      void handleSend(intentPrompt, [], {
+        conversationId: capturedConvId,
+        intentPhase: "intent_analysis",
+        systemGenerated: true,
+        userDisplayText: `生成${title}`,
+      });
     },
     [activeConversationId, createConversation, handleSend, outlineWorkflowStages],
+  );
+
+  const handleDirectSubmit = useCallback(
+    async (text: string, references: ReferenceToken[] = []) => {
+      const directRequest = classifyDirectOutlineGenerationRequest(text);
+      if (!directRequest) return handleSend(text, references);
+
+      const capturedConvId = activeConversationId ?? createConversation();
+      intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+        title: directRequest.module,
+        hint: text.trim(),
+        originalRequest: text.trim(),
+        references: [...references],
+        skillNames: getOutlineSkillNames(directRequest.module || text),
+      });
+      if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
+        setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
+      }
+      return handleSend(text, references, {
+        conversationId: capturedConvId,
+        intentPhase: "intent_analysis",
+      });
+    },
+    [activeConversationId, createConversation, handleSend, outlineWorkflowStages],
+  );
+
+  const handleContinueIntentGeneration = useCallback(
+    async (messageId: string, result: IntentClarityResult) => {
+      if (!activeConversationId || !canStartConversationRun(activeConversationId)) return;
+      const conversation = useOutlineChatStore.getState().conversations
+        .find((item) => item.id === activeConversationId);
+      const messageIndex = conversation?.messages.findIndex((message) => message.id === messageId) ?? -1;
+      if (!conversation || messageIndex < 0) return;
+      const originalUserMessage = [...conversation.messages.slice(0, messageIndex)]
+        .reverse()
+        .find((message) => message.role === "user" && !isInternalOutlineMessage(message));
+      if (!originalUserMessage) return;
+
+      const directRequest = classifyDirectOutlineGenerationRequest(originalUserMessage.content);
+      const context = {
+        title: result.module || directRequest?.module || "大纲",
+        hint: originalUserMessage.content,
+        originalRequest: originalUserMessage.content,
+        references: originalUserMessage.attachedReferences ?? [],
+        skillNames: getOutlineSkillNames(result.module || directRequest?.module || originalUserMessage.content),
+        result,
+      };
+      intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, activeConversationId, context);
+      setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, activeConversationId, "sufficiency_check"));
+      await handleSend(
+        buildGenerationPrompt(context.title, context.hint, result.detectedScope, undefined, context.originalRequest),
+        context.references,
+        {
+          conversationId: activeConversationId,
+          clearDraft: false,
+          intentPhase: "generation",
+          systemGenerated: true,
+          userMessageVisibility: "internal",
+          preferredSkillNames: context.skillNames,
+          forceRefresh: true,
+        },
+      );
+    },
+    [activeConversationId, canStartConversationRun, handleSend],
   );
 
   const handleSendMessage = useCallback(
@@ -2910,9 +3105,26 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
           const scope = options.scope || text;
           const intentContext = intentContextsRef.current[capturedConvId] ?? { title: "", hint: "" };
-          const generationPrompt = buildGenerationPrompt(intentContext.title, intentContext.hint, scope, intentContext.outputMode);
-          const references = outlineReferenceTokens;
-          const result = await handleSend(generationPrompt, references, { conversationId: capturedConvId, intentPhase: "generation", clearDraft: false, systemGenerated: true, forceRefresh: true });
+          const generationPrompt = buildGenerationPrompt(
+            intentContext.title,
+            intentContext.hint,
+            scope,
+            intentContext.outputMode,
+            intentContext.originalRequest,
+          );
+          const references = Array.from(new Map([
+            ...(intentContext.references ?? []),
+            ...outlineReferenceTokens,
+          ].map((reference) => [reference.id, reference])).values());
+          const result = await handleSend(generationPrompt, references, {
+            conversationId: capturedConvId,
+            intentPhase: "generation",
+            clearDraft: false,
+            systemGenerated: true,
+            userMessageVisibility: "internal",
+            preferredSkillNames: intentContext.skillNames ?? getOutlineSkillNames(intentContext.title || scope),
+            forceRefresh: true,
+          });
           if (result.sent) {
             if (shouldClearOutlineReferences({
               invocationConversationId: capturedConvId,
@@ -2994,6 +3206,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       try {
         let contextHubResult: ContextHubResult | null = null;
         let providerUsage: LlmUsage | undefined;
+        let lastProviderUsage: LlmUsage | undefined;
         let memoryDecision: UserMemoryDecision | null | undefined;
         let llmRequestCount = 0;
         try {
@@ -3132,6 +3345,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { agentError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
             llmRequestCount += Math.max(1, record.roundsUsed || 1);
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
@@ -3170,6 +3384,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onError: (error) => { mergeError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
+            lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
             llmRequestCount += Math.max(1, record.roundsUsed || 1);
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
@@ -3198,7 +3413,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               getContextHub(normalizePath(project.path)),
               `${messageId}:${runId}`,
               contextHubResult,
-              providerUsage,
+              lastProviderUsage ?? providerUsage,
               {
                 memoryDecision: memoryDecision ?? null,
                 requestDiagnostics: buildLlmRequestDiagnostics(
@@ -3222,7 +3437,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           windowTokens: getEffectiveMaxContextSize(effectiveLlmConfig),
           systemPrompt: contextHubResult ? baseSystemPrompt : systemPrompt,
           contextHubResult,
-          usage: providerUsage,
+          usage: lastProviderUsage ?? providerUsage,
         });
 
         // 更新最终状态
@@ -3369,6 +3584,44 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         .conversations.find((c) => c.id === activeConversationId);
       if (!conv) return;
       const capturedConvId = activeConversationId;
+      const targetAssistantMessage = conv.messages[msgIndex];
+      let precedingUserIndex = msgIndex - 1;
+      while (precedingUserIndex >= 0 && conv.messages[precedingUserIndex]?.role !== "user") {
+        precedingUserIndex -= 1;
+      }
+      const precedingUserMessage = precedingUserIndex >= 0 ? conv.messages[precedingUserIndex] : undefined;
+      const historicalIntent = targetAssistantMessage?.role === "assistant"
+        ? parseIntentClarityProtocol(targetAssistantMessage.content)
+        : { kind: "none" as const };
+      const regenerateAsIntentAnalysis = targetAssistantMessage?.intentPhase === "intent_analysis"
+        || (targetAssistantMessage?.intentPhase == null
+          && historicalIntent.kind !== "none"
+          && Boolean(precedingUserMessage && classifyDirectOutlineGenerationRequest(precedingUserMessage.content)));
+      if (regenerateAsIntentAnalysis && precedingUserMessage) {
+        const precedingUserContent = getOutlineMessageModelContent(precedingUserMessage);
+        const directRequest = classifyDirectOutlineGenerationRequest(precedingUserContent);
+        intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+          title: directRequest?.module || (historicalIntent.kind === "valid" ? historicalIntent.result.module : "大纲"),
+          hint: precedingUserContent,
+          originalRequest: precedingUserContent,
+          references: precedingUserMessage.attachedReferences ?? [],
+          skillNames: getOutlineSkillNames(directRequest?.module || precedingUserContent),
+        });
+        useOutlineChatStore.setState((state) => ({
+          conversations: state.conversations.map((conversation) => conversation.id === capturedConvId
+            ? { ...conversation, messages: conversation.messages.slice(0, precedingUserIndex) }
+            : conversation),
+        }));
+        setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
+        await handleSend(precedingUserContent, precedingUserMessage.attachedReferences ?? [], {
+          conversationId: capturedConvId,
+          clearDraft: false,
+          intentPhase: "intent_analysis",
+          forceRefresh: true,
+        });
+        return;
+      }
+      const regenerationIntentPhase = targetAssistantMessage?.intentPhase;
       const runId = crypto.randomUUID();
       if (!startConversationRun(capturedConvId, runId)) return;
       const controller = new AbortController();
@@ -3442,6 +3695,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           agentToolCalls: [],
           isAgentRunning: true,
           contextHubSnapshot,
+          intentPhase: regenerationIntentPhase,
         });
         assistantAdded = true;
 
@@ -3457,9 +3711,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           projectName: project.name,
           soulDoc,
         });
-        const systemContent: AgentMessage["content"] = contextHubResult
-          ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult)
-          : legacySystemPrompt;
+        const regenerationPhaseRules = buildIntentPhaseSystemRules(regenerationIntentPhase);
+        const regenerationContext = intentContextsRef.current[capturedConvId];
+        const regenerationSkillNames = regenerationContext?.skillNames
+          ?? getOutlineSkillNames(regenerationContext?.title || lastUserRequest);
+        const regenerationSkills = resolveAvailableSkillsByNames(
+          outlineWritingSkills,
+          regenerationSkillNames,
+        );
+        const regenerationSkillPrompt = buildSelectedSkillsPrompt(regenerationSkills.skills);
+        const baseSystemContent: AgentMessage["content"] = contextHubResult
+          ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult, [regenerationPhaseRules])
+          : [legacySystemPrompt, regenerationPhaseRules].filter(Boolean).join("\n\n");
+        const systemContent = appendSystemRules(baseSystemContent, regenerationSkillPrompt);
         const systemPrompt = typeof systemContent === "string"
           ? systemContent
           : flattenContextHubSystemContent(systemContent);
@@ -3492,7 +3756,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 useOutlineChatStore.getState().conversations,
               ),
             llmConfig: effectiveLlmConfig,
-            disabledTools: OUTLINE_CHAT_DISABLED_TOOLS,
+            disabledTools: mergeDisabledTools(
+              OUTLINE_CHAT_DISABLED_TOOLS,
+              regenerationSkillNames.length > 0 ? ["apply_skill"] : [],
+            ),
             ...(contextHubResult
               ? { readTextFile: contextHubResult.readFile }
               : {}),
@@ -3577,7 +3844,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               getContextHub(normalizePath(project.path)),
               assistantId,
               contextHubResult,
-              record.usage,
+              record.lastRequestUsage ?? record.usage,
               {
                 memoryDecision: record.userMemoryDecision,
                 requestDiagnostics: buildLlmRequestDiagnostics(
@@ -3605,19 +3872,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             content: messageContentToText(message.content),
           })),
           currentInput: lastUserRequest,
-          usage: record.usage,
+          usage: record.lastRequestUsage ?? record.usage,
         });
 
         const sources = [
           ...outlineToolCallsToSources(record.toolCalls),
+          ...regenerationSkills.missingNames.map((name) => `Skill 缺失（未强制启用）: ${name}`),
         ];
+        const rawRegenerationContent = result || record.finalText || "AI大纲未返回内容。";
+        const rawRegenerationIntentProtocol = parseIntentClarityProtocol(rawRegenerationContent);
         const nextStepExtraction = extractNextStep(
-          result || record.finalText || "AI大纲未返回内容。",
+          rawRegenerationContent,
           { allowFallback: true, completedModule: "当前模块" },
         );
         const cleanFinalContent = nextStepExtraction.cleanText || "AI大纲未返回内容。";
         const finalContent = await finalizeStructuredMarkdownMessage(cleanFinalContent, {
-          enabled: regenerationInput.structuredGeneration,
+          enabled: regenerationInput.structuredGeneration && rawRegenerationIntentProtocol.kind === "none",
           repairWithAi: ({ content, maxTokens }) => repairMarkdownFormatWithAi({
             content,
             llmConfig: effectiveLlmConfig,
@@ -3629,6 +3899,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }),
         });
         if (!isCurrentRun()) return;
+        const regenerationIntentProtocol = rawRegenerationIntentProtocol.kind !== "none"
+          ? rawRegenerationIntentProtocol
+          : parseIntentClarityProtocol(finalContent);
+        const regenerationIntentProtocolError = regenerationIntentPhase === "generation"
+          && regenerationIntentProtocol.kind !== "none"
+          ? "正文生成阶段返回了 intent_clarity，已阻止重复意图分析和自动循环。"
+          : regenerationIntentPhase === "intent_analysis"
+            && regenerationIntentProtocol.kind !== "valid"
+            ? `意图分析格式无效，尚未开始生成：${regenerationIntentProtocol.kind === "invalid" ? regenerationIntentProtocol.error : "模型未返回 intent_clarity 协议块"}`
+            : undefined;
         updateOutlineAssistantMessage(
           capturedConvId,
           assistantId,
@@ -3639,7 +3919,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sources,
             agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
             isAgentRunning: false,
-            nextStepRecommendation: nextStepExtraction.recommendation,
+            nextStepRecommendation: regenerationIntentProtocolError ? null : nextStepExtraction.recommendation,
+            intentProtocolError: regenerationIntentProtocolError,
           }),
         );
         setConversationContextSummary(capturedConvId, buildSessionContextSummary({
@@ -3651,7 +3932,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           dependencyFingerprint: contextHubResult?.dependencyStamp.fingerprint ?? "",
         }));
         if (!isCurrentRun()) return;
-        await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        if (regenerationIntentProtocol.kind === "none" && !regenerationIntentProtocolError) {
+          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+        }
         if (!isCurrentRun()) return;
         clearStreamingContent(capturedConvId);
         finishConversationRun(
@@ -3716,6 +3999,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       activeConv,
       activeConversationId,
       addMessage,
+      handleSend,
       handleAutoSaveOutlineRequests,
       outlineWritingSkills,
       clearStreamingContent,
@@ -4106,7 +4390,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             会基于当前大纲和章节内容进行回答和创作。
           </p>
         ) : null}
-        {activeMessages.map((msg, i) => (
+        {activeMessages.map((msg, i) => isInternalOutlineMessage(msg) ? null : (
           <div
             key={msg.id}
             className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -4133,6 +4417,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onConfirmToolSave={handleConfirmToolSave}
                   onRejectTool={handleRejectTool}
                   onSendMessage={handleSendMessage}
+                  onContinueIntentGeneration={handleContinueIntentGeneration}
                   onResumeMultiAgent={handleResumeMultiAgent}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
@@ -4211,7 +4496,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             outlineReferenceTokensRef.current = tokens;
             setOutlineReferenceTokens(tokens);
           }}
-          onSubmit={handleSend}
+          onSubmit={handleDirectSubmit}
           onAtTrigger={() => setReferencePickerOpen(true)}
           insertTokensRef={insertReferenceTokensRef}
           leftFooterControls={
