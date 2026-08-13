@@ -1,6 +1,6 @@
 //! Panic-to-error boundary for Tauri commands.
 //!
-//! Third-party parsers (pdf-extract / lopdf, docx-rs, calamine, …) are
+//! Third-party parsers (docx-rs, calamine, …) are
 //! known to panic on malformed input instead of returning Err. Under
 //! `panic = "abort"` that kills the whole app; even with `panic =
 //! "unwind"`, letting a panic propagate through the `extern "C"` Tauri

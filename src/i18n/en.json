@@ -305,7 +305,7 @@
     "importSourceFiles": "Import Source Files",
     "importSourceFolder": "Import Source Folder",
     "noSources": "No sources yet",
-    "importHint": "Import PDFs, markdown files, and other source materials",
+    "importHint": "Import markdown files and other source materials",
     "status": {
       "pending": "Pending",
       "queued": "Queued",
@@ -965,7 +965,7 @@
       },
       "multimodal": {
         "title": "Image Captions",
-        "description": "During import, call a vision model to generate factual descriptions for images extracted from PDF, DOCX, or PPTX files. Descriptions are written into alt text so semantic search can match image content.",
+        "description": "During import, call a vision model to generate factual descriptions for images extracted from DOCX or PPTX files. Descriptions are written into alt text so semantic search can match image content.",
         "enableLabel": "Generate image captions during import",
         "enableHint": "Off: image references are stripped from extracted content. On: each new image gets a factual caption generated and cached by hash.",
         "stateOn": "Enabled",

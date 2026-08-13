@@ -284,8 +284,6 @@ function RelatedChip({
 function iconForSource(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() ?? ""
   switch (ext) {
-    case "pdf":
-      return FileTextIcon
     case "xlsx":
     case "xls":
     case "csv":

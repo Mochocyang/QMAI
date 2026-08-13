@@ -310,7 +310,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
 
   /**
    * Lightbox jump-to-source: open the ORIGINAL raw source file
-   * (the PDF / DOCX / PPTX in `raw/sources/`), not the LLM-
+   * (the DOCX / PPTX in `raw/sources/`), not the LLM-
    * summarized `wiki/sources/<slug>.md`. The wiki summary is
    * abbreviated by design 鈥?the user's mental model when they
    * click a search-result image is "show me where this came
@@ -319,7 +319,7 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
    * Path derivation: image URLs always live under
    * `<project>/wiki/media/<slug>/img-N.<ext>`. The slug matches
    * the basename of the original raw source (we wrote it that
-   * way at extraction time in extract_pdf_markdown / fs.rs's
+   * way at extraction time in fs.rs's
    * raw-sources-layout heuristic). We list `raw/sources/` once
    * and pick the file whose stem equals the slug.
    *

@@ -5,7 +5,6 @@ export type FileCategory =
   | "image"
   | "video"
   | "audio"
-  | "pdf"
   | "document"
   | "data"
   | "unknown"
@@ -93,10 +92,8 @@ const EXT_MAP: Record<string, FileCategory> = {
   m4a: "audio",
   wma: "audio",
 
-  // PDF
-  pdf: "pdf",
-
   // Documents (binary, not directly previewable)
+  pdf: "document",
   doc: "document",
   docx: "document",
   xls: "document",

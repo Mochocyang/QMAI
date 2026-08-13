@@ -8,7 +8,7 @@
  * (`media/<slug>/img-N.png`, from the post-write safety-net section
  * in `wiki/sources/<slug>.md`). The slug equals the basename of
  * the original raw source file (we wrote it that way at extraction
- * time in `extract_pdf_markdown` / fs.rs's raw-sources-layout
+ * time in fs.rs's raw-sources-layout
  * heuristic), so finding the raw file is a stem match against
  * `<project>/raw/sources/`.
  *

@@ -1,5 +1,0 @@
-{
-  "bundle": {
-    "resources": ["pdfium/libpdfium.so"]
-  }
-}

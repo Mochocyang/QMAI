@@ -1,5 +1,5 @@
 import type { CustomApiMode } from "./llm-presets"
-import type { AzureModelFamily, ReasoningConfig, SourceWatchConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
+import type { AzureModelFamily, ReasoningConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { UiFontFamily } from "@/lib/font-settings"
 import type { VisualStyle } from "@/lib/visual-style-settings"
@@ -60,20 +60,12 @@ export interface SettingsDraft {
   proxyUrl: string
   proxyBypassLocal: boolean
 
-  // Scheduled Import
-  scheduledImportEnabled: boolean
-  scheduledImportPath: string
-  scheduledImportInterval: number // minutes
-
   // UI
   uiLanguage: string
   uiFontSizeScale: number
   uiFontFamily: UiFontFamily
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
-
-  // Source folder auto watch
-  sourceWatchConfig: SourceWatchConfig
 
   // Novel feedback window
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig

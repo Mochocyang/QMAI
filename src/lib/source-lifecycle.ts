@@ -1,10 +1,6 @@
 import {
-  copyDirectory,
-  copyFile,
   deleteFile,
-  fileExists,
   listDirectory,
-  preprocessFile,
   readFile,
   writeFile,
 } from "@/commands/fs"
@@ -14,7 +10,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { enqueueBatch } from "@/lib/ingest-queue"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
+import { getFileStem, normalizePath } from "@/lib/path-utils"
 import {
   parseFrontmatterArray,
   parseSources,
@@ -35,7 +31,6 @@ export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "md",
   "mdx",
   "txt",
-  "pdf",
   "docx",
   "pptx",
   "xlsx",
@@ -66,15 +61,6 @@ export interface DeleteSourcesResult {
   deletedWikiPaths: string[]
   rewrittenSourcePages: number
   skippedPages: number
-}
-
-export interface SourceImportOptions {
-  autoExtract?: boolean
-}
-
-export interface SourceImportResult {
-  importedPaths: string[]
-  taskIdsByPath: Record<string, string[]>
 }
 
 export function isIngestableSourcePath(path: string): boolean {
@@ -119,59 +105,6 @@ export async function enqueueSourceIngest(
     }))
   if (files.length === 0) return []
   return enqueueBatch(project.id, files)
-}
-
-export async function importSourceFiles(
-  project: WikiProject,
-  sourcePaths: string[],
-  llmConfig: LlmConfig,
-  options: SourceImportOptions = {},
-): Promise<SourceImportResult> {
-  const pp = normalizePath(project.path)
-  const importedPaths: string[] = []
-
-  for (const sourcePath of sourcePaths) {
-    const originalName = getFileName(sourcePath) || "unknown"
-    const destPath = await getUniqueDestPath(`${pp}/raw/sources`, originalName)
-    try {
-      await copyFile(sourcePath, destPath)
-      importedPaths.push(destPath)
-      preprocessFile(destPath).catch(() => {})
-    } catch (err) {
-      console.error(`Failed to import ${originalName}:`, err)
-    }
-  }
-
-  const taskIdsByPath = options.autoExtract === false
-    ? {}
-    : await enqueueSourceIngestWithTaskMap(project, importedPaths, llmConfig)
-
-  return { importedPaths, taskIdsByPath }
-}
-
-export async function importSourceFolder(
-  project: WikiProject,
-  selectedFolder: string,
-  llmConfig: LlmConfig,
-  options: SourceImportOptions = {},
-): Promise<SourceImportResult> {
-  const pp = normalizePath(project.path)
-  const folderName = getFileName(selectedFolder) || "imported"
-  const destDir = `${pp}/raw/sources/${folderName}`
-  const copiedFiles = await copyDirectory(selectedFolder, destDir)
-
-  for (const filePath of copiedFiles) {
-    preprocessFile(filePath).catch(() => {})
-  }
-
-  const taskIdsByPath = options.autoExtract === false
-    ? {}
-    : await enqueueSourceIngestWithTaskMap(project, copiedFiles, llmConfig, {
-      sourceRoot: destDir,
-      rootContext: folderName,
-    })
-
-  return { importedPaths: copiedFiles, taskIdsByPath }
 }
 
 export async function deleteSourceFile(
@@ -369,32 +302,6 @@ export async function cleanupDeletedWikiPages(
   }
 }
 
-async function getUniqueDestPath(dir: string, fileName: string): Promise<string> {
-  const basePath = `${dir}/${fileName}`
-
-  if (!(await fileExists(basePath))) {
-    return basePath
-  }
-
-  const ext = fileName.includes(".") ? fileName.slice(fileName.lastIndexOf(".")) : ""
-  const nameWithoutExt = ext ? fileName.slice(0, -ext.length) : fileName
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "")
-
-  const withDate = `${dir}/${nameWithoutExt}-${date}${ext}`
-  if (!(await fileExists(withDate))) {
-    return withDate
-  }
-
-  for (let i = 2; i <= 99; i++) {
-    const withCounter = `${dir}/${nameWithoutExt}-${date}-${i}${ext}`
-    if (!(await fileExists(withCounter))) {
-      return withCounter
-    }
-  }
-
-  return `${dir}/${nameWithoutExt}-${date}-${Date.now()}${ext}`
-}
-
 async function appendSourceDeleteLog(
   projectPath: string,
   fileNames: string | string[],
@@ -438,23 +345,4 @@ function withRootContext(context: string, rootContext?: string): string {
   if (!rootContext) return context
   if (!context) return rootContext
   return `${rootContext} > ${context}`
-}
-
-async function enqueueSourceIngestWithTaskMap(
-  project: WikiProject,
-  sourcePaths: string[],
-  llmConfig: LlmConfig,
-  options: { sourceRoot?: string; rootContext?: string } = {},
-): Promise<Record<string, string[]>> {
-  const taskIds = await enqueueSourceIngest(project, sourcePaths, llmConfig, options)
-  const ingestablePaths = sourcePaths.filter(isIngestableSourcePath).map(normalizePath)
-  const taskIdsByPath: Record<string, string[]> = {}
-
-  for (const [index, sourcePath] of ingestablePaths.entries()) {
-    const taskId = taskIds[index]
-    if (!taskId) continue
-    taskIdsByPath[sourcePath] = [...(taskIdsByPath[sourcePath] ?? []), taskId]
-  }
-
-  return taskIdsByPath
 }

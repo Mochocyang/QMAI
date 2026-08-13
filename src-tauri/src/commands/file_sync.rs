@@ -1324,7 +1324,7 @@ mod tests {
     #[test]
     fn source_watch_config_filters_raw_source_extensions_and_dirs() {
         let config = SourceWatchConfig {
-            include_extensions: vec!["md".into(), "pdf".into()],
+            include_extensions: vec!["md".into(), "docx".into()],
             exclude_dirs: vec!["drafts".into(), "subdir/drafts".into()],
             exclude_globs: vec!["*.private.*".into()],
             ..SourceWatchConfig::default()

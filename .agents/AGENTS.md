@@ -29,7 +29,7 @@ QMAI 是**长篇小说记忆型 AI 写作桌面系统**（Tauri 2 + React 19 + T
 | 状态 | `src/stores/` | Zustand（wiki-store、review-store 等） |
 | 小说引擎 | `src/lib/novel/` | 记忆、上下文、摄取、审查、图谱、拆书 |
 | 通用工具 | `src/lib/` | LLM 客户端、搜索、嵌入、持久化 |
-| 后端 | `src-tauri/` | 文件系统、向量存储、PDF、进程 |
+| 后端 | `src-tauri/` | 文件系统、向量存储、进程 |
 
 小说相关逻辑优先放 `src/lib/novel/`，通过 `mod.ts` 导出；不要散落在 UI 组件里。
 

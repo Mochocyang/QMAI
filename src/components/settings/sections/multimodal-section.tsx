@@ -26,14 +26,14 @@ export function MultimodalSection({ draft, setDraft }: Props) {
         <p className="mt-1 text-sm text-muted-foreground">
           {t(
             "settings.sections.multimodal.description",
-            "Generate factual captions for images extracted from PDFs / DOCX / PPTX during ingest. Captions are inserted as alt text inside the source markdown — they're what semantic search matches when you search for image content. Cached by image hash so duplicate logos / charts only call the LLM once.",
+            "Generate factual captions for images extracted from DOCX / PPTX during ingest. Captions are inserted as alt text inside the source markdown — they're what semantic search matches when you search for image content. Cached by image hash so duplicate logos / charts only call the LLM once.",
           )}
         </p>
       </div>
 
       {/* Master toggle. Off by default — captioning is a non-trivial
           token spend (one VLM call per image), and silently turning
-          it on for every user the first time they import a PDF
+          it on for every user the first time they import a document
           would surprise the budget.
 
           Note: the toggle row deliberately uses a 2-tier border +
@@ -221,7 +221,7 @@ export function MultimodalSection({ draft, setDraft }: Props) {
             </div>
           )}
 
-          {/* Concurrency knob — practical impact: a 30-image PDF at
+          {/* Concurrency knob — practical impact: a 30-image PPTX at
               concurrency=1 with a 10s/image VLM is 5 minutes of
               ingest wall time; concurrency=4 makes it ~75s. Going
               wider than ~8 is rarely a win on a single-GPU server
@@ -268,7 +268,7 @@ export function MultimodalSection({ draft, setDraft }: Props) {
               <li>
                 {t(
                   "settings.sections.multimodal.costPoint3",
-                  "Rust-side filter drops images smaller than 100×100 px and caps at 500 images per source — pathological PDFs can't blow up the bill.",
+                  "Rust-side filter drops images smaller than 100×100 px and caps at 500 images per source — pathological documents can't blow up the bill.",
                 )}
               </li>
               <li>

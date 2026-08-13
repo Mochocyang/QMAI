@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync, renameSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { execSync } from "node:child_process"
-import { dirname, resolve } from "node:path"
+import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -16,12 +16,8 @@ const isStorySimulationBranch = currentBranch === "feature-story-simulation"
 const releaseExe = resolve(root, "src-tauri/target/release/qmai.exe")
 const portableDevExe = resolve(root, "src-tauri/target/portable-dev/qmai.exe")
 const sourceExe = existsSync(portableDevExe) ? portableDevExe : releaseExe
-const releasePdfium = resolve(root, "src-tauri/target/release/pdfium/pdfium.dll")
-const portableDevPdfium = resolve(root, "src-tauri/target/portable-dev/pdfium/pdfium.dll")
-const sourcePdfium = existsSync(portableDevPdfium) ? portableDevPdfium : releasePdfium
 const outDir = resolve(root, "release-portable")
 const outExe = resolve(outDir, isStorySimulationBranch ? "QMaiWrite-剧情推演版.exe" : "QMaiWrite.exe")
-const outPdfium = resolve(outDir, "pdfium/pdfium.dll")
 const outSkillDir = resolve(outDir, "skills")
 const manifest = resolve(outDir, "version-info.json")
 const backupDir = resolve(root, "release-portable-backup")
@@ -65,13 +61,6 @@ try {
   console.warn("警告：无法完全替换正在运行的 exe，保留旧版本，但已更新其他资源")
 }
 
-if (existsSync(sourcePdfium)) {
-  mkdirSync(dirname(outPdfium), { recursive: true })
-  try {
-    cpSync(sourcePdfium, outPdfium)
-  } catch {}
-}
-
 // 复制 skills 文件夹到便携版目录
 const sourceSkillDir = resolve(root, "skills")
 if (existsSync(sourceSkillDir)) {
@@ -90,7 +79,6 @@ writeFileSync(manifest, JSON.stringify({
   sourceExe,
   portableExe: outExe,
   exeBytes: exeStat.size,
-  includesPdfium: existsSync(outPdfium),
   includesSkills: existsSync(outSkillDir),
   ...(isStorySimulationBranch ? { variant: "story-simulation", branch: currentBranch } : {}),
 }, null, 2), "utf8")

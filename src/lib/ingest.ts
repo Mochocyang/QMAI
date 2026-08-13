@@ -2185,7 +2185,7 @@ export async function startIngest(
   // `executeIngestWrites`) so the images are on disk before the user
   // even sees the analysis stream, and the cost is only paid once
   // per source: a follow-up `executeIngestWrites` will reuse the
-  // already-extracted set rather than re-running pdfium.
+  // already-extracted set rather than re-running Office image extraction.
   // Failure-tolerant — `extractAndSaveSourceImages` returns [] on
   // any error and logs internally; we never want image extraction
   // to break the ingest chat flow.

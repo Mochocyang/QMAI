@@ -40,8 +40,6 @@ export function FilePreview({ filePath, textContent }: FilePreviewProps) {
       return <VideoPreview filePath={filePath} fileName={fileName} />
     case "audio":
       return <AudioPreview filePath={filePath} fileName={fileName} />
-    case "pdf":
-      return <TextPreview filePath={filePath} content={textContent} label="PDF (extracted text)" />
     case "code":
       return <CodePreview filePath={filePath} content={textContent} />
     case "data":

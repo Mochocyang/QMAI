@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig, loadSearchApiConfig } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig, loadSearchApiConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -91,34 +91,6 @@ function App() {
     }
   }
 
-  async function hydrateScheduledImportAfterOpen(proj: WikiProject): Promise<void> {
-    try {
-      const savedScheduledImport = await loadScheduledImportConfig(proj.path)
-      if (!isCurrentProject(proj)) return
-      if (savedScheduledImport) {
-        let path = savedScheduledImport.path
-        if (path && !path.startsWith("/") && !path.match(/^[a-zA-Z]:[/\\]/)) {
-          path = `${proj.path}/${path}`
-        }
-        useWikiStore.getState().setScheduledImportConfig({
-          ...savedScheduledImport,
-          path,
-        })
-      }
-
-      if (!isTauri()) return
-      const scheduledImportConfig = useWikiStore.getState().scheduledImportConfig
-      if (!isCurrentProject(proj)) return
-      if (scheduledImportConfig.enabled && scheduledImportConfig.path && scheduledImportConfig.interval > 0) {
-        const { startScheduledImport } = await import("@/lib/scheduled-import")
-        if (!isCurrentProject(proj)) return
-        startScheduledImport(proj, scheduledImportConfig)
-      }
-    } catch (err) {
-      console.warn("[startup] 加载定时导入配置失败:", err)
-    }
-  }
-
   async function hydrateProjectBackgroundServices(proj: WikiProject): Promise<void> {
     if (!isTauri()) return
     if (!isCurrentProject(proj)) return
@@ -150,30 +122,10 @@ function App() {
     } catch (err) {
       console.error("恢复伏笔清理队列失败:", err)
     }
-
-    if (!isCurrentProject(proj)) return
-
-    try {
-      const { startProjectFileSync, stopProjectFileSync } = await import("@/lib/project-file-sync")
-      const config = await loadSourceWatchConfig(proj.id, proj.path)
-      if (!isCurrentProject(proj)) return
-      useWikiStore.getState().setSourceWatchConfig(config)
-      if (config.enabled) {
-        startProjectFileSync(proj, config).catch((err) =>
-          console.error("启动项目文件同步失败:", err)
-        )
-      } else {
-        stopProjectFileSync().catch(() => {})
-      }
-    } catch (err) {
-      console.error("配置项目文件同步失败:", err)
-    }
   }
 
   async function hydrateDeferredProjectState(proj: WikiProject): Promise<void> {
     await hydrateProjectBackgroundServices(proj)
-    if (!isCurrentProject(proj)) return
-    await hydrateScheduledImportAfterOpen(proj)
     if (!isCurrentProject(proj)) return
     await hydrateProjectSideStores(proj)
     if (!isCurrentProject(proj)) return
@@ -491,18 +443,6 @@ function App() {
   }
 
   async function handleSwitchProject() {
-    // Stop scheduled import before switching projects
-    import("@/lib/scheduled-import").then(({ stopScheduledImport }) => {
-      stopScheduledImport()
-    }).catch(() => {})
-
-    // Save current project's scheduled import config before clearing
-    const currentProject = useWikiStore.getState().project
-    if (currentProject) {
-      const currentConfig = useWikiStore.getState().scheduledImportConfig
-      saveScheduledImportConfig(currentProject.path, currentConfig).catch(() => {})
-    }
-
     // Clear all per-project state BEFORE flipping back to the welcome screen
     // so old data cannot leak in via any async render pass.
     await resetProjectState()

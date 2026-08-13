@@ -24,9 +24,8 @@ import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { useWikiStore } from "@/stores/wiki-store"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
-import { loadSourceWatchConfig, saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
+import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
-import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
@@ -114,8 +113,6 @@ function initialDraft(
   multimodal: ReturnType<typeof useWikiStore.getState>["multimodalConfig"],
   outputLanguage: ReturnType<typeof useWikiStore.getState>["outputLanguage"],
   proxy: ReturnType<typeof useWikiStore.getState>["proxyConfig"],
-  scheduledImport: ReturnType<typeof useWikiStore.getState>["scheduledImportConfig"],
-  sourceWatch: ReturnType<typeof useWikiStore.getState>["sourceWatchConfig"],
   revisionFeedbackWindowConfig: ReturnType<typeof useWikiStore.getState>["revisionFeedbackWindowConfig"],
   novelConfig: ReturnType<typeof useWikiStore.getState>["novelConfig"],
   maxHistoryMessages: number,
@@ -124,19 +121,7 @@ function initialDraft(
   uiFontFamily: UiFontFamily,
   visualStyle: SettingsDraft["visualStyle"],
   sidebarNavConfig: SidebarNavConfig,
-  projectPath?: string,
 ): SettingsDraft {
-  // Show absolute path: if stored path is empty, show default using project path
-  // If stored path is relative (legacy), prepend project path
-  // If stored path is absolute, show as-is
-  let displayPath = scheduledImport.path || ""
-  if (!displayPath && projectPath) {
-    displayPath = `${projectPath}/raw/sources`
-  } else if (displayPath && projectPath && !displayPath.startsWith("/") && !displayPath.match(/^[a-zA-Z]:[/\\]/)) {
-    // Legacy relative path - prepend project path for display
-    displayPath = `${projectPath}/${displayPath}`
-  }
-
   return {
     provider: llm.provider,
     apiKey: llm.apiKey,
@@ -173,10 +158,6 @@ function initialDraft(
     proxyEnabled: proxy.enabled,
     proxyUrl: proxy.url,
     proxyBypassLocal: proxy.bypassLocal,
-    scheduledImportEnabled: scheduledImport.enabled,
-    scheduledImportPath: displayPath,
-    scheduledImportInterval: scheduledImport.interval,
-    sourceWatchConfig: normalizeSourceWatchConfig(sourceWatch),
     revisionFeedbackWindowConfig,
     novelConfig,
     uiLanguage,
@@ -204,10 +185,6 @@ export function SettingsView() {
   const setOutputLanguage = useWikiStore((s) => s.setOutputLanguage)
   const proxyConfig = useWikiStore((s) => s.proxyConfig)
   const setProxyConfig = useWikiStore((s) => s.setProxyConfig)
-  const scheduledImportConfig = useWikiStore((s) => s.scheduledImportConfig)
-  const setScheduledImportConfig = useWikiStore((s) => s.setScheduledImportConfig)
-  const sourceWatchConfig = useWikiStore((s) => s.sourceWatchConfig)
-  const setSourceWatchConfig = useWikiStore((s) => s.setSourceWatchConfig)
   const revisionFeedbackWindowConfig = useWikiStore((s) => s.revisionFeedbackWindowConfig)
   const setRevisionFeedbackWindowConfig = useWikiStore((s) => s.setRevisionFeedbackWindowConfig)
   const novelConfig = useWikiStore((s) => s.novelConfig)
@@ -233,8 +210,6 @@ export function SettingsView() {
       multimodalConfig,
       outputLanguage,
       proxyConfig,
-      scheduledImportConfig,
-      sourceWatchConfig,
       revisionFeedbackWindowConfig,
       novelConfig,
       maxHistoryMessages,
@@ -243,7 +218,6 @@ export function SettingsView() {
       uiFontFamily,
       visualStyle,
       sidebarNavConfig,
-      project?.path,
     ),
   )
 
@@ -254,24 +228,6 @@ export function SettingsView() {
     }
     setActiveSettingsCategory(null)
   }, [activeSettingsCategory, setActiveSettingsCategory])
-
-  useEffect(() => {
-    let cancelled = false
-    loadSourceWatchConfig(project?.id).then((config) => {
-      if (cancelled) return
-      const normalized = normalizeSourceWatchConfig(config)
-      setSourceWatchConfig(normalized)
-      setDraftState((prev) => ({ ...prev, sourceWatchConfig: normalized }))
-    }).catch(() => {
-      if (cancelled) return
-      const fallback = normalizeSourceWatchConfig()
-      setSourceWatchConfig(fallback)
-      setDraftState((prev) => ({ ...prev, sourceWatchConfig: fallback }))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [project?.id, setSourceWatchConfig])
 
   useEffect(() => {
     let cancelled = false
@@ -314,8 +270,6 @@ export function SettingsView() {
         multimodalConfig,
         outputLanguage,
         proxyConfig,
-        scheduledImportConfig,
-        sourceWatchConfig,
         revisionFeedbackWindowConfig,
         novelConfig,
         maxHistoryMessages,
@@ -324,7 +278,6 @@ export function SettingsView() {
         uiFontFamily,
         visualStyle,
         sidebarNavConfig,
-        project?.path,
       ),
     )
   }, [
@@ -334,8 +287,6 @@ export function SettingsView() {
     multimodalConfig,
     outputLanguage,
     proxyConfig,
-    scheduledImportConfig,
-    sourceWatchConfig,
     revisionFeedbackWindowConfig,
     novelConfig,
     maxHistoryMessages,
@@ -343,7 +294,6 @@ export function SettingsView() {
     uiFontFamily,
     visualStyle,
     sidebarNavConfig,
-    project,
   ])
 
   const setDraft: DraftSetter = useCallback((key, value) => {
@@ -357,8 +307,6 @@ export function SettingsView() {
       saveRerankConfig,
       saveMultimodalConfig,
       saveProxyConfig,
-      saveScheduledImportConfig,
-      saveSourceWatchConfig,
       saveRevisionFeedbackWindowConfig,
       saveNovelConfig,
       saveDefaultLlmModel,
@@ -432,19 +380,6 @@ export function SettingsView() {
     await saveMultimodalConfig(newMultimodal)
     setProxyConfig(newProxy)
     await saveProxyConfig(newProxy)
-    const newSourceWatch = normalizeSourceWatchConfig(draft.sourceWatchConfig)
-    setSourceWatchConfig(newSourceWatch)
-    await saveSourceWatchConfig(newSourceWatch, project?.id, project?.path)
-    if (project) {
-      const { startProjectFileSync, stopProjectFileSync } = await import("@/lib/project-file-sync")
-      if (newSourceWatch.enabled) {
-        await startProjectFileSync(project, newSourceWatch).catch((err) =>
-          console.error("Failed to start project file sync:", err)
-        )
-      } else {
-        await stopProjectFileSync()
-      }
-    }
     // Apply the proxy env vars LIVE so the next outbound request
     // picks them up — no app restart needed. tauri-plugin-http
     // builds a fresh reqwest client per fetch and reqwest reads
@@ -456,27 +391,6 @@ export function SettingsView() {
       }
     } catch (err) {
       console.warn("[settings] live network update failed; restart will still apply:", err)
-    }
-
-    const newScheduledImport = {
-      enabled: draft.scheduledImportEnabled,
-      path: draft.scheduledImportPath,
-      interval: Math.max(1, Math.min(1440, draft.scheduledImportInterval || 60)),
-      lastScan: scheduledImportConfig.lastScan,
-    }
-    setScheduledImportConfig(newScheduledImport)
-    if (project) {
-      await saveScheduledImportConfig(project.path, newScheduledImport)
-      const { startScheduledImport, stopScheduledImport } = await import("@/lib/scheduled-import")
-      if (
-        newScheduledImport.enabled &&
-        newScheduledImport.path &&
-        newScheduledImport.interval > 0
-      ) {
-        startScheduledImport(project, newScheduledImport)
-      } else {
-        stopScheduledImport()
-      }
     }
 
     setRevisionFeedbackWindowConfig(draft.revisionFeedbackWindowConfig)
@@ -515,11 +429,8 @@ export function SettingsView() {
     setRerankConfig,
     setOutputLanguage,
     setProxyConfig,
-    setScheduledImportConfig,
-    setSourceWatchConfig,
     setRevisionFeedbackWindowConfig,
     setNovelConfig,
-    scheduledImportConfig,
     setMaxHistoryMessages,
     outputLanguage,
     setUiFontSizeScale,

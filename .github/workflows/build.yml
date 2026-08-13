@@ -26,8 +26,6 @@ jobs:
             runner: windows-latest
             rust_targets: ""
             tauri_args: "--bundles nsis"
-            pdfium_asset: ""
-            pdfium_library: ""
             artifact_globs: |
               src-tauri/target/**/release/bundle/nsis/*.exe
               src-tauri/target/**/release/bundle/nsis/*.exe.sig
@@ -37,8 +35,6 @@ jobs:
             runner: macos-latest
             rust_targets: "aarch64-apple-darwin"
             tauri_args: "--target aarch64-apple-darwin --bundles dmg,app --no-sign"
-            pdfium_asset: "pdfium-mac-arm64.tgz"
-            pdfium_library: "libpdfium.dylib"
             artifact_globs: |
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
@@ -48,8 +44,6 @@ jobs:
             runner: macos-15-intel
             rust_targets: "x86_64-apple-darwin"
             tauri_args: "--target x86_64-apple-darwin --bundles dmg,app --no-sign"
-            pdfium_asset: "pdfium-mac-x64.tgz"
-            pdfium_library: "libpdfium.dylib"
             artifact_globs: |
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
@@ -59,8 +53,6 @@ jobs:
             runner: ubuntu-22.04
             rust_targets: ""
             tauri_args: "--bundles deb,appimage"
-            pdfium_asset: "pdfium-linux-x64.tgz"
-            pdfium_library: "libpdfium.so"
             artifact_globs: |
               src-tauri/target/release/bundle/deb/*.deb
               src-tauri/target/release/bundle/appimage/*.AppImage
@@ -99,19 +91,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev patchelf protobuf-compiler libgtk-3-dev libayatana-appindicator3-dev
-
-      - name: Install PDFium binary
-        if: matrix.pdfium_asset != ''
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pdfium" src-tauri/pdfium
-          curl -L --fail --retry 5 --retry-delay 2 \
-            -o "$RUNNER_TEMP/pdfium.tgz" \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_asset }}"
-          tar -xzf "$RUNNER_TEMP/pdfium.tgz" -C "$RUNNER_TEMP/pdfium"
-          cp "$RUNNER_TEMP/pdfium/lib/${{ matrix.pdfium_library }}" "src-tauri/pdfium/${{ matrix.pdfium_library }}"
-          ls -la src-tauri/pdfium
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

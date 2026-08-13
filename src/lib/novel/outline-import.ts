@@ -8,7 +8,6 @@ export const OUTLINE_IMPORT_EXTENSIONS = [
   "md",
   "mdx",
   "txt",
-  "pdf",
   "docx",
   "pptx",
   "xlsx",

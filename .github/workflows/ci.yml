@@ -13,14 +13,8 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            pdfium_asset: pdfium-mac-arm64.tgz
-            pdfium_library: libpdfium.dylib
           - platform: ubuntu-22.04
-            pdfium_asset: pdfium-linux-x64.tgz
-            pdfium_library: libpdfium.so
           - platform: windows-latest
-            pdfium_asset: ""
-            pdfium_library: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -44,19 +38,6 @@ jobs:
       - name: Install protoc (Windows)
         if: matrix.platform == 'windows-latest'
         run: choco install protoc -y
-
-      - name: Install PDFium binary
-        if: matrix.pdfium_asset != ''
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pdfium" src-tauri/pdfium
-          curl -L --fail --retry 5 --retry-delay 2 \
-            -o "$RUNNER_TEMP/pdfium.tgz" \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_asset }}"
-          tar -xzf "$RUNNER_TEMP/pdfium.tgz" -C "$RUNNER_TEMP/pdfium"
-          cp "$RUNNER_TEMP/pdfium/lib/${{ matrix.pdfium_library }}" "src-tauri/pdfium/${{ matrix.pdfium_library }}"
-          ls -la src-tauri/pdfium
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
