@@ -55,8 +55,6 @@ export function isWebSearchConfigured(
 export function buildLocalWritingCorpus(
   pack: Pick<
     ContextPack,
-    | "outline"
-    | "chapterGoal"
     | "characterStates"
     | "characterAuras"
     | "relatedSettings"
@@ -70,9 +68,9 @@ export function buildLocalWritingCorpus(
   >,
   extraTexts: readonly string[] = [],
 ): string {
+  // 故意不纳入 outline / chapterGoal：实体正是从本章大纲抽出的，
+  // 再拿同一份大纲当「本地已有」会把几乎所有名字短路掉。
   return [
-    pack.outline,
-    pack.chapterGoal,
     pack.characterStates,
     pack.characterAuras,
     pack.relatedSettings,

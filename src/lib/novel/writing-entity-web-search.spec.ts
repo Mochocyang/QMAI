@@ -74,6 +74,19 @@ describe("writing entity local lookup", () => {
     expect(isLocallyResolvedEntity("降龙十八掌", corpus, ["黄蓉"])).toBe(false)
   })
 
+  it("does not treat names that only appear in the chapter outline as resolved", () => {
+    const corpus = buildLocalWritingCorpus({
+      ...pack,
+      outline: "第3章：李鸿章在总理衙门与赫德会面。",
+      chapterGoal: "李鸿章与赫德谈判",
+    })
+    expect(corpus).not.toContain("李鸿章")
+    expect(corpus).not.toContain("赫德")
+    expect(isLocallyResolvedEntity("李鸿章", corpus, [])).toBe(false)
+    expect(isLocallyResolvedEntity("赫德", corpus, [])).toBe(false)
+    expect(isLocallyResolvedEntity("郭靖", corpus, [])).toBe(true)
+  })
+
   it("selects only names missing from both corpus and entity table", () => {
     const corpus = buildLocalWritingCorpus(pack)
     expect(selectUnresolvedEntities(["郭靖", "黄蓉", "降龙十八掌"], corpus, ["黄蓉"])).toEqual([
@@ -143,6 +156,36 @@ describe("collectWritingEntityWebSearch", () => {
     expect(search).not.toHaveBeenCalled()
     expect(result.searchedNames).toEqual([])
     expect(result.markdown).toBe("")
+  })
+
+  it("searches outline-only names the model marks as needExternal", async () => {
+    const search = vi.fn(async (query: string) => [{
+      title: `${query} 资料`,
+      url: `https://example.test/${encodeURIComponent(query)}`,
+      snippet: "公开资料摘要",
+      source: "example.test",
+    }])
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章出场",
+      outline: "第3章：李鸿章在总理衙门。",
+      contextPack: {
+        ...pack,
+        outline: "第3章：李鸿章在总理衙门。",
+        chapterGoal: "李鸿章与赫德谈判",
+      },
+      streamChat: streamChatReturning([
+        '{"entities":["李鸿章"]}',
+        '{"needExternal":["李鸿章"]}',
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).toHaveBeenCalledWith("李鸿章", configuredSearch, 4)
+    expect(result.searchedNames).toEqual(["李鸿章"])
   })
 
   it("searches unresolved names the model marks as needExternal", async () => {
