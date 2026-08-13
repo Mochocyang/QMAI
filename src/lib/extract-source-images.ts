@@ -1,12 +1,11 @@
 /**
  * Image extraction orchestration for the ingest pipeline.
  *
- * Pure dispatch + path-shaping layer over the Rust commands
- * `extract_and_save_pdf_images_cmd` / `extract_and_save_office_images_cmd`.
- * Decides which command to call based on file extension, computes the
- * destination directory (`wiki/media/<source-slug>/`), and gives back
- * a small markdown snippet ready to paste into the LLM's source
- * context.
+ * Pure dispatch + path-shaping layer over the Rust command
+ * `extract_and_save_office_images_cmd`.
+ * Computes the destination directory (`wiki/media/<source-slug>/`),
+ * and gives back a small markdown snippet ready to paste into the
+ * LLM's source context.
  *
  * NOTE: this layer does NOT call any LLM (no captions yet — that's
  * Phase 3a). The alt text on each image is a placeholder; once
@@ -21,7 +20,7 @@ import { isTauri } from "@/lib/platform"
 export interface SavedImage {
   index: number
   mimeType: string
-  /** PDF page or PPTX slide number (1-based). DOCX always null. */
+  /** PPTX slide number (1-based). DOCX always null. */
   page: number | null
   width: number
   height: number
@@ -36,7 +35,6 @@ export interface SavedImage {
  *  because spreadsheets generally don't have charts as images (charts
  *  are XML-rendered shapes, not embedded raster). Adding them later is
  *  a one-line change here. */
-const SUPPORTED_PDF_EXTS = ["pdf"] as const
 const SUPPORTED_OFFICE_EXTS = ["pptx", "docx", "ppt", "doc"] as const
 // Note: ppt / doc (legacy binary formats) won't actually work — they
 // aren't ZIP. Listed for completeness; Rust side will return Err which
@@ -64,9 +62,8 @@ export async function extractAndSaveSourceImages(
   const fileName = getFileName(sp)
   const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
 
-  const isPdf = (SUPPORTED_PDF_EXTS as readonly string[]).includes(ext)
   const isOffice = (SUPPORTED_OFFICE_EXTS as readonly string[]).includes(ext)
-  if (!isPdf && !isOffice) return []
+  if (!isOffice) return []
 
   if (!isTauri()) {
     // 浏览器模式不支持本地图片提取（需要 Rust 命令）
@@ -79,7 +76,7 @@ export async function extractAndSaveSourceImages(
 
   try {
     const images = await invoke<unknown[]>(
-      isPdf ? "extract_and_save_pdf_images_cmd" : "extract_and_save_office_images_cmd",
+      "extract_and_save_office_images_cmd",
       { sourcePath: sp, destDir, relTo },
     )
     // Rust's `SavedImage` is `#[serde(rename_all = "camelCase")]`,

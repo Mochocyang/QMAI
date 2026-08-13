@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "resources": ["pdfium/pdfium.dll", "../skills"],
+    "resources": ["../skills"],
     "windows": {
       "webviewInstallMode": {
         "type": "skip"

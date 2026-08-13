@@ -23,7 +23,6 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-updater = "2"
-pdfium-render = "0.9"
 tauri-plugin-store = "2.4.4"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 zip = "2"
@@ -43,10 +42,9 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt
 which = "7"
 uuid = { version = "1", features = ["v4"] }
 toml = "0.8"
-# Multimodal image extraction (Phase 1):
-#   `image` re-encodes pdfium's raw bitmap output to PNG so the IPC
-#   payload is self-contained (the frontend doesn't need to know
-#   about pdfium's internal RGBA layout).
+# Multimodal image extraction (Office docs):
+#   `image` decodes embedded PPTX/DOCX raster bytes so we can apply
+#   the size filter before writing them to disk.
 #   `base64` serializes binary image data for Tauri IPC, which is
 #   JSON-only — Vec<u8> roundtrips ~1.33× larger than raw bytes but
 #   that's acceptable for our ~MB-scale per-image payloads.

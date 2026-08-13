@@ -240,12 +240,12 @@ export async function searchWiki(
   //
   // We deliberately do NOT also search `raw/sources/` here anymore.
   // Previously this section walked every file under raw/sources/
-  // (including PDFs / DOCX / PPTX) and called `readFile` on each,
-  // which triggers the heavy pdfium / office text-extraction path
+  // (including DOCX / PPTX) and called `readFile` on each,
+  // which triggers the heavy office text-extraction path
   // — even on cache hits, that's an IPC round-trip per file plus
   // a cache file read of the now-large combined-markdown output
   // (text + per-page image refs after the unified extractor
-  // landed). On a project with ~50 PDFs this added 5-15s per
+  // landed). On a project with ~50 office docs this added 5-15s per
   // search, which the user reported as "very, very slow."
   //
   // The content lost: nothing material. Each ingested raw source

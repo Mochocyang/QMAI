@@ -45,9 +45,6 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             use tauri::Manager;
-            if let Ok(dir) = app.path().resource_dir() {
-                commands::fs::set_resource_dir_hint(dir);
-            }
             if let Ok(dir) = app.path().app_data_dir() {
                 let store_path = dir.join("app-state.json");
                 eprintln!("[proxy] reading from {}", store_path.display());
@@ -108,9 +105,7 @@ fn main() {
             commands::cursor_cli::cursor_proxy_status,
             commands::cursor_cli::cursor_proxy_ensure,
             commands::cursor_cli::cursor_proxy_stop,
-            commands::extract_images::extract_pdf_images_cmd,
             commands::extract_images::extract_office_images_cmd,
-            commands::extract_images::extract_and_save_pdf_images_cmd,
             commands::extract_images::extract_and_save_office_images_cmd,
             commands::file_sync::start_project_file_watcher,
             commands::file_sync::stop_project_file_watcher,

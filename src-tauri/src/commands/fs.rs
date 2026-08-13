@@ -19,7 +19,7 @@ const MEDIA_EXTS: &[&str] = &[
     "mp4", "webm", "mov", "avi", "mkv", "flv", "wmv", "m4v",
     "mp3", "wav", "ogg", "flac", "aac", "m4a", "wma",
 ];
-const LEGACY_DOC_EXTS: &[&str] = &["doc", "xls", "ppt", "pages", "numbers", "key", "epub"];
+const LEGACY_DOC_EXTS: &[&str] = &["pdf", "doc", "xls", "ppt", "pages", "numbers", "key", "epub"];
 const KNOWLEDGE_DIR: &str = "QM";
 const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".qmai";
@@ -108,7 +108,6 @@ pub fn do_read_file(path: &str) -> Result<String, String> {
         }
 
         match ext.as_str() {
-            "pdf" => extract_pdf_text(&path),
             e if OFFICE_EXTS.contains(&e) => extract_office_text(&path, e),
             "doc" => extract_legacy_doc_text(&path),
             e if IMAGE_EXTS.contains(&e) => {
@@ -164,7 +163,6 @@ pub fn do_preprocess_file(path: &str) -> Result<String, String> {
             .to_lowercase();
 
         let text = match ext.as_str() {
-            "pdf" => extract_pdf_text(&path)?,
             e if OFFICE_EXTS.contains(&e) => extract_office_text(&path, e)?,
             e if is_plain_text_ext(e) => read_plain_text_file(&path)?,
             _ => return Ok("no preprocessing needed".to_string()),
@@ -261,243 +259,6 @@ fn write_cache(original: &Path, text: &str) -> Result<(), String> {
     crate::commands::file_sync::mark_app_write_path(&cache_path);
     fs::write(&cache_path, text)
         .map_err(|e| format!("Failed to write cache: {}", e))
-}
-
-/// Global PDFium instance — the library prefers a single binding shared
-/// across threads over repeatedly binding/unbinding.
-static PDFIUM: std::sync::OnceLock<Result<pdfium_render::prelude::Pdfium, String>> =
-    std::sync::OnceLock::new();
-
-/// Serializes every PDFium call. PDFium's C library is documented as
-/// safe across threads only when no PDFium object is touched from
-/// two threads simultaneously — interleaved calls are UB and have
-/// caused EXC_BAD_ACCESS segfaults on macOS ARM64 in production.
-///
-/// This mutex matters because our heavy fs commands are now `async
-/// fn`, so Tauri schedules them on the tokio multi-threaded runtime
-/// instead of running them on a single thread. Without this lock,
-/// two concurrent `read_file`/`extract_*_pdf` calls can land on
-/// different worker threads and interleave inside pdfium → crash.
-///
-/// We use `std::sync::Mutex` (not `tokio::sync::Mutex`) because the
-/// lock is acquired *inside* `spawn_blocking`, never held across
-/// `.await` — async-aware mutexes would just add overhead for no
-/// benefit here.
-static PDFIUM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Acquire the PDFium serialization lock. Auto-recovers from poison
-/// (a previous panic on a malformed PDF leaves the mutex poisoned,
-/// but pdfium has no shared state for that panic to have corrupted —
-/// the next caller can safely take the lock and proceed).
-pub(crate) fn lock_pdfium() -> std::sync::MutexGuard<'static, ()> {
-    PDFIUM_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Additional resource directory hint, set by the Tauri setup() callback
-/// once the AppHandle is available. Lets the pdfium resolver find the
-/// bundled dylib without re-implementing Tauri's platform-specific
-/// resource-dir logic.
-static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> =
-    std::sync::OnceLock::new();
-
-/// Called from Tauri's setup() with the resolved resource directory.
-/// No-op if already set.
-pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
-    let _ = RESOURCE_DIR_HINT.set(dir);
-}
-
-/// Enumerate plausible locations for the PDFium dynamic library on the
-/// current platform. Order from most specific to least:
-///   1. `$PDFIUM_DYNAMIC_LIB_PATH` env var (local dev convenience)
-///   2. Tauri resource dir (set via setup()) — the authoritative location
-///   3. Paths relative to the executable where Tauri's bundler lands
-///      resources on each platform (macOS Frameworks / Resources /
-///      MacOS dir, Windows sibling, Linux sibling)
-///   4. OS dynamic loader search path (last resort)
-fn pdfium_candidate_paths() -> Vec<String> {
-    let mut v: Vec<String> = Vec::new();
-
-    if let Ok(p) = std::env::var("PDFIUM_DYNAMIC_LIB_PATH") {
-        v.push(p);
-    }
-
-    // Tauri-resolved resource directory (set during setup()).
-    //
-    // Tauri's `bundle.resources` array form preserves relative paths,
-    // so `"pdfium/pdfium.dll"` in tauri.<target>.conf.json lands at
-    // `<resource_dir>/pdfium/pdfium.dll` — NOT at the root. Older
-    // versions of this function only probed the root, which made
-    // Windows installs fail with "Failed to locate Pdfium library"
-    // (OS error 126) even though the DLL was in the installer.
-    // We now probe both the `pdfium/` subdir (where the current
-    // bundle config actually puts it) and the root (in case a future
-    // config change flattens it).
-    if let Some(resource_dir) = RESOURCE_DIR_HINT.get() {
-        let push = |v: &mut Vec<String>, p: std::path::PathBuf| {
-            v.push(p.to_string_lossy().into_owned());
-        };
-        #[cfg(target_os = "macos")]
-        {
-            push(&mut v, resource_dir.join("pdfium").join("libpdfium.dylib"));
-            push(&mut v, resource_dir.join("libpdfium.dylib"));
-        }
-        #[cfg(target_os = "windows")]
-        {
-            push(&mut v, resource_dir.join("pdfium").join("pdfium.dll"));
-            push(&mut v, resource_dir.join("pdfium").join("libpdfium.dll"));
-            push(&mut v, resource_dir.join("pdfium.dll"));
-            push(&mut v, resource_dir.join("libpdfium.dll"));
-        }
-        #[cfg(target_os = "linux")]
-        {
-            push(&mut v, resource_dir.join("pdfium").join("libpdfium.so"));
-            push(&mut v, resource_dir.join("libpdfium.so"));
-        }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            let push = |v: &mut Vec<String>, p: std::path::PathBuf| {
-                v.push(p.to_string_lossy().into_owned());
-            };
-
-            #[cfg(target_os = "macos")]
-            {
-                // Tauri .app bundle layout:
-                //   Contents/MacOS/<binary>
-                //   Contents/Frameworks/libpdfium.dylib   ← preferred (macOS config uses bundle.macOS.frameworks)
-                //   Contents/Resources/libpdfium.dylib    ← fallback
-                //   Contents/Resources/pdfium/libpdfium.dylib  ← if array-form resources ever used on macOS
-                push(&mut v, exe_dir.join("../Frameworks/libpdfium.dylib"));
-                push(&mut v, exe_dir.join("../Resources/pdfium/libpdfium.dylib"));
-                push(&mut v, exe_dir.join("../Resources/libpdfium.dylib"));
-                push(&mut v, exe_dir.join("libpdfium.dylib"));
-            }
-
-            #[cfg(target_os = "windows")]
-            {
-                // bblanchon/pdfium-binaries ships the Windows DLL as
-                // `pdfium.dll` (no `lib` prefix). Probe flat and
-                // `pdfium/` subdir forms at both exe root and the
-                // classic Tauri `resources/` sibling — covers every
-                // layout variant we've observed across NSIS / MSI /
-                // portable builds.
-                push(&mut v, exe_dir.join("pdfium.dll"));
-                push(&mut v, exe_dir.join("pdfium").join("pdfium.dll"));
-                push(&mut v, exe_dir.join("libpdfium.dll"));
-                push(&mut v, exe_dir.join("resources").join("pdfium.dll"));
-                push(&mut v, exe_dir.join("resources").join("pdfium").join("pdfium.dll"));
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                push(&mut v, exe_dir.join("libpdfium.so"));
-                push(&mut v, exe_dir.join("pdfium").join("libpdfium.so"));
-                push(&mut v, exe_dir.join("resources").join("libpdfium.so"));
-                push(&mut v, exe_dir.join("resources").join("pdfium").join("libpdfium.so"));
-                push(&mut v, exe_dir.join("../lib/libpdfium.so"));
-            }
-        }
-    }
-
-    v
-}
-
-pub(crate) fn pdfium() -> Result<&'static pdfium_render::prelude::Pdfium, String> {
-    PDFIUM
-        .get_or_init(|| {
-            use pdfium_render::prelude::*;
-            let candidates = pdfium_candidate_paths();
-            for path in &candidates {
-                if let Ok(bindings) = Pdfium::bind_to_library(path) {
-                    eprintln!("[pdfium] loaded dynamic library from {path}");
-                    return Ok(Pdfium::new(bindings));
-                }
-            }
-            // Last resort: let the OS dynamic loader find it.
-            Pdfium::bind_to_system_library()
-                .map(Pdfium::new)
-                .map_err(|e| {
-                    format!(
-                        "Failed to locate Pdfium library. Tried: {} — and the system search path. Last error: {e}",
-                        if candidates.is_empty() {
-                            "(no candidates)".to_string()
-                        } else {
-                            candidates.join(", ")
-                        }
-                    )
-                })
-        })
-        .as_ref()
-        .map_err(|e| e.clone())
-}
-
-/// Extract a PDF as markdown — text + per-page image references
-/// when the file lives under a project's `raw/sources/` (the
-/// layout the import pipeline produces). Falls back to text-only
-/// when the PDF is opened from anywhere else.
-///
-/// Layout heuristic: a PDF at `<project>/raw/sources/<name>.pdf`
-/// implies project root = `<project>` and image dest =
-/// `<project>/QM/media/<name>/`. We use absolute filesystem paths
-/// in the emitted `![](url)` references so the markdown previews
-/// (raw-source view AND wiki-summary view) both render via
-/// `convertFileSrc` without anyone having to know which directory
-/// they're rendering from.
-///
-/// Lock: delegates to `extract_pdf_markdown`, which acquires the
-/// pdfium lock internally. We must NOT take it here too —
-/// `std::sync::Mutex` is non-reentrant.
-fn extract_pdf_text(path: &str) -> Result<String, String> {
-    use crate::commands::extract_images::{extract_pdf_markdown, ExtractOptions};
-
-    let p = Path::new(path);
-    let parent = p.parent();
-    let stem = p
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_string();
-
-    // The path-component check uses `ends_with` on `Path` which
-    // matches the LAST component (not a string-suffix check), so
-    // `/foo/raw/sources/bar.pdf` correctly identifies as under
-    // `raw/sources/` while `/foo/braw/source-thing/bar.pdf` does
-    // not.
-    let parent_is_sources = parent.map(|d| d.ends_with("sources")).unwrap_or(false);
-    let raw_dir = parent.and_then(|d| d.parent());
-    let raw_is_raw = raw_dir.map(|d| d.ends_with("raw")).unwrap_or(false);
-    let project_root = if parent_is_sources && raw_is_raw {
-        raw_dir.and_then(|d| d.parent())
-    } else {
-        None
-    };
-
-    if let Some(root) = project_root {
-        if !stem.is_empty() {
-            let media_dir = root.join(KNOWLEDGE_DIR).join("media").join(&stem);
-            // Forward-slash absolute path so we don't ship `\` into
-            // markdown that the JS-side resolver would then have to
-            // re-normalize. The resolver does handle backslashes,
-            // but emitting clean URLs in the first place avoids
-            // surprises in cache files we save to disk.
-            let url_prefix = media_dir.to_string_lossy().replace('\\', "/");
-            return extract_pdf_markdown(
-                path,
-                Some(&media_dir),
-                &url_prefix,
-                &ExtractOptions::default(),
-            );
-        }
-    }
-
-    // PDFs not under <project>/raw/sources/ — text-only fallback.
-    // Skip the image side of the extraction entirely (no media
-    // destination → extract_pdf_markdown only writes text + page
-    // headers, no pdfium image-object enumeration).
-    extract_pdf_markdown(path, None, "", &ExtractOptions::default())
 }
 
 /// Extract text from Office Open XML formats, converting to Markdown.
@@ -2007,22 +1768,6 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    /// Write `bytes` to a fresh tmp path with `.pdf` suffix and return
-    /// the path (the OS tmpdir is NOT cleaned up — acceptable for tests).
-    fn tmp_pdf_with_bytes(bytes: &[u8]) -> String {
-        let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "panic-guard-{}.pdf",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mut f = fs::File::create(&path).unwrap();
-        f.write_all(bytes).unwrap();
-        path.to_string_lossy().to_string()
-    }
-
     fn tmp_text_with_bytes(ext: &str, bytes: &[u8]) -> String {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
@@ -2172,126 +1917,19 @@ mod tests {
         assert_ne!(result, "no preprocessing needed");
     }
 
-    /// Verify read_file does NOT crash the test process on malformed PDFs.
-    /// We try a handful of payloads that have historically caused
-    /// pdf-extract/lopdf panics — any process abort would fail the test
-    /// runner before it can report.
-    ///
-    /// `multi_thread` flavor: `read_file` now uses
-    /// `tauri::async_runtime::spawn_blocking`, which moves work onto
-    /// the tokio blocking pool. The blocking pool requires a multi-
-    /// threaded runtime — the default `#[tokio::test]` is single-
-    /// threaded current-thread, on which `.await` of a `spawn_blocking`
-    /// future deadlocks.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn read_file_survives_malformed_pdf_inputs() {
-        let payloads: &[(&str, &[u8])] = &[
-            ("empty", b""),
-            ("not_a_pdf", b"this is plainly not a PDF file"),
-            ("header_only", b"%PDF-1.4\n"),
-            (
-                "broken_xref",
-                b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\nxref\nBROKENBROKEN\ntrailer\n<</Size 1>>\nstartxref\n999999\n%%EOF\n",
-            ),
-            (
-                "junk_after_header",
-                b"%PDF-1.4\n\x00\x01\x02\x03\x04\x05\x06\x07\xFF\xFE\xFDjunkgarbage",
-            ),
-        ];
-
-        for (name, bytes) in payloads {
-            let path = tmp_pdf_with_bytes(bytes);
-            let result = read_file(path.clone()).await;
-            let _ = fs::remove_file(&path);
-            eprintln!("[{name}] => {:?}", result.as_ref().map(|s| &s[..s.len().min(80)]));
-        }
+    async fn read_file_returns_unsupported_placeholder_for_pdf() {
+        let path = tmp_text_with_bytes("pdf", b"%PDF-1.4\n");
+        let result = read_file(path.clone()).await.unwrap();
+        let _ = fs::remove_file(&path);
+        assert!(result.contains("text extraction not supported"));
+        assert!(result.contains(".pdf"));
     }
 
-    /// Smoke test: a real PDF panic (synthesized) is caught. We can't
-    /// guarantee that any particular byte sequence above actually panics
-    /// pdf-extract across versions, so also trigger an explicit panic
-    /// through read_file's guarded path.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn read_file_returns_err_on_missing_file_instead_of_panicking() {
-        let result = read_file("/nonexistent/path/that/does/not/exist.pdf".to_string()).await;
-        assert!(result.is_err() || result.is_ok()); // must at least return
-    }
-
-    /// Ad-hoc probe: run the production PDF extraction path against every
-    /// .pdf under a user-provided directory and print a per-file report of
-    /// Ok / Err (library returned an error) / Panic (library panicked and
-    /// was caught by panic_guard). Gated with #[ignore] so it never runs
-    /// in CI; execute locally with:
-    ///
-    ///   PDF_PROBE_DIR=/path/to/pdfs cargo test --lib \
-    ///     -- --ignored --nocapture pdf_probe
-    #[test]
-    #[ignore = "local probe; set PDF_PROBE_DIR"]
-    fn pdf_probe() {
-        let dir = std::env::var("PDF_PROBE_DIR")
-            .unwrap_or_else(|_| "/Users/nash_su/Downloads/pdftests".to_string());
-        let root = std::path::Path::new(&dir);
-        if !root.exists() {
-            eprintln!("[pdf_probe] dir not found: {}", root.display());
-            return;
-        }
-
-        let mut pdfs: Vec<std::path::PathBuf> = Vec::new();
-        fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            if let Ok(entries) = fs::read_dir(d) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_dir() {
-                        walk(&p, out);
-                    } else if p.extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| e.eq_ignore_ascii_case("pdf"))
-                        .unwrap_or(false)
-                    {
-                        out.push(p);
-                    }
-                }
-            }
-        }
-        walk(root, &mut pdfs);
-        pdfs.sort();
-
-        eprintln!("\n[pdf_probe] found {} PDFs under {}\n", pdfs.len(), root.display());
-
-        let mut ok = 0usize;
-        let mut err = 0usize;
-        let mut panicked = 0usize;
-
-        for (idx, path) in pdfs.iter().enumerate() {
-            let display = path.display().to_string();
-            // Call extract_pdf_text directly (not read_file) so we bypass
-            // the .cache sibling dir and always exercise the parser.
-            let path_str = path.to_string_lossy().to_string();
-            let result = std::panic::catch_unwind(|| extract_pdf_text(&path_str));
-            match result {
-                Ok(Ok(text)) => {
-                    ok += 1;
-                    eprintln!("[{:>3}/{}] OK     ({:>7} chars)  {}", idx + 1, pdfs.len(), text.len(), display);
-                }
-                Ok(Err(e)) => {
-                    err += 1;
-                    eprintln!("[{:>3}/{}] ERR    {}  →  {}", idx + 1, pdfs.len(), display, e);
-                }
-                Err(payload) => {
-                    panicked += 1;
-                    let msg = if let Some(s) = payload.downcast_ref::<String>() {
-                        s.clone()
-                    } else if let Some(s) = payload.downcast_ref::<&str>() {
-                        (*s).to_string()
-                    } else {
-                        "(non-string panic)".to_string()
-                    };
-                    eprintln!("[{:>3}/{}] PANIC  {}  →  {}", idx + 1, pdfs.len(), display, msg);
-                }
-            }
-        }
-
-        eprintln!("\n[pdf_probe] summary: {} OK / {} ERR / {} PANIC (total {})", ok, err, panicked, pdfs.len());
+        let result = read_file("/nonexistent/path/that/does/not/exist.txt".to_string()).await;
+        assert!(result.is_err());
     }
 
     // ── collect_related_pages: regression coverage for the three match ─────
