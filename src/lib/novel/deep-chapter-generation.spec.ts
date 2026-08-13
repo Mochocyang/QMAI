@@ -1360,7 +1360,8 @@ describe("runDeepChapterGeneration", () => {
   })
 
   it("uses fast, standard, and strict workflow routes", async () => {
-    const fastDeps = createDeps()
+    const skippedCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
+    const fastDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
       {},
@@ -1368,8 +1369,9 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(fastDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
+    expect(skippedCollect).not.toHaveBeenCalled()
 
-    const standardDeps = createDeps()
+    const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
     const standardThinking: string[] = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
@@ -1380,8 +1382,14 @@ describe("runDeepChapterGeneration", () => {
     expect(standardDeps.reviewChapter).not.toHaveBeenCalled()
     expect(standardThinking.join("\n")).toContain("阶段4：标准完成")
     expect(standardThinking.join("\n")).not.toContain("快速模式")
+    expect(skippedCollect).not.toHaveBeenCalled()
 
-    const strictDeps = createDeps()
+    const collectWritingEntityWebSearch = vi.fn(async () => ({
+      markdown: "",
+      searchedNames: [] as string[],
+      notes: [] as string[],
+    }))
+    const strictDeps = { ...createDeps(), collectWritingEntityWebSearch }
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
       {},
@@ -1389,6 +1397,30 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
+    expect(collectWritingEntityWebSearch).toHaveBeenCalled()
+  })
+
+  it("injects strict-mode entity web search into the chapter context pack", async () => {
+    const research = "## 外部检索（仅补本地缺失实体）\n\n### 黄蓉\n- 资料 https://example.test/hr\n  公开摘要"
+    const seenPacks: ContextPack[] = []
+    const deps = createDeps()
+    vi.mocked(deps.contextPackToPrompt).mockImplementation((pack) => {
+      seenPacks.push(pack)
+      return pack.searchResults || "上下文包内容"
+    })
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      {},
+      {
+        ...deps,
+        collectWritingEntityWebSearch: vi.fn(async () => ({
+          markdown: research,
+          searchedNames: ["黄蓉"],
+          notes: [],
+        })),
+      },
+    )
+    expect(seenPacks.some((pack) => pack.searchResults.includes(research))).toBe(true)
   })
 
   it("emits visible workflow events for the chapter multi-task loop", async () => {

@@ -27,6 +27,11 @@ import {
   contextPackToPrompt,
   type ContextPack,
 } from "./context-engine";
+import {
+  collectWritingEntityWebSearch,
+  type CollectWritingEntityWebSearchInput,
+  type WritingEntityWebSearchResult,
+} from "./writing-entity-web-search";
 import { resolveDefaultModel, resolveNovelModel } from "./model-resolver";
 import { reviewChapter, type NovelReviewResult } from "./review-adapter";
 import type { TaskRouteResult } from "./task-router";
@@ -141,6 +146,9 @@ export interface DeepChapterGenerationDeps {
     signal?: AbortSignal,
     requestOverrides?: RequestOverrides,
   ) => Promise<void>;
+  collectWritingEntityWebSearch?: (
+    input: CollectWritingEntityWebSearchInput,
+  ) => Promise<WritingEntityWebSearchResult>;
 }
 
 const defaultDeps: DeepChapterGenerationDeps = {
@@ -573,7 +581,7 @@ export async function runDeepChapterGeneration(
   }
   throwIfAborted(signal);
 
-  const contextPack = await safeBuildChapterContextPack(
+  let contextPack = await safeBuildChapterContextPack(
     deps,
     input.projectPath,
     contextRequest,
@@ -581,6 +589,20 @@ export async function runDeepChapterGeneration(
     signal,
   );
   assertNotAborted(signal);
+
+  if (workflowProfile.mode === "strict") {
+    contextPack = await maybeInjectWritingEntityWebSearch({
+      input,
+      deps,
+      contextPack,
+      previousChaptersAnalysis,
+      planBlueprint,
+      workflowConfig,
+      callbacks,
+      signal,
+    });
+    assertNotAborted(signal);
+  }
 
   if (!resumeCheckpoint) {
     emitDeepChapterStageStarted(
@@ -2251,6 +2273,62 @@ function resolveGoldenThreeThinkingHints(
     "黄金三章：已启用",
     `执行策略：当前按黄金三章规则生成第${goldenThreeChapter.targetChapter}章正文。`,
   ];
+}
+
+async function maybeInjectWritingEntityWebSearch(args: {
+  input: DeepChapterGenerationInput;
+  deps: DeepChapterGenerationDeps;
+  contextPack: ContextPack;
+  previousChaptersAnalysis: string;
+  planBlueprint?: string;
+  workflowConfig: LlmConfig;
+  callbacks: DeepChapterGenerationCallbacks;
+  signal?: AbortSignal;
+}): Promise<ContextPack> {
+  const collect = args.deps.collectWritingEntityWebSearch ?? collectWritingEntityWebSearch;
+  try {
+    args.callbacks.onThinking?.(
+      formatStageThinking("联网搜索", "正在核对本库实体，必要时联网补搜..."),
+    );
+    const result = await collect({
+      projectPath: args.input.projectPath,
+      userRequest: args.input.userRequest,
+      outline: args.contextPack.outline,
+      planBlueprint: args.planBlueprint,
+      contextPack: args.contextPack,
+      chapterNumber: args.input.chapterNumber,
+      previousChaptersAnalysis: args.previousChaptersAnalysis,
+      streamChat: args.deps.streamChat,
+      llmConfig: args.workflowConfig,
+      searchApiConfig: useWikiStore.getState().searchApiConfig,
+      signal: args.signal,
+    });
+    if (result.searchedNames.length > 0 || result.markdown.trim()) {
+      emitDeepChapterActivity(args.callbacks, {
+        id: `deep_chapter:entity_web_search:${Date.now()}`,
+        stageId: "read_context",
+        kind: "web_search",
+        title: "联网搜索",
+        content: [
+          result.searchedNames.length > 0
+            ? `已搜索：${result.searchedNames.join("、")}`
+            : "未发起联网搜索",
+          ...result.notes,
+        ].filter(Boolean).join("\n"),
+      });
+    }
+    if (!result.markdown.trim()) return args.contextPack;
+    return {
+      ...args.contextPack,
+      searchResults: [args.contextPack.searchResults?.trim(), result.markdown.trim()]
+        .filter(Boolean)
+        .join("\n\n"),
+    };
+  } catch (error) {
+    rethrowIfUserAbort(error, args.signal);
+    console.error("[deep-chapter-generation] 实体联网补搜失败:", error);
+    return args.contextPack;
+  }
 }
 
 async function safeBuildChapterContextPack(

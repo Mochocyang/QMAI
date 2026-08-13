@@ -100,6 +100,8 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("description: \"完整质检")
     expect(source).toContain("快速模式像普通对话一样直接出结果")
     expect(source).toContain("读取上下文、生成任务书和正文初稿后直接完成")
+    expect(source).toContain("读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。会联网搜索。")
+    expect(source).not.toContain("前文与实体表")
     expect(source).toContain("workflowModeDropdownStyle.width")
     expect(source).toContain("routeDescription")
   })
@@ -273,8 +275,10 @@ describe("chat-panel agent reference integration", () => {
 
   it("requires external search requests to use web_search instead of pretending", () => {
     expect(source).toContain("web_search")
+    expect(source).toContain("会联网搜索")
     expect(source).toContain("不得声称已经搜索")
     expect(source).toContain("未使用联网资料")
+    expect(source).not.toContain("前文与实体表")
   })
 
   it("records web_search tool results into context trace", () => {
