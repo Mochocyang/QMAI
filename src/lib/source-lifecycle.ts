@@ -10,7 +10,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { enqueueBatch } from "@/lib/ingest-queue"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { getFileName, getFileStem, normalizePath } from "@/lib/path-utils"
+import { getFileStem, normalizePath } from "@/lib/path-utils"
 import {
   parseFrontmatterArray,
   parseSources,

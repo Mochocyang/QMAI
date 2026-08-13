@@ -25,6 +25,19 @@ const LEGACY_KNOWLEDGE_DIR: &str = "wiki";
 const META_DIR: &str = ".qmai";
 const LEGACY_META_DIR: &str = ".llm-wiki";
 
+/// Bundled resource directory, set by the Tauri setup() callback once the
+/// AppHandle is available. Used by `get_resource_dir` so frontend skill
+/// lookup can find `../skills` without re-implementing Tauri's platform
+/// resource-dir logic.
+static RESOURCE_DIR_HINT: std::sync::OnceLock<std::path::PathBuf> =
+    std::sync::OnceLock::new();
+
+/// Called from Tauri's setup() with the resolved resource directory.
+/// No-op if already set.
+pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
+    let _ = RESOURCE_DIR_HINT.set(dir);
+}
+
 #[allow(dead_code)]
 fn replace_last_path_segment(path: &str, from: &str, to: &str) -> Option<String> {
     let mut parts: Vec<&str> = path.split('/').collect();

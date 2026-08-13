@@ -43,6 +43,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             use tauri::Manager;
+            if let Ok(dir) = app.path().resource_dir() {
+                commands::fs::set_resource_dir_hint(dir);
+            }
             if let Ok(dir) = app.path().app_data_dir() {
                 let store_path = dir.join("app-state.json");
                 eprintln!("[proxy] reading from {}", store_path.display());
