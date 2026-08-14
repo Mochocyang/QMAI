@@ -12,11 +12,9 @@ import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { math } from "@milkdown/plugin-math";
 import { nord } from "@milkdown/theme-nord";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import "@milkdown/theme-nord/style.css";
-import "katex/dist/katex.min.css";
 import { Pencil, Eye } from "lucide-react";
 import { formatChapterWriting } from "@/lib/chapter-formatting";
 import { parseFrontmatter } from "@/lib/frontmatter";
@@ -569,7 +567,6 @@ function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
         })
         .use(commonmark)
         .use(gfm)
-        .use(math)
         .use(history)
         .use(listener),
     [],
@@ -595,13 +592,6 @@ export interface WikiEditorHandle {
   getCurrentMarkdown: () => string | null;
   getImmersiveScrollTop: () => number | null;
   setImmersiveScrollTop: (scrollTop: number) => void;
-}
-
-function wrapBareMathBlocks(text: string): string {
-  return text.replace(
-    /(?<!\$\$\s*)(\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\})(?!\s*\$\$)/g,
-    (_match, block: string) => `$$\n${block}\n$$`,
-  );
 }
 
 export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
@@ -642,8 +632,6 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
       () => parseFrontmatter(content),
       [content],
     );
-
-    const processedBody = useMemo(() => wrapBareMathBlocks(body), [body]);
 
     const handleSave = useMemo(
       () => (markdown: string) => onSave(rawBlock + markdown),
@@ -749,7 +737,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
               {!immersiveWriting && frontmatter && (
                 <FrontmatterPanel data={frontmatter} />
               )}
-              <WikiEditorInner content={processedBody} onSave={handleSave} />
+              <WikiEditorInner content={body} onSave={handleSave} />
             </div>
           </MilkdownProvider>
         )}
