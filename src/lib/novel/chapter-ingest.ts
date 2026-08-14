@@ -33,7 +33,15 @@ import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { RetrievalStore } from "./retrieval"
 import { computeOutlineIngestBodyBudget } from "@/lib/context-budget"
-import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "./chapter-excerpts"
+import { parseLlmJsonObject } from "./book-analysis/llm-json"
+import {
+  buildChapterExtractSystemPrompt,
+  buildChapterExtractUserPrompt,
+  buildOutlineExtractSystemPrompt,
+  buildOutlineExtractUserPrompt,
+  CHAPTER_EXTRACT_REQUEST_OVERRIDES,
+  resolveChapterExtractMaxTokens,
+} from "./chapter-ingest-extract"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -347,6 +355,7 @@ export async function ingestChapter(
   const body = parsed.body
 
   if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
+  const existingSnapshotPromise = readCurrentSnapshot(pp, chapterNumber)
   const extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
   const snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
 
@@ -354,136 +363,62 @@ export async function ingestChapter(
     return { snapshot: null, failReason: "extract_failed" as IngestFailReason }
   }
 
-  if (snapshot) {
-    try {
-      const entityWarnings = await validateEntityReferences(pp, snapshot)
-      const canonWarnings = await validateCanonConflicts(pp, snapshot)
-      snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
-      snapshot.entityIsNew = snapshot.entityIsNew || {}
-    } catch (err) {
-      console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
-      snapshot.validationWarnings = []
-      snapshot.entityIsNew = {}
-    }
-    await saveSnapshot(pp, snapshot)
-    await saveChapterIngestOutput(pp, snapshot, {
-      title: typeof fm.title === "string" ? fm.title : undefined,
-    })
+  const existingSnapshot = await existingSnapshotPromise
+  const isReingest = existingSnapshot != null
+
+  try {
+    const [entityWarnings, canonWarnings] = await Promise.all([
+      validateEntityReferences(pp, snapshot),
+      validateCanonConflicts(pp, snapshot),
+    ])
+    snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
+    snapshot.entityIsNew = snapshot.entityIsNew || {}
+  } catch (err) {
+    console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
+    snapshot.validationWarnings = []
+    snapshot.entityIsNew = {}
   }
 
-  const embCfg = useWikiStore.getState().embeddingConfig
-  if (embCfg.enabled && embCfg.model) {
+  await saveChapterIngestOutput(pp, snapshot, {
+    title: typeof fm.title === "string" ? fm.title : undefined,
+  })
+
+  const embedPromise = (async () => {
+    const embCfg = useWikiStore.getState().embeddingConfig
+    if (!embCfg.enabled || !embCfg.model) return
     try {
       const { embedPage } = await import("@/lib/embedding")
       const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
-      if (pageId) {
-        const title = typeof fm?.title === "string" ? fm.title : pageId
-        await embedPage(pp, pageId, title, content, embCfg)
-      }
+      if (!pageId) return
+      const title = typeof fm?.title === "string" ? fm.title : pageId
+      await embedPage(pp, pageId, title, content, embCfg)
     } catch {
       console.warn("[Chapter Ingest] Embedding update failed, skipping")
     }
+  })()
+
+  const syncResult = await syncSnapshotToMemory(pp, snapshot, isReingest ? REINGEST_SYNC_OPTIONS : undefined)
+
+  try {
+    const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
+    const patchJson = await readFile(patchPath)
+    const patch = JSON.parse(patchJson)
+    const patchPaths = await writePatchFieldsToWiki(pp, patch)
+    if (patchPaths.length > 0) {
+      console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
+    }
+  } catch (err) {
+    console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
   }
 
-  if (snapshot) {
-    try {
-      const writtenPaths = await writeSnapshotToWiki(pp, snapshot)
-      if (writtenPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${writtenPaths.length} entity pages from snapshot`)
-      }
-    } catch (err) {
-      console.warn("[Chapter Ingest] Entity page write failed:", err instanceof Error ? err.message : err)
-    }
-
-    try {
-      const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
-      const patchJson = await readFile(patchPath)
-      const patch = JSON.parse(patchJson)
-      const patchPaths = await writePatchFieldsToWiki(pp, patch)
-      if (patchPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
-      }
-    } catch (err) {
-      console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
-    }
+  if (isReingest) {
+    await finalizeProjectMemoryRebuild(pp)
   }
 
-  if (snapshot && snapshot.knowledgeChanges.length > 0) {
-    try {
-      const existing = await loadCognitionState(pp) ?? emptyCognitionState()
-      const updated = mergeCognitionFromSnapshot(existing, snapshot)
-      await saveCognitionState(pp, updated)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Cognition state update failed:", err instanceof Error ? err.message : err)
-    }
-  }
+  await embedPromise
 
-  if (snapshot && snapshot.characterStateChanges.length > 0) {
-    try {
-      const existingChars = await loadCharacterStates(pp)
-      for (const change of snapshot.characterStateChanges) {
-        const colonIdx = change.indexOf(":")
-        if (colonIdx > 0) {
-          const charName = change.slice(0, colonIdx).trim()
-          const changeDesc = change.slice(colonIdx + 1).trim()
-          const existing = existingChars.characters.find(c => c.characterName === charName)
-          if (existing) {
-            existing.status = changeDesc
-            existing.lastUpdatedChapter = snapshot.chapterNumber
-            existing.lastUpdatedAt = new Date().toISOString()
-          } else {
-            existingChars.characters.push({
-              characterName: charName,
-              currentLocation: "",
-              status: changeDesc,
-              equipment: [],
-              abilities: [],
-              relationships: {},
-              lastUpdatedChapter: snapshot.chapterNumber,
-              lastUpdatedAt: new Date().toISOString(),
-            })
-          }
-        } else {
-          const matched = existingChars.characters.find(c => change.includes(c.characterName))
-          if (matched) {
-            matched.status = change
-            matched.lastUpdatedChapter = snapshot.chapterNumber
-            matched.lastUpdatedAt = new Date().toISOString()
-          }
-        }
-      }
-      existingChars.lastUpdated = new Date().toISOString()
-      await saveCharacterStates(pp, existingChars)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Character state update failed:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  if (snapshot && snapshot.foreshadowingChanges.length > 0) {
-    try {
-      const existingForeshadows = await loadForeshadowingTracker(pp)
-      applyForeshadowingChangesToStore(existingForeshadows, snapshot)
-      await saveForeshadowingTracker(pp, existingForeshadows)
-    } catch (err) {
-      console.warn("[Chapter Ingest] Foreshadowing update failed:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  if (snapshot) {
-    try {
-      const memoryPaths = await exportStructuredMemoryToWiki(pp, snapshot)
-      if (memoryPaths.length > 0) {
-        console.log(`[Chapter Ingest] Wrote ${memoryPaths.length} structured memory pages`)
-      }
-    } catch (err) {
-      console.warn("[Chapter Ingest] Structured memory export failed:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  const syncResult = await syncSnapshotToMemory(pp, snapshot)
-
-  // 社区摘要定期重建
-  if (snapshot && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
+  // 重新提取只替换本章快照，不必顺带打一次社区摘要（那是另一次 LLM）。
+  if (!isReingest && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
     const rebuildCommunitySummaries = async () => {
       try {
         await generateCommunitySummaries(pp, llmConfig, novelConfig)
@@ -647,28 +582,6 @@ function normalizeOutlineIngestError(err: unknown): Error {
   return new Error(message)
 }
 
-const OUTLINE_INGEST_JSON_TEMPLATE = `输出 JSON：
-{
-  "chapterId": "outline-init",
-  "chapterNumber": 0,
-  "summary": "大纲摘要",
-  "characters": ["初始人物"],
-  "locations": ["初始地点"],
-  "organizations": ["初始组织/势力"],
-  "items": ["关键物品"],
-  "events": ["背景事件"],
-  "characterStateChanges": ["人物初始状态"],
-  "relationshipChanges": ["人物初始关系"],
-  "knowledgeChanges": [],
-  "foreshadowingChanges": ["初始伏笔"],
-  "newCanonFacts": ["世界观正史设定"],
-  "timelineEvents": ["时间线背景"],
-  "conflicts": ["核心冲突"],
-  "endingHook": "",
-  "graphNodes": ["图谱节点列表"],
-  "graphEdges": ["图谱关系边，格式：A->关系->B。关系必须是以下之一：出场于|发生于|属于|持有|敌对|合作|怀疑|隐瞒|知道|不知道|推进伏笔|回收伏笔|新增伏笔|导致|揭示|影响|位于"]
-}`
-
 export interface OutlineIngestResult {
   snapshot: ChapterSnapshot | null
   truncated: boolean
@@ -683,11 +596,7 @@ export interface IngestOutlineOptions {
 }
 
 function buildOutlineIngestUserPrompt(body: string): string {
-  return `请从以下大纲中提取初始设定：
-
-${body}
-
-${OUTLINE_INGEST_JSON_TEMPLATE}`
+  return buildOutlineExtractUserPrompt(body)
 }
 
 async function extractSnapshotWithLLM(
@@ -698,85 +607,8 @@ async function extractSnapshotWithLLM(
 ): Promise<ChapterSnapshot | null> {
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
-
-  const systemPrompt = `你是一个专业的小说编辑助手。你的任务是从给定的章节正文中提取结构化信息。
-请严格按照 JSON 格式输出，不要输出任何其他内容。
-${langReminder}`
-
-  const userPrompt = `请从以下章节中提取结构化信息，输出 JSON：
-
-章节编号：第${chapterNumber}章
-
-章节正文：
-${chapterBody.slice(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)}
-
-请输出以下格式的 JSON：
-{
-  "chapterId": "chapter-${chapterNumber}",
-  "chapterNumber": ${chapterNumber},
-  "summary": "章节摘要（200字以内）",
-  "characters": ["出场人物列表"],
-  "characterAliases": { "人物正式名": ["昵称", "小名", "旧名"] },
-  "locations": ["出场地点列表"],
-  "organizations": ["出场组织列表"],
-  "items": ["出场物品列表"],
-  "events": ["关键事件列表"],
-  "characterStateChanges": ["人物状态变化描述"],
-  "relationshipChanges": ["人物关系变化描述"],
-  "knowledgeChanges": ["角色认知变化描述"],
-  "foreshadowingChanges": ["伏笔变化描述（新增/推进/回收）"],
-  "newCanonFacts": ["新增正史设定"],
-  "timelineEvents": ["时间线事件"],
-  "conflicts": ["冲突变化描述"],
-  "endingHook": "章节结尾钩子描述",
-  "graphNodes": ["图谱节点列表"],
-  "graphEdges": ["图谱关系边列表，格式：A->关系->B。关系必须是以下之一：出场于|发生于|属于|持有|敌对|合作|怀疑|隐瞒|知道|不知道|推进伏笔|回收伏笔|新增伏笔|导致|揭示|影响|位于"],
-  "characterDetails": {
-    "人物名": {
-      "identity": "身份（具体身份描述）",
-      "faction": "阵营（所属势力或立场）",
-      "goals": "目标（当前章节中的目标）",
-      "arcChange": "弧光变化（本章中该人物的成长或变化）"
-    }
-  },
-  "locationDetails": {
-    "地点名": {
-      "region": "区域（所属地理区域）",
-      "type": "类型（场景类型，如宫殿、森林、密室等）",
-      "controller": "控制者（当前控制该地点的势力或人物）",
-      "hiddenInfo": "隐藏信息（地点中的秘密或未揭示的设定）"
-    }
-  },
-  "organizationDetails": {
-    "组织名": {
-      "leader": "领导者",
-      "members": "成员（本章出现或提及的成员）",
-      "goals": "目标（组织当前的目标）",
-      "resources": "资源（组织掌控的资源）"
-    }
-  },
-  "itemDetails": {
-    "物品名": {
-      "holder": "当前持有者",
-      "previousHolders": "前持有者",
-      "abilities": "能力（物品的功能或能力）",
-      "limitations": "限制（使用限制或副作用）",
-      "origin": "来源（物品的来历）"
-    }
-  },
-  "eventDetails": {
-    "事件名": {
-      "cause": "起因（事件的触发原因）",
-      "process": "过程（事件的发展过程）",
-      "relatedForeshadowing": "关联伏笔（与此事件相关的伏笔）",
-      "relatedConflicts": "关联冲突（与此事件相关的冲突）",
-      "followUpItems": "后续事项（事件引发的后续影响或待处理事项）"
-    }
-  }
-}
-
-注意：如果同一个人物在正文里有昵称、小名、旧名或全名，请把正式名放进 characters，把其他称呼放进 characterAliases，不要把同一人物拆成多个 characters。
-注意：characterDetails、locationDetails、organizationDetails、itemDetails、eventDetails 仅在章节中确实有相关信息时才填写；如果某个字段没有相关信息，直接省略该字段即可。`
+  const systemPrompt = buildChapterExtractSystemPrompt(langReminder)
+  const userPrompt = buildChapterExtractUserPrompt(chapterNumber, chapterBody)
 
   try {
     const messages: ChatMessage[] = [
@@ -796,15 +628,16 @@ ${chapterBody.slice(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)}
       },
     }
 
-    await streamChat(llmConfig, messages, callbacks, signal)
+    await streamChat(llmConfig, messages, callbacks, signal, {
+      ...CHAPTER_EXTRACT_REQUEST_OVERRIDES,
+      max_tokens: resolveChapterExtractMaxTokens(llmConfig.maxContextSize),
+    })
     if (streamError) throw streamError
 
-    const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.match(/\{[\s\S]*\}/) ?? result.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    const parsed = parseLlmJsonObject(result)
+    if (!parsed) {
       throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")
     }
-
-    const parsed = JSON.parse(jsonMatch[0])
     return normalizeChapterSnapshot({
       ...parsed,
       chapterId: parsed.chapterId || `chapter-${chapterNumber}`,
@@ -1101,6 +934,14 @@ export interface SyncSnapshotToMemoryResult {
 export interface SyncSnapshotToMemoryOptions {
   deferStructuredMemoryExport?: boolean
   deferDerivedRebuild?: boolean
+  /** 跳过认知/人物/伏笔的增量合并。重新提取时应随后全量重建派生记忆。 */
+  skipDerivedIncremental?: boolean
+}
+
+const REINGEST_SYNC_OPTIONS: SyncSnapshotToMemoryOptions = {
+  skipDerivedIncremental: true,
+  deferStructuredMemoryExport: true,
+  deferDerivedRebuild: true,
 }
 
 export async function syncSnapshotToMemory(
@@ -1156,17 +997,17 @@ export async function syncSnapshotToMemory(
     } catch { /* skip errors */ }
   }
 
-  if (syncedSnapshot.knowledgeChanges.length > 0) {
+  if (!options?.skipDerivedIncremental && syncedSnapshot.knowledgeChanges.length > 0) {
     const existing = await loadCognitionState(pp) ?? emptyCognitionState()
     const updated = mergeCognitionFromSnapshot(existing, syncedSnapshot)
     await saveCognitionState(pp, updated)
   }
 
-  if (syncedSnapshot.characterStateChanges.length > 0) {
+  if (!options?.skipDerivedIncremental && syncedSnapshot.characterStateChanges.length > 0) {
     await syncCharacterStateChanges(pp, syncedSnapshot)
   }
 
-  if (syncedSnapshot.foreshadowingChanges.length > 0) {
+  if (!options?.skipDerivedIncremental && syncedSnapshot.foreshadowingChanges.length > 0) {
     await syncForeshadowingChanges(pp, syncedSnapshot)
   }
 
@@ -1478,25 +1319,24 @@ async function validateEntityReferences(
     snapshot.entityIsNew = {}
   }
 
-  for (const { key, label } of categories) {
-    for (const name of snapshot[key]) {
+  const checks = categories.flatMap(({ key, label }) =>
+    snapshot[key].map(async (name) => {
       try {
-        const filePath = `${entitiesDir}/${name}.md`
-        const exists = await fileExists(filePath)
-        snapshot.entityIsNew[name] = !exists
-        if (!exists) {
-          warnings.push({
-            type: "entity_new",
-            message: `新${label}: ${name}`,
-          })
-        }
+        const exists = await fileExists(`${entitiesDir}/${name}.md`)
+        return { name, exists, label }
       } catch {
-        snapshot.entityIsNew[name] = true
-        warnings.push({
-          type: "entity_new",
-          message: `新${label}: ${name}`,
-        })
+        return { name, exists: false, label }
       }
+    }),
+  )
+  const results = await Promise.all(checks)
+  for (const { name, exists, label } of results) {
+    snapshot.entityIsNew[name] = !exists
+    if (!exists) {
+      warnings.push({
+        type: "entity_new",
+        message: `新${label}: ${name}`,
+      })
     }
   }
 
@@ -1648,7 +1488,7 @@ export async function ingestOutline(
 
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
-  const systemPrompt = `你是一个专业的小说编辑助手。请从大纲中提取初始设定信息，输出 JSON。${langReminder}`
+  const systemPrompt = buildOutlineExtractSystemPrompt(langReminder)
   const promptOverhead = systemPrompt.length + buildOutlineIngestUserPrompt("").length
   const bodyBudget = computeOutlineIngestBodyBudget(runtimeLlmConfig.maxContextSize, promptOverhead)
   const truncated = content.length > bodyBudget
@@ -1669,6 +1509,7 @@ export async function ingestOutline(
   const chapterId = `outline-${outlineName}`
 
   const userPrompt = buildOutlineIngestUserPrompt(body)
+  const existingSnapshotPromise = readCurrentSnapshot(pp, outlineNumber)
 
   try {
     const messages: ChatMessage[] = [
@@ -1684,15 +1525,16 @@ export async function ingestOutline(
       onError: (error: Error) => { streamError = error },
     }
 
-    await streamChat(runtimeLlmConfig, messages, callbacks, signal)
+    await streamChat(runtimeLlmConfig, messages, callbacks, signal, {
+      ...CHAPTER_EXTRACT_REQUEST_OVERRIDES,
+      max_tokens: resolveChapterExtractMaxTokens(runtimeLlmConfig.maxContextSize),
+    })
     if (streamError) throw streamError
 
-    const jsonMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.match(/\{[\s\S]*\}/) ?? result.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    const parsed = parseLlmJsonObject(result)
+    if (!parsed) {
       throw new Error("大纲摄取失败：模型没有返回可解析的 JSON")
     }
-
-    const parsed = JSON.parse(jsonMatch[0])
     const snapshot = normalizeChapterSnapshot({
       ...parsed,
       chapterId,
@@ -1716,7 +1558,11 @@ export async function ingestOutline(
       }
     }
 
-    const syncResult = await syncSnapshotToMemory(pp, snapshot)
+    const isReingest = (await existingSnapshotPromise) != null
+    const syncResult = await syncSnapshotToMemory(pp, snapshot, isReingest ? REINGEST_SYNC_OPTIONS : undefined)
+    if (isReingest) {
+      await finalizeProjectMemoryRebuild(pp)
+    }
     return {
       snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt },
       truncated,
