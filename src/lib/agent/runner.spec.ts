@@ -1035,6 +1035,64 @@ describe("AgentRunner", () => {
     expect(compressedToolMessage).toContain("结尾")
   })
 
+  it("sends the full run_chapter_workflow result to the model instead of compressing it", async () => {
+    const longResult = [
+      "章节工作流完成。",
+      "是否返修：是",
+      `任务书：${"开头承接".repeat(400)}`,
+      "",
+      "最终正文：",
+      `${"陈远的手还压在西线地图上。".repeat(80)}\n中间正文\n${"空袭窗口正在关闭。".repeat(80)}`,
+    ].join("\n")
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      permission: "auto",
+      executeTimeoutMs: 0,
+      parameters: {},
+      execute: vi.fn().mockResolvedValue(longResult),
+    }
+    registry.register(tool)
+
+    let injectedToolMessage = ""
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, messages: AgentMessage[], cb: StreamCallbacks) => {
+      callCount++
+      if (callCount === 1) {
+        cb.onToolCallDelta?.({ index: 0, id: "workflow_1", name: "run_chapter_workflow" })
+        cb.onToolCallDelta?.({ index: 0, arguments: "{}" })
+        cb.onDone()
+      } else {
+        injectedToolMessage = String(messages[messages.length - 1].content)
+        cb.onToken("已输出")
+        cb.onDone()
+      }
+    })
+
+    const config: AgentConfig = {
+      maxRounds: 3,
+      tools: [tool],
+      systemPrompt: "",
+      llmConfig: mockLlmConfig,
+      toolResultContextLimit: 1200,
+    }
+    const result = await runner.run(
+      config,
+      registry,
+      [systemMsg, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+    )
+
+    expect(longResult.length).toBeGreaterThan(1200)
+    expect(result.toolCalls[0].result).toBe(longResult)
+    expect(injectedToolMessage).toContain(longResult)
+    expect(injectedToolMessage).toContain("陈远的手还压在西线地图上")
+    expect(injectedToolMessage).toContain("中间正文")
+    expect(injectedToolMessage).not.toContain("已压缩给模型使用")
+  })
+
   it("每轮模型请求保留任务契约并压缩内部工作消息", async () => {
     const untrimmed = [
       { role: "system" as const, content: "系统规则".repeat(120) },
