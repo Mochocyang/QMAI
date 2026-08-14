@@ -3566,7 +3566,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             }
             if (mergeError && !isOutlineOutputTruncated(mergeError)) throw mergeError;
             if (mergeError) {
-              mergeText = `${mergeText}\n\n---\n\n⚠️ **注意**：${mergeError.message}\n\n您可以在新消息中输入"继续"来让模型补全剩余内容，或点击保存尝试保存已生成的内容。`;
+              const truncatedError = mergeError as Error;
+              mergeText = `${mergeText}\n\n---\n\n⚠️ **注意**：${truncatedError.message}\n\n您可以在新消息中输入"继续"来让模型补全剩余内容，或点击保存尝试保存已生成的内容。`;
             }
             return mergeText || "AI大纲未返回内容。";
           },

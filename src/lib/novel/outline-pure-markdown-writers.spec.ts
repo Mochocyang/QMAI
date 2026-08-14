@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 const writerFiles = [
   "../../components/layout/sidebar-panel.tsx",
   "../../components/novel/outline-editor.tsx",
-  "outline-generation.ts",
   "outline-import.ts",
   "source-outline-import.ts",
 ]

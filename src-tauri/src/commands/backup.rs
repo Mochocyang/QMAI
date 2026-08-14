@@ -1691,18 +1691,21 @@ mod tests {
             .any(|name| name == "projects/p1/.trash/deleted.md"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn test_is_path_root_accessible_windows_drive() {
         // C 盘在 Windows 上始终存在
         assert!(is_path_root_accessible("C:\\some\\path"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_is_path_root_accessible_unix_root() {
         // Unix 根目录始终可达
         assert!(is_path_root_accessible("/home/user/project"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn test_is_path_root_accessible_nonexistent_drive() {
         // Z 盘大概率不存在
