@@ -1,5 +1,6 @@
 import type { AzureModelFamily } from "@/stores/wiki-store"
 import { MIN_USER_LLM_CONTEXT_SIZE } from "@/lib/llm-context-size"
+import { CODEX_CLI_SUGGESTED_MODELS, DEFAULT_CODEX_CLI_MODEL } from "@/lib/codex-cli-model"
 
 /**
  * Curated LLM provider presets.
@@ -120,14 +121,8 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     label: "Codex CLI (local)",
     hint: "Uses the local `codex` binary — no API key needed",
     provider: "codex-cli",
-    defaultModel: "gpt-5.4-mini",
-    suggestedModels: [
-      "gpt-5.4-mini",
-      "gpt-5.4",
-      "gpt-5.3-codex",
-      "gpt-5.3-codex-spark",
-      "gpt-5.2",
-    ],
+    defaultModel: DEFAULT_CODEX_CLI_MODEL,
+    suggestedModels: [...CODEX_CLI_SUGGESTED_MODELS],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {

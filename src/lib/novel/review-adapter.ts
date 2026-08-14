@@ -20,6 +20,7 @@ export interface NovelReviewResult {
 
 export interface NovelReviewCallbacks {
   onThinking?: (content: string) => void
+  onRequestTrace?: StreamCallbacks["onRequestTrace"]
 }
 
 export interface ReviewChapterOptions extends NovelReviewCallbacks {
@@ -418,6 +419,7 @@ async function runReviewStage(
     onError: (error: Error) => {
       console.error("[Novel Review] Stream error:", error)
     },
+    onRequestTrace: callbacks.onRequestTrace,
   }
 
   const timeoutController = new AbortController()

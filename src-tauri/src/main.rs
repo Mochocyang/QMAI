@@ -60,7 +60,7 @@ fn main() {
                 eprintln!("[proxy] could not resolve app_data_dir");
             }
             app.manage(commands::claude_cli::ClaudeCliState::default());
-            app.manage(commands::codex_cli::CodexCliState::default());
+            app.manage(commands::codex_cli::CodexAppServerState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::mcp_stdio::McpStdioState::default());
@@ -105,8 +105,9 @@ fn main() {
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,
             commands::codex_cli::codex_cli_detect,
-            commands::codex_cli::codex_cli_spawn,
-            commands::codex_cli::codex_cli_kill,
+            commands::codex_cli::codex_app_server_start,
+            commands::codex_cli::codex_app_server_write,
+            commands::codex_cli::codex_app_server_stop,
             commands::cursor_cli::cursor_cli_detect,
             commands::cursor_cli::cursor_proxy_status,
             commands::cursor_cli::cursor_proxy_ensure,

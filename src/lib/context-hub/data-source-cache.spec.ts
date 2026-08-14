@@ -76,6 +76,35 @@ describe("DataSourceCacheAdapter", () => {
     ])
   })
 
+  it("uses a versioned key for chapter outlines so stale wrong-chapter artifacts are not reused", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "chapterOutline", priority: 1, load: async () => "" }
+
+    await harness.adapter.load(source, context, async () => "第2章章纲")
+
+    expect(harness.storage.readArtifact).toHaveBeenCalledWith(
+      expect.stringMatching(/^data-source:chapterOutline:v3:/),
+    )
+    expect(harness.storage.writeArtifact).toHaveBeenCalledWith(
+      expect.stringMatching(/^data-source:chapterOutline:v3:/),
+      expect.objectContaining({ sourceName: "chapterOutline", value: "第2章章纲" }),
+    )
+  })
+
+  it("includes task text in section briefing cache keys for on-demand character selection", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "sectionBriefing", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => "人物速记")
+
+    await harness.adapter.load(source, context, directLoad)
+    await harness.adapter.load(source, { ...context, task: "改由另一个人物处理" }, directLoad)
+
+    expect(directLoad).toHaveBeenCalledTimes(2)
+    expect(harness.storage.readArtifact.mock.calls[0]?.[0]).not.toBe(
+      harness.storage.readArtifact.mock.calls[1]?.[0],
+    )
+  })
+
   it("marks empty values as empty and does not count them as reloaded", async () => {
     const harness = createHarness()
     const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }

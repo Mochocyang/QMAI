@@ -183,7 +183,7 @@ const aiWorkflowModeOptions: Array<{
     mode: "strict",
     label: "严格",
     description: "完整质检",
-    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。会联网搜索。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
@@ -359,7 +359,7 @@ function buildChatAgentSystemPrompt(options: {
         lines.push("标准模式：读取上下文，生成任务书和正文初稿后直接完成，不做正文后审核。")
         break
       case "strict":
-        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
         break
       }
     if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast") {
@@ -1754,6 +1754,10 @@ export function ChatPanel() {
 
       const prePluginSystemPrompt = prePluginResult?.finalSystemPrompt?.trim()
       const prePluginSystemRulesPrompt = prePluginResult?.finalSystemRulesPrompt?.trim()
+      const stableSystemRulesPrompt = prePluginResult?.stableSystemRulesPrompt?.trim()
+      const dynamicSystemRulesPrompt = prePluginResult?.dynamicSystemRulesPrompt?.trim()
+      const hasSplitSystemRules = prePluginResult?.stableSystemRulesPrompt !== undefined
+        || prePluginResult?.dynamicSystemRulesPrompt !== undefined
       const baseSystemPrompt = [
         prePluginSystemPrompt || sessionAgentSystemPrompt,
         qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
@@ -1773,14 +1777,17 @@ export function ChatPanel() {
         : [
             baseSystemPrompt,
           ].filter(Boolean).join("\n")
-      const contextHubSoftwareRules = prePluginSystemRulesPrompt || sessionAgentSystemPrompt
+      const contextHubSoftwareRules = hasSplitSystemRules
+        ? (stableSystemRulesPrompt ?? "")
+        : (prePluginSystemRulesPrompt || sessionAgentSystemPrompt)
       const contextHubSystemContent = contextHubResult
         ? buildContextHubSystemContent(contextHubSoftwareRules, contextHubResult, [
+            dynamicSystemRulesPrompt ?? "",
             qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
-            prePluginSystemRulesPrompt ? "" : taskDirective,
+            prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
             goldenDirective,
-            prePluginSystemRulesPrompt ? "" : selectedSkillsPrompt,
-            !prePluginSystemRulesPrompt && prePluginResult?.selectedSkills?.length
+            prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
+            !prePluginSystemRulesPrompt && !hasSplitSystemRules && prePluginResult?.selectedSkills?.length
               ? `## 当前会话写作技能\n${buildSelectedSkillsPrompt(prePluginResult.selectedSkills)}`
               : "",
           ])
@@ -1873,7 +1880,9 @@ export function ChatPanel() {
           : sessionTools
         const usageSnapshotBase = buildContextUsageSnapshot({
           windowTokens: getEffectiveMaxContextSize(agentConfig.llmConfig),
-          softwareRules: contextHubResult ? contextHubSoftwareRules : systemPromptForConfig,
+          softwareRules: contextHubResult
+            ? [contextHubSoftwareRules, dynamicSystemRulesPrompt].filter(Boolean).join("\n\n")
+            : systemPromptForConfig,
           toolDefinitionsJson: JSON.stringify(toOpenAITools(advertisedTools)),
           stableTokens: contextHubResult?.stats.stableTokens,
           summaryTokens: contextHubResult?.stats.summaryTokens,
@@ -1973,7 +1982,7 @@ export function ChatPanel() {
             record.lastRequestUsage ?? record.usage,
           ),
         )
-        if (contextHubResult && record.usage) {
+        if (contextHubResult && (record.usage || record.requestTraces?.length)) {
           try {
             const contextHubSnapshot = await persistContextHubProviderUsage(
               getContextHub(pp),
@@ -1985,6 +1994,12 @@ export function ChatPanel() {
                 requestDiagnostics: buildLlmRequestDiagnostics(
                   record.usage,
                   Math.max(1, record.roundsUsed || 1),
+                  {
+                    requests: record.requestTraces,
+                    omittedRequestCount: record.omittedRequestTraceCount,
+                    requestCountAvailable: record.providerRequestCountAvailable,
+                    usageScope: record.usageAggregationScope,
+                  },
                 ),
               },
             )

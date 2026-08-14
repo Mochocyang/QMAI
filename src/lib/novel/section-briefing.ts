@@ -12,6 +12,15 @@ import {
   loadForeshadowingTracker,
   createEmptyForeshadowingStore,
 } from "./foreshadowing-tracker"
+import {
+  buildRelevantCharacterBriefs,
+  buildRelevantForeshadowing,
+  capOutlineSourcesToBudget,
+  loadOutlineDocumentIndex,
+} from "./outline-context-index"
+
+const RELEVANT_CHARACTER_BRIEFS_MAX_CHARS = 8_000
+const RELEVANT_FORESHADOWING_MAX_CHARS = 6_000
 
 /**
  * 从细纲文本中提取出场角色名
@@ -73,13 +82,14 @@ export async function buildSectionBriefing(
   projectPath: string,
   chapterNumber: number,
   chapterOutlineContent: string,
+  task = "",
 ): Promise<string> {
   const sections: string[] = []
   const trimmedOutline = chapterOutlineContent.trim()
-  if (!trimmedOutline) return ""
+  const matchingText = [task, trimmedOutline].filter(Boolean).join("\n")
 
   // ── 1. 提取出场角色并筛选角色状态 ──────────────────
-  const characterNames = extractCharacterNames(trimmedOutline)
+  const characterNames = extractCharacterNames(matchingText)
 
   if (characterNames.length > 0) {
     const charStore = await readCharacterStateMd(projectPath)
@@ -111,6 +121,29 @@ export async function buildSectionBriefing(
     }
   }
 
+  try {
+    const outlineIndex = await loadOutlineDocumentIndex(projectPath)
+    const characterBriefs = capOutlineSourcesToBudget(
+      buildRelevantCharacterBriefs(outlineIndex, matchingText),
+      RELEVANT_CHARACTER_BRIEFS_MAX_CHARS,
+    )
+    if (characterBriefs) {
+      sections.push("### 相关人物小传")
+      sections.push(characterBriefs)
+      sections.push("")
+    }
+
+    const outlineForeshadowing = capOutlineSourcesToBudget(
+      buildRelevantForeshadowing(outlineIndex, chapterNumber, matchingText),
+      RELEVANT_FORESHADOWING_MAX_CHARS,
+    )
+    if (outlineForeshadowing) {
+      sections.push("### 相关伏笔规划")
+      sections.push(outlineForeshadowing)
+      sections.push("")
+    }
+  } catch {}
+
   // ── 2. 筛选相关伏笔 ────────────────────────────────
   // 先尝试读取新版 tracking 数据
   let fStore = await loadForeshadowingTracker(projectPath).catch(() => null)
@@ -120,7 +153,7 @@ export async function buildSectionBriefing(
     fStore = mdResult.store
   }
 
-  const foreshadowingHints = extractForeshadowingHints(trimmedOutline)
+  const foreshadowingHints = extractForeshadowingHints(matchingText)
 
   const relevantForeshadowing = fStore.items.filter((f) => {
     if (f.status === "abandoned") return false

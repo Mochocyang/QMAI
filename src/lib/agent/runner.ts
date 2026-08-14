@@ -5,7 +5,7 @@ import { accumulateToolCalls, parseTextToolCalls } from "./tool-call-parser"
 import { toOpenAITools } from "./tools-schema"
 import type { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord, ToolCall, ToolCallDelta } from "./types"
-import { DEFAULT_MAX_ROUNDS, TOOL_EXECUTE_TIMEOUT_MS } from "./types"
+import { DEFAULT_MAX_ROUNDS } from "./types"
 import type { TaskBreakpoint } from "./task-breakpoint"
 import {
   clearTaskBreakpoint,
@@ -16,15 +16,18 @@ import {
 import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage, mergeLlmUsageSnapshot, type LlmUsage } from "../llm-usage"
+import { LlmRequestTraceCollector, type LlmRequestCacheTrace } from "../llm-request-trace"
 import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
+import { DEFAULT_TOOL_RESULT_CONTEXT_LIMIT } from "./tool-result"
 import {
   RequiredToolsNotCalledError,
   buildRequiredToolNudgeMessage,
   missingRequiredToolsOnce,
 } from "./required-tools-gate"
-import { isToolErrorResult } from "./tool-result"
+import { executeAgentTool } from "./tool-executor"
+import { CodexAppServerRunner } from "./codex-app-server-runner"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -40,17 +43,6 @@ function messageContentText(content: AgentMessage["content"]): string {
     .join("")
 }
 
-function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
-  const resolvedTimeoutMs = timeoutMs ?? TOOL_EXECUTE_TIMEOUT_MS
-  if (resolvedTimeoutMs <= 0) return operation
-  return Promise.race([
-    operation,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("工具执行超时")), resolvedTimeoutMs),
-    ),
-  ])
-}
-
 export class AgentRunner {
   async run(
     config: AgentConfig,
@@ -59,7 +51,18 @@ export class AgentRunner {
     callbacks: AgentRunCallbacks,
     signal?: AbortSignal,
   ): Promise<AgentRunRecord> {
+    if (config.llmConfig.provider === "codex-cli") {
+      return new CodexAppServerRunner().run(config, registry, messages, callbacks, signal)
+    }
     const record: AgentRunRecord = { toolCalls: [], roundsUsed: 0, finalText: "" }
+    const requestTraceCollector = new LlmRequestTraceCollector()
+    const onRequestTrace = (trace: LlmRequestCacheTrace) => {
+      requestTraceCollector.record(trace)
+      const snapshot = requestTraceCollector.snapshot()
+      record.requestTraces = snapshot.requests
+      record.omittedRequestTraceCount = snapshot.omittedRequestCount
+      callbacks.onRequestTrace?.(trace)
+    }
     const workingMessages = [...messages]
     let finalText = ""
     const maxRounds = config.maxRounds || DEFAULT_MAX_ROUNDS
@@ -74,7 +77,7 @@ export class AgentRunner {
       role: "system",
       content: taskContract,
     })
-    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? 6000)
+    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? DEFAULT_TOOL_RESULT_CONTEXT_LIMIT)
     let taskBreakpoint: TaskBreakpoint | null = projectPath
       ? createTaskBreakpoint({
           taskGoal,
@@ -146,6 +149,7 @@ export class AgentRunner {
           roundUsage = mergeLlmUsageSnapshot(roundUsage, usage)
           if (roundUsage) callbacks.onUsage?.(roundUsage)
         },
+        onRequestTrace,
         onUserMemoryDecision: (decision) => {
           if (record.userMemoryDecision === undefined) {
             record.userMemoryDecision = decision
@@ -359,7 +363,6 @@ export class AgentRunner {
       // Execute each tool call
       for (const tc of toolCalls) {
         const toolName = tc.function.name
-        const tool = registry.get(toolName)
 
         const saveToolProgress = async () => {
           if (!taskBreakpoint) return
@@ -378,159 +381,17 @@ export class AgentRunner {
           try { return JSON.parse(tc.function.arguments || "{}") }
           catch { return {} }
         })()
-
-        const toolCallRecord: AgentRunRecord["toolCalls"][number] = {
-          id: tc.id,
-          name: toolName,
-          params,
-          result: "",
-          status: "running",
-          startedAt: Date.now(),
-          finishedAt: Date.now(),
-        }
-
-        const callbackToolCall: ToolCall = { id: tc.id, name: toolName, arguments: params }
-        const executionContext = {
-          callId: tc.id,
-          toolName,
-          onToolEvent: callbacks.onToolEvent,
-          onActivityEvent: callbacks.onActivityEvent,
-        }
-        callbacks.onToolCall(callbackToolCall)
-        callbacks.onToolEvent?.({
-          type: "call_started",
-          callId: tc.id,
-          name: toolName,
-          params,
-          timestamp: toolCallRecord.startedAt,
-        })
-
-        if (!tool) {
-          const errorMsg = `错误: 未知工具 ${toolName}`
-          callbacks.onToolError(tc.id, errorMsg)
-          toolCallRecord.status = "error"
-          toolCallRecord.result = errorMsg
-          toolCallRecord.finishedAt = Date.now()
-          record.toolCalls.push(toolCallRecord)
-          callbacks.onToolEvent?.({
-            type: "error",
-            callId: tc.id,
-            name: toolName,
-            params,
-            result: errorMsg,
-            timestamp: toolCallRecord.finishedAt,
-          })
-          workingMessages.push({
-            role: "tool",
-            content: evidenceLedger.format(toolName, params, toolCallRecord.result),
-            tool_call_id: tc.id,
-            name: toolName,
-          })
-          await saveToolProgress()
-          continue
-        }
-
-        const permission = tool.permission ?? (tool.category === "write" ? "confirm" : "auto")
-        if (permission === "confirm") {
-          let preview = ""
-          try {
-            const previewFn = tool.generatePreview ?? tool.execute
-            preview = await withToolTimeout(previewFn(params, signal, executionContext), tool.executeTimeoutMs)
-          } catch (e) {
-            const errorMsg = `预览生成失败：${e instanceof Error ? e.message : String(e)}`
-            toolCallRecord.status = "error"
-            toolCallRecord.result = errorMsg
-            toolCallRecord.finishedAt = Date.now()
-            record.toolCalls.push(toolCallRecord)
-            callbacks.onToolError(tc.id, errorMsg)
-            callbacks.onToolEvent?.({
-              type: "error",
-              callId: tc.id,
-              name: toolName,
-              params,
-              result: errorMsg,
-              timestamp: toolCallRecord.finishedAt,
-            })
-            workingMessages.push({
-              role: "tool",
-              content: evidenceLedger.format(toolName, params, errorMsg),
-              tool_call_id: tc.id,
-              name: toolName,
-            })
-            await saveToolProgress()
-            continue
-          }
-          toolCallRecord.status = "approval_required"
-          ;(toolCallRecord as any).preview = preview
-          toolCallRecord.result = preview
-          toolCallRecord.finishedAt = Date.now()
-          record.toolCalls.push(toolCallRecord)
-          callbacks.onToolEvent?.({
-            type: "approval_required",
-            callId: tc.id,
-            name: toolName,
-            params,
-            result: preview,
-            preview,
-            timestamp: toolCallRecord.finishedAt,
-          })
-          workingMessages.push({
-            role: "tool",
-            content: evidenceLedger.format(toolName, params, preview),
-            tool_call_id: tc.id,
-            name: toolName,
-          })
-          await saveToolProgress()
-          continue
-        }
-
-        try {
-          const result = await withToolTimeout(tool.execute(params, signal, executionContext), tool.executeTimeoutMs)
-          toolCallRecord.result = result
-          toolCallRecord.finishedAt = Date.now()
-          if (isToolErrorResult(result)) {
-            toolCallRecord.status = "error"
-            callbacks.onToolError(tc.id, result)
-            callbacks.onToolEvent?.({
-              type: "error",
-              callId: tc.id,
-              name: toolName,
-              params,
-              result,
-              timestamp: toolCallRecord.finishedAt,
-            })
-          } else {
-            toolCallRecord.status = "done"
-            callbacks.onToolResult(tc.id, result)
-            callbacks.onToolEvent?.({
-              type: "result",
-              callId: tc.id,
-              name: toolName,
-              params,
-              result,
-              timestamp: toolCallRecord.finishedAt,
-            })
-          }
-        } catch (err) {
-          toolCallRecord.status = "error"
-          toolCallRecord.result = `错误: ${err instanceof Error ? err.message : String(err)}`
-          toolCallRecord.finishedAt = Date.now()
-          callbacks.onToolError(tc.id, toolCallRecord.result)
-          callbacks.onToolEvent?.({
-            type: "error",
-            callId: tc.id,
-            name: toolName,
-            params,
-            result: toolCallRecord.result,
-            timestamp: toolCallRecord.finishedAt,
-          })
-        }
-
-        record.toolCalls.push(toolCallRecord)
+        const executed = await executeAgentTool(
+          { id: tc.id, name: toolName, arguments: params } satisfies ToolCall,
+          registry,
+          { ...callbacks, onRequestTrace },
+          signal,
+        )
+        record.toolCalls.push(executed.record)
         await saveToolProgress()
         workingMessages.push({
           role: "tool",
-          content: evidenceLedger.format(toolName, params, toolCallRecord.result),
+          content: evidenceLedger.format(toolName, params, executed.responseText),
           tool_call_id: tc.id,
           name: toolName,
         })

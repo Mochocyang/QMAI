@@ -1,6 +1,11 @@
 import type { AgentMessage } from "@/lib/agent/types"
 import type { DataSourceCategory } from "@/lib/novel/classification"
 import type { ContextPack } from "@/lib/novel/context-engine"
+import {
+  copyLlmRequestCacheTrace,
+  isLlmRequestCacheTrace,
+  type LlmRequestCacheTrace,
+} from "@/lib/llm-request-trace"
 
 export const CONTEXT_CACHE_SCHEMA_VERSION = 2
 
@@ -94,11 +99,17 @@ export interface ContextFragmentTrace {
 
 export interface LlmRequestDiagnostics {
   requestCount: number
+  /** False when the provider only exposes aggregate usage without an internal request count. */
+  requestCountAvailable?: boolean
+  /** Distinguishes a normal workflow aggregate from a provider-managed thread total. */
+  usageScope?: "workflow" | "provider_thread"
   providerUsageAvailable: boolean
   inputTokens?: number
   outputTokens?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  requests?: LlmRequestCacheTrace[]
+  omittedRequestCount?: number
 }
 
 /** Generation-details stats: source traces + independent stablePrefixStatus; token fields are estimates. */
@@ -247,6 +258,53 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
 }
 
+function normalizeRequestDiagnostics(value: unknown): LlmRequestDiagnostics | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const source = value as Record<string, unknown>
+  if (!isFiniteNumber(source.requestCount) || typeof source.providerUsageAvailable !== "boolean") {
+    return undefined
+  }
+  const optionalNumber = (key: string) => source[key] === undefined || isFiniteNumber(source[key])
+  if (
+    !optionalNumber("inputTokens")
+    || !optionalNumber("outputTokens")
+    || !optionalNumber("cacheReadTokens")
+    || !optionalNumber("cacheWriteTokens")
+  ) return undefined
+  const requests = Array.isArray(source.requests)
+    ? source.requests.filter(isLlmRequestCacheTrace).map(copyLlmRequestCacheTrace)
+    : undefined
+  const requestCountAvailable = typeof source.requestCountAvailable === "boolean"
+    ? source.requestCountAvailable
+    : undefined
+  const usageScope = source.usageScope === "workflow" || source.usageScope === "provider_thread"
+    ? source.usageScope
+    : undefined
+  return {
+    requestCount: Math.max(0, Math.floor(source.requestCount)),
+    ...(requestCountAvailable !== undefined ? { requestCountAvailable } : {}),
+    ...(usageScope ? { usageScope } : {}),
+    providerUsageAvailable: source.providerUsageAvailable,
+    ...(isFiniteNumber(source.inputTokens) ? { inputTokens: source.inputTokens } : {}),
+    ...(isFiniteNumber(source.outputTokens) ? { outputTokens: source.outputTokens } : {}),
+    ...(isFiniteNumber(source.cacheReadTokens) ? { cacheReadTokens: source.cacheReadTokens } : {}),
+    ...(isFiniteNumber(source.cacheWriteTokens) ? { cacheWriteTokens: source.cacheWriteTokens } : {}),
+    ...(requests ? { requests } : {}),
+    ...(isFiniteNumber(source.omittedRequestCount)
+      ? { omittedRequestCount: Math.max(0, Math.floor(source.omittedRequestCount)) }
+      : {}),
+  }
+}
+
+function normalizeContextHubStats(source: ContextHubStats): ContextHubStats {
+  const { requestDiagnostics: _requestDiagnostics, ...rest } = source
+  const requestDiagnostics = normalizeRequestDiagnostics(source.requestDiagnostics)
+  return {
+    ...rest,
+    ...(requestDiagnostics ? { requestDiagnostics } : {}),
+  }
+}
+
 /** True only for the current stats shape. Legacy hits/refreshed/failures payloads are rejected. */
 export function isCurrentContextHubStats(raw: unknown): raw is ContextHubStats {
   if (!raw || typeof raw !== "object") return false
@@ -315,7 +373,7 @@ export function parseContextHubSnapshot(raw: unknown): ContextHubSnapshot | null
     id: source.id,
     surface: source.surface,
     createdAt: source.createdAt,
-    stats: source.stats,
+    stats: normalizeContextHubStats(source.stats as ContextHubStats),
     items,
     stableCore: source.stableCore,
     sessionSummary: source.sessionSummary,
@@ -339,6 +397,6 @@ export function parseContextHubSnapshotRef(raw: unknown): ContextHubSnapshotRef 
     id: source.id,
     surface: source.surface,
     createdAt: source.createdAt,
-    stats: source.stats,
+    stats: normalizeContextHubStats(source.stats as ContextHubStats),
   }
 }

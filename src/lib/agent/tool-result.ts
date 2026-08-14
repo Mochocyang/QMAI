@@ -1,9 +1,19 @@
 const TOOL_ERROR_PREFIX = /^\s*错误\s*[：:]/
 
-export const DEFAULT_TOOL_RESULT_CONTEXT_LIMIT = 6000
+export const DEFAULT_TOOL_RESULT_CONTEXT_LIMIT = 10000
+
+/**
+ * 这些工具的返回值就是给用户的交付物（章节终稿），不是给模型当「证据摘录」的资料。
+ * 头尾截断会先切掉任务书、丢掉正文中段，外层模型只能按残片另写一章。
+ */
+const FULL_TOOL_RESULT_FOR_MODEL = new Set(["run_chapter_workflow"])
 
 export function isToolErrorResult(result: string): boolean {
   return TOOL_ERROR_PREFIX.test(result)
+}
+
+export function keepsFullToolResultForModel(toolName: string): boolean {
+  return FULL_TOOL_RESULT_FOR_MODEL.has(toolName)
 }
 
 export function formatToolResultForModel(
@@ -11,6 +21,7 @@ export function formatToolResultForModel(
   result: string,
   limit = DEFAULT_TOOL_RESULT_CONTEXT_LIMIT,
 ): string {
+  if (keepsFullToolResultForModel(toolName)) return result
   if (result.length <= limit) return result
 
   const safeLimit = Math.max(200, limit)

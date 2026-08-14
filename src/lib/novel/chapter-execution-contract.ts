@@ -1,4 +1,4 @@
-import { streamChat } from "@/lib/llm-client"
+import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 
 export interface ChapterExecutionSceneStep {
@@ -99,6 +99,7 @@ export async function runChapterExecutionContractBuild(
   llmConfig: LlmConfig,
   planContent: string,
   signal?: AbortSignal,
+  onRequestTrace?: StreamCallbacks["onRequestTrace"],
 ): Promise<ChapterExecutionContract> {
   if (!planContent.trim()) return createEmptyContract()
 
@@ -116,6 +117,7 @@ export async function runChapterExecutionContractBuild(
       onError: (error: Error) => {
         streamError = error
       },
+      onRequestTrace,
     },
     signal,
   )

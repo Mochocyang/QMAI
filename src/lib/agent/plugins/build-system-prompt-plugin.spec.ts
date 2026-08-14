@@ -40,6 +40,10 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.finalSystemRulesPrompt).toContain("本次启用 Skill")
     expect(result.finalSystemRulesPrompt).toContain("task directive")
     expect(result.finalSystemRulesPrompt).not.toContain("context prompt")
+    expect(result.stableSystemRulesPrompt).toBe("base prompt")
+    expect(result.dynamicSystemRulesPrompt).toContain("本次启用 Skill")
+    expect(result.dynamicSystemRulesPrompt).toContain("task directive")
+    expect(result.dynamicSystemRulesPrompt).not.toContain("base prompt")
   })
 
   it("does not inject chapter plan protocol from standard mode unless Plan Execute is enabled", async () => {

@@ -156,6 +156,47 @@ function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = [])
 }
 
 describe("runDeepChapterGeneration", () => {
+  it("forwards every internal model request trace to one workflow collector", async () => {
+    const deps = createDeps()
+    const onRequestTrace = vi.fn()
+    let index = 0
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+    ) => {
+      index += 1
+      callbacks.onRequestTrace?.({
+        provider: "openai",
+        model: "test-model",
+        apiMode: "chat_completions",
+        prefixFingerprint: "stable",
+        startedAt: index * 100,
+        finishedAt: index * 100 + 50,
+        durationMs: 50,
+        status: "success",
+      })
+      const prompt = messagesPromptText(messages)
+      callbacks.onToken(prompt.includes("正文") ? chapterText("正文") : "写作任务书")
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "standard",
+      },
+      { onRequestTrace },
+      deps,
+    )
+
+    expect(onRequestTrace).toHaveBeenCalledTimes(vi.mocked(deps.streamChat).mock.calls.length)
+    expect(onRequestTrace).toHaveBeenCalled()
+  })
+
   it("routes workflow, prose, and de-AI stages to their configured models", async () => {
     const previousState = useWikiStore.getState()
     useWikiStore.setState({
@@ -1178,6 +1219,46 @@ describe("runDeepChapterGeneration", () => {
     expect(activityEvents.some((event) => event.kind === "extract_goal" && event.content.includes("上一章结尾"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "extract_result" && event.content.includes("门缝里传来金属拖拽声"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "stage_output" && event.content.includes("任务书"))).toBe(true)
+    expect(activityEvents.some((event) => event.stageId === "final_polish")).toBe(false)
+  })
+
+  it("emits a dedicated 去AI味 stage between 校验与修正 and 最终输出", async () => {
+    const deps = createDeps()
+    const activityEvents: AgentActivityEvent[] = []
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "strict",
+      },
+      { onActivityEvent: (event) => activityEvents.push(event) },
+      deps,
+    )
+
+    const polishStarted = activityEvents.find(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_started",
+    )
+    const polishOutput = activityEvents.find(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_output",
+    )
+    const validateOutputIndex = activityEvents.findIndex(
+      (event) => event.stageId === "validate_revision" && event.kind === "stage_output",
+    )
+    const polishStartedIndex = activityEvents.findIndex(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_started",
+    )
+    const finalOutputIndex = activityEvents.findIndex(
+      (event) => event.stageId === "final_output" && event.kind === "final_output",
+    )
+
+    expect(polishStarted?.content).toContain("去除复读、机械套话和 AI 味")
+    expect(polishOutput?.content).toContain("简单审查与去AI味完成")
+    expect(validateOutputIndex).toBeGreaterThanOrEqual(0)
+    expect(polishStartedIndex).toBeGreaterThan(validateOutputIndex)
+    expect(finalOutputIndex).toBeGreaterThan(polishStartedIndex)
   })
 
   it("injects the enabled writing style into the stage 3 draft prompt", async () => {
@@ -1360,7 +1441,8 @@ describe("runDeepChapterGeneration", () => {
   })
 
   it("uses fast, standard, and strict workflow routes", async () => {
-    const fastDeps = createDeps()
+    const skippedCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
+    const fastDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
       {},
@@ -1368,8 +1450,9 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(fastDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
+    expect(skippedCollect).not.toHaveBeenCalled()
 
-    const standardDeps = createDeps()
+    const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
     const standardThinking: string[] = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
@@ -1380,8 +1463,14 @@ describe("runDeepChapterGeneration", () => {
     expect(standardDeps.reviewChapter).not.toHaveBeenCalled()
     expect(standardThinking.join("\n")).toContain("阶段4：标准完成")
     expect(standardThinking.join("\n")).not.toContain("快速模式")
+    expect(skippedCollect).not.toHaveBeenCalled()
 
-    const strictDeps = createDeps()
+    const collectWritingEntityWebSearch = vi.fn(async () => ({
+      markdown: "",
+      searchedNames: [] as string[],
+      notes: [] as string[],
+    }))
+    const strictDeps = { ...createDeps(), collectWritingEntityWebSearch }
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
       {},
@@ -1389,6 +1478,30 @@ describe("runDeepChapterGeneration", () => {
     )
     expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
+    expect(collectWritingEntityWebSearch).toHaveBeenCalled()
+  })
+
+  it("injects strict-mode entity web search into the chapter context pack", async () => {
+    const research = "## 外部检索（仅补本地缺失实体）\n\n### 黄蓉\n- 资料 https://example.test/hr\n  公开摘要"
+    const seenPacks: ContextPack[] = []
+    const deps = createDeps()
+    vi.mocked(deps.contextPackToPrompt).mockImplementation((pack) => {
+      seenPacks.push(pack)
+      return pack.searchResults || "上下文包内容"
+    })
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      {},
+      {
+        ...deps,
+        collectWritingEntityWebSearch: vi.fn(async () => ({
+          markdown: research,
+          searchedNames: ["黄蓉"],
+          notes: [],
+        })),
+      },
+    )
+    expect(seenPacks.some((pack) => pack.searchResults.includes(research))).toBe(true)
   })
 
   it("emits visible workflow events for the chapter multi-task loop", async () => {
@@ -1639,6 +1752,46 @@ describe("runDeepChapterGeneration", () => {
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", expandedDraft, 3, expect.objectContaining({}))
     expect(thinking.join("\n")).toContain("阶段3：正文扩写补足")
     expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+  })
+
+  it("fails the workflow when expansion is still far below the minimum chapter length", async () => {
+    const responses = [
+      "写作任务书内容",
+      "请提供第239章章纲后再继续。",
+      "当前资料不足，无法扩写。",
+    ]
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        callbacks.onToken(responses.shift() ?? "")
+        callbacks.onDone()
+      }),
+    }
+    const events: Array<{ type: string; name: string; result?: string }> = []
+
+    await expect(runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第239章", chapterNumber: 239, llmConfig },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )).rejects.toThrow(/扩写后仅约 .*低于最低完成线/)
+
+    expect(deps.reviewChapter).not.toHaveBeenCalled()
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_draft",
+      result: expect.stringContaining("低于最低完成线"),
+    }))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      name: "chapter_expansion",
+      result: expect.stringContaining("章节正文生成失败"),
+    }))
+    expect(events).not.toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_expansion",
+    }))
   })
 
   it("does not force expansion after final polish even when the result is short", async () => {

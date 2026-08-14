@@ -168,9 +168,22 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
 
 async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult> {
   const explicitModel = config.model.trim()
-  if (explicitModel) return { models: [explicitModel] }
+  if (explicitModel && config.provider !== "codex-cli") return { models: [explicitModel] }
 
   const detect = await detectLocalCliConfig(config.provider)
+  if (config.provider === "codex-cli") {
+    if (!detect?.appServerReady || !detect.dynamicToolsReady) {
+      throw new Error(detect?.error || "当前 Codex CLI 不支持 QMAI 主 Agent，请升级 Codex CLI。")
+    }
+    const models = Array.from(new Set([
+      ...(explicitModel ? [explicitModel] : []),
+      ...(detect.models ?? []),
+    ])).filter(Boolean)
+    if (models.length === 0) {
+      throw new Error("Codex app-server 未返回可用模型，请检查本机 Codex 登录状态。")
+    }
+    return toModelListResult(models)
+  }
   const localModel = detect?.model?.trim() ?? ""
   if (!localModel) {
     throw new Error("当前本地 CLI 未配置默认模型，请先在本地 CLI 中设置模型，或在软件里手动填写模型。")

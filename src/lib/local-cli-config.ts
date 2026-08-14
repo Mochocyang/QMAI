@@ -7,6 +7,9 @@ export interface LocalCliDetectResult {
   version: string | null
   path: string | null
   model?: string | null
+  appServerReady?: boolean
+  dynamicToolsReady?: boolean
+  models?: string[]
   error: string | null
 }
 
@@ -29,6 +32,8 @@ export async function resolveRuntimeLocalCliConfig(config: LlmConfig): Promise<L
   if (config.provider !== "claude-code" && config.provider !== "codex-cli") {
     return config
   }
+
+  if (config.model.trim()) return config
 
   try {
     const detected = await detectLocalCliConfig(config.provider)

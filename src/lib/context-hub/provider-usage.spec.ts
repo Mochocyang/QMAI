@@ -26,6 +26,67 @@ const baseStats: ContextHubStats = {
 }
 
 describe("context hub provider usage", () => {
+  it("marks provider-thread totals without inventing an internal request count", () => {
+    const diagnostics = buildLlmRequestDiagnostics(
+      {
+        inputTokens: 3_676_375,
+        outputTokens: 7_926,
+        cachedInputTokens: 3_533_312,
+      },
+      1,
+      {
+        requestCountAvailable: false,
+        usageScope: "provider_thread",
+      },
+    )
+
+    expect(diagnostics).toMatchObject({
+      requestCount: 0,
+      requestCountAvailable: false,
+      usageScope: "provider_thread",
+      providerUsageAvailable: true,
+      inputTokens: 3_676_375,
+      cacheReadTokens: 3_533_312,
+    })
+  })
+
+  it("uses actual traced attempts for request count and preserves traces while merging usage", () => {
+    const diagnostics = buildLlmRequestDiagnostics(
+      { inputTokens: 100 },
+      1,
+      {
+        requests: [{
+          provider: "openai",
+          model: "gpt-test",
+          apiMode: "chat_completions",
+          startedAt: 1,
+          finishedAt: 2,
+          durationMs: 1,
+          status: "error",
+        }, {
+          provider: "openai",
+          model: "gpt-test",
+          apiMode: "chat_completions",
+          startedAt: 3,
+          finishedAt: 4,
+          durationMs: 1,
+          status: "success",
+        }],
+        omittedRequestCount: 2,
+      },
+    )
+
+    expect(diagnostics.requestCount).toBe(4)
+    expect(applyProviderUsageToStats(
+      { ...baseStats, requestDiagnostics: diagnostics },
+      { inputTokens: 50 },
+    ).requestDiagnostics).toMatchObject({
+      requestCount: 5,
+      requests: diagnostics.requests,
+      omittedRequestCount: 2,
+    })
+  })
+
   it("stores confirmed cache usage without changing local cache counters", () => {
     const next = applyProviderUsageToStats(baseStats, {
       inputTokens: 1600,

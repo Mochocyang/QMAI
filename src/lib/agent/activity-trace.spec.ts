@@ -269,10 +269,26 @@ describe("activity trace", () => {
   })
 
   it("resolves titles for post-draft strict stages", () => {
+    expect(resolveAgentStageTitle("final_polish")).toBe("去AI味")
     expect(resolveAgentStageTitle("execution_report")).toBe("执行报告")
     expect(resolveAgentStageTitle("execution_recheck")).toBe("执行复检")
     expect(resolveAgentStageTitle("plan_compliance")).toBe("计划履约")
     expect(resolveAgentStageTitle("plan_deviation_repair")).toBe("计划偏离返修")
     expect(resolveAgentStageTitle("plan_deviation_recheck")).toBe("计划偏离复检")
+  })
+
+  it("places 去AI味 between 校验与修正 and 最终输出", () => {
+    const stages: AgentStageTrace[] = [
+      { id: "final_output", title: "最终输出", status: "done", summary: "完成", events: [], startedAt: 400 },
+      { id: "final_polish", title: "去AI味", status: "running", summary: "去AI味中", events: [], startedAt: 300 },
+      { id: "validate_revision", title: "校验与修正", status: "done", summary: "校验", events: [], startedAt: 200 },
+    ]
+
+    expect(prepareAgentStagesForDisplay(stages).map((stage) => stage.id)).toEqual([
+      "validate_revision",
+      "final_polish",
+      "final_output",
+    ])
+    expect(getDefaultOpenAgentStageId(stages)).toBe("final_polish")
   })
 })

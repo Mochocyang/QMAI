@@ -12,12 +12,13 @@ import { normalizeUserLlmMaxOutputTokens } from "./llm-context-size"
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
+  isFetchNetworkError: vi.fn(() => false),
   streamClaudeCodeCli: vi.fn(),
 }))
 
 vi.mock("./tauri-fetch", () => ({
   getHttpFetch: vi.fn(async () => mocks.fetch),
-  isFetchNetworkError: vi.fn(() => false),
+  isFetchNetworkError: (...args: unknown[]) => mocks.isFetchNetworkError(...args),
 }))
 
 vi.mock("./local-cli-config", () => ({
@@ -40,6 +41,8 @@ const config: LlmConfig = {
 describe("streamChat usage", () => {
   beforeEach(() => {
     mocks.fetch.mockReset()
+    mocks.isFetchNetworkError.mockReset()
+    mocks.isFetchNetworkError.mockReturnValue(false)
     mocks.streamClaudeCodeCli.mockReset()
   })
 
@@ -60,10 +63,22 @@ describe("streamChat usage", () => {
     const onUsage = vi.fn()
     const onDone = vi.fn()
     const onError = vi.fn()
+    const onRequestTrace = vi.fn()
 
-    await streamChat(config, [{ role: "user", content: "测试" }], {
+    await streamChat(config, [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: "固定规则" },
+          { type: "text", text: "项目稳定核心", cacheControl: true },
+          { type: "text", text: "动态任务" },
+        ],
+      },
+      { role: "user", content: "测试" },
+    ], {
       onToken: vi.fn(),
       onUsage,
+      onRequestTrace,
       onDone,
       onError,
     })
@@ -82,6 +97,16 @@ describe("streamChat usage", () => {
     })
     expect(onDone).toHaveBeenCalledOnce()
     expect(onError).not.toHaveBeenCalled()
+    expect(onRequestTrace).toHaveBeenCalledOnce()
+    expect(onRequestTrace).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "openai",
+      model: "gpt-test",
+      prefixFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      inputTokens: 1200,
+      outputTokens: 80,
+      cacheReadTokens: 1024,
+      status: "success",
+    }))
   })
 
   it("同行 tool_calls 仍触发 onReasoningToken", async () => {
@@ -334,9 +359,11 @@ describe("streamChat usage", () => {
       ].join("\n"), { status: 200 }))
 
     const onError = vi.fn()
+    const onRequestTrace = vi.fn()
     await streamChat(config, [{ role: "user", content: "写第一章" }], {
       onToken: vi.fn(),
       onDone: vi.fn(),
+      onRequestTrace,
       onError,
     })
 
@@ -344,6 +371,7 @@ describe("streamChat usage", () => {
     const retryBody = JSON.parse(String((mocks.fetch.mock.calls[1][1] as RequestInit).body))
     expect(retryBody.max_tokens).toBe(8_192)
     expect(onError).not.toHaveBeenCalled()
+    expect(onRequestTrace.mock.calls.map(([trace]) => trace.status)).toEqual(["error", "success"])
   })
 
   it("脏 SSE 行不会中断整轮流式响应", async () => {
@@ -375,5 +403,47 @@ describe("streamChat usage", () => {
     expect(onToken).toHaveBeenCalledWith("后半")
     expect(onDone).toHaveBeenCalledOnce()
     expect(onError).not.toHaveBeenCalled()
+  })
+
+  it("records a mid-stream network failure as network_error", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("connection dropped"))
+      },
+    })
+    mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }))
+    mocks.isFetchNetworkError.mockReturnValue(true)
+    const onRequestTrace = vi.fn()
+    const onError = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "测试网络中断" }], {
+      onToken: vi.fn(),
+      onRequestTrace,
+      onDone: vi.fn(),
+      onError,
+    })
+
+    expect(onRequestTrace).toHaveBeenCalledWith(expect.objectContaining({ status: "network_error" }))
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("流式响应读取中断"),
+    }))
+  })
+
+  it("records an aborted supplier attempt as cancelled", async () => {
+    mocks.fetch.mockRejectedValue(new DOMException("aborted", "AbortError"))
+    const controller = new AbortController()
+    controller.abort()
+    const onRequestTrace = vi.fn()
+    const onDone = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "取消请求" }], {
+      onToken: vi.fn(),
+      onRequestTrace,
+      onDone,
+      onError: vi.fn(),
+    }, controller.signal)
+
+    expect(onRequestTrace).toHaveBeenCalledWith(expect.objectContaining({ status: "cancelled" }))
+    expect(onDone).toHaveBeenCalledOnce()
   })
 })

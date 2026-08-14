@@ -101,6 +101,103 @@ describe("parseContextHubSnapshot", () => {
     expect(snapshot?.stats.cacheHits).toBe(1)
     expect(snapshot?.items[0]?.status).toBe("cache_hit")
   })
+
+  it("keeps valid request traces and drops damaged optional trace entries", () => {
+    const snapshot = parseContextHubSnapshot({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      id: "assistant:trace",
+      surface: "ai-chat",
+      createdAt: 10,
+      stats: {
+        ...currentStats,
+        requestDiagnostics: {
+          requestCount: 2,
+          providerUsageAvailable: true,
+          requests: [
+            {
+              provider: "openai",
+              model: "gpt-test",
+              apiMode: "chat_completions",
+              startedAt: 1,
+              finishedAt: 2,
+              durationMs: 1,
+              status: "success",
+              prompt: "不应保留",
+            },
+            {
+              provider: "openai",
+              model: "gpt-test",
+              apiMode: "chat_completions",
+              startedAt: 1,
+              finishedAt: 2,
+              durationMs: -1,
+              status: "success",
+              prompt: "不应保留",
+            },
+          ],
+          omittedRequestCount: 3,
+        },
+      },
+      items: [],
+      stableCore: "stable",
+      sessionSummary: "",
+      dynamicContext: "dynamic",
+    })
+
+    expect(snapshot?.stats.requestDiagnostics?.requests).toHaveLength(1)
+    expect(snapshot?.stats.requestDiagnostics?.omittedRequestCount).toBe(3)
+    expect(snapshot?.stats.requestDiagnostics?.requests?.[0]).not.toHaveProperty("prompt")
+  })
+
+  it("keeps valid aggregate scope metadata and drops invalid optional values", () => {
+    const valid = parseContextHubSnapshot({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      id: "assistant:codex-usage",
+      surface: "ai-chat",
+      createdAt: 10,
+      stats: {
+        ...currentStats,
+        requestDiagnostics: {
+          requestCount: 0,
+          requestCountAvailable: false,
+          usageScope: "provider_thread",
+          providerUsageAvailable: true,
+          inputTokens: 100,
+        },
+      },
+      items: [],
+      stableCore: "stable",
+      sessionSummary: "",
+      dynamicContext: "dynamic",
+    })
+    const damaged = parseContextHubSnapshot({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      id: "assistant:damaged-usage-scope",
+      surface: "ai-chat",
+      createdAt: 11,
+      stats: {
+        ...currentStats,
+        requestDiagnostics: {
+          requestCount: 1,
+          requestCountAvailable: "no",
+          usageScope: "single_request",
+          providerUsageAvailable: true,
+          inputTokens: 100,
+        },
+      },
+      items: [],
+      stableCore: "stable",
+      sessionSummary: "",
+      dynamicContext: "dynamic",
+    })
+
+    expect(valid?.stats.requestDiagnostics).toMatchObject({
+      requestCountAvailable: false,
+      usageScope: "provider_thread",
+    })
+    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("requestCountAvailable")
+    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("usageScope")
+  })
 })
 
 describe("parseContextHubSnapshotRef", () => {

@@ -120,9 +120,12 @@ describe("settings model list", () => {
   it("reads the configured local Codex CLI model from Tauri detection", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({
       installed: true,
-      version: "codex-cli 0.137.0",
+      version: "codex-cli 0.146.1",
       path: "C:/Users/Administrator/AppData/Roaming/npm/codex.cmd",
-      model: "gpt-5.4",
+      model: "gpt-5.6-terra",
+      appServerReady: true,
+      dynamicToolsReady: true,
+      models: ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
       error: null,
     })
 
@@ -134,6 +137,25 @@ describe("settings model list", () => {
     }))
 
     expect(invoke).toHaveBeenCalledWith("codex_cli_detect")
-    expect(result.models).toEqual(["gpt-5.4"])
+    expect(result.models).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"])
+  })
+
+  it("rejects a Codex CLI without app-server dynamic tools", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      installed: true,
+      version: "codex-cli 0.120.0",
+      path: "/usr/local/bin/codex",
+      appServerReady: false,
+      dynamicToolsReady: false,
+      models: [],
+      error: "当前 Codex CLI 不支持 QMAI 主 Agent，请升级 Codex CLI。",
+    })
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    await expect(fetchLlmModelList(customConfig({
+      provider: "codex-cli",
+      apiKey: "",
+      model: "",
+    }))).rejects.toThrow("请升级 Codex CLI")
   })
 })

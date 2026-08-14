@@ -184,6 +184,44 @@ describe("createRunChapterWorkflowTool", () => {
     }))
   })
 
+  it("forwards every nested chapter request trace into the parent Agent collector", async () => {
+    const onRequestTrace = vi.fn()
+    const trace = {
+      provider: "custom" as const,
+      model: "test-model",
+      apiMode: "chat_completions",
+      startedAt: 100,
+      finishedAt: 200,
+      durationMs: 100,
+      status: "success" as const,
+    }
+    const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
+      callbacks.onRequestTrace?.(trace)
+      return {
+        finalContent: "正文",
+        taskBrief: "任务书",
+        draftContent: "草稿",
+        reviewResults: [],
+        revised: false,
+      }
+    })
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "C:/Novel",
+      llmConfig,
+      aiWorkflowMode: "strict",
+      runDeepChapterGeneration,
+    })
+
+    await tool.execute(
+      { userRequest: "生成第14章" },
+      undefined,
+      { callId: "workflow-trace", toolName: "run_chapter_workflow", onRequestTrace },
+    )
+
+    expect(onRequestTrace).toHaveBeenCalledOnce()
+    expect(onRequestTrace).toHaveBeenCalledWith(trace)
+  })
+
   it("forwards the confirmed plan blueprint into deep chapter generation", async () => {
     const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
       callbacks.onWorkflowEvent?.({

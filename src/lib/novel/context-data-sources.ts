@@ -10,7 +10,6 @@ import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadRevisionFeedbackForContext, createEmptyRevisionFeedback } from "./revision-feedback"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
-import { getChapterVolumes } from "./volume"
 import { readSoulDoc } from "./soul-doc"
 import { buildWritingStyleContext } from "./writing-style-store"
 import { buildSectionBriefing } from "./section-briefing"
@@ -25,6 +24,7 @@ import type { DataSourceCategory } from "./classification"
 import {
   readOutlineContent,
   readChapterOutlineContent,
+  readVolumeContextContent,
   searchRelevantContentUnified,
   searchGraphRelevantContent,
   selectLookbackChapterNumbers,
@@ -89,7 +89,7 @@ export const outlineDataSource: DataSource<string> = {
   name: "outline",
   priority: 1,
   async load(context: ContextLoadContext): Promise<string> {
-    return await readOutlineContent(context.projectPath)
+    return await readOutlineContent(context.projectPath, context.chapterNumber)
   },
 }
 
@@ -112,23 +112,7 @@ export const volumeContextDataSource: DataSource<string> = {
   name: "volumeContext",
   priority: 3,
   async load(context: ContextLoadContext): Promise<string> {
-    if (!context.chapterNumber) return ""
-    try {
-      const volumes = await getChapterVolumes(context.projectPath, context.chapterNumber)
-      if (volumes.length === 0) return ""
-      return volumes
-        .map(v => {
-          const parts = [`第${v.volumeNumber}卷：${v.title}`]
-          if (v.summary) parts.push(`概要：${v.summary}`)
-          if (v.chapterRangeStart !== undefined && v.chapterRangeEnd !== undefined) {
-            parts.push(`章节范围：第${v.chapterRangeStart}章 - 第${v.chapterRangeEnd}章`)
-          }
-          return parts.join("\n")
-        })
-        .join("\n\n")
-    } catch {
-      return ""
-    }
+    return await readVolumeContextContent(context.projectPath, context.chapterNumber)
   },
 }
 
@@ -492,8 +476,12 @@ export const sectionBriefingDataSource: DataSource<string> = {
   async load(context: ContextLoadContext): Promise<string> {
     if (!context.chapterNumber) return ""
     const chapterOutlineContent = await readChapterOutlineContent(context.projectPath, context.chapterNumber)
-    if (!chapterOutlineContent.trim()) return ""
-    return buildSectionBriefing(context.projectPath, context.chapterNumber, chapterOutlineContent)
+    return buildSectionBriefing(
+      context.projectPath,
+      context.chapterNumber,
+      chapterOutlineContent,
+      context.task,
+    )
   },
 }
 

@@ -10,13 +10,11 @@ export const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "o3-mini",
   "deepseek-reasoner",
   "claude-code",
-  "codex-cli",
   "cursor-cli",
 ]
 
 const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
-  "codex-cli",
   "cursor-cli",
 ])
 

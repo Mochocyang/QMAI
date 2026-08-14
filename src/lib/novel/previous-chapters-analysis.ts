@@ -33,6 +33,35 @@ export interface PreviousChapterAnalysis {
 }
 
 /**
+ * 读取前 N 章正文（去 frontmatter），不做 LLM 分析。读取失败的章节跳过。
+ */
+export async function readPreviousChapterBodies(
+  projectPath: string,
+  currentChapterNumber: number,
+  analysisCount: number = 3,
+  signal?: AbortSignal,
+): Promise<Array<{ number: number; content: string }>> {
+  if (currentChapterNumber <= 1) return []
+
+  const previousChapters: Array<{ number: number; content: string }> = []
+  for (let i = Math.max(1, currentChapterNumber - analysisCount); i < currentChapterNumber; i++) {
+    if (signal?.aborted) throw new Error("已停止生成")
+    try {
+      const results = await searchWiki(projectPath, `chapter_number:${i}`)
+      if (results.length > 0) {
+        const content = await readFile(results[0].path)
+        const bodyStart = content.indexOf("---", 4)
+        const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
+        if (body) previousChapters.push({ number: i, content: body })
+      }
+    } catch {
+      // 忽略读取失败的章节
+    }
+  }
+  return previousChapters
+}
+
+/**
  * 读取并分析前几章的完整内容
  */
 export async function analyzePreviousChapters(
@@ -42,25 +71,12 @@ export async function analyzePreviousChapters(
   analysisCount: number = 3,
   signal?: AbortSignal,
 ): Promise<string> {
-  if (currentChapterNumber <= 1) return ""
-
-  const previousChapters: Array<{ number: number; content: string }> = []
-
-  // 读取前N章的完整内容
-  for (let i = Math.max(1, currentChapterNumber - analysisCount); i < currentChapterNumber; i++) {
-    if (signal?.aborted) throw new Error("已停止生成")
-    try {
-      const results = await searchWiki(projectPath, `chapter_number:${i}`)
-      if (results.length > 0) {
-        const content = await readFile(results[0].path)
-        const bodyStart = content.indexOf("---", 4)
-        const body = bodyStart >= 0 ? content.slice(bodyStart + 3).trim() : content
-        previousChapters.push({ number: i, content: body })
-      }
-    } catch {
-      // 忽略读取失败的章节
-    }
-  }
+  const previousChapters = await readPreviousChapterBodies(
+    projectPath,
+    currentChapterNumber,
+    analysisCount,
+    signal,
+  )
 
   if (previousChapters.length === 0) return ""
 

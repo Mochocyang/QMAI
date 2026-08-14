@@ -35,8 +35,11 @@ describe("function calling helpers", () => {
 
   it("blocks local CLI providers from agent tools", () => {
     expect(modelSupportsTools("opus", "claude-code")).toBe(false)
-    expect(modelSupportsTools("gpt-5", "codex-cli")).toBe(false)
     expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(false)
+  })
+
+  it("allows Codex app-server dynamic tools", () => {
+    expect(modelSupportsTools("gpt-5", "codex-cli")).toBe(true)
   })
 })
 

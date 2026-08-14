@@ -6,6 +6,7 @@ import {
   normalizeUserLlmContextSize,
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
+import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 
 /**
  * Build a full LlmConfig from a preset template + the user's saved
@@ -29,10 +30,7 @@ export function resolveConfig(
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const functionCallingEnabled = ov.functionCallingEnabled !== false
-  const codexCliTimeoutMinutes =
-    typeof ov.codexCliTimeoutMinutes === "number" && Number.isFinite(ov.codexCliTimeoutMinutes)
-      ? Math.max(1, Math.min(240, Math.floor(ov.codexCliTimeoutMinutes)))
-      : undefined
+  const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)
 
   let config: LlmConfig
 
@@ -80,13 +78,13 @@ export function resolveConfig(
     }
   } else if (preset.provider === "claude-code" || preset.provider === "codex-cli") {
     // Subprocess transport — no apiKey, no endpoint URL. Model id is
-    // passed straight to the local CLI's model flag when the user
-    // explicitly sets one. Leaving it empty lets the local CLI use the
-    // machine's own configured default model.
+    // passed straight to the local CLI. Claude can inherit its machine
+    // default; Codex is pinned to QMAI's curated default unless the user
+    // explicitly selects another app-server model.
     config = {
       provider: preset.provider,
       apiKey: "",
-      model: ov.model?.trim() || "",
+      model: ov.model?.trim() || (preset.provider === "codex-cli" ? preset.defaultModel : "") || "",
       ollamaUrl: fallback.ollamaUrl,
       customEndpoint: fallback.customEndpoint,
       maxContextSize: rawMaxContextSize,
