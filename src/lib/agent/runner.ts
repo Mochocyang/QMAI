@@ -20,6 +20,7 @@ import { LlmRequestTraceCollector, type LlmRequestCacheTrace } from "../llm-requ
 import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
+import { DEFAULT_TOOL_RESULT_CONTEXT_LIMIT } from "./tool-result"
 import {
   RequiredToolsNotCalledError,
   buildRequiredToolNudgeMessage,
@@ -76,7 +77,7 @@ export class AgentRunner {
       role: "system",
       content: taskContract,
     })
-    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? 6000)
+    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? DEFAULT_TOOL_RESULT_CONTEXT_LIMIT)
     let taskBreakpoint: TaskBreakpoint | null = projectPath
       ? createTaskBreakpoint({
           taskGoal,

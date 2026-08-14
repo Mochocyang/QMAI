@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest"
-import { formatToolResultForModel, keepsFullToolResultForModel } from "./tool-result"
+import {
+  DEFAULT_TOOL_RESULT_CONTEXT_LIMIT,
+  formatToolResultForModel,
+  keepsFullToolResultForModel,
+} from "./tool-result"
 
 describe("formatToolResultForModel", () => {
   it("returns short tool results unchanged", () => {
     expect(formatToolResultForModel("read_chapter", "短内容", 100)).toBe("短内容")
+  })
+
+  it("uses 10000 as the default evidence limit", () => {
+    expect(DEFAULT_TOOL_RESULT_CONTEXT_LIMIT).toBe(10000)
+    const under = "章".repeat(9000)
+    const over = "章".repeat(11000)
+    expect(formatToolResultForModel("read_chapter", under)).toBe(under)
+    expect(formatToolResultForModel("read_chapter", over)).toContain("已压缩给模型使用")
+    expect(formatToolResultForModel("read_chapter", over).length).toBeLessThan(over.length)
   })
 
   it("compresses long results while preserving beginning and ending evidence", () => {

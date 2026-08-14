@@ -18,6 +18,7 @@ import {
 } from "./required-tools-gate"
 import { executeAgentTool } from "./tool-executor"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
+import { DEFAULT_TOOL_RESULT_CONTEXT_LIMIT } from "./tool-result"
 import {
   clearTaskBreakpoint,
   createTaskBreakpoint,
@@ -112,7 +113,7 @@ export class CodexAppServerRunner {
       providerRequestCountAvailable: false,
     }
     const client = getCodexAppServerClient()
-    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? 6000)
+    const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? DEFAULT_TOOL_RESULT_CONTEXT_LIMIT)
     let threadId = ""
     let activeTurnId = ""
     let turnText = ""

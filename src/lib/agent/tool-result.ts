@@ -1,6 +1,6 @@
 const TOOL_ERROR_PREFIX = /^\s*错误\s*[：:]/
 
-export const DEFAULT_TOOL_RESULT_CONTEXT_LIMIT = 6000
+export const DEFAULT_TOOL_RESULT_CONTEXT_LIMIT = 10000
 
 /**
  * 这些工具的返回值就是给用户的交付物（章节终稿），不是给模型当「证据摘录」的资料。
