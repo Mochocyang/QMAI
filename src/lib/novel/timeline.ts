@@ -35,27 +35,65 @@ async function saveTimeline(projectPath: string, data: TimelineFile): Promise<vo
   await writeFile(path, JSON.stringify(data, null, 2))
 }
 
+export function replaceChapterTimelineEntries(
+  entries: TimelineEntry[],
+  chapterNumber: number,
+  timelineEvents: string[] | undefined,
+): TimelineEntry[] {
+  const kept = entries.filter((entry) => entry.chapterNumber !== chapterNumber)
+  const seen = new Set<string>()
+  const next: TimelineEntry[] = []
+  for (const raw of timelineEvents ?? []) {
+    const event = raw.trim()
+    if (!event || seen.has(event)) continue
+    seen.add(event)
+    next.push({ chapterNumber, event })
+  }
+  return [...kept, ...next]
+}
+
+export function timelineEntriesFromSnapshots(
+  snapshots: Array<{ chapterNumber: number; timelineEvents?: string[] }>,
+): TimelineEntry[] {
+  const entries: TimelineEntry[] = []
+  for (const snapshot of snapshots) {
+    const seen = new Set<string>()
+    for (const raw of snapshot.timelineEvents ?? []) {
+      const event = raw.trim()
+      if (!event || seen.has(event)) continue
+      seen.add(event)
+      entries.push({ chapterNumber: snapshot.chapterNumber, event })
+    }
+  }
+  return entries
+}
+
+/**
+ * 用本章最新提取结果覆盖该章时间线，而不是按原文去重后追加。
+ * 重新提取时措辞会变，追加会留下重复行。
+ */
 export async function mergeSnapshotTimeline(
   projectPath: string,
   chapterNumber: number,
   timelineEvents: string[],
 ): Promise<void> {
-  if (!timelineEvents || timelineEvents.length === 0) return
-
   const tl = await loadTimeline(projectPath)
-
-  const existing = new Set(tl.entries.map((e) => `${e.chapterNumber}:${e.event}`))
-
-  for (const event of timelineEvents) {
-    const key = `${chapterNumber}:${event}`
-    if (!existing.has(key)) {
-      tl.serial++
-      tl.entries.push({ chapterNumber, event })
-      existing.add(key)
-    }
-  }
-
+  tl.entries = replaceChapterTimelineEntries(tl.entries, chapterNumber, timelineEvents)
+  tl.serial = tl.entries.length
   await saveTimeline(projectPath, tl)
+}
+
+export async function rebuildTimelineFromSnapshots(
+  projectPath: string,
+  snapshots: Array<{ chapterNumber: number; timelineEvents?: string[] }>,
+): Promise<void> {
+  const entries = timelineEntriesFromSnapshots(snapshots)
+  await saveTimeline(projectPath, {
+    version: 1,
+    entries,
+    serial: entries.length,
+    updatedAt: "",
+  })
 }
 
 export async function getTimelineEvents(

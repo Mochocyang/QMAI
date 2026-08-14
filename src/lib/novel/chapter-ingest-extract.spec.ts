@@ -80,6 +80,7 @@ describe("chapter ingest reextract path", () => {
     expect(source).toContain("skipDerivedIncremental: true")
     expect(source).toContain("if (isReingest)")
     expect(source).toContain("await finalizeProjectMemoryRebuild(pp)")
+    expect(source).toContain("await rebuildTimelineFromSnapshots(projectPath, snapshots)")
     expect(source).toContain("if (!isReingest && shouldRebuildCommunitySummaries")
   })
 

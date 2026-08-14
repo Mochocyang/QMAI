@@ -28,7 +28,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
 import { createChapterPipeline } from "./chapter-pipeline"
-import { mergeSnapshotTimeline } from "./timeline"
+import { mergeSnapshotTimeline, rebuildTimelineFromSnapshots } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { RetrievalStore } from "./retrieval"
@@ -1256,6 +1256,7 @@ export async function rebuildDerivedMemoryFromSnapshots(projectPath: string, lat
     applyForeshadowingChangesToStore(foreshadowingStore, snapshot)
   }
   await saveForeshadowingTracker(projectPath, foreshadowingStore)
+  await rebuildTimelineFromSnapshots(projectPath, snapshots)
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
 }
