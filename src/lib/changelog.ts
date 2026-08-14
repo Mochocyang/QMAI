@@ -7,6 +7,21 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "3.2.0",
+  date: "2026-08-14",
+  highlights: {
+    en: [
+      "[Chapter Draft Delivered Directly] After the chapter workflow finishes, the final draft is shown in the chat immediately. The outer Agent no longer retells or rewrites it, so you wait less and the text is less likely to get altered.",
+      "[DeepSeek Empty-Thinking 400 Fix] Empty thinking content is no longer sent back after tool calls; if thinking cannot be replayed, thinking is turned off automatically so DeepSeek no longer returns HTTP 400.",
+    ],
+    zh: [
+      "【章节终稿直接交付】章节工作流写完后，终稿立刻出现在对话里；外层 Agent 不再复述改写一遍，少等一轮，也不容易把已经定稿的正文改坏",
+      "【DeepSeek 思考空串 400 修复】工具调用后不再回传空的思考内容；无法回放思考时自动关闭 thinking，避免 DeepSeek 报 HTTP 400",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_NINE_CHANGELOG: ChangelogEntry = {
   version: "3.1.9",
   date: "2026-08-14",
@@ -1146,6 +1161,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_ZERO_CHANGELOG,
   THREE_POINT_ONE_NINE_CHANGELOG,
   THREE_POINT_ONE_EIGHT_CHANGELOG,
   THREE_POINT_ONE_SEVEN_CHANGELOG,
@@ -1211,6 +1227,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_ZERO_CHANGELOG.version)
+    return [THREE_POINT_TWO_ZERO_CHANGELOG];
   if (version === THREE_POINT_ONE_NINE_CHANGELOG.version)
     return [THREE_POINT_ONE_NINE_CHANGELOG];
   if (version === THREE_POINT_ONE_EIGHT_CHANGELOG.version)
