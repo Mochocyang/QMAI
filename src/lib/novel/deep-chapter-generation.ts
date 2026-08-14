@@ -1401,6 +1401,14 @@ export async function runDeepChapterGeneration(
     detail: "做最后一遍简单审查，减少复读、机械套话和 AI 味。",
     params: workflowBaseParams,
   };
+  if (workflowProfile.runFinalPolish) {
+    emitDeepChapterStageStarted(
+      callbacks,
+      "final_polish",
+      "去AI味",
+      "正在做最后一遍简单审查，去除复读、机械套话和 AI 味。",
+    );
+  }
   let finalContent = workflowProfile.runFinalPolish
     ? await runChapterWorkflowStep(
         callbacks,
@@ -1433,6 +1441,14 @@ export async function runDeepChapterGeneration(
       "快速模式跳过最终去AI味，直接采用阶段3正文作为最终正文。",
       { skipped: true, chars: countChapterChars(finalContent) },
     );
+  } else {
+    emitDeepChapterActivity(callbacks, {
+      id: `deep_chapter:final_polish:output:${Date.now()}`,
+      stageId: "final_polish",
+      kind: "stage_output",
+      title: "去AI味",
+      content: `简单审查与去AI味完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
+    });
   }
   callbacks.onThinking?.(
     formatStageThinking(

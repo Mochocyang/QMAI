@@ -1219,6 +1219,46 @@ describe("runDeepChapterGeneration", () => {
     expect(activityEvents.some((event) => event.kind === "extract_goal" && event.content.includes("上一章结尾"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "extract_result" && event.content.includes("门缝里传来金属拖拽声"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "stage_output" && event.content.includes("任务书"))).toBe(true)
+    expect(activityEvents.some((event) => event.stageId === "final_polish")).toBe(false)
+  })
+
+  it("emits a dedicated 去AI味 stage between 校验与修正 and 最终输出", async () => {
+    const deps = createDeps()
+    const activityEvents: AgentActivityEvent[] = []
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "strict",
+      },
+      { onActivityEvent: (event) => activityEvents.push(event) },
+      deps,
+    )
+
+    const polishStarted = activityEvents.find(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_started",
+    )
+    const polishOutput = activityEvents.find(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_output",
+    )
+    const validateOutputIndex = activityEvents.findIndex(
+      (event) => event.stageId === "validate_revision" && event.kind === "stage_output",
+    )
+    const polishStartedIndex = activityEvents.findIndex(
+      (event) => event.stageId === "final_polish" && event.kind === "stage_started",
+    )
+    const finalOutputIndex = activityEvents.findIndex(
+      (event) => event.stageId === "final_output" && event.kind === "final_output",
+    )
+
+    expect(polishStarted?.content).toContain("去除复读、机械套话和 AI 味")
+    expect(polishOutput?.content).toContain("简单审查与去AI味完成")
+    expect(validateOutputIndex).toBeGreaterThanOrEqual(0)
+    expect(polishStartedIndex).toBeGreaterThan(validateOutputIndex)
+    expect(finalOutputIndex).toBeGreaterThan(polishStartedIndex)
   })
 
   it("injects the enabled writing style into the stage 3 draft prompt", async () => {
