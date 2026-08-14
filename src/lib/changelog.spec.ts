@@ -6,7 +6,7 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.1.2", "3.1.1", "3.1.0"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.1", "3.2.0", "3.1.9"])
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")

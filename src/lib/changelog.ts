@@ -7,6 +7,23 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_ONE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.1",
+  date: "2026-08-14",
+  highlights: {
+    en: [
+      "[Independent Outline Fast Mode] AI Outline now has its own Fast / Standard switch, separate from chapter writing. Fast mode answers like a normal chat; Standard still runs the full outline workflow.",
+      "[Outline and Chapter Modes Remembered Separately] After restart, each restores its last choice. Changing the outline mode no longer overwrites chapter Fast / Standard / Strict.",
+      "[More Accurate Outline Save Folders] Save type is inferred from the title and your original request, so a chapter outline that mentions volume beats is no longer saved as a volume outline. If the save dialog is missing after generation, a confirmation still appears.",
+    ],
+    zh: [
+      "【大纲独立快速模式】AI 大纲现在有自己的「快速 / 标准」，不再跟写正文共用一套；快速模式像普通对话直接出稿，标准模式仍走完整工作流",
+      "【大纲和正文模式分开记住】重启后各自恢复上次选择，改大纲模式不会把正文的快速/标准/严格改掉",
+      "【大纲保存分类更准】按标题和你说的话判断存到章纲、卷纲等文件夹；章纲里提到「卷纲」也不再存错。生成完如果没弹出保存，会再补一次确认",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
   version: "3.2.0",
   date: "2026-08-14",
@@ -1161,6 +1178,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_ONE_CHANGELOG,
   THREE_POINT_TWO_ZERO_CHANGELOG,
   THREE_POINT_ONE_NINE_CHANGELOG,
   THREE_POINT_ONE_EIGHT_CHANGELOG,
@@ -1227,6 +1245,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_ONE_CHANGELOG.version)
+    return [THREE_POINT_TWO_ONE_CHANGELOG];
   if (version === THREE_POINT_TWO_ZERO_CHANGELOG.version)
     return [THREE_POINT_TWO_ZERO_CHANGELOG];
   if (version === THREE_POINT_ONE_NINE_CHANGELOG.version)
@@ -1332,6 +1352,13 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_ONE_CHANGELOG,
+    THREE_POINT_TWO_ZERO_CHANGELOG,
+    THREE_POINT_ONE_NINE_CHANGELOG,
+    THREE_POINT_ONE_EIGHT_CHANGELOG,
+    THREE_POINT_ONE_SEVEN_CHANGELOG,
+    THREE_POINT_ONE_SIX_CHANGELOG,
+    THREE_POINT_ONE_FIVE_CHANGELOG,
     THREE_POINT_ONE_TWO_CHANGELOG,
     THREE_POINT_ONE_ONE_CHANGELOG,
     THREE_POINT_ONE_ZERO_CHANGELOG,
@@ -1377,6 +1404,13 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_ONE_CHANGELOG &&
+        entry !== THREE_POINT_TWO_ZERO_CHANGELOG &&
+        entry !== THREE_POINT_ONE_NINE_CHANGELOG &&
+        entry !== THREE_POINT_ONE_EIGHT_CHANGELOG &&
+        entry !== THREE_POINT_ONE_SEVEN_CHANGELOG &&
+        entry !== THREE_POINT_ONE_SIX_CHANGELOG &&
+        entry !== THREE_POINT_ONE_FIVE_CHANGELOG &&
         entry !== THREE_POINT_ONE_TWO_CHANGELOG &&
         !isMergedOnePointRelease(entry.version),
     ),
