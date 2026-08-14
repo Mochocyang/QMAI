@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   coerceOutlineSubAgentResult,
-  parseOutlineFinalResult,
   parseOutlineSubAgentResult,
 } from "./outline-result-protocol"
 
@@ -26,28 +25,6 @@ describe("AI大纲结构化输出协议", () => {
       expect(result.value.agentId).toBe("topic-agent")
       expect(result.value.usedSkills).toEqual(["male-xuanhuan-xianxia"])
       expect(result.value.contentMarkdown).toContain("玄幻升级流")
-    }
-  })
-
-  it("解析 Markdown 代码块包裹的最终保存协议", () => {
-    const result = parseOutlineFinalResult(`\`\`\`json
-{
-  "outline_type": "chapter-outline",
-  "target_folder": "章纲",
-  "file_name": "章纲-第001章.md",
-  "status": "草稿",
-  "content_markdown": "# 章纲（第001章）",
-  "quality_check": { "valid": true, "errors": [], "warnings": [] },
-  "writeback_items": [],
-  "source_agents": ["topic-agent"]
-}
-\`\`\``)
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.fileName).toBe("章纲-第001章.md")
-      expect(result.value.qualityCheck.valid).toBe(true)
-      expect(result.value.sourceAgents).toEqual(["topic-agent"])
     }
   })
 

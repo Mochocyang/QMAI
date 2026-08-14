@@ -33,10 +33,10 @@ describe("AI 大纲工作台页面接入", () => {
   it("移除旧的非对话式生成界面且不把独立生成模块接回工作台", () => {
     expect(existsSync(resolve(__dirname, "outline-generator-dialog.tsx"))).toBe(false)
     expect(existsSync(resolve(__dirname, "../../lib/novel/outline-generation.ts"))).toBe(true)
-    expect(existsSync(resolve(__dirname, "../../lib/novel/deep-outline-generation.ts"))).toBe(true)
+    expect(existsSync(resolve(__dirname, "../../lib/novel/deep-outline-generation.ts"))).toBe(false)
     expect(sourcesViewSource).not.toContain("runDeepOutlineGeneration")
     expect(toolbarSource).not.toContain("runDeepOutlineGeneration")
-    expect(promptTemplatesSource).toContain("outlineGeneration:")
+    expect(promptTemplatesSource).not.toContain("outlineGeneration:")
     expect(promptTemplatesSource).not.toContain("outlineRefinementGeneration:")
   })
 })

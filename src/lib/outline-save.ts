@@ -1,11 +1,21 @@
 import { parseFrontmatter } from "./frontmatter"
 import { stripStructuredMarkers } from "./novel/outline-intent-clarity"
 import { cleanNextStepArtifacts } from "./novel/outline-next-step"
-import { extractBodyContent } from "./novel/outline-save-request"
+import {
+  classifyOutlineSaveTarget,
+  type OutlineSaveClassification,
+} from "./novel/outline-save-classifier"
+import { extractBodyContent, type OutlineSaveRequest } from "./novel/outline-save-request"
 
 export interface OutlineSaveDraft {
   title: string
   content: string
+}
+
+export interface ClassifiedOutlineSaveRequest {
+  draft: OutlineSaveDraft
+  classification: OutlineSaveClassification
+  request: OutlineSaveRequest
 }
 
 const DEFAULT_TITLE_PREFIX = "AI大纲"
@@ -26,6 +36,53 @@ export function prepareOutlineSaveDraft(content: string, existingTitles: string[
   const baseTitle = sanitizeOutlineTitle(extractOutlineTitle(body))
   const title = makeDistinctOutlineTitle(baseTitle, existingTitles)
   return { title, content: body }
+}
+
+const SAVEABLE_TYPE_MARK = /章纲|卷纲|总纲|细纲|分卷大纲|人物小传|^#\s+角色-/m
+const CHAPTER_STRUCTURE_MARK = /本章目标[\s\S]{0,200}核心事件|核心事件[\s\S]{0,400}场景顺序/
+
+/** 判断回复是否像一份可落盘的大纲正文（而非问答/确认摘要）。 */
+export function isSaveableOutlineDeliverable(content: string): boolean {
+  const cleaned = prepareOutlineSaveSourceContent(content).trim()
+  if (!cleaned) return false
+  if (/^#\s+/.test(cleaned) && SAVEABLE_TYPE_MARK.test(cleaned.slice(0, 400)) && cleaned.length >= 80) {
+    return true
+  }
+  return cleaned.length >= 200
+    && CHAPTER_STRUCTURE_MARK.test(cleaned)
+    && /第\s*\d{1,4}\s*章/.test(cleaned)
+}
+
+export function buildClassifiedOutlineSaveRequest(input: {
+  content: string
+  sourceIntent: string
+  sourceHint?: string
+}): ClassifiedOutlineSaveRequest | null {
+  const cleaned = prepareOutlineSaveSourceContent(input.content)
+  if (!cleaned.trim()) return null
+  const draft = prepareOutlineSaveDraft(cleaned, [])
+  if (!draft.content.trim()) return null
+  const classification = classifyOutlineSaveTarget({
+    title: draft.title,
+    content: draft.content,
+    sourceHint: input.sourceHint,
+  })
+  const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim()
+  const titleHeading = classification.fileName.replace(/\.md$/i, "")
+  const mdContent = body ? `# ${titleHeading}\n\n${body}` : draft.content.trim()
+  return {
+    draft,
+    classification,
+    request: {
+      targetFolder: classification.targetFolder,
+      fileName: classification.fileName,
+      fileType: classification.fileType,
+      writeMode: "create",
+      referencedSkills: [],
+      sourceIntent: input.sourceIntent,
+      content: mdContent,
+    },
+  }
 }
 
 function looksLikeHeading(line: string): boolean {

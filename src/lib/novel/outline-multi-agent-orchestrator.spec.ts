@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_OUTLINE_SUBAGENT_MERGE_MAX_CHARS,
   buildBoundedSubAgentMergePayload,
   planOutlineSubAgents,
   resumeOutlineMultiAgentWorkflow,
@@ -178,27 +179,107 @@ describe("AI大纲多 Agent 编排器", () => {
     expect(result.successfulAgents).toEqual(["parent", "child"])
   })
 
-  it("合并载荷按预算压缩完整子 Agent 输出", () => {
-    const results = Array.from({ length: 5 }, (_, index) => ({
+  it("合并载荷保留子 Agent 正文中段和写回项", () => {
+    const results = Array.from({ length: 2 }, (_, index) => ({
       agentId: `a${index}`,
       agentName: `Agent ${index}`,
       stage: "planning",
       usedSkills: [],
       confidence: 0.8,
       summary: `总结 ${index}`,
-      contentMarkdown: `内容 ${index}`.repeat(3000),
+      contentMarkdown: `开头 ${index}\n中间正文 ${index}\n结尾 ${index}`,
       constraints: ["保持一致"],
-      writebackItems: [],
+      writebackItems: [{
+        type: "character",
+        name: `角色${index}`,
+        content: `角色正文 ${index}`,
+        targetFolder: "人物小传",
+      }],
       risks: ["存在冲突"],
-      questions: [],
+      questions: ["是否保留这条线？"],
     }))
 
-    const payload = buildBoundedSubAgentMergePayload(results, 6000)
+    const payload = buildBoundedSubAgentMergePayload(results)
 
-    expect(payload.length).toBeLessThanOrEqual(6000)
-    expect(payload).toContain("总结 0")
-    expect(payload).toContain("总结 4")
-    expect(payload).toContain("冲突与风险")
+    expect(payload).toContain("中间正文 0")
+    expect(payload).toContain("中间正文 1")
+    expect(payload).toContain("角色正文 0")
+    expect(payload).toContain("待确认问题：是否保留这条线？")
+    expect(payload).not.toContain("子 Agent 内容已压缩")
+  })
+
+  it("超出预算时整份丢弃靠后的 Agent，不砍中段", () => {
+    const results = [
+      {
+        agentId: "a0",
+        agentName: "Agent 0",
+        stage: "planning",
+        usedSkills: [],
+        confidence: 0.8,
+        summary: "总结 0",
+        contentMarkdown: "开头 0\n中间正文 0\n结尾 0",
+        constraints: [],
+        writebackItems: [],
+        risks: [],
+        questions: [],
+      },
+      {
+        agentId: "a1",
+        agentName: "Agent 1",
+        stage: "planning",
+        usedSkills: [],
+        confidence: 0.8,
+        summary: "总结 1",
+        contentMarkdown: "x".repeat(4000),
+        constraints: [],
+        writebackItems: [],
+        risks: [],
+        questions: [],
+      },
+    ]
+
+    const payload = buildBoundedSubAgentMergePayload(results, 200)
+
+    expect(payload).toContain("中间正文 0")
+    expect(payload).not.toContain("Agent 1")
+    expect(payload).not.toContain("子 Agent 内容已压缩")
+  })
+
+  it("默认上限下整份丢弃靠后的 Agent，不砍中段", () => {
+    const results = [
+      {
+        agentId: "a0",
+        agentName: "Agent 0",
+        stage: "planning",
+        usedSkills: [],
+        confidence: 0.8,
+        summary: "总结 0",
+        contentMarkdown: "开头 0\n中间正文 0\n结尾 0",
+        constraints: [],
+        writebackItems: [],
+        risks: [],
+        questions: [],
+      },
+      {
+        agentId: "a1",
+        agentName: "Agent 1",
+        stage: "planning",
+        usedSkills: [],
+        confidence: 0.8,
+        summary: "总结 1",
+        contentMarkdown: "x".repeat(DEFAULT_OUTLINE_SUBAGENT_MERGE_MAX_CHARS),
+        constraints: [],
+        writebackItems: [],
+        risks: [],
+        questions: [],
+      },
+    ]
+
+    const payload = buildBoundedSubAgentMergePayload(results)
+
+    expect(payload).toContain("中间正文 0")
+    expect(payload).not.toContain("Agent 1")
+    expect(payload.length).toBeLessThan(DEFAULT_OUTLINE_SUBAGENT_MERGE_MAX_CHARS)
   })
 })
 

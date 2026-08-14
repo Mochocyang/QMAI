@@ -300,7 +300,10 @@ export function getOutlineWizardSkillNames(request: OutlineWizardRequest): strin
   return Array.from(names)
 }
 
-export function buildOutlineWizardPrompt(request: OutlineWizardRequest): string {
+export function buildOutlineWizardPrompt(
+  request: OutlineWizardRequest,
+  options?: { mode?: "fast" | "standard" },
+): string {
   const task = optionLabel(OUTLINE_WIZARD_TASK_OPTIONS, request.task)
   const length = optionLabel(OUTLINE_WIZARD_LENGTH_OPTIONS, request.length)
   const channel = optionLabel(OUTLINE_WIZARD_CHANNEL_OPTIONS, request.channel)
@@ -313,9 +316,7 @@ export function buildOutlineWizardPrompt(request: OutlineWizardRequest): string 
     request.materialSource,
   )
   const genre = getOutlineWizardGenreLabel(request)
-  const skillNames = getOutlineWizardSkillNames(request)
-
-  return [
+  const demand = [
     "用户已提交小说生成需求：",
     "",
     `- 任务：${task}`,
@@ -332,6 +333,19 @@ export function buildOutlineWizardPrompt(request: OutlineWizardRequest): string 
     `- 作品规模：${request.scale.trim() || "AI 根据篇幅和题材推荐"}`,
     `- 叙事要求：${narrative}`,
     `- 已有资料：${materialSource}`,
+  ]
+
+  if (options?.mode === "fast") {
+    return [
+      ...demand,
+      "",
+      "请根据以上需求直接生成可保存的大纲正文，不要进入需求分析、意图分析或多 Agent 编排，不要等待用户确认后再写。",
+    ].join("\n")
+  }
+
+  const skillNames = getOutlineWizardSkillNames(request)
+  return [
+    ...demand,
     "",
     "## 本次优先调用 Skill",
     "请优先使用以下 SkillHub Skill 进行需求分析、题材判断和大纲生成，不要输出 Skill 说明：",

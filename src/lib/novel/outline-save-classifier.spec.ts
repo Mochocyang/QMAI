@@ -71,4 +71,35 @@ describe("outline-save-classifier", () => {
       targetFolder: "卷纲",
     })
   })
+
+  it("章纲标题优先于正文里引用的卷纲节拍", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "章纲-第46章：第一次冷处理",
+      content: [
+        "# 章纲-第46章：第一次冷处理",
+        "",
+        "## 上层依据",
+        "- **卷纲节拍：** 终局期",
+        "- 依据：卷纲/第一卷.md",
+        "",
+        "## 本章目标",
+        "男主第一次被公司冷处理。",
+      ].join("\n"),
+    })).toMatchObject({
+      fileType: "chapter-outline",
+      targetFolder: "章纲",
+      fileName: "章纲-第046章-第一次冷处理.md",
+    })
+  })
+
+  it("用户原话是章纲时，正文引用卷纲不能改判成卷纲", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "第一次冷处理",
+      content: "## 上层依据\n- **卷纲节拍：** 终局期",
+      sourceHint: "编写第 46 章章纲",
+    })).toMatchObject({
+      fileType: "chapter-outline",
+      targetFolder: "章纲",
+    })
+  })
 })

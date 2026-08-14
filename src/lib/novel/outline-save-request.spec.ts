@@ -54,6 +54,29 @@ describe("outline-save-request", () => {
     })
   })
 
+  it("未闭合 json 围栏时仍能回收完整保存请求", () => {
+    const result = parseOutlineSaveRequests([
+      SAMPLE_CHAPTER_OUTLINE,
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "章纲",
+          fileName: "章纲-第001章.md",
+          fileType: "chapter-outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成第001章章纲",
+          content: SAMPLE_CHAPTER_OUTLINE,
+        },
+      }),
+    ].join("\n"))
+
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0]?.fileName).toBe("章纲-第001章.md")
+    expect(result.requests[0]?.content).toContain("本章目标")
+  })
+
   it("拒绝绝对路径和上级目录路径", () => {
     const result = parseOutlineSaveRequests(JSON.stringify({
       outlineSaveRequests: [

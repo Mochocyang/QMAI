@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  Check,
   ChevronDown,
   X,
   Save,
@@ -22,6 +23,12 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
+import {
+  resolveOutlineWorkflowMode,
+  type OutlineWorkflowMode,
+} from "@/lib/agent/workflow-mode";
+import { OUTPUT_TRUNCATED_ERROR_MARKER } from "@/lib/llm-client";
+import { Button } from "@/components/ui/button";
 import { saveAiOutlineModel } from "@/lib/project-store";
 import {
   useOutlineChatStore,
@@ -91,7 +98,11 @@ import {
   parseDynamicOutlinePlan,
 } from "@/lib/novel/outline-dynamic-agent-planner";
 import { buildScopedOutlineSubAgentContext } from "@/lib/novel/outline-agent-context";
-import { prepareOutlineSaveDraft, prepareOutlineSaveSourceContent } from "@/lib/outline-save";
+import {
+  buildClassifiedOutlineSaveRequest,
+  isSaveableOutlineDeliverable,
+  prepareOutlineSaveSourceContent,
+} from "@/lib/outline-save";
 import {
   type CharacterSaveDraft,
   extractCharacterSaveDrafts,
@@ -106,7 +117,6 @@ import {
   type CharacterAgentPlan,
   type CharacterAgentResult,
 } from "@/lib/novel/character-multi-agent";
-import { classifyOutlineSaveTarget } from "@/lib/novel/outline-save-classifier";
 import {
   characterDraftsToSaveRequests,
   formatOutlineSaveParseFeedback,
@@ -392,48 +402,86 @@ function buildOutlineAgentUserContent(
   ].join("\n");
 }
 
+function isOutlineOutputTruncated(error?: Error | null): boolean {
+  const message = error?.message ?? "";
+  return message.includes(OUTPUT_TRUNCATED_ERROR_MARKER) || message.includes("最大输出 token");
+}
+
+const OUTLINE_WORKFLOW_MODE_OPTIONS: Array<{
+  mode: OutlineWorkflowMode;
+  label: string;
+  description: string;
+  routeDescription: string;
+}> = [
+  {
+    mode: "fast",
+    label: "快速",
+    description: "普通对话",
+    routeDescription: "快速模式像普通对话一样直接出结果，可读取必要上下文，但不走意图分析、多 Agent 和强制需求分析。",
+  },
+  {
+    mode: "standard",
+    label: "标准",
+    description: "完整工作流",
+    routeDescription: "先做意图分析或向导多 Agent，再生成可保存的大纲，并保留澄清与分步生成。",
+  },
+];
+
 export function buildOutlineAgentSystemPrompt(options: {
   projectName?: string;
   webResearchContext?: string;
   soulDoc?: string;
+  mode?: OutlineWorkflowMode;
 }): string {
+  const mode = resolveOutlineWorkflowMode(options.mode);
+  const workflowRules = mode === "fast"
+    ? [
+      "快速模式下像普通对话一样直接出结果。可以按需读取必要上下文，但不要主动进入需求分析、意图分析或多 Agent 编排。",
+      "用户要求生成或修改大纲时，直接输出可保存的大纲正文；不要先追问方案或等待确认才开始写。",
+    ]
+    : [
+      "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
+      "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
+      "回答必须基于已读取内容进行分析，说明关键判断依据。",
+      "## AI大纲固定分析流程",
+      "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
+      "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
+      "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
+      "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
+      "## AI大纲生成工作流",
+      "固定向导提交的小说生成需求必须先进入“需求分析/生成方案”阶段：先判断缺失信息，信息足够时只输出生成方案、文件清单、保存位置和生成顺序，并询问用户是否确认开始生成；用户确认前不得生成完整文件，不得调用保存工具。",
+      "需求分析必须执行充分性闸门：缺少篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向或预期章节结构时，只追问最关键缺口。",
+      "长篇小说必须先卷后章：先形成核心设定、总纲、卷节拍表、卷时间线和卷纲，再生成章纲；不得从灵感直接跳到全书章纲。",
+      "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
+      "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
+      "## 意图清晰度分析阶段",
+      "仅当系统明确标记本轮为“意图分析”时，才输出 intent_clarity；正文生成阶段严禁再次输出该标记。",
+      "当本轮为意图分析时：",
+      "1. 调用 list_outlines、list_chapters、read_outline 读取已有资料",
+      "2. 判断用户意图是否清晰（能否确定具体生成范围）",
+      "3. 严格输出以下完整协议块：",
+      "<!-- intent_clarity -->",
+      '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
+      "<!-- /intent_clarity -->",
+      "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
+      "4. clear 时：只输出 JSON，不生成正文，等待系统自动注入生成指令",
+      "5. needs_input 时：只输出 JSON，在 question 和 options 中提供澄清问题与4个推荐选项",
+      "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
+      "用户选择或回复后，直接进入生成流程，不再二次分析。",
+    ];
   return [
     "你是专业小说大纲分析与创作助手。",
-    "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
-    "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
-    "回答必须基于已读取内容进行分析，说明关键判断依据；需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
-    "## AI大纲固定分析流程",
-    "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
-    "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
-    "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
-    "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
-    "## AI大纲生成工作流",
-    "固定向导提交的小说生成需求必须先进入“需求分析/生成方案”阶段：先判断缺失信息，信息足够时只输出生成方案、文件清单、保存位置和生成顺序，并询问用户是否确认开始生成；用户确认前不得生成完整文件，不得调用保存工具。",
-    "需求分析必须执行充分性闸门：缺少篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向或预期章节结构时，只追问最关键缺口。",
-    "长篇小说必须先卷后章：先形成核心设定、总纲、卷节拍表、卷时间线和卷纲，再生成章纲；不得从灵感直接跳到全书章纲。",
-    "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
-    "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
-    "## 意图清晰度分析阶段",
-    "仅当系统明确标记本轮为“意图分析”时，才输出 intent_clarity；正文生成阶段严禁再次输出该标记。",
-    "当本轮为意图分析时：",
-    "1. 调用 list_outlines、list_chapters、read_outline 读取已有资料",
-    "2. 判断用户意图是否清晰（能否确定具体生成范围）",
-    "3. 严格输出以下完整协议块：",
-    "<!-- intent_clarity -->",
-    '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
-    "<!-- /intent_clarity -->",
-    "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
-    "4. clear 时：只输出 JSON，不生成正文，等待系统自动注入生成指令",
-    "5. needs_input 时：只输出 JSON，在 question 和 options 中提供澄清问题与4个推荐选项",
-    "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
-    "用户选择或回复后，直接进入生成流程，不再二次分析。",
+    "需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
+    ...workflowRules,
     "",
     "## 下一步推荐输出",
     "生成完成后，在回复末尾附加 <!-- next_step --> JSON 标记块。",
     "推荐方向仅限大纲体系内（人物小传、组织势力、力量体系等），严禁推荐正文生成。",
     "必须包含一个 id 为 D 的自定义选项。",
-    "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
+    ...(mode === "fast" ? [] : [
+      "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
+    ]),
     "关键内容提取必须服务于小说创作：只保留能帮助用户继续写小说的信息，例如章节目标、冲突推进、人物动机、伏笔状态、设定限制、时间线承接和结尾钩子。",
     "生成章纲时必须使用章纲标准结构：基础信息、上层依据、本章目标、核心事件、场景顺序、结构节点、章首钩子、爽点设计、章尾钩子、执行约束、人物状态、伏笔与追踪、待写回设定、写作约束、AI写作提示。核心事件不少于6条，场景顺序为2-4个场景。",
     "结构节点必须包含 CBN、CPNs、CEN；CEN 必须能承接下一章 CBN。执行约束必须包含必须覆盖节点和本章禁区。基础信息必须包含时间锚点、章内时间跨度和与上章时间差。",
@@ -463,7 +511,9 @@ export function buildOutlineAgentSystemPrompt(options: {
     "- **核心技能：** 高中/大学化学知识（有机/无机化学基础）、物理常识、急救知识",
     "- **性格：** 表面冷漠实则心软，前期被动应对，中后期主动布局",
     "最终回复只输出大纲标题和大纲正文；如果内容需要保存，末尾附加 AI 大纲输出协议 JSON 保存块（含 content）。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
-    "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。资料不足以生成完整正文时，先提出最少必要澄清问题，不要用流程说明冒充生成结果。",
+    mode === "fast"
+      ? "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。不要用流程说明冒充生成结果。"
+      : "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。资料不足以生成完整正文时，先提出最少必要澄清问题，不要用流程说明冒充生成结果。",
     "所有面向用户的回复必须使用中文。",
     options.projectName ? `当前项目：${options.projectName}` : "",
     options.soulDoc?.trim() ? `## 作品灵魂与总则\n${options.soulDoc}` : "",
@@ -1242,6 +1292,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const aiOutlineModel = useWikiStore((s) => s.aiOutlineModel);
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel);
   const setAiOutlineModel = useWikiStore((s) => s.setAiOutlineModel);
+  const outlineWorkflowMode = resolveOutlineWorkflowMode(
+    useWikiStore((s) => s.outlineWorkflowMode),
+  );
+  const setOutlineWorkflowMode = useWikiStore((s) => s.setOutlineWorkflowMode);
+  const isOutlineFastMode = outlineWorkflowMode === "fast";
   const chatConversations = useChatStore((s) => s.conversations);
 
   const conversations = useOutlineChatStore((s) => s.conversations);
@@ -1373,6 +1428,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null);
   const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [workflowModeDropdownOpen, setWorkflowModeDropdownOpen] = useState(false);
+  const workflowModeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const workflowModeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<CSSProperties | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [pendingClearHistoryIds, setPendingClearHistoryIds] = useState<string[] | null>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
@@ -1571,6 +1630,29 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     setHistoryOpen(false);
   }, [activeConversationId]);
 
+  useEffect(() => {
+    if (!workflowModeDropdownOpen) {
+      setWorkflowModeDropdownStyle(null);
+      return;
+    }
+    function updatePosition() {
+      const rect = workflowModeTriggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setWorkflowModeDropdownStyle({
+        left: rect.left,
+        top: rect.top - 8,
+        width: Math.max(rect.width, 320),
+        transform: "translateY(-100%)",
+      });
+    }
+    const raf = requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [workflowModeDropdownOpen]);
+
   const setSaveStatus = useCallback((message: string) => {
     if (!/(失败|错误|不支持|无法)/.test(message)) return;
     toast.error(message, {
@@ -1735,14 +1817,57 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     [drainNextSaveBatch, project],
   );
 
+  const collectOutlineSaveSourceHint = useCallback((conversationId: string) => {
+    const intent = intentContextsRef.current[conversationId];
+    const conversation = useOutlineChatStore.getState().conversations.find(
+      (item) => item.id === conversationId,
+    );
+    const lastUser = [...(conversation?.messages ?? [])]
+      .reverse()
+      .find((message) => message.role === "user" && !isInternalOutlineMessage(message));
+    return [
+      intent?.originalRequest,
+      intent?.title,
+      lastUser?.content,
+      conversation?.title,
+    ].filter((item): item is string => Boolean(item?.trim())).join("\n");
+  }, []);
+
   const handleAutoSaveOutlineRequests = useCallback(
-    async (_conversationId: string, assistantContent: string, canApply: () => boolean) => {
+    async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
       if (!project || !canApply()) return;
       const parsed = parseOutlineSaveRequests(assistantContent);
       if (parsed.requests.length === 0) {
         if (parsed.errors.length > 0) {
           showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
+          return;
         }
+        if (!isSaveableOutlineDeliverable(assistantContent)) return;
+        const built = buildClassifiedOutlineSaveRequest({
+          content: assistantContent,
+          sourceIntent: "生成完成后自动保存",
+          sourceHint: collectOutlineSaveSourceHint(conversationId),
+        });
+        if (!built || !canApply()) return;
+        if (built.classification.fileType === "character") {
+          const extracted = extractCharacterSaveDrafts(built.draft.content);
+          if (extracted.drafts.length === 0) return;
+          presentOrQueueSaveBatch({
+            title: "请确认要保存的人物角色",
+            mode: "character",
+            requests: [],
+            characterDrafts: extracted.drafts,
+          });
+          setSaveStatus("检测到人物小传，请确认要保存的人物角色。");
+          return;
+        }
+        presentOrQueueSaveBatch({
+          title: "请确认要保存的大纲文件",
+          mode: "normal",
+          requests: [built.request],
+          characterDrafts: [],
+        });
+        setSaveStatus("检测到可保存大纲，请确认后写入。");
         return;
       }
 
@@ -1816,7 +1941,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
       }
     },
-    [presentOrQueueSaveBatch, project],
+    [collectOutlineSaveSourceHint, presentOrQueueSaveBatch, project],
   );
 
   const handleSend = useCallback(
@@ -1987,9 +2112,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 出错/中断时必须依靠这个变量判断有没有可保留的内容，
       // 避免整段结果被静默丢弃。
       let bestGeneratedText = "";
-      const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "generation"
-        ? "generation"
-        : "analysis";
+      let deliverableTruncated = false;
+      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+      const enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== "fast";
+      const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "intent_analysis"
+        ? "analysis"
+        : "generation";
       const outlineRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
         stage: outlineBudgetStage,
@@ -2057,11 +2185,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
         const baseSystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
+          mode: outlineMode,
         });
         const legacySystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
           webResearchContext: webResearchMarkdown,
           soulDoc,
+          mode: outlineMode,
         }) + `\n\n## 本轮上下文策略\n${contextDecision.instruction}\n\n${historyPlan.instruction}`;
         const commonDynamicParts = [
           webResearchMarkdown ? `## 本轮联网资料\n${webResearchMarkdown}` : "",
@@ -2293,6 +2423,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           });
           let text = singleRun.text || "AI大纲未返回内容。";
           if (singleRun.error) {
+            if (isOutlineOutputTruncated(singleRun.error)) deliverableTruncated = true;
             const errorMsg = singleRun.error.message;
             text = text + "\n\n---\n\n⚠️ **注意**：" + errorMsg + "\n\n您可以在新消息中输入\"继续\"来让模型补全剩余内容，或点击保存尝试保存已生成的内容。";
           }
@@ -2306,7 +2437,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const isCharacterMultiAgentTask =
           options.intentPhase === "generation" &&
           currentIntentContext?.title === "人物小传" &&
-          !options.enableMultiAgent;
+          !enableMultiAgent &&
+          outlineMode !== "fast";
 
         if (isCharacterMultiAgentTask) {
           setStreamingContent(capturedConvId, "正在分析需要生成的角色清单...");
@@ -2374,11 +2506,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   skillNames: options.preferredSkillNames,
                   disableWriteTools: true,
                   streamToUser: false,
-                  budgetStage: "analysis",
+                  budgetStage: "generation",
                 });
-                if (charRun.error) {
+                if (charRun.error && !isOutlineOutputTruncated(charRun.error)) {
                   throw new Error(charRun.error.message);
                 }
+                if (isOutlineOutputTruncated(charRun.error)) deliverableTruncated = true;
                 return charRun.text;
               },
               onCharacterStart: (_charPlan) => {
@@ -2410,7 +2543,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               characterMultiAgentResults: multiAgentResult.characters,
             }));
           }
-        } else if (options.enableMultiAgent) {
+        } else if (enableMultiAgent) {
           const maxConcurrency = 3;
           const fallbackSubAgentPlan = planOutlineSubAgents({
             preferredSkillNames: options.preferredSkillNames ?? [],
@@ -2518,6 +2651,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   skillNames: subAgentPlan.skillNames,
                   disableWriteTools: true,
                   statusText: `多 Agent 并行生成中...\n正在运行：${subAgentPlan.name}`,
+                  budgetStage: "generation",
                 });
               } catch (error) {
                 if (!isCurrentRun()) throw new Error("aborted");
@@ -2530,7 +2664,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 }));
                 throw error;
               }
-              if (subRun.error) {
+              if (subRun.error && !isOutlineOutputTruncated(subRun.error)) {
                 const message = subRun.error.message;
                 updateOutlineMultiAgentItem(convId, assistantId, subAgentPlan.id, (agent) => ({
                   ...agent,
@@ -2540,6 +2674,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 }));
                 throw new Error(message);
               }
+              if (isOutlineOutputTruncated(subRun.error)) deliverableTruncated = true;
               return subRun.text;
 
             },
@@ -2607,6 +2742,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   disableWriteTools: true,
                   streamToUser: true,
                   statusText: "\u591a Agent \u5df2\u5b8c\u6210\uff0c\u6b63\u5728\u5408\u5e76\u5927\u7eb2\u7ed3\u679c...",
+                  budgetStage: "generation",
                 });
               } catch (error) {
                 if (isCurrentRun()) {
@@ -2626,6 +2762,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               if (!isCurrentRun()) throw new Error("aborted");
               let mergeText = mergeRun.text || "AI大纲未返回内容。";
               if (mergeRun.error) {
+                if (isOutlineOutputTruncated(mergeRun.error)) deliverableTruncated = true;
                 mergeText = mergeText + "\n\n---\n\n⚠️ **注意**：" + mergeRun.error.message + "\n\n您可以在新消息中输入\"继续\"来让模型补全剩余内容，或点击保存尝试保存已生成的内容。";
               }
               updateOutlineMultiAgentRun(convId, assistantId, (run) => run ? ({
@@ -2890,7 +3027,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sessionKey: capturedConvId,
           });
         }
-        if (intentProtocol.kind === "none" && !intentProtocolError) {
+        if (intentProtocol.kind === "none" && !intentProtocolError && !deliverableTruncated) {
           await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         }
         if (!isCurrentRun()) return { started: true, sent: false };
@@ -3010,12 +3147,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     (title: string, requestHint: string) => {
       const capturedConvId = activeConversationId ?? createConversation();
       const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === title);
+      const fastMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast";
       intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
         title,
         hint: requestHint,
         outputMode: config?.outputMode,
-        skillNames: getOutlineSkillNames(title),
+        skillNames: fastMode ? [] : getOutlineSkillNames(title),
       });
+      if (fastMode) {
+        void handleSend(buildGenerationPrompt(title, requestHint, requestHint, config?.outputMode), [], {
+          conversationId: capturedConvId,
+          intentPhase: "generation",
+          systemGenerated: true,
+          userDisplayText: `生成${title}`,
+        });
+        return;
+      }
       if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
         setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
       }
@@ -3032,6 +3179,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleDirectSubmit = useCallback(
     async (text: string, references: ReferenceToken[] = []) => {
+      if (resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast") {
+        return handleSend(text, references);
+      }
       const directRequest = classifyDirectOutlineGenerationRequest(text);
       if (!directRequest) return handleSend(text, references);
 
@@ -3257,8 +3407,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         }
         const skillConfig = await loadDeAiSkillConfig(project.path).catch((): DeAiSkillConfig | null => null);
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
-        const baseSystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name });
-        const legacySystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, soulDoc });
+        const resumeOutlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+        const baseSystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, mode: resumeOutlineMode });
+        const legacySystemPrompt = buildOutlineAgentSystemPrompt({ projectName: project.name, soulDoc, mode: resumeOutlineMode });
         const buildResumeSystemContent = (extraRules: string): AgentMessage["content"] => (
           contextHubResult
             ? buildContextHubSystemContent(baseSystemPrompt, contextHubResult, [extraRules])
@@ -3369,7 +3520,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
             }
-            if (agentError) throw agentError;
+            if (agentError && !isOutlineOutputTruncated(agentError)) throw agentError;
             return runText;
           },
           mergeResults: async (subAgentResults) => {
@@ -3413,7 +3564,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
             }
-            if (mergeError) throw mergeError;
+            if (mergeError && !isOutlineOutputTruncated(mergeError)) throw mergeError;
+            if (mergeError) {
+              mergeText = `${mergeText}\n\n---\n\n⚠️ **注意**：${mergeError.message}\n\n您可以在新消息中输入"继续"来让模型补全剩余内容，或点击保存尝试保存已生成的内容。`;
+            }
             return mergeText || "AI大纲未返回内容。";
           },
           onStatusChange: (event) => {
@@ -3542,11 +3696,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleSubmitOutlineWizard = useCallback(
     (request: OutlineWizardRequest) => {
-      const modelContent = buildOutlineWizardMultiAgentPrompt(request);
+      const fastMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast";
+      const modelContent = fastMode
+        ? buildOutlineWizardPrompt(request, { mode: "fast" })
+        : buildOutlineWizardMultiAgentPrompt(request);
       void handleSend(modelContent, outlineReferenceTokensRef.current, {
         disableWriteTools: true,
-        preferredSkillNames: getOutlineWizardSkillNames(request),
-        enableMultiAgent: true,
+        preferredSkillNames: fastMode ? [] : getOutlineWizardSkillNames(request),
+        enableMultiAgent: !fastMode,
+        intentPhase: "generation",
         novelGenerationRequest: createNovelGenerationRequestPackage(request, modelContent),
         systemGenerated: true,
       });
@@ -3625,7 +3783,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         || (targetAssistantMessage?.intentPhase == null
           && historicalIntent.kind !== "none"
           && Boolean(precedingUserMessage && classifyDirectOutlineGenerationRequest(precedingUserMessage.content)));
-      if (regenerateAsIntentAnalysis && precedingUserMessage) {
+      if (
+        regenerateAsIntentAnalysis
+        && precedingUserMessage
+        && resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) !== "fast"
+      ) {
         const precedingUserContent = getOutlineMessageModelContent(precedingUserMessage);
         const directRequest = classifyDirectOutlineGenerationRequest(precedingUserContent);
         intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
@@ -3734,9 +3896,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const registry = new ToolRegistry();
         const baseSystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
+          mode: resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode),
         });
         const legacySystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
+          mode: resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode),
           soulDoc,
         });
         const regenerationPhaseRules = buildIntentPhaseSystemRules(regenerationIntentPhase);
@@ -4064,29 +4228,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         toast.error("当前没有活跃的对话，无法保存大纲");
         return;
       }
-      const cleanedContent = prepareOutlineSaveSourceContent(content);
-      if (!cleanedContent.trim()) {
-        toast.error("内容为空，无法保存为大纲");
-        return;
-      }
       const capturedConvId = activeConversationId;
       setSaveStatus("");
       try {
-        const draft = prepareOutlineSaveDraft(cleanedContent, []);
-        if (!draft.content.trim()) {
+        const built = buildClassifiedOutlineSaveRequest({
+          content,
+          sourceIntent: "手动保存 AI 大纲结果",
+          sourceHint: collectOutlineSaveSourceHint(capturedConvId),
+        });
+        if (!built) {
           toast.error("内容为空，无法保存为大纲");
           return;
         }
-        const classification = classifyOutlineSaveTarget({
-          title: draft.title,
-          content: draft.content,
-        });
 
         const currentConv = useOutlineChatStore.getState().conversations.find((c) => c.id === capturedConvId);
         const lastAssistantMsg = [...(currentConv?.messages ?? [])].reverse().find((m) => m.role === "assistant");
         const characterResults = lastAssistantMsg?.characterMultiAgentResults;
 
-        if (classification.fileType === "character") {
+        if (built.classification.fileType === "character") {
           if (characterResults && characterResults.length > 0) {
             const characterDrafts: CharacterSaveDraft[] = characterResults.map((r) => ({
               id: `${r.plan.roleType}:${r.plan.characterName}`,
@@ -4106,7 +4265,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             return;
           }
 
-          const extracted = extractCharacterSaveDrafts(draft.content);
+          const extracted = extractCharacterSaveDrafts(built.draft.content);
           if (extracted.drafts.length === 0) {
             setSaveStatus(extracted.errors.join("；"));
             return;
@@ -4120,24 +4279,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           return;
         }
 
-        const body = draft.content.replace(/^#\s+.+(?:\r?\n){1,2}/, "").trim();
-        const titleHeading = classification.fileName.replace(/\.md$/i, "");
-        const mdContent = body
-          ? `# ${titleHeading}\n\n${body}`
-          : draft.content.trim();
         presentOrQueueSaveBatch({
           title: "保存大纲文件",
           mode: "normal",
           characterDrafts: [],
-          requests: [{
-            targetFolder: classification.targetFolder,
-            fileName: classification.fileName,
-            fileType: classification.fileType,
-            writeMode: "create",
-            referencedSkills: [],
-            sourceIntent: "手动保存 AI 大纲结果",
-            content: mdContent,
-          }],
+          requests: [built.request],
         });
       } catch (err) {
         setSaveStatus(
@@ -4145,7 +4291,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
       }
     },
-    [activeConversationId, presentOrQueueSaveBatch, project],
+    [activeConversationId, collectOutlineSaveSourceHint, presentOrQueueSaveBatch, project],
   );
 
   const handleConfirmToolSave = useCallback(
@@ -4326,15 +4472,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               暂无大纲对话
             </span>
           )}
-          {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
-            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
-               outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
-               outlineWorkflowStage === "sufficiency_check" ? "生成中" :
-               "处理中"}
-            </span>
-          ) : null}
         </div>
+        {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+            {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
+             outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
+             outlineWorkflowStage === "sufficiency_check" ? "生成中" :
+             "处理中"}
+          </span>
+        ) : null}
         <div className="relative shrink-0" ref={historyRef}>
           <button
             ref={historyButtonRef}
@@ -4502,7 +4648,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       <div className="shrink-0 border-t px-3 py-2">
         <div className="mb-2 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            通过固定选项生成大纲需求，再交给 AI 分析和追问
+            {isOutlineFastMode
+              ? "通过固定选项收集需求后，直接生成大纲正文"
+              : "通过固定选项生成大纲需求，再交给 AI 分析和追问"}
           </p>
           <button
             type="button"
@@ -4539,6 +4687,79 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 usage={liveContextUsage}
                 onCreateConversation={() => createConversation()}
               />
+              <div className="relative">
+                <Button
+                  ref={workflowModeTriggerRef}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-haspopup="listbox"
+                  aria-expanded={workflowModeDropdownOpen}
+                  aria-label="AI 大纲执行模式"
+                  className="h-8 shrink-0 rounded-full border px-2.5 text-xs"
+                  onClick={() => setWorkflowModeDropdownOpen((open) => !open)}
+                >
+                  <span className="mr-1">
+                    {OUTLINE_WORKFLOW_MODE_OPTIONS.find((option) => option.mode === outlineWorkflowMode)?.label ?? "标准"}
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
+                </Button>
+                {workflowModeDropdownOpen && workflowModeDropdownStyle
+                  ? createPortal(
+                    <>
+                      <div
+                        className="fixed inset-0"
+                        style={{ zIndex: 9998 }}
+                        onClick={() => setWorkflowModeDropdownOpen(false)}
+                      />
+                      <div
+                        ref={workflowModeDropdownRef}
+                        role="listbox"
+                        className="fixed rounded-md border bg-popover p-1 shadow-md"
+                        style={{
+                          left: workflowModeDropdownStyle.left,
+                          top: workflowModeDropdownStyle.top,
+                          width: workflowModeDropdownStyle.width,
+                          transform: workflowModeDropdownStyle.transform,
+                          zIndex: 9999,
+                        }}
+                      >
+                        {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="option"
+                            aria-selected={outlineWorkflowMode === mode}
+                            className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent"
+                            onClick={() => {
+                              setOutlineWorkflowMode(mode);
+                              setWorkflowModeDropdownOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={`mt-0.5 h-4 w-4 shrink-0 ${
+                                outlineWorkflowMode === mode ? "opacity-100" : "opacity-0"
+                              }`}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2 text-sm font-medium">
+                                <span>{label}</span>
+                                <span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                                  {description}
+                                </span>
+                              </span>
+                              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                                {routeDescription}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </>,
+                    document.body,
+                  )
+                  : null}
+              </div>
               <TooltipProvider delay={200}>
                 <OutlineGenerationMenu
                   disabled={submitDisabled}

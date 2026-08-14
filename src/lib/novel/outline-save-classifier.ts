@@ -6,6 +6,8 @@ export interface OutlineSaveClassificationInput {
   referencedSkills?: string[]
   title: string
   content: string
+  /** 用户原话、意图模块名等，用于在正文引用「卷纲」时仍能识别章纲 */
+  sourceHint?: string
 }
 
 export interface OutlineSaveClassification {
@@ -40,10 +42,56 @@ export function inferOutlineFileTypeFromSkills(skills: string[] = []): OutlineSa
   return null
 }
 
+const CHAPTER_TYPE_MARK = /章纲|细纲|章节细纲|章节大纲/
+const VOLUME_TYPE_MARK = /卷纲|分卷大纲/
+const CHAPTER_SUBJECT = /章纲|细纲|第\s*\d{1,4}\s*章/
+const VOLUME_SUBJECT = /卷纲|分卷大纲|第\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*卷/
+
+function extractDocumentSubject(title: string, content: string): string {
+  const heading = title.replace(/^#+\s*/, "").trim()
+  const firstH1 = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? ""
+  return `${heading}\n${firstH1}`
+}
+
+function resolveChapterOrVolumeType(text: string): OutlineSaveRequestFileType | null {
+  const chapter = CHAPTER_SUBJECT.test(text)
+  const volume = VOLUME_SUBJECT.test(text)
+  if (chapter && !volume) return "chapter-outline"
+  if (volume && !chapter) return "volume-outline"
+  if (chapter && volume) {
+    if (CHAPTER_TYPE_MARK.test(text) && !VOLUME_TYPE_MARK.test(text)) return "chapter-outline"
+    if (VOLUME_TYPE_MARK.test(text) && !CHAPTER_TYPE_MARK.test(text)) return "volume-outline"
+    if (CHAPTER_TYPE_MARK.test(text)) return "chapter-outline"
+    return "volume-outline"
+  }
+  return null
+}
+
+function inferFileTypeFromHint(hint: string): OutlineSaveRequestFileType | null {
+  const text = hint.trim()
+  if (!text) return null
+  const chapterOrVolume = resolveChapterOrVolumeType(text)
+  if (chapterOrVolume) return chapterOrVolume
+  if (/人物小传|角色小传/.test(text)) return "character"
+  if (/伏笔计划|伏笔/.test(text) && /伏笔/.test(text)) return "foreshadowing"
+  if (/组织势力|势力设定/.test(text)) return "organization"
+  if (/力量体系|能力体系|金手指|世界观|背景设定|地理设定/.test(text)) return "setting"
+  if (/质量检查/.test(text)) return "quality-report"
+  if (/故事大纲|总纲/.test(text)) return "outline"
+  return null
+}
+
 function inferFileTypeFromContent(title: string, content: string): OutlineSaveRequestFileType {
   const text = `${title}\n${content}`
-  if (/卷纲|分卷|第\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*卷/.test(text)) return "volume-outline"
-  if (/章纲|细纲|第\s*\d{1,4}\s*章/.test(text)) return "chapter-outline"
+  if (CHAPTER_TYPE_MARK.test(text)) return "chapter-outline"
+  if (
+    /(?:^|\n)#+\s*.*(?:卷纲|分卷大纲)/.test(text)
+    || /第\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*卷\s*(?:卷纲|大纲)/.test(text)
+  ) {
+    return "volume-outline"
+  }
+  if (/第\s*\d{1,4}\s*章/.test(text)) return "chapter-outline"
+  if (/第\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*卷/.test(text)) return "volume-outline"
   if (/人物小传|角色小传|男主|女主|男配|女配|反派|角色定位/.test(text)) return "character"
   if (/伏笔|线索|回收/.test(text)) return "foreshadowing"
   if (/组织|势力|阵营|门派|家族/.test(text)) return "organization"
@@ -55,7 +103,10 @@ function inferFileTypeFromContent(title: string, content: string): OutlineSaveRe
 function inferFileName(fileType: OutlineSaveRequestFileType, title: string, content: string): string {
   const chapter = `${title}\n${content}`.match(/第\s*(\d{1,4})\s*章\s*([^\n#]*)/)
   if (fileType === "chapter-outline" && chapter) {
-    return formatChapterOutlineFileName(Number(chapter[1]), chapter[2]?.trim() ?? "")
+    return formatChapterOutlineFileName(
+      Number(chapter[1]),
+      chapter[2]?.trim().replace(/^[：:\s-]+/, "") ?? "",
+    )
   }
 
   const safe = sanitizeOutlineFileNamePart(title.replace(/^#+\s*/, "")) || "大纲"
@@ -70,6 +121,8 @@ export function classifyOutlineSaveTarget(input: OutlineSaveClassificationInput)
   const fileType =
     input.explicitFileType ??
     inferOutlineFileTypeFromSkills(input.referencedSkills) ??
+    resolveChapterOrVolumeType(extractDocumentSubject(input.title, input.content)) ??
+    inferFileTypeFromHint(input.sourceHint ?? "") ??
     inferFileTypeFromContent(input.title, input.content)
 
   return {

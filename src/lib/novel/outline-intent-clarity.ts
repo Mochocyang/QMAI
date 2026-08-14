@@ -28,9 +28,9 @@ export interface DirectOutlineGenerationRequest {
 
 const INTENT_OPEN_PATTERN = /<!--\s*intent_clarity\s*-->/i
 const INTENT_CLOSE_PATTERN = /<!--\s*\/intent_clarity\s*-->/i
-const OUTLINE_GENERATION_VERB_PATTERN = /生成|编写|完善|补充|细化|扩写|修改|重写|续写/
+const OUTLINE_GENERATION_VERB_PATTERN = /生成|编写|完善|补充|细化|扩写|修改|重写|续写|改写|写一本|写一部|写一篇|写个|写本/
 const OUTLINE_GENERATION_TARGETS: Array<{ pattern: RegExp; module: string }> = [
-  { pattern: /(?:第?\s*\d+\s*章[^\n]{0,12}大纲)|章纲|章节细纲|章节大纲/, module: "章节细纲" },
+  { pattern: /(?:第?\s*\d+\s*章[^\n]{0,12}大纲)|章纲|章节细纲|章节大纲|细纲/, module: "章节细纲" },
   { pattern: /卷纲|分卷大纲/, module: "卷纲" },
   { pattern: /人物|角色/, module: "人物小传" },
   { pattern: /组织势力|势力设定/, module: "组织势力设定" },

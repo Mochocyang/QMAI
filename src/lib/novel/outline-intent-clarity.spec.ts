@@ -86,6 +86,14 @@ describe("classifyDirectOutlineGenerationRequest", () => {
     expect(classifyDirectOutlineGenerationRequest("完善分卷大纲")?.module).toBe("卷纲")
     expect(classifyDirectOutlineGenerationRequest("补充力量体系")?.module).toBe("力量体系")
     expect(classifyDirectOutlineGenerationRequest("细化地点设定")?.module).toBe("地理设定")
+    expect(classifyDirectOutlineGenerationRequest("写一本仙侠，要前十章细纲")?.module).toBe("章节细纲")
+    expect(classifyDirectOutlineGenerationRequest("写个大纲")?.module).toBe("故事大纲")
+  })
+
+  it("不把描写、书写等含「写」的问答误判为生成请求", () => {
+    expect(classifyDirectOutlineGenerationRequest("描写一下这个人物的动机")).toBeNull()
+    expect(classifyDirectOutlineGenerationRequest("这段人物书写得怎么样")).toBeNull()
+    expect(classifyDirectOutlineGenerationRequest("填写人物关系表")).toBeNull()
   })
 })
 

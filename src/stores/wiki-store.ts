@@ -29,7 +29,12 @@ import {
   resolveStoredVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style-settings"
-import { DEFAULT_AI_WORKFLOW_MODE, type AiWorkflowMode } from "@/lib/agent/workflow-mode"
+import {
+  DEFAULT_AI_WORKFLOW_MODE,
+  DEFAULT_OUTLINE_WORKFLOW_MODE,
+  type AiWorkflowMode,
+  type OutlineWorkflowMode,
+} from "@/lib/agent/workflow-mode"
 import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
 import {
   normalizeProviderConfigs,
@@ -600,6 +605,7 @@ interface WikiState {
   novelMode: boolean
   chatEditModeEnabled: boolean
   aiWorkflowMode: AiWorkflowMode
+  outlineWorkflowMode: OutlineWorkflowMode
   planExecuteEnabled: boolean
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
@@ -670,6 +676,7 @@ interface WikiState {
   setNovelMode: (novelMode: boolean) => void
   setChatEditModeEnabled: (enabled: boolean) => void
   setAiWorkflowMode: (mode: AiWorkflowMode) => void
+  setOutlineWorkflowMode: (mode: OutlineWorkflowMode) => void
   setPlanExecuteEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
@@ -885,6 +892,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   novelMode: true,
   chatEditModeEnabled: false,
   aiWorkflowMode: DEFAULT_AI_WORKFLOW_MODE,
+  outlineWorkflowMode: DEFAULT_OUTLINE_WORKFLOW_MODE,
   planExecuteEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
@@ -928,6 +936,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
   setAiWorkflowMode: (aiWorkflowMode) => set({ aiWorkflowMode }),
+  setOutlineWorkflowMode: (outlineWorkflowMode) => set({ outlineWorkflowMode }),
   setPlanExecuteEnabled: (planExecuteEnabled) => set({ planExecuteEnabled }),
   setNovelConfig: (config) => set((state) => ({
     novelConfig: { ...state.novelConfig, ...config },

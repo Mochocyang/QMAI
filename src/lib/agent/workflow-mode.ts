@@ -1,9 +1,17 @@
 export type AiWorkflowMode = "fast" | "standard" | "strict"
+export type OutlineWorkflowMode = Extract<AiWorkflowMode, "fast" | "standard">
 
 export const DEFAULT_AI_WORKFLOW_MODE: AiWorkflowMode = "standard"
+export const DEFAULT_OUTLINE_WORKFLOW_MODE: OutlineWorkflowMode = "standard"
 
 export function resolveAiWorkflowMode(value: AiWorkflowMode | null | undefined): AiWorkflowMode {
   return value ?? DEFAULT_AI_WORKFLOW_MODE
+}
+
+export function resolveOutlineWorkflowMode(
+  value: OutlineWorkflowMode | AiWorkflowMode | null | undefined,
+): OutlineWorkflowMode {
+  return value === "fast" ? "fast" : DEFAULT_OUTLINE_WORKFLOW_MODE
 }
 
 export function getWorkflowModeLabel(mode: AiWorkflowMode): string {

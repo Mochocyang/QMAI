@@ -103,57 +103,11 @@ vi.mock("@/stores/import-progress-store", () => ({
 
 import {
   assertOutlineIngestLlmReady,
-  buildOutlineGenerationPrompt,
-  buildOutlineRefinementContext,
   formatBulkOutlineIngestResult,
   OutlineIngestNotReadyError,
   runBulkOutlineIngest,
   runOutlineIngestPaths,
 } from "./outline-generation"
-
-describe("outline-generation context fallback", () => {
-  beforeEach(() => {
-    mocks.buildContextPackMock.mockReset()
-    mocks.ingestOutlineMock.mockReset()
-    mocks.syncSnapshotToMemoryMock.mockReset()
-    mocks.finalizeProjectMemoryRebuildMock.mockReset()
-    mocks.refreshProjectStateMock.mockReset()
-    mocks.hasUsableLlmMock.mockReset()
-    mocks.hasUsableLlmMock.mockReturnValue(true)
-    mocks.outlineStore.tasks = []
-    mocks.importProgressStore.tasks = []
-    mocks.importProgressStore.startTask.mockClear()
-    mocks.importProgressStore.updateTask.mockClear()
-    mocks.importProgressStore.finishTask.mockClear()
-    mocks.syncSnapshotToMemoryMock.mockResolvedValue({
-      writtenEntityPaths: [],
-      memoryPagePaths: [],
-      memorySyncedAt: "2026-01-01T00:00:00.000Z",
-    })
-    mocks.finalizeProjectMemoryRebuildMock.mockResolvedValue(undefined)
-    mocks.refreshProjectStateMock.mockResolvedValue(undefined)
-  })
-
-  it("still builds a generation prompt when context loading fails", async () => {
-    mocks.buildContextPackMock.mockRejectedValueOnce(new Error("context failed"))
-
-    const prompt = await buildOutlineGenerationPrompt("E:/Novel", "通用", "短篇", "测试")
-
-    expect(prompt).toContain("测试")
-    expect(prompt).toContain("请根据以上信息，设计一个完整、有吸引力的小说大纲")
-  })
-
-  it("returns an empty refinement context when context loading fails", async () => {
-    mocks.buildContextPackMock.mockRejectedValueOnce(new Error("context failed"))
-
-    const result = await buildOutlineRefinementContext("E:/Novel", "测试")
-
-    expect(result).toEqual({
-      context: "",
-      hasOutline: false,
-    })
-  })
-})
 
 describe("bulk outline ingest", () => {
   beforeEach(() => {

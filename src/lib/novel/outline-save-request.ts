@@ -115,6 +115,30 @@ function stripAbsoluteToRelativeFolder(value: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : normalized
 }
 
+function extractBalancedJsonObject(text: string): string | null {
+  const start = text.indexOf("{")
+  if (start < 0) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === "\\") escaped = true
+      else if (character === "\"") inString = false
+      continue
+    }
+    if (character === "\"") inString = true
+    else if (character === "{") depth += 1
+    else if (character === "}") {
+      depth -= 1
+      if (depth === 0) return text.slice(start, index + 1).trim()
+    }
+  }
+  return null
+}
+
 function extractJsonCandidates(text: string): string[] {
   const candidates: string[] = []
   const fencePattern = /```(?:json)?\s*([\s\S]*?)```/gi
@@ -122,11 +146,31 @@ function extractJsonCandidates(text: string): string[] {
     candidates.push(match[1].trim())
   }
 
-  const trimmed = text.trim()
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    candidates.push(trimmed)
+  const lastFence = text.lastIndexOf("```")
+  if (lastFence >= 0) {
+    const afterOpen = text.slice(lastFence + 3)
+    if (!afterOpen.includes("```")) {
+      const unclosed = afterOpen.replace(/^(?:json)?\s*/i, "").trim()
+      if (/outlineSaveRequests?/i.test(unclosed)) {
+        candidates.push(extractBalancedJsonObject(unclosed) ?? unclosed)
+      }
+    }
   }
-  return Array.from(new Set(candidates))
+
+  const trimmed = text.trim()
+  if (trimmed.startsWith("{") && (trimmed.endsWith("}") || /outlineSaveRequests?/i.test(trimmed))) {
+    candidates.push(extractBalancedJsonObject(trimmed) ?? trimmed)
+  }
+
+  const lastBrace = text.lastIndexOf("{")
+  if (lastBrace >= 0) {
+    const tail = text.slice(lastBrace)
+    if (/outlineSaveRequests?/i.test(tail)) {
+      candidates.push(extractBalancedJsonObject(tail) ?? tail)
+    }
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -293,7 +293,7 @@ async function executeWithRetry(
           `### ${dependencyTask?.dimension || dependencyTask?.name || id}`,
           `结论：${result.summary}`,
           result.constraints.length > 0 ? `约束：${result.constraints.join("；")}` : "",
-          result.contentMarkdown.slice(0, 1600),
+          result.contentMarkdown,
         ].filter(Boolean).join("\n")
       }),
     ] : []),
@@ -340,32 +340,50 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function truncateMergeContent(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value
-  const marker = "\n[子 Agent 内容已压缩]\n"
-  if (maxChars <= marker.length) return value.slice(0, maxChars)
-  const available = maxChars - marker.length
-  const head = Math.ceil(available * 0.65)
-  return `${value.slice(0, head)}${marker}${value.slice(-(available - head))}`
+function formatWritebackItems(items: OutlineSubAgentResult["writebackItems"]): string {
+  if (items.length === 0) return ""
+  return [
+    "## 写回项",
+    ...items.map((item) => [
+      `### ${item.name || item.type || "未命名写回"}`,
+      item.type ? `类型：${item.type}` : "",
+      item.targetFolder ? `目标：${item.targetFolder}` : "",
+      item.content,
+    ].filter(Boolean).join("\n")),
+  ].join("\n")
 }
 
-export function buildBoundedSubAgentMergePayload(results: OutlineSubAgentResult[], maxChars = 24_000): string {
-  const limit = Math.max(0, Math.floor(maxChars))
-  if (limit === 0 || results.length === 0) return ""
-  const fixedSections = results.map((result) => [
+function buildSubAgentMergeSection(result: OutlineSubAgentResult): string {
+  return [
     `## ${result.agentName}`,
     `摘要：${result.summary}`,
     `置信度：${result.confidence}`,
     result.constraints.length > 0 ? `约束：${result.constraints.join("；")}` : "",
     result.risks.length > 0 ? `冲突与风险：${result.risks.join("；")}` : "冲突与风险：无",
-  ].filter(Boolean).join("\n"))
-  const fixedLength = fixedSections.reduce((sum, section) => sum + section.length + 2, 0)
-  const contentShare = Math.max(0, Math.floor((limit - fixedLength) / results.length))
-  const payload = results.map((result, index) => [
-    fixedSections[index],
-    contentShare > 0 ? truncateMergeContent(result.contentMarkdown, contentShare) : "",
-  ].filter(Boolean).join("\n")).join("\n\n")
-  return payload.slice(0, limit)
+    result.questions.length > 0 ? `待确认问题：${result.questions.join("；")}` : "",
+    formatWritebackItems(result.writebackItems),
+    result.contentMarkdown,
+  ].filter(Boolean).join("\n")
+}
+
+export const DEFAULT_OUTLINE_SUBAGENT_MERGE_MAX_CHARS = 48_000
+
+export function buildBoundedSubAgentMergePayload(results: OutlineSubAgentResult[], maxChars = DEFAULT_OUTLINE_SUBAGENT_MERGE_MAX_CHARS): string {
+  if (results.length === 0) return ""
+  const sections = results.map((result) => buildSubAgentMergeSection(result))
+  const payload = sections.join("\n\n")
+  if (!Number.isFinite(maxChars) || maxChars <= 0) return payload
+  if (payload.length <= maxChars) return payload
+
+  const kept: string[] = []
+  let used = 0
+  for (const section of sections) {
+    const extra = kept.length > 0 ? 2 : 0
+    if (kept.length > 0 && used + extra + section.length > maxChars) break
+    kept.push(section)
+    used += extra + section.length
+  }
+  return kept.join("\n\n")
 }
 
 function inferSubAgentKind(skillName: string): OutlineSubAgentKind {

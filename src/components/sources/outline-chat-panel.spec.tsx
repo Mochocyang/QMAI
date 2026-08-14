@@ -99,6 +99,7 @@ beforeEach(() => {
     providerConfigs: { openai: { apiKey: "test-key", enabled: true, savedModels: [{ id: "gpt-4o", model: "gpt-4o", name: "GPT-4o", createdAt: 1 }] } },
     aiChatModel: "gpt-4o",
     aiOutlineModel: "",
+    outlineWorkflowMode: "standard",
   })
   outlineModelPreferenceMocks.saveAiOutlineModel.mockReset()
   outlineModelPreferenceMocks.saveAiOutlineModel.mockResolvedValue(undefined)
@@ -815,9 +816,177 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("runSubAgent: async (subAgentPlan)")
     expect(source).toContain("runSingleAgentFallback")
     expect(source).toContain("mergeResults")
-    expect(source).toContain("enableMultiAgent: true")
+    expect(source).toContain("enableMultiAgent: !fastMode")
+    expect(source).toContain('intentPhase: "generation"')
     expect(source).toContain("多 Agent 并行生成")
     expect(source).toContain("自动回退为单 Agent")
+  })
+
+  it("快速模式系统提示去掉工作流强制段，仍保留保存协议和 Markdown 约束", () => {
+    const prompt = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "fast" })
+
+    expect(prompt).not.toContain("## AI大纲生成工作流")
+    expect(prompt).not.toContain("## 意图清晰度分析阶段")
+    expect(prompt).not.toContain("## AI大纲固定分析流程")
+    expect(prompt).toContain("outlineSaveRequest")
+    expect(prompt).toContain("Markdown 格式约束：结构化资料使用一级标题")
+    expect(prompt).toContain("像普通对话一样直接出结果")
+    expect(prompt).not.toContain("必须按 PRD 3.1 主流程执行")
+    expect(prompt).not.toContain("先提出最少必要澄清问题")
+  })
+
+  it("标准模式系统提示仍包含固定分析流程和生成工作流", () => {
+    const prompt = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "standard" })
+
+    expect(prompt).toContain("## AI大纲固定分析流程")
+    expect(prompt).toContain("## AI大纲生成工作流")
+    expect(prompt).toContain("## 意图清晰度分析阶段")
+    expect(prompt).toContain("outlineSaveRequest")
+    expect(prompt).toContain("必须按 PRD 3.1 主流程执行")
+    expect(prompt).toContain("先提出最少必要澄清问题")
+  })
+
+  it("快速模式源码跳过意图分析和多 Agent，人物小传不再降级为 analysis 预算", () => {
+    expect(source).toContain('outlineWorkflowMode === "fast"')
+    expect(source).toContain("enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== \"fast\"")
+    expect(source).toContain("outlineMode !== \"fast\"")
+    expect(source).toMatch(/const charRun = await runOutlineAgentOnce\([\s\S]{0,400}budgetStage: "generation"/)
+    expect(source).not.toMatch(/const charRun = await runOutlineAgentOnce\([\s\S]{0,400}budgetStage: "analysis"/)
+    expect(source).toContain('budgetStage: "generation"')
+    expect(source).toContain("intentPhase === \"intent_analysis\"")
+    expect(source).toContain('? "analysis"')
+    expect(source).toContain(': "generation"')
+  })
+
+  it("截断残稿不会自动弹出保存确认", () => {
+    expect(source).toContain("!deliverableTruncated")
+    expect(source).toContain("isOutlineOutputTruncated")
+    expect(source).toMatch(/if \(intentProtocol\.kind === "none" && !intentProtocolError && !deliverableTruncated\)/)
+    expect(source).toContain("handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun)")
+    expect(source).toContain("isSaveableOutlineDeliverable")
+    expect(source).toContain("生成完成后自动保存")
+    expect(source).toContain("if (isOutlineOutputTruncated(charRun.error)) deliverableTruncated = true")
+    expect(source).toContain("if (isOutlineOutputTruncated(subRun.error)) deliverableTruncated = true")
+    expect(source).toContain("if (agentError && !isOutlineOutputTruncated(agentError)) throw agentError")
+    expect(source).toContain("if (mergeError && !isOutlineOutputTruncated(mergeError)) throw mergeError")
+  })
+
+  it("快速向导不把多 Agent 计划写进用户消息", () => {
+    expect(source).toContain('buildOutlineWizardPrompt(request, { mode: "fast" })')
+    expect(source).toContain("buildOutlineWizardMultiAgentPrompt(request)")
+  })
+
+  it("AI 大纲输入区默认标准模式，下拉可切换到快速", async () => {
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        x: 10,
+        y: 10,
+        top: 400,
+        left: 20,
+        bottom: 432,
+        right: 120,
+        width: 80,
+        height: 32,
+        toJSON: () => ({}),
+      }),
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
+    expect(trigger).not.toBeNull()
+    expect(trigger?.textContent).toContain("标准")
+    expect(container.textContent).toContain("再交给 AI 分析和追问")
+
+    await act(async () => {
+      trigger?.click()
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+
+    const fastOption = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.getAttribute("role") === "option" && button.textContent?.includes("快速"))
+    expect(fastOption).toBeDefined()
+    await act(async () => {
+      fastOption?.click()
+    })
+
+    expect(useWikiStore.getState().outlineWorkflowMode).toBe("fast")
+    expect(container.querySelector('[aria-label="AI 大纲执行模式"]')?.textContent).toContain("快速")
+    expect(container.textContent).toContain("直接生成大纲正文")
+    expect(container.textContent).not.toContain("再交给 AI 分析和追问")
+  })
+
+  it("快速模式自由输入跳过意图分析，直接单轮生成", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "fast" })
+    const calls: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      const system = agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? "")
+      const user = agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? "")
+      calls.push({ system, user })
+      const text = "# 第236章 远洋投送\n\n## 本章目标\n完善远洋投送细节。"
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input).not.toBeNull()
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "把236章大纲补充详细")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (calls.length >= 1 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).not.toContain("本轮阶段：意图分析")
+    expect(calls[0].system).toContain("像普通对话一样直接出结果")
+    expect(calls[0].user).toContain("把236章大纲补充详细")
+  })
+
+  it("单 Agent 输出被截断时不自动弹出保存确认", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "fast" })
+    const body = "# 总纲\n\n## 核心设定\n残稿"
+    const text = `${body}\n\n\`\`\`json\n${JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "大纲",
+        fileName: "总纲.md",
+        fileType: "outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成总纲",
+        content: body,
+      },
+    })}\n\`\`\``
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(text)
+      callbacks.onError(new Error("输出被截断：模型已达到最大输出 token 上限"))
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "随便写点设定")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(container.textContent).toContain("输出被截断")
+    expect(container.textContent).not.toContain("请确认要保存的大纲文件")
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
   })
 
   it("AI 大纲多 Agent 过程写入消息状态并渲染结构化面板", () => {
@@ -858,10 +1027,10 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("saves AI outline results into the inferred outline category folder", () => {
-    expect(source).toContain("classifyOutlineSaveTarget")
-    expect(source).toContain("classification.targetFolder")
-    expect(source).toContain("classification.fileName")
+    expect(source).toContain("buildClassifiedOutlineSaveRequest")
+    expect(source).toContain("built.request")
     expect(source).toContain("保存大纲文件")
+    expect(source).toContain("手动保存 AI 大纲结果")
   })
 
   it("parses structured AI outline save requests and requires user confirmation before writing", () => {
@@ -879,7 +1048,7 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("OutlineSaveConfirmDialog")
     expect(source).toContain("OutlineSaveConfirmPayload")
     expect(source).toContain("extractCharacterSaveDrafts")
-    expect(source).toContain("classifyOutlineSaveTarget")
+    expect(source).toContain("buildClassifiedOutlineSaveRequest")
     expect(source).toContain("characterDraftsToSaveRequests")
     expect(source).toContain("splitConfirmRequiredSaveRequests")
     expect(source).toContain("mode={saveConfirmState.mode}")

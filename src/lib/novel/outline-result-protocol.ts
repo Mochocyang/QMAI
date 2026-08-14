@@ -26,21 +26,6 @@ export interface OutlineSubAgentFallbackContext {
   stage?: string
 }
 
-export interface OutlineFinalResult {
-  outlineType: string
-  targetFolder: string
-  fileName: string
-  status: string
-  contentMarkdown: string
-  qualityCheck: {
-    valid: boolean
-    errors: string[]
-    warnings: string[]
-  }
-  writebackItems: OutlineWritebackItem[]
-  sourceAgents: string[]
-}
-
 export type OutlineProtocolParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string }
@@ -172,45 +157,6 @@ export function coerceOutlineSubAgentResult(
       writebackItems: [],
       risks: [`子 Agent 未按结构化 JSON 协议输出，已按 Markdown 内容容错接入：${parsed.error}`],
       questions: [],
-    },
-  }
-}
-
-export function parseOutlineFinalResult(text: string): OutlineProtocolParseResult<OutlineFinalResult> {
-  const parsed = parseJsonObject(text)
-  if (!parsed.ok) return parsed
-
-  const required = [
-    "outline_type",
-    "target_folder",
-    "file_name",
-    "status",
-    "content_markdown",
-    "quality_check",
-    "writeback_items",
-    "source_agents",
-  ]
-  const missing = missingFields(parsed.value, required)
-  if (missing.length > 0) {
-    return { ok: false, error: `最终大纲输出缺少必要字段：${missing.join("、")}` }
-  }
-
-  const quality = parsed.value.quality_check as Record<string, unknown>
-  return {
-    ok: true,
-    value: {
-      outlineType: String(parsed.value.outline_type),
-      targetFolder: String(parsed.value.target_folder),
-      fileName: String(parsed.value.file_name),
-      status: String(parsed.value.status),
-      contentMarkdown: String(parsed.value.content_markdown),
-      qualityCheck: {
-        valid: Boolean(quality?.valid),
-        errors: asStringArray(quality?.errors),
-        warnings: asStringArray(quality?.warnings),
-      },
-      writebackItems: asWritebackItems(parsed.value.writeback_items),
-      sourceAgents: asStringArray(parsed.value.source_agents),
     },
   }
 }

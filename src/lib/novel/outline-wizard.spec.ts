@@ -63,6 +63,18 @@ describe("AI大纲生成向导请求", () => {
     expect(prompt).toContain("如果信息足够，请给出生成方案并询问用户是否确认开始生成。")
   })
 
+  it("快速模式只保留需求事实，不注入 Skill 名单和固定工作流", () => {
+    const prompt = buildOutlineWizardPrompt(baseRequest, { mode: "fast" })
+
+    expect(prompt).toContain("用户已提交小说生成需求")
+    expect(prompt).toContain("- 题材：都市")
+    expect(prompt).toContain("直接生成可保存的大纲正文")
+    expect(prompt).not.toContain("本次优先调用 Skill")
+    expect(prompt).not.toContain("固定工作流")
+    expect(prompt).not.toContain("请先分析该需求")
+    expect(prompt).not.toContain("询问用户是否确认开始生成")
+  })
+
   it("向导 Prompt 明确采用充分性闸门和分阶段生成工作流", () => {
     const prompt = buildOutlineWizardPrompt(baseRequest)
 
