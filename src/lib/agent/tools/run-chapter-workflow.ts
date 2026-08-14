@@ -82,11 +82,13 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
     description: [
       "运行小说章节写作工作流。用于生成、续写、改写或润色章节。",
       "调用后会读取项目上下文、生成写作任务书、生成正文，并按当前模式执行审稿、返修和去AI味。",
-      "最终返回可直接交付给用户的章节正文；保存到项目文件仍需要写入工具和用户确认。",
+      "正文由本工具直接交付给用户，调用成功后本轮任务即结束：不要复述、改写或补充正文。",
+      "一次调用只处理一章；保存到项目文件仍需要写入工具和用户确认。",
     ].join("\n"),
     category: "action",
     permission: "auto",
     executeTimeoutMs: 0,
+    finalizesRun: true,
     parameters: {
       intent: {
         type: "string",
@@ -144,6 +146,12 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
               ...event,
               toolCallId: event.toolCallId ?? parentCallId,
             })
+          },
+          // 终稿直接交付给会话，避免外层模型再复述一遍正文。
+          // 履约修复会再次触发，后一次覆盖前一次。
+          onFinalContent: (content) => {
+            const body = content.trim()
+            if (body) context?.onFinalContent?.(body)
           },
           onRequestTrace: context?.onRequestTrace,
         },

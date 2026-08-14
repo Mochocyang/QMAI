@@ -72,7 +72,10 @@ import {
 } from "@/lib/novel/chapter-utils"
 import { buildDeAiSkillSystemPrompt, buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
 import { loadEffectiveDeAiSkillSafely, resolveAvailableDeAiSkills } from "@/lib/novel/de-ai-skill-library"
-import { cleanGeneratedChapterContentWithTitle } from "@/lib/novel/chapter-content-cleanup"
+import {
+  cleanGeneratedChapterContentForDisplay,
+  cleanGeneratedChapterContentWithTitle,
+} from "@/lib/novel/chapter-content-cleanup"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import {
@@ -336,10 +339,16 @@ function buildChatAgentSystemPrompt(options: {
       // 计划阶段与"只输出正文/必须调 run_chapter_workflow"互斥：同时注入
       // 会让模型在两套矛盾指令之间随机选择，表现为跳过计划直接产出正文。
       lines.push("当前处于章节计划阶段：本轮只输出章节创作计划并等待用户确认，禁止输出章节正文，禁止调用 run_chapter_workflow 等正文生成类工具。")
-    } else {
+    } else if (options.aiWorkflowMode === "fast") {
       lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
       lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
       lines.push("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格；章节标题和正文以外的内容都不要输出。")
+    } else {
+      // 走工作流时正文由工具直接交付，再要求模型「只输出正文」会诱导它把
+      // 终稿复述一遍：既多花一次生成，又可能改坏已经定稿的正文。
+      lines.push("章节正文由 run_chapter_workflow 直接交付给用户，工具执行成功后本轮任务即结束。")
+      lines.push("禁止复述、改写、摘要或续写工具已交付的正文，也不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格。")
+      lines.push("一次只处理一章：即使用户要求多章，也只调用一次 run_chapter_workflow，交付后结束并让用户再发下一章请求。")
     }
     if (options.includeOutlineFindProtocol) {
       lines.push(buildOutlineFindProtocol(options.targetChapterNumber))
@@ -1482,6 +1491,8 @@ export function ChatPanel() {
       let hasAgentError = false
       let lastAgentError = "生成失败"
       let accumulatedReasoningContent = ""
+      // 终结型工具（run_chapter_workflow）是否已直接交付正文。
+      let finalContentDelivered = false
 
       const markDone = (record?: AgentRunRecord) => {
         updateAgentAssistantMessage(assistantMessage.id, (message) => {
@@ -1920,6 +1931,16 @@ export function ChatPanel() {
           callbacks: {
             onText: (chunk: string) => {
               if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+              if (finalContentDelivered) {
+                // 交付后模型仍在输出（例如工具报错后续轮），以模型新内容为准，
+                // 否则会把已交付正文和模型输出拼成两份。
+                finalContentDelivered = false
+                useChatStore.getState().setStreamingContent("", capturedConvId)
+                updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                  ...message,
+                  content: "",
+                }))
+              }
               appendStreamToken(chunk, capturedConvId)
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
@@ -1946,6 +1967,18 @@ export function ChatPanel() {
                 updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                   ...message,
                   agentStages: applyAgentActivityEvent(message.agentStages, event),
+                }))
+              },
+              // 章节工作流直接交付终稿：正文立刻落到气泡，不再等外层模型复述。
+              onFinalContent: (body: string) => {
+                if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
+                const display = cleanGeneratedChapterContentForDisplay(body)
+                if (!display) return
+                finalContentDelivered = true
+                useChatStore.getState().setStreamingContent(display, capturedConvId)
+                updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                  ...message,
+                  content: display,
                 }))
               },
               onUsage: (usage) => {

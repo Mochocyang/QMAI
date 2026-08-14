@@ -25,6 +25,12 @@ import {
 } from "./chat-request-budget"
 import { RESPONSE_RESERVE_FRAC, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
+import {
+  hasUnreplayableToolAssistantReasoning,
+  isReasoningDisabled,
+  stripEmptyReasoningContent,
+  withReasoningDisabled,
+} from "./reasoning-retry"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
 import type { UserMemoryDecision } from "./user-memory/decision-trace"
 import {
@@ -267,6 +273,19 @@ export async function streamChat(
       const { max_tokens: _ignored, ...rest } = requestOverrides ?? {}
       return rest
     })()
+  // thinking 开着却回传不了上一轮 tool-assistant 的思考时，空串/缺字段都会 400。
+  // 先关 thinking 再发，比带着 "" 去撞接口更干净。
+  if (
+    !isReasoningDisabled(runtimeConfig, effectiveRequestOverrides) &&
+    hasUnreplayableToolAssistantReasoning(budgetedMessages)
+  ) {
+    logReasoningReplay("request.disable_thinking_unreplayable", {
+      model: runtimeConfig.model,
+      ...summarizeReasoningReplayRisk(budgetedMessages),
+    })
+    effectiveRequestOverrides = withReasoningDisabled(effectiveRequestOverrides)
+    budgetedMessages = stripEmptyReasoningContent(budgetedMessages)
+  }
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
@@ -618,6 +637,29 @@ export async function streamChat(
       }
       if (
         !httpRetrySucceeded &&
+        isReasoningContentRequiredError(errorDetail) &&
+        !isReasoningDisabled(runtimeConfig, effectiveRequestOverrides)
+      ) {
+        effectiveRequestOverrides = withReasoningDisabled(effectiveRequestOverrides)
+        budgetedMessages = stripEmptyReasoningContent(budgetedMessages)
+        prefixDescriptor = await buildLlmRequestPrefixDescriptor(
+          runtimeConfig,
+          budgetedMessages,
+          effectiveRequestOverrides,
+        )
+        requestInit = buildRequestInit(budgetedMessages, effectiveRequestOverrides)
+        try {
+          response = await sendRequest(requestInit)
+        } catch (err) {
+          onError(err instanceof Error ? err : new Error(String(err)))
+          return
+        }
+        if (response.ok) {
+          httpRetrySucceeded = true
+        }
+      }
+      if (
+        !httpRetrySucceeded &&
         response.status === 404 &&
         (runtimeConfig.provider === "azure" ||
           (runtimeConfig.provider === "custom" && isAzureOpenAiEndpoint(runtimeConfig.customEndpoint)))
@@ -783,6 +825,7 @@ export async function streamChat(
       const REASONING_DIAGNOSTIC_THRESHOLD = 200
       if (
         contentCharsEmitted === 0 &&
+        toolCallDeltaCount === 0 &&
         reasoningCharsObserved >= REASONING_DIAGNOSTIC_THRESHOLD
       ) {
         finishRequestTrace(activeRequestTrace, "error", streamUsage)

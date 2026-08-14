@@ -519,7 +519,7 @@ function buildOpenAiBody(
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
     ...(m.name ? { name: m.name } : {}),
-    ...(m.reasoning_content !== undefined ? { reasoning_content: m.reasoning_content } : {}),
+    ...(m.reasoning_content?.trim() ? { reasoning_content: m.reasoning_content } : {}),
   }))
   const body: Record<string, unknown> = { messages: translated, stream: true, ...stripWireAgnosticOverrides(overrides) }
   if (overrides?.tools && overrides.tools.length > 0) {

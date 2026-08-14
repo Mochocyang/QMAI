@@ -25,6 +25,8 @@ export interface ExecuteAgentToolResult {
   record: AgentRunRecord["toolCalls"][number]
   responseText: string
   success: boolean
+  /** finalizesRun 工具通过 onFinalContent 交付的终稿，取最后一次交付。 */
+  finalContent?: string
 }
 
 export async function executeAgentTool(
@@ -70,15 +72,24 @@ export async function executeAgentTool(
     return { record, responseText: result, success: false }
   }
 
+  let deliveredFinalContent = ""
+  let acceptFinalContent = true
   const executionContext = {
     callId: call.id,
     toolName: call.name,
     onToolEvent: callbacks.onToolEvent,
     onActivityEvent: callbacks.onActivityEvent,
     onRequestTrace: callbacks.onRequestTrace,
+    onFinalContent: (content: string) => {
+      if (!acceptFinalContent) return
+      deliveredFinalContent = content
+      callbacks.onFinalContent?.(content)
+    },
   }
   const permission = tool.permission ?? (tool.category === "write" ? "confirm" : "auto")
   if (permission === "confirm") {
+    // 预览阶段不是真正执行，即使复用 execute 也不得对外交付终稿。
+    acceptFinalContent = false
     try {
       const previewFn = tool.generatePreview ?? tool.execute
       const preview = await withToolTimeout(
@@ -151,7 +162,12 @@ export async function executeAgentTool(
       result,
       timestamp: record.finishedAt,
     })
-    return { record, responseText: result, success: true }
+    return {
+      record,
+      responseText: result,
+      success: true,
+      ...(deliveredFinalContent ? { finalContent: deliveredFinalContent } : {}),
+    }
   } catch (error) {
     const result = `错误: ${error instanceof Error ? error.message : String(error)}`
     record.status = signal?.aborted ? "cancelled" : "error"

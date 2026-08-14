@@ -76,6 +76,27 @@ function extractLeadingTitle(lines: string[]): { lines: string[]; title: string 
   return { lines, title: null }
 }
 
+/**
+ * 独占一行的正文标签，如「正文：」「以下是本章正文」「【正文】」「**正文**」。
+ * 必须整行匹配，避免误删以「正文」开头的叙述句。
+ */
+const LEADING_BODY_LABEL_RE =
+  /^(?:#{1,6}\s*)?(?:\*\*|__)?\s*[【[]?\s*(?:以下(?:是|为)\s*)?(?:本章)?正文(?:如下)?\s*[\]】]?\s*[：:]?\s*(?:\*\*|__)?$/
+
+/** 剥掉开头的正文标签行（含其后空行）。 */
+function stripLeadingBodyLabel(lines: string[]): string[] {
+  let index = 0
+
+  while (index < lines.length && !lines[index].trim()) index += 1
+
+  while (index < lines.length && LEADING_BODY_LABEL_RE.test(lines[index].trim())) {
+    index += 1
+    while (index < lines.length && !lines[index].trim()) index += 1
+  }
+
+  return index > 0 ? lines.slice(index) : lines
+}
+
 function stripLeadingMeta(lines: string[]): string[] {
   let index = 0
 
@@ -99,7 +120,8 @@ function stripLeadingMeta(lines: string[]): string[] {
     index += 1
   }
 
-  return lines.slice(index)
+  // 标签也可能出现在章节标题之后，例如「第240章 归零 / 正文：」。
+  return stripLeadingBodyLabel(lines.slice(index))
 }
 
 function stripTrailingAssistantOffer(lines: string[]): string[] {
@@ -123,18 +145,19 @@ export interface CleanedChapterContent {
   title: string | null
 }
 
-/**
- * 清理生成的章节内容，同时提取标题。
- * 返回对象包含：
- * - content: 清理后的纯正文（移除已提取的标题行）
- * - title: 提取到的标题文字（如 "第3章 初入江湖"），如果没有则为 null
- */
-export function cleanGeneratedChapterContentWithTitle(content: string): CleanedChapterContent {
+function cleanChapterContentCore(
+  content: string,
+  options: { dropTrailingOffer: boolean },
+): CleanedChapterContent {
   const withoutThinking = stripThinkingBlocks(content).replace(/\r\n?/g, "\n")
   const withoutCitations = stripCitationSyntax(withoutThinking)
-  const allLines = withoutCitations.split("\n")
+  // 标签先剥，否则「正文：」挡在前面会让章节标题识别不到。
+  const allLines = stripLeadingBodyLabel(withoutCitations.split("\n"))
   const { lines: linesWithoutTitle, title } = extractLeadingTitle(allLines)
-  const cleanedLines = stripTrailingAssistantOffer(stripLeadingMeta(linesWithoutTitle))
+  const strippedLines = stripLeadingMeta(linesWithoutTitle)
+  const cleanedLines = options.dropTrailingOffer
+    ? stripTrailingAssistantOffer(strippedLines)
+    : strippedLines
 
   const cleanedContent = cleanedLines
     .join("\n")
@@ -157,6 +180,33 @@ export function cleanGeneratedChapterContentWithTitle(content: string): CleanedC
     content: finalContent,
     title,
   }
+}
+
+/**
+ * 清理生成的章节内容，同时提取标题。
+ * 返回对象包含：
+ * - content: 清理后的纯正文（移除已提取的标题行）
+ * - title: 提取到的标题文字（如 "第3章 初入江湖"），如果没有则为 null
+ */
+export function cleanGeneratedChapterContentWithTitle(content: string): CleanedChapterContent {
+  return cleanChapterContentCore(content, { dropTrailingOffer: true })
+}
+
+/**
+ * 清理章节正文用于会话内展示：与保存共用同一套剥离规则，但
+ * - 保留开头的章节标题行（保存路径会把标题拆成独立字段）；
+ * - 不做结尾「要不要我继续」裁剪，避免正文里的对白被当成助手话术截断。
+ */
+export function cleanGeneratedChapterContentForDisplay(content: string): string {
+  const { content: body, title } = cleanChapterContentCore(content, { dropTrailingOffer: false })
+  if (!body.trim()) return content.trim()
+  if (!title) return body
+  // 章节草稿要求首行是「# 第X章 标题」，按原样保留标题行的 Markdown 形态。
+  const originalTitleLine = content
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.replace(/^#{1,6}\s*/, "") === title)
+  return `${originalTitleLine ?? title}\n\n${body}`
 }
 
 /**

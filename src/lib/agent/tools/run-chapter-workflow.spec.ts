@@ -382,4 +382,39 @@ describe("createRunChapterWorkflowTool", () => {
     expect(result).toContain("执行状态：已返修")
     expect(result).toContain("最终正文")
   })
+
+  it("以终结型工具身份把终稿交付给会话，履约修复后以最后一次为准", async () => {
+    const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
+      callbacks.onFinalContent?.("  去AI味后的正文  ")
+      callbacks.onFinalContent?.("履约修复后的正文")
+      callbacks.onFinalContent?.("   ")
+      return {
+        finalContent: "履约修复后的正文",
+        taskBrief: "任务书",
+        draftContent: "初稿",
+        reviewResults: [],
+        revised: true,
+      }
+    })
+    const onFinalContent = vi.fn()
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "strict",
+      runDeepChapterGeneration,
+    })
+
+    expect(tool.finalizesRun).toBe(true)
+
+    await tool.execute(
+      { intent: "write_chapter", userRequest: "生成第240章" },
+      undefined,
+      { callId: "workflow-final", toolName: "run_chapter_workflow", onFinalContent },
+    )
+
+    expect(onFinalContent.mock.calls.map((call) => call[0])).toEqual([
+      "去AI味后的正文",
+      "履约修复后的正文",
+    ])
+  })
 })
