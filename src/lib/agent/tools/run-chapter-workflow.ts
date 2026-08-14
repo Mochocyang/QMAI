@@ -145,6 +145,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
               toolCallId: event.toolCallId ?? parentCallId,
             })
           },
+          onRequestTrace: context?.onRequestTrace,
         },
         undefined,
         signal,

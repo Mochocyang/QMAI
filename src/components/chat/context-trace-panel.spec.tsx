@@ -43,7 +43,8 @@ describe("ContextTracePanel selected skills", () => {
     expect(html).toContain("会话摘要 180 Token")
     expect(html).toContain("动态片段 420 Token")
     expect(html).toContain("上下文压缩预计减少 1,400 Token（44%）")
-    expect(html).toContain("已发送稳定前缀，是否命中以供应商返回为准")
+    expect(html).toContain("已发送本地稳定核心，是否命中以供应商返回为准")
+    expect(html).toContain("供应商前缀：不可判断")
     expect(html).toContain("实际用量不可用")
     expect(html).not.toContain("供应商已确认命中")
   })
@@ -88,6 +89,54 @@ describe("ContextTracePanel selected skills", () => {
     expect(html).toContain("供应商新写入缓存 256 Token")
   })
 
+  it("labels Codex thread totals and does not show the outer round as a request count", () => {
+    const trace: ContextTrace = {
+      id: "trace-codex-thread-total",
+      startedAt: 1,
+      status: "done",
+      toolCalls: [],
+      contextInfo: {
+        intent: "write_chapter",
+        confidence: 1,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+        contextHub: {
+          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          stableTokens: 100,
+          summaryTokens: 0,
+          dynamicTokens: 20,
+          candidateTokens: 120,
+          estimatedSavedTokens: 0,
+          estimatedSavedPercent: 0,
+          expanded: false,
+          providerCacheEnabled: true,
+          providerUsageReported: true,
+          providerInputTokens: 125_732,
+          providerCachedTokens: 120_576,
+          requestDiagnostics: {
+            requestCount: 0,
+            requestCountAvailable: false,
+            usageScope: "provider_thread",
+            providerUsageAvailable: true,
+            inputTokens: 3_676_375,
+            outputTokens: 7_926,
+            cacheReadTokens: 3_533_312,
+            cacheWriteTokens: 0,
+          },
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
+
+    expect(html).toContain("Codex 线程累计实际用量：内部请求数不可判断")
+    expect(html).toContain("输入 3,676,375")
+    expect(html).not.toContain("请求 1")
+  })
+
   it("uses the shared cache viewer when a persisted snapshot reference exists", () => {
     const trace: ContextTrace = {
       id: "trace-snapshot",
@@ -127,6 +176,78 @@ describe("ContextTracePanel selected skills", () => {
 
     expect(html).toContain("展开上下文中控")
     expect(html).toContain("本轮数据源：命中 2，重载 1，无数据 0，fallback 0，失败 0")
+  })
+
+  it("renders sanitized per-request prefix, timing and cache diagnostics", () => {
+    const trace: ContextTrace = {
+      id: "trace-request-cache",
+      startedAt: 1,
+      status: "done",
+      toolCalls: [],
+      contextInfo: {
+        intent: "write_chapter",
+        confidence: 1,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+        contextHub: {
+          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          stableTokens: 100,
+          summaryTokens: 20,
+          dynamicTokens: 30,
+          candidateTokens: 200,
+          estimatedSavedTokens: 50,
+          estimatedSavedPercent: 25,
+          expanded: false,
+          providerCacheEnabled: true,
+          requestDiagnostics: {
+            requestCount: 2,
+            providerUsageAvailable: true,
+            requests: [
+              {
+                provider: "openai",
+                model: "gpt-test",
+                apiMode: "chat_completions",
+                prefixFingerprint: "abcdef0123456789",
+                startedAt: 1_000,
+                finishedAt: 1_400,
+                durationMs: 400,
+                firstResponseMs: 120,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 500,
+                status: "success",
+              },
+              {
+                provider: "openai",
+                model: "gpt-test",
+                apiMode: "chat_completions",
+                prefixFingerprint: "abcdef0123456789",
+                startedAt: 2_000,
+                finishedAt: 2_300,
+                durationMs: 300,
+                firstResponseMs: 80,
+                startGapMs: 1_000,
+                idleGapMs: 600,
+                cacheReadTokens: 500,
+                cacheWriteTokens: 0,
+                status: "success",
+              },
+            ],
+            omittedRequestCount: 4,
+          },
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
+
+    expect(html).toContain("供应商前缀：未变化")
+    expect(html).toContain("请求缓存与间隔（2，另省略 4）")
+    expect(html).toContain("开始间隔")
+    expect(html).toContain("TTFT")
+    expect(html).toContain("abcdef0123")
   })
 
   it("renders web search trace entries in the overview", () => {

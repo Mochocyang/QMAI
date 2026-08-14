@@ -148,6 +148,8 @@ describe("CodexAppServerRunner", () => {
     expect(record.toolCalls[0]).toEqual(expect.objectContaining({ name: "read_outline", status: "done" }))
     expect(record.lastRequestUsage).toEqual(expect.objectContaining({ totalTokens: 12 }))
     expect(record.usage).toEqual(expect.objectContaining({ totalTokens: 22 }))
+    expect(record.usageAggregationScope).toBe("provider_thread")
+    expect(record.providerRequestCountAvailable).toBe(false)
     expect(cb.onText).toHaveBeenCalledWith("最终回答")
     expect(cb.onDone).toHaveBeenCalledOnce()
     expect(cb.onError).not.toHaveBeenCalled()

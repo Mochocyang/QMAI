@@ -1,6 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides } from "../llm-providers"
 import type { LlmUsage } from "../llm-usage"
+import type { LlmRequestCacheTrace } from "../llm-request-trace"
 
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array" | "integer"
@@ -18,6 +19,7 @@ export interface ToolExecutionContext {
   toolName: string
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
 }
 
 export interface Tool {
@@ -136,6 +138,7 @@ export interface AgentRunCallbacks {
   onActivityEvent?: (event: AgentActivityEvent) => void
   /** Usage for the current/latest provider request. */
   onUsage?: (usage: LlmUsage) => void
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
   onUserMemoryDecision?: (decision: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null) => void
   onDone: () => void
   onError: (error: Error) => void
@@ -166,8 +169,14 @@ export interface AgentRunRecord {
   finalText: string
   /** Cumulative provider usage across all requests in this agent run. */
   usage?: LlmUsage
+  /** Provider-managed thread totals cannot be assigned a reliable internal request count. */
+  usageAggregationScope?: "workflow" | "provider_thread"
+  providerRequestCountAvailable?: boolean
   /** Provider usage for the final request only; used for context-window UI. */
   lastRequestUsage?: LlmUsage
+  /** Sanitized request traces for this run, including nested workflow calls. */
+  requestTraces?: LlmRequestCacheTrace[]
+  omittedRequestTraceCount?: number
   /** Memory decision from the first LLM round that applied user memory. */
   userMemoryDecision?: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null
 }

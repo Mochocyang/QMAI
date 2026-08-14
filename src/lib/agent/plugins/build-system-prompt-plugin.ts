@@ -29,6 +29,8 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
 
         const parts: string[] = []
         const rulesParts: string[] = []
+        const stableRulesParts: string[] = []
+        const dynamicRulesParts: string[] = []
 
         // 去掉 base 里可能已有的找纲协议，统一由本 plugin 注入一次，避免重复。
         const rawBase = baseSystemPrompt || (input.agentConfig as any)?.systemPrompt || ""
@@ -36,6 +38,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         if (base) {
           parts.push(base)
           rulesParts.push(base)
+          stableRulesParts.push(base)
         }
 
         if (input.novelSystemPrompt) {
@@ -46,6 +49,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         if (selectedSkillsPrompt) {
           parts.push(selectedSkillsPrompt)
           rulesParts.push(selectedSkillsPrompt)
+          dynamicRulesParts.push(selectedSkillsPrompt)
         }
         const missingSkillNames = Array.isArray(input.missingSkillNames)
           ? input.missingSkillNames.filter((name): name is string => typeof name === "string")
@@ -54,6 +58,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           const diagnostic = `## Skill 路由诊断\n以下确定性 Skill 缺失或已被用户禁用，禁止通过 apply_skill 强制启用：${missingSkillNames.join("、")}。请按已加载规则继续，并向用户保留该诊断。`
           parts.push(diagnostic)
           rulesParts.push(diagnostic)
+          dynamicRulesParts.push(diagnostic)
         }
 
         const routeForWriting = input.effectiveTaskRoute || input.taskRoute
@@ -62,6 +67,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           const outlineProtocol = buildOutlineFindProtocol(routeForWriting?.chapterNumber)
           parts.push(outlineProtocol)
           rulesParts.push(outlineProtocol)
+          dynamicRulesParts.push(outlineProtocol)
         }
 
         if (input.planExecuteEnabled && input.aiWorkflowMode) {
@@ -72,6 +78,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           const planProtocol = buildChapterPlanProtocol(input.aiWorkflowMode)
           parts.push(planProtocol)
           rulesParts.push(planProtocol)
+          dynamicRulesParts.push(planProtocol)
         }
 
         if (route) {
@@ -79,12 +86,18 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
           if (taskDirective) {
             parts.push(taskDirective)
             rulesParts.push(taskDirective)
+            dynamicRulesParts.push(taskDirective)
           }
         }
 
         const finalSystemPrompt = parts.join("\n\n")
         const finalSystemRulesPrompt = rulesParts.join("\n\n")
-        return { finalSystemPrompt, finalSystemRulesPrompt }
+        return {
+          finalSystemPrompt,
+          finalSystemRulesPrompt,
+          stableSystemRulesPrompt: stableRulesParts.join("\n\n"),
+          dynamicSystemRulesPrompt: dynamicRulesParts.join("\n\n"),
+        }
       } catch (error) {
         onError?.(error instanceof Error ? error : new Error(String(error)))
         return {}

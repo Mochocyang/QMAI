@@ -75,6 +75,7 @@ export async function executeAgentTool(
     toolName: call.name,
     onToolEvent: callbacks.onToolEvent,
     onActivityEvent: callbacks.onActivityEvent,
+    onRequestTrace: callbacks.onRequestTrace,
   }
   const permission = tool.permission ?? (tool.category === "write" ? "confirm" : "auto")
   if (permission === "confirm") {

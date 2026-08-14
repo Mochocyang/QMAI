@@ -27,6 +27,12 @@ import { RESPONSE_RESERVE_FRAC, planLlmRequestBudget } from "./context-budget"
 import { mergeLlmUsageSnapshot, type LlmUsage } from "./llm-usage"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
 import type { UserMemoryDecision } from "./user-memory/decision-trace"
+import {
+  buildLlmRequestCacheTrace,
+  buildLlmRequestPrefixDescriptor,
+  type LlmRequestCacheTrace,
+  type LlmRequestTraceStatus,
+} from "./llm-request-trace"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -38,6 +44,8 @@ export interface StreamCallbacks {
   /** 工具调用流式 delta，用于累积 tool_calls */
   onToolCallDelta?: (delta: { index: number; id?: string; name?: string; arguments?: string }) => void
   onUsage?: (usage: LlmUsage) => void
+  /** Sanitized request-level timing/cache trace; never contains prompt text or credentials. */
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
   /** Decision produced while preparing this request's messages (request-scoped). */
   onUserMemoryDecision?: (decision: UserMemoryDecision | null) => void
   onDone: () => void
@@ -262,15 +270,100 @@ export async function streamChat(
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
+  let prefixDescriptor = await buildLlmRequestPrefixDescriptor(
+    runtimeConfig,
+    budgetedMessages,
+    effectiveRequestOverrides,
+  )
+  interface ActiveRequestTrace {
+    startedAt: number
+    firstResponseAt?: number
+    finished: boolean
+  }
+  const startRequestTrace = (): ActiveRequestTrace => ({
+    startedAt: Date.now(),
+    finished: false,
+  })
+  const markFirstResponse = (trace: ActiveRequestTrace | null | undefined) => {
+    if (trace && trace.firstResponseAt === undefined) trace.firstResponseAt = Date.now()
+  }
+  const finishRequestTrace = (
+    trace: ActiveRequestTrace | null | undefined,
+    status: LlmRequestTraceStatus,
+    usage?: LlmUsage,
+  ) => {
+    if (!trace || trace.finished) return
+    trace.finished = true
+    try {
+      callbacks.onRequestTrace?.(buildLlmRequestCacheTrace({
+        config: runtimeConfig,
+        ...prefixDescriptor,
+        startedAt: trace.startedAt,
+        finishedAt: Date.now(),
+        firstResponseAt: trace.firstResponseAt,
+        usage,
+        status,
+      }))
+    } catch (error) {
+      console.warn("LLM 请求追踪回调失败，忽略观测错误：", error)
+    }
+  }
+
+  const streamLocalWithTrace = async (
+    run: (localCallbacks: StreamCallbacks) => Promise<void>,
+  ): Promise<void> => {
+    const trace = startRequestTrace()
+    let usage: LlmUsage | undefined
+    const tracedCallbacks: StreamCallbacks = {
+      ...callbacks,
+      onToken: (token) => {
+        markFirstResponse(trace)
+        callbacks.onToken(token)
+      },
+      onReasoningToken: (token) => {
+        markFirstResponse(trace)
+        callbacks.onReasoningToken?.(token)
+      },
+      onToolCallDelta: (delta) => {
+        markFirstResponse(trace)
+        callbacks.onToolCallDelta?.(delta)
+      },
+      onUsage: (nextUsage) => {
+        usage = mergeLlmUsageSnapshot(usage, nextUsage)
+        callbacks.onUsage?.(nextUsage)
+      },
+      onDone: () => {
+        finishRequestTrace(trace, signal?.aborted ? "cancelled" : "success", usage)
+        callbacks.onDone()
+      },
+      onError: (error) => {
+        finishRequestTrace(trace, signal?.aborted ? "cancelled" : "error", usage)
+        callbacks.onError(error)
+      },
+    }
+    try {
+      await run(tracedCallbacks)
+    } catch (error) {
+      finishRequestTrace(
+        trace,
+        signal?.aborted ? "cancelled" : isFetchNetworkError(error) ? "network_error" : "error",
+        usage,
+      )
+      throw error
+    }
+  }
+
   // Claude Code CLI uses a subprocess transport (stdin/stdout), not
   // HTTP. Dispatch before getProviderConfig — that function throws for
   // this provider because it has no URL/headers.
   if (runtimeConfig.provider === "claude-code") {
-    return streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
+    return streamLocalWithTrace((localCallbacks) =>
+      streamViaClaudeCodeCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
   }
 
   if (runtimeConfig.provider === "codex-cli") {
-    return streamViaCodexCli(runtimeConfig, budgetedMessages, callbacks, signal, effectiveRequestOverrides)
+    return streamLocalWithTrace((localCallbacks) =>
+      streamViaCodexCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
   }
 
   if (runtimeConfig.provider === "cursor-cli") {
@@ -310,6 +403,34 @@ export async function streamChat(
   }
 
   try {
+    let activeRequestTrace: ActiveRequestTrace | null = null
+    const tracedFetch = async (
+      fetcher: (url: string, init: RequestInit) => Promise<Response>,
+      url: string,
+      init: RequestInit,
+    ): Promise<Response> => {
+      const trace = startRequestTrace()
+      try {
+        const result = await fetcher(url, init)
+        if (result.ok) {
+          activeRequestTrace = trace
+        } else {
+          finishRequestTrace(trace, "error")
+        }
+        return result
+      } catch (error) {
+        finishRequestTrace(
+          trace,
+          signal?.aborted || (combinedSignal?.aborted && !timeoutFired)
+            ? "cancelled"
+            : isFetchNetworkError(error)
+              ? "network_error"
+              : "error",
+        )
+        throw error
+      }
+    }
+
     const buildRequestInit = (
       nextMessages: import("./llm-providers").ChatMessage[],
       overrides: RequestOverrides = effectiveRequestOverrides,
@@ -325,7 +446,7 @@ export async function streamChat(
       let attempt = 0
       while (true) {
         try {
-          return await httpFetch(providerConfig.url, requestInit)
+          return await tracedFetch(httpFetch, providerConfig.url, requestInit)
         } catch (err) {
           if (signal?.aborted || combinedSignal?.aborted) throw err
           if (!isFetchNetworkError(err)) throw err
@@ -432,6 +553,11 @@ export async function streamChat(
           onError(new Error(inputLengthLimitMessage(inputLimit)))
           return
         }
+        prefixDescriptor = await buildLlmRequestPrefixDescriptor(
+          runtimeConfig,
+          retryMessages,
+          effectiveRequestOverrides,
+        )
         const retryRequestInit = buildRequestInit(retryMessages)
         if (retryRequestInit.body === requestInit.body) {
           onError(new Error(inputLengthLimitMessage(inputLimit)))
@@ -505,7 +631,11 @@ export async function streamChat(
       }
       if (!httpRetrySucceeded && shouldRetryWithBrowserFetch(errorDetail) && typeof globalThis.fetch === "function") {
         try {
-          response = await globalThis.fetch(providerConfig.url, requestInit)
+          response = await tracedFetch(
+            (url, init) => globalThis.fetch(url, init),
+            providerConfig.url,
+            requestInit,
+          )
         } catch (err) {
           onError(err instanceof Error ? err : new Error(String(err)))
           return
@@ -529,6 +659,7 @@ export async function streamChat(
     }
 
     if (!response.body) {
+      finishRequestTrace(activeRequestTrace, "error")
       onError(new Error("Response body is null"))
       return
     }
@@ -569,6 +700,7 @@ export async function streamChat(
     const recordReasoning = (line: string) => {
       const reasoningParts = extractReasoningTextFromLine(line)
       for (const part of reasoningParts) {
+        if (part) markFirstResponse(activeRequestTrace)
         reasoningTokensForwarded += part.length
         callbacks.onReasoningToken?.(part)
       }
@@ -589,11 +721,15 @@ export async function streamChat(
             recordReasoning(trimmed)
             const toolDelta = parseToolCallDeltaFromLine(trimmed)
             if (toolDelta) {
+              markFirstResponse(activeRequestTrace)
               toolCallDeltaCount += 1
               callbacks.onToolCallDelta?.(toolDelta)
             } else {
               const token = providerConfig.parseStream(trimmed)
-              if (token !== null) recordToken(token)
+              if (token !== null) {
+                if (token) markFirstResponse(activeRequestTrace)
+                recordToken(token)
+              }
             }
           }
           break
@@ -613,12 +749,16 @@ export async function streamChat(
           recordReasoning(trimmed)
           const toolDelta = parseToolCallDeltaFromLine(trimmed)
           if (toolDelta) {
+            markFirstResponse(activeRequestTrace)
             toolCallDeltaCount += 1
             callbacks.onToolCallDelta?.(toolDelta)
             continue
           }
           const token = providerConfig.parseStream(trimmed)
-          if (token !== null) recordToken(token)
+          if (token !== null) {
+            if (token) markFirstResponse(activeRequestTrace)
+            recordToken(token)
+          }
         }
       }
 
@@ -645,6 +785,7 @@ export async function streamChat(
         contentCharsEmitted === 0 &&
         reasoningCharsObserved >= REASONING_DIAGNOSTIC_THRESHOLD
       ) {
+        finishRequestTrace(activeRequestTrace, "error", streamUsage)
         onError(
           new Error(
             `模型只输出了 ${reasoningCharsObserved.toLocaleString()} 字符的思考内容，但没有输出正文。` +
@@ -661,23 +802,28 @@ export async function streamChat(
       // a silently half-finished response.
       const finalFinishReason: string | null = finishReason
       if (finalFinishReason && isTruncationFinishReason(finalFinishReason)) {
+        finishRequestTrace(activeRequestTrace, "error", streamUsage)
         onError(buildOutputTruncatedError(finalFinishReason))
         return
       }
 
+      finishRequestTrace(activeRequestTrace, "success", streamUsage)
       onDone()
     } catch (err) {
       if (err instanceof Error && (err.name === "AbortError" || (signal?.aborted))) {
+        finishRequestTrace(activeRequestTrace, "cancelled", streamUsage)
         onDone()
         return
       }
       if (isFetchNetworkError(err)) {
+        finishRequestTrace(activeRequestTrace, "network_error", streamUsage)
         // Stream reader threw a network error mid-response (connection
         // dropped, server closed early, network blip). Same message
         // regardless of whether the webview is WebKit or Chromium.
         onError(new Error("流式响应读取中断，请检查网络、代理或接口稳定性后重试。"))
         return
       }
+      finishRequestTrace(activeRequestTrace, "error", streamUsage)
       onError(err instanceof Error ? err : new Error(String(err)))
     } finally {
       reader.releaseLock()

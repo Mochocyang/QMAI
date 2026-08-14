@@ -104,7 +104,13 @@ export class CodexAppServerRunner {
     callbacks: AgentRunCallbacks,
     signal?: AbortSignal,
   ): Promise<AgentRunRecord> {
-    const record: AgentRunRecord = { toolCalls: [], roundsUsed: 0, finalText: "" }
+    const record: AgentRunRecord = {
+      toolCalls: [],
+      roundsUsed: 0,
+      finalText: "",
+      usageAggregationScope: "provider_thread",
+      providerRequestCountAvailable: false,
+    }
     const client = getCodexAppServerClient()
     const evidenceLedger = new ToolEvidenceLedger(config.toolResultContextLimit ?? 6000)
     let threadId = ""

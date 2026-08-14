@@ -1,4 +1,4 @@
-import { streamChat } from "@/lib/llm-client"
+import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChapterExecutionContract } from "./chapter-execution-contract"
 import { contractToTaskBriefText } from "./chapter-execution-contract"
@@ -51,6 +51,7 @@ export async function runChapterExecutionReportCheck(
   contract: ChapterExecutionContract,
   finalContent: string,
   signal?: AbortSignal,
+  onRequestTrace?: StreamCallbacks["onRequestTrace"],
 ): Promise<ChapterExecutionReport> {
   let responseText = ""
   let streamError: Error | null = null
@@ -66,6 +67,7 @@ export async function runChapterExecutionReportCheck(
       onError: (error: Error) => {
         streamError = error
       },
+      onRequestTrace,
     },
     signal,
   )

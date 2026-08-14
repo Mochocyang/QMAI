@@ -156,6 +156,47 @@ function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = [])
 }
 
 describe("runDeepChapterGeneration", () => {
+  it("forwards every internal model request trace to one workflow collector", async () => {
+    const deps = createDeps()
+    const onRequestTrace = vi.fn()
+    let index = 0
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+    ) => {
+      index += 1
+      callbacks.onRequestTrace?.({
+        provider: "openai",
+        model: "test-model",
+        apiMode: "chat_completions",
+        prefixFingerprint: "stable",
+        startedAt: index * 100,
+        finishedAt: index * 100 + 50,
+        durationMs: 50,
+        status: "success",
+      })
+      const prompt = messagesPromptText(messages)
+      callbacks.onToken(prompt.includes("正文") ? chapterText("正文") : "写作任务书")
+      callbacks.onDone()
+    })
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "standard",
+      },
+      { onRequestTrace },
+      deps,
+    )
+
+    expect(onRequestTrace).toHaveBeenCalledTimes(vi.mocked(deps.streamChat).mock.calls.length)
+    expect(onRequestTrace).toHaveBeenCalled()
+  })
+
   it("routes workflow, prose, and de-AI stages to their configured models", async () => {
     const previousState = useWikiStore.getState()
     useWikiStore.setState({

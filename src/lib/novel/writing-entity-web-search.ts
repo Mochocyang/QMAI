@@ -36,6 +36,7 @@ export interface CollectWritingEntityWebSearchInput {
   llmConfig: LlmConfig
   searchApiConfig?: SearchApiConfig | null
   signal?: AbortSignal
+  onRequestTrace?: StreamCallbacks["onRequestTrace"]
   listEntityNames?: typeof listLocalEntityNames
   readPreviousBodies?: typeof readPreviousChapterBodies
   search?: typeof webSearch
@@ -315,6 +316,7 @@ async function completeText(
       onToken: (token) => { result += token },
       onDone: () => {},
       onError: () => {},
+      onRequestTrace: input.onRequestTrace,
     },
     input.signal,
   )

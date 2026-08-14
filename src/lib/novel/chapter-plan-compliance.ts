@@ -1,4 +1,4 @@
-import { streamChat } from "@/lib/llm-client"
+import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "./chapter-excerpts"
 
@@ -61,6 +61,7 @@ export async function runChapterPlanComplianceCheck(
   planBlueprint: string,
   finalContent: string,
   signal?: AbortSignal,
+  onRequestTrace?: StreamCallbacks["onRequestTrace"],
 ): Promise<string> {
   if (!planBlueprint.trim()) return ""
   if (!finalContent.trim()) return ""
@@ -74,6 +75,7 @@ export async function runChapterPlanComplianceCheck(
       onToken: (token) => { result += token },
       onDone: () => {},
       onError: (error) => { streamError = error },
+      onRequestTrace,
     },
     signal,
   )
@@ -156,6 +158,7 @@ export async function runChapterPlanDeviationRepair(
   finalContent: string,
   complianceResult: ParsedChapterPlanComplianceResult | string,
   signal?: AbortSignal,
+  onRequestTrace?: StreamCallbacks["onRequestTrace"],
 ): Promise<string> {
   if (!planBlueprint.trim()) return finalContent.trim()
   if (!finalContent.trim()) return ""
@@ -169,6 +172,7 @@ export async function runChapterPlanDeviationRepair(
       onToken: (token) => { result += token },
       onDone: () => {},
       onError: (error) => { streamError = error },
+      onRequestTrace,
     },
     signal,
   )

@@ -203,6 +203,7 @@ import {
 } from "@/lib/context-usage";
 import { selectContextHistoryMessages } from "@/lib/context-hub/session-summary";
 import { addLlmUsage, type LlmUsage } from "@/lib/llm-usage";
+import { LlmRequestTraceCollector } from "@/lib/llm-request-trace";
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service";
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service";
 import {
@@ -1978,6 +1979,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       let lastProviderUsage: LlmUsage | undefined;
       let memoryDecision: UserMemoryDecision | null | undefined;
       let llmRequestCount = 0;
+      let providerRequestCountAvailable = true;
+      const requestTraceCollector = new LlmRequestTraceCollector();
       let accumulatedReasoningContent = "";
       const missingSkillNames = new Set<string>();
       // 已生成的用户可见文本。streamingContents 只承载状态提示不存内容，
@@ -2251,6 +2254,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 }));
               },
               onDone: () => {},
+              onRequestTrace: requestTraceCollector.record,
               onError: (error) => {
                 agentErrorBox.current = error;
               },
@@ -2259,7 +2263,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           );
           providerUsage = addLlmUsage(providerUsage, record.usage);
           lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
-          llmRequestCount += Math.max(1, record.roundsUsed || 1);
+          if (record.providerRequestCountAvailable === false) {
+            providerRequestCountAvailable = false;
+          } else {
+            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+          }
           if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
             memoryDecision = record.userMemoryDecision;
           }
@@ -2687,7 +2695,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
           return { started: true, sent: false };
         }
-        if (contextHubResult && providerUsage) {
+        if (contextHubResult && (providerUsage || requestTraceCollector.snapshot().requests.length > 0)) {
           try {
             const contextHubSnapshot = await persistContextHubProviderUsage(
               getContextHub(normalizePath(project.path)),
@@ -2699,6 +2707,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 requestDiagnostics: buildLlmRequestDiagnostics(
                   providerUsage,
                   Math.max(1, llmRequestCount || 1),
+                  {
+                    ...requestTraceCollector.snapshot(),
+                    requestCountAvailable: providerRequestCountAvailable,
+                  },
                 ),
               },
             );
@@ -3209,6 +3221,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         let lastProviderUsage: LlmUsage | undefined;
         let memoryDecision: UserMemoryDecision | null | undefined;
         let llmRequestCount = 0;
+        let providerRequestCountAvailable = true;
+        const requestTraceCollector = new LlmRequestTraceCollector();
         try {
           const contextHub = getContextHub(normalizePath(project.path));
           contextHubResult = await contextHub.prepare({
@@ -3342,11 +3356,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onToolError: () => {},
               onToolEvent: () => {},
               onDone: () => {},
+              onRequestTrace: requestTraceCollector.record,
               onError: (error) => { agentError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
             lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
-            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (record.providerRequestCountAvailable === false) {
+              providerRequestCountAvailable = false;
+            } else {
+              llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            }
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
             }
@@ -3381,11 +3400,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               onToolError: () => {},
               onToolEvent: () => {},
               onDone: () => {},
+              onRequestTrace: requestTraceCollector.record,
               onError: (error) => { mergeError = error; },
             }, controller.signal);
             providerUsage = addLlmUsage(providerUsage, record.usage);
             lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
-            llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            if (record.providerRequestCountAvailable === false) {
+              providerRequestCountAvailable = false;
+            } else {
+              llmRequestCount += Math.max(1, record.roundsUsed || 1);
+            }
             if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
               memoryDecision = record.userMemoryDecision;
             }
@@ -3407,7 +3431,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
         if (!isCurrentRun()) return;
 
-        if (contextHubResult && providerUsage) {
+        if (contextHubResult && (providerUsage || requestTraceCollector.snapshot().requests.length > 0)) {
           try {
             const contextHubSnapshot = await persistContextHubProviderUsage(
               getContextHub(normalizePath(project.path)),
@@ -3419,6 +3443,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 requestDiagnostics: buildLlmRequestDiagnostics(
                   providerUsage,
                   Math.max(1, llmRequestCount || 1),
+                  {
+                    ...requestTraceCollector.snapshot(),
+                    requestCountAvailable: providerRequestCountAvailable,
+                  },
                 ),
               },
             );
@@ -3838,7 +3866,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         );
         if (agentError) throw agentError;
         if (!isCurrentRun()) return;
-        if (contextHubResult && record.usage) {
+        if (contextHubResult && (record.usage || record.requestTraces?.length)) {
           try {
             const updatedSnapshot = await persistContextHubProviderUsage(
               getContextHub(normalizePath(project.path)),
@@ -3850,6 +3878,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 requestDiagnostics: buildLlmRequestDiagnostics(
                   record.usage,
                   Math.max(1, record.roundsUsed || 1),
+                  {
+                    requests: record.requestTraces,
+                    omittedRequestCount: record.omittedRequestTraceCount,
+                    requestCountAvailable: record.providerRequestCountAvailable,
+                    usageScope: record.usageAggregationScope,
+                  },
                 ),
               },
             );

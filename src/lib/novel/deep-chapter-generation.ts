@@ -8,6 +8,7 @@ import {
 import { useWikiStore } from "@/stores/wiki-store";
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode";
 import type { AgentActivityEvent, AgentActivityKind } from "@/lib/agent/types";
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace";
 import {
   isReasoningDisabled,
   isReasoningOnlyResponseError,
@@ -87,6 +88,7 @@ export interface DeepChapterGenerationCallbacks {
   onCheckpoint?: (checkpoint: DeepChapterGenerationResumeCheckpoint) => void;
   onWorkflowEvent?: (event: ChapterWorkflowEvent) => void;
   onActivityEvent?: (event: AgentActivityEvent) => void;
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void;
 }
 
 export interface DeepChapterGenerationResult {
@@ -493,7 +495,9 @@ export async function runDeepChapterGeneration(
   if (!executionContract && workflowProfile.runExecutionContractBuild && planBlueprint) {
     try {
       const buildContract = deps.runChapterExecutionContractBuild || runChapterExecutionContractBuild;
-      executionContract = await buildContract(workflowConfig, planBlueprint, signal);
+      executionContract = callbacks.onRequestTrace
+        ? await buildContract(workflowConfig, planBlueprint, signal, callbacks.onRequestTrace)
+        : await buildContract(workflowConfig, planBlueprint, signal);
     } catch (error) {
       rethrowIfUserAbort(error, signal);
       console.warn("[Deep Chapter] 执行清单生成失败，使用本地兜底解析:", error);
@@ -834,6 +838,7 @@ export async function runDeepChapterGeneration(
             ),
           analysisRequestOverrides,
           cachePrefix,
+          callbacks.onRequestTrace,
         ),
       (value) => `写作任务书完成，约 ${countChapterChars(value)} 字。`,
       (value) => ({ chars: countChapterChars(value) }),
@@ -908,6 +913,7 @@ export async function runDeepChapterGeneration(
             ),
           generationRequestOverrides,
           cachePrefix,
+          callbacks.onRequestTrace,
         ),
       (value) => {
         const chars = countChapterChars(value);
@@ -953,6 +959,7 @@ export async function runDeepChapterGeneration(
               ),
             generationRequestOverrides,
             cachePrefix,
+            callbacks.onRequestTrace,
           );
           const expandedChars = countChapterChars(expanded);
           if (expandedChars < lengthSpec.minChars) {
@@ -1105,6 +1112,7 @@ export async function runDeepChapterGeneration(
                 contextPack,
                 planBlueprint: planExecutionSummary,
                 throwOnFailure: true,
+                onRequestTrace: callbacks.onRequestTrace,
               },
               signal,
             )
@@ -1117,6 +1125,7 @@ export async function runDeepChapterGeneration(
                 contextPack,
                 planBlueprint: planExecutionSummary,
                 throwOnFailure: true,
+                onRequestTrace: callbacks.onRequestTrace,
               },
             );
       } catch (err) {
@@ -1258,6 +1267,7 @@ export async function runDeepChapterGeneration(
             ),
           generationRequestOverrides,
           cachePrefix,
+          callbacks.onRequestTrace,
         ),
       (value) =>
         `检测到 ${blockingIssues.length} 个阻断问题，已自动返修一次。返修后正文约 ${countChapterChars(value)} 字。`,
@@ -1325,6 +1335,7 @@ export async function runDeepChapterGeneration(
               contextPack,
               characterOnly: true,
               throwOnFailure: true,
+              onRequestTrace: callbacks.onRequestTrace,
             },
             signal,
           )
@@ -1337,6 +1348,7 @@ export async function runDeepChapterGeneration(
               contextPack,
               characterOnly: true,
               throwOnFailure: true,
+              onRequestTrace: callbacks.onRequestTrace,
             },
           );
       const postBlockingIssues = (postRevisionResults || []).filter(
@@ -1454,7 +1466,9 @@ export async function runDeepChapterGeneration(
           detail: "按场景验收标准逐项检查最终正文。",
           params: workflowBaseParams,
         },
-        () => runReport(workflowConfig, executionContract!, finalContent, signal),
+        () => callbacks.onRequestTrace
+          ? runReport(workflowConfig, executionContract!, finalContent, signal, callbacks.onRequestTrace)
+          : runReport(workflowConfig, executionContract!, finalContent, signal),
         (value) => executionReportToToolSummary(value),
         (value) => ({
           status: value.status,
@@ -1481,13 +1495,22 @@ export async function runDeepChapterGeneration(
         startChapterWorkflowStep(callbacks, repairStep);
         let repairedContent = "";
         try {
-          repairedContent = await runRepair(
-            writingConfig,
-            contractToTaskBriefText(executionContract!),
-            finalContent,
-            repairItems.join("\n"),
-            signal,
-          );
+          repairedContent = callbacks.onRequestTrace
+            ? await runRepair(
+                writingConfig,
+                contractToTaskBriefText(executionContract!),
+                finalContent,
+                repairItems.join("\n"),
+                signal,
+                callbacks.onRequestTrace,
+              )
+            : await runRepair(
+                writingConfig,
+                contractToTaskBriefText(executionContract!),
+                finalContent,
+                repairItems.join("\n"),
+                signal,
+              );
         } catch (error) {
           errorChapterWorkflowStep(callbacks, repairStep, error);
           throw error;
@@ -1507,7 +1530,9 @@ export async function runDeepChapterGeneration(
                 detail: "返修后再次检查执行清单失败项是否消除。",
                 params: workflowBaseParams,
               },
-              () => runReport(workflowConfig, executionContract!, repairedCandidate, signal),
+              () => callbacks.onRequestTrace
+                ? runReport(workflowConfig, executionContract!, repairedCandidate, signal, callbacks.onRequestTrace)
+                : runReport(workflowConfig, executionContract!, repairedCandidate, signal),
               (value) => executionReportToToolSummary(value),
               (value) => ({
                 status: value.status,
@@ -1575,7 +1600,9 @@ export async function runDeepChapterGeneration(
       planCompliance = await runChapterWorkflowStep(
         callbacks,
         complianceStep,
-        () => runCompliance(workflowConfig, planExecutionSummary, finalContent, signal),
+        () => callbacks.onRequestTrace
+          ? runCompliance(workflowConfig, planExecutionSummary, finalContent, signal, callbacks.onRequestTrace)
+          : runCompliance(workflowConfig, planExecutionSummary, finalContent, signal),
         (value) => value ? "计划履约度检查完成。" : "计划履约度检查完成，未返回具体结果。",
         (value) => ({ hasComplianceResult: Boolean(value?.trim()) }),
       );
@@ -1607,13 +1634,22 @@ export async function runDeepChapterGeneration(
           const complianceBeforeRepair = planCompliance;
           let repairedContent = "";
           try {
-            repairedContent = await runRepair(
-              writingConfig,
-              planExecutionSummary,
-              finalContent,
-              complianceBeforeRepair,
-              signal,
-            );
+            repairedContent = callbacks.onRequestTrace
+              ? await runRepair(
+                  writingConfig,
+                  planExecutionSummary,
+                  finalContent,
+                  complianceBeforeRepair,
+                  signal,
+                  callbacks.onRequestTrace,
+                )
+              : await runRepair(
+                  writingConfig,
+                  planExecutionSummary,
+                  finalContent,
+                  complianceBeforeRepair,
+                  signal,
+                );
           } catch (error) {
             errorChapterWorkflowStep(callbacks, repairStep, error);
             throw error;
@@ -1633,12 +1669,20 @@ export async function runDeepChapterGeneration(
               recheckResult = await runChapterWorkflowStep(
                 callbacks,
                 recheckStep,
-                () => runCompliance(
-                  workflowConfig,
-                  planExecutionSummary,
-                  repairedCandidate,
-                  signal,
-                ),
+                () => callbacks.onRequestTrace
+                  ? runCompliance(
+                      workflowConfig,
+                      planExecutionSummary,
+                      repairedCandidate,
+                      signal,
+                      callbacks.onRequestTrace,
+                    )
+                  : runCompliance(
+                      workflowConfig,
+                      planExecutionSummary,
+                      repairedCandidate,
+                      signal,
+                    ),
                 (value) => value ? "计划返修复检完成。" : "计划返修复检未返回具体结果。",
                 (value) => ({ hasComplianceResult: Boolean(value?.trim()) }),
               );
@@ -1790,6 +1834,7 @@ async function finalPolishChapter(
       ),
     requestOverrides,
     cachePrefix,
+    callbacks.onRequestTrace,
   );
   assertNotAborted(signal);
   return polished.trim() ? polished : currentContent;
@@ -1845,6 +1890,7 @@ async function collectModelText(
   onUpdate?: (content: string) => void,
   requestOverrides?: RequestOverrides,
   cachePrefix?: string,
+  onRequestTrace?: StreamCallbacks["onRequestTrace"],
 ): Promise<string> {
   let content = "";
   let reasoningBuffer = "";
@@ -1893,6 +1939,7 @@ async function collectModelText(
     onError: (error) => {
       streamError = error;
     },
+    onRequestTrace,
   };
 
   const streamOnce = async (effectiveOverrides?: RequestOverrides) => {
@@ -2298,6 +2345,7 @@ async function maybeInjectWritingEntityWebSearch(args: {
       llmConfig: args.workflowConfig,
       searchApiConfig: useWikiStore.getState().searchApiConfig,
       signal: args.signal,
+      onRequestTrace: args.callbacks.onRequestTrace,
     });
     if (result.searchedNames.length > 0 || result.markdown.trim()) {
       emitDeepChapterActivity(args.callbacks, {

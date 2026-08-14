@@ -16,6 +16,7 @@ import {
 import { getEffectiveMaxContextSize, type ChatMessage } from "../llm-providers"
 import { isReasoningDisabled, isReasoningOnlyResponseError, withReasoningDisabled } from "../reasoning-retry"
 import { addLlmUsage, mergeLlmUsageSnapshot, type LlmUsage } from "../llm-usage"
+import { LlmRequestTraceCollector, type LlmRequestCacheTrace } from "../llm-request-trace"
 import { trimChatMessagesToTokenBudget } from "../chat-request-budget"
 import { logReasoningReplay } from "../reasoning-replay-debug"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
@@ -53,6 +54,14 @@ export class AgentRunner {
       return new CodexAppServerRunner().run(config, registry, messages, callbacks, signal)
     }
     const record: AgentRunRecord = { toolCalls: [], roundsUsed: 0, finalText: "" }
+    const requestTraceCollector = new LlmRequestTraceCollector()
+    const onRequestTrace = (trace: LlmRequestCacheTrace) => {
+      requestTraceCollector.record(trace)
+      const snapshot = requestTraceCollector.snapshot()
+      record.requestTraces = snapshot.requests
+      record.omittedRequestTraceCount = snapshot.omittedRequestCount
+      callbacks.onRequestTrace?.(trace)
+    }
     const workingMessages = [...messages]
     let finalText = ""
     const maxRounds = config.maxRounds || DEFAULT_MAX_ROUNDS
@@ -139,6 +148,7 @@ export class AgentRunner {
           roundUsage = mergeLlmUsageSnapshot(roundUsage, usage)
           if (roundUsage) callbacks.onUsage?.(roundUsage)
         },
+        onRequestTrace,
         onUserMemoryDecision: (decision) => {
           if (record.userMemoryDecision === undefined) {
             record.userMemoryDecision = decision
@@ -373,7 +383,7 @@ export class AgentRunner {
         const executed = await executeAgentTool(
           { id: tc.id, name: toolName, arguments: params } satisfies ToolCall,
           registry,
-          callbacks,
+          { ...callbacks, onRequestTrace },
           signal,
         )
         record.toolCalls.push(executed.record)

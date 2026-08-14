@@ -1,4 +1,8 @@
 import type { LlmUsage } from "@/lib/llm-usage"
+import {
+  copyLlmRequestCacheTrace,
+  type LlmRequestCacheTrace,
+} from "@/lib/llm-request-trace"
 import type { UserMemoryDecision } from "@/lib/user-memory/decision-trace"
 import type {
   ContextHub,
@@ -16,7 +20,23 @@ export interface PersistContextHubProviderUsageOptions {
 export function buildLlmRequestDiagnostics(
   usage: LlmUsage | undefined,
   requestCount = 1,
+  traceOptions: {
+    requests?: LlmRequestCacheTrace[]
+    omittedRequestCount?: number
+    requestCountAvailable?: boolean
+    usageScope?: "workflow" | "provider_thread"
+  } = {},
 ): LlmRequestDiagnostics {
+  const tracedRequestCount = (traceOptions.requests?.length ?? 0)
+    + Math.max(0, traceOptions.omittedRequestCount ?? 0)
+  const requestCountAvailable = traceOptions.requestCountAvailable ?? true
+  const effectiveRequestCount = requestCountAvailable
+    ? (tracedRequestCount > 0 ? tracedRequestCount : requestCount)
+    : 0
+  const scopeFields = {
+    ...(traceOptions.requestCountAvailable !== undefined ? { requestCountAvailable } : {}),
+    ...(traceOptions.usageScope ? { usageScope: traceOptions.usageScope } : {}),
+  }
   const hasAny = Boolean(
     usage
     && (
@@ -28,17 +48,27 @@ export function buildLlmRequestDiagnostics(
   )
   if (!hasAny || !usage) {
     return {
-      requestCount: Math.max(0, requestCount),
+      requestCount: Math.max(0, effectiveRequestCount),
+      ...scopeFields,
       providerUsageAvailable: false,
+      ...(traceOptions.requests ? { requests: traceOptions.requests.map(copyLlmRequestCacheTrace) } : {}),
+      ...(traceOptions.omittedRequestCount !== undefined
+        ? { omittedRequestCount: Math.max(0, traceOptions.omittedRequestCount) }
+        : {}),
     }
   }
   return {
-    requestCount: Math.max(1, requestCount),
+    requestCount: requestCountAvailable ? Math.max(1, effectiveRequestCount) : 0,
+    ...scopeFields,
     providerUsageAvailable: true,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens: usage.cachedInputTokens,
     cacheWriteTokens: usage.cacheWriteInputTokens,
+    ...(traceOptions.requests ? { requests: traceOptions.requests.map(copyLlmRequestCacheTrace) } : {}),
+    ...(traceOptions.omittedRequestCount !== undefined
+      ? { omittedRequestCount: Math.max(0, traceOptions.omittedRequestCount) }
+      : {}),
   }
 }
 
@@ -58,12 +88,13 @@ export function mergeLlmRequestDiagnostics(
   if (!hasAny) {
     return {
       ...base,
-      requestCount: base.requestCount + 1,
+      requestCount: base.requestCountAvailable === false ? base.requestCount : base.requestCount + 1,
       providerUsageAvailable: base.providerUsageAvailable,
     }
   }
   return {
-    requestCount: base.requestCount + 1,
+    ...base,
+    requestCount: base.requestCountAvailable === false ? base.requestCount : base.requestCount + 1,
     providerUsageAvailable: true,
     inputTokens: (base.inputTokens ?? 0) + (usage.inputTokens ?? 0),
     outputTokens: (base.outputTokens ?? 0) + (usage.outputTokens ?? 0),

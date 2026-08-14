@@ -69,6 +69,16 @@ describe("AgentRunner", () => {
 
   it("returns final text when LLM responds without tool calls", async () => {
     mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onRequestTrace?.({
+        provider: "openai",
+        model: "test",
+        apiMode: "chat_completions",
+        prefixFingerprint: "fingerprint",
+        startedAt: 100,
+        finishedAt: 200,
+        durationMs: 100,
+        status: "success",
+      })
       for (const char of "Hello user!") {
         cb.onToken(char)
       }
@@ -86,6 +96,7 @@ describe("AgentRunner", () => {
     const result = await runner.run(config, registry, [systemMsg, userMsg], callbacks, undefined)
     expect(result.finalText).toBe("Hello user!")
     expect(result.roundsUsed).toBe(1)
+    expect(result.requestTraces).toEqual([expect.objectContaining({ prefixFingerprint: "fingerprint" })])
     expect(callbacks.onDone).toHaveBeenCalledOnce()
     expect(callbacks.onError).not.toHaveBeenCalled()
   })

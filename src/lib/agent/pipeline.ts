@@ -26,6 +26,8 @@ export interface PrePluginInput {
   novelSystemPrompt?: string
   finalSystemPrompt?: string
   finalSystemRulesPrompt?: string
+  stableSystemRulesPrompt?: string
+  dynamicSystemRulesPrompt?: string
   shouldStop?: boolean
   stopReason?: string
   [key: string]: unknown
@@ -41,6 +43,8 @@ export interface PrePluginOutput {
   novelSystemPrompt?: string
   finalSystemPrompt?: string
   finalSystemRulesPrompt?: string
+  stableSystemRulesPrompt?: string
+  dynamicSystemRulesPrompt?: string
   shouldStop?: boolean
   stopReason?: string
   [key: string]: unknown
