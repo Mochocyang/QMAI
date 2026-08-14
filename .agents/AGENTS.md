@@ -47,3 +47,14 @@ QMAI 是**长篇小说记忆型 AI 写作桌面系统**（Tauri 2 + React 19 + T
 - 正式章节保存路径是否仍触发摄取 pipeline？
 - 新增 LLM 调用是否走 `resolveNovelModel()` / `resolveReviewModel()`？
 - UI 改动是否只需调 store，而非复制业务逻辑？
+
+## Cursor Cloud specific instructions
+
+标准命令见 `README.md`（`## 本地开发`）与 `package.json` 的 `scripts`。以下是云端环境非显而易见的注意事项：
+
+- **运行完整应用**：`npm run tauri dev`（Vite 固定端口 1420 + Rust 桌面窗口）。云 VM 已有虚拟显示 `DISPLAY=:1`，GUI 可正常弹出；软件渲染下 `libEGL ... DRI3` 警告可忽略。
+- **Rust 工具链**：后端依赖（经 `lancedb` → `icu_provider`）需要 `edition2024`，即 **Rust ≥ 1.85**。若遇 `feature edition2024 is required`，说明 rustc 太旧，执行 `rustup update stable && rustup default stable` 即可。首次 `cargo build`（在 `src-tauri/`）会编译 lancedb，约 4 分钟。
+- **系统依赖**：Tauri Linux 构建需 `libwebkit2gtk-4.1-dev`、`libgtk-3-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev`、`patchelf`、`protobuf-compiler`（`protoc`，由 lancedb 构建期需要）。这些已装入快照。
+- **Node**：`.nvmrc`/CI 用 Node 24（登录 shell 经 nvm 默认到 24）；`/exec-daemon/node`（v22）也满足 Vite 8（≥22.12）。两者皆可跑 `npm install`/测试/构建。
+- **新建项目目录**：这是面向 Windows 的应用，新建对话框默认目录是 `D:\QM-BOOK`，在 Linux 上无效且不会真正落盘。要在 Linux 上创建可持久化的项目，请在“小说目录”输入框清空后手动填入有效路径（如 `/home/ubuntu/QM-BOOK`）再点“创建”。应用数据存于 `~/.local/share/com.qingmuai.writer/`。
+- **LLM 密钥**：启动应用、跑 `test:mocks`、构建都不需要密钥。生成/摄取/审查/拆书等功能才需要 LLM——在“设置”里配置，或设置 `VITE_QMAI_LLM_API_KEY` + `VITE_QMAI_LLM_ENDPOINT` + `VITE_QMAI_LLM_MODEL`（三者需同时提供）。`npm run test:llm` 属于真实 LLM 测试，需要密钥，默认被 `test:mocks` 排除。
