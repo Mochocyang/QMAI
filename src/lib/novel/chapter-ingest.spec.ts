@@ -12,4 +12,15 @@ describe("chapter ingest draft boundary", () => {
     expect(source).toContain("if (!options.allowDraft && !isFinalChapter(fm))")
     expect(source).toContain('failReason: "not_final"')
   })
+
+  it("does not persist a snapshot before syncSnapshotToMemory", () => {
+    const ingestFn = source.slice(
+      source.indexOf("export async function ingestChapter"),
+      source.indexOf("function createRetrievalStore"),
+    )
+    const saveBeforeSync = ingestFn.indexOf("await saveSnapshot(")
+    const syncCall = ingestFn.indexOf("await syncSnapshotToMemory(")
+    expect(syncCall).toBeGreaterThan(0)
+    expect(saveBeforeSync).toBe(-1)
+  })
 })
