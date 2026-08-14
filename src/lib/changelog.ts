@@ -7,6 +7,27 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_ONE_NINE_CHANGELOG: ChangelogEntry = {
+  version: "3.1.9",
+  date: "2026-08-14",
+  highlights: {
+    en: [
+      "[Strict-mode Entity Web Search] When writing chapter body in strict mode, missing local characters/settings are now looked up online. The current chapter outline is no longer treated as 'already in the library', which previously skipped the search.",
+      "[Codex as Main Agent] A locally signed-in Codex CLI can now run as the main Agent for writing and outlines; also fixed picking the wrong or missing outline during writing.",
+      "[Long Chapter No Longer Truncated] Full chapter-workflow text is no longer cut at 6,000 characters; the tool-result compression cap is raised to 10,000 characters so long drafts come back intact.",
+      "[De-AI as Its Own Stage] De-AI polish now shows as a separate progress stage, so you can see whether that step actually ran.",
+      "[Stable Context Cache & Usage] Cache prefixes stay stable across requests, and each provider call's token usage is recorded so you can check what this run actually cost.",
+    ],
+    zh: [
+      "【严格模式实体联网补搜】严格模式写正文时，本地资料缺角色/设定会自动联网补搜；不再把本章大纲误判成「本地已有」而跳过搜索",
+      "【Codex 主 Agent】本机已登录的 Codex CLI 可直接当主 Agent 跑写作和大纲，并修复写作时选错或漏选大纲的问题",
+      "【长章节不再被截断】章节工作流完整正文不再被 6000 字砍断；工具结果压缩上限提到 10000 字，长稿回传更完整",
+      "【去 AI 味独立阶段】去 AI 味在进度里单独显示，方便确认这一步有没有跑完",
+      "【上下文缓存与用量】稳定缓存前缀，并记录供应商每次请求的用量，方便核对本次调用花了多少",
+    ],
+  },
+};
+
 const THREE_POINT_ONE_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "3.1.8",
   date: "2026-08-13",
@@ -1125,6 +1146,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_ONE_NINE_CHANGELOG,
   THREE_POINT_ONE_EIGHT_CHANGELOG,
   THREE_POINT_ONE_SEVEN_CHANGELOG,
   THREE_POINT_ONE_SIX_CHANGELOG,
@@ -1189,6 +1211,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_ONE_NINE_CHANGELOG.version)
+    return [THREE_POINT_ONE_NINE_CHANGELOG];
   if (version === THREE_POINT_ONE_EIGHT_CHANGELOG.version)
     return [THREE_POINT_ONE_EIGHT_CHANGELOG];
   if (version === THREE_POINT_ONE_SEVEN_CHANGELOG.version)
