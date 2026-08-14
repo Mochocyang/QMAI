@@ -117,6 +117,8 @@ export class CodexAppServerRunner {
     let threadId = ""
     let activeTurnId = ""
     let turnText = ""
+    /** 终结型工具已交付的终稿；非空表示本 run 不再需要模型输出。 */
+    let finalDelivery = ""
     let turnUsage: LlmUsage | undefined
     let cumulativeUsage: LlmUsage | undefined
     let turnResolve: ((completion: TurnCompletion) => void) | null = null
@@ -280,6 +282,15 @@ export class CodexAppServerRunner {
             )
             await persistTaskBreakpoint()
           }
+          if (
+            executed.success &&
+            executed.finalContent?.trim() &&
+            registry.get(request.tool)?.finalizesRun
+          ) {
+            // 终稿已交付给用户，本 turn 剩下的模型输出没有价值，直接中断。
+            finalDelivery = executed.finalContent.trim()
+            if (threadId && activeTurnId) void client.interrupt(threadId, activeTurnId)
+          }
           return {
             contentItems: [{
               type: "inputText",
@@ -367,6 +378,19 @@ export class CodexAppServerRunner {
         if (terminalError) void client.interrupt(threadId, activeTurnId)
         const completion = await completionPromise
         activeTurnId = ""
+        if (finalDelivery && !terminalError) {
+          // 交付即收尾：被 interrupt 的 turn 可能回 interrupted 也可能回 failed，
+          // 只要拿到了终稿且不是用户取消，都按成功结束。
+          // usage 缺失时保留已有累计值，避免上下文用量环归零。
+          const deliveredLastUsage = turnUsage as LlmUsage | undefined
+          const deliveredTotalUsage = cumulativeUsage as LlmUsage | undefined
+          if (deliveredLastUsage) record.lastRequestUsage = { ...deliveredLastUsage }
+          if (deliveredTotalUsage) record.usage = { ...deliveredTotalUsage }
+          record.finalText = finalDelivery
+          await clearPersistedBreakpoint()
+          callbacks.onDone()
+          return record
+        }
         if (completion.status === "failed") {
           throw new Error(completion.error || "Codex app-server turn 失败")
         }

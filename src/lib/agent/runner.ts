@@ -314,11 +314,11 @@ export class AgentRunner {
           toolsEnabled: Boolean(openaiTools),
         })
         if (missingRequired.length > 0) {
-          if (roundText.trim() || roundReasoningContent) {
+          if (roundText.trim() || roundReasoningContent.trim()) {
             workingMessages.push({
               role: "assistant",
               content: roundText || "",
-              reasoning_content: roundReasoningContent,
+              ...(roundReasoningContent.trim() ? { reasoning_content: roundReasoningContent } : {}),
             })
           }
           workingMessages.push({
@@ -343,13 +343,12 @@ export class AgentRunner {
       }
 
       // Add assistant message with tool calls.
-      // DeepSeek/Kimi thinking mode requires reasoning_content on every
-      // tool-call assistant message in subsequent rounds — even "".
+      // 只回传非空思考：DeepSeek thinking 把空串当成没传，会 400。
       const assistantMsg: AgentMessage = {
         role: "assistant",
         content: roundText || "",
         tool_calls: toolCalls,
-        reasoning_content: roundReasoningContent,
+        ...(roundReasoningContent.trim() ? { reasoning_content: roundReasoningContent } : {}),
       }
       logReasoningReplay("agent.round.tool_assistant", {
         round: round + 1,
@@ -361,6 +360,7 @@ export class AgentRunner {
       workingMessages.push(assistantMsg)
 
       // Execute each tool call
+      let deliveredFinalContent = ""
       for (const tc of toolCalls) {
         const toolName = tc.function.name
 
@@ -389,12 +389,28 @@ export class AgentRunner {
         )
         record.toolCalls.push(executed.record)
         await saveToolProgress()
+        if (
+          executed.success &&
+          executed.finalContent?.trim() &&
+          registry.get(toolName)?.finalizesRun
+        ) {
+          deliveredFinalContent = executed.finalContent.trim()
+        }
         workingMessages.push({
           role: "tool",
           content: evidenceLedger.format(toolName, params, executed.responseText),
           tool_call_id: tc.id,
           name: toolName,
         })
+      }
+
+      // 终结型工具已把终稿交付给用户，再让模型复述一遍只会拖时间并可能改坏正文。
+      if (deliveredFinalContent) {
+        finalText = deliveredFinalContent
+        record.finalText = finalText
+        await clearPersistedBreakpoint()
+        callbacks.onDone()
+        return record
       }
 
       // Continue loop

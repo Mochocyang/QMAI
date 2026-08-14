@@ -54,6 +54,7 @@ function callbacks(): AgentRunCallbacks {
     onToolResult: vi.fn(),
     onToolError: vi.fn(),
     onToolEvent: vi.fn(),
+    onFinalContent: vi.fn(),
     onUsage: vi.fn(),
     onDone: vi.fn(),
     onError: vi.fn(),
@@ -282,6 +283,90 @@ describe("CodexAppServerRunner", () => {
 
     expect(tool.execute).not.toHaveBeenCalled()
     expect(record.toolCalls[0].status).toBe("error")
+  })
+
+  it("交付终稿的 finalizesRun 工具中断 turn 后按成功收尾", async () => {
+    const body = "第240章 归零\n\n陈远的手还压在西线地图上。"
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "章节工作流",
+      category: "action",
+      permission: "auto",
+      finalizesRun: true,
+      parameters: {},
+      execute: vi.fn(async (_params, _signal, context) => {
+        context?.onFinalContent?.(body)
+        return `章节工作流完成。\n\n最终正文：\n${body}`
+      }),
+    }
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    appServerMock.onTurn = async () => {
+      await appServerMock.handler?.onDynamicToolCall?.({
+        threadId: "thread-1",
+        turnId: "turn-1",
+        callId: "call-workflow",
+        namespace: null,
+        tool: "run_chapter_workflow",
+        arguments: { userRequest: "写第240章" },
+      })
+      envelope("thread/tokenUsage/updated", {
+        threadId: "thread-1",
+        tokenUsage: {
+          last: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          total: { inputTokens: 18, outputTokens: 4, totalTokens: 22 },
+        },
+      })
+      envelope("item/agentMessage/delta", { threadId: "thread-1", delta: "我再把正文抄一遍" })
+      envelope("turn/completed", { threadId: "thread-1", turn: { status: "interrupted" } })
+    }
+    const cb = callbacks()
+
+    const record = await new CodexAppServerRunner().run(config([tool]), registry, messages, cb)
+
+    expect(appServerMock.interrupt).toHaveBeenCalledWith("thread-1", "turn-1")
+    expect(appServerMock.turnNumber).toBe(1)
+    expect(record.finalText).toBe(body)
+    expect(record.usage).toEqual(expect.objectContaining({ totalTokens: 22 }))
+    expect(cb.onFinalContent).toHaveBeenCalledWith(body)
+    expect(cb.onText).not.toHaveBeenCalled()
+    expect(cb.onDone).toHaveBeenCalledOnce()
+    expect(cb.onError).not.toHaveBeenCalled()
+  })
+
+  it("交付终稿后即使 turn 回 failed 也不当作失败", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "章节工作流",
+      category: "action",
+      permission: "auto",
+      finalizesRun: true,
+      parameters: {},
+      execute: vi.fn(async (_params, _signal, context) => {
+        context?.onFinalContent?.("终稿正文")
+        return "章节工作流完成。\n\n最终正文：\n终稿正文"
+      }),
+    }
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    appServerMock.onTurn = async () => {
+      await appServerMock.handler?.onDynamicToolCall?.({
+        threadId: "thread-1",
+        turnId: "turn-1",
+        callId: "call-workflow",
+        namespace: null,
+        tool: "run_chapter_workflow",
+        arguments: {},
+      })
+      envelope("turn/completed", { threadId: "thread-1", turn: { status: "failed", error: { message: "turn interrupted" } } })
+    }
+    const cb = callbacks()
+
+    const record = await new CodexAppServerRunner().run(config([tool]), registry, messages, cb)
+
+    expect(record.finalText).toBe("终稿正文")
+    expect(cb.onDone).toHaveBeenCalledOnce()
+    expect(cb.onError).not.toHaveBeenCalled()
   })
 
   it("maps AbortSignal cancellation to turn/interrupt", async () => {

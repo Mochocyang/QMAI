@@ -78,9 +78,22 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("setReferenceTokensForConversation(drafts, targetConversationId")
   })
 
-  it("keeps chapter-generation replies limited to chapter body", () => {
+  it("keeps fast-mode chapter replies limited to chapter body", () => {
     expect(source).toContain("章节生成、续写或改写任务的最终回复必须只包含章节正文")
     expect(source).toContain("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议")
+  })
+
+  it("tells the model the workflow delivers the chapter body itself", () => {
+    expect(source).toContain("章节正文由 run_chapter_workflow 直接交付给用户")
+    expect(source).toContain("禁止复述、改写、摘要或续写工具已交付的正文")
+    expect(source).toContain("一次只处理一章")
+  })
+
+  it("renders workflow-delivered chapter body without waiting for the model", () => {
+    expect(source).toContain("onFinalContent:")
+    expect(source).toContain("cleanGeneratedChapterContentForDisplay(body)")
+    expect(source).toContain("setStreamingContent(display, capturedConvId)")
+    expect(source).toContain("finalContentDelivered")
   })
 
   it("uses three AI workflow modes instead of a single deep mode prompt", () => {

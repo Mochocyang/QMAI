@@ -140,6 +140,135 @@ describe("streamChat usage", () => {
     }))
   })
 
+  it("does not treat reasoning plus tool calls as a reasoning-only failure", async () => {
+    const thinking = "先列出大纲和章节再决定怎么写。".repeat(20)
+    expect(thinking.length).toBeGreaterThan(200)
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          `data: {"choices":[{"delta":{"reasoning_content":${JSON.stringify(thinking)}}}]}`,
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"list_outlines","arguments":"{}"}}]}}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")))
+        controller.close()
+      },
+    })
+    mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }))
+    const onError = vi.fn()
+    const onToolCallDelta = vi.fn()
+    const onDone = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "写第45章" }], {
+      onToken: vi.fn(),
+      onToolCallDelta,
+      onDone,
+      onError,
+    })
+
+    expect(onToolCallDelta).toHaveBeenCalled()
+    expect(onDone).toHaveBeenCalledOnce()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it("disables thinking and drops empty reasoning before a tool-follow-up request", async () => {
+    mocks.fetch.mockResolvedValue(new Response([
+      'data: {"choices":[{"delta":{"content":"继续"}}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n"), { status: 200 }))
+    const deepseekConfig: LlmConfig = {
+      ...config,
+      provider: "custom",
+      model: "deepseek/deepseek-v4-flash",
+      customEndpoint: "https://api.deepseek.com/v1",
+      reasoning: { mode: "high" },
+    }
+
+    await streamChat(deepseekConfig, [
+      { role: "user", content: "写第45章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "list_outlines", arguments: "{}" },
+        }],
+        reasoning_content: "",
+      },
+      { role: "tool", content: "大纲列表", tool_call_id: "call_1", name: "list_outlines" },
+    ], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })
+
+    const request = mocks.fetch.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(String(request.body)) as {
+      thinking?: { type: string }
+      messages: Array<{ reasoning_content?: string }>
+    }
+    expect(body.thinking).toEqual({ type: "disabled" })
+    expect(body.messages[1]).not.toHaveProperty("reasoning_content")
+  })
+
+  it("retries a reasoning_content 400 once with thinking disabled", async () => {
+    const encoder = new TextEncoder()
+    mocks.fetch
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          error: {
+            message: "The reasoning_content in the thinking mode must be passed back to the API.",
+            type: "invalid_request_error",
+          },
+        }),
+        { status: 400 },
+      ))
+      .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'data: {"choices":[{"delta":{"content":"已继续"}}]}',
+            "data: [DONE]",
+            "",
+          ].join("\n")))
+          controller.close()
+        },
+      }), { status: 200 }))
+
+    const deepseekConfig: LlmConfig = {
+      ...config,
+      provider: "custom",
+      model: "deepseek/deepseek-v4-flash",
+      customEndpoint: "https://api.deepseek.com/v1",
+      reasoning: { mode: "high" },
+    }
+    const onToken = vi.fn()
+    const onError = vi.fn()
+
+    await streamChat(deepseekConfig, [
+      { role: "user", content: "写第45章" },
+      {
+        role: "assistant",
+        content: "先读大纲",
+        reasoning_content: "看起来像思考但接口仍拒收",
+      },
+    ], {
+      onToken,
+      onDone: vi.fn(),
+      onError,
+    })
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(2)
+    const retryBody = JSON.parse(String((mocks.fetch.mock.calls[1][1] as RequestInit).body)) as {
+      thinking?: { type: string }
+    }
+    expect(retryBody.thinking).toEqual({ type: "disabled" })
+    expect(onToken).toHaveBeenCalledWith("已继续")
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   it("发送前按 token 预算裁剪并保持系统与当前请求非空", async () => {
     mocks.fetch.mockResolvedValue(new Response([
       'data: {"choices":[{"delta":{"content":"完成"}}]}',

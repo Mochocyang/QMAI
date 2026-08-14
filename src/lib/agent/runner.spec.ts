@@ -344,7 +344,7 @@ describe("AgentRunner", () => {
     expect(result.finalText).toBe("写完了")
   })
 
-  it("always attaches reasoning_content for tool-call assistants even when empty", async () => {
+  it("omits empty reasoning_content on tool-call assistants", async () => {
     const tool: Tool = {
       name: "read_chapter",
       description: "read",
@@ -382,7 +382,7 @@ describe("AgentRunner", () => {
 
     const round2Messages = mockStreamChat.mock.calls[1][1] as AgentMessage[]
     const toolAssistant = round2Messages.find((message) => message.role === "assistant" && message.tool_calls?.length)
-    expect(toolAssistant).toHaveProperty("reasoning_content", "")
+    expect(toolAssistant).not.toHaveProperty("reasoning_content")
   })
 
   it("passes cacheable system content blocks through to the provider layer", async () => {
@@ -1091,6 +1091,102 @@ describe("AgentRunner", () => {
     expect(injectedToolMessage).toContain("陈远的手还压在西线地图上")
     expect(injectedToolMessage).toContain("中间正文")
     expect(injectedToolMessage).not.toContain("已压缩给模型使用")
+  })
+
+  it("交付终稿的 finalizesRun 工具执行完就结束，不再让模型复述正文", async () => {
+    const body = "第240章 归零\n\n陈远的手还压在西线地图上。"
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      permission: "auto",
+      executeTimeoutMs: 0,
+      finalizesRun: true,
+      parameters: {},
+      execute: vi.fn(async (_params, _signal, context) => {
+        context?.onFinalContent?.("旧稿：会被覆盖")
+        context?.onFinalContent?.(body)
+        return `章节工作流完成。\n\n最终正文：\n${body}`
+      }),
+    }
+    registry.register(tool)
+
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToolCallDelta?.({ index: 0, id: "workflow_final_1", name: "run_chapter_workflow" })
+      cb.onToolCallDelta?.({ index: 0, arguments: '{"userRequest":"写第240章"}' })
+      cb.onDone()
+    })
+
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onFinalContent: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const result = await runner.run(
+      {
+        maxRounds: 5,
+        tools: [tool],
+        systemPrompt: "",
+        llmConfig: mockLlmConfig,
+        requiredToolsOnce: ["run_chapter_workflow"],
+      },
+      registry,
+      [systemMsg, userMsg],
+      callbacks,
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledTimes(1)
+    expect(result.roundsUsed).toBe(1)
+    expect(result.finalText).toBe(body)
+    expect(callbacks.onFinalContent.mock.calls.map((call) => call[0])).toEqual(["旧稿：会被覆盖", body])
+    expect(callbacks.onText).not.toHaveBeenCalled()
+    expect(callbacks.onDone).toHaveBeenCalledOnce()
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("finalizesRun 工具报错时不短路，仍交回模型续轮", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      permission: "auto",
+      finalizesRun: true,
+      parameters: {},
+      execute: vi.fn(async (_params, _signal, context) => {
+        context?.onFinalContent?.("半成品正文")
+        throw new Error("计划履约复检未通过")
+      }),
+    }
+    registry.register(tool)
+
+    let callCount = 0
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      callCount += 1
+      if (callCount === 1) {
+        cb.onToolCallDelta?.({ index: 0, id: "workflow_final_2", name: "run_chapter_workflow" })
+        cb.onToolCallDelta?.({ index: 0, arguments: "{}" })
+        cb.onDone()
+        return
+      }
+      cb.onToken("工作流失败了")
+      cb.onDone()
+    })
+
+    const result = await runner.run(
+      { maxRounds: 3, tools: [tool], systemPrompt: "", llmConfig: mockLlmConfig },
+      registry,
+      [systemMsg, userMsg],
+      { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+      undefined,
+    )
+
+    expect(mockStreamChat).toHaveBeenCalledTimes(2)
+    expect(result.finalText).toBe("工作流失败了")
   })
 
   it("每轮模型请求保留任务契约并压缩内部工作消息", async () => {

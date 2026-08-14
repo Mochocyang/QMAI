@@ -20,6 +20,11 @@ export interface ToolExecutionContext {
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void
+  /**
+   * 工具直接向用户交付终稿。多次调用按覆盖处理，最后一次为准。
+   * 仅 finalizesRun 工具需要调用。
+   */
+  onFinalContent?: (content: string) => void
 }
 
 export interface Tool {
@@ -29,6 +34,11 @@ export interface Tool {
   permission?: ToolPermission
   /** 0 表示不使用通用工具超时，适用于内部有阶段进度和取消信号的长流程工具。 */
   executeTimeoutMs?: number
+  /**
+   * 该工具经 onFinalContent 自行交付终稿；成功交付后 runner 立即结束本 run，
+   * 不再让模型复述或改写（见 AgentRunner / CodexAppServerRunner 的交付短路）。
+   */
+  finalizesRun?: boolean
   parameters: Record<string, ToolParameter>
   execute(params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext): Promise<string>
   generatePreview?: (params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext) => Promise<string>
@@ -136,6 +146,8 @@ export interface AgentRunCallbacks {
   onToolError: (callId: string, error: string) => void
   onToolEvent?: (event: AgentToolEvent) => void
   onActivityEvent?: (event: AgentActivityEvent) => void
+  /** finalizesRun 工具交付的终稿，按覆盖处理。 */
+  onFinalContent?: (content: string) => void
   /** Usage for the current/latest provider request. */
   onUsage?: (usage: LlmUsage) => void
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void

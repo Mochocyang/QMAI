@@ -63,7 +63,7 @@ describe("llm provider reasoning options", () => {
     expect(body).not.toHaveProperty("thinking")
   })
 
-  it("replays assistant reasoning_content including empty string", () => {
+  it("omits empty assistant reasoning_content instead of replaying an empty string", () => {
     const body = getProviderConfig(customConfig()).buildBody([
       { role: "user", content: "写第一章" },
       {
@@ -79,7 +79,25 @@ describe("llm provider reasoning options", () => {
       { role: "tool", content: "章节内容", tool_call_id: "call_1", name: "read_chapter" },
     ]) as { messages: Array<{ reasoning_content?: string }> }
 
-    expect(body.messages[1]?.reasoning_content).toBe("")
+    expect(body.messages[1]).not.toHaveProperty("reasoning_content")
+  })
+
+  it("replays non-empty assistant reasoning_content", () => {
+    const body = getProviderConfig(customConfig()).buildBody([
+      { role: "user", content: "写第一章" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "read_chapter", arguments: "{}" },
+        }],
+        reasoning_content: "先读章节",
+      },
+    ]) as { messages: Array<{ reasoning_content?: string }> }
+
+    expect(body.messages[1]?.reasoning_content).toBe("先读章节")
   })
 
   it("sends reasoning_effort for explicit custom OpenAI-compatible reasoning mode", () => {
