@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import i18n from "@/i18n"
 import { charsPerTokenForLanguage } from "@/lib/context-budget"
-import { annotateChapterOutlineStatus, contextPackToPrompt, trimContextPack, type ContextPack } from "./context-engine"
+import {
+  annotateChapterOutlineStatus,
+  contextPackToPrompt,
+  pickChapterOutlineByNumber,
+  trimContextPack,
+  type ContextPack,
+} from "./context-engine"
 
 const basePack: ContextPack = {
   task: "生成第2章正文",
@@ -49,12 +55,29 @@ describe("annotateChapterOutlineStatus", () => {
     expect(annotateChapterOutlineStatus(content)).toBe(content)
   })
 
-  it("草稿章纲添加普通 AI 会话风险提示", () => {
+  it("草稿章纲只添加资料状态，不把状态变成生成阻断指令", () => {
     const result = annotateChapterOutlineStatus("## 基础信息\n- 当前状态：草稿\n")
 
     expect(result).toContain("章纲状态提示")
     expect(result).toContain("当前状态为「草稿」")
+    expect(result).toContain("不构成暂停生成、要求确认或向用户追问的指令")
     expect(result).toContain("不得自行补写或改写章纲")
+    expect(result).not.toContain("生成正文前应提醒用户确认")
+  })
+})
+
+describe("pickChapterOutlineByNumber", () => {
+  it("只返回目标章节，不把相邻章节当作搜索兜底", () => {
+    const candidates = [
+      {
+        path: "wiki/outlines/第237章-银河号介入.md",
+        content: "# 第237章：银河号介入\n\n后续承接：奥斯陆断线细节留第239章。",
+      },
+      { path: "wiki/outlines/第239章-批准书上的血迹.md", content: "# 第239章：批准书上的血迹" },
+    ]
+
+    expect(pickChapterOutlineByNumber(candidates, 239)).toContain("第239章")
+    expect(pickChapterOutlineByNumber(candidates.slice(0, 1), 239)).toBe("")
   })
 })
 

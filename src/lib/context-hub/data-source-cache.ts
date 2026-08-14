@@ -62,9 +62,17 @@ const CHAPTER_SCOPED_SOURCES = new Set([
   "fallbackTimeline",
   "revisionFeedback",
   "cognitionText",
-  "sectionBriefing",
   "retrieval",
 ])
+
+// Bump only the affected data source when its extraction semantics change.
+// This prevents a previously cached wrong-chapter outline from surviving the fix.
+const SOURCE_CACHE_VERSIONS: Partial<Record<string, number>> = {
+  outline: 2,
+  chapterOutline: 3,
+  volumeContext: 2,
+  sectionBriefing: 2,
+}
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize)
@@ -82,7 +90,9 @@ async function sourceRequestKey(sourceName: string, context: ContextLoadContext)
     : CHAPTER_SCOPED_SOURCES.has(sourceName)
       ? { chapterNumber: context.chapterNumber ?? null, config: context.config }
       : { task: context.task, chapterNumber: context.chapterNumber ?? null, config: context.config }
-  return `data-source:${sourceName}:${await sha256Text(JSON.stringify(canonicalize(scope)))}`
+  const version = SOURCE_CACHE_VERSIONS[sourceName]
+  const versionSuffix = version ? `:v${version}` : ""
+  return `data-source:${sourceName}${versionSuffix}:${await sha256Text(JSON.stringify(canonicalize(scope)))}`
 }
 
 function dependencyStampsMatch(cached: DependencyStamp, current: DependencyStamp): boolean {

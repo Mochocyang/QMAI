@@ -126,6 +126,100 @@ describe("DeepSeek window migration", () => {
   })
 })
 
+describe("Codex CLI timeout migration", () => {
+  it("rewrites old active and provider timeouts to 40 minutes once", async () => {
+    inMemoryStore.set("llmConfig", {
+      provider: "codex-cli",
+      apiKey: "",
+      model: "gpt-5.4-mini",
+      customEndpoint: "",
+      ollamaUrl: "",
+      maxContextSize: 204_800,
+      codexCliTimeoutMinutes: 20,
+    } satisfies LlmConfig)
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini", codexCliTimeoutMinutes: 20 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.codexCliTimeoutMinutes).toBe(40)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.codexCliTimeoutMinutes).toBe(40)
+    expect((inMemoryStore.get("llmConfig") as LlmConfig).codexCliTimeoutMinutes).toBe(40)
+    expect((inMemoryStore.get("providerConfigs") as ProviderConfigs)["codex-cli"]?.codexCliTimeoutMinutes).toBe(40)
+
+    // Migration markers are now set. A later deliberate user reduction must stick.
+    inMemoryStore.set("llmConfig", {
+      ...(inMemoryStore.get("llmConfig") as LlmConfig),
+      codexCliTimeoutMinutes: 20,
+    })
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini", codexCliTimeoutMinutes: 20 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.codexCliTimeoutMinutes).toBe(20)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.codexCliTimeoutMinutes).toBe(20)
+  })
+
+  it("fills a missing saved Codex provider timeout without changing larger values", async () => {
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini" },
+    } satisfies ProviderConfigs)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.codexCliTimeoutMinutes).toBe(40)
+
+    inMemoryStore.clear()
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini", codexCliTimeoutMinutes: 60 },
+    } satisfies ProviderConfigs)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.codexCliTimeoutMinutes).toBe(60)
+  })
+})
+
+describe("Codex CLI model migration", () => {
+  it("rewrites the old mini default to Terra once, then leaves the user in control", async () => {
+    inMemoryStore.set("llmConfig", {
+      provider: "codex-cli",
+      apiKey: "",
+      model: "gpt-5.4-mini",
+      customEndpoint: "",
+      ollamaUrl: "",
+      maxContextSize: 204_800,
+      codexCliTimeoutMinutes: 40,
+    } satisfies LlmConfig)
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini", codexCliTimeoutMinutes: 40 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.model).toBe("gpt-5.6-terra")
+    expect((await loadProviderConfigs())?.["codex-cli"]?.model).toBe("gpt-5.6-terra")
+    expect((inMemoryStore.get("llmConfig") as LlmConfig).model).toBe("gpt-5.6-terra")
+    expect((inMemoryStore.get("providerConfigs") as ProviderConfigs)["codex-cli"]?.model).toBe("gpt-5.6-terra")
+
+    // Migration markers are now set. A later deliberate legacy selection must stick.
+    inMemoryStore.set("llmConfig", {
+      ...(inMemoryStore.get("llmConfig") as LlmConfig),
+      model: "gpt-5.4-mini",
+    })
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4-mini", codexCliTimeoutMinutes: 40 },
+    } satisfies ProviderConfigs)
+
+    expect((await loadLlmConfig())?.model).toBe("gpt-5.4-mini")
+    expect((await loadProviderConfigs())?.["codex-cli"]?.model).toBe("gpt-5.4-mini")
+  })
+
+  it("fills a missing Codex model but preserves an explicit non-default model", async () => {
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "", codexCliTimeoutMinutes: 40 },
+    } satisfies ProviderConfigs)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.model).toBe("gpt-5.6-terra")
+
+    inMemoryStore.clear()
+    inMemoryStore.set("providerConfigs", {
+      "codex-cli": { model: "gpt-5.4", codexCliTimeoutMinutes: 40 },
+    } satisfies ProviderConfigs)
+    expect((await loadProviderConfigs())?.["codex-cli"]?.model).toBe("gpt-5.4")
+  })
+})
+
 function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
   return {
     contextTokenBudget: 200000,

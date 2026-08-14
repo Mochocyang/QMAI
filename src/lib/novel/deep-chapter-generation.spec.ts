@@ -1673,6 +1673,46 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
   })
 
+  it("fails the workflow when expansion is still far below the minimum chapter length", async () => {
+    const responses = [
+      "写作任务书内容",
+      "请提供第239章章纲后再继续。",
+      "当前资料不足，无法扩写。",
+    ]
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        callbacks.onToken(responses.shift() ?? "")
+        callbacks.onDone()
+      }),
+    }
+    const events: Array<{ type: string; name: string; result?: string }> = []
+
+    await expect(runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第239章", chapterNumber: 239, llmConfig },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )).rejects.toThrow(/扩写后仅约 .*低于最低完成线/)
+
+    expect(deps.reviewChapter).not.toHaveBeenCalled()
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_draft",
+      result: expect.stringContaining("低于最低完成线"),
+    }))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      name: "chapter_expansion",
+      result: expect.stringContaining("章节正文生成失败"),
+    }))
+    expect(events).not.toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_expansion",
+    }))
+  })
+
   it("does not force expansion after final polish even when the result is short", async () => {
     const draft = chapterText("初稿正文内容", 3000)
     const shortFinal = chapterText("最终润色后过短", 1800)

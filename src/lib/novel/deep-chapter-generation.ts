@@ -44,6 +44,7 @@ import {
   shouldRepairChapterPlanDeviation,
 } from "./chapter-plan-compliance";
 import { buildChapterPlanExecutionSummary } from "./chapter-plan-execution-summary";
+import { capOutlineSourcesToBudget } from "./outline-context-index";
 import {
   contractToTaskBriefText,
   fallbackParseChapterExecutionContract,
@@ -193,24 +194,6 @@ const DEEP_CHAPTER_OUTLINE_MAX_FRAC = 0.7;
 /** Floor (tokens) for the non-outline context so a huge outline still leaves
  *  some room for memory/settings/search hits. */
 const DEEP_CHAPTER_REST_TOKEN_FLOOR = 2000;
-
-/**
- * Trim the (mandatory) outline to a character cap so it can never overflow the
- * context window on its own. Keeps the head — which carries the overall
- * structure — and drops the tail with an explicit truncation marker so the
- * model knows the outline was cut. Cuts on a line boundary when possible.
- */
-function capOutlineToBudget(outline: string, charCap: number): string {
-  const trimmed = outline.trim();
-  if (charCap <= 0 || trimmed.length <= charCap) return trimmed;
-
-  const marker = "\n\n【大纲过长，已按上下文窗口截断，仅保留前部】";
-  const room = Math.max(0, charCap - marker.length);
-  let head = trimmed.slice(0, room);
-  const lastBreak = head.lastIndexOf("\n");
-  if (lastBreak > room * 0.6) head = head.slice(0, lastBreak);
-  return `${head.trimEnd()}${marker}`;
-}
 
 export function shouldUseDeepChapterGeneration(
   _route: TaskRouteResult | null,
@@ -733,7 +716,7 @@ export async function runDeepChapterGeneration(
   const outlineCharCap = Math.floor(
     totalContextCharBudget * DEEP_CHAPTER_OUTLINE_MAX_FRAC,
   );
-  const outlineText = capOutlineToBudget(
+  const outlineText = capOutlineSourcesToBudget(
     contextPack.outline ?? "",
     outlineCharCap,
   );
@@ -926,7 +909,12 @@ export async function runDeepChapterGeneration(
           generationRequestOverrides,
           cachePrefix,
         ),
-      (value) => `正文初稿完成，约 ${countChapterChars(value)} 字。`,
+      (value) => {
+        const chars = countChapterChars(value);
+        return chars < lengthSpec.minChars
+          ? `正文初稿仅约 ${chars} 字，低于最低完成线 ${lengthSpec.minChars} 字，进入扩写补足。`
+          : `正文初稿完成，约 ${chars} 字。`;
+      },
       (value) => ({ chars: countChapterChars(value) }),
     );
     assertNotAborted(signal);
@@ -939,8 +927,8 @@ export async function runDeepChapterGeneration(
           detail: "初稿低于本章目标字数，补足场景和人物行动。",
           params: workflowBaseParams,
         },
-        () =>
-          collectModelText(
+        async () => {
+          const expanded = await collectModelText(
             writingConfig,
             [
               {
@@ -965,7 +953,15 @@ export async function runDeepChapterGeneration(
               ),
             generationRequestOverrides,
             cachePrefix,
-          ),
+          );
+          const expandedChars = countChapterChars(expanded);
+          if (expandedChars < lengthSpec.minChars) {
+            throw new Error(
+              `章节正文生成失败：扩写后仅约 ${expandedChars} 字，低于最低完成线 ${lengthSpec.minChars} 字。`,
+            );
+          }
+          return expanded;
+        },
         (value) => `正文扩写补足完成，约 ${countChapterChars(value)} 字。`,
         (value) => ({ chars: countChapterChars(value) }),
       );

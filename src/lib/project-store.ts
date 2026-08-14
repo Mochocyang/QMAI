@@ -18,6 +18,8 @@ import {
   normalizeProviderConfigs,
   normalizeUserLlmConfig,
 } from "@/lib/llm-context-size"
+import { migrateLegacyCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
+import { migrateLegacyDefaultCodexCliModel } from "@/lib/codex-cli-model"
 import { CHAPTER_TARGET_CHARS_MAX, CHAPTER_TARGET_CHARS_MIN } from "@/lib/novel/deep-chapter-prompts"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
@@ -59,10 +61,19 @@ const DEEPSEEK_WINDOW_MIGRATION_KEYS = {
   llmConfig: "deepseekWindowMigratedV1.llmConfig",
   providerConfigs: "deepseekWindowMigratedV1.providerConfigs",
 } as const
+const CODEX_TIMEOUT_MIGRATION_KEYS = {
+  llmConfig: "codexCliTimeoutMigratedV1.llmConfig",
+  providerConfigs: "codexCliTimeoutMigratedV1.providerConfigs",
+} as const
+const CODEX_MODEL_MIGRATION_KEYS = {
+  llmConfig: "codexCliModelMigratedV1.llmConfig",
+  providerConfigs: "codexCliModelMigratedV1.providerConfigs",
+} as const
 /** DeepSeek's official published context window. */
 const DEEPSEEK_OFFICIAL_CONTEXT_SIZE = 1_000_000
 /** Preset id whose configuration is known to target api.deepseek.com. */
 const DEEPSEEK_PRESET_ID = "deepseek"
+const CODEX_CLI_PRESET_ID = "codex-cli"
 
 function isDeepSeekOfficialEndpoint(endpoint: string | undefined): boolean {
   return typeof endpoint === "string" && /api\.deepseek\.com/i.test(endpoint)
@@ -95,6 +106,34 @@ async function markDeepSeekWindowMigrationDone(
   const store = await getStore()
   await store.set(DEEPSEEK_WINDOW_MIGRATION_KEYS[slot], true)
 }
+
+async function hasRunCodexTimeoutMigration(
+  slot: keyof typeof CODEX_TIMEOUT_MIGRATION_KEYS,
+): Promise<boolean> {
+  const store = await getStore()
+  return (await store.get<boolean>(CODEX_TIMEOUT_MIGRATION_KEYS[slot])) === true
+}
+
+async function markCodexTimeoutMigrationDone(
+  slot: keyof typeof CODEX_TIMEOUT_MIGRATION_KEYS,
+): Promise<void> {
+  const store = await getStore()
+  await store.set(CODEX_TIMEOUT_MIGRATION_KEYS[slot], true)
+}
+
+async function hasRunCodexModelMigration(
+  slot: keyof typeof CODEX_MODEL_MIGRATION_KEYS,
+): Promise<boolean> {
+  const store = await getStore()
+  return (await store.get<boolean>(CODEX_MODEL_MIGRATION_KEYS[slot])) === true
+}
+
+async function markCodexModelMigrationDone(
+  slot: keyof typeof CODEX_MODEL_MIGRATION_KEYS,
+): Promise<void> {
+  const store = await getStore()
+  await store.set(CODEX_MODEL_MIGRATION_KEYS[slot], true)
+}
 const AI_CHAT_MODEL_KEY = "aiChatModel"
 const AI_OUTLINE_MODEL_KEY = "aiOutlineModel"
 let aiOutlineModelSaveRevision = 0
@@ -121,6 +160,24 @@ export async function loadLlmConfig(): Promise<LlmConfig | null> {
       normalized = { ...normalized, maxContextSize: DEEPSEEK_OFFICIAL_CONTEXT_SIZE }
     }
     await markDeepSeekWindowMigrationDone("llmConfig")
+  }
+  if (!(await hasRunCodexTimeoutMigration("llmConfig"))) {
+    if (normalized.provider === "codex-cli") {
+      const codexCliTimeoutMinutes = migrateLegacyCodexCliTimeoutMinutes(
+        normalized.codexCliTimeoutMinutes,
+      )
+      if (codexCliTimeoutMinutes !== normalized.codexCliTimeoutMinutes) {
+        normalized = { ...normalized, codexCliTimeoutMinutes }
+      }
+    }
+    await markCodexTimeoutMigrationDone("llmConfig")
+  }
+  if (!(await hasRunCodexModelMigration("llmConfig"))) {
+    if (normalized.provider === "codex-cli") {
+      const model = migrateLegacyDefaultCodexCliModel(normalized.model)
+      if (model !== normalized.model) normalized = { ...normalized, model }
+    }
+    await markCodexModelMigrationDone("llmConfig")
   }
   if (normalized !== saved) await store.set(LLM_CONFIG_KEY, normalized)
   return normalized
@@ -187,6 +244,34 @@ export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
       }
     }
     await markDeepSeekWindowMigrationDone("providerConfigs")
+  }
+  if (!(await hasRunCodexTimeoutMigration("providerConfigs"))) {
+    const codex = normalized[CODEX_CLI_PRESET_ID]
+    if (codex) {
+      const codexCliTimeoutMinutes = migrateLegacyCodexCliTimeoutMinutes(
+        codex.codexCliTimeoutMinutes,
+      )
+      if (codexCliTimeoutMinutes !== codex.codexCliTimeoutMinutes) {
+        normalized = {
+          ...normalized,
+          [CODEX_CLI_PRESET_ID]: { ...codex, codexCliTimeoutMinutes },
+        }
+      }
+    }
+    await markCodexTimeoutMigrationDone("providerConfigs")
+  }
+  if (!(await hasRunCodexModelMigration("providerConfigs"))) {
+    const codex = normalized[CODEX_CLI_PRESET_ID]
+    if (codex) {
+      const model = migrateLegacyDefaultCodexCliModel(codex.model)
+      if (model !== codex.model) {
+        normalized = {
+          ...normalized,
+          [CODEX_CLI_PRESET_ID]: { ...codex, model },
+        }
+      }
+    }
+    await markCodexModelMigrationDone("providerConfigs")
   }
   if (normalized !== saved) await store.set(PROVIDER_CONFIGS_KEY, normalized)
   return normalized

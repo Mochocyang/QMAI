@@ -2,7 +2,7 @@ import {
   charsPerTokenForLanguage,
   resolveContextPackTokenBudget,
 } from "@/lib/context-budget"
-import { listDirectory, readFile } from "@/commands/fs"
+import { readFile } from "@/commands/fs"
 import i18n from "@/i18n"
 import { searchWiki, tokenizeQuery } from "@/lib/search"
 import { normalizePath } from "@/lib/path-utils"
@@ -13,10 +13,8 @@ import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ing
 import { buildRevisionDirectives } from "./revision-feedback"
 import { extractChapterOutlineStatus } from "./outline-quality-check"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
-import { getChapterVolumes } from "./volume"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
-import type { FileNode } from "@/types/wiki"
 import {
   DataSourceRegistry,
   type ContextLoadContext,
@@ -28,7 +26,13 @@ import {
   buildNovelVectorSnippet,
   selectRelevantNovelVectorResults,
 } from "./vector-relevance"
-import { stripOutlineFrontmatter } from "./outline-markdown"
+import {
+  buildOutlineContext,
+  buildVolumeContext,
+  capOutlineSourcesToBudget,
+  loadOutlineDocumentIndex,
+  resolveChapterOutline,
+} from "./outline-context-index"
 
 const FIELD_PRIORITY: Record<string, number> = {
   sectionBriefing: 0,
@@ -428,43 +432,12 @@ function emptyPack(task: string): ContextPack {
   }
 }
 
-export async function readOutlineContent(pp: string): Promise<string> {
+export async function readOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
   try {
-    const results = await searchWiki(pp, "outline type:outline")
-    if (results.length > 0) {
-      const contents = await Promise.all(
-        results.map(async (result) => {
-          try {
-            return stripOutlineFrontmatter(await readFile(result.path))
-          } catch {
-            return ""
-          }
-        }),
-      )
-      return joinNonEmpty(contents, "\n\n")
-    }
-  } catch {}
-  try {
-    const tree = await listDirectory(`${pp}/wiki/outlines`)
-    const files = flattenOutlineMarkdownFiles(tree).slice(0, 80)
-    const contents = await Promise.all(
-      files.map(async (file) => stripOutlineFrontmatter(await readFile(file.path)).trim()),
-    )
-    return joinNonEmpty(contents, "\n\n")
-  } catch {}
-  return ""
-}
-
-function flattenOutlineMarkdownFiles(nodes: FileNode[]): FileNode[] {
-  const files: FileNode[] = []
-  for (const node of nodes) {
-    if (node.is_dir) {
-      if (node.children) files.push(...flattenOutlineMarkdownFiles(node.children))
-      continue
-    }
-    if (node.name.toLowerCase().endsWith(".md")) files.push(node)
+    return buildOutlineContext(await loadOutlineDocumentIndex(pp), chapterNumber)
+  } catch {
+    return ""
   }
-  return files
 }
 
 function readFrontmatterChapterNumber(content: string): number | undefined {
@@ -505,6 +478,22 @@ function includesChapterMarker(text: string, chapterNumber: number): boolean {
     new RegExp(`chapter\\s*${chapterNumber}\\b`, "i").test(text)
 }
 
+function hasChapterHeading(content: string, chapterNumber: number): boolean {
+  const labels = chapterLabels(chapterNumber)
+  return content.split(/\r?\n/).some((line) => {
+    const compact = line.trim().replace(/\s+/g, "")
+    const heading = compact.replace(/^#{1,6}/, "")
+    if (heading === compact) return false
+    return labels.some((label) =>
+      heading === label ||
+      heading.startsWith(`${label}：`) ||
+      heading.startsWith(`${label}:`) ||
+      heading.startsWith(`${label}-`) ||
+      heading.startsWith(`${label}—`),
+    )
+  })
+}
+
 export function pickChapterOutlineByNumber(
   candidates: Array<{ path: string; content: string }>,
   chapterNumber: number,
@@ -513,50 +502,33 @@ export function pickChapterOutlineByNumber(
   if (frontmatterMatch) return frontmatterMatch.content.slice(0, 4000)
 
   const headingMatch = candidates.find((candidate) =>
-    includesChapterMarker(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
+    hasChapterHeading(candidate.content, chapterNumber) || includesChapterMarker(candidate.path, chapterNumber),
   )
   if (headingMatch) return headingMatch.content.slice(0, 4000)
 
   return ""
 }
 
-async function readChapterOutlineDirect(pp: string, chapterNumber: number): Promise<string> {
+export async function readChapterOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
+  if (!chapterNumber) return ""
   try {
-    const tree = await listDirectory(`${pp}/wiki/outlines`)
-    const files = flattenOutlineMarkdownFiles(tree)
-    const candidates = await Promise.all(
-      files.slice(0, 80).map(async (file) => ({
-        path: file.path,
-        content: await readFile(file.path).catch(() => ""),
-      })),
-    )
-    return pickChapterOutlineByNumber(
-      candidates.filter((candidate) => candidate.content.trim()),
-      chapterNumber,
-    )
+    const resolution = resolveChapterOutline(await loadOutlineDocumentIndex(pp), chapterNumber)
+    if (!resolution.content.trim()) return ""
+    return resolution.sourceKind === "standalone"
+      ? annotateChapterOutlineStatus(resolution.content)
+      : resolution.content
   } catch {
     return ""
   }
 }
 
-export async function readChapterOutlineContent(pp: string, chapterNumber?: number): Promise<string> {
+export async function readVolumeContextContent(pp: string, chapterNumber?: number): Promise<string> {
   if (!chapterNumber) return ""
-  const direct = await readChapterOutlineDirect(pp, chapterNumber)
-  if (direct.trim()) return annotateChapterOutlineStatus(direct)
-  const queries = [
-    `第${chapterNumber}章细纲 outline`,
-    `chapter ${chapterNumber} outline`,
-    `chapter_number:${chapterNumber} outline_type:chapter-outline`,
-  ]
-  for (const query of queries) {
-    try {
-      const results = await searchWiki(pp, query)
-      if (results.length > 0) {
-        return annotateChapterOutlineStatus(await readFile(results[0].path)).slice(0, 3000)
-      }
-    } catch {}
+  try {
+    return buildVolumeContext(await loadOutlineDocumentIndex(pp), chapterNumber)
+  } catch {
+    return ""
   }
-  return ""
 }
 
 export function annotateChapterOutlineStatus(content: string): string {
@@ -564,7 +536,7 @@ export function annotateChapterOutlineStatus(content: string): string {
   if (status === "已确认") return content
   const label = status === "未知" ? "未标明当前状态" : `当前状态为「${status}」`
   return [
-    `【章纲状态提示】该章纲${label}，普通 AI 会话生成正文前应提醒用户确认是否继续使用；不得自行补写或改写章纲。`,
+    `【章纲状态提示】该章纲${label}。本标记仅说明资料状态，不构成暂停生成、要求确认或向用户追问的指令；用户已明确要求生成目标章节时，应按章纲已有内容执行，不得自行补写或改写章纲。`,
     "",
     content,
   ].join("\n")
@@ -766,22 +738,7 @@ async function readVolumeContext(
   chapterNumber: number | undefined,
 ): Promise<string> {
   if (!chapterNumber) return ""
-  try {
-    const volumes = await getChapterVolumes(pp, chapterNumber)
-    if (volumes.length === 0) return ""
-    return volumes
-      .map(v => {
-        const parts = [`第${v.volumeNumber}卷：${v.title}`]
-        if (v.summary) parts.push(`概要：${v.summary}`)
-        if (v.chapterRangeStart !== undefined && v.chapterRangeEnd !== undefined) {
-          parts.push(`章节范围：第${v.chapterRangeStart}章 - 第${v.chapterRangeEnd}章`)
-        }
-        return parts.join("\n")
-      })
-      .join("\n\n")
-  } catch {
-    return ""
-  }
+  return readVolumeContextContent(pp, chapterNumber)
 }
 
 export async function searchRelevantContent(
@@ -1264,7 +1221,9 @@ export function trimContextPack(
     const originalFieldChars = nextField.charCount
     
     if (targetContentChars > minKeepChars && nextField.charCount > targetContentChars) {
-      const trimmedContent = trimFieldContent(nextField.content, targetContentChars)
+      const trimmedContent = nextField.fieldKey === "outline" && typeof nextField.content === "string"
+        ? capOutlineSourcesToBudget(nextField.content, targetContentChars)
+        : trimFieldContent(nextField.content, targetContentChars)
       const keptContentChars = Array.isArray(trimmedContent)
         ? trimmedContent.reduce((sum, item) => sum + item.length, 0)
         : trimmedContent.length

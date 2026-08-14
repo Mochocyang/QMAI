@@ -130,8 +130,19 @@ describe("QMAI model settings", () => {
     )
     expect(codex.provider).toBe("codex-cli")
     expect(codex.localCliIsolation).toBe(true)
-    expect(codex.model).toBe("")
+    expect(codex.model).toBe("gpt-5.6-terra")
     expect(codex.codexCliTimeoutMinutes).toBe(45)
+
+    const codexPreset = preset("codex-cli")
+    expect(codexPreset.defaultModel).toBe("gpt-5.6-terra")
+    expect(codexPreset.suggestedModels).toEqual([
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "gpt-5.6-luna",
+    ])
+    const codexDefault = resolveConfig(preset("codex-cli"), {}, fallback)
+    expect(codexDefault.model).toBe("gpt-5.6-terra")
+    expect(codexDefault.codexCliTimeoutMinutes).toBe(40)
 
     const cursor = resolveConfig(
       preset("cursor-cli"),

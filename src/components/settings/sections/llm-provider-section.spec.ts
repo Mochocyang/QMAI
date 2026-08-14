@@ -31,4 +31,10 @@ describe("LLM provider model controls", () => {
     expect(source).toContain("functionCallingEnabled")
     expect(source).toContain('settings.sections.llm.functionCalling.label')
   })
+
+  it("keeps Codex CLI isolated and requires app-server dynamic tools", () => {
+    expect(source).toContain('const showLocalCliIsolation = preset.provider === "claude-code"')
+    expect(source).toContain("r.installed && r.appServerReady === true && r.dynamicToolsReady === true")
+    expect(source).toContain('invoke<DetectResult>("codex_cli_detect")')
+  })
 })

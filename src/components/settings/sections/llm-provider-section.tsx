@@ -25,6 +25,7 @@ import {
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
+import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 
 const MODEL_PARAM_DOCS_URL = "https://global.modelmesh.info/model"
 
@@ -215,8 +216,8 @@ function PresetRow({
   )
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
-  const codexCliTimeoutMinutes = Math.max(1, Math.min(240, ov.codexCliTimeoutMinutes ?? 10))
-  const isLocalCliProvider = preset.provider === "claude-code" || preset.provider === "codex-cli"
+  const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)
+  const showLocalCliIsolation = preset.provider === "claude-code"
   const isCursorCliProvider = preset.provider === "cursor-cli"
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
@@ -491,7 +492,7 @@ function PresetRow({
             </div>
           )}
 
-          {isLocalCliProvider && (
+          {showLocalCliIsolation && (
             <div className="space-y-2 rounded-md border p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1087,6 +1088,9 @@ interface DetectResult {
   installed: boolean
   version: string | null
   path: string | null
+  appServerReady?: boolean
+  dynamicToolsReady?: boolean
+  models?: string[]
   error: string | null
 }
 
@@ -1216,7 +1220,7 @@ function CodexCliStatusPill() {
     try {
       const r = await invoke<DetectResult>("codex_cli_detect")
       setResult(r)
-      setState(r.installed ? "ok" : "err")
+      setState(r.installed && r.appServerReady === true && r.dynamicToolsReady === true ? "ok" : "err")
     } catch (e) {
       setResult({
         installed: false,

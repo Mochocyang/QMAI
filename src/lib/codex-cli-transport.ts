@@ -1,95 +1,122 @@
-/**
- * Codex CLI subprocess transport.
- *
- * Rust-side counterpart: src-tauri/src/commands/codex_cli.rs. The Rust
- * command spawns `codex exec --json`, sends a single reconstructed prompt
- * over stdin, and emits each JSONL stdout line back as `codex-cli:{streamId}`.
- */
-
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import type { LlmConfig } from "@/stores/wiki-store"
+import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
+import { getCodexAppServerClient, type CodexAppServerEnvelope } from "./codex-app-server-client"
 
-export function parseCodexCliLine(rawLine: string): string | null {
-  const line = rawLine.trim()
-  if (!line) return null
-
-  let evt: unknown
-  try {
-    evt = JSON.parse(line)
-  } catch {
-    return null
-  }
-
-  if (!evt || typeof evt !== "object") return null
-  const obj = evt as Record<string, unknown>
-  if (obj.type !== "item.completed") return null
-
-  const item = obj.item as Record<string, unknown> | undefined
-  if (item?.type !== "agent_message") return null
-  return typeof item.text === "string" && item.text.length > 0 ? item.text : null
+interface ThreadStartResponse {
+  thread: { id: string }
+  instructionSources?: string[]
 }
 
-export function extractCodexCliError(rawOutput: string): string {
-  let lastError = ""
-  for (const line of rawOutput.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const parsed = JSON.parse(trimmed) as {
-        type?: string
-        message?: unknown
-        error?: { message?: unknown }
-      }
-      const message = typeof parsed.error?.message === "string"
-        ? parsed.error.message
-        : typeof parsed.message === "string"
-          ? parsed.message
-          : ""
-      if (parsed.type === "turn.failed" && message) return message
-      if (parsed.type === "error" && message && !/^Reconnecting\.\.\./i.test(message)) {
-        lastError = message
-      }
-    } catch {
-      // Keep the original output as fallback below.
+interface TurnStartResponse {
+  turn: { id: string }
+}
+
+const NATIVE_ITEM_TYPES = new Set([
+  "commandExecution",
+  "fileChange",
+  "mcpToolCall",
+  "collabAgentToolCall",
+  "subAgentActivity",
+  "webSearch",
+  "imageGeneration",
+  "hookPrompt",
+])
+
+const NATIVE_METHOD_PREFIXES = [
+  "app/",
+  "command/",
+  "environment/",
+  "fs/",
+  "hook/",
+  "mcpServer/",
+  "plugin/",
+  "process/",
+  "skills/",
+  "thread/backgroundTerminals/",
+]
+
+export function restrictedCodexConfig(): Record<string, unknown> {
+  return {
+    features: {
+      apps: false,
+      browser_use: false,
+      browser_use_external: false,
+      browser_use_full_cdp_access: false,
+      computer_use: false,
+      image_generation: false,
+      in_app_browser: false,
+      multi_agent: false,
+      multi_agent_v2: false,
+      plugins: false,
+      remote_plugin: false,
+      shell_snapshot: false,
+      shell_tool: false,
+      skill_mcp_dependency_install: false,
+      skill_search: false,
+    },
+    web_search: "disabled",
+    project_doc_max_bytes: 0,
+    project_doc_fallback_filenames: [],
+    project_root_markers: [],
+    tools: {
+      view_image: false,
+      web_search: false,
+    },
+  }
+}
+
+export function codexReasoningEffort(config: LlmConfig): string | null {
+  const mode = config.reasoning?.mode
+  if (!mode || mode === "auto" || mode === "off" || mode === "custom") return null
+  return mode
+}
+
+function contentText(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content
+  return content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
+}
+
+export function buildCodexTurnInput(messages: ChatMessage[]): Array<Record<string, unknown>> {
+  const nonSystem = messages.filter((message) => message.role !== "system")
+  const text = nonSystem
+    .map((message) => `<${message.role.toUpperCase()}>\n${contentText(message.content)}\n</${message.role.toUpperCase()}>`)
+    .join("\n\n")
+  const input: Array<Record<string, unknown>> = [{ type: "text", text, text_elements: [] }]
+  for (const message of nonSystem) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block.type !== "image") continue
+      input.push({
+        type: "image",
+        url: `data:${block.mediaType};base64,${block.dataBase64}`,
+      })
     }
   }
-  return lastError || rawOutput.trim()
+  return input
 }
 
-function contentToText(content: string | ContentBlock[]): string {
-  if (typeof content === "string") return content
-  return content
-    .map((block) => {
-      if (block.type === "text") return block.text
-      return `[Image omitted: ${block.mediaType}]`
-    })
-    .join("\n")
-}
-
-function escapePromptContent(text: string): string {
-  return text.replace(/<\/?[A-Z_][A-Z0-9_]*>/gi, (tag) =>
-    tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"),
-  )
-}
-
-export function buildPrompt(messages: ChatMessage[]): string {
-  return messages
-    .map((message) => {
-      const role = message.role.toUpperCase()
-      return `<${role}>\n${escapePromptContent(contentToText(message.content))}\n</${role}>`
-    })
-    .join("\n\n")
-}
-
-type SpawnPayload = Record<string, unknown> & {
-  streamId: string
-  model: string
-  prompt: string
-  isolateLocalConfig: boolean
-  timeoutMinutes?: number
+export function codexNativeBoundaryError(
+  envelope: CodexAppServerEnvelope,
+  allowDynamicTools = false,
+): Error | null {
+  if (envelope.method === "qmai/app-server-exit") {
+    return new Error(String(envelope.params?.message || "Codex app-server 已退出"))
+  }
+  if (envelope.method && NATIVE_METHOD_PREFIXES.some((prefix) => envelope.method!.startsWith(prefix))) {
+    return new Error(`QMAI 禁止 Codex 原生能力：${envelope.method}`)
+  }
+  if (envelope.id !== undefined && envelope.method && !(allowDynamicTools && envelope.method === "item/tool/call")) {
+    return new Error(`QMAI 禁止 Codex 原生能力：${envelope.method}`)
+  }
+  if (envelope.method !== "item/started" && envelope.method !== "item/completed") return null
+  const item = envelope.params?.item
+  if (!item || typeof item !== "object") return null
+  const type = (item as Record<string, unknown>).type
+  return typeof type === "string" && NATIVE_ITEM_TYPES.has(type)
+    ? new Error(`QMAI 禁止 Codex 原生能力：${type}`)
+    : null
 }
 
 export async function streamCodexCli(
@@ -97,157 +124,140 @@ export async function streamCodexCli(
   messages: ChatMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
-  overrides?: RequestOverrides,
+  _overrides?: RequestOverrides,
 ): Promise<void> {
-  const { onToken, onDone, onError } = callbacks
-
-  if (import.meta.env?.DEV && overrides) {
-    for (const key of ["temperature", "top_p", "top_k", "max_tokens", "stop"] as const) {
-      if (overrides[key] !== undefined) {
-        // eslint-disable-next-line no-console
-        console.warn(`[codex-cli] ignoring unsupported override "${key}": CLI has no equivalent flag`)
-      }
-    }
-  }
-
-  const streamId = crypto.randomUUID()
-  let unlistenData: UnlistenFn | (() => void) | undefined
-  let unlistenDone: UnlistenFn | (() => void) | undefined
+  const client = getCodexAppServerClient()
+  let threadId = ""
+  let turnId = ""
   let finished = false
-  let aborted = signal?.aborted ?? false
-  let emittedAgentMessage = false
-  let resolveCompletion: () => void = () => {}
-  const completion = new Promise<void>((resolve) => {
-    resolveCompletion = resolve
+  let emittedText = false
+  const agentMessagePhases = new Map<string, string | null>()
+  let unregister = () => {}
+  let resolveTurn = () => {}
+  let rejectTurn = (_error: Error) => {}
+  const turnDone = new Promise<void>((resolve, reject) => {
+    resolveTurn = resolve
+    rejectTurn = reject
   })
+  const timeoutMinutes = resolveCodexCliTimeoutMinutes(config.codexCliTimeoutMinutes)
+  const timeoutMs = timeoutMinutes * 60_000
+  const timeout = setTimeout(() => {
+    if (!finished) {
+      if (threadId && turnId) void client.interrupt(threadId, turnId)
+      fail(new Error(`Codex app-server 超时（${timeoutMinutes} 分钟）`))
+    }
+  }, timeoutMs)
 
-  const unparsedLines: string[] = []
-  let unparsedSize = 0
-  function captureUnparsed(line: string) {
-    if (unparsedSize >= 4096) return
-    const trimmed = line.trim()
-    if (!trimmed) return
-    unparsedLines.push(line)
-    unparsedSize += line.length + 1
-  }
-
-  const cleanup = () => {
-    unlistenData?.()
-    unlistenDone?.()
-  }
-
-  const finishWith = (cb: () => void) => {
+  const fail = (error: Error) => {
     if (finished) return
     finished = true
-    cleanup()
-    cb()
-    resolveCompletion()
+    rejectTurn(error)
   }
-
-  const replayAgentMessagesFromStdout = (stdout: string | undefined) => {
-    if (!stdout) return
-
-    for (const line of stdout.split(/\r?\n/)) {
-      const token = parseCodexCliLine(line)
-      if (token !== null) {
-        emittedAgentMessage = true
-        onToken(token)
-      }
-    }
-  }
-
-  const abortListener = () => {
-    aborted = true
-    void invoke("codex_cli_kill", { streamId }).catch(() => {})
-    finishWith(onDone)
-  }
-  if (aborted) {
-    finishWith(onDone)
-    return
-  }
-  signal?.addEventListener("abort", abortListener)
 
   try {
-    // ── Tauri mode: use Tauri listen + invoke ──
-    unlistenData = await listen<string>(`codex-cli:${streamId}`, (event) => {
-      const token = parseCodexCliLine(event.payload)
-      if (token !== null) {
-        emittedAgentMessage = true
-        onToken(token)
-      } else {
-        captureUnparsed(event.payload)
-      }
+    await client.ensureStarted()
+    const systemPrompt = messages
+      .filter((message) => message.role === "system")
+      .map((message) => contentText(message.content))
+      .join("\n\n")
+    const started = await client.call<ThreadStartResponse>("thread/start", {
+      model: config.model.trim() || null,
+      cwd: client.isolatedCwd,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: true,
+      baseInstructions: systemPrompt || "You are QMAI's text generation model.",
+      developerInstructions: "Only produce the requested text. Never use native tools, shell, file changes, MCP, plugins, skills, apps, browser, or subagents.",
+      config: restrictedCodexConfig(),
     })
-    if (aborted || finished) {
-      cleanup()
-      return
+    if (started.instructionSources?.length) {
+      throw new Error(`QMAI 禁止 Codex 加载本机或项目规则：${started.instructionSources.join(", ")}`)
     }
-
-    unlistenDone = await listen<{ code: number | null; stderr: string; stdout?: string }>(
-      `codex-cli:${streamId}:done`,
-      (event) => {
-        const code = event.payload?.code
-        const stderr = event.payload?.stderr?.trim() ?? ""
-        const stdout = event.payload?.stdout ?? ""
-        if (code !== null && code !== undefined && code !== 0) {
-          const details = stderr || extractCodexCliError(stdout) || extractCodexCliError(unparsedLines.join("\n"))
-          finishWith(() =>
-            onError(new Error(
-              details
-                ? `Codex CLI exited with code ${code}:\n${details}`
-                : `Codex CLI exited with code ${code}. Run \`codex\` in a terminal to inspect the problem.`,
-            )),
-          )
-        } else {
-          if (!emittedAgentMessage) replayAgentMessagesFromStdout(stdout)
-          if (!emittedAgentMessage) {
-            const details = stdout.trim() || unparsedLines.join("\n").trim()
-            finishWith(() =>
-              onError(new Error(
-                details
-                  ? `Codex CLI completed but did not emit an agent_message. Raw output:\n${details}`
-                  : "Codex CLI completed but did not emit an agent_message. Run `codex exec --json` in a terminal to inspect the provider output.",
-              )),
-            )
-          } else {
-            finishWith(onDone)
+    threadId = started.thread.id
+    unregister = client.registerThread(threadId, {
+      onEnvelope: (envelope) => {
+        const boundaryError = codexNativeBoundaryError(envelope)
+        if (boundaryError) {
+          fail(boundaryError)
+          if (turnId) void client.interrupt(threadId, turnId)
+          return
+        }
+        if (envelope.method === "item/started") {
+          const item = envelope.params?.item as Record<string, unknown> | undefined
+          if (item?.type === "agentMessage" && typeof item.id === "string") {
+            agentMessagePhases.set(item.id, typeof item.phase === "string" ? item.phase : null)
+          }
+        } else if (envelope.method === "item/agentMessage/delta") {
+          const delta = envelope.params?.delta
+          const itemId = typeof envelope.params?.itemId === "string" ? envelope.params.itemId : ""
+          if (typeof delta === "string" && delta && agentMessagePhases.get(itemId) !== "commentary") {
+            emittedText = true
+            callbacks.onToken(delta)
+          }
+        } else if (
+          envelope.method === "item/reasoning/summaryTextDelta" ||
+          envelope.method === "item/reasoning/textDelta"
+        ) {
+          const delta = envelope.params?.delta
+          if (typeof delta === "string" && delta) callbacks.onReasoningToken?.(delta)
+        } else if (envelope.method === "thread/tokenUsage/updated") {
+          const last = (envelope.params?.tokenUsage as Record<string, unknown> | undefined)?.last as Record<string, unknown> | undefined
+          if (last) {
+            callbacks.onUsage?.({
+              inputTokens: Number(last.inputTokens) || 0,
+              outputTokens: Number(last.outputTokens) || 0,
+              totalTokens: Number(last.totalTokens) || 0,
+              cachedInputTokens: Number(last.cachedInputTokens) || 0,
+              cacheWriteInputTokens: Number(last.cacheWriteInputTokens) || 0,
+            })
+          }
+        } else if (envelope.method === "item/completed" && !emittedText) {
+          const item = envelope.params?.item as Record<string, unknown> | undefined
+          if (item?.type === "agentMessage" && item.phase !== "commentary" && typeof item.text === "string") {
+            emittedText = true
+            callbacks.onToken(item.text)
+          }
+        } else if (envelope.method === "turn/completed") {
+          const turn = envelope.params?.turn as Record<string, unknown> | undefined
+          if (turn?.status === "failed") {
+            const error = turn.error as Record<string, unknown> | undefined
+            fail(new Error(String(error?.message || "Codex app-server turn 失败")))
+          } else if (turn?.status === "interrupted") {
+            fail(new Error("操作已取消"))
+          } else if (!finished) {
+            finished = true
+            resolveTurn()
           }
         }
       },
-    )
-    if (aborted || finished) {
-      cleanup()
-      return
-    }
-
-    const payload: SpawnPayload = {
-      streamId,
-      model: config.model,
-      prompt: buildPrompt(messages),
-      isolateLocalConfig: config.localCliIsolation === true,
-      timeoutMinutes: config.codexCliTimeoutMinutes,
-    }
-    await invoke("codex_cli_spawn", payload)
-
-    if (aborted || signal?.aborted) {
-      aborted = true
-      await invoke("codex_cli_kill", { streamId }).catch(() => {})
-      finishWith(onDone)
-      return
-    }
-    await completion
-  } catch (err) {
-    finishWith(() => {
-      const message = err instanceof Error ? err.message : String(err)
-      if (/not found|No such file|executable file not found/i.test(message)) {
-        onError(new Error(
-          "Codex CLI not found. Install `codex` with `npm install -g @openai/codex` or pick a different provider.",
-        ))
-      } else {
-        onError(err instanceof Error ? err : new Error(message))
-      }
     })
+    const turn = await client.call<TurnStartResponse>("turn/start", {
+      threadId,
+      input: buildCodexTurnInput(messages),
+      cwd: client.isolatedCwd,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      model: config.model.trim() || null,
+      effort: codexReasoningEffort(config),
+    })
+    turnId = turn.turn.id
+    if (finished) void client.interrupt(threadId, turnId)
+    const abort = () => {
+      if (turnId) void client.interrupt(threadId, turnId)
+      fail(new Error("操作已取消"))
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+    try {
+      await turnDone
+    } finally {
+      signal?.removeEventListener("abort", abort)
+    }
+    callbacks.onDone()
+  } catch (error) {
+    callbacks.onError(error instanceof Error ? error : new Error(String(error)))
   } finally {
-    signal?.removeEventListener("abort", abortListener)
+    clearTimeout(timeout)
+    unregister()
   }
 }
