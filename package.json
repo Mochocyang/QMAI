@@ -24,7 +24,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@milkdown/kit": "^7.22.0",
-    "@milkdown/plugin-math": "^7.5.9",
     "@milkdown/react": "^7.22.0",
     "@milkdown/theme-nord": "^7.22.0",
     "@react-sigma/core": "^5.0.6",
