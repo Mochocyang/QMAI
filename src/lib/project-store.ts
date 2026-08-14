@@ -21,6 +21,14 @@ import {
 import { migrateLegacyCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { migrateLegacyDefaultCodexCliModel } from "@/lib/codex-cli-model"
 import { CHAPTER_TARGET_CHARS_MAX, CHAPTER_TARGET_CHARS_MIN } from "@/lib/novel/deep-chapter-prompts"
+import {
+  isAiWorkflowMode,
+  isOutlineWorkflowMode,
+  resolveAiWorkflowMode,
+  resolveOutlineWorkflowMode,
+  type AiWorkflowMode,
+  type OutlineWorkflowMode,
+} from "@/lib/agent/workflow-mode"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -136,6 +144,8 @@ async function markCodexModelMigrationDone(
 }
 const AI_CHAT_MODEL_KEY = "aiChatModel"
 const AI_OUTLINE_MODEL_KEY = "aiOutlineModel"
+const AI_WORKFLOW_MODE_KEY = "aiWorkflowMode"
+const OUTLINE_WORKFLOW_MODE_KEY = "outlineWorkflowMode"
 let aiOutlineModelSaveRevision = 0
 let latestAiOutlineModel = ""
 const DEFAULT_LLM_MODEL_KEY = "defaultLlmModel"
@@ -209,6 +219,28 @@ export async function saveAiOutlineModel(model: string): Promise<void> {
 export async function loadAiOutlineModel(): Promise<string | null> {
   const store = await getStore()
   return (await store.get<string>(AI_OUTLINE_MODEL_KEY)) ?? null
+}
+
+export async function saveAiWorkflowMode(mode: AiWorkflowMode): Promise<void> {
+  const store = await getStore()
+  await store.set(AI_WORKFLOW_MODE_KEY, resolveAiWorkflowMode(mode))
+}
+
+export async function loadAiWorkflowMode(): Promise<AiWorkflowMode | null> {
+  const store = await getStore()
+  const saved = await store.get<unknown>(AI_WORKFLOW_MODE_KEY)
+  return isAiWorkflowMode(saved) ? saved : null
+}
+
+export async function saveOutlineWorkflowMode(mode: OutlineWorkflowMode): Promise<void> {
+  const store = await getStore()
+  await store.set(OUTLINE_WORKFLOW_MODE_KEY, resolveOutlineWorkflowMode(mode))
+}
+
+export async function loadOutlineWorkflowMode(): Promise<OutlineWorkflowMode | null> {
+  const store = await getStore()
+  const saved = await store.get<unknown>(OUTLINE_WORKFLOW_MODE_KEY)
+  return isOutlineWorkflowMode(saved) ? saved : null
 }
 
 export async function saveDefaultLlmModel(model: string): Promise<void> {

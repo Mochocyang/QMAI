@@ -141,6 +141,7 @@ vi.mock("@/lib/project-refresh", () => ({
 
 vi.mock("@/lib/project-store", () => ({
   saveAiChatModel: vi.fn(async () => {}),
+  saveAiWorkflowMode: vi.fn(async () => {}),
 }))
 
 import { ChatPanel } from "@/components/chat/chat-panel"

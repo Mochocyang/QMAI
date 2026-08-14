@@ -7,11 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const outlineModelPreferenceMocks = vi.hoisted(() => ({
   saveAiOutlineModel: vi.fn(async (_modelId: string) => {}),
+  saveOutlineWorkflowMode: vi.fn(async (_mode: string) => {}),
 }))
 
 vi.mock("@/lib/project-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/project-store")>()),
   saveAiOutlineModel: outlineModelPreferenceMocks.saveAiOutlineModel,
+  saveOutlineWorkflowMode: outlineModelPreferenceMocks.saveOutlineWorkflowMode,
 }))
 
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry"
@@ -103,6 +105,8 @@ beforeEach(() => {
   })
   outlineModelPreferenceMocks.saveAiOutlineModel.mockReset()
   outlineModelPreferenceMocks.saveAiOutlineModel.mockResolvedValue(undefined)
+  outlineModelPreferenceMocks.saveOutlineWorkflowMode.mockReset()
+  outlineModelPreferenceMocks.saveOutlineWorkflowMode.mockResolvedValue(undefined)
 })
 
 afterEach(async () => {
@@ -912,6 +916,7 @@ describe("OutlineChatPanel controls", () => {
     })
 
     expect(useWikiStore.getState().outlineWorkflowMode).toBe("fast")
+    expect(outlineModelPreferenceMocks.saveOutlineWorkflowMode).toHaveBeenCalledWith("fast")
     expect(container.querySelector('[aria-label="AI 大纲执行模式"]')?.textContent).toContain("快速")
     expect(container.textContent).toContain("直接生成大纲正文")
     expect(container.textContent).not.toContain("再交给 AI 分析和追问")

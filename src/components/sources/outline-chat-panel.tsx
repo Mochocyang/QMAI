@@ -29,7 +29,7 @@ import {
 } from "@/lib/agent/workflow-mode";
 import { OUTPUT_TRUNCATED_ERROR_MARKER } from "@/lib/llm-client";
 import { Button } from "@/components/ui/button";
-import { saveAiOutlineModel } from "@/lib/project-store";
+import { saveAiOutlineModel, saveOutlineWorkflowMode } from "@/lib/project-store";
 import {
   useOutlineChatStore,
   type OutlineMultiAgentRunState,
@@ -4733,6 +4733,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                             className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent"
                             onClick={() => {
                               setOutlineWorkflowMode(mode);
+                              void saveOutlineWorkflowMode(mode);
                               setWorkflowModeDropdownOpen(false);
                             }}
                           >

@@ -86,7 +86,7 @@ import {
   canCreateNewConversation,
   EMPTY_CONVERSATION_CREATE_REASON,
 } from "@/lib/conversation-create-guard"
-import { saveAiChatModel } from "@/lib/project-store"
+import { saveAiChatModel, saveAiWorkflowMode } from "@/lib/project-store"
 import {
   buildGoldenThreeChapterDirective,
   detectGoldenThreeChapterRequest,
@@ -2568,6 +2568,7 @@ export function ChatPanel() {
                                   className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent"
                                   onClick={() => {
                                     setAiWorkflowMode(mode)
+                                    void saveAiWorkflowMode(mode)
                                     setWorkflowModeDropdownOpen(false)
                                   }}
                                 >

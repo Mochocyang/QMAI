@@ -542,6 +542,11 @@ describe("aiWorkflowMode store 读取", () => {
     expect(source).toMatch(/useWikiStore\(\(s\) => s\.aiWorkflowMode\)/)
     expect(source).toMatch(/useWikiStore\(\(s\) => s\.setAiWorkflowMode\)/)
   })
+
+  it("切换正文执行模式时落盘", () => {
+    expect(source).toContain("saveAiWorkflowMode")
+    expect(source).toContain("void saveAiWorkflowMode(mode)")
+  })
 })
 
 describe("resolver 卸载清理", () => {

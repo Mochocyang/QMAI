@@ -18,6 +18,12 @@ describe("workflow mode", () => {
     expect(resolveAiWorkflowMode(undefined)).toBe("standard")
   })
 
+  it("defaults invalid values to the standard workflow mode", () => {
+    expect(resolveAiWorkflowMode("normal")).toBe("standard")
+    expect(resolveAiWorkflowMode("")).toBe("standard")
+    expect(resolveAiWorkflowMode(1)).toBe("standard")
+  })
+
   it("accepts explicit active workflow modes without changing them", () => {
     const modes: AiWorkflowMode[] = ["fast", "standard", "strict"]
 

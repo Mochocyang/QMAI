@@ -15,9 +15,13 @@ vi.mock("@/lib/web-store", () => ({
 
 import {
   loadAiOutlineModel,
+  loadAiWorkflowMode,
   loadLastReadChapter,
+  loadOutlineWorkflowMode,
   saveAiOutlineModel,
+  saveAiWorkflowMode,
   saveLastReadChapter,
+  saveOutlineWorkflowMode,
 } from "@/lib/project-store"
 
 describe("AI outline model persistence", () => {
@@ -73,6 +77,41 @@ describe("AI outline model persistence", () => {
     expect(storeMocks.values.get("aiOutlineModel")).toBe("anthropic/manual-model")
   })
 
+})
+
+describe("workflow mode persistence", () => {
+  beforeEach(() => {
+    storeMocks.values.clear()
+    storeMocks.get.mockReset()
+    storeMocks.set.mockReset()
+    storeMocks.get.mockImplementation(async (key: string) => storeMocks.values.get(key))
+    storeMocks.set.mockImplementation(async (key: string, value: unknown) => {
+      storeMocks.values.set(key, value)
+    })
+  })
+
+  it("saves body and outline modes under separate keys", async () => {
+    await saveAiWorkflowMode("strict")
+    await saveOutlineWorkflowMode("fast")
+
+    expect(storeMocks.values.get("aiWorkflowMode")).toBe("strict")
+    expect(storeMocks.values.get("outlineWorkflowMode")).toBe("fast")
+    expect(storeMocks.values.has("aiChatModel")).toBe(false)
+    expect(storeMocks.values.has("aiOutlineModel")).toBe(false)
+    await expect(loadAiWorkflowMode()).resolves.toBe("strict")
+    await expect(loadOutlineWorkflowMode()).resolves.toBe("fast")
+  })
+
+  it("treats missing or invalid stored modes as unset", async () => {
+    await expect(loadAiWorkflowMode()).resolves.toBeNull()
+    await expect(loadOutlineWorkflowMode()).resolves.toBeNull()
+
+    storeMocks.values.set("aiWorkflowMode", "normal")
+    storeMocks.values.set("outlineWorkflowMode", "strict")
+
+    await expect(loadAiWorkflowMode()).resolves.toBeNull()
+    await expect(loadOutlineWorkflowMode()).resolves.toBeNull()
+  })
 })
 
 describe("last read chapter persistence", () => {

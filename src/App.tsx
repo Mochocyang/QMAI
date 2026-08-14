@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig, loadSearchApiConfig } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadLanguage, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadMcpConfig, loadSearchApiConfig, loadOutlineWorkflowMode } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -237,6 +237,14 @@ function App() {
           useWikiStore.getState().setAiChatModel(savedAiChatModel)
         }
         await initializeAiOutlineModelFromStorage()
+        const savedAiWorkflowMode = await loadAiWorkflowMode()
+        if (savedAiWorkflowMode) {
+          useWikiStore.getState().setAiWorkflowMode(savedAiWorkflowMode)
+        }
+        const savedOutlineWorkflowMode = await loadOutlineWorkflowMode()
+        if (savedOutlineWorkflowMode) {
+          useWikiStore.getState().setOutlineWorkflowMode(savedOutlineWorkflowMode)
+        }
         const savedDefaultLlmModel = await loadDefaultLlmModel()
         if (savedDefaultLlmModel) {
           useWikiStore.getState().setDefaultLlmModel(savedDefaultLlmModel)
