@@ -497,3 +497,163 @@ describe("prompt caching cache_control breakpoints", () => {
     expect(messages[0].content).toBe("AB")
   })
 })
+
+describe("Qwen3.5/3.6 leading system coalesce", () => {
+  const dualSystem = [
+    { role: "system" as const, content: "软件规则" },
+    { role: "system" as const, content: "## 任务契约\n写下一章" },
+    { role: "user" as const, content: "开始写" },
+  ]
+
+  function rolesAndContent(config: LlmConfig, messages = dualSystem) {
+    const body = getProviderConfig(config).buildBody(messages) as {
+      messages?: Array<{ role: string; content: unknown }>
+      input?: Array<{ role: string; content: unknown }>
+    }
+    return body.messages ?? body.input ?? []
+  }
+
+  it("does not invent a system message for user-only Qwen3.6 requests", () => {
+    const messages = rolesAndContent(
+      customConfig({ model: "qwen3.6-35b-q4km:latest" }),
+      [{ role: "user", content: "写第一章" }],
+    )
+    expect(messages).toEqual([{ role: "user", content: "写第一章" }])
+  })
+
+  it("leaves a single leading system in place", () => {
+    const messages = rolesAndContent(
+      customConfig({ model: "qwen3.6-plus" }),
+      [
+        { role: "system", content: "软件规则" },
+        { role: "user", content: "开始写" },
+      ],
+    )
+    expect(messages).toEqual([
+      { role: "system", content: "软件规则" },
+      { role: "user", content: "开始写" },
+    ])
+  })
+
+  it("merges consecutive leading systems for Qwen3.6 OpenAI-compatible requests", () => {
+    const messages = rolesAndContent(customConfig({ model: "qwen3.6-35b-q4km:latest" }))
+    expect(messages).toEqual([
+      { role: "system", content: "软件规则\n\n## 任务契约\n写下一章" },
+      { role: "user", content: "开始写" },
+    ])
+  })
+
+  it("merges a mid-conversation system into the leading system for Qwen3.6", () => {
+    const messages = rolesAndContent(
+      customConfig({ model: "qwen/qwen3.6-27b" }),
+      [
+        { role: "system", content: "软件规则" },
+        { role: "user", content: "写" },
+        { role: "assistant", content: "好" },
+        { role: "system", content: "必须调用工具" },
+      ],
+    )
+    expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant"])
+    expect(messages[0]?.content).toBe("软件规则\n\n必须调用工具")
+    expect(messages[1]?.content).toBe("写")
+    expect(messages[2]?.content).toBe("好")
+  })
+
+  it("moves a non-leading system to the front for Qwen3.5", () => {
+    const messages = rolesAndContent(
+      customConfig({ model: "qwen3.5:397b" }),
+      [
+        { role: "user", content: "写" },
+        { role: "system", content: "软件规则" },
+      ],
+    )
+    expect(messages).toEqual([
+      { role: "system", content: "软件规则" },
+      { role: "user", content: "写" },
+    ])
+  })
+
+  it("keeps cache-prefixed system text before later system content", () => {
+    const messages = rolesAndContent(
+      customConfig({ model: "qwen3.6-plus" }),
+      [
+        {
+          role: "system",
+          content: [
+            { type: "text", text: "软件规则" },
+            { type: "text", text: "稳定项目核心", cacheControl: true },
+          ],
+        },
+        { role: "system", content: "任务契约" },
+        { role: "user", content: "写" },
+      ],
+    )
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toEqual({
+      role: "system",
+      content: "软件规则稳定项目核心\n\n任务契约",
+    })
+    expect(messages[1]?.role).toBe("user")
+  })
+
+  it("also coalesces Qwen3.6 on the native ollama provider", () => {
+    const messages = rolesAndContent(customConfig({
+      provider: "ollama",
+      model: "qwen3.6-35b-q4km:latest",
+    }))
+    expect(messages.map((message) => message.role)).toEqual(["system", "user"])
+    expect(messages[0]?.content).toContain("软件规则")
+    expect(messages[0]?.content).toContain("任务契约")
+  })
+
+  it("coalesces Qwen3.6 Responses API input the same way", () => {
+    const messages = rolesAndContent(customConfig({
+      apiMode: "responses",
+      model: "qwen3.6-plus",
+    }))
+    expect(messages).toEqual([
+      { role: "system", content: "软件规则\n\n## 任务契约\n写下一章" },
+      { role: "user", content: "开始写" },
+    ])
+  })
+
+  it("does not coalesce dual systems for gpt-4o on openai or custom", () => {
+    for (const config of [
+      customConfig({ provider: "openai", model: "gpt-4o" }),
+      customConfig({ model: "gpt-4o" }),
+    ]) {
+      const messages = rolesAndContent(config)
+      expect(messages.map((message) => message.role)).toEqual(["system", "system", "user"])
+      expect(messages[0]?.content).toBe("软件规则")
+      expect(messages[1]?.content).toBe("## 任务契约\n写下一章")
+    }
+  })
+
+  it("does not coalesce dual systems for DeepSeek", () => {
+    const messages = rolesAndContent(customConfig({
+      model: "deepseek-chat",
+      customEndpoint: "https://api.deepseek.com/v1",
+    }))
+    expect(messages.map((message) => message.role)).toEqual(["system", "system", "user"])
+  })
+
+  it("does not coalesce dual systems for plain Qwen3", () => {
+    const messages = rolesAndContent(customConfig({ model: "qwen3-235b-a22b" }))
+    expect(messages.map((message) => message.role)).toEqual(["system", "system", "user"])
+  })
+
+  it("does not coalesce dual systems for Qwen3-Coder or Qwen2.5", () => {
+    for (const model of ["qwen3-coder-plus", "qwen2.5-72b"]) {
+      const messages = rolesAndContent(customConfig({ model }))
+      expect(messages.map((message) => message.role), model).toEqual(["system", "system", "user"])
+    }
+  })
+
+  it("does not coalesce gpt Responses API input", () => {
+    const messages = rolesAndContent(customConfig({
+      apiMode: "responses",
+      model: "gpt-5.4",
+    }))
+    expect(messages.map((message) => message.role)).toEqual(["system", "system", "user"])
+  })
+})

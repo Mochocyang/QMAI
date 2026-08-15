@@ -506,6 +506,64 @@ function toOpenAiContent(content: string | ContentBlock[]): unknown {
   })
 }
 
+/**
+ * Qwen3.5 / Qwen3.6 chat templates raise
+ * `System message must be at the beginning` when any `role=system`
+ * message is not index 0. That includes a second consecutive leading
+ * system. Do not reuse `isChatTemplateThinkingModel` — that matches
+ * every Qwen3 id, including qwen3-coder / qwen3-235b which do not
+ * ship this guard.
+ */
+function needsStrictLeadingSystemTemplate(model: string): boolean {
+  return /qwen[-_./]?3[._-]?[56](?:\b|[._+:-]|$)/i.test(model)
+}
+
+function flattenSystemText(content: ChatMessage["content"]): string {
+  if (typeof content === "string") return content
+  return content.map((block) => (block.type === "text" ? block.text : "")).join("")
+}
+
+function mergeSystemContents(systems: ChatMessage[]): ChatMessage["content"] {
+  const usesBlocks = systems.some((message) => Array.isArray(message.content))
+  if (!usesBlocks) {
+    return systems
+      .map((message) => flattenSystemText(message.content))
+      .filter((text) => text.length > 0)
+      .join("\n\n")
+  }
+  const blocks: ContentBlock[] = []
+  for (const [index, message] of systems.entries()) {
+    if (typeof message.content === "string") {
+      if (!message.content) continue
+      blocks.push({
+        type: "text",
+        text: index > 0 && blocks.length > 0 ? `\n\n${message.content}` : message.content,
+      })
+      continue
+    }
+    if (index > 0 && blocks.length > 0 && message.content.length > 0) {
+      blocks.push({ type: "text", text: "\n\n" })
+    }
+    for (const block of message.content) {
+      blocks.push(block)
+    }
+  }
+  return blocks
+}
+
+/**
+ * Fold every system message into a single leading system entry so
+ * Qwen3.5/3.6 templates accept the payload. Leaves user / assistant /
+ * tool order unchanged. Does not invent a system message when none exist.
+ */
+function coalesceSystemMessages(messages: ChatMessage[]): ChatMessage[] {
+  const systems = messages.filter((message) => message.role === "system")
+  if (systems.length === 0) return messages
+  if (systems.length === 1 && messages[0]?.role === "system") return messages
+  const rest = messages.filter((message) => message.role !== "system")
+  return [{ role: "system", content: mergeSystemContents(systems) }, ...rest]
+}
+
 function buildOpenAiBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
@@ -547,9 +605,12 @@ function buildResponsesBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
+  const wiredMessages = needsStrictLeadingSystemTemplate(config.model)
+    ? coalesceSystemMessages(messages)
+    : messages
   const body: Record<string, unknown> = {
     model: config.model,
-    input: messages.map((message) => ({
+    input: wiredMessages.map((message) => ({
       role: message.role,
       content: toResponsesContent(message.content),
     })),
@@ -781,9 +842,12 @@ function buildOpenAiCompatibleBody(
   overrides?: RequestOverrides,
 ): Record<string, unknown> {
   const reasoning = effectiveReasoning(config, overrides)
+  const wiredMessages = needsStrictLeadingSystemTemplate(config.model)
+    ? coalesceSystemMessages(messages)
+    : messages
   // Pass full overrides: buildOpenAiBody strips internal/wire-agnostic
   // fields (including tools/toolChoice) then re-emits tools + tool_choice.
-  const body: Record<string, unknown> = buildOpenAiBody(messages, overrides)
+  const body: Record<string, unknown> = buildOpenAiBody(wiredMessages, overrides)
   if (
     config.provider === "openai"
     || config.provider === "azure"
