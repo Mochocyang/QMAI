@@ -470,6 +470,14 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("historyPlan.showToolProcess")
   })
 
+  it("标准模式对话工作流用多 Agent 同款卡片，不改成真正的多 Agent", () => {
+    expect(source).toContain("OutlineStandardWorkflowPanel")
+    expect(source).toContain("shouldUseOutlineStandardWorkflowCard")
+    expect(source).toContain("useStandardWorkflowCard")
+    expect(source).not.toContain("enableMultiAgent: true")
+    expect(source).toContain("enableMultiAgent: !fastMode")
+  })
+
   it("顶栏会话 chips 保底可见，阶段徽章不和会话列表抢宽度", () => {
     expect(source).toContain("min-w-[72px]")
     expect(source).toContain("topConversations.length > 0")

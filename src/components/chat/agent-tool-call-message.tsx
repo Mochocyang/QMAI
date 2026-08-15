@@ -10,6 +10,8 @@ interface AgentToolCallMessageProps {
   contextTrace?: ContextTrace | null
   thinkingContent?: string
   thinkingStreaming?: boolean
+  chrome?: "line" | "none"
+  showEventSummary?: boolean
   onConfirmSave?: (call: ToolCallRecord & { preview?: string }) => void
   onReject?: (call: ToolCallRecord & { preview?: string }) => void
 }
@@ -19,6 +21,8 @@ export function AgentToolCallMessage({
   contextTrace,
   thinkingContent,
   thinkingStreaming,
+  chrome,
+  showEventSummary,
   onConfirmSave,
   onReject,
 }: AgentToolCallMessageProps) {
@@ -28,6 +32,8 @@ export function AgentToolCallMessage({
       contextTrace={contextTrace}
       thinkingContent={thinkingContent}
       thinkingStreaming={thinkingStreaming}
+      chrome={chrome}
+      showEventSummary={showEventSummary}
       onConfirmSave={onConfirmSave}
       onReject={onReject}
     />
