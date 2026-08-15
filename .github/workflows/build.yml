@@ -82,9 +82,11 @@ jobs:
           brew untap aws/tap || true
           brew install protobuf
 
-      - name: Install Windows dependencies
+      - name: Install protoc (Windows)
         if: runner.os == 'Windows'
-        run: choco install protoc -y
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
