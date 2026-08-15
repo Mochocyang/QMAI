@@ -459,6 +459,35 @@ describe("OutlineChatPanel controls", () => {
     expect(source).not.toContain("conversations.map((conv) => (")
   })
 
+  it("标准菜单生成补 forceRefresh，收尾把工具过程留在对话里", () => {
+    expect(source).toContain("intentPhase: \"intent_analysis\"")
+    expect(source).toContain("forceRefresh: true")
+    expect(source).toContain("workflowMode: outlineMode")
+    expect(source).toContain("intentPhase: options.intentPhase")
+    expect(source).toContain("标准工作流必须把工具过程留在对话里")
+    expect(source).toContain("message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls")
+    expect(source).toContain("shouldShowToolProcess")
+    expect(source).toContain("historyPlan.showToolProcess")
+  })
+
+  it("顶栏会话 chips 保底可见，阶段徽章不和会话列表抢宽度", () => {
+    expect(source).toContain("min-w-[72px]")
+    expect(source).toContain("topConversations.length > 0")
+    expect(source).toContain("暂无大纲对话")
+    const chipsBlockStart = source.indexOf("{topConversations.length > 0 ? (")
+    const chipsBlock = source.slice(chipsBlockStart, source.indexOf("qmai-outline-history-button"))
+    expect(chipsBlock).toContain("意图分析中")
+    expect(chipsBlock).toContain("outlineWorkflowStage !== \"idle\"")
+    expect(chipsBlockStart).toBeGreaterThan(-1)
+  })
+
+  it("有活跃大纲会话时顶栏显示会话而不是空状态", async () => {
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    expect(container.textContent).toContain("测试大纲会话")
+    expect(container.textContent).not.toContain("暂无大纲对话")
+  })
+
   it("provides one-click clearing for outline conversation history", () => {
     expect(source).toContain('aria-label="一键清理会话历史"')
     expect(source).toContain("requestClearHistory")

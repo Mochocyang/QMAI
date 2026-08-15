@@ -2038,14 +2038,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const hasPriorAssistantAnswer = historyBeforeSend.some(
         (message) => message.role === "assistant" && message.content.trim(),
       );
+      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+      const enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== "fast";
       const forceRefresh = options.forceRefresh === true || forceRefreshNext;
       const contextDecision = planOutlineContextReuse({
         hasPriorAssistantAnswer,
         attachedReferenceCount: tokens.length,
         inputText: prompt,
-        enableMultiAgent: options.enableMultiAgent,
+        enableMultiAgent,
         forceRefresh,
         systemGenerated: options.systemGenerated,
+        workflowMode: outlineMode,
+        intentPhase: options.intentPhase,
       });
       const cachedSummary =
         contextDecision.mode === "reuse"
@@ -2058,6 +2062,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         history: historyBeforeSend,
         contextDecision,
         cachedSummary,
+        workflowMode: outlineMode,
+        intentPhase: options.intentPhase,
+        enableMultiAgent,
       });
       if (forceRefreshNext) {
         setForceRefreshNext(false);
@@ -2113,8 +2120,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 避免整段结果被静默丢弃。
       let bestGeneratedText = "";
       let deliverableTruncated = false;
-      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
-      const enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== "fast";
       const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "intent_analysis"
         ? "analysis"
         : "generation";
@@ -2933,6 +2938,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           visibleToolCalls.some((call) => call.status === "approval_required" || call.status === "error");
         // 最终内容提交不受 run 状态闸门限制：即使运行状态已被切换/停止，
         // 已生成的结果也必须写入消息，只有后续 UI 副作用才需要闸门。
+        // 标准工作流必须把工具过程留在对话里，不能在收尾时清成空数组。
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
           ...message,
           content: finalContent,
@@ -2941,7 +2947,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           showThinkingProcess: historyPlan.showThinkingProcess,
           agentToolCalls: shouldShowToolProcess
             ? settleRunningAgentToolCalls(
-                allToolCalls.length ? allToolCalls : message.agentToolCalls,
+                allToolCalls.length
+                  ? allToolCalls
+                  : (message.agentToolCalls?.length ? message.agentToolCalls : hiddenToolCalls),
               )
             : [],
           isAgentRunning: false,
@@ -3171,6 +3179,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         conversationId: capturedConvId,
         intentPhase: "intent_analysis",
         systemGenerated: true,
+        forceRefresh: true,
         userDisplayText: `生成${title}`,
       });
     },
@@ -4437,16 +4446,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     key={conv.id}
                     onMouseEnter={() => setHoveredConversationId(conv.id)}
                     onMouseLeave={() => setHoveredConversationId(null)}
-                    className={`group flex shrink-0 items-center rounded-full border text-xs transition-colors ${
+                    className={`group flex min-w-[72px] items-center rounded-full border text-xs transition-colors ${
                       isActive
-                        ? "border-primary/40 bg-background text-foreground shadow-sm"
-                        : "border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        ? "shrink border-primary/40 bg-background text-foreground shadow-sm"
+                        : "shrink-0 border-border bg-background/70 text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => setActiveConversation(conv.id)}
-                      className="flex items-center gap-2 rounded-full px-3 py-1.5"
+                      className="flex min-w-0 items-center gap-2 rounded-full px-3 py-1.5"
                       title={conv.title}
                     >
                       <ConversationRunStatusIcon state={runStates[conv.id]} />
@@ -4467,6 +4476,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   </div>
                 );
               })}
+              {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
+                   outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
+                   outlineWorkflowStage === "sufficiency_check" ? "生成中" :
+                   "处理中"}
+                </span>
+              ) : null}
             </div>
           ) : (
             <span className="shrink-0 truncate text-xs text-muted-foreground">
@@ -4474,14 +4491,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             </span>
           )}
         </div>
-        {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-            {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
-             outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
-             outlineWorkflowStage === "sufficiency_check" ? "生成中" :
-             "处理中"}
-          </span>
-        ) : null}
         <div className="relative shrink-0" ref={historyRef}>
           <button
             ref={historyButtonRef}
