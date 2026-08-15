@@ -80,6 +80,8 @@ export interface DeepChapterGenerationInput {
   resumeCheckpoint?: DeepChapterGenerationResumeCheckpoint;
   /** 用户在会话层确认的章节计划，作为写作任务书的权威依据注入 brief 阶段。 */
   planBlueprint?: string;
+  /** 本轮启用的写作 Skill 约束，注入任务书/初稿/返修（稳定缓存前缀之后）。 */
+  skillsPrompt?: string;
 }
 
 export interface DeepChapterGenerationCallbacks {
@@ -827,6 +829,7 @@ export async function runDeepChapterGeneration(
                 lengthSpec,
                 planExecutionSummary,
                 executionContractText,
+                input.skillsPrompt,
               ),
             },
           ],
@@ -902,6 +905,7 @@ export async function runDeepChapterGeneration(
                 input.chapterNumber,
                 input.goldenThreeChapter,
                 lengthSpec,
+                input.skillsPrompt,
               ),
             },
           ],
@@ -1256,6 +1260,7 @@ export async function runDeepChapterGeneration(
                 input.userRequest,
                 input.chapterNumber,
                 input.goldenThreeChapter,
+                input.skillsPrompt,
               ),
             },
           ],

@@ -28,6 +28,10 @@ export interface RunChapterWorkflowToolOptions {
    * 保证用户确认的计划为强制约束，不依赖模型是否遵守自然语言提示。
    */
   getPlanBlueprint?: () => string | undefined
+  /**
+   * 本轮已选定的写作 Skill 提示。不作为工具参数，避免模型漏传。
+   */
+  getSelectedSkillsPrompt?: () => string | undefined
 }
 
 interface RunChapterWorkflowParams {
@@ -128,6 +132,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
       // 兜底：AI 未在工具调用参数中携带 planBlueprint 时，从外部 getter 补上，
       // 保证用户确认的计划一定进入章节生成链路，不依赖模型是否遵守自然语言提示。
       const planBlueprint = params.planBlueprint?.trim() || options.getPlanBlueprint?.()?.trim() || undefined
+      const skillsPrompt = options.getSelectedSkillsPrompt?.()?.trim() || undefined
       const result = await options.runDeepChapterGeneration(
         {
           projectPath: options.projectPath,
@@ -136,6 +141,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
           llmConfig: options.llmConfig,
           aiWorkflowMode: params.workflowMode ?? options.aiWorkflowMode,
           planBlueprint,
+          skillsPrompt,
         },
         {
           onWorkflowEvent: (event) => {

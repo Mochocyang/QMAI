@@ -279,6 +279,53 @@ export function resolveSkillReference<T extends { id: string; name: string }>(
   return canonicalName ? skills.find((skill) => skill.name === canonicalName) : undefined
 }
 
+/** 短中文名（如「对话」）做子串匹配会误伤，显式技能名至少 4 个规范化字符。 */
+export const MIN_EXPLICIT_SKILL_NAME_LENGTH = 4
+
+export interface ExplicitSkillReference {
+  skillId?: string
+  title?: string
+}
+
+export function uniqueSkillsById<T extends { id: string }>(skills: readonly T[]): T[] {
+  const result: T[] = []
+  for (const skill of skills) {
+    if (!result.some((item) => item.id === skill.id)) result.push(skill)
+  }
+  return result
+}
+
+/**
+ * 收集用户显式指定的 skill：@ 引用的 skillId/标题，以及原文中的 canonical name 子串。
+ * 不使用中文别名 includes，避免「对话」一类短词误匹配。
+ */
+export function collectExplicitSkills<T extends { id: string; name: string }>(
+  skills: readonly T[],
+  userMessage: string,
+  references: readonly ExplicitSkillReference[] = [],
+): T[] {
+  const collected: T[] = []
+  const add = (skill: T | undefined) => {
+    if (!skill) return
+    if (!collected.some((item) => item.id === skill.id)) collected.push(skill)
+  }
+
+  for (const reference of references) {
+    add(resolveSkillReference(skills, { id: reference.skillId, name: reference.title }))
+  }
+
+  const normalizedMessage = normalizeAlias(userMessage)
+  if (!normalizedMessage) return collected
+
+  for (const skill of skills) {
+    const normalizedName = normalizeAlias(skill.name)
+    if (normalizedName.length < MIN_EXPLICIT_SKILL_NAME_LENGTH) continue
+    if (normalizedMessage.includes(normalizedName)) add(skill)
+  }
+
+  return collected
+}
+
 function normalizeAlias(value: string): string {
   return value.toLowerCase().replace(/[\s「」『』【】]/g, "").trim()
 }

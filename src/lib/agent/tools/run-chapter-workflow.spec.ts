@@ -332,6 +332,38 @@ describe("createRunChapterWorkflowTool", () => {
     )
   })
 
+  it("passes getSelectedSkillsPrompt into deep chapter generation", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => ({
+      finalContent: "最终正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    }))
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getSelectedSkillsPrompt: () => "## 本次启用 Skill\n规则：combat-action",
+    })
+
+    await tool.execute({
+      intent: "write_chapter",
+      userRequest: "生成第3章",
+      chapterNumber: 3,
+    })
+
+    expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillsPrompt: "## 本次启用 Skill\n规则：combat-action",
+      }),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
+  })
+
   it("includes plan compliance in the tool result when available", async () => {
     const runDeepChapterGeneration = vi.fn(async () => ({
       finalContent: "最终正文",

@@ -65,6 +65,7 @@ export interface ToolFactoryOptions {
   runDeepChapterGeneration?: RunDeepChapterGeneration
   onToolEvent?: (event: AgentToolEvent) => void
   getPlanBlueprint?: () => string | undefined
+  getSelectedSkillsPrompt?: () => string | undefined
   readTextFile?: (path: string) => Promise<string>
 }
 
@@ -124,6 +125,7 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       runDeepChapterGeneration: options.runDeepChapterGeneration,
       onToolEvent: options.onToolEvent,
       getPlanBlueprint: options.getPlanBlueprint,
+      getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
     }))
   }
   for (const tool of options.mcpTools ?? []) {

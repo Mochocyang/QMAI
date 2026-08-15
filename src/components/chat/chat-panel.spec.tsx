@@ -252,6 +252,9 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("agentUserWritingSkills")
     expect(source).toContain("aiWorkflowMode,")
     expect(source).toContain("availableSkills: availableAgentSkills")
+    expect(source).toContain("selectedSkills: explicitSkills")
+    expect(source).toContain("collectExplicitSkills")
+    expect(source).toContain("getSelectedSkillsPrompt")
   })
 
   it("passes Plan Execute mode into the novel pre-plugin chain and consumes its final prompt", () => {

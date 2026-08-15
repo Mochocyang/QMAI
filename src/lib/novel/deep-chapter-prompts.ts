@@ -59,6 +59,11 @@ export function buildStableContextPrefix(outline: string, contextPrompt: string)
   ].filter(Boolean).join("\n")
 }
 
+/** 可变 Skill 约束必须放在稳定缓存前缀之后，避免截断公共前缀。 */
+export function skillsConstraintSection(skillsPrompt?: string): string {
+  return skillsPrompt?.trim() ?? ""
+}
+
 export function buildDeepChapterBriefPrompt(
   outline: string,
   contextPrompt: string,
@@ -68,6 +73,7 @@ export function buildDeepChapterBriefPrompt(
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
   planBlueprint?: string,
   executionContractText?: string,
+  skillsPrompt?: string,
 ): string {
   const contractSection = executionContractText && executionContractText.trim()
     ? [
@@ -128,6 +134,7 @@ export function buildDeepChapterBriefPrompt(
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "",
+    skillsConstraintSection(skillsPrompt),
     "你是小说写作任务规划助手。",
     "请基于上述上下文输出一份写作任务书，供后续创作使用。",
     "",
@@ -148,10 +155,12 @@ export function buildDeepChapterDraftPrompt(
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
   lengthSpec: ChapterLengthSpec = DEFAULT_CHAPTER_LENGTH_SPEC,
+  skillsPrompt?: string,
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "",
+    skillsConstraintSection(skillsPrompt),
     "你是专业小说正文写作助手。",
     "请严格根据上述上下文和下方写作任务书起草章节正文。",
     "",
@@ -186,10 +195,12 @@ export function buildDeepChapterRevisionPrompt(
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
+  skillsPrompt?: string,
 ): string {
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "",
+    skillsConstraintSection(skillsPrompt),
     "你是小说正文返修助手。",
     "请根据审稿问题返修章节正文。",
     "",

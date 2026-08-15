@@ -4,9 +4,11 @@ import type { NovelTaskIntent } from "@/lib/novel/task-router"
 import type { SkillKind, SkillStage, UserSkill } from "@/lib/novel/skill-library"
 import { filterSkillsForSkillRoute, filterSkillsForSkillRoutes, inferSkillRoute, type SkillRoute } from "@/lib/novel/skill-route"
 import {
+  collectExplicitSkills,
   getOutlineSkillNames,
   getWritingSkillNames,
   resolveAvailableSkillsByNames,
+  uniqueSkillsById,
 } from "@/lib/novel/skill-route-registry"
 
 const WRITING_INTENTS = new Set<NovelTaskIntent>([
@@ -70,7 +72,12 @@ export function createSelectSkillsPlugin(): PrePlugin {
       const deterministicNames = route.intent === "generate_outline"
         ? getOutlineSkillNames(input.userMessage)
         : getWritingSkillNames(route.intent, input.userMessage)
-      const selectedSkills = selectSkillsForRoute(availableSkills, route.intent, mode, input.userMessage)
+      const explicitSkills = uniqueSkillsById([
+        ...(input.selectedSkills ?? []),
+        ...collectExplicitSkills(availableSkills, input.userMessage),
+      ])
+      const routedSkills = selectSkillsForRoute(availableSkills, route.intent, mode, input.userMessage)
+      const selectedSkills = uniqueSkillsById([...explicitSkills, ...routedSkills])
       return {
         selectedSkills,
         missingSkillNames: deterministicNames.length > 0
