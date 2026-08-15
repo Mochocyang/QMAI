@@ -7,6 +7,23 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_TWO_CHANGELOG: ChangelogEntry = {
+  version: "3.2.2",
+  date: "2026-08-15",
+  highlights: {
+    en: [
+      "[Qwen3.5/3.6 Ollama 500 Fix] Extra system messages for Qwen3.5/3.6 are merged into the first one, so local Ollama chapter writing and outline generation no longer fail with HTTP 500 (System message must be at the beginning).",
+      "[Re-extract Overwrites Timeline] Re-extracting chapter memory now replaces that chapter's tracking timeline instead of appending, so the same events no longer pile up as duplicate rows.",
+      "[Faster Chapter Memory Extract] Chapter ingest uses fewer tokens and skips duplicate wiki/snapshot writes; re-extract rebuilds derived memory from snapshots instead of stacking old foreshadowing and cognition.",
+    ],
+    zh: [
+      "【Qwen3.5/3.6 Ollama 500 修复】本地 Ollama 用 Qwen3.5/3.6 写章节或大纲时，多余的 system 会合到第一条，不再报 HTTP 500（System message must be at the beginning）",
+      "【重提取覆盖时间线】重新提取章节记忆时，该章 tracking 时间线改为覆盖而不是追加，同一批事件不会再堆出重复行",
+      "【章节记忆提取更快】摄取少耗 token、去掉重复写入；重提取从快照重建派生记忆，不再把旧认知/伏笔叠进去",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_ONE_CHANGELOG: ChangelogEntry = {
   version: "3.2.1",
   date: "2026-08-14",
@@ -1178,6 +1195,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_TWO_CHANGELOG,
   THREE_POINT_TWO_ONE_CHANGELOG,
   THREE_POINT_TWO_ZERO_CHANGELOG,
   THREE_POINT_ONE_NINE_CHANGELOG,
@@ -1245,6 +1263,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_TWO_CHANGELOG.version)
+    return [THREE_POINT_TWO_TWO_CHANGELOG];
   if (version === THREE_POINT_TWO_ONE_CHANGELOG.version)
     return [THREE_POINT_TWO_ONE_CHANGELOG];
   if (version === THREE_POINT_TWO_ZERO_CHANGELOG.version)
@@ -1352,6 +1372,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_TWO_CHANGELOG,
     THREE_POINT_TWO_ONE_CHANGELOG,
     THREE_POINT_TWO_ZERO_CHANGELOG,
     THREE_POINT_ONE_NINE_CHANGELOG,
@@ -1404,6 +1425,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_TWO_CHANGELOG &&
         entry !== THREE_POINT_TWO_ONE_CHANGELOG &&
         entry !== THREE_POINT_TWO_ZERO_CHANGELOG &&
         entry !== THREE_POINT_ONE_NINE_CHANGELOG &&
