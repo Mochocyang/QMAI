@@ -14,6 +14,8 @@ interface AgentWorkflowPanelProps {
   contextTrace?: ContextTrace | null
   thinkingContent?: string
   thinkingStreaming?: boolean
+  chrome?: "line" | "none"
+  showEventSummary?: boolean
   onConfirmSave?: (call: ToolCallRecord & { preview?: string }) => void
   onReject?: (call: ToolCallRecord & { preview?: string }) => void
 }
@@ -55,6 +57,8 @@ export function AgentWorkflowPanel({
   contextTrace,
   thinkingContent,
   thinkingStreaming,
+  chrome = "line",
+  showEventSummary = true,
   onConfirmSave,
   onReject,
 }: AgentWorkflowPanelProps) {
@@ -135,8 +139,19 @@ export function AgentWorkflowPanel({
   })()
 
   return (
-    <div className="mb-2 w-full min-w-0 max-w-full overflow-hidden border-l border-border/80 pl-3">
-      <EventStream events={events} isStreaming={isStreaming} totalDurationMs={totalDurationMs} />
+    <div
+      className={
+        chrome === "none"
+          ? "w-full min-w-0 max-w-full overflow-hidden"
+          : "mb-2 w-full min-w-0 max-w-full overflow-hidden border-l border-border/80 pl-3"
+      }
+    >
+      <EventStream
+        events={events}
+        isStreaming={isStreaming}
+        totalDurationMs={totalDurationMs}
+        showSummary={showEventSummary}
+      />
 
       {pendingApprovalCalls.length > 0 && onConfirmSave && onReject ? (
         <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">

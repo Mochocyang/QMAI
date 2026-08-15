@@ -11,9 +11,10 @@ interface EventStreamProps {
   isStreaming: boolean
   totalDurationMs?: number
   totalTokens?: number
+  showSummary?: boolean
 }
 
-function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: EventStreamProps) {
+function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens, showSummary = true }: EventStreamProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
   const scrollFrameRef = useRef<number | null>(null)
@@ -106,7 +107,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens }: 
           )
         })}
 
-        {!isStreaming && (totalDurationMs !== undefined || totalTokens !== undefined) && (
+        {showSummary && !isStreaming && (totalDurationMs !== undefined || totalTokens !== undefined) && (
           <div
             className="mt-2 flex items-center gap-3 px-2 pt-2 border-t border-border/50 text-[11px] text-muted-foreground/70"
           >
