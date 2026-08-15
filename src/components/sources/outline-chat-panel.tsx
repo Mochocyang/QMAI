@@ -63,6 +63,10 @@ import {
 import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog";
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
+import {
+  OutlineStandardWorkflowPanel,
+  shouldUseOutlineStandardWorkflowCard,
+} from "@/components/sources/outline-standard-workflow-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-section-configs";
 import {
@@ -1061,6 +1065,14 @@ function OutlineAssistantMessage({
   const currentContextHubSnapshot = msg.contextHubSnapshot
     ? parseContextHubSnapshotRef(msg.contextHubSnapshot)
     : null;
+  const isOutlineFastMode = resolveOutlineWorkflowMode(
+    useWikiStore((s) => s.outlineWorkflowMode),
+  ) === "fast";
+  const useStandardWorkflowCard = shouldUseOutlineStandardWorkflowCard({
+    fastMode: isOutlineFastMode,
+    intentPhase: msg.intentPhase,
+    hasMultiAgentRun: Boolean(msg.multiAgentRun),
+  });
 
   return (
     <>
@@ -1070,13 +1082,25 @@ function OutlineAssistantMessage({
         onResume={() => { void onResumeMultiAgent(msg.id) }}
         resumeDisabled={resumeMultiAgentDisabled}
       />
-      <AgentToolCallMessage
-        toolCalls={msg.agentToolCalls}
-        thinkingContent={thinking || undefined}
-        thinkingStreaming={messageIsStreaming}
-        onConfirmSave={onConfirmToolSave}
-        onReject={onRejectTool}
-      />
+      {useStandardWorkflowCard ? (
+        <OutlineStandardWorkflowPanel
+          intentPhase={msg.intentPhase}
+          isRunning={messageIsStreaming || Boolean(msg.isAgentRunning)}
+          toolCalls={msg.agentToolCalls}
+          thinkingContent={thinking || undefined}
+          thinkingStreaming={messageIsStreaming}
+          onConfirmSave={onConfirmToolSave}
+          onReject={onRejectTool}
+        />
+      ) : (
+        <AgentToolCallMessage
+          toolCalls={msg.agentToolCalls}
+          thinkingContent={thinking || undefined}
+          thinkingStreaming={messageIsStreaming}
+          onConfirmSave={onConfirmToolSave}
+          onReject={onRejectTool}
+        />
+      )}
       {messageIsStreaming && !msg.content && runStatusText ? (
         <div className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
           {runStatusText}

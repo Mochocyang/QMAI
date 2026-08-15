@@ -23,8 +23,10 @@ describe("普通 AI 会话与 AI 大纲思考流程框宽度", () => {
 
   it("AI 大纲仅用户气泡使用内容宽度，助手工作流始终占满消息列", () => {
     const panel = source("../sources/outline-chat-panel.tsx")
+    const standardWorkflow = source("../sources/outline-standard-workflow-panel.tsx")
     expect(panel).toContain("h-full w-full min-w-0 max-w-full")
     expect(panel).toContain("flex w-full min-w-0 max-w-full")
     expect(panel).toContain('msg.role === "user" ? "w-fit max-w-full lg:max-w-[50vw]" : "w-full min-w-0 max-w-full"')
+    expect(standardWorkflow).toContain("w-full min-w-0 max-w-full overflow-hidden")
   })
 })
