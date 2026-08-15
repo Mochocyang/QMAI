@@ -5,6 +5,7 @@ import {
   OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS,
   planOutlineAgentHistory,
   planOutlineContextReuse,
+  shouldShowOutlineWorkflowProcess,
 } from "./outline-context-reuse"
 
 describe("AI 大纲上下文复用策略", () => {
@@ -250,5 +251,73 @@ describe("AI 大纲上下文复用策略", () => {
     })
 
     expect(decision.mode).toBe("refresh")
+  })
+
+  it("标准模式意图分析/生成即使已有助手回复也刷新并展示工具过程", () => {
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "standard",
+      intentPhase: "intent_analysis",
+    })).toBe(true)
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "standard",
+      intentPhase: "generation",
+      enableMultiAgent: false,
+    })).toBe(true)
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "fast",
+      intentPhase: "generation",
+    })).toBe(false)
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "standard",
+      intentPhase: undefined,
+    })).toBe(false)
+
+    const decision = planOutlineContextReuse({
+      hasPriorAssistantAnswer: true,
+      attachedReferenceCount: 0,
+      inputText: "3. 读取资料。4. 提取关键内容。5. 生成大纲。",
+      enableMultiAgent: false,
+      systemGenerated: true,
+      workflowMode: "standard",
+      intentPhase: "generation",
+    })
+    expect(decision.mode).toBe("refresh")
+    expect(decision.reason).toContain("标准大纲工作流")
+
+    const plan = planOutlineAgentHistory({
+      history: [
+        { role: "user", content: "先闲聊一句" },
+        { role: "assistant", content: "好的" },
+      ],
+      contextDecision: decision,
+      workflowMode: "standard",
+      intentPhase: "generation",
+    })
+    expect(plan.showToolProcess).toBe(true)
+    expect(plan.showThinkingProcess).toBe(true)
+  })
+
+  it("快速闲聊追问仍隐藏重复工具过程", () => {
+    const decision = planOutlineContextReuse({
+      hasPriorAssistantAnswer: true,
+      attachedReferenceCount: 0,
+      inputText: "继续优化",
+      enableMultiAgent: false,
+      workflowMode: "fast",
+    })
+    expect(decision.mode).toBe("reuse")
+
+    const plan = planOutlineAgentHistory({
+      history: [
+        { role: "user", content: "生成大纲" },
+        { role: "assistant", content: "大纲结果" },
+      ],
+      contextDecision: decision,
+      workflowMode: "fast",
+    })
+    expect(plan.showToolProcess).toBe(false)
+    expect(plan.showThinkingProcess).toBe(false)
+    expect(plan.showToolProcessOnError).toBe(true)
+    expect(plan.sources).toContain("过程: 已隐藏重复工具过程")
   })
 })

@@ -1,3 +1,8 @@
+import {
+  resolveOutlineWorkflowMode,
+  type OutlineWorkflowMode,
+} from "@/lib/agent/workflow-mode"
+
 export const OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS = [
   "read_chapter",
   "read_outline",
@@ -15,6 +20,7 @@ export const OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS = [
 
 export type OutlineContextReuseMode = "refresh" | "reuse"
 export type OutlineContextPressureLevel = "low" | "medium" | "high"
+export type OutlineIntentPhase = "intent_analysis" | "generation" | "waiting_user_input"
 
 export interface OutlineAgentHistoryMessage {
   role: "user" | "assistant" | "tool" | "system"
@@ -30,6 +36,8 @@ export interface OutlineContextReuseInput {
   forceRefresh?: boolean
   /** 标记 prompt 由系统生成（如 buildGenerationPrompt），跳过关键词检测 */
   systemGenerated?: boolean
+  workflowMode?: OutlineWorkflowMode | null
+  intentPhase?: OutlineIntentPhase
 }
 
 export interface OutlineContextReuseDecision {
@@ -45,6 +53,20 @@ export interface OutlineAgentHistoryInput {
   contextDecision: OutlineContextReuseDecision
   cachedSummary?: string
   summaryInSystem?: boolean
+  workflowMode?: OutlineWorkflowMode | null
+  intentPhase?: OutlineIntentPhase
+  enableMultiAgent?: boolean
+}
+
+export function shouldShowOutlineWorkflowProcess(input: {
+  workflowMode?: OutlineWorkflowMode | null
+  intentPhase?: OutlineIntentPhase
+  enableMultiAgent?: boolean
+}): boolean {
+  if (resolveOutlineWorkflowMode(input.workflowMode) !== "standard") return false
+  return input.intentPhase === "intent_analysis"
+    || input.intentPhase === "generation"
+    || input.enableMultiAgent === true
 }
 
 export interface OutlineAgentHistoryPlan {
@@ -75,10 +97,12 @@ const REFRESH_KEYWORD_PATTERN =
 
 export function planOutlineContextReuse(input: OutlineContextReuseInput): OutlineContextReuseDecision {
   const trimmed = input.inputText.trim()
+  const showWorkflowProcess = shouldShowOutlineWorkflowProcess(input)
   const shouldRefresh =
     !input.hasPriorAssistantAnswer ||
     input.forceRefresh === true ||
     input.enableMultiAgent === true ||
+    showWorkflowProcess ||
     input.attachedReferenceCount > 0 ||
     (!input.systemGenerated && REFRESH_KEYWORD_PATTERN.test(trimmed))
 
@@ -148,17 +172,18 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
       : "",
     "不要把工具调用过程、来源列表或内部思考当成新的创作事实；以最终大纲结论为准。",
   ].filter(Boolean).join("\n")
+  const showWorkflowProcess = shouldShowOutlineWorkflowProcess(input)
 
   return {
     level,
     messages,
     instruction,
     sources: [
-      "过程: 已隐藏重复工具过程",
+      showWorkflowProcess ? "过程: 将显示必要工具过程" : "过程: 已隐藏重复工具过程",
       ...(cachedSummary ? ["摘要: 已复用上下文摘要缓存"] : []),
     ],
-    showThinkingProcess: false,
-    showToolProcess: false,
+    showThinkingProcess: showWorkflowProcess,
+    showToolProcess: showWorkflowProcess,
     showToolProcessOnError: true,
   }
 }
@@ -197,6 +222,7 @@ function refreshReason(input: OutlineContextReuseInput): string {
   if (!input.hasPriorAssistantAnswer) return "首次生成需要建立上下文。"
   if (input.forceRefresh) return "用户手动要求强制刷新上下文。"
   if (input.enableMultiAgent) return "固定生成向导或多 Agent 任务需要完整上下文。"
+  if (shouldShowOutlineWorkflowProcess(input)) return "标准大纲工作流需要完整上下文。"
   if (input.attachedReferenceCount > 0) return "本轮带有新的引用资料。"
   if (REFRESH_KEYWORD_PATTERN.test(input.inputText.trim())) {
     return "用户明确要求读取或刷新资料。"
