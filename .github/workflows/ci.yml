@@ -10,17 +10,18 @@ on:
 jobs:
   changes:
     name: Detect changes
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     outputs:
       rust: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.rust }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Filter paths
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -33,6 +34,7 @@ jobs:
   check:
     name: Check Ubuntu
     needs: changes
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -71,7 +73,9 @@ jobs:
   check-windows:
     name: Check Windows (Rust)
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: >-
+      (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') &&
+      needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -96,10 +100,12 @@ jobs:
         run: cargo build
 
   # Warm target/release on the default branch so tag builds can restore it.
-  # GitHub cache is ref-scoped: tags cannot see other tags, but they can see main.
+  # Only when src-tauri changes (or manual dispatch). Frontend merges must not
+  # pay for a 3-platform release compile.
   release-compile:
     name: Release compile ${{ matrix.display }}
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' && needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.platform }}
     env:
       CARGO_PROFILE_RELEASE_LTO: "false"
@@ -159,7 +165,8 @@ jobs:
 
   release-compile-windows:
     name: Release compile Windows x64
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' && needs.changes.outputs.rust == 'true'
     runs-on: windows-latest
     env:
       CARGO_PROFILE_RELEASE_LTO: "false"
