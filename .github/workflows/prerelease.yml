@@ -1,0 +1,161 @@
+name: Windows Prerelease
+
+# 推送到 prerelease 分支时，只打 Windows x64 内测安装包（NSIS + 便携版），
+# 发布为 GitHub prerelease（tag: prerelease）。
+# 不上传 latest.json，正式版自动更新通道不受影响。
+#
+# 首次启用（workflow 合入 main 之后）：
+#   git fetch origin
+#   git push origin origin/main:prerelease
+# 之后把要内测的提交推进 prerelease 即可。
+
+on:
+  push:
+    branches:
+      - prerelease
+  workflow_dispatch:
+
+concurrency:
+  group: windows-prerelease
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-prerelease:
+    name: Build Windows x64 内测包
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: qmai-release
+          add-job-id-key: false
+          cache-on-failure: true
+
+      - name: Install protoc (Windows)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release-assets
+          node scripts/release-notes.mjs "$version" --out release-assets/changelog.txt
+          sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          {
+            echo "QMAI ${version} Windows 内测包"
+            echo
+            echo "- 平台：Windows x64（不含 macOS / Linux）"
+            echo "- 提交：${GITHUB_SHA}"
+            echo "- 短哈希：${sha}"
+            echo "- 来源：\`${GITHUB_REF_NAME}\`"
+            echo
+            echo "本发布为内测，不会标记为 Latest，也不会写入正式版自动更新通道（latest.json）。"
+            echo
+            echo "## 更新说明"
+            echo
+            cat release-assets/changelog.txt
+          } > release-assets/prerelease-notes.txt
+
+      - name: Build Tauri NSIS installer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles nsis
+
+      - name: Package Windows 内测 assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = node -p "require('./package.json').version"
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $assetDir = "release-assets"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem $bundleDir -File -Filter "*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "未找到 Windows 安装包"
+          }
+          $installerName = "QMaiWrite_${version}_windows_X64_prerelease.exe"
+          Copy-Item $installer.FullName (Join-Path $assetDir $installerName) -Force
+
+          node scripts/build-portable.mjs
+          $portableExe = "release-portable/QMaiWrite.exe"
+          if (-not (Test-Path $portableExe)) {
+            throw "便携版 EXE 未生成：$portableExe"
+          }
+          $portableName = "QMaiWrite_${version}_windows_X64_portable_prerelease.exe"
+          Copy-Item $portableExe (Join-Path $assetDir $portableName) -Force
+
+          Write-Host "sha=$sha"
+          Get-ChildItem $assetDir | Format-Table Name, Length -AutoSize
+
+      - name: Publish GitHub prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="prerelease"
+          notes="release-assets/prerelease-notes.txt"
+          version="$(node -p "require('./package.json').version")"
+          sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          title="QMAI ${version} 内测 (Windows ${sha})"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --yes --cleanup-tag
+          fi
+
+          shopt -s nullglob
+          assets=(release-assets/QMaiWrite_*_prerelease.exe)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "未找到 Windows 内测安装包" >&2
+            exit 1
+          fi
+
+          gh release create "$tag" \
+            --title "$title" \
+            --notes-file "$notes" \
+            --prerelease \
+            --latest=false \
+            --target "${GITHUB_SHA}" \
+            "${assets[@]}"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: qmai-windows-x64-prerelease
+          path: |
+            release-assets/QMaiWrite_*_prerelease.exe
+            release-assets/prerelease-notes.txt
+          if-no-files-found: error
+          retention-days: 14
