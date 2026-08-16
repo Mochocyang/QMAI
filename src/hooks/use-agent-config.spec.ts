@@ -361,6 +361,42 @@ describe("useAgentConfig", () => {
     await cleanup()
   }, 15000)
 
+  it("uses the selected chat model for fast-mode conversation output instead of the default agent model", async () => {
+    const providerConfigs: ProviderConfigs = {
+      custom: {
+        enabled: true,
+        apiKey: "test-key",
+        savedModels: [
+          { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
+          { id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 2 },
+        ],
+      },
+    }
+    const { result, cleanup } = await renderHook("test prompt", {
+      wiki: {
+        aiChatModel: "custom/writer-model",
+        defaultLlmModel: "custom/workflow-model",
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+        providerConfigs,
+        project: { path: "/tmp/project" } as WikiProject,
+        aiWorkflowMode: "fast",
+      },
+      skillConfig: {
+        version: 1,
+        defaultSkillId: "built-in:comprehensive",
+        disabledSkillIds: [],
+        projectSkills: [],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      },
+    })
+
+    expect(result.config?.modelId).toBe("writer-model")
+    expect(result.config?.llmConfig.model).toBe("writer-model")
+
+    await cleanup()
+  }, 15000)
+
   it("passes Web Search settings into the web_search agent tool", async () => {
     webSearchMock.mockResolvedValueOnce([])
     const searchApiConfig: SearchApiConfig = {

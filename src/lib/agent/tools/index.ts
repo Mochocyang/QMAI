@@ -59,7 +59,7 @@ export interface ToolFactoryOptions {
   enabledToolNames?: string[]
   disabledTools?: string[]
   llmConfig?: LlmConfig
-  /** 章节正文专用模型。Agent 调度可使用默认模型，但正文仍必须使用聊天框模型。 */
+  /** 章节正文专用模型。Agent 调度可使用默认模型，但正文仍必须使用聊天框模型。快速模式主 Agent 直接出稿，会话模型与此相同。 */
   chapterWritingLlmConfig?: LlmConfig
   aiWorkflowMode?: AiWorkflowMode
   runDeepChapterGeneration?: RunDeepChapterGeneration

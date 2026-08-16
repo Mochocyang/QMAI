@@ -5,6 +5,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
 import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
+import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint" | "deAi"
 
@@ -188,6 +189,22 @@ export function resolveNovelModel(
   }
 
   return toUnusableConfig(llmConfig)
+}
+
+/**
+ * 解析 AI 会话主 Agent 使用的模型。
+ * 快速模式像普通对话/大纲绘制一样由主 Agent 直接出稿，必须用聊天框选中的写作模型。
+ * 标准/严格模式主 Agent 只负责编排，继续用默认模型；正文由 chapterWritingLlmConfig 走聊天模型。
+ */
+export function resolveAgentSessionModel(
+  baseConfig: LlmConfig,
+  novelConfig: NovelConfig,
+  workflowMode: AiWorkflowMode,
+): LlmConfig {
+  if (workflowMode === "fast") {
+    return resolveNovelModel(baseConfig, novelConfig, "writing")
+  }
+  return resolveDefaultModel(baseConfig)
 }
 
 export function formatResolvedModelLabel(

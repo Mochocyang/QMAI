@@ -6,7 +6,7 @@ export { buildContextPack, contextPackToPrompt, type ContextPack } from "./conte
 export { ingestChapter, ingestChapterPipeline, ingestOutline, loadSnapshot, listSnapshots, deleteChapterSnapshots, finalizeProjectMemoryRebuild, syncSnapshotToMemory, type ChapterSnapshot, type CharacterDetail, type LocationDetail, type OrganizationDetail, type ItemDetail, type EventDetail, type IngestResult, type IngestFailReason, type OutlineIngestResult, type IngestOutlineOptions, type SyncSnapshotToMemoryOptions } from "./chapter-ingest"
 export { reviewChapter, type NovelReviewResult } from "./review-adapter"
 export { runNovelLint, buildNovelLintPrompt, type NovelLintResult } from "./lint"
-export { resolveNovelModel, type NovelTaskType } from "./model-resolver"
+export { resolveNovelModel, resolveAgentSessionModel, type NovelTaskType } from "./model-resolver"
 export { resolveReviewModel } from "./review-model"
 export { novelMixedSearch, searchPlot, type NovelSearchParams, type NovelSearchResult } from "./search-adapter"
 export { PROMPTS } from "./prompt-templates"

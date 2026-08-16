@@ -5,7 +5,7 @@ import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
 import { loadAllLinkedSkillsContent, loadUserSkillConfig, resolveEnabledWritingSkills } from "@/lib/novel/user-skill-store"
 import type { UserSkill } from "@/lib/novel/skill-library"
-import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
+import { resolveAgentSessionModel, resolveModelConfig } from "@/lib/novel/model-resolver"
 import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
@@ -29,7 +29,7 @@ export interface UseAgentConfigResult {
 export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => string | undefined): UseAgentConfigResult {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
-  const novelDefaultLlmModel = useWikiStore((s) => s.novelConfig.defaultLlmModel)
+  const novelConfig = useWikiStore((s) => s.novelConfig)
   const projectPath = useWikiStore((s) => s.project?.path)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const baseLlmConfig = useWikiStore((s) => s.llmConfig)
@@ -110,7 +110,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
   )
 
   return useMemo(() => {
-    const agentLlmConfig = resolveDefaultModel(baseLlmConfig)
+    const agentLlmConfig = resolveAgentSessionModel(baseLlmConfig, novelConfig, aiWorkflowMode)
     const modelOk = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
     const fcEnabled = isFunctionCallingEnabled(agentLlmConfig)
     const supportsTools = modelOk && fcEnabled
@@ -171,7 +171,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
   }, [
     aiChatModel,
     defaultLlmModel,
-    novelDefaultLlmModel,
+    novelConfig,
     projectPath,
     skillConfigLoaded,
     baseLlmConfig,
