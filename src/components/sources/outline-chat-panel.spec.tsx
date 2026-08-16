@@ -474,8 +474,17 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("OutlineStandardWorkflowPanel")
     expect(source).toContain("shouldUseOutlineStandardWorkflowCard")
     expect(source).toContain("useStandardWorkflowCard")
+    expect(source).toContain("msg.multiAgentRun ? null")
+    expect(source).toContain("isRunning={Boolean(msg.isAgentRunning)}")
     expect(source).not.toContain("enableMultiAgent: true")
     expect(source).toContain("enableMultiAgent: !fastMode")
+  })
+
+  it("上下文复用重算历史计划时仍带上标准工作流过程标志", () => {
+    expect(source).toContain("summaryInSystem: true")
+    expect(source).toContain("workflowMode: outlineMode")
+    expect(source).toContain("intentPhase: options.intentPhase")
+    expect(source).toContain("enableMultiAgent,")
   })
 
   it("顶栏会话 chips 保底可见，阶段徽章不和会话列表抢宽度", () => {

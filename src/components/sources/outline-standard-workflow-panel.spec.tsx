@@ -128,4 +128,29 @@ describe("OutlineStandardWorkflowPanel", () => {
 
     expect(host.textContent).toBe("")
   })
+
+  it("已经出现过的卡片不会因为工具列表被短暂清空而卸掉", async () => {
+    await act(async () => {
+      root.render(
+        <OutlineStandardWorkflowPanel
+          intentPhase="generation"
+          isRunning
+          toolCalls={sampleCalls}
+        />,
+      )
+    })
+    expect(host.textContent).toContain("大纲生成工作流")
+
+    await act(async () => {
+      root.render(
+        <OutlineStandardWorkflowPanel
+          intentPhase="generation"
+          toolCalls={[]}
+        />,
+      )
+    })
+    expect(host.textContent).toContain("大纲生成工作流")
+    expect(host.innerHTML).toContain("bg-sky-50/45")
+    expect(host.textContent).not.toContain("思考 0 段")
+  })
 })

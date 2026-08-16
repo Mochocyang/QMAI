@@ -1082,13 +1082,13 @@ function OutlineAssistantMessage({
         onResume={() => { void onResumeMultiAgent(msg.id) }}
         resumeDisabled={resumeMultiAgentDisabled}
       />
-      {useStandardWorkflowCard ? (
+      {msg.multiAgentRun ? null : useStandardWorkflowCard ? (
         <OutlineStandardWorkflowPanel
           intentPhase={msg.intentPhase}
-          isRunning={messageIsStreaming || Boolean(msg.isAgentRunning)}
+          isRunning={Boolean(msg.isAgentRunning)}
           toolCalls={msg.agentToolCalls}
           thinkingContent={thinking || undefined}
-          thinkingStreaming={messageIsStreaming}
+          thinkingStreaming={Boolean(thinking) && Boolean(msg.isAgentRunning)}
           onConfirmSave={onConfirmToolSave}
           onReject={onRejectTool}
         />
@@ -2188,6 +2188,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             contextDecision,
             cachedSummary: contextHubResult.sessionSummary || undefined,
             summaryInSystem: true,
+            workflowMode: outlineMode,
+            intentPhase: options.intentPhase,
+            enableMultiAgent,
           });
         }
 

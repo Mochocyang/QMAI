@@ -1,3 +1,4 @@
+import { useRef } from "react"
 import {
   CheckCircle2,
   ChevronRight,
@@ -70,11 +71,14 @@ export function OutlineStandardWorkflowPanel({
 }: OutlineStandardWorkflowPanelProps) {
   const safeToolCalls = toolCalls ?? []
   const toolsRunning = safeToolCalls.some((call) => call.status === "running")
-  const running = isRunning || Boolean(thinkingStreaming) || toolsRunning
+  const running = isRunning || toolsRunning
   const failedCount = safeToolCalls.filter((call) => call.status === "error").length
   const doneCount = safeToolCalls.filter((call) => call.status === "done").length
   const hasContent = safeToolCalls.length > 0 || Boolean(thinkingContent) || running
-  if (!hasContent) return null
+  const hasShownRef = useRef(false)
+  if (hasContent) hasShownRef.current = true
+  // 过程中工具数组/运行状态会短暂清空；一旦出现过就不要卸掉天空色卡片，否则会和左边框时间线来回闪。
+  if (!hasShownRef.current) return null
 
   const status: "running" | "done" | "error" = running
     ? "running"
@@ -123,7 +127,7 @@ export function OutlineStandardWorkflowPanel({
         <AgentToolCallMessage
           toolCalls={safeToolCalls}
           thinkingContent={thinkingContent}
-          thinkingStreaming={thinkingStreaming || (running && safeToolCalls.length === 0)}
+          thinkingStreaming={Boolean(thinkingStreaming) || (running && safeToolCalls.length === 0)}
           chrome="none"
           showEventSummary={false}
           onConfirmSave={onConfirmSave}
