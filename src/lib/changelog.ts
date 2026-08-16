@@ -7,6 +7,25 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_THREE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.3",
+  date: "2026-08-16",
+  highlights: {
+    en: [
+      "[Fast Mode Uses Your Selected Model] Fast mode now writes with the writing model you pick in the chat box, instead of silently switching to the default model.",
+      "[@ Skills Now Applied When Writing] Skills you pick with @, or skill names you type, now actually get used when writing chapters.",
+      "[Outline Standard Mode Visible Again] Standard-mode generation steps show up in the conversation again, and the cards no longer flicker.",
+      "[Context Usage Bar No Longer Looks Full] The usage bar fills against the context limit, so half used looks half full.",
+    ],
+    zh: [
+      "【快速模式用你选的写作模型】快速模式会用聊天框里选中的写作模型来写，不再偷偷换成默认模型",
+      "【写正文时真正用上 @技能】用 @ 选中的技能，或直接写技能名，写章节时都会真正用上",
+      "【大纲标准模式过程重新看得见】标准模式生成时，过程重新显示在对话里，卡片也不再闪来闪去",
+      "【上下文用量条不再虚满】用量条按上下文上限显示，用了一半就显示一半，不会半满却铺满整根",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_TWO_CHANGELOG: ChangelogEntry = {
   version: "3.2.2",
   date: "2026-08-15",
@@ -1195,6 +1214,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_THREE_CHANGELOG,
   THREE_POINT_TWO_TWO_CHANGELOG,
   THREE_POINT_TWO_ONE_CHANGELOG,
   THREE_POINT_TWO_ZERO_CHANGELOG,
@@ -1263,6 +1283,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_THREE_CHANGELOG.version)
+    return [THREE_POINT_TWO_THREE_CHANGELOG];
   if (version === THREE_POINT_TWO_TWO_CHANGELOG.version)
     return [THREE_POINT_TWO_TWO_CHANGELOG];
   if (version === THREE_POINT_TWO_ONE_CHANGELOG.version)
@@ -1372,6 +1394,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_THREE_CHANGELOG,
     THREE_POINT_TWO_TWO_CHANGELOG,
     THREE_POINT_TWO_ONE_CHANGELOG,
     THREE_POINT_TWO_ZERO_CHANGELOG,
@@ -1425,6 +1448,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_THREE_CHANGELOG &&
         entry !== THREE_POINT_TWO_TWO_CHANGELOG &&
         entry !== THREE_POINT_TWO_ONE_CHANGELOG &&
         entry !== THREE_POINT_TWO_ZERO_CHANGELOG &&
