@@ -263,6 +263,33 @@ function resolveChapterWorkflowProfile(
   };
 }
 
+function workflowModeLabel(profile: ChapterWorkflowProfile): string {
+  if (profile.mode === "fast") return "快速模式";
+  if (profile.mode === "standard") return "标准模式";
+  return "严格模式";
+}
+
+function describeContextPackHandoff(profile: ChapterWorkflowProfile): string {
+  if (profile.runAiReview || profile.runFinalPolish) {
+    return "已形成章节生成约束包，将传入写作任务书、正文初稿、审稿和最终去AI味阶段。";
+  }
+  return "已形成章节生成约束包，将传入写作任务书和正文初稿后直接完成。";
+}
+
+function describeSkippedReviewAndPolish(profile: ChapterWorkflowProfile): string {
+  const skipped = ["AI 审稿", "返修"];
+  if (!profile.runFinalPolish) skipped.push("最终去AI味");
+  return `${workflowModeLabel(profile)}跳过 ${skipped.join("、")}，直接使用阶段3正文初稿。`;
+}
+
+function describeSkippedFinalPolish(profile: ChapterWorkflowProfile): string {
+  return `${workflowModeLabel(profile)}跳过最终去AI味，直接采用阶段3正文作为最终正文。`;
+}
+
+function describeSkippedPostDraftCompletion(profile: ChapterWorkflowProfile): string {
+  return `${workflowModeLabel(profile)}已完成任务书与正文初稿生成，直接采用阶段3正文作为最终正文。`;
+}
+
 interface ChapterWorkflowStepSpec {
   name: string;
   title: string;
@@ -651,8 +678,7 @@ export async function runDeepChapterGeneration(
       stageId: "read_context",
       kind: "stage_output",
       title: "阶段产物",
-      content:
-        "已形成章节生成约束包，将传入写作任务书、正文初稿、审稿和最终去AI味阶段。",
+      content: describeContextPackHandoff(workflowProfile),
     });
   }
 
@@ -1066,17 +1092,13 @@ export async function runDeepChapterGeneration(
           detail: "根据当前模式决定是否执行 AI 审稿。",
           params: workflowBaseParams,
         },
-        workflowProfile.mode === "fast"
-          ? "快速模式跳过 AI 审稿、返修和最终去AI味，直接使用阶段3正文初稿。"
-          : "标准模式跳过 AI 审稿与自动返修，初稿将进入阶段6简单审查与去AI味。",
+        describeSkippedReviewAndPolish(workflowProfile),
         { skipped: true },
       );
       callbacks.onThinking?.(
         formatStageThinking(
           "阶段4-5：已跳过审稿与返修",
-          workflowProfile.mode === "fast"
-            ? "快速模式跳过 AI 审稿、返修和最终去AI味，直接使用阶段3正文初稿。"
-            : "标准模式跳过 AI 审稿与自动返修，初稿将进入阶段6简单审查与去AI味。",
+          describeSkippedReviewAndPolish(workflowProfile),
         ),
       );
       emitDeepChapterActivity(callbacks, {
@@ -1084,10 +1106,7 @@ export async function runDeepChapterGeneration(
         stageId: "validate_revision",
         kind: "analysis",
         title: "审稿分析",
-        content:
-          workflowProfile.mode === "fast"
-            ? "快速模式跳过 AI 审稿、返修和最终去AI味，直接使用阶段3正文初稿。"
-            : "标准模式跳过 AI 审稿与自动返修，初稿将进入阶段6简单审查与去AI味。",
+        content: describeSkippedReviewAndPolish(workflowProfile),
       });
     } else {
       const reviewWorkflowStep: ChapterWorkflowStepSpec = {
@@ -1443,7 +1462,7 @@ export async function runDeepChapterGeneration(
     completeChapterWorkflowStep(
       callbacks,
       finalPolishWorkflowStep,
-      "快速模式跳过最终去AI味，直接采用阶段3正文作为最终正文。",
+      describeSkippedFinalPolish(workflowProfile),
       { skipped: true, chars: countChapterChars(finalContent) },
     );
   } else {
@@ -1464,7 +1483,7 @@ export async function runDeepChapterGeneration(
           : revised
           ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
           : "未发现阻断问题，已完成最后一遍简单审查与去AI味。"
-        : "快速模式已完成任务书与正文初稿生成，直接采用阶段3正文作为最终正文。",
+        : describeSkippedPostDraftCompletion(workflowProfile),
     ),
   );
   emitDeepChapterActivity(callbacks, {

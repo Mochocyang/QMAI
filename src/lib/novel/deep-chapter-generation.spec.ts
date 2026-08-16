@@ -1215,11 +1215,18 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
+    const contextOutput = activityEvents.find(
+      (event) => event.stageId === "read_context" && event.kind === "stage_output",
+    )
+
     expect(activityEvents.some((event) => event.kind === "read_source" && event.content.includes("上一章结尾"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "extract_goal" && event.content.includes("上一章结尾"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "extract_result" && event.content.includes("门缝里传来金属拖拽声"))).toBe(true)
     expect(activityEvents.some((event) => event.kind === "stage_output" && event.content.includes("任务书"))).toBe(true)
     expect(activityEvents.some((event) => event.stageId === "final_polish")).toBe(false)
+    expect(contextOutput?.content).toContain("写作任务书和正文初稿后直接完成")
+    expect(contextOutput?.content).not.toContain("审稿和最终去AI味")
+    expect(activityEvents.some((event) => event.content.includes("进入阶段6"))).toBe(false)
   })
 
   it("emits a dedicated 去AI味 stage between 校验与修正 and 最终输出", async () => {
@@ -1254,8 +1261,13 @@ describe("runDeepChapterGeneration", () => {
       (event) => event.stageId === "final_output" && event.kind === "final_output",
     )
 
+    const contextOutput = activityEvents.find(
+      (event) => event.stageId === "read_context" && event.kind === "stage_output",
+    )
+
     expect(polishStarted?.content).toContain("去除复读、机械套话和 AI 味")
     expect(polishOutput?.content).toContain("简单审查与去AI味完成")
+    expect(contextOutput?.content).toContain("审稿和最终去AI味阶段")
     expect(validateOutputIndex).toBeGreaterThanOrEqual(0)
     expect(polishStartedIndex).toBeGreaterThan(validateOutputIndex)
     expect(finalOutputIndex).toBeGreaterThan(polishStartedIndex)
@@ -1443,26 +1455,36 @@ describe("runDeepChapterGeneration", () => {
   it("uses fast, standard, and strict workflow routes", async () => {
     const skippedCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
     const fastDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
+    const fastActivity: AgentActivityEvent[] = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "fast" },
-      {},
+      { onActivityEvent: (event) => fastActivity.push(event) },
       fastDeps,
     )
     expect(fastDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
     expect(skippedCollect).not.toHaveBeenCalled()
+    expect(fastActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
+    expect(fastActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
 
     const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
     const standardThinking: string[] = []
+    const standardActivity: AgentActivityEvent[] = []
     await runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
-      { onThinking: (content) => standardThinking.push(content) },
+      {
+        onThinking: (content) => standardThinking.push(content),
+        onActivityEvent: (event) => standardActivity.push(event),
+      },
       standardDeps,
     )
     expect(standardDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(standardDeps.reviewChapter).not.toHaveBeenCalled()
     expect(standardThinking.join("\n")).toContain("阶段4：标准完成")
     expect(standardThinking.join("\n")).not.toContain("快速模式")
+    expect(standardThinking.join("\n")).not.toContain("进入阶段6")
+    expect(standardActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
+    expect(standardActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
     expect(skippedCollect).not.toHaveBeenCalled()
 
     const collectWritingEntityWebSearch = vi.fn(async () => ({
