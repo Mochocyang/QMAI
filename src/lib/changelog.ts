@@ -7,6 +7,19 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "3.2.4",
+  date: "2026-08-16",
+  highlights: {
+    en: [
+      "[Fast/Standard Mode Copy] Fast and Standard modes no longer preview that they will enter review or de-AI polishing; process copy now matches the actual flow, which finishes after the draft.",
+    ],
+    zh: [
+      "【快速/标准模式文案】快速和标准模式不再预告会进入审稿和去AI味，过程说明和实际流程一致",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_THREE_CHANGELOG: ChangelogEntry = {
   version: "3.2.3",
   date: "2026-08-16",
@@ -1214,6 +1227,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_FOUR_CHANGELOG,
   THREE_POINT_TWO_THREE_CHANGELOG,
   THREE_POINT_TWO_TWO_CHANGELOG,
   THREE_POINT_TWO_ONE_CHANGELOG,
@@ -1283,6 +1297,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_FOUR_CHANGELOG.version)
+    return [THREE_POINT_TWO_FOUR_CHANGELOG];
   if (version === THREE_POINT_TWO_THREE_CHANGELOG.version)
     return [THREE_POINT_TWO_THREE_CHANGELOG];
   if (version === THREE_POINT_TWO_TWO_CHANGELOG.version)
@@ -1394,6 +1410,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_FOUR_CHANGELOG,
     THREE_POINT_TWO_THREE_CHANGELOG,
     THREE_POINT_TWO_TWO_CHANGELOG,
     THREE_POINT_TWO_ONE_CHANGELOG,
@@ -1448,6 +1465,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_FOUR_CHANGELOG &&
         entry !== THREE_POINT_TWO_THREE_CHANGELOG &&
         entry !== THREE_POINT_TWO_TWO_CHANGELOG &&
         entry !== THREE_POINT_TWO_ONE_CHANGELOG &&
