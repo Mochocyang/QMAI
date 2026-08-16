@@ -55,11 +55,48 @@ describe("ContextUsageRing", () => {
     container.remove()
   })
 
+  async function openTooltip() {
+    const trigger = container.querySelector("button")
+    expect(trigger).toBeTruthy()
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
+      trigger?.focus()
+      trigger?.click()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
+  function filledBarPercent(): number {
+    const bar = document.querySelector<HTMLElement>('[data-testid="context-usage-bar"]')
+    expect(bar).toBeTruthy()
+    return Array.from(bar!.children).reduce((sum, node) => {
+      const width = (node as HTMLElement).style.width
+      return sum + Number.parseFloat(width || "0")
+    }, 0)
+  }
+
   it("renders nothing without usage", async () => {
     await act(async () => {
       root.render(<ContextUsageRing />)
     })
     expect(container.textContent).toBe("")
+  })
+
+  it("fills the usage bar against the context window, not used tokens", async () => {
+    await act(async () => {
+      root.render(<ContextUsageRing usage={usage} />)
+    })
+    await openTooltip()
+
+    const filled = filledBarPercent()
+    expect(filled).toBeCloseTo((usage.totalTokens / usage.windowTokens) * 100, 5)
+    expect(filled).toBe(23)
+    expect(filled).toBeLessThan(100)
+
+    const history = document.querySelector<HTMLElement>('[data-segment="history"]')
+    expect(history?.style.width).toBe("4%")
   })
 
   it("shows percent and warns when nearly full", async () => {
