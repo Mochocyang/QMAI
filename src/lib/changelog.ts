@@ -15,13 +15,11 @@ const THREE_POINT_TWO_TWO_CHANGELOG: ChangelogEntry = {
       "[Qwen3.5/3.6 Ollama 500 Fix] Extra system messages for Qwen3.5/3.6 are merged into the first one, so local Ollama chapter writing and outline generation no longer fail with HTTP 500 (System message must be at the beginning).",
       "[Re-extract Overwrites Timeline] Re-extracting chapter memory now replaces that chapter's tracking timeline instead of appending, so the same events no longer pile up as duplicate rows.",
       "[Faster Chapter Memory Extract] Chapter ingest uses fewer tokens and skips duplicate wiki/snapshot writes; re-extract rebuilds derived memory from snapshots instead of stacking old foreshadowing and cognition.",
-      "[Fast Writing Uses Selected Model] Fast-mode chat/output now uses the writing model selected in the chat picker, not the default main-agent orchestration model.",
     ],
     zh: [
       "【Qwen3.5/3.6 Ollama 500 修复】本地 Ollama 用 Qwen3.5/3.6 写章节或大纲时，多余的 system 会合到第一条，不再报 HTTP 500（System message must be at the beginning）",
       "【重提取覆盖时间线】重新提取章节记忆时，该章 tracking 时间线改为覆盖而不是追加，同一批事件不会再堆出重复行",
       "【章节记忆提取更快】摄取少耗 token、去掉重复写入；重提取从快照重建派生记忆，不再把旧认知/伏笔叠进去",
-      "【快速写作用所选模型】快速模式下对话/出稿改用聊天框选中的写作模型，不再误用默认主 Agent 编排模型",
     ],
   },
 };
