@@ -7,6 +7,8 @@ import {
   DEEP_CHAPTER_TARGET_CHARS,
   buildDeepChapterBriefPrompt,
   buildDeepChapterDraftPrompt,
+  buildDeepChapterRevisionPrompt,
+  buildStableContextPrefix,
   resolveChapterLengthSpec,
 } from "./deep-chapter-prompts"
 
@@ -51,5 +53,22 @@ describe("chapter prompts honor the configured length spec", () => {
     expect(draft).toContain("目标约 2000 字")
     expect(draft).toContain(`阶段3正文草稿最多 ${spec.draftMaxChars} 字`)
     expect(draft).not.toContain("目标约 3000 字")
+  })
+
+  it("injects skills after the stable cache prefix in brief, draft and revision prompts", () => {
+    const outline = "# 大纲"
+    const context = "上下文包"
+    const skillsPrompt = "## 本次启用 Skill\n规则：combat-action"
+    const prefix = buildStableContextPrefix(outline, context)
+    const spec = resolveChapterLengthSpec(2000)
+    const brief = buildDeepChapterBriefPrompt(outline, context, "写下一章", 5, undefined, spec, undefined, undefined, skillsPrompt)
+    const draft = buildDeepChapterDraftPrompt(outline, context, "任务书", "写下一章", 5, undefined, spec, skillsPrompt)
+    const revision = buildDeepChapterRevisionPrompt(outline, context, "任务书", "初稿", [], "写下一章", 5, undefined, skillsPrompt)
+
+    for (const prompt of [brief, draft, revision]) {
+      expect(prompt.startsWith(prefix)).toBe(true)
+      expect(prompt).toContain(skillsPrompt)
+      expect(prompt.indexOf(skillsPrompt)).toBeGreaterThan(prefix.length)
+    }
   })
 })

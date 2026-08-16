@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_SKILL_HUB_SKILLS } from "./skill-hub-seed"
 import {
+  collectExplicitSkills,
   findSkillRouteByAlias,
   getOutlineSkillNames,
   getSkillRouteSkillNames,
@@ -65,5 +66,23 @@ describe("skill route registry", () => {
     const result = resolveAvailableSkillsByNames([], ["chapter-outline-builder"])
     expect(result.skills).toEqual([])
     expect(result.missingNames).toEqual(["chapter-outline-builder"])
+  })
+
+  it("collects explicit skills from canonical names and @ skill ids, not short aliases", () => {
+    const combat = DEFAULT_SKILL_HUB_SKILLS.find((skill) => skill.name === "combat-action")
+    expect(combat).toBeTruthy()
+    const short = { id: "short:dialog", name: "对话" }
+    const skills = [combat!, short]
+
+    expect(collectExplicitSkills(skills, "写下一章 combat-action").map((skill) => skill.name)).toEqual([
+      "combat-action",
+    ])
+    expect(collectExplicitSkills(skills, "写一段对话").map((skill) => skill.name)).toEqual([])
+    expect(collectExplicitSkills(skills, "写下一章", [{ skillId: combat!.id }]).map((skill) => skill.name)).toEqual([
+      "combat-action",
+    ])
+    expect(collectExplicitSkills(skills, "写下一章", [{ skillId: short.id }]).map((skill) => skill.name)).toEqual([
+      "对话",
+    ])
   })
 })

@@ -26,7 +26,11 @@ export interface UseAgentConfigResult {
   mcpWarnings: string[]
 }
 
-export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => string | undefined): UseAgentConfigResult {
+export function useAgentConfig(
+  systemPrompt: string,
+  getPlanBlueprint?: () => string | undefined,
+  getSelectedSkillsPrompt?: () => string | undefined,
+): UseAgentConfigResult {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
   const novelConfig = useWikiStore((s) => s.novelConfig)
@@ -155,6 +159,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
       draftMode: novelMode,
       projectPath: normalizePath(projectPath),
       getPlanBlueprint,
+      getSelectedSkillsPrompt,
       disabledTools: ["write_chapter", "write_outline_node", "write_memory"],
     })
 
@@ -185,5 +190,7 @@ export function useAgentConfig(systemPrompt: string, getPlanBlueprint?: () => st
     writingSkills,
     getChatConversations,
     getOutlineConversations,
+    getPlanBlueprint,
+    getSelectedSkillsPrompt,
   ])
 }

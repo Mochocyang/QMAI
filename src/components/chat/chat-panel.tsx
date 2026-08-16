@@ -126,6 +126,7 @@ import { runNovelPrePluginChain } from "@/lib/agent/novel-pre-plugin-chain"
 import { buildInitialContextTraceInfo } from "@/lib/agent/context-trace-builders"
 import { runPostWriteCheckAI } from "@/lib/agent/plugins/post-write-check-ai"
 import { buildSelectedSkillsPrompt } from "@/lib/agent/plugins/select-skills-plugin"
+import { collectExplicitSkills } from "@/lib/novel/skill-route-registry"
 import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import { getLoadedCategories, DATA_SOURCE_CATEGORY_LABELS } from "@/lib/novel/classification"
 // import { RetrievalStore } from "@/lib/novel/retrieval"
@@ -1007,6 +1008,11 @@ export function ChatPanel() {
     ],
   )
   // 存储用户最近确认的章节计划，供 run_chapter_workflow 兜底注入，不依赖模型是否自觉传参。
+  const selectedSkillsPromptRef = useRef("")
+  const getSelectedSkillsPrompt = useCallback(() => {
+    const value = selectedSkillsPromptRef.current.trim()
+    return value || undefined
+  }, [])
   const {
     config: agentConfig,
     registry: agentRegistry,
@@ -1015,7 +1021,7 @@ export function ChatPanel() {
     skillConfig: agentSkillConfig,
     writingSkills: agentUserWritingSkills,
     mcpCapabilities: agentMcpCapabilities,
-  } = useAgentConfig(agentSystemPrompt)
+  } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)
   const deferredReferenceText = useDeferredValue(referenceText)
   const liveContextUsage = useMemo(() => {
     const historyMessages = selectContextHistoryMessages(
@@ -1487,6 +1493,14 @@ export function ChatPanel() {
       let goldenDirective = ""
       let prePluginResult: PrePluginChainResult | null = null
       const shouldRunNovelPrePluginChain = novelMode && (aiWorkflowMode !== "fast" || planExecuteActive)
+      const explicitSkills = collectExplicitSkills(
+        availableAgentSkills,
+        plainText,
+        tokens
+          .filter((token) => Boolean(token.skillId) || token.category === "skill")
+          .map((token) => ({ skillId: token.skillId, title: token.title })),
+      )
+      selectedSkillsPromptRef.current = ""
       void shouldRunNovelPrePluginChain
       let hasAgentError = false
       let lastAgentError = "生成失败"
@@ -1650,6 +1664,7 @@ export function ChatPanel() {
               aiWorkflowMode,
               planExecuteEnabled: planExecuteActive,
               availableSkills: availableAgentSkills,
+              selectedSkills: explicitSkills,
               mcpCapabilities: agentMcpCapabilities,
               selectedFile,
             },
@@ -1668,6 +1683,11 @@ export function ChatPanel() {
         effectiveTaskRoute = prePluginResult.effectiveTaskRoute ?? effectiveTaskRoute
         contextPack = prePluginResult.contextPack || null
       }
+      const sessionSelectedSkills = prePluginResult?.selectedSkills?.length
+        ? prePluginResult.selectedSkills
+        : explicitSkills
+      const sessionSkillsPrompt = buildSelectedSkillsPrompt(sessionSelectedSkills)
+      selectedSkillsPromptRef.current = sessionSkillsPrompt
 
       if (novelMode) {
         const now = Date.now()
@@ -1685,7 +1705,7 @@ export function ChatPanel() {
           kind: "skill_used",
           title: "本次启用 Skill",
           content: buildSelectedSkillsActivityContent(
-            prePluginResult?.selectedSkills,
+            sessionSelectedSkills,
             (prePluginResult?.missingSkillNames as string[] | undefined) ?? [],
           ),
           timestamp: now + 1,
@@ -1781,8 +1801,8 @@ export function ChatPanel() {
             "",
             "## 当前会话去AI味技能",
             buildDeAiSkillSystemPrompt(effectiveDeAiSkill.content),
-            (!prePluginSystemPrompt && prePluginResult?.selectedSkills && prePluginResult.selectedSkills.length > 0
-              ? `## 当前会话写作技能\n${buildSelectedSkillsPrompt(prePluginResult.selectedSkills)}`
+            (!prePluginSystemPrompt && sessionSelectedSkills.length > 0
+              ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
               : ""),
           ].filter(Boolean).join("\n")
         : [
@@ -1798,8 +1818,8 @@ export function ChatPanel() {
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
             goldenDirective,
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
-            !prePluginSystemRulesPrompt && !hasSplitSystemRules && prePluginResult?.selectedSkills?.length
-              ? `## 当前会话写作技能\n${buildSelectedSkillsPrompt(prePluginResult.selectedSkills)}`
+            !prePluginSystemRulesPrompt && !hasSplitSystemRules && sessionSelectedSkills.length > 0
+              ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
               : "",
           ])
         : null

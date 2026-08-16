@@ -218,4 +218,72 @@ describe("SelectSkillsPlugin", () => {
       "正文输出协议",
     ])
   })
+
+  it("prepends @ selected skills and canonical name hits before auto-routed skills", async () => {
+    const plugin = createSelectSkillsPlugin()
+    const combat = skill({
+      id: "combat",
+      name: "combat-action",
+      kind: ["style"],
+      stages: ["drafting"],
+      modes: ["fast", "standard", "strict"],
+      categoryId: SKILL_ROUTE_CATEGORY_IDS.writing,
+    })
+
+    const fromName = await plugin.run({
+      userMessage: "写下一章 combat-action",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "standard",
+      availableSkills: [...availableSkills, combat],
+      taskRoute: { intent: "write_chapter", confidence: 0.95, extractedParams: {} },
+    })
+    expect(fromName.selectedSkills?.map((item) => item.name)).toEqual([
+      "combat-action",
+      "正文输出协议",
+      "基础去AI味",
+    ])
+
+    const fromToken = await plugin.run({
+      userMessage: "写下一章",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "standard",
+      availableSkills: [...availableSkills, combat],
+      selectedSkills: [combat],
+      taskRoute: { intent: "write_chapter", confidence: 0.95, extractedParams: {} },
+    })
+    expect(fromToken.selectedSkills?.map((item) => item.name)).toEqual([
+      "combat-action",
+      "正文输出协议",
+      "基础去AI味",
+    ])
+  })
+
+  it("keeps explicit skills in fast mode without auto-selecting helpers", async () => {
+    const plugin = createSelectSkillsPlugin()
+    const combat = skill({
+      id: "combat",
+      name: "combat-action",
+      kind: ["style"],
+      stages: ["drafting"],
+      modes: ["fast", "standard", "strict"],
+      categoryId: SKILL_ROUTE_CATEGORY_IDS.writing,
+    })
+
+    const result = await plugin.run({
+      userMessage: "直接写下一章 combat-action",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "fast",
+      availableSkills: [...availableSkills, combat],
+      selectedSkills: [combat],
+      taskRoute: { intent: "write_chapter", confidence: 0.95, extractedParams: {} },
+    })
+
+    expect(result.selectedSkills?.map((item) => item.name)).toEqual(["combat-action"])
+  })
 })
