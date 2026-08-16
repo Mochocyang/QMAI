@@ -75,6 +75,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: qmai-release
+          add-job-id-key: false
+          cache-on-failure: true
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'

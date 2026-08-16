@@ -5,18 +5,114 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
+  changes:
+    name: Detect changes
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    outputs:
+      rust: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.rust }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+
+      - name: Filter paths
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src-tauri/**'
+
+  # PR / manual only. Merge to main already passed this on the PR;
+  # do not compile the same debug tree again.
   check:
+    name: Check Ubuntu
+    needs: changes
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check frontend build
+        run: npx vite build
+
+      - name: Check Rust build
+        working-directory: src-tauri
+        run: cargo build
+
+  check-windows:
+    name: Check Windows (Rust)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Check Rust build
+        working-directory: src-tauri
+        run: cargo build
+
+  # Warm target/release on the default branch so tag builds can restore it.
+  # GitHub cache is ref-scoped: tags cannot see other tags, but they can see main.
+  release-compile:
+    name: Release compile ${{ matrix.display }}
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.platform }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
           - platform: ubuntu-22.04
-          - platform: windows-latest
-
-    runs-on: ${{ matrix.platform }}
+            display: Linux x64
+          - platform: macos-latest
+            display: macOS
 
     steps:
       - name: Checkout
@@ -37,8 +133,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf protobuf-compiler
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: qmai-release
+          add-job-id-key: false
+          cache-on-failure: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npx vite build
+
+      - name: Cargo release build
+        working-directory: src-tauri
+        run: cargo build --release
+
+  release-compile-windows:
+    name: Release compile Windows x64
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install protoc (Windows)
-        if: matrix.platform == 'windows-latest'
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -47,18 +181,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: qmai-release
+          add-job-id-key: false
+          cache-on-failure: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: npm
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Check frontend build
+      - name: Build frontend
         run: npx vite build
 
-      - name: Check Rust build
+      - name: Cargo release build
         working-directory: src-tauri
-        run: cargo build
+        run: cargo build --release
