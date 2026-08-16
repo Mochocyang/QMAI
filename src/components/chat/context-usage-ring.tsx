@@ -40,22 +40,26 @@ function ringStrokeColor(ratio: number): string {
   return "#22c55e"
 }
 
-function SegmentBar({ segments, totalTokens }: {
+function SegmentBar({ segments, windowTokens }: {
   segments: ContextUsageSnapshot["segments"]
-  totalTokens: number
+  windowTokens: number
 }) {
   const ordered = CONTEXT_USAGE_SEGMENT_ORDER
     .map((key) => segments.find((segment) => segment.key === key))
     .filter((segment): segment is NonNullable<typeof segment> => Boolean(segment && segment.tokens > 0))
-  const denominator = Math.max(1, totalTokens)
+  const denominator = Math.max(1, windowTokens)
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+    <div
+      data-testid="context-usage-bar"
+      className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
+    >
       {ordered.map((segment) => (
         <div
           key={segment.key}
-          className="h-full"
+          className="h-full shrink-0"
+          data-segment={segment.key}
           style={{
-            width: `${Math.max(1, (segment.tokens / denominator) * 100)}%`,
+            width: `${(segment.tokens / denominator) * 100}%`,
             backgroundColor: SEGMENT_COLORS[segment.key] ?? "#94a3b8",
           }}
         />
@@ -142,24 +146,24 @@ export function ContextUsageRing({
           className="w-72 max-w-none border border-border bg-popover p-3 text-popover-foreground shadow-md"
         >
           <div className="space-y-2.5 text-left">
-            <div className="flex items-baseline justify-between gap-3">
-              <div>
-                <div className="text-xs font-medium">{t("chat.contextUsage.title")}</div>
-                <div className="mt-0.5 text-sm font-semibold">
+            <div className="space-y-1">
+              <div className="text-xs font-medium">{t("chat.contextUsage.title")}</div>
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="text-sm font-semibold">
                   {t("chat.contextUsage.percentFull", { percent })}
                 </div>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {usage.estimated ? "~" : ""}
-                {formatContextTokenCount(usage.totalTokens)}
-                {" / "}
-                {formatContextTokenCount(usage.windowTokens)}
-                {" "}
-                {t("chat.contextUsage.tokens")}
+                <div className="text-xs text-muted-foreground">
+                  {usage.estimated ? "~" : ""}
+                  {formatContextTokenCount(usage.totalTokens)}
+                  {" / "}
+                  {formatContextTokenCount(usage.windowTokens)}
+                  {" "}
+                  {t("chat.contextUsage.tokens")}
+                </div>
               </div>
             </div>
 
-            <SegmentBar segments={usage.segments} totalTokens={usage.totalTokens} />
+            <SegmentBar segments={usage.segments} windowTokens={usage.windowTokens} />
 
             <div className="space-y-1.5">
               {segmentRows.map((row) => (
