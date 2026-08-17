@@ -71,6 +71,24 @@ describe("de-ai skill library", () => {
     )
   })
 
+  it("folds information-density subtraction into comprehensive and keeps literary metaphor uncapped", () => {
+    const comprehensive = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === "built-in:comprehensive")?.content ?? ""
+    const literary = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === "built-in:literary-retain")?.content ?? ""
+    const explanation = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === "built-in:reduce-explanation")?.content ?? ""
+    const regularity = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === "built-in:break-regularity")?.content ?? ""
+    const dialogue = BUILT_IN_DE_AI_SKILLS.find((skill) => skill.id === "built-in:dialogue-natural")?.content ?? ""
+
+    expect(comprehensive).toContain("信息密度")
+    expect(comprehensive).toContain("无效热闹")
+    expect(comprehensive).toContain("三问")
+    expect(comprehensive).toContain("不编进展")
+    expect(explanation).toContain("三问")
+    expect(regularity).toContain("单手法循环")
+    expect(dialogue).toContain("对线循环")
+    expect(literary).toContain("不要用单章比喻数量硬顶")
+    expect(literary).not.toContain("比喻单章不超过2")
+  })
+
   it("keeps built-in skill prompts materially different from each other", () => {
     const contents = BUILT_IN_DE_AI_SKILLS.map((skill) => skill.content)
 
