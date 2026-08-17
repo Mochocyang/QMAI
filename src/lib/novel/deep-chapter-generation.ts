@@ -31,6 +31,8 @@ import {
 } from "./context-engine";
 import {
   collectWritingEntityWebSearch,
+  formatWritingEntitySearchWorkflowResult,
+  writingEntitySearchSourceLabels,
   type CollectWritingEntityWebSearchInput,
   type WritingEntityWebSearchResult,
 } from "./writing-entity-web-search";
@@ -2378,6 +2380,19 @@ async function maybeInjectWritingEntityWebSearch(args: {
   signal?: AbortSignal;
 }): Promise<ContextPack> {
   const collect = args.deps.collectWritingEntityWebSearch ?? collectWritingEntityWebSearch;
+  const stepSpec: ChapterWorkflowStepSpec = {
+    name: "web_search",
+    title: "联网搜索",
+  };
+  let searchStarted = false;
+  const startVisibleSearch = (query: string) => {
+    if (searchStarted) return;
+    searchStarted = true;
+    startChapterWorkflowStep(args.callbacks, {
+      ...stepSpec,
+      params: { query, title: "联网搜索" },
+    });
+  };
   try {
     args.callbacks.onThinking?.(
       formatStageThinking("联网搜索", "正在核对本库实体，必要时联网补搜..."),
@@ -2395,21 +2410,11 @@ async function maybeInjectWritingEntityWebSearch(args: {
       searchApiConfig: useWikiStore.getState().searchApiConfig,
       signal: args.signal,
       onRequestTrace: args.callbacks.onRequestTrace,
+      onSearchStart: (queries) => {
+        startVisibleSearch(queries.join("、"));
+      },
     });
-    if (result.searchedNames.length > 0 || result.markdown.trim()) {
-      emitDeepChapterActivity(args.callbacks, {
-        id: `deep_chapter:entity_web_search:${Date.now()}`,
-        stageId: "read_context",
-        kind: "web_search",
-        title: "联网搜索",
-        content: [
-          result.searchedNames.length > 0
-            ? `已搜索：${result.searchedNames.join("、")}`
-            : "未发起联网搜索",
-          ...result.notes,
-        ].filter(Boolean).join("\n"),
-      });
-    }
+    emitWritingEntityWebSearchWorkflow(args.callbacks, stepSpec, result, startVisibleSearch);
     if (!result.markdown.trim()) return args.contextPack;
     return {
       ...args.contextPack,
@@ -2419,9 +2424,41 @@ async function maybeInjectWritingEntityWebSearch(args: {
     };
   } catch (error) {
     rethrowIfUserAbort(error, args.signal);
+    if (searchStarted) {
+      errorChapterWorkflowStep(args.callbacks, stepSpec, error);
+    }
     console.error("[deep-chapter-generation] 实体联网补搜失败:", error);
     return args.contextPack;
   }
+}
+
+function emitWritingEntityWebSearchWorkflow(
+  callbacks: DeepChapterGenerationCallbacks,
+  spec: ChapterWorkflowStepSpec,
+  result: WritingEntityWebSearchResult,
+  startVisibleSearch: (query: string) => void,
+): void {
+  const query = result.searchedNames.join("、");
+  const notes = result.notes.filter((note) => note !== "未配置外部搜索");
+  const hasVisibleSearch = Boolean(
+    query || result.markdown.trim() || notes.length > 0 || (result.items?.length ?? 0) > 0,
+  );
+  if (!hasVisibleSearch) return;
+
+  startVisibleSearch(query);
+  const sources = writingEntitySearchSourceLabels(result.items);
+  const params = {
+    query,
+    title: "联网搜索",
+    ...(sources.length > 0 ? { sources } : {}),
+  };
+  const output = formatWritingEntitySearchWorkflowResult(result);
+  const failed = result.searchedNames.length === 0 && notes.length > 0;
+  if (failed) {
+    errorChapterWorkflowStep(callbacks, { ...spec, params }, output || notes.join("\n"));
+    return;
+  }
+  completeChapterWorkflowStep(callbacks, spec, output, params);
 }
 
 async function safeBuildChapterContextPack(

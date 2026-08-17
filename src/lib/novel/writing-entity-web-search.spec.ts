@@ -6,11 +6,13 @@ import {
   buildLocalWritingCorpus,
   collectWritingEntityWebSearch,
   formatWritingEntitySearchMarkdown,
+  formatWritingEntitySearchWorkflowResult,
   isLocallyResolvedEntity,
   isWebSearchConfigured,
   parseExtractedEntityNames,
   parseNeedExternalNames,
   selectUnresolvedEntities,
+  writingEntitySearchSourceLabels,
   WRITING_ENTITY_SEARCH_HEADING,
 } from "./writing-entity-web-search"
 
@@ -211,9 +213,36 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(search).toHaveBeenCalledWith("降龙十八掌", configuredSearch, 4)
     expect(result.searchedNames).toEqual(["降龙十八掌"])
+    expect(result.items?.[0]?.name).toBe("降龙十八掌")
     expect(result.markdown).toContain(WRITING_ENTITY_SEARCH_HEADING)
     expect(result.markdown).toContain("降龙十八掌")
     expect(result.markdown).toContain("公开资料摘要")
+  })
+
+  it("notifies onSearchStart with the queries it is about to run", async () => {
+    const onSearchStart = vi.fn()
+    const search = vi.fn(async () => [{
+      title: "李鸿章",
+      url: "https://example.test/ljz",
+      snippet: "摘要",
+      source: "example.test",
+    }])
+    await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章出场",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        '{"entities":["李鸿章"]}',
+        '{"needExternal":["李鸿章"]}',
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+      onSearchStart,
+    })
+    expect(onSearchStart).toHaveBeenCalledWith(["李鸿章"])
   })
 
   it("does not search original names the model can invent", async () => {
@@ -240,5 +269,21 @@ describe("collectWritingEntityWebSearch", () => {
 describe("formatWritingEntitySearchMarkdown", () => {
   it("returns empty string without results", () => {
     expect(formatWritingEntitySearchMarkdown([])).toBe("")
+  })
+
+  it("formats workflow-visible search sources and failures", () => {
+    expect(formatWritingEntitySearchWorkflowResult({
+      markdown: "",
+      searchedNames: ["黄蓉"],
+      notes: [],
+      items: [{
+        name: "黄蓉",
+        results: [{ title: "黄蓉简介", url: "https://example.test/hr", snippet: "摘要", source: "example.test" }],
+      }],
+    })).toContain("https://example.test/hr")
+    expect(writingEntitySearchSourceLabels([{
+      name: "黄蓉",
+      results: [{ title: "黄蓉简介", url: "https://example.test/hr", snippet: "摘要", source: "example.test" }],
+    }])).toEqual(["黄蓉简介 https://example.test/hr"])
   })
 })

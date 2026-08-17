@@ -3,6 +3,7 @@ import {
   compareToolCallsByStartedAt,
   createStreamingEventBuilder,
   filterToolCallsForDisplay,
+  getTimelineToolCategory,
   interleaveThinkingWithToolCalls,
   type ToolCallEventItem,
 } from "./timeline-types"
@@ -35,6 +36,15 @@ describe("compareToolCallsByStartedAt", () => {
       "b",
       "c",
     ])
+  })
+})
+
+describe("getTimelineToolCategory", () => {
+  it("classifies web research tools as read, matching outline/writing timelines", () => {
+    expect(getTimelineToolCategory("web_search")).toBe("read")
+    expect(getTimelineToolCategory("read_web_page")).toBe("read")
+    expect(getTimelineToolCategory("read_chapter")).toBe("read")
+    expect(getTimelineToolCategory("summarize_search_results")).toBe("action")
   })
 })
 

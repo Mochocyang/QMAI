@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect } from "react"
 import type { ToolCallRecord } from "@/lib/agent/tool-events"
-import type { ToolCallEventItem, TimelineToolCategory } from "@/components/common/timeline-types"
-import { compareToolCallsByStartedAt, createStreamingEventBuilder, filterToolCallsForDisplay } from "@/components/common/timeline-types"
+import type { ToolCallEventItem } from "@/components/common/timeline-types"
+import { compareToolCallsByStartedAt, createStreamingEventBuilder, filterToolCallsForDisplay, getTimelineToolCategory } from "@/components/common/timeline-types"
 import { EventStream } from "@/components/common/event-stream"
 import { extractThinkingContent } from "@/lib/novel/outline-stage-trace"
 import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
@@ -10,22 +10,6 @@ interface OutlineWorkflowStagesProps {
   toolCalls: ToolCallRecord[]
   content: string
   isStreaming: boolean
-}
-
-const WRITE_TOOLS = new Set(["write_chapter", "write_outline_node", "write_memory", "write_chapter_outline"])
-const READ_TOOLS = new Set([
-  "list_chapters", "list_outlines", "list_memories", "list_deductions",
-  "read_chapter", "read_outline", "read_memory", "read_deduction",
-  "read_chat_history", "read_outline_history", "search_chapters",
-  "chapter_context", "chapter_previous_analysis", "load_context", "trim_context",
-])
-const ACTION_TOOLS = new Set(["route_task", "apply_skill"])
-
-function getToolCallCategory(name: string): TimelineToolCategory {
-  if (WRITE_TOOLS.has(name)) return "write"
-  if (READ_TOOLS.has(name)) return "read"
-  if (ACTION_TOOLS.has(name)) return "action"
-  return "virtual"
 }
 
 function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
@@ -40,7 +24,7 @@ function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
       result: call.result,
       status: call.status,
     } as Parameters<typeof getWorkflowToolDescription>[0]),
-    category: getToolCallCategory(call.name),
+    category: getTimelineToolCategory(call.name),
     status: call.status,
     params: call.params as Record<string, unknown>,
     result: isError ? undefined : call.result,

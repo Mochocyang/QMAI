@@ -1,5 +1,6 @@
 import type { AgentRunRecord, AgentStageTrace, AgentToolEvent } from "./types"
 import { activityEventFromToolEvent, applyAgentActivityEvent } from "./activity-trace"
+import { getWorkflowToolDescription, isWebResearchToolName } from "./workflow-trace"
 
 export type ToolCallRecord = AgentRunRecord["toolCalls"][number]
 type SettledToolCallStatus = "done" | "error" | "cancelled"
@@ -78,6 +79,23 @@ export function activityEventFromAgentToolEvent(event: AgentToolEvent) {
 
   const activity = activityEventFromToolEvent(event)
   const titleFromParams = typeof event.params.title === "string" ? event.params.title : ""
+
+  if (isWebResearchToolName(event.name)) {
+    const status = event.type === "error" ? "error" as const : event.type === "call_started" ? "running" as const : "done" as const
+    return {
+      ...activity,
+      stageId: "external_search",
+      kind: event.type === "error" ? "error" as const : "web_search" as const,
+      title: getWorkflowToolDescription({
+        id: event.callId,
+        name: event.name,
+        params: event.params,
+        result: event.result,
+        status,
+        startedAt: event.timestamp,
+      }),
+    }
+  }
 
   if (event.name.startsWith("chapter_")) {
     return {

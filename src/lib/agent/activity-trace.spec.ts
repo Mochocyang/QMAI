@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  activityEventFromToolEvent,
   appendAgentActivityEvent,
   applyAgentActivityEvent,
   createAgentActivityEvent,
@@ -290,5 +291,36 @@ describe("activity trace", () => {
       "final_output",
     ])
     expect(getDefaultOpenAgentStageId(stages)).toBe("final_polish")
+  })
+
+  it("places read_web_page and web_search on the external_search stage", () => {
+    const page = activityEventFromToolEvent({
+      type: "call_started",
+      callId: "page-1",
+      name: "read_web_page",
+      params: { url: "https://example.test/hr" },
+      timestamp: 100,
+    })
+    expect(page).toMatchObject({
+      stageId: "external_search",
+      kind: "web_search",
+    })
+
+    const search = activityEventFromToolEvent({
+      type: "result",
+      callId: "search-1",
+      name: "web_search",
+      params: { query: "黄蓉" },
+      result: JSON.stringify({
+        status: "ok",
+        resultCount: 1,
+        results: [{ title: "黄蓉", url: "https://example.test/hr", snippet: "", source: "example.test" }],
+      }),
+      timestamp: 120,
+    })
+    expect(search.stageId).toBe("external_search")
+    expect(search.sourceRefs).toEqual([
+      { title: "黄蓉", path: "https://example.test/hr", type: "web" },
+    ])
   })
 })

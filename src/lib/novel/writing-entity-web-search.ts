@@ -16,6 +16,7 @@ export interface WritingEntityWebSearchResult {
   markdown: string
   searchedNames: string[]
   notes: string[]
+  items?: Array<{ name: string; results: WebSearchResult[] }>
 }
 
 export interface CollectWritingEntityWebSearchInput {
@@ -37,6 +38,7 @@ export interface CollectWritingEntityWebSearchInput {
   searchApiConfig?: SearchApiConfig | null
   signal?: AbortSignal
   onRequestTrace?: StreamCallbacks["onRequestTrace"]
+  onSearchStart?: (queries: string[]) => void
   listEntityNames?: typeof listLocalEntityNames
   readPreviousBodies?: typeof readPreviousChapterBodies
   search?: typeof webSearch
@@ -190,12 +192,53 @@ export function formatWritingEntitySearchMarkdown(
   return [`## ${WRITING_ENTITY_SEARCH_HEADING}`, ...sections].join("\n\n")
 }
 
+export function formatWritingEntitySearchWorkflowResult(
+  result: Pick<WritingEntityWebSearchResult, "searchedNames" | "notes" | "items" | "markdown">,
+): string {
+  const lines: string[] = []
+  if (result.searchedNames.length > 0) {
+    lines.push(`已搜索：${result.searchedNames.join("、")}`)
+  }
+  for (const item of result.items ?? []) {
+    if (item.results.length === 0) {
+      lines.push(`「${item.name}」无可用结果`)
+      continue
+    }
+    for (const source of item.results) {
+      const title = source.title.trim() || source.url.trim() || source.source.trim() || "未命名来源"
+      const url = source.url.trim()
+      lines.push(`- ${title}${url ? ` ${url}` : ""}`)
+    }
+  }
+  lines.push(...result.notes)
+  if (lines.length === 0 && result.markdown.trim()) return result.markdown.trim()
+  return lines.join("\n")
+}
+
+export function writingEntitySearchSourceLabels(
+  items: Array<{ name: string; results: WebSearchResult[] }> | undefined,
+): string[] {
+  const labels: string[] = []
+  const seen = new Set<string>()
+  for (const item of items ?? []) {
+    for (const source of item.results) {
+      const title = source.title.trim() || source.url.trim() || source.source.trim()
+      const url = source.url.trim()
+      const label = url ? `${title} ${url}` : title
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      labels.push(label)
+    }
+  }
+  return labels
+}
+
 export async function collectWritingEntityWebSearch(
   input: CollectWritingEntityWebSearchInput,
 ): Promise<WritingEntityWebSearchResult> {
   const notes: string[] = []
   if (!isWebSearchConfigured(input.searchApiConfig)) {
-    return { markdown: "", searchedNames: [], notes: ["未配置外部搜索"] }
+    return { markdown: "", searchedNames: [], notes: ["未配置外部搜索"], items: [] }
   }
 
   throwIfAborted(input.signal)
@@ -221,14 +264,16 @@ export async function collectWritingEntityWebSearch(
     const extracted = await extractEntityNames(input)
     const unresolved = selectUnresolvedEntities(extracted, corpus, entityNames)
     if (unresolved.length === 0) {
-      return { markdown: "", searchedNames: [], notes }
+      return { markdown: "", searchedNames: [], notes, items: [] }
     }
 
     const needExternal = await judgeNeedExternal(input, unresolved)
     const queries = needExternal.slice(0, MAX_SEARCH_QUERIES)
     if (queries.length === 0) {
-      return { markdown: "", searchedNames: [], notes }
+      return { markdown: "", searchedNames: [], notes, items: [] }
     }
+
+    input.onSearchStart?.(queries)
 
     const items: Array<{ name: string; results: WebSearchResult[] }> = []
     for (const name of queries) {
@@ -246,11 +291,12 @@ export async function collectWritingEntityWebSearch(
       markdown: formatWritingEntitySearchMarkdown(items),
       searchedNames: items.map((item) => item.name),
       notes,
+      items,
     }
   } catch (error) {
     rethrowIfUserAbort(error, input.signal)
     notes.push(`实体补搜失败：${error instanceof Error ? error.message : String(error)}`)
-    return { markdown: "", searchedNames: [], notes }
+    return { markdown: "", searchedNames: [], notes, items: [] }
   }
 }
 

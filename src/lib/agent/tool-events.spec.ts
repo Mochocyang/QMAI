@@ -200,4 +200,55 @@ describe("applyAgentToolEvent", () => {
       status: "running",
     })
   })
+
+  it("maps web_search and read_web_page into the external_search stage with sources", () => {
+    const started = applyAgentToolActivityEvent(undefined, {
+      type: "call_started",
+      callId: "workflow-1:web_search",
+      parentCallId: "workflow-1",
+      name: "web_search",
+      params: { query: "黄蓉", title: "联网搜索" },
+      timestamp: 100,
+    })
+    expect(started[0]).toMatchObject({
+      id: "external_search",
+      title: "外部检索",
+      status: "running",
+    })
+    expect(started[0].events[0].title).toContain("联网搜索「黄蓉」")
+
+    const completed = applyAgentToolActivityEvent(started, {
+      type: "result",
+      callId: "workflow-1:web_search",
+      parentCallId: "workflow-1",
+      name: "web_search",
+      params: { query: "黄蓉", sources: ["黄蓉简介 https://example.test/hr"] },
+      result: JSON.stringify({
+        status: "ok",
+        query: "黄蓉",
+        resultCount: 1,
+        results: [{ title: "黄蓉简介", url: "https://example.test/hr", snippet: "摘要", source: "example.test" }],
+      }),
+      timestamp: 160,
+    })
+    expect(completed[0].events.at(-1)?.kind).toBe("web_search")
+    expect(completed[0].events.at(-1)?.sourceRefs).toEqual([
+      { title: "黄蓉简介", path: "https://example.test/hr", type: "web" },
+    ])
+
+    const page = activityEventFromAgentToolEvent({
+      type: "error",
+      callId: "read-page-1",
+      name: "read_web_page",
+      params: { url: "https://example.test/missing" },
+      result: JSON.stringify({ status: "error", url: "https://example.test/missing", message: "HTTP 状态码：404" }),
+      timestamp: 200,
+    })
+    expect(page).toMatchObject({
+      stageId: "external_search",
+      kind: "error",
+    })
+    expect(page?.title).toContain("读取网页")
+    expect(page?.title).toContain("失败")
+  })
 })

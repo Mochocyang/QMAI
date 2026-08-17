@@ -2,6 +2,28 @@ import type { ToolCallStatus } from "@/lib/agent/types"
 
 export type TimelineToolCategory = "read" | "write" | "action" | "virtual"
 
+const WRITE_TOOLS = new Set([
+  "write_chapter",
+  "write_outline_node",
+  "write_memory",
+  "write_chapter_outline",
+])
+const READ_TOOLS = new Set([
+  "list_chapters", "list_outlines", "list_memories", "list_deductions",
+  "read_chapter", "read_outline", "read_memory", "read_deduction",
+  "read_chat_history", "read_outline_history", "search_chapters",
+  "chapter_context", "chapter_previous_analysis", "load_context", "trim_context",
+  "web_search", "read_web_page",
+])
+const ACTION_TOOLS = new Set(["route_task", "apply_skill", "summarize_search_results"])
+
+export function getTimelineToolCategory(name: string): TimelineToolCategory {
+  if (WRITE_TOOLS.has(name)) return "write"
+  if (READ_TOOLS.has(name)) return "read"
+  if (ACTION_TOOLS.has(name)) return "action"
+  return "virtual"
+}
+
 export function compareToolCallsByStartedAt(
   a: { id: string; startedAt?: number },
   b: { id: string; startedAt?: number },
