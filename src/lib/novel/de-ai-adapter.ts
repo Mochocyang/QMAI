@@ -51,6 +51,7 @@ export function buildDeAiRewriteMessages(content: string, customSkill?: string):
 const DIRECTIVE_PREFIX = [
   "请保持剧情一致，并用更自然、更像真人网文作者的方式输出。",
   "减少套话、总结腔和机械解释。",
+  "压缩同义反复和无效热闹，提高信息密度；不要为了有进展而编造剧情。",
   "注意中文小说适配：保留角色声线、对白毛边、叙事节奏和必要停顿，不要按非虚构文章规则硬删副词或压缩到固定字数。",
   "",
   "任务内容：",
