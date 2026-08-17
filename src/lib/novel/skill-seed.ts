@@ -1778,11 +1778,11 @@ export const DEFAULT_BUILTIN_WRITING_SKILLS: UserSkill[] = [
   normalizeUserSkill({
     id: "builtin:basic-de-ai",
     name: "基础去AI味",
-    description: "降低正文里的解释腔、总结腔、模板句和协作口吻。",
+    description: "降低正文里的解释腔、总结腔、模板句、同义反复和无效热闹。",
     kind: ["style", "rewrite"],
     stages: ["rewrite", "output"],
     modes: ["fast", "standard", "strict"],
-    content: ["输出前进行基础去AI味：","1. 删除“这说明、这意味着、由此可见”等替读者总结的句子","2. 减少段尾升华、机械排比和模板化转折","3. 对话不要替作者解释设定或心理","4. 保留原剧情、人设、视角和信息密度","5. 最终只输出正文，不说明已去AI味"].join("\\n"),
+    content: ["输出前进行基础去AI味：","1. 删除“这说明、这意味着、由此可见”等替读者总结的句子","2. 减少段尾升华、机械排比和模板化转折","3. 对话不要替作者解释设定或心理","4. 压缩同义反复和无效热闹，空修饰落到具体动作，细节过不了三问就删","5. 保留原剧情、人设、视角和信息密度；不编新进展","6. 最终只输出正文，不说明已去AI味"].join("\\n"),
     source: "built-in",
   }),
   normalizeUserSkill({
