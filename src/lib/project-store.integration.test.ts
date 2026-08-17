@@ -41,6 +41,7 @@ import {
   loadLlmConfig,
   loadProviderConfigs,
   saveProviderConfigs,
+  saveDefaultLlmModel,
 } from "./project-store"
 
 let tmp: { path: string; cleanup: () => Promise<void> }
@@ -311,6 +312,39 @@ describe("novelConfig — project-directory persistence", () => {
     await saveNovelConfig(config, "proj-1", tmp.path)
     const loaded = await loadNovelConfig("proj-1", tmp.path)
     expect(loaded).toEqual({ ...config, contextTokenBudget: 0 })
+  })
+
+  it("keeps explicit follow-chat (empty defaultLlmModel) even when a legacy global model exists", async () => {
+    await saveDefaultLlmModel("openai/gpt-5.5")
+    const config = makeNovelConfig({
+      defaultLlmModel: "",
+      reviewModel: "",
+      summaryModel: "",
+      extractModel: "",
+      deAiModel: "",
+    })
+    await saveNovelConfig(config, "proj-follow", tmp.path)
+
+    const loaded = await loadNovelConfig("proj-follow", tmp.path)
+    expect(loaded?.defaultLlmModel).toBe("")
+    expect(loaded?.reviewModel).toBe("")
+    expect(loaded?.summaryModel).toBe("")
+    expect(loaded?.extractModel).toBe("")
+    expect(loaded?.deAiModel).toBe("")
+  })
+
+  it("fills defaultLlmModel from the legacy global slot only when the saved file lacks the field", async () => {
+    await saveDefaultLlmModel("openai/gpt-5.5")
+    const legacy = makeNovelConfig({ searchTopK: 9 })
+    const { defaultLlmModel: _omitted, ...withoutField } = legacy
+    await writeFileRaw(
+      `${tmp.path}/.qmai/novel-config.json`,
+      JSON.stringify(withoutField),
+    )
+
+    const loaded = await loadNovelConfig("proj-legacy-follow", tmp.path)
+    expect(loaded?.defaultLlmModel).toBe("openai/gpt-5.5")
+    expect(loaded?.searchTopK).toBe(9)
   })
 
   it("persists to .qmai/novel-config.json", async () => {

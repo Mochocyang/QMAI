@@ -246,6 +246,7 @@ export async function loadOutlineWorkflowMode(): Promise<OutlineWorkflowMode | n
 export async function saveDefaultLlmModel(model: string): Promise<void> {
   const store = await getStore()
   await store.set(DEFAULT_LLM_MODEL_KEY, model)
+  await store.save()
 }
 
 export async function loadDefaultLlmModel(): Promise<string | null> {
@@ -723,12 +724,19 @@ export async function saveNovelConfig(config: NovelConfig, projectId?: string, p
   }
 }
 
+function rawHasDefaultLlmModel(raw: unknown): boolean {
+  return !!raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "defaultLlmModel")
+}
+
 async function maybeMigrateLegacyDefaultLlmModel(
   config: NovelConfig,
   projectId?: string,
   projectPath?: string,
+  rawHasField = false,
 ): Promise<NovelConfig> {
-  if (config.defaultLlmModel.trim()) return config
+  // Empty string is a real user choice: 「跟随聊天模型」. Only fill from the
+  // old global slot when the saved object never had this field at all.
+  if (rawHasField || config.defaultLlmModel.trim()) return config
   const legacyGlobal = await loadDefaultLlmModel()
   if (!legacyGlobal?.trim()) return config
   const migrated = { ...config, defaultLlmModel: legacyGlobal.trim() }
@@ -742,9 +750,15 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
       const filePath = novelConfigFilePath(projectPath)
       if (await fileExists(filePath)) {
         const raw = await readFile(filePath)
-        const config = normalizeNovelConfig(JSON.parse(raw))
+        const parsed: unknown = JSON.parse(raw)
+        const config = normalizeNovelConfig(parsed as Partial<NovelConfig>)
         if (!config) return null
-        return maybeMigrateLegacyDefaultLlmModel(config, projectId, projectPath)
+        return maybeMigrateLegacyDefaultLlmModel(
+          config,
+          projectId,
+          projectPath,
+          rawHasDefaultLlmModel(parsed),
+        )
       }
     } catch {
       // fall through to global store
@@ -752,14 +766,17 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
   }
   const store = await getStore()
   let config: NovelConfig | null = null
+  let storedRaw: unknown
   if (projectId) {
     const projectConfigs = await store.get<Record<string, NovelConfig>>(PROJECT_NOVEL_CONFIG_KEY)
     if (projectConfigs && projectConfigs[projectId]) {
+      storedRaw = projectConfigs[projectId]
       config = normalizeNovelConfig(projectConfigs[projectId])
     }
   }
   if (!config) {
-    config = normalizeNovelConfig(await store.get<NovelConfig>(NOVEL_CONFIG_KEY))
+    storedRaw = await store.get<NovelConfig>(NOVEL_CONFIG_KEY)
+    config = normalizeNovelConfig(storedRaw as NovelConfig)
   }
   if (config && projectPath) {
     try {
@@ -769,7 +786,12 @@ export async function loadNovelConfig(projectId?: string, projectPath?: string):
     }
   }
   if (!config) return null
-  return maybeMigrateLegacyDefaultLlmModel(config, projectId, projectPath)
+  return maybeMigrateLegacyDefaultLlmModel(
+    config,
+    projectId,
+    projectPath,
+    rawHasDefaultLlmModel(storedRaw),
+  )
 }
 
 const RERANK_CONFIG_KEY = "rerankConfig"
