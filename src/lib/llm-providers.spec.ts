@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getCustomCompatibleHeaders, getProviderConfig, withCustomOriginHeader } from "./llm-providers"
+import { getCustomCompatibleHeaders, getProviderConfig, parseGoogleLine, withCustomOriginHeader } from "./llm-providers"
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
 function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
@@ -655,5 +655,53 @@ describe("Qwen3.5/3.6 leading system coalesce", () => {
       model: "gpt-5.4",
     }))
     expect(messages.map((message) => message.role)).toEqual(["system", "system", "user"])
+  })
+})
+
+describe("Gemini thought summaries", () => {
+  function googleConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
+    return customConfig({
+      provider: "google",
+      model: "gemini-3.7-flash-preview",
+      ...overrides,
+    })
+  }
+
+  it("does not return thought:true parts as visible content", () => {
+    const line = 'data: {"candidates":[{"content":{"parts":[{"text":"先拆章纲","thought":true},{"text":"雨还在下。"}]}}]}'
+    expect(parseGoogleLine(line)).toBe("雨还在下。")
+  })
+
+  it("does not return unmarked thought-summary parts as visible content", () => {
+    const dump = "**Defining the Request**\\n\\nThe user wants the full text for Chapter 14."
+    const line = `data: {"candidates":[{"content":{"parts":[{"text":"${dump}"},{"text":"雨还在下。"}]}}]}`
+    expect(parseGoogleLine(line)).toBe("雨还在下。")
+  })
+
+  it("hides thought summaries on Gemini 3.x even in auto reasoning mode", () => {
+    const body = getProviderConfig(googleConfig()).buildBody(
+      [{ role: "user", content: "写第14章" }],
+    ) as { generationConfig?: { thinkingConfig?: Record<string, unknown> } }
+
+    expect(body.generationConfig?.thinkingConfig).toEqual({ includeThoughts: false })
+  })
+
+  it("keeps thinkingBudget:0 and still hides thoughts when reasoning is off", () => {
+    const body = getProviderConfig(googleConfig({ reasoning: { mode: "off" } })).buildBody(
+      [{ role: "user", content: "写第14章" }],
+    ) as { generationConfig?: { thinkingConfig?: Record<string, unknown> } }
+
+    expect(body.generationConfig?.thinkingConfig).toEqual({
+      thinkingBudget: 0,
+      includeThoughts: false,
+    })
+  })
+
+  it("does not send thinkingConfig for models that do not support it", () => {
+    const body = getProviderConfig(googleConfig({ model: "gemini-1.5-pro" })).buildBody(
+      [{ role: "user", content: "写第14章" }],
+    ) as Record<string, unknown>
+
+    expect(body.generationConfig).toBeUndefined()
   })
 })

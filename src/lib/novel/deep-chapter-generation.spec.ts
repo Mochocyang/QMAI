@@ -1452,6 +1452,53 @@ describe("runDeepChapterGeneration", () => {
     })
   })
 
+  it("strips Gemini thought summaries out of standard-mode chapter drafts", async () => {
+    const deps = createDeps()
+    const dump = [
+      "**Defining the Request**",
+      "",
+      "The user wants the full text for Chapter 14.",
+      "",
+      "**Pinpointing Chapter Details**",
+      "",
+      "I need to keep Ye Ren in Black Water Alley.",
+    ].join("\n")
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+    ) => {
+      const prompt = messagesPromptText(messages)
+      const body = prompt.includes("简单审查") || prompt.includes("去AI味")
+        ? chapterText("最终兜底正文", 3000)
+        : prompt.includes("返修")
+          ? chapterText("返修兜底正文", 3000)
+          : prompt.includes("正文")
+            ? chapterText("初稿兜底正文", 3000)
+            : "写作任务书内容"
+      callbacks.onToken(body === "写作任务书内容" ? body : `${dump}\n\n${body}`)
+      callbacks.onDone()
+    })
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        llmConfig,
+        aiWorkflowMode: "standard",
+      },
+      {},
+      deps,
+    )
+
+    expect(result.draftContent).toContain("初稿兜底正文")
+    expect(result.draftContent).not.toContain("Defining the Request")
+    expect(result.finalContent).not.toContain("Defining the Request")
+    expect(result.finalContent).not.toContain("The user wants")
+    expect(result.finalContent.length).toBeGreaterThan(500)
+  })
+
   it("uses fast, standard, and strict workflow routes", async () => {
     const skippedCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
     const fastDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }

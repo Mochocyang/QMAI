@@ -36,6 +36,8 @@
  * exact tokens.
  */
 
+import { isThoughtDumpText } from "./thought-dump"
+
 const REASONING_FIELD_RE =
   /"reasoning(?:_content)?"\s*:\s*"((?:[^"\\]|\\.)*)"/g
 
@@ -99,7 +101,8 @@ export function extractReasoningTextFromLine(rawLine: string): string[] {
 
     for (const candidate of parsed.candidates ?? []) {
       for (const part of candidate.content?.parts ?? []) {
-        if (part.thought && typeof part.text === "string") out.push(part.text)
+        if (typeof part.text !== "string" || !part.text) continue
+        if (part.thought || isThoughtDumpText(part.text)) out.push(part.text)
       }
     }
 

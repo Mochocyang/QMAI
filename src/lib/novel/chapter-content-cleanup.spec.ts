@@ -107,4 +107,30 @@ describe("cleanGeneratedChapterContentForDisplay", () => {
   it("清洗后为空时退回原文，避免出现空气泡", () => {
     expect(cleanGeneratedChapterContentForDisplay("正文：")).toBe("正文：")
   })
+
+  it("剥掉 Gemini 思考摘要，不把英文规划写进章节展示", () => {
+    const dumped = [
+      "**Defining the Request**",
+      "",
+      "The user wants the full text for Chapter 14.",
+      "",
+      "**Pinpointing Chapter Details**",
+      "",
+      "I need to keep Ye Ren in Black Water Alley.",
+      "",
+      "第14章 世界真相与淬体破限",
+      "",
+      "雨还在下。黑水巷7号的铁门没有关严。",
+    ].join("\n")
+    expect(cleanGeneratedChapterContentForDisplay(dumped)).toBe(
+      "第14章 世界真相与淬体破限\n\n雨还在下。黑水巷7号的铁门没有关严。",
+    )
+    expect(cleanGeneratedChapterContentForSave(dumped)).toBe("雨还在下。黑水巷7号的铁门没有关严。")
+  })
+
+  it("整段都是思考摘要时不把英文退回气泡", () => {
+    expect(cleanGeneratedChapterContentForDisplay(
+      "**Defining the Request**\n\nThe user wants the full text for Chapter 14.",
+    )).toBe("")
+  })
 })
