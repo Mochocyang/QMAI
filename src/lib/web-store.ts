@@ -76,3 +76,9 @@ export async function getStore(): Promise<AtomicAppStateStore> {
   }
   return storePromise
 }
+
+/** Flush pending app-state writes. Call on window close so LLM configs survive restart. */
+export async function flushAppState(): Promise<void> {
+  const store = await getStore()
+  await store.save()
+}

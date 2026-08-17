@@ -158,6 +158,7 @@ fn main() {
                             .blocking_show();
 
                         if confirmed {
+                            app_state::persist_app_state_before_exit(&app);
                             let _ = win.destroy();
                         }
                     });
