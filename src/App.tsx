@@ -10,6 +10,7 @@ import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAi
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
+import { flushAppState } from "@/lib/web-store"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { initAnalytics } from "@/lib/analytics"
 import { AppLayout } from "@/components/layout/app-layout"
@@ -174,6 +175,9 @@ function App() {
 
           // 阻止窗口立即关闭，等待保存完成
           event.preventDefault()
+
+          // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
+          await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))
 
           // 关闭前执行最终保存，防止丢失最后几秒的数据
           const project = useWikiStore.getState().project

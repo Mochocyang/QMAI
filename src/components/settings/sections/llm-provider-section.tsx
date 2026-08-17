@@ -82,15 +82,17 @@ export function LlmProviderSection() {
   }
 
   function updateOverride(id: string, patch: ProviderOverride) {
+    const current = useWikiStore.getState().providerConfigs
+    const currentActive = useWikiStore.getState().activePresetId
     const merged: ProviderOverride = normalizeProviderOverride({
-      ...(providerConfigs[id] ?? {}),
+      ...(current[id] ?? {}),
       ...patch,
     })
-    const next = { ...providerConfigs, [id]: merged }
+    const next = { ...current, [id]: merged }
     setProviderConfigs(next)
-    persist(next, activePresetId).catch(() => {})
+    persist(next, currentActive).catch(() => {})
     // If this preset is active, refresh the resolved LlmConfig live.
-    if (id === activePresetId) {
+    if (id === currentActive) {
       const preset = LLM_PRESETS.find((p) => p.id === id)
       if (preset) setLlmConfig(resolveConfig(preset, merged, llmConfig))
     }
@@ -99,18 +101,21 @@ export function LlmProviderSection() {
   }
 
   function toggleActive(id: string) {
-    const next = id === activePresetId ? null : id
+    const currentActive = useWikiStore.getState().activePresetId
+    const next = id === currentActive ? null : id
     setActivePresetId(next)
-    persist(providerConfigs, next).catch(() => {})
+    persist(useWikiStore.getState().providerConfigs, next).catch(() => {})
   }
 
   function toggleEnabled(id: string) {
-    const current = providerConfigs[id]
-    const currentEnabled = current?.enabled === true
-    const merged: ProviderOverride = { ...(current ?? {}), enabled: !currentEnabled }
-    const next = { ...providerConfigs, [id]: merged }
+    const current = useWikiStore.getState().providerConfigs
+    const currentActive = useWikiStore.getState().activePresetId
+    const entry = current[id]
+    const currentEnabled = entry?.enabled === true
+    const merged: ProviderOverride = { ...(entry ?? {}), enabled: !currentEnabled }
+    const next = { ...current, [id]: merged }
     setProviderConfigs(next)
-    persist(next, activePresetId).catch(() => {})
+    persist(next, currentActive).catch(() => {})
   }
 
   return (

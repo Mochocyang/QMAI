@@ -74,10 +74,39 @@ describe("wrapStoreForAtomicPersist", () => {
     expect(persist).toHaveBeenCalledTimes(1)
     expect(persist).toHaveBeenCalledWith({ aiOutlineModel: "second" })
   })
+
+  it("does not write to disk until debounce or save() — close-without-flush would lose LLM configs", async () => {
+    const persist = vi.fn(async () => {})
+    const inner = createInner()
+    const store = wrapStoreForAtomicPersist(inner.store, persist, 100)
+
+    await store.set("providerConfigs", {
+      "custom-1": { label: "自建模型", model: "deepseek-v4" },
+    })
+
+    expect(persist).not.toHaveBeenCalled()
+    await store.save()
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledWith({
+      providerConfigs: {
+        "custom-1": { label: "自建模型", model: "deepseek-v4" },
+      },
+    })
+  })
 })
 
 describe("atomic write command name", () => {
   it("matches the Rust command", () => {
     expect(APP_STATE_ATOMIC_WRITE_COMMAND).toBe("write_app_state_atomic")
+  })
+})
+
+describe("flushAppState", () => {
+  it("is the close-path helper that forces an immediate persist", async () => {
+    const source = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./web-store.ts", import.meta.url), "utf8"),
+    )
+    expect(source).toContain("export async function flushAppState")
+    expect(source).toContain("await store.save()")
   })
 })

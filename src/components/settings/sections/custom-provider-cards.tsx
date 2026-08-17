@@ -3,7 +3,7 @@ import { Plus, Trash2, ChevronDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useWikiStore, type ProviderOverride, type SavedModel, type ReasoningConfig } from "@/stores/wiki-store"
+import { useWikiStore, type ProviderConfigs, type ProviderOverride, type SavedModel, type ReasoningConfig } from "@/stores/wiki-store"
 import { ContextSizeSelector } from "../context-size-selector"
 import { OutputTokensSelector } from "../output-tokens-selector"
 import { resolveConfig } from "../preset-resolver"
@@ -21,7 +21,7 @@ import {
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 
-interface CustomProviderCard {
+export interface CustomProviderCard {
   id: string
   label: string
   apiMode: "chat_completions" | "responses" | "anthropic_messages"
@@ -36,17 +36,11 @@ interface CustomProviderCard {
   savedModels: SavedModel[]
 }
 
-export function CustomProviderCards() {
-  const providerConfigs = useWikiStore((s) => s.providerConfigs)
-  const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
-  const activePresetId = useWikiStore((s) => s.activePresetId)
-  const setActivePresetId = useWikiStore((s) => s.setActivePresetId)
-
-  // Load existing custom provider configs as cards
-  const [cards, setCards] = useState<CustomProviderCard[]>(() => {
-    const customKeys = Object.keys(providerConfigs).filter((k) => k.startsWith("custom-"))
-    return customKeys.map((key) => {
-      const config = providerConfigs[key]
+export function listCustomProviderCards(providerConfigs: ProviderConfigs): CustomProviderCard[] {
+  return Object.keys(providerConfigs)
+    .filter((key) => key.startsWith("custom-"))
+    .map((key) => {
+      const config = providerConfigs[key] ?? {}
       return {
         id: key,
         label: config.label || "自定义模型",
@@ -62,46 +56,37 @@ export function CustomProviderCards() {
         savedModels: config.savedModels || [],
       }
     })
-  })
+}
+
+export function CustomProviderCards() {
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
+  const setActivePresetId = useWikiStore((s) => s.setActivePresetId)
+  const cards = useMemo(() => listCustomProviderCards(providerConfigs), [providerConfigs])
 
   function addCard() {
     const newId = `custom-${Date.now()}`
-    const newCard: CustomProviderCard = {
-      id: newId,
-      label: "自定义模型",
-      apiMode: "chat_completions",
-      baseUrl: "",
-      apiKey: "",
-      model: "",
-      maxContextSize: normalizeUserLlmContextSize(undefined),
-      enabled: true,
-      savedModels: [],
-    }
-    setCards([...cards, newCard])
-
-    // Also add to store
-    const newConfigs = {
-      ...providerConfigs,
+    const current = useWikiStore.getState().providerConfigs
+    const newConfigs: ProviderConfigs = {
+      ...current,
       [newId]: {
-        label: newCard.label,
-        apiMode: newCard.apiMode,
-        baseUrl: newCard.baseUrl,
-        apiKey: newCard.apiKey,
-        model: newCard.model,
-        maxContextSize: newCard.maxContextSize,
+        label: "自定义模型",
+        apiMode: "chat_completions",
+        baseUrl: "",
+        apiKey: "",
+        model: "",
+        maxContextSize: normalizeUserLlmContextSize(undefined),
         enabled: true,
-        savedModels: newCard.savedModels,
+        savedModels: [],
       },
     }
     setProviderConfigs(newConfigs)
-    persistConfigs(newConfigs)
+    void persistConfigs(newConfigs)
   }
 
   function updateCard(id: string, updates: Partial<CustomProviderCard>) {
-    setCards(cards.map((c) => (c.id === id ? { ...c, ...updates } : c)))
-
-    // Update store — 用 ?? 回退到 store 已有值，避免 updates 中未指定的字段被 undefined 覆盖
-    const prev = providerConfigs[id] ?? {}
+    const current = useWikiStore.getState().providerConfigs
+    const prev = current[id] ?? {}
     const updatedConfig: ProviderOverride = {
       ...prev,
       label: updates.label ?? prev.label,
@@ -125,30 +110,27 @@ export function CustomProviderCards() {
       savedModels: updates.savedModels ?? prev.savedModels,
     }
     const newConfigs = {
-      ...providerConfigs,
+      ...current,
       [id]: updatedConfig,
     }
     setProviderConfigs(newConfigs)
-    persistConfigs(newConfigs)
+    void persistConfigs(newConfigs)
   }
 
   function deleteCard(id: string) {
     if (!confirm("确定删除此配置吗？")) return
 
-    setCards(cards.filter((c) => c.id !== id))
-
-    // Remove from store
-    const newConfigs = { ...providerConfigs }
+    const current = useWikiStore.getState().providerConfigs
+    const newConfigs = { ...current }
     delete newConfigs[id]
     setProviderConfigs(newConfigs)
 
-    // If this was active, deactivate
-    if (activePresetId === id) {
+    if (useWikiStore.getState().activePresetId === id) {
       setActivePresetId(null)
-      persistActiveId(null)
+      void persistActiveId(null)
     }
 
-    persistConfigs(newConfigs)
+    void persistConfigs(newConfigs)
   }
 
   function toggleEnabled(id: string) {
@@ -157,14 +139,22 @@ export function CustomProviderCards() {
     updateCard(id, { enabled: !card.enabled })
   }
 
-  async function persistConfigs(newConfigs: typeof providerConfigs) {
-    const { saveProviderConfigs } = await import("@/lib/project-store")
-    await saveProviderConfigs(newConfigs)
+  async function persistConfigs(newConfigs: ProviderConfigs) {
+    try {
+      const { saveProviderConfigs } = await import("@/lib/project-store")
+      await saveProviderConfigs(newConfigs)
+    } catch (error) {
+      console.error("保存自定义模型配置失败:", error)
+    }
   }
 
   async function persistActiveId(id: string | null) {
-    const { saveActivePresetId } = await import("@/lib/project-store")
-    await saveActivePresetId(id)
+    try {
+      const { saveActivePresetId } = await import("@/lib/project-store")
+      await saveActivePresetId(id)
+    } catch (error) {
+      console.error("保存当前模型预设失败:", error)
+    }
   }
 
   return (

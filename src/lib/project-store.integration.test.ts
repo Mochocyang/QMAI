@@ -40,6 +40,7 @@ import {
   loadMcpConfig,
   loadLlmConfig,
   loadProviderConfigs,
+  saveProviderConfigs,
 } from "./project-store"
 
 let tmp: { path: string; cleanup: () => Promise<void> }
@@ -525,5 +526,30 @@ describe("mcpConfig persistence", () => {
     const loaded = await loadMcpConfig()
 
     expect(loaded).toEqual({ servers: [] })
+  })
+})
+
+describe("custom LLM providerConfigs persistence", () => {
+  it("roundtrips custom-* model configs across save and reload", async () => {
+    const configs: ProviderConfigs = {
+      openai: { apiKey: "sk-openai", enabled: true, model: "gpt-5.5" },
+      "custom-1710000000000": {
+        label: "自建 DeepSeek",
+        apiKey: "sk-custom",
+        model: "deepseek-v4",
+        baseUrl: "https://api.deepseek.com/v1",
+        apiMode: "chat_completions",
+        enabled: true,
+        savedModels: [{ id: "m1", name: "v4", model: "deepseek-v4", createdAt: 1 }],
+      },
+    }
+
+    await saveProviderConfigs(configs)
+    const loaded = await loadProviderConfigs()
+
+    expect(loaded?.["custom-1710000000000"]?.label).toBe("自建 DeepSeek")
+    expect(loaded?.["custom-1710000000000"]?.model).toBe("deepseek-v4")
+    expect(loaded?.["custom-1710000000000"]?.savedModels?.[0]?.model).toBe("deepseek-v4")
+    expect(loaded?.openai?.apiKey).toBe("sk-openai")
   })
 })

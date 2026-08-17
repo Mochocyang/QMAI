@@ -251,6 +251,14 @@ pub fn persist_plugin_store<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, S
     Ok(path)
 }
 
+/// Flush plugin-store memory to disk before the process dies.
+/// Debounced frontend writes can otherwise be lost on window destroy.
+pub fn persist_app_state_before_exit<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = persist_plugin_store(app) {
+        eprintln!("[app-state] 退出前持久化失败: {error}");
+    }
+}
+
 pub fn prepare_app_state_store<R: Runtime>(app: &AppHandle<R>) {
     let Ok(dir) = app.path().app_data_dir() else {
         eprintln!("[app-state] could not resolve app_data_dir");
