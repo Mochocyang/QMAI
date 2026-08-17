@@ -23,6 +23,7 @@ import {
   thinkingMinMaxTokens,
 } from "@/lib/llm-providers";
 import { USER_ABORT_MESSAGE, rethrowIfUserAbort, throwIfAborted } from "@/lib/user-abort";
+import { isThoughtDumpText, stripThoughtDumpFromText } from "@/lib/thought-dump";
 import {
   buildContextPack,
   contextPackToPrompt,
@@ -1956,13 +1957,14 @@ async function collectModelText(
       const loopStart = findRepeatedTailStart(content);
       if (loopStart !== null) {
         content = content.slice(0, loopStart).trimEnd();
+        const visible = stripThoughtDumpFromText(content) || content;
         onUpdate?.(
-          `${content}\n\n（已检测到模型重复输出，已自动停止重复内容。）`,
+          `${visible}\n\n（已检测到模型重复输出，已自动停止重复内容。）`,
         );
         stopStream("检测到模型重复输出，已自动停止重复内容。");
         return;
       }
-      onUpdate?.(content);
+      onUpdate?.(stripThoughtDumpFromText(content) || content);
     },
     onReasoningToken: (token) => {
       if (signal?.aborted) {
@@ -1996,10 +1998,16 @@ async function collectModelText(
 
   await streamOnce(requestOverrides);
 
+  const hasThoughtDumpOnly =
+    !streamError &&
+    !stripThoughtDumpFromText(content).trim() &&
+    (Boolean(reasoningBuffer.trim()) || isThoughtDumpText(content));
   if (
-    streamError &&
-    isReasoningOnlyResponseError(streamError) &&
-    !isReasoningDisabled(config, requestOverrides)
+    !isReasoningDisabled(config, requestOverrides) &&
+    (
+      (streamError && isReasoningOnlyResponseError(streamError)) ||
+      hasThoughtDumpOnly
+    )
   ) {
     content = "";
     reasoningBuffer = "";
@@ -2010,10 +2018,11 @@ async function collectModelText(
   if (signal?.aborted) throw new Error(USER_ABORT_MESSAGE);
   if (streamError && !(cutoffReason && isRequestCancelledError(streamError)))
     throw streamError;
+  const visible = stripThoughtDumpFromText(content).trim();
   if (cutoffReason) {
-    onUpdate?.(`${content.trim()}\n\n（${cutoffReason}）`);
+    onUpdate?.(`${visible || content.trim()}\n\n（${cutoffReason}）`);
   }
-  return content.trim();
+  return visible;
 }
 
 function countChapterChars(content: string): number {

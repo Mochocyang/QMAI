@@ -34,4 +34,19 @@ describe("reasoning detector", () => {
 
     expect(extractReasoningTextFromLine(line)).toEqual(["调用工具"])
   })
+
+  it("extracts Gemini thought:true parts", () => {
+    const line = 'data: {"candidates":[{"content":{"parts":[{"text":"先拆章纲","thought":true},{"text":"雨还在下。"}]}}]}'
+
+    expect(extractReasoningTextFromLine(line)).toEqual(["先拆章纲"])
+  })
+
+  it("extracts unmarked Gemini thought-summary parts as reasoning", () => {
+    const dump = "**Defining the Request**\\n\\nThe user wants the full text for Chapter 14."
+    const line = `data: {"candidates":[{"content":{"parts":[{"text":"${dump}"},{"text":"雨还在下。"}]}}]}`
+
+    expect(extractReasoningTextFromLine(line)).toEqual([
+      "**Defining the Request**\n\nThe user wants the full text for Chapter 14.",
+    ])
+  })
 })
