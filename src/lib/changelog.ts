@@ -7,6 +7,23 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.5",
+  date: "2026-08-17",
+  highlights: {
+    en: [
+      "[Custom Model Settings Persist] Custom LLM configs and Follow Model still work after a restart.",
+      "[De-AI Text Subtraction] De-AI now compresses synonym loops and empty busyness.",
+      "[Gemini Thought Summary Stripped] Standard and Strict modes no longer write Gemini English thought summaries into the chapter draft.",
+    ],
+    zh: [
+      "【自定义模型设置不再丢】自定义 LLM 配置和「跟随模型」重启后还会在",
+      "【去AI味加了文字减法】去AI味会压同义反复和无效热闹",
+      "【Gemini 思考摘要不再进正文】标准和严格模式不再把 Gemini 的英文思考摘要写进章节终稿",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_FOUR_CHANGELOG: ChangelogEntry = {
   version: "3.2.4",
   date: "2026-08-16",
@@ -1227,6 +1244,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_FIVE_CHANGELOG,
   THREE_POINT_TWO_FOUR_CHANGELOG,
   THREE_POINT_TWO_THREE_CHANGELOG,
   THREE_POINT_TWO_TWO_CHANGELOG,
@@ -1297,6 +1315,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_FIVE_CHANGELOG.version)
+    return [THREE_POINT_TWO_FIVE_CHANGELOG];
   if (version === THREE_POINT_TWO_FOUR_CHANGELOG.version)
     return [THREE_POINT_TWO_FOUR_CHANGELOG];
   if (version === THREE_POINT_TWO_THREE_CHANGELOG.version)
@@ -1410,6 +1430,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_FIVE_CHANGELOG,
     THREE_POINT_TWO_FOUR_CHANGELOG,
     THREE_POINT_TWO_THREE_CHANGELOG,
     THREE_POINT_TWO_TWO_CHANGELOG,
@@ -1465,6 +1486,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_FIVE_CHANGELOG &&
         entry !== THREE_POINT_TWO_FOUR_CHANGELOG &&
         entry !== THREE_POINT_TWO_THREE_CHANGELOG &&
         entry !== THREE_POINT_TWO_TWO_CHANGELOG &&
