@@ -11,6 +11,7 @@ import {
 } from "@/lib/llm-context-size"
 import { RESPONSE_RESERVE_FRAC } from "./context-budget"
 import type { LlmUsage } from "./llm-usage"
+import { isThoughtDumpText } from "./thought-dump"
 import type { UserMemorySurface } from "./user-memory/types"
 
 /**
@@ -441,7 +442,11 @@ export function parseGoogleLine(line: string): string | null {
     let out = ""
     for (const p of parts) {
       if (p.thought) continue
-      if (p.text) out += p.text
+      if (!p.text) continue
+      // Gemini 3.x thought summaries often arrive as ordinary text parts
+      // with no `thought: true`. Drop those so they never enter onToken.
+      if (isThoughtDumpText(p.text)) continue
+      out += p.text
     }
     return out.length > 0 ? out : null
   } catch {
@@ -1144,9 +1149,23 @@ function flattenGoogleSystemParts(content: string | ContentBlock[]): string {
   return content.map((b) => (b.type === "text" ? b.text : "")).join("")
 }
 
+export function googleModelSupportsThinkingConfig(model: string): boolean {
+  const normalized = model.toLowerCase()
+  return /gemini-(2\.5|3(?:\.\d+)?|exp)/i.test(normalized) || /thinking/i.test(normalized)
+}
+
+function withHiddenGoogleThoughts(
+  thinkingConfig: Record<string, unknown>,
+  model?: string,
+): Record<string, unknown> {
+  if (!googleModelSupportsThinkingConfig(model ?? "")) return thinkingConfig
+  return { ...thinkingConfig, includeThoughts: false }
+}
+
 function buildGoogleBody(
   messages: ChatMessage[],
   overrides?: RequestOverrides,
+  model?: string,
 ): Record<string, unknown> {
   const systemMessages = messages.filter((m) => m.role === "system")
   const conversationMessages = messages.filter((m) => m.role !== "system")
@@ -1185,7 +1204,7 @@ function buildGoogleBody(
     generationConfig.stopSequences = Array.isArray(overrides.stop) ? overrides.stop : [overrides.stop]
   }
   if (overrides?.reasoning?.mode === "off") {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 }
+    generationConfig.thinkingConfig = withHiddenGoogleThoughts({ thinkingBudget: 0 }, model)
   } else if (overrides?.reasoning && overrides.reasoning.mode !== "auto") {
     const budget =
       overrides.reasoning.mode === "custom" && overrides.reasoning.budgetTokens !== undefined
@@ -1195,7 +1214,11 @@ function buildGoogleBody(
           : overrides.reasoning.mode === "medium"
             ? 4096
             : 8192
-    generationConfig.thinkingConfig = { thinkingBudget: budget }
+    generationConfig.thinkingConfig = withHiddenGoogleThoughts({ thinkingBudget: budget }, model)
+  } else if (googleModelSupportsThinkingConfig(model ?? "")) {
+    // Gemini 3.x thinks by default. Keep internal thinking, but do not
+    // return thought summaries — they otherwise leak into chapter text.
+    generationConfig.thinkingConfig = { includeThoughts: false }
   }
 
   return {
@@ -1255,7 +1278,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         buildBody: (messages, overrides) => buildGoogleBody(messages, {
           ...(overrides ?? {}),
           reasoning: effectiveReasoning(config, overrides),
-        }),
+        }, model),
         parseStream: parseGoogleLine,
         parseUsage: parseGoogleUsage,
         parseFinishReason: parseGoogleFinishReason,

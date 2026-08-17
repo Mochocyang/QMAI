@@ -1,3 +1,5 @@
+import { isThoughtDumpText, stripThoughtDumpFromText } from "@/lib/thought-dump"
+
 function stripThinkingBlocks(content: string): string {
   let result = content
   // 1. 移除完整的 <think>...</think> 或 <thinking>...</thinking> 块
@@ -149,7 +151,8 @@ function cleanChapterContentCore(
   content: string,
   options: { dropTrailingOffer: boolean },
 ): CleanedChapterContent {
-  const withoutThinking = stripThinkingBlocks(content).replace(/\r\n?/g, "\n")
+  const withoutThoughtDump = stripThoughtDumpFromText(content)
+  const withoutThinking = stripThinkingBlocks(withoutThoughtDump).replace(/\r\n?/g, "\n")
   const withoutCitations = stripCitationSyntax(withoutThinking)
   // 标签先剥，否则「正文：」挡在前面会让章节标题识别不到。
   const allLines = stripLeadingBodyLabel(withoutCitations.split("\n"))
@@ -199,7 +202,13 @@ export function cleanGeneratedChapterContentWithTitle(content: string): CleanedC
  */
 export function cleanGeneratedChapterContentForDisplay(content: string): string {
   const { content: body, title } = cleanChapterContentCore(content, { dropTrailingOffer: false })
-  if (!body.trim()) return content.trim()
+  if (!body.trim()) {
+    // Thought dumps must not bounce back as the chapter bubble.
+    if (isThoughtDumpText(content) || !stripThoughtDumpFromText(content).trim()) {
+      return ""
+    }
+    return content.trim()
+  }
   if (!title) return body
   // 章节草稿要求首行是「# 第X章 标题」，按原样保留标题行的 Markdown 形态。
   const originalTitleLine = content
