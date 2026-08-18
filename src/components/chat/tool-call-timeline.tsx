@@ -24,6 +24,8 @@ const READ_TOOLS = new Set([
   "list_outlines",
   "list_memories",
   "list_deductions",
+  "web_search",
+  "read_web_page",
 ])
 
 const WRITE_TOOLS = new Set([
@@ -78,6 +80,18 @@ export function getToolCallDescription(name: string, params: Record<string, unkn
       return `读取大纲会话「${params.conversationId}」`
     case "search_chapters":
       return `搜索章节关键词「${params.keyword}」`
+    case "web_search": {
+      const query = params.query || params.keyword
+      return query ? `联网搜索「${query}」` : "联网搜索"
+    }
+    case "read_web_page": {
+      const url = params.url || params.href
+      return url ? `读取网页「${url}」` : "读取网页"
+    }
+    case "summarize_search_results": {
+      const query = params.query
+      return query ? `整理「${query}」的搜索摘要` : "整理搜索结果摘要"
+    }
     case "list_chapters":
       return "列出所有章节"
     case "list_outlines":

@@ -146,4 +146,50 @@ describe("getWorkflowToolDescription", () => {
     expect(getWorkflowToolDescription(call({ id: "deviation-repair", name: "chapter_plan_deviation_repair" }))).toBe("返修章节计划偏离点")
     expect(getWorkflowToolDescription(call({ id: "deviation-recheck", name: "chapter_plan_deviation_recheck" }))).toBe("复检章节计划履约度")
   })
+
+  it("describes web search and read webpage with query, sources, or failure", () => {
+    expect(getWorkflowToolDescription(call({
+      id: "search-running",
+      name: "web_search",
+      params: { query: "黄蓉" },
+      status: "running",
+    }))).toBe("联网搜索「黄蓉」")
+
+    expect(getWorkflowToolDescription(call({
+      id: "search-ok",
+      name: "web_search",
+      params: { query: "黄蓉" },
+      result: JSON.stringify({ status: "ok", query: "黄蓉", resultCount: 2, results: [] }),
+    }))).toBe("联网搜索「黄蓉」（2 条来源）")
+
+    expect(getWorkflowToolDescription(call({
+      id: "search-error",
+      name: "web_search",
+      params: { query: "郭靖" },
+      result: "搜索「郭靖」失败：timeout",
+      status: "error",
+    }))).toBe("联网搜索「郭靖」失败")
+
+    expect(getWorkflowToolDescription(call({
+      id: "page",
+      name: "read_web_page",
+      params: { url: "https://example.test/hr" },
+      result: JSON.stringify({ status: "ok", url: "https://example.test/hr", title: "黄蓉", content: "正文" }),
+    }))).toBe("读取网页「黄蓉」")
+
+    expect(getWorkflowToolDescription(call({
+      id: "page-error",
+      name: "read_web_page",
+      params: { url: "https://example.test/missing" },
+      status: "error",
+      result: JSON.stringify({ status: "error", url: "https://example.test/missing", message: "HTTP 状态码：404" }),
+    }))).toContain("读取网页")
+    expect(getWorkflowToolDescription(call({
+      id: "page-error",
+      name: "read_web_page",
+      params: { url: "https://example.test/missing" },
+      status: "error",
+      result: JSON.stringify({ status: "error", url: "https://example.test/missing", message: "HTTP 状态码：404" }),
+    }))).toContain("失败")
+  })
 })

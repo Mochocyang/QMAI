@@ -52,6 +52,7 @@ interface BuildAgentWorkflowStepsInput {
 }
 
 const LIST_TOOLS = new Set(["list_chapters", "list_outlines", "list_memories", "list_deductions"])
+const WEB_RESEARCH_TOOLS = new Set(["web_search", "read_web_page", "summarize_search_results"])
 const READ_TOOLS = new Set([
   "read_chapter",
   "read_outline",
@@ -60,6 +61,8 @@ const READ_TOOLS = new Set([
   "read_chat_history",
   "read_outline_history",
   "search_chapters",
+  "web_search",
+  "read_web_page",
 ])
 const WRITE_TOOLS = new Set(["write_chapter", "write_outline_node", "write_memory"])
 const SKILL_TOOLS = new Set(["apply_skill"])
@@ -111,6 +114,76 @@ function getPathLabel(value: string): string {
   return normalized.split("/").filter(Boolean).pop() || value
 }
 
+export function isWebResearchToolName(name: string): boolean {
+  return WEB_RESEARCH_TOOLS.has(name)
+}
+
+function clipDescription(value: string, maxLength = 80): string {
+  const normalized = value.replace(/\s+/g, " ").trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}…`
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  if (!text?.trim()) return null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function shortenWebUrl(url: string): string {
+  if (!url) return ""
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.replace(/^www\./, "")
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "")
+    return `${host}${path}`
+  } catch {
+    return url
+  }
+}
+
+function describeWebSearchCall(call: WorkflowToolCall): string {
+  const query = getStringParam(call.params, "query", "keyword", "q")
+  const parsed = parseJsonObject(call.result)
+  const resultCount = typeof parsed?.resultCount === "number" ? parsed.resultCount : undefined
+  const message = typeof parsed?.message === "string" ? parsed.message.trim() : ""
+  const status = typeof parsed?.status === "string" ? parsed.status : ""
+
+  if (call.status === "error" || status === "error") {
+    if (query && message) return `联网搜索「${query}」失败：${clipDescription(message)}`
+    if (query) return `联网搜索「${query}」失败`
+    return message ? `联网搜索失败：${clipDescription(message)}` : "联网搜索失败"
+  }
+  if (status === "not_configured") {
+    return query ? `联网搜索「${query}」未执行：未配置外部搜索` : "联网搜索未执行：未配置外部搜索"
+  }
+  if (query && resultCount != null) return `联网搜索「${query}」（${resultCount} 条来源）`
+  if (query) return `联网搜索「${query}」`
+  if (resultCount != null) return `联网搜索（${resultCount} 条来源）`
+  return "联网搜索"
+}
+
+function describeReadWebPageCall(call: WorkflowToolCall): string {
+  const url = getStringParam(call.params, "url", "href")
+  const parsed = parseJsonObject(call.result)
+  const pageTitle = typeof parsed?.title === "string" ? parsed.title.trim() : ""
+  const label = pageTitle || shortenWebUrl(url) || url
+  const message = typeof parsed?.message === "string" ? parsed.message.trim() : ""
+  const status = typeof parsed?.status === "string" ? parsed.status : ""
+
+  if (call.status === "error" || status === "error") {
+    if (label && message) return `读取网页「${label}」失败：${clipDescription(message)}`
+    if (label) return `读取网页「${label}」失败`
+    return message ? `读取网页失败：${clipDescription(message)}` : "读取网页失败"
+  }
+  return label ? `读取网页「${label}」` : "读取网页"
+}
+
 export function getWorkflowToolDescription(call: WorkflowToolCall): string {
   switch (call.name) {
     case "read_chapter": {
@@ -140,6 +213,14 @@ export function getWorkflowToolDescription(call: WorkflowToolCall): string {
     case "search_chapters": {
       const keyword = getStringParam(call.params, "keyword", "query")
       return keyword ? `搜索章节关键词「${keyword}」` : "搜索章节资料"
+    }
+    case "web_search":
+      return describeWebSearchCall(call)
+    case "read_web_page":
+      return describeReadWebPageCall(call)
+    case "summarize_search_results": {
+      const query = getStringParam(call.params, "query")
+      return query ? `整理「${query}」的搜索摘要` : "整理搜索结果摘要"
     }
     case "list_chapters":
     case "list_outlines":

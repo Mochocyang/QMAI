@@ -571,6 +571,72 @@ describe("AgentToolCallMessage", () => {
     expect(toolItemButton?.getAttribute("aria-expanded")).toBe("false")
     expect(host.textContent).not.toContain("第一章内容")
   })
+
+  it("renders writing workflow web search and webpage reads with query, sources, and failure", async () => {
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "workflow-1:web_search",
+              parentCallId: "workflow-1",
+              name: "web_search",
+              params: {
+                query: "黄蓉",
+                sources: ["黄蓉简介 https://example.test/hr"],
+              },
+              result: "已搜索：黄蓉\n- 黄蓉简介 https://example.test/hr",
+              status: "done",
+              startedAt: 100,
+              finishedAt: 140,
+            },
+            {
+              id: "workflow-1:read_web_page",
+              parentCallId: "workflow-1",
+              name: "read_web_page",
+              params: { url: "https://example.test/hr" },
+              result: JSON.stringify({
+                status: "ok",
+                url: "https://example.test/hr",
+                title: "黄蓉简介",
+                content: "黄蓉是郭靖的妻子。",
+              }),
+              status: "done",
+              startedAt: 150,
+              finishedAt: 180,
+            },
+            {
+              id: "workflow-1:web_search-failed",
+              parentCallId: "workflow-1",
+              name: "web_search",
+              params: { query: "李鸿章" },
+              result: "搜索「李鸿章」失败：网络超时",
+              status: "error",
+              startedAt: 190,
+              finishedAt: 200,
+            },
+          ]}
+        />,
+      )
+    })
+
+    expect(host.textContent).toContain("联网搜索「黄蓉」")
+    expect(host.textContent).toContain("读取网页「黄蓉简介」")
+    expect(host.textContent).toContain("联网搜索「李鸿章」失败")
+    expect(host.textContent).toContain("失败")
+    expect(host.textContent).toContain("已完成")
+    expect(host.textContent).not.toContain("web_search")
+    expect(host.textContent).not.toContain("read_web_page")
+
+    const searchButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("联网搜索「黄蓉」"))
+    expect(searchButton).toBeDefined()
+    await act(async () => {
+      searchButton?.click()
+    })
+    expect(host.textContent).toContain("https://example.test/hr")
+    expect(host.textContent).toContain("黄蓉简介")
+  })
 })
 
 describe("getToolCallDescription", () => {
@@ -591,13 +657,17 @@ describe("getToolCallDescription", () => {
       "write_outline_node",
       "write_memory",
       "apply_skill",
+      "web_search",
+      "read_web_page",
     ] as const
 
     for (const name of names) {
-      const desc = getToolCallDescription(name, { name: "测试", keyword: "测试", skillName: "测试" })
+      const desc = getToolCallDescription(name, { name: "测试", keyword: "测试", skillName: "测试", query: "测试", url: "https://example.test" })
       expect(desc).not.toBe(name)
       expect(desc.length).toBeGreaterThan(0)
     }
+    expect(getToolCallDescription("web_search", { query: "黄蓉" })).toBe("联网搜索「黄蓉」")
+    expect(getToolCallDescription("read_web_page", { url: "https://example.test/hr" })).toBe("读取网页「https://example.test/hr」")
   })
 
   it("falls back to tool name for unknown tools", () => {

@@ -1573,6 +1573,59 @@ describe("runDeepChapterGeneration", () => {
     expect(seenPacks.some((pack) => pack.searchResults.includes(research))).toBe(true)
   })
 
+  it("emits web_search workflow events when strict mode finds external sources", async () => {
+    const events: Array<{ type: string; name: string; result?: string; params?: Record<string, unknown> }> = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      { onWorkflowEvent: (event) => events.push(event) },
+      {
+        ...createDeps(),
+        collectWritingEntityWebSearch: vi.fn(async () => ({
+          markdown: "## 外部检索\n\n### 黄蓉\n- 黄蓉简介 https://example.test/hr",
+          searchedNames: ["黄蓉"],
+          notes: [],
+          items: [{
+            name: "黄蓉",
+            results: [{
+              title: "黄蓉简介",
+              url: "https://example.test/hr",
+              snippet: "公开摘要",
+              source: "example.test",
+            }],
+          }],
+        })),
+      },
+    )
+
+    expect(events.some((event) => event.type === "started" && event.name === "web_search")).toBe(true)
+    const completed = events.find((event) => event.type === "completed" && event.name === "web_search")
+    expect(completed?.params).toMatchObject({ query: "黄蓉" })
+    expect(completed?.result).toContain("黄蓉")
+    expect(completed?.result).toContain("https://example.test/hr")
+    expect(completed?.params?.sources).toEqual(expect.arrayContaining(["黄蓉简介 https://example.test/hr"]))
+  })
+
+  it("emits failed web_search workflow events when entity search errors", async () => {
+    const events: Array<{ type: string; name: string; result?: string; params?: Record<string, unknown> }> = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      { onWorkflowEvent: (event) => events.push(event) },
+      {
+        ...createDeps(),
+        collectWritingEntityWebSearch: vi.fn(async () => ({
+          markdown: "",
+          searchedNames: [] as string[],
+          notes: ["搜索「李鸿章」失败：网络超时"],
+          items: [],
+        })),
+      },
+    )
+
+    const failed = events.find((event) => event.name === "web_search" && event.type === "error")
+    expect(failed).toBeDefined()
+    expect(failed?.result).toContain("网络超时")
+  })
+
   it("emits visible workflow events for the chapter multi-task loop", async () => {
     const deps = createDeps()
     const events: Array<{ type: string; id: string; name: string; title: string; result?: string }> = []

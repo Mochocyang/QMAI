@@ -3,8 +3,8 @@ import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
 import { normalizeOutlineWriteTarget } from "@/lib/agent/tools/write-outline-node"
-import { createStreamingEventBuilder, compareToolCallsByStartedAt, filterToolCallsForDisplay } from "@/components/common/timeline-types"
-import type { ToolCallEventItem, TimelineToolCategory } from "@/components/common/timeline-types"
+import { createStreamingEventBuilder, compareToolCallsByStartedAt, filterToolCallsForDisplay, getTimelineToolCategory } from "@/components/common/timeline-types"
+import type { ToolCallEventItem } from "@/components/common/timeline-types"
 import { EventStream } from "@/components/common/event-stream"
 
 type ToolCallRecord = AgentRunRecord["toolCalls"][number]
@@ -20,29 +20,13 @@ interface AgentWorkflowPanelProps {
   onReject?: (call: ToolCallRecord & { preview?: string }) => void
 }
 
-const WRITE_TOOLS = new Set(["write_chapter", "write_outline_node", "write_memory"])
-const READ_TOOLS = new Set([
-  "list_chapters", "list_outlines", "list_memories", "list_deductions",
-  "read_chapter", "read_outline", "read_memory", "read_deduction",
-  "read_chat_history", "read_outline_history", "search_chapters",
-  "chapter_context", "chapter_previous_analysis", "load_context", "trim_context",
-])
-const ACTION_TOOLS = new Set(["route_task", "apply_skill"])
-
-function getToolCallCategory(name: string): TimelineToolCategory {
-  if (WRITE_TOOLS.has(name)) return "write"
-  if (READ_TOOLS.has(name)) return "read"
-  if (ACTION_TOOLS.has(name)) return "action"
-  return "virtual"
-}
-
 function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
   const isError = call.status === "error"
   return {
     id: call.id,
     name: call.name,
     description: getWorkflowToolDescription(call),
-    category: getToolCallCategory(call.name),
+    category: getTimelineToolCategory(call.name),
     status: call.status,
     params: call.params,
     result: isError ? undefined : call.result,

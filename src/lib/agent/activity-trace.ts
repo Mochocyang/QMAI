@@ -183,9 +183,74 @@ export function activityEventFromToolEvent(event: AgentToolEvent): AgentActivity
     kind,
     title: `${statusText}：${event.name}`,
     content: event.result || event.preview || formatParams(event.params),
+    sourceRefs: inferSourceRefsFromToolEvent(event),
     toolCallId: event.callId,
     timestamp: event.timestamp,
   })
+}
+
+function inferSourceRefsFromToolEvent(event: AgentToolEvent): AgentActivityEvent["sourceRefs"] {
+  const fromParams = sourceRefsFromUnknown(event.params.sources)
+  if (fromParams.length > 0) return fromParams
+
+  const parsed = parseJsonObject(event.result)
+  if (!parsed) return undefined
+
+  if (Array.isArray(parsed.results)) {
+    const refs = parsed.results.flatMap((item) => {
+      if (!item || typeof item !== "object") return []
+      const record = item as Record<string, unknown>
+      const url = typeof record.url === "string" ? record.url.trim() : ""
+      const title = typeof record.title === "string" ? record.title.trim() : ""
+      if (!url && !title) return []
+      return [{ title: title || url, path: url || undefined, type: "web" }]
+    })
+    return refs.length > 0 ? refs : undefined
+  }
+
+  const url = typeof parsed.url === "string" ? parsed.url.trim() : ""
+  const title = typeof parsed.title === "string" ? parsed.title.trim() : ""
+  if (!url && !title) return undefined
+  return [{ title: title || url, path: url || undefined, type: "web" }]
+}
+
+function sourceRefsFromUnknown(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {
+  if (!Array.isArray(value)) return []
+  const refs: NonNullable<AgentActivityEvent["sourceRefs"]> = []
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) {
+      const [title, path] = splitSourceLabel(item.trim())
+      refs.push({ title, path, type: "web" })
+      continue
+    }
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const title = typeof record.title === "string" ? record.title.trim() : ""
+    const path = typeof record.url === "string"
+      ? record.url.trim()
+      : typeof record.path === "string" ? record.path.trim() : ""
+    if (!title && !path) continue
+    refs.push({ title: title || path, path: path || undefined, type: typeof record.type === "string" ? record.type : "web" })
+  }
+  return refs
+}
+
+function splitSourceLabel(label: string): [string, string | undefined] {
+  const match = label.match(/^(.*?)(?:\s+[—-]\s+|\s+)(https?:\/\/\S+)$/)
+  if (match) return [match[1].trim() || match[2], match[2]]
+  if (/^https?:\/\//.test(label)) return [label, label]
+  return [label, undefined]
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  if (!text?.trim()) return null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
 }
 
 function createStageFromEvent(event: AgentActivityEvent): AgentStageTrace {
@@ -281,6 +346,9 @@ function formatParams(params: Record<string, unknown>): string {
 }
 
 function inferStageIdFromToolName(name: string): string {
+  if (name === "web_search" || name === "read_web_page" || name === "summarize_search_results") {
+    return "external_search"
+  }
   if (/read|context|chapter_context/.test(name)) return "read_context"
   if (/skill/.test(name)) return "capability_selection"
   if (/web|search/.test(name)) return "external_search"
@@ -319,7 +387,9 @@ function inferStageTitle(event: AgentActivityEvent): string {
 function inferActivityKindFromToolName(name: string): AgentActivityKind {
   if (/skill/.test(name)) return "skill_used"
   if (/mcp/.test(name)) return "mcp_call"
-  if (/web|search/.test(name)) return "web_search"
+  if (name === "web_search" || name === "read_web_page" || name === "summarize_search_results" || /web|search/.test(name)) {
+    return "web_search"
+  }
   if (/read|context/.test(name)) return "read_source"
   return "tool_call"
 }
