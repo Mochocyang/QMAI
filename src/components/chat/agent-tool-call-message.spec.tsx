@@ -637,6 +637,70 @@ describe("AgentToolCallMessage", () => {
     expect(host.textContent).toContain("https://example.test/hr")
     expect(host.textContent).toContain("黄蓉简介")
   })
+
+  it("shows grouped writing search summaries without dumping persisted URLs", async () => {
+    const persisted = JSON.stringify({
+      content: [
+        "已搜索：鲁茨科伊、哈斯布拉托夫",
+        "",
+        "鲁茨科伊",
+        "- 亚历山大·弗拉基米罗维奇·鲁茨科伊 · baike.com",
+        "  俄罗斯政治家，曾任副总统。",
+        "",
+        "哈斯布拉托夫",
+        "- 无可用结果",
+      ].join("\n"),
+      searchedNames: ["鲁茨科伊", "哈斯布拉托夫"],
+      notes: [],
+      items: [
+        {
+          name: "鲁茨科伊",
+          results: [{
+            title: "亚历山大·弗拉基米罗维奇·鲁茨科伊",
+            url: "https://m.baike.com/wikiid/123",
+            snippet: "俄罗斯政治家，曾任副总统。",
+            source: "baike.com",
+          }],
+        },
+        { name: "哈斯布拉托夫", results: [] },
+      ],
+    })
+
+    await act(async () => {
+      root.render(
+        <AgentToolCallMessage
+          toolCalls={[
+            {
+              id: "workflow-1:web_search",
+              parentCallId: "workflow-1",
+              name: "web_search",
+              params: {
+                query: "鲁茨科伊、哈斯布拉托夫",
+                title: "联网搜索",
+                sources: ["亚历山大·弗拉基米罗维奇·鲁茨科伊 · baike.com"],
+              },
+              result: persisted,
+              status: "done",
+              startedAt: 100,
+              finishedAt: 140,
+            },
+          ]}
+        />,
+      )
+    })
+
+    const searchButton = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("联网搜索「鲁茨科伊、哈斯布拉托夫」"))
+    expect(searchButton).toBeDefined()
+    await act(async () => {
+      searchButton?.click()
+    })
+    expect(host.textContent).toContain("亚历山大·弗拉基米罗维奇·鲁茨科伊 · baike.com")
+    expect(host.textContent).toContain("俄罗斯政治家，曾任副总统。")
+    expect(host.textContent).toContain("哈斯布拉托夫")
+    expect(host.textContent).toContain("无可用结果")
+    expect(host.textContent).not.toContain("https://m.baike.com/wikiid/123")
+  })
 })
 
 describe("getToolCallDescription", () => {

@@ -31,7 +31,7 @@ import {
 } from "./context-engine";
 import {
   collectWritingEntityWebSearch,
-  formatWritingEntitySearchWorkflowResult,
+  serializeWritingEntitySearchWorkflowResult,
   writingEntitySearchSourceLabels,
   type CollectWritingEntityWebSearchInput,
   type WritingEntityWebSearchResult,
@@ -2452,7 +2452,7 @@ function emitWritingEntityWebSearchWorkflow(
     title: "联网搜索",
     ...(sources.length > 0 ? { sources } : {}),
   };
-  const output = formatWritingEntitySearchWorkflowResult(result);
+  const output = serializeWritingEntitySearchWorkflowResult(result);
   const failed = result.searchedNames.length === 0 && notes.length > 0;
   if (failed) {
     errorChapterWorkflowStep(callbacks, { ...spec, params }, output || notes.join("\n"));

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect } from "react"
-import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
+import { getWorkflowToolDescription, getWorkflowToolResultDisplay } from "@/lib/agent/workflow-trace"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
 import { normalizeOutlineWriteTarget } from "@/lib/agent/tools/write-outline-node"
@@ -22,6 +22,7 @@ interface AgentWorkflowPanelProps {
 
 function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
   const isError = call.status === "error"
+  const displayResult = getWorkflowToolResultDisplay(call.result)
   return {
     id: call.id,
     name: call.name,
@@ -29,8 +30,8 @@ function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
     category: getTimelineToolCategory(call.name),
     status: call.status,
     params: call.params,
-    result: isError ? undefined : call.result,
-    error: isError ? call.result : undefined,
+    result: isError ? undefined : displayResult,
+    error: isError ? displayResult : undefined,
     startedAt: call.startedAt,
     finishedAt: call.finishedAt,
   }

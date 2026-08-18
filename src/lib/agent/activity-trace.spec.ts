@@ -323,4 +323,34 @@ describe("activity trace", () => {
       { title: "黄蓉", path: "https://example.test/hr", type: "web" },
     ])
   })
+
+  it("uses the grouped writing search summary as activity content and keeps item URLs in sourceRefs", () => {
+    const search = activityEventFromToolEvent({
+      type: "result",
+      callId: "search-grouped",
+      name: "web_search",
+      params: { query: "鲁茨科伊" },
+      result: JSON.stringify({
+        content: "已搜索：鲁茨科伊\n\n鲁茨科伊\n- 简介 · baike.com\n  摘要",
+        searchedNames: ["鲁茨科伊"],
+        notes: [],
+        items: [{
+          name: "鲁茨科伊",
+          results: [{
+            title: "简介",
+            url: "https://m.baike.com/wikiid/123",
+            snippet: "摘要",
+            source: "baike.com",
+          }],
+        }],
+      }),
+      timestamp: 120,
+    })
+    expect(search.content).toContain("已搜索：鲁茨科伊")
+    expect(search.content).toContain("摘要")
+    expect(search.content).not.toContain("https://m.baike.com/wikiid/123")
+    expect(search.sourceRefs).toEqual([
+      { title: "简介", path: "https://m.baike.com/wikiid/123", type: "web" },
+    ])
+  })
 })
