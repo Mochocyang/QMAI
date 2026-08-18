@@ -147,10 +147,36 @@ function shortenWebUrl(url: string): string {
   }
 }
 
+export function getWorkflowToolResultDisplay(result: string | undefined): string {
+  const parsed = parseJsonObject(result)
+  if (
+    parsed
+    && typeof parsed.content === "string"
+    && parsed.content.trim()
+    && (Array.isArray(parsed.items) || Array.isArray(parsed.searchedNames))
+  ) {
+    return parsed.content.trim()
+  }
+  return (result ?? "").trim()
+}
+
+function countWebSearchHits(parsed: Record<string, unknown> | null): number | undefined {
+  if (!parsed) return undefined
+  if (typeof parsed.resultCount === "number") return parsed.resultCount
+  if (!Array.isArray(parsed.items)) return undefined
+  let count = 0
+  for (const item of parsed.items) {
+    if (!item || typeof item !== "object") continue
+    const results = (item as { results?: unknown }).results
+    if (Array.isArray(results)) count += results.length
+  }
+  return count
+}
+
 function describeWebSearchCall(call: WorkflowToolCall): string {
   const query = getStringParam(call.params, "query", "keyword", "q")
   const parsed = parseJsonObject(call.result)
-  const resultCount = typeof parsed?.resultCount === "number" ? parsed.resultCount : undefined
+  const resultCount = countWebSearchHits(parsed)
   const message = typeof parsed?.message === "string" ? parsed.message.trim() : ""
   const status = typeof parsed?.status === "string" ? parsed.status : ""
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildAgentWorkflowSteps, getWorkflowToolDescription, type WorkflowToolCall } from "./workflow-trace"
+import { buildAgentWorkflowSteps, getWorkflowToolDescription, getWorkflowToolResultDisplay, type WorkflowToolCall } from "./workflow-trace"
 import type { ContextTrace } from "./context-trace"
 
 function call(overrides: Partial<WorkflowToolCall> & Pick<WorkflowToolCall, "id" | "name">): WorkflowToolCall {
@@ -163,6 +163,21 @@ describe("getWorkflowToolDescription", () => {
     }))).toBe("联网搜索「黄蓉」（2 条来源）")
 
     expect(getWorkflowToolDescription(call({
+      id: "search-grouped",
+      name: "web_search",
+      params: { query: "鲁茨科伊、哈斯布拉托夫" },
+      result: JSON.stringify({
+        content: "鲁茨科伊\n- 简介 · baike.com\n  摘要",
+        searchedNames: ["鲁茨科伊", "哈斯布拉托夫"],
+        notes: [],
+        items: [
+          { name: "鲁茨科伊", results: [{ title: "简介", url: "https://m.baike.com/wikiid/1", snippet: "摘要", source: "baike.com" }] },
+          { name: "哈斯布拉托夫", results: [{ title: "词条", url: "https://example.test/h", snippet: "另一段", source: "example.test" }] },
+        ],
+      }),
+    }))).toBe("联网搜索「鲁茨科伊、哈斯布拉托夫」（2 条来源）")
+
+    expect(getWorkflowToolDescription(call({
       id: "search-error",
       name: "web_search",
       params: { query: "郭靖" },
@@ -191,5 +206,38 @@ describe("getWorkflowToolDescription", () => {
       status: "error",
       result: JSON.stringify({ status: "error", url: "https://example.test/missing", message: "HTTP 状态码：404" }),
     }))).toContain("失败")
+  })
+})
+
+describe("getWorkflowToolResultDisplay", () => {
+  it("extracts the grouped summary from persisted writing search JSON", () => {
+    const summary = [
+      "已搜索：鲁茨科伊",
+      "",
+      "鲁茨科伊",
+      "- 亚历山大·弗拉基米罗维奇·鲁茨科伊 · baike.com",
+      "  俄罗斯政治家",
+    ].join("\n")
+    const persisted = JSON.stringify({
+      content: summary,
+      searchedNames: ["鲁茨科伊"],
+      notes: [],
+      items: [{
+        name: "鲁茨科伊",
+        results: [{
+          title: "亚历山大·弗拉基米罗维奇·鲁茨科伊",
+          url: "https://m.baike.com/wikiid/123",
+          snippet: "俄罗斯政治家",
+          source: "baike.com",
+        }],
+      }],
+    })
+    expect(getWorkflowToolResultDisplay(persisted)).toBe(summary)
+    expect(getWorkflowToolResultDisplay(persisted)).not.toContain("https://m.baike.com")
+  })
+
+  it("keeps legacy 已搜索 + title URL strings as-is", () => {
+    const legacy = "已搜索：鲁茨科伊\n- 亚历山大·弗拉基米罗维奇·鲁茨科伊 https://m.baike.com/wikiid/123"
+    expect(getWorkflowToolResultDisplay(legacy)).toBe(legacy)
   })
 })

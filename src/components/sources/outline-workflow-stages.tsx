@@ -4,7 +4,7 @@ import type { ToolCallEventItem } from "@/components/common/timeline-types"
 import { compareToolCallsByStartedAt, createStreamingEventBuilder, filterToolCallsForDisplay, getTimelineToolCategory } from "@/components/common/timeline-types"
 import { EventStream } from "@/components/common/event-stream"
 import { extractThinkingContent } from "@/lib/novel/outline-stage-trace"
-import { getWorkflowToolDescription } from "@/lib/agent/workflow-trace"
+import { getWorkflowToolDescription, getWorkflowToolResultDisplay } from "@/lib/agent/workflow-trace"
 
 interface OutlineWorkflowStagesProps {
   toolCalls: ToolCallRecord[]
@@ -15,6 +15,7 @@ interface OutlineWorkflowStagesProps {
 function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
   const isError = call.status === "error"
   const callAny = call as any
+  const displayResult = getWorkflowToolResultDisplay(call.result)
   return {
     id: call.id,
     name: call.name,
@@ -27,8 +28,8 @@ function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
     category: getTimelineToolCategory(call.name),
     status: call.status,
     params: call.params as Record<string, unknown>,
-    result: isError ? undefined : call.result,
-    error: isError ? call.result : undefined,
+    result: isError ? undefined : displayResult,
+    error: isError ? displayResult : undefined,
     startedAt: callAny.startedAt,
     finishedAt: callAny.finishedAt,
   }

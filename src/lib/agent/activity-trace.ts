@@ -5,6 +5,7 @@ import type {
   AgentStageTrace,
   AgentToolEvent,
 } from "./types"
+import { getWorkflowToolResultDisplay } from "./workflow-trace"
 
 const EMPTY_CONTENT = "本阶段未返回可展示内容。"
 const AGGREGATE_STAGE_IDS = new Set(["chapter_workflow", "react_tools"])
@@ -182,7 +183,7 @@ export function activityEventFromToolEvent(event: AgentToolEvent): AgentActivity
     stageId: inferStageIdFromToolName(event.name),
     kind,
     title: `${statusText}：${event.name}`,
-    content: event.result || event.preview || formatParams(event.params),
+    content: getWorkflowToolResultDisplay(event.result) || event.preview || formatParams(event.params),
     sourceRefs: inferSourceRefsFromToolEvent(event),
     toolCallId: event.callId,
     timestamp: event.timestamp,
@@ -197,21 +198,37 @@ function inferSourceRefsFromToolEvent(event: AgentToolEvent): AgentActivityEvent
   if (!parsed) return undefined
 
   if (Array.isArray(parsed.results)) {
-    const refs = parsed.results.flatMap((item) => {
+    const refs = webSourceRefsFromResults(parsed.results)
+    if (refs.length > 0) return refs
+  }
+
+  if (Array.isArray(parsed.items)) {
+    const refs = parsed.items.flatMap((item) => {
       if (!item || typeof item !== "object") return []
-      const record = item as Record<string, unknown>
-      const url = typeof record.url === "string" ? record.url.trim() : ""
-      const title = typeof record.title === "string" ? record.title.trim() : ""
-      if (!url && !title) return []
-      return [{ title: title || url, path: url || undefined, type: "web" }]
+      const results = (item as { results?: unknown }).results
+      return Array.isArray(results) ? webSourceRefsFromResults(results) : []
     })
-    return refs.length > 0 ? refs : undefined
+    if (refs.length > 0) return refs
   }
 
   const url = typeof parsed.url === "string" ? parsed.url.trim() : ""
   const title = typeof parsed.title === "string" ? parsed.title.trim() : ""
   if (!url && !title) return undefined
   return [{ title: title || url, path: url || undefined, type: "web" }]
+}
+
+function webSourceRefsFromResults(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {
+  if (!Array.isArray(value)) return []
+  const refs: NonNullable<AgentActivityEvent["sourceRefs"]> = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const url = typeof record.url === "string" ? record.url.trim() : ""
+    const title = typeof record.title === "string" ? record.title.trim() : ""
+    if (!url && !title) continue
+    refs.push({ title: title || url, path: url || undefined, type: "web" })
+  }
+  return refs
 }
 
 function sourceRefsFromUnknown(value: unknown): NonNullable<AgentActivityEvent["sourceRefs"]> {

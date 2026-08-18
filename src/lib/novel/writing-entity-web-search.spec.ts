@@ -5,13 +5,16 @@ import type { ContextPack } from "./context-engine"
 import {
   buildLocalWritingCorpus,
   collectWritingEntityWebSearch,
+  displayWritingEntitySearchWorkflowContent,
   formatWritingEntitySearchMarkdown,
   formatWritingEntitySearchWorkflowResult,
   isLocallyResolvedEntity,
   isWebSearchConfigured,
   parseExtractedEntityNames,
   parseNeedExternalNames,
+  parseWritingEntitySearchWorkflowResult,
   selectUnresolvedEntities,
+  serializeWritingEntitySearchWorkflowResult,
   writingEntitySearchSourceLabels,
   WRITING_ENTITY_SEARCH_HEADING,
 } from "./writing-entity-web-search"
@@ -270,20 +273,96 @@ describe("formatWritingEntitySearchMarkdown", () => {
   it("returns empty string without results", () => {
     expect(formatWritingEntitySearchMarkdown([])).toBe("")
   })
+})
 
-  it("formats workflow-visible search sources and failures", () => {
-    expect(formatWritingEntitySearchWorkflowResult({
-      markdown: "",
-      searchedNames: ["黄蓉"],
-      notes: [],
-      items: [{
-        name: "黄蓉",
-        results: [{ title: "黄蓉简介", url: "https://example.test/hr", snippet: "摘要", source: "example.test" }],
-      }],
-    })).toContain("https://example.test/hr")
-    expect(writingEntitySearchSourceLabels([{
-      name: "黄蓉",
-      results: [{ title: "黄蓉简介", url: "https://example.test/hr", snippet: "摘要", source: "example.test" }],
-    }])).toEqual(["黄蓉简介 https://example.test/hr"])
+describe("writing entity search workflow display and persistence", () => {
+  const groupedItems = [
+    {
+      name: "鲁茨科伊",
+      results: [
+        {
+          title: "亚历山大·弗拉基米罗维奇·鲁茨科伊",
+          url: "https://m.baike.com/wikiid/123",
+          snippet: "俄罗斯政治家，1991年至1993年任副总统。",
+          source: "m.baike.com",
+        },
+        {
+          title: "Alexander-Rutskoy",
+          url: "http://www.bing.com/dict/Alexander-Rutskoy",
+          snippet: "英语词典释义。",
+          source: "bing.com",
+        },
+      ],
+    },
+    {
+      name: "哈斯布拉托夫",
+      results: [
+        {
+          title: "鲁斯兰·哈斯布拉托夫",
+          url: "https://zh.wikipedia.org/wiki/%E9%B2%81%E6%96%AF%E5%85%B0%C2%B7%E5%93%88%E6%96%AF%E5%B8%83%E6%8B%89%E6%89%98%E5%A4%AB",
+          snippet: "前俄罗斯最高苏维埃主席。",
+          source: "zh.wikipedia.org",
+        },
+      ],
+    },
+    {
+      name: "格拉乔夫",
+      results: [],
+    },
+  ]
+
+  const searchResult = {
+    markdown: "",
+    searchedNames: ["鲁茨科伊", "哈斯布拉托夫", "格拉乔夫"],
+    notes: ["搜索「叶利钦」失败：网络超时"],
+    items: groupedItems,
+  }
+
+  it("groups the human summary by name with title and snippet, not bare URLs", () => {
+    const summary = formatWritingEntitySearchWorkflowResult(searchResult)
+    expect(summary).toContain("已搜索：鲁茨科伊、哈斯布拉托夫、格拉乔夫")
+    expect(summary).toMatch(/鲁茨科伊\n- 亚历山大·弗拉基米罗维奇·鲁茨科伊 · m\.baike\.com\n {2}俄罗斯政治家/)
+    expect(summary).toContain("Alexander-Rutskoy · bing.com")
+    expect(summary).toContain("英语词典释义。")
+    expect(summary).toContain("哈斯布拉托夫")
+    expect(summary).toContain("前俄罗斯最高苏维埃主席。")
+    expect(summary).toContain("格拉乔夫")
+    expect(summary).toContain("- 无可用结果")
+    expect(summary).toContain("搜索「叶利钦」失败：网络超时")
+    expect(summary).not.toMatch(/https?:\/\/\S+/)
+    expect(writingEntitySearchSourceLabels(groupedItems)).toEqual([
+      "亚历山大·弗拉基米罗维奇·鲁茨科伊 · m.baike.com",
+      "Alexander-Rutskoy · bing.com",
+      "鲁斯兰·哈斯布拉托夫 · zh.wikipedia.org",
+    ])
+  })
+
+  it("serializes the full title/url/snippet/source payload and can read it back", () => {
+    const serialized = serializeWritingEntitySearchWorkflowResult(searchResult)
+    const parsed = parseWritingEntitySearchWorkflowResult(serialized)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.searchedNames).toEqual(["鲁茨科伊", "哈斯布拉托夫", "格拉乔夫"])
+    expect(parsed?.notes).toEqual(["搜索「叶利钦」失败：网络超时"])
+    expect(parsed?.items[0]?.results[0]).toEqual({
+      title: "亚历山大·弗拉基米罗维奇·鲁茨科伊",
+      url: "https://m.baike.com/wikiid/123",
+      snippet: "俄罗斯政治家，1991年至1993年任副总统。",
+      source: "m.baike.com",
+    })
+    expect(parsed?.items[2]).toEqual({ name: "格拉乔夫", results: [] })
+    expect(displayWritingEntitySearchWorkflowContent(serialized)).toBe(parsed?.content)
+    expect(displayWritingEntitySearchWorkflowContent(serialized)).not.toMatch(/https?:\/\/\S+/)
+    expect(JSON.parse(serialized).items[0].results[0].url).toBe("https://m.baike.com/wikiid/123")
+  })
+
+  it("still displays legacy 已搜索 + title URL strings", () => {
+    const legacy = [
+      "已搜索：鲁茨科伊、哈斯布拉托夫、格拉乔夫",
+      "- 亚历山大·弗拉基米罗维奇·鲁茨科伊 https://m.baike.com/wikiid/123",
+      "- Alexander-Rutskoy http://www.bing.com/dict/Alexander-Rutskoy",
+    ].join("\n")
+    expect(parseWritingEntitySearchWorkflowResult(legacy)).toBeNull()
+    expect(displayWritingEntitySearchWorkflowContent(legacy)).toBe(legacy)
+    expect(displayWritingEntitySearchWorkflowContent(legacy)).toContain("https://m.baike.com/wikiid/123")
   })
 })

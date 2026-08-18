@@ -174,6 +174,16 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
   return selected
 }
 
+export interface WritingEntitySearchWorkflowPersisted {
+  content: string
+  searchedNames: string[]
+  notes: string[]
+  items: Array<{ name: string; results: WebSearchResult[] }>
+}
+
+const DISPLAY_TITLE_MAX = 80
+const DISPLAY_SNIPPET_MAX = 140
+
 export function formatWritingEntitySearchMarkdown(
   items: Array<{ name: string; results: WebSearchResult[] }>,
 ): string {
@@ -195,24 +205,103 @@ export function formatWritingEntitySearchMarkdown(
 export function formatWritingEntitySearchWorkflowResult(
   result: Pick<WritingEntityWebSearchResult, "searchedNames" | "notes" | "items" | "markdown">,
 ): string {
-  const lines: string[] = []
+  const blocks: string[] = []
   if (result.searchedNames.length > 0) {
-    lines.push(`已搜索：${result.searchedNames.join("、")}`)
+    blocks.push(`已搜索：${result.searchedNames.join("、")}`)
   }
   for (const item of result.items ?? []) {
+    const lines = [`${item.name}`]
     if (item.results.length === 0) {
-      lines.push(`「${item.name}」无可用结果`)
-      continue
+      lines.push("- 无可用结果")
+    } else {
+      for (const source of item.results) {
+        const title = clipDisplayText(
+          source.title.trim() || writingEntitySearchSourceHost(source) || "未命名来源",
+          DISPLAY_TITLE_MAX,
+        )
+        const host = writingEntitySearchSourceHost(source)
+        const headline = host && host !== title ? `${title} · ${host}` : title
+        const snippet = clipDisplayText(source.snippet.replace(/\s+/g, " ").trim(), DISPLAY_SNIPPET_MAX)
+        lines.push(`- ${headline}`)
+        if (snippet) lines.push(`  ${snippet}`)
+      }
     }
-    for (const source of item.results) {
-      const title = source.title.trim() || source.url.trim() || source.source.trim() || "未命名来源"
-      const url = source.url.trim()
-      lines.push(`- ${title}${url ? ` ${url}` : ""}`)
-    }
+    blocks.push(lines.join("\n"))
   }
-  lines.push(...result.notes)
-  if (lines.length === 0 && result.markdown.trim()) return result.markdown.trim()
-  return lines.join("\n")
+  if (result.notes.length > 0) {
+    blocks.push(result.notes.join("\n"))
+  }
+  if (blocks.length === 0 && result.markdown.trim()) return result.markdown.trim()
+  return blocks.join("\n\n")
+}
+
+export function serializeWritingEntitySearchWorkflowResult(
+  result: Pick<WritingEntityWebSearchResult, "searchedNames" | "notes" | "items" | "markdown">,
+): string {
+  const items = (result.items ?? []).map((item) => ({
+    name: item.name,
+    results: item.results.map((source) => ({
+      title: source.title,
+      url: source.url,
+      snippet: source.snippet,
+      source: source.source,
+    })),
+  }))
+  const persisted: WritingEntitySearchWorkflowPersisted = {
+    content: formatWritingEntitySearchWorkflowResult({ ...result, items }),
+    searchedNames: [...result.searchedNames],
+    notes: [...result.notes],
+    items,
+  }
+  return JSON.stringify(persisted)
+}
+
+export function parseWritingEntitySearchWorkflowResult(
+  text: string | undefined,
+): WritingEntitySearchWorkflowPersisted | null {
+  if (!text?.trim()) return null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    const record = parsed as Record<string, unknown>
+    const hasItems = Array.isArray(record.items)
+    const hasSearchedNames = Array.isArray(record.searchedNames)
+    if (!hasItems && !hasSearchedNames) return null
+
+    const items = hasItems ? normalizePersistedSearchItems(record.items) : []
+    const searchedNames = hasSearchedNames
+      ? record.searchedNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+      : items.map((item) => item.name)
+    const notes = Array.isArray(record.notes)
+      ? record.notes.filter((note): note is string => typeof note === "string")
+      : []
+    const content = typeof record.content === "string" ? record.content : ""
+    return {
+      content,
+      searchedNames,
+      notes,
+      items,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function displayWritingEntitySearchWorkflowContent(text: string | undefined): string {
+  const parsed = parseWritingEntitySearchWorkflowResult(text)
+  if (!parsed) return (text ?? "").trim()
+  return parsed.content.trim() || formatWritingEntitySearchWorkflowResult(parsed)
+}
+
+export function writingEntitySearchSourceHost(
+  result: Pick<WebSearchResult, "url" | "source">,
+): string {
+  const source = result.source.trim()
+  if (source) {
+    if (/^https?:\/\//i.test(source)) return hostnameFromUrl(source)
+    if (!source.includes("/")) return source
+  }
+  return hostnameFromUrl(result.url.trim())
 }
 
 export function writingEntitySearchSourceLabels(
@@ -222,15 +311,58 @@ export function writingEntitySearchSourceLabels(
   const seen = new Set<string>()
   for (const item of items ?? []) {
     for (const source of item.results) {
-      const title = source.title.trim() || source.url.trim() || source.source.trim()
-      const url = source.url.trim()
-      const label = url ? `${title} ${url}` : title
+      const title = clipDisplayText(
+        source.title.trim() || writingEntitySearchSourceHost(source) || source.url.trim(),
+        DISPLAY_TITLE_MAX,
+      )
+      const host = writingEntitySearchSourceHost(source)
+      const label = host && host !== title ? `${title} · ${host}` : title
       if (!label || seen.has(label)) continue
       seen.add(label)
       labels.push(label)
     }
   }
   return labels
+}
+
+function normalizePersistedSearchItems(value: unknown): Array<{ name: string; results: WebSearchResult[] }> {
+  if (!Array.isArray(value)) return []
+  const items: Array<{ name: string; results: WebSearchResult[] }> = []
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const name = typeof record.name === "string" ? record.name.trim() : ""
+    if (!name) continue
+    const results: WebSearchResult[] = []
+    if (Array.isArray(record.results)) {
+      for (const result of record.results) {
+        if (!result || typeof result !== "object") continue
+        const source = result as Record<string, unknown>
+        results.push({
+          title: typeof source.title === "string" ? source.title : "",
+          url: typeof source.url === "string" ? source.url : "",
+          snippet: typeof source.snippet === "string" ? source.snippet : "",
+          source: typeof source.source === "string" ? source.source : "",
+        })
+      }
+    }
+    items.push({ name, results })
+  }
+  return items
+}
+
+function hostnameFromUrl(url: string): string {
+  if (!url) return ""
+  try {
+    return new URL(url).hostname.replace(/^www\./, "")
+  } catch {
+    return ""
+  }
+}
+
+function clipDisplayText(value: string, maxLength: number): string {
+  if (!value || value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}…`
 }
 
 export async function collectWritingEntityWebSearch(

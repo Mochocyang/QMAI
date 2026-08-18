@@ -1600,9 +1600,23 @@ describe("runDeepChapterGeneration", () => {
     expect(events.some((event) => event.type === "started" && event.name === "web_search")).toBe(true)
     const completed = events.find((event) => event.type === "completed" && event.name === "web_search")
     expect(completed?.params).toMatchObject({ query: "黄蓉" })
-    expect(completed?.result).toContain("黄蓉")
-    expect(completed?.result).toContain("https://example.test/hr")
-    expect(completed?.params?.sources).toEqual(expect.arrayContaining(["黄蓉简介 https://example.test/hr"]))
+    const persisted = JSON.parse(String(completed?.result ?? "{}")) as {
+      content?: string
+      searchedNames?: string[]
+      items?: Array<{ name: string; results: Array<{ title: string; url: string; snippet: string; source: string }> }>
+    }
+    expect(persisted.searchedNames).toEqual(["黄蓉"])
+    expect(persisted.items?.[0]?.results[0]).toEqual({
+      title: "黄蓉简介",
+      url: "https://example.test/hr",
+      snippet: "公开摘要",
+      source: "example.test",
+    })
+    expect(persisted.content).toContain("黄蓉")
+    expect(persisted.content).toContain("公开摘要")
+    expect(persisted.content).toContain("example.test")
+    expect(persisted.content).not.toContain("https://example.test/hr")
+    expect(completed?.params?.sources).toEqual(["黄蓉简介 · example.test"])
   })
 
   it("emits failed web_search workflow events when entity search errors", async () => {
