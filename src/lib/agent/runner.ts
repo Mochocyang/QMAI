@@ -28,6 +28,7 @@ import {
 } from "./required-tools-gate"
 import { executeAgentTool } from "./tool-executor"
 import { CodexAppServerRunner } from "./codex-app-server-runner"
+import { withWritingWakeLock } from "../writing-wake-lock"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -45,6 +46,16 @@ function messageContentText(content: AgentMessage["content"]): string {
 
 export class AgentRunner {
   async run(
+    config: AgentConfig,
+    registry: ToolRegistry,
+    messages: AgentMessage[],
+    callbacks: AgentRunCallbacks,
+    signal?: AbortSignal,
+  ): Promise<AgentRunRecord> {
+    return withWritingWakeLock(true, () => this.runHeld(config, registry, messages, callbacks, signal))
+  }
+
+  private async runHeld(
     config: AgentConfig,
     registry: ToolRegistry,
     messages: AgentMessage[],

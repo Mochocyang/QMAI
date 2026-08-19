@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  shouldKeepAwakeForWriting,
+  resetWritingWakeLockForTests,
   withWritingWakeLock,
   type WritingWakeLockBindings,
 } from "./writing-wake-lock"
@@ -13,31 +13,11 @@ function bindings(invoke: WritingWakeLockBindings["invoke"], tauri = true) {
   } satisfies WritingWakeLockBindings
 }
 
-describe("shouldKeepAwakeForWriting", () => {
-  it.each(["write_chapter", "continue_chapter", "rewrite_chapter", "polish_chapter"] as const)(
-    "enables the wake lock for %s",
-    (intent) => {
-      expect(shouldKeepAwakeForWriting({ novelMode: true, intent, planExecuteActive: false })).toBe(true)
-    },
-  )
-
-  it.each(["general_chat", "generate_outline", "review_chapter", "lint_chapter"] as const)(
-    "does not enable the wake lock for %s",
-    (intent) => {
-      expect(shouldKeepAwakeForWriting({ novelMode: true, intent, planExecuteActive: false })).toBe(false)
-    },
-  )
-
-  it("does not enable the wake lock while waiting for plan execution", () => {
-    expect(shouldKeepAwakeForWriting({
-      novelMode: true,
-      intent: "write_chapter",
-      planExecuteActive: true,
-    })).toBe(false)
-  })
-})
-
 describe("withWritingWakeLock", () => {
+  afterEach(() => {
+    resetWritingWakeLockForTests()
+  })
+
   it("acquires before the operation and releases after it completes", async () => {
     const events: string[] = []
     const invoke = vi.fn(async <T>(command: string) => {
@@ -103,5 +83,49 @@ describe("withWritingWakeLock", () => {
     await expect(withWritingWakeLock(true, async () => "browser", bindings(invoke, false))).resolves.toBe("browser")
     await expect(withWritingWakeLock(false, async () => "disabled", bindings(invoke))).resolves.toBe("disabled")
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("nests holds so only the first acquire and last release talk to Tauri", async () => {
+    const invoke = vi.fn(async <T>(command: string) => {
+      return (command === "acquire_writing_wake_lock" ? "shared-token" : undefined) as T
+    })
+    const testBindings = bindings(invoke)
+
+    await withWritingWakeLock(true, async () => {
+      await withWritingWakeLock(true, async () => {
+        expect(invoke).toHaveBeenCalledTimes(1)
+        expect(invoke).toHaveBeenCalledWith("acquire_writing_wake_lock")
+      }, testBindings)
+      expect(invoke).toHaveBeenCalledTimes(1)
+    }, testBindings)
+
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenLastCalledWith("release_writing_wake_lock", { token: "shared-token" })
+  })
+
+  it("serializes concurrent acquires so only one IPC token is created", async () => {
+    let releaseFirst!: () => void
+    const firstAcquire = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let acquireCalls = 0
+    const invoke = vi.fn(async <T>(command: string) => {
+      if (command === "acquire_writing_wake_lock") {
+        acquireCalls += 1
+        if (acquireCalls === 1) await firstAcquire
+        return "concurrent-token" as T
+      }
+      return undefined as T
+    })
+    const testBindings = bindings(invoke)
+
+    const first = withWritingWakeLock(true, async () => "a", testBindings)
+    const second = withWritingWakeLock(true, async () => "b", testBindings)
+    await Promise.resolve()
+    expect(invoke).toHaveBeenCalledTimes(1)
+    releaseFirst()
+    await expect(Promise.all([first, second])).resolves.toEqual(["a", "b"])
+    expect(invoke.mock.calls.filter(([command]) => command === "acquire_writing_wake_lock")).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([command]) => command === "release_writing_wake_lock")).toHaveLength(1)
   })
 })

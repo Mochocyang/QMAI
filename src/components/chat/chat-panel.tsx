@@ -42,7 +42,6 @@ import { runAiChatSession } from "@/lib/agent/ai-chat-session"
 import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"
 import { runDraftReviewSkill } from "@/lib/agent/skills/draft-review-skill"
 import { useDraftReviewStore } from "@/stores/draft-review-store"
-import { shouldKeepAwakeForWriting, withWritingWakeLock } from "@/lib/writing-wake-lock"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { registerAllBuiltInTools } from "@/lib/agent/tools"
 import {
@@ -1886,11 +1885,6 @@ export function ChatPanel() {
       }
 
       try {
-        const keepAwake = shouldKeepAwakeForWriting({
-          novelMode,
-          intent: effectiveTaskRoute?.intent,
-          planExecuteActive,
-        })
         const requiredToolsOnce = resolveRequiredToolsOnce({
           novelMode,
           intent: effectiveTaskRoute?.intent,
@@ -1927,7 +1921,7 @@ export function ChatPanel() {
         })
         // Seed this turn's baseline so the ring can grow with tool reads before the first usage report.
         useChatStore.getState().setConversationContextUsage(capturedConvId, usageSnapshotBase)
-        const record = await withWritingWakeLock(keepAwake, () => runAiChatSession({
+        const record = await runAiChatSession({
           userMessage: plainText,
           projectPath,
           agentConfig: {
@@ -2024,7 +2018,7 @@ export function ChatPanel() {
               markError(error)
             },
           },
-        }))
+        })
 
         if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return

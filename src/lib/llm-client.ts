@@ -39,6 +39,7 @@ import {
   type LlmRequestCacheTrace,
   type LlmRequestTraceStatus,
 } from "./llm-request-trace"
+import { withWritingWakeLock } from "./writing-wake-lock"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 export { isFetchNetworkError } from "./tauri-fetch"
@@ -202,6 +203,22 @@ function isLocalCliProvider(provider: LlmConfig["provider"]): boolean {
 }
 
 export async function streamChat(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+): Promise<void> {
+  return withWritingWakeLock(true, () => streamChatHeld(
+    config,
+    messages,
+    callbacks,
+    signal,
+    requestOverrides,
+  ))
+}
+
+async function streamChatHeld(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
   callbacks: StreamCallbacks,

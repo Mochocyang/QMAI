@@ -11,6 +11,7 @@ import { useBookAnalysisPipelineStore } from "@/stores/book-analysis-pipeline-st
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { yieldToBrowserFrame } from "@/lib/novel/yield-to-browser"
 import {
   toBookAnalysisResult,
   type BookAnalysisLibraryState,
@@ -645,8 +646,9 @@ export function BookAnalysisView() {
         percentage: 5,
         currentItem: `第 ${range.startOrder}～${range.endOrder} 章，共 ${totalChapters} 章`,
       })
-      // 让出一帧，避免读章过快时 UI 直接跳到 AI 阶段、看不到 x/y
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      // 让出一帧，避免读章过快时 UI 直接跳到 AI 阶段、看不到 x/y。
+      // 窗口隐藏时 rAF 不会触发，yieldToBrowserFrame 会直接放行。
+      await yieldToBrowserFrame()
       for (let i = 0; i < totalChapters; i++) {
         const chapter = selectedChapters[i]
         const chapterPath = joinPath(bookPath, "chapters", `${chapter.chapterId}.md`)
@@ -659,7 +661,7 @@ export function BookAnalysisView() {
           percentage: 5 + Math.floor((readCount / totalChapters) * 40),
           currentItem: `第 ${chapter.order} 章 · ${chapter.title}`,
         })
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        await yieldToBrowserFrame()
       }
       reportRecognition({
         stageLabel: `正在用 AI 识别角色（已读 ${totalChapters}/${totalChapters} 章）`,

@@ -8,6 +8,7 @@ import { getFileStem } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createReviewThinkingPublisher } from "./review-thinking-publisher"
 import { yieldToBrowserFrame } from "./yield-to-browser"
+import { withWritingWakeLock } from "@/lib/writing-wake-lock"
 
 interface StartNovelReviewRunArgs {
   fileContent: string
@@ -58,46 +59,48 @@ export async function startNovelReviewRun({
   const runId = `${Date.now()}-${Math.random()}`
   useWikiStore.getState().setReviewRun({ runId, projectPath, filePath: selectedFile, running: true, results: [] })
   await yieldToBrowserFrame()
-  const thinkingPublisher = createReviewThinkingPublisher({
-    publish: (thinking) => {
-      useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
-    },
-  })
-
-  try {
-    const results = await reviewChapter(projectPath, fileContent, target.chapterNumber, {
-      onThinking: (thinking) => {
-        thinkingPublisher.publish(thinking)
+  await withWritingWakeLock(true, async () => {
+    const thinkingPublisher = createReviewThinkingPublisher({
+      publish: (thinking) => {
+        useWikiStore.getState().finishReviewRun(runId, { running: true, thinking })
       },
     })
-    thinkingPublisher.flush()
-    useWikiStore.getState().finishReviewRun(runId, { running: true, results, error: undefined })
-    await saveGenerationHistoryEntry(projectPath, {
-      kind: "review",
-      title: target.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: target.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
-      chapterNumber: target.chapterNumber,
-      sourcePath: selectedFile,
-      results,
-    })
-    await onHistorySaved?.()
 
-    if (target.chapterNumber) {
-      await persistRevisionFeedbackForChapter(
-        projectPath,
-        target.chapterNumber,
-        "review",
-        pickRevisionFeedbackFromReviewResults(results),
-      )
+    try {
+      const results = await reviewChapter(projectPath, fileContent, target.chapterNumber, {
+        onThinking: (thinking) => {
+          thinkingPublisher.publish(thinking)
+        },
+      })
+      thinkingPublisher.flush()
+      useWikiStore.getState().finishReviewRun(runId, { running: true, results, error: undefined })
+      await saveGenerationHistoryEntry(projectPath, {
+        kind: "review",
+        title: target.chapterNumber ? t("novel.review.historyEntryTitle", { chapter: target.chapterNumber }) : t("novel.review.historyEntryTitleNoChapter"),
+        chapterNumber: target.chapterNumber,
+        sourcePath: selectedFile,
+        results,
+      })
+      await onHistorySaved?.()
+
+      if (target.chapterNumber) {
+        await persistRevisionFeedbackForChapter(
+          projectPath,
+          target.chapterNumber,
+          "review",
+          pickRevisionFeedbackFromReviewResults(results),
+        )
+      }
+    } catch (error) {
+      console.error("审查失败:", error)
+      thinkingPublisher.flush()
+      useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
+    } finally {
+      thinkingPublisher.flush()
+      const current = useWikiStore.getState().reviewRun
+      if (current?.runId === runId) {
+        useWikiStore.getState().finishReviewRun(runId, { running: false, results: current.results })
+      }
     }
-  } catch (error) {
-    console.error("审查失败:", error)
-    thinkingPublisher.flush()
-    useWikiStore.getState().finishReviewRun(runId, { running: false, error: t("novel.review.runFailed") })
-  } finally {
-    thinkingPublisher.flush()
-    const current = useWikiStore.getState().reviewRun
-    if (current?.runId === runId) {
-      useWikiStore.getState().finishReviewRun(runId, { running: false, results: current.results })
-    }
-  }
+  })
 }

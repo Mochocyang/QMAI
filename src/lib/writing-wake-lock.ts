@@ -1,5 +1,4 @@
 import { isTauri } from "@/lib/platform"
-import type { NovelTaskIntent } from "@/lib/novel/task-router"
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>
 
@@ -8,13 +7,6 @@ export interface WritingWakeLockBindings {
   invoke: TauriInvoke
   warn: (message: string, error: unknown) => void
 }
-
-const WRITING_WAKE_LOCK_INTENTS = new Set<NovelTaskIntent>([
-  "write_chapter",
-  "continue_chapter",
-  "rewrite_chapter",
-  "polish_chapter",
-])
 
 const defaultBindings: WritingWakeLockBindings = {
   isTauri,
@@ -25,15 +17,48 @@ const defaultBindings: WritingWakeLockBindings = {
   warn: (message, error) => console.warn(message, error),
 }
 
-export function shouldKeepAwakeForWriting(options: {
-  novelMode: boolean
-  intent?: NovelTaskIntent | null
-  planExecuteActive: boolean
-}): boolean {
-  return options.novelMode
-    && !options.planExecuteActive
-    && !!options.intent
-    && WRITING_WAKE_LOCK_INTENTS.has(options.intent)
+let holdCount = 0
+let sharedToken: string | null = null
+let mutex: Promise<void> = Promise.resolve()
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = mutex.then(task, task)
+  mutex = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function acquireSharedLock(bindings: WritingWakeLockBindings): Promise<void> {
+  await enqueue(async () => {
+    holdCount += 1
+    if (holdCount !== 1) return
+    try {
+      sharedToken = await bindings.invoke<string>("acquire_writing_wake_lock")
+    } catch (error) {
+      sharedToken = null
+      bindings.warn("[writing-wake-lock] 启用失败，继续执行正文生成", error)
+    }
+  })
+}
+
+async function releaseSharedLock(bindings: WritingWakeLockBindings): Promise<void> {
+  await enqueue(async () => {
+    holdCount = Math.max(0, holdCount - 1)
+    if (holdCount !== 0) return
+    const token = sharedToken
+    sharedToken = null
+    if (!token) return
+    try {
+      await bindings.invoke<void>("release_writing_wake_lock", { token })
+    } catch (error) {
+      bindings.warn("[writing-wake-lock] 释放失败，将在应用退出时清理", error)
+    }
+  })
+}
+
+export function resetWritingWakeLockForTests(): void {
+  holdCount = 0
+  sharedToken = null
+  mutex = Promise.resolve()
 }
 
 export async function withWritingWakeLock<T>(
@@ -45,22 +70,10 @@ export async function withWritingWakeLock<T>(
     return operation()
   }
 
-  let token: string | null = null
-  try {
-    token = await bindings.invoke<string>("acquire_writing_wake_lock")
-  } catch (error) {
-    bindings.warn("[writing-wake-lock] 启用失败，继续执行正文生成", error)
-  }
-
+  await acquireSharedLock(bindings)
   try {
     return await operation()
   } finally {
-    if (token) {
-      try {
-        await bindings.invoke<void>("release_writing_wake_lock", { token })
-      } catch (error) {
-        bindings.warn("[writing-wake-lock] 释放失败，将在应用退出时清理", error)
-      }
-    }
+    await releaseSharedLock(bindings)
   }
 }

@@ -54,8 +54,43 @@ impl<T> WakeLockRegistry<T> {
     }
 }
 
-fn create_system_wake_lock() -> keepawake::Result<keepawake::KeepAwake> {
-    keepawake::Builder::default()
+struct SystemAssertions {
+    _keep_awake: keepawake::KeepAwake,
+    #[cfg(target_os = "macos")]
+    _activity: Option<macos_activity::MacosProcessActivity>,
+}
+
+#[cfg(target_os = "macos")]
+mod macos_activity {
+    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+    use objc2::rc::Retained;
+    use objc2_foundation::{ns_string, NSActivityOptions, NSProcessInfo};
+
+    pub struct MacosProcessActivity {
+        process: Retained<NSProcessInfo>,
+        activity: Retained<ProtocolObject<dyn NSObjectProtocol>>,
+    }
+
+    impl MacosProcessActivity {
+        pub fn begin() -> Option<Self> {
+            let process = NSProcessInfo::processInfo();
+            let activity = process.beginActivityWithOptions_reason(
+                NSActivityOptions::UserInteractive,
+                ns_string!("QMaiWrite 正在执行长任务"),
+            );
+            Some(Self { process, activity })
+        }
+    }
+
+    impl Drop for MacosProcessActivity {
+        fn drop(&mut self) {
+            unsafe { self.process.endActivity(&self.activity) }
+        }
+    }
+}
+
+fn create_system_wake_lock() -> Result<SystemAssertions, String> {
+    let keep_awake = keepawake::Builder::default()
         .display(true)
         .idle(true)
         .sleep(false)
@@ -63,6 +98,13 @@ fn create_system_wake_lock() -> keepawake::Result<keepawake::KeepAwake> {
         .app_name("QMaiWrite")
         .app_reverse_domain("com.qingmuai.writer")
         .create()
+        .map_err(|error| format!("无法启用写作防休眠：{error}"))?;
+
+    Ok(SystemAssertions {
+        _keep_awake: keep_awake,
+        #[cfg(target_os = "macos")]
+        _activity: macos_activity::MacosProcessActivity::begin(),
+    })
 }
 
 fn run_worker(receiver: mpsc::Receiver<WorkerCommand>) {
@@ -73,9 +115,7 @@ fn run_worker(receiver: mpsc::Receiver<WorkerCommand>) {
     while let Ok(command) = receiver.recv() {
         match command {
             WorkerCommand::Acquire { reply } => {
-                let result = registry
-                    .acquire(create_system_wake_lock)
-                    .map_err(|error| format!("无法启用写作防休眠：{error}"));
+                let result = registry.acquire(create_system_wake_lock);
                 let _ = reply.send(result);
             }
             WorkerCommand::Release { token, reply } => {

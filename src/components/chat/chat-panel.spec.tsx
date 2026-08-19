@@ -402,7 +402,7 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
   })
 
   it("skips chapter plan confirmation when Plan Execute is disabled", () => {
-    const runnerIndex = source.indexOf("const record = await withWritingWakeLock(")
+    const runnerIndex = source.indexOf("const record = await runAiChatSession(")
     const afterRunner = source.slice(runnerIndex)
     expect(afterRunner).toContain("if (!hasAgentError && planExecuteActive)")
   })
@@ -421,7 +421,7 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
   })
 
   it("waits for chapter plan confirmation outside the completed stream guard before follow-up execution", () => {
-    const runnerIndex = source.indexOf("const record = await withWritingWakeLock(")
+    const runnerIndex = source.indexOf("const record = await runAiChatSession(")
     const finishIndex = source.indexOf("finishAgentSession(() => {", runnerIndex)
     const planConfirmIndex = source.indexOf("await requestChapterPlanConfirm(", runnerIndex)
     const followupIndex = source.indexOf("await handleSendRef.current(followupText", runnerIndex)

@@ -1,4 +1,5 @@
 import type { LlmConfig } from "@/stores/wiki-store"
+import { withWritingWakeLock } from "@/lib/writing-wake-lock"
 import {
   loadAnalysisChunkResult,
   saveAnalysisChunk,
@@ -457,7 +458,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     if (disposed) return Promise.resolve()
     const existing = taskRuns.get(taskId)
     if (existing) return existing
-    const operation = runTaskInternal(taskId).finally(() => {
+    const operation = withWritingWakeLock(true, () => runTaskInternal(taskId)).finally(() => {
       taskRuns.delete(taskId)
       pauseRequested.delete(taskId)
       cancelRequested.delete(taskId)

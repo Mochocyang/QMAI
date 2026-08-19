@@ -17,6 +17,7 @@ import {
   missingRequiredToolsOnce,
 } from "./required-tools-gate"
 import { executeAgentTool } from "./tool-executor"
+import { withWritingWakeLock } from "../writing-wake-lock"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 import { DEFAULT_TOOL_RESULT_CONTEXT_LIMIT } from "./tool-result"
 import {
@@ -99,6 +100,16 @@ function usageFromEnvelope(envelope: CodexAppServerEnvelope): {
 
 export class CodexAppServerRunner {
   async run(
+    config: AgentConfig,
+    registry: ToolRegistry,
+    messages: AgentMessage[],
+    callbacks: AgentRunCallbacks,
+    signal?: AbortSignal,
+  ): Promise<AgentRunRecord> {
+    return withWritingWakeLock(true, () => this.runHeld(config, registry, messages, callbacks, signal))
+  }
+
+  private async runHeld(
     config: AgentConfig,
     registry: ToolRegistry,
     messages: AgentMessage[],
