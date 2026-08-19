@@ -92,6 +92,8 @@ const REVIEW_STAGES = [
 
 const REVIEW_CHUNK_SIZE = CHAPTER_BODY_EXCERPT_MAX_CHARS
 const REVIEW_MAX_CHUNKS = 3
+export const REVIEW_STAGE_TIMEOUT_MS = 300_000
+export const REVIEW_TIMEOUT_MESSAGE = "审稿模型输出超时"
 
 /**
  * 把超长章节分段用于审查。章节 ≤ 12000 字时返回单段；
@@ -422,8 +424,12 @@ async function runReviewStage(
     onRequestTrace: callbacks.onRequestTrace,
   }
 
+  let timeoutFired = false
   const timeoutController = new AbortController()
-  const timeoutId = setTimeout(() => timeoutController.abort(), 300000)
+  const timeoutId = setTimeout(() => {
+    timeoutFired = true
+    timeoutController.abort()
+  }, REVIEW_STAGE_TIMEOUT_MS)
 
   const combinedSignal = signal
     ? combineSignals(signal, timeoutController.signal)
@@ -441,6 +447,7 @@ async function runReviewStage(
   } catch (err) {
     clearTimeout(timeoutId)
     if (signal?.aborted) throw new Error("已停止生成")
+    if (timeoutFired) throw new Error(REVIEW_TIMEOUT_MESSAGE)
     if (retryCount < 2) {
       console.warn(`[Novel Review] Stage "${stageTitle}" failed, retrying (${retryCount + 1}/2)...`)
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
@@ -451,6 +458,10 @@ async function runReviewStage(
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
+  // streamChat 会把超时 abort 当成正常结束（onDone、不抛错），
+  // 此时 content 通常是空的或半截 JSON。必须先按超时抛错，
+  // 不能落到「未返回结构化 JSON」。
+  if (timeoutFired) throw new Error(REVIEW_TIMEOUT_MESSAGE)
   return result.trim()
 }
 

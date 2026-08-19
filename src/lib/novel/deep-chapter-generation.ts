@@ -1428,6 +1428,8 @@ export async function runDeepChapterGeneration(
     detail: "做最后一遍简单审查，减少复读、机械套话和 AI 味。",
     params: workflowBaseParams,
   };
+  let polishFailureMessage = "";
+  let finalContent = currentContent;
   if (workflowProfile.runFinalPolish) {
     emitDeepChapterStageStarted(
       callbacks,
@@ -1435,9 +1437,8 @@ export async function runDeepChapterGeneration(
       "去AI味",
       "正在做最后一遍简单审查，去除复读、机械套话和 AI 味。",
     );
-  }
-  let finalContent = workflowProfile.runFinalPolish
-    ? await runChapterWorkflowStep(
+    try {
+      finalContent = await runChapterWorkflowStep(
         callbacks,
         finalPolishWorkflowStep,
         () =>
@@ -1459,34 +1460,49 @@ export async function runDeepChapterGeneration(
         (value) =>
           `简单审查与去AI味完成，最终正文约 ${countChapterChars(value)} 字。`,
         (value) => ({ chars: countChapterChars(value) }),
-      )
-    : currentContent;
-  if (!workflowProfile.runFinalPolish) {
+      );
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:final_polish:output:${Date.now()}`,
+        stageId: "final_polish",
+        kind: "stage_output",
+        title: "去AI味",
+        content: `简单审查与去AI味完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
+      });
+    } catch (err) {
+      rethrowIfUserAbort(err, signal);
+      polishFailureMessage = `简单审查与去AI味失败：${getErrorMessage(err)}。已保留去AI味前的正文。`;
+      finalContent = currentContent;
+      callbacks.onThinking?.(
+        formatStageThinking("阶段6：简单审查与去AI味", polishFailureMessage),
+      );
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:final_polish:error:${Date.now()}`,
+        stageId: "final_polish",
+        kind: "analysis",
+        title: "去AI味失败",
+        content: polishFailureMessage,
+      });
+    }
+  } else {
     completeChapterWorkflowStep(
       callbacks,
       finalPolishWorkflowStep,
       describeSkippedFinalPolish(workflowProfile),
       { skipped: true, chars: countChapterChars(finalContent) },
     );
-  } else {
-    emitDeepChapterActivity(callbacks, {
-      id: `deep_chapter:final_polish:output:${Date.now()}`,
-      stageId: "final_polish",
-      kind: "stage_output",
-      title: "去AI味",
-      content: `简单审查与去AI味完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
-    });
   }
   callbacks.onThinking?.(
     formatStageThinking(
       "阶段7：完成",
-      workflowProfile.runFinalPolish
-        ? reviewFailureMessage
-          ? "AI 审稿失败；已保留正文并完成最后一遍简单审查与去AI味，请在保存前手动复核。"
-          : revised
-          ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
-          : "未发现阻断问题，已完成最后一遍简单审查与去AI味。"
-        : describeSkippedPostDraftCompletion(workflowProfile),
+      polishFailureMessage
+        ? "简单审查与去AI味失败，已保留去AI味前的正文作为最终正文。"
+        : workflowProfile.runFinalPolish
+          ? reviewFailureMessage
+            ? "AI 审稿失败；已保留正文并完成最后一遍简单审查与去AI味，请在保存前手动复核。"
+            : revised
+              ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
+              : "未发现阻断问题，已完成最后一遍简单审查与去AI味。"
+          : describeSkippedPostDraftCompletion(workflowProfile),
     ),
   );
   emitDeepChapterActivity(callbacks, {

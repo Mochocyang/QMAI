@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
-import { buildReviewPrompt, reviewChapter } from "./review-adapter"
+import { buildReviewPrompt, reviewChapter, REVIEW_STAGE_TIMEOUT_MS, REVIEW_TIMEOUT_MESSAGE } from "./review-adapter"
 
 const mocks = vi.hoisted(() => ({
   streamChatMock: vi.fn(),
@@ -68,6 +68,10 @@ vi.mock("@/lib/has-usable-llm", () => ({
 
 vi.mock("./model-resolver", () => ({
   resolveNovelModel: (config: LlmConfig) => config,
+}))
+
+vi.mock("./character-aura", () => ({
+  buildCharacterAuraContext: vi.fn(async () => ""),
 }))
 
 vi.mock("./context-engine", () => ({
@@ -286,6 +290,42 @@ describe("review-adapter staged review", () => {
       contextPack,
       throwOnFailure: true,
     })).rejects.toThrow()
+  })
+
+  it("throws 审稿模型输出超时 instead of missing JSON when the review stage times out", async () => {
+    vi.useFakeTimers()
+    try {
+      streamChatMock.mockImplementation(async (
+        _config: LlmConfig,
+        _messages: Array<{ role: string; content: string }>,
+        callbacks: StreamCallbacks,
+        signal?: AbortSignal,
+      ) => {
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            callbacks.onDone()
+            resolve()
+          }
+          if (signal?.aborted) {
+            finish()
+            return
+          }
+          signal?.addEventListener("abort", finish, { once: true })
+        })
+      })
+
+      const promise = reviewChapter("E:/Novel", "正文", 8, {
+        contextPack,
+        throwOnFailure: true,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(streamChatMock).toHaveBeenCalled()
+      const assertion = expect(promise).rejects.toThrow(REVIEW_TIMEOUT_MESSAGE)
+      await vi.advanceTimersByTimeAsync(REVIEW_STAGE_TIMEOUT_MS)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("throws missing structured review output when the caller requires a successful review", async () => {

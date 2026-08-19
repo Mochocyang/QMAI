@@ -1199,6 +1199,48 @@ describe("runDeepChapterGeneration", () => {
       .toEqual(["started", "error"])
   })
 
+  it("keeps the pre-polish draft when final polish fails", async () => {
+    const deps = createDeps()
+    vi.mocked(deps.streamChat).mockImplementation(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+    ) => {
+      const prompt = messagesPromptText(messages)
+      if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+        throw new Error("error decoding response body")
+      }
+      const content = prompt.includes("返修")
+        ? chapterText("返修正文内容")
+        : prompt.includes("正文")
+          ? chapterText("初稿正文内容")
+          : "写作任务书内容"
+      callbacks.onToken(content)
+      callbacks.onDone()
+    })
+    const thinking: string[] = []
+    const events: Array<{ type: string; name: string }> = []
+    const delivered: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      {
+        onThinking: (content) => thinking.push(content),
+        onWorkflowEvent: (event) => events.push(event),
+        onFinalContent: (content) => delivered.push(content),
+      },
+      deps,
+    )
+
+    expect(result.finalContent).toContain("初稿正文内容")
+    expect(result.finalContent).not.toContain("最终去AI味正文")
+    expect(delivered[0]).toContain("初稿正文内容")
+    expect(thinking.join("\n")).toContain("已保留去AI味前的正文")
+    expect(events.filter((event) => event.name === "chapter_final_polish").map((event) => event.type))
+      .toEqual(["started", "error"])
+    expect(events.some((event) => event.name === "chapter_complete" && event.type === "completed")).toBe(true)
+  })
+
   it("emits structured activity events for context extraction and stage outputs", async () => {
     const deps = createDeps()
     const activityEvents: AgentActivityEvent[] = []
