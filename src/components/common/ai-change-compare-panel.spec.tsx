@@ -4,8 +4,8 @@ import React, { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("./monaco-diff-editor", () => ({
-  MonacoDiffEditor: ({
+vi.mock("./source-diff-editor", () => ({
+  SourceDiffEditor: ({
     originalValue,
     modifiedValue,
     onChange,
@@ -52,6 +52,15 @@ describe("calculateAiChangeLineStats", () => {
   it("does not report CRLF and LF as content changes", () => {
     expect(calculateAiChangeLineStats("A\r\nB", "A\nB"))
       .toEqual({ adds: 0, removes: 0 })
+  })
+
+  it("does not treat leading indentation as a line change", () => {
+    expect(calculateAiChangeLineStats("    A\n    B", "A\nB"))
+      .toEqual({ adds: 0, removes: 0 })
+    expect(calculateAiChangeLineStats("\u3000加法尔", "加法尔"))
+      .toEqual({ adds: 0, removes: 0 })
+    expect(calculateAiChangeLineStats("    A\nB", "A\nX"))
+      .toEqual({ adds: 1, removes: 1 })
   })
 })
 

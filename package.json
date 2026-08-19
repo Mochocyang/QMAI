@@ -37,6 +37,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "diff": "^9.0.0",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -50,6 +51,7 @@
     "pangu": "^9.1.0",
     "pinyin-pro": "^3.29.1",
     "react": "^19.2.8",
+    "react-diff-viewer-continued": "^4.4.0",
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
@@ -66,6 +68,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
+    "@types/diff": "^7.0.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",

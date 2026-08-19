@@ -4,8 +4,8 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("./monaco-diff-editor", () => ({
-  MonacoDiffEditor: ({ originalValue, modifiedValue, onChange }: {
+vi.mock("./source-diff-editor", () => ({
+  SourceDiffEditor: ({ originalValue, modifiedValue, onChange }: {
     originalValue: string
     modifiedValue: string
     onChange: (value: string) => void

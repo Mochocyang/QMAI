@@ -1,3 +1,10 @@
+const LEADING_LINE_WHITESPACE = /^[\t \u00A0\u3000]+/gm
+
+/** 对比用：统一换行，并丢掉行首缩进（空格/Tab/全角空格）。 */
+export function prepareDiffText(value: string): string {
+  return value.replace(/\r\n?/g, "\n").replace(LEADING_LINE_WHITESPACE, "")
+}
+
 export type DiffLineType = "add" | "remove" | "unchanged"
 
 export interface DiffLine {

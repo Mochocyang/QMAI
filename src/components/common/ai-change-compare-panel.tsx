@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Code, Eye } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-import { MonacoDiffEditor } from "./monaco-diff-editor"
-import { computeLineDiff } from "@/lib/utils/diff"
+import { diffLines } from "diff"
+import { SourceDiffEditor } from "./source-diff-editor"
+import { prepareDiffText } from "@/lib/utils/diff"
+
+function normalizeDiffText(value: string): string {
+  const normalized = prepareDiffText(value)
+  if (normalized.length === 0 || normalized.endsWith("\n")) return normalized
+  return `${normalized}\n`
+}
 
 export interface AiChangeComparePanelProps {
   originalContent: string
@@ -21,10 +28,14 @@ export function calculateAiChangeLineStats(
   originalContent: string,
   modifiedContent: string,
 ): { adds: number; removes: number } {
-  return computeLineDiff(originalContent, modifiedContent).reduce(
-    (stats, line) => {
-      if (line.type === "add") stats.adds += 1
-      else if (line.type === "remove") stats.removes += 1
+  return diffLines(
+    normalizeDiffText(originalContent),
+    normalizeDiffText(modifiedContent),
+  ).reduce(
+    (stats, change) => {
+      const lineCount = change.count ?? 0
+      if (change.added) stats.adds += lineCount
+      else if (change.removed) stats.removes += lineCount
       return stats
     },
     { adds: 0, removes: 0 },
@@ -97,7 +108,7 @@ export function AiChangeComparePanel({
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {viewMode === "source" ? (
-          <MonacoDiffEditor
+          <SourceDiffEditor
             originalValue={originalContent}
             modifiedValue={modifiedContent}
             originalLabel={originalLabel}
