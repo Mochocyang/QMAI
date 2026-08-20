@@ -7,6 +7,25 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_SIX_CHANGELOG: ChangelogEntry = {
+  version: "3.2.6",
+  date: "2026-08-20",
+  highlights: {
+    en: [
+      "[Writing Workflow Shows Web Search] Writing web search now appears in the workflow timeline, grouped by name with titles and short snippets.",
+      "[Review Timeout and De-AI Draft Loss] Review no longer false-alarms on timeout, and a failed de-AI pass no longer drops the draft.",
+      "[Background Writing Survives Sleep] Long writing tasks keep running after the window is hidden or the machine sleeps.",
+      "[Diff Editor Replaced] The chapter diff view now uses SourceDiffEditor for more reliable line diffs.",
+    ],
+    zh: [
+      "【写作工作流能看见联网】写作联网会出现在工作流时间线，按人名分组显示标题和摘要",
+      "【审稿超时和去AI味丢稿】审稿不再误报超时，去AI味失败也不会把稿弄丢",
+      "【后台写作不再被休眠卡住】隐藏窗口或系统休眠后，长任务还能继续跑",
+      "【对比编辑更稳】章节对比换成 SourceDiffEditor，行对比更可靠",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_FIVE_CHANGELOG: ChangelogEntry = {
   version: "3.2.5",
   date: "2026-08-17",
@@ -1244,6 +1263,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_SIX_CHANGELOG,
   THREE_POINT_TWO_FIVE_CHANGELOG,
   THREE_POINT_TWO_FOUR_CHANGELOG,
   THREE_POINT_TWO_THREE_CHANGELOG,
@@ -1315,6 +1335,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_SIX_CHANGELOG.version)
+    return [THREE_POINT_TWO_SIX_CHANGELOG];
   if (version === THREE_POINT_TWO_FIVE_CHANGELOG.version)
     return [THREE_POINT_TWO_FIVE_CHANGELOG];
   if (version === THREE_POINT_TWO_FOUR_CHANGELOG.version)
@@ -1430,6 +1452,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_SIX_CHANGELOG,
     THREE_POINT_TWO_FIVE_CHANGELOG,
     THREE_POINT_TWO_FOUR_CHANGELOG,
     THREE_POINT_TWO_THREE_CHANGELOG,
@@ -1486,6 +1509,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_SIX_CHANGELOG &&
         entry !== THREE_POINT_TWO_FIVE_CHANGELOG &&
         entry !== THREE_POINT_TWO_FOUR_CHANGELOG &&
         entry !== THREE_POINT_TWO_THREE_CHANGELOG &&
