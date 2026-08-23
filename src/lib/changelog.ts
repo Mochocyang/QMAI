@@ -7,6 +7,23 @@ export interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.7",
+  date: "2026-08-23",
+  highlights: {
+    en: [
+      "[Chapter Workflow No Longer Skips Required Steps] If the model misses the mandatory chapter workflow, QMAI now runs a deterministic fallback; failures can be force-retried and include diagnostics.",
+      "[More Reliable Streaming Tool Calls] Multiple tool calls or text arriving in the same streamed response are no longer dropped.",
+      "[De-AI Thought Summary Stripped] Gemini thought summaries are filtered from de-AI results before the rewritten draft is shown.",
+    ],
+    zh: [
+      "【章节工作流不再跳过必选步骤】模型漏调章节必选工作流时自动走确定性兜底；失败后可强制重试，并保留诊断信息",
+      "【流式工具调用更可靠】同一段流式响应里同时出现多个工具调用或正文时不再遗漏",
+      "【去 AI 味不再混入思考摘要】Gemini 的思考摘要会在展示改写稿前过滤掉",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_SIX_CHANGELOG: ChangelogEntry = {
   version: "3.2.6",
   date: "2026-08-20",
@@ -1263,6 +1280,7 @@ function isMergedOnePointRelease(version: string): boolean {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  THREE_POINT_TWO_SEVEN_CHANGELOG,
   THREE_POINT_TWO_SIX_CHANGELOG,
   THREE_POINT_TWO_FIVE_CHANGELOG,
   THREE_POINT_TWO_FOUR_CHANGELOG,
@@ -1335,6 +1353,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_SEVEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_SEVEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SIX_CHANGELOG.version)
     return [THREE_POINT_TWO_SIX_CHANGELOG];
   if (version === THREE_POINT_TWO_FIVE_CHANGELOG.version)
@@ -1452,6 +1472,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_SEVEN_CHANGELOG,
     THREE_POINT_TWO_SIX_CHANGELOG,
     THREE_POINT_TWO_FIVE_CHANGELOG,
     THREE_POINT_TWO_FOUR_CHANGELOG,
@@ -1509,6 +1530,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_SEVEN_CHANGELOG &&
         entry !== THREE_POINT_TWO_SIX_CHANGELOG &&
         entry !== THREE_POINT_TWO_FIVE_CHANGELOG &&
         entry !== THREE_POINT_TWO_FOUR_CHANGELOG &&
