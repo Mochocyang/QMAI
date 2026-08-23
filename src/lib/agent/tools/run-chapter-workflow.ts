@@ -93,6 +93,9 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
     permission: "auto",
     executeTimeoutMs: 0,
     finalizesRun: true,
+    buildRequiredToolFallbackParams: ({ taskGoal }) => ({
+      userRequest: taskGoal,
+    }),
     parameters: {
       intent: {
         type: "string",

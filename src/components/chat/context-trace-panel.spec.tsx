@@ -5,6 +5,53 @@ import type { ContextTrace } from "@/lib/agent/context-trace"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 describe("ContextTracePanel selected skills", () => {
+  it("renders provider, model, finish reason, all tool calls and fallback status", () => {
+    const trace: ContextTrace = {
+      id: "trace-required-workflow",
+      startedAt: 1,
+      finishedAt: 5,
+      status: "error",
+      toolCalls: [],
+      contextInfo: {
+        intent: "write_chapter",
+        confidence: 1,
+        routeSource: "default",
+        loadedSources: [],
+        blockedSources: [],
+        retrievalHits: [],
+        trimmedSections: [],
+        requiredToolDiagnostics: {
+          requiredTools: ["run_chapter_workflow"],
+          satisfiedTools: [],
+          missingTools: ["run_chapter_workflow"],
+          fallbackAttempted: true,
+          fallbackTool: "run_chapter_workflow",
+          fallbackStatus: "error",
+          fallbackError: "正文为空",
+          provider: "custom",
+          model: "deepseek-chat",
+          reasoningMode: "enabled",
+          roundsUsed: 2,
+          finishReasons: ["tool_calls", "stop"],
+          observedToolCalls: [
+            { round: 1, index: 0, name: "read_outline" },
+            { round: 1, index: 1, name: "run_chapter_workflow" },
+          ],
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
+
+    expect(html).toContain("必调工作流诊断")
+    expect(html).toContain("deepseek-chat")
+    expect(html).toContain("tool_calls、stop")
+    expect(html).toContain("工具调用（2）")
+    expect(html).toContain("read_outline")
+    expect(html).toContain("run_chapter_workflow")
+    expect(html).toContain("正文为空")
+  })
+
   it("renders local cache and token composition without claiming a provider hit", () => {
     const trace: ContextTrace = {
       id: "trace-context-hub",

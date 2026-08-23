@@ -39,7 +39,10 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
-import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"
+import {
+  RequiredToolFallbackError,
+  resolveRequiredToolsOnce,
+} from "@/lib/agent/required-tools-gate"
 import { runDraftReviewSkill } from "@/lib/agent/skills/draft-review-skill"
 import { useDraftReviewStore } from "@/stores/draft-review-store"
 import { ToolRegistry } from "@/lib/agent/registry"
@@ -424,6 +427,53 @@ const SIMULATION_INTENTS = new Set([
   "multi_agent_simulate",
   "character_interview",
 ])
+
+interface ChatSendOptions {
+  /** Internal recovery path for a failed mandatory chapter workflow. */
+  forceRequiredToolsImmediately?: boolean
+  /** Existing assistant bubble to reset and reuse instead of appending messages. */
+  retryAssistantMessageId?: string
+  /** Preserve the execution policy selected for the failed request. */
+  workflowMode?: AiWorkflowMode
+  planExecuteActive?: boolean
+}
+
+type ChatSend = (
+  text: string,
+  tokens?: ReferenceToken[],
+  displayText?: string,
+  planBlueprint?: string,
+  targetConversationId?: string,
+  options?: ChatSendOptions,
+) => Promise<void>
+
+function isRequiredChapterWorkflowFailure(error: Error | null): boolean {
+  if (!error) return false
+  if (error instanceof RequiredToolFallbackError) {
+    return error.toolName === "run_chapter_workflow"
+  }
+  // Preserve retryability when an Error crosses a serialization boundary.
+  return (
+    error.name === "RequiredToolFallbackError"
+    && error.message.includes("run_chapter_workflow")
+  )
+}
+
+function resetAssistantMessageForRequiredToolRetry(message: DisplayMessage): DisplayMessage {
+  return {
+    ...message,
+    content: "",
+    reasoning_content: "",
+    agentToolCalls: [],
+    agentStages: [],
+    isAgentRunning: true,
+    discarded: false,
+    references: undefined,
+    contextTrace: undefined,
+    contextHubSnapshot: undefined,
+    chapterRef: undefined,
+  }
+}
 
 function appendAgentChatMessages(conversationId: string, content: string, tokens: ReferenceToken[]) {
   const now = Date.now()
@@ -1134,7 +1184,7 @@ export function ChatPanel() {
   }>>({})
   const pendingChapterPlan = activeConversationId ? pendingChapterPlans[activeConversationId] : undefined
   const chapterPlanResolversRef = useRef<Record<string, (action: "confirm" | "skip" | "cancel" | { modify: string }) => void>>({})
-  const handleSendRef = useRef<(text: string, tokens?: ReferenceToken[], displayText?: string, planBlueprint?: string, targetConversationId?: string) => Promise<void>>(() => Promise.resolve())
+  const handleSendRef = useRef<ChatSend>(() => Promise.resolve())
   const lastWritingTaskRouteRef = useRef<Record<string, TaskRouteResult>>({})
 
   const closeChapterPlanDialog = useCallback(
@@ -1369,12 +1419,21 @@ export function ChatPanel() {
   // 切换会话时不再中断后台生成——每个会话独立运行
 
   const handleSend = useCallback(
-    async (text: string, tokens: ReferenceToken[] = [], displayText?: string, planBlueprint?: string, targetConversationId?: string) => {
+    async (
+      text: string,
+      tokens: ReferenceToken[] = [],
+      displayText?: string,
+      planBlueprint?: string,
+      targetConversationId?: string,
+      sendOptions?: ChatSendOptions,
+    ) => {
       const plainText = text.trim()
       const userVisibleText = (displayText ?? plainText).trim()
       const planExecutionFollowup = isChapterPlanExecutionFollowup(plainText)
-      const planExecuteActive =
-        aiWorkflowMode !== "fast" && planExecuteEnabled && !planExecutionFollowup
+      const sessionWorkflowMode = sendOptions?.workflowMode ?? aiWorkflowMode
+      const planExecuteActive = sendOptions?.planExecuteActive ?? (
+        sessionWorkflowMode !== "fast" && planExecuteEnabled && !planExecutionFollowup
+      )
       setDeAiSkillWarningMessage("")
       // 新一轮对话清空上一轮的章节保存提示，避免「已保存为第X章」残留在新消息下方
       setChapterSaveStatus("")
@@ -1403,10 +1462,45 @@ export function ChatPanel() {
       const capturedConvId = convId
       const storeState = useChatStore.getState()
       const activeConv = storeState.conversations.find((conversation) => conversation.id === capturedConvId)
+      if (
+        sendOptions?.retryAssistantMessageId
+        && storeState.runStates[capturedConvId]?.status === "running"
+      ) {
+        toast.info("该会话正在强制重试，请勿重复点击", {
+          dedupeKey: `required-workflow-retry-running:${capturedConvId}`,
+        })
+        return
+      }
+      const retryAssistantIndex = sendOptions?.retryAssistantMessageId
+        ? storeState.messages.findIndex((message) => message.id === sendOptions.retryAssistantMessageId)
+        : -1
+      const retryAssistantCandidate = retryAssistantIndex >= 0
+        ? storeState.messages[retryAssistantIndex]
+        : undefined
+      const retryAssistantMessage = retryAssistantCandidate
+        && retryAssistantCandidate.conversationId === capturedConvId
+        && retryAssistantCandidate.role === "assistant"
+        && !retryAssistantCandidate.isAgentRunning
+        && retryAssistantCandidate.content.includes("出错：")
+        ? retryAssistantCandidate
+        : undefined
+      const retryUserMessageId = retryAssistantMessage
+        ? [...storeState.messages.slice(0, retryAssistantIndex)].reverse().find((message) => (
+            message.conversationId === capturedConvId && message.role === "user"
+          ))?.id
+        : undefined
+      if (sendOptions?.retryAssistantMessageId && !retryAssistantMessage) {
+        toast.info("原失败消息已失效，无法强制重试", {
+          dedupeKey: `required-workflow-retry-stale:${capturedConvId}:${sendOptions.retryAssistantMessageId}`,
+        })
+        return
+      }
       const activeConvMessages = storeState.messages
         .filter((message) => (
           message.conversationId === capturedConvId &&
           (message.role === "user" || message.role === "assistant") &&
+          message.id !== sendOptions?.retryAssistantMessageId &&
+          message.id !== retryUserMessageId &&
           !message.discarded &&
           !message.isAgentRunning
         ))
@@ -1454,6 +1548,11 @@ export function ChatPanel() {
       const runId = crypto.randomUUID()
       if (!useChatStore.getState().startConversationRun(capturedConvId, runId)) {
         setDeAiSkillWarningMessage(concurrencyLimitReason)
+        if (sendOptions?.retryAssistantMessageId) {
+          toast.info(concurrencyLimitReason, {
+            dedupeKey: `required-workflow-retry-running:${capturedConvId}`,
+          })
+        }
         return
       }
 
@@ -1465,8 +1564,13 @@ export function ChatPanel() {
           )
         : undefined
 
-      const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)
-      if (!targetConversationId) {
+      const assistantMessage = retryAssistantMessage
+        ? resetAssistantMessageForRequiredToolRetry(retryAssistantMessage)
+        : appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens).assistantMessage
+      if (retryAssistantMessage) {
+        updateAgentAssistantMessage(retryAssistantMessage.id, () => assistantMessage)
+      }
+      if (!targetConversationId && !retryAssistantMessage) {
         setConversationInputDraft(capturedConvId, "")
         setFallbackReferenceText("")
         setReferenceTokensByConversation((drafts) =>
@@ -1491,7 +1595,7 @@ export function ChatPanel() {
       let taskDirective = ""
       let goldenDirective = ""
       let prePluginResult: PrePluginChainResult | null = null
-      const shouldRunNovelPrePluginChain = novelMode && (aiWorkflowMode !== "fast" || planExecuteActive)
+      const shouldRunNovelPrePluginChain = novelMode && (sessionWorkflowMode !== "fast" || planExecuteActive)
       const explicitSkills = collectExplicitSkills(
         availableAgentSkills,
         plainText,
@@ -1503,6 +1607,7 @@ export function ChatPanel() {
       void shouldRunNovelPrePluginChain
       let hasAgentError = false
       let lastAgentError = "生成失败"
+      let lastAgentErrorObject: Error | null = null
       let accumulatedReasoningContent = ""
       // 终结型工具（run_chapter_workflow）是否已直接交付正文。
       let finalContentDelivered = false
@@ -1541,6 +1646,7 @@ export function ChatPanel() {
       const markError = (error: Error) => {
         hasAgentError = true
         lastAgentError = error.message || "生成失败"
+        lastAgentErrorObject = error
         updateAgentAssistantMessage(assistantMessage.id, (message) => {
           const settledTools = settleRunningAgentToolCalls(message.agentToolCalls, "error")
           const rawContent = message.content ?? ""
@@ -1559,6 +1665,35 @@ export function ChatPanel() {
             contextTrace: contextTrace || message.contextTrace,
             isAgentRunning: false,
           }
+        })
+      }
+
+      const showRunErrorToast = (error: Error) => {
+        const action = isRequiredChapterWorkflowFailure(error)
+          ? {
+              label: "强制重试",
+              onClick: () => {
+                void handleSendRef.current(
+                  plainText,
+                  tokens,
+                  displayText,
+                  planBlueprint,
+                  capturedConvId,
+                  {
+                    forceRequiredToolsImmediately: true,
+                    retryAssistantMessageId: assistantMessage.id,
+                    workflowMode: sessionWorkflowMode,
+                    planExecuteActive,
+                  },
+                )
+              },
+            }
+          : undefined
+        toast.error(error.message || "生成失败", {
+          title: "AI 会话生成失败",
+          persistent: true,
+          dedupeKey: `chat-run-failed:${capturedConvId}:${error.message || "生成失败"}`,
+          ...(action ? { action } : {}),
         })
       }
 
@@ -1599,7 +1734,7 @@ export function ChatPanel() {
         novelMode,
         mode,
         chatEditModeEnabled,
-        aiWorkflowMode,
+        aiWorkflowMode: sessionWorkflowMode,
         planExecuteEnabled: planExecuteActive,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
@@ -1607,7 +1742,7 @@ export function ChatPanel() {
         // pre-plugin 会注入找纲协议；仅在不会跑 pre-plugin 的章节写作路径由这里注入一次
         includeOutlineFindProtocol:
           shouldIncludeOutlineFindProtocol(effectiveTaskRoute?.intent) &&
-          !(novelMode && (aiWorkflowMode !== "fast" || planExecuteActive)),
+          !(novelMode && (sessionWorkflowMode !== "fast" || planExecuteActive)),
       })
 
       if (novelMode && effectiveTaskRoute) {
@@ -1660,7 +1795,7 @@ export function ChatPanel() {
               novelMode,
               taskRoute: effectiveTaskRoute,
               effectiveTaskRoute,
-              aiWorkflowMode,
+              aiWorkflowMode: sessionWorkflowMode,
               planExecuteEnabled: planExecuteActive,
               availableSkills: availableAgentSkills,
               selectedSkills: explicitSkills,
@@ -1695,7 +1830,7 @@ export function ChatPanel() {
           stageId: "task_understanding",
           kind: "analysis",
           title: "当前执行路线",
-          content: buildWorkflowRouteActivityContent(aiWorkflowMode, planExecuteActive, effectiveTaskRoute),
+          content: buildWorkflowRouteActivityContent(sessionWorkflowMode, planExecuteActive, effectiveTaskRoute),
           timestamp: now,
         })
         const skillEvent = createAgentActivityEvent({
@@ -1869,26 +2004,29 @@ export function ChatPanel() {
           ],
         })
       }
-      if (planBlueprint) {
-        const workflowTool = agentRegistry.get("run_chapter_workflow")
-        if (workflowTool) {
-          sessionRegistry.register({
-            ...workflowTool,
-            execute: (params, signal, context) => workflowTool.execute({
-              ...params,
-              planBlueprint: typeof params.planBlueprint === "string" && params.planBlueprint.trim()
-                ? params.planBlueprint
-                : planBlueprint,
-            }, signal, context),
-          })
-        }
+      const workflowTool = agentRegistry.get("run_chapter_workflow")
+      if (workflowTool) {
+        sessionRegistry.register({
+          ...workflowTool,
+          execute: (params, signal, context) => workflowTool.execute({
+            ...params,
+            workflowMode: sessionWorkflowMode,
+            ...(planBlueprint
+              ? {
+                  planBlueprint: typeof params.planBlueprint === "string" && params.planBlueprint.trim()
+                    ? params.planBlueprint
+                    : planBlueprint,
+                }
+              : {}),
+          }, signal, context),
+        })
       }
 
       try {
         const requiredToolsOnce = resolveRequiredToolsOnce({
           novelMode,
           intent: effectiveTaskRoute?.intent,
-          mode: aiWorkflowMode,
+          mode: sessionWorkflowMode,
           planExecuteActive,
           enabledToolNames: prePluginResult?.enabledToolNames,
         })
@@ -1931,6 +2069,9 @@ export function ChatPanel() {
             projectPath,
             taskGoal: plainText,
             ...(requiredToolsOnce ? { requiredToolsOnce } : {}),
+            ...(sendOptions?.forceRequiredToolsImmediately
+              ? { forceRequiredToolsImmediately: true }
+              : {}),
             requestOverrides: {
               ...agentConfig.requestOverrides,
               userMemorySurface: "ai-chat",
@@ -2068,14 +2209,36 @@ export function ChatPanel() {
             || record.finalText
             || ""
           : ""
+        if (contextTrace && effectiveTaskRoute && record.requiredToolDiagnostics) {
+          const diagnosticTraceInfo = buildInitialContextTraceInfo(effectiveTaskRoute, prePluginResult, {
+            workflowMode: sessionWorkflowMode,
+            contextHub: contextHubResult?.stats,
+          })
+          contextTrace = setContextInfo(contextTrace, {
+            ...diagnosticTraceInfo,
+            requiredToolDiagnostics: record.requiredToolDiagnostics,
+          })
+        }
+        if (hasAgentError && contextTrace) {
+          contextTrace = finishTrace(contextTrace, "error", lastAgentError)
+          updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+            ...message,
+            contextTrace,
+          }))
+        }
         finishAgentSession(() => {
           if (!hasAgentError) {
             if (contextTrace && effectiveTaskRoute) {
               const traceInfo = buildInitialContextTraceInfo(effectiveTaskRoute, prePluginResult, {
-                workflowMode: aiWorkflowMode,
+                workflowMode: sessionWorkflowMode,
                 contextHub: contextHubResult?.stats,
               })
-              contextTrace = setContextInfo(contextTrace, traceInfo)
+              contextTrace = setContextInfo(contextTrace, {
+                ...traceInfo,
+                ...(record.requiredToolDiagnostics
+                  ? { requiredToolDiagnostics: record.requiredToolDiagnostics }
+                  : {}),
+              })
               const storeStateForValidation = useChatStore.getState()
               const lastAssistantForValidation = storeStateForValidation.messages.find(
                 (m) => m.id === assistantMessage.id && m.role === "assistant",
@@ -2098,7 +2261,10 @@ export function ChatPanel() {
               if (finalContent) {
                 const protocolTrace = buildResultProtocolTrace("chapter", finalContent)
                 chapterProtocolValid = protocolTrace.valid
-                contextTrace = setContextInfo(contextTrace, { ...traceInfo, resultProtocol: protocolTrace })
+                contextTrace = setContextInfo(contextTrace, {
+                  ...contextTrace.contextInfo!,
+                  resultProtocol: protocolTrace,
+                })
               }
               // === Stage D: 写后剧情自检 ===
               // 仅对 write_chapter / continue_chapter 任务触发，避免对普通对话误触发
@@ -2197,11 +2363,7 @@ export function ChatPanel() {
         }
         if (hasAgentError) {
           useChatStore.getState().failConversationRun(capturedConvId, lastAgentError, runId)
-          toast.error(lastAgentError, {
-            title: "AI 会话生成失败",
-            persistent: true,
-            dedupeKey: `chat-run-failed:${capturedConvId}:${lastAgentError}`,
-          })
+          showRunErrorToast(lastAgentErrorObject ?? new Error(lastAgentError))
         } else {
           useChatStore.getState().finishConversationRun(
             capturedConvId,
@@ -2273,7 +2435,8 @@ export function ChatPanel() {
       } catch (error) {
         if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const resolvedError = error instanceof Error ? error : new Error(String(error))
+        const errorMessage = resolvedError.message
         const partialContent = useChatStore.getState().streamingContents[capturedConvId] ?? ""
         finishAgentSession(() => {
           if (partialContent) {
@@ -2284,14 +2447,10 @@ export function ChatPanel() {
             }))
           }
           if (contextTrace) contextTrace = finishTrace(contextTrace, "error", errorMessage)
-          markError(error instanceof Error ? error : new Error(String(error)))
+          markError(resolvedError)
         })
         useChatStore.getState().failConversationRun(capturedConvId, errorMessage, runId)
-        toast.error(errorMessage, {
-          title: "AI 会话生成失败",
-          persistent: true,
-          dedupeKey: `chat-run-failed:${capturedConvId}:${errorMessage}`,
-        })
+        showRunErrorToast(resolvedError)
       }
     },
     [

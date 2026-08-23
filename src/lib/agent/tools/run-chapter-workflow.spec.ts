@@ -12,6 +12,19 @@ const llmConfig: LlmConfig = {
 }
 
 describe("createRunChapterWorkflowTool", () => {
+  it("rejects an empty userRequest before starting the workflow", async () => {
+    const runDeepChapterGeneration = vi.fn()
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+
+    await expect(tool.execute({ userRequest: "   " })).resolves.toContain("缺少 userRequest")
+    expect(runDeepChapterGeneration).not.toHaveBeenCalled()
+  })
+
   it("wraps deep chapter generation as an auto action tool", async () => {
     const runDeepChapterGeneration = vi.fn(async (_input, callbacks) => {
       callbacks.onWorkflowEvent?.({
@@ -41,6 +54,9 @@ describe("createRunChapterWorkflowTool", () => {
     expect(tool.name).toBe("run_chapter_workflow")
     expect(tool.category).toBe("action")
     expect(tool.permission).toBe("auto")
+    expect(tool.buildRequiredToolFallbackParams?.({ taskGoal: "生成第3章" })).toEqual({
+      userRequest: "生成第3章",
+    })
 
     const result = await tool.execute({
       intent: "write_chapter",

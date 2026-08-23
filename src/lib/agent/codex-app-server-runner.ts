@@ -17,6 +17,10 @@ import {
   missingRequiredToolsOnce,
 } from "./required-tools-gate"
 import { executeAgentTool } from "./tool-executor"
+import {
+  executeRequiredToolFallback,
+  isRequiredToolExecutionFulfilled,
+} from "./required-tool-fallback"
 import { withWritingWakeLock } from "../writing-wake-lock"
 import { ToolEvidenceLedger } from "./tool-evidence-ledger"
 import { DEFAULT_TOOL_RESULT_CONTEXT_LIMIT } from "./tool-result"
@@ -141,6 +145,23 @@ export class CodexAppServerRunner {
     const projectPath = config.projectPath
     const latestUserContent = [...messages].reverse().find((message) => message.role === "user")?.content
     const taskGoalText = config.taskGoal || (latestUserContent ? messageContentText(latestUserContent) : "") || "未命名任务"
+    const requiredTools = [...new Set((config.requiredToolsOnce ?? []).filter((name) => name.trim()))]
+    const satisfiedRequiredTools = new Set<string>()
+    let fallbackConvergenceChecked = false
+    if (requiredTools.length > 0) {
+      record.requiredToolDiagnostics = {
+        requiredTools,
+        satisfiedTools: [],
+        missingTools: [...requiredTools],
+        fallbackAttempted: false,
+        provider: config.llmConfig.provider,
+        model: config.modelId?.trim() || config.llmConfig.model,
+        reasoningMode: config.requestOverrides?.reasoning?.mode ?? config.llmConfig.reasoning?.mode ?? "auto",
+        roundsUsed: 0,
+        finishReasons: [],
+        observedToolCalls: [],
+      }
+    }
     let taskBreakpoint: TaskBreakpoint | null = projectPath
       ? createTaskBreakpoint({ taskGoal: taskGoalText, currentStage: "agent_round_1" })
       : null
@@ -161,7 +182,70 @@ export class CodexAppServerRunner {
       }
     }
 
+    const refreshRequiredToolDiagnostics = () => {
+      const diagnostics = record.requiredToolDiagnostics
+      if (!diagnostics) return
+      diagnostics.satisfiedTools = [...satisfiedRequiredTools]
+      diagnostics.missingTools = requiredTools.filter((name) => !satisfiedRequiredTools.has(name))
+    }
+    const missingRequiredTools = () => missingRequiredToolsOnce({
+      requiredToolsOnce: requiredTools,
+      availableToolNames: config.tools.map((tool) => tool.name),
+      calledToolNames: satisfiedRequiredTools,
+      toolsEnabled: config.tools.length > 0,
+    })
+    const attemptRequiredToolFallback = async (): Promise<"success" | "error" | "unavailable"> => {
+      if (fallbackConvergenceChecked) return "unavailable"
+      fallbackConvergenceChecked = true
+      const missing = missingRequiredTools()
+      refreshRequiredToolDiagnostics()
+      if (missing.length === 0) return "success"
+      const fallback = await executeRequiredToolFallback({
+        missingTools: missing,
+        taskGoal: taskGoalText,
+        registry,
+        callbacks,
+        record,
+        signal,
+      })
+      const diagnostics = record.requiredToolDiagnostics
+      if (!fallback.attempted) {
+        if (diagnostics) diagnostics.fallbackStatus = "unavailable"
+        return "unavailable"
+      }
+      if (diagnostics) {
+        diagnostics.fallbackAttempted = true
+        diagnostics.fallbackTool = fallback.toolName
+      }
+      if (fallback.error) {
+        if (diagnostics) {
+          diagnostics.fallbackStatus = "error"
+          diagnostics.fallbackError = fallback.error.message
+        }
+        refreshRequiredToolDiagnostics()
+        await clearPersistedBreakpoint()
+        callbacks.onError(fallback.error)
+        return "error"
+      }
+      fallback.satisfiedTools.forEach((name) => satisfiedRequiredTools.add(name))
+      refreshRequiredToolDiagnostics()
+      if (diagnostics) diagnostics.fallbackStatus = "success"
+      if (fallback.finalContent) {
+        finalDelivery = fallback.finalContent
+        record.finalText = fallback.finalContent
+        await clearPersistedBreakpoint()
+        callbacks.onDone()
+        return "success"
+      }
+      return missingRequiredTools().length === 0 ? "success" : "unavailable"
+    }
+
     if (taskBreakpoint) await persistTaskBreakpoint()
+
+    if (config.forceRequiredToolsImmediately && requiredTools.length > 0) {
+      const outcome = await attemptRequiredToolFallback()
+      if (outcome === "success" || outcome === "error") return record
+    }
 
     const taskContract: AgentMessage = {
       role: "system",
@@ -240,6 +324,14 @@ export class CodexAppServerRunner {
 
       unregister = client.registerThread(threadId, {
         onDynamicToolCall: async (request) => {
+          const diagnostics = record.requiredToolDiagnostics
+          if (diagnostics) {
+            diagnostics.observedToolCalls.push({
+              round: Math.max(1, record.roundsUsed),
+              index: diagnostics.observedToolCalls.length,
+              name: request.tool,
+            })
+          }
           if (!request.arguments || typeof request.arguments !== "object" || Array.isArray(request.arguments)) {
             const message = `错误: 工具 ${request.tool} 的参数必须是 JSON 对象`
             const now = Date.now()
@@ -282,6 +374,11 @@ export class CodexAppServerRunner {
             signal,
           )
           record.toolCalls.push(executed.record)
+          const registeredTool = registry.get(request.tool)
+          if (isRequiredToolExecutionFulfilled(registeredTool, executed)) {
+            satisfiedRequiredTools.add(request.tool)
+            refreshRequiredToolDiagnostics()
+          }
           if (taskBreakpoint) {
             const usedTools = taskBreakpoint.usedTools.includes(request.tool)
               ? taskBreakpoint.usedTools
@@ -294,9 +391,9 @@ export class CodexAppServerRunner {
             await persistTaskBreakpoint()
           }
           if (
-            executed.success &&
+            executed.record.status === "done" &&
             executed.finalContent?.trim() &&
-            registry.get(request.tool)?.finalizesRun
+            registeredTool?.finalizesRun
           ) {
             // 终稿已交付给用户，本 turn 剩下的模型输出没有价值，直接中断。
             finalDelivery = executed.finalContent.trim()
@@ -370,6 +467,9 @@ export class CodexAppServerRunner {
       for (let round = 0; round < Math.max(1, config.maxRounds); round += 1) {
         if (signal?.aborted) throw new Error("操作已取消")
         record.roundsUsed = round + 1
+        if (record.requiredToolDiagnostics) {
+          record.requiredToolDiagnostics.roundsUsed = record.roundsUsed
+        }
         turnText = ""
         turnUsage = undefined
         const completionPromise = new Promise<TurnCompletion>((resolve, reject) => {
@@ -414,12 +514,8 @@ export class CodexAppServerRunner {
           record.usage = cumulativeUsage ? { ...cumulativeUsage } : { ...completedUsage }
         }
 
-        const missing = missingRequiredToolsOnce({
-          requiredToolsOnce: config.requiredToolsOnce,
-          availableToolNames: config.tools.map((tool) => tool.name),
-          calledToolNames: record.toolCalls.map((call) => call.name),
-          toolsEnabled: config.tools.length > 0,
-        })
+        const missing = missingRequiredTools()
+        refreshRequiredToolDiagnostics()
         if (missing.length === 0) {
           record.finalText = turnText
           if (turnText) callbacks.onText(turnText)
@@ -427,6 +523,8 @@ export class CodexAppServerRunner {
           callbacks.onDone()
           return record
         }
+        const fallbackOutcome = await attemptRequiredToolFallback()
+        if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
         if (round >= Math.max(1, config.maxRounds) - 1) {
           await clearPersistedBreakpoint()
           throw new RequiredToolsNotCalledError(missing)
@@ -438,6 +536,13 @@ export class CodexAppServerRunner {
         }]
       }
 
+      const missingAtLimit = missingRequiredTools()
+      refreshRequiredToolDiagnostics()
+      if (missingAtLimit.length > 0) {
+        const fallbackOutcome = await attemptRequiredToolFallback()
+        if (fallbackOutcome === "success" || fallbackOutcome === "error") return record
+        throw new RequiredToolsNotCalledError(missingAtLimit)
+      }
       throw new Error(`Agent 已达到最大调用轮次（${config.maxRounds}），请尝试减少引用内容或拆分任务`)
     } catch (error) {
       const resolved = error instanceof Error ? error : new Error(String(error))

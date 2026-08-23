@@ -50,6 +50,8 @@ export interface StreamCallbacks {
   onReasoningToken?: (token: string) => void
   /** 工具调用流式 delta，用于累积 tool_calls */
   onToolCallDelta?: (delta: { index: number; id?: string; name?: string; arguments?: string }) => void
+  /** Provider reported finish reason for the current response. */
+  onFinishReason?: (reason: string) => void
   onUsage?: (usage: LlmUsage) => void
   /** Sanitized request-level timing/cache trace; never contains prompt text or credentials. */
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void
@@ -130,11 +132,13 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
-function parseToolCallDeltaFromLine(line: string): { index: number; id?: string; name?: string; arguments?: string } | null {
+export function parseToolCallDeltasFromLine(
+  line: string,
+): Array<{ index: number; id?: string; name?: string; arguments?: string }> {
   const trimmed = line.trim()
-  if (!trimmed.startsWith("data: ")) return null
+  if (!trimmed.startsWith("data: ")) return []
   const data = trimmed.slice(6).trim()
-  if (data === "[DONE]") return null
+  if (data === "[DONE]") return []
   try {
     const parsed = JSON.parse(data) as {
       choices?: Array<{
@@ -147,18 +151,19 @@ function parseToolCallDeltaFromLine(line: string): { index: number; id?: string;
         }
       }>
     }
-    const toolCall = parsed.choices?.[0]?.delta?.tool_calls?.[0]
-    if (toolCall === undefined) return null
-    return {
+    const toolCalls = parsed.choices?.[0]?.delta?.tool_calls ?? []
+    return toolCalls.map((toolCall) => ({
       index: toolCall.index ?? 0,
-      id: toolCall.id,
-      name: toolCall.function?.name,
-      arguments: toolCall.function?.arguments,
-    }
+      ...(toolCall.id !== undefined ? { id: toolCall.id } : {}),
+      ...(toolCall.function?.name !== undefined ? { name: toolCall.function.name } : {}),
+      ...(toolCall.function?.arguments !== undefined
+        ? { arguments: toolCall.function.arguments }
+        : {}),
+    }))
   } catch {
     // A malformed SSE line is not fatal: skip it and keep the stream alive.
     // The only error reachable here is JSON.parse's SyntaxError.
-    return null
+    return []
   }
 }
 
@@ -754,7 +759,10 @@ async function streamChatHeld(
     }
     const recordFinishReason = (line: string) => {
       const reason = providerConfig.parseFinishReason(line)
-      if (reason) finishReason = reason
+      if (reason) {
+        finishReason = reason
+        callbacks.onFinishReason?.(reason)
+      }
     }
     const recordReasoning = (line: string) => {
       const reasoningParts = extractReasoningTextFromLine(line)
@@ -778,17 +786,16 @@ async function streamChatHeld(
             // reasoning_content and tool_calls on the same SSE line.
             reasoningCharsObserved += countReasoningCharsInLine(trimmed)
             recordReasoning(trimmed)
-            const toolDelta = parseToolCallDeltaFromLine(trimmed)
-            if (toolDelta) {
+            const toolDeltas = parseToolCallDeltasFromLine(trimmed)
+            for (const toolDelta of toolDeltas) {
               markFirstResponse(activeRequestTrace)
               toolCallDeltaCount += 1
               callbacks.onToolCallDelta?.(toolDelta)
-            } else {
-              const token = providerConfig.parseStream(trimmed)
-              if (token !== null) {
-                if (token) markFirstResponse(activeRequestTrace)
-                recordToken(token)
-              }
+            }
+            const token = providerConfig.parseStream(trimmed)
+            if (token !== null) {
+              if (token) markFirstResponse(activeRequestTrace)
+              recordToken(token)
             }
           }
           break
@@ -806,12 +813,11 @@ async function streamChatHeld(
           // reasoning_content and tool_calls on the same SSE line.
           reasoningCharsObserved += countReasoningCharsInLine(trimmed)
           recordReasoning(trimmed)
-          const toolDelta = parseToolCallDeltaFromLine(trimmed)
-          if (toolDelta) {
+          const toolDeltas = parseToolCallDeltasFromLine(trimmed)
+          for (const toolDelta of toolDeltas) {
             markFirstResponse(activeRequestTrace)
             toolCallDeltaCount += 1
             callbacks.onToolCallDelta?.(toolDelta)
-            continue
           }
           const token = providerConfig.parseStream(trimmed)
           if (token !== null) {

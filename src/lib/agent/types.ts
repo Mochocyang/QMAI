@@ -39,6 +39,12 @@ export interface Tool {
    * 不再让模型复述或改写（见 AgentRunner / CodexAppServerRunner 的交付短路）。
    */
   finalizesRun?: boolean
+  /**
+   * Build trusted arguments when this tool is mandatory but the model fails
+   * to call it. Only explicitly approved deterministic fallback entrypoints
+   * should implement this hook.
+   */
+  buildRequiredToolFallbackParams?: (input: { taskGoal: string }) => Record<string, unknown>
   parameters: Record<string, ToolParameter>
   execute(params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext): Promise<string>
   generatePreview?: (params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext) => Promise<string>
@@ -75,6 +81,24 @@ export interface AgentConfig {
    * 缺则拒绝无 tool 终稿并续轮（见 AgentRunner required-tools gate）。
    */
   requiredToolsOnce?: string[]
+  /** Internal retry policy: execute deterministic required-tool fallbacks before asking the model. */
+  forceRequiredToolsImmediately?: boolean
+}
+
+export interface RequiredToolRunDiagnostics {
+  requiredTools: string[]
+  satisfiedTools: string[]
+  missingTools: string[]
+  fallbackAttempted: boolean
+  fallbackTool?: string
+  fallbackStatus?: "success" | "error" | "unavailable"
+  fallbackError?: string
+  provider: LlmConfig["provider"]
+  model: string
+  reasoningMode: string
+  roundsUsed: number
+  finishReasons: string[]
+  observedToolCalls: Array<{ round: number; index: number; name?: string }>
 }
 
 export interface AgentToolEvent {
@@ -191,6 +215,8 @@ export interface AgentRunRecord {
   omittedRequestTraceCount?: number
   /** Memory decision from the first LLM round that applied user memory. */
   userMemoryDecision?: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null
+  /** Required-tool convergence and sanitized provider/tool-selection diagnostics. */
+  requiredToolDiagnostics?: RequiredToolRunDiagnostics
 }
 
 export const DEFAULT_MAX_ROUNDS = 15

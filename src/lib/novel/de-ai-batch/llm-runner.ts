@@ -1,6 +1,7 @@
 ﻿import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
+import { filterDeAiOutput } from "@/lib/novel/de-ai-output"
 import {
   isModelKeyRegistered,
   resolveModelConfig,
@@ -81,7 +82,7 @@ export function createDeAiBatchLlmRunner(options: DeAiBatchLlmRunnerOptions): De
       signal,
     )
     if (streamError) throw streamError
-    return content
+    return filterDeAiOutput(content)
   }
 }
 

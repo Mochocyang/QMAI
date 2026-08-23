@@ -60,6 +60,19 @@ describe("de-ai batch llm runner", () => {
     expect(stream).toHaveBeenCalledWith(config, expect.any(Array), expect.any(Object), signal)
   })
 
+  it("在完整结果形成后过滤 Gemini 普通文本形式的思考摘要", async () => {
+    const stream = vi.fn(async (_config, _messages, callbacks) => {
+      callbacks.onToken("**Initiating the Analysis**\n\n")
+      callbacks.onToken("I'm currently dissecting the task and applying the requested rewrite rules.\n\n")
+      callbacks.onToken("巷口的雨停了，叶刃收起伞。")
+      callbacks.onDone()
+    })
+    const runner = createDeAiBatchLlmRunner({ resolveConfig: () => ({}) as never, stream: stream as never })
+
+    await expect(runner({ task, chapter, signal: new AbortController().signal }))
+      .resolves.toBe("巷口的雨停了，叶刃收起伞。")
+  })
+
   it("按任务模型、项目默认模型、聊天模型的顺序生成稳定 provider/model key", () => {
     expect(resolveDeAiBatchModelKey({
       taskModel: "custom-bound/test-model",

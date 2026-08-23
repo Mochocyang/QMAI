@@ -29,6 +29,42 @@ export interface ExecuteAgentToolResult {
   finalContent?: string
 }
 
+export function rejectAgentToolCall(
+  call: Pick<ToolCall, "id" | "name">,
+  message: string,
+  callbacks: AgentRunCallbacks,
+): ExecuteAgentToolResult {
+  const timestamp = Date.now()
+  const params: Record<string, unknown> = {}
+  const record: AgentRunRecord["toolCalls"][number] = {
+    id: call.id,
+    name: call.name,
+    params,
+    result: message,
+    status: "error",
+    startedAt: timestamp,
+    finishedAt: timestamp,
+  }
+  callbacks.onToolCall({ id: call.id, name: call.name, arguments: params })
+  callbacks.onToolEvent?.({
+    type: "call_started",
+    callId: call.id,
+    name: call.name,
+    params,
+    timestamp,
+  })
+  callbacks.onToolError(call.id, message)
+  callbacks.onToolEvent?.({
+    type: "error",
+    callId: call.id,
+    name: call.name,
+    params,
+    result: message,
+    timestamp,
+  })
+  return { record, responseText: message, success: false }
+}
+
 export async function executeAgentTool(
   call: ToolCall,
   registry: ToolRegistry,
