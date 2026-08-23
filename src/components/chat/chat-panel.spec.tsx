@@ -96,6 +96,25 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("finalContentDelivered")
   })
 
+  it("offers a deterministic workflow retry and reuses the failed assistant bubble", () => {
+    expect(source).toContain('label: "强制重试"')
+    expect(source).toContain("forceRequiredToolsImmediately: true")
+    expect(source).toContain("retryAssistantMessageId: assistantMessage.id")
+    expect(source).toContain("workflowMode: sessionWorkflowMode")
+    expect(source).toContain("planExecuteActive,")
+    expect(source).toContain("resetAssistantMessageForRequiredToolRetry")
+    expect(source).toContain("message.id !== sendOptions?.retryAssistantMessageId")
+    expect(source).toContain("message.id !== retryUserMessageId")
+    expect(source).toContain("if (!targetConversationId && !retryAssistantMessage)")
+  })
+
+  it("rejects duplicate or stale workflow retries without appending messages", () => {
+    expect(source).toContain("原失败消息已失效，无法强制重试")
+    expect(source).toContain("该会话正在强制重试，请勿重复点击")
+    expect(source).toContain("required-workflow-retry-running")
+    expect(source).toContain("startConversationRun(capturedConvId, runId)")
+  })
+
   it("uses three AI workflow modes instead of a single deep mode prompt", () => {
     expect(source).toContain("aiWorkflowMode")
     expect(source).toContain("setAiWorkflowMode")
@@ -172,7 +191,8 @@ describe("chat-panel agent reference integration", () => {
   })
 
   it("injects requiredToolsOnce for non-fast chapter writing via resolveRequiredToolsOnce", () => {
-    expect(source).toContain('import { resolveRequiredToolsOnce } from "@/lib/agent/required-tools-gate"')
+    expect(source).toContain('} from "@/lib/agent/required-tools-gate"')
+    expect(source).toContain("resolveRequiredToolsOnce,")
     expect(source).toContain("resolveRequiredToolsOnce({")
     expect(source).toContain("...(requiredToolsOnce ? { requiredToolsOnce } : {})")
     expect(source).toContain("必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
@@ -240,7 +260,7 @@ describe("chat-panel agent reference integration", () => {
       (planExecuteActiveMatch?.index ?? 0),
       (planExecuteActiveMatch?.index ?? 0) + 200,
     )
-    expect(planExecuteActiveLine).toContain("aiWorkflowMode !== \"fast\"")
+    expect(planExecuteActiveLine).toContain("sessionWorkflowMode !== \"fast\"")
     expect(planExecuteActiveLine).toContain("planExecuteEnabled")
     expect(planExecuteActiveLine).toContain("planExecutionFollowup")
   })
@@ -439,7 +459,7 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 
   it("disables Plan Execute protocol for confirmed plan follow-up messages and fast mode", () => {
     expect(source).toContain("isChapterPlanExecutionFollowup")
-    expect(source).toContain("aiWorkflowMode !== \"fast\" && planExecuteEnabled && !planExecutionFollowup")
+    expect(source).toContain("sessionWorkflowMode !== \"fast\" && planExecuteEnabled && !planExecutionFollowup")
     expect(source).toContain("planExecuteEnabled: planExecuteActive")
   })
 
@@ -521,7 +541,7 @@ describe("chat-panel post-write check integration (Stage D)", () => {
   it("places Stage D after result protocol and before finishTrace", () => {
     const traceBlockIndex = source.indexOf("if (contextTrace && effectiveTaskRoute) {")
     expect(traceBlockIndex).toBeGreaterThan(-1)
-    const traceBlock = source.slice(traceBlockIndex, traceBlockIndex + 5000)
+    const traceBlock = source.slice(traceBlockIndex, traceBlockIndex + 9000)
     const protocolIndex = traceBlock.indexOf("buildResultProtocolTrace")
     const stageDIndex = traceBlock.indexOf("=== Stage D: 写后剧情自检 ===")
     const finishIndex = traceBlock.indexOf('finishTrace(contextTrace, "done")')

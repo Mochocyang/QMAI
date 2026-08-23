@@ -1,6 +1,6 @@
 import type { NovelTaskIntent } from "@/lib/novel/task-router"
 import type { DataSourceCategory, RouteSource } from "@/lib/novel/classification"
-import type { ToolCallStatus } from "./types"
+import type { RequiredToolRunDiagnostics, ToolCallStatus } from "./types"
 import type { AiWorkflowMode } from "./workflow-mode"
 import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library"
 import type { CapabilityKind, CapabilityPermission } from "./capabilities/types"
@@ -122,6 +122,7 @@ export interface ClassificationVersionInfo {
   trimmedSections: string[]
   contextBudget?: TraceContextBudget
   contextHub?: ContextHubStats
+    requiredToolDiagnostics?: RequiredToolRunDiagnostics
     resultProtocol?: TraceResultProtocol
     postWriteCheck?: PostWriteCheck
     fallbackReason?: string

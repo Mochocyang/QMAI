@@ -427,6 +427,64 @@ function OverviewTab({
         value={ROUTE_SOURCE_LABELS[contextInfo.routeSource] || contextInfo.routeSource}
       />
 
+      {contextInfo.requiredToolDiagnostics && (
+        <>
+          <div className="my-1 h-px bg-border/60" />
+          <div className="py-2">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <ShieldAlert className="h-3.5 w-3.5" />
+              </div>
+              <div className="text-[11px] font-medium text-foreground">必调工作流诊断</div>
+            </div>
+            <div className="ml-9 grid gap-1 rounded-md border bg-background px-2 py-2 text-[11px] text-muted-foreground">
+              <div>Provider：<span className="text-foreground">{contextInfo.requiredToolDiagnostics.provider}</span></div>
+              <div>Model：<span className="break-all text-foreground">{contextInfo.requiredToolDiagnostics.model}</span></div>
+              <div>Reasoning：<span className="text-foreground">{contextInfo.requiredToolDiagnostics.reasoningMode}</span></div>
+              <div>模型轮次：<span className="text-foreground">{contextInfo.requiredToolDiagnostics.roundsUsed}</span></div>
+              <div>
+                finish_reason：
+                <span className="text-foreground">
+                  {contextInfo.requiredToolDiagnostics.finishReasons.length > 0
+                    ? contextInfo.requiredToolDiagnostics.finishReasons.join("、")
+                    : "未提供"}
+                </span>
+              </div>
+              <div>
+                工具调用（{contextInfo.requiredToolDiagnostics.observedToolCalls.length}）：
+                <span className="break-all text-foreground">
+                  {contextInfo.requiredToolDiagnostics.observedToolCalls.length > 0
+                    ? contextInfo.requiredToolDiagnostics.observedToolCalls
+                        .map((call) => `#${call.round}.${call.index} ${call.name ?? "名称未完成"}`)
+                        .join("、")
+                    : "无"}
+                </span>
+              </div>
+              <div>
+                自动兜底：
+                <span className="text-foreground">
+                  {contextInfo.requiredToolDiagnostics.fallbackAttempted
+                    ? `${contextInfo.requiredToolDiagnostics.fallbackTool ?? "未知工具"} / ${contextInfo.requiredToolDiagnostics.fallbackStatus ?? "unknown"}`
+                    : contextInfo.requiredToolDiagnostics.fallbackStatus === "unavailable"
+                      ? "不可用"
+                      : "未触发"}
+                </span>
+              </div>
+              {contextInfo.requiredToolDiagnostics.missingTools.length > 0 && (
+                <div className="text-amber-700 dark:text-amber-300">
+                  缺失工具：{contextInfo.requiredToolDiagnostics.missingTools.join("、")}
+                </div>
+              )}
+              {contextInfo.requiredToolDiagnostics.fallbackError && (
+                <div className="break-words text-red-600 dark:text-red-400">
+                  兜底失败：{contextInfo.requiredToolDiagnostics.fallbackError}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {currentHubSnapshot && (
         <>
           <div className="my-1 h-px bg-border/60" />

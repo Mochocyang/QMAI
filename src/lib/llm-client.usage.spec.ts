@@ -140,6 +140,42 @@ describe("streamChat usage", () => {
     }))
   })
 
+  it("preserves content and every parallel tool call from one DeepSeek SSE event", async () => {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          'data: {"choices":[{"delta":{"content":"准备执行","reasoning_content":"先读纲再进工作流","tool_calls":[{"index":0,"id":"call_read","function":{"name":"read_outline","arguments":"{\\"name\\":\\"卷纲\\"}"}},{"index":1,"id":"call_workflow","function":{"name":"run_chapter_workflow","arguments":"{\\"userRequest\\":\\"写第45章\\"}"}}]},"finish_reason":"tool_calls"}]}',
+          "data: [DONE]",
+          "",
+        ].join("\n")))
+        controller.close()
+      },
+    })
+    mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }))
+    const onToken = vi.fn()
+    const onReasoningToken = vi.fn()
+    const onToolCallDelta = vi.fn()
+    const onFinishReason = vi.fn()
+
+    await streamChat(config, [{ role: "user", content: "写第45章" }], {
+      onToken,
+      onReasoningToken,
+      onToolCallDelta,
+      onFinishReason,
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    })
+
+    expect(onToken).toHaveBeenCalledWith("准备执行")
+    expect(onReasoningToken).toHaveBeenCalledWith("先读纲再进工作流")
+    expect(onToolCallDelta.mock.calls.map(([delta]) => delta)).toEqual([
+      expect.objectContaining({ index: 0, id: "call_read", name: "read_outline" }),
+      expect.objectContaining({ index: 1, id: "call_workflow", name: "run_chapter_workflow" }),
+    ])
+    expect(onFinishReason).toHaveBeenCalledWith("tool_calls")
+  })
+
   it("does not treat reasoning plus tool calls as a reasoning-only failure", async () => {
     const thinking = "先列出大纲和章节再决定怎么写。".repeat(20)
     expect(thinking.length).toBeGreaterThan(200)

@@ -22,6 +22,7 @@ import { TextTransformPreviewDialog } from "@/components/novel/text-transform-pr
 import { DeAiSkillOptionsPanel } from "@/components/skill-library/de-ai-skill-picker"
 import { useDeAiSkillOptions } from "@/components/skill-library/use-de-ai-skill-options"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
+import { filterDeAiOutput } from "@/lib/novel/de-ai-output"
 import {
   loadDeAiSkillConfig,
   resolveEffectiveDeAiSkill,
@@ -66,6 +67,19 @@ const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
   return { default: mod.SnapshotViewer }
 })
+
+function extractDeAiResult(content: string): string {
+  return extractDeAiChapterText(filterDeAiOutput(content))
+}
+
+function finishDeAiTaskResult(taskId: string, content: string): void {
+  const candidate = extractDeAiResult(content)
+  if (candidate.trim()) {
+    useDeAiTaskStore.getState().finishTask(taskId, candidate)
+    return
+  }
+  useDeAiTaskStore.getState().failTask(taskId, "去AI味未返回正文")
+}
 
 function inferEditorMode(path: string): "read" | "edit" {
   const normalized = path.replace(/\\/g, "/")
@@ -1019,7 +1033,7 @@ export function PreviewPanel() {
           },
           onDone: () => {
             doneCalled = true
-            useDeAiTaskStore.getState().finishTask(taskId, extractDeAiChapterText(result))
+            finishDeAiTaskResult(taskId, result)
           },
           onError: (error) => {
             doneCalled = true
@@ -1030,11 +1044,7 @@ export function PreviewPanel() {
       )
       // 兜底：streamChat 正常返回但未调用 onDone/onError 时，用 result 完成
       if (!doneCalled) {
-        if (result.trim()) {
-          useDeAiTaskStore.getState().finishTask(taskId, extractDeAiChapterText(result))
-        } else {
-          useDeAiTaskStore.getState().failTask(taskId, "去AI味未返回内容")
-        }
+        finishDeAiTaskResult(taskId, result)
       }
     } catch (err) {
       console.error("去AI味处理失败:", err)
@@ -1084,10 +1094,15 @@ export function PreviewPanel() {
           },
           onDone: () => {
             if (selectedFileRef.current !== actionFile) return
+            const candidate = action === "de-ai" ? filterDeAiOutput(result) : result
+            if (!candidate.trim()) {
+              toast.error(`${actionLabel}失败：模型未返回正文`)
+              return
+            }
             setSelectionTransformAction(action)
             setSelectionTransformSelection(selection)
             setSelectionTransformSourceContent(selection.text)
-            setSelectionTransformCandidateContent(result)
+            setSelectionTransformCandidateContent(candidate)
             setSelectionTransformSkillName(action === "de-ai" ? skillName ?? "" : "")
             setSelectionTransformOpen(true)
           },
@@ -1787,7 +1802,7 @@ export function PreviewPanel() {
                   {
                     onToken: (token) => { result += token },
                     onDone: () => {
-                      useDeAiTaskStore.getState().finishTask(chapterId, extractDeAiChapterText(result))
+                      finishDeAiTaskResult(chapterId, result)
                     },
                     onError: (error) => {
                       useDeAiTaskStore.getState().failTask(chapterId, error.message ?? String(error))

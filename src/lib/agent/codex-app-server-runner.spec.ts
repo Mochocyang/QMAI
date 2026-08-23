@@ -96,6 +96,46 @@ describe("CodexAppServerRunner", () => {
     })
   })
 
+  it("forceRequiredToolsImmediately executes the shared deterministic fallback without starting app-server", async () => {
+    const tool: Tool = {
+      name: "run_chapter_workflow",
+      description: "workflow",
+      category: "action",
+      finalizesRun: true,
+      buildRequiredToolFallbackParams: ({ taskGoal }) => ({ userRequest: taskGoal }),
+      parameters: {},
+      execute: vi.fn(async (_params, _signal, context) => {
+        context?.onFinalContent?.("Codex 共用兜底正文")
+        return "ok"
+      }),
+    }
+    const registry = new ToolRegistry()
+    registry.register(tool)
+    const cb = callbacks()
+
+    const result = await new CodexAppServerRunner().run(
+      config([tool], {
+        taskGoal: "写第8章",
+        requiredToolsOnce: ["run_chapter_workflow"],
+        forceRequiredToolsImmediately: true,
+      }),
+      registry,
+      messages,
+      cb,
+    )
+
+    expect(appServerMock.call).not.toHaveBeenCalled()
+    expect(tool.execute).toHaveBeenCalledWith(
+      { userRequest: "写第8章" },
+      undefined,
+      expect.any(Object),
+    )
+    expect(result.finalText).toBe("Codex 共用兜底正文")
+    expect(result.requiredToolDiagnostics?.fallbackStatus).toBe("success")
+    expect(cb.onDone).toHaveBeenCalledOnce()
+    expect(cb.onError).not.toHaveBeenCalled()
+  })
+
   it("publishes QMAI dynamic tools, executes a read tool, and returns the final record", async () => {
     const tool: Tool = {
       name: "read_outline",

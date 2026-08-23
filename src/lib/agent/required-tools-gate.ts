@@ -47,6 +47,16 @@ export class RequiredToolsNotCalledError extends Error {
   }
 }
 
+export class RequiredToolFallbackError extends Error {
+  readonly toolName: string
+
+  constructor(toolName: string, detail: string) {
+    super(`必选工作流执行失败（${toolName}）：${detail}`)
+    this.name = "RequiredToolFallbackError"
+    this.toolName = toolName
+  }
+}
+
 export interface ResolveRequiredToolsOnceInput {
   novelMode: boolean
   intent?: string | null
