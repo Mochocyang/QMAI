@@ -52,7 +52,6 @@ import {
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
-import { registerEditorDiskSyncHandler } from "@/lib/editor-disk-sync-session"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
@@ -353,11 +352,6 @@ export function PreviewPanel() {
   }, [bumpDataVersion, chapterExternalUpdateCoordinator, rememberLoadedChapter, setFileContent])
 
   useEffect(() => registerEditorExternalUpdateHandler(applyExternalChapterBody), [applyExternalChapterBody])
-
-  useEffect(() => {
-    registerEditorDiskSyncHandler(applyDiskSyncIfSafe)
-    return () => registerEditorDiskSyncHandler(null)
-  }, [applyDiskSyncIfSafe])
 
   useEffect(() => {
     setChapterDeAiSkillId(undefined)

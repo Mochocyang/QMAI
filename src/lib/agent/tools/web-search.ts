@@ -2,7 +2,7 @@ import type { Tool } from "../types"
 import { providerRequiresApiKey, resolveSearchConfig, webSearch } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 
-export interface WebSearchToolResult {
+interface WebSearchToolResult {
   status: "ok" | "not_configured" | "error"
   query: string
   provider: string

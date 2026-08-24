@@ -1,4 +1,4 @@
-export const GRAPH_VISUAL_SETTINGS = {
+const GRAPH_VISUAL_SETTINGS = {
   baseNodeSize: 6,
   maxNodeSize: 20,
   minEdgeSize: 0.35,

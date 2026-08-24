@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest"
 
 const sourcesViewSource = readFileSync(resolve(__dirname, "sources-view.tsx"), "utf8")
 const toolbarSource = readFileSync(resolve(__dirname, "outline-action-toolbar.tsx"), "utf8")
-const promptTemplatesSource = readFileSync(resolve(__dirname, "../../lib/novel/prompt-templates.ts"), "utf8")
 const sidebarPanelSource = readFileSync(resolve(__dirname, "../layout/sidebar-panel.tsx"), "utf8")
 
 describe("AI 大纲工作台页面接入", () => {
@@ -36,7 +35,5 @@ describe("AI 大纲工作台页面接入", () => {
     expect(existsSync(resolve(__dirname, "../../lib/novel/deep-outline-generation.ts"))).toBe(false)
     expect(sourcesViewSource).not.toContain("runDeepOutlineGeneration")
     expect(toolbarSource).not.toContain("runDeepOutlineGeneration")
-    expect(promptTemplatesSource).not.toContain("outlineGeneration:")
-    expect(promptTemplatesSource).not.toContain("outlineRefinementGeneration:")
   })
 })

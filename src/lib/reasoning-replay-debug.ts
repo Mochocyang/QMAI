@@ -5,7 +5,7 @@ const TAG = "[reasoning-replay]"
 const RECENT_LOG_KEY = "qmai.reasoningReplayLogs"
 const MAX_RECENT_LOGS = 40
 
-export interface ReasoningMessageProbe {
+interface ReasoningMessageProbe {
   index: number
   role: string
   contentLen: number
@@ -15,7 +15,7 @@ export interface ReasoningMessageProbe {
   reasoningLen: number
 }
 
-export interface ReasoningReplayLogEntry {
+interface ReasoningReplayLogEntry {
   at: string
   stage: string
   details: Record<string, unknown>
@@ -40,20 +40,7 @@ function pushRecentLog(entry: ReasoningReplayLogEntry): void {
   persistRecentLogs()
 }
 
-export function getRecentReasoningReplayLogs(): ReasoningReplayLogEntry[] {
-  if (recentLogs.length > 0) return [...recentLogs]
-  try {
-    if (typeof sessionStorage === "undefined") return []
-    const raw = sessionStorage.getItem(RECENT_LOG_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as ReasoningReplayLogEntry[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-export function probeReasoningMessages(messages: ChatMessage[]): ReasoningMessageProbe[] {
+function probeReasoningMessages(messages: ChatMessage[]): ReasoningMessageProbe[] {
   return messages.map((message, index) => ({
     index,
     role: message.role,

@@ -20,9 +20,7 @@ export const STYLE_DIMENSIONS = [
   { key: "thematicHabits", label: "点题 / 总结 / 抒情习惯" },
 ] as const
 
-export type StyleDimensionKey = typeof STYLE_DIMENSIONS[number]["key"]
-
-export interface StyleEvidenceCandidate {
+interface StyleEvidenceCandidate {
   chapterId: string
   text: string
   tags: string[]

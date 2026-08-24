@@ -18,7 +18,7 @@ const DUMP_HEADER_RE = /^\*\*([^*]+)\*\*\s*$/
 const DUMP_PROSE_RE =
   /^(The user (wants|is asking|requested|needs|has asked)|I need to|I'll |I will |Let's |Let me |The request\b|The goal\b|The task\b)/i
 
-export function isThoughtDumpHeader(line: string): boolean {
+function isThoughtDumpHeader(line: string): boolean {
   const match = line.trim().match(DUMP_HEADER_RE)
   if (!match) return false
   const inner = match[1].trim()
@@ -47,7 +47,7 @@ function isMostlyEnglishProse(text: string): boolean {
   return letters >= 12 && letters / Math.max(nonSpace, 1) >= 0.7
 }
 
-export function looksLikeThoughtDumpBlock(block: string): boolean {
+function looksLikeThoughtDumpBlock(block: string): boolean {
   const trimmed = block.trim()
   if (!trimmed || CJK_RE.test(trimmed)) return false
   const firstLine = trimmed.split("\n")[0] ?? ""

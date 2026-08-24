@@ -5,7 +5,7 @@ import type { McpConfig } from "./config"
 import type { McpToolCaller, McpToolDescriptor } from "./types"
 import type { RealMcpConnector } from "./real-connector"
 
-export interface McpRuntime {
+interface McpRuntime {
   mcpTools: Tool[]
   mcpCapabilities: AiCapability[]
   warnings: string[]

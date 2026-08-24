@@ -14,9 +14,3 @@ export interface FileNode {
   size?: number
   children?: FileNode[]
 }
-
-export interface WikiPage {
-  path: string
-  content: string
-  frontmatter: Record<string, unknown>
-}

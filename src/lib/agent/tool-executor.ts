@@ -3,7 +3,7 @@ import type { AgentRunCallbacks, AgentRunRecord, ToolCall } from "./types"
 import { TOOL_EXECUTE_TIMEOUT_MS } from "./types"
 import { isToolErrorResult } from "./tool-result"
 
-export function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
+function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
   const resolvedTimeoutMs = timeoutMs ?? TOOL_EXECUTE_TIMEOUT_MS
   if (resolvedTimeoutMs <= 0) return operation
   return new Promise<T>((resolve, reject) => {

@@ -1,6 +1,5 @@
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { upsertPlotFramework } from "@/lib/novel/plot-framework-library"
-import type { PlotFramework } from "@/lib/novel/plot-framework"
 import { loadMetadata } from "./analysis-engine"
 import { llmRecognizeCharacters } from "./character-llm-recognizer"
 import { replaceAutomaticEvidence } from "./analysis-evidence-store"
@@ -15,7 +14,7 @@ import {
   type BookStoryFrameworkChapter,
 } from "./story-framework-extraction"
 
-export interface StoryAnalysisChunkResult {
+interface StoryAnalysisChunkResult {
   markdown: string
   rangeChapterIds: string[]
 }
@@ -215,5 +214,3 @@ export function createStoryAnalysisAdapter(
 }
 
 export const storyAnalysisAdapter = createStoryAnalysisAdapter()
-
-export type { PlotFramework }

@@ -134,7 +134,7 @@ function pageExists(name: string, index: WikiIndex): boolean {
  *
  * @internal Exported for unit tests only.
  */
-export function extractJsonObject(raw: string): string {
+function extractJsonObject(raw: string): string {
   let text = raw.trim()
 
   // Strip an opening ```json or ``` fence (with or without newline)

@@ -1,9 +1,9 @@
 import { create } from "zustand"
 import { normalizePath } from "@/lib/path-utils"
 
-export type DeAiTaskStatus = "processing" | "ready" | "confirmed" | "failed" | "cancelled"
+type DeAiTaskStatus = "processing" | "ready" | "confirmed" | "failed" | "cancelled"
 
-export interface DeAiTask {
+interface DeAiTask {
   id: string
   projectPath: string
   chapterPath: string
@@ -20,7 +20,7 @@ export interface DeAiTask {
   updatedAt: number
 }
 
-export interface DeAiTaskStartInput {
+interface DeAiTaskStartInput {
   projectPath: string
   chapterPath: string
   chapterTitle: string
@@ -31,12 +31,12 @@ export interface DeAiTaskStartInput {
   sourceContent: string
 }
 
-export interface DeAiProjectReviewState {
+interface DeAiProjectReviewState {
   open: boolean
   chapterId: string | null
 }
 
-export interface DeAiTaskState {
+interface DeAiTaskState {
   tasks: DeAiTask[]
   reviewByProject: Record<string, DeAiProjectReviewState>
   startTask: (input: DeAiTaskStartInput) => string

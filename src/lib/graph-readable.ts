@@ -6,35 +6,35 @@ export interface MindMapNode {
   children: MindMapNode[]
 }
 
-export interface GraphNodeRelationSummary {
+interface GraphNodeRelationSummary {
   title: string
   items: string[]
 }
 
-export interface GraphDocumentIsolationStats {
+interface GraphDocumentIsolationStats {
   total: number
   isolated: number
 }
 
-export interface GraphDocumentQuickRiskFilter {
+interface GraphDocumentQuickRiskFilter {
   key: string
   label: string
   nodeType: string
   riskState: string
 }
 
-export interface GraphRiskSummaryItem extends GraphDocumentQuickRiskFilter {
+interface GraphRiskSummaryItem extends GraphDocumentQuickRiskFilter {
   count: number
 }
 
-export interface GraphRiskSummaryItemColor {
+interface GraphRiskSummaryItemColor {
   bg: string
   border: string
   text: string
   dotBg: string
 }
 
-export type GraphDocumentSortMode = "default" | "links-desc" | "links-asc" | "title"
+type GraphDocumentSortMode = "default" | "links-desc" | "links-asc" | "title"
 
 const TYPE_LABELS: Record<string, string> = {
   character: "人物",
@@ -122,7 +122,7 @@ export function getGraphNodeRiskStateLabel(type: string): string | null {
   return RISK_STATE_LABELS[type] ?? null
 }
 
-export function getGraphNodeRiskStateOptions(type: string): string[] {
+function getGraphNodeRiskStateOptions(type: string): string[] {
   return RISK_STATE_OPTIONS[type] ?? []
 }
 
@@ -152,10 +152,6 @@ function typeLabel(type: string): string {
 
 function relationLabel(relation: string | undefined): string {
   return getGraphRelationLabel(relation)
-}
-
-function wikiLink(label: string): string {
-  return `[[${label}]]`
 }
 
 function nodeLabel(nodes: GraphNode[], id: string): string {
@@ -255,7 +251,7 @@ export function getGraphDocumentQuickRiskFilters(): GraphDocumentQuickRiskFilter
   ]
 }
 
-export function buildGraphRiskSummaryItems(nodes: GraphNode[], riskStateOverrides: Record<string, string>): GraphRiskSummaryItem[] {
+function buildGraphRiskSummaryItems(nodes: GraphNode[], riskStateOverrides: Record<string, string>): GraphRiskSummaryItem[] {
   return getGraphDocumentQuickRiskFilters().map((filter) => ({
     ...filter,
     count: nodes.filter((node) => node.type === filter.nodeType && (riskStateOverrides[node.id] ?? getGraphNodeRiskStateLabel(node.type)) === filter.riskState).length,
@@ -346,79 +342,6 @@ export function buildGraphNodeRelationSummary(node: GraphNode, nodes: GraphNode[
     summary.set(label, [...(summary.get(label) ?? []), nodeLabel(nodes, otherId)])
   }
   return Array.from(summary.entries()).map(([title, items]) => ({ title, items }))
-}
-
-function groupNodes(nodes: GraphNode[]): Array<{ title: string; nodes: GraphNode[] }> {
-  return groupGraphDocumentNodes(nodes)
-}
-
-function pushNodeDocument(lines: string[], node: GraphNode, nodes: GraphNode[], edges: GraphEdge[], headingNumber: string): void {
-  const nodeEdges = relatedEdges(edges, node.id)
-  const eventEdges = nodeEdges.filter((edge) => {
-    const otherId = edge.source === node.id ? edge.target : edge.source
-    const otherNode = nodes.find((item) => item.id === otherId)
-    return otherNode?.type === "event" || otherNode?.type === "chapter" || otherNode?.type === "outline"
-  })
-
-  lines.push(`### ${headingNumber} ${wikiLink(node.label)}`, "")
-  lines.push("#### 基础信息", "")
-  lines.push(`- 节点类型：${typeLabel(node.type)}`)
-  lines.push(`- 关联数量：${node.linkCount}`)
-  lines.push(`- 来源路径：${node.path || "暂无"}`, "")
-  lines.push("#### 关系网络", "")
-
-  if (nodeEdges.length === 0) {
-    lines.push("暂无已记录关系。", "")
-  } else {
-    lines.push("| 关联对象 | 关系 | 方向 | 权重 |")
-    lines.push("| --- | --- | --- | --- |")
-    for (const edge of nodeEdges.slice(0, 12)) {
-      const isSource = edge.source === node.id
-      const otherId = isSource ? edge.target : edge.source
-      lines.push(`| ${wikiLink(nodeLabel(nodes, otherId))} | ${relationLabel(edge.relation)} | ${isSource ? "指向对方" : "来自对方"} | ${edge.weight} |`)
-    }
-    lines.push("")
-  }
-
-  lines.push("#### 相关事件", "")
-  if (eventEdges.length === 0) {
-    lines.push("暂无直接关联事件。", "")
-  } else {
-    for (const edge of eventEdges.slice(0, 8)) {
-      const otherId = edge.source === node.id ? edge.target : edge.source
-      lines.push(`- ${wikiLink(nodeLabel(nodes, otherId))}：${relationLabel(edge.relation)}`)
-    }
-    lines.push("")
-  }
-
-  lines.push("#### 可补充设定", "")
-  lines.push("- 经用户确认后，可在该节点对应的真实档案页中补充事件、关系、状态与设定。", "")
-}
-
-export function buildGraphDocument(nodes: GraphNode[], edges: GraphEdge[]): string {
-  const lines = ["# 小说图谱文档", ""]
-  lines.push("本文档由当前小说档案页自动生成，用于阅读图谱结构；需要长期生效的修改应写入具体节点档案页。", "")
-
-  groupNodes(nodes).forEach((group, groupIndex) => {
-    const sectionNumber = groupIndex + 1
-    lines.push(`## ${sectionNumber}. ${group.title}`, "")
-    group.nodes.forEach((node, nodeIndex) => {
-      pushNodeDocument(lines, node, nodes, edges, `${sectionNumber}.${nodeIndex + 1}`)
-    })
-  })
-
-  lines.push(`## ${groupNodes(nodes).length + 1}. 全部关系`, "")
-  if (edges.length === 0) {
-    lines.push("暂无关系。")
-  } else {
-    lines.push("| 起点 | 关系 | 终点 | 权重 |")
-    lines.push("| --- | --- | --- | --- |")
-    for (const edge of edges) {
-      lines.push(`| ${wikiLink(nodeLabel(nodes, edge.source))} | ${relationLabel(edge.relation)} | ${wikiLink(nodeLabel(nodes, edge.target))} | ${edge.weight} |`)
-    }
-  }
-
-  return lines.join("\n")
 }
 
 export function buildGraphMindMap(nodes: GraphNode[], edges: GraphEdge[]): MindMapNode[] {

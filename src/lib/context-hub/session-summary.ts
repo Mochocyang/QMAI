@@ -1,11 +1,11 @@
 import type { SessionContextSummary } from "./types"
 
-export interface SessionSummaryMessage {
+interface SessionSummaryMessage {
   role: string
   content: unknown
 }
 
-export interface BuildSessionContextSummaryInput {
+interface BuildSessionContextSummaryInput {
   messages: SessionSummaryMessage[]
   dependencyFingerprint: string
   maxChars?: number

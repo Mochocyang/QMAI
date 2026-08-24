@@ -26,7 +26,7 @@ const CHAPTER_STATUS: Record<DeAiBatchChapter["status"], string> = {
   cancelled: "已取消",
 }
 
-export interface DeAiBatchReviewDialogProps {
+interface DeAiBatchReviewDialogProps {
   open: boolean
   record: DeAiBatchTaskRecord | null
   currentChapterId: string | null

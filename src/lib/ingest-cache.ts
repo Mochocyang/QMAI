@@ -111,16 +111,3 @@ export async function saveIngestCache(
   }
   await saveCache(projectPath, { entries: newEntries })
 }
-
-/**
- * Remove a source file entry from cache (e.g., when source is deleted).
- */
-export async function removeFromIngestCache(
-  projectPath: string,
-  sourceFileName: string,
-): Promise<void> {
-  const cache = await loadCache(projectPath)
-  const newEntries = { ...cache.entries }
-  delete newEntries[sourceFileName]
-  await saveCache(projectPath, { entries: newEntries })
-}

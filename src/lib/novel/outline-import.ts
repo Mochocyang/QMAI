@@ -27,7 +27,7 @@ export const OUTLINE_IMPORT_EXTENSIONS = [
 
 const OUTLINE_IMPORT_EXTENSION_SET = new Set<string>(OUTLINE_IMPORT_EXTENSIONS)
 
-export interface OutlineImportCandidate {
+interface OutlineImportCandidate {
   path: string
   name: string
   targetFolders: string[]
@@ -155,9 +155,4 @@ export async function importOutlineCandidates(
   }
 
   return importedPaths
-}
-
-export async function importOutlineFolder(projectPath: string, selectedFolder: string): Promise<string[]> {
-  const candidates = await collectOutlineImportCandidatesFromFolder(selectedFolder)
-  return importOutlineCandidates(projectPath, candidates)
 }

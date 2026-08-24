@@ -4,7 +4,7 @@ import {
   buildMarkdownRepairRequestOverrides,
 } from "./markdown-quality-finalizer"
 
-export interface RepairMarkdownFormatWithAiOptions {
+interface RepairMarkdownFormatWithAiOptions {
   content: string
   llmConfig: Parameters<typeof streamChat>[0]
   signal: AbortSignal

@@ -25,8 +25,8 @@ export interface DeAiSkillConfig {
 }
 
 export const DEFAULT_DE_AI_SKILL_ID = "built-in:comprehensive"
-export const DE_AI_SKILL_CONFIG_FILE = "de-ai-skills.json"
-export const DE_AI_SKILL_BACKUP_FILE = "de-ai-skills.backup.json"
+const DE_AI_SKILL_CONFIG_FILE = "de-ai-skills.json"
+const DE_AI_SKILL_BACKUP_FILE = "de-ai-skills.backup.json"
 
 const configSaveQueues = new Map<string, Promise<void>>()
 
@@ -449,7 +449,7 @@ const literaryRetainSkillContent = `# de-AI-writing
 
 默认只输出处理后的正文。不要输出赏析或修改说明。`
 
-export class DeAiSkillConfigCorruptError extends Error {
+class DeAiSkillConfigCorruptError extends Error {
   constructor(public readonly configPath: string) {
     super(`技能库配置文件损坏：${configPath}`)
     this.name = "DeAiSkillConfigCorruptError"
@@ -613,7 +613,7 @@ export function resolveEffectiveDeAiSkill(
   return available.find((skill) => skill.id === requested) ?? available[0]
 }
 
-export interface SafeDeAiSkillResult {
+interface SafeDeAiSkillResult {
   skill: DeAiSkill | null
   warning: string
 }
@@ -850,7 +850,7 @@ export async function saveDeAiSkillConfig(projectPath: string, config: DeAiSkill
   }
 }
 
-export async function loadDeAiSkillBackupConfig(projectPath: string): Promise<DeAiSkillConfig> {
+async function loadDeAiSkillBackupConfig(projectPath: string): Promise<DeAiSkillConfig> {
   const backupPath = await join(projectPath, DE_AI_SKILL_BACKUP_FILE)
   const content = await readFile(backupPath)
   try {

@@ -16,7 +16,7 @@ export type RunDeepChapterGeneration = (
   signal?: AbortSignal,
 ) => Promise<DeepChapterGenerationResult>
 
-export interface RunChapterWorkflowToolOptions {
+interface RunChapterWorkflowToolOptions {
   projectPath: string
   llmConfig: LlmConfig
   aiWorkflowMode: AiWorkflowMode

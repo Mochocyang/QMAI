@@ -13,7 +13,7 @@ export interface FsAdapter {
   joinPath: (...parts: string[]) => string
 }
 
-export interface RetrievalStoreOptions {
+interface RetrievalStoreOptions {
   chaptersPerVolume?: number
 }
 

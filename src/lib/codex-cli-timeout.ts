@@ -1,5 +1,5 @@
 export const DEFAULT_CODEX_CLI_TIMEOUT_MINUTES = 40
-export const MAX_CODEX_CLI_TIMEOUT_MINUTES = 240
+const MAX_CODEX_CLI_TIMEOUT_MINUTES = 240
 
 export function resolveCodexCliTimeoutMinutes(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_CODEX_CLI_TIMEOUT_MINUTES

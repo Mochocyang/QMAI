@@ -31,7 +31,7 @@ import {
 import { buildNameAliasMap } from "./alias-resolver"
 import { fetchCharacterExternalMaterial } from "./web-search"
 
-export interface SixDimensionInput {
+interface SixDimensionInput {
   character: ExtractedCharacter
   /** 该角色对应的全部章节语料（已拼好） */
   corpus: string
@@ -55,7 +55,7 @@ export interface SixDimensionInput {
  * - dimensions  6 维度完整状态清单（UI 可直接渲染）
  * - characterName  当前处理到的角色名（让上层知道"6 维度分析中"是哪个角色）
  */
-export interface SixDimensionProgress {
+interface SixDimensionProgress {
   stage: "init" | "fetching_web" | "dimension" | "done" | "error"
   label: string
   completed: number
@@ -67,7 +67,7 @@ export interface SixDimensionProgress {
   characterName?: string
 }
 
-export interface SixDimensionResult {
+interface SixDimensionResult {
   character: ExtractedCharacter
   webSearchUsed: boolean
   llmFallbackUsed: boolean
@@ -310,15 +310,6 @@ export async function analyzeSixDimensions(
   })
 
   return { character, webSearchUsed, llmFallbackUsed }
-}
-
-/**
- * 重新跑 6 维度（用于旧 skill 的"重跑"按钮）
- */
-export async function reanalyzeSixDimensions(
-  input: SixDimensionInput
-): Promise<SixDimensionResult> {
-  return await analyzeSixDimensions(input)
 }
 
 /**

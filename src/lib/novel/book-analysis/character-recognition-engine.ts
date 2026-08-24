@@ -96,7 +96,7 @@ export interface LlmScoringInput {
   _llmCall?: (prompt: string) => Promise<string>
 }
 
-export interface LlmScoringOutput {
+interface LlmScoringOutput {
   scored: RecognizedCharacter[]
 }
 
@@ -196,67 +196,4 @@ async function defaultLlmCall(_prompt: string): Promise<string> {
   // 占位：实际项目里应调真实 LLM endpoint
   // 暂时 throw 让回退逻辑生效
   throw new Error("defaultLlmCall not implemented in this context")
-}
-
-// ============================================================
-// 统一识别函数（启发式 + 可选 LLM 评分）
-// ============================================================
-export interface RecognizeCharactersInput {
-  chapters: { index: number; content: string }[]
-  minChapters: number
-  sourceBook: string
-  llmConfig?: LlmConfig
-  signal?: AbortSignal
-}
-
-export interface RecognizeCharactersOutput {
-  characters: RecognizedCharacter[]
-  source: "heuristic" | "llm"
-  error?: string
-}
-
-/**
- * 统一的角色识别函数：先启发式识别，如果有 LLM 配置则进行评分
- */
-export async function recognizeCharacters(
-  input: RecognizeCharactersInput
-): Promise<RecognizeCharactersOutput> {
-  const { chapters, minChapters, sourceBook, llmConfig, signal } = input
-
-  // 第一步：启发式识别
-  const heuristicResult = heuristicRecognizeCharacters({
-    chapters,
-    minChapters,
-    sourceBook,
-  })
-
-  // 如果没有 LLM 配置，直接返回启发式结果
-  if (!llmConfig) {
-    return {
-      characters: heuristicResult,
-      source: "heuristic",
-    }
-  }
-
-  // 第二步：LLM 评分（可选）
-  try {
-    const scoringResult = await llmScoreCharacters({
-      candidates: heuristicResult,
-      chapters,
-      llmConfig,
-      signal,
-    })
-
-    return {
-      characters: scoringResult.scored,
-      source: "llm",
-    }
-  } catch (err) {
-    // LLM 评分失败，回退到启发式结果
-    return {
-      characters: heuristicResult,
-      source: "heuristic",
-      error: err instanceof Error ? err.message : "LLM评分失败",
-    }
-  }
 }

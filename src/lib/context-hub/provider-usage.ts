@@ -12,7 +12,7 @@ import type {
   LlmRequestDiagnostics,
 } from "./types"
 
-export interface PersistContextHubProviderUsageOptions {
+interface PersistContextHubProviderUsageOptions {
   memoryDecision?: UserMemoryDecision | null
   requestDiagnostics?: LlmRequestDiagnostics | null
 }
@@ -72,7 +72,7 @@ export function buildLlmRequestDiagnostics(
   }
 }
 
-export function mergeLlmRequestDiagnostics(
+function mergeLlmRequestDiagnostics(
   existing: LlmRequestDiagnostics | undefined,
   usage: LlmUsage | undefined,
 ): LlmRequestDiagnostics {

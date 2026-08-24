@@ -12,7 +12,7 @@ import { getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { backupChapterFile } from "@/lib/novel/chapter-backup"
 import type { StoryDraft, StoryFramework } from "./types"
 
-export interface ImportResult {
+interface ImportResult {
   importedCount: number
   chapterPaths: string[]
   startChapter: number

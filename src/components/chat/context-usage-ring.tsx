@@ -28,7 +28,7 @@ const SEGMENT_COLORS: Record<ContextUsageKey, string> = {
   currentInput: "#fb923c",
 }
 
-export interface ContextUsageRingProps {
+interface ContextUsageRingProps {
   usage?: ContextUsageSnapshot | null
   onCreateConversation?: () => void
   className?: string

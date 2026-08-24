@@ -31,7 +31,7 @@ export interface ReferenceToken {
   displayTitle: string
 }
 
-export interface ReferencePickerTab {
+interface ReferencePickerTab {
   key: ReferenceCategory
   label: string
 }

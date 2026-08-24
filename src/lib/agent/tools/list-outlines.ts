@@ -5,7 +5,7 @@ import {
   listOutlineEntries,
 } from "./outline-list-helpers"
 
-export interface ListOutlinesToolOptions {
+interface ListOutlinesToolOptions {
   readTextFile?: (path: string) => Promise<string>
   /** 模型未传 chapterNumber 时的默认目标章号（通常来自当前任务路由） */
   getDefaultChapterNumber?: () => number | undefined

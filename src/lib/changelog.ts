@@ -1,4 +1,4 @@
-export interface ChangelogEntry {
+interface ChangelogEntry {
   version: string;
   date: string;
   highlights: {
@@ -1279,7 +1279,7 @@ function isMergedOnePointRelease(version: string): boolean {
   return patch >= 8 && patch <= 32;
 }
 
-export const CHANGELOG: ChangelogEntry[] = [
+const CHANGELOG: ChangelogEntry[] = [
   THREE_POINT_TWO_SEVEN_CHANGELOG,
   THREE_POINT_TWO_SIX_CHANGELOG,
   THREE_POINT_TWO_FIVE_CHANGELOG,

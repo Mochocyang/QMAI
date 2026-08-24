@@ -3,13 +3,13 @@ import type { NovelTaskIntent } from "@/lib/novel/task-router"
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 
-export interface ClarificationCandidate {
+interface ClarificationCandidate {
   intent: NovelTaskIntent
   label: string
   confidence: number
 }
 
-export interface ConfidenceGatePluginDeps {
+interface ConfidenceGatePluginDeps {
   threshold?: number
   getCandidates?: (userMessage: string) => ClarificationCandidate[]
   onError?: (error: Error) => void

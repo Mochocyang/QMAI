@@ -61,7 +61,7 @@ function frameworkResultsDir(projectPath: string, frameworkId: string): string {
  * 创建 .qmai/simulations/{frameworks,results,bindings} 目录。
  * createDirectory 内部使用 create_dir_all，已存在时不会报错。
  */
-export async function ensureSimulationDirs(projectPath: string): Promise<void> {
+async function ensureSimulationDirs(projectPath: string): Promise<void> {
   const root = `${normalizePath(projectPath)}/${SIM_ROOT}`
   await createDirectory(`${root}/frameworks`)
   await createDirectory(`${root}/results`)
@@ -76,7 +76,7 @@ function yamlString(value: string): string {
 }
 
 /** 将 StoryFramework 序列化为 Markdown 文档。 */
-export function frameworkToMarkdown(framework: StoryFramework): string {
+function frameworkToMarkdown(framework: StoryFramework): string {
   const lines: string[] = []
   lines.push("---")
   lines.push(`id: ${yamlString(framework.id)}`)
@@ -238,7 +238,7 @@ function parseNodes(nodesSection: string): StoryNode[] {
  * 将 Markdown 文档解析回 StoryFramework。
  * 解析尽量健壮：缺失字段使用默认值，frontmatter 异常时尽量恢复。
  */
-export function markdownToFramework(
+function markdownToFramework(
   content: string,
   fallbackId?: string,
 ): StoryFramework | null {

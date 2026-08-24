@@ -1,6 +1,6 @@
 import { buildResultProtocolTrace, type ResultProtocolTrace } from "./result-parser"
 
-export interface ChapterSaveValidationResult {
+interface ChapterSaveValidationResult {
   ok: boolean
   trace: ResultProtocolTrace
   message?: string

@@ -187,16 +187,3 @@ export function parseSources(content: string): string[] {
 export function writeSources(content: string, sources: string[]): string {
   return writeFrontmatterArray(content, "sources", sources)
 }
-
-/**
- * Merge two source lists into one (case-insensitive dedup, first-
- * seen casing wins). Exported for tests and sources-view consumers
- * that prefer to call the merge directly without going through the
- * content-rewrite path.
- */
-export function mergeSourcesLists(
-  existing: readonly string[],
-  incoming: readonly string[],
-): string[] {
-  return mergeLists(existing, incoming)
-}

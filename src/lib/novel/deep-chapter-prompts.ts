@@ -17,7 +17,7 @@ export interface ChapterLengthSpec {
   draftMaxChars: number
 }
 
-export const DEFAULT_CHAPTER_LENGTH_SPEC: ChapterLengthSpec = {
+const DEFAULT_CHAPTER_LENGTH_SPEC: ChapterLengthSpec = {
   targetChars: DEEP_CHAPTER_TARGET_CHARS,
   minChars: DEEP_CHAPTER_MIN_CHARS,
   draftMaxChars: DEEP_CHAPTER_DRAFT_MAX_CHARS,
@@ -60,7 +60,7 @@ export function buildStableContextPrefix(outline: string, contextPrompt: string)
 }
 
 /** 可变 Skill 约束必须放在稳定缓存前缀之后，避免截断公共前缀。 */
-export function skillsConstraintSection(skillsPrompt?: string): string {
+function skillsConstraintSection(skillsPrompt?: string): string {
   return skillsPrompt?.trim() ?? ""
 }
 
@@ -303,44 +303,6 @@ export function buildDeepChapterFinalPolishPrompt(
     "待最终简单审查与去AI味正文：",
     currentContent,
   ].filter(Boolean).join("\n")
-}
-
-export function buildDeepChapterLengthRewritePrompt(
-  contextPrompt: string,
-  taskBrief: string,
-  currentContent: string,
-  userRequest: string,
-  chapterNumber?: number,
-  goldenThreeChapter?: GoldenThreeChapterRequest,
-  options?: { autoGenerateTitle?: boolean },
-): string {
-  const autoTitle = options?.autoGenerateTitle !== false
-  return [
-    "你是小说正文轻量整理助手。",
-    "请基于阶段3正文草稿做必要整理，在不影响剧情主线、人物行动、关键冲突和结尾钩子的前提下，酌情删减明显重复、循环输出和无效解释。",
-    "",
-    "硬性要求：",
-    "1. 只输出优化后的完整小说正文，不要输出解释、分析或修改说明。",
-    autoTitle ? `2. ${chapterTitleRequirement()}` : "2. 不要输出章节标题。",
-    "3. 不强制压缩到固定字数区间；保留当前章节的有效剧情容量。",
-    "4. 如果当前正文明显重复或循环，优先删掉重复内容，不得继续扩写。",
-    "5. 不得改变剧情因果、人物目标、已完成事件、关键对话含义和下一章钩子。",
-    "6. 可以优化环境、氛围、心理和过渡，但每一段都必须推动剧情、冲突、人物关系或期待。",
-    "7. 写到完整结尾后立即停止。",
-    "",
-    chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
-    `用户请求：${userRequest}`,
-    goldenThreeChapterSection(goldenThreeChapter),
-    "",
-    "写作任务书：",
-    taskBrief,
-    "",
-    "当前过长正文：",
-    currentContent,
-    "",
-    "上下文：",
-    contextPrompt,
-  ].join("\n")
 }
 
 function goldenThreeChapterSection(goldenThreeChapter?: GoldenThreeChapterRequest): string {

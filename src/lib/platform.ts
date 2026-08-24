@@ -6,7 +6,7 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 }
 
-export function supportsDirectoryPicker(): boolean {
+function supportsDirectoryPicker(): boolean {
   return typeof window !== "undefined" && typeof (window as DirectoryPickerWindow).showDirectoryPicker === "function"
 }
 

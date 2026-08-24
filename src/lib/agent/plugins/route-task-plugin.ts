@@ -1,7 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { routeTask } from "@/lib/novel/task-router"
 
-export interface RouteTaskPluginDeps {
+interface RouteTaskPluginDeps {
   onVirtualTool?: (
     event: "start" | "end",
     name: string,

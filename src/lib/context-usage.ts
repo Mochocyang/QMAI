@@ -25,7 +25,7 @@ export interface ContextUsageSnapshot {
   estimated: boolean
 }
 
-export interface BuildContextUsageSnapshotInput {
+interface BuildContextUsageSnapshotInput {
   windowTokens: number
   softwareRules?: string
   toolDefinitionsJson?: string
@@ -239,7 +239,7 @@ export function formatContextTokenCount(tokens: number): string {
   return `${Math.round(thousands)}K`
 }
 
-export function isContextUsageSnapshot(value: unknown): value is ContextUsageSnapshot {
+function isContextUsageSnapshot(value: unknown): value is ContextUsageSnapshot {
   if (!value || typeof value !== "object") return false
   const candidate = value as Partial<ContextUsageSnapshot>
   if (

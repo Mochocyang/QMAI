@@ -17,9 +17,9 @@
  * gateways really do mount the API at a bare host.
  */
 
-export type EndpointMode = "chat_completions" | "responses" | "anthropic_messages" | "azure"
+type EndpointMode = "chat_completions" | "responses" | "anthropic_messages" | "azure"
 
-export interface NormalizedEndpoint {
+interface NormalizedEndpoint {
   /** The cleaned-up URL to store. Empty string for empty input. */
   normalized: string
   /** True if normalization changed the input (show a "will use" hint). */

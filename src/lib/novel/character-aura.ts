@@ -64,20 +64,20 @@ export interface CharacterAuraBinding {
   aliases?: string[]
 }
 
-export interface BuildCharacterAuraContextOptions {
+interface BuildCharacterAuraContextOptions {
   fallbackAuraId?: string
   previewMode?: "context" | "writing"
   matchingText?: string
 }
 
-export interface CharacterAuraStore {
+interface CharacterAuraStore {
   customAuras: CharacterAura[]
   bindings: CharacterAuraBinding[]
 }
 
-export type CharacterAuraInput = Omit<CharacterAura, "id" | "builtIn" | "createdAt" | "updatedAt">
+type CharacterAuraInput = Omit<CharacterAura, "id" | "builtIn" | "createdAt" | "updatedAt">
 
-export interface CustomCharacterAuraSkillInput {
+interface CustomCharacterAuraSkillInput {
   name: string
   category?: string
   corpus?: string
@@ -165,7 +165,7 @@ export interface CharacterAuraGenerationProgress {
   researchFileName?: CharacterAuraResearchFileName
 }
 
-export interface CharacterAuraGenerationOptions {
+interface CharacterAuraGenerationOptions {
   onProgress?: (progress: CharacterAuraGenerationProgress) => void
 }
 
@@ -215,8 +215,8 @@ const AURA_WORKFLOW_STAGES: AuraWorkflowStage[] = [
   },
 ]
 
-export const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"
-export const CHARACTER_AURA_INVALID_AURA_MESSAGE = "请选择有效的角色灵魂"
+const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"
+const CHARACTER_AURA_INVALID_AURA_MESSAGE = "请选择有效的角色灵魂"
 
 export const BUILT_IN_CHARACTER_AURAS: CharacterAura[] = [
   createBuiltInAura("builtin-qin-shihuang", "历史帝王", "秦始皇", "统一、法度、中央集权、标准化、长线工程", "表达特征：短促、命令式、重秩序和尺度；先定天下框架，再谈个人得失。", "心智模型：把局部冲突放进统一秩序、制度成本和后世延续中评估。", "决策启发式：先收权、再定法、后标准化；面对分裂优先消除多头规则。", "价值观反模式：警惕把强控制写成万能答案，避免忽视民力、恐惧和信息失真。"),
@@ -304,28 +304,13 @@ export async function loadCharacterAuraStore(projectPath: string): Promise<Chara
   }
 }
 
-export async function saveCharacterAuraStore(projectPath: string, store: CharacterAuraStore): Promise<void> {
+async function saveCharacterAuraStore(projectPath: string, store: CharacterAuraStore): Promise<void> {
   await writeFileAtomic(storePath(projectPath), JSON.stringify(store, null, 2))
 }
 
 export async function listCharacterAuras(projectPath: string): Promise<CharacterAura[]> {
   const store = await loadCharacterAuraStore(projectPath)
   return [...BUILT_IN_CHARACTER_AURAS, ...store.customAuras]
-}
-
-export async function createCustomCharacterAura(projectPath: string, input: CharacterAuraInput): Promise<CharacterAura> {
-  const store = await loadCharacterAuraStore(projectPath)
-  const now = Date.now()
-  const aura: CharacterAura = {
-    id: `custom-${now}-${Math.random().toString(36).slice(2, 8)}`,
-    builtIn: false,
-    ...input,
-    createdAt: now,
-    updatedAt: now,
-  }
-  store.customAuras.push(aura)
-  await saveCharacterAuraStore(projectPath, store)
-  return aura
 }
 
 export async function createCustomCharacterAuraSkill(

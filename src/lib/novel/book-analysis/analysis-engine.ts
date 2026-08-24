@@ -13,22 +13,7 @@ import { normalizePath, joinPath } from "@/lib/path-utils"
 import { fingerprintFileSample } from "./content-fingerprint"
 import { findBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 
-export interface SplitChaptersInput {
-  sourcePath: string
-  projectPath: string
-  llmConfig: LlmConfig
-  onProgress?: (progress: {
-    stage: string
-    stageLabel: string
-    completed: number
-    total: number
-    percentage: number
-    currentItem?: string
-  }) => void
-  signal?: AbortSignal
-}
-
-export interface SplitChaptersResult {
+interface SplitChaptersResult {
   success: boolean
   bookId: string
   bookPath: string

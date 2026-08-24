@@ -6,18 +6,6 @@ import type { ContextPack } from "./context-engine"
 
 const QM_QUAI_SYSTEM_PROMPT = deAiSkillMarkdown.trim()
 
-export async function loadCustomDeAiSkill(projectPath?: string | null): Promise<string | null> {
-  if (!projectPath) return null
-  try {
-    const skillPath = await join(projectPath, "de-ai-skill.txt")
-    const content = await readFile(skillPath)
-    const trimmed = content.trim()
-    return trimmed || null
-  } catch {
-    return null
-  }
-}
-
 export function buildQmQuaiSystemPrompt(customSkill?: string): string {
   if (customSkill && customSkill.trim()) {
     return customSkill.trim()
@@ -25,15 +13,11 @@ export function buildQmQuaiSystemPrompt(customSkill?: string): string {
   return QM_QUAI_SYSTEM_PROMPT
 }
 
-export function buildDeAiSystemPrompt(customSkill?: string): string {
-  return buildQmQuaiSystemPrompt(customSkill)
-}
-
 export function buildDeAiSkillSystemPrompt(skillContent: string | null | undefined): string {
   return buildQmQuaiSystemPrompt(skillContent || undefined)
 }
 
-export function buildQmQuaiRewriteMessages(content: string, customSkill?: string): ChatMessage[] {
+function buildQmQuaiRewriteMessages(content: string, customSkill?: string): ChatMessage[] {
   if (!content.trim()) throw new Error("去AI味内容为空，无法处理")
   return [
     { role: "system", content: buildQmQuaiSystemPrompt(customSkill) },

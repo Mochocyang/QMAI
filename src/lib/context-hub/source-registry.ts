@@ -18,14 +18,14 @@ interface SourceRegistryStorage {
   saveManifest(manifest: ContextCacheManifest): Promise<void>
 }
 
-export interface ContextSourceRegistryOptions {
+interface ContextSourceRegistryOptions {
   scanFiles?: () => Promise<FileNode[]>
   getFileMd5?: (path: string) => Promise<string>
   storage?: SourceRegistryStorage
   subscribe?: (listener: (event: ProjectFileMutation) => void) => () => void
 }
 
-export interface ContextSourceScannerIo {
+interface ContextSourceScannerIo {
   fileExists(path: string): Promise<boolean>
   listDirectory(path: string, options: ListDirectoryOptions): Promise<FileNode[]>
 }

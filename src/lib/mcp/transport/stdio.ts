@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { StdioTransport } from "./json-rpc"
 
-export interface TauriStdioTransportOptions {
+interface TauriStdioTransportOptions {
   command: string
   args?: string[]
   cwd?: string

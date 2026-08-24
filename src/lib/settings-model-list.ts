@@ -5,7 +5,7 @@ import { isDirectRerankEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-store"
 
-export interface LlmModelListResult {
+interface LlmModelListResult {
   models: string[]
 }
 

@@ -83,13 +83,6 @@ export type TimelineEvent =
   | { kind: "tool_call"; data: ToolCallEventItem }
   | { kind: "tool_group"; data: ToolCallGroupItem }
 
-export interface EventStreamProps {
-  events: TimelineEvent[]
-  isStreaming: boolean
-  totalDurationMs?: number
-  totalTokens?: number
-}
-
 export function interleaveThinkingWithToolCalls(
   thinkingText: string,
   thinkingStreaming: boolean,
@@ -117,7 +110,7 @@ export function interleaveThinkingWithToolCalls(
   return events
 }
 
-export interface StreamingEventBuilder {
+interface StreamingEventBuilder {
   update: (
     thinkingText: string,
     toolCalls: ToolCallEventItem[],

@@ -13,7 +13,7 @@ import {
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { Search } from "lucide-react"
 
-export interface CharacterSelectionPanelProps {
+interface CharacterSelectionPanelProps {
   characters: RecognizedCharacter[]
   selectedIds: string[]
   onToggle: (id: string) => void

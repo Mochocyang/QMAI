@@ -13,21 +13,21 @@ import type {
   BookAnalysisModuleManifest,
 } from "./analysis-pipeline-types"
 
-export interface BookAnalysisContextModule {
+interface BookAnalysisContextModule {
   skill: AnalysisSkill
   summary: string
   range: AnalysisChapterRange
   updatedAt: number
 }
 
-export interface BookAnalysisContextBookInput {
+interface BookAnalysisContextBookInput {
   bookId: string
   title: string
   modules: BookAnalysisContextModule[]
   evidence: AnalysisEvidenceSnippet[]
 }
 
-export interface BookAnalysisContextIndex {
+interface BookAnalysisContextIndex {
   version: 1
   books: BookAnalysisContextBookInput[]
   updatedAt: number
@@ -39,7 +39,7 @@ interface ContextIndexEntry {
   is_dir: boolean
 }
 
-export interface BookAnalysisContextIndexIo {
+interface BookAnalysisContextIndexIo {
   createDirectory(path: string): Promise<void>
   fileExists(path: string): Promise<boolean>
   listDirectory(path: string): Promise<ContextIndexEntry[]>
@@ -185,7 +185,7 @@ export async function rebuildBookAnalysisContextIndex(
   return index
 }
 
-export async function loadBookAnalysisContextIndex(
+async function loadBookAnalysisContextIndex(
   projectPath: string,
   io: BookAnalysisContextIndexIo = defaultIo,
 ): Promise<BookAnalysisContextIndex> {

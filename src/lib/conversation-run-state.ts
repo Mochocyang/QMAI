@@ -1,9 +1,8 @@
 ﻿export type ConversationRunStatus = "idle" | "running" | "completed_unread" | "failed" | "interrupted"
 export interface ConversationRunState { status: ConversationRunStatus; updatedAt: number; error?: string; runId?: string }
 export type ConversationRunStates = Record<string, ConversationRunState>
-export const MAX_CONCURRENT_CONVERSATIONS = 3
 
-export function countRunningConversations(states: ConversationRunStates): number {
+function countRunningConversations(states: ConversationRunStates): number {
   return Object.values(states).filter((state) => state.status === "running").length
 }
 

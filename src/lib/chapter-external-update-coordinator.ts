@@ -1,6 +1,5 @@
 ﻿import { normalizePath } from "@/lib/path-utils"
-
-export interface ChapterExternalUpdateCoordinator {
+ interface ChapterExternalUpdateCoordinator {
   runExternalUpdate(path: string, write: () => Promise<void>): Promise<number>
   flushBeforeLeave(path: string, write: () => Promise<void>): Promise<boolean>
   markEditorSession(path: string, version?: number): void

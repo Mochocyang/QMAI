@@ -29,15 +29,15 @@ export type DedupMergeStage = "loading" | "merging" | "writing"
 export type DedupScanStage = "loading" | "detecting"
 
 /** Append-only process log line for UI / console. */
-export type DedupLogFn = (message: string) => void
+type DedupLogFn = (message: string) => void
 
-export interface ExecuteMergeOptions {
+interface ExecuteMergeOptions {
   signal?: AbortSignal
   onProgress?: (stage: DedupMergeStage) => void
   onLog?: DedupLogFn
 }
 
-export interface RunDuplicateDetectionOptions {
+interface RunDuplicateDetectionOptions {
   signal?: AbortSignal
   summaries?: EntitySummary[]
   onProgress?: (stage: DedupScanStage) => void
@@ -50,7 +50,7 @@ function describeLlm(llmConfig: LlmConfig): string {
   return `${provider}/${model}`
 }
 
-export interface DuplicateDetectionResult {
+interface DuplicateDetectionResult {
   groups: DuplicateGroup[]
   scannedPageCount: number
 }
@@ -115,7 +115,7 @@ async function runWithConcurrency<T>(
  * the dedup module expects. Same pattern page-merge uses — keeps
  * the algorithm modules free of any LlmConfig knowledge.
  */
-export function buildDedupLlmCall(llmConfig: LlmConfig): DedupLlmCall {
+function buildDedupLlmCall(llmConfig: LlmConfig): DedupLlmCall {
   return async (systemPrompt, userMessage, signal) => {
     let result = ""
     let streamError: Error | null = null

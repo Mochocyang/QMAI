@@ -38,11 +38,11 @@ export type CleanupLlmCall = (
   signal?: AbortSignal,
 ) => Promise<string>
 
-export const NOISE_PATTERN =
+const NOISE_PATTERN =
   /(预示|暗示|将面临|为后续|埋下伏笔|即将触发|即将展开|持续上升|倒计时|距离\d+|高危区间)/u
 
-export const STALE_PLANTED_CHAPTERS = 20
-export const CLEANUP_BATCH_SIZE = 80
+const STALE_PLANTED_CHAPTERS = 20
+const CLEANUP_BATCH_SIZE = 80
 
 export function toForeshadowingSummary(item: Foreshadowing): ForeshadowingSummary {
   return {
@@ -390,7 +390,7 @@ export async function detectCleanupIssues(
 }
 
 /** Merge duplicate foreshadowings into the canonical item. Mutates store. */
-export function applyMergeIssue(
+function applyMergeIssue(
   store: ForeshadowingStore,
   issue: CleanupIssue,
   canonicalId: string,
@@ -450,7 +450,7 @@ export function defaultCleanupAction(kind: CleanupIssueKind): CleanupApplyAction
 }
 
 /** Delete the listed foreshadowing ids. Works for noise or "delete all" on duplicates. */
-export function applyDeleteIssue(
+function applyDeleteIssue(
   store: ForeshadowingStore,
   issue: CleanupIssue,
 ): ForeshadowingStore {
@@ -461,7 +461,7 @@ export function applyDeleteIssue(
 }
 
 /** Mark listed items as abandoned. Mutates store. */
-export function applyAbandonIssue(
+function applyAbandonIssue(
   store: ForeshadowingStore,
   issue: CleanupIssue,
   options: { reason?: string; chapter?: number } = {},

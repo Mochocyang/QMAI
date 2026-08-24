@@ -20,7 +20,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { AnalysisDepth } from "@/lib/novel/book-analysis/types"
 import type { ChapterSelectionData } from "./use-character-extraction"
 
-export interface UseLibraryOperationsParams {
+interface UseLibraryOperationsParams {
   currentProjectPath: string | null
   selectedLibraryBook: BookAnalysisLibraryBook | null
   libraryState: BookAnalysisLibraryState

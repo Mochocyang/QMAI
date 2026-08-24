@@ -23,7 +23,7 @@ const PER_CHAPTER_CHAR_LIMIT = 6000
 /** 跳过过短的纯过渡章，避免样本不具代表性。 */
 const MIN_SAMPLE_WORD_COUNT = 800
 
-export interface AnalyzeWritingStyleOptions {
+interface AnalyzeWritingStyleOptions {
   onProgress?: (message: string) => void
   signal?: AbortSignal
   /** 新分析入口必须传入用户明确选择的章节；未传时仅保留旧入口兼容抽样。 */

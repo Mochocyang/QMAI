@@ -1,4 +1,4 @@
-export interface WikiTemplate {
+interface WikiTemplate {
   id: string
   name: string
   description: string
@@ -637,7 +637,7 @@ ${BASE_CONTRADICTION}
 `,
 }
 
-export const templates: WikiTemplate[] = [
+const templates: WikiTemplate[] = [
   researchTemplate,
   readingTemplate,
   personalTemplate,

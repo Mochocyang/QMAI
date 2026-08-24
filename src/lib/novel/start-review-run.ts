@@ -18,7 +18,7 @@ interface StartNovelReviewRunArgs {
   onHistorySaved?: () => Promise<void> | void
 }
 
-export interface ReviewChapterTarget {
+interface ReviewChapterTarget {
   chapterNumber?: number
 }
 

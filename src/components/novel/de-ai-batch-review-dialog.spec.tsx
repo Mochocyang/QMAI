@@ -5,6 +5,14 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 import { DeAiBatchReviewDialog } from "./de-ai-batch-review-dialog"
+
+vi.mock("react-diff-viewer-continued", () => ({
+  default: ({ oldValue, newValue }: { oldValue?: string; newValue?: string }) => (
+    <div>{oldValue}{newValue}</div>
+  ),
+  DiffMethod: { CHARS: "chars" },
+}))
+
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ direction: _direction, ...props }: ComponentPropsWithoutRef<"div"> & { direction?: string }) => <div {...props} />,
   ResizablePanel: ({ defaultSize: _defaultSize, minSize: _minSize, ...props }: ComponentPropsWithoutRef<"div"> & { defaultSize?: number; minSize?: number }) => <div {...props} />,

@@ -66,7 +66,7 @@ import { streamChat, type ChatMessage } from "./llm-client"
  *     when we splice it as alt text (`![CAPTION](path)` — newlines
  *     or markdown inside CAPTION corrupt the surrounding doc).
  */
-export const CAPTION_PROMPT =
+const CAPTION_PROMPT =
   "Describe this image factually for a knowledge-base index. Include: any visible text verbatim, chart axes and values, diagram structure (boxes/arrows/labels), key visual elements. Do NOT speculate or editorialize. 2 to 4 sentences. Output plain text only — no markdown, no preamble."
 
 /**
@@ -80,7 +80,7 @@ export const CAPTION_PROMPT =
  * interpret as silence-is-meaningful and produce odd captions
  * about. The brackets stay so the structure is uniform.
  */
-export function buildCaptionPromptWithContext(
+function buildCaptionPromptWithContext(
   before: string,
   after: string,
 ): string {
@@ -103,7 +103,7 @@ export function buildCaptionPromptWithContext(
   ].join("\n")
 }
 
-export interface CaptionOptions {
+interface CaptionOptions {
   /** Bound the model's output. Captions live inline in markdown
    *  alt text, so 200-400 tokens covers our pinned 2-4 sentences
    *  with margin for thinking-mode budgets. Default 4096 lets

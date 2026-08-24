@@ -18,17 +18,17 @@ export const OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS = [
   "apply_skill",
 ] as const
 
-export type OutlineContextReuseMode = "refresh" | "reuse"
-export type OutlineContextPressureLevel = "low" | "medium" | "high"
-export type OutlineIntentPhase = "intent_analysis" | "generation" | "waiting_user_input"
+type OutlineContextReuseMode = "refresh" | "reuse"
+type OutlineContextPressureLevel = "low" | "medium" | "high"
+type OutlineIntentPhase = "intent_analysis" | "generation" | "waiting_user_input"
 
-export interface OutlineAgentHistoryMessage {
+interface OutlineAgentHistoryMessage {
   role: "user" | "assistant" | "tool" | "system"
   content: string
   reasoning_content?: string
 }
 
-export interface OutlineContextReuseInput {
+interface OutlineContextReuseInput {
   hasPriorAssistantAnswer: boolean
   attachedReferenceCount: number
   inputText: string
@@ -40,7 +40,7 @@ export interface OutlineContextReuseInput {
   intentPhase?: OutlineIntentPhase
 }
 
-export interface OutlineContextReuseDecision {
+interface OutlineContextReuseDecision {
   mode: OutlineContextReuseMode
   disabledTools: string[]
   instruction: string
@@ -48,7 +48,7 @@ export interface OutlineContextReuseDecision {
   reason: string
 }
 
-export interface OutlineAgentHistoryInput {
+interface OutlineAgentHistoryInput {
   history: OutlineAgentHistoryMessage[]
   contextDecision: OutlineContextReuseDecision
   cachedSummary?: string
@@ -69,7 +69,7 @@ export function shouldShowOutlineWorkflowProcess(input: {
     || input.enableMultiAgent === true
 }
 
-export interface OutlineAgentHistoryPlan {
+interface OutlineAgentHistoryPlan {
   level: OutlineContextPressureLevel
   messages: OutlineAgentHistoryMessage[]
   instruction: string
@@ -79,12 +79,12 @@ export interface OutlineAgentHistoryPlan {
   showToolProcessOnError: boolean
 }
 
-export interface OutlineContextBudgetInput {
+interface OutlineContextBudgetInput {
   original: OutlineAgentHistoryMessage[]
   planned: OutlineAgentHistoryMessage[]
 }
 
-export interface OutlineContextBudget {
+interface OutlineContextBudget {
   originalTokens: number
   plannedTokens: number
   savedTokens: number

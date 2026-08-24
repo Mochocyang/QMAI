@@ -8,9 +8,9 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import type { FileNode } from "@/types/wiki"
 
-export type NovelSourceKind = "chapter" | "outline"
+type NovelSourceKind = "chapter" | "outline"
 
-export interface DeleteNovelSourceMemoryInput {
+interface DeleteNovelSourceMemoryInput {
   kind: NovelSourceKind
   pagePath: string
   content?: string
@@ -38,7 +38,7 @@ export function getOutlineSnapshotNumberFromPath(outlinePath: string): number {
   return -(Math.abs(hash % 999) + 1)
 }
 
-export function getChapterSnapshotNumberFromDeletedSource(input: DeleteNovelSourceMemoryInput): number | null {
+function getChapterSnapshotNumberFromDeletedSource(input: DeleteNovelSourceMemoryInput): number | null {
   if (input.kind === "outline") {
     return getOutlineSnapshotNumberFromPath(input.pagePath)
   }
@@ -247,7 +247,7 @@ function scheduleCleanupWorker(): void {
   }, BACKGROUND_CLEANUP_DEBOUNCE_MS)
 }
 
-export function enqueueDeletedChapterMemoryCleanup(
+function enqueueDeletedChapterMemoryCleanup(
   projectPath: string,
   chapterNumber: number,
   pagePath: string,

@@ -9,16 +9,13 @@ export interface NextStepRecommendation {
   completedScope: string
   recommendations: NextStepRecommendationItem[]
 }
-
-export type NextStepExtractionSource = "strict" | "recovered" | "fallback" | "none"
-
-export interface NextStepExtractionResult {
+ type NextStepExtractionSource = "strict" | "recovered" | "fallback" | "none"
+ interface NextStepExtractionResult {
   cleanText: string
   recommendation: NextStepRecommendation | null
   source: NextStepExtractionSource
 }
-
-export interface ExtractNextStepOptions {
+ interface ExtractNextStepOptions {
   allowFallback?: boolean
   completedModule?: string
   completedScope?: string

@@ -11,7 +11,7 @@ import { formatTimelineEvent, getVisibleEvents } from "@/lib/novel/story-simulat
 
 // ── 对外接口 ──
 
-export interface InterviewOptions {
+interface InterviewOptions {
   llmConfig: LlmConfig
   agent: NovelAgent
   simulationState: SimulationState

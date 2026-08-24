@@ -11,7 +11,7 @@ export interface GraphFilterState {
   allowedNodeTypes?: ReadonlySet<string>
 }
 
-export interface FilteredGraph {
+interface FilteredGraph {
   nodes: GraphNode[]
   edges: GraphEdge[]
   hiddenNodeIds: Set<string>
@@ -27,7 +27,7 @@ export const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
 
 const STRUCTURAL_IDS = new Set(["index", "overview", "log", "schema", "purpose"])
 
-export function isStructuralGraphNode(node: Pick<GraphNode, "id" | "path" | "type">): boolean {
+function isStructuralGraphNode(node: Pick<GraphNode, "id" | "path" | "type">): boolean {
   const id = node.id.toLowerCase()
   if (STRUCTURAL_IDS.has(id)) return true
   if (node.type === "overview") return true
@@ -97,16 +97,4 @@ export function applyGraphFilters(
   )
 
   return { nodes: visibleNodes, edges: visibleEdges, hiddenNodeIds }
-}
-
-export function hasActiveGraphFilters(filters: GraphFilterState): boolean {
-  return (
-    filters.hideStructural ||
-    filters.hideIsolated ||
-    filters.hiddenTypes.size > 0 ||
-    filters.hiddenNodeIds.size > 0 ||
-    filters.maxLinks !== undefined ||
-    filters.minimumEdgeWeight !== undefined ||
-    filters.allowedNodeTypes !== undefined
-  )
 }

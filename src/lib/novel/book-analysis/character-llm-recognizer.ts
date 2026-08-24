@@ -28,7 +28,7 @@ function sampleChaptersForRecognition<T>(items: T[], max: number): T[] {
   return Array.from(new Set(picked))
 }
 
-export interface LlmRecognizeInput {
+interface LlmRecognizeInput {
   chapters: { index: number; content: string }[]
   llmConfig: LlmConfig
   /** 失败兜底时会用此源书名生成稳定 id */

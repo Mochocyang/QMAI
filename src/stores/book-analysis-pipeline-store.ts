@@ -79,7 +79,7 @@ function initialTask(input: {
   }
 }
 
-export interface BookAnalysisPipelineState {
+interface BookAnalysisPipelineState {
   projectPath: string | null
   tasks: BookAnalysisPipelineTask[]
   chunks: AnalysisChunkRecord[]

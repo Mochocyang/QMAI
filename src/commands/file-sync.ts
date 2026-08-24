@@ -22,31 +22,14 @@ export interface FileChangeTask {
   needsRerun: boolean
 }
 
-export interface FileChangeQueue {
+interface FileChangeQueue {
   version: number
   tasks: FileChangeTask[]
 }
 
-export interface FileChangeRescanResult {
+interface FileChangeRescanResult {
   queue: FileChangeQueue
   changedTasks: FileChangeTask[]
-}
-
-export interface FileSyncPayload {
-  projectId: string
-  tasks: FileChangeTask[]
-}
-
-export function startProjectFileWatcher(
-  projectId: string,
-  projectPath: string,
-  sourceWatchConfig?: SourceWatchConfig,
-): Promise<FileChangeQueue> {
-  return invoke<FileChangeQueue>("start_project_file_watcher", {
-    projectId,
-    projectPath,
-    sourceWatchConfig: normalizeSourceWatchConfig(sourceWatchConfig),
-  })
 }
 
 export function stopProjectFileWatcher(): Promise<void> {
@@ -63,10 +46,6 @@ export function rescanProjectFiles(
     projectPath,
     sourceWatchConfig: normalizeSourceWatchConfig(sourceWatchConfig),
   })
-}
-
-export function getFileChangeQueue(projectPath: string): Promise<FileChangeQueue> {
-  return invoke<FileChangeQueue>("get_file_change_queue", { projectPath })
 }
 
 export function retryFileChangeTask(

@@ -14,7 +14,7 @@ export interface DedupScanCacheEntry {
   skipped: boolean
 }
 
-export interface DedupScanCache {
+interface DedupScanCache {
   version: 1
   projectId: string
   scannedAt: number

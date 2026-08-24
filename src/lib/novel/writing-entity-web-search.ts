@@ -174,7 +174,7 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
   return selected
 }
 
-export interface WritingEntitySearchWorkflowPersisted {
+interface WritingEntitySearchWorkflowPersisted {
   content: string
   searchedNames: string[]
   notes: string[]
@@ -264,13 +264,17 @@ export function parseWritingEntitySearchWorkflowResult(
     const parsed = JSON.parse(text) as unknown
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
     const record = parsed as Record<string, unknown>
-    const hasItems = Array.isArray(record.items)
-    const hasSearchedNames = Array.isArray(record.searchedNames)
+    const rawItems = record.items
+    const rawSearchedNames = record.searchedNames
+    const hasItems = Array.isArray(rawItems)
+    const hasSearchedNames = Array.isArray(rawSearchedNames)
     if (!hasItems && !hasSearchedNames) return null
 
-    const items = hasItems ? normalizePersistedSearchItems(record.items) : []
+    const items = hasItems ? normalizePersistedSearchItems(rawItems) : []
     const searchedNames = hasSearchedNames
-      ? record.searchedNames.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+      ? rawSearchedNames.filter(
+          (name: unknown): name is string => typeof name === "string" && name.trim().length > 0,
+        )
       : items.map((item) => item.name)
     const notes = Array.isArray(record.notes)
       ? record.notes.filter((note): note is string => typeof note === "string")
@@ -290,10 +294,10 @@ export function parseWritingEntitySearchWorkflowResult(
 export function displayWritingEntitySearchWorkflowContent(text: string | undefined): string {
   const parsed = parseWritingEntitySearchWorkflowResult(text)
   if (!parsed) return (text ?? "").trim()
-  return parsed.content.trim() || formatWritingEntitySearchWorkflowResult(parsed)
+  return parsed.content.trim() || formatWritingEntitySearchWorkflowResult({ ...parsed, markdown: "" })
 }
 
-export function writingEntitySearchSourceHost(
+function writingEntitySearchSourceHost(
   result: Pick<WebSearchResult, "url" | "source">,
 ): string {
   const source = result.source.trim()

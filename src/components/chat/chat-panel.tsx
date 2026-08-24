@@ -212,12 +212,6 @@ function formatDate(timestamp: number): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" })
 }
 
-export function getDeepChapterToggleButtonClass(enabled: boolean): string {
-  return enabled
-    ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
-    : "text-muted-foreground hover:text-foreground"
-}
-
 export function getWorkflowModeButtonClass(active: boolean): string {
   return active
     ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"

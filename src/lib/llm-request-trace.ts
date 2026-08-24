@@ -39,7 +39,7 @@ export interface LlmRequestCacheTrace {
   status: LlmRequestTraceStatus
 }
 
-export function resolveLlmRequestApiMode(config: LlmConfig): string {
+function resolveLlmRequestApiMode(config: LlmConfig): string {
   if (config.provider === "custom") return config.apiMode ?? "chat_completions"
   if (config.provider === "anthropic" || config.provider === "minimax") return "anthropic_messages"
   if (config.provider === "google") return "gemini_generate_content"
@@ -49,7 +49,7 @@ export function resolveLlmRequestApiMode(config: LlmConfig): string {
   return "chat_completions"
 }
 
-export interface LlmRequestTraceSnapshot {
+interface LlmRequestTraceSnapshot {
   requests: LlmRequestCacheTrace[]
   omittedRequestCount: number
 }

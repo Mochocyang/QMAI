@@ -24,7 +24,7 @@ const DROPDOWN_GAP = 4
 /** Prefer opening downward when at least this much space exists below the trigger. */
 const DROPDOWN_PREFER_BELOW_PX = 200
 
-export type ChatModelDropdownStyle = {
+type ChatModelDropdownStyle = {
   right: number
   width: number
   maxHeight: number

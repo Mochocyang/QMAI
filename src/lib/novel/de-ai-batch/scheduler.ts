@@ -5,14 +5,14 @@ export interface DeAiBatchAgent {
   dispose(): void
 }
 
-export interface DeAiBatchSchedulerSnapshot {
+interface DeAiBatchSchedulerSnapshot {
   concurrency: number
   activeTaskIds: string[]
   queuedTaskIds: string[]
   disposed: boolean
 }
 
-export interface DeAiBatchSchedulerOptions {
+interface DeAiBatchSchedulerOptions {
   concurrency?: number
   createAgent(record: DeAiBatchTaskRecord): DeAiBatchAgent
   initialRecords?: DeAiBatchTaskRecord[]
@@ -151,5 +151,3 @@ export function createDeAiBatchScheduler(options: DeAiBatchSchedulerOptions) {
 
   return { enqueue, cancel, setConcurrency, getSnapshot, whenIdle, dispose }
 }
-
-export type DeAiBatchScheduler = ReturnType<typeof createDeAiBatchScheduler>

@@ -1,7 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 
-export interface DirectRerankResultItem {
+interface DirectRerankResultItem {
   index: number
   relevanceScore: number
 }

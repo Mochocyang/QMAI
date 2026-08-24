@@ -812,7 +812,6 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("routes every outline generation menu item through the PRD 3.1 content workflow", () => {
-    expect(source).toContain("buildOutlineSectionGenerationPrompt")
     expect(source).toContain("## AI大纲生成工作流")
     expect(source).toContain("提取请求关键词")
     expect(source).toContain("识别用户意图")

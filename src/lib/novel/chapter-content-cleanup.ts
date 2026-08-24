@@ -142,7 +142,7 @@ function stripCitationSyntax(content: string): string {
     .replace(/\[(?:\d+(?:\s*,\s*\d+)*)\]/g, "")
 }
 
-export interface CleanedChapterContent {
+interface CleanedChapterContent {
   content: string
   title: string | null
 }

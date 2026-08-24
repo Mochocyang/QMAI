@@ -32,7 +32,7 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
 }
 
-export interface DynamicToolCallRequest {
+interface DynamicToolCallRequest {
   threadId: string
   turnId: string
   callId: string
@@ -41,12 +41,12 @@ export interface DynamicToolCallRequest {
   arguments: unknown
 }
 
-export interface DynamicToolCallResponse {
+interface DynamicToolCallResponse {
   contentItems: Array<{ type: "inputText"; text: string }>
   success: boolean
 }
 
-export interface CodexThreadHandler {
+interface CodexThreadHandler {
   onEnvelope?: (envelope: CodexAppServerEnvelope) => void
   onDynamicToolCall?: (request: DynamicToolCallRequest) => Promise<DynamicToolCallResponse>
 }

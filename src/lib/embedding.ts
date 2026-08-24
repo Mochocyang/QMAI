@@ -77,7 +77,7 @@ export function getLastEmbeddingError(): string | null {
  * positive just means a retry at half size, which will still succeed
  * on a real auth/model-id error (it won't) or just log the same error.
  */
-export function looksLikeOversizeError(httpStatus: number, body: string): boolean {
+function looksLikeOversizeError(httpStatus: number, body: string): boolean {
   if (httpStatus === 413) return true
   const lower = body.toLowerCase()
   return (

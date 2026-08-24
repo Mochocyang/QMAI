@@ -3,7 +3,7 @@ import type { ContextPack, TrimResult } from "@/lib/novel/context-engine"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 
-export interface TrimContextPluginDeps {
+interface TrimContextPluginDeps {
   contextPackToPromptFn?: (pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }) => string
   trimContextPackFn?: (pack: ContextPack, tokenBudget?: number, options?: { excludeOutline?: boolean }) => TrimResult
   tokenBudget?: number

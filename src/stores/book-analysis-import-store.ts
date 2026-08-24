@@ -75,7 +75,7 @@ function queuedTask(projectPath: string, batchId: string, candidate: BatchImport
   }
 }
 
-export interface BookAnalysisImportState {
+interface BookAnalysisImportState {
   projectPath: string | null
   batches: BatchImportBatch[]
   tasks: BatchImportTask[]

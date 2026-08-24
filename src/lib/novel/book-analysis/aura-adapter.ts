@@ -1,7 +1,7 @@
 import type { CharacterAura, GeneratedCharacterAuraSkillInput } from "@/lib/novel/character-aura"
 import { createCustomCharacterAuraFromGeneratedSkill, loadCharacterAuraStore } from "@/lib/novel/character-aura"
 import { bookAnalysisAuraKey, isSameBookAnalysisCharacterAura } from "./aura-match"
-import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter, PersonalityProfile } from "./types"
+import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter } from "./types"
 
 export interface ImportedBookAnalysisAura {
   skillId: string
@@ -217,28 +217,4 @@ export async function importBookAnalysisSkillsAsAuras(
   }
 
   return imported
-}
-
-// 简单提取的 skillContent 拼装（feature/character-recognition-and-simple-mode）
-export function buildSimpleSkillContent(input: {
-  characterName: string
-  profile: PersonalityProfile
-}): string {
-  const { characterName, profile } = input
-  return `# 角色 - ${characterName}
-
-## 性格
-${profile.personality}
-
-## 动机
-${profile.motivation}
-
-## 说话风格
-${profile.speechStyle}
-
-## 行为模式
-${profile.behaviorPatterns}
-
-## 代表性台词
-${profile.quotes.map((q) => `「${q}」`).join("\n")}`
 }

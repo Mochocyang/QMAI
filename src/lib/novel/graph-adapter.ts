@@ -5,13 +5,13 @@ import type { ChapterSnapshot } from "./chapter-ingest"
 import type { WikiUpdatePatch, WikiUpdateEntry } from "./chapter-ingest-output"
 import { looksLikeStableNovelEntityLabel } from "./memory-rebuild"
 
-export interface NovelGraphNode {
+interface NovelGraphNode {
   id: string
   label: string
   type: NovelNodeType
 }
 
-export interface NovelGraphEdge {
+interface NovelGraphEdge {
   source: string
   target: string
   relation: string
@@ -67,7 +67,7 @@ function characterCanonicalMap(snapshot: ChapterSnapshot): Map<string, string> {
   return aliasMap
 }
 
-export function getCanonicalCharacterName(snapshot: ChapterSnapshot, name: string): string {
+function getCanonicalCharacterName(snapshot: ChapterSnapshot, name: string): string {
   const trimmed = name.trim()
   if (!trimmed) return trimmed
   return characterCanonicalMap(snapshot).get(trimmed) ?? trimmed

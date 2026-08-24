@@ -28,12 +28,6 @@ export interface InvertedIndex {
   timeline: Record<string, number[]>
 }
 
-export interface RetrievalIndex {
-  volumes: VolumeIndex[]
-  invertedIndex: InvertedIndex
-  entries: RetrievalEntry[]
-}
-
 export const AUTO_START_MARKER = "<!-- qmai:auto:start -->"
 export const AUTO_END_MARKER = "<!-- qmai:auto:end -->"
 export const MANUAL_START_MARKER = "<!-- qmai:manual:start -->"

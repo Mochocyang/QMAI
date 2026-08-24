@@ -21,7 +21,7 @@ export interface ForeshadowingDebtReport {
   thresholds: { plantedStale: number; advancedStale: number; densityLimit: number }
 }
 
-export interface ForeshadowingDebtOptions {
+interface ForeshadowingDebtOptions {
   plantedStale?: number
   advancedStale?: number
   densityLimit?: number

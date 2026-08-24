@@ -20,7 +20,7 @@ export interface ForeshadowingCleanupScanEntry {
   skipped: boolean
 }
 
-export interface ForeshadowingCleanupScanCache {
+interface ForeshadowingCleanupScanCache {
   version: 1
   projectId: string
   scannedAt: number
@@ -31,7 +31,7 @@ export interface ForeshadowingCleanupScanCache {
   issues: ForeshadowingCleanupScanEntry[]
 }
 
-export interface ForeshadowingCleanupModelPrefs {
+interface ForeshadowingCleanupModelPrefs {
   detectModelId?: string
   applyModelId?: string
 }

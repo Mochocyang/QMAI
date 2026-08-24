@@ -22,7 +22,7 @@ export interface OutlineWizardOption<T extends string> {
   label: string
 }
 
-export interface OutlineWizardGenreOption {
+interface OutlineWizardGenreOption {
   value: string
   label: string
 }

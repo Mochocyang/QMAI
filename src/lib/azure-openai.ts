@@ -11,7 +11,7 @@ export function isAzureOpenAiEndpoint(endpoint: string): boolean {
   }
 }
 
-export interface AzureParsedEndpoint {
+interface AzureParsedEndpoint {
   resourceBase: string
   deployment: string
   apiVersion: string
@@ -22,7 +22,7 @@ export interface AzureParsedEndpoint {
  * common shapes (bare host, host + deployment path, full chat URL).
  * The deployment embedded in the path wins over `fallbackDeployment`.
  */
-export function parseAzureOpenAiEndpoint(
+function parseAzureOpenAiEndpoint(
   endpoint: string,
   fallbackDeployment: string,
   fallbackApiVersion: string,

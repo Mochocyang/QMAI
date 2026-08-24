@@ -1,4 +1,4 @@
-export type TextDirection = "ltr" | "rtl"
+type TextDirection = "ltr" | "rtl"
 
 interface LanguageMetadata {
   promptName: string
@@ -64,7 +64,7 @@ const DEFAULT_METADATA: LanguageMetadata = {
   scriptFamily: "latin",
 }
 
-export function getLanguageMetadata(language: string): LanguageMetadata {
+function getLanguageMetadata(language: string): LanguageMetadata {
   return LANGUAGE_METADATA[language] ?? {
     ...DEFAULT_METADATA,
     promptName: language || DEFAULT_METADATA.promptName,

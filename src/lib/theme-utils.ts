@@ -7,7 +7,7 @@ export type ThemeMode = "light" | "dark" | "system"
 /**
  * 检测系统是否为深色模式
  */
-export function isSystemDark(): boolean {
+function isSystemDark(): boolean {
   if (typeof window === "undefined") return false
   return window.matchMedia("(prefers-color-scheme: dark)").matches
 }
@@ -15,7 +15,7 @@ export function isSystemDark(): boolean {
 /**
  * 获取系统当前对应的实际主题（light 或 dark）
  */
-export function getSystemTheme(): "light" | "dark" {
+function getSystemTheme(): "light" | "dark" {
   return isSystemDark() ? "dark" : "light"
 }
 

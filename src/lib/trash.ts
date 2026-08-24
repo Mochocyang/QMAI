@@ -14,7 +14,7 @@ export interface TrashItem {
   kind: TrashItemKind
 }
 
-export interface RestoreTrashResult {
+interface RestoreTrashResult {
   item: TrashItem
   restoredPath: string
   renamed: boolean

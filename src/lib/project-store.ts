@@ -1,6 +1,6 @@
 import { getStore } from "@/lib/web-store"
 import type { WikiProject } from "@/types/wiki"
-import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
+import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 import type { McpConfig } from "@/lib/mcp/config"
 import { normalizeMcpConfig } from "@/lib/mcp/config"
@@ -51,7 +51,7 @@ export async function saveLastProject(project: WikiProject): Promise<void> {
   await addToRecentProjects(project)
 }
 
-export async function addToRecentProjects(
+async function addToRecentProjects(
   project: WikiProject
 ): Promise<void> {
   const store = await getStore()
@@ -364,11 +364,6 @@ export async function saveMultimodalConfig(config: MultimodalConfig): Promise<vo
   await store.set(MULTIMODAL_KEY, config)
 }
 
-export async function loadMultimodalConfig(): Promise<MultimodalConfig | null> {
-  const store = await getStore()
-  return (await store.get<MultimodalConfig>(MULTIMODAL_KEY)) ?? null
-}
-
 // IMPORTANT: Keep this key in sync with the Rust setup hook
 // (src-tauri/src/proxy.rs), which reads this exact field name from
 // the same `app-state.json` store at app launch to translate the
@@ -392,35 +387,6 @@ export async function saveProxyConfig(config: ProxyConfig): Promise<void> {
 export async function loadProxyConfig(): Promise<ProxyConfig | null> {
   const store = await getStore()
   return (await store.get<ProxyConfig>(PROXY_CONFIG_KEY)) ?? null
-}
-
-const SCHEDULED_IMPORT_KEY_PREFIX = "scheduledImportConfig:"
-
-function scheduledImportKey(projectPath: string): string {
-  return `${SCHEDULED_IMPORT_KEY_PREFIX}${normalizePath(projectPath)}`
-}
-
-const SCHEDULED_IMPORT_GLOBAL_KEY = "scheduledImportConfig"
-
-export async function saveScheduledImportConfig(projectPath: string, config: ScheduledImportConfig): Promise<void> {
-  const store = await getStore()
-  await store.set(scheduledImportKey(projectPath), config)
-  await store.save()
-}
-
-export async function loadScheduledImportConfig(projectPath: string): Promise<ScheduledImportConfig | null> {
-  const store = await getStore()
-  const perProject = await store.get<ScheduledImportConfig>(scheduledImportKey(projectPath))
-  if (perProject) return perProject
-  // Migrate from legacy global key (pre-0.4.8)
-  const legacy = await store.get<ScheduledImportConfig>(SCHEDULED_IMPORT_GLOBAL_KEY)
-  if (legacy) {
-    await store.set(scheduledImportKey(projectPath), legacy)
-    await store.delete(SCHEDULED_IMPORT_GLOBAL_KEY)
-    await store.save()
-    return legacy
-  }
-  return null
 }
 
 export async function removeFromRecentProjects(
@@ -468,27 +434,7 @@ export async function saveOutputLanguage(lang: OutputLanguage, projectId?: strin
   await store.set(OUTPUT_LANGUAGE_KEY, lang)
 }
 
-export async function loadOutputLanguage(projectId?: string): Promise<OutputLanguage | null> {
-  const store = await getStore()
-  if (projectId) {
-    const projectLanguages = await store.get<Record<string, OutputLanguage>>(PROJECT_OUTPUT_LANGUAGE_KEY)
-    return projectLanguages?.[projectId] ?? null
-  }
-  return (await store.get<OutputLanguage>(OUTPUT_LANGUAGE_KEY)) ?? null
-}
-
-export async function saveProjectFileSyncEnabled(enabled: boolean, projectId?: string): Promise<void> {
-  const store = await getStore()
-  if (projectId) {
-    const existing = (await store.get<Record<string, boolean>>(PROJECT_FILE_SYNC_KEY)) ?? {}
-    await store.set(PROJECT_FILE_SYNC_KEY, { ...existing, [projectId]: enabled })
-    return
-  }
-  const existing = (await store.get<Record<string, boolean>>(PROJECT_FILE_SYNC_KEY)) ?? {}
-  await store.set(PROJECT_FILE_SYNC_KEY, { ...existing, default: enabled })
-}
-
-export async function loadProjectFileSyncEnabled(projectId?: string): Promise<boolean> {
+async function loadProjectFileSyncEnabled(projectId?: string): Promise<boolean> {
   const store = await getStore()
   const settings = await store.get<Record<string, boolean>>(PROJECT_FILE_SYNC_KEY)
   if (projectId && settings && typeof settings[projectId] === "boolean") {
@@ -565,26 +511,6 @@ const PROJECT_NOVEL_MODE_KEY = "projectNovelModes"
 const REVISION_FEEDBACK_WINDOW_CONFIG_KEY = "revisionFeedbackWindowConfig"
 const PROJECT_REVISION_FEEDBACK_WINDOW_CONFIG_KEY = "projectRevisionFeedbackWindowConfigs"
 
-export async function saveNovelMode(mode: boolean, projectId?: string, projectPath?: string): Promise<void> {
-  const store = await getStore()
-  if (projectId) {
-    const existing = (await store.get<Record<string, boolean>>(PROJECT_NOVEL_MODE_KEY)) ?? {}
-    await store.set(PROJECT_NOVEL_MODE_KEY, { ...existing, [projectId]: mode })
-  }
-  await store.set(NOVEL_MODE_KEY, mode)
-  if (projectPath) {
-    try {
-      const { saveNovelProjectMeta, loadNovelProjectMeta } = await import("@/lib/novel/project-meta")
-      const existing = await loadNovelProjectMeta(projectPath)
-      if (existing) {
-        await saveNovelProjectMeta(projectPath, { ...existing, novelMode: mode })
-      }
-    } catch {
-      // non-critical
-    }
-  }
-}
-
 export async function loadNovelMode(projectId?: string, projectPath?: string): Promise<boolean | null> {
   if (projectPath) {
     try {
@@ -608,7 +534,7 @@ export async function loadNovelMode(projectId?: string, projectPath?: string): P
   return (await store.get<boolean>(NOVEL_MODE_KEY)) ?? null
 }
 
-export interface RevisionFeedbackWindowConfig {
+interface RevisionFeedbackWindowConfig {
   currentChapterIncludeShouldImprove: boolean
   previousChapterCarryEnabled: boolean
   lookbackChapterCount: number

@@ -4,7 +4,7 @@ import type { AgentRunRecord } from "@/lib/agent/types"
 import { getWorkflowToolResultDisplay } from "@/lib/agent/workflow-trace"
 import { cn } from "@/lib/utils"
 
-export type ToolCallRecord = AgentRunRecord["toolCalls"][number]
+type ToolCallRecord = AgentRunRecord["toolCalls"][number]
 
 interface ToolCallTimelineProps {
   toolCalls: ToolCallRecord[] | undefined

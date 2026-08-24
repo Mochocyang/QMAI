@@ -11,7 +11,7 @@ const EMPTY_CONTENT = "本阶段未返回可展示内容。"
 const AGGREGATE_STAGE_IDS = new Set(["chapter_workflow", "react_tools"])
 
 /** 细粒度章节流水线阶段；存在任一此类阶段时隐藏冗余的 chapter_workflow 聚合阶段。 */
-export const DETAILED_CHAPTER_STAGE_IDS = new Set([
+const DETAILED_CHAPTER_STAGE_IDS = new Set([
   "read_context",
   "plot_analysis",
   "generate_draft",
@@ -25,7 +25,7 @@ export const DETAILED_CHAPTER_STAGE_IDS = new Set([
   "final_output",
 ])
 
-export const AGENT_STAGE_DISPLAY_ORDER = [
+const AGENT_STAGE_DISPLAY_ORDER = [
   "task_understanding",
   "capability_selection",
   "read_context",
@@ -49,7 +49,7 @@ const STAGE_DISPLAY_ORDER_INDEX = new Map<string, number>(
   AGENT_STAGE_DISPLAY_ORDER.map((id, index) => [id, index]),
 )
 
-export interface CreateAgentActivityEventInput {
+interface CreateAgentActivityEventInput {
   id: string
   stageId: string
   kind: AgentActivityKind
@@ -60,7 +60,7 @@ export interface CreateAgentActivityEventInput {
   timestamp?: number
 }
 
-export interface CreateStageStartedEventInput {
+interface CreateStageStartedEventInput {
   stageId: string
   title: string
   summary: string
@@ -129,13 +129,13 @@ export function getDefaultOpenAgentStageId(stages: AgentStageTrace[]): string | 
     ?? null
 }
 
-export function filterAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
+function filterAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
   const hasDetailedChapterStage = stages.some((stage) => DETAILED_CHAPTER_STAGE_IDS.has(stage.id))
   if (!hasDetailedChapterStage) return stages
   return stages.filter((stage) => stage.id !== "chapter_workflow")
 }
 
-export function sortAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
+function sortAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
   const unknownBase = AGENT_STAGE_DISPLAY_ORDER.length
   return stages
     .map((stage, originalIndex) => ({ stage, originalIndex }))

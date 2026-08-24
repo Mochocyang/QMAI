@@ -23,10 +23,6 @@ import {
 import { getAllDataSources, getDataSourcesForCategories } from "./context-data-sources"
 import type { DataSourceCategory } from "./classification"
 import {
-  buildNovelVectorSnippet,
-  selectRelevantNovelVectorResults,
-} from "./vector-relevance"
-import {
   buildOutlineContext,
   buildVolumeContext,
   capOutlineSourcesToBudget,
@@ -288,7 +284,7 @@ async function buildContextPackFromRawData(
   }
 }
 
-export function extractChapterNumberFromTask(task: string): number | undefined {
+function extractChapterNumberFromTask(task: string): number | undefined {
   const patterns = [
     /\u7b2c\s*(\d+)\s*\u7ae0/i,
     /chapter\s*(\d+)/i,
@@ -312,7 +308,7 @@ export function selectLookbackChapterNumbers(chapterNumber: number, lookback: nu
   return result
 }
 
-export function mergeForeshadowingSignals(signals: string[], searchResults: string): string {
+function mergeForeshadowingSignals(signals: string[], searchResults: string): string {
   const normalized = signals
     .map((signal) => signal.trim())
     .filter(Boolean)
@@ -335,7 +331,7 @@ export function mergeForeshadowingSignals(signals: string[], searchResults: stri
   return sections.filter(Boolean).join("\n\n")
 }
 
-export function buildChapterGoal(outline: string, chapterOutline: string, chapterNumber?: number): string {
+function buildChapterGoal(outline: string, chapterOutline: string, chapterNumber?: number): string {
   const parts: string[] = []
   const fromOutline = extractChapterGoal(outline, chapterNumber)
   const fromChapterOutline = extractChapterGoal(chapterOutline, chapterNumber)
@@ -344,7 +340,7 @@ export function buildChapterGoal(outline: string, chapterOutline: string, chapte
   return parts.join("\n")
 }
 
-export function buildMustDo(chapterGoal: string, previousChapterEnding: string, foreshadowingStates: string): string {
+function buildMustDo(chapterGoal: string, previousChapterEnding: string, foreshadowingStates: string): string {
   const items: string[] = []
   chapterGoal.split("\n").map((line) => line.trim()).filter(Boolean).forEach((line) => items.push(`- ${line}`))
   if (previousChapterEnding.trim()) {
@@ -359,7 +355,7 @@ export function buildMustDo(chapterGoal: string, previousChapterEnding: string, 
   return items.join("\n")
 }
 
-export function buildMustAvoid(canonRules: string, timeline: string, characterStates: string): string {
+function buildMustAvoid(canonRules: string, timeline: string, characterStates: string): string {
   const items: string[] = []
   if (canonRules.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.canonRules", { value: canonRules.trim() }))
   if (timeline.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.timeline", { value: timeline.trim() }))
@@ -367,7 +363,7 @@ export function buildMustAvoid(canonRules: string, timeline: string, characterSt
   return items.join("\n")
 }
 
-export function buildNextChapterAdvice(input: {
+function buildNextChapterAdvice(input: {
   chapterGoal: string
   recentSummaries: string[]
   previousChapterEnding: string
@@ -741,55 +737,6 @@ async function readVolumeContext(
   return readVolumeContextContent(pp, chapterNumber)
 }
 
-export async function searchRelevantContent(
-  pp: string,
-  task: string,
-  chapterNumber: number | undefined,
-  limit: number,
-): Promise<string> {
-  const tokens = tokenizeQuery(task)
-  const entityHints = tokens.filter(t => t.length >= 2).slice(0, 5)
-  const queryParts = [task]
-  if (chapterNumber) {
-    queryParts.push(`第${chapterNumber}章`)
-  }
-  if (entityHints.length > 0) {
-    queryParts.push(entityHints.join(" "), "伏笔", "人物", "设定", "时间线")
-  } else {
-    queryParts.push("伏笔", "人物", "设定")
-  }
-  const query = queryParts.join(" ")
-
-  const [keywordResults, indexResults, vectorResults] = await Promise.all([
-    searchWiki(pp, query).catch(() => []),
-    searchWiki(pp, `关键词索引 向量索引 ${task}`).catch(() => []),
-    runVectorSearchForContext(pp, query, limit).catch(() => []),
-  ])
-
-  const seen = new Set<string>()
-  const merged: string[] = []
-
-  const add = (title: string, snippet: string) => {
-    const key = `${title}|${snippet.slice(0, 50)}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      merged.push(`- ${title}: ${snippet}`)
-    }
-  }
-
-  for (const r of keywordResults.slice(0, limit)) {
-    add(r.title, r.snippet ?? "")
-  }
-  for (const r of indexResults.slice(0, limit)) {
-    add(r.title, r.snippet ?? "")
-  }
-  for (const r of vectorResults.slice(0, limit)) {
-    add(r.title, r.snippet)
-  }
-
-  return merged.slice(0, Math.max(limit, limit * 2)).join("\n")
-}
-
 export async function searchRelevantContentUnified(
   pp: string,
   task: string,
@@ -879,61 +826,6 @@ export async function searchRelevantContentUnified(
   }
 
   return merged.slice(0, Math.max(limit * 2, limit)).join("\n")
-}
-
-async function runVectorSearchForContext(
-  pp: string,
-  query: string,
-  limit: number,
-): Promise<{ title: string; snippet: string; path: string }[]> {
-  const embCfg = useWikiStore.getState().embeddingConfig
-  if (!embCfg.enabled || !embCfg.model) return []
-
-  try {
-    const { searchByEmbedding } = await import("@/lib/embedding")
-    const vectorResults = await searchByEmbedding(pp, query, embCfg, Math.max(limit * 2, 10))
-    const relevantResults = selectRelevantNovelVectorResults(vectorResults, limit)
-    if (relevantResults.length === 0) return []
-
-    const items: { title: string; snippet: string; path: string }[] = []
-    const dirs = ["entities", "concepts", "sources", "synthesis", "comparison", "queries"]
-
-    for (const vr of relevantResults) {
-      let found = false
-      for (const dir of dirs) {
-        const tryPath = `${pp}/wiki/${dir}/${vr.id}.md`
-        try {
-          const content = await readFile(tryPath)
-          const title = content.match(/^#\s+(.+)/m)?.[1]?.trim()
-            ?? content.match(/^---\ntitle:\s*(.+)/m)?.[1]?.trim()
-            ?? vr.id
-          const matchedSnippet = buildNovelVectorSnippet(vr)
-          items.push({
-            title,
-            snippet: matchedSnippet || content.slice(0, 300).replace(/\n/g, " "),
-            path: tryPath,
-          })
-          found = true
-          break
-        } catch {}
-      }
-      if (!found) {
-        const tryPath = `${pp}/wiki/${vr.id}.md`
-        try {
-          const content = await readFile(tryPath)
-          const matchedSnippet = buildNovelVectorSnippet(vr)
-          items.push({
-            title: vr.id,
-            snippet: matchedSnippet || content.slice(0, 300).replace(/\n/g, " "),
-            path: tryPath,
-          })
-        } catch {}
-      }
-    }
-    return items
-  } catch {
-    return []
-  }
 }
 
 export async function searchGraphRelevantContent(
@@ -1032,7 +924,7 @@ export async function searchGraphRelevantContent(
   }
 }
 
-export function extractChapterGoal(outline: string, chapterNumber?: number): string {
+function extractChapterGoal(outline: string, chapterNumber?: number): string {
   if (!chapterNumber || !outline) return ""
   const cleaned = outline.replace(/^---[\s\S]*?---\s*/m, "").trim()
   for (const line of cleaned.split(/\r?\n/)) {

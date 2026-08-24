@@ -22,7 +22,7 @@ jobs:
 
       - name: Filter paths
         if: github.event_name != 'workflow_dispatch'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |

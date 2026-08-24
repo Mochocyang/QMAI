@@ -2,7 +2,7 @@ import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, 
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { isChapterPage, isFinalChapter, parseChapterMeta, parseChapterNumber } from "./chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
 import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
@@ -27,7 +27,6 @@ import {
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
-import { createChapterPipeline } from "./chapter-pipeline"
 import { mergeSnapshotTimeline, rebuildTimelineFromSnapshots } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
@@ -309,9 +308,9 @@ function materializeRestoredCurrentSnapshot(
   })
 }
 
-export type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapter_number" | "extract_failed" | "cancelled"
+type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapter_number" | "extract_failed" | "cancelled"
 
-export interface IngestResult {
+interface IngestResult {
   snapshot: ChapterSnapshot | null
   failReason?: IngestFailReason
 }
@@ -495,85 +494,6 @@ export function buildSourceHash(content: string): string {
   return String(hash)
 }
 
-async function findChapterPathForSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<string> {
-  const chaptersDir = `${projectPath}/wiki/chapters`
-  const fallback = `${chaptersDir}/chapter-${String(snapshot.chapterNumber).padStart(3, "0")}.md`
-  try {
-    const nodes = await listDirectory(chaptersDir)
-    for (const node of nodes as any[]) {
-      if (node?.isDir) continue
-      if (!String(node?.name || "").toLowerCase().endsWith(".md")) continue
-      const path = `${chaptersDir}/${node.name}`
-      try {
-        const content = await readFile(path)
-        const parsed = parseFrontmatter(content)
-        const meta = parseChapterMeta(parsed.frontmatter as Record<string, unknown>)
-        if (meta?.chapterNumber === snapshot.chapterNumber) {
-          return path
-        }
-      } catch {
-        // 忽略单文件读取失败，继续尝试其他章节文件。
-      }
-    }
-  } catch {
-    // 章节目录不存在或不可读时使用稳定的默认路径。
-  }
-  return fallback
-}
-
-async function buildRetrievalIndexSourceHash(projectPath: string, snapshot: ChapterSnapshot): Promise<string> {
-  const chapterPath = await findChapterPathForSnapshot(projectPath, snapshot)
-  try {
-    return buildSourceHash(await readFile(chapterPath))
-  } catch {
-    return buildSourceHash(JSON.stringify(snapshot))
-  }
-}
-
-export async function buildRetrievalIndex(projectPath: string): Promise<{ success: boolean; chapterCount: number }> {
-  const pp = normalizePath(projectPath)
-  const snapshotNumbers = await listSnapshots(pp)
-  
-  if (snapshotNumbers.length === 0) {
-    return { success: false, chapterCount: 0 }
-  }
-
-  const snapshots: ChapterSnapshot[] = []
-  for (const num of snapshotNumbers) {
-    const snapshot = await loadSnapshot(pp, num)
-    if (snapshot) {
-      snapshots.push(snapshot)
-    }
-  }
-
-  if (snapshots.length === 0) {
-    return { success: false, chapterCount: 0 }
-  }
-
-  const store = createRetrievalStore(pp)
-  
-  const snapshotPaths = new Map<number, string>()
-  const snapshotHashes = new Map<number, string>()
-  for (const snapshot of snapshots) {
-    const chapterPath = await findChapterPathForSnapshot(pp, snapshot)
-    const relativePath = normalizePath(chapterPath).startsWith(pp + "/")
-      ? normalizePath(chapterPath).slice(pp.length + 1)
-      : chapterPath
-    snapshotPaths.set(snapshot.chapterNumber, relativePath)
-    snapshotHashes.set(snapshot.chapterNumber, await buildRetrievalIndexSourceHash(pp, snapshot))
-  }
-
-  await store.buildFromSnapshots(
-    snapshots,
-    (snapshot) => snapshotPaths.get(snapshot.chapterNumber) || `wiki/chapters/chapter-${String(snapshot.chapterNumber).padStart(3, "0")}.md`,
-    (snapshot) => snapshotHashes.get(snapshot.chapterNumber) || buildSourceHash(JSON.stringify(snapshot)),
-  )
-  
-  return { success: true, chapterCount: snapshots.length }
-}
-
-export const ingestChapterPipeline = createChapterPipeline({ ingestChapter })
-
 function normalizeOutlineIngestError(err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err)
   if (/request cancelled|aborted|cancelled/i.test(message)) {
@@ -591,7 +511,7 @@ export interface OutlineIngestResult {
   failureReason?: "no_llm" | null
 }
 
-export interface IngestOutlineOptions {
+interface IngestOutlineOptions {
   skipSync?: boolean
 }
 
@@ -807,50 +727,6 @@ export async function restoreSnapshotHistory(
   return restoredCurrent
 }
 
-export async function saveEditedSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
-  const normalizedSnapshot = normalizeChapterSnapshot(snapshot, {
-    chapterId: snapshot.chapterId,
-    chapterNumber: snapshot.chapterNumber,
-  })
-  if (!normalizedSnapshot) {
-    throw new Error("Invalid snapshot data.")
-  }
-  await backupSnapshotBeforeOverwrite(pp, snapshot.chapterNumber)
-  await saveSnapshot(pp, materializeNextCurrentSnapshot(normalizedSnapshot, currentSnapshot))
-}
-
-function appendPreviewSection(lines: string[], title: string, items: string[]): void {
-  lines.push(`${title}：`)
-  if (items.length === 0) {
-    lines.push("- 无")
-  } else {
-    lines.push(...items.map(item => `- ${item}`))
-  }
-  lines.push("")
-}
-
-export function buildSnapshotMemorySyncPreview(snapshot: ChapterSnapshot): string {
-  const graphItems = [
-    ...snapshot.characters,
-    ...snapshot.locations,
-    ...snapshot.organizations,
-    ...snapshot.items,
-    ...snapshot.events,
-  ]
-  const uniqueGraphItems = Array.from(new Set(graphItems.filter(Boolean)))
-  const lines = ["本次将同步以下内容：", ""]
-
-  appendPreviewSection(lines, "人物状态", snapshot.characterStateChanges)
-  appendPreviewSection(lines, "角色认知", snapshot.knowledgeChanges)
-  appendPreviewSection(lines, "伏笔追踪", snapshot.foreshadowingChanges)
-  appendPreviewSection(lines, "实体页 / 图谱", uniqueGraphItems)
-  appendPreviewSection(lines, "RAG 记忆页面", ["章节快照记忆", "角色认知状态", "人物状态记忆", "伏笔追踪记忆"])
-
-  return lines.join("\n").trimEnd()
-}
-
 async function listActualChapterNumbers(projectPath: string): Promise<number[]> {
   const pp = normalizePath(projectPath)
   const chaptersDir = `${pp}/wiki/chapters`
@@ -925,13 +801,13 @@ async function writeStructuredMemoryDocuments(projectPath: string, snapshots: Ch
   return writtenPaths
 }
 
-export interface SyncSnapshotToMemoryResult {
+interface SyncSnapshotToMemoryResult {
   writtenEntityPaths: string[]
   memoryPagePaths: string[]
   memorySyncedAt: string
 }
 
-export interface SyncSnapshotToMemoryOptions {
+interface SyncSnapshotToMemoryOptions {
   deferStructuredMemoryExport?: boolean
   deferDerivedRebuild?: boolean
   /** 跳过认知/人物/伏笔的增量合并。重新提取时应随后全量重建派生记忆。 */

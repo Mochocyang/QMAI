@@ -7,12 +7,12 @@ import {
 } from "./novel/outline-save-classifier"
 import { extractBodyContent, type OutlineSaveRequest } from "./novel/outline-save-request"
 
-export interface OutlineSaveDraft {
+interface OutlineSaveDraft {
   title: string
   content: string
 }
 
-export interface ClassifiedOutlineSaveRequest {
+interface ClassifiedOutlineSaveRequest {
   draft: OutlineSaveDraft
   classification: OutlineSaveClassification
   request: OutlineSaveRequest
@@ -216,7 +216,7 @@ function stripPrefaceText(content: string): string {
   return lines.slice(startIdx).join("\n")
 }
 
-export function normalizeOutlineMarkdown(content: string): string {
+function normalizeOutlineMarkdown(content: string): string {
   let result = content
     .replace(/```(?:markdown|md)\s*\r?\n([\s\S]*?)\r?\n```/gi, (_, inner: string) => inner.trim())
     .replace(/^\\(#{1,6}\s)/gm, "$1")

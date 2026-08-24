@@ -30,7 +30,7 @@ export interface ChapterSelectionData {
   extractionPhase?: "deep" | "simple" | null
 }
 
-export interface UseCharacterExtractionParams {
+interface UseCharacterExtractionParams {
   chapterSelectionData: ChapterSelectionData | null
   setChapterSelectionData: React.Dispatch<React.SetStateAction<ChapterSelectionData | null>>
   recognizedCharacters: RecognizedCharacter[]

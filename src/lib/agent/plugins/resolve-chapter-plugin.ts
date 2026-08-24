@@ -1,7 +1,7 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { resolveTargetChapterNumberForChat } from "@/lib/novel/chapter-utils"
 
-export interface ResolveChapterPluginDeps {
+interface ResolveChapterPluginDeps {
   selectedFile?: string | null
   lastGeneratedChapterNumber?: number
   onError?: (error: Error) => void

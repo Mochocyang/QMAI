@@ -11,7 +11,7 @@ type UpdaterBindings = {
 
 let updateCheckStarted = false
 
-export async function runAppUpdateFlow(bindings: UpdaterBindings) {
+async function runAppUpdateFlow(bindings: UpdaterBindings) {
   if (!bindings.isTauri) return
 
   const update = await bindings.check()

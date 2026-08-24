@@ -14,7 +14,7 @@ interface ModelSelectOption {
   label: string
 }
 
-export function buildModelSelectOptions(value: string, options: string[]): ModelSelectOption[] {
+function buildModelSelectOptions(value: string, options: string[]): ModelSelectOption[] {
   const current = value.trim()
   const fetched = Array.from(new Set(options.map((item) => item.trim()).filter(Boolean)))
   const hasFetchedModels = fetched.length > 0

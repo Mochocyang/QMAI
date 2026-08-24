@@ -15,7 +15,7 @@ interface DirectoryCandidate {
 
 export type ReadTextFile = (path: string) => Promise<string>
 
-export type ReadMarkdownResourceOutcome =
+type ReadMarkdownResourceOutcome =
   | { kind: "file"; content: string; resolvedPath: string }
   | { kind: "directory"; content: string }
   | { kind: "error"; content: string }
@@ -172,7 +172,7 @@ export async function readMarkdownResource(
   return outcome.content
 }
 
-export async function resolveMarkdownResource(
+async function resolveMarkdownResource(
   baseDir: string,
   params: Record<string, unknown>,
   label: string,

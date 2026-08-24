@@ -1,6 +1,6 @@
 import { normalizePath } from "@/lib/path-utils"
 
-export interface DefaultOutlineFolder {
+interface DefaultOutlineFolder {
   id: string
   name: string
 }
@@ -24,14 +24,6 @@ export const DEFAULT_OUTLINE_FOLDER_PATHS = [
   "设定/状态",
 ] as const
 
-export const DEFAULT_SETTING_FOLDER_NAMES = [
-  "角色",
-  "世界观",
-  "势力",
-  "地图",
-  "状态",
-] as const
-
 export const LEGACY_OUTLINE_FOLDER_MIGRATIONS = [
   { from: "大纲文件夹", to: "大纲" },
   { from: "卷纲文件夹", to: "卷纲" },
@@ -42,7 +34,7 @@ export const LEGACY_OUTLINE_FOLDER_MIGRATIONS = [
   { from: "组织文件夹", to: "组织" },
 ] as const
 
-export type OutlineSaveType =
+type OutlineSaveType =
   | "story-outline"
   | "volume-outline"
   | "chapter-outline"
@@ -51,30 +43,22 @@ export type OutlineSaveType =
   | "foreshadowing-plan"
   | "organization-outline"
 
-export interface OutlineSaveTarget {
+interface OutlineSaveTarget {
   folderName: string
   fileName: string
   outlineType: OutlineSaveType
 }
 
-export interface OutlineFileMoveInput {
+interface OutlineFileMoveInput {
   outlineRoot: string
   sourcePath: string
   targetFolderPath: string
   targetExists: boolean
 }
 
-export type OutlineFileMovePlan =
+type OutlineFileMovePlan =
   | { ok: true; targetPath: string }
   | { ok: false; error: string }
-
-export function getOutlineRoot(projectPath: string): string {
-  return `${normalizePath(projectPath)}/wiki/outlines`
-}
-
-export function getDefaultOutlineFolderPath(projectPath: string, folderName: string): string {
-  return `${getOutlineRoot(projectPath)}/${folderName}`
-}
 
 function normalizeComparablePath(path: string): string {
   return normalizePath(path).replace(/\/+$/, "")

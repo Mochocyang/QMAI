@@ -24,7 +24,7 @@ import { calcNodeCount } from "./types"
 
 // ── 对外接口 ──
 
-export interface FrameworkGenerationOptions {
+interface FrameworkGenerationOptions {
   extraction: ExtractionResult
   mode: SimulationMode
   targetWords: number

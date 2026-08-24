@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import type { ChatMessage } from "@/lib/llm-client"
 import type { AgentRunRecord, AgentStageTrace } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
@@ -445,11 +444,3 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return Object.keys(get().streamingContents).length > 0
   },
 }))
-
-export function chatMessagesToLLM(messages: DisplayMessage[]): ChatMessage[] {
-  return messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-    ...(m.reasoning_content !== undefined ? { reasoning_content: m.reasoning_content } : {}),
-  }))
-}

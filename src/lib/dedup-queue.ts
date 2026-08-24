@@ -239,38 +239,6 @@ export function getMergeLogs(): readonly string[] {
   return currentMergeLogs
 }
 
-export function getQueueSummary(): {
-  pending: number
-  processing: number
-  failed: number
-  total: number
-} {
-  return {
-    pending: queue.filter((t) => t.status === "pending").length,
-    processing: queue.filter((t) => t.status === "processing").length,
-    failed: queue.filter((t) => t.status === "failed").length,
-    total: queue.length,
-  }
-}
-
-/**
- * Test-only: wipe in-memory state without touching disk. Production
- * code should always use `pauseQueue()` so pending state lands in
- * the right project's file before the slate is cleared.
- */
-export function clearQueueState(): void {
-  if (currentAbortController) {
-    currentAbortController.abort()
-  }
-  queue = []
-  processing = false
-  currentProjectId = ""
-  currentProjectPath = ""
-  currentAbortController = null
-  currentMergeProgress = null
-  currentMergeLogs = []
-}
-
 /**
  * Project-switch handshake: flush the active project's queue to disk
  * (reverting any in-flight task to pending so it gets re-tried on

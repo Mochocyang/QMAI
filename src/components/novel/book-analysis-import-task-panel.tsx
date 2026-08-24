@@ -21,7 +21,6 @@ interface BookAnalysisImportTaskPanelProps {
   onRenameCompleted: (taskId: string, title: string) => void
   onOpenBook: (bookId: string) => void
 }
-
 interface TaskGroup {
   batchId?: string
   tasks: BatchImportTask[]
@@ -189,7 +188,6 @@ function BatchSummary({ tasks, missingCount }: { tasks: BatchImportTask[]; missi
     </p>
   )
 }
-
 function buildTaskGroups(batches: BatchImportBatch[], tasks: BatchImportTask[]) {
   const taskMap = new Map(tasks.map((task) => [task.id, task]))
   const batchMap = new Map(batches.map((batch) => [batch.id, batch]))
@@ -364,5 +362,3 @@ export function BookAnalysisImportTaskPanel({
     </section>
   )
 }
-
-export type { BookAnalysisImportTaskPanelProps }

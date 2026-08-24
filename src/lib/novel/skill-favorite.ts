@@ -43,7 +43,7 @@ export interface FavoriteSkillConfig {
   favorites: FavoriteSkillEntry[]
 }
 
-export const EMPTY_FAVORITE_CONFIG: FavoriteSkillConfig = {
+const EMPTY_FAVORITE_CONFIG: FavoriteSkillConfig = {
   version: 1,
   favorites: [],
 }

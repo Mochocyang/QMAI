@@ -122,20 +122,9 @@ export async function copyDirectory(
   return invoke<string[]>("copy_directory", { source, destination })
 }
 
-export async function preprocessFile(path: string): Promise<string> {
-  return invoke<string>("preprocess_file", { path })
-}
-
 export async function deleteFile(path: string): Promise<void> {
   await invoke("delete_file", { path })
   notifyProjectFileMutation({ type: "delete", path })
-}
-
-export async function findRelatedWikiPages(
-  projectPath: string,
-  sourceName: string
-): Promise<string[]> {
-  return invoke<string[]>("find_related_wiki_pages", { projectPath, sourceName })
 }
 
 export async function createDirectory(path: string): Promise<void> {
@@ -146,10 +135,6 @@ export async function fileExists(path: string): Promise<boolean> {
   return invoke<boolean>("file_exists", { path })
 }
 
-export async function getFileModifiedTime(path: string): Promise<number> {
-  return invoke<number>("get_file_modified_time", { path })
-}
-
 export async function getFileSize(path: string): Promise<number> {
   return invoke<number>("get_file_size", { path })
 }
@@ -158,7 +143,7 @@ export async function getFileMd5(path: string): Promise<string> {
   return invoke<string>("get_file_md5", { path })
 }
 
-export interface FileBase64 {
+interface FileBase64 {
   base64: string
   mimeType: string
 }
@@ -182,10 +167,6 @@ export async function openProject(path: string): Promise<WikiProject> {
   const id = await ensureProjectId(raw.path)
   await upsertProjectInfo(id, raw.path, raw.name)
   return { id, name: raw.name, path: raw.path }
-}
-
-export async function openProjectFolder(path: string): Promise<void> {
-  return invoke<void>("open_project_folder", { path })
 }
 
 export async function openFileLocation(path: string): Promise<void> {

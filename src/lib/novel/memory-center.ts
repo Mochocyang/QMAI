@@ -3,7 +3,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadDismantlingLibrary } from "./dismantling"
 
-export interface MemoryCenterGroup {
+interface MemoryCenterGroup {
   title: string
   items: string[]
 }
@@ -117,7 +117,7 @@ function stripFrontmatter(markdown: string): string {
   return normalized
 }
 
-export function parseMemoryMarkdownPreview(
+function parseMemoryMarkdownPreview(
   markdown: string,
   maxSections = 3,
   maxGroupsPerSection = 4,
@@ -205,7 +205,7 @@ export function parseMemoryMarkdownPreview(
   }))
 }
 
-export function buildMemoryCenterSnapshotCards(
+function buildMemoryCenterSnapshotCards(
   snapshots: ChapterSnapshot[],
   limit = 6,
   maxItemsPerList = 3,
@@ -244,7 +244,7 @@ export function buildMemoryCenterSnapshotCards(
     })
 }
 
-export function buildMemoryCenterStats(
+function buildMemoryCenterStats(
   snapshots: MemoryCenterSnapshotCard[],
   files: MemoryCenterFilePreview[],
 ): MemoryCenterStats {

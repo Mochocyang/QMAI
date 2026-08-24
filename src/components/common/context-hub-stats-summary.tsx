@@ -10,7 +10,7 @@ const STABLE_PREFIX_LABELS: Record<StablePrefixStatus, string> = {
   persist_failed: "持久化失败",
 }
 
-export interface ContextHubStatsSummaryProps {
+interface ContextHubStatsSummaryProps {
   stats: ContextHubStats
   warnings?: string[]
   /** Show composed/budget row (default true). */
@@ -53,7 +53,7 @@ const REQUEST_STATUS_LABELS: Record<LlmRequestCacheTrace["status"], string> = {
   network_error: "网络错误",
 }
 
-export function ProviderCacheUsage({ stats }: { stats: ContextHubStats }) {
+function ProviderCacheUsage({ stats }: { stats: ContextHubStats }) {
   const cachedTokens = stats.providerCachedTokens
   const inputTokens = stats.providerInputTokens
   const hitPercent = cachedTokens !== undefined && inputTokens !== undefined && inputTokens > 0

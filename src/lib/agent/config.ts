@@ -5,7 +5,7 @@ import { DEFAULT_MAX_ROUNDS } from "./types"
 import { registerAllBuiltInTools } from "./tools"
 import type { ToolFactoryOptions } from "./tools"
 
-export const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
+const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "o1",
   "o3-mini",
   "deepseek-reasoner",
@@ -23,7 +23,7 @@ export function providerUsesTextToolCalls(provider: LlmConfig["provider"]): bool
   return provider === "cursor-cli"
 }
 
-export interface BuildAgentConfigOptions extends ToolFactoryOptions {
+interface BuildAgentConfigOptions extends ToolFactoryOptions {
   llmConfig: LlmConfig
   requestOverrides?: AgentConfig["requestOverrides"]
 }

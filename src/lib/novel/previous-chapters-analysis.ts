@@ -23,15 +23,6 @@ function clampChapterBody(body: string, maxChars: number): string {
   return `${normalized.slice(0, head).trimEnd()}${marker}${tail > 0 ? normalized.slice(-tail).trimStart() : ""}`
 }
 
-export interface PreviousChapterAnalysis {
-  chapterNumber: number
-  summary: string
-  keyPoints: string[]
-  ending: string
-  characterStates: string[]
-  plotProgress: string
-}
-
 /**
  * 读取前 N 章正文（去 frontmatter），不做 LLM 分析。读取失败的章节跳过。
  */

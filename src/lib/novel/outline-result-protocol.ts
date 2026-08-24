@@ -19,14 +19,14 @@ export interface OutlineSubAgentResult {
   questions: string[]
 }
 
-export interface OutlineSubAgentFallbackContext {
+interface OutlineSubAgentFallbackContext {
   agentId: string
   agentName: string
   usedSkills?: string[]
   stage?: string
 }
 
-export type OutlineProtocolParseResult<T> =
+type OutlineProtocolParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string }
 

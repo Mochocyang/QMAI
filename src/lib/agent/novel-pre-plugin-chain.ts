@@ -17,7 +17,7 @@ import { createTrimContextPlugin } from "./plugins/trim-context-plugin"
 import { createBuildSystemPromptPlugin } from "./plugins/build-system-prompt-plugin"
 import type { BuildContextPackPluginDeps } from "./plugins/build-context-pack-plugin"
 
-export interface NovelPrePluginDeps {
+interface NovelPrePluginDeps {
   selectedFile?: string | null
   lastGeneratedChapterNumber?: number
   requestSoulDialog?: (summary: string) => Promise<boolean>
@@ -80,7 +80,7 @@ export function createNovelPrePluginChain(deps: NovelPrePluginDeps = {}): PrePlu
   return plugins
 }
 
-export interface RunNovelPrePluginChainOptions {
+interface RunNovelPrePluginChainOptions {
   input: PrePluginInput
   deps?: NovelPrePluginDeps
   config?: PluginConfig

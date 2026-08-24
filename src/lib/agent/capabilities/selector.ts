@@ -44,7 +44,7 @@ const STRICT_EXTRA_TOOLS = new Set([
 
 const ENTITY_QUERY_INTENTS = new Set<NovelTaskIntent>(["character_query", "setting_query"])
 
-export interface SelectCapabilitiesInput {
+interface SelectCapabilitiesInput {
   capabilities: AiCapability[]
   intent: NovelTaskIntent
   mode: AiWorkflowMode

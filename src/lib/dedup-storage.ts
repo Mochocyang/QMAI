@@ -37,7 +37,7 @@ export async function loadNotDuplicates(projectPath: string): Promise<string[][]
   }
 }
 
-export async function saveNotDuplicates(
+async function saveNotDuplicates(
   projectPath: string,
   list: string[][],
 ): Promise<void> {

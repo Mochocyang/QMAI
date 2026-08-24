@@ -2,7 +2,7 @@ import { listDirectory } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 
-export interface RefreshProjectFileTreeOptions {
+interface RefreshProjectFileTreeOptions {
   projectId?: string
   clearDisplayTreeFirst?: boolean
   bumpDataVersion?: boolean

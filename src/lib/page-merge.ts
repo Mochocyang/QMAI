@@ -67,7 +67,7 @@ export interface MergeFn {
   ): Promise<string>
 }
 
-export interface MergePageOptions {
+interface MergePageOptions {
   /** Source filename being ingested — passed through to the merger
    *  and used in fallback log messages. */
   sourceFileName: string

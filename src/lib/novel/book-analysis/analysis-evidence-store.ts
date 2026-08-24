@@ -180,34 +180,3 @@ export function setEvidenceEnabled(
     updatedAt: Date.now(),
   }), io)
 }
-
-export function setEvidencePinned(
-  bookPath: string,
-  evidenceId: string,
-  userPinned: boolean,
-  io: AnalysisEvidenceStoreIo = defaultIo,
-): Promise<AnalysisEvidenceCollection> {
-  return updateEvidenceItem(bookPath, evidenceId, (item) => ({
-    ...item,
-    userPinned,
-    updatedAt: Date.now(),
-  }), io)
-}
-
-export function deleteEvidence(
-  bookPath: string,
-  evidenceId: string,
-  io: AnalysisEvidenceStoreIo = defaultIo,
-): Promise<AnalysisEvidenceCollection> {
-  return updateEvidenceItem(bookPath, evidenceId, () => null, io)
-}
-
-export async function deleteEvidenceForBook(
-  bookPath: string,
-  io: AnalysisEvidenceStoreIo = defaultIo,
-): Promise<AnalysisEvidenceCollection> {
-  return saveEvidence(bookPath, {
-    ...emptyCollection(bookPath),
-    updatedAt: Date.now(),
-  }, io)
-}

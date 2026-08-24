@@ -3,9 +3,9 @@
  * Used by chapter ingest, memory rebuild, and cleanup tools.
  */
 
-export type ForeshadowingChangeKind = "plant" | "advance" | "resolve"
+type ForeshadowingChangeKind = "plant" | "advance" | "resolve"
 
-export interface ParsedForeshadowingChange {
+interface ParsedForeshadowingChange {
   kind: ForeshadowingChangeKind
   name: string
   description: string

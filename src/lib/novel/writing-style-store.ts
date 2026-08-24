@@ -23,13 +23,13 @@ export interface WritingStylePreset {
   updatedAt: number
 }
 
-export interface WritingStyleStore {
+interface WritingStyleStore {
   version: 1
   enabledStyleId: string | null
   styles: WritingStylePreset[]
 }
 
-export interface BuildWritingStyleContextOptions {
+interface BuildWritingStyleContextOptions {
   includeSamples?: boolean
   constitutionCharLimit?: number
   samplesCharLimit?: number
@@ -56,7 +56,7 @@ export async function loadWritingStyleStore(projectPath: string): Promise<Writin
   }
 }
 
-export async function saveWritingStyleStore(projectPath: string, store: WritingStyleStore): Promise<void> {
+async function saveWritingStyleStore(projectPath: string, store: WritingStyleStore): Promise<void> {
   await createDirectory(`${normalizePath(projectPath)}/.qmai`)
   await writeFileAtomic(storePath(projectPath), JSON.stringify(store, null, 2))
 }

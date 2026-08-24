@@ -9,7 +9,7 @@ import { saveRecognizedCharacters } from "@/lib/novel/book-analysis/recognized-c
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import type { ChapterSelectionData } from "./use-character-extraction"
 
-export interface UseCharacterRecognitionParams {
+interface UseCharacterRecognitionParams {
   chapterSelectionData: ChapterSelectionData | null
   setChapterSelectionData: React.Dispatch<React.SetStateAction<ChapterSelectionData | null>>
   recognizedCharacters: RecognizedCharacter[]

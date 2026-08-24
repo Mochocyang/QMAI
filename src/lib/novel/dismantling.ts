@@ -1,8 +1,8 @@
-import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
+import { fileExists, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { PlotFramework, PlotFrameworkBeats } from "./plot-framework"
 
-export type DismantlingChapterStatus = "pending" | "running" | "done" | "failed"
+type DismantlingChapterStatus = "pending" | "running" | "done" | "failed"
 
 export interface DismantlingChapter {
   id: string
@@ -33,13 +33,13 @@ export interface DismantlingProject {
   useInChat?: boolean
 }
 
-export interface DismantlingLibrary {
+interface DismantlingLibrary {
   version: 1
   projects: DismantlingProject[]
   selectedProjectId?: string | null
 }
 
-export interface DismantlingBatchOptions {
+interface DismantlingBatchOptions {
   selectedChapterIds: string[]
   batchSize: number
 }
@@ -50,14 +50,10 @@ const DEFAULT_LIBRARY: DismantlingLibrary = {
   selectedProjectId: null,
 }
 
-export const DISMANTLING_NO_PREPROCESSING_NEEDED = "no preprocessing needed"
+const DISMANTLING_NO_PREPROCESSING_NEEDED = "no preprocessing needed"
 
 export function getDismantlingLibraryPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/.qmai/dismantling/library.json`
-}
-
-export function getDismantlingLibraryDir(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.qmai/dismantling`
 }
 
 export async function loadDismantlingLibrary(projectPath: string): Promise<DismantlingLibrary> {
@@ -69,11 +65,6 @@ export async function loadDismantlingLibrary(projectPath: string): Promise<Disma
   } catch {
     return { ...DEFAULT_LIBRARY }
   }
-}
-
-export async function saveDismantlingLibrary(projectPath: string, library: DismantlingLibrary): Promise<void> {
-  await createDirectory(getDismantlingLibraryDir(projectPath)).catch(() => {})
-  await writeFile(getDismantlingLibraryPath(projectPath), JSON.stringify(normalizeDismantlingLibrary(library), null, 2))
 }
 
 export function normalizeDismantlingLibrary(input: Partial<DismantlingLibrary> | null | undefined): DismantlingLibrary {
@@ -90,7 +81,7 @@ export function normalizeDismantlingLibrary(input: Partial<DismantlingLibrary> |
   }
 }
 
-export function normalizeDismantlingProjectTitle(title: string): string {
+function normalizeDismantlingProjectTitle(title: string): string {
   return title
     .normalize("NFKC")
     .trim()
@@ -192,7 +183,7 @@ export function splitDismantlingTextIntoChapters(text: string): DismantlingChapt
   })
 }
 
-export function extractDismantlingChapterNumber(value: string): number | null {
+function extractDismantlingChapterNumber(value: string): number | null {
   const normalized = value.normalize("NFKC")
   const digitMatches = [...normalized.matchAll(/(?:第\s*0*(\d+)\s*[章节回]|chapter\s*0*(\d+))/gi)]
   const digit = digitMatches[digitMatches.length - 1]
@@ -398,16 +389,6 @@ export function buildDismantlingWebResearchPrompt(input: {
     "## 冲突、爽点与钩子",
     "## 可复用结构记忆",
   ].join("\n")
-}
-
-export function extractStructureMemoryFromAnalysis(markdown: string): string[] {
-  const sectionMatch = markdown.match(/##\s*可复用结构记忆\s*\n([\s\S]*)$/)
-  const raw = sectionMatch?.[1] ?? markdown
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
-    .filter((line) => line.length >= 6)
-    .slice(0, 30)
 }
 /**
  * 从拆文 markdown 中提取"开局钩子 / 铺垫 / 爽点 / 结尾钩子"四段框架。

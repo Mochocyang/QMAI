@@ -1,4 +1,4 @@
-export type DeAiBatchTaskStatus =
+type DeAiBatchTaskStatus =
   | "queued"
   | "running"
   | "reviewing"
@@ -15,25 +15,6 @@ export type DeAiBatchChapterStatus =
   | "confirmed"
   | "failed"
   | "cancelled"
-
-export interface DeAiBatchChapterInput {
-  id: string
-  title: string
-  order: number
-  sourcePath: string
-  sourceContent: string
-}
-
-export interface CreateDeAiBatchTaskInput {
-  projectPath: string
-  workId: string
-  workTitle: string
-  modelKey: string
-  skillId: string | null
-  skillName: string
-  skillContent: string
-  chapters: DeAiBatchChapterInput[]
-}
 
 export interface DeAiBatchTask {
   version: 1

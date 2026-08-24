@@ -27,7 +27,7 @@ import type { StreamCallbacks } from "./llm-client"
  * real token-level deltas. To avoid double-counting, we prefer deltas
  * when they arrive and skip the fat `assistant` events after seeing one.
  */
-export function createClaudeCodeStreamParser() {
+function createClaudeCodeStreamParser() {
   let sawDelta = false
   // Track the running text we have emitted for the current assistant
   // turn via `assistant` events so we can diff new content off the end
@@ -297,7 +297,7 @@ export async function streamClaudeCodeCli(
  *      telling the user to reproduce in a terminal where they can
  *      see whatever output the CLI does produce.
  */
-export function buildExitError(
+function buildExitError(
   code: number,
   stderr: string,
   unparsedStdout: string = "",

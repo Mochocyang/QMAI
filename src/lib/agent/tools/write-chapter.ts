@@ -2,7 +2,7 @@ import type { Tool } from "../types"
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
 import { writeDraft } from "@/lib/novel/draft-manager"
 
-export interface WriteChapterOptions {
+interface WriteChapterOptions {
   draftMode?: boolean
   projectPath?: string
   sourceConversationId?: string

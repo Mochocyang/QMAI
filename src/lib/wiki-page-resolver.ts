@@ -105,7 +105,7 @@ function findInTreeByPathFromTree(tree: FileNode[], targetPath: string): string 
  * Return the absolute path of the first indexed file whose basename
  * matches `targetName` and whose path contains `pathContains`.
  */
-export function findInTreeByName(
+function findInTreeByName(
   lookup: ProjectPathLookup,
   targetName: string,
   pathContains: string,

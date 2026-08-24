@@ -3,9 +3,9 @@ import type { ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react"
 
-export type ToastKind = "success" | "error" | "info"
-export interface ToastAction { label: string; onClick: () => void }
-export interface ToastOptions { title?: string; action?: ToastAction; persistent?: boolean; dedupeKey?: string }
+type ToastKind = "success" | "error" | "info"
+interface ToastAction { label: string; onClick: () => void }
+interface ToastOptions { title?: string; action?: ToastAction; persistent?: boolean; dedupeKey?: string }
 export type ToastArgument = ToastAction | ToastOptions | undefined
 interface ToastItem { id: number; key: string; kind: ToastKind; title?: string; message: string; createdAt: number; action?: ToastAction; persistent: boolean }
 export interface ToastApi {
@@ -120,7 +120,7 @@ export function useToast(): ToastApi {
 type PendingExternalToast = { kind: ToastKind; message: string; options?: ToastArgument }
 let externalApi: ToastApi | null = null
 let pendingExternalToasts: PendingExternalToast[] = []
-export function setToastApi(api: ToastApi | null) {
+function setToastApi(api: ToastApi | null) {
   externalApi = api
   if (!api || pendingExternalToasts.length === 0) return
   const pending = pendingExternalToasts

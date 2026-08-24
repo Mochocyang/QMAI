@@ -85,15 +85,6 @@ export interface BackupContents {
   credentials: boolean
 }
 
-/** 备份清单（zip 内 manifest.json） */
-export interface BackupManifest {
-  backupVersion: number
-  createdAt: string
-  appVersion: string
-  contents?: BackupContents
-  projects: Array<ProjectBackupInfo & { sections?: ProjectBackupSection[] }>
-}
-
 /** manifest 项目条目（含路径可达性） */
 export interface ProjectManifestEntry {
   id: string

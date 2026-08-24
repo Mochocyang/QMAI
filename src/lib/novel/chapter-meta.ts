@@ -5,7 +5,7 @@ export type ChapterStatus =
 export type OutlineType =
   "chapter-outline" | "volume-outline" | "story-outline";
 
-export interface ChapterMeta {
+interface ChapterMeta {
   chapterNumber: number;
   status: ChapterStatus;
   outlineType?: OutlineType;
@@ -63,13 +63,6 @@ export function isChapterPage(frontmatter: Record<string, unknown>): boolean {
   );
 }
 
-export function isOutlinePage(frontmatter: Record<string, unknown>): boolean {
-  return (
-    frontmatter.type === "outline" ||
-    typeof frontmatter.outline_type === "string"
-  );
-}
-
 export function isFinalChapter(frontmatter: Record<string, unknown>): boolean {
   return normalizeChapterStatus(frontmatter.chapter_status) === "final";
 }
@@ -90,7 +83,7 @@ function replaceFrontmatterLine(
 }
 
 /** 将章节 frontmatter 关键字段写回 canonical YAML 标量类型。 */
-export function normalizeChapterFrontmatterBlock(
+function normalizeChapterFrontmatterBlock(
   rawBlock: string,
   frontmatter: Record<string, FrontmatterValue> | null,
 ): string {

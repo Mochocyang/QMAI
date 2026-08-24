@@ -2,7 +2,7 @@ import type { AgentRunRecord, AgentStageTrace, AgentToolEvent } from "./types"
 import { activityEventFromToolEvent, applyAgentActivityEvent } from "./activity-trace"
 import { getWorkflowToolDescription, isWebResearchToolName } from "./workflow-trace"
 
-export type ToolCallRecord = AgentRunRecord["toolCalls"][number]
+type ToolCallRecord = AgentRunRecord["toolCalls"][number]
 type SettledToolCallStatus = "done" | "error" | "cancelled"
 
 export function applyAgentToolEvent(
@@ -70,7 +70,7 @@ export function settleRunningAgentToolCalls(
 }
 
 /** chapter_* 子步骤已在工具时间线展示，且细粒度阶段由 onActivityEvent 写入，避免双轨重复。 */
-export function shouldSkipToolActivityForStages(event: AgentToolEvent): boolean {
+function shouldSkipToolActivityForStages(event: AgentToolEvent): boolean {
   return Boolean(event.parentCallId) && event.name.startsWith("chapter_")
 }
 

@@ -12,7 +12,7 @@ export function getDraftChapterPath(chapterDir: string, chapterNumber: number): 
   return `${chapterDir.replace(/\\/g, "/").replace(/\/$/, "")}/chapter-${String(chapterNumber).padStart(3, "0")}.md`
 }
 
-export function extractChapterNumberFromPath(path: string): number | null {
+function extractChapterNumberFromPath(path: string): number | null {
   const stem = (path.replace(/\\/g, "/").split("/").pop() ?? "").replace(/\.md$/i, "")
   const draftMatch = stem.match(/^chapter-(\d+)$/i)
   if (draftMatch?.[1]) return Number.parseInt(draftMatch[1], 10)

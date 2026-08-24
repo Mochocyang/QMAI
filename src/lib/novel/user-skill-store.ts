@@ -1,5 +1,5 @@
 import { readFile, writeFileAtomic, listDirectory } from "@/commands/fs"
-import { join, basename, extname } from "@tauri-apps/api/path"
+import { join,} from "@tauri-apps/api/path"
 import {
   normalizeUserSkill,
   type SkillCategory,
@@ -185,83 +185,6 @@ export function importWritingSkill(
 function isFileByPath(path: string): boolean {
   const lower = path.toLowerCase()
   return lower.endsWith(".md") || lower.endsWith(".txt") || lower.endsWith(".json")
-}
-
-function parseFrontmatter(content: string): { name?: string; description?: string; body: string } {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/)
-  if (!match) {
-    return { body: content }
-  }
-  const yamlBlock = match[1]
-  const nameMatch = yamlBlock.match(/^name:\s*(.+?)\s*$/m)
-  const descMatch = yamlBlock.match(/^description:\s*(.+?)\s*$/m)
-  return {
-    name: nameMatch ? nameMatch[1].trim() : undefined,
-    description: descMatch ? descMatch[1].trim() : undefined,
-    body: content.slice(match[0].length),
-  }
-}
-
-export async function importLinkedSkill(
-  config: UserSkillConfig,
-  folderOrFilePath: string,
-): Promise<UserSkillConfig> {
-  const now = Date.now()
-  const isFile = isFileByPath(folderOrFilePath)
-  let name = ""
-  let description = ""
-
-  if (isFile) {
-    const fileName = await basename(folderOrFilePath)
-    const ext = await extname(folderOrFilePath)
-    name = fileName.slice(0, fileName.length - ext.length)
-    try {
-      const content = await readFile(folderOrFilePath)
-      const parsed = parseFrontmatter(content)
-      if (parsed.name) {
-        name = parsed.name
-      }
-      if (parsed.description) {
-        description = parsed.description
-      }
-    } catch {
-    }
-  } else {
-    const folderName = await basename(folderOrFilePath)
-    name = folderName
-    try {
-      const skillMdPath = await join(folderOrFilePath, "SKILL.md")
-      const content = await readFile(skillMdPath)
-      const parsed = parseFrontmatter(content)
-      if (parsed.name) {
-        name = parsed.name
-      }
-      if (parsed.description) {
-        description = parsed.description
-      }
-    } catch {
-    }
-  }
-
-  const skill = normalizeUserSkill({
-    id: `skill:${now}`,
-    name: name || "未命名 Skill",
-    description,
-    content: "",
-    source: "linked",
-    linkedPath: folderOrFilePath,
-    priority: 50,
-    tags: [],
-    categoryId: "",
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  return normalizeUserSkillConfig({
-    ...config,
-    selectedSkillId: skill.id,
-    skills: [skill, ...config.skills],
-  })
 }
 
 export async function loadLinkedSkillContent(skill: UserSkill): Promise<string> {

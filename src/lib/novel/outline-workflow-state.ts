@@ -15,7 +15,7 @@ export type OutlineWorkflowStage =
   | "waiting_save_confirm"
   | "saved"
 
-export interface OutlineWorkflowState {
+interface OutlineWorkflowState {
   stage: OutlineWorkflowStage
   history: OutlineWorkflowStage[]
   updatedAt: number

@@ -9,8 +9,7 @@ function mergeAndFormatDeAiResult(currentMarkdown: string, candidateContent: str
   const merged = replaceWholeChapterBody(currentMarkdown, candidateContent)
   return formatChapterWriting(syncChapterFrontmatterFromBody(merged))
 }
-
-export interface OpenChapterBodyUpdateInput {
+ interface OpenChapterBodyUpdateInput {
   path: string
   candidateContent: string
   currentOpenPath(): string | null
@@ -40,8 +39,7 @@ export async function applyOpenChapterBodyUpdate(input: OpenChapterBodyUpdateInp
   }
   return true
 }
-
-export interface DeAiBatchChapterApplierOptions {
+ interface DeAiBatchChapterApplierOptions {
   requestOpenUpdate(path: string, candidateContent: string): Promise<boolean>
   readFile(path: string): Promise<string>
   writeFileAtomic(path: string, content: string): Promise<void>

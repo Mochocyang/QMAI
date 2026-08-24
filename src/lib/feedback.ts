@@ -6,7 +6,7 @@ const MAX_CONTACT_LENGTH = 200
 
 export type FeedbackType = "bug" | "suggestion" | "other"
 
-export interface FeedbackInput {
+interface FeedbackInput {
   type: FeedbackType
   message: string
   contact?: string

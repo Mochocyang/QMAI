@@ -2,7 +2,7 @@ import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { readSoulDoc, writeSoulDoc } from "./soul-doc"
 
-export const PROJECT_SOUL_STYLE_STORE_FILENAME = "project-soul-styles.json"
+const PROJECT_SOUL_STYLE_STORE_FILENAME = "project-soul-styles.json"
 
 export interface ProjectSoulStyle {
   id: string
@@ -56,7 +56,7 @@ function createDefaultStore(content = ""): ProjectSoulStyleStore {
   }
 }
 
-export function normalizeProjectSoulStyleStore(input: Partial<ProjectSoulStyleStore> | null | undefined): ProjectSoulStyleStore {
+function normalizeProjectSoulStyleStore(input: Partial<ProjectSoulStyleStore> | null | undefined): ProjectSoulStyleStore {
   const rawStyles = Array.isArray(input?.styles) ? input.styles : []
   if (rawStyles.length === 0) return createDefaultStore("")
 

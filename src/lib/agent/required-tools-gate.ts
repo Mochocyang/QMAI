@@ -2,7 +2,7 @@ import type { NovelTaskIntent } from "@/lib/novel/task-router"
 import { OUTLINE_FIND_CHAPTER_INTENTS } from "@/lib/novel/outline-find-protocol"
 import type { AiWorkflowMode } from "./workflow-mode"
 
-export interface RequiredToolsGateInput {
+interface RequiredToolsGateInput {
   requiredToolsOnce?: string[] | null
   availableToolNames: Iterable<string>
   calledToolNames: Iterable<string>
@@ -57,7 +57,7 @@ export class RequiredToolFallbackError extends Error {
   }
 }
 
-export interface ResolveRequiredToolsOnceInput {
+interface ResolveRequiredToolsOnceInput {
   novelMode: boolean
   intent?: string | null
   mode?: AiWorkflowMode | null

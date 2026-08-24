@@ -1,6 +1,6 @@
-export type UserMemoryPrefilterReason = "explicit_preference" | "too_short" | "operation_only" | "one_off_task" | "no_stable_signal"
+type UserMemoryPrefilterReason = "explicit_preference" | "too_short" | "operation_only" | "one_off_task" | "no_stable_signal"
 
-export interface UserMemoryPrefilterResult {
+interface UserMemoryPrefilterResult {
   shouldAnalyze: boolean
   reason: UserMemoryPrefilterReason
 }

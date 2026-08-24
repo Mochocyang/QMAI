@@ -13,7 +13,7 @@
 
 import type { ExtractedCharacter, NameAliasMap, SixDimensionKey } from "./types"
 
-export type { SixDimensionKey }
+
 
 const CORPUS_LIMIT_PER_DIM = 6000
 

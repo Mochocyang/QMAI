@@ -14,7 +14,7 @@ import type {
 import type { AnalysisSkillAdapter } from "./analysis-skill-adapter"
 import type { ExtractedCharacter } from "./types"
 
-export interface CharacterAnalysisChunkResult {
+interface CharacterAnalysisChunkResult {
   characters: ExtractedCharacter[]
 }
 

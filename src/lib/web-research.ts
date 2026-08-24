@@ -2,14 +2,14 @@ import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
 
-export interface WebResearchDocument {
+interface WebResearchDocument {
   title: string
   url: string
   source: string
   content: string
 }
 
-export interface WebResearchInput {
+interface WebResearchInput {
   text: string
   searchApiConfig: SearchApiConfig
   maxSearchResults?: number
@@ -18,7 +18,7 @@ export interface WebResearchInput {
   allowReadUrls?: boolean
 }
 
-export interface WebResearchResult {
+interface WebResearchResult {
   query: string
   urls: string[]
   searchResults: WebSearchResult[]
@@ -27,7 +27,7 @@ export interface WebResearchResult {
   notes: string[]
 }
 
-export interface WebResearchContextInput {
+interface WebResearchContextInput {
   query: string
   searchResults: WebSearchResult[]
   importedDocuments: WebResearchDocument[]
@@ -52,7 +52,7 @@ export function shouldUseWebResearch(text: string): boolean {
   return /联网|网页|网址|打开|搜索|搜一下|查一下|查找|最新|热门|榜单|趋势|爆款|平台|外部资料|网络资料|资料来源/i.test(text)
 }
 
-export function deriveWebResearchQuery(text: string): string {
+function deriveWebResearchQuery(text: string): string {
   const withoutUrls = text.replace(/https?:\/\/[^\s<>"']+/gi, " ")
   const cleaned = withoutUrls
     .replace(/请|帮我|给我|一下|联网|网页|网址|打开|搜索|搜一下|查一下|查找|相关内容|相关资料/g, " ")
@@ -151,7 +151,7 @@ export function buildWebResearchContext(input: WebResearchContextInput): { markd
   }
 }
 
-export function htmlToPlainText(html: string): string {
+function htmlToPlainText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")

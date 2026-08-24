@@ -20,10 +20,6 @@ export interface OutlineListEntry {
   outlineType?: string
 }
 
-function stripMarkdownExt(name: string): string {
-  return name.replace(/\.md$/i, "")
-}
-
 function scalarFrontmatterString(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim()
   if (typeof value === "number" && Number.isFinite(value)) return String(value)
@@ -158,9 +154,4 @@ export function buildOutlineListToolResult(
   }
 
   return lines.join("\n")
-}
-
-/** 供测试与调用方：从文件名推导展示名（无扩展名） */
-export function outlineDisplayName(relativePath: string): string {
-  return stripMarkdownExt(relativePath.split("/").pop() ?? relativePath)
 }

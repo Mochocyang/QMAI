@@ -1,4 +1,4 @@
-import { readFile, writeFileAtomic, fileExists, listDirectory } from "@/commands/fs"
+import { readFile, writeFileAtomic, fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { ClassificationConfig, RouteRule, LoadClassificationResult, DataSourceCategory, ClassificationVersionCheckResult } from "./types"
 import { deserializeClassificationFromMarkdown, serializeClassificationToMarkdown, generateDefaultClassificationMarkdown } from "./markdown-serializer"
@@ -83,7 +83,7 @@ export async function readProjectClassificationRaw(projectPath: string): Promise
   return await readFile(filePath)
 }
 
-export async function loadFeatureClassification(
+async function loadFeatureClassification(
   projectPath: string,
   featureName: string
 ): Promise<ClassificationConfig | null> {
@@ -157,41 +157,6 @@ export async function writeProjectClassification(
 
   const content = serializeClassificationToMarkdown(config)
   await writeFileAtomic(filePath, content)
-}
-
-export async function writeFeatureClassification(
-  projectPath: string,
-  featureName: string,
-  config: ClassificationConfig
-): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const dirPath = `${pp}/${CLASSIFICATION_DIR}`
-  const filePath = `${dirPath}/classification.${featureName}.md`
-
-  const content = serializeClassificationToMarkdown(config)
-  await writeFileAtomic(filePath, content)
-}
-
-export async function listFeatureClassifications(projectPath: string): Promise<string[]> {
-  const pp = normalizePath(projectPath)
-  const dirPath = `${pp}/${CLASSIFICATION_DIR}`
-
-  try {
-    const entries = await listDirectory(dirPath)
-    const features: string[] = []
-
-    for (const entry of entries) {
-      const name = entry.name
-      const match = name.match(/^classification\.([^.]+)\.md$/)
-      if (match) {
-        features.push(match[1])
-      }
-    }
-
-    return features
-  } catch {
-    return []
-  }
 }
 
 export function validateFeatureRoutes(

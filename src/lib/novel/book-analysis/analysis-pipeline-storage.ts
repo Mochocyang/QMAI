@@ -42,7 +42,7 @@ const defaultIo: AnalysisPipelineStorageIo = {
   writeFileAtomic,
 }
 
-export interface RecoveredAnalysisState {
+interface RecoveredAnalysisState {
   tasks: BookAnalysisPipelineTask[]
   chunks: AnalysisChunkRecord[]
 }
@@ -55,7 +55,7 @@ function normalized(path: string): string {
   return normalizePath(path).replace(/\/+$/, "")
 }
 
-export function analysisRoot(bookPath: string): string {
+function analysisRoot(bookPath: string): string {
   return normalized(joinPath(bookPath, "analysis"))
 }
 

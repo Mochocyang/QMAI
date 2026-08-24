@@ -67,7 +67,7 @@ function serializeMemory(memory: AgentMemory): SerializedAgentMemory {
   }
 }
 
-export function serializeAgent(agent: NovelAgent): SerializedNovelAgent {
+function serializeAgent(agent: NovelAgent): SerializedNovelAgent {
   return {
     characterId: agent.characterId,
     name: agent.name,
@@ -117,7 +117,7 @@ function deserializeMemory(s: SerializedAgentMemory): AgentMemory {
   }
 }
 
-export function deserializeAgent(s: SerializedNovelAgent): NovelAgent {
+function deserializeAgent(s: SerializedNovelAgent): NovelAgent {
   const relationships = new Map<string, AgentRelation>()
   for (const r of s.relationships) {
     relationships.set(r.targetId, r)

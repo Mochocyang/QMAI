@@ -16,7 +16,7 @@ const SUPPORTED_PARAMETER_TYPES = new Set<ToolParameter["type"]>([
   "integer",
 ])
 
-export type AdaptMcpToolResult =
+type AdaptMcpToolResult =
   | { ok: true; tool: Tool }
   | { ok: false; error: string }
 
@@ -54,16 +54,7 @@ export function adaptMcpTool(
   }
 }
 
-export function createMcpTool(
-  descriptor: McpToolDescriptor,
-  caller: McpToolCaller,
-): Tool {
-  const converted = mcpSchemaToToolParameters(descriptor.inputSchema)
-  const parameters = converted.ok ? converted.parameters : {}
-  return createMcpToolFromParameters(descriptor, caller, parameters)
-}
-
-export function mcpToolName(descriptor: McpToolDescriptor): string {
+function mcpToolName(descriptor: McpToolDescriptor): string {
   return `mcp_${sanitizeName(descriptor.serverId)}_${sanitizeName(descriptor.name)}`
 }
 
