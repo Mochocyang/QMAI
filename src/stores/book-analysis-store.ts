@@ -14,7 +14,7 @@ import { normalizePath } from "@/lib/path-utils"
 
 type BookAnalysisChapterSummary = NonNullable<BookAnalysisTask["chapters"]>[number]
 
-export interface BookAnalysisState {
+interface BookAnalysisState {
   tasks: BookAnalysisTask[]
   currentTaskId: string | null
   selectedResultPath: string | null

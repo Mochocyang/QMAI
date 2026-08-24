@@ -15,7 +15,7 @@ import type {
 } from "./types"
 
 /** 读取已提取的作品文风画像（feature/book-style-extraction），不存在时返回 null。 */
-export async function loadStyleProfile(bookPath: string): Promise<BookStyleProfile | null> {
+async function loadStyleProfile(bookPath: string): Promise<BookStyleProfile | null> {
   try {
     const raw = await readFile(joinPath(bookPath, "style-profile.json"))
     return JSON.parse(raw) as BookStyleProfile

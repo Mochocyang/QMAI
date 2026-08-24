@@ -167,8 +167,6 @@ export interface ContextCacheItemTrace {
   dependencyPathsTruncated: boolean
 }
 
-export type ContextSourceTrace = ContextCacheItemTrace
-
 export interface ContextHubSnapshotRef {
   id: string
   surface: ContextSurface
@@ -224,25 +222,6 @@ export interface ContextHub {
   pruneSnapshots(surface: ContextSurface, referencedIds: string[]): Promise<void>
   markDirty(path: string): void
   dispose(): void
-}
-
-export function emptyContextHubStats(): ContextHubStats {
-  return {
-    cacheHits: 0,
-    reloaded: 0,
-    empty: 0,
-    fallbackUsed: 0,
-    readFailed: 0,
-    writeFailed: 0,
-    stableTokens: 0,
-    summaryTokens: 0,
-    dynamicTokens: 0,
-    candidateTokens: 0,
-    estimatedSavedTokens: 0,
-    estimatedSavedPercent: 0,
-    expanded: false,
-    providerCacheEnabled: false,
-  }
 }
 
 const CURRENT_ITEM_STATUSES = new Set<ContextCacheItemStatus>([

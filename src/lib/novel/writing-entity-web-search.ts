@@ -174,7 +174,7 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
   return selected
 }
 
-export interface WritingEntitySearchWorkflowPersisted {
+interface WritingEntitySearchWorkflowPersisted {
   content: string
   searchedNames: string[]
   notes: string[]
@@ -297,7 +297,7 @@ export function displayWritingEntitySearchWorkflowContent(text: string | undefin
   return parsed.content.trim() || formatWritingEntitySearchWorkflowResult({ ...parsed, markdown: "" })
 }
 
-export function writingEntitySearchSourceHost(
+function writingEntitySearchSourceHost(
   result: Pick<WebSearchResult, "url" | "source">,
 ): string {
   const source = result.source.trim()

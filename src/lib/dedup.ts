@@ -62,7 +62,7 @@ export interface DuplicateGroup {
   confidence: "high" | "medium" | "low"
 }
 
-export interface MergeRequest {
+interface MergeRequest {
   /** Pages in the duplicate group, with their full content loaded. */
   group: { slug: string; path: string; content: string }[]
   /** Slug to keep. Must be one of group[].slug. The other pages
@@ -249,7 +249,7 @@ function buildDetectorUserMessage(summaries: EntitySummary[]): string {
  * — the caller treats "no duplicates found" identically to "LLM
  * output garbled".
  */
-export function parseDetectorResponse(raw: string): DuplicateGroup[] {
+function parseDetectorResponse(raw: string): DuplicateGroup[] {
   const jsonText = extractFirstJsonObject(raw)
   if (!jsonText) return []
   let parsed: unknown
@@ -455,7 +455,7 @@ function buildMergerUserMessage(
  * `wiki/index.md`-style listings of files are out of scope here —
  * the caller handles index regeneration separately.
  */
-export function rewriteCrossReferences(
+function rewriteCrossReferences(
   content: string,
   slugRedirects: Map<string, string>,
 ): string {

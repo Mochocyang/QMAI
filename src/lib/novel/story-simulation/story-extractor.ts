@@ -34,7 +34,7 @@ import type {
 
 // ── 对外接口 ──
 
-export interface ExtractionOptions {
+interface ExtractionOptions {
   sourceChapters: number
   llmConfig?: LlmConfig
   onProgress?: (progress: number, label: string) => void

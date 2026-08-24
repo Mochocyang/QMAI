@@ -1,4 +1,4 @@
-export type OutlineSectionGenerationKey =
+type OutlineSectionGenerationKey =
   | "chapterOutlines"
   | "characterBriefs"
   | "organizationsOutline"
@@ -9,9 +9,9 @@ export type OutlineSectionGenerationKey =
   | "foreshadowingPlan"
   | "locationsOutline"
 
-export type OutlineOutputMode = "per_chapter" | "per_item" | "single"
+type OutlineOutputMode = "per_chapter" | "per_item" | "single"
 
-export interface OutlineSectionGenerationConfig {
+interface OutlineSectionGenerationConfig {
   key: OutlineSectionGenerationKey
   title: string
   englishTitle: string

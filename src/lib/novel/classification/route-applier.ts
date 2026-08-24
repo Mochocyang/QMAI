@@ -16,7 +16,7 @@ const CATEGORY_TO_FIELDS: Record<DataSourceCategory, Array<keyof ContextPack>> =
   revision: ["revisionDirectives"],
 }
 
-export interface ApplyRouteResult {
+interface ApplyRouteResult {
   pack: ContextPack
   blockedSources: DataSourceCategory[]
   keptSources: DataSourceCategory[]
@@ -108,22 +108,4 @@ export function getCategoryFields(category: DataSourceCategory): Array<keyof Con
 
 export function getAllCategories(): DataSourceCategory[] {
   return Object.keys(CATEGORY_TO_FIELDS) as DataSourceCategory[]
-}
-
-export function hasCategoryContent(pack: ContextPack, category: DataSourceCategory): boolean {
-  const fields = CATEGORY_TO_FIELDS[category] || []
-  for (const field of fields) {
-    const value = pack[field]
-    if (Array.isArray(value)) {
-      if (value.length > 0) return true
-    } else if (typeof value === "string") {
-      if (value.trim().length > 0) return true
-    }
-  }
-  return false
-}
-
-export function getLoadedCategories(pack: ContextPack): DataSourceCategory[] {
-  const all = getAllCategories()
-  return all.filter((cat) => hasCategoryContent(pack, cat))
 }

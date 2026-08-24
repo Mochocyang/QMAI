@@ -1,7 +1,7 @@
 import type { ContextTrace } from "./context-trace"
 import type { ToolCallStatus } from "./types"
 
-export type AgentWorkflowStepStatus =
+type AgentWorkflowStepStatus =
   | "pending"
   | "running"
   | "done"
@@ -9,7 +9,7 @@ export type AgentWorkflowStepStatus =
   | "error"
   | "cancelled"
 
-export type AgentWorkflowStepKind =
+type AgentWorkflowStepKind =
   | "intent"
   | "skill"
   | "context"
@@ -29,13 +29,13 @@ export interface WorkflowToolCall {
   finishedAt?: number
 }
 
-export interface AgentWorkflowDetail {
+interface AgentWorkflowDetail {
   label: string
   value: string
   tone?: "default" | "muted" | "warning" | "error" | "success"
 }
 
-export interface AgentWorkflowStep {
+interface AgentWorkflowStep {
   id: string
   kind: AgentWorkflowStepKind
   title: string

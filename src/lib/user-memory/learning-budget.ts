@@ -1,8 +1,8 @@
-export const USER_MEMORY_LEARNING_BUDGET_KEY = "qmai.user-memory-learning-budget.v1"
+const USER_MEMORY_LEARNING_BUDGET_KEY = "qmai.user-memory-learning-budget.v1"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
 
-export interface UserMemoryLearningBudget {
+interface UserMemoryLearningBudget {
   day: string
   calls: number
   inputChars: number

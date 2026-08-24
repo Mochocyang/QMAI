@@ -3,7 +3,7 @@ import {
   summarizeChapterOutlineQuality,
 } from "@/lib/novel/outline-quality-check"
 
-export interface ChapterValidationResult {
+interface ChapterValidationResult {
   valid: boolean
   hasFrontmatter: boolean
   hasTitle: boolean
@@ -15,7 +15,7 @@ export interface ChapterValidationResult {
   errors: string[]
 }
 
-export interface OutlineValidationResult {
+interface OutlineValidationResult {
   valid: boolean
   hasStructure: boolean
   nodeCount: number

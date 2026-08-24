@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react"
 import { ChevronDown, ChevronUp, X } from "lucide-react"
 import { isImeComposing } from "@/lib/keyboard-utils"
 
-export interface TextareaFindBarProps {
+interface TextareaFindBarProps {
   open: boolean
   query: string
   activeMatchIndex: number

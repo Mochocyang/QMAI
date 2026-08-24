@@ -14,7 +14,7 @@ interface ReadWebPageDeps {
   fetchPage?: (url: string, init?: RequestInit) => Promise<FetchResponseLike>
 }
 
-export interface ReadWebPageToolResult {
+interface ReadWebPageToolResult {
   status: "ok" | "error"
   url: string
   title?: string

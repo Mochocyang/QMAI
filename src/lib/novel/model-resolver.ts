@@ -32,7 +32,7 @@ function toUnusableConfig(baseConfig: LlmConfig): LlmConfig {
   return withEffectiveContextSize({ ...baseConfig, ...UNUSABLE_LLM_CONFIG })
 }
 
-export function isModelKeyRegistered(
+function isModelKeyRegistered(
   targetModel: string,
   providerConfigs: Record<string, ProviderOverride>,
 ): boolean {

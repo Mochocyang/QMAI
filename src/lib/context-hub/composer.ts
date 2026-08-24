@@ -8,7 +8,7 @@ import {
   type DependencyStamp,
 } from "./types"
 
-export interface ComposeContextInput {
+interface ComposeContextInput {
   contextPack: ContextPack
   sessionSummary?: string
   dependencyStamp: DependencyStamp
@@ -19,7 +19,7 @@ export interface ComposeContextInput {
   /** Model context window in tokens (wiki-store `maxContextSize`). */
   maxContextSize?: number
 }
-export interface ComposedContext {
+interface ComposedContext {
   stableCore: string
   sessionSummary: string
   dynamicContext: string

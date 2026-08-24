@@ -1,7 +1,7 @@
 import type { PostWriteCheck, PostWriteCheckItem } from "../context-trace"
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 
-export interface PostWriteCheckDeps {
+interface PostWriteCheckDeps {
   chapterContent?: string
 }
 

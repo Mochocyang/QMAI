@@ -1,8 +1,8 @@
 import type { ExtractedCharacter } from "./types"
 
-export type CharacterCandidateCategory = "protagonist" | "supporting" | "minor"
+type CharacterCandidateCategory = "protagonist" | "supporting" | "minor"
 
-export interface CharacterCandidate extends ExtractedCharacter {
+interface CharacterCandidate extends ExtractedCharacter {
   candidateCategory: CharacterCandidateCategory
   candidateScore: number
 }
@@ -20,7 +20,7 @@ function detailScore(character: ExtractedCharacter): number {
     + Math.min(2, character.representativeQuotes?.length ?? 0)
 }
 
-export function classifyCharacterCandidate(character: ExtractedCharacter): CharacterCandidate | null {
+function classifyCharacterCandidate(character: ExtractedCharacter): CharacterCandidate | null {
   const details = detailScore(character)
   const score = character.appearanceCount * 2 + character.importance + details * 2
   if (character.appearanceCount <= 1 && character.importance <= 2 && details <= 1) return null

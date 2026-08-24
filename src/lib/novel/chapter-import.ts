@@ -7,7 +7,7 @@ export const CHAPTER_IMPORT_EXTENSIONS = ["txt", "md", "mdx", "doc", "docx"] as 
 
 const CHAPTER_IMPORT_EXTENSION_SET = new Set<string>(CHAPTER_IMPORT_EXTENSIONS)
 
-export interface ChapterImportCandidate {
+interface ChapterImportCandidate {
   path: string
   name: string
 }
@@ -19,18 +19,18 @@ export interface ImportedChapter {
   chapterNumber: number
 }
 
-export interface ChapterImportFilenameMatch {
+interface ChapterImportFilenameMatch {
   chapterNumber: number
   titleSuffix: string
 }
 
-export interface ImportedChapterMemoryProgress {
+interface ImportedChapterMemoryProgress {
   completed: number
   total: number
   currentPath: string | null
 }
 
-export interface ImportedChapterMemoryResult {
+interface ImportedChapterMemoryResult {
   completed: number
   failed: number
   cancelled: boolean
@@ -120,7 +120,7 @@ function parseChapterNumberToken(raw: string): number | null {
   return parseChineseInteger(raw)
 }
 
-export function matchChapterImportFilename(text: string): ChapterImportFilenameMatch | null {
+function matchChapterImportFilename(text: string): ChapterImportFilenameMatch | null {
   const stem = getFileStem(getFileName(text) || text)
   const normalized = normalizeFullWidthDigits(stem.normalize("NFKC"))
 
@@ -270,15 +270,6 @@ export async function importChapterFiles(
   const candidates = sourcePaths
     .map((path) => ({ path: normalizePath(path), name: getFileName(path) }))
     .filter((candidate) => isChapterImportablePath(candidate.path))
-  return importChapterCandidates(projectPath, candidates, options)
-}
-
-export async function importChapterFolder(
-  projectPath: string,
-  selectedFolder: string,
-  options: { finalForMemoryExtraction: boolean },
-): Promise<ImportedChapter[]> {
-  const candidates = await collectChapterImportCandidatesFromFolder(selectedFolder)
   return importChapterCandidates(projectPath, candidates, options)
 }
 

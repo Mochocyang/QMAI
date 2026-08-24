@@ -26,7 +26,7 @@ import {
   buildDeAiSnapshot,
 } from "@/lib/novel/skill-favorite"
 
-export interface ToggleFavoriteParams {
+interface ToggleFavoriteParams {
   library: FavoriteSkillLibrary
   skill: UserSkill | DeAiSkill
   originProjectPath?: string

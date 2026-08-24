@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import type { DraftReviewResult } from "@/lib/agent/skills/draft-review-skill"
 
-export interface DraftReviewPhase {
+interface DraftReviewPhase {
   /** 当前阶段 */
   stage: "idle" | "loading" | "reviewing" | "repairing" | "done" | "error"
   /** 阶段描述（用于 UI 进度显示） */
@@ -10,7 +10,7 @@ export interface DraftReviewPhase {
   progress: number
 }
 
-export interface DraftReviewHistoryEntry {
+interface DraftReviewHistoryEntry {
   timestamp: number
   result: DraftReviewResult
   originalDraft: string

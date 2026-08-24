@@ -16,7 +16,7 @@ import {
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { getOutlineFileName, outlineSnapshotExists } from "./outline-ingest-utils"
 
-export function createOutlineIngestTask(projectPath: string, outlinePath: string): string {
+function createOutlineIngestTask(projectPath: string, outlinePath: string): string {
   return useOutlineGenerationStore.getState().createTask({
     projectPath: normalizePath(projectPath),
     kind: "ingest",
@@ -42,9 +42,9 @@ export function assertOutlineIngestLlmReady(): void {
   }
 }
 
-export const BULK_OUTLINE_INGEST_CONCURRENCY = 2
+const BULK_OUTLINE_INGEST_CONCURRENCY = 2
 
-export interface OutlineIngestFailure {
+interface OutlineIngestFailure {
   name: string
   path: string
   reason: string
@@ -52,7 +52,7 @@ export interface OutlineIngestFailure {
 
 export type BulkOutlineIngestMode = "all" | "pending"
 
-export interface BulkOutlineIngestResult {
+interface BulkOutlineIngestResult {
   total: number
   succeeded: number
   failed: number
@@ -62,15 +62,15 @@ export interface BulkOutlineIngestResult {
   emptyReason?: "no_outlines" | "already_extracted"
 }
 
-export interface RunBulkOutlineIngestOptions {
+interface RunBulkOutlineIngestOptions {
   mode?: BulkOutlineIngestMode
 }
 
-export interface RunOutlineIngestPathsOptions {
+interface RunOutlineIngestPathsOptions {
   onProgressTaskStarted?: (taskId: string) => void
 }
 
-export interface OutlineIngestTaskResult {
+interface OutlineIngestTaskResult {
   success: boolean
   outlinePath: string
   outlineFileName: string
@@ -81,7 +81,7 @@ export interface OutlineIngestTaskResult {
   bodyBudget?: number
 }
 
-export interface RunOutlineIngestTaskOptions {
+interface RunOutlineIngestTaskOptions {
   signal?: AbortSignal
   parentProgressId?: string
   manageProgress?: boolean
@@ -421,13 +421,6 @@ export async function runOutlineIngestPaths(
   return result
 }
 
-export async function runSingleOutlineIngest(
-  projectPath: string,
-  outlinePath: string,
-): Promise<BulkOutlineIngestResult> {
-  return runOutlineIngestPaths(projectPath, [normalizePath(outlinePath)])
-}
-
 export function startOutlineIngestTask(projectPath: string, outlinePath: string): string {
   const taskId = createOutlineIngestTask(projectPath, outlinePath)
   void runOutlineIngestTask(taskId)
@@ -486,7 +479,7 @@ export async function runBulkOutlineIngest(
   return runOutlineIngestPaths(pp, outlinePaths)
 }
 
-export async function runOutlineIngestTask(
+async function runOutlineIngestTask(
   taskId: string,
   options: RunOutlineIngestTaskOptions = {},
 ): Promise<OutlineIngestTaskResult | null> {

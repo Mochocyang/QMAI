@@ -11,7 +11,7 @@ import {
   Hash,
 } from "lucide-react"
 
-export interface WikiTypeStyle {
+interface WikiTypeStyle {
   /** Display label for chips and tooltips. Capitalized. */
   label: string
   /** Lucide icon component for the type. */
@@ -28,7 +28,7 @@ export interface WikiTypeStyle {
   dotClass: string
 }
 
-export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
+const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   entity: {
     label: "Entity",
     icon: User,
@@ -91,7 +91,7 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   },
 }
 
-export const FALLBACK_TYPE_STYLE: WikiTypeStyle = {
+const FALLBACK_TYPE_STYLE: WikiTypeStyle = {
   label: "Page",
   icon: Hash,
   chipClass: "bg-muted text-muted-foreground",

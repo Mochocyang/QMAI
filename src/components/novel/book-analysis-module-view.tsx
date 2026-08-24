@@ -12,7 +12,7 @@ import {
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 
-export type BookAnalysisModuleTab = "characters" | "story" | "style" | "evidence"
+type BookAnalysisModuleTab = "characters" | "story" | "style" | "evidence"
 
 interface BookAnalysisModuleViewProps {
   book: BookAnalysisLibraryBook

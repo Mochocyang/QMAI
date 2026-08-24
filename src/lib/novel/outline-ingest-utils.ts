@@ -1,7 +1,7 @@
 import { fileExists } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 
-export interface OutlineIngestIdentity {
+interface OutlineIngestIdentity {
   outlineName: string
   chapterNumber: number
   snapshotJsonPath: string

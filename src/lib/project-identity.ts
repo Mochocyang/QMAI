@@ -5,19 +5,19 @@ import { isTauri } from "@/lib/platform"
 
 const REGISTRY_KEY = "projectRegistry"
 
-export interface ProjectIdentity {
+interface ProjectIdentity {
   id: string
   createdAt: number
 }
 
-export interface ProjectRegistryEntry {
+interface ProjectRegistryEntry {
   id: string
   path: string
   name: string
   lastOpened: number
 }
 
-export type ProjectRegistry = Record<string, ProjectRegistryEntry>
+type ProjectRegistry = Record<string, ProjectRegistryEntry>
 
 function identityPath(projectPath: string): string {
   return `${normalizePath(projectPath)}/.qmai/project.json`
@@ -82,13 +82,4 @@ export async function upsertProjectInfo(
 export async function getProjectPathById(id: string): Promise<string | null> {
   const registry = await loadRegistry()
   return registry[id]?.path ?? null
-}
-
-export async function getProjectIdByPath(path: string): Promise<string | null> {
-  const normalized = normalizePath(path)
-  const registry = await loadRegistry()
-  for (const entry of Object.values(registry)) {
-    if (entry.path === normalized) return entry.id
-  }
-  return null
 }

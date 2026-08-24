@@ -1,6 +1,6 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 
-export interface SoulDialogPluginDeps {
+interface SoulDialogPluginDeps {
   shouldRequestSoulDialog?: (contextPack: any) => boolean
   onError?: (error: Error) => void
 }

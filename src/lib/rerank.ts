@@ -3,7 +3,7 @@ import { useWikiStore, type LlmConfig, type RerankConfig } from "@/stores/wiki-s
 import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
 
-export interface RerankCandidate {
+interface RerankCandidate {
   id: string
   title: string
   snippet: string
@@ -20,7 +20,7 @@ interface RerankResponse {
   order?: RerankResponseItem[]
 }
 
-export interface RerankOptions {
+interface RerankOptions {
   topK?: number
   purpose?: string
 }
@@ -84,10 +84,6 @@ function buildPrompt(
     "只返回 JSON，对象格式必须是：",
     '{"order":[{"id":"候选id","score":0.0}]}',
   ].filter(Boolean).join("\n")
-}
-
-export function isRerankEnabled(rerankConfig: RerankConfig): boolean {
-  return rerankConfig.enabled
 }
 
 export async function rerankCandidates<T extends RerankCandidate>(

@@ -54,7 +54,7 @@ export function __setWebSearchSleepForTest(
   TEST_SLEEP_OVERRIDE.fn = fn
 }
 
-export interface WebSearchResult {
+interface WebSearchResult {
   source: "duckduckgo" | "wikipedia-zh" | "wikipedia-en"
   title: string
   abstract: string

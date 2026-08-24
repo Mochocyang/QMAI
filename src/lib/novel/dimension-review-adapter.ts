@@ -11,7 +11,7 @@ import type { NovelReviewResult } from "./review-adapter"
 export type SixReviewDimensionKey = "thrill" | "consistency" | "pacing" | "character" | "continuity" | "pull"
 export type DimensionReviewStatus = "error" | "high" | "medium" | "low" | "pass"
 
-export interface SixReviewDimensionDefinition {
+interface SixReviewDimensionDefinition {
   key: SixReviewDimensionKey
   label: string
   objective: string
@@ -34,11 +34,11 @@ export interface DimensionReviewResult {
   issues: DimensionReviewIssue[]
 }
 
-export interface DimensionReviewCallbacks {
+interface DimensionReviewCallbacks {
   onThinking?: (dimensionKey: SixReviewDimensionKey, thinking: string) => void
 }
 
-export interface SixDimensionReviewCallbacks {
+interface SixDimensionReviewCallbacks {
   onDimensionProgress?: (dimensionKey: SixReviewDimensionKey, progress: string) => void
   onDimensionThinking?: (dimensionKey: SixReviewDimensionKey, thinking: string) => void
   onDimensionResult?: (dimensionKey: SixReviewDimensionKey, result: DimensionReviewResult) => void

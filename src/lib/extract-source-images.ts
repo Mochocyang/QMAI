@@ -17,7 +17,7 @@ import { getFileName, normalizePath } from "@/lib/path-utils"
 import { isTauri } from "@/lib/platform"
 
 /** Mirrors `commands::extract_images::SavedImage` on the Rust side. */
-export interface SavedImage {
+interface SavedImage {
   index: number
   mimeType: string
   /** PPTX slide number (1-based). DOCX always null. */

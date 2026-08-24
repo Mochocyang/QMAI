@@ -41,7 +41,7 @@ export interface Deviation {
   repairAction?: string;
 }
 
-export interface DraftReviewInput {
+interface DraftReviewInput {
   projectPath: string;
   draftChapterText: string;
   draftChapterNumber: number;

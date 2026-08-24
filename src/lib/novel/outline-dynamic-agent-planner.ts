@@ -4,23 +4,20 @@
   type OutlineSubAgentKind,
   type OutlineSubAgentPlan,
 } from "./outline-multi-agent-orchestrator"
-
-export interface DynamicOutlinePlannerSkill {
+ interface DynamicOutlinePlannerSkill {
   name: string
   description: string
   stages: string[]
   kinds: string[]
 }
-
-export interface DynamicOutlinePlannerContext {
+ interface DynamicOutlinePlannerContext {
   userTask: string
   projectSummary: string
   existingModules: string[]
   missingModules: string[]
   skills: DynamicOutlinePlannerSkill[]
 }
-
-export type DynamicOutlinePlanParseResult =
+ type DynamicOutlinePlanParseResult =
   | { ok: true; plan: OutlineSubAgentPlan[] }
   | { ok: false; error: string }
 

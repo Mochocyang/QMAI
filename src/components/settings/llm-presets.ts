@@ -575,35 +575,3 @@ export const LLM_PRESETS: LlmPreset[] = ALL_LLM_PRESETS
 export function findLlmPresetById(id: string): LlmPreset | undefined {
   return ALL_LLM_PRESETS.find((preset) => preset.id === id)
 }
-
-/**
- * Best-effort reverse lookup: given the current LlmConfig fields, which
- * preset does it most likely correspond to? Used so the dropdown can
- * show the user what they're effectively on.
- */
-export function matchPreset(params: {
-  provider: Provider
-  customEndpoint: string
-  ollamaUrl: string
-  apiMode?: CustomApiMode
-}): LlmPreset | null {
-  const norm = (u: string) => u.replace(/\/+$/, "").toLowerCase()
-  const { provider, customEndpoint, ollamaUrl, apiMode } = params
-
-  for (const preset of LLM_PRESETS) {
-    if (preset.provider !== provider) continue
-    if (provider === "custom") {
-      if (!preset.baseUrl) continue // skip the generic Custom catch-alls
-      if (norm(preset.baseUrl) !== norm(customEndpoint)) continue
-      if ((preset.apiMode ?? "chat_completions") !== (apiMode ?? "chat_completions"))
-        continue
-      return preset
-    }
-    if (provider === "ollama") {
-      if (preset.baseUrl && norm(preset.baseUrl) !== norm(ollamaUrl)) continue
-      return preset
-    }
-    return preset
-  }
-  return null
-}

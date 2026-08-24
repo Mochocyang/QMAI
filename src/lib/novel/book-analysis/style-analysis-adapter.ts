@@ -17,7 +17,7 @@ import { styleProfileToMarkdown } from "./style-extraction-engine"
 import type { BookStyleProfile } from "./types"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 
-export interface StyleAnalysisChunkResult {
+interface StyleAnalysisChunkResult {
   raw: string
   profile: BookStyleProfile
 }
@@ -77,7 +77,7 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
 }
 
-export function mergeStyleChunkProfiles(
+function mergeStyleChunkProfiles(
   chunks: StyleAnalysisChunkResult[],
   evidenceIds: string[],
   generatedAt: number,

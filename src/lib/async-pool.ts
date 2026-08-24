@@ -1,4 +1,4 @@
-export interface MapWithConcurrencyOptions {
+interface MapWithConcurrencyOptions {
   signal?: AbortSignal
   onItemComplete?: (index: number) => void
 }

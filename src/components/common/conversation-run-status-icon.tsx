@@ -2,7 +2,7 @@ import { CircleAlert, CircleCheck, LoaderCircle, PauseCircle } from "lucide-reac
 import type { ConversationRunState } from "@/lib/conversation-run-state"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
-export function getConversationRunStatusLabel(state: ConversationRunState): string {
+function getConversationRunStatusLabel(state: ConversationRunState): string {
   if (state.status === "running") return "正在生成"
   if (state.status === "completed_unread") return "已完成，点击查看"
   if (state.status === "failed") return `生成失败：${state.error ?? "未知错误"}`

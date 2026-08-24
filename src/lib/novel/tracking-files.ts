@@ -3,19 +3,17 @@
  * 提供上下文.md、伏笔.md、角色状态.md、时间线.md 的读写和自动初始化
  */
 
-import { readFile, writeFile, createDirectory, fileExists, listDirectory } from "@/commands/fs"
+import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import {
-  loadCharacterStates,
   type CharacterState,
   type CharacterStateStore,
 } from "./character-state"
 import {
-  loadForeshadowingTracker,
   type Foreshadowing,
   type ForeshadowingStore,
 } from "./foreshadowing-tracker"
-import { loadTimeline, type TimelineEntry } from "./timeline"
+import { type TimelineEntry } from "./timeline"
 import type { WritingProgress, ResolvedForeshadowingRecord } from "./tracking-types"
 
 /** 追踪文件路径 */
@@ -451,111 +449,6 @@ function serializeTimelineMd(entries: TimelineEntry[]): string {
   return lines.join("\n")
 }
 
-function parseTimelineMd(content: string): TimelineEntry[] {
-  const entries: TimelineEntry[] = []
-  for (const line of content.split("\n")) {
-    if (line.startsWith("|") && !line.startsWith("|---")) {
-      const parts = line.split("|").map((p) => p.trim()).filter(Boolean)
-      if (parts.length >= 2) {
-        const match = parts[0].match(/(\d+)/)
-        if (match) {
-          entries.push({
-            chapterNumber: parseInt(match[1], 10),
-            event: parts[1],
-          })
-        }
-      }
-    }
-  }
-  return entries
-}
-
-// ─── 公共 API ────────────────────────────────────────
-
-/**
- * 确保追踪文件存在，如果不存在则初始化
- */
-export async function ensureTrackingFiles(projectPath: string): Promise<void> {
-  const dir = trackingDir(projectPath)
-  await createDirectory(dir)
-
-  const files: Array<{ path: string; content: string }> = [
-    {
-      path: contextMdPath(projectPath),
-      content: serializeContextMd({
-        lastCompletedChapter: 0,
-        lastCompletedChapterTitle: "",
-        lastUpdated: new Date().toLocaleString("zh-CN"),
-        currentArc: "尚未开始",
-        activeForeshadowingCount: 0,
-        keyPendingForeshadowing: [],
-        relationshipStatus: "",
-        nextChapterGuidance: "",
-        notes: [],
-      }),
-    },
-    {
-      path: foreshadowingMdPath(projectPath),
-      content: "# 伏笔追踪\n\n## 活跃伏笔\n| ID | 伏笔内容 | 埋设章节 | 预计回收章节 | 状态 | 重要度 | 相关角色 | 备注 |\n|---|---|---|---|---|---|---|---|\n\n## 已回收伏笔\n| ID | 伏笔内容 | 埋设章节 | 回收章节 | 回收方式 |\n|---|---|---|---|---|\n",
-    },
-    {
-      path: characterStateMdPath(projectPath),
-      content: "# 角色状态快照\n\n> 最后更新：尚未开始\n",
-    },
-    {
-      path: timelineMdPath(projectPath),
-      content: "# 时间线\n\n| 章节 | 事件 |\n|---|---|\n",
-    },
-  ]
-
-  for (const file of files) {
-    if (!(await fileExists(file.path))) {
-      await writeFile(file.path, file.content)
-    }
-  }
-}
-
-/**
- * 检查追踪文件是否存在
- */
-export async function trackingFilesExist(projectPath: string): Promise<boolean> {
-  const dir = trackingDir(projectPath)
-  try {
-    const entries = await listDirectory(dir)
-    return entries.length >= 4
-  } catch {
-    return false
-  }
-}
-
-/**
- * 从旧版 .novel/ JSON 迁移数据到 wiki/tracking/ Markdown
- */
-export async function migrateTrackingFromJson(projectPath: string): Promise<void> {
-  await ensureTrackingFiles(projectPath)
-
-  // 迁移角色状态
-  const charStore = await loadCharacterStates(projectPath)
-  if (charStore.characters.length > 0) {
-    const md = serializeCharacterStateMd(charStore)
-    await writeFile(characterStateMdPath(projectPath), md)
-  }
-
-  // 迁移伏笔
-  const fStore = await loadForeshadowingTracker(projectPath)
-  if (fStore.items.length > 0) {
-    const md = serializeForeshadowingMd(fStore.items, [])
-    await writeFile(foreshadowingMdPath(projectPath), md)
-  }
-
-  // 迁移时间线
-  const timeline = await loadTimeline(projectPath)
-  if (timeline.entries.length > 0) {
-    const md = serializeTimelineMd(timeline.entries)
-    await writeFile(timelineMdPath(projectPath), md)
-  }
-}
-
 // ─── 写入函数 ────────────────────────────────────────
 
 /**
@@ -633,17 +526,5 @@ export async function readCharacterStateMd(projectPath: string): Promise<Charact
     return parseCharacterStateMd(content)
   } catch {
     return null
-  }
-}
-
-/**
- * 读取时间线.md
- */
-export async function readTimelineMd(projectPath: string): Promise<TimelineEntry[]> {
-  try {
-    const content = await readFile(timelineMdPath(projectPath))
-    return parseTimelineMd(content)
-  } catch {
-    return []
   }
 }

@@ -4,7 +4,7 @@ import type { LlmConfig, NovelConfig } from "@/stores/wiki-store"
 
 export type TestableNovelModelTask = "writing" | "review" | "summary" | "extract" | "deAi" | "workflow"
 
-export interface NovelModelTestResult {
+interface NovelModelTestResult {
   model: string
   content: string
   usedFallbackModel: boolean

@@ -15,7 +15,7 @@ export interface StagedEventPool {
   all: StagedEvent[]
 }
 
-export interface EventPoolGeneratorInput {
+interface EventPoolGeneratorInput {
   llmConfig: LlmConfig
   worldRules: string
   characters: string[]

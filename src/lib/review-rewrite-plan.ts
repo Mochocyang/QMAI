@@ -18,7 +18,7 @@ export interface ReviewRewriteEdit {
   note?: string
 }
 
-export interface ReviewRewriteIssue {
+interface ReviewRewriteIssue {
   message: string
   suggestion?: string
   evidence?: string
@@ -27,12 +27,12 @@ export interface ReviewRewriteIssue {
   directAnchors?: DashboardIssueAnchor[]
 }
 
-export interface AppliedReviewRewriteEdit {
+interface AppliedReviewRewriteEdit {
   edit: ReviewRewriteEdit
   backup: DashboardIssueRewriteBackup
 }
 
-export type ReviewRewriteApplyResult =
+type ReviewRewriteApplyResult =
   | { ok: true; markdown: string; applied: AppliedReviewRewriteEdit[] }
   | { ok: false; markdown: string; applied: AppliedReviewRewriteEdit[]; failed: ReviewRewriteEdit[] }
 

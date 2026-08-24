@@ -43,7 +43,7 @@
  */
 
 /** Recursive splitter options. All default-friendly; callers typically pass none. */
-export interface ChunkingOptions {
+interface ChunkingOptions {
   /** Aim for roughly this many characters per emitted chunk. */
   targetChars: number
   /** Hard upper bound — a single "atomic" piece larger than this is still
@@ -128,7 +128,7 @@ export function chunkMarkdown(
  * report where in the original string the remaining body starts, so we
  * can attribute `charStart`/`charEnd` back to the original document.
  */
-export function stripFrontmatter(content: string): { body: string; bodyOffset: number } {
+function stripFrontmatter(content: string): { body: string; bodyOffset: number } {
   if (!content.startsWith("---\n") && !content.startsWith("---\r\n")) {
     return { body: content, bodyOffset: 0 }
   }

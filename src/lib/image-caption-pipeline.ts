@@ -241,7 +241,7 @@ function sliceContext(
  * (mirroring `markdown-image-resolver`), but autoIngest passes a
  * stricter version that knows the source's media directory.
  */
-export interface CaptionPipelineOptions {
+interface CaptionPipelineOptions {
   /** Override the default URL→path resolution. */
   urlToAbsPath?: (url: string) => string | null
   /** AbortSignal forwarded to each captionImage call. */
@@ -269,7 +269,7 @@ export interface CaptionPipelineOptions {
   onProgress?: (done: number, total: number) => void
 }
 
-export interface CaptionPipelineResult {
+interface CaptionPipelineResult {
   /** Rewritten markdown with captions in alt text. */
   enrichedMarkdown: string
   /** Number of images we captioned via a fresh LLM call. */

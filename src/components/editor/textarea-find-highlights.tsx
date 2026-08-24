@@ -4,7 +4,7 @@ import {
   type FindHighlightPart,
 } from "@/lib/textarea-find"
 
-export interface TextareaFindHighlightsProps {
+interface TextareaFindHighlightsProps {
   text: string
   query: string
   matches: number[]

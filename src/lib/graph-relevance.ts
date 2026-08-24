@@ -8,12 +8,12 @@ import { NOVEL_RELATION_LABELS } from "@/lib/novel/graph-adapter"
 // ---------------------------------------------------------------------------
 
 /** 带关系类型的出边，用于关系类型匹配信号。 */
-export interface RelationEdge {
+interface RelationEdge {
   readonly target: string
   readonly relation: string
 }
 
-export interface RetrievalNode {
+interface RetrievalNode {
   readonly id: string
   readonly title: string
   readonly type: string
@@ -25,7 +25,7 @@ export interface RetrievalNode {
   readonly relationEdges: readonly RelationEdge[]
 }
 
-export interface RetrievalGraph {
+interface RetrievalGraph {
   readonly nodes: ReadonlyMap<string, RetrievalNode>
   readonly dataVersion: number
 }

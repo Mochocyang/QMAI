@@ -22,14 +22,14 @@ export type NovelTaskIntent =
   | "multi_agent_simulate"      // 多智能体推演
   | "character_interview"       // 角色采访
 
-export const MODIFY_INTENTS: Set<NovelTaskIntent> = new Set([
+const MODIFY_INTENTS: Set<NovelTaskIntent> = new Set([
   "rewrite_chapter",
   "polish_chapter",
   "review_chapter",
   "lint_chapter",
 ])
 
-export function isModifyIntent(intent: NovelTaskIntent): boolean {
+function isModifyIntent(intent: NovelTaskIntent): boolean {
   return MODIFY_INTENTS.has(intent)
 }
 

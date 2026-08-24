@@ -5,11 +5,11 @@ export const MIN_USER_LLM_CONTEXT_SIZE = 204_800
 /** Default declared output ceiling when neither the user nor the preset says
  *  otherwise. Generous on purpose — it must not silently truncate capable
  *  models — so presets should carry a real figure wherever one is known. */
-export const DEFAULT_USER_LLM_MAX_OUTPUT_TOKENS = 131_072
+const DEFAULT_USER_LLM_MAX_OUTPUT_TOKENS = 131_072
 /** Below this an answer is not worth requesting. */
-export const MIN_USER_LLM_MAX_OUTPUT_TOKENS = 512
+const MIN_USER_LLM_MAX_OUTPUT_TOKENS = 512
 /** Highest output any model in the catalog declares (DeepSeek V4: 384K). */
-export const MAX_USER_LLM_MAX_OUTPUT_TOKENS = 393_216
+const MAX_USER_LLM_MAX_OUTPUT_TOKENS = 393_216
 
 export function normalizeUserLlmContextSize(value: number | undefined): number {
   if (!Number.isFinite(value) || (value as number) <= 0) {

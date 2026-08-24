@@ -123,10 +123,6 @@ export function getFileCategory(filePath: string): FileCategory {
   return EXT_MAP[ext] ?? "unknown"
 }
 
-export function isTextReadable(category: FileCategory): boolean {
-  return ["markdown", "text", "code", "data"].includes(category)
-}
-
 export function isBinary(category: FileCategory): boolean {
   return ["image", "video", "audio", "document", "unknown"].includes(category)
 }

@@ -13,7 +13,7 @@ export interface ExportServiceDeps {
   writeBinary(path: string, bytes: Uint8Array): Promise<void>
 }
 
-export interface ExportRunResult {
+interface ExportRunResult {
   status: "success" | "cancelled"
   exportedCount: number
 }

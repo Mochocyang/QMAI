@@ -3,7 +3,7 @@ import { listDirectory } from "@/commands/fs"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 
 /** 仅匹配「第N章/节/回」，避免 backup-2024 等文件名污染最新章号 */
-export function extractStrictChapterNumber(text: string): number | null {
+function extractStrictChapterNumber(text: string): number | null {
   const m = text.match(/第\s*(\d+)\s*[章节回]/)
   if (!m?.[1]) return null
   const n = Number.parseInt(m[1], 10)

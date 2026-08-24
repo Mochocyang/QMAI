@@ -6,17 +6,17 @@ import type { EmbeddingConfig, LlmConfig, RerankConfig } from "@/stores/wiki-sto
 
 const TEST_TIMEOUT_MS = 30_000
 
-export interface LlmModelTestResult {
+interface LlmModelTestResult {
   model: string
   content: string
 }
 
-export interface EmbeddingModelTestResult {
+interface EmbeddingModelTestResult {
   model: string
   dimensions: number
 }
 
-export interface RerankModelTestResult {
+interface RerankModelTestResult {
   model: string
   content: string
   usedMainLlm: boolean

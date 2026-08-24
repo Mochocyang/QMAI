@@ -2,14 +2,14 @@ import { useState, useCallback } from "react"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import type { LlmConfig } from "@/stores/wiki-store"
 
-export interface BatchModelTestState {
+interface BatchModelTestState {
   loading: boolean
   success: boolean
   message: string
   failedModels?: string[]
 }
 
-export interface UseBatchModelTestResult {
+interface UseBatchModelTestResult {
   modelTestState: BatchModelTestState
   runBatchTest: (modelsToTest: string[], buildConfig: (modelId: string) => LlmConfig) => Promise<void>
   retryFailed: (buildConfig: (modelId: string) => LlmConfig) => Promise<void>

@@ -1,7 +1,4 @@
-/**
- * 拆书分析系统 - 类型定义（精简版，聚焦角色提取）
- */
-import type { LlmConfig } from "@/stores/wiki-store"
+
 
 /** 6 维度分析深度档位（feature/book-analysis-6d-skill） */
 export type AnalysisDepth = "fast" | "standard" | "deep"
@@ -96,23 +93,6 @@ export interface BookAnalysisProgress {
   simpleExtractionStatus?: "idle" | "running" | "done" | "error" | "partial"
   simpleExtractionCompleted?: number
   simpleExtractionTotal?: number
-}
-
-export interface BookAnalysisCheckpoint {
-  version: 1
-  taskId: string
-  projectPath: string
-  stage: BookAnalysisStage
-  completedStages: string[]
-  currentStage: string
-  lastUpdateTime: number
-  progress: {
-    splitChapters: number
-    extractedCharacters: number
-    generatedSkills: number
-  }
-  createdAt: number
-  updatedAt: number
 }
 
 // 章节选择状态
@@ -279,22 +259,6 @@ export interface BookStyleProfile {
   samples: string[]
 }
 
-// 作品库信息
-export interface BookAnalysisLibrary {
-  version: 1
-  books: Array<{
-    id: string
-    title: string
-    author?: string
-    totalChapters: number
-    totalWords: number
-    createdAt: number
-    updatedAt: number
-    charactersCount: number
-    skillsCount: number
-  }>
-}
-
 // === 作品库索引（feature/book-analysis-reuse）===
 export interface BookLibraryEntry {
   bookId: string
@@ -315,17 +279,4 @@ export interface BookLibraryEntry {
 export interface BookLibrary {
   version: 1
   entries: BookLibraryEntry[]
-}
-
-// === 单角色重新提取选项（feature/book-analysis-reuse）===
-export type SingleCharacterReextractMode = "simple" | "six-dimension"
-
-export interface SingleCharacterReextractOptions {
-  bookPath: string
-  bookId: string
-  character: ExtractedCharacter
-  mode: SingleCharacterReextractMode
-  depth?: AnalysisDepth
-  llmConfig: LlmConfig
-  signal?: AbortSignal
 }

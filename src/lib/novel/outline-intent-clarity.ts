@@ -17,12 +17,12 @@ export interface IntentClarityResult {
   normalizationSource?: "canonical" | "legacy_status" | "legacy_unclosed" | "legacy_status_unclosed"
 }
 
-export type IntentClarityParseOutcome =
+type IntentClarityParseOutcome =
   | { kind: "none" }
   | { kind: "valid"; result: IntentClarityResult }
   | { kind: "invalid"; error: string }
 
-export interface DirectOutlineGenerationRequest {
+interface DirectOutlineGenerationRequest {
   module: string
 }
 

@@ -1,7 +1,7 @@
 export type GraphMode = "overview" | "character" | "chapter" | "storyline" | "foreshadowing"
-export type GraphLabelVisibility = "all" | "focused" | "minimal"
+type GraphLabelVisibility = "all" | "focused" | "minimal"
 
-export interface GraphModePreset {
+interface GraphModePreset {
   allowedNodeTypes?: ReadonlySet<string>
   hiddenNodeTypes?: ReadonlySet<string>
   hideIsolated: boolean

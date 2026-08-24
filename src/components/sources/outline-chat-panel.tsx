@@ -551,35 +551,6 @@ function getOutlineSectionOutputRules(title: string): string {
   return "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。";
 }
 
-export function buildOutlineSectionGenerationPrompt(
-  title: string,
-  requestHint: string,
-): string {
-  return [
-    `请按「AI大纲生成工作流」生成「${title}」。`,
-    "",
-    "## 本次意图",
-    "generate_outline",
-    "",
-    "## PRD 3.1 主流程要求",
-    "1. 提取请求关键词：确认用户要生成的大纲分项、范围和已有约束。",
-    "2. 识别用户意图：本次是生成/完善大纲正文，不是审稿报告、工具报告或分析说明。",
-    "3. 读取资料：优先读取用户 @ 引用、已有大纲、章节、记忆、推演和历史会话。",
-    "4. 提取对小说创作有用的关键内容：章节目标、冲突、伏笔、人物动机、设定限制、时间线承接和结尾钩子。",
-    "5. 结合用户要用的 skill + soul.md 约束，生成可直接保存的大纲正文。",
-    "6. 结果强约束收敛：最终回复只输出大纲标题和大纲正文。",
-    "",
-    "## 禁止输出",
-    "禁止输出工具调用报告、分析过程、完成报告、下一步行动、等待工具结果、已读取资料清单、泛泛建议。",
-    "",
-    "## 本分项内容要求",
-    requestHint,
-    getOutlineSectionOutputRules(title),
-    "",
-    "如果资料不足以完整生成，请只问一个最关键的澄清问题；如果资料足够，直接输出完整正文。",
-  ].join("\n");
-}
-
 function buildGenerationPrompt(
   title: string,
   requestHint: string,
@@ -800,25 +771,6 @@ function formatOutlineConversationDate(timestamp: number): string {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-export async function getUniqueOutlinePath(
-  outlinesDir: string,
-  fileName: string,
-): Promise<string> {
-  const normalizedFileName = fileName.toLowerCase().endsWith(".md")
-    ? fileName
-    : `${fileName}.md`;
-  const firstPath = `${outlinesDir}/${normalizedFileName}`;
-  if (!(await fileExists(firstPath))) return firstPath;
-  const extensionIndex = normalizedFileName.lastIndexOf(".");
-  const stem = extensionIndex > 0 ? normalizedFileName.slice(0, extensionIndex) : normalizedFileName;
-  const extension = extensionIndex > 0 ? normalizedFileName.slice(extensionIndex) : "";
-  for (let i = 2; i <= 99; i++) {
-    const candidate = `${outlinesDir}/${stem}-${i}${extension}`;
-    if (!(await fileExists(candidate))) return candidate;
-  }
-  return `${outlinesDir}/${stem}-${Date.now()}${extension}`;
 }
 
 function buildFallbackCharacterDraftsFromRequests(

@@ -28,7 +28,7 @@ export interface FactCheckReport {
   llmTime?: number
 }
 
-export interface FactCheckOptions {
+interface FactCheckOptions {
   llmMode?: boolean
   projectPath?: string
 }
@@ -430,109 +430,4 @@ function checkCausalityBreak(
   }
 
   return results
-}
-
-export async function verifyFactCheckLlm(
-  results: FactCheckResult[],
-  chapterContents: Record<number, string>,
-  _projectPath: string,
-): Promise<FactCheckResult[]> {
-  if (results.length === 0) return results
-
-  const pendingResults = results.filter((result) => result.confidence < 1)
-  if (pendingResults.length === 0) return results
-
-  try {
-    const { resolveNovelModel } = await import("./model-resolver")
-    const { streamChat } = await import("@/lib/llm-client")
-    const { useWikiStore } = await import("@/stores/wiki-store")
-    const { hasUsableLlm } = await import("@/lib/has-usable-llm")
-
-    const llmConfig = resolveNovelModel(
-      useWikiStore.getState().llmConfig,
-      useWikiStore.getState().novelConfig,
-      "review",
-    )
-    if (!hasUsableLlm(llmConfig, useWikiStore.getState().providerConfigs)) return results
-
-    const pendingItems = pendingResults.slice(0, 5)
-    const itemsText = pendingItems.map((item, index) => {
-      const prevContent = chapterContents[item.chapters[0]]?.slice(0, 500) || "(无内容)"
-      const currContent = chapterContents[item.chapters[1]]?.slice(0, 500) || "(无内容)"
-      return `### ${index + 1}. ${item.message}
-- 严重程度: ${item.severity}
-- 类型: ${item.type}
-- 证据A (第${item.chapters[0]}章): ${item.evidenceA}
-- 证据B (第${item.chapters[1]}章): ${item.evidenceB}
-- 第${item.chapters[0]}章内容片段: ${prevContent}
-- 第${item.chapters[1]}章内容片段: ${currContent}`
-    }).join("\n\n")
-
-    const prompt = `请逐一审查以下规则引擎标记的可能矛盾项，判断是否确实是故事内容矛盾。
-
-对每一项，请回复一个 JSON 数组，格式为：
-[
-  {"index": 1, "confirmed": true|false, "adjustedConfidence": 0.0-1.0, "note": "简要说明"}
-]
-
-注意：
-- 只有在两章原文确实存在事实矛盾时才确认
-- 如果只是表述差异、视角差异或信息省略，应标记为未确认
-- 如果证据不足无法判断，应标记为未确认，并把置信度设为 0.3 以下
-
-${itemsText}`
-
-    const messages = [
-      {
-        role: "system" as const,
-        content: "你是专业的小说事实核查员。请严格依据原文判断，不要自行补全剧情。",
-      },
-      { role: "user" as const, content: prompt },
-    ]
-
-    let response = ""
-    await streamChat(
-      llmConfig,
-      messages,
-      {
-        onToken: (token: string) => {
-          response += token
-        },
-        onDone: () => {},
-        onError: (error: Error) => {
-          console.error("[FactCheck LLM] Stream error:", error)
-        },
-      },
-      AbortSignal.timeout(60000),
-    )
-
-    const jsonMatch = response.match(/\[[\s\S]*\]/)
-    if (!jsonMatch) return results
-
-    const verdicts = JSON.parse(jsonMatch[0])
-    if (!Array.isArray(verdicts)) return results
-
-    for (const verdict of verdicts) {
-      const idx = verdict.index - 1
-      if (idx < 0 || idx >= pendingItems.length) continue
-
-      const originalIndex = results.indexOf(pendingItems[idx])
-      if (originalIndex < 0) continue
-
-      results[originalIndex] = {
-        ...results[originalIndex],
-        confidence: typeof verdict.adjustedConfidence === "number"
-          ? Math.max(0, Math.min(1, verdict.adjustedConfidence))
-          : pendingItems[idx].confidence,
-        suggestion: verdict.note
-          ? `${pendingItems[idx].suggestion} [LLM: ${verdict.note}]`
-          : pendingItems[idx].suggestion,
-      }
-    }
-
-    return results
-  } catch (error) {
-    console.error("[FactCheck LLM] Failed:", error)
-    return results
-  }
 }

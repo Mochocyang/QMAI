@@ -33,7 +33,7 @@ interface StartImportProgressTaskInput {
   concurrency?: number
 }
 
-export interface ImportProgressState {
+interface ImportProgressState {
   tasks: ImportProgressTask[]
   startTask: (input: StartImportProgressTaskInput) => string
   updateTask: (taskId: string, patch: Partial<ImportProgressTask>) => void

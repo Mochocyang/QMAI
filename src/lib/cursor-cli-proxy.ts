@@ -11,10 +11,10 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import { isTauri } from "@/lib/platform"
 import type { LocalCliDetectResult } from "./local-cli-config"
 
-export const DEFAULT_CURSOR_PROXY_BASE = "http://127.0.0.1:8765"
-export const DEFAULT_CURSOR_PROXY_V1 = "http://127.0.0.1:8765/v1"
+const DEFAULT_CURSOR_PROXY_BASE = "http://127.0.0.1:8765"
+const DEFAULT_CURSOR_PROXY_V1 = "http://127.0.0.1:8765/v1"
 
-export interface CursorProxyStatus {
+interface CursorProxyStatus {
   healthy: boolean
   base_url: string
   managed: boolean

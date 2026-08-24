@@ -12,7 +12,7 @@ import {
 } from "./vector-relevance"
 
 /** 社区摘要持久化结构 */
-export interface CommunitySummaryRecord {
+interface CommunitySummaryRecord {
   communityId: number
   summary: string
   nodeCount: number

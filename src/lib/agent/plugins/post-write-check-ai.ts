@@ -8,7 +8,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { runPostWriteCheck } from "./post-write-check-plugin"
 import { useWikiStore } from "@/stores/wiki-store"
 
-export interface PostWriteCheckAIResult {
+interface PostWriteCheckAIResult {
   check: PostWriteCheck
   source: "ai" | "rule"
   fallbackReason?: string

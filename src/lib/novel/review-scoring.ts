@@ -1,6 +1,6 @@
 import type { NovelReviewResult } from "./review-adapter"
 
-export interface DimensionScore {
+interface DimensionScore {
   key: string
   labelKey: string
   score: number
@@ -9,7 +9,7 @@ export interface DimensionScore {
   issues: NovelReviewResult[]
 }
 
-export interface ReviewScoreReport {
+interface ReviewScoreReport {
   dimensions: DimensionScore[]
   totalScore: number
   totalIssues: number
@@ -62,32 +62,7 @@ const SEVERITY_DEDUCTION: Record<string, number> = {
   info: 5,
 }
 
-/**
- * 校准后的推荐配置（基于黄金标准场景网格搜索）。
- * 可由 `node scripts/calibrate-review-weights.mjs` 重新生成。
- *
- * 与默认值差异：
- * - facts 维度权重从 0.25 ↑ 0.35（事实一致性权重最高）
- * - plot 权重从 0.20 ↓ 0.12（允许更多剧情自由度）
- * - error 扣分从 20 ↑ 26（严重错误惩罚更强）
- * - 总绝对误差从 106 → 52（降低 54%）
- */
-export const CALIBRATED_DIMENSION_WEIGHTS: Record<string, number> = {
-  plot: 0.116,
-  character: 0.190,
-  world: 0.050,
-  pacing: 0.190,
-  facts: 0.353,
-  compliance: 0.101,
-}
-
-export const CALIBRATED_SEVERITY_DEDUCTION: Record<string, number> = {
-  error: 26,
-  warning: 13,
-  info: 7,
-}
-
-export interface ReviewScoringOptions {
+interface ReviewScoringOptions {
   enableAntiHallucination?: boolean
   dimensionWeights?: Partial<Record<string, number>>
   severityDeductions?: Partial<Record<string, number>>

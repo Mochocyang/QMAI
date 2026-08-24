@@ -3,7 +3,7 @@ import type { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord } from "./types"
 import { scopeAgentConfigTools } from "./tool-scope"
 
-export interface RunAiChatSessionCallbacks {
+interface RunAiChatSessionCallbacks {
   onText: (chunk: string) => void
   onReasoningToken?: (chunk: string) => void
   onToolEvent?: AgentRunCallbacks["onToolEvent"]
@@ -15,7 +15,7 @@ export interface RunAiChatSessionCallbacks {
   onError: (error: Error) => void
 }
 
-export interface RunAiChatSessionInput {
+interface RunAiChatSessionInput {
   userMessage: string
   projectPath?: string
   agentConfig: AgentConfig

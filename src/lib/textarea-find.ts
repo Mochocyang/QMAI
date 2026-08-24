@@ -1,4 +1,4 @@
-export interface TextareaFindOptions {
+interface TextareaFindOptions {
   caseSensitive?: boolean
 }
 
@@ -92,7 +92,7 @@ export function buildFindHighlightParts(
   return parts
 }
 
-export function findScrollContainer(element: HTMLElement): HTMLElement | null {
+function findScrollContainer(element: HTMLElement): HTMLElement | null {
   let parent: HTMLElement | null = element.parentElement
   while (parent) {
     const overflowY = window.getComputedStyle(parent).overflowY

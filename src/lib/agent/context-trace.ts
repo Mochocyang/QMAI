@@ -6,7 +6,7 @@ import type { SkillKind, SkillMode, SkillStage } from "@/lib/novel/skill-library
 import type { CapabilityKind, CapabilityPermission } from "./capabilities/types"
 import type { ContextHubStats } from "@/lib/context-hub/types"
 
-export type TraceToolCategory = "read" | "write" | "action" | "virtual"
+type TraceToolCategory = "read" | "write" | "action" | "virtual"
 
 export interface TraceToolCall {
   id: string
@@ -148,26 +148,6 @@ export function createContextTrace(id: string): ContextTrace {
     startedAt: Date.now(),
     toolCalls: [],
     status: "running",
-  }
-}
-
-export function addToolCallToTrace(trace: ContextTrace, toolCall: TraceToolCall): ContextTrace {
-  return {
-    ...trace,
-    toolCalls: [...trace.toolCalls, toolCall],
-  }
-}
-
-export function updateToolCallInTrace(
-  trace: ContextTrace,
-  callId: string,
-  updates: Partial<TraceToolCall>,
-): ContextTrace {
-  return {
-    ...trace,
-    toolCalls: trace.toolCalls.map((call) =>
-      call.id === callId ? { ...call, ...updates } : call,
-    ),
   }
 }
 

@@ -147,7 +147,7 @@ vi.mock("@/lib/project-store", () => ({
 import { ChatPanel } from "@/components/chat/chat-panel"
 import { useChatStore } from "@/stores/chat-store"
 
-export interface RenderChatPanelOptions {
+interface RenderChatPanelOptions {
   activeConversation?: boolean
   activeConversationId?: string | null
   conversations?: Conversation[]

@@ -7,17 +7,17 @@ import {
   type MarkdownQualityInspection,
 } from "./markdown-quality-pipeline"
 
-export interface MarkdownRepairMessage {
+interface MarkdownRepairMessage {
   role: "user"
   content: string
 }
 
-export interface MarkdownAiRepairRequest {
+interface MarkdownAiRepairRequest {
   content: string
   maxTokens: number
 }
 
-export interface FinalizeStructuredMarkdownOptions {
+interface FinalizeStructuredMarkdownOptions {
   enabled: boolean
   repairWithAi: (request: MarkdownAiRepairRequest) => Promise<string>
   onFailure: () => void

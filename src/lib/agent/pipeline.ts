@@ -66,7 +66,7 @@ export interface PrePluginChainResult extends PrePluginOutput {
   executedPlugins: string[]
 }
 
-export interface PrePluginChain {
+interface PrePluginChain {
   run(input: PrePluginInput, config?: PluginConfig): Promise<PrePluginChainResult>
 }
 

@@ -3,7 +3,7 @@ import type { AgentRunCallbacks, AgentRunRecord, Tool } from "./types"
 import { executeAgentTool, type ExecuteAgentToolResult } from "./tool-executor"
 import { RequiredToolFallbackError } from "./required-tools-gate"
 
-export interface RequiredToolFallbackResult {
+interface RequiredToolFallbackResult {
   attempted: boolean
   toolName?: string
   satisfiedTools: string[]

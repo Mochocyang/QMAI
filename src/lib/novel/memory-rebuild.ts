@@ -6,7 +6,7 @@ const PUNCTUATION_RE = /[，。；：？！“”‘’（）《》【】<>]/u
 const GENERIC_SUBJECT_RE = /^(?:\d+号.+|短发女人|长发女人|老太太|老头|老人|守卫|村民|灰白制服(?:人员|男人|女人)|两名灰白制服人员)$/u
 const EVENT_VERB_RE = /(发现|确认|试图|听见|引发|整理|逐步浮现|否定|建立|失踪|审问|追捕|偷听|回收|转送|封存)/u
 
-export interface StructuredMemoryDocuments {
+interface StructuredMemoryDocuments {
   "chapter-snapshots.md": string
   "character-cognition.md": string
   "character-states.md": string

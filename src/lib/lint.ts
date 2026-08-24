@@ -18,7 +18,7 @@ export interface LintResult {
   affectedPages?: string[]
 }
 
-export interface SemanticLintOptions {
+interface SemanticLintOptions {
   chapterContent?: string
   chapterNumber?: number
 }

@@ -15,7 +15,7 @@ import type { UserMemoryScope, UserMemorySurface } from "./types"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
 
-export interface UserMemoryLearningInput {
+interface UserMemoryLearningInput {
   message: string
   llmConfig: LlmConfig
   surface?: UserMemorySurface
@@ -24,7 +24,7 @@ export interface UserMemoryLearningInput {
   scope?: UserMemoryScope
 }
 
-export interface UserMemoryLearningResult {
+interface UserMemoryLearningResult {
   status: "disabled" | "ignored" | "unchanged" | "learned" | "budget_exhausted" | "failed"
   added: number
 }

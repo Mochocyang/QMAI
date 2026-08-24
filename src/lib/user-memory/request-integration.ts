@@ -11,7 +11,7 @@ import { loadGlobalUserMemoryConfig, saveGlobalUserMemoryConfig } from "./store"
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">
 
-export interface ApplyUserMemoryResult {
+interface ApplyUserMemoryResult {
   messages: ChatMessage[]
   decision: UserMemoryDecision | null
 }

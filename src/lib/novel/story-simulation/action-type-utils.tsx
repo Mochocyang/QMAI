@@ -1,4 +1,4 @@
-import type { AgentActionType } from "./types"
+
 import {
   Brain,
   Forward,
@@ -78,11 +78,6 @@ export function actionTypeIcon(type: string): LucideIcon {
   return ICON_MAP[type] || Zap
 }
 
-/** 行为类型 → 图标名称（用于 className 选择） */
-export function actionTypeIconName(type: string): string {
-  return ICON_NAME_MAP[type] || "zap"
-}
-
 // ── 中文标签映射 ──
 const LABEL_MAP: Record<string, string> = {
   evaluate: "评价",
@@ -117,40 +112,4 @@ const ICON_MAP: Record<string, LucideIcon> = {
   conflict: Flame,
   cooperate: Users,
   withhold: Lock,
-}
-
-// ── 图标名称映射 ──
-const ICON_NAME_MAP: Record<string, string> = {
-  evaluate: "brain",
-  pushPlot: "forward",
-  observe: "eye",
-  react: "zap",
-  speak: "message-circle",
-  ally: "handshake",
-  confront: "swords",
-  conceal: "eye-off",
-  investigate: "search",
-  act: "zap",
-  decide: "check-circle",
-  conflict: "flame",
-  cooperate: "users",
-  withhold: "lock",
-}
-
-// ── 行为类型列表 ──
-export const ALL_ACTION_TYPES = Object.keys(LABEL_MAP) as AgentActionType[]
-
-/** 在 UI 中展示行为类型的配置项（label + icon） */
-export interface ActionTypeOption {
-  value: AgentActionType
-  label: string
-  Icon: LucideIcon
-}
-
-export function getAllActionTypeOptions(): ActionTypeOption[] {
-  return ALL_ACTION_TYPES.map((type) => ({
-    value: type,
-    label: LABEL_MAP[type],
-    Icon: ICON_MAP[type] || Zap,
-  }))
 }

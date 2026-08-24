@@ -1,6 +1,6 @@
 import { buildCharacterFileName } from "./character-save-extractor"
 
-export const VALID_ROLE_TYPES = new Set([
+const VALID_ROLE_TYPES = new Set([
   "男主", "女主", "男配", "女配", "反派", "导师", "盟友", "配角", "主角",
 ])
 
@@ -18,7 +18,7 @@ export interface CharacterAgentResult {
   fileName: string
 }
 
-export interface CharacterMultiAgentRunInput {
+interface CharacterMultiAgentRunInput {
   plans: CharacterAgentPlan[]
   maxConcurrency?: number
   runCharacterAgent: (plan: CharacterAgentPlan) => Promise<string>
@@ -27,13 +27,13 @@ export interface CharacterMultiAgentRunInput {
   onCharacterError?: (plan: CharacterAgentPlan, error: Error) => void
 }
 
-export interface CharacterMultiAgentRunResult {
+interface CharacterMultiAgentRunResult {
   characters: CharacterAgentResult[]
   failedCharacters: Array<{ plan: CharacterAgentPlan; error: string }>
   combinedMarkdown: string
 }
 
-export interface CharacterPlannerResult {
+interface CharacterPlannerResult {
   characters: Array<{ name: string; roleType: string }>
 }
 
@@ -152,7 +152,7 @@ export function buildCharacterAgentSystemPrompt(plan: CharacterAgentPlan): strin
   ].join("\n")
 }
 
-export function buildCharacterAgentUserPrompt(input: {
+function buildCharacterAgentUserPrompt(input: {
   userPrompt: string
   projectContext: string
   plan: CharacterAgentPlan

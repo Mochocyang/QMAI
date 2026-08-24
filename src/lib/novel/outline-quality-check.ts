@@ -20,7 +20,7 @@ export interface QualityCheckItem {
   details?: string[];
 }
 
-export interface ChapterOutlineQualitySummary {
+interface ChapterOutlineQualitySummary {
   valid: boolean;
   errors: string[];
   warnings: string[];

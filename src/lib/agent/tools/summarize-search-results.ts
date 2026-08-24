@@ -1,6 +1,6 @@
 import type { Tool } from "../types"
 
-export interface SummarizeSearchResultsResult {
+interface SummarizeSearchResultsResult {
   status: "ok" | "not_configured" | "error"
   query: string
   sourceCount: number

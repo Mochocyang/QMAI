@@ -91,7 +91,7 @@ export async function findChapterFileByNumber(projectPath: string, chapterNumber
   return null
 }
 
-export interface ResolveTargetChapterNumberForChatInput {
+interface ResolveTargetChapterNumberForChatInput {
   projectPath: string
   userRequest: string
   routeIntent?: NovelTaskIntent

@@ -89,7 +89,7 @@ export const DEFAULT_SKILL_HUB_SKILLS: UserSkill[] = Object.entries(skillHubModu
   .filter((skill): skill is UserSkill => Boolean(skill))
   .sort((left, right) => left.id.localeCompare(right.id))
 
-export const SKILL_ROUTE_REGISTRY_MISSING_NAMES = validateSkillRouteRegistry(
+const SKILL_ROUTE_REGISTRY_MISSING_NAMES = validateSkillRouteRegistry(
   DEFAULT_SKILL_HUB_SKILLS.map((skill) => skill.name),
 )
 

@@ -1,6 +1,6 @@
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
 
-export type LlmProvider = LlmConfig["provider"]
+type LlmProvider = LlmConfig["provider"]
 
 /**
  * Maps LlmConfig.provider values to their corresponding LLM_PRESETS id,

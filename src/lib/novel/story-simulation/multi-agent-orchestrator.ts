@@ -9,7 +9,7 @@ import type {
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
 
-export interface AgentTurnPlan {
+interface AgentTurnPlan {
   agentId: string
   agentName: string
   round: number
@@ -36,12 +36,12 @@ export interface SimulationBlackboard {
   roundPlans: MultiAgentRoundPlan[]
 }
 
-export interface CreateSimulationBlackboardInput {
+interface CreateSimulationBlackboardInput {
   agents: NovelAgent[]
   timelineEvents?: TimelineEvent[]
 }
 
-export interface PlanMultiAgentRoundInput {
+interface PlanMultiAgentRoundInput {
   node: StoryNode
   state: SimulationState
   candidateAgents: NovelAgent[]
@@ -50,7 +50,7 @@ export interface PlanMultiAgentRoundInput {
   random?: () => number
 }
 
-export interface CreateBlackboardDebugTraceInput {
+interface CreateBlackboardDebugTraceInput {
   type: SimulationDebugTrace["type"]
   node: StoryNode
   round: number
@@ -293,7 +293,7 @@ function toDebugVisibleEvent(event: TimelineEvent): SimulationDebugVisibleEvent 
   }
 }
 
-export type RumorVerificationResult = "confirmed" | "debunked" | "partial"
+type RumorVerificationResult = "confirmed" | "debunked" | "partial"
 
 function splitKeywords(text: string): string[] {
   return text

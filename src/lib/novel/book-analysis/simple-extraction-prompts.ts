@@ -1,4 +1,4 @@
-export interface SimpleExtractionPromptInput {
+interface SimpleExtractionPromptInput {
   characterNames: string[]
   chapterSamples: string  // 章节内容拼接
 }

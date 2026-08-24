@@ -6,7 +6,7 @@
  * `removeMergedDedupGroupFromSession` after a successful merge; the
  * Maintenance section registers the live session updater on mount.
  */
-export type DedupScanSessionApi = {
+type DedupScanSessionApi = {
   /** Remove a candidate group from the live scan list + persist cache. */
   removeGroup: (slugs: readonly string[]) => void
 }

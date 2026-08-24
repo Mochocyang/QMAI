@@ -18,12 +18,12 @@ export interface NovelReviewResult {
   suggestion: string
 }
 
-export interface NovelReviewCallbacks {
+interface NovelReviewCallbacks {
   onThinking?: (content: string) => void
   onRequestTrace?: StreamCallbacks["onRequestTrace"]
 }
 
-export interface ReviewChapterOptions extends NovelReviewCallbacks {
+interface ReviewChapterOptions extends NovelReviewCallbacks {
   /**
    * 复用调用方已构建好的上下文包，避免审稿内部重复 buildContextPack
    * （含一次重复的检索 / 向量 / 图谱计算）。深度章节生成会把阶段1建好的

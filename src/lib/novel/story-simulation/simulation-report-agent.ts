@@ -12,7 +12,7 @@ import type {
 
 // ── 对外接口 ──
 
-export interface ReportGenerationOptions {
+interface ReportGenerationOptions {
   events: SimulationEvent[]
   framework: StoryFramework
   mode: SimulationMode

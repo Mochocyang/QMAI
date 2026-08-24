@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { normalizeReviewTitle } from "@/lib/review-utils"
 import type { NovelReviewResult } from "@/lib/novel/review-adapter"
 
-export interface NovelReviewEntry {
+interface NovelReviewEntry {
   id: string
   chapterNumber: number
   results: NovelReviewResult[]

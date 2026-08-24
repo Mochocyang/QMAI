@@ -11,7 +11,7 @@ function normalizeDiffText(value: string): string {
   return `${normalized}\n`
 }
 
-export interface AiChangeComparePanelProps {
+interface AiChangeComparePanelProps {
   originalContent: string
   modifiedContent: string
   onModifiedContentChange: (content: string) => void

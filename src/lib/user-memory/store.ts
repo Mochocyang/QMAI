@@ -388,7 +388,7 @@ export function updateGlobalUserMemorySettings(
   return normalizeGlobalUserMemoryConfig({ ...config, ...patch, updatedAt: now })
 }
 
-export interface GlobalUserMemoryStats {
+interface GlobalUserMemoryStats {
   totalRules: number
   manualRules: number
   candidateRules: number

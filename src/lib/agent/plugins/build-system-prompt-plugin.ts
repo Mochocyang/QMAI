@@ -8,7 +8,7 @@ import {
 import { buildSelectedSkillsPrompt } from "./select-skills-plugin"
 import { getWorkflowModeLabel, type AiWorkflowMode } from "../workflow-mode"
 
-export interface BuildSystemPromptPluginDeps {
+interface BuildSystemPromptPluginDeps {
   baseSystemPrompt?: string
   buildTaskDirectiveFn?: typeof buildTaskDirective
   onError?: (error: Error) => void

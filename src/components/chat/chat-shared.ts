@@ -4,7 +4,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 
-export interface QueryPageReference {
+interface QueryPageReference {
   title: string
   path: string
 }
@@ -32,10 +32,6 @@ export function useSourceFiles() {
 
 export function getLastQueryPages(): QueryPageReference[] {
   return lastQueryPages
-}
-
-export function setLastQueryPages(pages: QueryPageReference[]) {
-  lastQueryPages = pages
 }
 
 function flattenNames(nodes: FileNode[]): string[] {

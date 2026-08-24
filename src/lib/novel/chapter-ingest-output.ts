@@ -58,21 +58,14 @@ export interface WikiUpdatePatch {
   entries: WikiUpdateEntry[]
 }
 
-export interface SharedWikiState {
-  sharedWiki: true
-  entries: Record<string, WikiUpdateEntry>
-  chapterWikiIds: string[]
-  isolatedChapterWikiIds: string[]
-}
-
-export interface GraphDerivationNode {
+interface GraphDerivationNode {
   id: string
   label: string
   type: NovelNodeType
   source: IngestSourceRef
 }
 
-export interface GraphDerivationEdge {
+interface GraphDerivationEdge {
   source: string
   target: string
   relation: string
@@ -84,7 +77,7 @@ export interface GraphDerivationCandidates {
   edges: GraphDerivationEdge[]
 }
 
-export interface SearchIndexSection {
+interface SearchIndexSection {
   name: string
   content: string
   weight: number
@@ -96,7 +89,7 @@ export interface SearchIndexText {
   sections: SearchIndexSection[]
 }
 
-export interface VectorIndexChunk {
+interface VectorIndexChunk {
   kind: "summary" | "character" | "event" | "foreshadowing" | "canon" | "timeline" | "conflict"
   text: string
   metadata: Record<string, string | number>
@@ -107,7 +100,7 @@ export interface VectorIndexText {
   chunks: VectorIndexChunk[]
 }
 
-export interface ChapterIngestOutputOptions {
+interface ChapterIngestOutputOptions {
   title?: string
   volume?: string
   chapterGoal?: string
@@ -297,64 +290,6 @@ function sourceRef(snapshot: ChapterSnapshot, evidence?: string): IngestSourceRe
   return evidence?.trim()
     ? { chapterNumber: snapshot.chapterNumber, snapshotId: snapshot.chapterId, evidence }
     : { chapterNumber: snapshot.chapterNumber, snapshotId: snapshot.chapterId }
-}
-
-export function applyWikiUpdatePatch(state: SharedWikiState | undefined, patch: WikiUpdatePatch): SharedWikiState {
-  const next: SharedWikiState = state
-    ? {
-      sharedWiki: true,
-      entries: { ...state.entries },
-      chapterWikiIds: [...state.chapterWikiIds],
-      isolatedChapterWikiIds: [...state.isolatedChapterWikiIds],
-    }
-    : { sharedWiki: true, entries: {}, chapterWikiIds: [], isolatedChapterWikiIds: [] }
-
-  for (const incoming of patch.entries) {
-    const existing = next.entries[incoming.entryId]
-    next.entries[incoming.entryId] = existing
-      ? {
-        ...existing,
-        title: incoming.title,
-        fields: mergeFields(existing.fields, incoming.fields),
-        sources: mergeSources(existing.sources, incoming.sources),
-      }
-      : { ...incoming, fields: { ...incoming.fields }, sources: [...incoming.sources] }
-
-    if (incoming.entryType === "chapter" && !next.chapterWikiIds.includes(incoming.entryId)) {
-      next.chapterWikiIds.push(incoming.entryId)
-    }
-  }
-
-  return next
-}
-
-function mergeFields(existing: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
-  const merged = { ...existing }
-  for (const [key, value] of Object.entries(incoming)) {
-    const current = merged[key]
-    if (Array.isArray(current) && Array.isArray(value)) {
-      merged[key] = Array.from(new Set([...current, ...value]))
-    } else if (isRecord(current) && isRecord(value)) {
-      merged[key] = mergeFields(current, value)
-    } else if (value !== "" && value !== undefined) {
-      merged[key] = value
-    }
-  }
-  return merged
-}
-
-function mergeSources(existing: IngestSourceRef[], incoming: IngestSourceRef[]): IngestSourceRef[] {
-  const result = [...existing]
-  for (const source of incoming) {
-    if (!result.some((item) => item.chapterNumber === source.chapterNumber && item.snapshotId === source.snapshotId && item.evidence === source.evidence)) {
-      result.push(source)
-    }
-  }
-  return result
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function entry(entryId: string, entryType: WikiEntryType, title: string, fields: Record<string, unknown>, source: IngestSourceRef): WikiUpdateEntry {

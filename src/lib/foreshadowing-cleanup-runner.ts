@@ -43,7 +43,7 @@ import type { FileNode } from "@/types/wiki"
 export type ForeshadowingCleanupScanStage = "loading" | "detecting"
 export type ForeshadowingCleanupApplyStage = "loading" | "applying" | "writing"
 
-export type CleanupLogFn = (message: string) => void
+type CleanupLogFn = (message: string) => void
 
 export interface ForeshadowingCleanupScanProgress {
   stage: ForeshadowingCleanupScanStage
@@ -51,14 +51,13 @@ export interface ForeshadowingCleanupScanProgress {
   percent: number
   batch?: CleanupBatchProgress
 }
-
 function describeLlm(llmConfig: LlmConfig): string {
   const provider = llmConfig.provider?.trim() || "unknown"
   const model = llmConfig.model?.trim() || "unknown"
   return `${provider}/${model}`
 }
 
-export function buildCleanupLlmCall(llmConfig: LlmConfig): CleanupLlmCall {
+function buildCleanupLlmCall(llmConfig: LlmConfig): CleanupLlmCall {
   return async (systemPrompt, userMessage, signal) => {
     let result = ""
     let streamError: Error | null = null
@@ -98,7 +97,7 @@ export async function resolveCurrentChapter(projectPath: string): Promise<number
   return Math.max(...positive)
 }
 
-export interface ForeshadowingCleanupScanResult {
+interface ForeshadowingCleanupScanResult {
   issues: CleanupIssue[]
   scannedItemCount: number
   currentChapter: number
@@ -485,5 +484,3 @@ export async function deleteInvalidSnapshots(
   }
   return deleted
 }
-
-export { buildOverview }

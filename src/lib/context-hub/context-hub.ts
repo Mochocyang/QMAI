@@ -59,7 +59,7 @@ type BuildContextPack = (
 
 const STABLE_SOURCE_KINDS: ContextSourceKind[] = ["soul", "setting", "entity", "outline", "deduction"]
 
-export interface ContextHubControllerDependencies {
+interface ContextHubControllerDependencies {
   registry?: HubRegistry
   storage?: HubStorage
   buildContextPack?: BuildContextPack

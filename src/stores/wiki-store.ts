@@ -50,7 +50,7 @@ const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 const UI_FONT_FAMILY_KEY = "qmai-ui-font-family"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
-export type SettingsCategoryId =
+type SettingsCategoryId =
   | "llm"
   | "rerank"
   | "embedding"
@@ -490,19 +490,19 @@ export type FinalChapterSavePhase =
   | "ingest_not_final"
   | "ingest_extract_failed"
 
-export interface FinalChapterSaveState extends BaseTaskState {
+interface FinalChapterSaveState extends BaseTaskState {
   filePath: string
   saving: boolean
   phase: FinalChapterSavePhase | null
   params?: Record<string, string | number>
 }
 
-export interface LintRunState extends AsyncTaskState {
+interface LintRunState extends AsyncTaskState {
   hasRun: boolean
   results: LintResult[]
 }
 
-export interface ReviewRunState extends AsyncTaskState {
+interface ReviewRunState extends AsyncTaskState {
   results: NovelReviewResult[]
   thinking?: string
   dimensionResults?: Partial<Record<SixReviewDimensionKey, DimensionReviewResult>>
@@ -520,7 +520,7 @@ export interface PendingEditorHighlight {
 type LintRunFinishState = Omit<Partial<LintRunState>, "runId" | "projectPath" | "filePath">
 type ReviewRunFinishState = Omit<Partial<ReviewRunState>, "runId" | "projectPath" | "filePath">
 
-export const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前 Skill 还有未保存修改，确定放弃修改吗？"
+const SKILL_LIBRARY_UNSAVED_CONFIRM = "当前 Skill 还有未保存修改，确定放弃修改吗？"
 
 export function confirmDiscardSkillLibraryDraft(): boolean {
   if (typeof window === "undefined" || typeof window.confirm !== "function") return true
@@ -994,4 +994,4 @@ export const useWikiStore = create<WikiState>((set) => ({
   bumpBindingVersion: () => set((state) => ({ bindingVersion: state.bindingVersion + 1 })),
 }))
 
-export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, VisualStyle }
+export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, SourceWatchConfig }

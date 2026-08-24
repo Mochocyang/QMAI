@@ -24,7 +24,7 @@ interface CreateOutlineTaskInput {
   error?: string | null
 }
 
-export interface OutlineGenerationState {
+interface OutlineGenerationState {
   tasks: OutlineGenerationTask[]
   panelOpen: boolean
   setPanelOpen: (open: boolean) => void

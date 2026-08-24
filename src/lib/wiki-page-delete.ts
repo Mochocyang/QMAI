@@ -121,7 +121,7 @@ function flattenMd(nodes: readonly FileNode[]): FileNode[] {
   return out
 }
 
-export interface CascadeDeleteResult {
+interface CascadeDeleteResult {
   /** Wiki-page paths that were actually removed from disk. */
   deletedPaths: string[]
   /** How many surviving wiki files we rewrote to drop stale refs. */

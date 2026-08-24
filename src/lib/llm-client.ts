@@ -42,7 +42,7 @@ import {
 import { withWritingWakeLock } from "./writing-wake-lock"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
-export { isFetchNetworkError } from "./tauri-fetch"
+
 export type { LlmUsage } from "./llm-usage"
 
 export interface StreamCallbacks {
@@ -95,7 +95,7 @@ export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
  */
 export const OUTPUT_TRUNCATED_ERROR_MARKER = "输出被截断"
 
-export function buildOutputTruncatedError(finishReason: string): Error {
+function buildOutputTruncatedError(finishReason: string): Error {
   return new Error(
     `${OUTPUT_TRUNCATED_ERROR_MARKER}：模型已达到最大输出 token 上限（finish_reason=${finishReason}）。` +
     `已生成的内容已保留，可输入"继续"让模型补全剩余部分，或提高最大输出 token 后重试。`,
@@ -106,7 +106,7 @@ export function isOutputTruncatedError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(OUTPUT_TRUNCATED_ERROR_MARKER)
 }
 
-export function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
+function shouldRetryWithBrowserFetch(errorDetail: string): boolean {
   return /client not allowed/i.test(errorDetail) && /tauri-plugin-http/i.test(errorDetail)
 }
 
@@ -132,7 +132,7 @@ function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
-export function parseToolCallDeltasFromLine(
+function parseToolCallDeltasFromLine(
   line: string,
 ): Array<{ index: number; id?: string; name?: string; arguments?: string }> {
   const trimmed = line.trim()
@@ -186,7 +186,7 @@ function inputLengthLimitMessage(limit: { inputLength: number; maxLength: number
  * request. Returns the highest value the model will accept when the error
  * reports one; otherwise null.
  */
-export function parseMaxTokensLimit(errorDetail: string): number | null {
+function parseMaxTokensLimit(errorDetail: string): number | null {
   const patterns = [
     /max[_ ]?(?:output[_ ]?)?tokens?\s*(?:of\s+|is\s+|=\s*)?([\d,]+)\s*(?:is\s+)?(?:too\s+(?:large|high)|exceeds|above|greater than)/i,
     /(?:max[_ ]?(?:output[_ ]?)?tokens?|maximum\s+output)\s*(?:must be|should be|limited to|capped at|<=|≤)\s*([\d,]+)/i,

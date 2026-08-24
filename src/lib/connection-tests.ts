@@ -1,5 +1,4 @@
-import type { EmbeddingConfig, LlmConfig } from "@/stores/wiki-store"
-import { fetchEmbedding, getLastEmbeddingError } from "@/lib/embedding"
+import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat } from "@/lib/llm-client"
 
 export interface ProviderTestResult {
@@ -7,60 +6,7 @@ export interface ProviderTestResult {
   message: string
 }
 
-export const LLM_PROVIDER_TEST_MAX_TOKENS = 512
-
-export async function testEmbeddingConnection(cfg: EmbeddingConfig): Promise<ProviderTestResult> {
-  if (!cfg.endpoint.trim()) {
-    return { ok: false, message: "Embedding endpoint is empty." }
-  }
-  if (!cfg.model.trim()) {
-    return { ok: false, message: "Embedding model is empty." }
-  }
-
-  const started = performance.now()
-  const vector = await fetchEmbedding("LLM Wiki embedding connection test.", cfg, 0)
-  if (!vector) {
-    return {
-      ok: false,
-      message: getLastEmbeddingError() ?? "Embedding endpoint returned no vector.",
-    }
-  }
-
-  return {
-    ok: true,
-    message: `Connected. Returned ${vector.length} dimensions in ${Math.round(performance.now() - started)} ms.`,
-  }
-}
-
-export async function testEmbeddingFunction(cfg: EmbeddingConfig): Promise<ProviderTestResult> {
-  const first = await fetchEmbedding("LLM Wiki functional embedding test: apple banana graph.", cfg, 0)
-  const second = await fetchEmbedding("LLM Wiki functional embedding test: apple banana graph.", cfg, 0)
-  if (!first || !second) {
-    return {
-      ok: false,
-      message: getLastEmbeddingError() ?? "Embedding endpoint did not return vectors.",
-    }
-  }
-  if (first.length !== second.length) {
-    return {
-      ok: false,
-      message: `Embedding dimension changed between calls (${first.length} vs ${second.length}).`,
-    }
-  }
-  if (first.length === 0 || first.some((v) => !Number.isFinite(v)) || second.some((v) => !Number.isFinite(v))) {
-    return { ok: false, message: "Embedding endpoint returned an empty or non-finite vector." }
-  }
-
-  const norm = Math.sqrt(first.reduce((sum, v) => sum + v * v, 0))
-  if (!Number.isFinite(norm) || norm <= 0) {
-    return { ok: false, message: "Embedding vector norm is zero or invalid." }
-  }
-
-  return {
-    ok: true,
-    message: `Functional test passed. Stable ${first.length}-dimension finite vectors returned.`,
-  }
-}
+const LLM_PROVIDER_TEST_MAX_TOKENS = 512
 
 export async function testLlmConnection(cfg: LlmConfig): Promise<ProviderTestResult> {
   const started = performance.now()

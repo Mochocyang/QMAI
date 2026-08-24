@@ -21,7 +21,7 @@ export interface GenerationHistoryEntry {
   filePath: string
 }
 
-export interface SaveGenerationHistoryInput {
+interface SaveGenerationHistoryInput {
   kind: GenerationHistoryKind
   title: string
   chapterNumber?: number

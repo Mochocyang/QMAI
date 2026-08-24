@@ -3,27 +3,27 @@ import i18n from "@/i18n"
 import type { LintResult } from "@/lib/lint"
 import type { NovelReviewResult } from "./review-adapter"
 
-export interface NovelRevisionFeedback {
+interface NovelRevisionFeedback {
   mustFix: string[]
   shouldImprove: string[]
   carryToNextChapter: string[]
 }
 
-export interface RevisionFeedbackWindowConfig {
+interface RevisionFeedbackWindowConfig {
   currentChapterIncludeShouldImprove: boolean
   previousChapterCarryEnabled: boolean
   lookbackChapterCount: number
   lookbackIncludeMustFixOnly: boolean
 }
 
-export const DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: RevisionFeedbackWindowConfig = {
+const DEFAULT_REVISION_FEEDBACK_WINDOW_CONFIG: RevisionFeedbackWindowConfig = {
   currentChapterIncludeShouldImprove: true,
   previousChapterCarryEnabled: true,
   lookbackChapterCount: 2,
   lookbackIncludeMustFixOnly: true,
 }
 
-export type RevisionFeedbackSource = "review" | "lint"
+type RevisionFeedbackSource = "review" | "lint"
 
 interface ChapterRevisionFeedbackBuckets {
   fromReview: NovelRevisionFeedback
@@ -90,7 +90,7 @@ export function pickRevisionFeedbackFromLintResults(results: LintResult[]): Nove
   return dedupeRevisionFeedback(feedback)
 }
 
-export function mergeRevisionFeedback(
+function mergeRevisionFeedback(
   current: NovelRevisionFeedback,
   incoming: NovelRevisionFeedback,
 ): NovelRevisionFeedback {
@@ -122,28 +122,6 @@ export function buildRevisionDirectives(feedback: NovelRevisionFeedback): string
   return sections.join("\n")
 }
 
-export function getRevisionDirectives(): string {
-  return buildRevisionDirectives(currentRevisionFeedback)
-}
-
-export function storeRevisionFeedback(feedback: NovelRevisionFeedback): void {
-  currentRevisionFeedback = mergeRevisionFeedback(currentRevisionFeedback, feedback)
-}
-
-export async function persistRevisionFeedbackForProject(
-  projectPath: string,
-  feedback: NovelRevisionFeedback,
-): Promise<void> {
-  const next = dedupeRevisionFeedback(feedback)
-  currentRevisionFeedback = next
-
-  const dir = `${projectPath}/${REVISION_FEEDBACK_DIRNAME}`
-  const filePath = getRevisionFeedbackFilePath(projectPath)
-
-  await createDirectory(dir)
-  await writeFile(filePath, JSON.stringify(next, null, 2))
-}
-
 export async function persistRevisionFeedbackForChapter(
   projectPath: string,
   chapterNumber: number,
@@ -166,7 +144,7 @@ export async function persistRevisionFeedbackForChapter(
   await persistRevisionFeedbackDocument(projectPath, persisted)
 }
 
-export async function loadRevisionFeedbackForProject(projectPath: string): Promise<NovelRevisionFeedback> {
+async function loadRevisionFeedbackForProject(projectPath: string): Promise<NovelRevisionFeedback> {
   const filePath = getRevisionFeedbackFilePath(projectPath)
   const exists = await fileExists(filePath)
   if (!exists) {
@@ -241,10 +219,6 @@ export async function loadRevisionFeedbackForContext(
 
   currentRevisionFeedback = merged
   return currentRevisionFeedback
-}
-
-export function clearRevisionFeedback(): void {
-  currentRevisionFeedback = createEmptyRevisionFeedback()
 }
 
 export function setRevisionFeedbackForTesting(feedback: NovelRevisionFeedback): void {

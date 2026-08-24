@@ -22,7 +22,7 @@ import i18n from "@/i18n"
 import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
 /** Result of `computeContextBudget`. All values are character counts. */
-export interface ContextBudget {
+interface ContextBudget {
   /** How many characters of prompt text the model's token window holds,
    *  at the active language's density. Falls back to a sensible default
    *  when the caller passes 0/undefined. */
@@ -131,7 +131,7 @@ export function computeNovelContextTokenBudget(
   return cap
 }
 
-export interface ResolveContextPackTokenBudgetInput {
+interface ResolveContextPackTokenBudgetInput {
   maxContextSize?: number
   /**
    * Optional precomputed allocation (planner / composer). Not a user setting.
@@ -163,7 +163,7 @@ export const ANALYSIS_OUTPUT_FRAC = 0.04
  * 1-char-per-token estimator. Window-fraction planning may raise this, but
  * never drops below it — unless the user's maxOutputTokens cap is lower.
  */
-export const CHAPTER_GENERATION_OUTPUT_FLOOR = 15_360
+const CHAPTER_GENERATION_OUTPUT_FLOOR = 15_360
 
 export class LlmContextBudgetError extends Error {
   constructor(message = "模型上下文不足：无法同时容纳系统提示、当前用户请求和最小输出空间。") {
@@ -182,7 +182,7 @@ export class LlmContextBudgetError extends Error {
  */
 const LLM_WINDOW_SAFETY_FRAC = 0.9
 
-export interface LlmRequestBudgetInput {
+interface LlmRequestBudgetInput {
   maxContextSize?: number
   desiredOutputTokens: number
   requestedContextTokens?: number
@@ -199,7 +199,7 @@ export interface LlmRequestBudgetInput {
   thinkingFloorTokens?: number
 }
 
-export interface LlmRequestBudgetPlan {
+interface LlmRequestBudgetPlan {
   windowTokens: number
   outputTokens: number
   contextTokenBudget: number
@@ -259,9 +259,9 @@ export function planLlmRequestBudget(input: LlmRequestBudgetInput): LlmRequestBu
   }
 }
 
-export type ChapterBudgetStage = "analysis" | "generation"
+type ChapterBudgetStage = "analysis" | "generation"
 
-export interface PlanChapterRequestBudgetInput {
+interface PlanChapterRequestBudgetInput {
   maxContextSize?: number
   contextTokenBudget?: number
   chapterTargetChars?: number
@@ -300,7 +300,7 @@ export function planChapterRequestBudget(
 
 export type OutlineBudgetStage = "analysis" | "generation"
 
-export interface PlanOutlineRequestBudgetInput {
+interface PlanOutlineRequestBudgetInput {
   maxContextSize?: number
   contextTokenBudget?: number
   stage: OutlineBudgetStage
@@ -332,7 +332,7 @@ export function planOutlineRequestBudget(
   })
 }
 
-export interface ComputeWritingContextPackTokenBudgetInput {
+interface ComputeWritingContextPackTokenBudgetInput {
   maxContextSize?: number
   contextTokenBudget?: number
   chapterTargetChars?: number
@@ -357,7 +357,7 @@ export function computeWritingContextPackTokenBudget(
 /** Legacy single-pass outline ingest floor; kept so small windows still behave predictably. */
 export const OUTLINE_INGEST_MIN_BODY_BUDGET = 8_000
 /** Upper cap aligned with wiki long-source ingest. */
-export const OUTLINE_INGEST_MAX_BODY_BUDGET = 300_000
+const OUTLINE_INGEST_MAX_BODY_BUDGET = 300_000
 
 function clampBudget(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))

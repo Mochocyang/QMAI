@@ -382,14 +382,6 @@ export interface SimulationInput {
   resume?: SimulationResumePoint
 }
 
-// ── 仿真配置 ──
-export interface SimulationConfig {
-  mode: SimulationMode
-  userIdea?: string
-  targetWords: number
-  sourceChapters: number
-}
-
 // ── 字数预算 ──
 export const WORD_BUDGET_PRESETS = [10000, 30000, 50000] as const
 
@@ -463,13 +455,9 @@ export function getModeConfig(mode: SimulationMode): ModeConfig {
   return MODE_CONFIGS[mode] ?? MODE_CONFIGS.hybrid
 }
 
-export function calcMaxAgentsPerRound(activeAgentCount: number): number {
-  return Math.min(8, activeAgentCount)
-}
-
 // ── 模式可视化说明 ──
 
-export interface ModeVisualInfo {
+interface ModeVisualInfo {
   /** 模式名称 */
   name: string
   /** 简短描述 */

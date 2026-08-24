@@ -2,7 +2,7 @@ import yaml from "js-yaml"
 
 export type FrontmatterValue = string | string[]
 
-export interface FrontmatterParseResult {
+interface FrontmatterParseResult {
   frontmatter: Record<string, FrontmatterValue> | null
   body: string
   /**

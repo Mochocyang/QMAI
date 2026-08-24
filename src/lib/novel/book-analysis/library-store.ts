@@ -64,10 +64,6 @@ async function saveBookLibraryUnlocked(
   await writeFileAtomic(libraryPath(projectPath), JSON.stringify(library, null, 2))
 }
 
-export async function saveBookLibrary(projectPath: string, library: BookLibrary): Promise<void> {
-  await saveBookLibraryUnlocked(projectPath, library)
-}
-
 export async function upsertBookLibraryEntry(
   projectPath: string,
   entry: BookLibraryEntry,

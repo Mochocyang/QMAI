@@ -1,19 +1,13 @@
-export function isWorkspaceView(view: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "characterAura" | "settings" | "trash"): boolean {
-  return view === "wiki" || view === "trash"
-}
+
 
 export function clampSidebarWidth(width: number): number {
   return Math.max(150, Math.min(400, width))
 }
 
-export function clampChatHeight(height: number): number {
-  return Math.max(180, Math.min(520, height))
-}
-
 const CHAT_MIN_WIDTH = 280
 const CHAT_OLD_DEFAULT_WIDTH = 360
-export const CHAT_DOCK_DEFAULT_WIDTH = 640
-export const CHAT_DOCK_MAX_VIEWPORT_RATIO = 0.5
+const CHAT_DOCK_DEFAULT_WIDTH = 640
+const CHAT_DOCK_MAX_VIEWPORT_RATIO = 0.5
 
 function resolveViewportWidth(viewportWidth?: number): number {
   if (typeof viewportWidth === "number" && Number.isFinite(viewportWidth) && viewportWidth > 0) {
@@ -25,7 +19,7 @@ function resolveViewportWidth(viewportWidth?: number): number {
   return 1040
 }
 
-export function getMaxChatWidth(viewportWidth?: number): number {
+function getMaxChatWidth(viewportWidth?: number): number {
   return Math.max(CHAT_MIN_WIDTH, Math.floor(resolveViewportWidth(viewportWidth) * CHAT_DOCK_MAX_VIEWPORT_RATIO))
 }
 
@@ -55,18 +49,18 @@ export function getConversationTabTitle(title: string, maxLength = 12): string {
   return `${title.slice(0, Math.max(1, maxLength - 1))}…`
 }
 
-export interface ConversationToolbarItem {
+interface ConversationToolbarItem {
   id: string
   updatedAt: number
 }
 
-export const MAX_TOP_CONVERSATIONS = 3
+const MAX_TOP_CONVERSATIONS = 3
 
-export function sortConversationsByUpdatedAt<T extends ConversationToolbarItem>(conversations: T[]): T[] {
+function sortConversationsByUpdatedAt<T extends ConversationToolbarItem>(conversations: T[]): T[] {
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-export function isTodayConversation(conv: ConversationToolbarItem, now = new Date()): boolean {
+function isTodayConversation(conv: ConversationToolbarItem, now = new Date()): boolean {
   return new Date(conv.updatedAt).toDateString() === now.toDateString()
 }
 

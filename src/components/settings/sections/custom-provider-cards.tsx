@@ -21,7 +21,7 @@ import {
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 
-export interface CustomProviderCard {
+interface CustomProviderCard {
   id: string
   label: string
   apiMode: "chat_completions" | "responses" | "anthropic_messages"

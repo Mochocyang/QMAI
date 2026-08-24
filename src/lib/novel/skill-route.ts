@@ -57,7 +57,7 @@ const FUZZY_ROUTE_ORDER: SkillRoute[] = [
   "writing",
 ]
 
-export type OutlineTopicChannel = "male" | "female" | "auto"
+type OutlineTopicChannel = "male" | "female" | "auto"
 
 export function resolveOutlineTopicSkillRoutes(input: {
   channel?: OutlineTopicChannel | string

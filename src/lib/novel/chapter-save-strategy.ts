@@ -1,4 +1,4 @@
-export type ChapterSaveStrategy =
+type ChapterSaveStrategy =
   | {
     action: "direct_next_chapter"
   }

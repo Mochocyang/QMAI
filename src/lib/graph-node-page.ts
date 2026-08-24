@@ -1,7 +1,7 @@
 import { normalizePath } from "./path-utils"
 import type { GraphNode } from "./wiki-graph"
 
-export interface EditableGraphNodePage {
+interface EditableGraphNodePage {
   path: string
   pageId: string
   title: string

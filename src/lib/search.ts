@@ -32,7 +32,7 @@ export interface SearchResult {
   images: ImageRef[]
 }
 
-export interface SearchWikiOptions {
+interface SearchWikiOptions {
   rerank?: boolean
   topK?: number
   rerankPurpose?: string

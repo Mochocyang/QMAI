@@ -1,4 +1,4 @@
-export type MarkdownQualityIssueCode =
+type MarkdownQualityIssueCode =
   | "whole-document-code-fence"
   | "missing-title"
   | "unpaired-bold"

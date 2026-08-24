@@ -4,7 +4,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 
-export type OutlineSegmentKind =
+type OutlineSegmentKind =
   | "master"
   | "volume"
   | "chapter-plan"
@@ -14,7 +14,7 @@ export type OutlineSegmentKind =
   | "foreshadowing"
   | "unknown"
 
-export interface OutlineDocument {
+interface OutlineDocument {
   path: string
   relativePath: string
   folder?: string
@@ -23,7 +23,7 @@ export interface OutlineDocument {
   frontmatter: Record<string, unknown> | null
 }
 
-export interface OutlineSegment {
+interface OutlineSegment {
   path: string
   relativePath: string
   folder?: string
@@ -33,19 +33,19 @@ export interface OutlineSegment {
   frontmatter: Record<string, unknown> | null
 }
 
-export interface OutlineDocumentIndex {
+interface OutlineDocumentIndex {
   projectPath: string
   documents: OutlineDocument[]
   segments: OutlineSegment[]
 }
 
-export interface ChapterOutlineResolution {
+interface ChapterOutlineResolution {
   content: string
   sourceKind: "standalone" | "volume" | "chapter-plan" | "master" | "none"
   sourcePaths: string[]
 }
 
-export interface ResolvedVolume {
+interface ResolvedVolume {
   scopeId: string
   title: string
   sourcePaths: string[]
@@ -224,7 +224,7 @@ async function buildIndex(projectPath: string): Promise<OutlineDocumentIndex> {
   return createOutlineDocumentIndex(pp, loadedFiles)
 }
 
-export function createOutlineDocumentIndex(
+function createOutlineDocumentIndex(
   projectPath: string,
   files: Array<{ path: string; content: string }>,
 ): OutlineDocumentIndex {
@@ -386,7 +386,7 @@ function firstHeading(content: string): string {
   return content.match(/^#{1,6}\s+(.+)$/m)?.[1]?.trim() ?? "卷纲"
 }
 
-export function resolveTargetVolumes(index: OutlineDocumentIndex, chapterNumber: number): ResolvedVolume[] {
+function resolveTargetVolumes(index: OutlineDocumentIndex, chapterNumber: number): ResolvedVolume[] {
   const grouped = new Map<string, OutlineSegment[]>()
   for (const segment of index.segments) {
     if (!segment.volumeScopeId) continue

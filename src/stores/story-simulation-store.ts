@@ -36,7 +36,7 @@ export interface SavedSimulationResult {
   createdAt: string;
 }
 
-export type SimulationPhase =
+type SimulationPhase =
   | "idle"
   | "configuring"
   | "extracting"
@@ -54,7 +54,7 @@ export interface SimulationPreset {
   hasFramework: boolean;
 }
 
-export interface StorySimulationState {
+interface StorySimulationState {
   phase: SimulationPhase;
   mode: SimulationMode;
   userIdea: string;
@@ -591,7 +591,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
     }),
 }));
 
-export function calculateBranchScore(
+function calculateBranchScore(
   directorEvaluations: DirectorEvaluation[],
   eventCount: number,
   activeAgentCount: number,

@@ -19,7 +19,3 @@ export function getChapterStatusLabel(status: unknown): string {
 export function buildChapterWordCountLabel(wordCount: number): string {
   return `${wordCount}字`
 }
-
-export function buildChapterTotalWordCountLabel(wordCount: number): string {
-  return `总字数：${wordCount}字`
-}

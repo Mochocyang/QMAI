@@ -5,7 +5,7 @@ const THINK_BLOCK_RE = /<think(?:ing)?>[\s\S]*?(?:<\/think(?:ing)?>|$)/i
 const MAX_RESUME_CONTEXT_CHARS = 60_000
 const RESUME_CONTEXT_COMMENT_RE = /<!--\s*qmai-continue-unfinished-context:([\s\S]*?)\s*-->/g
 
-export interface ContinueUnfinishedDeepChapterContext {
+interface ContinueUnfinishedDeepChapterContext {
   originalRequest?: string
   resumeContext: string
   rootResumeContext?: string

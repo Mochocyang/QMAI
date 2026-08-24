@@ -3,7 +3,7 @@ import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { StoryNode, TimelineEvent, DirectorScore, DirectorEvaluation } from "./types"
 
-export interface DirectorEvaluateInput {
+interface DirectorEvaluateInput {
   node: StoryNode
   nodeTimelineEvents: TimelineEvent[]
   worldRules: string

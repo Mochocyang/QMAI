@@ -23,7 +23,7 @@ export interface GenrePositioningBaseline {
   resolution: number
 }
 
-export const DEFAULT_SHOUWEN_BASELINE: GenrePositioningBaseline = {
+const DEFAULT_SHOUWEN_BASELINE: GenrePositioningBaseline = {
   opening: 10,
   development: 30,
   buildup: 25,

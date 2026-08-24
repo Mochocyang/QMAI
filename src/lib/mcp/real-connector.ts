@@ -9,13 +9,13 @@ interface ConnectedMcpServer {
 }
 
 /** MCP tools/list 返回的单个工具原始信息（MCP 标准 schema）。 */
-export interface RemoteToolInfo {
+interface RemoteToolInfo {
   name: string
   description?: string
   inputSchema?: Record<string, unknown>
 }
 
-export interface McpTestConnectionResult {
+interface McpTestConnectionResult {
   status: "ok" | "error"
   serverName: string
   toolCount: number

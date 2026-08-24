@@ -13,7 +13,7 @@ interface DeAiSkillPickerProps {
   showLibraryShortcut?: boolean
 }
 
-export { getDeAiSkillLoadErrorMessage } from "./de-ai-skill-errors"
+
 
 interface DeAiSkillOptionsPanelProps {
   loading: boolean

@@ -8,7 +8,7 @@ import { normalizePath } from "@/lib/path-utils"
 
 const FILE_NAME = ".qmai/dedup-models.json"
 
-export interface DedupModelPrefs {
+interface DedupModelPrefs {
   detectModelId?: string
   mergeModelId?: string
 }

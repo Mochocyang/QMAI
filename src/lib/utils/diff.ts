@@ -5,9 +5,9 @@ export function prepareDiffText(value: string): string {
   return value.replace(/\r\n?/g, "\n").replace(LEADING_LINE_WHITESPACE, "")
 }
 
-export type DiffLineType = "add" | "remove" | "unchanged"
+type DiffLineType = "add" | "remove" | "unchanged"
 
-export interface DiffLine {
+interface DiffLine {
   type: DiffLineType
   content: string
   originalLine?: number

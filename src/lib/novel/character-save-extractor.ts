@@ -12,7 +12,7 @@ export interface CharacterSaveDraft {
   confidence: CharacterSaveConfidence
 }
 
-export interface CharacterSaveExtractionResult {
+interface CharacterSaveExtractionResult {
   drafts: CharacterSaveDraft[]
   errors: string[]
 }

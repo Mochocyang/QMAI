@@ -22,7 +22,7 @@ export interface DashboardIssueRewriteBackup {
   updatedAt: string
 }
 
-export interface DashboardFactCheckInsertPlan {
+interface DashboardFactCheckInsertPlan {
   anchorText: string
   insertText: string
 }
@@ -32,7 +32,7 @@ export interface DashboardIssueState {
   rewrites: Record<string, DashboardIssueRewriteBackup>
 }
 
-export interface DashboardRewriteMessage {
+interface DashboardRewriteMessage {
   role: "system" | "user"
   content: string
 }
@@ -50,7 +50,7 @@ export function buildDashboardIssueId(parts: Array<string | number | null | unde
     .join("|")
 }
 
-export function getDashboardIssueStorePath(projectPath: string): string {
+function getDashboardIssueStorePath(projectPath: string): string {
   return `${normalizePath(projectPath)}/${DASHBOARD_ISSUE_FILE}`
 }
 
@@ -83,7 +83,7 @@ export async function saveDashboardIssueState(projectPath: string, state: Dashbo
   )
 }
 
-export function sanitizeDashboardEvidence(input: string): string {
+function sanitizeDashboardEvidence(input: string): string {
   let text = String(input || "").trim()
   text = text.replace(/^第\s*\d+\s*章[：:]\s*/u, "")
   text = text.replace(/^\[[^\]]+\]\s*/u, "")
@@ -211,20 +211,6 @@ export function applyDashboardRewriteToMarkdown(
   const replaced = replaceChapterBodySelection(body, anchor.selection, replacement)
   if (!replaced.ok) return null
   return rawBlock + rebuildChapterBody(heading, replaced.body)
-}
-
-export function applyDashboardInsertBeforeToMarkdown(
-  markdown: string,
-  anchor: DashboardIssueAnchor,
-  insertion: string,
-): string | null {
-  const normalizedInsertion = insertion.trim()
-  if (!normalizedInsertion) return null
-  return applyDashboardRewriteToMarkdown(
-    markdown,
-    anchor,
-    `${normalizedInsertion}\n${anchor.selection.text}`,
-  )
 }
 
 export function restoreDashboardRewriteInMarkdown(

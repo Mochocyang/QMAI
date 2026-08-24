@@ -1,10 +1,10 @@
 import type { NovelTaskIntent } from "./task-router"
 import type { UserSkill } from "./skill-library"
 
-export type SkillRouteStage = "outline" | "drafting" | "review"
-export type SkillRouteMissingPolicy = "diagnose_and_continue" | "stop"
+type SkillRouteStage = "outline" | "drafting" | "review"
+type SkillRouteMissingPolicy = "diagnose_and_continue" | "stop"
 
-export type SkillRouteTask =
+type SkillRouteTask =
   | "chapter_outline"
   | "character_design"
   | "faction_setting"
@@ -22,7 +22,7 @@ export type SkillRouteTask =
   | "dialogue_scene"
   | "anti_ai_polish"
 
-export interface SkillRouteDefinition {
+interface SkillRouteDefinition {
   task: SkillRouteTask
   aliases: string[]
   primarySkills: string[]
@@ -41,7 +41,7 @@ const CHAPTER_OUTLINE_SUPPORT_SKILLS = [
   "chapter-outline-assembler",
 ]
 
-export const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
+const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   {
     task: "chapter_outline",
     aliases: ["章节细纲", "章纲", "章纲完善"],
@@ -172,25 +172,11 @@ export const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   },
 ] as const
 
-export const WRITING_SUPPORT_SKILL_NAMES = [
-  "章节承接",
-  "下一章计划",
-  "主线检查",
-  "人物动机",
-  "冲突升级",
-  "伏笔管理",
-  "节奏检查",
-  "结尾钩子",
-  "剧情自检",
-  "正文输出协议",
-  "基础去AI味",
-] as const
-
 export function getSkillRouteSkillNames(definition: SkillRouteDefinition): string[] {
   return [...definition.primarySkills, ...definition.supportingSkills]
 }
 
-export function findSkillRouteByTask(task: SkillRouteTask): SkillRouteDefinition | undefined {
+function findSkillRouteByTask(task: SkillRouteTask): SkillRouteDefinition | undefined {
   return SKILL_ROUTE_DEFINITIONS.find((definition) => definition.task === task)
 }
 
@@ -203,7 +189,7 @@ export function findSkillRouteByAlias(value: string): SkillRouteDefinition | und
   return candidates.find(({ alias }) => normalized === alias || normalized.includes(alias))?.definition
 }
 
-export function findSkillRouteByExactAlias(value: string): SkillRouteDefinition | undefined {
+function findSkillRouteByExactAlias(value: string): SkillRouteDefinition | undefined {
   const normalized = normalizeAlias(value)
   if (!normalized) return undefined
   return SKILL_ROUTE_DEFINITIONS.find((definition) =>
@@ -280,9 +266,9 @@ export function resolveSkillReference<T extends { id: string; name: string }>(
 }
 
 /** 短中文名（如「对话」）做子串匹配会误伤，显式技能名至少 4 个规范化字符。 */
-export const MIN_EXPLICIT_SKILL_NAME_LENGTH = 4
+const MIN_EXPLICIT_SKILL_NAME_LENGTH = 4
 
-export interface ExplicitSkillReference {
+interface ExplicitSkillReference {
   skillId?: string
   title?: string
 }

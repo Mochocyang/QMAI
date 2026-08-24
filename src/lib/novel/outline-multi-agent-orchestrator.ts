@@ -23,13 +23,13 @@ export interface OutlineSubAgentPlan {
   writeToolsEnabled: false
 }
 
-export interface OutlineMultiAgentPlanInput {
+interface OutlineMultiAgentPlanInput {
   preferredSkillNames: string[]
   taskPrompt: string
   maxConcurrency?: number
 }
 
-export type OutlineSubAgentExecutionStatus =
+type OutlineSubAgentExecutionStatus =
   | "waiting"
   | "ready"
   | "running"
@@ -37,14 +37,14 @@ export type OutlineSubAgentExecutionStatus =
   | "completed"
   | "failed"
 
-export interface OutlineSubAgentStatusEvent {
+interface OutlineSubAgentStatusEvent {
   agentId: string
   status: OutlineSubAgentExecutionStatus
   attempt: number
   error?: string
 }
 
-export interface OutlineMultiAgentRunInput {
+interface OutlineMultiAgentRunInput {
   plan: OutlineSubAgentPlan[]
   maxConcurrency?: number
   runSubAgent: (plan: OutlineSubAgentPlan) => Promise<string>
@@ -53,7 +53,7 @@ export interface OutlineMultiAgentRunInput {
   onStatusChange?: (event: OutlineSubAgentStatusEvent) => void
 }
 
-export interface OutlineMultiAgentRunResult {
+interface OutlineMultiAgentRunResult {
   mode: "multi-agent" | "single-agent-fallback"
   finalText: string
   successfulAgents: string[]
@@ -62,7 +62,7 @@ export interface OutlineMultiAgentRunResult {
   failureDetails?: string[]
 }
 
-export interface OutlinePlanValidationResult {
+interface OutlinePlanValidationResult {
   ok: boolean
   errors: string[]
 }
@@ -433,7 +433,7 @@ function buildSubAgentTaskPrompt(
   ].join("\n")
 }
 
-export interface OutlineMultiAgentResumeInput {
+interface OutlineMultiAgentResumeInput {
   /** 上一次运行的完整 plan */
   plan: OutlineSubAgentPlan[]
   /** 已成功 Agent 的结果（跳过不重试） */

@@ -9,7 +9,7 @@ import {
   selectRelevantNovelVectorResults,
 } from "./vector-relevance"
 
-export interface NovelSearchParams {
+interface NovelSearchParams {
   projectPath: string
   query: string
   chapterNumber?: number
@@ -22,7 +22,7 @@ export interface NovelSearchParams {
   includeCanon?: boolean
 }
 
-export interface NovelSearchResult {
+interface NovelSearchResult {
   type: "keyword" | "vector" | "graph" | "recent_chapter" | "canon"
   path: string
   title: string
@@ -472,7 +472,7 @@ function extractTitle(content: string, fallback: string): string {
   return fallback
 }
 
-export interface SearchPlotOptions {
+interface SearchPlotOptions {
   scene?: string
   topK?: number
   includeKeyword?: boolean

@@ -4,7 +4,7 @@ import type {
 } from "./analysis-pipeline-types"
 
 export const MAX_ANALYSIS_CHAPTERS = 100
-export const DEFAULT_CHAPTERS_PER_CHUNK = 10
+const DEFAULT_CHAPTERS_PER_CHUNK = 10
 
 interface AnalysisChapterSummary {
   id: string

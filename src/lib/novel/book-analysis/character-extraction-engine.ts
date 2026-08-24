@@ -23,7 +23,7 @@ import { stableCharacterId } from "./character-recognition-engine"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 import { parseLlmJsonObject } from "./llm-json"
 
-export interface CharacterExtractionInput {
+interface CharacterExtractionInput {
   bookPath: string
   selectedChapterIds: string[]
   llmConfig: LlmConfig
@@ -54,7 +54,7 @@ export interface CharacterExtractionInput {
   persistResults?: boolean
 }
 
-export interface CharacterExtractionResult {
+interface CharacterExtractionResult {
   success: boolean
   characters: ExtractedCharacter[]
   /** 部分章节/角色失败时的告警，不阻断整体成功 */
@@ -519,7 +519,7 @@ export async function extractCharactersFromChapters(
 }
 
 // === 单角色重新提取（feature/book-analysis-reuse）===
-export interface SingleCharacterReextractInput {
+interface SingleCharacterReextractInput {
   bookPath: string
   bookId: string
   /** 被重提的目标角色（带 id + name + corpus） */
@@ -533,7 +533,7 @@ export interface SingleCharacterReextractInput {
   signal?: AbortSignal
 }
 
-export interface SingleCharacterReextractResult {
+interface SingleCharacterReextractResult {
   character: ExtractedCharacter
 }
 

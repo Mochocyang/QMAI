@@ -1103,7 +1103,7 @@ function requiresBearerAuth(url: string): boolean {
  * A bug where this naively appended "/v1/messages" caused requests to
  * ".../v1/v1/messages" (404) whenever a user typed a URL ending in /v1.
  */
-export function buildAnthropicUrl(base: string): string {
+function buildAnthropicUrl(base: string): string {
   const trimmed = base.replace(/\/+$/, "")
   if (/\/v\d+\/messages$/i.test(trimmed)) return trimmed
   if (/\/v\d+$/i.test(trimmed)) return `${trimmed}/messages`
@@ -1149,7 +1149,7 @@ function flattenGoogleSystemParts(content: string | ContentBlock[]): string {
   return content.map((b) => (b.type === "text" ? b.text : "")).join("")
 }
 
-export function googleModelSupportsThinkingConfig(model: string): boolean {
+function googleModelSupportsThinkingConfig(model: string): boolean {
   const normalized = model.toLowerCase()
   return /gemini-(2\.5|3(?:\.\d+)?|exp)/i.test(normalized) || /thinking/i.test(normalized)
 }

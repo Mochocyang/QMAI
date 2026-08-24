@@ -1,16 +1,16 @@
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 
-export type ChapterPlanSelfCheckStatus = "pass" | "warning" | "error" | "unknown"
+type ChapterPlanSelfCheckStatus = "pass" | "warning" | "error" | "unknown"
 
-export interface ChapterPlanSelfCheckIssue {
+interface ChapterPlanSelfCheckIssue {
   severity: "warning" | "error" | "info"
   problem: string
   risk: string
   suggestion: string
 }
 
-export interface ParsedChapterPlanSelfCheckResult {
+interface ParsedChapterPlanSelfCheckResult {
   status: ChapterPlanSelfCheckStatus
   summary: string
   issues: ChapterPlanSelfCheckIssue[]

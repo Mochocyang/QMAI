@@ -12,7 +12,7 @@ export interface ChapterRef {
   savedAt: number
 }
 
-export interface ChapterHistoryMessage {
+interface ChapterHistoryMessage {
   id?: string
   role: string
   content: string
@@ -26,7 +26,7 @@ export interface ChapterHistoryMessage {
   reasoning_content?: string
 }
 
-export interface BuildHistoryContentDeps {
+interface BuildHistoryContentDeps {
   projectPath: string
   novelMode: boolean
   /** When false, skip folding even if the chapter is on disk. */
@@ -80,7 +80,7 @@ export function resolveChapterNumberFromMessage(
   return fromText && fromText > 0 ? fromText : undefined
 }
 
-export async function resolveSavedChapterPath(
+async function resolveSavedChapterPath(
   projectPath: string,
   chapterNumber: number,
   pathMemo?: Map<number, string | null>,

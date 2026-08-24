@@ -7,7 +7,7 @@
  * - 列出可操作的文件
  */
 
-import { readFile, writeFile, listDirectory } from "@/commands/fs"
+import { readFile, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import type { FileEditAction } from "./agent-parser"
 
@@ -22,52 +22,10 @@ export interface FileEditResult {
 }
 
 /**
- * 列出指定目录下的所有 markdown 文件
- */
-export async function listScopeFiles(
-  projectPath: string,
-  scope: "chapters" | "outlines",
-): Promise<{ name: string; path: string }[]> {
-  const pp = normalizePath(projectPath)
-  const dir = scope === "chapters" ? `${pp}/wiki/chapters` : `${pp}/wiki/outlines`
-  try {
-    const tree = await listDirectory(dir)
-    return tree
-      .filter((f) => f.name.endsWith(".md"))
-      .map((f) => ({ name: f.name, path: `${dir}/${f.name}` }))
-  } catch {
-    return []
-  }
-}
-
-/**
- * 读取指定范围内的文件内容（用于注入 Agent 上下文）
- */
-export async function readScopeFileContents(
-  projectPath: string,
-  scope: "chapters" | "outlines",
-  maxFiles = 20,
-): Promise<{ name: string; path: string; content: string }[]> {
-  const files = await listScopeFiles(projectPath, scope)
-  const results: { name: string; path: string; content: string }[] = []
-
-  for (const file of files.slice(0, maxFiles)) {
-    try {
-      const content = await readFile(file.path)
-      results.push({ ...file, content })
-    } catch {
-      // skip unreadable files
-    }
-  }
-
-  return results
-}
-
-/**
  * 应用单个文件修改
  * 使用 search & replace 策略：在文件中找到 search 文本，替换为 replace 文本
  */
-export async function applyFileEdit(
+async function applyFileEdit(
   projectPath: string,
   edit: FileEditAction,
 ): Promise<FileEditResult> {
@@ -131,18 +89,4 @@ export async function applyFileEdits(
     results.push(await applyFileEdit(projectPath, edit))
   }
   return results
-}
-
-/**
- * 撤销文件修改（恢复原始内容）
- */
-export async function undoFileEdit(result: FileEditResult): Promise<boolean> {
-  if (!result.success || !result.originalContent) return false
-  try {
-    const pp = result.filePath
-    await writeFile(pp, result.originalContent)
-    return true
-  } catch {
-    return false
-  }
 }

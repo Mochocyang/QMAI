@@ -18,7 +18,7 @@ export interface NovelReviewActionItem {
   targetPath: string
 }
 
-export function mapNovelReviewActionSeverity(severity: NovelReviewResult["severity"]): NovelReviewActionSeverity {
+function mapNovelReviewActionSeverity(severity: NovelReviewResult["severity"]): NovelReviewActionSeverity {
   switch (severity) {
     case "error": return "high"
     case "warning": return "medium"

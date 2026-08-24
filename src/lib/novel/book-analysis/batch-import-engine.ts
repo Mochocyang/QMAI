@@ -29,7 +29,7 @@ import type {
 import { removeBookLibraryEntry, upsertBookLibraryEntry } from "./library-store"
 import type { BookAnalysisMetadata } from "./types"
 
-export interface ChapterSummary {
+interface ChapterSummary {
   id: string
   title: string
   order: number
@@ -37,7 +37,7 @@ export interface ChapterSummary {
   path: string
 }
 
-export interface RunBatchImportTaskOptions {
+interface RunBatchImportTaskOptions {
   signal: AbortSignal
   onProgress?: (completed: number, total: number, currentTitle: string) => void
 }

@@ -26,13 +26,13 @@ interface DataSourceCacheStorage {
   writeArtifact<T>(key: string, artifact: CachedArtifact<T>): Promise<void>
 }
 
-export interface DataSourceCacheAdapterOptions {
+interface DataSourceCacheAdapterOptions {
   registry: DataSourceCacheRegistry
   storage: DataSourceCacheStorage
   forceRefresh?: boolean
 }
 
-export interface DataSourceCacheStats {
+interface DataSourceCacheStats {
   cacheHits: number
   reloaded: number
   empty: number
@@ -105,7 +105,7 @@ function cacheScopeFor(sourceName: string): ContextCacheScope {
   return "task"
 }
 
-export function hasCacheableValue(value: unknown): boolean {
+function hasCacheableValue(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0
   if (Array.isArray(value)) return value.length > 0
   if (value && typeof value === "object") return Object.keys(value).length > 0

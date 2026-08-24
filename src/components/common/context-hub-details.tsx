@@ -10,9 +10,9 @@ import {
   type ContextHubSnapshotRef,
   type ContextHubStats,
 } from "@/lib/context-hub/types"
-import { ContextHubStatsSummary, ProviderCacheUsage } from "./context-hub-stats-summary"
+import { ContextHubStatsSummary } from "./context-hub-stats-summary"
 
-export { ProviderCacheUsage }
+
 
 type ContextSection = "stableCore" | "sessionSummary" | "dynamicContext"
 

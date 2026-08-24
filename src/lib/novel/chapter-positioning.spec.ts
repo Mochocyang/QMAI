@@ -6,7 +6,6 @@ import {
   type ChapterPosition,
   type GenrePositioningBaseline,
 } from "./chapter-positioning"
-import { getChapterPositionsFromOutline } from "./chapter-positioning-fs"
 
 // ==================== 辅助工厂函数 ====================
 
@@ -228,14 +227,5 @@ describe("parsePositionTableFromMarkdown", () => {
     expect(result[4].type).toBe("climax")
     expect(result[4].pressureLevel).toBe(5)
     expect(result[4].emotionIntensity).toBe(9)
-  })
-})
-
-// ==================== getChapterPositionsFromOutline ====================
-
-describe("getChapterPositionsFromOutline", () => {
-  it("returns empty array when file does not exist", () => {
-    const result = getChapterPositionsFromOutline("/nonexistent/path", 1)
-    expect(result).toEqual([])
   })
 })

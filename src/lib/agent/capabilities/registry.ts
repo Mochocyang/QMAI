@@ -55,7 +55,7 @@ const TOOL_LABELS: Record<string, string> = {
   run_chapter_workflow: "Chapter Workflow",
 }
 
-export interface BuildAvailableCapabilitiesOptions {
+interface BuildAvailableCapabilitiesOptions {
   toolNames?: string[]
   selectedSkills?: UserSkill[]
   mcpCapabilities?: AiCapability[]

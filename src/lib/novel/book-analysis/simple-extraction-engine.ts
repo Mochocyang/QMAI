@@ -2,7 +2,7 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, PersonalityProfile } from "./types"
 import { buildSimpleExtractionPrompt } from "./simple-extraction-prompts"
 
-export interface SimpleExtractionInput {
+interface SimpleExtractionInput {
   candidates: RecognizedCharacter[]
   chapterSamples: string
   llmConfig: LlmConfig
@@ -12,12 +12,12 @@ export interface SimpleExtractionInput {
   onProgress?: (completed: number, total: number) => void
 }
 
-export interface SimpleProfileResult {
+interface SimpleProfileResult {
   name: string
   profile: PersonalityProfile
 }
 
-export interface SimpleExtractionOutput {
+interface SimpleExtractionOutput {
   profiles: SimpleProfileResult[]
   error?: string
 }
@@ -76,7 +76,7 @@ export async function extractSimpleProfiles(
 
 // === 单角色简单提取（feature/book-analysis-reuse）===
 
-export interface SingleProfileInput {
+interface SingleProfileInput {
   character: RecognizedCharacter
   chapterSamples: string
   llmConfig: LlmConfig
@@ -84,7 +84,7 @@ export interface SingleProfileInput {
   _llmCall?: (prompt: string) => Promise<string>
 }
 
-export interface SingleProfileResult {
+interface SingleProfileResult {
   name: string
   profile: PersonalityProfile
   error?: string

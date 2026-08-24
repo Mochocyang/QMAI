@@ -91,16 +91,6 @@ export interface BookAnalysisPipelineTask {
   updatedAt: number
 }
 
-export interface AnalysisPipelineBatch {
-  version: 1
-  id: string
-  projectPath: string
-  taskIds: string[]
-  createdAt: number
-  updatedAt: number
-  dismissedAt: number | null
-}
-
 export interface AnalysisEvidenceSnippet {
   version: 1
   id: string

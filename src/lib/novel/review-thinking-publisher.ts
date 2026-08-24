@@ -8,7 +8,7 @@ interface ReviewThinkingPublisherOptions {
   now?: () => number
 }
 
-export interface ReviewThinkingPublisher {
+interface ReviewThinkingPublisher {
   publish: (thinking: string) => void
   flush: () => void
 }
@@ -47,7 +47,7 @@ export function createReviewThinkingPublisher({
   }
 }
 
-export function truncateReviewThinking(thinking: string, maxChars = REVIEW_THINKING_MAX_CHARS): string {
+function truncateReviewThinking(thinking: string, maxChars = REVIEW_THINKING_MAX_CHARS): string {
   if (thinking.length <= maxChars) return thinking
   return [
     `[前方 ${thinking.length - maxChars} 字审阅过程已折叠，避免页面卡顿]`,

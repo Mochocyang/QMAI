@@ -1,7 +1,7 @@
 import type { OutlineSaveRequestFileType } from "./outline-save-request"
 import { formatChapterOutlineFileName, sanitizeOutlineFileNamePart } from "./outline-workbench"
 
-export interface OutlineSaveClassificationInput {
+interface OutlineSaveClassificationInput {
   explicitFileType?: OutlineSaveRequestFileType
   referencedSkills?: string[]
   title: string

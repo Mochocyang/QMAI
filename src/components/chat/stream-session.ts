@@ -1,4 +1,4 @@
-export interface StreamSessionGuard {
+interface StreamSessionGuard {
   /** 为指定会话创建一个新的流式会话，返回 sessionId */
   start: (conversationId: string) => number
   /** 检查指定会话的 sessionId 是否仍然活跃 */

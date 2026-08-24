@@ -80,15 +80,6 @@ export const CHAPTER_END_HOOK_TYPES = [
   "留白钩子",
 ] as const;
 
-// ==================== 类型 ====================
-
-export type VolumeOutlineRequiredField = typeof VOLUME_OUTLINE_REQUIRED_FIELDS[number];
-export type ChapterBlueprintField = typeof CHAPTER_BLUEPRINT_FIELDS[number];
-export type ChapterOutlineRequiredSection = typeof CHAPTER_OUTLINE_REQUIRED_SECTIONS[number];
-export type ChapterPositionType = typeof CHAPTER_POSITION_TYPES[number];
-export type ChapterHookType = typeof CHAPTER_HOOK_TYPES[number];
-export type ChapterEndHookType = typeof CHAPTER_END_HOOK_TYPES[number];
-
 // ==================== 模板函数 ====================
 
 /**

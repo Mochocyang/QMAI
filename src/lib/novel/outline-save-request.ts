@@ -26,12 +26,12 @@ export interface OutlineSaveRequest {
   content: string
 }
 
-export interface OutlineSaveRequestParseResult {
+interface OutlineSaveRequestParseResult {
   requests: OutlineSaveRequest[]
   errors: string[]
 }
 
-export interface OutlineSaveRequestSaveResult {
+interface OutlineSaveRequestSaveResult {
   saved: Array<{
     path: string
     fileName: string
@@ -41,7 +41,7 @@ export interface OutlineSaveRequestSaveResult {
   errors: string[]
 }
 
-export interface OutlineSaveRequestFs {
+interface OutlineSaveRequestFs {
   createDirectory: (path: string) => Promise<void>
   fileExists: (path: string) => Promise<boolean>
   writeFile: (path: string, content: string) => Promise<void>

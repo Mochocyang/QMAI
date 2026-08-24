@@ -38,7 +38,7 @@ export interface DataSourceLoadAdapter {
   recordFallbackUsed?(sourceName: string): void
 }
 
-export interface DataSourceRegistryOptions {
+interface DataSourceRegistryOptions {
   loadAdapter?: DataSourceLoadAdapter
 }
 

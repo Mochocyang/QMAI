@@ -44,7 +44,7 @@ export interface UserSkill {
 
 export const DEFAULT_SKILL_PRIORITY = 50
 
-export interface SkillFilter {
+interface SkillFilter {
   mode?: SkillMode
   stage?: SkillStage
   kind?: SkillKind

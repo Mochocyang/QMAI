@@ -13,7 +13,7 @@ import type {
 
 // ── 对外接口 ──
 
-export interface DraftGenerationOptions {
+interface DraftGenerationOptions {
   framework: StoryFramework
   report: SimulationReport
   selectedBranch: StoryBranch
