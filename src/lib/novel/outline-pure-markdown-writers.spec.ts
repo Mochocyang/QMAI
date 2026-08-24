@@ -6,7 +6,6 @@ const writerFiles = [
   "../../components/layout/sidebar-panel.tsx",
   "../../components/novel/outline-editor.tsx",
   "outline-import.ts",
-  "source-outline-import.ts",
 ]
 
 describe("所有大纲创建入口使用纯 Markdown", () => {

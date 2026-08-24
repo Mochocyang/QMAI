@@ -124,7 +124,8 @@ describe("close-path wiring", () => {
     const rustLib = readFileSync(resolve(process.cwd(), "src-tauri/src/lib.rs"), "utf8")
     const rustMain = readFileSync(resolve(process.cwd(), "src-tauri/src/main.rs"), "utf8")
     expect(rustLib).toContain("persist_app_state_before_exit")
-    expect(rustMain).toContain("persist_app_state_before_exit")
+    expect(rustMain).toContain("qmai::run()")
+    expect(rustMain).not.toContain("persist_app_state_before_exit")
   })
 
   it("derives custom cards from the store instead of a one-shot local snapshot", () => {
