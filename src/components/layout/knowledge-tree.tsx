@@ -7,8 +7,9 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { createDirectory, deleteFile, fileExists, listDirectory, readFile, writeFile, openFileLocation, copyFile } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { buildChapterWordCountLabel, getChapterStatusLabel } from "@/lib/chapter-display"
-import { normalizePath } from "@/lib/path-utils"
+import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
@@ -382,6 +383,10 @@ export function KnowledgeTree({
   const lastPointerTypeRef = useRef<string>("mouse")
   const removeGlobalPointerListenersRef = useRef<(() => void) | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const initialChapterScrollRef = useRef<{
+    projectPath: string
+    selectedChapterPath: string | null
+  } | null>(null)
 
   useEffect(() => { dragSourceRef.current = dragSource }, [dragSource])
   useEffect(() => { dragInsertIndexRef.current = dragInsertIndex }, [dragInsertIndex])
@@ -564,6 +569,28 @@ export function KnowledgeTree({
     const sectionNode = findNodeByPath(fileTree, sectionRootPath)
     return sectionNode?.children ?? []
   }, [fileTree, sectionRootPath])
+
+  useEffect(() => {
+    if (filterType !== "chapter" || !project || sectionNodes.length === 0) return
+
+    const projectPath = normalizePath(project.path)
+    const selectedChapterPath = selectedFile && isChapterPathInProject(selectedFile, projectPath)
+      ? normalizePath(selectedFile)
+      : null
+    const previousScroll = initialChapterScrollRef.current
+    if (
+      previousScroll?.projectPath === projectPath
+      && (previousScroll.selectedChapterPath !== null || selectedChapterPath === null)
+    ) return
+
+    const container = containerRef.current
+    if (!container) return
+
+    const result = scrollChapterDirectory(container, selectedChapterPath)
+    if (result) {
+      initialChapterScrollRef.current = { projectPath, selectedChapterPath }
+    }
+  }, [filterType, project, sectionNodes, selectedFile])
 
   const volumeFolders = useMemo(() => {
     return sectionNodes.filter((node) => node.is_dir).map((node) => ({

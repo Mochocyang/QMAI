@@ -6,6 +6,13 @@ const source = readFileSync(resolve(__dirname, "knowledge-tree.tsx"), "utf8")
 const previewSource = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
 
 describe("KnowledgeTree chapter memory extraction menu", () => {
+  it("positions the chapter directory once its async file tree is rendered", () => {
+    expect(source).toContain("scrollChapterDirectory(container, selectedChapterPath)")
+    expect(source).toContain('filterType !== "chapter" || !project || sectionNodes.length === 0')
+    expect(source).toContain("isChapterPathInProject(selectedFile, projectPath)")
+    expect(source).toContain("previousScroll.selectedChapterPath !== null || selectedChapterPath === null")
+  })
+
   it("places one-click all chapter memory extraction in the chapter right-click menu", () => {
     expect(source).toContain("handleExtractAllChapterMemories")
     expect(source).toContain("一键提取所有章节")
