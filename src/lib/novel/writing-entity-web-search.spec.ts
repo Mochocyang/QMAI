@@ -365,4 +365,31 @@ describe("writing entity search workflow display and persistence", () => {
     expect(displayWritingEntitySearchWorkflowContent(legacy)).toBe(legacy)
     expect(displayWritingEntitySearchWorkflowContent(legacy)).toContain("https://m.baike.com/wikiid/123")
   })
+
+  it("filters malformed persisted names without trusting unknown array entries", () => {
+    const persisted = JSON.stringify({
+      content: "",
+      searchedNames: ["鲁茨科伊", null, 42, "", "哈斯布拉托夫"],
+      notes: ["有效备注", false],
+      items: [],
+    })
+
+    expect(parseWritingEntitySearchWorkflowResult(persisted)).toEqual({
+      content: "",
+      searchedNames: ["鲁茨科伊", "哈斯布拉托夫"],
+      notes: ["有效备注"],
+      items: [],
+    })
+  })
+
+  it("rebuilds display content when persisted content is empty", () => {
+    const persisted = JSON.stringify({
+      content: "",
+      searchedNames: ["鲁茨科伊"],
+      notes: [],
+      items: [],
+    })
+
+    expect(displayWritingEntitySearchWorkflowContent(persisted)).toBe("已搜索：鲁茨科伊")
+  })
 })
