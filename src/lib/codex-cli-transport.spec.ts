@@ -132,6 +132,41 @@ describe("codex app-server transport", () => {
     expect(callbacks.onToken).toHaveBeenCalledWith("纯文本结果")
     expect(callbacks.onDone).toHaveBeenCalledOnce()
     expect(callbacks.onError).not.toHaveBeenCalled()
+    const starts = clientMock.call.mock.calls.filter(([method]) =>
+      method === "thread/start" || method === "turn/start"
+    )
+    expect(starts).toHaveLength(2)
+    expect(starts[0][1]).not.toHaveProperty("serviceTier")
+    expect(starts[1][1]).not.toHaveProperty("serviceTier")
+  })
+
+  it("passes Fast mode to both app-server starts as the priority service tier", async () => {
+    clientMock.call.mockImplementation(async (method: string) => {
+      if (method === "thread/start") {
+        return { thread: { id: "thread-fast" }, instructionSources: [] }
+      }
+      if (method === "turn/start") {
+        queueMicrotask(() => {
+          clientMock.handler?.onEnvelope?.({
+            method: "turn/completed",
+            params: { threadId: "thread-fast", turn: { status: "completed" } },
+          })
+        })
+        return { turn: { id: "turn-fast" } }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+
+    await streamCodexCli(
+      { ...config, codexSpeedMode: "fast" },
+      [{ role: "user", content: "测试快速档位" }],
+      { onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
+    )
+
+    const threadStart = clientMock.call.mock.calls.find(([method]) => method === "thread/start")
+    const turnStart = clientMock.call.mock.calls.find(([method]) => method === "turn/start")
+    expect(threadStart?.[1]).toEqual(expect.objectContaining({ serviceTier: "priority" }))
+    expect(turnStart?.[1]).toEqual(expect.objectContaining({ serviceTier: "priority" }))
   })
 
   it("fails closed when app-server reports inherited instruction sources", async () => {

@@ -37,4 +37,11 @@ describe("LLM provider model controls", () => {
     expect(source).toContain("r.installed && r.appServerReady === true && r.dynamicToolsReady === true")
     expect(source).toContain('invoke<DetectResult>("codex_cli_detect")')
   })
+
+  it("exposes the persisted Codex standard and fast speed switch", () => {
+    expect(source).toContain("resolveCodexSpeedMode(ov.codexSpeedMode)")
+    expect(source).toContain('role="switch"')
+    expect(source).toContain('codexSpeedMode: codexFastEnabled ? "standard" : "fast"')
+    expect(source).toContain('settings.sections.llm.codexSpeedFast')
+  })
 })

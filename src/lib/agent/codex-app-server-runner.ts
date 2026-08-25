@@ -8,6 +8,7 @@ import {
 import { trimChatMessagesToTokenBudget } from "@/lib/chat-request-budget"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
+import { codexAppServerServiceTier } from "@/lib/codex-cli-speed"
 import type { LlmUsage } from "@/lib/llm-usage"
 import { applyGlobalUserMemoryToMessages } from "@/lib/user-memory/request-integration"
 import type { ToolRegistry } from "./registry"
@@ -288,6 +289,7 @@ export class CodexAppServerRunner {
     }
 
     const timeoutMinutes = resolveCodexCliTimeoutMinutes(config.llmConfig.codexCliTimeoutMinutes)
+    const serviceTier = codexAppServerServiceTier(config.llmConfig.codexSpeedMode)
     const timeout = setTimeout(() => {
       failActiveTurn(new Error(`Codex app-server 超时（${timeoutMinutes} 分钟）`))
     }, timeoutMinutes * 60_000)
@@ -316,6 +318,7 @@ export class CodexAppServerRunner {
         ].join("\n"),
         dynamicTools: toDynamicTools(config),
         config: restrictedCodexConfig(),
+        ...(serviceTier ? { serviceTier } : {}),
       })
       if (started.instructionSources?.length) {
         throw new Error(`QMAI 禁止 Codex 加载本机或项目规则：${started.instructionSources.join(", ")}`)
@@ -484,6 +487,7 @@ export class CodexAppServerRunner {
           sandboxPolicy: { type: "readOnly", networkAccess: false },
           model: config.modelId?.trim() || config.llmConfig.model.trim() || null,
           effort: codexReasoningEffort(config.llmConfig),
+          ...(serviceTier ? { serviceTier } : {}),
         })
         activeTurnId = turn.turn.id
         if (terminalError) void client.interrupt(threadId, activeTurnId)

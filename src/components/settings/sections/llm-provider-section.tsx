@@ -26,6 +26,7 @@ import {
 } from "@/lib/llm-context-size"
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
+import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
 
 const MODEL_PARAM_DOCS_URL = "https://global.modelmesh.info/model"
 
@@ -222,6 +223,8 @@ function PresetRow({
   const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)
+  const codexSpeedMode = resolveCodexSpeedMode(ov.codexSpeedMode)
+  const codexFastEnabled = codexSpeedMode === "fast"
   const showLocalCliIsolation = preset.provider === "claude-code"
   const isCursorCliProvider = preset.provider === "cursor-cli"
   const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
@@ -230,7 +233,13 @@ function PresetRow({
   const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
   const savedModelsTextareaRef = useRef<HTMLTextAreaElement>(null)
   const { modelTestState, runBatchTest, retryFailed } = useBatchModelTest(t)
-  const hasConfig = !!apiKey || !!ov.baseUrl || !!ov.model || !!ov.azureApiVersion || !!ov.azureModelFamily
+  const hasConfig =
+    !!apiKey ||
+    !!ov.baseUrl ||
+    !!ov.model ||
+    !!ov.azureApiVersion ||
+    !!ov.azureModelFamily ||
+    ov.codexSpeedMode === "fast"
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
   // Ollama ditto for its local-only model. Cursor CLI uses cursor-api-proxy;
@@ -535,6 +544,46 @@ function PresetRow({
                   ? t("settings.sections.llm.localCliIsolationOn")
                   : t("settings.sections.llm.localCliIsolationOff")}
               </div>
+            </div>
+          )}
+
+          {preset.provider === "codex-cli" && (
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("settings.sections.llm.codexSpeed")}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {codexFastEnabled
+                      ? t("settings.sections.llm.codexSpeedFast")
+                      : t("settings.sections.llm.codexSpeedStandard")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={codexFastEnabled}
+                  aria-label={t("settings.sections.llm.codexSpeed")}
+                  onClick={() => onChange({
+                    codexSpeedMode: codexFastEnabled ? "standard" : "fast",
+                  })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
+                    codexFastEnabled
+                      ? "border-primary bg-primary"
+                      : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
+                      codexFastEnabled ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.sections.llm.codexSpeedHint")}
+              </p>
             </div>
           )}
 

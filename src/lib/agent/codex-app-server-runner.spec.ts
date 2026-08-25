@@ -182,6 +182,9 @@ describe("CodexAppServerRunner", () => {
       dynamicTools: [expect.objectContaining({ name: "read_outline" })],
     }))
     expect(threadStart?.[1].baseInstructions).toContain("## 任务契约")
+    expect(threadStart?.[1]).not.toHaveProperty("serviceTier")
+    const turnStart = appServerMock.call.mock.calls.find(([method]) => method === "turn/start")
+    expect(turnStart?.[1]).not.toHaveProperty("serviceTier")
     expect(tool.execute).toHaveBeenCalledWith(
       { path: "QM/outlines/总纲.md" }, undefined, expect.any(Object),
     )
@@ -194,6 +197,27 @@ describe("CodexAppServerRunner", () => {
     expect(cb.onText).toHaveBeenCalledWith("最终回答")
     expect(cb.onDone).toHaveBeenCalledOnce()
     expect(cb.onError).not.toHaveBeenCalled()
+  })
+
+  it("passes Fast mode to every app-server turn as the priority service tier", async () => {
+    appServerMock.onTurn = () => {
+      envelope("item/agentMessage/delta", { threadId: "thread-1", delta: "快速结果" })
+      envelope("turn/completed", { threadId: "thread-1", turn: { status: "completed" } })
+    }
+
+    const record = await new CodexAppServerRunner().run(
+      config([], { llmConfig: { ...llmConfig, codexSpeedMode: "fast" } }),
+      new ToolRegistry(),
+      messages,
+      callbacks(),
+    )
+
+    const threadStart = appServerMock.call.mock.calls.find(([method]) => method === "thread/start")
+    const turnStarts = appServerMock.call.mock.calls.filter(([method]) => method === "turn/start")
+    expect(threadStart?.[1]).toEqual(expect.objectContaining({ serviceTier: "priority" }))
+    expect(turnStarts).toHaveLength(1)
+    expect(turnStarts[0][1]).toEqual(expect.objectContaining({ serviceTier: "priority" }))
+    expect(record.finalText).toBe("快速结果")
   })
 
   it("returns approval_required previews without executing confirmation tools", async () => {

@@ -40,6 +40,7 @@ import {
   normalizeProviderConfigs,
   normalizeUserLlmConfig,
 } from "@/lib/llm-context-size"
+import type { CodexSpeedMode } from "@/lib/codex-cli-speed"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -156,6 +157,7 @@ interface LlmConfig {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
+  codexSpeedMode?: CodexSpeedMode
   /** When false, Agent requests omit tools/tool_choice. Default/undefined = enabled. */
   functionCallingEnabled?: boolean
 }
@@ -456,6 +458,7 @@ export interface ProviderOverride {
   reasoning?: ReasoningConfig
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
+  codexSpeedMode?: CodexSpeedMode
   /** 是否在 AI 会话中显示该 provider 下的模型（仅用于自定义供应商）。默认 true。 */
   enabled?: boolean
   /** 已保存的模型列表（仅用于自定义供应商） */

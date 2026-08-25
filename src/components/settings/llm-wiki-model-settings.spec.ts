@@ -125,13 +125,14 @@ describe("QMAI model settings", () => {
 
     const codex = resolveConfig(
       preset("codex-cli"),
-      { localCliIsolation: true, codexCliTimeoutMinutes: 45 },
+      { localCliIsolation: true, codexCliTimeoutMinutes: 45, codexSpeedMode: "fast" },
       fallback,
     )
     expect(codex.provider).toBe("codex-cli")
     expect(codex.localCliIsolation).toBe(true)
     expect(codex.model).toBe("gpt-5.6-terra")
     expect(codex.codexCliTimeoutMinutes).toBe(45)
+    expect(codex.codexSpeedMode).toBe("fast")
 
     const codexPreset = preset("codex-cli")
     expect(codexPreset.defaultModel).toBe("gpt-5.6-terra")
@@ -143,6 +144,7 @@ describe("QMAI model settings", () => {
     const codexDefault = resolveConfig(preset("codex-cli"), {}, fallback)
     expect(codexDefault.model).toBe("gpt-5.6-terra")
     expect(codexDefault.codexCliTimeoutMinutes).toBe(40)
+    expect(codexDefault.codexSpeedMode).toBe("standard")
 
     const cursor = resolveConfig(
       preset("cursor-cli"),
@@ -169,6 +171,9 @@ describe("QMAI model settings", () => {
     expect(llm.longWritingContextHint).toContain("最大")
     expect(llm.longWritingContextHint).toContain("输出")
     expect(llm.longWritingContextDocs).toBe("参考文档")
+    expect(llm.codexSpeed).toBe("Codex 速度")
+    expect(llm.codexSpeedFast).toContain("1.5 倍")
+    expect(llm.codexSpeedFast).toContain("用量更多")
     expect(JSON.stringify(llm)).not.toContain("??")
   })
 })

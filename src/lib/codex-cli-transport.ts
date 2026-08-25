@@ -1,5 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
+import { codexAppServerServiceTier } from "@/lib/codex-cli-speed"
 import type { ChatMessage, ContentBlock, RequestOverrides } from "./llm-providers"
 import type { StreamCallbacks } from "./llm-client"
 import { getCodexAppServerClient, type CodexAppServerEnvelope } from "./codex-app-server-client"
@@ -140,6 +141,7 @@ export async function streamCodexCli(
     rejectTurn = reject
   })
   const timeoutMinutes = resolveCodexCliTimeoutMinutes(config.codexCliTimeoutMinutes)
+  const serviceTier = codexAppServerServiceTier(config.codexSpeedMode)
   const timeoutMs = timeoutMinutes * 60_000
   const timeout = setTimeout(() => {
     if (!finished) {
@@ -169,6 +171,7 @@ export async function streamCodexCli(
       baseInstructions: systemPrompt || "You are QMAI's text generation model.",
       developerInstructions: "Only produce the requested text. Never use native tools, shell, file changes, MCP, plugins, skills, apps, browser, or subagents.",
       config: restrictedCodexConfig(),
+      ...(serviceTier ? { serviceTier } : {}),
     })
     if (started.instructionSources?.length) {
       throw new Error(`QMAI 禁止 Codex 加载本机或项目规则：${started.instructionSources.join(", ")}`)
@@ -239,6 +242,7 @@ export async function streamCodexCli(
       sandboxPolicy: { type: "readOnly", networkAccess: false },
       model: config.model.trim() || null,
       effort: codexReasoningEffort(config),
+      ...(serviceTier ? { serviceTier } : {}),
     })
     turnId = turn.turn.id
     if (finished) void client.interrupt(threadId, turnId)
