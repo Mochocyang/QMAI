@@ -39,14 +39,7 @@ const mocks = vi.hoisted(() => {
 
   const initializeProject = vi.fn()
   const createBatch = vi.fn()
-  const continueTask = vi.fn()
-  const regenerateTask = vi.fn()
-  const cancelImportTask = vi.fn()
-  const cancelAllQueued = vi.fn()
-  const deleteFailedTask = vi.fn()
-  const renameCompletedTask = vi.fn()
   const dispose = vi.fn()
-  const setPanelCollapsed = vi.fn()
   const triggerSidebarRefresh = vi.fn()
   const setSelectedLibraryBookId = vi.fn()
   const setCurrentResult = vi.fn()
@@ -99,25 +92,11 @@ const mocks = vi.hoisted(() => {
       revision: 0,
       initializeProject,
       createBatch,
-      continueTask,
-      regenerateTask,
-      cancelTask: cancelImportTask,
-      cancelAllQueued,
-      deleteFailedTask,
-      renameCompletedTask,
-      setPanelCollapsed,
       dispose,
     },
     initializeProject,
     createBatch,
-    continueTask,
-    regenerateTask,
-    cancelImportTask,
-    cancelAllQueued,
-    deleteFailedTask,
-    renameCompletedTask,
     dispose,
-    setPanelCollapsed,
     triggerSidebarRefresh,
     setSelectedLibraryBookId,
     setCurrentResult,
@@ -130,7 +109,6 @@ const mocks = vi.hoisted(() => {
     reloadedLibraryState: libraryState,
     libraryParams: null as any,
     inputDialogProps: null as any,
-    taskPanelProps: null as any,
     layoutProps: null as any,
     chapterPanelProps: null as any,
   }
@@ -206,25 +184,6 @@ vi.mock("./book-analysis-input-dialog", async () => {
           onClick: () => void props.onSubmit(mocks.candidates),
         },
         "提交批量导入",
-      )
-    },
-  }
-})
-
-vi.mock("./book-analysis-import-task-panel", async () => {
-  const React = await import("react")
-  return {
-    BookAnalysisImportTaskPanel: (props: any) => {
-      mocks.taskPanelProps = props
-      return React.createElement("div", { "data-testid": "批量任务面板" },
-        React.createElement("button", { type: "button", onClick: () => props.onCollapsedChange(true) }, "收起任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onContinue("task-continue") }, "继续任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onRegenerate("task-regenerate") }, "重新生成任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onCancel("task-cancel") }, "取消任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onCancelAllQueued("batch-1") }, "取消批次等待"),
-        React.createElement("button", { type: "button", onClick: () => props.onDeleteFailed("task-failed") }, "删除失败任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onRenameCompleted("task-completed", "新名字") }, "重命名完成任务"),
-        React.createElement("button", { type: "button", onClick: () => props.onOpenBook("book-1") }, "打开导入作品"),
       )
     },
   }
@@ -359,20 +318,12 @@ beforeEach(() => {
   mocks.reloadedLibraryState = mocks.libraryState
   mocks.libraryParams = null
   mocks.inputDialogProps = null
-  mocks.taskPanelProps = null
   mocks.layoutProps = null
   mocks.chapterPanelProps = null
 
   mocks.initializeProject.mockReset().mockResolvedValue(undefined)
   mocks.createBatch.mockReset().mockResolvedValue(undefined)
-  mocks.continueTask.mockReset().mockResolvedValue(undefined)
-  mocks.regenerateTask.mockReset().mockResolvedValue(undefined)
-  mocks.cancelImportTask.mockReset().mockResolvedValue(undefined)
-  mocks.cancelAllQueued.mockReset().mockResolvedValue(undefined)
-  mocks.deleteFailedTask.mockReset().mockResolvedValue(undefined)
-  mocks.renameCompletedTask.mockReset().mockResolvedValue(undefined)
   mocks.dispose.mockReset().mockResolvedValue(undefined)
-  mocks.setPanelCollapsed.mockReset()
   mocks.triggerSidebarRefresh.mockReset().mockImplementation(() => { mocks.oldState.sidebarRefreshCounter += 1 })
   mocks.setSelectedLibraryBookId.mockReset().mockImplementation((id: string | null) => { mocks.oldState.selectedLibraryBookId = id })
   mocks.setCurrentResult.mockReset()
@@ -517,29 +468,8 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
     expect(mocks.inputDialogProps.open).toBe(true)
   })
 
-  it("任务面板把每个动作的任务或批次 ID 传给批量 Store", async () => {
-    await renderView()
-
-    await clickButton("收起任务")
-    await clickButton("继续任务")
-    await clickButton("重新生成任务")
-    await clickButton("取消任务")
-    await clickButton("取消批次等待")
-    await clickButton("删除失败任务")
-    await clickButton("重命名完成任务")
-
-    expect(mocks.setPanelCollapsed).toHaveBeenCalledWith(true)
-    expect(mocks.continueTask).toHaveBeenCalledWith("task-continue")
-    expect(mocks.regenerateTask).toHaveBeenCalledWith("task-regenerate")
-    expect(mocks.cancelImportTask).toHaveBeenCalledWith("task-cancel")
-    expect(mocks.cancelAllQueued).toHaveBeenCalledWith("batch-1")
-    expect(mocks.deleteFailedTask).toHaveBeenCalledWith("task-failed")
-    expect(mocks.renameCompletedTask).toHaveBeenCalledWith("task-completed", "新名字")
-  })
-
   it("打开 A 后普通选择 B 不回跳并同步状态", async () => {
     await renderView()
-    await clickButton("打开导入作品")
     await clickButton("选择角色")
     await clickButton("选择普通作品B")
     await rerenderView()
@@ -547,7 +477,7 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
     expect(mocks.oldState.selectedLibraryBookId).toBe("book-2")
     expect(mocks.setCurrentResult).toHaveBeenLastCalledWith(expect.objectContaining({ bookId: "book-2" }))
     expect(mocks.layoutProps.selectedCharacterId).toBeNull()
-    expect(mocks.clearRecognition).toHaveBeenCalledTimes(2)
+    expect(mocks.clearRecognition).toHaveBeenCalledTimes(1)
   })
 
   it("旧角色、文风、框架和历史结果入口仍可触发", async () => {

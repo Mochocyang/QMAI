@@ -153,4 +153,32 @@ describe("BookAnalysisLibraryLayout", () => {
     expect(html).toContain("韩立")
     expect(html).toContain("重新提取")
   })
+
+  it("提供 onOpenStoryMap 时渲染「打开故事导图」入口", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisLibraryLayout
+        state={state}
+        selectedBookId="book-1"
+        selectedCharacterId="char-hanli"
+        extractingStyle={false}
+        extractingCharacters={false}
+        addingToSoul={false}
+        importTaskPanel={<div>批量导入任务</div>}
+        storyFrameworks={storyFrameworks}
+        onSelectBook={vi.fn()}
+        onSelectCharacter={vi.fn()}
+        onImportNovel={vi.fn()}
+        onExtractStyle={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextractCharacters={vi.fn()}
+        extractingStoryFramework={false}
+        onExtractStoryFramework={vi.fn()}
+        onCreateOutlineFromFramework={vi.fn()}
+        onOpenStoryMap={vi.fn()}
+        onDeleteBook={vi.fn()}
+      />,
+    )
+    expect(html).toContain("打开故事导图")
+  })
 })

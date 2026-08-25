@@ -12,11 +12,20 @@ import {
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 
-type BookAnalysisModuleTab = "characters" | "story" | "style" | "evidence"
+export type BookAnalysisModuleTab = "characters" | "story" | "style" | "evidence"
+
+/** 任务完成后「查看结果」路由到对应 Skill 页签：故事优先，其次文风，最后角色。 */
+export function analysisTabForSkills(skills: Array<string>): BookAnalysisModuleTab {
+  if (skills.includes("story")) return "story"
+  if (skills.includes("style")) return "style"
+  return "characters"
+}
 
 interface BookAnalysisModuleViewProps {
   book: BookAnalysisLibraryBook
   task?: BookAnalysisPipelineTask | null
+  /** 同书全部分析任务（含并行运行的不同 Skill 任务）；用于按当前 Skill 标签选中对应任务 */
+  tasks?: BookAnalysisPipelineTask[]
   chunks?: AnalysisChunkRecord[]
   progresses?: Record<string, AnalysisRuntimeProgress>
   selectedCharacterId: string | null
@@ -32,11 +41,11 @@ interface BookAnalysisModuleViewProps {
   onReextract: (skill: AnalysisSkill) => void
   onConfigureTask?: () => void
   onSelectCharacters?: () => void
-  onPauseTask?: () => void
-  onContinueTask?: () => void
-  onRetryTask?: () => void
+  onPauseTask?: (taskId: string) => void
+  onContinueTask?: (taskId: string) => void
+  onRetryTask?: (taskId: string) => void
   onRetryChunk?: (skill: AnalysisSkill, chunkId: string) => void
-  onCancelTask?: () => void
+  onCancelTask?: (taskId: string) => void
 }
 
 function RuntimeProgressBar({ progress, label }: { progress: AnalysisRuntimeProgress; label?: string }) {
@@ -138,13 +147,25 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
   }
 
   const skill = active === "evidence" ? null : active
-  const currentTaskModule = skill && props.task?.selectedSkills.includes(skill)
-    ? props.task.modules[skill]
+  // 当前 Skill 标签对应的分析任务：优先取同书中「包含该 Skill 且仍在进行」的最新任务，
+  // 使角色/故事/文风并行任务在各目的标签页内分别显示，而非集中在最上方。
+  const activeTask = (() => {
+    if (!skill) return props.task
+    const matching = (props.tasks ?? []).filter(
+      (t) => t.selectedSkills.includes(skill) && ["queued", "running", "paused", "failed", "awaiting-character-selection"].includes(t.status),
+    )
+    if (matching.length > 0) {
+      return matching.sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    }
+    return props.task
+  })()
+  const currentTaskModule = skill && activeTask?.selectedSkills.includes(skill)
+    ? activeTask.modules[skill]
     : null
   const moduleState = skill ? currentTaskModule ?? props.book.analysisManifest?.modules[skill] : null
-  const skillChunks = skill && props.task
+  const skillChunks = skill && activeTask
     ? (props.chunks ?? [])
-        .filter((chunk) => chunk.taskId === props.task?.id && chunk.skill === skill)
+        .filter((chunk) => chunk.taskId === activeTask?.id && chunk.skill === skill)
         .sort((left, right) => left.startOrder - right.startOrder)
     : []
   const completed = skillChunks.filter((chunk) => chunk.status === "completed").length
@@ -154,37 +175,40 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
   const tabActiveChunkIndex = tabActiveChunk
     ? skillChunks.findIndex((chunk) => chunk.id === tabActiveChunk.id) + 1
     : 0
-  const currentSkill = props.task?.currentSkill
-  const taskBusy = props.task && ["queued", "running", "paused", "failed"].includes(props.task.status)
+  const currentSkill = activeTask?.currentSkill
+  const taskBusy = activeTask && ["queued", "running", "paused", "failed"].includes(activeTask.status)
   const progresses = props.progresses ?? {}
-  const currentSkillChunks = props.task && currentSkill
+  // 以「当前 Skill 标签」为基准计算进度（而非任务的 currentSkill），
+  // 这样点哪个 Skill，那个标签页内就显示该 Skill 自己的任务进度。
+  const focusSkill = skill ?? currentSkill
+  const currentSkillChunks = activeTask && focusSkill
     ? (props.chunks ?? [])
-        .filter((chunk) => chunk.taskId === props.task?.id && chunk.skill === currentSkill)
+        .filter((chunk) => chunk.taskId === activeTask?.id && chunk.skill === focusSkill)
         .sort((left, right) => left.startOrder - right.startOrder)
     : []
   const currentSkillCompleted = currentSkillChunks.filter((chunk) => chunk.status === "completed").length
-  const currentSkillTotal = props.task && currentSkill
-    ? (props.task.modules[currentSkill].chunkIds.length || currentSkillChunks.length)
+  const currentSkillTotal = activeTask && focusSkill
+    ? (activeTask.modules[focusSkill].chunkIds.length || currentSkillChunks.length)
     : 0
   const phaseRuntimeProgress = (() => {
-    if (!props.task || !currentSkill) return null
+    if (!activeTask || !focusSkill) return null
     for (const phase of ["aggregate", "publish"] as const) {
-      const phaseProgress = progresses[analysisProgressKey(props.task.id, currentSkill, phase)]
+      const phaseProgress = progresses[analysisProgressKey(activeTask.id, focusSkill, phase)]
       if (phaseProgress) return phaseProgress
     }
     return null
   })()
-  const runningChunkProgresses = props.task && currentSkill
+  const runningChunkProgresses = activeTask && focusSkill
     ? currentSkillChunks
         .filter((chunk) => chunk.status === "running")
-        .map((chunk) => progresses[analysisProgressKey(props.task!.id, currentSkill, chunk.id)])
+        .map((chunk) => progresses[analysisProgressKey(activeTask!.id, focusSkill, chunk.id)])
         .filter((progress): progress is NonNullable<typeof progress> => Boolean(progress))
     : []
   const activeRuntimeProgress = phaseRuntimeProgress
     ?? runningChunkProgresses[0]
     ?? (() => {
-      if (!props.task || !currentSkill) return null
-      const prefix = `${props.task.id}:${currentSkill}:`
+      if (!activeTask || !focusSkill) return null
+      const prefix = `${activeTask.id}:${focusSkill}:`
       return Object.entries(progresses).find(([key]) => key.startsWith(prefix))?.[1] ?? null
     })()
   // chunk 阶段占 0–90%；aggregate/publish 直接使用 phase 百分比（适配器报 92–100）
@@ -223,17 +247,17 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        {taskBusy && props.task && (
-          <section className={`mb-4 rounded-md border p-3 ${props.task.status === "failed" ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
+        {taskBusy && activeTask && (
+          <section className={`mb-4 rounded-md border p-3 ${activeTask.status === "failed" ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
             <div className="space-y-1 text-sm">
               <div className="font-medium">
-                分析任务{taskStatusLabel(props.task.status)}
+                分析任务{taskStatusLabel(activeTask.status)}
                 {currentSkill ? ` · 当前：${SKILL_LABELS[currentSkill]}` : ""}
               </div>
-              {props.task.selectedSkills.length > 0 && (
+              {activeTask.selectedSkills.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1" aria-label="各 Skill 状态">
-                  {props.task.selectedSkills.map((item) => {
-                    const module = props.task!.modules[item]
+                  {activeTask.selectedSkills.map((item) => {
+                    const module = activeTask!.modules[item]
                     const isCurrent = currentSkill === item
                     return (
                       <button
@@ -255,12 +279,12 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                 </div>
               )}
             </div>
-            {props.task.error && (
+            {activeTask.error && (
               <div role="alert" className="mt-2 break-words text-sm text-destructive">
-                失败原因：{props.task.error}
+                失败原因：{activeTask.error}
               </div>
             )}
-            {props.task.status === "running" && (
+            {activeTask.status === "running" && (
               <div className="mt-3 space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
@@ -288,37 +312,37 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
               </div>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
-              {props.task.status === "running" && props.onPauseTask && (
-                <Button size="sm" variant="outline" onClick={props.onPauseTask}>暂停</Button>
+              {activeTask.status === "running" && props.onPauseTask && (
+                <Button size="sm" variant="outline" onClick={() => props.onPauseTask!(activeTask.id)}>暂停</Button>
               )}
-              {props.task.status === "paused" && props.onContinueTask && (
-                <Button size="sm" onClick={props.onContinueTask}>
+              {activeTask.status === "paused" && props.onContinueTask && (
+                <Button size="sm" onClick={() => props.onContinueTask!(activeTask.id)}>
                   从断点继续（已完成 {currentSkillCompleted}/{currentSkillTotal || "?"} 区块）
                 </Button>
               )}
-              {props.task.status === "failed" && props.onRetryTask && (
-                <Button size="sm" onClick={props.onRetryTask}>重试当前步骤</Button>
+              {activeTask.status === "failed" && props.onRetryTask && (
+                <Button size="sm" onClick={() => props.onRetryTask!(activeTask.id)}>重试当前步骤</Button>
               )}
-              {["awaiting-character-selection", "queued", "running", "paused", "failed"].includes(props.task.status) && props.onCancelTask && (
-                <Button size="sm" variant="outline" onClick={props.onCancelTask}>取消任务</Button>
+              {["awaiting-character-selection", "queued", "running", "paused", "failed"].includes(activeTask.status) && props.onCancelTask && (
+                <Button size="sm" variant="outline" onClick={() => props.onCancelTask!(activeTask.id)}>取消任务</Button>
               )}
             </div>
           </section>
         )}
 
-        {props.task?.status === "awaiting-range" && (
+        {activeTask?.status === "awaiting-range" && (
           <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">
             <div>
               <div className="text-sm font-medium">待选择章节</div>
-              <div className="mt-1 text-xs text-muted-foreground">已选择 {props.task.selectedSkills.length} 个提取项目</div>
+              <div className="mt-1 text-xs text-muted-foreground">已选择 {activeTask.selectedSkills.length} 个提取项目</div>
             </div>
             <Button size="sm" onClick={props.onConfigureTask}>选择章节</Button>
           </div>
         )}
 
-        {props.task?.status === "awaiting-character-selection" && (() => {
-          const recognitionProgress = progresses[analysisProgressKey(props.task.id, "characters", "recognition")]
-          const hasRecognized = (props.task.recognizedCharacters?.length ?? 0) > 0
+        {activeTask?.status === "awaiting-character-selection" && (() => {
+          const recognitionProgress = progresses[analysisProgressKey(activeTask.id, "characters", "recognition")]
+          const hasRecognized = (activeTask.recognizedCharacters?.length ?? 0) > 0
           return (
             <div className="mb-4 rounded-md border border-primary/30 bg-primary/5 p-3">
               <div className="flex items-start justify-between gap-3">
@@ -328,7 +352,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {hasRecognized
-                      ? `已识别 ${props.task.recognizedCharacters!.length} 个角色，请勾选后开始深度分析`
+                      ? `已识别 ${activeTask!.recognizedCharacters!.length} 个角色，请勾选后开始深度分析`
                       : recognitionProgress
                         ? (recognitionProgress.currentItem
                           ? `范围：${recognitionProgress.currentItem}`
@@ -343,8 +367,8 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                   {props.onSelectCharacters && hasRecognized && (
                     <Button size="sm" onClick={props.onSelectCharacters}>选择角色</Button>
                   )}
-                  {props.onCancelTask && (
-                    <Button size="sm" variant="outline" onClick={props.onCancelTask}>取消任务</Button>
+                  {props.onCancelTask && activeTask && (
+                    <Button size="sm" variant="outline" onClick={() => props.onCancelTask!(activeTask.id)}>取消任务</Button>
                   )}
                 </div>
               </div>
@@ -374,7 +398,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                     当前区块：第 {tabActiveChunkIndex}/{skillChunks.length} 个（第 {tabActiveChunk.startOrder}～{tabActiveChunk.endOrder} 章）
                   </div>
                 )}
-                {skill && currentSkill === skill && activeRuntimeProgress && (
+                {skill && activeTask && activeRuntimeProgress && (
                   <RuntimeProgressBar progress={activeRuntimeProgress} label={`${SKILL_LABELS[skill]} 当前阶段`} />
                 )}
               </div>
@@ -389,8 +413,8 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
                 </div>
                 <div className="space-y-1.5">
                   {skillChunks.map((chunk) => {
-                    const chunkProgress = props.task
-                      ? progresses[analysisProgressKey(props.task.id, skill, chunk.id)]
+                    const chunkProgress = activeTask
+                      ? progresses[analysisProgressKey(activeTask.id, skill, chunk.id)]
                       : undefined
                     return (
                       <div

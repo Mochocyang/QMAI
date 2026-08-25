@@ -6,6 +6,7 @@
  */
 import { readFile, listDirectory } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
+import { findCharacterForSkillFile } from "./skill-character-match"
 import type {
   BookAnalysisResult,
   BookAnalysisMetadata,
@@ -60,9 +61,8 @@ export async function loadBookAnalysisResult(
       if (!f.is_dir && f.name.endsWith(".md")) {
         const content = await readFile(f.path)
         const baseName = f.name.replace(/-skill\.md$/i, "").replace(/\.md$/i, "")
-        const character = characters.find(
-          (c) => c.name === baseName || f.name.includes(c.name),
-        )
+        // fix/skill-match：与 library-state 同一确定性匹配，避免子串误配
+        const character = findCharacterForSkillFile(f.name, content, characters)
         skills.push({
           id: character ? `skill-${character.id}` : `skill-${baseName}`,
           characterId: character?.id ?? baseName,

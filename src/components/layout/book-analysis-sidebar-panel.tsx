@@ -17,7 +17,6 @@ import { listCharacterAuras } from "@/lib/novel/character-aura"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import type { BookAnalysisMetadata } from "@/lib/novel/book-analysis/types"
 import { BookAnalysisInputDialog } from "@/components/novel/book-analysis-input-dialog"
-import { BookAnalysisImportTaskPanel } from "@/components/novel/book-analysis-import-task-panel"
 
 interface BookItem {
   id: string
@@ -40,33 +39,12 @@ export function BookAnalysisSidebarPanel() {
   const cancelTask = useBookAnalysisStore((s) => s.cancelTask)
   const requestReopenChapterSelection = useBookAnalysisStore((s) => s.requestReopenChapterSelection)
   const deletePublishedBook = useBookAnalysisImportStore((s) => s.deletePublishedBook)
-  const importBatches = useBookAnalysisImportStore((s) => s.batches) ?? []
-  const importTasks = useBookAnalysisImportStore((s) => s.tasks) ?? []
   const createBatch = useBookAnalysisImportStore((s) => s.createBatch)
-  const continueImport = useBookAnalysisImportStore((s) => s.continueTask)
-  const regenerateImport = useBookAnalysisImportStore((s) => s.regenerateTask)
-  const cancelImport = useBookAnalysisImportStore((s) => s.cancelTask)
-  const cancelAllQueued = useBookAnalysisImportStore((s) => s.cancelAllQueued)
-  const deleteFailed = useBookAnalysisImportStore((s) => s.deleteFailedTask)
-  const renameCompleted = useBookAnalysisImportStore((s) => s.renameCompletedTask)
-  const collapsed = useBookAnalysisImportStore((s) => s.panelCollapsed)
-  const setCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
   const [books, setBooks] = useState<BookItem[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [bookAuraCount, setBookAuraCount] = useState<Record<string, number>>({})
   const [inputOpen, setInputOpen] = useState(false)
-  // 未 dismiss 且仍有任务的 batch 都显示（含失败/取消/完成），以便继续、删除失败、重生成、重命名
-  const visibleBatchIds = new Set(
-    importBatches
-      .filter((batch) => {
-        if (batch.panelDismissedAt) return false
-        return importTasks.some((task) => task.batchId === batch.id)
-      })
-      .map((batch) => batch.id),
-  )
-  const visibleBatches = importBatches.filter((batch) => visibleBatchIds.has(batch.id))
-  const visibleImportTasks = importTasks.filter((task) => visibleBatchIds.has(task.batchId))
 
   // 正在运行的任务：识别已完成的任务退出"运行中"，不再显示 Loader2 转圈
   const runningTasks = tasks.filter((t) => t.status === "running" && t.progress.recognitionStatus !== "done")
@@ -263,23 +241,6 @@ export function BookAnalysisSidebarPanel() {
           </Button>
         </div>
       </div>
-
-      <BookAnalysisImportTaskPanel
-        batches={visibleBatches}
-        tasks={visibleImportTasks}
-        collapsed={collapsed}
-        onCollapsedChange={setCollapsed}
-        onContinue={(id) => void continueImport(id)}
-        onRegenerate={(id) => void regenerateImport(id)}
-        onCancel={(id) => void cancelImport(id)}
-        onCancelAllQueued={(id) => void cancelAllQueued(id)}
-        onDeleteFailed={(id) => void deleteFailed(id)}
-        onRenameCompleted={(id, title) => void renameCompleted(id, title)}
-        onOpenBook={(id) => {
-          setSelectedLibraryBookId(id)
-          setActiveView("bookAnalysis")
-        }}
-      />
 
       {/* 作品列表 */}
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">

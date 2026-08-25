@@ -145,4 +145,51 @@ describe("loadBookAnalysisLibraryState", () => {
     expect(state.bindings).toEqual([{ characterName: "主角", auraId: "aura-hanli", auraName: "韩立" }])
     expect(state.books[0].boundAurasCount).toBe(1)
   })
+
+  it("skills 按确定性规则匹配角色：短名角色不再抢走长名角色的 Skill（fix/skill-match 回归）", async () => {
+    const projectPath = "E:/Novel"
+    const bookPath = `${projectPath}/book-analysis/book-1`
+    mockFs.directories.set(`${projectPath}/book-analysis`, [
+      { name: "book-1", path: bookPath, is_dir: true },
+    ])
+    mockFs.files.set(`${bookPath}/metadata.json`, JSON.stringify({
+      title: "凡人修仙传",
+      totalChapters: 10,
+      totalWords: 100000,
+      sourceType: "file",
+      createdAt: 1,
+      updatedAt: 2,
+    }))
+    // 「韩」在 characters 数组中排在「韩立」之前（listDirectory 返回顺序）
+    mockFs.directories.set(`${bookPath}/characters`, [
+      { name: "han.json", path: `${bookPath}/characters/han.json`, is_dir: false },
+      { name: "hanli.json", path: `${bookPath}/characters/hanli.json`, is_dir: false },
+    ])
+    mockFs.files.set(`${bookPath}/characters/han.json`, JSON.stringify({
+      id: "char-han", name: "韩", aliases: [], importance: 4, category: "minor",
+      firstAppearance: 1, lastAppearance: 2, appearanceCount: 3,
+      description: "", personality: "", speechStyle: "", relationships: [], keyEvents: [],
+    }))
+    mockFs.files.set(`${bookPath}/characters/hanli.json`, JSON.stringify({
+      id: "char-hanli", name: "韩立", aliases: [], importance: 9, category: "protagonist",
+      firstAppearance: 1, lastAppearance: 10, appearanceCount: 30,
+      description: "谨慎", personality: "隐忍", speechStyle: "少承诺", relationships: [], keyEvents: [],
+    }))
+    mockFs.directories.set(`${bookPath}/skills`, [
+      { name: "韩立-skill.md", path: `${bookPath}/skills/韩立-skill.md`, is_dir: false },
+    ])
+    mockFs.files.set(`${bookPath}/skills/韩立-skill.md`, "---\nname: 韩立\n---\n# 韩立")
+
+    const state = await loadBookAnalysisLibraryState(projectPath)
+    const target = state.books.find((book) => book.id === "book-1")!
+    expect(target.skills).toHaveLength(1)
+    expect(target.skills[0].characterId).toBe("char-hanli")
+    expect(target.skills[0].characterName).toBe("韩立")
+
+    // 韩立应有 Skill（按钮不再置灰），韩没有
+    const hanliHasSkill = target.skills.some((skill) => skill.characterId === "char-hanli")
+    const hanHasSkill = target.skills.some((skill) => skill.characterId === "char-han")
+    expect(hanliHasSkill).toBe(true)
+    expect(hanHasSkill).toBe(false)
+  })
 })

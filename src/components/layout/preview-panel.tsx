@@ -1629,6 +1629,10 @@ export function PreviewPanel() {
             key={selectedFile}
             filePath={selectedFile}
             textContent={fileContent}
+            onSave={async (content) => {
+              await writeFileAtomic(selectedFile, content)
+              setFileContent(content)
+            }}
           />
         )}
       </div>

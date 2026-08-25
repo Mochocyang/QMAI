@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState, useMemo, useDeferredValue, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, MessageSquare, FileEdit, Drama, ListChecks, ChevronDown, Check, History, ArrowDown } from "lucide-react"
+import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
@@ -20,7 +20,6 @@ import { useShallow } from "zustand/react/shallow"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
-import { DeAiSkillPicker } from "@/components/skill-library/de-ai-skill-picker"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
 import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon"
@@ -876,7 +875,6 @@ export function ChatPanel() {
   const isConversationStreaming = useChatStore((s) => s.isConversationStreaming)
   const conversations = useChatStore((s) => s.conversations)
   const setConversationInputDraft = useChatStore((s) => s.setConversationInputDraft)
-  const setConversationDeAiSkillId = useChatStore((s) => s.setConversationDeAiSkillId)
   const pendingReferenceTokens = useChatStore((s) => s.pendingReferenceTokens)
   const consumePendingReferenceTokens = useChatStore((s) => s.consumePendingReferenceTokens)
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
@@ -916,7 +914,6 @@ export function ChatPanel() {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const setAiChatModel = useWikiStore((s) => s.setAiChatModel)
   const chatEditModeEnabled = useWikiStore((s) => s.chatEditModeEnabled)
-  const setChatEditModeEnabled = useWikiStore((s) => s.setChatEditModeEnabled)
   const selectedFile = useWikiStore((s) => s.selectedFile)
 
   const streamSessionGuardRef = useRef(createStreamSessionGuard())
@@ -2680,15 +2677,6 @@ export function ChatPanel() {
             <div className="mb-2 flex items-center justify-between gap-2">
               <TooltipProvider delay={200}>
                 <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-                  <DeAiSkillPicker
-                    value={activeConversation?.selectedDeAiSkillId}
-                    buttonLabel="技能库"
-                    showLibraryShortcut
-                    onChange={(skillId) => {
-                      const convId = useChatStore.getState().activeConversationId
-                      if (convId) setConversationDeAiSkillId(convId, skillId)
-                    }}
-                  />
                   {novelMode && (
                     <>
                       <div className="relative">
@@ -2789,67 +2777,6 @@ export function ChatPanel() {
                           {aiWorkflowMode === "fast"
                             ? "快速模式下不支持计划，请切换到标准或严格模式。"
                             : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={(
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              aria-pressed={chatEditModeEnabled}
-                              className={chatEditModeEnabled ? "border-amber-500 bg-amber-50 text-amber-900 hover:bg-amber-100" : ""}
-                              onClick={() => setChatEditModeEnabled(!chatEditModeEnabled)}
-                              title="编辑章节"
-                              aria-label="编辑章节"
-                            />
-                          )}
-                        >
-                          <FileEdit className="h-4 w-4" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs leading-5">
-                          开启后，AI会话会读取当前章节或识别到的章节范围进行修改，并在写回前自动备份原内容。
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={(
-                            <button
-                              type="button"
-                              onClick={() => setActiveView("storySimulation")}
-                              className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors ${
-                                activeBinding
-                                  ? "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
-                                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-                              }`}
-                            >
-                              <Drama className="h-3.5 w-3.5" />
-                              <span className="max-w-[100px] truncate">
-                                {activeBinding
-                                  ? activeBinding.framework.shortTitle || activeBinding.framework.title
-                                  : "故事框架"}
-                              </span>
-                            </button>
-                          )}
-                        />
-                        <TooltipContent side="top" className="max-w-xs leading-5">
-                          {activeBinding ? (
-                            <>
-                              <div className="font-medium">已绑定故事框架</div>
-                              <div className="mt-1 text-xs opacity-80">
-                                {activeBinding.framework.title}
-                              </div>
-                              <div className="mt-1 text-xs opacity-70">
-                                目标章节数：{activeBinding.binding.targetChapterCount}章
-                              </div>
-                              <div className="mt-1 text-xs opacity-70">
-                                点击可进入剧情推演室管理
-                              </div>
-                            </>
-                          ) : (
-                            <>未绑定故事框架，点击进入剧情推演室创建</>
-                          )}
                         </TooltipContent>
                       </Tooltip>
                     </>

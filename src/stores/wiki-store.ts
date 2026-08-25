@@ -51,9 +51,7 @@ const UI_FONT_FAMILY_KEY = "qmai-ui-font-family"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
 type SettingsCategoryId =
-  | "llm"
-  | "rerank"
-  | "embedding"
+  | "model"
   | "network"
   | "interface"
   | "novel"

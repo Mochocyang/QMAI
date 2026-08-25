@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bot,
   BookOpen,
-  Database,
-  ListFilter,
   Palette,
   Network,
   History,
@@ -28,9 +26,7 @@ import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-s
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { UiFontFamily } from "@/lib/font-settings"
-import { LlmProviderSection } from "./sections/llm-provider-section"
-import { EmbeddingSection } from "./sections/embedding-section"
-import { RerankSection } from "./sections/rerank-section"
+import { ModelSettingsSection } from "./sections/model-settings-section"
 import { InterfaceSection } from "./sections/interface-section"
 import { NovelSection } from "./sections/novel-section"
 import { ClassificationSection } from "./sections/classification-section"
@@ -47,9 +43,7 @@ import { ExportCenterSection } from "./sections/export-center-section"
 import { UserMemorySection } from "./sections/user-memory-section"
 
 type CategoryId =
-  | "llm"
-  | "rerank"
-  | "embedding"
+  | "model"
   | "network"
   | "web-search"
   | "mcp"
@@ -78,9 +72,7 @@ interface Category {
 }
 
 const CATEGORIES: Category[] = [
-  { id: "llm", labelKey: "settings.categories.llm", icon: Bot },
-  { id: "rerank", labelKey: "settings.categories.rerank", icon: ListFilter },
-  { id: "embedding", labelKey: "settings.categories.embedding", icon: Database },
+  { id: "model", labelKey: "settings.categories.model", icon: Brain },
   { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
@@ -99,8 +91,7 @@ const CATEGORIES: Category[] = [
 
 /** Settings tabs that edit the shared draft and need the global Save footer. */
 const CATEGORIES_WITH_SAVE_FOOTER: CategoryId[] = [
-  "rerank",
-  "embedding",
+  "model",
   "network",
   "interface",
   "novel",
@@ -200,7 +191,7 @@ export function SettingsView() {
   const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
   const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
 
-  const [active, setActive] = useState<CategoryId>("llm")
+  const [active, setActive] = useState<CategoryId>("model")
   const [saved, setSaved] = useState(false)
   const [draft, setDraftState] = useState<SettingsDraft>(() =>
     initialDraft(
@@ -224,7 +215,7 @@ export function SettingsView() {
   useEffect(() => {
     if (!activeSettingsCategory) return
     if (CATEGORIES.some((category) => category.id === activeSettingsCategory)) {
-      setActive(activeSettingsCategory)
+      setActive(activeSettingsCategory as CategoryId)
     }
     setActiveSettingsCategory(null)
   }, [activeSettingsCategory, setActiveSettingsCategory])
@@ -441,12 +432,8 @@ export function SettingsView() {
 
   const body = useMemo(() => {
     switch (active) {
-      case "llm":
-        return <LlmProviderSection />
-      case "rerank":
-        return <RerankSection draft={draft} setDraft={setDraft} />
-      case "embedding":
-        return <EmbeddingSection draft={draft} setDraft={setDraft} />
+      case "model":
+        return <ModelSettingsSection draft={draft} setDraft={setDraft} />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
       case "web-search":

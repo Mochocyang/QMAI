@@ -15,6 +15,7 @@ import {
 } from "./style-prompts"
 import { styleProfileToMarkdown } from "./style-extraction-engine"
 import type { BookStyleProfile } from "./types"
+import { scheduleVerification } from "./verification-engine"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 
 interface StyleAnalysisChunkResult {
@@ -183,7 +184,7 @@ export function createStyleAnalysisAdapter(
       onProgress?.({ stageLabel: "文风汇总完成", percentage: 95 })
       return profile
     },
-    async publish({ task, bookPath, projectPath, result, evidence, onProgress }) {
+    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, onProgress }) {
       onProgress?.({ stageLabel: "正在发布文风结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布文风分析")
@@ -220,6 +221,10 @@ export function createStyleAnalysisAdapter(
       await dependencies.saveManifest(bookPath, manifest)
       await dependencies.rebuildContextIndex(projectPath)
       onProgress?.({ stageLabel: "文风结果已发布", percentage: 100 })
+
+      // 后台审计：三重验证 + 压力测试（best-effort，失败不影响任务）
+      void scheduleVerification(bookPath, "style", llmConfig)
+        .catch((error) => console.warn("[style-verify] 校验失败：", error))
       return resultPath
     },
   }
