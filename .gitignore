@@ -24,28 +24,8 @@ yarn-error.log*
 # === 更新日志（仅本地）===
 /GenxinLOG/
 
-# === 测试文件 ===
-tests/
-src/test-helpers/*
-!src/test-helpers/
-!src/test-helpers/load-test-env.ts
-!src/test-helpers/fs-temp.ts
-**/*.test.ts
-**/*.test.tsx
-!src/lib/chat-copy-content.test.ts
-!src/lib/chapter-formatting.test.ts
-!src/lib/dashboard-issue-actions.test.ts
-!src/lib/tauri-fetch.test.ts
-!src/lib/novel/start-review-run.test.ts
-!src/lib/web-fs.spec.ts
-!src/lib/graph-relevance.spec.ts
-!src/lib/chat-request-budget.test.ts
-!src/lib/context-budget.test.ts
-!src/lib/ingest.prompt.test.ts
-!src/components/layout/chat-layout.test.ts
-!src/i18n/i18n-parity.test.ts
-!src/lib/hardcoded-ui-chinese-i18n.test.ts
-!src/lib/project-store.integration.test.ts
+# === 测试源码 ===
+# 测试与 test helpers 必须纳入版本控制，不在此忽略。
 
 # === 根目录文档（仅本地保留）===
 /docs/
