@@ -7,6 +7,35 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "3.2.8",
+  date: "2026-08-25",
+  highlights: {
+    en: [
+      "[Parallel Book Analysis] Character / Story / Style analyses now truly run in parallel (concurrency 2→4); starting Story extraction no longer cancels an in-progress Character extraction. Each task's progress is shown inside its own Skill tab instead of pinned on top.",
+      "[Story Skill Cleanup] Removed the opening-hook / setup / payoff / ending-hook framework text; the story map is now displayed directly under the Story Skill tab (with a hint when not extracted yet).",
+      "[Story Map History Preserved] Every generated story map is saved as history (story-maps/story-map-<timestamp>), listed newest-first with expand/collapse, and no longer overwritten; legacy single-file maps still work.",
+      "[Triple Quality Verification] Character / Style / Story extractions now run background audits: cross-domain evidence, predictive power, and uniqueness checks plus stress tests (alternate scenarios, boundary counterexamples, confusion trade-offs); reports are saved to verification/<skill>-verification.json/.md.",
+      "[Character Skill Dialog] 'Pick a Character → Generate Skill' now always lists all recognized/saved characters (sorted by importance); clicking Generate closes the dialog immediately, runs in the background, and shows a toast when done.",
+      "[Character Persistence & Fixes] Recognized characters are persisted as character profiles automatically. Fixed the disabled 'Add to Custom Soul' button via deterministic Skill↔character matching (exact filename → safe name → aliases → frontmatter name). Task-completion Toast 'View' now routes to the matching Skill dialog / tab.",
+      "[Model Settings Merge] LLM, Default Model, Vector, and Rerank model configs are merged into one 'Model Settings' entry with horizontal tabs (LLM shown by default); duplicate model settings were removed from Writing Settings; fixed the missing 'Default Model (General)'.",
+      "[UI Cleanup] Removed the whole Batch Import Task panel from the book library (importing itself still works); removed the Skill Library / Story Framework / Edit Chapter buttons from the AI Chat toolbar.",
+      "[HTML View / Edit] .html files opened inside the app now support Preview / Source switching, which also works with story maps.",
+    ],
+    zh: [
+      "【拆书并行分析】角色 / 故事 / 文风分析真正并行（并发上限 2→4），点「故事 Skill」不再取消正在进行的「角色 Skill」；各任务进度显示在各自 Skill 页签内，不再置顶",
+      "【故事 Skill 精简】删除「开局钩子 / 铺垫 / 爽点 / 结尾钩子」框架文案；故事导图直接显示在故事 Skill 下方，未提取时给出提示",
+      "【故事导图历史全保留】每次生成的导图独立存档（story-maps/story-map-时间戳）并按时间新在前全部列出，支持展开/收起，不再互相覆盖；兼容旧单文件数据",
+      "【三重质量验证】角色 / 文风 / 故事提取后台自动审计：跨域佐证、预测力、独特性三重验证 + 换场景、边界反例、混淆取舍压力测试；报告落盘 verification/<技能>-verification.json/.md",
+      "【角色 Skill 弹窗】「选择角色生成 Skill」始终展示全部已识别并保存的角色（按重要度排序）；点击生成立即关闭弹窗，后台自动完成并 toast 提示",
+      "【角色保存与修复】识别角色自动持久化为角色档案，无需重新提取；修复自定义灵魂库按钮置灰（Skill↔角色改为确定性匹配：文件名精确名→安全名→别名→frontmatter name）；任务完成 Toast「查看」正确路由到对应 Skill 弹窗/页签",
+      "【模型设置融合】大语言模型 / 默认模型 / 向量模型 / 重排模型合并为一个「模型设置」一级入口，内部横向 Tab，默认显示大语言模型；写作设置不再重复模型配置；修复「默认模型（通用）」找不到",
+      "【界面精简】删除作品库「批量导入任务」整个面板（导入功能保留）；删除 AI 会话工具栏「技能库 / 故事框架 / 编辑章节」入口",
+      "【HTML 查看与编辑】软件内打开的 .html 支持「预览 / 源码」切换，可配合故事导图使用",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.7",
   date: "2026-08-23",
@@ -1353,6 +1382,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_EIGHT_CHANGELOG.version)
+    return [THREE_POINT_TWO_EIGHT_CHANGELOG];
   if (version === THREE_POINT_TWO_SEVEN_CHANGELOG.version)
     return [THREE_POINT_TWO_SEVEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SIX_CHANGELOG.version)
@@ -1472,6 +1503,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_EIGHT_CHANGELOG,
     THREE_POINT_TWO_SEVEN_CHANGELOG,
     THREE_POINT_TWO_SIX_CHANGELOG,
     THREE_POINT_TWO_FIVE_CHANGELOG,
@@ -1530,6 +1562,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_EIGHT_CHANGELOG &&
         entry !== THREE_POINT_TWO_SEVEN_CHANGELOG &&
         entry !== THREE_POINT_TWO_SIX_CHANGELOG &&
         entry !== THREE_POINT_TWO_FIVE_CHANGELOG &&

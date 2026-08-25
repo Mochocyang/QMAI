@@ -6,7 +6,7 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.7", "3.2.6", "3.2.5"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.8", "3.2.7", "3.2.6"])
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")
@@ -32,6 +32,14 @@ describe("changelog", () => {
     for (let patch = 8; patch <= 32; patch += 1) {
       expect(versions).not.toContain(`1.0.${patch}`)
     }
+
+    const release328 = currentVersionChangelog("3.2.8")[0]
+    expect(release328.version).toBe("3.2.8")
+    expect(release328.highlights.zh.join("\n")).toContain("拆书并行分析")
+    expect(release328.highlights.zh.join("\n")).toContain("故事导图历史全保留")
+    expect(release328.highlights.zh.join("\n")).toContain("模型设置融合")
+    expect(release328.highlights.zh.join("\n")).toContain("界面精简")
+    expect(release328.highlights.en.join("\n")).toContain("Parallel Book Analysis")
 
     const release = currentVersionChangelog("2.0.0")[0]
     expect(release.highlights.en.join("\n")).toContain("Major release")
