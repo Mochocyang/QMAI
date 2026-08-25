@@ -7,6 +7,30 @@ test("inserts spaces between CJK and Latin on normal paragraphs", () => {
   expect(result).toBe("　　中文 English 中文")
 })
 
+test("preserves compact CJK equipment model designations", () => {
+  const result = formatChapterWriting("苏-35与道尔-M1、米格-31B和山毛榉-M1")
+
+  expect(result).toBe("　　苏-35 与道尔-M1、米格-31B 和山毛榉-M1")
+})
+
+test("preserves the original middle-dot characters", () => {
+  const result = formatChapterWriting("阿卜杜拉·萨利赫与让•皮埃尔、安德烈‧伊万诺夫")
+
+  expect(result).toBe("　　阿卜杜拉·萨利赫与让•皮埃尔、安德烈‧伊万诺夫")
+})
+
+test("still spaces hyphen operators and preserves explicit negative numbers", () => {
+  const result = formatChapterWriting(["中文-英文", "气温 -35℃"].join("\n"))
+
+  expect(result).toBe(["　　中文 - 英文", "　　气温 -35℃"].join("\n"))
+})
+
+test("keeps protected model and middle-dot formatting idempotent", () => {
+  const once = formatChapterWriting("苏-35与阿卜杜拉·萨利赫")
+
+  expect(formatChapterWriting(once)).toBe(once)
+})
+
 test("keeps full-width first-line indent", () => {
   const result = formatChapterWriting("　　纯中文段落")
 

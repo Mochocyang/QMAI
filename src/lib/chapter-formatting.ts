@@ -1,6 +1,27 @@
 import pangu from "pangu"
 import { parseFrontmatter } from "@/lib/frontmatter"
 
+const CJK_MODEL_HYPHEN =
+  /(?<=[\p{Script=Han}])-(?=(?=[A-Z0-9-]*\d)[A-Z0-9]+(?:-[A-Z0-9]+)*)/gu
+const LOSSY_MIDDLE_DOT = /[·•‧]/gu
+const PROTECTED_TEXT_PATTERN = /\uE100(\d+)\uE101/gu
+
+function spacingChapterText(text: string): string {
+  const protectedValues: string[] = []
+  const protect = (value: string): string => {
+    const index = protectedValues.push(value) - 1
+    return `\uE100${index}\uE101`
+  }
+
+  const protectedText = text
+    .replace(LOSSY_MIDDLE_DOT, (value) => protect(value))
+    .replace(CJK_MODEL_HYPHEN, () => protect("-"))
+
+  return pangu
+    .spacingText(protectedText)
+    .replace(PROTECTED_TEXT_PATTERN, (_match, index: string) => protectedValues[Number(index)] ?? "")
+}
+
 function isStructuralMarkdownLine(trimmed: string): boolean {
   return /^(#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\|)/.test(trimmed) || /^\s*[-]{3,}\s*$/.test(trimmed)
 }
@@ -58,7 +79,7 @@ export function formatChapterWriting(markdown: string): string {
       formatted.push("")
     }
     const content = trimmed.replace(/^[　 ]+/, "")
-    formatted.push(`　　${pangu.spacingText(content)}`)
+    formatted.push(`　　${spacingChapterText(content)}`)
     pendingBlank = true
     lastKind = "normal"
   }
