@@ -15,6 +15,7 @@ describe("de-ai batch entry and settings", () => {
     expect(previewPanel).toContain("createDeAiBatchChapterApplier")
     expect(previewPanel).toContain("await applyDeAiBatchChapter(task.chapterPath, body)")
     expect(previewPanel).toContain("updateTask(chapterId, { candidateContent: body })")
+    expect(previewPanel).toContain("confirmTaskAndAdvanceReview(chapterId)")
     expect(previewPanel).toContain("useDeAiTaskStore.getState().closeReview(project.path)")
     expect(previewPanel).toContain("saveDeAiDraftWithoutOverwrite")
     expect(previewPanel).toContain("writeFileIfAbsent")

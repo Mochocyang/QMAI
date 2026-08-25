@@ -45,6 +45,7 @@ interface DeAiTaskState {
   failTask: (taskId: string, error: string) => void
   cancelTask: (taskId: string) => void
   confirmTask: (taskId: string) => void
+  confirmTaskAndAdvanceReview: (taskId: string) => void
   removeTask: (taskId: string) => void
   clearConfirmed: (projectPath: string) => void
   openReview: (projectPath: string, taskId?: string) => void
@@ -166,6 +167,45 @@ export const useDeAiTaskStore = create<DeAiTaskState>((set, get) => ({
           : task
       ),
     }))
+  },
+
+  confirmTaskAndAdvanceReview: (taskId) => {
+    const now = Date.now()
+    set((state) => {
+      const confirmedTask = state.tasks.find((task) => task.id === taskId)
+      if (!confirmedTask) return state
+
+      const projectKey = normalizedProjectPath(confirmedTask.projectPath)
+      const tasks = state.tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, status: "confirmed" as const, updatedAt: now }
+          : task
+      )
+      const nextReadyTask = tasks.find(
+        (task) => task.status === "ready"
+          && normalizedProjectPath(task.projectPath) === projectKey
+      )
+
+      if (nextReadyTask) {
+        return {
+          tasks,
+          reviewByProject: {
+            ...state.reviewByProject,
+            [projectKey]: { open: true, chapterId: nextReadyTask.id },
+          },
+        }
+      }
+
+      return {
+        tasks: tasks.filter((task) =>
+          task.status !== "confirmed" || normalizedProjectPath(task.projectPath) !== projectKey
+        ),
+        reviewByProject: {
+          ...state.reviewByProject,
+          [projectKey]: CLOSED_PROJECT_REVIEW,
+        },
+      }
+    })
   },
 
   removeTask: (taskId) => {

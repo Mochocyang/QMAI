@@ -1761,8 +1761,7 @@ export function PreviewPanel() {
               try {
                 await applyDeAiBatchChapter(task.chapterPath, body)
                 useDeAiTaskStore.getState().updateTask(chapterId, { candidateContent: body })
-                useDeAiTaskStore.getState().confirmTask(chapterId)
-                useDeAiTaskStore.getState().closeReview(project.path)
+                useDeAiTaskStore.getState().confirmTaskAndAdvanceReview(chapterId)
                 toast.success(`${task.chapterTitle} 去AI味结果已保存`)
               } catch (err) {
                 console.error("保存去AI味结果失败:", err)

@@ -128,4 +128,42 @@ describe("de-ai task store project isolation", () => {
     expect(reviews?.["c:/novel-a"]?.open).toBe(false)
     expect(reviews?.["c:/novel-b"]?.open).toBe(true)
   })
+
+  it("确认当前章后保留含其他待确认章节的审核弹窗，并切换到下一章", () => {
+    const firstId = useDeAiTaskStore.getState().startTask({
+      projectPath: "C:/Novel-A",
+      chapterPath: "C:/Novel-A/wiki/chapters/1.md",
+      chapterTitle: "第一章",
+      skillId: "skill-a",
+      skillName: "自然叙事",
+      skillContent: "保留角色语气",
+      modelName: "model-a",
+      sourceContent: "原文 A",
+    })
+    const secondId = useDeAiTaskStore.getState().startTask({
+      projectPath: "C:/Novel-A",
+      chapterPath: "C:/Novel-A/wiki/chapters/2.md",
+      chapterTitle: "第二章",
+      skillId: "skill-a",
+      skillName: "自然叙事",
+      skillContent: "保留角色语气",
+      modelName: "model-a",
+      sourceContent: "原文 B",
+    })
+    useDeAiTaskStore.getState().finishTask(firstId, "候选 A")
+    useDeAiTaskStore.getState().finishTask(secondId, "候选 B")
+
+    useDeAiTaskStore.getState().confirmTaskAndAdvanceReview(firstId)
+
+    let state = useDeAiTaskStore.getState()
+    expect(state.reviewByProject["c:/novel-a"]).toEqual({ open: true, chapterId: secondId })
+    expect(state.tasks.find((task) => task.id === firstId)?.status).toBe("confirmed")
+    expect(state.tasks.find((task) => task.id === secondId)?.status).toBe("ready")
+
+    useDeAiTaskStore.getState().confirmTaskAndAdvanceReview(secondId)
+
+    state = useDeAiTaskStore.getState()
+    expect(state.reviewByProject["c:/novel-a"]).toEqual({ open: false, chapterId: null })
+    expect(selectProjectDeAiTasks(state.tasks, "C:/Novel-A")).toHaveLength(0)
+  })
 })
