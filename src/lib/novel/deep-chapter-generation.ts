@@ -2416,7 +2416,7 @@ async function maybeInjectWritingEntityWebSearch(args: {
     const result = await collect({
       projectPath: args.input.projectPath,
       userRequest: args.input.userRequest,
-      outline: args.contextPack.outline,
+      outline: args.contextPack.entitySearchOutline,
       planBlueprint: args.planBlueprint,
       contextPack: args.contextPack,
       chapterNumber: args.input.chapterNumber,

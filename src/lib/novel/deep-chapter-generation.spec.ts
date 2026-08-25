@@ -1615,6 +1615,34 @@ describe("runDeepChapterGeneration", () => {
     expect(seenPacks.some((pack) => pack.searchResults.includes(research))).toBe(true)
   })
 
+  it("passes the search-only outline to strict-mode entity candidate extraction", async () => {
+    const collectWritingEntityWebSearch = vi.fn(async () => ({
+      markdown: "",
+      searchedNames: [] as string[],
+      notes: [] as string[],
+    }))
+    const deps = createDeps()
+    vi.mocked(deps.buildContextPack).mockResolvedValue({
+      ...contextPack,
+      outline: "总纲：877型基洛级潜艇。",
+      entitySearchOutline: "第3章章纲：雨夜旧屋。",
+    })
+
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      {},
+      { ...deps, collectWritingEntityWebSearch },
+    )
+
+    expect(collectWritingEntityWebSearch).toHaveBeenCalledWith(expect.objectContaining({
+      outline: "第3章章纲：雨夜旧屋。",
+      contextPack: expect.objectContaining({
+        outline: "总纲：877型基洛级潜艇。",
+        entitySearchOutline: "第3章章纲：雨夜旧屋。",
+      }),
+    }))
+  })
+
   it("emits web_search workflow events when strict mode finds external sources", async () => {
     const events: Array<{ type: string; name: string; result?: string; params?: Record<string, unknown> }> = []
     await runDeepChapterGeneration(

@@ -4,6 +4,7 @@ import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
 import type { ContextPack } from "./context-engine"
 import {
   buildLocalWritingCorpus,
+  buildWritingEntityExtractionSource,
   collectWritingEntityWebSearch,
   displayWritingEntitySearchWorkflowContent,
   formatWritingEntitySearchMarkdown,
@@ -97,6 +98,40 @@ describe("writing entity local lookup", () => {
     expect(selectUnresolvedEntities(["郭靖", "黄蓉", "降龙十八掌"], corpus, ["黄蓉"])).toEqual([
       "降龙十八掌",
     ])
+  })
+})
+
+describe("writing entity extraction source", () => {
+  it("orders user request and selected outline before plan blueprint, then caps at 8000 chars", () => {
+    const source = buildWritingEntityExtractionSource({
+      userRequest: "生成第277章",
+      outline: `第277章章纲：猎户座侦察系统。${"章".repeat(9000)}`,
+      planBlueprint: "任务蓝图：不应挤占章纲窗口。",
+      contextPack: {
+        ...pack,
+        outline: "总纲：877型基洛级潜艇。",
+      },
+    })
+
+    expect(source).toHaveLength(8000)
+    expect(source).toMatch(/^生成第277章\n\n第277章章纲：猎户座侦察系统。/)
+    expect(source).not.toContain("877型基洛级潜艇")
+    expect(source).not.toContain("任务蓝图")
+  })
+
+  it("uses the search-only outline instead of the merged outline fallback", () => {
+    const source = buildWritingEntityExtractionSource({
+      userRequest: "生成第276章",
+      planBlueprint: "",
+      contextPack: {
+        ...pack,
+        outline: "总纲：971型阿库拉级攻击核潜艇。",
+        entitySearchOutline: "第276章章纲：武装走廊完成清场。",
+      },
+    })
+
+    expect(source).toContain("武装走廊")
+    expect(source).not.toContain("阿库拉级")
   })
 })
 

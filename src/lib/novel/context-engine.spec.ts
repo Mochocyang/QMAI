@@ -5,6 +5,7 @@ import {
   annotateChapterOutlineStatus,
   contextPackToPrompt,
   pickChapterOutlineByNumber,
+  selectWritingEntitySearchOutline,
   trimContextPack,
   type ContextPack,
 } from "./context-engine"
@@ -78,6 +79,48 @@ describe("pickChapterOutlineByNumber", () => {
 
     expect(pickChapterOutlineByNumber(candidates, 239)).toContain("第239章")
     expect(pickChapterOutlineByNumber(candidates.slice(0, 1), 239)).toBe("")
+  })
+})
+
+describe("selectWritingEntitySearchOutline", () => {
+  it("按章纲、卷纲、本章目标、完整大纲依次选择且不拼接低优先级来源", () => {
+    const sources = {
+      chapterOutline: "第277章章纲：猎户座侦察系统投入测试。",
+      volumeContext: "第五卷：宇宙系列侦察卫星列装。",
+      chapterGoal: "第277章：猎户座投入测试。",
+      outline: "总纲：877型基洛级潜艇与971型阿库拉级核潜艇。",
+    }
+
+    expect(selectWritingEntitySearchOutline(sources)).toBe(sources.chapterOutline)
+    expect(selectWritingEntitySearchOutline({ ...sources, chapterOutline: "" })).toBe(sources.volumeContext)
+    expect(selectWritingEntitySearchOutline({
+      ...sources,
+      chapterOutline: "",
+      volumeContext: "",
+    })).toBe(sources.chapterGoal)
+    expect(selectWritingEntitySearchOutline({
+      ...sources,
+      chapterOutline: "",
+      volumeContext: "",
+      chapterGoal: "",
+    })).toBe(sources.outline)
+  })
+
+  it("不同章节只返回各自章纲，不夹带固定总纲装备", () => {
+    const outline = "总纲：877型基洛级潜艇、971型阿库拉级攻击核潜艇。"
+    const chapter276 = selectWritingEntitySearchOutline({
+      chapterOutline: "第276章章纲：武装走廊完成清场。",
+      outline,
+    })
+    const chapter277 = selectWritingEntitySearchOutline({
+      chapterOutline: "第277章章纲：猎户座侦察系统投入测试。",
+      outline,
+    })
+
+    expect(chapter276).toContain("武装走廊")
+    expect(chapter277).toContain("猎户座")
+    expect(chapter276).not.toContain("基洛级")
+    expect(chapter277).not.toContain("阿库拉级")
   })
 })
 

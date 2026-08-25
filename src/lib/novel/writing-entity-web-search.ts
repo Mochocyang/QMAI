@@ -90,6 +90,24 @@ export function buildLocalWritingCorpus(
     .join("\n")
 }
 
+export function buildWritingEntityExtractionSource(
+  input: Pick<
+    CollectWritingEntityWebSearchInput,
+    "userRequest" | "outline" | "planBlueprint" | "contextPack"
+  >,
+): string {
+  const outline = input.outline?.trim()
+    || input.contextPack.entitySearchOutline?.trim()
+    || input.contextPack.outline?.trim()
+    || ""
+
+  return [
+    input.userRequest.trim(),
+    outline,
+    input.planBlueprint?.trim() ?? "",
+  ].filter(Boolean).join("\n\n").slice(0, SOURCE_TEXT_CHAR_CAP)
+}
+
 export function isLocallyResolvedEntity(
   name: string,
   corpus: string,
@@ -437,11 +455,7 @@ export async function collectWritingEntityWebSearch(
 }
 
 async function extractEntityNames(input: CollectWritingEntityWebSearchInput): Promise<string[]> {
-  const source = [
-    input.userRequest.trim(),
-    input.planBlueprint?.trim() ?? "",
-    input.outline?.trim() || input.contextPack.outline?.trim() || "",
-  ].filter(Boolean).join("\n\n").slice(0, SOURCE_TEXT_CHAR_CAP)
+  const source = buildWritingEntityExtractionSource(input)
 
   const raw = await completeText(input, [
     {

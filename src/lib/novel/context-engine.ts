@@ -74,6 +74,8 @@ export interface ContextPack {
   task: string
   chapterGoal: string
   outline: string
+  /** 仅供写作实体补搜提取候选名称，不注入任务书、正文或审稿提示词。 */
+  entitySearchOutline?: string
   recentChapterContents?: string[]
   recentSummaries: string[]
   previousChapterEnding: string
@@ -225,6 +227,13 @@ async function buildContextPackFromRawData(
     rawData.chapterOutline, 
     context.chapterNumber
   )
+
+  const entitySearchOutline = selectWritingEntitySearchOutline({
+    chapterOutline: rawData.chapterOutline,
+    volumeContext: rawData.volumeContext,
+    chapterGoal,
+    outline: rawData.outline,
+  })
   
   // 合并大纲信息
   const mergedOutline = joinNonEmpty([
@@ -252,6 +261,7 @@ async function buildContextPackFromRawData(
     task: context.task,
     chapterGoal,
     outline: mergedOutline,
+    entitySearchOutline,
     recentChapterContents,
     recentSummaries,
     previousChapterEnding,
@@ -400,11 +410,30 @@ export function joinNonEmpty(parts: string[], separator: string): string {
   return parts.map((part) => part.trim()).filter(Boolean).join(separator)
 }
 
+export function selectWritingEntitySearchOutline(input: {
+  chapterOutline?: string
+  volumeContext?: string
+  chapterGoal?: string
+  outline?: string
+}): string {
+  for (const candidate of [
+    input.chapterOutline,
+    input.volumeContext,
+    input.chapterGoal,
+    input.outline,
+  ]) {
+    const normalized = candidate?.trim() ?? ""
+    if (normalized) return normalized
+  }
+  return ""
+}
+
 function emptyPack(task: string): ContextPack {
   return {
     task,
     chapterGoal: "",
     outline: "",
+    entitySearchOutline: "",
     recentChapterContents: [],
     recentSummaries: [],
     previousChapterEnding: "",
