@@ -13,6 +13,7 @@ import type {
 } from "./analysis-pipeline-types"
 import type { AnalysisSkillAdapter } from "./analysis-skill-adapter"
 import type { ExtractedCharacter } from "./types"
+import { scheduleVerification } from "./verification-engine"
 
 interface CharacterAnalysisChunkResult {
   characters: ExtractedCharacter[]
@@ -249,7 +250,7 @@ export function createCharacterAnalysisAdapter(
       onProgress?.({ stageLabel: `已选出 ${candidates.length} 个候选角色`, percentage: 95 })
       return candidates
     },
-    async publish({ task, bookPath, projectPath, result, evidence, onProgress }) {
+    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, onProgress }) {
       onProgress?.({ stageLabel: "正在保存角色结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布角色分析")
@@ -278,6 +279,10 @@ export function createCharacterAnalysisAdapter(
       await dependencies.saveManifest(bookPath, manifest)
       await dependencies.rebuildContextIndex(projectPath)
       onProgress?.({ stageLabel: "角色结果已发布", percentage: 100 })
+
+      // 后台审计：三重验证 + 压力测试（best-effort，失败不影响任务）
+      void scheduleVerification(bookPath, "characters", llmConfig)
+        .catch((error) => console.warn("[characters-verify] 校验失败：", error))
       return resultPath
     },
   }

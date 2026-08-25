@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
-import { BookAnalysisImportTaskPanel } from "./book-analysis-import-task-panel"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 import { BookAnalysisResultViewer } from "./book-analysis-result-viewer"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
@@ -21,6 +20,7 @@ import { toast } from "@/lib/toast"
 import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
 import type {
   AnalysisDepth,
+  ExtractedCharacter,
   SixDimensionProgressItem,
   SixDimensionStatus,
   RecognizedCharacter,
@@ -48,8 +48,11 @@ import { BookAnalysisCharacterSkillDialog } from "./book-analysis-character-skil
 import { CharacterSelectionPanel } from "./character-selection-panel"
 import { OutlineCreatorDialog } from "./outline-editor"
 import { generateSkillsForCharacters } from "@/lib/novel/book-analysis/skill-generator"
-import { selectCharacterCandidates } from "@/lib/novel/book-analysis/character-candidate-selection"
-import { loadBookAnalysisResult } from "@/lib/novel/book-analysis/result-loader"
+import {
+  recognizedCharacterToExtracted,
+  selectCharacterCandidates,
+} from "@/lib/novel/book-analysis/character-candidate-selection"
+import { analysisTabForSkills, type BookAnalysisModuleTab } from "./book-analysis-module-view"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { saveRecognizedCharacters } from "@/lib/novel/book-analysis/recognized-character-store"
@@ -114,8 +117,14 @@ export function BookAnalysisView() {
     selectedIds: string[]
   } | null>(null)
   const [pipelineCharacterConfirming, setPipelineCharacterConfirming] = useState(false)
+  // fix/view-result-routing：任务完成「查看结果」路由到对应 Skill 页签（受控页签）
+  const [moduleActiveTab, setModuleActiveTab] = useState<BookAnalysisModuleTab>("characters")
+  // fix/view-result-routing：故事任务完成后递增，触发故事页签重新读取历史导图
+  const [storyMapRefreshKey, setStoryMapRefreshKey] = useState(0)
 
   const currentProject = useWikiStore((s) => s.project)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const storeSelectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
   const sidebarRefreshCounter = useBookAnalysisStore((s) => s.sidebarRefreshCounter)
   const pendingRecognitionTaskId = useBookAnalysisStore((s) => s.pendingRecognitionTaskId)
@@ -127,17 +136,9 @@ export function BookAnalysisView() {
   const setShowResultViewer = useBookAnalysisStore((s) => s.setShowResultViewer)
   const importBatches = useBookAnalysisImportStore((s) => s.batches)
   const importTasks = useBookAnalysisImportStore((s) => s.tasks)
-  const importPanelCollapsed = useBookAnalysisImportStore((s) => s.panelCollapsed)
   const importRevision = useBookAnalysisImportStore((s) => s.revision)
   const initializeImportProject = useBookAnalysisImportStore((s) => s.initializeProject)
   const createImportBatch = useBookAnalysisImportStore((s) => s.createBatch)
-  const continueImportTask = useBookAnalysisImportStore((s) => s.continueTask)
-  const regenerateImportTask = useBookAnalysisImportStore((s) => s.regenerateTask)
-  const cancelImportTask = useBookAnalysisImportStore((s) => s.cancelTask)
-  const cancelAllQueuedImportTasks = useBookAnalysisImportStore((s) => s.cancelAllQueued)
-  const deleteFailedImportTask = useBookAnalysisImportStore((s) => s.deleteFailedTask)
-  const renameCompletedImportTask = useBookAnalysisImportStore((s) => s.renameCompletedTask)
-  const setImportPanelCollapsed = useBookAnalysisImportStore((s) => s.setPanelCollapsed)
   const pipelineTasks = useBookAnalysisPipelineStore((s) => s.tasks)
   const pipelineChunks = useBookAnalysisPipelineStore((s) => s.chunks)
   const pipelineProgresses = useBookAnalysisPipelineStore((s) => s.progresses)
@@ -225,13 +226,39 @@ export function BookAnalysisView() {
 
   const handleGenerateSelectedCharacterSkills = useCallback(async (characterIds: string[]) => {
     if (!selectedLibraryBook || characterIds.length === 0) return
-    const selected = selectCharacterCandidates(selectedLibraryBook.characters).filter((character) => characterIds.includes(character.id))
-    if (selected.length === 0) return
+    // fix/generate-in-background：立即关闭弹窗，生成转入后台执行，
+    // 避免多个角色逐个 LLM 生成时长长地卡在「正在生成」弹窗里。
     setCharacterSkillGenerating(true)
+    setCharacterSkillDialogOpen(false)
     try {
+      const extractedCandidates = selectCharacterCandidates(selectedLibraryBook.characters)
+      let selected: ExtractedCharacter[]
+      if ((selectedLibraryBook.recognizedCharacters?.length ?? 0) > 0) {
+        // fix/recognized-in-dialog：弹窗展示的是「已识别角色」，按 id 选出；
+        // 优先复用该角色的深度分析结果（数据更全），没有则用识别角色兜底。
+        selected = selectedLibraryBook.recognizedCharacters
+          .filter((character) => characterIds.includes(character.id))
+          .map((recognized) =>
+            extractedCandidates.find((candidate) => candidate.name === recognized.name)
+              ?? recognizedCharacterToExtracted(recognized),
+          )
+        // 持久化为角色档案（characters/{id}.json），之后弹窗/角色面板直接可读
+        if (selected.length > 0) {
+          const { persistCharacterToDisk } = await import("@/lib/novel/book-analysis/character-disk-store")
+          for (const character of selected) {
+            await persistCharacterToDisk(selectedLibraryBook.path, character)
+          }
+        }
+      } else {
+        // 兼容旧数据：无识别记录时从深度分析角色推导
+        selected = extractedCandidates.filter((character) => characterIds.includes(character.id))
+      }
+      if (selected.length === 0) {
+        toast.info("没有匹配到可生成的角色。")
+        return
+      }
       await generateSkillsForCharacters(selected, selectedLibraryBook.metadata, selectedLibraryBook.path, llmConfig)
       await reloadLibraryState()
-      setCharacterSkillDialogOpen(false)
       toast.success(`已生成 ${selected.length} 个角色 Skill，可在角色面板中查看并加入自定义灵魂库。`)
     } catch (error) {
       toast.error(`角色 Skill 生成失败：${error instanceof Error ? error.message : String(error)}`)
@@ -270,6 +297,16 @@ export function BookAnalysisView() {
     selectedCharacterIds,
     reloadLibraryState,
   })
+
+  const handleSelectBook = useCallback((bookId: string) => {
+    const book = libraryState.books.find((item) => item.id === bookId)
+    setSelectedBookId(bookId)
+    setSelectedCharacterId(null)
+    clearRecognition()
+    const analysisStore = useBookAnalysisStore.getState()
+    analysisStore.setSelectedLibraryBookId(bookId)
+    if (book) analysisStore.setCurrentResult(toBookAnalysisResult(book))
+  }, [clearRecognition, libraryState.books])
 
   useEffect(() => {
     if (!currentProject?.path) return
@@ -321,24 +358,42 @@ export function BookAnalysisView() {
       if (task.status === "completed" && !notifiedPipelineTaskIdsRef.current.has(`${task.id}:completed`)) {
         notifiedPipelineTaskIdsRef.current.add(`${task.id}:completed`)
         void reloadLibraryState()
+        // 故事任务完成：递增刷新键，故事页签的历史导图自动重新读取
+        if (task.selectedSkills.includes("story")) {
+          setStoryMapRefreshKey((key) => key + 1)
+        }
         if (task.batchId) continue
         if (task.selectedSkills.includes("characters") && task.selectedSkills.length === 1) {
           toast.success("角色信息已提取完成，可选择角色生成 Skill。", {
             persistent: true,
-            action: { label: "打开角色信息", onClick: handleOpenCharacterSkillSelection },
+            action: {
+              label: "打开角色信息",
+              onClick: () => {
+                // fix/view-result-routing：定位到任务所属作品后再打开弹窗
+                if (libraryState.books.some((book) => book.id === task.bookId)) {
+                  handleSelectBook(task.bookId)
+                } else {
+                  setSelectedBookId(task.bookId)
+                }
+                setCharacterSkillDialogOpen(true)
+              },
+            },
           })
         } else {
+          // fix/view-result-routing：按任务技能路由到对应 Skill 页签，
+          // 直接展示角色/故事/文风的生成结果（旧版查看器不再使用）
+          const tab = analysisTabForSkills(task.selectedSkills)
           toast.success("拆书任务已完成，结果已更新。", {
             persistent: true,
             action: {
               label: "查看结果",
-              onClick: async () => {
-                const loadedResult = await loadBookAnalysisResult(task.projectPath, task.bookId)
-                if (loadedResult) {
-                  useBookAnalysisStore.getState().setCurrentResult(loadedResult)
+              onClick: () => {
+                if (libraryState.books.some((book) => book.id === task.bookId)) {
+                  handleSelectBook(task.bookId)
+                } else {
+                  setSelectedBookId(task.bookId)
                 }
-                setViewingResultPath(task.projectPath)
-                setShowResultViewer(true)
+                setModuleActiveTab(tab)
               },
             },
           })
@@ -351,7 +406,7 @@ export function BookAnalysisView() {
         }
       }
     }
-  }, [currentProject?.path, pipelineTasks, reloadLibraryState, handleOpenCharacterSkillSelection])
+  }, [currentProject?.path, pipelineTasks, reloadLibraryState, handleOpenCharacterSkillSelection, handleSelectBook, libraryState.books])
 
   useEffect(() => {
     const projectPath = currentProject?.path ?? null
@@ -572,6 +627,9 @@ export function BookAnalysisView() {
     .filter((task) => task.bookId === selectedLibraryBook?.id)
     .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
 
+  // 同书所有分析任务（含并行运行的多个）；默认聚焦最新任务，其余在「并行分析任务」区各自显示进度
+  const bookAnalysisTasks = pipelineTasks.filter((task) => task.bookId === selectedLibraryBook?.id)
+
   const openPipelineDialog = useCallback(async (skill: AnalysisSkill) => {
     if (!selectedLibraryBook) return
     const existingModule = selectedLibraryBook.analysisManifest?.modules[skill]
@@ -702,55 +760,6 @@ export function BookAnalysisView() {
     }
   }, [failPipelineTask, llmConfig, openPipelineCharacterPicker, providerConfigs, setRuntimeProgress, setTaskRecognizedCharacters])
 
-  const runImportTaskAction = useCallback((action: () => Promise<void>, failureMessage: string) => {
-    void action().catch((error) => {
-      console.error(failureMessage, error)
-      toast.error(`${failureMessage}：${error instanceof Error ? error.message : String(error)}`)
-    })
-  }, [])
-
-  const handleContinueImportTask = useCallback((taskId: string) => {
-    runImportTaskAction(() => continueImportTask(taskId), "继续导入失败")
-  }, [continueImportTask, runImportTaskAction])
-
-  const handleRegenerateImportTask = useCallback((taskId: string) => {
-    runImportTaskAction(() => regenerateImportTask(taskId), "重新生成失败")
-  }, [regenerateImportTask, runImportTaskAction])
-
-  const handleCancelImportTask = useCallback((taskId: string) => {
-    runImportTaskAction(() => cancelImportTask(taskId), "取消导入失败")
-  }, [cancelImportTask, runImportTaskAction])
-
-  const handleCancelAllQueuedImportTasks = useCallback((batchId: string) => {
-    runImportTaskAction(() => cancelAllQueuedImportTasks(batchId), "取消等待任务失败")
-  }, [cancelAllQueuedImportTasks, runImportTaskAction])
-
-  const handleDeleteFailedImportTask = useCallback((taskId: string) => {
-    runImportTaskAction(() => deleteFailedImportTask(taskId), "删除失败任务失败")
-  }, [deleteFailedImportTask, runImportTaskAction])
-
-  const handleRenameCompletedImportTask = useCallback((taskId: string, title: string) => {
-    runImportTaskAction(() => renameCompletedImportTask(taskId, title), "重命名作品失败")
-  }, [renameCompletedImportTask, runImportTaskAction])
-
-  const handleSelectBook = useCallback((bookId: string) => {
-    const book = libraryState.books.find((item) => item.id === bookId)
-    setSelectedBookId(bookId)
-    setSelectedCharacterId(null)
-    clearRecognition()
-    const analysisStore = useBookAnalysisStore.getState()
-    analysisStore.setSelectedLibraryBookId(bookId)
-    if (book) analysisStore.setCurrentResult(toBookAnalysisResult(book))
-  }, [clearRecognition, libraryState.books])
-
-  const handleOpenImportedBook = useCallback((bookId: string) => {
-    if (!libraryState.books.some((item) => item.id === bookId)) {
-      toast.error("未找到已导入作品，请刷新后重试。")
-      return
-    }
-    handleSelectBook(bookId)
-  }, [handleSelectBook, libraryState.books])
-
   const libraryLayout = (
     <>
     <BookAnalysisLibraryLayout
@@ -762,30 +771,39 @@ export function BookAnalysisView() {
       extractingStoryFramework={storyFrameworkExtracting}
       addingToSoul={addingToSoul}
       storyFrameworks={storyFrameworks}
-      importTaskPanel={
-        <BookAnalysisImportTaskPanel
-          batches={importBatches}
-          tasks={importTasks}
-          collapsed={importPanelCollapsed}
-          onCollapsedChange={setImportPanelCollapsed}
-          onContinue={handleContinueImportTask}
-          onRegenerate={handleRegenerateImportTask}
-          onCancel={handleCancelImportTask}
-          onCancelAllQueued={handleCancelAllQueuedImportTasks}
-          onDeleteFailed={handleDeleteFailedImportTask}
-          onRenameCompleted={handleRenameCompletedImportTask}
-          onOpenBook={handleOpenImportedBook}
-        />
-      }
       analysisTask={selectedPipelineTask}
-      analysisChunks={pipelineChunks.filter((chunk) => chunk.taskId === selectedPipelineTask?.id)}
+      analysisChunks={pipelineChunks}
       analysisProgresses={pipelineProgresses}
+      analysisTasks={bookAnalysisTasks}
+      analysisActiveTab={moduleActiveTab}
+      onAnalysisActiveTabChange={setModuleActiveTab}
+      storyMapRefreshKey={storyMapRefreshKey}
+      onParallelPauseTask={(taskId) => {
+        void pausePipelineTask(taskId).catch((error) => {
+          toast.error(`暂停失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      }}
+      onParallelContinueTask={(taskId) => {
+        void continuePipelineTask(taskId).catch((error) => {
+          toast.error(`继续失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      }}
+      onParallelCancelTask={(taskId) => {
+        void cancelPipelineTask(taskId).catch((error) => {
+          toast.error(`取消失败：${error instanceof Error ? error.message : String(error)}`)
+        })
+      }}
       onSelectBook={handleSelectBook}
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
       onExtractStyle={handleLibraryExtractStyle}
       onExtractStoryFramework={handleOpenStoryFrameworkSelection}
       onCreateOutlineFromFramework={(frameworkId) => setOutlineCreatorFrameworkId(frameworkId)}
+      onOpenStoryMap={(bookPath) => {
+        setSelectedFile(null)
+        setActiveView("wiki")
+        setSelectedFile(`${bookPath}/story-map.html`)
+      }}
       onToggleStyle={handleLibraryToggleStyle}
       onAddSelectedSkillsToSoul={handleLibraryAddSkillsToSoul}
       onOpenSkillSelection={handleOpenCharacterSkillSelection}
@@ -801,32 +819,18 @@ export function BookAnalysisView() {
             )
           : undefined
       }
-      onPauseAnalysisTask={selectedPipelineTask ? () => {
-        void pausePipelineTask(selectedPipelineTask.id).catch((error) => {
-          toast.error(`暂停失败：${error instanceof Error ? error.message : String(error)}`)
-        })
-      } : undefined}
-      onContinueAnalysisTask={selectedPipelineTask ? () => {
-        void continuePipelineTask(selectedPipelineTask.id).catch((error) => {
-          toast.error(`继续失败：${error instanceof Error ? error.message : String(error)}`)
-        })
-      } : undefined}
-      onRetryAnalysisTask={selectedPipelineTask ? () => {
-        const skill = selectedPipelineTask.currentSkill
-        const failedChunkId = skill ? selectedPipelineTask.modules[skill].failedChunkId : null
+      onParallelRetryTask={selectedPipelineTask ? (taskId) => {
+        const target = bookAnalysisTasks.find((t) => t.id === taskId) ?? selectedPipelineTask
+        const skill = target.currentSkill
+        const failedChunkId = skill ? target.modules[skill].failedChunkId : null
         const retry = skill && failedChunkId
-          ? retryPipelineChunk(selectedPipelineTask.id, skill, failedChunkId)
-          : continuePipelineTask(selectedPipelineTask.id)
+          ? retryPipelineChunk(target.id, skill, failedChunkId)
+          : continuePipelineTask(target.id)
         void retry.catch((error) => toast.error(`重试失败：${error instanceof Error ? error.message : String(error)}`))
       } : undefined}
       onRetryAnalysisChunk={selectedPipelineTask ? (skill, chunkId) => {
         void retryPipelineChunk(selectedPipelineTask.id, skill, chunkId).catch((error) => {
           toast.error(`重试区块失败：${error instanceof Error ? error.message : String(error)}`)
-        })
-      } : undefined}
-      onCancelAnalysisTask={selectedPipelineTask ? () => {
-        void cancelPipelineTask(selectedPipelineTask.id).catch((error) => {
-          toast.error(`取消失败：${error instanceof Error ? error.message : String(error)}`)
         })
       } : undefined}
       onDeleteBook={(bookId) => handleLibraryDeleteBook(bookId, selectedBookId)}

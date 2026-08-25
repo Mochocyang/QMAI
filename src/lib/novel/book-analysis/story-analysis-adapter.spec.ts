@@ -56,7 +56,19 @@ describe("story analysis adapter", () => {
       category: "主角" as const,
       sourceBook: "测试作品",
     }])
-    const callModel = vi.fn(async (messages) => messages[1].content)
+    const mapJson = JSON.stringify({
+      mainLineLabel: "成长主线",
+      mainSummary: "主角一路推进",
+      chapters: [{
+        id: "ch-0001",
+        order: 1,
+        title: "第一章",
+        summary: "林远推门而入",
+        mainEvents: [{ label: "夜探老宅", beats: ["潜入", "发现线索"], characters: ["林远"] }],
+        branches: [{ id: "b1", kind: "foreshadow", label: "老宅秘密", triggeredBy: "夜探老宅", events: [] }],
+      }],
+    })
+    const callModel = vi.fn(async () => mapJson)
     const adapter = createStoryAnalysisAdapter({
       recognizeCharacters,
       callModel,
@@ -94,13 +106,35 @@ describe("story analysis adapter", () => {
     expect(recognizeCharacters).toHaveBeenCalledTimes(1)
     expect(callModel.mock.calls[0][0][1].content).toContain("临时人物线索")
     expect(callModel.mock.calls[0][0][1].content).toContain("禁止输出角色 Skill")
+    expect(output.result.map.chapters[0].id).toBe("ch-0001")
+    expect(output.result.map.chapters[0].branches[0].kind).toBe("foreshadow")
     expect(output.evidence[0].skill).toBe("story")
   })
 
   it("故事汇总只保留已完成区块的用户章节范围", async () => {
-    const callModel = vi.fn(async () => "汇总结果")
+    const mergedJson = JSON.stringify({
+      mainLineLabel: "主线",
+      chapters: [{ id: "ch-0001", order: 1, summary: "s", mainEvents: [{ label: "e" }] }],
+    })
+    const callModel = vi.fn(async () => mergedJson)
     const adapter = createStoryAnalysisAdapter({ callModel })
     const inputTask = task()
+    const makeMap = (chapterId: string, order: number) => ({
+      schemaVersion: 1 as const,
+      bookId: inputTask.bookId,
+      bookTitle: "测试作品",
+      mainLineLabel: "主线",
+      mainSummary: "",
+      createdAt: 1,
+      chapters: [{
+        id: chapterId,
+        order,
+        title: `第${order}章`,
+        summary: "s",
+        mainEvents: [{ label: "e", beats: [], characters: [] }],
+        branches: [],
+      }],
+    })
     const result = await adapter.aggregate({
       task: inputTask,
       skill: "story",
@@ -108,13 +142,31 @@ describe("story analysis adapter", () => {
       projectPath: inputTask.projectPath,
       llmConfig: {} as LlmConfig,
       chunks: [
-        { markdown: "区块一", rangeChapterIds: ["ch-0001", "ch-0002"] },
-        { markdown: "区块二", rangeChapterIds: ["ch-0011", "ch-0012"] },
+        { map: makeMap("ch-0001", 1), rangeChapterIds: ["ch-0001", "ch-0002"] },
+        { map: makeMap("ch-0011", 11), rangeChapterIds: ["ch-0011", "ch-0012"] },
       ],
       signal: new AbortController().signal,
     })
 
     expect(result.rangeChapterIds).toEqual(["ch-0001", "ch-0002", "ch-0011", "ch-0012"])
     expect(callModel).toHaveBeenCalledTimes(1)
+    expect(result.map.chapters[0].id).toBe("ch-0001")
+  })
+
+  it("检测到旧版四段区块时明确报错，提示重新提取", async () => {
+    const adapter = createStoryAnalysisAdapter({ callModel: vi.fn(async () => "{}") })
+    const inputTask = task()
+    await expect(adapter.aggregate({
+      task: inputTask,
+      skill: "story",
+      bookPath: inputTask.bookPath,
+      projectPath: inputTask.projectPath,
+      llmConfig: {} as LlmConfig,
+      chunks: [
+        { markdown: "区块一", rangeChapterIds: ["ch-0001"] } as never,
+        { markdown: "区块二", rangeChapterIds: ["ch-0011"] } as never,
+      ],
+      signal: new AbortController().signal,
+    })).rejects.toThrow("旧版四段格式")
   })
 })

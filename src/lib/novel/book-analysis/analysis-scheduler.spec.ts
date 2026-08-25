@@ -23,10 +23,10 @@ function moduleState(skill: AnalysisSkill, chunkIds: string[]): AnalysisModuleSt
   }
 }
 
-function task(selectedSkills: AnalysisSkill[], chunkIds = ["chunk-1", "chunk-2"]): BookAnalysisPipelineTask {
+function task(selectedSkills: AnalysisSkill[], chunkIds = ["chunk-1", "chunk-2"], taskId = "task-1"): BookAnalysisPipelineTask {
   return {
     version: 1,
-    id: "task-1",
+    id: taskId,
     batchId: null,
     projectPath: "E:/Novel",
     bookId: "book-1",
@@ -70,6 +70,7 @@ function chunks(skills: AnalysisSkill[], count = 2): AnalysisChunkRecord[] {
 
 function createHarness(options: {
   onRun?: (skill: AnalysisSkill, chunkId: string, signal: AbortSignal) => Promise<void>
+  concurrency?: number
 } = {}) {
   const calls: string[] = []
   let running = 0
@@ -101,6 +102,7 @@ function createHarness(options: {
   const scheduler = createAnalysisScheduler({
     adapters,
     llmConfig: {} as LlmConfig,
+    concurrency: options.concurrency,
     saveTask: vi.fn(async () => {}),
     saveChunk: vi.fn(async () => {}),
     saveCompletedChunk: vi.fn(async (_bookPath, chunk, result) => {
@@ -127,14 +129,47 @@ describe("analysis scheduler", () => {
     expect(harness.calls.at(-1)).toBe("style:publish")
   })
 
-  it("同一 Skill 的区块并发最多为 2", async () => {
-    const harness = createHarness({ onRun: async () => new Promise((resolve) => setTimeout(resolve, 1)) })
+  it("在并发受限时，同一 Skill 的区块并发受 concurrency 限制", async () => {
+    const harness = createHarness({
+      onRun: async () => new Promise((resolve) => setTimeout(resolve, 1)),
+      concurrency: 2,
+    })
     harness.scheduler.initialize([task(["characters"], ["chunk-1", "chunk-2", "chunk-3"])], chunks(["characters"], 3))
 
     await harness.scheduler.continueTask("task-1")
     await harness.scheduler.whenIdle()
 
     expect(harness.getMaxRunning()).toBe(2)
+  })
+
+  it("多个任务（角色/故事）并行运行，而非互相等待", async () => {
+    const harness = createHarness({
+      onRun: async () => new Promise((resolve) => setTimeout(resolve, 1)),
+      concurrency: 4,
+    })
+    // 两个独立任务：角色任务 chunk-a、故事任务 chunk-c；id 各不相同以区分任务
+    const charactersTask = task(["characters"], ["chunk-a"], "task-char")
+    const storyTask = task(["story"], ["chunk-c"], "task-story")
+    const charChunks = chunks(["characters"]).map((chunk, index) => ({
+      ...chunk,
+      id: index === 0 ? "chunk-a" : `chunk-a${index}`,
+      taskId: "task-char",
+    })).slice(0, 1)
+    const storyChunks = chunks(["story"]).map((chunk, index) => ({
+      ...chunk,
+      id: index === 0 ? "chunk-c" : `chunk-c${index}`,
+      taskId: "task-story",
+    })).slice(0, 1)
+    harness.scheduler.initialize([charactersTask, storyTask], [...charChunks, ...storyChunks])
+
+    await Promise.all([
+      harness.scheduler.continueTask("task-char"),
+      harness.scheduler.continueTask("task-story"),
+    ])
+    await harness.scheduler.whenIdle()
+
+    // 两个任务的区块都在并发池内并行推进，同一时刻同时运行
+    expect(harness.getMaxRunning()).toBeGreaterThan(1)
   })
 
   it("继续任务时跳过已完成区块", async () => {
@@ -155,7 +190,7 @@ describe("analysis scheduler", () => {
   it("暂停后不再派发新的区块并可继续", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const harness = createHarness({ onRun: async () => gate })
+    const harness = createHarness({ onRun: async () => gate, concurrency: 2 })
     harness.scheduler.initialize([task(["characters"], ["chunk-1", "chunk-2", "chunk-3"])], chunks(["characters"], 3))
 
     const continuing = harness.scheduler.continueTask("task-1")

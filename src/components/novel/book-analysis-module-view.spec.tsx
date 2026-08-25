@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
 import type { AnalysisModuleState, BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
-import { BookAnalysisModuleView } from "./book-analysis-module-view"
+import { analysisTabForSkills, BookAnalysisModuleView } from "./book-analysis-module-view"
 
 function moduleState(skill: AnalysisModuleState["skill"], status: AnalysisModuleState["status"]): AnalysisModuleState {
   return {
@@ -68,6 +68,34 @@ const book: BookAnalysisLibraryBook = {
 }
 
 describe("BookAnalysisModuleView 分析进度", () => {
+  it("analysisTabForSkills 按任务技能路由结果页签（故事优先，其次文风，最后角色）", () => {
+    expect(analysisTabForSkills(["story"])).toBe("story")
+    expect(analysisTabForSkills(["characters", "story"])).toBe("story")
+    expect(analysisTabForSkills(["style"])).toBe("style")
+    expect(analysisTabForSkills(["characters", "style"])).toBe("style")
+    expect(analysisTabForSkills(["characters"])).toBe("characters")
+    expect(analysisTabForSkills([])).toBe("characters")
+  })
+
+  it("受控页签：activeTab 由外部控制时渲染对应页签内容", () => {
+    const html = renderToStaticMarkup(
+      <BookAnalysisModuleView
+        book={book}
+        task={null}
+        activeTab="story"
+        selectedCharacterId={null}
+        extractingStyle={false}
+        addingToSoul={false}
+        onSelectCharacter={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextract={vi.fn()}
+        storyContent={<div data-testid="story-content">故事导图内容</div>}
+      />,
+    )
+    expect(html).toContain("故事导图内容")
+  })
+
   it("当前任务状态优先于旧 manifest，并显示区块与下一步", () => {
     const html = renderToStaticMarkup(
       <BookAnalysisModuleView
@@ -305,6 +333,67 @@ describe("BookAnalysisModuleView 分析进度", () => {
     expect(html).toContain("已识别 1 个角色")
     expect(html).toContain("选择角色")
     expect(html).toContain("取消任务")
+  })
+
+  it("并行任务中，角色等待选择的入口仍显示（即使 props.task 不是该任务）", () => {
+    const awaitingCharactersTask: BookAnalysisPipelineTask = {
+      ...task,
+      id: "task-awaiting",
+      selectedSkills: ["characters"],
+      status: "awaiting-character-selection",
+      currentSkill: null,
+      recognizedCharacters: [{
+        id: "char-1",
+        name: "林远",
+        aliases: [],
+        appearances: 2,
+        chapterIndices: [0],
+        importanceScore: 90,
+        category: "主角",
+        sourceBook: "book-1",
+      }],
+      modules: {
+        characters: moduleState("characters", "pending"),
+        story: moduleState("story", "skipped"),
+        style: moduleState("style", "skipped"),
+      },
+      // 旧任务（更早更新时间），故不作为 selectedPipelineTask
+      updatedAt: 1,
+    }
+    const runningStoryTask: BookAnalysisPipelineTask = {
+      ...task,
+      id: "task-story",
+      selectedSkills: ["story"],
+      status: "running",
+      currentSkill: "story",
+      modules: {
+        characters: moduleState("characters", "skipped"),
+        story: moduleState("story", "running"),
+        style: moduleState("style", "skipped"),
+      },
+      // 更近更新时间，被选中为 props.task
+      updatedAt: 99,
+    }
+    const html = renderToStaticMarkup(
+      <BookAnalysisModuleView
+        book={book}
+        task={runningStoryTask}
+        tasks={[awaitingCharactersTask, runningStoryTask]}
+        selectedCharacterId={null}
+        extractingStyle={false}
+        addingToSoul={false}
+        onSelectCharacter={vi.fn()}
+        onToggleStyle={vi.fn()}
+        onAddSelectedSkillsToSoul={vi.fn()}
+        onReextract={vi.fn()}
+        onSelectCharacters={vi.fn()}
+        onCancelTask={vi.fn()}
+      />,
+    )
+
+    expect(html).toContain("待选择角色")
+    expect(html).toContain("已识别 1 个角色")
+    expect(html).toContain("选择角色")
   })
 
   it("角色识别中展示进度条", () => {

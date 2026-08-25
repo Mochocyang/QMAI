@@ -4,6 +4,7 @@ import { loadWritingStyleStore, type WritingStylePreset } from "@/lib/novel/writ
 import { joinPath, normalizePath } from "@/lib/path-utils"
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
 import { loadRecognizedCharacters } from "./recognized-character-store"
+import { findCharacterForSkillFile } from "./skill-character-match"
 import type {
   BookAnalysisMetadata,
   BookAnalysisResult,
@@ -79,15 +80,10 @@ async function loadSkills(
       if (!file.is_dir && file.name.endsWith(".md")) {
         const content = await readFile(file.path)
         const baseName = file.name.replace(/-skill\.md$/i, "").replace(/\.md$/i, "")
-        // 匹配策略：1) 精确名称匹配 2) 文件名包含角色名 3) safeFileName 转换后匹配
-        const character = characters.find((item) => {
-          if (item.name === baseName) return true
-          if (file.name.includes(item.name)) return true
-          // skill-generator 使用 safeFileName = name.replace(/[^一-龥a-zA-Z0-9]/g, "_")
-          const safeName = item.name.replace(/[^一-龥a-zA-Z0-9]/g, "_")
-          if (safeName === baseName) return true
-          return false
-        })
+        // 匹配策略（fix/skill-match，确定性优先级）：
+        // 文件名精确名 → safeFileName → 别名 → Skill frontmatter 的 name 字段。
+        // 移除旧的「文件名包含角色名」宽松子串匹配，避免短名角色抢走长名角色的 Skill。
+        const character = findCharacterForSkillFile(file.name, content, characters)
         skills.push({
           id: character ? `skill-${character.id}` : `skill-${baseName}`,
           characterId: character?.id ?? baseName,

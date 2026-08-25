@@ -11,6 +11,9 @@ import {
   Music,
   FileSpreadsheet,
   FileQuestion,
+  Eye,
+  Code2,
+  Save,
 } from "lucide-react"
 import { getFileCategory, getCodeLanguage } from "@/lib/file-types"
 import type { FileCategory } from "@/lib/file-types"
@@ -27,11 +30,22 @@ import { isTauri } from "@/lib/platform"
 interface FilePreviewProps {
   filePath: string
   textContent: string
+  /** 可选：非只读文件（当前为 HTML）编辑后的保存回调 */
+  onSave?: (content: string) => Promise<void> | void
 }
 
-export function FilePreview({ filePath, textContent }: FilePreviewProps) {
+function isHtmlPath(filePath: string): boolean {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? ""
+  return ext === "html" || ext === "htm"
+}
+
+export function FilePreview({ filePath, textContent, onSave }: FilePreviewProps) {
   const category = getFileCategory(filePath)
   const fileName = getFileName(filePath)
+
+  if ((category === "code" || category === "data") && isHtmlPath(filePath)) {
+    return <HtmlFilePreview filePath={filePath} content={textContent} onSave={onSave} />
+  }
 
   switch (category) {
     case "image":
@@ -281,6 +295,106 @@ function BinaryPlaceholder({
       <p className="text-sm text-muted-foreground">
         暂不支持预览该类型文件
       </p>
+    </div>
+  )
+}
+
+interface HtmlFilePreviewProps {
+  filePath: string
+  content: string
+  onSave?: (content: string) => Promise<void> | void
+}
+
+/** HTML 文件预览：预览（iframe 沙箱渲染）/ 源码（可编辑保存）切换 */
+function HtmlFilePreview({ filePath, content, onSave }: HtmlFilePreviewProps) {
+  const [mode, setMode] = useState<"preview" | "source">("preview")
+  const [draft, setDraft] = useState(content)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    setDraft(content)
+    setDirty(false)
+    setMessage("")
+  }, [content, filePath])
+
+  const handleSave = async () => {
+    if (!onSave || saving) return
+    setSaving(true)
+    setMessage("")
+    try {
+      await onSave(draft)
+      setDirty(false)
+      setMessage("已保存")
+    } catch {
+      setMessage("保存失败，请重试")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
+        <span className="truncate" title={filePath}>{filePath}</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">HTML</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setMode("preview")}
+            className={`rounded border px-2 py-1 flex items-center gap-1 ${mode === "preview" ? "bg-accent text-accent-foreground" : "hover:bg-accent"}`}
+            title="渲染预览"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            预览
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("source")}
+            className={`rounded border px-2 py-1 flex items-center gap-1 ${mode === "source" ? "bg-accent text-accent-foreground" : "hover:bg-accent"}`}
+            title="查看并编辑源码"
+          >
+            <Code2 className="h-3.5 w-3.5" />
+            源码
+          </button>
+          {onSave && (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!dirty || saving}
+              className="rounded border px-2 py-1 flex items-center gap-1 disabled:opacity-50 hover:bg-accent"
+              title={dirty ? "保存修改到文件" : "无修改"}
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saving ? "保存中…" : "保存"}
+            </button>
+          )}
+          {message && <span className="ml-1">{message}</span>}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        {mode === "preview" ? (
+          <iframe
+            key={draft.length}
+            title="HTML 预览"
+            srcDoc={draft}
+            sandbox="allow-same-origin"
+            className="h-full w-full border-0 bg-white"
+          />
+        ) : (
+          <textarea
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              setDirty(event.target.value !== content)
+            }}
+            spellCheck={false}
+            className="h-full w-full resize-none bg-muted/20 p-4 font-mono text-sm leading-relaxed outline-none"
+            dir="ltr"
+          />
+        )}
+      </div>
     </div>
   )
 }

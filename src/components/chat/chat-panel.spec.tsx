@@ -14,9 +14,9 @@ describe("chat-panel de-AI skill handling", () => {
     expect(source).not.toContain("setChapterSaveStatus(deAiSkillWarning)")
   })
 
-  it("uses a skill library trigger instead of the old de-AI-only label in the chat input toolbar", () => {
-    expect(source).toContain("<DeAiSkillPicker")
-    expect(source).toContain('buttonLabel="技能库"')
+  it("chat input toolbar no longer exposes the skill library trigger", () => {
+    expect(source).not.toContain("DeAiSkillPicker")
+    expect(source).not.toContain('buttonLabel="技能库"')
     expect(source).not.toContain('title="当前启用的 Skill"')
     expect(source).not.toContain('aria-label="当前启用的 Skill"')
   })

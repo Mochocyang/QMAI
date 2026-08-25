@@ -94,7 +94,9 @@ function clampProgress(progress: AnalysisRuntimeProgress): AnalysisRuntimeProgre
 }
 
 export function createAnalysisScheduler(options: AnalysisSchedulerOptions): AnalysisScheduler {
-  const concurrency = Math.max(1, Math.min(2, Math.floor(options.concurrency ?? 2)))
+  // 全局 chunk 并发：从默认 2 提升到 4，配合「多任务并行」——同一作品的角色/故事/文风
+  // 可各自推进区块，而非互相等待。仍允许调用方通过 options.concurrency 覆盖。
+  const concurrency = Math.max(1, Math.min(6, Math.floor(options.concurrency ?? 4)))
   const persistTask = options.saveTask ?? saveAnalysisTask
   const persistChunk = options.saveChunk ?? saveAnalysisChunk
   const persistCompletedChunk = options.saveCompletedChunk ?? saveCompletedChunk
