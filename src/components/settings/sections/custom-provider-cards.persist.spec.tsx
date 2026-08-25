@@ -56,6 +56,12 @@ describe("listCustomProviderCards restart mapping", () => {
       custom: { label: "自定义模型", model: "legacy" },
     })).toEqual([])
   })
+
+  it("preserves an empty label while the user is editing it", () => {
+    expect(listCustomProviderCards({
+      "custom-1710000000000": { label: "" },
+    })[0]?.label).toBe("")
+  })
 })
 
 describe("CustomProviderCards persistence UI", () => {
@@ -112,6 +118,38 @@ describe("CustomProviderCards persistence UI", () => {
     expect(host.textContent).toContain("自定义模型")
     expect(host.textContent).not.toContain("暂未添加任何模型配置")
     vi.restoreAllMocks()
+  })
+
+  it("allows deleting the entire default model name", async () => {
+    useWikiStore.setState({
+      providerConfigs: {
+        "custom-1710000000000": { label: "自定义模型", enabled: true },
+      },
+    })
+    await act(async () => root.render(<CustomProviderCards />))
+
+    const labelButton = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "自定义模型",
+    )
+    expect(labelButton).toBeTruthy()
+    await act(async () => labelButton!.click())
+
+    const input = host.querySelector<HTMLInputElement>('input[placeholder="配置名称"]')
+    expect(input).toBeTruthy()
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set
+      valueSetter?.call(input, "")
+      input!.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    expect(input!.value).toBe("")
+    expect(useWikiStore.getState().providerConfigs["custom-1710000000000"]?.label).toBe("")
+    expect(persistMocks.saveProviderConfigs.mock.calls.at(-1)?.[0]).toMatchObject({
+      "custom-1710000000000": { label: "" },
+    })
   })
 })
 

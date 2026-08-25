@@ -43,7 +43,7 @@ export function listCustomProviderCards(providerConfigs: ProviderConfigs): Custo
       const config = providerConfigs[key] ?? {}
       return {
         id: key,
-        label: config.label || "自定义模型",
+        label: config.label ?? "自定义模型",
         apiMode: config.apiMode || "chat_completions",
         baseUrl: config.baseUrl || "",
         apiKey: config.apiKey || "",
