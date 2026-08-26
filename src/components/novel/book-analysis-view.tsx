@@ -53,9 +53,10 @@ import {
   selectCharacterCandidates,
 } from "@/lib/novel/book-analysis/character-candidate-selection"
 import { analysisTabForSkills, type BookAnalysisModuleTab } from "./book-analysis-module-view"
-import { readFile } from "@/commands/fs"
+import { readFile, fileExists, deleteFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { saveRecognizedCharacters } from "@/lib/novel/book-analysis/recognized-character-store"
+import { deleteStoryMapHistory } from "@/lib/novel/book-analysis/story-map-history"
 
 interface StoryFrameworkSelectionData {
   book: BookAnalysisLibraryBook
@@ -206,6 +207,8 @@ export function BookAnalysisView() {
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
     handleLibraryDeleteBook,
+    handleLibraryDeleteStyle,
+    handleLibraryDeleteCharacter,
     handleLibraryReextractCharacters,
   } = useLibraryOperations({
     currentProjectPath: currentProject?.path ?? null,
@@ -214,6 +217,7 @@ export function BookAnalysisView() {
     setLibraryState,
     setSelectedBookId,
     setSelectedCharacterId,
+    selectedCharacterId,
     setChapterSelectionData,
     llmConfig,
     providerConfigs,
@@ -760,6 +764,27 @@ export function BookAnalysisView() {
     }
   }, [failPipelineTask, llmConfig, openPipelineCharacterPicker, providerConfigs, setRuntimeProgress, setTaskRecognizedCharacters])
 
+  const handleDeleteStoryMap = useCallback(async (id: string) => {
+    if (!currentProject?.path || !selectedLibraryBook) return
+    try {
+      if (id === "legacy") {
+        // 旧格式：仅根目录 story-map.{json,html}，直接删除这两份引用文件
+        for (const name of ["story-map.json", "story-map.html"]) {
+          const target = joinPath(selectedLibraryBook.path, name)
+          if (await fileExists(target)) await deleteFile(target)
+        }
+      } else {
+        await deleteStoryMapHistory(selectedLibraryBook.path, id)
+      }
+      useBookAnalysisStore.getState().triggerSidebarRefresh()
+      toast.success("已删除该故事导图。")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[删除故事导图失败]", msg)
+      toast.error(`删除故事导图失败：${msg}`)
+    }
+  }, [currentProject?.path, selectedLibraryBook])
+
   const libraryLayout = (
     <>
     <BookAnalysisLibraryLayout
@@ -778,6 +803,9 @@ export function BookAnalysisView() {
       analysisActiveTab={moduleActiveTab}
       onAnalysisActiveTabChange={setModuleActiveTab}
       storyMapRefreshKey={storyMapRefreshKey}
+      onDeleteCharacter={handleLibraryDeleteCharacter}
+      onDeleteStyle={handleLibraryDeleteStyle}
+      onDeleteStoryMap={handleDeleteStoryMap}
       onParallelPauseTask={(taskId) => {
         void pausePipelineTask(taskId).catch((error) => {
           toast.error(`暂停失败：${error instanceof Error ? error.message : String(error)}`)

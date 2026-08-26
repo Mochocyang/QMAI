@@ -2,7 +2,7 @@
 
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { ContextHubDetails } from "./context-hub-details"
 import { CONTEXT_CACHE_SCHEMA_VERSION, type ContextHubSnapshot } from "@/lib/context-hub/types"
 
@@ -83,75 +83,32 @@ describe("ContextHubDetails", () => {
     host.remove()
   })
 
-  it("loads the persisted snapshot and shows cache items plus all composed sections", async () => {
-    const loadSnapshot = vi.fn(async () => snapshot)
+  it("展示标题与单行摘要（本次命中/命中率/节省 token）", async () => {
     await act(async () => {
-      root.render(
-        <ContextHubDetails
-          reference={reference}
-          loadSnapshot={loadSnapshot}
-        />,
-      )
+      root.render(<ContextHubDetails reference={reference} />)
     })
 
     expect(host.textContent).toContain("上下文中控")
-    expect(host.textContent).toContain("本轮数据源：命中 3，重载 2，无数据 0，fallback 0，失败 0")
-    expect(host.textContent).toContain("Token")
-    expect(host.textContent).not.toContain("稳定核心正文")
-
-    const expandButton = host.querySelector<HTMLButtonElement>('button[aria-label="展开上下文中控"]')
-    await act(async () => {
-      expandButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-
-    expect(loadSnapshot).toHaveBeenCalledWith(reference)
-    expect(host.textContent).toContain("大纲资料")
-    expect(host.textContent).toContain("拆书库分析")
-    expect(host.textContent).toContain("稳定核心前缀")
-    expect(host.textContent).toContain("缓存失效范围预览")
-    expect(host.textContent).toContain("wiki/outlines/main.md")
-    expect(host.textContent).toContain("另有 2 个文件")
-    expect(host.textContent).toContain("稳定核心正文")
-    expect(host.textContent).toContain("供应商已确认命中 800 Token（输入占比 50%）")
-    expect(host.textContent).toContain("供应商新写入缓存 200 Token")
-    expect(host.innerHTML).toContain("max-h-96")
-    expect(host.innerHTML).toContain("overflow-y-auto")
-
-    const summaryTab = Array.from(host.querySelectorAll("button"))
-      .find((button) => button.textContent === "会话摘要")
-    await act(async () => {
-      summaryTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-    expect(host.textContent).toContain("会话摘要正文")
-
-    const dynamicTab = Array.from(host.querySelectorAll("button"))
-      .find((button) => button.textContent === "动态片段")
-    await act(async () => {
-      dynamicTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-    expect(host.textContent).toContain("动态片段正文")
+    expect(host.textContent).toContain("本次命中 3 项")
+    expect(host.textContent).toContain("命中率 60%")
+    expect(host.textContent).toContain("节省约 1,320 Token")
+    expect(host.textContent).not.toContain("本轮数据源")
+    expect(host.textContent).not.toContain("供应商已确认命中")
+    expect(host.textContent).not.toContain("展开上下文中控")
   })
 
-  it("keeps summary statistics visible when the snapshot cannot be read", async () => {
+  it("无数据源时显示友好文案", async () => {
+    const emptyStats = {
+      ...snapshot.stats,
+      cacheHits: 0, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+    }
     await act(async () => {
-      root.render(
-        <ContextHubDetails
-          reference={reference}
-          loadSnapshot={async () => null}
-        />,
-      )
+      root.render(<ContextHubDetails reference={{ ...reference, stats: emptyStats }} />)
     })
-
-    const expandButton = host.querySelector<HTMLButtonElement>('button[aria-label="展开上下文中控"]')
-    await act(async () => {
-      expandButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-
-    expect(host.textContent).toContain("命中 3")
-    expect(host.textContent).toContain("上下文快照不可用")
+    expect(host.textContent).toContain("本轮无上下文数据")
   })
 
-  it("hides legacy hits/refreshed/failures snapshot refs", async () => {
+  it("旧格式 stats 不渲染", async () => {
     const legacyReference = {
       id: "assistant:legacy",
       surface: "ai-chat" as const,
@@ -172,49 +129,9 @@ describe("ContextHubDetails", () => {
     }
 
     await act(async () => {
-      root.render(
-        <ContextHubDetails
-          reference={legacyReference as never}
-          loadSnapshot={async () => null}
-        />,
-      )
+      root.render(<ContextHubDetails reference={legacyReference as never} />)
     })
 
     expect(host.textContent).toBe("")
-  })
-
-  it("reloads an expanded snapshot when the same message receives a newer snapshot", async () => {
-    const newerSnapshot: ContextHubSnapshot = {
-      ...snapshot,
-      createdAt: 20,
-      stableCore: "续传后的稳定核心",
-    }
-    let currentSnapshot = snapshot
-    const loadSnapshot = vi.fn(async () => currentSnapshot)
-
-    await act(async () => {
-      root.render(<ContextHubDetails reference={reference} loadSnapshot={loadSnapshot} />)
-    })
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="展开上下文中控"]')
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-    expect(host.textContent).toContain("稳定核心正文")
-
-    currentSnapshot = newerSnapshot
-    const newerReference = {
-      id: "assistant:1:resume-2",
-      surface: "ai-chat" as const,
-      createdAt: newerSnapshot.createdAt,
-      stats: newerSnapshot.stats,
-    }
-    currentSnapshot = { ...newerSnapshot, id: newerReference.id }
-    await act(async () => {
-      root.render(<ContextHubDetails reference={newerReference} loadSnapshot={loadSnapshot} />)
-    })
-
-    expect(loadSnapshot).toHaveBeenLastCalledWith(newerReference)
-    expect(host.textContent).toContain("续传后的稳定核心")
-    expect(host.textContent).not.toContain("稳定核心正文")
   })
 })

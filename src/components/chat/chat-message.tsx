@@ -308,7 +308,6 @@ export function ChatMessage({
               ) : currentContextHubSnapshot ? (
                 <ContextHubDetails
                   reference={currentContextHubSnapshot}
-                  projectPath={projectPath}
                 />
               ) : null}
             </div>

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { RotateCcw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { listDirectory } from "@/commands/fs"
@@ -167,7 +167,7 @@ export function TrashPanel() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium" title={item.originalPath}>{item.name}</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t("trash.remainingDays", { days: remainingDays, defaultValue: "剩余{{days}}天" })} · {item.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : item.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : item.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
+                        {t("trash.remainingDays", { days: remainingDays, defaultValue: "剩余{{days}}天" })} · {item.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : item.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : item.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : item.kind === "skill" ? t("trash.kindSkill", { defaultValue: "技能/画像" }) : item.kind === "storymap" ? t("trash.kindStoryMap", { defaultValue: "故事导图" }) : t("trash.kindPage", { defaultValue: "页面" })}
                       </div>
                     </div>
                     <Button

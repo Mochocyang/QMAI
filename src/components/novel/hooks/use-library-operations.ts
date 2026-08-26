@@ -13,7 +13,8 @@ import {
 import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
 import { setEnabledWritingStyle, upsertWritingStylePreset } from "@/lib/novel/writing-style-store"
 import { refreshProjectState } from "@/lib/project-refresh"
-import { readFile, listDirectory } from "@/commands/fs"
+import { fileExists, readFile, listDirectory } from "@/commands/fs"
+import { moveFileToTrash } from "@/lib/trash"
 import { joinPath, normalizePath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -27,6 +28,8 @@ interface UseLibraryOperationsParams {
   setLibraryState: React.Dispatch<React.SetStateAction<BookAnalysisLibraryState>>
   setSelectedBookId: React.Dispatch<React.SetStateAction<string | null>>
   setSelectedCharacterId: React.Dispatch<React.SetStateAction<string | null>>
+  /** 当前选中的角色 id（用于删除选中角色后清空选中态） */
+  selectedCharacterId: string | null
   setChapterSelectionData: React.Dispatch<React.SetStateAction<ChapterSelectionData | null>>
   llmConfig: ReturnType<typeof useWikiStore.getState>["llmConfig"]
   providerConfigs: ReturnType<typeof useWikiStore.getState>["providerConfigs"]
@@ -47,6 +50,7 @@ export function useLibraryOperations({
   setLibraryState,
   setSelectedBookId,
   setSelectedCharacterId,
+  selectedCharacterId,
   setChapterSelectionData,
   llmConfig,
   providerConfigs,
@@ -268,6 +272,55 @@ export function useLibraryOperations({
     }
   }, [currentProjectPath, libraryState.books, deletePublishedBook, setSelectedBookId, setSelectedCharacterId, reloadLibraryState])
 
+  const handleLibraryDeleteStyle = useCallback(async () => {
+    if (!currentProjectPath || !selectedLibraryBook?.styleProfile) return
+    const title = selectedLibraryBook.metadata.title
+    const enabledNow = libraryState.enabledStyle?.sourceBook === title
+    const confirmed = window.confirm(
+      `确认删除《${title}》的文风画像吗？\n\n删除后将移入回收站，可恢复。${enabledNow ? "\n该文风当前已启用，删除时会一并取消启用。" : ""}`,
+    )
+    if (!confirmed) return
+    try {
+      if (enabledNow) await setEnabledWritingStyle(currentProjectPath, null)
+      const profilePath = joinPath(selectedLibraryBook.path, "style-profile.json")
+      if (await fileExists(profilePath)) await moveFileToTrash(currentProjectPath, profilePath, "skill")
+      const styleMdPath = joinPath(selectedLibraryBook.path, "style.md")
+      if (await fileExists(styleMdPath)) await moveFileToTrash(currentProjectPath, styleMdPath, "skill")
+      await reloadLibraryState()
+      useBookAnalysisStore.getState().triggerSidebarRefresh()
+      toast.success(`已删除《${title}》的文风画像。`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[删除文风失败]", msg)
+      toast.error(`删除文风失败：${msg}`)
+    }
+  }, [currentProjectPath, selectedLibraryBook, libraryState.enabledStyle, reloadLibraryState])
+
+  const handleLibraryDeleteCharacter = useCallback(async (characterId: string) => {
+    if (!currentProjectPath || !selectedLibraryBook) return
+    const character = selectedLibraryBook.characters.find((item) => item.id === characterId)
+    if (!character) return
+    const confirmed = window.confirm(
+      `确认删除角色「${character.name}」吗？\n\n将删除该角色的档案与已生成的 Skill，删除后将移入回收站，可恢复。`,
+    )
+    if (!confirmed) return
+    try {
+      const characterPath = joinPath(selectedLibraryBook.path, "characters", `${character.id}.json`)
+      if (await fileExists(characterPath)) await moveFileToTrash(currentProjectPath, characterPath, "skill")
+      const skill = selectedLibraryBook.skills.find(
+        (item) => item.characterId === character.id || item.characterName === character.name,
+      )
+      if (skill?.filePath && await fileExists(skill.filePath)) await moveFileToTrash(currentProjectPath, skill.filePath, "skill")
+      if (selectedCharacterId === characterId) setSelectedCharacterId(null)
+      await reloadLibraryState()
+      toast.success(`已删除角色「${character.name}」（含档案与 Skill）。`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("[删除角色失败]", msg)
+      toast.error(`删除角色失败：${msg}`)
+    }
+  }, [currentProjectPath, selectedLibraryBook, selectedCharacterId, reloadLibraryState])
+
   const handleLibraryReextractCharacters = useCallback(async () => {
     if (!currentProjectPath || !selectedLibraryBook) return
     if (!hasUsableLlm(llmConfig, providerConfigs)) {
@@ -343,6 +396,8 @@ export function useLibraryOperations({
     handleLibraryAddSkillsToSoul,
     handleLibraryBindCharacter,
     handleLibraryDeleteBook,
+    handleLibraryDeleteStyle,
+    handleLibraryDeleteCharacter,
     handleLibraryReextractCharacters,
   }
 }

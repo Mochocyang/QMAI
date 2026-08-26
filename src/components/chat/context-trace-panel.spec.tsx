@@ -85,18 +85,14 @@ describe("ContextTracePanel selected skills", () => {
 
     expect(html).toContain("上下文中控")
     expect(html).not.toContain("4ms")
-    expect(html).toContain("本轮数据源：命中 4，重载 1，无数据 0，fallback 0，失败 0")
-    expect(html).toContain("稳定核心 1,200 Token")
-    expect(html).toContain("会话摘要 180 Token")
-    expect(html).toContain("动态片段 420 Token")
-    expect(html).toContain("上下文压缩预计减少 1,400 Token（44%）")
-    expect(html).toContain("已发送本地稳定核心，是否命中以供应商返回为准")
-    expect(html).toContain("供应商前缀：不可判断")
-    expect(html).toContain("实际用量不可用")
+    expect(html).toContain("本次命中 4 项")
+    expect(html).toContain("命中率 80%")
+    expect(html).toContain("节省约 1,400 Token")
+    expect(html).not.toContain("本轮数据源")
     expect(html).not.toContain("供应商已确认命中")
   })
 
-  it("only reports a confirmed provider hit when cached token usage exists", () => {
+  it("shows single-line summary with zero hits when provider cache was not hit", () => {
     const trace: ContextTrace = {
       id: "trace-provider-cache-hit",
       startedAt: 1,
@@ -131,12 +127,14 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("低置信度扩展：已启用")
-    expect(html).toContain("供应商已确认命中 768 Token（输入占比 50%）")
-    expect(html).toContain("供应商新写入缓存 256 Token")
+    expect(html).toContain("本次命中 0 项")
+    expect(html).toContain("命中率 0%")
+    expect(html).toContain("节省约 600 Token")
+    expect(html).not.toContain("低置信度扩展")
+    expect(html).not.toContain("供应商已确认命中")
   })
 
-  it("labels Codex thread totals and does not show the outer round as a request count", () => {
+  it("shows single-line summary and hides Codex thread diagnostics", () => {
     const trace: ContextTrace = {
       id: "trace-codex-thread-total",
       startedAt: 1,
@@ -179,12 +177,13 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("Codex 线程累计实际用量：内部请求数不可判断")
-    expect(html).toContain("输入 3,676,375")
-    expect(html).not.toContain("请求 1")
+    expect(html).toContain("本次命中 1 项")
+    expect(html).toContain("命中率 100%")
+    expect(html).toContain("节省约 0 Token")
+    expect(html).not.toContain("Codex 线程累计实际用量")
   })
 
-  it("uses the shared cache viewer when a persisted snapshot reference exists", () => {
+  it("shows single-line summary when a persisted snapshot reference exists", () => {
     const trace: ContextTrace = {
       id: "trace-snapshot",
       startedAt: 1,
@@ -221,11 +220,14 @@ describe("ContextTracePanel selected skills", () => {
       <ContextTracePanel trace={trace} contextHubSnapshot={contextHubSnapshot} />,
     )
 
-    expect(html).toContain("展开上下文中控")
-    expect(html).toContain("本轮数据源：命中 2，重载 1，无数据 0，fallback 0，失败 0")
+    expect(html).toContain("上下文中控")
+    expect(html).toContain("本次命中 2 项")
+    expect(html).toContain("命中率 67%")
+    expect(html).toContain("节省约 150 Token")
+    expect(html).not.toContain("展开上下文中控")
   })
 
-  it("renders sanitized per-request prefix, timing and cache diagnostics", () => {
+  it("shows single-line summary and hides request cache diagnostics", () => {
     const trace: ContextTrace = {
       id: "trace-request-cache",
       startedAt: 1,
@@ -290,11 +292,11 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("供应商前缀：未变化")
-    expect(html).toContain("请求缓存与间隔（2，另省略 4）")
-    expect(html).toContain("开始间隔")
-    expect(html).toContain("TTFT")
-    expect(html).toContain("abcdef0123")
+    expect(html).toContain("本次命中 1 项")
+    expect(html).toContain("命中率 100%")
+    expect(html).toContain("节省约 50 Token")
+    expect(html).not.toContain("供应商前缀")
+    expect(html).not.toContain("请求缓存与间隔")
   })
 
   it("renders web search trace entries in the overview", () => {

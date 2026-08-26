@@ -1073,7 +1073,6 @@ function OutlineAssistantMessage({
       {currentContextHubSnapshot ? (
         <ContextHubDetails
           reference={currentContextHubSnapshot}
-          projectPath={projectPath}
         />
       ) : null}
       {/* File edit preview */}

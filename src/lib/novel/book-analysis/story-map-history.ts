@@ -12,12 +12,14 @@
 
 import {
   createDirectory,
+  deleteFile,
   fileExists,
   listDirectory,
   readFile,
   writeFile,
 } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
+import { moveFileToTrash } from "@/lib/trash"
 import { renderStoryMapHtml } from "./story-map-renderer"
 import type { StoryMap } from "./story-map-types"
 
@@ -99,4 +101,44 @@ export async function listStoryMapHistory(bookPath: string): Promise<StoryMapHis
 
   result.sort((left, right) => left.map.createdAt - right.map.createdAt)
   return result
+}
+
+/** 历史导图目录名校验：仅允许本仓库生成的 story-map-<createdAt>[-<index>] 目录 */
+const STORY_MAP_DIR_PATTERN = /^story-map-\d+(-\d+)?$/
+
+/**
+ * 删除指定历史导图目录，并刷新根目录最新引用。
+ *
+ * @param bookPath 拆书库作品目录
+ * @param dirName 历史目录名（story-map-<createdAt>，会被校验）
+ * @param projectPath 可选的项目根目录；传入时删除的导图目录会移入应用内回收站（.trash）而非永久删除
+ */
+export async function deleteStoryMapHistory(bookPath: string, dirName: string, projectPath?: string): Promise<void> {
+  if (!STORY_MAP_DIR_PATTERN.test(dirName)) {
+    throw new Error("故事导图目录名不合法，已取消删除")
+  }
+  const dirPath = normalizePath(joinPath(historyRoot(bookPath), dirName))
+  if (!(await fileExists(dirPath))) return
+
+  if (projectPath) {
+    // 移入应用内回收站，可恢复
+    await moveFileToTrash(projectPath, dirPath, "storymap")
+  } else {
+    await deleteFile(dirPath)
+  }
+
+  // 刷新根目录最新引用
+  const remaining = await listStoryMapHistory(bookPath)
+  const latest = remaining[remaining.length - 1] // listStoryMapHistory 按生成时间升序
+  const rootJsonPath = normalizePath(joinPath(bookPath, "story-map.json"))
+  const rootHtmlPath = normalizePath(joinPath(bookPath, "story-map.html"))
+  if (latest) {
+    const json = await readFile(latest.jsonPath)
+    const html = await readFile(latest.htmlPath)
+    await writeFile(rootJsonPath, json)
+    await writeFile(rootHtmlPath, html)
+  } else {
+    if (await fileExists(rootJsonPath)) await deleteFile(rootJsonPath)
+    if (await fileExists(rootHtmlPath)) await deleteFile(rootHtmlPath)
+  }
 }
