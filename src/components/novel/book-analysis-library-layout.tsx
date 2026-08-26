@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
+import { Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
@@ -33,7 +34,16 @@ interface StoryMapCardData {
  * 每张卡片含大标题 + 预览，点击「查看全部」展开到完整高度阅读。
  * 兼容旧数据：若只有根目录 story-map.html（无历史目录），按单张方式展示。
  */
-export function StoryMapContent({ bookPath, refreshKey = 0 }: { bookPath: string; refreshKey?: number }) {
+export function StoryMapContent({
+  bookPath,
+  refreshKey = 0,
+  onDeleteStoryMap,
+}: {
+  bookPath: string
+  refreshKey?: number
+  /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除 */
+  onDeleteStoryMap?: (id: string) => Promise<void> | void
+}) {
   const [cards, setCards] = useState<StoryMapCardData[] | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
@@ -103,6 +113,18 @@ export function StoryMapContent({ bookPath, refreshKey = 0 }: { bookPath: string
     })
   }
 
+  const handleDeleteMap = async (card: StoryMapCardData) => {
+    const title = card.title ? `《${card.title}》故事导图` : "故事导图"
+    if (!window.confirm(`确认删除「${title}」吗？\n\n删除后不可恢复。`)) return
+    if (!onDeleteStoryMap) return
+    try {
+      await onDeleteStoryMap(card.id)
+      setCards((prev) => (prev ? prev.filter((item) => item.id !== card.id) : prev))
+    } catch (error) {
+      console.error("[story-map] 删除故事导图失败", error)
+    }
+  }
+
   if (cards === null) {
     return <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">正在加载故事导图…</div>
   }
@@ -136,9 +158,20 @@ export function StoryMapContent({ bookPath, refreshKey = 0 }: { bookPath: string
                   </div>
                 )}
               </div>
-              <Button size="sm" variant="outline" onClick={() => toggleExpand(card.id)}>
-                {expanded ? "收起" : "查看全部"}
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => toggleExpand(card.id)}>
+                  {expanded ? "收起" : "查看全部"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:bg-destructive/10"
+                  onClick={() => void handleDeleteMap(card)}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  删除
+                </Button>
+              </div>
             </div>
             {card.html ? (
               <iframe
@@ -194,6 +227,12 @@ interface BookAnalysisLibraryLayoutProps {
   onSelectAnalysisCharacters?: () => void
   onRetryAnalysisChunk?: (skill: AnalysisSkill, chunkId: string) => void
   onDeleteBook: (bookId: string) => void
+  /** 删除单个角色（档案 + Skill） */
+  onDeleteCharacter?: (characterId: string) => void
+  /** 删除作品文风画像 */
+  onDeleteStyle?: () => void
+  /** 删除某张历史故事导图（id 为历史目录名或 legacy） */
+  onDeleteStoryMap?: (id: string) => Promise<void> | void
   /** 受控页签：任务完成「查看结果」时可从外部切换到对应 Skill 页签 */
   analysisActiveTab?: BookAnalysisModuleTab
   onAnalysisActiveTabChange?: (tab: BookAnalysisModuleTab) => void
@@ -227,6 +266,9 @@ export function BookAnalysisLibraryLayout({
   onConfigureAnalysisTask,
   onSelectAnalysisCharacters,
   onRetryAnalysisChunk,
+  onDeleteCharacter,
+  onDeleteStyle,
+  onDeleteStoryMap,
   analysisActiveTab,
   onAnalysisActiveTabChange,
   storyMapRefreshKey,
@@ -242,7 +284,7 @@ export function BookAnalysisLibraryLayout({
   }
 
   const storyContent = (
-    <StoryMapContent bookPath={selectedBook.path} refreshKey={storyMapRefreshKey} />
+    <StoryMapContent bookPath={selectedBook.path} refreshKey={storyMapRefreshKey} onDeleteStoryMap={onDeleteStoryMap} />
   )
 
   return (
@@ -282,6 +324,8 @@ export function BookAnalysisLibraryLayout({
           else if (skill === "story") onExtractStoryFramework()
           else onExtractStyle()
         }}
+        onDeleteCharacter={onDeleteCharacter}
+        onDeleteStyle={onDeleteStyle}
         onConfigureTask={onConfigureAnalysisTask}
         onSelectCharacters={onSelectAnalysisCharacters}
         onPauseTask={onParallelPauseTask}

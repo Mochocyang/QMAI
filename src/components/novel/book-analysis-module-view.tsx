@@ -38,6 +38,8 @@ interface BookAnalysisModuleViewProps {
   onToggleStyle: () => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
   onOpenSkillSelection?: () => void
+  onDeleteCharacter?: (characterId: string) => void
+  onDeleteStyle?: () => void
   onReextract: (skill: AnalysisSkill) => void
   onConfigureTask?: () => void
   onSelectCharacters?: () => void
@@ -466,6 +468,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
             onSelectCharacter={props.onSelectCharacter}
             onAddSelectedSkillsToSoul={props.onAddSelectedSkillsToSoul}
             onOpenSkillSelection={props.onOpenSkillSelection ?? (() => undefined)}
+            onDeleteCharacter={props.onDeleteCharacter ?? (() => undefined)}
           />
         )}
         {active === "story" && props.storyContent}
@@ -475,6 +478,7 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
             extracting={props.extractingStyle}
             onExtractStyle={() => props.onReextract("style")}
             onToggleStyle={props.onToggleStyle}
+            onDeleteStyle={props.onDeleteStyle ?? (() => undefined)}
           />
         )}
         {active === "evidence" && (

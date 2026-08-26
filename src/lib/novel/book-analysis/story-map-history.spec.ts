@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { realFs, createTempProject, fileExists, readFileRaw } from "@/test-helpers/fs-temp"
 import type { StoryMap } from "./story-map-types"
-import { listStoryMapHistory, writeStoryMapFiles } from "./story-map-history"
+import { listStoryMapHistory, writeStoryMapFiles, deleteStoryMapHistory } from "./story-map-history"
 
 vi.mock("@/commands/fs", () => realFs)
 
@@ -95,5 +95,75 @@ describe("story map history storage", () => {
     const history = await listStoryMapHistory(dir)
     expect(history).toHaveLength(1)
     expect(history[0].map.createdAt).toBe(100)
+  })
+
+  it("deleteStoryMapHistory 删除指定历史目录", async () => {
+    await writeStoryMapFiles(dir, makeMap(100, "主线A", [1]))
+    await writeStoryMapFiles(dir, makeMap(200, "主线B", [2]))
+
+    await deleteStoryMapHistory(dir, "story-map-100")
+
+    const remaining = await listStoryMapHistory(dir)
+    expect(remaining.map((entry) => entry.map.createdAt)).toEqual([200])
+    expect(await fileExists(`${dir}/story-maps/story-map-100`)).toBe(false)
+  })
+
+  it("删除最新导图后，根目录引用同步为剩余历史的最新一份", async () => {
+    await writeStoryMapFiles(dir, makeMap(100, "主线A", [1]))
+    await writeStoryMapFiles(dir, makeMap(200, "主线B", [2]))
+
+    await deleteStoryMapHistory(dir, "story-map-200")
+
+    const latest = JSON.parse(await readFileRaw(`${dir}/story-map.json`)) as StoryMap
+    expect(latest.createdAt).toBe(100)
+    expect(latest.mainLineLabel).toBe("主线A")
+    expect(await fileExists(`${dir}/story-map.html`)).toBe(true)
+  })
+
+  it("删除全部历史导图后，根目录引用一并移除", async () => {
+    await writeStoryMapFiles(dir, makeMap(100, "主线A", [1]))
+
+    await deleteStoryMapHistory(dir, "story-map-100")
+
+    expect(await listStoryMapHistory(dir)).toEqual([])
+    expect(await fileExists(`${dir}/story-map.json`)).toBe(false)
+    expect(await fileExists(`${dir}/story-map.html`)).toBe(false)
+  })
+
+  it("deleteStoryMapHistory 拒绝不合法的目录名", async () => {
+    await writeStoryMapFiles(dir, makeMap(100, "主线A", [1]))
+
+    await expect(deleteStoryMapHistory(dir, "../story-map-100")).rejects.toThrow("目录名不合法")
+    await expect(deleteStoryMapHistory(dir, "characters")).rejects.toThrow("目录名不合法")
+    // 未发生误删
+    expect(await listStoryMapHistory(dir)).toHaveLength(1)
+  })
+
+  it("deleteStoryMapHistory 对不存在的目录静默跳过", async () => {
+    await expect(deleteStoryMapHistory(dir, "story-map-999")).resolves.toBeUndefined()
+    expect(await listStoryMapHistory(dir)).toEqual([])
+  })
+
+  it("传入 projectPath 时删除的导图目录移入回收站（.trash）而非永久删除", async () => {
+    await writeStoryMapFiles(dir, makeMap(100, "主线A", [1]))
+
+    await deleteStoryMapHistory(dir, "story-map-100", dir)
+
+    // 原目录被移除，历史列表中不再出现
+    expect(await fileExists(`${dir}/story-maps/story-map-100`)).toBe(false)
+    expect(await listStoryMapHistory(dir)).toEqual([])
+
+    // 回收站记录包含该导图目录，且内容被复制到 .trash/files
+    const items = JSON.parse(await readFileRaw(`${dir}/.trash/items.json`)) as Array<{
+      name: string
+      kind: string
+      trashPath: string
+      originalPath: string
+    }>
+    const storyItem = items.find((item) => item.kind === "storymap")
+    expect(storyItem).toBeTruthy()
+    expect(storyItem!.name).toBe("story-map-100")
+    expect(await fileExists(`${storyItem!.trashPath}/story-map.json`)).toBe(true)
+    expect(await fileExists(`${storyItem!.trashPath}/story-map.html`)).toBe(true)
   })
 })

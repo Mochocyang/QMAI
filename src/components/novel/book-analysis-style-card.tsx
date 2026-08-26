@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronDown, ChevronUp, Feather, Loader2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Feather, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
 import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
@@ -9,9 +9,10 @@ interface BookAnalysisStyleCardProps {
   extracting: boolean
   onExtractStyle: () => void
   onToggleStyle: () => void
+  onDeleteStyle: () => void
 }
 
-export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onToggleStyle }: BookAnalysisStyleCardProps) {
+export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onToggleStyle, onDeleteStyle }: BookAnalysisStyleCardProps) {
   const profile = book.styleProfile
   const enabled = book.styleStatus === "enabled"
   const [expanded, setExpanded] = useState(false)
@@ -41,6 +42,12 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
             {extracting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {extracting ? "提取中..." : profile ? "重新提取文风" : "提取文风"}
           </Button>
+          {profile && (
+            <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onDeleteStyle}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              删除文风
+            </Button>
+          )}
         </div>
       </div>
       {profile && (

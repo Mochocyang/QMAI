@@ -188,7 +188,9 @@ describe("OutlineChatPanel controls", () => {
     const container = await renderOutlineChatPanel()
 
     expect(container.textContent).toContain("上下文中控")
-    expect(container.textContent).toContain("本轮数据源：命中 3，重载 2，无数据 0，fallback 0，失败 0")
+    expect(container.textContent).toContain("本次命中 3 项")
+    expect(container.textContent).toContain("命中率 60%")
+    expect(container.textContent).toContain("节省约 1,320 Token")
   })
 
   it.each([

@@ -69,11 +69,33 @@ export const realFs = {
     await fs.mkdir(path.dirname(destination), { recursive: true })
     await fs.copyFile(source, destination)
   },
+  copyDirectory: async (source: string, destination: string): Promise<string[]> => {
+    // 对齐真实 copy_directory 语义：把 source 目录内容复制到 destination（跳过点文件/点目录）
+    const copied: string[] = []
+    async function copyRecursive(src: string, dest: string): Promise<void> {
+      await fs.mkdir(dest, { recursive: true })
+      const entries = await fs.readdir(src, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue
+        const srcPath = path.join(src, entry.name)
+        const destPath = path.join(dest, entry.name)
+        if (entry.isDirectory()) {
+          await copyRecursive(srcPath, destPath)
+        } else {
+          await fs.copyFile(srcPath, destPath)
+          copied.push(destPath.replace(/\\/g, "/"))
+        }
+      }
+    }
+    await copyRecursive(source, destination)
+    return copied
+  },
   preprocessFile: async (p: string): Promise<string> => {
     return fs.readFile(p, "utf-8")
   },
   deleteFile: async (p: string): Promise<void> => {
-    await fs.unlink(p).catch(() => {})
+    // 真实 delete_file 命令对文件与目录均支持递归删除；fs.rm 可同时覆盖两者
+    await fs.rm(p, { recursive: true, force: true }).catch(() => {})
   },
   findRelatedWikiPages: async (): Promise<string[]> => {
     return []

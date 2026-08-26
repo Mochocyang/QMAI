@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   X,
   Zap,
@@ -396,7 +396,7 @@ function OverviewTab({
   }
   if (!contextInfo) {
     if (currentHubSnapshot) {
-      return <ContextHubDetails reference={currentHubSnapshot} projectPath={projectPath} className="mt-0 border-t-0 pt-0" />
+      return <ContextHubDetails reference={currentHubSnapshot} className="mt-0 border-t-0 pt-0" />
     }
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -490,7 +490,6 @@ function OverviewTab({
           <div className="my-1 h-px bg-border/60" />
           <ContextHubDetails
             reference={currentHubSnapshot}
-            projectPath={projectPath}
             className="mt-0 border-t-0 pt-2"
           />
         </>

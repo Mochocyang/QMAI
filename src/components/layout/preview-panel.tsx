@@ -1266,7 +1266,7 @@ export function PreviewPanel() {
               <div className="flex flex-col">
                 <div className="text-sm font-medium truncate">{selectedTrashItem.name}</div>
                 <div className="text-xs text-muted-foreground truncate">
-                  {t("trash.deletedItem", { defaultValue: "已删除项目" })} · {selectedTrashItem.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : selectedTrashItem.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : selectedTrashItem.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : t("trash.kindPage", { defaultValue: "页面" })}
+                  {t("trash.deletedItem", { defaultValue: "已删除项目" })} · {selectedTrashItem.kind === "chapter" ? t("trash.kindChapter", { defaultValue: "章节" }) : selectedTrashItem.kind === "outline" ? t("trash.kindOutline", { defaultValue: "大纲" }) : selectedTrashItem.kind === "history" ? t("trash.kindHistory", { defaultValue: "历史记录" }) : selectedTrashItem.kind === "skill" ? t("trash.kindSkill", { defaultValue: "技能/画像" }) : selectedTrashItem.kind === "storymap" ? t("trash.kindStoryMap", { defaultValue: "故事导图" }) : t("trash.kindPage", { defaultValue: "页面" })}
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
                   {t("trash.originalPath", { defaultValue: "原路径" })}: {selectedTrashItem.originalPath}

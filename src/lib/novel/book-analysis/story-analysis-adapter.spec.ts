@@ -169,4 +169,57 @@ describe("story analysis adapter", () => {
       signal: new AbortController().signal,
     })).rejects.toThrow("旧版四段格式")
   })
+
+  it("AI 输出漏掉区块最后一章时明确报错，不静默保存不完整导图", async () => {
+    const allChapters = Array.from({ length: 10 }, (_, i) => {
+      const order = 21 + i
+      const id = `ch-${String(order).padStart(4, "0")}`
+      return { id, title: `第${order}章`, order, content: `第${order}章正文。` }
+    })
+    // AI 只输出前 9 章，漏掉 ch-0030（第 30 章），模拟输出截断丢最后一章
+    const mapJson = JSON.stringify({
+      mainLineLabel: "主线",
+      mainSummary: "摘要",
+      chapters: allChapters.slice(0, 9).map((chapter) => ({
+        id: chapter.id,
+        order: chapter.order,
+        title: chapter.title,
+        summary: "s",
+        mainEvents: [{ label: "e", beats: [], characters: [] }],
+      })),
+    })
+    const adapter = createStoryAnalysisAdapter({
+      callModel: vi.fn(async () => mapJson),
+      loadMetadata: vi.fn(async () => metadata),
+      loadChapters: vi.fn(async () => allChapters),
+      recognizeCharacters: vi.fn(async () => []),
+      now: () => 10,
+    })
+    const inputTask = task()
+    await expect(adapter.runChunk({
+      task: inputTask,
+      skill: "story",
+      bookPath: inputTask.bookPath,
+      projectPath: inputTask.projectPath,
+      llmConfig: {} as LlmConfig,
+      chunk: {
+        version: 1,
+        id: "chunk-0021-0030",
+        taskId: inputTask.id,
+        skill: "story",
+        chapterIds: allChapters.map((chapter) => chapter.id),
+        startOrder: 21,
+        endOrder: 30,
+        wordCount: 1000,
+        status: "running",
+        attempts: 1,
+        resultPath: null,
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        updatedAt: 1,
+      },
+      signal: new AbortController().signal,
+    })).rejects.toThrow("缺少第 30 章")
+  })
 })

@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Plus, User } from "lucide-react"
+import { Plus, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
 
@@ -10,6 +10,7 @@ interface BookAnalysisCharacterPanelProps {
   onOpenSkillSelection: () => void
   onSelectCharacter: (characterId: string) => void
   onAddSelectedSkillsToSoul: (skillId: string) => void
+  onDeleteCharacter: (characterId: string) => void
 }
 
 const categoryLabels: Record<string, string> = {
@@ -33,6 +34,7 @@ export function BookAnalysisCharacterPanel({
   onOpenSkillSelection,
   onSelectCharacter,
   onAddSelectedSkillsToSoul,
+  onDeleteCharacter,
 }: BookAnalysisCharacterPanelProps) {
   const sortedCharacters = useMemo(
     () =>
@@ -86,26 +88,38 @@ export function BookAnalysisCharacterPanel({
               const active = selectedCharacter?.id === character.id
               const hasSkill = book.skills.some((skill) => skill.characterId === character.id || skill.characterName === character.name)
               return (
-                <button
+                <div
                   key={character.id}
-                  type="button"
-                  onClick={() => onSelectCharacter(character.id)}
-                  className={`w-full rounded-lg border p-3 text-left transition ${
+                  className={`w-full rounded-lg border p-3 transition ${
                     active ? "border-primary bg-primary/5" : "hover:bg-muted"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectCharacter(character.id)}
+                      className="min-w-0 flex-1 text-left"
+                    >
                       <div className="truncate text-sm font-medium">{character.name}</div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         {categoryLabels[character.category] ?? character.category} · 重要度 {character.importance}/10
                       </div>
-                    </div>
+                    </button>
                     <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs">
                       {hasSkill ? "已生成" : "未生成"}
                     </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 shrink-0 px-2 text-destructive hover:bg-destructive/10"
+                      aria-label={`删除角色${character.name}`}
+                      title="删除角色（含角色档案与 Skill）"
+                      onClick={() => onDeleteCharacter(character.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                </button>
+                </div>
               )
             })
           )}
