@@ -216,6 +216,14 @@ export function createStoryAnalysisAdapter(
       if (!map) {
         throw new Error("故事导图提取失败：AI 输出缺少主线事件或章节结构，请重试该区块")
       }
+      // 校验导图是否覆盖了本区块全部章节：AI 输出若被截断会从末尾漏掉最后一章，
+      // 这里比对归一化后的章节 ID，缺失时明确报错而非静默保存不完整导图
+      const normalizeChapterId = (id: string): string => id.replace(/^ch-?0*(\d+)$/i, "ch-$1")
+      const mappedChapterIds = new Set(map.chapters.map((chapter) => normalizeChapterId(chapter.id)))
+      const missingChapters = chapters.filter((chapter) => !mappedChapterIds.has(normalizeChapterId(chapter.id)))
+      if (missingChapters.length > 0) {
+        throw new Error(`故事导图缺少第 ${missingChapters.map((chapter) => chapter.order).join("、")} 章，请重试该区块`)
+      }
       return {
         result: { map, rangeChapterIds: chunk.chapterIds },
         evidence: storyEvidence(task.id, task.bookId, chunk.id, chapters, dependencies.now()),

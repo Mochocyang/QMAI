@@ -34,7 +34,11 @@ export interface ParsedNovelChapter {
 }
 
 export function parseNovelChapters(content: string): ParsedNovelChapter[] {
-  const chapterRegex = /第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*/gi
+  // 锚定行首（m 多行模式），只把独立成行的“第X章”标题当作章节；
+  // 兼容“第X卷卷名+第X章标题”同行的格式（如“第五卷名震一方第六百四十八章”），
+  // 卷前缀仅作为行首锚定条件，章标题用捕获组1单独提取（避免标题混入卷名）。
+  // 避免把正文里“第X章提到过”这类跨章引用误拆成幻影章节。
+  const chapterRegex = /^(?:第[零〇一二三四五六七八九十百千万两0-9]+卷[^。！？!?\n]{0,32}?)?(第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*)/gim
   const matches = Array.from(content.matchAll(chapterRegex))
 
   if (matches.length === 0) {
@@ -42,10 +46,13 @@ export function parseNovelChapters(content: string): ParsedNovelChapter[] {
   }
 
   return matches.map((match, index) => {
-    const startIdx = match.index!
-    const endIdx = matches[index + 1]?.index ?? content.length
+    // 章节正文起点取章标题（捕获组1）的位置，行首卷前缀不会混入正文
+    const startIdx = match.index! + match[0].indexOf(match[1])
+    const endIdx = matches[index + 1]
+      ? matches[index + 1].index! + matches[index + 1][0].indexOf(matches[index + 1][1])
+      : content.length
     return {
-      title: match[0].trim(),
+      title: match[1].trim(),
       content: content.slice(startIdx, endIdx).trim(),
       order: index + 1,
     }
