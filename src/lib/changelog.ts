@@ -7,6 +7,33 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_NINE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.9",
+  date: "2026-08-26",
+  highlights: {
+    en: [
+      "[Chapter Extraction Fix] Chapter detection now only treats standalone 'Chapter N' headings as chapters; in-text cross-chapter references no longer create ghost chapters, and 'Volume N name + Chapter N title' same-line titles are supported without mixing the volume name into titles or body text.",
+      "[Story Map Completeness] Story map extraction now verifies it covers every selected chapter; if the AI output is truncated and drops the last chapter, it clearly asks you to retry instead of silently saving an incomplete map.",
+      "[Deletable & Recoverable Skills] Style / Character / Story skills can be deleted individually; deleted items go to the in-app recycle bin (kept 30 days) and can be restored, no longer permanently deleted.",
+      "[De-AI Review Flow] Confirming the current chapter's de-AI result automatically advances to the next pending review chapter, then closes when all are confirmed.",
+      "[Entity Web Search] Writing entity web search now picks query keywords from the chapter outline, volume outline, this chapter's goal, then the full outline, avoiding repeated identical queries.",
+      "[Formatting] Chapter formatting no longer breaks hyphens in Chinese model names or original separators, avoiding wrong spaces.",
+      "[Model Settings] Custom model names can now be fully cleared.",
+      "[Codex Speed Mode] Model settings now support switching between Standard and Fast speed modes, applied to normal generation and the main Agent chain.",
+    ],
+    zh: [
+      "【拆书库：修复提取章节遗漏最后一章】章节识别只认独立成行的「第X章」标题，正文里提到的「第X章」不再被误拆成多余章节；兼容「第X卷卷名+第X章标题」同行的排版，卷名不混入章节标题与正文",
+      "【拆书库：故事导图更完整】导图提取后自动核对是否覆盖所选全部章节；AI 输出被截断漏掉最后一章时会明确提示重试，不再静默保存只覆盖部分章节的残缺导图",
+      "【拆书库：生成内容可删除可恢复】文风 Skill、角色 Skill、故事导图都能单独删除；删除后进入应用内回收站（保留 30 天）可恢复，不再直接永久删除",
+      "【写作：去AI味审核更顺手】确认当前章节的去AI味结果后自动跳到下一篇待审核章节，全部确认后自动收尾",
+      "【写作：实体补搜更精准】写作时的实体补充搜索按章纲、卷纲本章内容、本章目标、完整大纲依次选取关键词，避免开头反复触发相同查询",
+      "【写作：排版更稳妥】章节排版不再破坏「中文型号」里的连字符和原始间隔号，避免生成多余空格",
+      "【模型设置：自定义模型名称可清空】修复名称删除后立刻被默认名回填的问题，现在可彻底清空",
+      "【模型设置：Codex 速度档位】可切换「标准 / 快速」速度模式，普通生成和主 Agent 调用都生效",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "3.2.8",
   date: "2026-08-25",
@@ -1382,6 +1409,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_NINE_CHANGELOG.version)
+    return [THREE_POINT_TWO_NINE_CHANGELOG];
   if (version === THREE_POINT_TWO_EIGHT_CHANGELOG.version)
     return [THREE_POINT_TWO_EIGHT_CHANGELOG];
   if (version === THREE_POINT_TWO_SEVEN_CHANGELOG.version)
@@ -1503,6 +1532,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_NINE_CHANGELOG,
     THREE_POINT_TWO_EIGHT_CHANGELOG,
     THREE_POINT_TWO_SEVEN_CHANGELOG,
     THREE_POINT_TWO_SIX_CHANGELOG,
@@ -1562,6 +1592,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_NINE_CHANGELOG &&
         entry !== THREE_POINT_TWO_EIGHT_CHANGELOG &&
         entry !== THREE_POINT_TWO_SEVEN_CHANGELOG &&
         entry !== THREE_POINT_TWO_SIX_CHANGELOG &&

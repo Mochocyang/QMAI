@@ -6,7 +6,7 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.8", "3.2.7", "3.2.6"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.9", "3.2.8", "3.2.7"])
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")
@@ -40,6 +40,13 @@ describe("changelog", () => {
     expect(release328.highlights.zh.join("\n")).toContain("模型设置融合")
     expect(release328.highlights.zh.join("\n")).toContain("界面精简")
     expect(release328.highlights.en.join("\n")).toContain("Parallel Book Analysis")
+
+    const release329 = currentVersionChangelog("3.2.9")[0]
+    expect(release329.version).toBe("3.2.9")
+    expect(release329.highlights.zh.join("\n")).toContain("修复提取章节遗漏最后一章")
+    expect(release329.highlights.zh.join("\n")).toContain("故事导图更完整")
+    expect(release329.highlights.zh.join("\n")).toContain("生成内容可删除可恢复")
+    expect(release329.highlights.en.join("\n")).toContain("Chapter Extraction Fix")
 
     const release = currentVersionChangelog("2.0.0")[0]
     expect(release.highlights.en.join("\n")).toContain("Major release")
