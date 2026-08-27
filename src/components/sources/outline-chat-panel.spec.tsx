@@ -20,7 +20,11 @@ import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry"
 import { AgentRunner } from "@/lib/agent/runner"
 import { toast } from "@/lib/toast"
 import { useWikiStore } from "@/stores/wiki-store"
-import { buildOutlineAgentSystemPrompt, OutlineChatPanel } from "./outline-chat-panel"
+import {
+  buildOutlineAgentSystemPrompt,
+  filterOutlineGeneratedContent,
+  OutlineChatPanel,
+} from "./outline-chat-panel"
 import {
   useOutlineChatStore,
   type OutlineChatConversation,
@@ -31,6 +35,18 @@ import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
 const outlineSectionConfigsSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-section-configs.ts"), "utf8")
+
+const GEMINI_OUTLINE_THOUGHT_DUMP = [
+  "I'm currently focused on defining the project scope and following the \"去 AI 味\" skill instructions.",
+  "",
+  "**Examining the Narrative Details**",
+  "",
+  "I'm now diving deep into analyzing the source text and identifying critical plot points.",
+  "",
+  "**Analyzing the Conflict's Dynamics**",
+  "",
+  "I've been mapping out the escalating conflict and the characters' motivations.",
+].join("\n")
 
 const mountedRoots: Array<{ container: HTMLDivElement; root: Root }> = []
 
@@ -120,6 +136,30 @@ afterEach(async () => {
   }
   setOutlineConversations([], null)
   vi.restoreAllMocks()
+})
+
+describe("AI 大纲完整结果过滤", () => {
+  it("把 Gemini 普通文本思考摘要识别为无正文", () => {
+    expect(filterOutlineGeneratedContent(GEMINI_OUTLINE_THOUGHT_DUMP)).toEqual({
+      content: "",
+      reasoningOnly: true,
+    })
+  })
+
+  it("只移除前置思考摘要并保留后续大纲正文", () => {
+    const output = filterOutlineGeneratedContent([
+      GEMINI_OUTLINE_THOUGHT_DUMP,
+      "",
+      "# 第27章 地下乱战",
+      "",
+      "## 本章目标",
+      "沈渊必须在增援抵达前夺下中枢。",
+    ].join("\n"))
+
+    expect(output.reasoningOnly).toBe(false)
+    expect(output.content).toContain("# 第27章 地下乱战")
+    expect(output.content).not.toContain("Examining the Narrative Details")
+  })
 })
 
 describe("OutlineChatPanel controls", () => {
@@ -690,6 +730,69 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("最后再生成大纲建议")
   })
 
+  it("主发送完整结果仅含 Gemini 思考摘要时关闭 reasoning 重试一次", async () => {
+    useWikiStore.setState({
+      outlineWorkflowMode: "fast",
+      llmConfig: {
+        ...useWikiStore.getState().llmConfig,
+        reasoning: { mode: "high" },
+      },
+    })
+    const finalOutline = "# 第27章 地下乱战\n\n## 本章目标\n沈渊必须在增援抵达前夺下中枢。"
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, _messages, callbacks) => {
+      const text = runSpy.mock.calls.length === 1 ? GEMINI_OUTLINE_THOUGHT_DUMP : finalOutline
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "说明第27章的剧情安排")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (runSpy.mock.calls.length === 2 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(runSpy).toHaveBeenCalledTimes(2)
+    expect(runSpy.mock.calls[1]?.[0].requestOverrides?.reasoning).toEqual({ mode: "off" })
+    const assistant = useOutlineChatStore.getState().conversations[0].messages.findLast((message) => message.role === "assistant")
+    expect(assistant?.content).toContain("沈渊必须在增援抵达前夺下中枢")
+    expect(assistant?.content).not.toContain("Examining the Narrative Details")
+  })
+
+  it("停止主发送时不会把已流出的 Gemini 思考摘要保存在消息中", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "fast" })
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(GEMINI_OUTLINE_THOUGHT_DUMP)
+      throw new Error("aborted")
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "说明当前剧情")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (runSpy.mock.calls.length === 1 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages.findLast((message) => message.role === "assistant")
+    expect(assistant?.content).toBe("已停止生成。")
+    expect(assistant?.content).not.toContain("Examining the Narrative Details")
+  })
+
   it("直接章纲完善请求按意图分析和正文生成两阶段执行，并保留原请求与引用", async () => {
     const reference = {
       id: "chapter-outline-236",
@@ -1083,6 +1186,21 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("built.request")
     expect(source).toContain("保存大纲文件")
     expect(source).toContain("手动保存 AI 大纲结果")
+  })
+
+  it("历史消息中的 Gemini 思考摘要不会再次展示或进入手动保存", async () => {
+    setOutlineConversations([conversation([{
+      id: "thought-only-outline",
+      role: "assistant",
+      content: GEMINI_OUTLINE_THOUGHT_DUMP,
+    }])], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const saveButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("保存为大纲"))
+
+    expect(saveButton).toBeUndefined()
+    expect(container.textContent).not.toContain("Examining the Narrative Details")
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
   })
 
   it("parses structured AI outline save requests and requires user confirmation before writing", () => {
@@ -1537,6 +1655,43 @@ describe("OutlineChatPanel controls", () => {
     const answer = useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content ?? ""
     expect(answer).toContain("# \u4eba\u7269\u8bbe\u5b9a")
     expect(answer).not.toContain("```markdown")
+  })
+
+  it("重新生成完整结果仅含 Gemini 思考摘要时关闭 reasoning 重试一次", async () => {
+    useWikiStore.setState({
+      llmConfig: {
+        ...useWikiStore.getState().llmConfig,
+        reasoning: { mode: "high" },
+      },
+    })
+    const regenerated = "# 第27章 地下乱战\n\n## 核心事件\n沈渊截断敌方增援。"
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, _messages, callbacks) => {
+      const text = runSpy.mock.calls.length === 1 ? GEMINI_OUTLINE_THOUGHT_DUMP : regenerated
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation([
+      { id: "u-retry", role: "user", content: "生成第27章章纲" },
+      { id: "a-retry", role: "assistant", content: "# 旧章纲", intentPhase: "generation" },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((item) => item.textContent?.includes("重新生成"))
+
+    await act(async () => {
+      button?.click()
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (runSpy.mock.calls.length === 2 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(runSpy).toHaveBeenCalledTimes(2)
+    expect(runSpy.mock.calls[1]?.[0].requestOverrides?.reasoning).toEqual({ mode: "off" })
+    const answer = useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content ?? ""
+    expect(answer).toContain("沈渊截断敌方增援")
+    expect(answer).not.toContain("Analyzing the Conflict's Dynamics")
   })
 
   it("生成阶段重新生成若再次返回意图标记则报错并阻止循环", async () => {

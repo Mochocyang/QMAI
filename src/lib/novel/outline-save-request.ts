@@ -3,6 +3,7 @@ import type { CharacterSaveDraft } from "./character-save-extractor"
 import { cleanNextStepArtifacts } from "./outline-next-step"
 import { isLikelyChapterOutline } from "./outline-quality-check"
 import { stripOutlineFrontmatter } from "./outline-markdown"
+import { stripThoughtDumpFromText } from "@/lib/thought-dump"
 
 export type OutlineSaveRequestFileType =
   | "outline"
@@ -205,7 +206,8 @@ function normalizeRequest(raw: unknown, index: number): {
   const fileName = String(raw.fileName ?? "").trim()
   const fileType = normalizeFileTypeAlias(String(raw.fileType ?? "")) as OutlineSaveRequestFileType
   const writeMode = normalizeWriteModeAlias(String(raw.writeMode ?? "")) as OutlineSaveRequestWriteMode
-  const content = String(raw.content ?? "").trim()
+  const rawContent = String(raw.content ?? "").trim()
+  const content = stripThoughtDumpFromText(rawContent).trim()
 
   for (const [field, value] of Object.entries({
     targetFolder,
@@ -228,6 +230,9 @@ function normalizeRequest(raw: unknown, index: number): {
   }
   if (writeMode && !ALLOWED_WRITE_MODES.has(writeMode)) {
     errors.push(`不支持的写入模式：${writeMode}。`)
+  }
+  if (rawContent && !content) {
+    errors.push(`第 ${index + 1} 个保存请求的 content 仅包含模型思考过程。`)
   }
 
   if (errors.length > 0) return { request: null, errors }
