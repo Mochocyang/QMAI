@@ -7,6 +7,21 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.10",
+  date: "2026-08-27",
+  highlights: {
+    en: [
+      "[AI Outline Thought Filtering] AI outline generation now strips unlabelled Gemini reasoning summaries before rendering or saving. A reasoning-only response retries once with reasoning disabled instead of being stored as outline content.",
+      "[Batch De-AI Thought Filtering] Batch de-AI now recognizes screenshot-style Gemini English thought summaries, including paragraphs containing a few Chinese terms, and keeps only the rewritten chapter text.",
+    ],
+    zh: [
+      "【AI 大纲不再混入 Gemini 思考过程】大纲生成结果在展示和保存前统一过滤无标签思考摘要；仅返回思考过程时会关闭 reasoning 重试一次，不再把分析内容存成大纲",
+      "【批量去 AI 味不再混入 Gemini 思考过程】可识别截图同型的英文思考摘要，包括夹杂少量中文术语的段落，只保留实际改写后的章节正文",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_NINE_CHANGELOG: ChangelogEntry = {
   version: "3.2.9",
   date: "2026-08-26",
@@ -1409,6 +1424,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_TEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_TEN_CHANGELOG];
   if (version === THREE_POINT_TWO_NINE_CHANGELOG.version)
     return [THREE_POINT_TWO_NINE_CHANGELOG];
   if (version === THREE_POINT_TWO_EIGHT_CHANGELOG.version)
@@ -1532,6 +1549,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_TEN_CHANGELOG,
     THREE_POINT_TWO_NINE_CHANGELOG,
     THREE_POINT_TWO_EIGHT_CHANGELOG,
     THREE_POINT_TWO_SEVEN_CHANGELOG,
@@ -1592,6 +1610,7 @@ export function allChangelog(): ChangelogEntry[] {
     TWO_POINT_ZERO_CHANGELOG,
     ...CHANGELOG.filter(
       (entry) =>
+        entry !== THREE_POINT_TWO_TEN_CHANGELOG &&
         entry !== THREE_POINT_TWO_NINE_CHANGELOG &&
         entry !== THREE_POINT_TWO_EIGHT_CHANGELOG &&
         entry !== THREE_POINT_TWO_SEVEN_CHANGELOG &&

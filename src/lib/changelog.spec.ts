@@ -6,7 +6,7 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.9", "3.2.8", "3.2.7"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.10", "3.2.9", "3.2.8"])
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")
@@ -47,6 +47,12 @@ describe("changelog", () => {
     expect(release329.highlights.zh.join("\n")).toContain("故事导图更完整")
     expect(release329.highlights.zh.join("\n")).toContain("生成内容可删除可恢复")
     expect(release329.highlights.en.join("\n")).toContain("Chapter Extraction Fix")
+
+    const release3210 = currentVersionChangelog("3.2.10")[0]
+    expect(release3210.version).toBe("3.2.10")
+    expect(release3210.highlights.zh.join("\n")).toContain("AI 大纲不再混入 Gemini 思考过程")
+    expect(release3210.highlights.zh.join("\n")).toContain("批量去 AI 味不再混入 Gemini 思考过程")
+    expect(release3210.highlights.en.join("\n")).toContain("AI Outline Thought Filtering")
 
     const release = currentVersionChangelog("2.0.0")[0]
     expect(release.highlights.en.join("\n")).toContain("Major release")
