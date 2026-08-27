@@ -170,10 +170,18 @@ import {
 import type { ReferenceToken } from "@/lib/reference/types";
 import { useChatStore } from "@/stores/chat-store";
 import { AgentRunner } from "@/lib/agent/runner";
-import { isReasoningOnlyResponseError } from "@/lib/reasoning-retry";
+import {
+  isReasoningDisabled,
+  isReasoningOnlyResponseError,
+  withReasoningDisabled,
+} from "@/lib/reasoning-retry";
+import {
+  isThoughtDumpText,
+  stripThoughtDumpFromText,
+} from "@/lib/thought-dump";
 import { ToolRegistry } from "@/lib/agent/registry";
 import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config";
-import type { AgentMessage, AgentRunRecord } from "@/lib/agent/types";
+import type { AgentConfig, AgentMessage, AgentRunRecord } from "@/lib/agent/types";
 import {
   applyAgentToolEvent,
   settleRunningAgentToolCalls,
@@ -264,6 +272,67 @@ import {
 } from "@/lib/novel/outline-chat-session-state";
 
 type OutlineSendResult = { started: boolean; sent: boolean };
+
+const OUTLINE_REASONING_ONLY_ERROR_MESSAGE =
+  "模型只输出了思考内容，没有输出正文。已关闭 reasoning 重试一次，仍未返回可用的大纲内容。";
+
+export function filterOutlineGeneratedContent(content: string): {
+  content: string;
+  reasoningOnly: boolean;
+} {
+  const trimmed = content.trim();
+  if (!trimmed) return { content: "", reasoningOnly: false };
+
+  const stripped = stripThoughtDumpFromText(trimmed).trim();
+  const reasoningOnly = !stripped || (
+    stripped === trimmed && isThoughtDumpText(trimmed)
+  );
+  return {
+    content: reasoningOnly ? "" : stripped,
+    reasoningOnly,
+  };
+}
+
+type OutlineFilteredAttempt = {
+  text: string;
+  error?: Error;
+};
+
+async function runOutlineAttemptWithReasoningRetry<T extends OutlineFilteredAttempt>(
+  config: Pick<AgentConfig, "llmConfig" | "requestOverrides">,
+  runAttempt: (requestOverrides: AgentConfig["requestOverrides"]) => Promise<T>,
+  onRetry?: (thoughtText: string) => void,
+): Promise<T> {
+  const firstAttempt = await runAttempt(config.requestOverrides);
+  const firstOutput = filterOutlineGeneratedContent(firstAttempt.text);
+  const firstReasoningOnlyError = Boolean(
+    firstAttempt.error && isReasoningOnlyResponseError(firstAttempt.error),
+  );
+
+  // AgentRunner 已经会对供应商明确上报的 reasoning-only 错误重试；
+  // 这里只为“被当作普通文本返回”的思考摘要补一次上层重试。
+  if (firstReasoningOnlyError) {
+    throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+  }
+  if (!firstOutput.reasoningOnly) {
+    return { ...firstAttempt, text: firstOutput.content };
+  }
+  if (isReasoningDisabled(config.llmConfig, config.requestOverrides)) {
+    throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+  }
+
+  onRetry?.(firstAttempt.text);
+  const retryAttempt = await runAttempt(withReasoningDisabled(config.requestOverrides));
+  const retryOutput = filterOutlineGeneratedContent(retryAttempt.text);
+  if (
+    retryOutput.reasoningOnly
+    || !retryOutput.content
+    || (retryAttempt.error && isReasoningOnlyResponseError(retryAttempt.error))
+  ) {
+    throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+  }
+  return { ...retryAttempt, text: retryOutput.content };
+}
 
 const OUTLINE_CHAT_DISABLED_TOOLS = ["write_chapter", "write_memory", "write_outline_node"];
 const OUTLINE_CHAT_WIZARD_DISABLED_TOOLS = [...OUTLINE_CHAT_DISABLED_TOOLS];
@@ -954,8 +1023,15 @@ function OutlineAssistantMessage({
   >([]);
   const [editDismissed, setEditDismissed] = useState(false);
 
-  // 消息内容是唯一内容通道；运行状态提示单独渲染，绝不混入正文
-  const displayContent = msg.content;
+  // 消息内容是唯一内容通道；加载历史消息时也要防御旧版本已经落盘的
+  // Gemini 普通文本思考摘要，避免再次展示或进入手动保存。
+  const filteredDisplayContent = useMemo(
+    () => filterOutlineGeneratedContent(msg.content),
+    [msg.content],
+  );
+  const displayContent = filteredDisplayContent.reasoningOnly
+    ? ""
+    : filteredDisplayContent.content || msg.content;
   const { thinking, answer } = useMemo(
     () => separateThinking(displayContent),
     [displayContent],
@@ -1811,15 +1887,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const handleAutoSaveOutlineRequests = useCallback(
     async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
       if (!project || !canApply()) return;
-      const parsed = parseOutlineSaveRequests(assistantContent);
+      const filteredOutput = filterOutlineGeneratedContent(assistantContent);
+      if (filteredOutput.reasoningOnly || !filteredOutput.content) return;
+      const safeAssistantContent = filteredOutput.content;
+      const parsed = parseOutlineSaveRequests(safeAssistantContent);
       if (parsed.requests.length === 0) {
         if (parsed.errors.length > 0) {
           showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
           return;
         }
-        if (!isSaveableOutlineDeliverable(assistantContent)) return;
+        if (!isSaveableOutlineDeliverable(safeAssistantContent)) return;
         const built = buildClassifiedOutlineSaveRequest({
-          content: assistantContent,
+          content: safeAssistantContent,
           sourceIntent: "生成完成后自动保存",
           sourceHint: collectOutlineSaveSourceHint(conversationId),
         });
@@ -2321,80 +2400,108 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               ? { ...message, content: appendSystemRules(message.content, selectedSkillsPrompt) }
               : message)
             : messages;
-          let runText = "";
-          let runReasoningContent = "";
-          const agentErrorBox: { current: Error | null } = { current: null };
           if (optionsForRun.statusText) {
             if (isCurrentRun()) setStreamingContent(capturedConvId, optionsForRun.statusText);
           }
-          const record = await new AgentRunner().run(
+          return runOutlineAttemptWithReasoningRetry(
             agentConfig,
-            registry,
-            runMessages,
-            {
-              onText: (chunk) => {
-                runText += chunk;
-                if (optionsForRun.streamToUser) {
-                  result += chunk;
-                  bestGeneratedText = result;
-                  if (isCurrentRun()) {
+            async (requestOverrides) => {
+              let runText = "";
+              let runReasoningContent = "";
+              const agentErrorBox: { current: Error | null } = { current: null };
+              const record = await new AgentRunner().run(
+                { ...agentConfig, requestOverrides },
+                registry,
+                runMessages,
+                {
+                  onText: (chunk) => {
+                    runText += chunk;
+                    if (optionsForRun.streamToUser) {
+                      result = runText;
+                      bestGeneratedText = result;
+                      if (isCurrentRun()) {
+                        updateOutlineAssistantMessage(convId, assistantId, (message) => ({
+                          ...message,
+                          content: result,
+                        }));
+                      }
+                    }
+                  },
+                  onReasoningToken: (chunk) => {
+                    runReasoningContent += chunk;
+                    accumulatedReasoningContent += chunk;
+                  },
+                  onToolCall: () => {},
+                  onToolResult: () => {},
+                  onToolError: () => {},
+                  onToolEvent: (event) => {
+                    if (!isCurrentRun()) return;
+                    if (!historyPlan.showToolProcess) {
+                      hiddenToolCalls = applyAgentToolEvent(hiddenToolCalls, event);
+                      return;
+                    }
                     updateOutlineAssistantMessage(convId, assistantId, (message) => ({
                       ...message,
-                      content: result,
+                      agentToolCalls: applyAgentToolEvent(
+                        message.agentToolCalls,
+                        event,
+                      ),
                     }));
-                  }
-                }
-              },
-              onReasoningToken: (chunk) => {
-                runReasoningContent += chunk;
-                accumulatedReasoningContent += chunk;
-              },
-              onToolCall: () => {},
-              onToolResult: () => {},
-              onToolError: () => {},
-              onToolEvent: (event) => {
-                if (!isCurrentRun()) return;
-                if (!historyPlan.showToolProcess) {
-                  hiddenToolCalls = applyAgentToolEvent(hiddenToolCalls, event);
-                  return;
-                }
+                  },
+                  onDone: () => {},
+                  onRequestTrace: requestTraceCollector.record,
+                  onError: (error) => {
+                    agentErrorBox.current = error;
+                  },
+                },
+                controller.signal,
+              );
+              providerUsage = addLlmUsage(providerUsage, record.usage);
+              lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
+              if (record.providerRequestCountAvailable === false) {
+                providerRequestCountAvailable = false;
+              } else {
+                llmRequestCount += Math.max(1, record.roundsUsed || 1);
+              }
+              if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
+                memoryDecision = record.userMemoryDecision;
+              }
+              allToolCalls.push(...record.toolCalls);
+              const agentError = agentErrorBox.current;
+              const errMsg = agentError?.message ?? "";
+              const isLengthTruncated = errMsg.includes("输出被截断") || errMsg.includes("最大输出 token");
+              if (
+                agentError
+                && !isLengthTruncated
+                && !isReasoningOnlyResponseError(agentError)
+              ) {
+                throw agentError;
+              }
+              return {
+                text: runText || record.finalText,
+                record,
+                error: agentError ?? undefined,
+                reasoning_content: runReasoningContent,
+              };
+            },
+            (thoughtText) => {
+              if (controller.signal.aborted || !isCurrentRun()) throw new Error("aborted");
+              if (thoughtText.trim()) {
+                accumulatedReasoningContent = [accumulatedReasoningContent, thoughtText]
+                  .filter((item) => item.trim())
+                  .join("\n\n");
+              }
+              if (optionsForRun.streamToUser) {
+                result = "";
+                bestGeneratedText = "";
                 updateOutlineAssistantMessage(convId, assistantId, (message) => ({
                   ...message,
-                  agentToolCalls: applyAgentToolEvent(
-                    message.agentToolCalls,
-                    event,
-                  ),
+                  content: "",
                 }));
-              },
-              onDone: () => {},
-              onRequestTrace: requestTraceCollector.record,
-              onError: (error) => {
-                agentErrorBox.current = error;
-              },
+              }
+              setStreamingContent(capturedConvId, "模型仅返回思考过程，正在关闭 reasoning 重试...");
             },
-            controller.signal,
           );
-          providerUsage = addLlmUsage(providerUsage, record.usage);
-          lastProviderUsage = record.lastRequestUsage ?? record.usage ?? lastProviderUsage;
-          if (record.providerRequestCountAvailable === false) {
-            providerRequestCountAvailable = false;
-          } else {
-            llmRequestCount += Math.max(1, record.roundsUsed || 1);
-          }
-          if (memoryDecision === undefined && record.userMemoryDecision !== undefined) {
-            memoryDecision = record.userMemoryDecision;
-          }
-          allToolCalls.push(...record.toolCalls);
-          const agentError = agentErrorBox.current;
-          const errMsg = agentError?.message ?? "";
-          const isLengthTruncated = errMsg.includes("输出被截断") || errMsg.includes("最大输出 token");
-          if (agentError && !isLengthTruncated) throw agentError;
-          return {
-            text: runText || record.finalText,
-            record,
-            error: agentError ?? undefined,
-            reasoning_content: runReasoningContent,
-          };
         };
 
         const runSingleAgentFallback = async () => {
@@ -2800,6 +2907,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           finalText = await runSingleAgentFallback();
         }
 
+        const filteredFinalText = filterOutlineGeneratedContent(finalText);
+        if (filteredFinalText.reasoningOnly) {
+          throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+        }
+        finalText = filteredFinalText.content;
         if (finalText.trim()) bestGeneratedText = finalText;
         if (!isCurrentRun()) {
           // run 已被停止或替换：跳过后续处理，但已生成的内容仍要写入消息，
@@ -2867,7 +2979,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ...[...missingSkillNames].map((name) => `Skill 缺失（未强制启用）: ${name}`),
           ]),
         );
-        const rawFinalContent = finalText || result || "AI大纲未返回内容。";
+        const filteredRawFinalContent = filterOutlineGeneratedContent(finalText || result);
+        if (filteredRawFinalContent.reasoningOnly) {
+          throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+        }
+        const rawFinalContent = filteredRawFinalContent.content || "AI大纲未返回内容。";
         const rawIntentProtocol = parseIntentClarityProtocol(rawFinalContent);
         const nextStepExtraction = extractNextStep(rawFinalContent, {
           allowFallback: options.intentPhase === "generation",
@@ -3060,7 +3176,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         // streamingContents 只承载状态提示，不再存内容；可保留内容唯一来源
         // 是 bestGeneratedText。无论中断原因如何，已生成的内容都必须落进
         // 消息，绝不静默删除整条回复。
-        const partial = bestGeneratedText.trim() ? bestGeneratedText : "";
+        const filteredPartial = filterOutlineGeneratedContent(bestGeneratedText);
+        const partial = filteredPartial.content;
         const reasoningOnlyFailure =
           err instanceof Error && isReasoningOnlyResponseError(err) && Boolean(accumulatedReasoningContent.trim());
         updateOutlineAssistantMessage(convId, assistantId, (message) => ({
@@ -3070,7 +3187,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               ? `${partial}\n\n---\n\n⚠️ 生成已停止，以上为已生成的内容。`
               : `${partial}\n\n---\n\n⚠️ 生成中断：${errorMsg || "未知错误"}`
             : aborted
-              ? message.content || "已停止生成。"
+              ? filterOutlineGeneratedContent(message.content).content || "已停止生成。"
               : `生成失败：${errorMsg || "未知错误"}`,
           reasoning_content: accumulatedReasoningContent,
           // 模型只输出思考没输出正文时，强制展示思考过程，
@@ -3456,7 +3573,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             registry: r,
           };
         };
-
         // 更新状态为续传运行中
         updateOutlineMultiAgentRun(capturedConvId, messageId, (run) => run ? ({
           ...run,
@@ -3952,71 +4068,110 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           userMemoryProjectKey: normalizePath(project.path),
           userMemorySessionKey: capturedConvId,
         };
-        let agentError: Error | null = null;
-        const record = await new AgentRunner().run(
+        const regenerationMessages: AgentMessage[] = [
+          { role: "system", content: systemContent },
+          ...historyMessages,
+          { role: "user", content: lastUserRequest },
+        ];
+        const regenerationRecords: AgentRunRecord[] = [];
+        const regenerationRun = await runOutlineAttemptWithReasoningRetry(
           agentConfig,
-          registry,
-          [
-            { role: "system", content: systemContent },
-            ...historyMessages,
-            { role: "user", content: lastUserRequest },
-          ],
-          {
-            onText: (chunk) => {
-              result += chunk;
-              if (isCurrentRun()) {
-                updateOutlineAssistantMessage(
-                  capturedConvId,
-                  assistantId,
-                  (message) => ({
-                    ...message,
-                    content: result,
-                  }),
-                );
-              }
-            },
-            onReasoningToken: (chunk) => {
-              accumulatedReasoningContent += chunk;
-            },
-            onToolCall: () => {},
-            onToolResult: () => {},
-            onToolError: () => {},
-            onToolEvent: (event) => {
-              if (!isCurrentRun()) return;
-              updateOutlineAssistantMessage(
-                capturedConvId,
-                assistantId,
-                (message) => ({
-                  ...message,
-                  agentToolCalls: applyAgentToolEvent(
-                    message.agentToolCalls,
-                    event,
-                  ),
-                }),
-              );
-            },
-            onDone: () => {
-              if (!isCurrentRun()) return;
-              updateOutlineAssistantMessage(
-                capturedConvId,
-                assistantId,
-                (message) => ({
-                  ...message,
-                  reasoning_content: accumulatedReasoningContent,
-                  agentToolCalls: settleRunningAgentToolCalls(
-                    message.agentToolCalls,
-                  ),
-                  isAgentRunning: false,
-                }),
-              );
-            },
-            onError: (error) => {
-              agentError = error;
-            },
+          async (requestOverrides) => {
+            let runText = "";
+            const agentErrorBox: { current: Error | null } = { current: null };
+            const attemptRecord = await new AgentRunner().run(
+              { ...agentConfig, requestOverrides },
+              registry,
+              regenerationMessages,
+              {
+                onText: (chunk) => {
+                  runText += chunk;
+                  result = runText;
+                  if (isCurrentRun()) {
+                    updateOutlineAssistantMessage(
+                      capturedConvId,
+                      assistantId,
+                      (message) => ({
+                        ...message,
+                        content: result,
+                      }),
+                    );
+                  }
+                },
+                onReasoningToken: (chunk) => {
+                  accumulatedReasoningContent += chunk;
+                },
+                onToolCall: () => {},
+                onToolResult: () => {},
+                onToolError: () => {},
+                onToolEvent: (event) => {
+                  if (!isCurrentRun()) return;
+                  updateOutlineAssistantMessage(
+                    capturedConvId,
+                    assistantId,
+                    (message) => ({
+                      ...message,
+                      agentToolCalls: applyAgentToolEvent(
+                        message.agentToolCalls,
+                        event,
+                      ),
+                    }),
+                  );
+                },
+                onDone: () => {},
+                onError: (error) => {
+                  agentErrorBox.current = error;
+                },
+              },
+              controller.signal,
+            );
+            regenerationRecords.push(attemptRecord);
+            const agentError = agentErrorBox.current;
+            if (agentError && !isReasoningOnlyResponseError(agentError)) throw agentError;
+            return {
+              text: runText || attemptRecord.finalText,
+              record: attemptRecord,
+              error: agentError ?? undefined,
+            };
           },
-          controller.signal,
+          (thoughtText) => {
+            if (controller.signal.aborted || !isCurrentRun()) throw new Error("aborted");
+            if (thoughtText.trim()) {
+              accumulatedReasoningContent = [accumulatedReasoningContent, thoughtText]
+                .filter((item) => item.trim())
+                .join("\n\n");
+            }
+            result = "";
+            updateOutlineAssistantMessage(capturedConvId, assistantId, (message) => ({
+              ...message,
+              content: "",
+              isAgentRunning: true,
+            }));
+            setStreamingContent(capturedConvId, "模型仅返回思考过程，正在关闭 reasoning 重试...");
+          },
         );
-        if (agentError) throw agentError;
+        if (regenerationRun.error) throw regenerationRun.error;
+        const record: AgentRunRecord = {
+          ...regenerationRun.record,
+          finalText: regenerationRun.text,
+          usage: regenerationRecords.reduce<LlmUsage | undefined>(
+            (usage, item) => addLlmUsage(usage, item.usage),
+            undefined,
+          ),
+          roundsUsed: regenerationRecords.reduce((total, item) => total + Math.max(1, item.roundsUsed || 1), 0),
+          toolCalls: regenerationRecords.flatMap((item) => item.toolCalls),
+          requestTraces: regenerationRecords.flatMap((item) => item.requestTraces ?? []),
+          omittedRequestTraceCount: regenerationRecords.reduce(
+            (total, item) => total + (item.omittedRequestTraceCount ?? 0),
+            0,
+          ),
+          providerRequestCountAvailable: regenerationRecords.every(
+            (item) => item.providerRequestCountAvailable !== false,
+          ),
+          userMemoryDecision: regenerationRecords.find(
+            (item) => item.userMemoryDecision !== undefined,
+          )?.userMemoryDecision,
+        };
         if (!isCurrentRun()) return;
         if (contextHubResult && (record.usage || record.requestTraces?.length)) {
           try {
@@ -4065,7 +4220,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ...outlineToolCallsToSources(record.toolCalls),
           ...regenerationSkills.missingNames.map((name) => `Skill 缺失（未强制启用）: ${name}`),
         ];
-        const rawRegenerationContent = result || record.finalText || "AI大纲未返回内容。";
+        const filteredRegenerationContent = filterOutlineGeneratedContent(
+          regenerationRun.text || result || record.finalText,
+        );
+        if (filteredRegenerationContent.reasoningOnly) {
+          throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
+        }
+        const rawRegenerationContent = filteredRegenerationContent.content || "AI大纲未返回内容。";
         const rawRegenerationIntentProtocol = parseIntentClarityProtocol(rawRegenerationContent);
         const nextStepExtraction = extractNextStep(
           rawRegenerationContent,
@@ -4137,10 +4298,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (assistantAdded) {
           updateOutlineAssistantMessage(capturedConvId, assistantId, (message) => ({
             ...message,
-            content: message.content.trim()
+            content: filterOutlineGeneratedContent(message.content).content.trim()
               ? aborted
-                ? `${message.content}\n\n---\n\n⚠️ 生成已停止，以上为已生成的内容。`
-                : `${message.content}\n\n---\n\n⚠️ 生成中断：${errorMsg || "未知错误"}`
+                ? `${filterOutlineGeneratedContent(message.content).content}\n\n---\n\n⚠️ 生成已停止，以上为已生成的内容。`
+                : `${filterOutlineGeneratedContent(message.content).content}\n\n---\n\n⚠️ 生成中断：${errorMsg || "未知错误"}`
               : aborted
                 ? "已停止生成。"
                 : `生成失败：${errorMsg || "未知错误"}`,
@@ -4219,8 +4380,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const capturedConvId = activeConversationId;
       setSaveStatus("");
       try {
+        const filteredOutput = filterOutlineGeneratedContent(content);
+        if (filteredOutput.reasoningOnly || !filteredOutput.content) {
+          toast.error("内容仅包含模型思考过程，无法保存为大纲");
+          return;
+        }
         const built = buildClassifiedOutlineSaveRequest({
-          content,
+          content: filteredOutput.content,
           sourceIntent: "手动保存 AI 大纲结果",
           sourceHint: collectOutlineSaveSourceHint(capturedConvId),
         });
@@ -4235,15 +4401,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
         if (built.classification.fileType === "character") {
           if (characterResults && characterResults.length > 0) {
-            const characterDrafts: CharacterSaveDraft[] = characterResults.map((r) => ({
-              id: `${r.plan.roleType}:${r.plan.characterName}`,
-              characterName: r.plan.characterName,
-              roleType: r.plan.roleType,
-              fileName: r.fileName,
-              content: r.content,
-              selected: true,
-              confidence: "high",
-            }));
+            const characterDrafts: CharacterSaveDraft[] = characterResults.flatMap((r) => {
+              const filteredCharacter = filterOutlineGeneratedContent(r.content);
+              if (!filteredCharacter.content || filteredCharacter.reasoningOnly) return [];
+              return [{
+                id: `${r.plan.roleType}:${r.plan.characterName}`,
+                characterName: r.plan.characterName,
+                roleType: r.plan.roleType,
+                fileName: r.fileName,
+                content: filteredCharacter.content,
+                selected: true,
+                confidence: "high" as const,
+              }];
+            });
+            if (characterDrafts.length === 0) {
+              toast.error("人物小传仅包含模型思考过程，无法保存");
+              return;
+            }
             presentOrQueueSaveBatch({
               title: "请确认要保存的人物角色",
               mode: "character",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { getCustomCompatibleHeaders, getProviderConfig, parseGoogleLine, withCustomOriginHeader } from "./llm-providers"
+import { filterDeAiOutput } from "./novel/de-ai-output"
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
 function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
@@ -667,6 +668,12 @@ describe("Gemini thought summaries", () => {
     })
   }
 
+  function googleLine(...parts: string[]): string {
+    return `data: ${JSON.stringify({
+      candidates: [{ content: { parts: parts.map((text) => ({ text })) } }],
+    })}`
+  }
+
   it("does not return thought:true parts as visible content", () => {
     const line = 'data: {"candidates":[{"content":{"parts":[{"text":"先拆章纲","thought":true},{"text":"雨还在下。"}]}}]}'
     expect(parseGoogleLine(line)).toBe("雨还在下。")
@@ -676,6 +683,36 @@ describe("Gemini thought summaries", () => {
     const dump = "**Defining the Request**\\n\\nThe user wants the full text for Chapter 14."
     const line = `data: {"candidates":[{"content":{"parts":[{"text":"${dump}"},{"text":"雨还在下。"}]}}]}`
     expect(parseGoogleLine(line)).toBe("雨还在下。")
+  })
+
+  it("filters a thought summary split across Gemini SSE events and parts at the completed-result boundary", () => {
+    const body = "地下暗轨深处，空气沉得像一汪死水。叶刃没有回头。"
+    const lines = [
+      googleLine(
+        "I'm currently focused on defining the project scope, prioritizing ",
+        "the objective: refining the novel snippet to align with the \"去 AI 味\" skill's instructions.",
+      ),
+      googleLine(
+        "\n\n**Examining the Narrative Details**\n\n",
+        "I'm now diving deep into analyzing the source text and preserving its key conflicts.",
+      ),
+      googleLine(
+        "\n\n**Analyzing the Conflict's Dynamics**\n\n",
+        "I've been mapping out the escalating conflict within the narrative's framework.",
+      ),
+      googleLine(`\n\n${body}`),
+    ]
+
+    // parseGoogleLine is stateless, so a single event or part cannot reliably
+    // identify a summary whose evidence is spread across the completed payload.
+    // Do not constrain how much the provider can discard eagerly; the business
+    // boundary must still guarantee that only the revised body survives.
+    const completed = lines
+      .map((line) => parseGoogleLine(line))
+      .filter((text): text is string => text !== null)
+      .join("")
+
+    expect(filterDeAiOutput(completed)).toBe(body)
   })
 
   it("hides thought summaries on Gemini 3.x even in auto reasoning mode", () => {
