@@ -7,6 +7,21 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.11",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "[Filter Thinking Output] Outline generation and de-AI now strip model thinking segments, including unlabeled Gemini thought dumps. A thinking-only response retries once with reasoning off, so English analysis no longer leaks into the outline or chapter text.",
+      "[Short Story Import Without Chapters] When a file has no chapter markers, a non-empty full text is saved as a single chapter instead of failing import. Empty files are still rejected.",
+    ],
+    zh: [
+      "【过滤思考输出】大纲和去AI味会滤掉模型思考段（含 Gemini 无标签思考），纯思考响应会关 reasoning 再试一次，避免英文分析进正文或大纲",
+      "【无章节短篇导入】没有章节标记的短篇，会把非空全文当作一章导入，不再失败；空文件仍会拦截",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.10",
   date: "2026-08-28",
@@ -1422,6 +1437,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_ELEVEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_ELEVEN_CHANGELOG];
   if (version === THREE_POINT_TWO_TEN_CHANGELOG.version)
     return [THREE_POINT_TWO_TEN_CHANGELOG];
   if (version === THREE_POINT_TWO_NINE_CHANGELOG.version)
@@ -1547,6 +1564,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_ELEVEN_CHANGELOG,
     THREE_POINT_TWO_TEN_CHANGELOG,
     THREE_POINT_TWO_NINE_CHANGELOG,
     THREE_POINT_TWO_EIGHT_CHANGELOG,
