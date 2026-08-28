@@ -63,6 +63,27 @@ describe("parseNovelChapters 章节识别（锚定行首，防幻影章节）", 
     ])
   })
 
+  it("允许章节标题前带缩进（半角/全角空格、制表符）且标题不含缩进", () => {
+    const text = [
+      "  第一章 穿越",
+      "正文一。",
+      "　　第二章 觉醒",
+      "正文二。",
+      "\t第三章 终局",
+      "正文三。",
+    ].join("\n")
+    const chapters = parseNovelChapters(text)
+    expect(chapters).toHaveLength(3)
+    expect(chapters.map((chapter) => chapter.title)).toEqual([
+      "第一章 穿越",
+      "第二章 觉醒",
+      "第三章 终局",
+    ])
+    // 正文从章标题开始截取，缩进不会混入正文
+    expect(chapters[0].content).toContain("第一章 穿越")
+    expect(chapters[0].content).not.toMatch(/^[ \t\u3000]+第一章/)
+  })
+
   it("没有章节标记时抛出明确错误", () => {
     expect(() => parseNovelChapters("这是一篇没有章节标题的小说正文。")).toThrow(
       "未能识别到章节标记",

@@ -37,8 +37,9 @@ export function parseNovelChapters(content: string): ParsedNovelChapter[] {
   // 锚定行首（m 多行模式），只把独立成行的“第X章”标题当作章节；
   // 兼容“第X卷卷名+第X章标题”同行的格式（如“第五卷名震一方第六百四十八章”），
   // 卷前缀仅作为行首锚定条件，章标题用捕获组1单独提取（避免标题混入卷名）。
+  // 允许行首存在空白（半角/全角空格、制表符），很多 TXT 的章节标题前带缩进。
   // 避免把正文里“第X章提到过”这类跨章引用误拆成幻影章节。
-  const chapterRegex = /^(?:第[零〇一二三四五六七八九十百千万两0-9]+卷[^。！？!?\n]{0,32}?)?(第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*)/gim
+  const chapterRegex = /^[ \t\u3000]*(?:第[零〇一二三四五六七八九十百千万两0-9]+卷[^。！？!?\n]{0,32}?)?(第[零〇一二三四五六七八九十百千万两0-9]+章[^\n]*)/gim
   const matches = Array.from(content.matchAll(chapterRegex))
 
   if (matches.length === 0) {
