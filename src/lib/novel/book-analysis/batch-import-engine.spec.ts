@@ -254,10 +254,12 @@ describe("analysis engine chapter helpers", () => {
     ])
   })
 
-  it("没有章节标记时保留旧中文错误", () => {
-    expect(() => parseNovelChapters("没有章节标题")).toThrow(
-      "未能识别到章节标记，请确保小说文件包含\"第X章\"格式的章节标题",
-    )
+  it("没有章节标记时按全文单章解析", () => {
+    expect(parseNovelChapters("短篇标题\n没有章节标题的正文")).toEqual([{
+      title: "全文",
+      content: "短篇标题\n没有章节标题的正文",
+      order: 1,
+    }])
   })
 
   it("构建与旧引擎相同的章节 Markdown", () => {
@@ -318,6 +320,48 @@ wordCount: 9
 })
 
 describe("runBatchImportTask", () => {
+  it("无章节短篇按全文单章导入并发布到作品库", async () => {
+    const shortStory = [
+      "短篇标题",
+      "开场导语。",
+      "01",
+      "正文内容。",
+    ].join("\r\n")
+    const shortStorySha256 = await hashNormalizedNovel(shortStory)
+    task = { ...task, sourceSha256: shortStorySha256 }
+    fsMocks.files.set(CACHED_SOURCE_PATH, shortStory)
+
+    const result = await runBatchImportTask(task, {
+      signal: new AbortController().signal,
+    })
+
+    expect(result.metadata.totalChapters).toBe(1)
+    expect(result.metadata.totalWords).toBe(shortStory.length)
+    expect(result.chapters).toEqual([{
+      id: "ch-0001",
+      title: "全文",
+      order: 1,
+      wordCount: shortStory.length,
+      path: `${BOOK_PATH}/chapters/ch-0001.md`,
+    }])
+    expect(fsMocks.files.get(`${BOOK_PATH}/chapters/ch-0001.md`)).toBe(
+      buildChapterMarkdown(task.bookId, {
+        title: "全文",
+        content: shortStory,
+        order: 1,
+      }),
+    )
+    expect(libraryMocks.upsertBookLibraryEntry).toHaveBeenCalledWith(
+      PROJECT_PATH,
+      expect.objectContaining({
+        bookId: task.bookId,
+        totalChapters: 1,
+        totalWords: shortStory.length,
+        status: "completed",
+      }),
+    )
+  })
+
   it.each(["completed", "skipped"] as const)(
     "直接调用 engine 时拒绝终态 %s 且不写正式目录",
     async (status) => {

@@ -84,9 +84,24 @@ describe("parseNovelChapters 章节识别（锚定行首，防幻影章节）", 
     expect(chapters[0].content).not.toMatch(/^[ \t\u3000]+第一章/)
   })
 
-  it("没有章节标记时抛出明确错误", () => {
-    expect(() => parseNovelChapters("这是一篇没有章节标题的小说正文。")).toThrow(
-      "未能识别到章节标记",
-    )
+  it("没有章节标记时将非空全文作为单章且不丢正文", () => {
+    const text = [
+      "短篇标题",
+      "一段导语。",
+      "01",
+      "第一节正文。",
+      "02",
+      "第二节正文。",
+    ].join("\r\n")
+
+    expect(parseNovelChapters(text)).toEqual([{
+      title: "全文",
+      content: text,
+      order: 1,
+    }])
+  })
+
+  it("空白文件仍拒绝导入", () => {
+    expect(() => parseNovelChapters(" \r\n\t　")).toThrow("小说文件内容为空")
   })
 })
