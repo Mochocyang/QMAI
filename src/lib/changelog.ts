@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.10",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "[Book Library Import Fix] Fixed imported novels not showing in the library: chapter detection now allows leading whitespace (half/full-width spaces, tabs) before chapter headings, so such TXT files no longer fail with 'no chapter markers found' and silently drop out of the library; line-start anchoring and ghost-chapter prevention are preserved.",
+    ],
+    zh: [
+      "【拆书库：导入修复】修复「导入小说」后作品不显示：章节识别允许章节标题前带缩进（半角/全角空格、制表符），此前这类 TXT 会被判定为「未能识别到章节标记」而导入静默失败；保留行首锚定与防幻影章节能力",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_NINE_CHANGELOG: ChangelogEntry = {
   version: "3.2.9",
   date: "2026-08-26",
@@ -1409,6 +1422,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_TEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_TEN_CHANGELOG];
   if (version === THREE_POINT_TWO_NINE_CHANGELOG.version)
     return [THREE_POINT_TWO_NINE_CHANGELOG];
   if (version === THREE_POINT_TWO_EIGHT_CHANGELOG.version)
@@ -1532,6 +1547,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_TEN_CHANGELOG,
     THREE_POINT_TWO_NINE_CHANGELOG,
     THREE_POINT_TWO_EIGHT_CHANGELOG,
     THREE_POINT_TWO_SEVEN_CHANGELOG,
