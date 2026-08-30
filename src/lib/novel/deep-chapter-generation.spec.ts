@@ -1348,16 +1348,23 @@ describe("runDeepChapterGeneration", () => {
   })
 
   it("binds analysis and generation budgets to deep chapter model calls", async () => {
+    const previousState = useWikiStore.getState()
     const deps = createDeps()
-    const overrides: Array<RequestOverrides | undefined> = []
+    const requests: Array<{ model: string; maxTokens?: number }> = []
+    let sharedContextTokenBudget: number | undefined
+    vi.mocked(deps.buildContextPack).mockResolvedValue({ ...contextPack, outline: "" })
+    vi.mocked(deps.contextPackToPrompt).mockImplementation((_pack, tokenBudget) => {
+      sharedContextTokenBudget = tokenBudget
+      return "上下文包内容"
+    })
     vi.mocked(deps.streamChat).mockImplementation(async (
-      _config: LlmConfig,
+      config: LlmConfig,
       messages: ChatMessage[],
       callbacks: StreamCallbacks,
       _signal,
       requestOverrides,
     ) => {
-      overrides.push(requestOverrides)
+      requests.push({ model: config.model, maxTokens: requestOverrides?.max_tokens })
       const prompt = messagesPromptText(messages)
       const content = prompt.includes("简单审查") || prompt.includes("去AI味")
         ? chapterText("最终无上限正文", 3000)
@@ -1370,23 +1377,68 @@ describe("runDeepChapterGeneration", () => {
       callbacks.onDone()
     })
 
-    await runDeepChapterGeneration(
-      {
-        projectPath: "E:/Novel",
-        userRequest: "生成第三章",
-        chapterNumber: 3,
-        // Auto reasoning carries no output floor, so the per-stage budgets show through.
-        llmConfig: { ...llmConfig, reasoning: { mode: "auto" } },
+    useWikiStore.setState({
+      defaultLlmModel: "workflow-provider/workflow-model",
+      providerConfigs: {
+        "workflow-provider": {
+          enabled: true,
+          apiKey: "workflow-key",
+          baseUrl: "https://workflow.example.test/v1",
+          maxContextSize: 1_000_000,
+          maxOutputTokens: 393_216,
+          reasoning: { mode: "auto" },
+          savedModels: [{ id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 1 }],
+        },
+        "deai-provider": {
+          enabled: true,
+          apiKey: "deai-key",
+          baseUrl: "https://deai.example.test/v1",
+          maxContextSize: 204_800,
+          maxOutputTokens: 65_536,
+          reasoning: { mode: "auto" },
+          savedModels: [{ id: "deai", name: "De-AI", model: "de-ai-model", createdAt: 2 }],
+        },
       },
-      {},
-      deps,
-    )
+      novelConfig: {
+        ...previousState.novelConfig,
+        defaultLlmModel: "workflow-provider/workflow-model",
+        deAiModel: "deai-provider/de-ai-model",
+        deepPreviousChaptersAnalysis: false,
+      },
+    })
 
-    expect(overrides.length).toBeGreaterThan(0)
-    expect(overrides.every((item) => typeof item?.max_tokens === "number")).toBe(true)
-    // Shared window clamps to 204800: analysis 0.04 → 8192, generation 0.15 → 30720.
-    expect(overrides.some((item) => item?.max_tokens === 8_192)).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
+    try {
+      await runDeepChapterGeneration(
+        {
+          projectPath: "E:/Novel",
+          userRequest: "生成第三章",
+          chapterNumber: 3,
+          // Auto reasoning carries no output floor, so the per-stage budgets show through.
+          llmConfig: {
+            ...llmConfig,
+            model: "writer-model",
+            maxContextSize: 262_144,
+            maxOutputTokens: 393_216,
+            reasoning: { mode: "auto" },
+          },
+        },
+        {},
+        deps,
+      )
+
+      expect(requests).toContainEqual({ model: "workflow-model", maxTokens: 40_000 })
+      expect(requests).toContainEqual({ model: "writer-model", maxTokens: 39_321 })
+      expect(requests).toContainEqual({ model: "de-ai-model", maxTokens: 30_720 })
+      // 共享资料包仍受最小的 204800-token 去 AI 味模型限制。
+      expect(sharedContextTokenBudget).toBe(133_120)
+    } finally {
+      useWikiStore.setState({
+        aiChatModel: previousState.aiChatModel,
+        defaultLlmModel: previousState.defaultLlmModel,
+        providerConfigs: previousState.providerConfigs,
+        novelConfig: previousState.novelConfig,
+      })
+    }
   })
 
   it("raises stage output to the floor the configured reasoning level needs", async () => {

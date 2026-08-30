@@ -183,6 +183,12 @@ describe("chapter request budget", () => {
       stage: "analysis",
     }).outputTokens).toBe(40_000)
   })
+
+  it("uses the normalized default window when a stage omits maxContextSize", () => {
+    expect(planChapterRequestBudget({
+      stage: "analysis",
+    }).outputTokens).toBe(8_192)
+  })
 })
 
 describe("charsPerTokenForLanguage", () => {

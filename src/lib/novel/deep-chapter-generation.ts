@@ -693,23 +693,11 @@ export async function runDeepChapterGeneration(
   );
   throwIfAborted(signal);
 
-  // 任务书(workflowConfig)、初稿/返修(writingConfig)、去AI味(deAiConfig)复用同一份
-  // outlinePrompt + contextPrompt。这三个环节可能用不同模型、各有独立上下文窗口，
-  // 因此预算取三者窗口的最小值：确保任一环节都不必依赖 llm-client 末级无差别截断
-  // （末级截断按字符砍，会绕过 ContextPack 的字段优先级），并让各环节看到一致的上下文。
-  const sharedContextWindows = [
-    writingConfig.maxContextSize,
-    workflowConfig.maxContextSize,
-    deAiConfig.maxContextSize,
-  ].filter((size): size is number => typeof size === "number" && size > 0);
-  const sharedContextWindow = sharedContextWindows.length > 0
-    ? Math.min(...sharedContextWindows)
-    : input.llmConfig.maxContextSize;
-
-  // 大纲与其余上下文共用同一窗口预算：资料包按三阶段最小窗分配。
-  // 输出上限与思考地板按各阶段实际调用的模型重算，不再只读入口 llmConfig。
+  // 任务书(workflowConfig)、初稿/返修(writingConfig)、去AI味(deAiConfig)可能
+  // 使用不同模型。每个阶段的输出预算必须按实际调用模型的窗口与输出上限计算；
+  // 否则一个小窗口的辅助模型会错误压缩大窗口工作流模型的任务书输出。
   const chapterAnalysisBudget = planChapterRequestBudget({
-    maxContextSize: sharedContextWindow,
+    maxContextSize: workflowConfig.maxContextSize,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "analysis",
     maxOutputTokens: getEffectiveMaxOutputTokens(workflowConfig),
@@ -718,7 +706,7 @@ export async function runDeepChapterGeneration(
     ),
   });
   const chapterGenerationBudget = planChapterRequestBudget({
-    maxContextSize: sharedContextWindow,
+    maxContextSize: writingConfig.maxContextSize,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
     maxOutputTokens: getEffectiveMaxOutputTokens(writingConfig),
@@ -727,7 +715,7 @@ export async function runDeepChapterGeneration(
     ),
   });
   const chapterDeAiBudget = planChapterRequestBudget({
-    maxContextSize: sharedContextWindow,
+    maxContextSize: deAiConfig.maxContextSize,
     chapterTargetChars: novelConfig.chapterTargetChars,
     stage: "generation",
     maxOutputTokens: getEffectiveMaxOutputTokens(deAiConfig),
@@ -735,7 +723,13 @@ export async function runDeepChapterGeneration(
       deAiConfig.reasoning ?? { mode: "auto" },
     ),
   });
-  const totalContextTokenBudget = chapterGenerationBudget.contextTokenBudget;
+  // 三个阶段仍复用同一份 outlinePrompt + contextPrompt。共享输入取各阶段
+  // 实际可用上下文预算的最小值，确保任一模型都无需依赖 llm-client 末级截断。
+  const totalContextTokenBudget = Math.min(
+    chapterAnalysisBudget.contextTokenBudget,
+    chapterGenerationBudget.contextTokenBudget,
+    chapterDeAiBudget.contextTokenBudget,
+  );
   const analysisRequestOverrides: RequestOverrides = {
     max_tokens: chapterAnalysisBudget.outputTokens,
   };
