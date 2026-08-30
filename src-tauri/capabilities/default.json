@@ -12,6 +12,7 @@
     "dialog:default",
     "store:default",
     "updater:default",
+    "notification:default",
     {
       "identifier": "http:default",
       "allow": [

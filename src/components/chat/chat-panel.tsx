@@ -62,7 +62,7 @@ import { useAgentConfig } from "@/hooks/use-agent-config"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { executeIngestWrites } from "@/lib/ingest"
-import { routeTask, buildTaskDirective, type TaskRouteResult } from "@/lib/novel/task-router"
+import { routeTask, buildTaskDirective, isChapterWritingIntent, type TaskRouteResult } from "@/lib/novel/task-router"
 import { writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   detectLastGeneratedChapterNumber,
@@ -157,6 +157,10 @@ import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service"
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service"
+import {
+  ensureSystemNotificationPermission,
+  notifyChapterWritingOutcome,
+} from "@/lib/system-notification"
 
 
 /* spec-test patterns */
@@ -2014,6 +2018,9 @@ export function ChatPanel() {
       }
 
       try {
+        if (isChapterWritingIntent(effectiveTaskRoute?.intent)) {
+          void ensureSystemNotificationPermission()
+        }
         const requiredToolsOnce = resolveRequiredToolsOnce({
           novelMode,
           intent: effectiveTaskRoute?.intent,
@@ -2355,6 +2362,12 @@ export function ChatPanel() {
         if (hasAgentError) {
           useChatStore.getState().failConversationRun(capturedConvId, lastAgentError, runId)
           showRunErrorToast(lastAgentErrorObject ?? new Error(lastAgentError))
+          void notifyChapterWritingOutcome({
+            intent: effectiveTaskRoute?.intent,
+            ok: false,
+            chapterNumber: effectiveTaskRoute?.chapterNumber,
+            error: lastAgentError,
+          })
         } else {
           useChatStore.getState().finishConversationRun(
             capturedConvId,
@@ -2362,6 +2375,7 @@ export function ChatPanel() {
             runId,
           )
         }
+        let chapterWritingPlanOnly = false
         if (!hasAgentError && planExecuteActive) {
           const storeState = useChatStore.getState()
           const lastAssistant = storeState.messages.find(
@@ -2388,6 +2402,7 @@ export function ChatPanel() {
             ?? (planFallbackEligible && fullContent.trim()
               ? { plan: fullContent.trim(), body: "" }
               : null)
+          chapterWritingPlanOnly = Boolean(extracted) || hasMarker
           if (extracted) {
             console.info("[PlanExecute] 计划提取成功，弹出确认对话框", {
               planLength: extracted.plan.length,
@@ -2423,6 +2438,14 @@ export function ChatPanel() {
             })
           }
         }
+        if (!hasAgentError) {
+          void notifyChapterWritingOutcome({
+            intent: effectiveTaskRoute?.intent,
+            planOnly: chapterWritingPlanOnly,
+            ok: true,
+            chapterNumber: effectiveTaskRoute?.chapterNumber,
+          })
+        }
       } catch (error) {
         if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
@@ -2442,6 +2465,12 @@ export function ChatPanel() {
         })
         useChatStore.getState().failConversationRun(capturedConvId, errorMessage, runId)
         showRunErrorToast(resolvedError)
+        void notifyChapterWritingOutcome({
+          intent: effectiveTaskRoute?.intent,
+          ok: false,
+          chapterNumber: effectiveTaskRoute?.chapterNumber,
+          error: errorMessage,
+        })
       }
     },
     [

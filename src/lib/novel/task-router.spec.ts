@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { routeTask } from "./task-router"
+import { isChapterWritingIntent, routeTask } from "./task-router"
 
 describe("routeTask chapter generation", () => {
   it("routes continue-next-chapter requests into chapter generation flow", () => {
@@ -85,5 +85,15 @@ describe("routeTask chapter generation", () => {
 
     expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(5)
+  })
+
+  it("identifies chapter writing intents", () => {
+    expect(isChapterWritingIntent("write_chapter")).toBe(true)
+    expect(isChapterWritingIntent("continue_chapter")).toBe(true)
+    expect(isChapterWritingIntent("rewrite_chapter")).toBe(true)
+    expect(isChapterWritingIntent("polish_chapter")).toBe(true)
+    expect(isChapterWritingIntent("generate_outline")).toBe(false)
+    expect(isChapterWritingIntent("general_chat")).toBe(false)
+    expect(isChapterWritingIntent(null)).toBe(false)
   })
 })
