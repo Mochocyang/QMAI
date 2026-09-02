@@ -7,6 +7,25 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_TWELVE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.12",
+  date: "2026-09-02",
+  highlights: {
+    en: [
+      "[Chapter Workflow Budget Bleed] Output budgets now follow each stage's actual model window, so a small-window helper model no longer crushes the task brief.",
+      "[Writing Done System Banner] Chapter writing success or failure sends a system notification with sound on Windows/macOS. Planning and user-stop do not notify.",
+      "[48K Output Preset] Settings now include a 48K output token option.",
+      "[Cursor CLI Model Filter] Optional CLI models are filtered against the ACP catalog, HTTP passes the CLI model id, and login is skipped when credentials already exist.",
+    ],
+    zh: [
+      "【章节工作流预算串扰】按各阶段实际模型窗口算输出预算，避免小窗口辅助模型把任务书压太短",
+      "【写作完成系统通知】章节写作完成或失败会发系统横幅，Windows/macOS 带提示音；计划阶段和用户停止不打扰",
+      "【输出上限加 48K】设置里输出 token 可选 48K",
+      "【Cursor CLI 模型可选】按 ACP catalog 过滤能用的 CLI 模型，HTTP 直传 model id，避免对不上就退出；有凭证不再每次弹登录",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.11",
   date: "2026-08-28",
@@ -1437,6 +1456,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_TWELVE_CHANGELOG.version)
+    return [THREE_POINT_TWO_TWELVE_CHANGELOG];
   if (version === THREE_POINT_TWO_ELEVEN_CHANGELOG.version)
     return [THREE_POINT_TWO_ELEVEN_CHANGELOG];
   if (version === THREE_POINT_TWO_TEN_CHANGELOG.version)
@@ -1564,6 +1585,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_TWELVE_CHANGELOG,
     THREE_POINT_TWO_ELEVEN_CHANGELOG,
     THREE_POINT_TWO_TEN_CHANGELOG,
     THREE_POINT_TWO_NINE_CHANGELOG,
