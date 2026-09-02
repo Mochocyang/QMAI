@@ -1,7 +1,7 @@
 import { isOutputTruncatedError, streamChat } from "../llm-client"
 import type { StreamCallbacks } from "../llm-client"
-import { isFunctionCallingEnabled, providerUsesTextToolCalls } from "./config"
-import { accumulateToolCalls, parseTextToolCalls } from "./tool-call-parser"
+import { isFunctionCallingEnabled } from "./config"
+import { accumulateToolCalls } from "./tool-call-parser"
 import { toOpenAITools } from "./tools-schema"
 import type { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage, AgentRunCallbacks, AgentRunRecord, ToolCall, ToolCallDelta } from "./types"
@@ -412,22 +412,7 @@ export class AgentRunner {
         return record
       }
 
-      // Check for tool calls (native deltas, or text JSON for cursor-cli bridge)
-      let toolCalls = accumulateToolCalls(toolCallDeltas)
-      if (
-        toolCalls.length === 0 &&
-        openaiTools &&
-        providerUsesTextToolCalls(config.llmConfig.provider)
-      ) {
-        const parsed = parseTextToolCalls(
-          roundText,
-          new Set(config.tools.map((tool) => tool.name)),
-        )
-        if (parsed.toolCalls.length > 0) {
-          toolCalls = parsed.toolCalls
-          roundText = parsed.residualText
-        }
-      }
+      const toolCalls = accumulateToolCalls(toolCallDeltas)
 
       if (toolCalls.length === 0) {
         const missingRequired = missingRequiredToolsOnce({

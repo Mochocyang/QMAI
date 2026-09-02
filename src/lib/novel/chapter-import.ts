@@ -41,7 +41,7 @@ type IngestChapterDependency = (
   projectPath: string,
   chapterPath: string,
   reviewModel?: string,
-) => Promise<{ snapshot: unknown | null; failReason?: string }>
+) => Promise<{ snapshot: unknown | null; failReason?: string; error?: string }>
 
 function yamlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
@@ -338,7 +338,7 @@ export async function runImportedChapterMemoryExtraction({
         completed += 1
       } else {
         failed += 1
-        errors.push(`${getFileName(chapterPath)}：${result.failReason ?? "提取失败"}`)
+        errors.push(`${getFileName(chapterPath)}：${result.error ?? result.failReason ?? "提取失败"}`)
       }
     } catch (error) {
       failed += 1

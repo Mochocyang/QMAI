@@ -10,7 +10,15 @@ describe("chapter ingest draft boundary", () => {
     expect(source).toContain("allowDraft?: boolean")
     expect(source).toContain("options: IngestChapterOptions = {}")
     expect(source).toContain("if (!options.allowDraft && !isFinalChapter(fm))")
-    expect(source).toContain('failReason: "not_final"')
+    expect(source).toContain('return logFail("not_final", "章节不是正式稿")')
+  })
+
+  it("writes extract failures to .qmai/chapter-ingest.log and returns error", () => {
+    expect(source).toContain("appendChapterIngestLog")
+    expect(source).toContain('event: "fail"')
+    expect(source).toContain('event: "start"')
+    expect(source).toContain('event: "ok"')
+    expect(source).toContain("failReason, error: message")
   })
 
   it("does not persist a snapshot before syncSnapshotToMemory", () => {

@@ -798,10 +798,12 @@ function PresetRow({
             />
           </div>
 
-          <ReasoningControls
-            value={reasoning}
-            onChange={(next) => onChange(withOutputRoomForReasoning(next, maxOutputTokens))}
-          />
+          {preset.provider !== "cursor-cli" && (
+            <ReasoningControls
+              value={reasoning}
+              onChange={(next) => onChange(withOutputRoomForReasoning(next, maxOutputTokens))}
+            />
+          )}
 
           <FunctionCallingControls
             enabled={ov.functionCallingEnabled !== false}
@@ -1365,10 +1367,19 @@ function CursorCliStatusPill() {
   const [proxyError, setProxyError] = useState<string | null>(null)
   const [proxyHealthy, setProxyHealthy] = useState(false)
   const [proxyBase, setProxyBase] = useState<string | null>(null)
+  const [agentAction, setAgentAction] = useState<"idle" | "checking" | "updating">("idle")
+  const [updateNote, setUpdateNote] = useState<{
+    kind: "ok" | "info" | "err"
+    text: string
+  } | null>(null)
 
-  async function detect() {
-    setState("loading")
-    setProxyError(null)
+  const actionBusy = agentAction !== "idle"
+
+  async function detect(opts?: { silent?: boolean }) {
+    if (!opts?.silent) {
+      setState("loading")
+      setProxyError(null)
+    }
     if (!isTauri()) {
       setAgent({
         installed: false,
@@ -1416,24 +1427,136 @@ function CursorCliStatusPill() {
     }
   }
 
+  async function checkAgentUpdate() {
+    if (actionBusy) return
+    setAgentAction("checking")
+    setUpdateNote(null)
+    try {
+      const { checkCursorAgentUpdate } = await import("@/lib/cursor-cli-proxy")
+      const about = await checkCursorAgentUpdate()
+      if (about.version) {
+        setAgent((prev) => ({
+          installed: true,
+          version: about.version,
+          path: about.path ?? prev?.path ?? null,
+          error: about.error,
+        }))
+      }
+      if (!about.installed) {
+        setUpdateNote({
+          kind: "err",
+          text: about.error ?? t("settings.sections.llm.cliStatus.cursorAgentUnavailable"),
+        })
+        return
+      }
+      if (about.latest_status === "up_to_date") {
+        setUpdateNote({
+          kind: "ok",
+          text: t("settings.sections.llm.cliStatus.cursorLatestUpToDate"),
+        })
+        return
+      }
+      if (about.latest_status === "update_available") {
+        setUpdateNote({
+          kind: "info",
+          text: t("settings.sections.llm.cliStatus.cursorLatestAvailable", {
+            version: about.latest_version ?? "?",
+          }),
+        })
+        return
+      }
+      setUpdateNote({
+        kind: "err",
+        text: about.error ?? t("settings.sections.llm.cliStatus.cursorLatestUnknown"),
+      })
+    } catch (e) {
+      setUpdateNote({
+        kind: "err",
+        text: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setAgentAction("idle")
+    }
+  }
+
+  async function runAgentUpdate() {
+    if (actionBusy) return
+    setAgentAction("updating")
+    setUpdateNote(null)
+    try {
+      const { updateCursorAgent } = await import("@/lib/cursor-cli-proxy")
+      const result = await updateCursorAgent()
+      if (result.ok) {
+        setUpdateNote({
+          kind: "ok",
+          text: t("settings.sections.llm.cliStatus.cursorUpdateOk", {
+            version: result.version ?? "?",
+          }),
+        })
+        await detect({ silent: true })
+        return
+      }
+      const busy = /already running/i.test(result.error ?? "")
+      setUpdateNote({
+        kind: "err",
+        text: busy
+          ? t("settings.sections.llm.cliStatus.cursorUpdateBusy")
+          : t("settings.sections.llm.cliStatus.cursorUpdateFailed", {
+              message: result.error ?? result.output,
+            }),
+      })
+    } catch (e) {
+      setUpdateNote({
+        kind: "err",
+        text: t("settings.sections.llm.cliStatus.cursorUpdateFailed", {
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      })
+    } finally {
+      setAgentAction("idle")
+    }
+  }
+
   useEffect(() => {
     void detect()
   }, [])
 
+  const pillBusy = state === "loading" || actionBusy
+
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Label className="m-0">{t("settings.sections.llm.cliStatus.title")}</Label>
         <button
           type="button"
           onClick={() => void detect()}
-          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          disabled={state === "loading"}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+          disabled={pillBusy}
         >
           {state === "loading"
             ? t("settings.sections.llm.cliStatus.checking")
             : t("settings.sections.llm.cliStatus.recheck")}
         </button>
+        {agent?.installed && (
+          <>
+            <button
+              type="button"
+              onClick={() => void checkAgentUpdate()}
+              className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              disabled={pillBusy}
+            >
+              {t("settings.sections.llm.cliStatus.cursorCheckUpdate")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runAgentUpdate()}
+              className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+              disabled={pillBusy}
+            >
+              {t("settings.sections.llm.cliStatus.cursorUpdateNow")}
+            </button>
+          </>
+        )}
       </div>
       <div
         className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
@@ -1477,6 +1600,38 @@ function CursorCliStatusPill() {
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.cursorAuthErrorSuffix")}
               </div>
+              {agent?.installed && (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.cursorUpdatePrefix")}{" "}
+                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                    agent update
+                  </code>{" "}
+                  {t("settings.sections.llm.cliStatus.cursorUpdateSuffix")}
+                </div>
+              )}
+              {agentAction === "checking" && (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.cursorUpdateChecking")}
+                </div>
+              )}
+              {agentAction === "updating" && (
+                <div className="text-muted-foreground">
+                  {t("settings.sections.llm.cliStatus.cursorUpdating")}
+                </div>
+              )}
+              {updateNote && (
+                <div
+                  className={
+                    updateNote.kind === "err"
+                      ? "text-rose-700 dark:text-rose-400"
+                      : updateNote.kind === "ok"
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : "text-muted-foreground"
+                  }
+                >
+                  {updateNote.text}
+                </div>
+              )}
               {!agent?.installed && (
                 <div className="text-muted-foreground">
                   {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
@@ -1488,11 +1643,7 @@ function CursorCliStatusPill() {
               )}
               {agent?.installed && !proxyHealthy && (
                 <div className="text-muted-foreground">
-                  {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
-                    npx cursor-api-proxy
-                  </code>{" "}
-                  {t("settings.sections.llm.cliStatus.installSuffix")}
+                  {t("settings.sections.llm.cliStatus.cursorProxyNpxHint")}
                 </div>
               )}
             </>

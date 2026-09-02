@@ -32,6 +32,19 @@ describe("LLM provider model controls", () => {
     expect(source).toContain('settings.sections.llm.functionCalling.label')
   })
 
+  it("starts cursor-api-proxy via npx @latest instead of a global install", () => {
+    expect(source).toContain('t("settings.sections.llm.cliStatus.cursorProxyNpxHint")')
+    expect(source).not.toContain("npm i -g cursor-api-proxy")
+  })
+
+  it("exposes Cursor agent version check and update", () => {
+    expect(source).toContain("checkCursorAgentUpdate")
+    expect(source).toContain("updateCursorAgent")
+    expect(source).toContain('t("settings.sections.llm.cliStatus.cursorCheckUpdate")')
+    expect(source).toContain('t("settings.sections.llm.cliStatus.cursorUpdateNow")')
+    expect(source).toContain("await detect({ silent: true })")
+  })
+
   it("keeps Codex CLI isolated and requires app-server dynamic tools", () => {
     expect(source).toContain('const showLocalCliIsolation = preset.provider === "claude-code"')
     expect(source).toContain("r.installed && r.appServerReady === true && r.dynamicToolsReady === true")
@@ -43,5 +56,12 @@ describe("LLM provider model controls", () => {
     expect(source).toContain('role="switch"')
     expect(source).toContain('codexSpeedMode: codexFastEnabled ? "standard" : "fast"')
     expect(source).toContain('settings.sections.llm.codexSpeedFast')
+  })
+
+  it("does not expose Cursor Fast or reasoning controls", () => {
+    expect(source).not.toContain("resolveCursorSpeedMode")
+    expect(source).not.toContain("cursorSpeedMode")
+    expect(source).toContain('{preset.provider !== "cursor-cli" && (')
+    expect(source).toContain("<ReasoningControls")
   })
 })

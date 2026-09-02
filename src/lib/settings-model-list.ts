@@ -1,5 +1,6 @@
 import { getProviderConfig, withCustomOriginHeader } from "@/lib/llm-providers"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
+import { rememberCursorCliCatalog } from "@/lib/cursor-acp-models"
 import { ensureCursorProxyRunning, restartCursorProxyWithAuth, withCursorProxyEndpoint } from "@/lib/cursor-cli-proxy"
 import { isDirectRerankEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
@@ -209,6 +210,10 @@ export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelList
     if (runtimeConfig.provider === "google") {
       return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
     }
+    if (runtimeConfig.provider === "cursor-cli") {
+      rememberCursorCliCatalog(result.models)
+      return toModelListResult(result.models)
+    }
     return result
   }
 
@@ -224,7 +229,8 @@ export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelList
     runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
     const retry = buildModelsUrl(runtimeConfig)
     const result = await fetchModelList(retry.url, retry.headers, runtimeConfig.model)
-    return result
+    rememberCursorCliCatalog(result.models)
+    return toModelListResult(result.models)
   }
 }
 

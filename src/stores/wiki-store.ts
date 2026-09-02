@@ -158,6 +158,8 @@ interface LlmConfig {
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
   codexSpeedMode?: CodexSpeedMode
+  /** Cursor ACP `fast=` parameter. Independent of Codex Fast. */
+  cursorSpeedMode?: CodexSpeedMode
   /** When false, Agent requests omit tools/tool_choice. Default/undefined = enabled. */
   functionCallingEnabled?: boolean
 }
@@ -459,6 +461,7 @@ export interface ProviderOverride {
   localCliIsolation?: boolean
   codexCliTimeoutMinutes?: number
   codexSpeedMode?: CodexSpeedMode
+  cursorSpeedMode?: CodexSpeedMode
   /** 是否在 AI 会话中显示该 provider 下的模型（仅用于自定义供应商）。默认 true。 */
   enabled?: boolean
   /** 已保存的模型列表（仅用于自定义供应商） */

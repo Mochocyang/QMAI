@@ -4,6 +4,8 @@
 //! frontend can talk OpenAI-compatible HTTP. Port is chosen dynamically
 //! (prefer 8765, else an ephemeral free port) via `CURSOR_BRIDGE_PORT`.
 
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,14 +21,32 @@ use super::local_cli_config::{apply_local_cli_environment, resolve_home_dir};
 
 const PREFERRED_PROXY_PORT: u16 = 8765;
 const DEFAULT_PROXY_BASE: &str = "http://127.0.0.1:8765";
-const PROXY_START_TIMEOUT_MS: u64 = 15_000;
+const PROXY_START_TIMEOUT_MS: u64 = 90_000;
 const PROXY_POLL_MS: u64 = 200;
+/// Align parked ACP tool turns with the frontend LLM backstop (30 minutes).
+const PROXY_TIMEOUT_MS: u64 = 30 * 60 * 1000;
+const AGENT_ABOUT_TIMEOUT: Duration = Duration::from_secs(20);
+const AGENT_UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const AGENT_TRUST_TIMEOUT: Duration = Duration::from_secs(45);
+const QMAI_WORKSPACE_TRUST_MARKER: &str = ".qmai-workspace-trusted";
+const QMAI_ACP_MODEL_FILE: &str = "qmai-acp-model";
+const QMAI_CURSOR_AGENT_WRAPPER: &str = include_str!("../../scripts/qmai-cursor-agent.cjs");
+static AGENT_UPDATE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct AgentUpdateGuard;
+
+impl Drop for AgentUpdateGuard {
+    fn drop(&mut self) {
+        AGENT_UPDATE_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Default)]
 struct ManagedProxy {
     child: Option<Child>,
     /// e.g. http://127.0.0.1:8765 — the port this managed child actually bound.
     base_url: Option<String>,
+    launch_fingerprint: Option<String>,
 }
 
 #[derive(Default)]
@@ -40,6 +60,24 @@ pub struct DetectResult {
     version: Option<String>,
     path: Option<String>,
     model: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AgentAboutResult {
+    installed: bool,
+    version: Option<String>,
+    latest_status: Option<String>,
+    latest_version: Option<String>,
+    path: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AgentUpdateResult {
+    ok: bool,
+    version: Option<String>,
+    output: String,
     error: Option<String>,
 }
 
@@ -66,29 +104,356 @@ async fn find_agent_command() -> Result<std::path::PathBuf, String> {
     find_cli_command("agent", &["agent.cmd", "agent.exe"]).await
 }
 
-async fn find_proxy_launcher() -> Result<(std::path::PathBuf, Vec<String>), String> {
-    if let Ok(bin) = find_cli_command(
-        "cursor-api-proxy",
-        &["cursor-api-proxy.cmd", "cursor-api-proxy.exe"],
-    )
-    .await
-    {
-        return Ok((bin, vec![]));
+fn npx_proxy_args() -> Vec<String> {
+    vec!["--yes".to_string(), "cursor-api-proxy@latest".to_string()]
+}
+
+fn agent_trust_args(workspace: &Path) -> Vec<String> {
+    vec![
+        "--trust".to_string(),
+        "--workspace".to_string(),
+        workspace.to_string_lossy().into_owned(),
+        "--mode".to_string(),
+        "ask".to_string(),
+        "--output-format".to_string(),
+        "text".to_string(),
+        "-p".to_string(),
+        "ok".to_string(),
+    ]
+}
+
+fn qmai_workspace_trust_marker(config_dir: &Path) -> PathBuf {
+    config_dir.join(QMAI_WORKSPACE_TRUST_MARKER)
+}
+
+async fn ensure_qmai_workspace_trusted(workspace: &Path, config_dir: &Path) {
+    let marker = qmai_workspace_trust_marker(config_dir);
+    if marker.is_file() {
+        return;
+    }
+    let args = agent_trust_args(workspace);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match run_agent_command(&arg_refs, AGENT_TRUST_TIMEOUT, Some(config_dir)).await {
+        Ok((_path, true, _output)) => {
+            if let Err(error) = std::fs::write(&marker, "") {
+                eprintln!(
+                    "[cursor-cli] trusted workspace but failed to write {}: {error}",
+                    marker.display()
+                );
+            }
+        }
+        Ok((_path, false, output)) => {
+            eprintln!(
+                "[cursor-cli] `agent --trust -p` failed for {}: {output}",
+                workspace.display()
+            );
+        }
+        Err(error) => {
+            eprintln!("[cursor-cli] workspace trust skipped: {error}");
+        }
+    }
+}
+
+fn npx_missing_error() -> String {
+    "`npx` not found on PATH. Install Node.js 18+ or set CURSOR_API_PROXY_BIN to a cursor-api-proxy binary."
+        .to_string()
+}
+
+fn resolve_explicit_proxy_bin(path: &Path) -> Result<(PathBuf, Vec<String>), String> {
+    if path.is_file() {
+        Ok((path.to_path_buf(), vec![]))
+    } else {
+        Err(format!(
+            "CURSOR_API_PROXY_BIN is set but is not a file: {}",
+            path.display()
+        ))
+    }
+}
+
+async fn find_proxy_launcher() -> Result<(PathBuf, Vec<String>), String> {
+    if let Some(bin) = read_nonempty_env(&["CURSOR_API_PROXY_BIN"]) {
+        return resolve_explicit_proxy_bin(Path::new(&bin));
     }
 
-    let npx = find_cli_command("npx", &["npx.cmd", "npx.exe"])
+    find_cli_command("npx", &["npx.cmd", "npx.exe"])
         .await
-        .map_err(|_| {
-            "`cursor-api-proxy` and `npx` not found on PATH. Install Node.js 18+ and `npm i -g cursor-api-proxy`, or ensure `npx` works."
-                .to_string()
-        })?;
-    Ok((
-        npx,
-        vec![
-            "--yes".to_string(),
-            "cursor-api-proxy".to_string(),
-        ],
-    ))
+        .map(|bin| (bin, npx_proxy_args()))
+        .map_err(|_| npx_missing_error())
+}
+
+fn qmai_proxy_home_dirs() -> Result<(PathBuf, PathBuf), String> {
+    let home = resolve_home_dir().ok_or_else(|| "Cannot resolve home directory for cursor-api-proxy".to_string())?;
+    let root = home.join(".cursor-api-proxy");
+    let config_dir = root.join("qmai-agent");
+    let workspace = root.join("qmai-workspace");
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", config_dir.display()))?;
+    std::fs::create_dir_all(&workspace)
+        .map_err(|e| format!("Failed to create {}: {e}", workspace.display()))?;
+    Ok((config_dir, workspace))
+}
+
+fn ensure_qmai_cli_config(config_dir: &Path) -> Result<PathBuf, String> {
+    let path = config_dir.join("cli-config.json");
+    let mut value = if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({
+            "version": 1,
+            "editor": { "vimMode": false },
+            "permissions": { "allow": [], "deny": [] }
+        })
+    };
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    value["disableAutoUpdate"] = serde_json::json!(true);
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&value)
+            .map_err(|e| format!("Failed to serialize {}: {e}", path.display()))?,
+    )
+    .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
+fn apply_qmai_acp_model(
+    config_dir: &Path,
+    model: &str,
+    fast: Option<bool>,
+    effort: Option<&str>,
+    cli_model: Option<&str>,
+) -> Result<(), String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("ACP model id is empty".to_string());
+    }
+    let path = ensure_qmai_cli_config(config_dir)?;
+    let mut value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    let mut parameters = Vec::new();
+    if let Some(effort) = effort.map(str::trim).filter(|value| !value.is_empty()) {
+        parameters.push(serde_json::json!({ "id": "effort", "value": effort }));
+    }
+    if let Some(fast) = fast {
+        parameters.push(serde_json::json!({
+            "id": "fast",
+            "value": if fast { "true" } else { "false" }
+        }));
+    }
+    value["selectedModel"] = serde_json::json!({
+        "modelId": model,
+        "parameters": parameters
+    });
+    if let Some(obj) = value.get_mut("model").and_then(|item| item.as_object_mut()) {
+        obj.insert("modelId".to_string(), serde_json::json!(model));
+        obj.insert("displayModelId".to_string(), serde_json::json!(model));
+    } else {
+        value["model"] = serde_json::json!({
+            "modelId": model,
+            "displayModelId": model
+        });
+    }
+    value["hasChangedDefaultModel"] = serde_json::json!(true);
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&value)
+            .map_err(|e| format!("Failed to serialize {}: {e}", path.display()))?,
+    )
+    .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    let pin = cli_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "default" && *value != "auto")
+        .unwrap_or(model);
+    std::fs::write(config_dir.join(QMAI_ACP_MODEL_FILE), pin)
+    .map_err(|e| {
+        format!(
+            "Failed to write {}: {e}",
+            config_dir.join(QMAI_ACP_MODEL_FILE).display()
+        )
+    })?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn qmai_acp_model_value(model: &str, fast: Option<bool>, effort: Option<&str>) -> String {
+    let mut params = Vec::new();
+    if let Some(effort) = effort.map(str::trim).filter(|value| !value.is_empty()) {
+        params.push(format!("effort={effort}"));
+    }
+    if let Some(fast) = fast {
+        params.push(format!("fast={}", if fast { "true" } else { "false" }));
+    }
+    if params.is_empty() {
+        model.to_string()
+    } else {
+        format!("{model}[{}]", params.join(","))
+    }
+}
+
+#[tauri::command]
+pub async fn cursor_cli_apply_acp_model(
+    model: String,
+    fast: Option<bool>,
+    effort: Option<String>,
+    cli_model: Option<String>,
+) -> Result<(), String> {
+    let (config_dir, _) = qmai_proxy_home_dirs()?;
+    apply_qmai_acp_model(
+        &config_dir,
+        &model,
+        fast,
+        effort.as_deref(),
+        cli_model.as_deref(),
+    )
+}
+
+fn ensure_qmai_agent_wrapper(
+    config_dir: &Path,
+    agent_bin: Option<&Path>,
+) -> Result<PathBuf, String> {
+    let baked = agent_bin
+        .map(|path| serde_json::to_string(&path.to_string_lossy().as_ref()).unwrap_or_else(|_| "\"\"".into()))
+        .unwrap_or_else(|| "\"\"".to_string());
+    let source = QMAI_CURSOR_AGENT_WRAPPER.replace("__QMAI_BAKED_AGENT__", &baked);
+    let script = config_dir.join("qmai-cursor-agent.cjs");
+    std::fs::write(&script, source)
+        .map_err(|e| format!("Failed to write {}: {e}", script.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+        Ok(script)
+    }
+    #[cfg(windows)]
+    {
+        let cmd_path = config_dir.join("qmai-cursor-agent.cmd");
+        std::fs::write(
+            &cmd_path,
+            "@echo off\r\nnode \"%~dp0qmai-cursor-agent.cjs\" %*\r\n",
+        )
+        .map_err(|e| format!("Failed to write {}: {e}", cmd_path.display()))?;
+        Ok(cmd_path)
+    }
+}
+
+fn proxy_launch_fingerprint(
+    launcher: &Path,
+    extra_args: &[String],
+    workspace: &Path,
+    config_dir: &Path,
+) -> String {
+    format!(
+        "launcher={}|args={}|chat_only=false|acp=true|mode=ask|ws={}|cfg={}|timeout={}|agent_wrap=4|strict=off",
+        launcher.display(),
+        extra_args.join("\0"),
+        workspace.display(),
+        config_dir.display(),
+        PROXY_TIMEOUT_MS
+    )
+}
+
+fn extract_json_object(raw: &str) -> Option<&str> {
+    let start = raw.find('{')?;
+    let end = raw.rfind('}')?;
+    if end < start {
+        return None;
+    }
+    Some(&raw[start..=end])
+}
+
+fn parse_agent_about_json(raw: &str) -> Option<(String, Option<String>, Option<String>)> {
+    let json: serde_json::Value = serde_json::from_str(extract_json_object(raw)?.trim()).ok()?;
+    let version = json
+        .get("cliVersion")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())?
+        .to_string();
+    let latest_status = json
+        .get("latestStatus")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let latest_version = json
+        .get("latestVersion")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    Some((version, latest_status, latest_version))
+}
+
+async fn run_agent_command(
+    args: &[&str],
+    timeout: Duration,
+    config_dir: Option<&Path>,
+) -> Result<(PathBuf, bool, String), String> {
+    let path = find_agent_command().await?;
+    let mut cmd = Command::new(&path);
+    suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
+    if let Some(path_env) = child_path_env().await {
+        cmd.env("PATH", path_env);
+    }
+    apply_cursor_auth_env(&mut cmd);
+    if let Some(dir) = config_dir {
+        cmd.env("CURSOR_CONFIG_DIR", dir);
+    } else {
+        cmd.env_remove("CURSOR_CONFIG_DIR");
+    }
+    cmd.env_remove("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE");
+    cmd.args(args);
+
+    let output = tokio::time::timeout(timeout, cmd.output())
+        .await
+        .map_err(|_| format!("`agent {}` timed out", args.join(" ")))?
+        .map_err(|e| format!("Failed to spawn `agent {}`: {e}", args.join(" ")))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let combined = if stderr.is_empty() {
+        stdout
+    } else if stdout.is_empty() {
+        stderr
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+    Ok((path, output.status.success(), combined))
+}
+
+fn apply_qmai_proxy_env(
+    cmd: &mut Command,
+    port: u16,
+    workspace: &Path,
+    config_dir: &Path,
+    agent_bin: Option<&Path>,
+    wrapper: Option<&Path>,
+) {
+    cmd.env("CURSOR_BRIDGE_HOST", "127.0.0.1");
+    cmd.env("CURSOR_BRIDGE_PORT", port.to_string());
+    cmd.env("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE", "false");
+    cmd.env("CURSOR_BRIDGE_USE_ACP", "true");
+    cmd.env("CURSOR_BRIDGE_MODE", "ask");
+    // CLI catalog ids (cursor-grok-4.6-medium-fast) are valid for `agent --model`
+    // but do not appear in ACP availableModels. Proxy defaults strictModel=true
+    // and treats that mismatch as fatal (empty stderr, exit 1).
+    cmd.env("CURSOR_BRIDGE_STRICT_MODEL", "false");
+    cmd.env("CURSOR_BRIDGE_WORKSPACE", workspace);
+    cmd.env("CURSOR_CONFIG_DIR", config_dir);
+    cmd.env("CURSOR_BRIDGE_TIMEOUT_MS", PROXY_TIMEOUT_MS.to_string());
+    if let (Some(agent_bin), Some(wrapper)) = (agent_bin, wrapper) {
+        cmd.env("CURSOR_AGENT_BIN", wrapper);
+        cmd.env("QMAI_CURSOR_AGENT_REAL", agent_bin);
+    }
 }
 
 fn normalize_proxy_base(base_url: Option<String>) -> String {
@@ -154,7 +519,7 @@ fn base_url_for_port(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-async fn http_get_status(base: &str, path: &str) -> Result<u16, String> {
+async fn http_get(base: &str, path: &str) -> Result<(u16, String), String> {
     let (host, port, _) = parse_http_url(base)?;
     let request_path = if path.starts_with('/') {
         path.to_string()
@@ -178,20 +543,39 @@ async fn http_get_status(base: &str, path: &str) -> Result<u16, String> {
         .await
         .map_err(|e| format!("health check write failed: {e}"))?;
 
-    let mut buf = vec![0u8; 1024];
-    let n = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf))
-        .await
-        .map_err(|_| "health check timed out reading".to_string())?
-        .map_err(|e| format!("health check read failed: {e}"))?;
+    let mut buf = Vec::new();
+    let mut chunk = vec![0u8; 4096];
+    loop {
+        let n = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+            .await
+            .map_err(|_| "health check timed out reading".to_string())?
+            .map_err(|e| format!("health check read failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() > 64 * 1024 {
+            break;
+        }
+    }
 
-    let text = String::from_utf8_lossy(&buf[..n]);
+    let text = String::from_utf8_lossy(&buf);
     let status_line = text.lines().next().unwrap_or("");
     let code = status_line
         .split_whitespace()
         .nth(1)
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| format!("unexpected health response: {status_line}"))?;
-    Ok(code)
+    let header_end = text
+        .find("\r\n\r\n")
+        .map(|i| i + 4)
+        .or_else(|| text.find("\n\n").map(|i| i + 2))
+        .unwrap_or(0);
+    Ok((code, text[header_end..].to_string()))
+}
+
+async fn http_get_status(base: &str, path: &str) -> Result<u16, String> {
+    http_get(base, path).await.map(|(status, _)| status)
 }
 
 async fn ping_health(base: &str) -> bool {
@@ -276,6 +660,99 @@ pub async fn do_cursor_cli_detect() -> Result<DetectResult, String> {
 #[tauri::command]
 pub async fn cursor_cli_detect() -> Result<DetectResult, String> {
     do_cursor_cli_detect().await
+}
+
+#[tauri::command]
+pub async fn cursor_cli_about() -> Result<AgentAboutResult, String> {
+    let (path, ok, output) = match run_agent_command(
+        &["about", "--format", "json"],
+        AGENT_ABOUT_TIMEOUT,
+        None,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            return Ok(AgentAboutResult {
+                installed: false,
+                version: None,
+                latest_status: None,
+                latest_version: None,
+                path: None,
+                error: Some(error),
+            });
+        }
+    };
+    let path_str = path.to_string_lossy().to_string();
+    if let Some((version, latest_status, latest_version)) = parse_agent_about_json(&output) {
+        return Ok(AgentAboutResult {
+            installed: true,
+            version: Some(version),
+            latest_status,
+            latest_version,
+            path: Some(path_str),
+            error: if ok {
+                None
+            } else {
+                Some(output)
+            },
+        });
+    }
+    Ok(AgentAboutResult {
+        installed: true,
+        version: None,
+        latest_status: None,
+        latest_version: None,
+        path: Some(path_str),
+        error: Some(if output.is_empty() {
+            "`agent about --format json` returned no version".to_string()
+        } else {
+            output
+        }),
+    })
+}
+
+#[tauri::command]
+pub async fn cursor_cli_update() -> Result<AgentUpdateResult, String> {
+    if AGENT_UPDATE_IN_FLIGHT
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Ok(AgentUpdateResult {
+            ok: false,
+            version: None,
+            output: String::new(),
+            error: Some("cursor-agent update is already running".to_string()),
+        });
+    }
+
+    let _guard = AgentUpdateGuard;
+
+    match run_agent_command(&["update"], AGENT_UPDATE_TIMEOUT, None).await {
+        Ok((_path, ok, output)) => {
+            let version = do_cursor_cli_detect().await.ok().and_then(|detected| detected.version);
+            Ok(AgentUpdateResult {
+                ok,
+                version,
+                output: output.clone(),
+                error: if ok {
+                    None
+                } else {
+                    Some(if output.is_empty() {
+                        "`agent update` failed".to_string()
+                    } else {
+                        output
+                    })
+                },
+            })
+        }
+        Err(error) => Ok(AgentUpdateResult {
+            ok: false,
+            version: None,
+            output: String::new(),
+            error: Some(error),
+        }),
+    }
 }
 
 #[tauri::command]
@@ -393,16 +870,34 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
-async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
-    let (launcher, extra_args) = find_proxy_launcher().await?;
+/// Windows: wrap with `cmd /c` so `.cmd`/`.bat` shims like npx resolve.
+#[cfg(any(test, windows))]
+fn should_wrap_windows_launcher(launcher: &str) -> bool {
+    let name = launcher
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(launcher)
+        .to_ascii_lowercase();
+    name != "cmd" && name != "cmd.exe"
+}
+
+async fn spawn_proxy_process(
+    port: u16,
+    launcher: &Path,
+    extra_args: &[String],
+    workspace: &Path,
+    config_dir: &Path,
+) -> Result<Child, String> {
     let path_env = child_path_env().await;
+    let agent_bin = find_agent_command().await.ok();
+    let wrapper = ensure_qmai_agent_wrapper(config_dir, agent_bin.as_deref()).ok();
 
     #[cfg(unix)]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let mut parts = Vec::with_capacity(1 + extra_args.len());
         parts.push(shell_quote(&launcher.to_string_lossy()));
-        for arg in &extra_args {
+        for arg in extra_args {
             parts.push(shell_quote(arg));
         }
         let cmdline = format!("exec {}", parts.join(" "));
@@ -414,8 +909,14 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
             cmd.env("PATH", path_env);
         }
         apply_cursor_auth_env(&mut cmd);
-        cmd.env("CURSOR_BRIDGE_HOST", "127.0.0.1");
-        cmd.env("CURSOR_BRIDGE_PORT", port.to_string());
+        apply_qmai_proxy_env(
+            &mut cmd,
+            port,
+            workspace,
+            config_dir,
+            agent_bin.as_deref(),
+            wrapper.as_deref(),
+        );
         cmd.args(["-l", "-c", &cmdline]);
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -429,16 +930,31 @@ async fn spawn_proxy_process(port: u16) -> Result<Child, String> {
 
     #[cfg(windows)]
     {
-        let mut cmd = Command::new(&launcher);
+        let launcher_str = launcher.to_string_lossy();
+        let mut cmd = if should_wrap_windows_launcher(&launcher_str) {
+            let mut wrapped = Command::new("cmd");
+            wrapped.arg("/c").arg(launcher.as_os_str());
+            wrapped.args(extra_args);
+            wrapped
+        } else {
+            let mut direct = Command::new(launcher);
+            direct.args(extra_args);
+            direct
+        };
         suppress_windows_console(&mut cmd);
         apply_local_cli_environment(&mut cmd);
         if let Some(path_env) = path_env {
             cmd.env("PATH", path_env);
         }
         apply_cursor_auth_env(&mut cmd);
-        cmd.env("CURSOR_BRIDGE_HOST", "127.0.0.1");
-        cmd.env("CURSOR_BRIDGE_PORT", port.to_string());
-        cmd.args(&extra_args);
+        apply_qmai_proxy_env(
+            &mut cmd,
+            port,
+            workspace,
+            config_dir,
+            agent_bin.as_deref(),
+            wrapper.as_deref(),
+        );
         cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -456,6 +972,7 @@ async fn stop_managed_child(state: &CursorProxyState) {
         let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
     }
     guard.base_url = None;
+    guard.launch_fingerprint = None;
 }
 
 async fn wait_until_healthy(base: &str) -> bool {
@@ -476,13 +993,19 @@ pub async fn cursor_proxy_ensure(
     force_restart: Option<bool>,
 ) -> Result<ProxyStatus, String> {
     let force = force_restart.unwrap_or(false);
+    let (config_dir, workspace) = qmai_proxy_home_dirs()?;
+    ensure_qmai_cli_config(&config_dir)?;
+    ensure_qmai_workspace_trusted(&workspace, &config_dir).await;
+    let (launcher, extra_args) = find_proxy_launcher().await?;
+    let fingerprint = proxy_launch_fingerprint(&launcher, &extra_args, &workspace, &config_dir);
 
     {
         let mut guard = state.managed.lock().await;
         if let Some(child) = guard.child.as_mut() {
             match child.try_wait() {
                 Ok(None) => {
-                    if !force {
+                    let env_matches = guard.launch_fingerprint.as_deref() == Some(fingerprint.as_str());
+                    if !force && env_matches {
                         if let Some(base) = guard.base_url.clone() {
                             drop(guard);
                             if ping_health(&base).await {
@@ -499,6 +1022,7 @@ pub async fn cursor_proxy_ensure(
                 _ => {
                     guard.child = None;
                     guard.base_url = None;
+                    guard.launch_fingerprint = None;
                 }
             }
         }
@@ -508,11 +1032,12 @@ pub async fn cursor_proxy_ensure(
 
     let port = allocate_proxy_port()?;
     let base = base_url_for_port(port);
-    let child = spawn_proxy_process(port).await?;
+    let child = spawn_proxy_process(port, &launcher, &extra_args, &workspace, &config_dir).await?;
     {
         let mut guard = state.managed.lock().await;
         guard.child = Some(child);
         guard.base_url = Some(base.clone());
+        guard.launch_fingerprint = Some(fingerprint);
     }
 
     if wait_until_healthy(&base).await {
@@ -601,5 +1126,144 @@ mod tests {
             Some("file")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trusts_qmai_workspace_with_official_flag() {
+        let ws = PathBuf::from("/Users/omi/.cursor-api-proxy/qmai-workspace");
+        assert_eq!(
+            agent_trust_args(&ws),
+            vec![
+                "--trust".to_string(),
+                "--workspace".to_string(),
+                ws.to_string_lossy().into_owned(),
+                "--mode".to_string(),
+                "ask".to_string(),
+                "--output-format".to_string(),
+                "text".to_string(),
+                "-p".to_string(),
+                "ok".to_string(),
+            ]
+        );
+        let cfg = PathBuf::from("/Users/omi/.cursor-api-proxy/qmai-agent");
+        assert_eq!(
+            qmai_workspace_trust_marker(&cfg),
+            cfg.join(".qmai-workspace-trusted")
+        );
+    }
+
+    #[test]
+    fn proxy_fingerprint_enables_acp() {
+        let fp = proxy_launch_fingerprint(
+            Path::new("/usr/bin/npx"),
+            &["--yes".to_string(), "cursor-api-proxy@latest".to_string()],
+            Path::new("/tmp/ws"),
+            Path::new("/tmp/cfg"),
+        );
+        assert!(fp.contains("acp=true"));
+        assert!(fp.contains("agent_wrap=4"));
+        assert!(fp.contains("strict=off"));
+        assert!(!fp.contains("acp=false"));
+    }
+
+    #[test]
+    fn default_npx_proxy_args_pin_latest() {
+        assert_eq!(
+            npx_proxy_args(),
+            vec!["--yes".to_string(), "cursor-api-proxy@latest".to_string()]
+        );
+        assert!(!npx_missing_error().contains("npm i -g"));
+    }
+
+    #[test]
+    fn wraps_npx_but_not_cmd_on_windows() {
+        assert!(should_wrap_windows_launcher(r"C:\Program Files\nodejs\npx.cmd"));
+        assert!(should_wrap_windows_launcher("/usr/local/bin/npx"));
+        assert!(!should_wrap_windows_launcher(r"C:\Windows\System32\cmd.exe"));
+        assert!(!should_wrap_windows_launcher("cmd"));
+    }
+
+    #[test]
+    fn explicit_proxy_bin_must_be_a_file() {
+        let missing = std::env::temp_dir().join(format!(
+            "qmai-missing-proxy-bin-{}",
+            std::process::id()
+        ));
+        let err = resolve_explicit_proxy_bin(&missing).unwrap_err();
+        assert!(err.contains("CURSOR_API_PROXY_BIN"));
+
+        let file = std::env::temp_dir().join(format!("qmai-proxy-bin-{}", std::process::id()));
+        std::fs::write(&file, "x").unwrap();
+        let (path, args) = resolve_explicit_proxy_bin(&file).unwrap();
+        assert_eq!(path, file);
+        assert!(args.is_empty());
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn writes_disable_auto_update_into_qmai_cli_config() {
+        let dir = std::env::temp_dir().join(format!("qmai-agent-config-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = ensure_qmai_cli_config(&dir).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(json["disableAutoUpdate"], true);
+        apply_qmai_acp_model(
+            &dir,
+            "grok-4.6",
+            Some(true),
+            Some("medium"),
+            Some("cursor-grok-4.6-medium-fast"),
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(json["selectedModel"]["modelId"], "grok-4.6");
+        assert_eq!(json["selectedModel"]["parameters"][0]["id"], "effort");
+        assert_eq!(json["selectedModel"]["parameters"][0]["value"], "medium");
+        assert_eq!(json["selectedModel"]["parameters"][1]["id"], "fast");
+        assert_eq!(json["selectedModel"]["parameters"][1]["value"], "true");
+        assert_eq!(json["model"]["modelId"], "grok-4.6");
+        assert_eq!(json["disableAutoUpdate"], true);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("qmai-acp-model")).unwrap(),
+            "cursor-grok-4.6-medium-fast"
+        );
+        let wrapper = ensure_qmai_agent_wrapper(&dir, Some(Path::new("/usr/local/bin/agent"))).unwrap();
+        assert!(wrapper.exists());
+        let script = std::fs::read_to_string(dir.join("qmai-cursor-agent.cjs")).unwrap();
+        assert!(script.contains("qmai-acp-model"));
+        assert!(script.contains("resolveAcpArgvModel"));
+        assert!(script.contains("QMAI_CURSOR_AGENT_REAL"));
+        assert!(script.contains("/usr/local/bin/agent"));
+        assert!(!script.contains("__QMAI_BAKED_AGENT__"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn formats_acp_model_pin() {
+        assert_eq!(qmai_acp_model_value("grok-4.6", None, None), "grok-4.6");
+        assert_eq!(
+            qmai_acp_model_value("grok-4.6", Some(true), Some("high")),
+            "grok-4.6[effort=high,fast=true]"
+        );
+        assert_eq!(
+            qmai_acp_model_value("composer-2.5", Some(false), None),
+            "composer-2.5[fast=false]"
+        );
+    }
+
+    #[test]
+    fn parses_agent_about_json() {
+        let (version, status, latest) = parse_agent_about_json(
+            r#"noise
+{"cliVersion":"2026.08.31-4057e58","latestStatus":"update_available","latestVersion":"2026.09.01-aaaaaaa"}
+tail"#,
+        )
+        .unwrap();
+        assert_eq!(version, "2026.08.31-4057e58");
+        assert_eq!(status.as_deref(), Some("update_available"));
+        assert_eq!(latest.as_deref(), Some("2026.09.01-aaaaaaa"));
+        assert!(parse_agent_about_json(r#"{"latestStatus":"up_to_date"}"#).is_none());
     }
 }

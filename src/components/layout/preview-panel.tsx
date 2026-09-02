@@ -889,7 +889,10 @@ export function PreviewPanel() {
             completed: result.snapshot ? 1 : 0,
             total: 1,
             currentTitle: "",
-            message: result.snapshot ? `${chapterTitle} 提取完成` : `${chapterTitle} 提取失败`,
+            message: result.snapshot
+              ? `${chapterTitle} 提取完成`
+              : `${chapterTitle} 提取失败：${result.error ?? result.failReason ?? "未知错误"}`,
+            error: result.error,
           })
           if (result.snapshot) {
             updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
@@ -947,7 +950,10 @@ export function PreviewPanel() {
         completed: result.snapshot ? 1 : 0,
         total: 1,
         currentTitle: "",
-        message: result.snapshot ? `${chapterTitle} 提取完成` : `${chapterTitle} 提取失败`,
+        message: result.snapshot
+          ? `${chapterTitle} 提取完成`
+          : `${chapterTitle} 提取失败：${result.error ?? result.failReason ?? "未知错误"}`,
+        error: result.error,
       })
       if (result.snapshot) {
         updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
@@ -962,7 +968,8 @@ export function PreviewPanel() {
         completed: 0,
         total: 1,
         currentTitle: "",
-        message: `${chapterTitle} 提取失败`,
+        message: `${chapterTitle} 提取失败：${message}`,
+        error: message,
       })
       updatePhase(false, "ingest_failed", { message: message.slice(0, 100) })
     } finally {

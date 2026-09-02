@@ -156,6 +156,13 @@ describe("QMAI model settings", () => {
     expect(cursor.model).toBe("composer-2-fast")
     expect(cursor.apiKey).toBe("")
 
+    const cursorMapped = resolveConfig(
+      preset("cursor-cli"),
+      { model: "cursor-grok-4.6-medium-fast" },
+      fallback,
+    )
+    expect(cursorMapped.model).toBe("cursor-grok-4.6-medium-fast")
+
     const cursorProvider = getProviderConfig(cursor)
     expect(cursorProvider.url).toBe("http://127.0.0.1:8765/v1/chat/completions")
     expect(cursorProvider.headers.Authorization).toBe("Bearer unused")

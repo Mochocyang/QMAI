@@ -738,6 +738,7 @@ export function KnowledgeTree({
 
     let completed = 0
     let failed = 0
+    let lastError = ""
     const titleByPath = new Map(sortedChapterPages.map((page) => [page.path, page.title]))
 
     try {
@@ -772,6 +773,7 @@ export function KnowledgeTree({
           completed += 1
         } else {
           failed += 1
+          lastError = result.error ?? result.failReason ?? lastError
         }
       }
 
@@ -780,7 +782,7 @@ export function KnowledgeTree({
         total: chapterPaths.length,
         currentTitle: "",
         message: failed > 0
-          ? `章节记忆提取完成：成功 ${completed} 个，失败 ${failed} 个。`
+          ? `章节记忆提取完成：成功 ${completed} 个，失败 ${failed} 个。${lastError ? ` 最近错误：${lastError}` : ""}`
           : `章节记忆提取完成：成功 ${completed} 个章节。`,
       })
       await loadPages()
@@ -802,7 +804,9 @@ export function KnowledgeTree({
         completed,
         total: chapterPaths.length,
         currentTitle: "",
-        message: `章节记忆提取失败：已完成 ${completed}/${chapterPaths.length} 个章节。`,
+        message: `章节记忆提取失败：已完成 ${completed}/${chapterPaths.length} 个章节。${
+          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
+        }`,
       })
     } finally {
       setPageMenu(null)

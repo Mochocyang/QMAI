@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getCustomCompatibleHeaders, getProviderConfig, parseGoogleLine, withCustomOriginHeader } from "./llm-providers"
+import { getCustomCompatibleHeaders, getProviderConfig, parseGoogleLine, parseOpenAiSseError, withCustomOriginHeader } from "./llm-providers"
 import { filterDeAiOutput } from "./novel/de-ai-output"
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
@@ -22,6 +22,18 @@ function requestBody(config: LlmConfig): Record<string, unknown> {
     { role: "user", content: "请回答。" },
   ]) as Record<string, unknown>
 }
+
+describe("OpenAI SSE error lines", () => {
+  it("reads cursor-api-proxy agent_exit errors instead of treating them as empty content", () => {
+    expect(
+      parseOpenAiSseError(
+        'data: {"error":{"message":"The Cursor agent process exited with code 1. See server logs for details.","code":"cursor_cli_error"}}',
+      ),
+    ).toBe("The Cursor agent process exited with code 1. See server logs for details.")
+    expect(parseOpenAiSseError("data: [DONE]")).toBeNull()
+    expect(parseOpenAiSseError('data: {"choices":[{"delta":{"content":"hi"}}]}')).toBeNull()
+  })
+})
 
 describe("llm provider reasoning options", () => {
   it("keeps Anthropic thinking inside the caller's max_tokens budget", () => {

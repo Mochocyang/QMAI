@@ -225,6 +225,23 @@ function parseOpenAiLine(line: string): string | null {
   }
 }
 
+/** SSE error objects (cursor-api-proxy agent_exit_*, OpenAI-style `{error:{message}}`). */
+export function parseOpenAiSseError(line: string): string | null {
+  const data = line.startsWith("data: ") ? line.slice(6).trim() : line.trim()
+  if (!data || data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as { error?: { message?: string } | string }
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+    if (parsed.error && typeof parsed.error === "object") {
+      const message = parsed.error.message?.trim()
+      if (message) return message
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 function tokenCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)

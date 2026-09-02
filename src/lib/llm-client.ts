@@ -5,6 +5,7 @@ import {
   getEffectiveMaxOutputTokens,
   getProviderConfig,
   isTruncationFinishReason,
+  parseOpenAiSseError,
   thinkingMinMaxTokens,
   type RequestOverrides,
 } from "./llm-providers"
@@ -780,6 +781,12 @@ async function streamChatHeld(
         if (done) {
           if (lineBuffer.trim()) {
             const trimmed = lineBuffer.trim()
+            const sseError = parseOpenAiSseError(trimmed)
+            if (sseError) {
+              finishRequestTrace(activeRequestTrace, "error", streamUsage)
+              onError(new Error(sseError))
+              return
+            }
             recordUsage(trimmed)
             recordFinishReason(trimmed)
             // Always harvest reasoning first: some gateways emit
@@ -807,6 +814,12 @@ async function streamChatHeld(
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
+          const sseError = parseOpenAiSseError(trimmed)
+          if (sseError) {
+            finishRequestTrace(activeRequestTrace, "error", streamUsage)
+            onError(new Error(sseError))
+            return
+          }
           recordUsage(trimmed)
           recordFinishReason(trimmed)
           // Always harvest reasoning first: some gateways emit

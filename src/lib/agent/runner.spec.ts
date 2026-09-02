@@ -811,55 +811,6 @@ describe("AgentRunner", () => {
     expect(result.roundsUsed).toBe(2)
   })
 
-  it("parses text JSON tool calls for cursor-cli providers", async () => {
-    const tool: Tool = {
-      name: "read_chapter",
-      description: "read",
-      category: "read",
-      parameters: { name: { type: "string", description: "name" } },
-      execute: vi.fn().mockResolvedValue("Chapter content"),
-    }
-    registry.register(tool)
-
-    let callCount = 0
-    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
-      callCount++
-      if (callCount === 1) {
-        cb.onToken('{"name":"read_chapter","arguments":{"name":"ch1"}}')
-        cb.onDone()
-      } else {
-        cb.onToken("完成")
-        cb.onDone()
-      }
-    })
-
-    const callbacks = {
-      onText: vi.fn(),
-      onToolCall: vi.fn(),
-      onToolResult: vi.fn(),
-      onToolError: vi.fn(),
-      onDone: vi.fn(),
-      onError: vi.fn(),
-    }
-
-    const config: AgentConfig = {
-      maxRounds: 3,
-      tools: [tool],
-      systemPrompt: "You are helpful",
-      llmConfig: { ...mockLlmConfig, provider: "cursor-cli" },
-    }
-    const result = await runner.run(config, registry, [systemMsg, userMsg], callbacks, undefined)
-
-    expect(tool.execute).toHaveBeenCalledWith(
-      { name: "ch1" },
-      undefined,
-      expect.objectContaining({ toolName: "read_chapter" }),
-    )
-    expect(callbacks.onToolCall).toHaveBeenCalledOnce()
-    expect(result.finalText).toBe("完成")
-    expect(result.roundsUsed).toBe(2)
-  })
-
   it("passes the real tool call id into tool execution context", async () => {
     const tool: Tool = {
       name: "read_chapter",
