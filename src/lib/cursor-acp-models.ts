@@ -209,3 +209,114 @@ export function toCursorHttpModel(model: string): string {
   if (!trimmed || trimmed === "auto" || trimmed === "default") return "default"
   return trimmed
 }
+
+export interface CursorAcpCatalogModel {
+  name?: string
+  modelId: string
+}
+
+export interface ParsedCursorAcpModel {
+  name: string
+  effort?: string
+  reasoning?: string
+  fast?: boolean
+  thinking?: boolean
+}
+
+function parseAcpBool(raw: string): boolean | undefined {
+  const value = raw.trim().toLowerCase()
+  if (value === "true") return true
+  if (value === "false") return false
+  return undefined
+}
+
+function cliDeclaresFast(model: string): boolean {
+  return FAST_SUFFIX.test(model.replace(/\[.*$/, ""))
+}
+
+/** Parse ACP `availableModels[].modelId` such as `grok-4.6[effort=high,fast=true]`. */
+export function parseCursorAcpModelId(modelId: string): ParsedCursorAcpModel {
+  const trimmed = modelId.trim()
+  const bracket = trimmed.indexOf("[")
+  const rawName = (bracket >= 0 ? trimmed.slice(0, bracket) : trimmed).trim()
+  const name = toCursorAcpModelId(rawName) || rawName
+  if (bracket < 0) return { name }
+
+  const parsed: ParsedCursorAcpModel = { name }
+  const params = trimmed.slice(bracket + 1).replace(/\]\s*$/, "")
+  for (const part of params.split(",")) {
+    const eq = part.indexOf("=")
+    if (eq < 0) continue
+    const key = part.slice(0, eq).trim().toLowerCase()
+    const value = part.slice(eq + 1).trim()
+    if (key === "effort") parsed.effort = normalizeEffortToken(value)
+    else if (key === "reasoning") parsed.reasoning = normalizeEffortToken(value)
+    else if (key === "fast") parsed.fast = parseAcpBool(value)
+    else if (key === "thinking") parsed.thinking = parseAcpBool(value)
+  }
+  return parsed
+}
+
+function requiredAcpEffort(acp: ParsedCursorAcpModel): string | undefined {
+  return acp.effort ?? acp.reasoning
+}
+
+export function cliIdMatchesAcp(cliId: string, acp: ParsedCursorAcpModel): boolean {
+  const family = toCursorAcpModelId(cliId)
+  if (!family || family !== acp.name) return false
+
+  const requiredEffort = requiredAcpEffort(acp)
+  const cliEffort = inferCursorEffortFromModel(cliId)
+  if (requiredEffort) {
+    if (cliEffort !== requiredEffort) return false
+  } else if (cliEffort) {
+    return false
+  }
+
+  return cliDeclaresFast(cliId) === (acp.fast === true)
+}
+
+function scoreCliAgainstAcp(cliId: string, acp: ParsedCursorAcpModel): number {
+  let score = 0
+  const base = cliId.replace(/\[.*$/, "").toLowerCase()
+  if (acp.name && base.includes(acp.name.toLowerCase())) score += 2
+  const thinkingStem = base.replace(FAST_SUFFIX, "").replace(EFFORT_SUFFIX, "")
+  if (acp.thinking === true && THINKING_SUFFIX.test(thinkingStem)) score += 1
+  else if (acp.thinking !== true && !THINKING_SUFFIX.test(thinkingStem)) score += 1
+  return score
+}
+
+/**
+ * Keep at most one CLI catalog id per ACP `modelId`.
+ * Drops CLI variants that cannot realize the ACP params (e.g. gemini medium).
+ */
+export function filterCursorCliByAcp(
+  cliIds: readonly string[],
+  acpModels: readonly CursorAcpCatalogModel[],
+): string[] {
+  if (acpModels.length === 0) {
+    throw new Error("ACP catalog 为空，无法过滤 Cursor CLI 模型。")
+  }
+
+  const catalog = cliIds.map((id) => id.trim()).filter(Boolean)
+  const picked: string[] = []
+  const seen = new Set<string>()
+
+  for (const model of acpModels) {
+    const modelId = model.modelId?.trim()
+    if (!modelId) continue
+    const parsed = parseCursorAcpModelId(modelId)
+    if (!parsed.name) continue
+    const matches = catalog.filter((id) => cliIdMatchesAcp(id, parsed))
+    if (matches.length === 0) continue
+    const best = matches.slice().sort((left, right) => {
+      const delta = scoreCliAgainstAcp(right, parsed) - scoreCliAgainstAcp(left, parsed)
+      return delta !== 0 ? delta : left.localeCompare(right)
+    })[0]!
+    if (seen.has(best)) continue
+    seen.add(best)
+    picked.push(best)
+  }
+
+  return picked
+}

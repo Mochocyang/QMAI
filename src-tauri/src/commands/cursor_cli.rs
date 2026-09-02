@@ -9,9 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -28,8 +28,11 @@ const PROXY_TIMEOUT_MS: u64 = 30 * 60 * 1000;
 const AGENT_ABOUT_TIMEOUT: Duration = Duration::from_secs(20);
 const AGENT_UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AGENT_TRUST_TIMEOUT: Duration = Duration::from_secs(45);
+const ACP_MODELS_TIMEOUT: Duration = Duration::from_secs(30);
+const ACP_MODELS_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const QMAI_WORKSPACE_TRUST_MARKER: &str = ".qmai-workspace-trusted";
 const QMAI_ACP_MODEL_FILE: &str = "qmai-acp-model";
+const QMAI_ACP_MODELS_CACHE: &str = "qmai-acp-models.json";
 const QMAI_CURSOR_AGENT_WRAPPER: &str = include_str!("../../scripts/qmai-cursor-agent.cjs");
 static AGENT_UPDATE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
@@ -88,6 +91,22 @@ pub struct ProxyStatus {
     managed: bool,
     error: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcpCatalogModel {
+    pub name: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AcpModelsCacheFile {
+    fetched_at_ms: u64,
+    models: Vec<AcpCatalogModel>,
+}
+
+static ACP_MODELS_MEMORY: std::sync::Mutex<Option<Vec<AcpCatalogModel>>> =
+    std::sync::Mutex::new(None);
 
 fn suppress_windows_console(_cmd: &mut Command) {
     #[cfg(windows)]
@@ -314,6 +333,313 @@ pub async fn cursor_cli_apply_acp_model(
         effort.as_deref(),
         cli_model.as_deref(),
     )
+}
+
+fn parse_acp_available_models(value: &serde_json::Value) -> Vec<AcpCatalogModel> {
+    let models = value
+        .pointer("/result/models/availableModels")
+        .or_else(|| value.pointer("/models/availableModels"))
+        .and_then(|item| item.as_array())
+        .cloned()
+        .unwrap_or_default();
+    models
+        .into_iter()
+        .filter_map(|item| {
+            let model_id = item.get("modelId")?.as_str()?.trim();
+            if model_id.is_empty() {
+                return None;
+            }
+            let name = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .unwrap_or(model_id);
+            Some(AcpCatalogModel {
+                name: name.to_string(),
+                model_id: model_id.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn memory_acp_models() -> Option<Vec<AcpCatalogModel>> {
+    ACP_MODELS_MEMORY.lock().ok()?.clone()
+}
+
+fn remember_acp_models(models: &[AcpCatalogModel]) {
+    if let Ok(mut guard) = ACP_MODELS_MEMORY.lock() {
+        *guard = Some(models.to_vec());
+    }
+}
+
+fn cli_config_has_auth(config_dir: &Path) -> bool {
+    let path = config_dir.join("cli-config.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    value
+        .get("authInfo")
+        .and_then(|auth| auth.get("authId").or_else(|| auth.get("email")))
+        .and_then(|v| v.as_str())
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn has_cursor_api_key() -> bool {
+    read_nonempty_env(&["CURSOR_API_KEY"]).is_some()
+        || read_cursor_api_key_from_user_files().is_some()
+}
+
+fn should_skip_acp_authenticate(config_dir: &Path) -> bool {
+    has_cursor_api_key() || cli_config_has_auth(config_dir)
+}
+
+fn is_acp_auth_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("authentication required")
+        || lower.contains("not authenticated")
+        || lower.contains("unauthorized")
+        || lower.contains("cursor_login")
+        || lower.contains("please run 'agent login'")
+}
+
+fn read_cached_acp_models(config_dir: &Path) -> Option<Vec<AcpCatalogModel>> {
+    let path = config_dir.join(QMAI_ACP_MODELS_CACHE);
+    let raw = std::fs::read_to_string(path).ok()?;
+    let cache: AcpModelsCacheFile = serde_json::from_str(&raw).ok()?;
+    if cache.models.is_empty() {
+        return None;
+    }
+    let now = unix_now_ms();
+    if now.saturating_sub(cache.fetched_at_ms) > ACP_MODELS_CACHE_TTL.as_millis() as u64 {
+        return None;
+    }
+    Some(cache.models)
+}
+
+fn write_cached_acp_models(config_dir: &Path, models: &[AcpCatalogModel]) {
+    if models.is_empty() {
+        return;
+    }
+    let payload = AcpModelsCacheFile {
+        fetched_at_ms: unix_now_ms(),
+        models: models.to_vec(),
+    };
+    if let Ok(raw) = serde_json::to_string_pretty(&payload) {
+        let _ = std::fs::write(config_dir.join(QMAI_ACP_MODELS_CACHE), raw);
+    }
+}
+
+async fn send_acp_request<W: AsyncWriteExt + Unpin>(
+    stdin: &mut W,
+    id: u64,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<(), String> {
+    let mut raw = serde_json::to_string(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": method,
+        "params": params
+    }))
+    .map_err(|e| format!("ACP serialize {method}: {e}"))?;
+    raw.push('\n');
+    stdin
+        .write_all(raw.as_bytes())
+        .await
+        .map_err(|e| format!("ACP write {method}: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("ACP flush {method}: {e}"))
+}
+
+fn acp_response_id(value: &serde_json::Value) -> Option<u64> {
+    let id = value.get("id")?;
+    id.as_u64()
+        .or_else(|| id.as_i64().and_then(|v| u64::try_from(v).ok()))
+        .or_else(|| id.as_str()?.parse().ok())
+}
+
+async fn wait_acp_response<R: AsyncBufReadExt + Unpin>(
+    reader: &mut R,
+    id: u64,
+) -> Result<serde_json::Value, String> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let n = reader
+            .read_line(&mut line)
+            .await
+            .map_err(|e| format!("ACP read: {e}"))?;
+        if n == 0 {
+            return Err("ACP stdout closed".to_string());
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        if acp_response_id(&value) != Some(id) {
+            continue;
+        }
+        if let Some(error) = value.get("error") {
+            let message = error
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ACP error");
+            return Err(message.to_string());
+        }
+        return Ok(value);
+    }
+}
+
+async fn acp_authenticate<W, R>(stdin: &mut W, reader: &mut R, id: u64) -> Result<(), String>
+where
+    W: AsyncWriteExt + Unpin,
+    R: AsyncBufReadExt + Unpin,
+{
+    send_acp_request(
+        stdin,
+        id,
+        "authenticate",
+        serde_json::json!({ "methodId": "cursor_login" }),
+    )
+    .await?;
+    wait_acp_response(reader, id).await?;
+    Ok(())
+}
+
+async fn acp_session_models<W, R>(
+    stdin: &mut W,
+    reader: &mut R,
+    id: u64,
+    cwd: &str,
+) -> Result<Vec<AcpCatalogModel>, String>
+where
+    W: AsyncWriteExt + Unpin,
+    R: AsyncBufReadExt + Unpin,
+{
+    send_acp_request(
+        stdin,
+        id,
+        "session/new",
+        serde_json::json!({ "cwd": cwd, "mcpServers": [] }),
+    )
+    .await?;
+    let sess = wait_acp_response(reader, id).await?;
+    let models = parse_acp_available_models(&sess);
+    if models.is_empty() {
+        return Err("ACP session/new 未返回 availableModels".to_string());
+    }
+    Ok(models)
+}
+
+async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
+    if let Some(cached) = memory_acp_models() {
+        return Ok(cached);
+    }
+    let (config_dir, workspace) = qmai_proxy_home_dirs()?;
+    if let Some(cached) = read_cached_acp_models(&config_dir) {
+        remember_acp_models(&cached);
+        return Ok(cached);
+    }
+    ensure_qmai_cli_config(&config_dir)?;
+    ensure_qmai_workspace_trusted(&workspace, &config_dir).await;
+    let agent = find_agent_command().await?;
+    let cwd = workspace.to_string_lossy().into_owned();
+    let skip_authenticate = should_skip_acp_authenticate(&config_dir);
+
+    let mut cmd = Command::new(&agent);
+    suppress_windows_console(&mut cmd);
+    apply_local_cli_environment(&mut cmd);
+    if let Some(path_env) = child_path_env().await {
+        cmd.env("PATH", path_env);
+    }
+    apply_cursor_auth_env(&mut cmd);
+    cmd.env("CURSOR_CONFIG_DIR", &config_dir);
+    cmd.env_remove("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE");
+    cmd.kill_on_drop(true);
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.current_dir(&workspace);
+    cmd.args(["--workspace", &cwd, "acp", "--mode", "ask"]);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn `agent acp`: {e}"))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "agent acp stdin missing".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "agent acp stdout missing".to_string())?;
+    let mut reader = BufReader::new(stdout);
+
+    let run = async {
+        send_acp_request(
+            &mut stdin,
+            1,
+            "initialize",
+            serde_json::json!({
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": { "readTextFile": false, "writeTextFile": false },
+                    "terminal": false
+                },
+                "clientInfo": { "name": "qmai", "version": "0" }
+            }),
+        )
+        .await?;
+        wait_acp_response(&mut reader, 1).await?;
+        let mut next_id = 2_u64;
+        if !skip_authenticate {
+            acp_authenticate(&mut stdin, &mut reader, next_id).await?;
+            next_id += 1;
+        }
+        match acp_session_models(&mut stdin, &mut reader, next_id, &cwd).await {
+            Ok(models) => Ok(models),
+            Err(error) if skip_authenticate && is_acp_auth_error(&error) => {
+                next_id += 1;
+                acp_authenticate(&mut stdin, &mut reader, next_id).await?;
+                next_id += 1;
+                acp_session_models(&mut stdin, &mut reader, next_id, &cwd).await
+            }
+            Err(error) => Err(error),
+        }
+    };
+
+    let result = tokio::time::timeout(ACP_MODELS_TIMEOUT, run).await;
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    let models = match result {
+        Ok(inner) => inner?,
+        Err(_) => return Err("agent acp session/new timed out".to_string()),
+    };
+    remember_acp_models(&models);
+    write_cached_acp_models(&config_dir, &models);
+    Ok(models)
+}
+
+#[tauri::command]
+pub async fn cursor_cli_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
+    list_cursor_acp_models().await
 }
 
 fn ensure_qmai_agent_wrapper(
@@ -1265,5 +1591,88 @@ tail"#,
         assert_eq!(status.as_deref(), Some("update_available"));
         assert_eq!(latest.as_deref(), Some("2026.09.01-aaaaaaa"));
         assert!(parse_agent_about_json(r#"{"latestStatus":"up_to_date"}"#).is_none());
+    }
+
+    #[test]
+    fn parses_session_new_available_models() {
+        let raw = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+                "sessionId": "s",
+                "models": {
+                    "availableModels": [
+                        { "modelId": "default[]", "name": "Auto" },
+                        { "modelId": "gemini-3.7-flash[effort=high]", "name": "gemini-3.7-flash" },
+                        { "modelId": "", "name": "skip" },
+                        { "name": "no-id" }
+                    ]
+                }
+            }
+        });
+        let models = parse_acp_available_models(&raw);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "default[]");
+        assert_eq!(models[0].name, "Auto");
+        assert_eq!(models[1].model_id, "gemini-3.7-flash[effort=high]");
+        assert_eq!(
+            parse_acp_available_models(&serde_json::json!({ "models": { "availableModels": [] } }))
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn skips_authenticate_when_cli_config_has_auth() {
+        let dir = std::env::temp_dir().join(format!(
+            "qmai-acp-auth-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(
+            dir.join("cli-config.json"),
+            r#"{"authInfo":{"email":"user@example.com","authId":"github|x"}}"#,
+        )
+        .unwrap();
+        assert!(cli_config_has_auth(&dir));
+        std::fs::write(dir.join("cli-config.json"), r#"{"authInfo":{}}"#).unwrap();
+        assert!(!cli_config_has_auth(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detects_acp_auth_errors() {
+        assert!(is_acp_auth_error("Authentication required. Please run 'agent login'"));
+        assert!(is_acp_auth_error("ACP Unauthorized"));
+        assert!(!is_acp_auth_error("ACP session/new 未返回 availableModels"));
+    }
+
+    #[test]
+    fn acp_models_disk_cache_roundtrip() {
+        let dir = std::env::temp_dir().join(format!(
+            "qmai-acp-cache-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let models = vec![AcpCatalogModel {
+            name: "gemini-3.7-flash".into(),
+            model_id: "gemini-3.7-flash[effort=high]".into(),
+        }];
+        write_cached_acp_models(&dir, &models);
+        assert_eq!(read_cached_acp_models(&dir), Some(models));
+        let stale = AcpModelsCacheFile {
+            fetched_at_ms: 1,
+            models: vec![AcpCatalogModel {
+                name: "old".into(),
+                model_id: "old[]".into(),
+            }],
+        };
+        std::fs::write(
+            dir.join(QMAI_ACP_MODELS_CACHE),
+            serde_json::to_string(&stale).unwrap(),
+        )
+        .unwrap();
+        assert!(read_cached_acp_models(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

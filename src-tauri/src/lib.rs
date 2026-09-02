@@ -111,6 +111,7 @@ pub fn run() {
             commands::cursor_cli::cursor_cli_about,
             commands::cursor_cli::cursor_cli_update,
             commands::cursor_cli::cursor_cli_apply_acp_model,
+            commands::cursor_cli::cursor_cli_acp_models,
             commands::cursor_cli::cursor_proxy_status,
             commands::cursor_cli::cursor_proxy_ensure,
             commands::cursor_cli::cursor_proxy_stop,

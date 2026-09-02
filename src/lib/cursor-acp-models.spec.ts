@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  cliIdMatchesAcp,
   cliModelToAcpValue,
+  filterCursorCliByAcp,
   inferCursorEffortFromModel,
   inferCursorSpeedModeFromModel,
+  parseCursorAcpModelId,
   pickCursorCliCatalogId,
   rememberCursorCliCatalog,
   resolveCursorSpeedMode,
@@ -152,5 +155,116 @@ describe("toCursorHttpModel", () => {
     expect(toCursorHttpModel("grok-4.6")).toBe("grok-4.6")
     expect(toCursorHttpModel("composer-2-fast")).toBe("composer-2-fast")
     expect(toCursorHttpModel("auto")).toBe("default")
+  })
+})
+
+describe("parseCursorAcpModelId", () => {
+  it("reads family plus effort/fast/reasoning", () => {
+    expect(parseCursorAcpModelId("grok-4.6[effort=high,fast=true]")).toEqual({
+      name: "grok-4.6",
+      effort: "high",
+      fast: true,
+    })
+    expect(parseCursorAcpModelId("gemini-3.7-flash[effort=high]")).toEqual({
+      name: "gemini-3.7-flash",
+      effort: "high",
+    })
+    expect(parseCursorAcpModelId("gpt-5.3-codex[reasoning=medium,fast=false]")).toEqual({
+      name: "gpt-5.3-codex",
+      reasoning: "medium",
+      fast: false,
+    })
+    expect(parseCursorAcpModelId("default[]")).toEqual({ name: "default" })
+  })
+})
+
+const ACP_CATALOG = [
+  { name: "Auto", modelId: "default[]" },
+  { name: "grok-4.6", modelId: "grok-4.6[effort=high,fast=true]" },
+  { name: "composer-2.5", modelId: "composer-2.5[fast=true]" },
+  { name: "claude-opus-5", modelId: "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]" },
+  { name: "claude-opus-4-8", modelId: "claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]" },
+  { name: "gpt-5.6-sol", modelId: "gpt-5.6-sol[context=272k,reasoning=medium,fast=false]" },
+  { name: "gpt-5.5", modelId: "gpt-5.5[context=272k,reasoning=medium,fast=false]" },
+  { name: "claude-fable-5-1", modelId: "claude-fable-5-1[thinking=true,context=300k,effort=high]" },
+  { name: "claude-fable-5", modelId: "claude-fable-5[thinking=true,context=300k,effort=high]" },
+  { name: "grok-4.5", modelId: "grok-4.5[effort=high,fast=true]" },
+  { name: "gemini-3.7-flash", modelId: "gemini-3.7-flash[effort=high]" },
+  { name: "gpt-5.6-terra", modelId: "gpt-5.6-terra[context=272k,reasoning=medium,fast=false]" },
+  { name: "claude-sonnet-5", modelId: "claude-sonnet-5[thinking=true,context=300k,effort=high]" },
+  { name: "claude-sonnet-4-6", modelId: "claude-sonnet-4-6[thinking=true,context=200k,effort=medium]" },
+  { name: "gpt-5.3-codex", modelId: "gpt-5.3-codex[reasoning=medium,fast=false]" },
+  { name: "claude-opus-4-7", modelId: "claude-opus-4-7[thinking=true,context=300k,effort=xhigh,fast=false]" },
+  { name: "gpt-5.4", modelId: "gpt-5.4[context=272k,reasoning=medium,fast=false]" },
+  { name: "claude-opus-4-6", modelId: "claude-opus-4-6[thinking=true,context=200k,effort=high]" },
+  { name: "claude-opus-4-5", modelId: "claude-opus-4-5[thinking=true]" },
+  { name: "gpt-5.2", modelId: "gpt-5.2[reasoning=medium,fast=false]" },
+  { name: "gpt-5.6-luna", modelId: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]" },
+  { name: "gemini-3.6-flash", modelId: "gemini-3.6-flash[effort=high]" },
+  { name: "gemini-3.1-pro", modelId: "gemini-3.1-pro[]" },
+  { name: "gpt-5.4-mini", modelId: "gpt-5.4-mini[reasoning=medium]" },
+  { name: "gpt-5.4-nano", modelId: "gpt-5.4-nano[reasoning=medium]" },
+  { name: "claude-haiku-4-5", modelId: "claude-haiku-4-5[thinking=true]" },
+  { name: "claude-sonnet-4-5", modelId: "claude-sonnet-4-5[thinking=true,context=200k]" },
+  { name: "gpt-5.1", modelId: "gpt-5.1[reasoning=medium]" },
+  { name: "gemini-3.5-flash", modelId: "gemini-3.5-flash[]" },
+  { name: "claude-sonnet-4", modelId: "claude-sonnet-4[thinking=false,context=200k]" },
+  { name: "gpt-5-mini", modelId: "gpt-5-mini[]" },
+  { name: "gemini-2.5-flash", modelId: "gemini-2.5-flash[]" },
+  { name: "kimi-k3", modelId: "kimi-k3[reasoning=max]" },
+  { name: "kimi-k2.7-code", modelId: "kimi-k2.7-code[]" },
+  { name: "glm-5.2", modelId: "glm-5.2[reasoning=high]" },
+  { name: "gemini-3-flash", modelId: "gemini-3-flash[]" },
+]
+
+const CLI_WITH_PHANTOMS = [
+  "auto",
+  "cursor-grok-4.6-medium-fast",
+  "cursor-grok-4.6-high-fast",
+  "cursor-grok-4.6-low",
+  "composer-2-fast",
+  "composer-2.5-fast",
+  "gemini-3.7-flash-low",
+  "gemini-3.7-flash-medium",
+  "gemini-3.7-flash-high",
+  "gemini-3.1-pro",
+  "claude-opus-4-7-medium-fast",
+  "claude-opus-4-7-thinking-max",
+  "gpt-5.3-codex-medium",
+  "kimi-k3-max",
+  "acp-only-missing-from-cli",
+]
+
+describe("cliIdMatchesAcp", () => {
+  it("does not treat gemini-high as fast just because Fast defaults to on", () => {
+    const high = parseCursorAcpModelId("gemini-3.7-flash[effort=high]")
+    expect(cliIdMatchesAcp("gemini-3.7-flash-high", high)).toBe(true)
+    expect(cliIdMatchesAcp("gemini-3.7-flash-medium", high)).toBe(false)
+    expect(cliIdMatchesAcp("gemini-3.7-flash-high-fast", high)).toBe(false)
+  })
+})
+
+describe("filterCursorCliByAcp", () => {
+  it("keeps the CLI id that realizes each ACP variant and drops phantom effort/fast", () => {
+    const filtered = filterCursorCliByAcp(CLI_WITH_PHANTOMS, ACP_CATALOG)
+    expect(filtered).toContain("auto")
+    expect(filtered).toContain("cursor-grok-4.6-high-fast")
+    expect(filtered).toContain("gemini-3.7-flash-high")
+    expect(filtered).toContain("composer-2.5-fast")
+    expect(filtered).toContain("claude-opus-4-7-thinking-max")
+    expect(filtered).toContain("gpt-5.3-codex-medium")
+    expect(filtered).toContain("kimi-k3-max")
+    expect(filtered).toContain("gemini-3.1-pro")
+    expect(filtered).not.toContain("cursor-grok-4.6-medium-fast")
+    expect(filtered).not.toContain("cursor-grok-4.6-low")
+    expect(filtered).not.toContain("gemini-3.7-flash-low")
+    expect(filtered).not.toContain("gemini-3.7-flash-medium")
+    expect(filtered).not.toContain("claude-opus-4-7-medium-fast")
+    expect(filtered).not.toContain("composer-2-fast")
+    expect(filtered.every((id) => !id.includes("["))).toBe(true)
+  })
+
+  it("throws when the ACP catalog is empty", () => {
+    expect(() => filterCursorCliByAcp(CLI_WITH_PHANTOMS, [])).toThrow("ACP catalog 为空")
   })
 })

@@ -1,6 +1,11 @@
+import { invoke } from "@tauri-apps/api/core"
 import { getProviderConfig, withCustomOriginHeader } from "@/lib/llm-providers"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
-import { rememberCursorCliCatalog } from "@/lib/cursor-acp-models"
+import {
+  filterCursorCliByAcp,
+  rememberCursorCliCatalog,
+  type CursorAcpCatalogModel,
+} from "@/lib/cursor-acp-models"
 import { ensureCursorProxyRunning, restartCursorProxyWithAuth, withCursorProxyEndpoint } from "@/lib/cursor-cli-proxy"
 import { isDirectRerankEndpoint } from "@/lib/rerank-api"
 import { getHttpFetch } from "@/lib/tauri-fetch"
@@ -167,6 +172,34 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
   return toModelListResult(parseModelListResponse(await response.json()))
 }
 
+async function fetchCursorCliAcpCatalog(): Promise<CursorAcpCatalogModel[]> {
+  const raw = await invoke<CursorAcpCatalogModel[] | { models?: CursorAcpCatalogModel[] }>(
+    "cursor_cli_acp_models",
+  )
+  const models = Array.isArray(raw) ? raw : raw?.models ?? []
+  return models.filter((model) => typeof model?.modelId === "string" && model.modelId.trim())
+}
+
+async function fetchCursorCliFilteredModels(
+  url: string,
+  headers: Record<string, string>,
+  currentModel: string,
+): Promise<LlmModelListResult> {
+  const [cli, acpModels] = await Promise.all([
+    fetchModelList(url, headers, currentModel),
+    fetchCursorCliAcpCatalog(),
+  ])
+  if (acpModels.length === 0) {
+    throw new Error("ACP catalog 为空，无法过滤 Cursor CLI 模型。")
+  }
+  const filtered = filterCursorCliByAcp(cli.models, acpModels)
+  if (filtered.length === 0) {
+    throw new Error("ACP catalog 与 CLI 目录没有可运行的交集。")
+  }
+  rememberCursorCliCatalog(filtered)
+  return toModelListResult(filtered)
+}
+
 async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult> {
   const explicitModel = config.model.trim()
   if (explicitModel && config.provider !== "codex-cli") return { models: [explicitModel] }
@@ -205,20 +238,19 @@ export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelList
 
   const { url, headers } = buildModelsUrl(runtimeConfig)
 
-  const load = async () => {
-    const result = await fetchModelList(url, headers, runtimeConfig.model)
+  const load = async (modelsUrl: string, modelsHeaders: Record<string, string>) => {
+    if (runtimeConfig.provider === "cursor-cli") {
+      return fetchCursorCliFilteredModels(modelsUrl, modelsHeaders, runtimeConfig.model)
+    }
+    const result = await fetchModelList(modelsUrl, modelsHeaders, runtimeConfig.model)
     if (runtimeConfig.provider === "google") {
       return toModelListResult(result.models.map((model) => model.replace(/^models\//, "")))
-    }
-    if (runtimeConfig.provider === "cursor-cli") {
-      rememberCursorCliCatalog(result.models)
-      return toModelListResult(result.models)
     }
     return result
   }
 
   try {
-    return await load()
+    return await load(url, headers)
   } catch (error) {
     if (runtimeConfig.provider !== "cursor-cli") throw error
     const message = error instanceof Error ? error.message : String(error)
@@ -228,9 +260,7 @@ export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelList
     const endpoint = await restartCursorProxyWithAuth(runtimeConfig)
     runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
     const retry = buildModelsUrl(runtimeConfig)
-    const result = await fetchModelList(retry.url, retry.headers, runtimeConfig.model)
-    rememberCursorCliCatalog(result.models)
-    return toModelListResult(result.models)
+    return fetchCursorCliFilteredModels(retry.url, retry.headers, runtimeConfig.model)
   }
 }
 

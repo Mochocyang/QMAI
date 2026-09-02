@@ -153,7 +153,7 @@ describe("QMAI model settings", () => {
     )
     expect(cursor.provider).toBe("cursor-cli")
     expect(cursor.customEndpoint).toBe("http://127.0.0.1:8765/v1")
-    expect(cursor.model).toBe("composer-2-fast")
+    expect(cursor.model).toBe("composer-2.5-fast")
     expect(cursor.apiKey).toBe("")
 
     const cursorMapped = resolveConfig(
