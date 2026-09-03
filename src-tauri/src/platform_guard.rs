@@ -63,6 +63,7 @@ fn windows_build_number() -> u32 {
     info.dw_build_number
 }
 
+#[cfg(any(windows, all(target_arch = "x86_64", not(target_os = "macos"))))]
 fn abort_unsupported(message: &str) -> ! {
     eprintln!("{message}");
     #[cfg(windows)]
