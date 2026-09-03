@@ -12,7 +12,7 @@
   <a href="https://github.com/Mochocyang/QMAI/releases">
     <img src="https://img.shields.io/github/v/release/Mochocyang/QMAI?style=flat-square" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/version-3.2.12-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-3.2.13-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License" />
 </p>

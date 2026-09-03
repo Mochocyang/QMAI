@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_THIRTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.13",
+  date: "2026-09-03",
+  highlights: {
+    en: [
+      "[Platform Baseline] Drops Intel Mac builds. macOS is Apple Silicon only, 13.0+. Windows is x64 with AVX2 from 10 2004; Linux is x86_64 with AVX2. Release binaries use -O3 and thin LTO.",
+      "[Writing Web Search Switch] Standard and strict writing modes both follow the writing-settings web-search toggle instead of locking search to strict mode. Entity extraction and query caps are raised, and search defaults to on when eligible.",
+      "[Cursor CLI reasoning_effort] ACP catalog filtering now reads reasoning_effort instead of effort, so models such as gemini-3.8-flash are no longer dropped.",
+    ],
+    zh: [
+      "【平台基线】停打 Intel Mac，macOS 仅 Apple Silicon 且最低 13.0；Windows 为 2004+ x64 且需 AVX2，Linux 仅 x86_64 且需 AVX2。正式包改为 -O3 与 thin LTO。",
+      "【写作联网搜索独立开关】标准和严格模式都按写作设置开关补搜，不再绑死严格模式；实体抽取与查询上限提高，符合条件时默认要搜。",
+      "【Cursor CLI 识别 reasoning_effort】ACP catalog 按 reasoning_effort 过滤，不再误丢 gemini-3.8-flash。",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_TWELVE_CHANGELOG: ChangelogEntry = {
   version: "3.2.12",
   date: "2026-09-02",
@@ -1458,6 +1475,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_THIRTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_THIRTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_TWELVE_CHANGELOG.version)
     return [THREE_POINT_TWO_TWELVE_CHANGELOG];
   if (version === THREE_POINT_TWO_ELEVEN_CHANGELOG.version)
@@ -1587,6 +1606,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_THIRTEEN_CHANGELOG,
     THREE_POINT_TWO_TWELVE_CHANGELOG,
     THREE_POINT_TWO_ELEVEN_CHANGELOG,
     THREE_POINT_TWO_TEN_CHANGELOG,

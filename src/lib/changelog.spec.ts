@@ -6,7 +6,7 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.12", "3.2.11", "3.2.10"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.13", "3.2.12", "3.2.11"])
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")
@@ -32,6 +32,13 @@ describe("changelog", () => {
     for (let patch = 8; patch <= 32; patch += 1) {
       expect(versions).not.toContain(`1.0.${patch}`)
     }
+
+    const release3213 = currentVersionChangelog("3.2.13")[0]
+    expect(release3213.version).toBe("3.2.13")
+    expect(release3213.highlights.zh.join("\n")).toContain("平台基线")
+    expect(release3213.highlights.zh.join("\n")).toContain("联网搜索独立开关")
+    expect(release3213.highlights.zh.join("\n")).toContain("reasoning_effort")
+    expect(release3213.highlights.en.join("\n")).toContain("Platform Baseline")
 
     const release328 = currentVersionChangelog("3.2.8")[0]
     expect(release328.version).toBe("3.2.8")
