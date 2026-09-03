@@ -22,6 +22,7 @@ ManifestDPIAwareness PerMonitorV2
 !include MUI2.nsh
 !include FileFunc.nsh
 !include x64.nsh
+!include WinVer.nsh
 !include WordFunc.nsh
 !include "utils.nsh"
 !include "FileAssociation.nsh"
@@ -476,6 +477,16 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
+  ${IfNot} ${RunningX64}
+    MessageBox MB_OK|MB_ICONSTOP "青幕AI写作仅支持 64 位 Windows，不支持 32 位系统。"
+    Abort
+  ${EndIf}
+
+  ${IfNot} ${AtLeastBuild} 19041
+    MessageBox MB_OK|MB_ICONSTOP "青幕AI写作需要 Windows 10 2004 (20H1) 或更高版本。"
+    Abort
+  ${EndIf}
+
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1

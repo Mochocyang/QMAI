@@ -72,9 +72,9 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [profile.release]
-codegen-units = 1
-lto = true
-opt-level = "z"
+codegen-units = 16
+lto = "thin"
+opt-level = 3
 # Unwind (not abort) so third-party parser panics can be caught at the
 # Tauri command boundary via panic_guard and turned into errors. Slightly
 # larger binary, but prevents single-file corruption from killing the app.

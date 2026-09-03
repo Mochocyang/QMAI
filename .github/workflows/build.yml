@@ -74,9 +74,7 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ${{ matrix.runner }}
     env:
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
     strategy:
       fail-fast: false
       matrix:
@@ -99,18 +97,10 @@ jobs:
               src-tauri/target/**/release/bundle/dmg/*.dmg
               release-assets/*.app.tar.gz
 
-          - label: macos-intel
-            display_label: macOS Intel
-            runner: macos-15-intel
-            rust_targets: "x86_64-apple-darwin"
-            tauri_args: "--target x86_64-apple-darwin --bundles dmg,app --no-sign"
-            artifact_globs: |
-              src-tauri/target/**/release/bundle/dmg/*.dmg
-              release-assets/*.app.tar.gz
-
           - label: linux-x64
             display_label: Linux x64
             runner: ubuntu-22.04
+            # x86_64 / amd64 only. Do not add i686 or aarch64 Linux targets.
             rust_targets: ""
             tauri_args: "--bundles deb,appimage"
             artifact_globs: |
@@ -259,11 +249,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
-          if [ "${{ matrix.label }}" = "macos-intel" ]; then
-            system_label="macOS_Intel"
-          else
-            system_label="macOS_AppleSilicon"
-          fi
+          system_label="macOS_AppleSilicon"
           mkdir -p release-assets
 
           dmg_path="$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' -print -quit)"

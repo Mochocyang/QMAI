@@ -2,8 +2,11 @@ mod app_state;
 mod atomic_file;
 mod commands;
 mod panic_guard;
+mod platform_guard;
 mod proxy;
 mod types;
+
+pub use platform_guard::assert_supported_platform;
 
 #[tauri::command]
 fn set_proxy_env(config: proxy::ProxyConfig) -> String {
