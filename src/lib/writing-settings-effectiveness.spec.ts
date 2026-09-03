@@ -109,6 +109,18 @@ describe("writing settings still reach runtime", () => {
     expect(deepChapter).not.toContain("runPreviousChaptersAnalysis")
   })
 
+  it("gates chapter writing web search with a writing-settings switch, not strict mode alone", () => {
+    expect(novelSection).toContain("writingWebSearchEnabled")
+    expect(wikiStore).toContain("writingWebSearchEnabled")
+    expect(projectStore).toContain("writingWebSearchEnabled")
+    expect(zhI18n).toContain("writingWebSearchEnabled")
+    expect(enI18n).toContain("writingWebSearchEnabled")
+    expect(deepChapter).toContain("novelConfig.writingWebSearchEnabled")
+    expect(deepChapter).toContain("workflowProfile.mode !== \"fast\" && novelConfig.writingWebSearchEnabled")
+    expect(deepChapter).not.toContain("workflowProfile.mode === \"strict\"")
+    expect(chatPanel).toContain("writingWebSearchEnabled")
+  })
+
   it("deletes the dead deepChapterReview switch instead of keeping an unused config field", () => {
     expect(novelSection).not.toContain("deepChapterReview")
     expect(wikiStore).not.toContain("deepChapterReview")

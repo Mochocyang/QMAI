@@ -1608,7 +1608,8 @@ describe("runDeepChapterGeneration", () => {
     expect(fastActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
     expect(fastActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
 
-    const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: skippedCollect }
+    const standardCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
+    const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: standardCollect }
     const standardThinking: string[] = []
     const standardActivity: AgentActivityEvent[] = []
     await runDeepChapterGeneration(
@@ -1626,7 +1627,7 @@ describe("runDeepChapterGeneration", () => {
     expect(standardThinking.join("\n")).not.toContain("进入阶段6")
     expect(standardActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
     expect(standardActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
-    expect(skippedCollect).not.toHaveBeenCalled()
+    expect(standardCollect).toHaveBeenCalled()
 
     const collectWritingEntityWebSearch = vi.fn(async () => ({
       markdown: "",
@@ -1642,6 +1643,34 @@ describe("runDeepChapterGeneration", () => {
     expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
     expect(collectWritingEntityWebSearch).toHaveBeenCalled()
+  })
+
+  it("skips entity web search in standard and strict when writingWebSearchEnabled is off", async () => {
+    const previousState = useWikiStore.getState()
+    useWikiStore.setState({
+      novelConfig: {
+        ...previousState.novelConfig,
+        writingWebSearchEnabled: false,
+      },
+    })
+    try {
+      const skippedCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
+      await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "standard" },
+        {},
+        { ...createDeps(), collectWritingEntityWebSearch: skippedCollect },
+      )
+      expect(skippedCollect).not.toHaveBeenCalled()
+
+      await runDeepChapterGeneration(
+        { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+        {},
+        { ...createDeps(), collectWritingEntityWebSearch: skippedCollect },
+      )
+      expect(skippedCollect).not.toHaveBeenCalled()
+    } finally {
+      useWikiStore.setState({ novelConfig: previousState.novelConfig })
+    }
   })
 
   it("injects strict-mode entity web search into the chapter context pack", async () => {

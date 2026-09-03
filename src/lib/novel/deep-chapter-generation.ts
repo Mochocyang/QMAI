@@ -609,7 +609,7 @@ export async function runDeepChapterGeneration(
   );
   assertNotAborted(signal);
 
-  if (workflowProfile.mode === "strict") {
+  if (workflowProfile.mode !== "fast" && novelConfig.writingWebSearchEnabled) {
     contextPack = await maybeInjectWritingEntityWebSearch({
       input,
       deps,

@@ -58,6 +58,7 @@ const novelConfig: NovelConfig = {
   autoIngestOnSave: true,
   autoExtractOnImport: true,
   deepPreviousChaptersAnalysis: false,
+  writingWebSearchEnabled: true,
   reviewReasoningEffort: "high",
   defaultLlmModel: "",
   writingModel: "",

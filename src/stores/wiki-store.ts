@@ -324,6 +324,8 @@ export interface NovelConfig {
   autoExtractOnImport: boolean
   /** 前情分析：读取并 LLM 分析前几章完整正文。快速模式始终跳过；标准/严格模式跟随此开关。关闭时记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
   deepPreviousChaptersAnalysis: boolean
+  /** 章节写作联网补搜：本地缺实体时自动联网。快速模式始终跳过；标准/严格模式跟随此开关。需先配置网页搜索源（默认开）。 */
+  writingWebSearchEnabled: boolean
   /** 审稿（含六维审查）使用的 reasoning 档位。下调可省审稿推理 Token，但连贯性把关会变弱（默认 high）。 */
   reviewReasoningEffort: "low" | "medium" | "high"
   /** 默认模型（工作流）：拆文库、剧情推演室、去重等。空字符串表示跟随 AI 会话模型。 */
@@ -354,6 +356,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoIngestOnSave: true,
   autoExtractOnImport: true,
   deepPreviousChaptersAnalysis: false,
+  writingWebSearchEnabled: true,
   reviewReasoningEffort: "high",
   defaultLlmModel: "",
   writingModel: "",

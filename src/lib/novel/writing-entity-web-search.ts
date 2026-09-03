@@ -8,8 +8,8 @@ import type { ContextPack } from "./context-engine"
 
 export const WRITING_ENTITY_SEARCH_HEADING = "外部检索（仅补本地缺失实体）"
 const MIN_NAME_LENGTH = 2
-const MAX_EXTRACTED_ENTITIES = 12
-const MAX_SEARCH_QUERIES = 3
+const MAX_EXTRACTED_ENTITIES = 20
+const MAX_SEARCH_QUERIES = 8
 const SOURCE_TEXT_CHAR_CAP = 8000
 
 export interface WritingEntityWebSearchResult {
@@ -433,7 +433,7 @@ export async function collectWritingEntityWebSearch(
     for (const name of queries) {
       throwIfAborted(input.signal)
       try {
-        const results = await search(name, input.searchApiConfig, 4)
+        const results = await search(name, input.searchApiConfig, 8)
         items.push({ name, results })
       } catch (error) {
         rethrowIfUserAbort(error, input.signal)
@@ -465,7 +465,7 @@ async function extractEntityNames(input: CollectWritingEntityWebSearchInput): Pr
     {
       role: "user",
       content: [
-        "从以下文本提取需要核实的专有名称，最多 12 个。",
+        "从以下文本提取需要核实的专有名称，最多 20 个。",
         "不要提取章节号、普通动词、纯原创占位词如「主角」。",
         '只输出 JSON：{"entities":["名称"]}',
         "",
@@ -489,8 +489,8 @@ async function judgeNeedExternal(
       role: "user",
       content: [
         "下列名称在本库前文和实体表都未找到。",
-        "只把「公开 IP / 真实历史或现实设定 / 你明确理解不了或本地解释对不上」的名字放入 needExternal。",
-        "原创角色、可按大纲自编的名字不要放入。",
+        "默认放入 needExternal。公开 IP、真实历史或现实地名机构、功法武器等专有设定、以及你不确定的名字，一律放入。",
+        "仅当能明确判断它是本书原创人名或占位词、按大纲即可自编、且网上几乎不可能有对应公开资料时，才排除。",
         '只输出 JSON：{"needExternal":["名称"]}',
         "",
         unresolved.join("\n"),

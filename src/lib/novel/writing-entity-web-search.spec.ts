@@ -224,7 +224,7 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search,
     })
-    expect(search).toHaveBeenCalledWith("李鸿章", configuredSearch, 4)
+    expect(search).toHaveBeenCalledWith("李鸿章", configuredSearch, 8)
     expect(result.searchedNames).toEqual(["李鸿章"])
   })
 
@@ -249,7 +249,7 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search,
     })
-    expect(search).toHaveBeenCalledWith("降龙十八掌", configuredSearch, 4)
+    expect(search).toHaveBeenCalledWith("降龙十八掌", configuredSearch, 8)
     expect(result.searchedNames).toEqual(["降龙十八掌"])
     expect(result.items?.[0]?.name).toBe("降龙十八掌")
     expect(result.markdown).toContain(WRITING_ENTITY_SEARCH_HEADING)
@@ -281,6 +281,33 @@ describe("collectWritingEntityWebSearch", () => {
       onSearchStart,
     })
     expect(onSearchStart).toHaveBeenCalledWith(["李鸿章"])
+  })
+
+  it("searches more than three needExternal names", async () => {
+    const names = ["李鸿章", "赫德", "总理衙门", "北洋水师"]
+    const search = vi.fn(async (query: string) => [{
+      title: `${query} 资料`,
+      url: `https://example.test/${encodeURIComponent(query)}`,
+      snippet: "公开资料摘要",
+      source: "example.test",
+    }])
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章与赫德在总理衙门谈北洋水师",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        JSON.stringify({ entities: names }),
+        JSON.stringify({ needExternal: names }),
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).toHaveBeenCalledTimes(4)
+    expect(search).toHaveBeenCalledWith("北洋水师", configuredSearch, 8)
+    expect(result.searchedNames).toEqual(names)
   })
 
   it("does not search original names the model can invent", async () => {

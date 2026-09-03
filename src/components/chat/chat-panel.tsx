@@ -192,7 +192,7 @@ const aiWorkflowModeOptions: Array<{
     mode: "strict",
     label: "严格",
     description: "完整质检",
-    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。会联网搜索。",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
@@ -310,6 +310,7 @@ function buildChatAgentSystemPrompt(options: {
   mode: "chat" | "ingest"
   chatEditModeEnabled: boolean
   aiWorkflowMode?: AiWorkflowMode
+  writingWebSearchEnabled?: boolean
   planExecuteEnabled?: boolean
   agentWritingSkills?: UserSkill[]
   projectName?: string
@@ -368,9 +369,15 @@ function buildChatAgentSystemPrompt(options: {
         lines.push("标准模式：读取上下文，生成任务书和正文初稿后直接完成，不做正文后审核。")
         break
       case "strict":
-        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。")
         break
       }
+    if (
+      options.writingWebSearchEnabled
+      && options.aiWorkflowMode !== "fast"
+    ) {
+      lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+    }
     if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
     }
@@ -931,6 +938,7 @@ export function ChatPanel() {
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [deAiSkillWarningMessage, setDeAiSkillWarningMessage] = useState<string>("")
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  const writingWebSearchEnabled = useWikiStore((s) => s.novelConfig.writingWebSearchEnabled)
   const setAiWorkflowMode = useWikiStore((s) => s.setAiWorkflowMode)
   const [workflowModeDropdownOpen, setWorkflowModeDropdownOpen] = useState(false)
   const workflowModeTriggerRef = useRef<HTMLButtonElement>(null)
@@ -1037,6 +1045,7 @@ export function ChatPanel() {
         mode,
         chatEditModeEnabled,
         aiWorkflowMode,
+        writingWebSearchEnabled,
         planExecuteEnabled: aiWorkflowMode !== "fast" && planExecuteEnabled,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
@@ -1047,6 +1056,7 @@ export function ChatPanel() {
       mode,
       novelMode,
       aiWorkflowMode,
+      writingWebSearchEnabled,
       planExecuteEnabled,
       project?.name,
     ],
@@ -1730,6 +1740,7 @@ export function ChatPanel() {
         mode,
         chatEditModeEnabled,
         aiWorkflowMode: sessionWorkflowMode,
+        writingWebSearchEnabled,
         planExecuteEnabled: planExecuteActive,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,

@@ -1393,6 +1393,8 @@
       "reviewBeforeSaveHint": "When enabled, canon chapter saves first call the review model to check continuity, canon conflicts, and issues that should be fixed.",
       "deepPreviousChaptersAnalysis": "Prior-chapters analysis (extra call)",
       "deepPreviousChaptersAnalysisHint": "When enabled, standard/strict generation of chapter 2+ first reads and LLM-analyzes the full text of the previous chapters — stronger continuity, but one extra call per chapter and more tokens. Fast mode always skips this. When off, recent summaries and the previous chapter ending from the memory library are still injected. Off by default to save tokens.",
+      "writingWebSearchEnabled": "Writing web search",
+      "writingWebSearchEnabledHint": "When enabled, standard/strict chapter writing automatically searches the web if local character or setting notes are missing. Configure a search provider under Settings → Web Search first. Fast mode always skips this. Turning it off stops the chapter workflow from auto-searching; an explicit “search this” request can still run. On by default.",
       "reviewReasoningEffort": "Review thinking effort",
       "reviewReasoningEffortHint": "Controls how deeply the AI review (including six-dimension review) reasons. Lower effort is cheaper and faster but weakens the continuity and canon-conflict gate. High by default.",
       "modelGroupTitle": "Model Settings",
