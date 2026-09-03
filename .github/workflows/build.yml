@@ -10,67 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  wait-for-main-ci:
-    name: Wait for main release cache
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    steps:
-      - name: Require successful CI for this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ github.sha }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          missing_deadline=$((SECONDS + 300))
-          completion_deadline=$((SECONDS + 5400))
-
-          while (( SECONDS < completion_deadline )); do
-            run_row="$(
-              gh api -X GET \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2026-03-10" \
-                "repos/${REPOSITORY}/actions/workflows/ci.yml/runs" \
-                -f event=push \
-                -f branch=main \
-                -f head_sha="${RELEASE_SHA}" \
-                -f per_page=20 \
-                --jq '((.workflow_runs | sort_by(.created_at) | last) // empty) | [.id, .status, (.conclusion // ""), .html_url] | @tsv'
-            )"
-
-            if [[ -z "${run_row}" ]]; then
-              if (( SECONDS >= missing_deadline )); then
-                echo "::error::No main CI push run found for ${RELEASE_SHA}; push main and wait for CI before tagging"
-                exit 1
-              fi
-              echo "Waiting for the main CI run for ${RELEASE_SHA} to appear..."
-              sleep 15
-              continue
-            fi
-
-            IFS=$'\t' read -r run_id run_status run_conclusion run_url <<< "${run_row}"
-            echo "Main CI ${run_id}: ${run_status}${run_conclusion:+/${run_conclusion}} (${run_url})"
-
-            if [[ "${run_status}" == "completed" ]]; then
-              if [[ "${run_conclusion}" == "success" ]]; then
-                echo "Main CI completed successfully; release cache is ready"
-                exit 0
-              fi
-              echo "::error::Main CI ${run_id} concluded ${run_conclusion}; refusing to build the release"
-              exit 1
-            fi
-
-            sleep 15
-          done
-
-          echo "::error::Timed out waiting for main CI for ${RELEASE_SHA}"
-          exit 1
-
   build-release:
     name: Build ${{ matrix.display_label }}
-    needs: wait-for-main-ci
     if: github.event_name == 'push'
     runs-on: ${{ matrix.runner }}
     env:
