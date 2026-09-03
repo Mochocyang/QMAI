@@ -81,6 +81,7 @@ describe("resolveCursorSpeedMode", () => {
     expect(inferCursorEffortFromModel("cursor-grok-4.6-medium-fast")).toBe("medium")
     expect(inferCursorEffortFromModel("cursor-grok-4.6-high")).toBe("high")
     expect(inferCursorEffortFromModel("grok-4.6[effort=high,fast=true]")).toBe("high")
+    expect(inferCursorEffortFromModel("gemini-3.8-flash[reasoning_effort=high]")).toBe("high")
     expect(inferCursorEffortFromModel("composer-2-fast")).toBeUndefined()
   })
 })
@@ -175,6 +176,10 @@ describe("parseCursorAcpModelId", () => {
       fast: false,
     })
     expect(parseCursorAcpModelId("default[]")).toEqual({ name: "default" })
+    expect(parseCursorAcpModelId("gemini-3.8-flash[reasoning_effort=high]")).toEqual({
+      name: "gemini-3.8-flash",
+      effort: "high",
+    })
   })
 })
 
@@ -189,6 +194,7 @@ const ACP_CATALOG = [
   { name: "claude-fable-5-1", modelId: "claude-fable-5-1[thinking=true,context=300k,effort=high]" },
   { name: "claude-fable-5", modelId: "claude-fable-5[thinking=true,context=300k,effort=high]" },
   { name: "grok-4.5", modelId: "grok-4.5[effort=high,fast=true]" },
+  { name: "gemini-3.8-flash", modelId: "gemini-3.8-flash[reasoning_effort=high]" },
   { name: "gemini-3.7-flash", modelId: "gemini-3.7-flash[effort=high]" },
   { name: "gpt-5.6-terra", modelId: "gpt-5.6-terra[context=272k,reasoning=medium,fast=false]" },
   { name: "claude-sonnet-5", modelId: "claude-sonnet-5[thinking=true,context=300k,effort=high]" },
@@ -224,6 +230,9 @@ const CLI_WITH_PHANTOMS = [
   "cursor-grok-4.6-low",
   "composer-2-fast",
   "composer-2.5-fast",
+  "gemini-3.8-flash-low",
+  "gemini-3.8-flash-medium",
+  "gemini-3.8-flash-high",
   "gemini-3.7-flash-low",
   "gemini-3.7-flash-medium",
   "gemini-3.7-flash-high",
@@ -242,6 +251,13 @@ describe("cliIdMatchesAcp", () => {
     expect(cliIdMatchesAcp("gemini-3.7-flash-medium", high)).toBe(false)
     expect(cliIdMatchesAcp("gemini-3.7-flash-high-fast", high)).toBe(false)
   })
+
+  it("treats reasoning_effort as the ACP effort slot", () => {
+    const high = parseCursorAcpModelId("gemini-3.8-flash[reasoning_effort=high]")
+    expect(cliIdMatchesAcp("gemini-3.8-flash-high", high)).toBe(true)
+    expect(cliIdMatchesAcp("gemini-3.8-flash-medium", high)).toBe(false)
+    expect(cliIdMatchesAcp("gemini-3.8-flash-low", high)).toBe(false)
+  })
 })
 
 describe("filterCursorCliByAcp", () => {
@@ -249,6 +265,7 @@ describe("filterCursorCliByAcp", () => {
     const filtered = filterCursorCliByAcp(CLI_WITH_PHANTOMS, ACP_CATALOG)
     expect(filtered).toContain("auto")
     expect(filtered).toContain("cursor-grok-4.6-high-fast")
+    expect(filtered).toContain("gemini-3.8-flash-high")
     expect(filtered).toContain("gemini-3.7-flash-high")
     expect(filtered).toContain("composer-2.5-fast")
     expect(filtered).toContain("claude-opus-4-7-thinking-max")
@@ -257,6 +274,8 @@ describe("filterCursorCliByAcp", () => {
     expect(filtered).toContain("gemini-3.1-pro")
     expect(filtered).not.toContain("cursor-grok-4.6-medium-fast")
     expect(filtered).not.toContain("cursor-grok-4.6-low")
+    expect(filtered).not.toContain("gemini-3.8-flash-low")
+    expect(filtered).not.toContain("gemini-3.8-flash-medium")
     expect(filtered).not.toContain("gemini-3.7-flash-low")
     expect(filtered).not.toContain("gemini-3.7-flash-medium")
     expect(filtered).not.toContain("claude-opus-4-7-medium-fast")

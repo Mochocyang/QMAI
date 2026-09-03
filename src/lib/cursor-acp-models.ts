@@ -102,7 +102,7 @@ function normalizeEffortToken(raw: string): string {
 export function inferCursorEffortFromModel(model: string): string | undefined {
   const trimmed = model.trim()
   if (!trimmed) return undefined
-  const parameterized = /(?:^|[\[,])\s*effort\s*=\s*([^,\]]+)/i.exec(trimmed)
+  const parameterized = /(?:^|[\[,])\s*(?:reasoning_effort|effort|reasoning)\s*=\s*([^,\]]+)/i.exec(trimmed)
   if (parameterized?.[1]) return normalizeEffortToken(parameterized[1])
   const id = trimmed.replace(/\[.*$/, "").replace(FAST_SUFFIX, "")
   const match = id.match(/[-_](extra-high|xhigh|minimal|medium|high|none|low|max)$/i)
@@ -249,7 +249,7 @@ export function parseCursorAcpModelId(modelId: string): ParsedCursorAcpModel {
     if (eq < 0) continue
     const key = part.slice(0, eq).trim().toLowerCase()
     const value = part.slice(eq + 1).trim()
-    if (key === "effort") parsed.effort = normalizeEffortToken(value)
+    if (key === "effort" || key === "reasoning_effort") parsed.effort = normalizeEffortToken(value)
     else if (key === "reasoning") parsed.reasoning = normalizeEffortToken(value)
     else if (key === "fast") parsed.fast = parseAcpBool(value)
     else if (key === "thinking") parsed.thinking = parseAcpBool(value)
