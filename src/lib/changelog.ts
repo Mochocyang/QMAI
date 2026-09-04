@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_FOURTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.14",
+  date: "2026-09-04",
+  highlights: {
+    en: [
+      "[Writing Search Only When Needed] Entity web search now runs only for real names that lack enough knowledge, avoiding junk results from invented or uncertain names. When English helps, the same entity is searched in both Chinese and English with URL dedupe.",
+      "[Jump to Default Model] Clicking an extract-model error toast or result tip opens Settings on the default model page.",
+      "[Auto Pick Chat Model] If no chat model is selected after model setup, the first available model is chosen and remembered.",
+    ],
+    zh: [
+      "【写作补搜更克制】只有真实且知识不够的名字才会联网，不确定或自造名称不再默认搜；需要英文时同一实体中英双搜并按 URL 去重",
+      "【提取模型错误可跳转】点击提取模型错误 toast 或结果提示，直接进入设置的默认模型页",
+      "【聊天自动选模型】模型设好后若聊天还没选模型，会自动选中并记住第一个可用模型",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_THIRTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.13",
   date: "2026-09-03",
@@ -1475,6 +1492,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_FOURTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_FOURTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_THIRTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_THIRTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_TWELVE_CHANGELOG.version)
@@ -1606,6 +1625,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_FOURTEEN_CHANGELOG,
     THREE_POINT_TWO_THIRTEEN_CHANGELOG,
     THREE_POINT_TWO_TWELVE_CHANGELOG,
     THREE_POINT_TWO_ELEVEN_CHANGELOG,
