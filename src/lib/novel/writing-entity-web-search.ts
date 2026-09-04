@@ -145,16 +145,29 @@ export function parseExtractedEntityNames(text: string): string[] {
   return uniqueNames(names).slice(0, MAX_EXTRACTED_ENTITIES)
 }
 
+export interface WritingEntitySearchQuery {
+  name: string
+  englishQuery?: string
+}
+
 export function parseNeedExternalNames(text: string, candidates: readonly string[]): string[] {
+  return parseNeedExternalQueries(text, candidates).map((item) => item.name)
+}
+
+export function parseNeedExternalQueries(
+  text: string,
+  candidates: readonly string[],
+): WritingEntitySearchQuery[] {
   const allowed = new Set(candidates.map((name) => name.trim()).filter(Boolean))
   const parsed = parseJsonPayload(text)
   if (!parsed) return []
 
-  const selected: string[] = []
-  const add = (value: unknown) => {
+  const selected: WritingEntitySearchQuery[] = []
+  const add = (value: unknown, englishSource?: Record<string, unknown>) => {
     const name = String(value ?? "").trim()
-    if (!name || !allowed.has(name) || selected.includes(name)) return
-    selected.push(name)
+    if (!name || !allowed.has(name) || selected.some((item) => item.name === name)) return
+    const englishQuery = englishSource ? readEnglishQuery(englishSource, name) : undefined
+    selected.push(englishQuery ? { name, englishQuery } : { name })
   }
 
   if (Array.isArray(parsed)) {
@@ -163,7 +176,13 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
       else if (item && typeof item === "object") {
         const record = item as Record<string, unknown>
         if (record.needExternal === false) continue
-        if (record.needExternal === true || record.search === true) add(record.name)
+        if (
+          record.needExternal === true
+          || record.search === true
+          || typeof record.name === "string"
+        ) {
+          add(record.name, record)
+        }
       }
     }
     return selected
@@ -178,7 +197,7 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
       else if (item && typeof item === "object") {
         const entry = item as Record<string, unknown>
         if (entry.needExternal === false) continue
-        add(entry.name)
+        add(entry.name, entry)
       }
     }
   }
@@ -186,7 +205,7 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
     for (const item of record.entities) {
       if (!item || typeof item !== "object") continue
       const entry = item as Record<string, unknown>
-      if (entry.needExternal === true || entry.search === true) add(entry.name)
+      if (entry.needExternal === true || entry.search === true) add(entry.name, entry)
     }
   }
   return selected
@@ -427,23 +446,33 @@ export async function collectWritingEntityWebSearch(
       return { markdown: "", searchedNames: [], notes, items: [] }
     }
 
-    input.onSearchStart?.(queries)
+    input.onSearchStart?.(launchedQueriesFor(queries))
 
     const items: Array<{ name: string; results: WebSearchResult[] }> = []
-    for (const name of queries) {
+    const searchedNames: string[] = []
+    for (const query of queries) {
       throwIfAborted(input.signal)
-      try {
-        const results = await search(name, input.searchApiConfig, 8)
-        items.push({ name, results })
-      } catch (error) {
-        rethrowIfUserAbort(error, input.signal)
-        notes.push(`搜索「${name}」失败：${error instanceof Error ? error.message : String(error)}`)
+      const results: WebSearchResult[] = []
+      let searchedThisEntity = false
+      for (const term of launchedQueriesFor([query])) {
+        throwIfAborted(input.signal)
+        try {
+          mergeSearchResults(results, await search(term, input.searchApiConfig, 8))
+          searchedNames.push(term)
+          searchedThisEntity = true
+        } catch (error) {
+          rethrowIfUserAbort(error, input.signal)
+          notes.push(`搜索「${term}」失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      if (searchedThisEntity) {
+        items.push({ name: query.name, results })
       }
     }
 
     return {
       markdown: formatWritingEntitySearchMarkdown(items),
-      searchedNames: items.map((item) => item.name),
+      searchedNames,
       notes,
       items,
     }
@@ -465,8 +494,9 @@ async function extractEntityNames(input: CollectWritingEntityWebSearchInput): Pr
     {
       role: "user",
       content: [
-        "从以下文本提取需要核实的专有名称，最多 20 个。",
+        "从以下文本提取专有名称，最多 20 个。",
         "不要提取章节号、普通动词、纯原创占位词如「主角」。",
+        "自造行动、功法、人名仍可抽出，是否联网由下一步判定，不要暗示这些名称都需要核实。",
         '只输出 JSON：{"entities":["名称"]}',
         "",
         source || "（无文本）",
@@ -479,7 +509,7 @@ async function extractEntityNames(input: CollectWritingEntityWebSearchInput): Pr
 async function judgeNeedExternal(
   input: CollectWritingEntityWebSearchInput,
   unresolved: readonly string[],
-): Promise<string[]> {
+): Promise<WritingEntitySearchQuery[]> {
   const raw = await completeText(input, [
     {
       role: "system",
@@ -489,15 +519,18 @@ async function judgeNeedExternal(
       role: "user",
       content: [
         "下列名称在本库前文和实体表都未找到。",
-        "默认放入 needExternal。公开 IP、真实历史或现实地名机构、功法武器等专有设定、以及你不确定的名字，一律放入。",
-        "仅当能明确判断它是本书原创人名或占位词、按大纲即可自编、且网上几乎不可能有对应公开资料时，才排除。",
-        '只输出 JSON：{"needExternal":["名称"]}',
+        "确信真实且知识不够才搜：必须同时满足「明确不是本书自造、对应现实人物/地点/机构/历史事件/公开 IP/已出版作品设定」以及「内置知识不足以支撑本章写准」。",
+        "已知则不搜：内置知识已经明确它是什么、足够写准。",
+        "不确定则不搜：本书原创、占位、捏造，或无法确定是真实还是自造时，一律排除。",
+        "englishQuery 仅在已知但要补资料、且英文检索明显更好时填写；不要为自造名硬翻英文，不要把拼音当英文检索词。",
+        '只输出 JSON：{"needExternal":[{"name":"名称","englishQuery":"English query"}]}',
+        "无合适英文检索词时省略 englishQuery。",
         "",
         unresolved.join("\n"),
       ].join("\n"),
     },
   ])
-  return parseNeedExternalNames(raw, unresolved)
+  return parseNeedExternalQueries(raw, unresolved)
 }
 
 async function completeText(
@@ -574,4 +607,40 @@ function uniqueNames(names: readonly string[]): string[] {
     output.push(name)
   }
   return output
+}
+
+function readEnglishQuery(record: Record<string, unknown>, name: string): string | undefined {
+  const raw = record.englishQuery ?? record.english ?? record.queryEn
+  const query = typeof raw === "string" ? raw.trim() : ""
+  if (!query || query === name) return undefined
+  return query
+}
+
+function launchedQueriesFor(queries: readonly WritingEntitySearchQuery[]): string[] {
+  const launched: string[] = []
+  for (const query of queries) {
+    launched.push(query.name)
+    if (query.englishQuery && query.englishQuery !== query.name) {
+      launched.push(query.englishQuery)
+    }
+  }
+  return launched
+}
+
+function mergeSearchResults(target: WebSearchResult[], incoming: readonly WebSearchResult[]): void {
+  const seen = new Set(
+    target.map((result) => normalizeSearchResultKey(result)).filter(Boolean),
+  )
+  for (const result of incoming) {
+    const key = normalizeSearchResultKey(result)
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    target.push(result)
+  }
+}
+
+function normalizeSearchResultKey(result: WebSearchResult): string {
+  const url = result.url.trim().toLowerCase()
+  if (url) return url
+  return `${result.title.trim()}\0${result.snippet.trim()}`
 }
