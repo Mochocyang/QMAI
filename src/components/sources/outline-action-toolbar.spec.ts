@@ -17,4 +17,9 @@ describe("OutlineActionToolbar", () => {
     expect(source).toContain('handleBulkIngest("all")')
     expect(source).toContain('runBulkOutlineIngest(project.path, { mode })')
   })
+
+  it("opens default model settings when the ingest LLM toast is clicked", () => {
+    expect(source).toContain("openDefaultModelSettings")
+    expect(source).toContain("toast.error(err.message, { onClick: openDefaultModelSettings })")
+  })
 })

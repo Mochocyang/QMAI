@@ -63,6 +63,8 @@ type SettingsCategoryId =
   | "contact-support"
   | "changelog"
 
+export type ModelSettingsTabId = "default" | "llm" | "rerank" | "embedding"
+
 const readStoredUiFontSizeScale = (): number => {
   if (typeof localStorage === "undefined") return 1
   const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
@@ -568,6 +570,7 @@ interface WikiState {
   searchPanelOpen: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
   activeSettingsCategory: SettingsCategoryId | null
+  activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null
   selectedSoulTab: "project" | "character"
   selectedSoulSection: "builtIn" | "custom"
@@ -644,6 +647,7 @@ interface WikiState {
   setSearchPanelOpen: (open: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
   setActiveSettingsCategory: (category: SettingsCategoryId | null) => void
+  setActiveModelSettingsTab: (tab: ModelSettingsTabId | null) => void
   setSelectedSoulId: (id: string | null) => void
   setSelectedSoulTab: (tab: "project" | "character") => void
   setSelectedSoulSection: (section: "builtIn" | "custom") => void
@@ -719,6 +723,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   searchPanelOpen: false,
   activeView: "wiki",
   activeSettingsCategory: null,
+  activeModelSettingsTab: null,
   selectedSoulId: null,
   selectedSoulTab: "project",
   selectedSoulSection: "builtIn",
@@ -806,6 +811,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setActiveSettingsCategory: (activeSettingsCategory) => set({ activeSettingsCategory }),
+  setActiveModelSettingsTab: (activeModelSettingsTab) => set({ activeModelSettingsTab }),
   setSelectedSoulId: (selectedSoulId) => set({ selectedSoulId }),
   setSelectedSoulTab: (selectedSoulTab) => set({ selectedSoulTab }),
   setSelectedSoulSection: (selectedSoulSection) => set({ selectedSoulSection }),

@@ -10,7 +10,7 @@ describe("ModelSettingsSection", () => {
     expect(source).toContain('{ id: "llm", label:')
     expect(source).toContain('{ id: "rerank", label:')
     expect(source).toContain('{ id: "embedding", label:')
-    expect(source).toContain('useState<ModelTabId>("llm")')
+    expect(source).toContain('useState<ModelTabId>(() => requestedTab ?? "llm")')
   })
 
   it("renders default, LLM, rerank, and embedding panels switchably", () => {
@@ -18,5 +18,12 @@ describe("ModelSettingsSection", () => {
     expect(source).toContain('active === "default" && <DefaultModelSettingsPanel draft={draft} setDraft={setDraft}')
     expect(source).toContain('active === "rerank" && <RerankSection draft={draft} setDraft={setDraft}')
     expect(source).toContain('active === "embedding" && <EmbeddingSection draft={draft} setDraft={setDraft}')
+  })
+
+  it("opens a requested model tab from the store and then clears it", () => {
+    expect(source).toContain("activeModelSettingsTab")
+    expect(source).toContain("setActiveModelSettingsTab")
+    expect(source).toContain("requestedTab ?? \"llm\"")
+    expect(source).toContain("setRequestedTab(null)")
   })
 })
