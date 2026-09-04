@@ -30,8 +30,10 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
+import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 
 function App() {
+  useEnsureAiChatModel()
   const project = useWikiStore((s) => s.project)
   const setProject = useWikiStore((s) => s.setProject)
   const setFileTree = useWikiStore((s) => s.setFileTree)
