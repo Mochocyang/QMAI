@@ -16,7 +16,7 @@ import { buildSectionBriefing } from "./section-briefing"
 import type { DataSource, ContextLoadContext } from "./context-data-source"
 import { loadFrameworks } from "./story-simulation/framework-store"
 import { loadBinding, buildBindingContext } from "./story-simulation/framework-binding"
-import { RetrievalStore } from "./retrieval"
+import { RetrievalStore, type RetrievalEntry } from "./retrieval"
 import { writeFileAtomic, fileExists, listDirectory, createDirectory } from "@/commands/fs"
 import type { DataSourceCategory } from "./classification"
 
@@ -505,81 +505,27 @@ const storyFrameworkBindingDataSource: DataSource<string> = {
 
 /**
  * Retrieval 索引数据源
- * 从 retrieval.md 主索引读取最近章节摘要
+ * 返回项目级原始条目（不做章节过滤），缓存以项目级 key 复用；
+ * 按章节过滤逻辑移到 context-engine 的 buildContextPackFromRawData。
  */
-const retrievalDataSource: DataSource<{
-  recentSummaries: string[]
-  characterStates: string
-  foreshadowingSignals: string[]
-  timeline: string
-}> = {
+const retrievalDataSource: DataSource<{ entries: RetrievalEntry[] }> = {
   name: "retrieval",
   priority: 3,
   async load(context: ContextLoadContext) {
-    const { projectPath, chapterNumber, config } = context
-    const store = createRetrievalStoreForDataSource(projectPath)
+    const store = createRetrievalStoreForDataSource(context.projectPath)
     const hasIndex = await store.hasIndex()
-    
+
     if (!hasIndex) {
-      return {
-        recentSummaries: [],
-        characterStates: "",
-        foreshadowingSignals: [],
-        timeline: "",
-      }
+      return { entries: [] }
     }
 
     try {
       const allEntries = await store.getAllEntries()
       const sortedEntries = [...allEntries].sort((a, b) => a.chapterNumber - b.chapterNumber)
-      
-      const summaryCount = config.recentSummaryWindow
-      const lookbackCount = config.snapshotLookback
-      
-      const summaryEntries = chapterNumber
-        ? sortedEntries.filter((e) => e.chapterNumber < chapterNumber).slice(-summaryCount)
-        : sortedEntries.slice(-summaryCount)
-      
-      const lookbackEntries = chapterNumber
-        ? sortedEntries.filter((e) => e.chapterNumber < chapterNumber).slice(-lookbackCount)
-        : sortedEntries.slice(-lookbackCount)
-
-      const recentSummaries = summaryEntries.map(
-        (entry) => `第${entry.chapterNumber}章 ${entry.chapterTitle}：${entry.summary}`
-      )
-      
-      const characterStates = joinNonEmpty(
-        lookbackEntries
-          .filter((e) => e.characterStates)
-          .map((e) => `第${e.chapterNumber}章：${e.characterStates}`),
-        "\n",
-      )
-      
-      const foreshadowingSignals = lookbackEntries
-        .filter((e) => e.foreshadowingChanges)
-        .flatMap((e) => e.foreshadowingChanges.split("\n").filter(Boolean))
-      
-      const timeline = joinNonEmpty(
-        lookbackEntries
-          .filter((e) => e.timelineEvents)
-          .map((e) => `第${e.chapterNumber}章：${e.timelineEvents}`),
-        "\n",
-      )
-
-      return {
-        recentSummaries,
-        characterStates,
-        foreshadowingSignals,
-        timeline,
-      }
+      return { entries: sortedEntries }
     } catch (err) {
       console.warn("[DataSource] retrieval load failed:", err)
-      return {
-        recentSummaries: [],
-        characterStates: "",
-        foreshadowingSignals: [],
-        timeline: "",
-      }
+      return { entries: [] }
     }
   },
 }

@@ -292,6 +292,7 @@ export function ChatMessage({
         )}
         {isAssistant &&
           !message.discarded &&
+          !message.isAgentRunning &&
           contextTraceExpanded &&
           (message.contextTrace || currentContextHubSnapshot) && (
             <div className="mt-1">

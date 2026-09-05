@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_FIFTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.15",
+  date: "2026-09-04",
+  highlights: {
+    en: [
+      "[Slimmer Generation Process Display] In AI conversation, the routine 'Task Understanding' stage is no longer shown, and 'Capability Selection' only appears when skills are actually enabled; real workflow stages (read context, draft generation, de-AI polish) remain visible.",
+    ],
+    zh: [
+      "【AI 对话生成过程更精简】「任务理解」阶段不再在界面显示；「能力选择」仅在标准/严格模式实际启用技能时显示；读取上下文、生成章节草稿、去AI味等真实工作流阶段照常保留",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_FOURTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.14",
   date: "2026-09-04",
@@ -1492,6 +1505,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_FIFTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_FIFTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FOURTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_FOURTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_THIRTEEN_CHANGELOG.version)
@@ -1625,6 +1640,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_FIFTEEN_CHANGELOG,
     THREE_POINT_TWO_FOURTEEN_CHANGELOG,
     THREE_POINT_TWO_THIRTEEN_CHANGELOG,
     THREE_POINT_TWO_TWELVE_CHANGELOG,

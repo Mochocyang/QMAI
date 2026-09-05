@@ -170,10 +170,46 @@ async function buildContextPackFromRawData(
     rawData.searchResults || "",
     rawData.bookAnalysisReferences || "",
   ], "\n\n")
-  // 合并快照数据和降级数据，优先使用 retrieval 索引
-  const retrievalRecentSummaries = Array.isArray(rawData.retrieval?.recentSummaries)
-    ? rawData.retrieval.recentSummaries
+  // retrieval 源返回项目级原始条目，按当前章节在此过滤
+  interface RetrievalEntryShape {
+    chapterNumber: number
+    chapterTitle: string
+    summary: string
+    characterStates: string
+    foreshadowingChanges: string
+    timelineEvents: string
+  }
+  const retrievalEntries: RetrievalEntryShape[] = Array.isArray(rawData.retrieval?.entries)
+    ? rawData.retrieval.entries
     : []
+  const summaryCount = context.config.recentSummaryWindow > 0 ? context.config.recentSummaryWindow : 8
+  const lookbackCount = context.config.snapshotLookback > 0 ? context.config.snapshotLookback : 3
+  const summaryEntries = context.chapterNumber
+    ? retrievalEntries.filter((e) => e.chapterNumber < context.chapterNumber!).slice(-summaryCount)
+    : retrievalEntries.slice(-summaryCount)
+  const lookbackEntries = context.chapterNumber
+    ? retrievalEntries.filter((e) => e.chapterNumber < context.chapterNumber!).slice(-lookbackCount)
+    : retrievalEntries.slice(-lookbackCount)
+  const retrievalRecentSummaries = summaryEntries.map(
+    (entry) => `第${entry.chapterNumber}章 ${entry.chapterTitle}：${entry.summary}`,
+  )
+  const retrievalCharacterStates = joinNonEmpty(
+    lookbackEntries
+      .filter((e) => e.characterStates)
+      .map((e) => `第${e.chapterNumber}章：${e.characterStates}`),
+    "\n",
+  )
+  const retrievalTimeline = joinNonEmpty(
+    lookbackEntries
+      .filter((e) => e.timelineEvents)
+      .map((e) => `第${e.chapterNumber}章：${e.timelineEvents}`),
+    "\n",
+  )
+  const retrievalForeshadowingSignals = lookbackEntries
+    .filter((e) => e.foreshadowingChanges)
+    .flatMap((e) => e.foreshadowingChanges.split("\n").filter(Boolean))
+
+  // 合并快照数据和降级数据，优先使用 retrieval 索引
   const snapshotRecentSummaries = Array.isArray(rawData.snapshots?.recentSummaries)
     ? rawData.snapshots.recentSummaries
     : []
@@ -189,7 +225,6 @@ async function buildContextPackFromRawData(
   const previousChapterEnding = rawData.snapshots.previousChapterEnding 
     || rawData.fallbackPreviousEnding
   
-  const retrievalCharacterStates = rawData.retrieval?.characterStates || ""
   const snapshotCharacterStates = rawData.snapshots?.characterStates || ""
   const characterStates = joinNonEmpty([
     retrievalCharacterStates,
@@ -197,7 +232,6 @@ async function buildContextPackFromRawData(
     rawData.fallbackCharacterStates
   ], "\n\n")
   
-  const retrievalTimeline = rawData.retrieval?.timeline || ""
   const snapshotTimeline = rawData.snapshots?.timeline || ""
   const timeline = joinNonEmpty([
     retrievalTimeline,
@@ -205,9 +239,6 @@ async function buildContextPackFromRawData(
     rawData.fallbackTimeline
   ], "\n\n")
   
-  const retrievalForeshadowingSignals = Array.isArray(rawData.retrieval?.foreshadowingSignals)
-    ? rawData.retrieval.foreshadowingSignals
-    : []
   const snapshotForeshadowingSignals = Array.isArray(rawData.snapshots?.foreshadowingSignals)
     ? rawData.snapshots.foreshadowingSignals
     : []

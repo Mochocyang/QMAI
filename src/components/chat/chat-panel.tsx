@@ -162,6 +162,21 @@ import {
   notifyChapterWritingOutcome,
 } from "@/lib/system-notification"
 
+/** 快速模式普通对话（general_chat）时不给模型暴露的小说资料读取类工具，避免对无关问候无谓读取记忆/资料浪费 token。 */
+const NOVEL_CONTEXT_READ_TOOLS = new Set([
+  "read_chapter",
+  "read_outline",
+  "read_memory",
+  "read_deduction",
+  "read_chat_history",
+  "read_outline_history",
+  "search_chapters",
+  "list_chapters",
+  "list_outlines",
+  "list_memories",
+  "list_deductions",
+])
+
 
 /* spec-test patterns */
 const rawTaskRoute: { intent: string } | null = { intent: "general_chat" }
@@ -1751,7 +1766,11 @@ export function ChatPanel() {
           !(novelMode && (sessionWorkflowMode !== "fast" || planExecuteActive)),
       })
 
-      if (novelMode && effectiveTaskRoute) {
+      // 快速模式普通对话（general_chat）与小说内容无关：不预载小说上下文、不给模型暴露读取类工具，
+      // 避免对「你好」这类问候白白读取记忆/资料浪费 token；小说相关问题仍按原逻辑读取。
+      const isQuickGeneralChat = sessionWorkflowMode === "fast" && effectiveTaskRoute?.intent === "general_chat"
+
+      if (novelMode && effectiveTaskRoute && !isQuickGeneralChat) {
         const contextHub = getContextHub(pp)
         try {
           contextHubResult = await contextHub.prepare({
@@ -1867,7 +1886,7 @@ export function ChatPanel() {
       const qmQuaiSystemPrompt = shouldUseQmQuaiSkill ? buildQmQuaiSystemPrompt() : ""
       novelContextPrompt = ""
 
-      if (novelMode && effectiveTaskRoute) {
+      if (novelMode && effectiveTaskRoute && !isQuickGeneralChat) {
         try {
           taskDirective = buildTaskDirective(effectiveTaskRoute)
           const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
@@ -1972,8 +1991,10 @@ export function ChatPanel() {
       const userContent = !effectiveDeAiSkill && deAiMode
         ? injectDeAiDirective(rawUserContent, deAiMode)
         : rawUserContent
-      const readChapterToolAvailable = !prePluginResult?.enabledToolNames
+      const readChapterToolAvailable = !isQuickGeneralChat && (
+        !prePluginResult?.enabledToolNames
         || prePluginResult.enabledToolNames.includes("read_chapter")
+      )
       const historyForModel = selectContextHistoryMessages(
         activeConvMessages,
         contextHubResult?.sessionSummary,
@@ -2042,11 +2063,12 @@ export function ChatPanel() {
         // 计划阶段硬管控：不依赖任务路由/pre-plugin 是否命中，直接从本轮可用
         // 工具中移除正文生成与写入类工具（模型的 tools 广告和文本工具调用解析
         // 都以 config.tools 为准），从根上阻止模型跳过计划直接产出正文。
-        const sessionTools = planExecuteActive
+        const sessionTools = (planExecuteActive
           ? agentConfig.tools.filter(
               (tool) => tool.name !== "run_chapter_workflow" && tool.category !== "write",
             )
-          : agentConfig.tools
+          : agentConfig.tools)
+          .filter((tool) => !(isQuickGeneralChat && NOVEL_CONTEXT_READ_TOOLS.has(tool.name)))
         const advertisedTools = prePluginResult?.enabledToolNames
           ? sessionTools.filter((tool) => prePluginResult.enabledToolNames!.includes(tool.name))
           : sessionTools

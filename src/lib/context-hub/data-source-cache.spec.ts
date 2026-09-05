@@ -15,6 +15,19 @@ const context: ContextLoadContext = {
   },
 }
 
+function prefixToKinds(prefix: string): ContextSourceKind[] {
+  if (prefix.startsWith("wiki/chapters/")) return ["chapter"]
+  if (prefix.startsWith("wiki/outlines/")) return ["outline"]
+  if (prefix.startsWith("wiki/settings/") || prefix === "wiki/canon.md" || prefix === "wiki/writing-style.md" || prefix === ".qmai/writing-style.json") return ["setting"]
+  if (prefix.startsWith("wiki/entities/") || prefix.startsWith("wiki/characters/") || prefix === ".novel/cognition-state.json") return ["entity"]
+  if (prefix.startsWith("wiki/memory/") || prefix === ".novel/timeline.json") return ["memory"]
+  if (prefix.startsWith(".novel/snapshots/") || prefix.startsWith(".novel/community-summaries/") || prefix === ".novel/revision-feedback.json") return ["snapshot"]
+  if (prefix.startsWith("retrieval/")) return ["retrieval"]
+  if (prefix === "soul.md" || prefix === "wiki/soul.md") return ["soul"]
+  if (prefix.startsWith(".qmai/simulations/")) return ["deduction"]
+  return ["other"]
+}
+
 function createHarness() {
   const artifacts = new Map<string, CachedArtifact>()
   const revisions: Partial<Record<ContextSourceKind, Record<string, number>>> = {
@@ -41,6 +54,18 @@ function createHarness() {
       {},
       ...(kinds ?? []).map((kind) => revisions[kind] ?? {}),
     ))),
+    getDependencyStampForPrefixes: vi.fn(async (prefixes: string[]): Promise<DependencyStamp> => {
+      const kinds = [...new Set(prefixes.flatMap((prefix) => prefixToKinds(prefix)))]
+      const dependencies = Object.assign(
+        {},
+        ...kinds.map((kind) => revisions[kind] ?? {}),
+      ) as Record<string, number>
+      return {
+        fingerprint: JSON.stringify(dependencies),
+        sourceCount: Object.keys(dependencies).length,
+        kinds,
+      }
+    }),
   }
   const storage = {
     readArtifact: vi.fn(async (key: string) => artifacts.get(key) ?? null),
@@ -179,7 +204,7 @@ describe("DataSourceCacheAdapter", () => {
     expect(directLoad).toHaveBeenCalledOnce()
   })
 
-  it("uses chapter scope for retrieval and project scope for related settings", async () => {
+  it("uses project scope for retrieval and related settings", async () => {
     const harness = createHarness()
     const retrieval: DataSource<string> = { name: "retrieval", priority: 1, load: async () => "" }
     const relatedSettings: DataSource<string> = { name: "relatedSettings", priority: 1, load: async () => "" }
@@ -193,6 +218,18 @@ describe("DataSourceCacheAdapter", () => {
 
     expect(loadRetrieval).toHaveBeenCalledOnce()
     expect(loadSettings).toHaveBeenCalledOnce()
+  })
+
+  it("reuses project-scoped static sources across different chapters", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "fallbackRecentSummaries", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => "项目级摘要")
+
+    await harness.adapter.load(source, { ...context, chapterNumber: 2 }, directLoad)
+    await harness.adapter.load(source, { ...context, chapterNumber: 9 }, directLoad)
+
+    expect(directLoad).toHaveBeenCalledOnce()
+    expect(harness.adapter.getStats()).toMatchObject({ cacheHits: 1 })
   })
 
   it("returns a deeply equal value on a cache hit and a forced rebuild", async () => {

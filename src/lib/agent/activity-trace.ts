@@ -25,6 +25,9 @@ const DETAILED_CHAPTER_STAGE_IDS = new Set([
   "final_output",
 ])
 
+/** 常规状态阶段：agentStages 数据仍完整生成/保存（内部跟踪），但默认不在界面展示。 */
+const HIDDEN_STATUS_STAGE_IDS = new Set(["task_understanding"])
+
 const AGENT_STAGE_DISPLAY_ORDER = [
   "task_understanding",
   "capability_selection",
@@ -129,10 +132,21 @@ export function getDefaultOpenAgentStageId(stages: AgentStageTrace[]): string | 
     ?? null
 }
 
+/** 能力选择阶段是否实际启用了技能；内容为「本次未启用」空状态时视为无价值信息，隐藏。 */
+function capabilitySelectionHasEnabledSkills(stage: AgentStageTrace): boolean {
+  return stage.events.some((event) => event.content && !event.content.includes("本次未启用"))
+}
+
 function filterAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {
   const hasDetailedChapterStage = stages.some((stage) => DETAILED_CHAPTER_STAGE_IDS.has(stage.id))
-  if (!hasDetailedChapterStage) return stages
-  return stages.filter((stage) => stage.id !== "chapter_workflow")
+  const filtered = hasDetailedChapterStage
+    ? stages.filter((stage) => stage.id !== "chapter_workflow")
+    : stages
+  return filtered.filter((stage) => {
+    if (HIDDEN_STATUS_STAGE_IDS.has(stage.id)) return false
+    if (stage.id === "capability_selection") return capabilitySelectionHasEnabledSkills(stage)
+    return true
+  })
 }
 
 function sortAgentStagesForDisplay(stages: AgentStageTrace[]): AgentStageTrace[] {

@@ -120,6 +120,10 @@ export interface ContextHubStats {
   fallbackUsed: number
   readFailed: number
   writeFailed: number
+  /** 缓存命中项内容的估算 token 之和（用户可见的「节省 token」）。旧快照缺失时按 0 处理。 */
+  cacheHitTokens?: number
+  /** 本轮加载的任务级（查询依赖）数据源数量；不计入可缓存命中率。旧快照缺失时按 0 处理。 */
+  taskScopedLoaded?: number
   stablePrefixStatus?: StablePrefixStatus
   /** Estimated tokens (local heuristic). */
   stableTokens: number

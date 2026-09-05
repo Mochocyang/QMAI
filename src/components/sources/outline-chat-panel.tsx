@@ -1146,7 +1146,7 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
-      {currentContextHubSnapshot ? (
+      {!isStreaming && currentContextHubSnapshot ? (
         <ContextHubDetails
           reference={currentContextHubSnapshot}
         />
@@ -3166,7 +3166,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             systemGenerated: true,
             userMessageVisibility: "internal",
             preferredSkillNames: intentContextsRef.current[capturedConvId]?.skillNames,
-            forceRefresh: true,
           });
         }
         return { started: true, sent: true };
@@ -3274,7 +3273,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         conversationId: capturedConvId,
         intentPhase: "intent_analysis",
         systemGenerated: true,
-        forceRefresh: true,
         userDisplayText: `生成${title}`,
       });
     },
@@ -3341,7 +3339,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           systemGenerated: true,
           userMessageVisibility: "internal",
           preferredSkillNames: context.skillNames,
-          forceRefresh: true,
         },
       );
     },
@@ -3389,7 +3386,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             systemGenerated: true,
             userMessageVisibility: "internal",
             preferredSkillNames: intentContext.skillNames ?? getOutlineSkillNames(intentContext.title || scope),
-            forceRefresh: true,
           });
           if (result.sent) {
             if (shouldClearOutlineReferences({
@@ -3911,7 +3907,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           conversationId: capturedConvId,
           clearDraft: false,
           intentPhase: "intent_analysis",
-          forceRefresh: true,
         });
         return;
       }

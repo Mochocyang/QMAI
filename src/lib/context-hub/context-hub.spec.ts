@@ -55,6 +55,11 @@ function createHarness() {
       kinds ?? ["outline"],
     )),
     getDependencyPreview: vi.fn(() => ["E:/Novel/wiki/outlines/main.md"]),
+    getDependencyStampForPrefixes: vi.fn(async (prefixes: string[]) => stamp(
+      `prefix:${[...prefixes].sort().join("|")}`,
+      [] as ContextSourceKind[],
+      prefixes.length,
+    )),
     markDirty: vi.fn(),
     dispose: vi.fn(),
   }

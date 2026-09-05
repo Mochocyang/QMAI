@@ -33,6 +33,7 @@ import {
 interface HubRegistry {
   refresh(): Promise<SourceRefreshResult>
   getDependencyStamp(kinds?: ContextSourceKind[]): Promise<DependencyStamp>
+  getDependencyStampForPrefixes(prefixes: string[]): Promise<DependencyStamp>
   getDependencyPreview(kinds?: ContextSourceKind[], limit?: number): string[]
   markDirty(path: string): void
   dispose(): void
@@ -314,6 +315,8 @@ export class ContextHubController implements ContextHub {
         fallbackUsed: cacheStats.fallbackUsed,
         readFailed: cacheStats.readFailed,
         writeFailed: cacheStats.writeFailed,
+        cacheHitTokens: cacheStats.cacheHitTokens,
+        taskScopedLoaded: cacheStats.taskScopedLoaded,
         stablePrefixStatus,
       },
       cacheItems: withRelativeDependencyPaths(this.projectPath, cacheItems),

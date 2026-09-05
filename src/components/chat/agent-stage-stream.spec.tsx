@@ -116,4 +116,72 @@ describe("AgentStageStream", () => {
     expect(html).not.toContain("多任务写作循环")
     expect(html).toContain("(3)")
   })
+
+  it("does not render the panel when only routine stages exist", () => {
+    const routineStages: AgentStageTrace[] = [
+      {
+        id: "task_understanding",
+        title: "任务理解",
+        status: "done",
+        summary: "快速模式（普通对话）",
+        events: [
+          {
+            id: "route-1",
+            stageId: "task_understanding",
+            kind: "analysis",
+            title: "当前执行路线",
+            content: "识别任务：general_chat",
+            timestamp: 100,
+          },
+        ],
+        startedAt: 100,
+      },
+      {
+        id: "capability_selection",
+        title: "能力选择",
+        status: "done",
+        summary: "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。",
+        events: [
+          {
+            id: "skill-1",
+            stageId: "capability_selection",
+            kind: "skill_used",
+            title: "本次启用 Skill",
+            content: "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。",
+            timestamp: 200,
+          },
+        ],
+        startedAt: 200,
+      },
+    ]
+
+    const html = renderToStaticMarkup(<AgentStageStream stages={routineStages} />)
+    expect(html).toBe("")
+  })
+
+  it("renders capability_selection when skills are actually enabled", () => {
+    const skillStages: AgentStageTrace[] = [
+      {
+        id: "capability_selection",
+        title: "能力选择",
+        status: "done",
+        summary: "1. 正文输出协议｜阶段：output｜类型：output｜优先级：10",
+        events: [
+          {
+            id: "skill-1",
+            stageId: "capability_selection",
+            kind: "skill_used",
+            title: "本次启用 Skill",
+            content: "1. 正文输出协议｜阶段：output｜类型：output｜优先级：10",
+            timestamp: 100,
+          },
+        ],
+        startedAt: 100,
+      },
+    ]
+
+    const html = renderToStaticMarkup(<AgentStageStream stages={skillStages} />)
+    expect(html).toContain("生成过程")
+    expect(html).toContain("正文输出协议")
+  })
 })
