@@ -33,6 +33,7 @@ import {
   withReasoningDisabled,
 } from "./reasoning-retry"
 import { applyGlobalUserMemoryToMessages } from "./user-memory/request-integration"
+import { preparePromptCacheRouting } from "./prompt-cache-routing"
 import type { UserMemoryDecision } from "./user-memory/decision-trace"
 import {
   buildLlmRequestCacheTrace,
@@ -312,17 +313,20 @@ async function streamChatHeld(
   const { onToken, onDone, onError } = callbacks
   const decoder = new TextDecoder()
 
+  effectiveRequestOverrides = await preparePromptCacheRouting(runtimeConfig, budgetedMessages, effectiveRequestOverrides)
   let prefixDescriptor = await buildLlmRequestPrefixDescriptor(
     runtimeConfig,
     budgetedMessages,
     effectiveRequestOverrides,
   )
   interface ActiveRequestTrace {
+    requestId: string
     startedAt: number
     firstResponseAt?: number
     finished: boolean
   }
   const startRequestTrace = (): ActiveRequestTrace => ({
+    requestId: crypto.randomUUID(),
     startedAt: Date.now(),
     finished: false,
   })
@@ -338,6 +342,7 @@ async function streamChatHeld(
     trace.finished = true
     try {
       callbacks.onRequestTrace?.(buildLlmRequestCacheTrace({
+        requestId: trace.requestId,
         config: runtimeConfig,
         ...prefixDescriptor,
         startedAt: trace.startedAt,
@@ -595,6 +600,7 @@ async function streamChatHeld(
           onError(new Error(inputLengthLimitMessage(inputLimit)))
           return
         }
+        effectiveRequestOverrides = await preparePromptCacheRouting(runtimeConfig, retryMessages, effectiveRequestOverrides)
         prefixDescriptor = await buildLlmRequestPrefixDescriptor(
           runtimeConfig,
           retryMessages,
@@ -665,6 +671,7 @@ async function streamChatHeld(
       ) {
         effectiveRequestOverrides = withReasoningDisabled(effectiveRequestOverrides)
         budgetedMessages = stripEmptyReasoningContent(budgetedMessages)
+        effectiveRequestOverrides = await preparePromptCacheRouting(runtimeConfig, budgetedMessages, effectiveRequestOverrides)
         prefixDescriptor = await buildLlmRequestPrefixDescriptor(
           runtimeConfig,
           budgetedMessages,

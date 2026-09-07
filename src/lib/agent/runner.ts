@@ -33,6 +33,7 @@ import {
 } from "./required-tool-fallback"
 import { CodexAppServerRunner } from "./codex-app-server-runner"
 import { withWritingWakeLock } from "../writing-wake-lock"
+import { buildAgentRequestMessages } from "./cache-aware-messages"
 
 export class ModelDoesNotSupportToolsError extends Error {
   constructor() {
@@ -75,6 +76,7 @@ export class AgentRunner {
       requestTraceCollector.record(trace)
       const snapshot = requestTraceCollector.snapshot()
       record.requestTraces = snapshot.requests
+      record.requestUsageTotals = snapshot.usageTotals
       record.omittedRequestTraceCount = snapshot.omittedRequestCount
       callbacks.onRequestTrace?.(trace)
     }
@@ -324,7 +326,7 @@ export class AgentRunner {
         workingMessages.splice(0, workingMessages.length, ...compacted)
         await streamChat(
           config.llmConfig,
-          workingMessages as ChatMessage[],
+          buildAgentRequestMessages(workingMessages as ChatMessage[], taskContract),
           streamCallbacks,
           signal,
           requestOverrides,

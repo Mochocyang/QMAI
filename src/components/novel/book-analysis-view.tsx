@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
@@ -185,6 +186,13 @@ export function BookAnalysisView() {
     [libraryState.books, selectedBookId],
   )
 
+  const recordBookRequestTrace = useCallback((bookPath: string, stage: string, trace: LlmRequestCacheTrace) => {
+    const state = useBookAnalysisPipelineStore.getState()
+    const task = state.tasks.filter((item) => item.bookPath === bookPath).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (task) void state.recordTaskRequestTrace(task.id, { ...trace, stage })
+      .catch(() => console.warn("拆书附属请求用量保存失败"))
+  }, [])
+
   const reloadStoryFrameworks = useCallback(async () => {
     if (!currentProject?.path || !selectedLibraryBook) {
       setStoryFrameworks([])
@@ -261,7 +269,8 @@ export function BookAnalysisView() {
         toast.info("没有匹配到可生成的角色。")
         return
       }
-      await generateSkillsForCharacters(selected, selectedLibraryBook.metadata, selectedLibraryBook.path, llmConfig)
+      await generateSkillsForCharacters(selected, selectedLibraryBook.metadata, selectedLibraryBook.path, llmConfig,
+        undefined, undefined, (trace) => recordBookRequestTrace(selectedLibraryBook.path, "skill-generation", trace))
       await reloadLibraryState()
       toast.success(`已生成 ${selected.length} 个角色 Skill，可在角色面板中查看并加入自定义灵魂库。`)
     } catch (error) {
@@ -269,7 +278,7 @@ export function BookAnalysisView() {
     } finally {
       setCharacterSkillGenerating(false)
     }
-  }, [llmConfig, reloadLibraryState, selectedLibraryBook])
+  }, [llmConfig, reloadLibraryState, selectedLibraryBook, recordBookRequestTrace])
 
   // 角色识别钩子
   const {
@@ -642,6 +651,7 @@ export function BookAnalysisView() {
       bookPath: selectedLibraryBook.path,
       selectedSkills: [skill],
       forceNew: true,
+      forceRefresh: true,
     })
     if (!created) return
     setPipelineDialog({
@@ -736,7 +746,12 @@ export function BookAnalysisView() {
       const recognized = await llmRecognizeCharacters({
         chapters: chapterContents,
         llmConfig,
-        sourceBook: bookPath,
+        sourceBook: bookPath, bookPath,
+        forceRefresh: useBookAnalysisPipelineStore.getState().tasks.find((task) => task.id === taskId)?.forceRefresh,
+        onRequestTrace: (trace) => {
+          void useBookAnalysisPipelineStore.getState().recordTaskRequestTrace(taskId, { ...trace, stage: "recognition" })
+            .catch(() => console.warn("角色识别用量保存失败"))
+        },
       })
       if (recognized.length === 0) {
         throw new Error("AI 没有识别出角色，请确认所选章节包含人物，或更换模型后重试")

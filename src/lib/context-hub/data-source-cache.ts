@@ -41,10 +41,14 @@ interface DataSourceCacheStats {
   fallbackUsed: number
   readFailed: number
   writeFailed: number
-  /** 缓存命中项内容的估算 token 之和（用户可见的「节省 token」）。 */
+  /** 本地复用资料的估算 token 之和，不代表少发送的 token 或缓存价格折扣。 */
   cacheHitTokens: number
-  /** 本轮加载的任务级（查询依赖）数据源数量；这类源无法跨消息复用，不计入可缓存命中率。 */
+  /** 任务型实际加载次数（并发去重），仅保留作诊断，不用于反推复用率。 */
   taskScopedLoaded: number
+  /** 非任务型的实际加载次数；并发共享的操作仅记一次，包含空值和失败。 */
+  cacheableLoaded: number
+  /** 上述同一范围内直接复用缓存的次数，包含缓存中的空值。 */
+  cacheableHits: number
 }
 
 const STATIC_SOURCES = new Set([
@@ -87,7 +91,7 @@ const CHAPTER_SCOPED_SOURCES = new Set([
 // Bump only the affected data source when its extraction semantics change.
 // This prevents a previously cached wrong-chapter outline from surviving the fix.
 const SOURCE_CACHE_VERSIONS: Partial<Record<string, number>> = {
-  outline: 2,
+  outline: 3,
   chapterOutline: 3,
   volumeContext: 2,
   sectionBriefing: 2,
@@ -131,7 +135,7 @@ function hasCacheableValue(value: unknown): boolean {
   return value !== null && value !== undefined
 }
 
-/** 估算一个缓存命中数据源内容的 token 数（用于「节省 token」显示）。 */
+/** 估算本地复用资料的 token 数，与发送量及供应商计费无关。 */
 function valueToTokens(value: unknown): number {
   if (typeof value === "string") return estimateContextTokens(value)
   if (Array.isArray(value)) {
@@ -153,6 +157,8 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     writeFailed: 0,
     cacheHitTokens: 0,
     taskScopedLoaded: 0,
+    cacheableLoaded: 0,
+    cacheableHits: 0,
   }
   private readonly traceItems: ContextCacheItemTrace[] = []
 
@@ -171,7 +177,6 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
       : await this.options.registry.getDependencyStamp(kinds)
     const dependencyPaths = this.options.registry.getDependencyPreview(kinds, 20)
     const key = await sourceRequestKey(source.name, context)
-    if (TASK_SCOPED_SOURCES.has(source.name)) this.stats.taskScopedLoaded += 1
     const pending = this.pending.get(key)
     if (pending) return pending as Promise<T>
 
@@ -248,6 +253,10 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     dependencyPaths: string[],
     directLoad: () => Promise<T>,
   ): Promise<T> {
+    const cacheable = cacheScopeFor(sourceName) !== "task"
+    if (cacheable) this.stats.cacheableLoaded += 1
+    if (TASK_SCOPED_SOURCES.has(sourceName)) this.stats.taskScopedLoaded += 1
+
     const makeTrace = (status: ContextSourceTraceStatus): ContextCacheItemTrace => ({
       key,
       sourceName,
@@ -262,6 +271,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
         const cached = await this.options.storage.readArtifact<T>(key)
         if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
           this.stats.cacheHits += 1
+          if (cacheable) this.stats.cacheableHits += 1
           this.stats.cacheHitTokens += valueToTokens(cached.value)
           this.upsertTrace(makeTrace("cache_hit"))
           return cached.value

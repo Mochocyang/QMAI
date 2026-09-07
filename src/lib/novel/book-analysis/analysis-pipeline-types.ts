@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace, LlmRequestUsageTotals } from "@/lib/llm-request-trace"
 import type { RecognizedCharacter } from "./types"
 
 export const ANALYSIS_SKILL_ORDER = ["characters", "story", "style"] as const
@@ -84,6 +85,14 @@ export interface BookAnalysisPipelineTask {
   recognizedCharacters?: RecognizedCharacter[]
   /** 用户确认后的深挖目标；有值时角色 adapter 只分析这些角色 */
   targetCharacters?: RecognizedCharacter[]
+  /** 用户明确要求重新生成时跳过成功结果复用；创建新任务本身不代表重新生成。 */
+  forceRefresh?: boolean
+  requestTraces?: LlmRequestCacheTrace[]
+  /** 去重ID单独保存，不随32条可视明细截断。 */
+  requestTraceIds?: string[]
+  requestUsageTotals?: LlmRequestUsageTotals
+  omittedRequestTraceCount?: number
+  resultReuse?: { chunkChecks: number; chunkHits: number; aggregateChecks: number; aggregateHits: number }
   error: string | null
   createdAt: number
   startedAt: number | null

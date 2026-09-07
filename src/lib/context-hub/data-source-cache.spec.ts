@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
-import type { ContextLoadContext, DataSource } from "@/lib/novel/context-data-source"
+import { DataSourceRegistry, type ContextLoadContext, type DataSource } from "@/lib/novel/context-data-source"
 import { DataSourceCacheAdapter } from "./data-source-cache"
+import * as fingerprint from "./fingerprint"
 import type { CachedArtifact, ContextSourceKind, DependencyStamp } from "./types"
 
 const context: ContextLoadContext = {
@@ -88,6 +89,8 @@ describe("DataSourceCacheAdapter", () => {
       cacheHits: 1,
       reloaded: 1,
       empty: 0,
+      cacheableLoaded: 2,
+      cacheableHits: 1,
       writeFailed: 0,
       readFailed: 0,
     })
@@ -113,6 +116,26 @@ describe("DataSourceCacheAdapter", () => {
     expect(harness.storage.writeArtifact).toHaveBeenCalledWith(
       expect.stringMatching(/^data-source:chapterOutline:v3:/),
       expect.objectContaining({ sourceName: "chapterOutline", value: "第2章章纲" }),
+    )
+  })
+
+  it("ignores v2 outline strings and caches layered outlines with a v3 chapter key", async () => {
+    const harness = createHarness()
+    const dependencyStamp = await harness.registry.getDependencyStamp(["outline"])
+    harness.storage.readArtifact.mockImplementation(async (key) => key.startsWith("data-source:outline:v2:") ? {
+      schemaVersion: 2, key, sourceName: "outline", scope: "chapter",
+      value: "旧缓存中的原始大纲字符串", dependencyStamp, createdAt: 1,
+    } : null)
+    const layered = { full: "全书大纲", project: "全书骨架", task: "本章资料" }
+    const source: DataSource<typeof layered> = { name: "outline", priority: 1, load: async () => layered }
+    const directLoad = vi.fn(() => source.load(context))
+
+    await expect(harness.adapter.load(source, context, directLoad)).resolves.toEqual(layered)
+    expect(directLoad).toHaveBeenCalledOnce()
+    expect(harness.storage.readArtifact).toHaveBeenCalledWith(expect.stringMatching(/^data-source:outline:v3:/))
+    expect(harness.storage.writeArtifact).toHaveBeenCalledWith(
+      expect.stringMatching(/^data-source:outline:v3:/),
+      expect.objectContaining({ sourceName: "outline", scope: "chapter", value: layered }),
     )
   })
 
@@ -142,6 +165,8 @@ describe("DataSourceCacheAdapter", () => {
     expect(harness.storage.writeArtifact).not.toHaveBeenCalled()
     expect(harness.adapter.getStats()).toMatchObject({
       empty: 2,
+      cacheableLoaded: 2,
+      cacheableHits: 0,
       reloaded: 0,
       cacheHits: 0,
     })
@@ -157,6 +182,8 @@ describe("DataSourceCacheAdapter", () => {
     expect(harness.adapter.getStats()).toMatchObject({
       reloaded: 1,
       writeFailed: 1,
+      cacheableLoaded: 1,
+      cacheableHits: 0,
     })
     expect(harness.adapter.getTraceItems().map((item) => item.status)).toEqual(["write_failed"])
   })
@@ -202,6 +229,113 @@ describe("DataSourceCacheAdapter", () => {
     ])
 
     expect(directLoad).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { sourceName: "outline", expected: { cacheableLoaded: 1, cacheableHits: 0, taskScopedLoaded: 0 } },
+    { sourceName: "searchResults", expected: { cacheableLoaded: 0, cacheableHits: 0, taskScopedLoaded: 1 } },
+  ])("counts one actual pending load for concurrent consumers: $sourceName", async ({ sourceName, expected }) => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: sourceName, priority: 1, load: async () => "资料" }
+    const directLoad = vi.fn(() => source.load(context))
+    let finishRead!: (value: CachedArtifact | null) => void
+    const pendingRead = new Promise<CachedArtifact | null>((resolve) => { finishRead = resolve })
+    harness.storage.readArtifact.mockImplementation(() => pendingRead)
+    // Observe real hashes so every consumer reaches the same pending operation before storage resolves.
+    const hashes = vi.spyOn(fingerprint, "sha256Text")
+    const loads = Array.from({ length: 4 }, () => harness.adapter.load(source, context, directLoad))
+    try {
+      await vi.waitFor(() => expect(hashes).toHaveBeenCalledTimes(4))
+      await Promise.all(hashes.mock.results.map((result) => result.value))
+      finishRead(null)
+      await Promise.all(loads)
+      expect(directLoad).toHaveBeenCalledOnce()
+      expect(harness.adapter.getStats()).toMatchObject(expected)
+    } finally {
+      finishRead(null)
+      hashes.mockRestore()
+    }
+  })
+
+  it("excludes all four task sources from both counters on a repeated twelve-source request", async () => {
+    const harness = createHarness()
+    const sources = [
+      "canonRules", "writingStyle", "soulDoc", "storyFrameworkBinding",
+      "relatedSettings", "fallbackRecentSummaries", "cognitionText", "retrieval",
+      "searchResults", "graphSearchResults", "bookAnalysisReferences", "sectionBriefing",
+    ].map((name): DataSource<string> => ({ name, priority: 1, load: vi.fn(async () => name) }))
+    const coldRegistry = new DataSourceRegistry({ loadAdapter: harness.adapter })
+    coldRegistry.registerAll(sources)
+    const cold = await coldRegistry.loadAll(context)
+    expect(harness.adapter.getStats()).toMatchObject({ cacheableLoaded: 8, cacheableHits: 0 })
+
+    const warmAdapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const warmRegistry = new DataSourceRegistry({ loadAdapter: warmAdapter })
+    warmRegistry.registerAll(sources)
+    const warm = await warmRegistry.loadAll(context)
+
+    expect(warm).toEqual(cold)
+    expect(warmAdapter.getStats()).toMatchObject({
+      cacheHits: 12,
+      taskScopedLoaded: 4,
+      cacheableLoaded: 8,
+      cacheableHits: 8,
+    })
+    for (const source of sources) expect(source.load).toHaveBeenCalledOnce()
+  })
+
+  it("does not multiply source loads when read/fallback and reload/write failures overlap", async () => {
+    const harness = createHarness()
+    const cachedSource: DataSource<string> = { name: "canonRules", priority: 1, load: async () => "规则" }
+    await harness.adapter.load(cachedSource, context, () => cachedSource.load(context))
+    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const sources = new DataSourceRegistry({ loadAdapter: adapter })
+    sources.registerAll([
+      cachedSource,
+      {
+        name: "outline", priority: 1,
+        load: async () => { throw new Error("读取大纲失败") },
+        fallback: async () => "降级大纲",
+      },
+      { name: "writingStyle", priority: 1, load: async () => "克制" },
+    ])
+    harness.storage.writeArtifact.mockRejectedValueOnce(new Error("写入缓存失败"))
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(sources.loadAll(context)).resolves.toMatchObject({
+        canonRules: "规则", outline: "降级大纲", writingStyle: "克制",
+      })
+    } finally {
+      warning.mockRestore()
+    }
+
+    expect(adapter.getStats()).toMatchObject({
+      cacheHits: 1, reloaded: 1, readFailed: 1, fallbackUsed: 1, writeFailed: 1,
+      cacheableLoaded: 3, cacheableHits: 1,
+    })
+  })
+
+  it.each([{ value: "" }, { value: [] }, { value: {} }, { value: null }, { value: undefined }])("counts an empty source result once per actual load: $value", async ({ value }) => {
+    const harness = createHarness()
+    const source: DataSource<unknown> = { name: "relatedSettings", priority: 1, load: async () => value }
+    await harness.adapter.load(source, context, () => source.load(context))
+
+    expect(harness.adapter.getStats()).toMatchObject({ empty: 1, cacheableLoaded: 1, cacheableHits: 0 })
+    expect(harness.storage.writeArtifact).not.toHaveBeenCalled()
+  })
+
+  it.each([{ value: "" }, { value: [] }, { value: {} }, { value: null }])("uses the same scope when an existing artifact has an empty value: $value", async ({ value }) => {
+    const harness = createHarness()
+    const source: DataSource<unknown> = { name: "relatedSettings", priority: 1, load: async () => "设定" }
+    await harness.adapter.load(source, context, () => source.load(context))
+    const artifact = harness.storage.writeArtifact.mock.calls[0]![1]
+    harness.storage.readArtifact.mockResolvedValue({ ...artifact, value })
+    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const directLoad = vi.fn(async () => "不应重载")
+
+    await expect(adapter.load(source, context, directLoad)).resolves.toEqual(value)
+    expect(adapter.getStats()).toMatchObject({ cacheableLoaded: 1, cacheableHits: 1 })
+    expect(directLoad).not.toHaveBeenCalled()
   })
 
   it("uses project scope for retrieval and related settings", async () => {
@@ -253,6 +387,7 @@ describe("DataSourceCacheAdapter", () => {
 
     expect(hit).toEqual(refreshed)
     expect(forced).toEqual(refreshed)
+    expect(forcedAdapter.getStats()).toMatchObject({ cacheableLoaded: 1, cacheableHits: 0 })
   })
 
   it("invalidates search results when a snapshot or community-summary file is added", async () => {
@@ -266,5 +401,25 @@ describe("DataSourceCacheAdapter", () => {
     await harness.adapter.load(source, context, directLoad)
 
     expect(directLoad).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe("缓存读取异常的单次计数", () => {
+  it.each([false, true])("缓存读取失败后回源，写入失败=%s 时也不重复计数", async (writeFails) => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "canonRules", priority: 1, load: async () => "最新规则" }
+    const directLoad = vi.fn(async () => "最新规则")
+    harness.storage.readArtifact.mockRejectedValueOnce(new Error("缓存文件损坏"))
+    if (writeFails) harness.storage.writeArtifact.mockRejectedValueOnce(new Error("缓存目录不可写"))
+    await expect(harness.adapter.load(source, context, directLoad)).resolves.toBe("最新规则")
+    expect(directLoad).toHaveBeenCalledOnce()
+    expect(harness.adapter.getStats()).toMatchObject({
+      cacheableLoaded: 1,
+      cacheableHits: 0,
+      reloaded: 1,
+      readFailed: 0,
+      writeFailed: writeFails ? 1 : 0,
+    })
   })
 })

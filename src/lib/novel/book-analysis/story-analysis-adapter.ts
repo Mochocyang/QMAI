@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { upsertPlotFramework } from "@/lib/novel/plot-framework-library"
 import { loadMetadata } from "./analysis-engine"
@@ -14,7 +15,7 @@ import {
 } from "./story-framework-extraction"
 import {
   buildStoryMapAggregatePrompt,
-  buildStoryMapPrompt,
+  buildStoryMapCacheContent,
   parseStoryMapResult,
 } from "./story-map-prompts"
 import { writeStoryMapFiles } from "./story-map-history"
@@ -24,13 +25,14 @@ import { scheduleVerification } from "./verification-engine"
 interface StoryAnalysisChunkResult {
   map: StoryMap
   rangeChapterIds: string[]
+  cacheable?: boolean
 }
 
 interface StoryAnalysisAdapterDependencies {
   loadChapters: typeof loadBookStoryFrameworkChapters
   loadMetadata: typeof loadMetadata
   recognizeCharacters: typeof llmRecognizeCharacters
-  callModel: (messages: ChatMessage[], llmConfig: Parameters<typeof streamChat>[0], signal: AbortSignal) => Promise<string>
+  callModel: (messages: ChatMessage[], llmConfig: Parameters<typeof streamChat>[0], signal: AbortSignal, onRequestTrace?: (trace: LlmRequestCacheTrace) => void) => Promise<string>
   buildDraft: typeof buildPlotFrameworkDraftFromBookStoryOutput
   upsertFramework: typeof upsertPlotFramework
   replaceEvidence: typeof replaceAutomaticEvidence
@@ -45,6 +47,7 @@ async function callStoryModel(
   messages: ChatMessage[],
   llmConfig: Parameters<typeof streamChat>[0],
   signal: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
   let output = ""
   let streamError: Error | null = null
@@ -52,6 +55,7 @@ async function callStoryModel(
     onToken: (token) => { output += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
+    onRequestTrace,
   }, signal, { reasoning: llmConfig.reasoning })
   if (signal.aborted) throw new Error("用户取消故事分析")
   if (streamError) throw streamError
@@ -171,7 +175,7 @@ export function createStoryAnalysisAdapter(
   const dependencies = { ...defaultDependencies, ...overrides }
   return {
     skill: "story",
-    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress }) {
+    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress, onRequestTrace }) {
       onProgress?.({ stageLabel: "读取章节…", percentage: 10 })
       const chapters = await dependencies.loadChapters(bookPath, chunk.chapterIds)
       if (chapters.length !== chunk.chapterIds.length) {
@@ -187,8 +191,8 @@ export function createStoryAnalysisAdapter(
         temporaryCharacters = (await dependencies.recognizeCharacters({
           chapters: chapters.map((chapter, index) => ({ index, content: chapter.content })),
           llmConfig,
-          sourceBook: metadata.title,
-          signal,
+          sourceBook: metadata.title, bookPath, forceRefresh: task.forceRefresh,
+          signal, onRequestTrace,
         })).map((character) => ({
           name: character.name,
           aliases: character.aliases,
@@ -197,16 +201,16 @@ export function createStoryAnalysisAdapter(
       }
       onProgress?.({ stageLabel: "正在提取主线与分支导图…", percentage: 50 })
       const raw = await dependencies.callModel([
-        { role: "system", content: "你是严谨的小说故事结构拆解助手，只输出用户要求的 JSON，不要围栏与解释。" },
+        { role: "system", content: [{ type: "text", text: "你是严谨的小说故事结构拆解助手，只输出用户要求的 JSON，不要围栏与解释。", cacheControl: true }] },
         {
           role: "user",
-          content: buildStoryMapPrompt({
+          content: buildStoryMapCacheContent({
             bookTitle: metadata.title,
             chapters,
             temporaryCharacters,
           }),
         },
-      ], llmConfig, signal)
+      ], llmConfig, signal, onRequestTrace)
       onProgress?.({ stageLabel: "解析故事导图结果…", percentage: 90 })
       const map = parseStoryMapResult(raw, {
         bookId: task.bookId,
@@ -229,7 +233,7 @@ export function createStoryAnalysisAdapter(
         evidence: storyEvidence(task.id, task.bookId, chunk.id, chapters, dependencies.now()),
       }
     },
-    async aggregate({ task, chunks, llmConfig, signal, onProgress }) {
+    async aggregate({ task, chunks, llmConfig, signal, onProgress, onRequestTrace }) {
       if (chunks.length === 0) throw new Error("没有已完成的故事区块可供汇总")
       const legacy = chunks.find((chunk) => !(chunk as Partial<StoryAnalysisChunkResult>).map)
       if (legacy) {
@@ -244,9 +248,9 @@ export function createStoryAnalysisAdapter(
       let merged: StoryMap | null = null
       try {
         const raw = await dependencies.callModel([
-          { role: "system", content: "你只汇总已有故事导图，禁止新增未分析章节。" },
-          { role: "user", content: buildStoryMapAggregatePrompt(chunks.map((chunk) => chunk.map)) },
-        ], llmConfig, signal)
+          { role: "system", content: [{ type: "text", text: "你只汇总已有故事导图，禁止新增未分析章节。", cacheControl: true }] },
+          { role: "user", content: [{ type: "text", text: buildStoryMapAggregatePrompt(chunks.map((chunk) => chunk.map)), cacheControl: true }] },
+        ], llmConfig, signal, onRequestTrace)
         merged = parseStoryMapResult(raw, {
           bookId: task.bookId,
           bookTitle: chunks[0].map.bookTitle,
@@ -258,9 +262,9 @@ export function createStoryAnalysisAdapter(
       }
       const map = merged ?? mergeStoryMapsLocally(chunks.map((chunk) => chunk.map), dependencies.now())
       onProgress?.({ stageLabel: "故事导图汇总完成", percentage: 95 })
-      return { map, rangeChapterIds }
+      return { map, rangeChapterIds, ...(!merged ? { cacheable: false } : {}) }
     },
-    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, onProgress }) {
+    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, signal, onProgress, onRequestTrace }) {
       onProgress?.({ stageLabel: "正在发布故事导图…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布故事分析")
@@ -311,7 +315,10 @@ export function createStoryAnalysisAdapter(
       onProgress?.({ stageLabel: "故事导图已发布", percentage: 100 })
 
       // 后台审计：三重验证 + 压力测试（best-effort，失败不影响任务）
-      void scheduleVerification(bookPath, "story", llmConfig)
+      void scheduleVerification(bookPath, "story", llmConfig, {
+        forceRefresh: task.forceRefresh, signal,
+        onRequestTrace: (trace) => onRequestTrace?.({ ...trace, stage: "verification" }),
+      })
         .catch((error) => console.warn("[story-verify] 校验失败：", error))
       return resultPath
     },

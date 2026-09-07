@@ -16,6 +16,7 @@ vi.mock("@/lib/novel/book-analysis/analysis-scheduler", () => ({
     initialize: vi.fn(),
     subscribe: vi.fn(() => () => undefined),
     dispose: vi.fn(async () => undefined),
+    registerTask: vi.fn(async () => undefined),
     enqueue: vi.fn(async () => undefined),
     pauseTask: vi.fn(async () => undefined),
     continueTask: vi.fn(async () => undefined),

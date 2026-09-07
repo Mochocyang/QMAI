@@ -52,3 +52,14 @@ export function stripOutlineFindProtocol(prompt: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim()
 }
+
+
+/** 按已知完整协议移到动态层，不用标题截断其后的模式/权限规则。 */
+export function splitOutlineFindProtocolForCache(prompt: string, targetChapterNumber?: number): { stableRules: string; dynamicRules: string } {
+  const protocol = buildOutlineFindProtocol(targetChapterNumber)
+  if (!prompt.includes(protocol)) return { stableRules: prompt, dynamicRules: "" }
+  return {
+    stableRules: prompt.replace(protocol, "").replace(/\n{3,}/g, "\n\n").trim(),
+    dynamicRules: protocol,
+  }
+}

@@ -21,6 +21,7 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 import { createVerificationEngine, MAX_VERIFY_UNITS, scheduleVerification } from "./verification-engine"
+import type { AnalysisStageCache } from "./analysis-stage-cache"
 import { parseVerifyResult, pressureKindsFor } from "./verification-prompts"
 
 const VERIFY_JSON = JSON.stringify({
@@ -37,9 +38,9 @@ const VERIFY_JSON = JSON.stringify({
 
 function makeEngine(callModel: (prompt: string) => string) {
   return createVerificationEngine({
-    callModel: vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+    callModel: vi.fn(async (messages: Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>) => {
       const user = messages.find((message) => message.role === "user")
-      return callModel(user?.content ?? "")
+      return callModel(typeof user?.content === "string" ? user.content : user?.content.map((block) => block.text ?? "").join("") ?? "")
     }),
     now: () => 1700000000000,
   })
@@ -187,5 +188,113 @@ describe("createVerificationEngine.runVerification", () => {
 describe("scheduleVerification", () => {
   it("数据缺失时吞异常不抛出（best-effort）", async () => {
     await expect(scheduleVerification("nowhere", "style", {} as never)).resolves.toBeUndefined()
+  })
+})
+
+
+describe("后台验证复用与用量回传", () => {
+  function cacheFixture() {
+    const values = new Map<string, unknown>()
+    const stageCache: AnalysisStageCache = {
+      createKey: async (input) => JSON.stringify({ stage: input.stage, materials: input.materials, model: input.llmConfig.model }),
+      read: async (_input, key) => values.get(key) as never ?? null,
+      write: async (_input, key, value) => { values.set(key, value) },
+    }
+    return { stageCache, values }
+  }
+  it("有效验证结果重复复用，重新提取、材料变化或模型变化重新校验", async () => {
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "克制", samples: ["原文一"] }))
+    const { stageCache } = cacheFixture()
+    const onRequestTrace = vi.fn()
+    const callModel = vi.fn(async (_messages, _config, _signal, onTrace) => { onTrace?.({ requestId: "verify" }); return JSON.stringify({ ...JSON.parse(VERIFY_JSON), pressure: [...JSON.parse(VERIFY_JSON).pressure, { kind: "confusion", prompt: "辨别相邻风格", verdict: "pass", reason: "边界明确" }] }) })
+    const engine = createVerificationEngine({ stageCache, callModel })
+    const config = { model: "fixture" } as never
+    await engine.runVerification("style", "book", config, { onRequestTrace })
+    await engine.runVerification("style", "book", config, { onRequestTrace })
+    expect(callModel).toHaveBeenCalledTimes(1)
+    expect(onRequestTrace).toHaveBeenCalledWith(expect.objectContaining({ requestId: "verify" }))
+    await engine.runVerification("style", "book", config, { forceRefresh: true })
+    expect(callModel).toHaveBeenCalledTimes(2)
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "浓烈", samples: ["原文二"] }))
+    await engine.runVerification("style", "book", config)
+    await engine.runVerification("style", "book", { model: "other" } as never)
+    expect(callModel).toHaveBeenCalledTimes(4)
+  })
+  it("无效输出和取消结果不缓存，不用失败占位结果省掉下一次真实校验", async () => {
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "克制", samples: [] }))
+    const { stageCache, values } = cacheFixture()
+    const callModel = vi.fn(async () => "无效输出")
+    const engine = createVerificationEngine({ stageCache, callModel })
+    await engine.runVerification("style", "book", {} as never)
+    await engine.runVerification("style", "book", {} as never)
+    expect(callModel).toHaveBeenCalledTimes(2)
+    expect(values.size).toBe(0)
+    const controller = new AbortController(); controller.abort()
+    await expect(engine.runVerification("style", "book", {} as never, { signal: controller.signal })).rejects.toThrow("取消")
+    expect(callModel).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+function completeVerifyRaw(detail: string) {
+  return JSON.stringify({
+    triple: ["crossDomain", "predictive", "unique"].map((key) => ({ key, status: "fail", detail, evidenceCount: 0 })),
+    pressure: ["apply", "boundary", "confusion"].map((kind) => ({ kind, prompt: "场景检验", verdict: "fail", reason: detail })),
+  })
+}
+function memoryStageCache() {
+  const values = new Map<string, unknown>()
+  const cache: AnalysisStageCache = {
+    createKey: async (input) => JSON.stringify(input.materials),
+    read: async (_input, key) => values.get(key) as never ?? null,
+    write: async (_input, key, value) => { values.set(key, value) },
+  }
+  return { cache, values }
+}
+
+describe("验证缓存和并发报告审查回归", () => {
+  it("JSON格式正确但缺必填判定时不缓存，显式fail的完整审计仍可复用", async () => {
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "样本", samples: [] }))
+    const { cache, values } = memoryStageCache()
+    const incomplete = JSON.stringify({
+      triple: ["crossDomain", "predictive", "unique"].map((key) => ({ key })),
+      pressure: ["apply", "boundary", "confusion"].map((kind) => ({ kind, prompt: "有场景但没有判定" })),
+    })
+    const callModel = vi.fn(async () => incomplete)
+    const engine = createVerificationEngine({ stageCache: cache, callModel })
+    await engine.runVerification("style", "book", {} as never)
+    await engine.runVerification("style", "book", {} as never)
+    expect(callModel).toHaveBeenCalledTimes(2)
+    expect(values.size).toBe(0)
+    callModel.mockResolvedValue(completeVerifyRaw("证据不足，明确判定未通过"))
+    await engine.runVerification("style", "book", {} as never)
+    await engine.runVerification("style", "book", {} as never)
+    expect(callModel).toHaveBeenCalledTimes(3)
+  })
+
+  it("旧验证阻塞在建目录时，新验证完成后旧报告不能覆盖新的JSON和Markdown", async () => {
+    const { cache } = memoryStageCache()
+    let release!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const blocked = new Promise<void>((resolve) => { entered = resolve })
+    const createDirectory = vi.fn(async () => {})
+    createDirectory.mockImplementationOnce(async () => { entered(); await gate })
+    const callModel = vi.fn(async () => completeVerifyRaw("old-result"))
+    callModel.mockImplementationOnce(async () => completeVerifyRaw("old-result"))
+    callModel.mockImplementationOnce(async () => completeVerifyRaw("new-result"))
+    const engine = createVerificationEngine({ stageCache: cache, createDirectory, callModel })
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "旧版", samples: [] }))
+    const oldRun = engine.runVerification("style", "book", {} as never)
+    await blocked
+    mockFs.files.set("book/style-profile.json", JSON.stringify({ constitution: "新版", samples: [] }))
+    const newRun = engine.runVerification("style", "book", {} as never)
+    await vi.waitFor(() => expect(callModel).toHaveBeenCalledTimes(2))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    release()
+    await Promise.all([oldRun, newRun])
+    expect(mockFs.writes.get("book/verification/style-verification.json")).toContain("new-result")
+    expect(mockFs.writes.get("book/verification/style-verification.md")).toContain("new-result")
+    expect(mockFs.writes.get("book/verification/style-verification.json")).not.toContain("old-result")
   })
 })

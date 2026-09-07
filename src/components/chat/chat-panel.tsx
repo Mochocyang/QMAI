@@ -118,6 +118,7 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { buildPlanExecutePolicyPrompt, WRITING_INTENTS } from "@/lib/agent/plan-execute-policy"
 import {
   buildOutlineFindProtocol,
+  splitOutlineFindProtocolForCache,
   shouldIncludeOutlineFindProtocol,
 } from "@/lib/novel/outline-find-protocol"
 import { createContextTrace, finishTrace, setContextInfo, type ContextTrace } from "@/lib/agent/context-trace"
@@ -136,7 +137,8 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
 import {
-  buildContextHubSystemContent,
+  buildContextHubPromptParts,
+  withContextHubTaskContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
   buildLlmRequestDiagnostics,
@@ -1100,6 +1102,7 @@ export function ChatPanel() {
         && !message.isAgentRunning
       )),
       activeConversation?.contextSummary?.text,
+      Math.min(4000, Math.floor((agentConfig?.llmConfig ? getEffectiveMaxContextSize(agentConfig.llmConfig) : 204_800) * 0.05)),
     )
     const measuredAt = activeConversation?.lastContextUsage?.measuredAt ?? 0
     const pendingToolResultTexts = activeMessages
@@ -1967,11 +1970,16 @@ export function ChatPanel() {
         : [
             baseSystemPrompt,
           ].filter(Boolean).join("\n")
-      const contextHubSoftwareRules = hasSplitSystemRules
+      const rawContextHubSoftwareRules = hasSplitSystemRules
         ? (stableSystemRulesPrompt ?? "")
         : (prePluginSystemRulesPrompt || sessionAgentSystemPrompt)
-      const contextHubSystemContent = contextHubResult
-        ? buildContextHubSystemContent(contextHubSoftwareRules, contextHubResult, [
+      const { stableRules: contextHubSoftwareRules, dynamicRules: outlineCacheRules } = splitOutlineFindProtocolForCache(
+        rawContextHubSoftwareRules,
+        targetChapterNumber,
+      )
+      const contextHubPromptParts = contextHubResult
+        ? buildContextHubPromptParts(contextHubSoftwareRules, contextHubResult, [
+            outlineCacheRules,
             dynamicSystemRulesPrompt ?? "",
             qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
@@ -1982,15 +1990,19 @@ export function ChatPanel() {
               : "",
           ])
         : null
+      const contextHubSystemContent = contextHubPromptParts?.systemContent ?? null
       const systemPromptForConfig = contextHubSystemContent
         ? flattenContextHubSystemContent(contextHubSystemContent)
         : effectiveSystemPrompt
 
       const deAiMode = activeConv?.deAiMode ?? false
       const rawUserContent = buildAgentUserContent(plainText, tokens)
-      const userContent = !effectiveDeAiSkill && deAiMode
+      const baseUserContent = !effectiveDeAiSkill && deAiMode
         ? injectDeAiDirective(rawUserContent, deAiMode)
         : rawUserContent
+      const userContent = contextHubPromptParts
+        ? withContextHubTaskContent(baseUserContent, contextHubPromptParts.taskContext)
+        : baseUserContent
       const readChapterToolAvailable = !isQuickGeneralChat && (
         !prePluginResult?.enabledToolNames
         || prePluginResult.enabledToolNames.includes("read_chapter")
@@ -1998,6 +2010,7 @@ export function ChatPanel() {
       const historyForModel = selectContextHistoryMessages(
         activeConvMessages,
         contextHubResult?.sessionSummary,
+        Math.min(4000, Math.floor(getEffectiveMaxContextSize(agentConfig.llmConfig) * 0.05)),
       )
       const historyMessages = await buildAgentHistoryMessages(historyForModel, {
         projectPath: pp,
@@ -2086,7 +2099,7 @@ export function ChatPanel() {
               ? message.content
               : message.content.map((block) => block.type === "text" ? block.text : "").join("")
           )),
-          currentInput: userContent,
+          currentInput: baseUserContent,
         })
         // Seed this turn's baseline so the ring can grow with tool reads before the first usage report.
         useChatStore.getState().setConversationContextUsage(capturedConvId, usageSnapshotBase)
@@ -2214,6 +2227,7 @@ export function ChatPanel() {
                   record.usage,
                   Math.max(1, record.roundsUsed || 1),
                   {
+                    usageTotals: record.requestUsageTotals,
                     requests: record.requestTraces,
                     omittedRequestCount: record.omittedRequestTraceCount,
                     requestCountAvailable: record.providerRequestCountAvailable,

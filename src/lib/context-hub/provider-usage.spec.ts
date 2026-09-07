@@ -185,3 +185,31 @@ describe("context hub provider usage", () => {
     expect(saveSnapshot).toHaveBeenCalledWith("assistant:1", result)
   })
 })
+
+
+describe("工作流供应商总量", () => {
+  it("完整请求总账优先于外层Agent用量，不把外层用量再加一次", () => {
+    const result = buildLlmRequestDiagnostics({ inputTokens: 100, cachedInputTokens: 20 }, 1, {
+      usageTotals: { requestCount: 40, inputTokens: 10_000, outputTokens: 1200, cachedInputTokens: 8000 },
+      requests: [],
+      omittedRequestCount: 40,
+    })
+    expect(result).toMatchObject({ requestCount: 40, inputTokens: 10_000, outputTokens: 1200, cacheReadTokens: 8000 })
+  })
+
+  it("完整总账明确缺失的缓存用量不能退回外层已知部分", () => {
+    const result = buildLlmRequestDiagnostics({ inputTokens: 100, cachedInputTokens: 80 }, 1, {
+      usageTotals: { requestCount: 2, inputTokens: 10_000, outputTokens: 1200 },
+    })
+    expect(result.inputTokens).toBe(10_000)
+    expect(result.cacheReadTokens).toBeUndefined()
+    expect(result.requestCount).toBe(2)
+  })
+
+  it("旧版逐次统计缺失输入/输出/缓存字段时不伪造为零", () => {
+    const result = applyProviderUsageToStats(baseStats, { inputTokens: 100 })
+    expect(result.requestDiagnostics?.cacheReadTokens).toBeUndefined()
+    expect(result.requestDiagnostics?.cacheWriteTokens).toBeUndefined()
+    expect(result.requestDiagnostics?.outputTokens).toBeUndefined()
+  })
+})

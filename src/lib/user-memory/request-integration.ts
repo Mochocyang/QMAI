@@ -1,5 +1,6 @@
 import type { ChatMessage, ContentBlock, RequestOverrides } from "@/lib/llm-providers"
 import { compileUserMemorySkill } from "./compiler"
+import { withContextHubTaskContent } from "@/lib/context-hub/prompt-content"
 import {
   buildUserMemoryDecision,
   setLatestUserMemoryDecision,
@@ -78,6 +79,18 @@ export function applyGlobalUserMemoryToMessages(
       : rule),
     updatedAt: Math.max(config.updatedAt, now),
   }, storage)
+  const cacheable = messages.some((message) => Array.isArray(message.content)
+    && message.content.some((block) => block.type === "text" && block.cacheControl))
+  const userIndex = messages.reduce((last, message, index) => message.role === "user" ? index : last, -1)
+  if (cacheable && userIndex >= 0) {
+    // 用户偏好不是软件权限：放在稳定材料之后、当前请求之前，当前请求仍优先。
+    return {
+      messages: messages.map((message, index) => index === userIndex
+        ? { ...message, content: withContextHubTaskContent(message.content, [{ type: "text", text: prompt }]) }
+        : message),
+      decision,
+    }
+  }
   const systemIndex = messages.findIndex((message) => message.role === "system")
   if (systemIndex < 0) {
     return { messages: [{ role: "system", content: prompt }, ...messages], decision }

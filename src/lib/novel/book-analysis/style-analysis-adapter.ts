@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { readFile, writeFile } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { joinPath, normalizePath } from "@/lib/path-utils"
@@ -10,6 +11,7 @@ import type { AnalysisEvidenceSnippet, BookAnalysisModuleManifest } from "./anal
 import type { AnalysisSkillAdapter } from "./analysis-skill-adapter"
 import {
   buildStyleExtractionPrompt,
+  isStyleProfileResponseCacheable,
   parseStyleEvidenceResult,
   parseStyleProfileResult,
 } from "./style-prompts"
@@ -21,13 +23,14 @@ import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 interface StyleAnalysisChunkResult {
   raw: string
   profile: BookStyleProfile
+  cacheable?: boolean
 }
 
 interface StyleAnalysisAdapterDependencies {
   readFile: typeof readFile
   writeFile: typeof writeFile
   loadMetadata: typeof loadMetadata
-  callModel: (messages: ChatMessage[], llmConfig: Parameters<typeof streamChat>[0], signal: AbortSignal) => Promise<string>
+  callModel: (messages: ChatMessage[], llmConfig: Parameters<typeof streamChat>[0], signal: AbortSignal, onRequestTrace?: (trace: LlmRequestCacheTrace) => void) => Promise<string>
   upsertPreset: typeof upsertWritingStylePreset
   replaceEvidence: typeof replaceAutomaticEvidence
   loadManifest: typeof loadAnalysisManifest
@@ -40,6 +43,7 @@ async function callStyleModel(
   messages: ChatMessage[],
   llmConfig: Parameters<typeof streamChat>[0],
   signal: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
   let output = ""
   let streamError: Error | null = null
@@ -47,6 +51,7 @@ async function callStyleModel(
     onToken: (token) => { output += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
+    onRequestTrace,
   }, signal, { reasoning: llmConfig.reasoning })
   if (signal.aborted) throw new Error("用户取消文风分析")
   if (streamError) throw streamError
@@ -124,7 +129,7 @@ export function createStyleAnalysisAdapter(
   const dependencies = { ...defaultDependencies, ...overrides }
   return {
     skill: "style",
-    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress }) {
+    async runChunk({ task, bookPath, llmConfig, chunk, signal, onProgress, onRequestTrace }) {
       onProgress?.({ stageLabel: "读取章节样本…", percentage: 10 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法分析文风")
@@ -137,9 +142,9 @@ export function createStyleAnalysisAdapter(
       if (blocks.length !== chunk.chapterIds.length) throw new Error("所选文风章节正文为空，请检查后重试")
       onProgress?.({ stageLabel: "正在调用模型分析文风…", percentage: 40 })
       const raw = await dependencies.callModel([
-        { role: "system", content: "你是专业的小说文风分析助手。只输出用户要求的 JSON，不要解释。" },
-        { role: "user", content: buildStyleExtractionPrompt(blocks.join("\n\n———\n\n"), metadata.title) },
-      ], llmConfig, signal)
+        { role: "system", content: [{ type: "text", text: "你是专业的小说文风分析助手。只输出用户要求的 JSON，不要解释。", cacheControl: true }] },
+        { role: "user", content: [{ type: "text", text: buildStyleExtractionPrompt(blocks.join("\n\n———\n\n"), metadata.title), cacheControl: true }] },
+      ], llmConfig, signal, onRequestTrace)
       onProgress?.({ stageLabel: "解析文风结果…", percentage: 85 })
       const profile = parseStyleProfileResult(raw, chunk.chapterIds)
       const evidence = parseStyleEvidenceResult(raw).flatMap((candidate, index): AnalysisEvidenceSnippet[] => {
@@ -164,27 +169,27 @@ export function createStyleAnalysisAdapter(
         }]
       })
       onProgress?.({ stageLabel: "文风区块分析完成", percentage: 95 })
-      return { result: { raw, profile }, evidence }
+      return { result: { raw, profile, cacheable: isStyleProfileResponseCacheable(raw) }, evidence }
     },
-    async aggregate({ chunks, llmConfig, signal, onProgress }) {
+    async aggregate({ chunks, llmConfig, signal, onProgress, onRequestTrace }) {
       if (chunks.length === 0) throw new Error("没有已完成的文风区块可供汇总")
       const evidenceIds: string[] = []
       if (chunks.length === 1) {
         onProgress?.({ stageLabel: "单区块无需汇总", percentage: 95 })
-        return mergeStyleChunkProfiles(chunks, evidenceIds, dependencies.now())
+        return { ...mergeStyleChunkProfiles(chunks, evidenceIds, dependencies.now()), ...(chunks.some((chunk) => chunk.cacheable === false) ? { cacheable: false } : {}) }
       }
       onProgress?.({ stageLabel: "正在调用模型汇总文风…", percentage: 93 })
       const raw = await dependencies.callModel([
-        { role: "system", content: "你只汇总已有文风分析，不分析范围外内容。" },
-        { role: "user", content: aggregatePrompt(chunks) },
-      ], llmConfig, signal)
+        { role: "system", content: [{ type: "text", text: "你只汇总已有文风分析，不分析范围外内容。", cacheControl: true }] },
+        { role: "user", content: [{ type: "text", text: aggregatePrompt(chunks), cacheControl: true }] },
+      ], llmConfig, signal, onRequestTrace)
       const profile = parseStyleProfileResult(raw, chunks.flatMap((chunk) => chunk.profile.sampledChapterIds))
       profile.generatedAt = dependencies.now()
       profile.evidenceIds = evidenceIds
       onProgress?.({ stageLabel: "文风汇总完成", percentage: 95 })
-      return profile
+      return { ...profile, ...(!isStyleProfileResponseCacheable(raw) || chunks.some((chunk) => chunk.cacheable === false) ? { cacheable: false } : {}) }
     },
-    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, onProgress }) {
+    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, signal, onProgress, onRequestTrace }) {
       onProgress?.({ stageLabel: "正在发布文风结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布文风分析")
@@ -223,7 +228,10 @@ export function createStyleAnalysisAdapter(
       onProgress?.({ stageLabel: "文风结果已发布", percentage: 100 })
 
       // 后台审计：三重验证 + 压力测试（best-effort，失败不影响任务）
-      void scheduleVerification(bookPath, "style", llmConfig)
+      void scheduleVerification(bookPath, "style", llmConfig, {
+        forceRefresh: task.forceRefresh, signal,
+        onRequestTrace: (trace) => onRequestTrace?.({ ...trace, stage: "verification" }),
+      })
         .catch((error) => console.warn("[style-verify] 校验失败：", error))
       return resultPath
     },

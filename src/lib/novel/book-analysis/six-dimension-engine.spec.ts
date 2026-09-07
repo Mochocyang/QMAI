@@ -8,6 +8,7 @@ vi.mock("@/lib/llm-client", () => ({
     // 模拟：每个维度返回一个稳定的 markdown
     callbacks.onToken?.("## 模拟章节\n模拟正文")
     callbacks.onDone?.()
+    callbacks.onRequestTrace?.({ requestId: "dimension-test" })
   }),
 }))
 
@@ -213,4 +214,20 @@ describe("six-dimension-engine", () => {
     expect(progress[0].stage).toBe("done")
     expect(progress[0].dimensions?.every((d: any) => d.status === "done")).toBe(true)
   })
+})
+
+
+it("六个维度实际请求共享语料缓存块，保留原采样限额并回传全部请求", async () => {
+  const { streamChat } = await import("@/lib/llm-client")
+  vi.mocked(streamChat).mockClear()
+  const onRequestTrace = vi.fn()
+  await analyzeSixDimensions({ character: makeCharacter(), corpus: "语料".repeat(4000),
+    llmConfig: makeLlmConfig(), depth: "standard", bookTitle: "测试作品", onRequestTrace })
+  expect(onRequestTrace).toHaveBeenCalledTimes(6)
+  const messages = vi.mocked(streamChat).mock.calls.map((call) => call[1])
+  const prefixes = messages.map((items) => Array.isArray(items[0].content) ? items[0].content[0] : null)
+  expect(prefixes.every((value) => value?.type === "text" && value.cacheControl)).toBe(true)
+  expect(new Set(prefixes.map((value) => JSON.stringify(value))).size).toBe(1)
+  expect(JSON.stringify(messages[0])).not.toContain("语料".repeat(4000))
+  expect(JSON.stringify(messages[0])).toContain("语料".repeat(3000))
 })

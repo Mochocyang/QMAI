@@ -24,6 +24,8 @@ import { getAllDataSources, getDataSourcesForCategories } from "./context-data-s
 import type { DataSourceCategory } from "./classification"
 import {
   buildOutlineContext,
+  buildOutlineContextLayers,
+  type OutlineContextLayers,
   buildVolumeContext,
   capOutlineSourcesToBudget,
   loadOutlineDocumentIndex,
@@ -74,6 +76,10 @@ export interface ContextPack {
   task: string
   chapterGoal: string
   outline: string
+  /** 全书总纲和设定；与当前章节无关。缺失表示旧版未分层上下文。 */
+  projectOutline?: string
+  /** 当前分卷、章节规划和章纲；仅放在动态任务层。 */
+  chapterOutlineContext?: string
   /** 仅供写作实体补搜提取候选名称，不注入任务书、正文或审稿提示词。 */
   entitySearchOutline?: string
   recentChapterContents?: string[]
@@ -252,9 +258,17 @@ async function buildContextPackFromRawData(
     searchResults,
   )
   
+  const outlineLayers = rawData.outline && typeof rawData.outline === "object"
+    && typeof rawData.outline.full === "string"
+    && typeof rawData.outline.project === "string"
+    && typeof rawData.outline.task === "string"
+    ? rawData.outline as OutlineContextLayers
+    : undefined
+  const outline = outlineLayers?.full ?? (typeof rawData.outline === "string" ? rawData.outline : "")
+
   // 构建章节目标
   const chapterGoal = buildChapterGoal(
-    rawData.outline, 
+    outline,
     rawData.chapterOutline, 
     context.chapterNumber
   )
@@ -263,12 +277,12 @@ async function buildContextPackFromRawData(
     chapterOutline: rawData.chapterOutline,
     volumeContext: rawData.volumeContext,
     chapterGoal,
-    outline: rawData.outline,
+    outline,
   })
   
   // 合并大纲信息
   const mergedOutline = joinNonEmpty([
-    rawData.outline,
+    outline,
     rawData.volumeContext,
     rawData.chapterOutline
   ], "\n\n")
@@ -292,6 +306,14 @@ async function buildContextPackFromRawData(
     task: context.task,
     chapterGoal,
     outline: mergedOutline,
+    ...(outlineLayers ? {
+      projectOutline: outlineLayers.project,
+      chapterOutlineContext: joinNonEmpty([
+        outlineLayers.task,
+        rawData.volumeContext,
+        rawData.chapterOutline,
+      ], "\n\n"),
+    } : {}),
     entitySearchOutline,
     recentChapterContents,
     recentSummaries,
@@ -485,6 +507,14 @@ function emptyPack(task: string): ContextPack {
     mustAvoid: "",
     nextChapterAdvice: "",
     revisionDirectives: "",
+  }
+}
+
+export async function readOutlineContextLayers(pp: string, chapterNumber?: number): Promise<OutlineContextLayers> {
+  try {
+    return buildOutlineContextLayers(await loadOutlineDocumentIndex(pp), chapterNumber)
+  } catch {
+    return { full: "", project: "", task: "" }
   }
 }
 

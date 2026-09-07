@@ -1454,6 +1454,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     const historyMessages = selectContextHistoryMessages(
       activeMessages.filter((message) => message.role === "user" || message.role === "assistant"),
       activeConv?.contextSummary?.text,
+      Math.min(4000, Math.floor(effectiveOutlineContextWindow * 0.05)),
     );
     return composeLiveContextUsage(activeConv?.lastContextUsage, {
       windowTokens: effectiveOutlineContextWindow,
@@ -2114,6 +2115,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           : undefined;
       let historyPlan = planOutlineAgentHistory({
         history: historyBeforeSend,
+        historyTokenBudget: Math.min(4000, Math.floor(getEffectiveMaxContextSize(effectiveLlmConfig) * 0.05)),
         contextDecision,
         cachedSummary,
         workflowMode: outlineMode,
@@ -2215,6 +2217,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (contextHubResult && contextDecision.mode === "reuse") {
           historyPlan = planOutlineAgentHistory({
             history: historyBeforeSend,
+            historyTokenBudget: Math.min(4000, Math.floor(getEffectiveMaxContextSize(effectiveLlmConfig) * 0.05)),
             contextDecision,
             cachedSummary: contextHubResult.sessionSummary || undefined,
             summaryInSystem: true,
@@ -4069,6 +4072,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           { role: "user", content: lastUserRequest },
         ];
         const regenerationRecords: AgentRunRecord[] = [];
+        const regenerationTraceCollector = new LlmRequestTraceCollector();
         const regenerationRun = await runOutlineAttemptWithReasoningRetry(
           agentConfig,
           async (requestOverrides) => {
@@ -4096,6 +4100,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 onReasoningToken: (chunk) => {
                   accumulatedReasoningContent += chunk;
                 },
+                onRequestTrace: regenerationTraceCollector.record,
                 onToolCall: () => {},
                 onToolResult: () => {},
                 onToolError: () => {},
@@ -4155,11 +4160,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ),
           roundsUsed: regenerationRecords.reduce((total, item) => total + Math.max(1, item.roundsUsed || 1), 0),
           toolCalls: regenerationRecords.flatMap((item) => item.toolCalls),
-          requestTraces: regenerationRecords.flatMap((item) => item.requestTraces ?? []),
-          omittedRequestTraceCount: regenerationRecords.reduce(
-            (total, item) => total + (item.omittedRequestTraceCount ?? 0),
-            0,
-          ),
+          requestTraces: regenerationTraceCollector.snapshot().requests,
+          requestUsageTotals: regenerationTraceCollector.snapshot().usageTotals,
+          omittedRequestTraceCount: regenerationTraceCollector.snapshot().omittedRequestCount,
           providerRequestCountAvailable: regenerationRecords.every(
             (item) => item.providerRequestCountAvailable !== false,
           ),
@@ -4181,6 +4184,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   record.usage,
                   Math.max(1, record.roundsUsed || 1),
                   {
+                    usageTotals: record.requestUsageTotals,
                     requests: record.requestTraces,
                     omittedRequestCount: record.omittedRequestTraceCount,
                     requestCountAvailable: record.providerRequestCountAvailable,

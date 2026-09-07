@@ -451,4 +451,26 @@ describe("CodexAppServerRunner", () => {
     expect(cb.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "操作已取消" }))
     expect(cb.onDone).not.toHaveBeenCalled()
   })
+  it("原生传输同样把可变任务资料和契约放在稳定指令之后", async () => {
+    appServerMock.onTurn = () => {
+      envelope("item/completed", { threadId: "thread-1", item: { id: "answer-1", type: "agentMessage", text: "完成" } })
+      envelope("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } })
+    }
+    const cachedMessages: AgentMessage[] = [{ role: "system", content: [
+      { type: "text", text: "固定软件规则" },
+      { type: "text", text: "项目稳定核心", cacheControl: true },
+      { type: "text", text: "本轮变化的章节材料" },
+    ] }, { role: "user", content: "完成第二章" }]
+    const cb = callbacks()
+    await new CodexAppServerRunner().run(config([], { taskGoal: "完成第二章" }), new ToolRegistry(), cachedMessages, cb)
+    expect(cb.onError).not.toHaveBeenCalled()
+    const threadStart = appServerMock.call.mock.calls.find(([method]) => method === "thread/start")![1]
+    const turnStart = appServerMock.call.mock.calls.find(([method]) => method === "turn/start")![1]
+    expect(threadStart.baseInstructions).toContain("项目稳定核心")
+    expect(threadStart.baseInstructions).not.toContain("本轮变化的章节材料")
+    expect(threadStart.baseInstructions).not.toContain("任务契约")
+    expect(JSON.stringify(turnStart.input)).toContain("本轮变化的章节材料")
+    expect(JSON.stringify(turnStart.input)).toContain("任务契约")
+  })
+
 })

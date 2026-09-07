@@ -207,7 +207,7 @@ describe("OutlineChatPanel controls", () => {
       surface: "ai-outline",
       createdAt: 10,
       stats: {
-        cacheHits: 3, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+        cacheHits: 3, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 3, cacheableLoaded: 5,
         stableTokens: 1200,
         summaryTokens: 60,
         dynamicTokens: 420,
@@ -228,9 +228,8 @@ describe("OutlineChatPanel controls", () => {
     const container = await renderOutlineChatPanel()
 
     expect(container.textContent).toContain("上下文中控")
-    expect(container.textContent).toContain("本次命中 3 项")
-    expect(container.textContent).toContain("命中率 60%")
-    expect(container.textContent).toContain("节省约 1,320 Token")
+    expect(container.textContent).toContain("本地资料复用率 60%")
+    expect(container.textContent).toContain("估算少发送约 1,320 Token")
   })
 
   it.each([

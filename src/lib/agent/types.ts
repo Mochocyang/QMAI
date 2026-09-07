@@ -1,7 +1,7 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides } from "../llm-providers"
 import type { LlmUsage } from "../llm-usage"
-import type { LlmRequestCacheTrace } from "../llm-request-trace"
+import type { LlmRequestCacheTrace, LlmRequestUsageTotals } from "../llm-request-trace"
 
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array" | "integer"
@@ -212,6 +212,8 @@ export interface AgentRunRecord {
   lastRequestUsage?: LlmUsage
   /** Sanitized request traces for this run, including nested workflow calls. */
   requestTraces?: LlmRequestCacheTrace[]
+  /** Complete token totals across traced outer and nested requests, independent of the detail cap. */
+  requestUsageTotals?: LlmRequestUsageTotals
   omittedRequestTraceCount?: number
   /** Memory decision from the first LLM round that applied user memory. */
   userMemoryDecision?: import("@/lib/user-memory/decision-trace").UserMemoryDecision | null

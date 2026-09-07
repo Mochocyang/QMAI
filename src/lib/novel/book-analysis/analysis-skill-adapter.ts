@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type {
   AnalysisChunkRecord,
@@ -13,6 +14,7 @@ export interface AnalysisSkillContext {
   bookPath: string
   projectPath: string
   llmConfig: LlmConfig
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
 }
 
 export type AnalysisProgressReporter = (progress: AnalysisRuntimeProgress) => void

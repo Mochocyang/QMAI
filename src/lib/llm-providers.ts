@@ -13,6 +13,7 @@ import { RESPONSE_RESERVE_FRAC } from "./context-budget"
 import type { LlmUsage } from "./llm-usage"
 import { isThoughtDumpText } from "./thought-dump"
 import type { UserMemorySurface } from "./user-memory/types"
+import { supportsPromptCacheRouting } from "./prompt-cache-routing"
 
 /**
  * One piece of a multimodal message body. Text + image is the only
@@ -94,6 +95,8 @@ export interface RequestOverrides {
   userMemoryProjectKey?: string
   /** Internal: conversation/session scope key for layered user-memory selection. */
   userMemorySessionKey?: string
+  /** Internal: opaque routing key; emitted only to supported official OpenAI endpoints. */
+  promptCacheKey?: string
 }
 
 interface ProviderConfig {
@@ -639,6 +642,7 @@ function buildResponsesBody(
     stream: true,
   }
 
+  if (overrides?.promptCacheKey && supportsPromptCacheRouting(config)) body.prompt_cache_key = overrides.promptCacheKey
   if (overrides?.temperature !== undefined) body.temperature = overrides.temperature
   if (overrides?.top_p !== undefined) body.top_p = overrides.top_p
   if (overrides?.max_tokens !== undefined) body.max_output_tokens = overrides.max_tokens
@@ -660,6 +664,7 @@ function stripWireAgnosticOverrides(overrides?: RequestOverrides): Omit<
   | "userMemorySurface"
   | "userMemoryProjectKey"
   | "userMemorySessionKey"
+  | "promptCacheKey"
   | "tools"
   | "toolChoice"
 > {
@@ -669,6 +674,7 @@ function stripWireAgnosticOverrides(overrides?: RequestOverrides): Omit<
     userMemorySurface: _userMemorySurface,
     userMemoryProjectKey: _userMemoryProjectKey,
     userMemorySessionKey: _userMemorySessionKey,
+    promptCacheKey: _promptCacheKey,
     tools: _tools,
     toolChoice: _toolChoice,
     ...rest
@@ -870,6 +876,7 @@ function buildOpenAiCompatibleBody(
   // Pass full overrides: buildOpenAiBody strips internal/wire-agnostic
   // fields (including tools/toolChoice) then re-emits tools + tool_choice.
   const body: Record<string, unknown> = buildOpenAiBody(wiredMessages, overrides)
+  if (overrides?.promptCacheKey && supportsPromptCacheRouting(config)) body.prompt_cache_key = overrides.promptCacheKey
   if (
     config.provider === "openai"
     || config.provider === "azure"

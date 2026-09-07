@@ -1,3 +1,4 @@
+import { LlmRequestTraceCollector, type LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { create } from "zustand"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "./wiki-store"
@@ -45,6 +46,7 @@ function initialTask(input: {
   batchId: string | null
   selectedSkills: AnalysisSkill[]
   forceNew: boolean
+  forceRefresh: boolean
 }): BookAnalysisPipelineTask {
   const now = Date.now()
   const selectedSkills = normalizeSelectedSkills(input.selectedSkills)
@@ -57,6 +59,7 @@ function initialTask(input: {
     bookId: input.bookId,
     bookPath: input.bookPath,
     selectedSkills,
+    forceRefresh: input.forceRefresh,
     range: null,
     status: "awaiting-range",
     currentSkill: null,
@@ -92,6 +95,7 @@ interface BookAnalysisPipelineState {
     bookPath: string
     selectedSkills: AnalysisSkill[]
     forceNew?: boolean
+    forceRefresh?: boolean
   }): Promise<BookAnalysisPipelineTask | null>
   configureTaskRange(taskId: string, range: AnalysisChapterRange, selectedSkills?: AnalysisSkill[]): Promise<void>
   setTaskRecognizedCharacters(taskId: string, characters: RecognizedCharacter[]): Promise<void>
@@ -99,6 +103,7 @@ interface BookAnalysisPipelineState {
   confirmCharacterSelection(taskId: string, selectedIds: string[]): Promise<void>
   /** 写入运行时进度（如角色识别）；scheduler 快照不会覆盖以 `:recognition` 结尾的 key */
   setRuntimeProgress(key: string, progress: AnalysisRuntimeProgress | null): void
+  recordTaskRequestTrace(taskId: string, trace: LlmRequestCacheTrace): Promise<void>
   startTask(taskId: string): Promise<void>
   pauseTask(taskId: string): Promise<void>
   continueTask(taskId: string): Promise<void>
@@ -116,6 +121,7 @@ export function createBookAnalysisPipelineStore() {
   let scheduler: AnalysisScheduler | null = null
   let unsubscribe: (() => void) | null = null
   let generation = 0
+  const traceWrites = new Map<string, Promise<void>>()
 
   return create<BookAnalysisPipelineState>((set, get) => ({
     projectPath: null,
@@ -175,12 +181,36 @@ export function createBookAnalysisPipelineStore() {
         setActiveAnalysisSnapshot(projectPath, snapshot.tasks)
       })
     },
+    async recordTaskRequestTrace(taskId, trace) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task) return
+      if (scheduler) {
+        await scheduler.recordRequestTrace(task, { ...trace, surface: "book-analysis" })
+        return
+      }
+      // 初始化尚未结束时也保留识别请求；恢复合并后由调度器接管。
+      const collector = new LlmRequestTraceCollector(task.requestUsageTotals ? {
+        requests: task.requestTraces ?? [], usageTotals: task.requestUsageTotals, requestIds: task.requestTraceIds,
+        omittedRequestCount: task.omittedRequestTraceCount ?? 0,
+      } : undefined)
+      collector.record({ ...trace, surface: "book-analysis" })
+      const ledger = collector.snapshot()
+      const next = { ...task, requestTraces: ledger.requests, requestTraceIds: ledger.requestIds, requestUsageTotals: ledger.usageTotals,
+        omittedRequestTraceCount: ledger.omittedRequestCount }
+      set((state) => ({ tasks: state.tasks.map((item) => item.id === taskId ? next : item) }))
+      const pending = (traceWrites.get(taskId) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+        const latest = get().tasks.find((item) => item.id === taskId)
+        if (latest) await saveAnalysisTask(latest)
+      })
+      traceWrites.set(taskId, pending)
+      try { await pending } finally { if (traceWrites.get(taskId) === pending) traceWrites.delete(taskId) }
+    },
     async createAwaitingRangeTask(input) {
       const projectPath = get().projectPath
       if (!projectPath) throw new Error("请先初始化拆书分析项目")
       const selectedSkills = normalizeSelectedSkills(input.selectedSkills)
       if (selectedSkills.length === 0) return null
-      if (!input.forceNew) {
+      if (!input.forceNew && !input.forceRefresh) {
         const existing = get().tasks.find((task) => task.batchId === (input.batchId ?? null) && task.bookId === input.bookId)
         if (existing) return existing
       }
@@ -190,10 +220,12 @@ export function createBookAnalysisPipelineStore() {
         bookPath: normalizePath(input.bookPath),
         batchId: input.batchId ?? null,
         selectedSkills,
-        forceNew: input.forceNew ?? false,
+        forceNew: input.forceNew === true || input.forceRefresh === true,
+        forceRefresh: input.forceRefresh ?? false,
       })
       await saveAnalysisTask(task)
       set((state) => ({ tasks: [...state.tasks, task] }))
+      await scheduler?.registerTask(task)
       setActiveAnalysisSnapshot(projectPath, [...get().tasks])
       return task
     },
@@ -252,6 +284,7 @@ export function createBookAnalysisPipelineStore() {
         tasks: state.tasks.map((item) => item.id === taskId ? configured : item),
         chunks: [...state.chunks.filter((chunk) => chunk.taskId !== taskId), ...chunks],
       }))
+      await scheduler?.registerTask(configured, chunks)
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
     },
     async setTaskRecognizedCharacters(taskId, characters) {
@@ -270,6 +303,7 @@ export function createBookAnalysisPipelineStore() {
       set((state) => ({
         tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
       }))
+      await scheduler?.registerTask(updated)
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
     },
     async failTask(taskId, error) {
@@ -285,6 +319,7 @@ export function createBookAnalysisPipelineStore() {
       set((state) => ({
         tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
       }))
+      await scheduler?.registerTask(updated)
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
     },
     async confirmCharacterSelection(taskId, selectedIds) {
@@ -309,6 +344,7 @@ export function createBookAnalysisPipelineStore() {
       set((state) => ({
         tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
       }))
+      await scheduler?.registerTask(updated)
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
     },
     setRuntimeProgress(key, progress) {
@@ -371,6 +407,7 @@ export function createBookAnalysisPipelineStore() {
         set((state) => ({
           tasks: state.tasks.map((item) => item.id === taskId ? updated : item),
         }))
+        await scheduler?.registerTask(updated)
         setActiveAnalysisSnapshot(task.projectPath, get().tasks)
         return
       }

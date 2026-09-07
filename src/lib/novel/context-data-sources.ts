@@ -22,7 +22,7 @@ import type { DataSourceCategory } from "./classification"
 
 // 导入现有的辅助函数
 import {
-  readOutlineContent,
+  readOutlineContextLayers,
   readChapterOutlineContent,
   readVolumeContextContent,
   searchRelevantContentUnified,
@@ -85,11 +85,11 @@ function excerptChapterContent(body: string): string {
 /**
  * 大纲数据源
  */
-const outlineDataSource: DataSource<string> = {
+const outlineDataSource: DataSource<Awaited<ReturnType<typeof readOutlineContextLayers>>> = {
   name: "outline",
   priority: 1,
-  async load(context: ContextLoadContext): Promise<string> {
-    return await readOutlineContent(context.projectPath, context.chapterNumber)
+  async load(context: ContextLoadContext) {
+    return await readOutlineContextLayers(context.projectPath, context.chapterNumber)
   },
 }
 

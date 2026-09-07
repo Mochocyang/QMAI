@@ -67,7 +67,8 @@ describe("global user memory request integration", () => {
       expect.objectContaining({ text: "项目稳定核心", cacheControl: true }),
     ]))
     expect(JSON.stringify(blocks)).not.toContain("写作保持幽默")
-    expect(JSON.stringify(blocks)).toContain("回答时先给结论")
+    expect(JSON.stringify(blocks)).not.toContain("回答时先给结论")
+    expect(JSON.stringify(result.messages[result.messages.length - 1])).toContain("回答时先给结论")
   })
 
   it("skipUserMemory 防止提取器递归注入", () => {
@@ -133,5 +134,23 @@ describe("global user memory request integration", () => {
     const result = applyGlobalUserMemoryToMessages(messages, { userMemorySurface: "ai-chat" }, storage)
     expect(result.messages).toBe(messages)
     expect(result.decision?.filtered).toContainEqual({ ruleId: "auto", reason: "disabled" })
+  })
+})
+
+
+describe("用户偏好不能截断缓存前缀", () => {
+  it("章节生成没有系统消息时，也把偏好放在原文断点之后", () => {
+    const storage = new MemoryStorage()
+    withRules(storage)
+    const messages: ChatMessage[] = [{ role: "user", content: [
+      { type: "text", text: "相同的大纲与章节资料", cacheControl: true },
+      { type: "text", text: "续写下一章正文" },
+    ] }]
+    const result = applyGlobalUserMemoryToMessages(messages, { userMemorySurface: "chapter-writing" }, storage)
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].role).toBe("user")
+    expect(result.messages[0].content[0]).toEqual(messages[0].content[0])
+    expect(JSON.stringify(result.messages[0])).toContain("写作保持幽默")
+    expect(JSON.stringify(messages)).not.toContain("写作保持幽默")
   })
 })

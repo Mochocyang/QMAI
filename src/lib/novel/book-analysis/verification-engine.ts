@@ -6,9 +6,12 @@
  * 结果落盘 verification/<skill>-verification.json + .md。
  * best-effort：任何异常只 warn，不剔除产出、不影响拆书任务成功。
  */
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
+import { resolveRuntimeLocalCliConfig } from "@/lib/local-cli-config"
+import { createAnalysisStageCache, type AnalysisStageCache } from "./analysis-stage-cache"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
-import { joinPath } from "@/lib/path-utils"
+import { joinPath, normalizeComparablePath } from "@/lib/path-utils"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import type { ExtractedCharacter } from "./types"
 import type { BookStyleProfile } from "./types"
@@ -32,13 +35,20 @@ import type {
 /** 角色 units 数量上限（超出只取 importance 最高的前 N 个） */
 export const MAX_VERIFY_UNITS = 20
 
+export interface VerificationRunOptions {
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
+  forceRefresh?: boolean
+  signal?: AbortSignal
+}
+
 interface VerificationEngineDependencies {
   readFile: typeof readFile
   listDirectory: typeof listDirectory
   writeFile: typeof writeFile
   createDirectory: typeof createDirectory
   fileExists: typeof fileExists
-  callModel: (messages: ChatMessage[], llmConfig: LlmConfig, signal: AbortSignal) => Promise<string>
+  callModel: (messages: ChatMessage[], llmConfig: LlmConfig, signal: AbortSignal, onRequestTrace?: VerificationRunOptions["onRequestTrace"]) => Promise<string>
+  stageCache: AnalysisStageCache
   now: () => number
 }
 
@@ -46,6 +56,7 @@ async function defaultCallModel(
   messages: ChatMessage[],
   llmConfig: LlmConfig,
   signal: AbortSignal,
+  onRequestTrace?: VerificationRunOptions["onRequestTrace"],
 ): Promise<string> {
   let output = ""
   let streamError: Error | null = null
@@ -53,6 +64,7 @@ async function defaultCallModel(
     onToken: (token) => { output += token },
     onDone: () => {},
     onError: (error) => { streamError = error },
+    onRequestTrace,
   }, signal, { reasoning: llmConfig.reasoning })
   if (signal.aborted) throw new Error("用户取消验证")
   if (streamError) throw streamError
@@ -66,6 +78,7 @@ const defaultDependencies: VerificationEngineDependencies = {
   createDirectory,
   fileExists,
   callModel: defaultCallModel,
+  stageCache: createAnalysisStageCache(),
   now: Date.now,
 }
 
@@ -125,6 +138,30 @@ function storyMapDigest(map: StoryMap): string {
 }
 
 /** 单个单元跑一次 LLM：三重验证 + 压力测试 */
+/** 容错解析补出的 fail 不是有效判定；只缓存原始输出明确给出的完整审计。 */
+function isCompleteVerificationResponse(raw: string, allowedKinds: Set<string>): boolean {
+  const body = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw
+  const json = body.match(/\{[\s\S]*\}/)?.[0]
+  if (!json) return false
+  const hasText = (value: unknown) => typeof value === "string" && Boolean(value.trim())
+  const isVerdict = (value: unknown) => value === "pass" || value === "warn" || value === "fail"
+  const isRow = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value)
+  try {
+    const parsed = JSON.parse(json)
+    if (!Array.isArray(parsed.triple) || !Array.isArray(parsed.pressure)) return false
+    const triple: Record<string, unknown>[] = parsed.triple.filter(isRow)
+    const pressure: Record<string, unknown>[] = parsed.pressure.filter(isRow)
+    return ["crossDomain", "predictive", "unique"].every((key) => {
+      const rows = triple.filter((item) => item.key === key)
+      return rows.length === 1 && isVerdict(rows[0].status) && hasText(rows[0].detail)
+        && typeof rows[0].evidenceCount === "number" && Number.isSafeInteger(rows[0].evidenceCount) && rows[0].evidenceCount >= 0
+    }) && [...allowedKinds].every((kind) => {
+      const rows = pressure.filter((item) => item.kind === kind)
+      return rows.length === 1 && isVerdict(rows[0].verdict) && hasText(rows[0].prompt) && hasText(rows[0].reason)
+    })
+  } catch { return false }
+}
+
 async function verifyUnit(
   unitId: string,
   unitName: string,
@@ -132,20 +169,38 @@ async function verifyUnit(
   skill: VerificationSkill,
   llmConfig: LlmConfig,
   dependencies: VerificationEngineDependencies,
+  options: VerificationRunOptions,
+  bookPath: string,
+  source: unknown,
 ): Promise<VerificationUnit> {
   const allowedKinds = new Set<string>(pressureKindsFor(skill))
   let triple: TripleVerifyItem[] = []
   let pressure: PressureTestItem[] = []
   try {
-    const raw = await dependencies.callModel(
+    const signal = options.signal ?? new AbortController().signal
+    if (signal.aborted) throw new Error("用户取消验证")
+    const cacheInput = { bookPath, llmConfig, stage: `verification-${skill}`, materials: {
+      prompt, source: JSON.parse(JSON.stringify(source, (key, value) =>
+        ["createdAt", "updatedAt", "generatedAt", "taskId", "evidenceIds"].includes(key) ? undefined : value)),
+    } }
+    const key = await dependencies.stageCache.createKey(cacheInput)
+    const complete = (value: string) => isCompleteVerificationResponse(value, allowedKinds)
+    let raw = key && !options.forceRefresh ? await dependencies.stageCache.read<string>(cacheInput, key) : null
+    if (typeof raw !== "string" || !complete(raw)) raw = null
+    if (signal.aborted) throw new Error("用户取消验证")
+    const reused = raw !== null
+    if (raw === null) raw = await dependencies.callModel(
       [
-        { role: "system", content: "你是严格的拆书质量审计员，只输出要求的 JSON。" },
-        { role: "user", content: prompt },
+        { role: "system", content: [{ type: "text", text: "你是严格的拆书质量审计员，只输出要求的 JSON。", cacheControl: true }] },
+        { role: "user", content: [{ type: "text", text: prompt, cacheControl: true }] },
       ],
-      llmConfig,
-      new AbortController().signal,
+      llmConfig, signal, options.onRequestTrace,
     )
+    if (signal.aborted) throw new Error("用户取消验证")
     const parsed = parseVerifyResult(raw)
+    if (!reused && key && complete(raw) && await dependencies.stageCache.createKey(cacheInput) === key) {
+      await dependencies.stageCache.write(cacheInput, key, raw, signal)
+    }
     triple = parsed.triple
     pressure = parsed.pressure
       .filter((item) => allowedKinds.has(item.kind))
@@ -267,15 +322,17 @@ export function createVerificationEngine(
   overrides: Partial<VerificationEngineDependencies> = {},
 ) {
   const dependencies = { ...defaultDependencies, ...overrides }
+  const reportRuns = new Map<string, symbol>()
+  const reportWrites = new Map<string, Promise<void>>()
 
   async function loadCharacters(bookPath: string): Promise<ExtractedCharacter[]> {
     const dir = joinPath(bookPath, "characters")
-    const files = await listDirectory(dir)
+    const files = await dependencies.listDirectory(dir)
     const characters: ExtractedCharacter[] = []
     for (const file of files) {
       if (file.is_dir || !file.name.endsWith(".json")) continue
       try {
-        const parsed = JSON.parse(await readFile(file.path)) as ExtractedCharacter
+        const parsed = JSON.parse(await dependencies.readFile(file.path)) as ExtractedCharacter
         if (parsed && typeof parsed.name === "string") characters.push(parsed)
       } catch {
         // 跳过无法解析的角色文件
@@ -288,7 +345,13 @@ export function createVerificationEngine(
     skill: VerificationSkill,
     bookPath: string,
     llmConfig: LlmConfig,
+    options: VerificationRunOptions = {},
   ): Promise<VerificationReport> {
+    if (options.signal?.aborted) throw new Error("用户取消验证")
+    llmConfig = await resolveRuntimeLocalCliConfig(llmConfig)
+    const reportKey = `${normalizeComparablePath(bookPath)}:${skill}`
+    const runToken = Symbol(reportKey)
+    reportRuns.set(reportKey, runToken)
     const now = dependencies.now()
     const units: VerificationUnit[] = []
     let skippedUnitCount = 0
@@ -308,14 +371,14 @@ export function createVerificationEngine(
           }),
           skill,
           llmConfig,
-          dependencies,
+          dependencies, options, bookPath, character,
         ))
       }
     } else if (skill === "style") {
       if (!await dependencies.fileExists(joinPath(bookPath, "style-profile.json"))) {
         return reportForMissingSource(skill, bookPath, now)
       }
-      const profile = JSON.parse(await readFile(joinPath(bookPath, "style-profile.json"))) as BookStyleProfile
+      const profile = JSON.parse(await dependencies.readFile(joinPath(bookPath, "style-profile.json"))) as BookStyleProfile
       units.push(await verifyUnit(
         "style",
         "作品文风",
@@ -326,13 +389,13 @@ export function createVerificationEngine(
         }),
         skill,
         llmConfig,
-        dependencies,
+        dependencies, options, bookPath, profile,
       ))
     } else {
       if (!await dependencies.fileExists(joinPath(bookPath, "story-map.json"))) {
         return reportForMissingSource(skill, bookPath, now)
       }
-      const map = JSON.parse(await readFile(joinPath(bookPath, "story-map.json"))) as StoryMap
+      const map = JSON.parse(await dependencies.readFile(joinPath(bookPath, "story-map.json"))) as StoryMap
       units.push(await verifyUnit(
         "story",
         `${map.mainLineLabel || "主线"}导图`,
@@ -342,15 +405,28 @@ export function createVerificationEngine(
         }),
         skill,
         llmConfig,
-        dependencies,
+        dependencies, options, bookPath, map,
       ))
     }
 
     const report = buildReport(skill, bookPath, units, skippedUnitCount, now)
+    if (options.signal?.aborted) throw new Error("用户取消验证")
+    if (reportRuns.get(reportKey) !== runToken) return report
     const verifyDir = joinPath(bookPath, "verification")
-    await dependencies.createDirectory(verifyDir)
-    await dependencies.writeFile(joinPath(verifyDir, `${skill}-verification.json`), JSON.stringify(report, null, 2))
-    await dependencies.writeFile(joinPath(verifyDir, `${skill}-verification.md`), reportToMarkdown(report))
+    const write = (reportWrites.get(reportKey) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      if (options.signal?.aborted) throw new Error("用户取消验证")
+      if (reportRuns.get(reportKey) !== runToken) return
+      await dependencies.createDirectory(verifyDir)
+      if (options.signal?.aborted) throw new Error("用户取消验证")
+      if (reportRuns.get(reportKey) !== runToken) return
+      // 同一作品/技能的双文件写入串行化：新报告不会插在旧报告两次 await 之间。
+      await dependencies.writeFile(joinPath(verifyDir, `${skill}-verification.json`), JSON.stringify(report, null, 2))
+      await dependencies.writeFile(joinPath(verifyDir, `${skill}-verification.md`), reportToMarkdown(report))
+    })
+    reportWrites.set(reportKey, write)
+    try { await write } finally {
+      if (reportWrites.get(reportKey) === write) reportWrites.delete(reportKey)
+    }
     return report
   }
 
@@ -367,9 +443,10 @@ export async function scheduleVerification(
   bookPath: string,
   skill: VerificationSkill,
   llmConfig: LlmConfig,
+  options: VerificationRunOptions = {},
 ): Promise<void> {
   try {
-    await verificationEngine.runVerification(skill, bookPath, llmConfig)
+    await verificationEngine.runVerification(skill, bookPath, llmConfig, options)
   } catch (error) {
     console.warn(`[verify] ${skill} 审计未完成（不影响拆书结果）：`, error)
   }

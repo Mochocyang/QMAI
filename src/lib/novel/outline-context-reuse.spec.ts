@@ -321,3 +321,21 @@ describe("AI 大纲上下文复用策略", () => {
     expect(plan.sources).toContain("过程: 已隐藏重复工具过程")
   })
 })
+
+
+describe("大纲会话缓存历史", () => {
+  it("预算内保留原始短历史，不因摘要或轮数而每轮重排前缀", () => {
+    const history = Array.from({ length: 8 }, (_, index) => ({ role: index % 2 ? "assistant" as const : "user" as const, content: `对话${index}` }))
+    const contextDecision = planOutlineContextReuse({ hasPriorAssistantAnswer: true, attachedReferenceCount: 0, inputText: "继续完善" })
+    const plan = planOutlineAgentHistory({ history, contextDecision, cachedSummary: "已有摘要", summaryInSystem: true, historyTokenBudget: 1000 })
+    expect(plan.messages).toEqual(history)
+    expect(plan.instruction).toContain("预算内")
+  })
+
+  it("超过预算仍使用原有摘要和必要近况，不扩大模型输入", () => {
+    const history = [{ role: "user" as const, content: "旧稿".repeat(5000) }, { role: "assistant" as const, content: "旧回答".repeat(5000) }, { role: "user" as const, content: "新问题" }, { role: "assistant" as const, content: "新结论" }]
+    const contextDecision = planOutlineContextReuse({ hasPriorAssistantAnswer: true, attachedReferenceCount: 0, inputText: "继续完善" })
+    const plan = planOutlineAgentHistory({ history, contextDecision, cachedSummary: "已有摘要", summaryInSystem: true, historyTokenBudget: 1000 })
+    expect(plan.messages).toEqual(history.slice(-2))
+  })
+})

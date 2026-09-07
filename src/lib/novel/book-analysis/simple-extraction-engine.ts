@@ -1,6 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter, PersonalityProfile } from "./types"
-import { buildSimpleExtractionPrompt } from "./simple-extraction-prompts"
+import { buildSimpleExtractionPromptParts } from "./simple-extraction-prompts"
 
 interface SimpleExtractionInput {
   candidates: RecognizedCharacter[]
@@ -8,7 +8,7 @@ interface SimpleExtractionInput {
   llmConfig: LlmConfig
   signal?: AbortSignal
   // 测试注入点
-  _llmCall?: (prompt: string) => Promise<string>
+  _llmCall?: (prompt: string, cachePrefix?: string) => Promise<string>
   onProgress?: (completed: number, total: number) => void
 }
 
@@ -26,14 +26,14 @@ export async function extractSimpleProfiles(
   input: SimpleExtractionInput
 ): Promise<SimpleExtractionOutput> {
   const { candidates, chapterSamples, signal, _llmCall, onProgress } = input
-  const prompt = buildSimpleExtractionPrompt({
+  const { stablePrefix, dynamicSuffix } = buildSimpleExtractionPromptParts({
     characterNames: candidates.map((c) => c.name),
     chapterSamples,
   })
 
   try {
     const llmFn = _llmCall ?? defaultLlmCall
-    const raw = await llmFn(prompt)
+    const raw = await llmFn(stablePrefix + dynamicSuffix, stablePrefix)
     if (signal?.aborted) throw new Error("aborted")
 
     // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
@@ -81,7 +81,7 @@ interface SingleProfileInput {
   chapterSamples: string
   llmConfig: LlmConfig
   signal?: AbortSignal
-  _llmCall?: (prompt: string) => Promise<string>
+  _llmCall?: (prompt: string, cachePrefix?: string) => Promise<string>
 }
 
 interface SingleProfileResult {
@@ -102,13 +102,13 @@ export async function extractSingleProfile(
   const { character, chapterSamples, signal, _llmCall } = input
 
   try {
-    const prompt = buildSimpleExtractionPrompt({
+    const { stablePrefix, dynamicSuffix } = buildSimpleExtractionPromptParts({
       characterNames: [character.name],
       chapterSamples,
     })
 
     const llmFn = _llmCall ?? defaultLlmCall
-    const raw = await llmFn(prompt)
+    const raw = await llmFn(stablePrefix + dynamicSuffix, stablePrefix)
     if (signal?.aborted) throw new Error("aborted")
 
     // 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）

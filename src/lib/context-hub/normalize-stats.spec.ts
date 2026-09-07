@@ -210,3 +210,51 @@ describe("parseContextHubSnapshotRef", () => {
     })).toBeNull()
   })
 })
+
+
+describe("local cache counter normalization", () => {
+  function parseStats(counters: Record<string, unknown>) {
+    return parseContextHubSnapshotRef({
+      id: "assistant:cache-metrics",
+      surface: "ai-chat",
+      createdAt: 10,
+      stats: { ...currentStats, ...counters },
+    })?.stats
+  }
+
+  it.each([
+    { cacheableLoaded: 8, cacheableHits: 8 },
+    { cacheableLoaded: 8, cacheableHits: 0 },
+    { cacheableLoaded: 0, cacheableHits: 0 },
+  ])("preserves valid local counters, including explicit zero: %j", (counters) => {
+    expect(parseStats(counters)).toMatchObject(counters)
+  })
+
+  it("keeps old snapshots without inventing task hits or new counters", () => {
+    const stats = parseStats({ cacheHits: 12, taskScopedLoaded: 4 })
+    expect(stats).toMatchObject({ cacheHits: 12, taskScopedLoaded: 4 })
+    expect(stats).not.toHaveProperty("cacheableLoaded")
+    expect(stats).not.toHaveProperty("cacheableHits")
+  })
+
+  it.each([
+    { cacheableLoaded: 8 },
+    { cacheableHits: 4 },
+    { cacheableLoaded: 8, cacheableHits: 9 },
+    { cacheableLoaded: 0, cacheableHits: 1 },
+    { cacheableLoaded: -1, cacheableHits: 0 },
+    { cacheableLoaded: 8, cacheableHits: -1 },
+    { cacheableLoaded: 8.5, cacheableHits: 4 },
+    { cacheableLoaded: 8, cacheableHits: 0.5 },
+    { cacheableLoaded: Number.NaN, cacheableHits: 0 },
+    { cacheableLoaded: 8, cacheableHits: Number.POSITIVE_INFINITY },
+    { cacheableLoaded: Number.MAX_SAFE_INTEGER + 1, cacheableHits: 0 },
+    { cacheableLoaded: "8", cacheableHits: 4 },
+    { cacheableLoaded: 8, cacheableHits: null },
+  ])("drops an invalid or incomplete pair without discarding other stats: %j", (counters) => {
+    const stats = parseStats(counters)
+    expect(stats).toMatchObject(currentStats)
+    expect(stats).not.toHaveProperty("cacheableLoaded")
+    expect(stats).not.toHaveProperty("cacheableHits")
+  })
+})

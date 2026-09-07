@@ -8,6 +8,9 @@ import type {
 } from "./analysis-pipeline-types"
 import type { AnalysisSkillAdapter } from "./analysis-skill-adapter"
 import { createAnalysisScheduler } from "./analysis-scheduler"
+import type { AnalysisStageCache } from "./analysis-stage-cache"
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
+import type { AnalysisResultCache } from "./analysis-result-cache"
 
 function moduleState(skill: AnalysisSkill, chunkIds: string[]): AnalysisModuleState {
   return {
@@ -71,6 +74,8 @@ function chunks(skills: AnalysisSkill[], count = 2): AnalysisChunkRecord[] {
 function createHarness(options: {
   onRun?: (skill: AnalysisSkill, chunkId: string, signal: AbortSignal) => Promise<void>
   concurrency?: number
+  resultCache?: AnalysisResultCache
+  stageCache?: AnalysisStageCache
 } = {}) {
   const calls: string[] = []
   let running = 0
@@ -99,11 +104,14 @@ function createHarness(options: {
     } satisfies AnalysisSkillAdapter,
   ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
   const savedResults = new Map<string, unknown>()
+  const savedTasks: BookAnalysisPipelineTask[] = []
   const scheduler = createAnalysisScheduler({
     adapters,
     llmConfig: {} as LlmConfig,
     concurrency: options.concurrency,
-    saveTask: vi.fn(async () => {}),
+    resultCache: options.resultCache,
+    stageCache: options.stageCache,
+    saveTask: vi.fn(async (value) => { savedTasks.push(JSON.parse(JSON.stringify(value))) }),
     saveChunk: vi.fn(async () => {}),
     saveCompletedChunk: vi.fn(async (_bookPath, chunk, result) => {
       const resultPath = `${chunk.skill}-${chunk.id}.result.json`
@@ -113,7 +121,7 @@ function createHarness(options: {
     loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
     now: () => 10,
   })
-  return { scheduler, calls, getMaxRunning: () => maxRunning }
+  return { scheduler, calls, adapters, savedTasks, getMaxRunning: () => maxRunning }
 }
 
 describe("analysis scheduler", () => {
@@ -435,4 +443,157 @@ describe("analysis scheduler", () => {
     expect(aggregateSignal?.aborted).toBe(true)
     expect(scheduler.getSnapshot().tasks[0].status).toBe("cancelled")
   })
+})
+
+describe("analysis scheduler 缓存与重试语义", () => {
+  it.each(["continue", "retry"])("forceRefresh 的失败任务经 %s 后仍绕过结果复用", async (operation) => {
+    const resultCache: AnalysisResultCache = {
+      createKey: vi.fn(async () => "a".repeat(64)),
+      read: vi.fn(async () => ({ result: { cached: true }, evidence: [] })),
+      write: vi.fn(async () => undefined),
+    }
+    let fail = true
+    const run = createHarness({ resultCache, onRun: async () => {
+      if (fail) throw new Error("模拟失败")
+    } })
+    const value = { ...task(["characters"], ["chunk-1"]), forceRefresh: true }
+    await run.scheduler.enqueue(value, chunks(["characters"], 1))
+    expect(run.scheduler.getSnapshot().tasks[0].status).toBe("failed")
+    expect(resultCache.write).not.toHaveBeenCalled()
+    fail = false
+    if (operation === "continue") await run.scheduler.continueTask(value.id)
+    else await run.scheduler.retryFailedChunk(value.id, "characters", "chunk-1")
+    expect(run.calls.filter((call) => call === "characters:chunk-1:start")).toHaveLength(2)
+    expect(resultCache.read).not.toHaveBeenCalled()
+    expect(resultCache.write).toHaveBeenCalledTimes(1)
+    expect(run.scheduler.getSnapshot().tasks[0].status).toBe("completed")
+  })
+
+  it.each(["createKey", "read", "write"] as const)("注入的缓存 %s 抛错不会改变正常调度后处理", async (method) => {
+    const resultCache: AnalysisResultCache = {
+      createKey: vi.fn(async () => "a".repeat(64)),
+      read: vi.fn(async () => null),
+      write: vi.fn(async () => undefined),
+    }
+    vi.mocked(resultCache[method]).mockRejectedValue(new Error("模拟缓存故障"))
+    const run = createHarness({ resultCache })
+    await run.scheduler.enqueue(task(["characters"], ["chunk-1"]), chunks(["characters"], 1))
+    expect(run.calls.filter((call) => call === "characters:chunk-1:start")).toHaveLength(1)
+    expect(run.calls).toContain("characters:aggregate")
+    expect(run.calls).toContain("characters:publish")
+    expect(run.scheduler.getSnapshot().tasks[0].status).toBe("completed")
+  })
+})
+
+
+describe("拆书全流程用量与后处理复用", () => {
+  const request = (id: string): LlmRequestCacheTrace => ({
+    requestId: id, provider: "openai", model: "fixture", apiMode: "chat_completions",
+    startedAt: 1, finishedAt: 2, durationMs: 1, status: "success",
+    inputTokens: 100, outputTokens: 10, cacheReadTokens: 80,
+  })
+
+  it("分块、汇总、发布后的后台验证全部计数，重复转发去重且不会倒退完成状态", async () => {
+    const harness = createHarness()
+    let background: ((trace: LlmRequestCacheTrace) => void) | undefined
+    harness.adapters.style.runChunk = async ({ onRequestTrace }) => {
+      onRequestTrace?.(request("chunk")); onRequestTrace?.(request("chunk"))
+      return { result: { style: true }, evidence: [] }
+    }
+    harness.adapters.style.aggregate = async ({ onRequestTrace }) => {
+      onRequestTrace?.(request("aggregate")); return { style: true }
+    }
+    harness.adapters.style.publish = async ({ onRequestTrace }) => { background = onRequestTrace; return "style.json" }
+    harness.scheduler.initialize([task(["style"], ["chunk-1"])], chunks(["style"], 1))
+    await harness.scheduler.continueTask("task-1")
+    background?.({ ...request("verification"), stage: "verification" })
+    await harness.scheduler.whenIdle()
+    const finished = harness.scheduler.getSnapshot().tasks[0]
+    expect(finished.status).toBe("completed")
+    expect(finished.requestUsageTotals).toMatchObject({ requestCount: 3, inputTokens: 300, cachedInputTokens: 240 })
+    expect(finished.requestTraces?.map((value) => value.stage)).toEqual(["style:chunk", "style:aggregate", "verification"])
+    expect(harness.savedTasks.at(-1)).toMatchObject({ status: "completed", requestUsageTotals: { requestCount: 3 } })
+  })
+
+  it("任务总账隔离，续跑不会丢掉已落盘的用量", async () => {
+    const harness = createHarness()
+    const first = task(["style"], ["chunk-1"])
+    const second = task(["style"], ["chunk-1"], "task-2")
+    harness.scheduler.initialize([first, second], [])
+    await harness.scheduler.recordRequestTrace(first, { ...request("recognize"), stage: "recognition" })
+    await harness.scheduler.recordRequestTrace(second, request("other-book"))
+    const saved = harness.scheduler.getSnapshot()
+    const next = createHarness()
+    next.scheduler.initialize(saved.tasks, [])
+    await next.scheduler.recordRequestTrace(saved.tasks[0], request("next"))
+    expect(next.scheduler.getSnapshot().tasks.map((value) => value.requestUsageTotals?.requestCount)).toEqual([2, 1])
+  })
+
+  it("重复任务复用区块后的汇总，明确强刷时仍调用汇总", async () => {
+    const entries = new Map<string, unknown>()
+    const stageCache: AnalysisStageCache = {
+      createKey: async (input) => JSON.stringify(input.materials),
+      read: async (_input, key) => structuredClone(entries.get(key) ?? null) as never,
+      write: async (_input, key, value) => { entries.set(key, structuredClone(value)) },
+    }
+    const resultCache: AnalysisResultCache = {
+      createKey: async (input) => `source-${input.chunk.id}`,
+      read: async () => ({ result: { stable: true }, evidence: [] }),
+      write: async () => {},
+    }
+    const harness = createHarness({ stageCache, resultCache })
+    for (const id of ["first", "second", "refresh"]) {
+      const value = task(["style"], ["chunk-1"], id)
+      if (id === "refresh") value.forceRefresh = true
+      await harness.scheduler.enqueue(value, chunks(["style"], 1).map((chunk) => ({ ...chunk, taskId: id })))
+    }
+    expect(harness.calls.filter((value) => value === "style:aggregate")).toHaveLength(2)
+    expect(harness.scheduler.getSnapshot().tasks.find((value) => value.id === "second")?.resultReuse).toMatchObject({ chunkHits: 1, aggregateHits: 1 })
+  })
+})
+
+
+it("降级的区块结果即使允许发布，也不写入成功汇总缓存", async () => {
+  const write = vi.fn(async () => {})
+  const harness = createHarness({
+    resultCache: { createKey: async () => "source", read: async () => null, write: async () => {} },
+    stageCache: { createKey: async () => "stage", read: async () => null, write },
+  })
+  harness.adapters.characters.runChunk = async () => ({ result: { characters: [], cacheable: false }, evidence: [] })
+  harness.adapters.characters.aggregate = async () => []
+  await harness.scheduler.enqueue(task(["characters"], ["chunk-1"]), chunks(["characters"], 1))
+  expect(write).not.toHaveBeenCalled()
+})
+
+
+it("切项目销毁调度器后，已发出的后台验证仍归入原任务账本而不通知新项目", async () => {
+  const harness = createHarness()
+  let lateTrace: ((trace: LlmRequestCacheTrace) => void) | undefined
+  const trace: LlmRequestCacheTrace = { requestId: "late-verification", provider: "openai", model: "fixture", apiMode: "chat_completions",
+    startedAt: 1, finishedAt: 2, durationMs: 1, status: "success", inputTokens: 100, outputTokens: 10 }
+  harness.adapters.style.publish = async ({ onRequestTrace }) => { lateTrace = onRequestTrace; return "style.json" }
+  await harness.scheduler.enqueue(task(["style"], ["chunk-1"]), chunks(["style"], 1))
+  const listener = vi.fn(); harness.scheduler.subscribe(listener)
+  await harness.scheduler.dispose(); listener.mockClear()
+  lateTrace?.(trace)
+  await harness.scheduler.whenIdle()
+  expect(harness.savedTasks.at(-1)).toMatchObject({ id: "task-1", status: "completed", requestUsageTotals: { requestCount: 1, inputTokens: 100 } })
+  expect(listener).not.toHaveBeenCalled()
+})
+
+
+it("持久化拆书总账的去重ID不随32条明细丢失", async () => {
+  const first = createHarness()
+  const value = task(["style"], ["chunk-1"])
+  first.scheduler.initialize([value], [])
+  const request = (id: number): LlmRequestCacheTrace => ({ requestId: `restore-${id}`, provider: "openai", model: "fixture", apiMode: "chat_completions",
+    startedAt: id, finishedAt: id + 1, durationMs: 1, status: "success", inputTokens: 100 })
+  for (let index = 0; index < 40; index += 1) await first.scheduler.recordRequestTrace(value, request(index))
+  const restoredTask = first.savedTasks.at(-1)!
+  expect(restoredTask.requestTraces).toHaveLength(32)
+  expect(restoredTask.requestTraceIds).toHaveLength(40)
+  const second = createHarness()
+  second.scheduler.initialize([restoredTask], [])
+  await second.scheduler.recordRequestTrace(restoredTask, request(0))
+  expect(second.savedTasks.at(-1)?.requestUsageTotals).toMatchObject({ requestCount: 40, inputTokens: 4000 })
 })

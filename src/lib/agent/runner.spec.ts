@@ -724,7 +724,10 @@ describe("AgentRunner", () => {
       { onText: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onToolError: vi.fn(), onDone: vi.fn(), onError: vi.fn() },
     )
 
-    expect(mockStreamChat.mock.calls[0][1][0]).toEqual(cacheableSystem)
+    const sent = mockStreamChat.mock.calls[0][1] as AgentMessage[]
+    expect(sent[0]).toEqual({ ...cacheableSystem, content: [{ type: "text", text: "稳定核心", cacheControl: true }] })
+    expect(JSON.stringify(sent[sent.length - 1].content)).toContain("动态上下文")
+    expect(JSON.stringify(sent[sent.length - 1].content)).toContain("任务契约")
   })
 
   it("aggregates provider usage across agent rounds", async () => {

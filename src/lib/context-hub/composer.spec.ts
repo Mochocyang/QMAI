@@ -194,3 +194,45 @@ describe("composeContext", () => {
     expect(large.stats.budgetTokens).not.toBe(16_000)
   })
 })
+
+
+describe("项目与章节缓存层隔离", () => {
+  it("切换章节不改写项目稳定核心，章纲仍在当前动态资料内", () => {
+    const make = (chapter: number) => composeContext({
+      contextPack: pack({
+        outline: `全书固定主线\n第${chapter}卷\n第${chapter}章执行要求`,
+        projectOutline: "全书固定主线",
+        chapterOutlineContext: `第${chapter}卷\n第${chapter}章执行要求`,
+        task: `续写第${chapter}章`,
+      }),
+      dependencyStamp,
+      tokenBudget: 5000,
+    })
+    const first = make(1)
+    const second = make(2)
+    expect(first.stableCore).toBe(second.stableCore)
+    expect(first.stableCore).toContain("全书固定主线")
+    expect(first.stableCore).not.toContain("执行要求")
+    expect(first.dynamicContext).toContain("第1章执行要求")
+    expect(second.dynamicContext).toContain("第2章执行要求")
+    expect(second.dynamicContext).not.toContain("第1章执行要求")
+    expect(second.dynamicContext).not.toContain("全书固定主线")
+  })
+
+  it("明确没有全书骨架时，不把可变章纲回填到稳定层", () => {
+    const result = composeContext({
+      contextPack: pack({ outline: "只有当前章纲", projectOutline: "", chapterOutlineContext: "只有当前章纲" }),
+      dependencyStamp,
+    })
+    expect(result.stableCore).not.toContain("只有当前章纲")
+    expect(result.dynamicContext).toContain("只有当前章纲")
+  })
+
+  it("全书主线实际变更必须立即改变稳定前缀", () => {
+    const make = (projectOutline: string) => composeContext({
+      contextPack: pack({ projectOutline, chapterOutlineContext: "本章不变" }),
+      dependencyStamp,
+    })
+    expect(make("主角不能复活").stableCore).not.toBe(make("主角可以复活").stableCore)
+  })
+})

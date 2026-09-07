@@ -31,6 +31,7 @@ vi.mock("@/lib/novel/book-analysis/analysis-scheduler", () => ({
         return () => undefined
       }),
       dispose: vi.fn(async () => undefined),
+      registerTask: vi.fn(async () => undefined),
       enqueue: vi.fn(async () => undefined),
       pauseTask: vi.fn(async () => undefined),
       continueTask: vi.fn(async () => undefined),
@@ -66,5 +67,74 @@ describe("book-analysis-pipeline-store 初始化竞态", () => {
     await initializing
 
     expect(store.getState().tasks.some((item) => item.id === task?.id)).toBe(true)
+  })
+})
+
+vi.mock("@/lib/has-usable-llm", () => ({
+  hasUsableLlm: vi.fn(() => true),
+}))
+
+async function refreshStore() {
+  recoveryGate.resolve({ tasks: [], chunks: [] })
+  const { loadChapterList } = await import("@/lib/novel/book-analysis/analysis-engine")
+  vi.mocked(loadChapterList).mockResolvedValue([
+    { chapterId: "ch-0001", title: "第一章", order: 1, wordCount: 1000, selected: false, analyzed: false },
+  ])
+  const { createBookAnalysisPipelineStore } = await import("./book-analysis-pipeline-store")
+  const store = createBookAnalysisPipelineStore()
+  await store.getState().initializeProject("E:/Novel-cache")
+  return store
+}
+
+describe("book-analysis-pipeline-store 显式重生成语义", () => {
+  it("forceNew 只创建独立任务，普通任务仍允许复用", async () => {
+    const store = await refreshStore()
+    const input = {
+      bookId: "book-cache", bookPath: "E:/Novel-cache/book-analysis/book-cache",
+      selectedSkills: ["style" as const], forceNew: true,
+    }
+    const first = await store.getState().createAwaitingRangeTask(input)
+    const second = await store.getState().createAwaitingRangeTask(input)
+    expect(first?.id).not.toBe(second?.id)
+    expect(first?.forceRefresh).not.toBe(true)
+    expect(second?.forceRefresh).not.toBe(true)
+  })
+
+  it("显式 forceRefresh 会持久化并随范围配置、启动传给 scheduler", async () => {
+    const store = await refreshStore()
+    const value = await store.getState().createAwaitingRangeTask({
+      bookId: "book-refresh", bookPath: "E:/Novel-cache/book-analysis/book-refresh",
+      selectedSkills: ["style"], forceNew: true, forceRefresh: true,
+    })
+    expect(value?.forceRefresh).toBe(true)
+    const { saveAnalysisTask } = await import("@/lib/novel/book-analysis/analysis-pipeline-storage")
+    expect(saveAnalysisTask).toHaveBeenLastCalledWith(expect.objectContaining({ id: value!.id, forceRefresh: true }))
+    await store.getState().configureTaskRange(value!.id, { startOrder: 1, endOrder: 1 })
+    expect(store.getState().tasks[0].forceRefresh).toBe(true)
+    await store.getState().startTask(value!.id)
+    const { createAnalysisScheduler } = await import("@/lib/novel/book-analysis/analysis-scheduler")
+    const scheduler = vi.mocked(createAnalysisScheduler).mock.results.at(-1)!.value
+    expect(scheduler.enqueue).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: value!.id, forceRefresh: true }),
+      expect.arrayContaining([expect.objectContaining({ taskId: value!.id })]),
+    )
+    await store.getState().continueTask(value!.id)
+    await store.getState().retryFailedChunk(value!.id, "style", "chunk-1")
+    expect(scheduler.continueTask).toHaveBeenCalledWith(value!.id)
+    expect(scheduler.retryFailedChunk).toHaveBeenCalledWith(value!.id, "style", "chunk-1")
+    expect(store.getState().tasks[0].forceRefresh).toBe(true)
+  })
+
+  it("明确重生成不能因已有同书任务而静默返回普通旧任务", async () => {
+    const store = await refreshStore()
+    const input = {
+      bookId: "book-existing", bookPath: "E:/Novel-cache/book-analysis/book-existing",
+      selectedSkills: ["story" as const],
+    }
+    const existing = await store.getState().createAwaitingRangeTask(input)
+    const refresh = await store.getState().createAwaitingRangeTask({ ...input, forceRefresh: true })
+    expect(refresh?.id).not.toBe(existing?.id)
+    expect(refresh?.forceRefresh).toBe(true)
+    expect(existing?.forceRefresh).not.toBe(true)
   })
 })

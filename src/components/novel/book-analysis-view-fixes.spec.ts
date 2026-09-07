@@ -34,3 +34,13 @@ describe("book-analysis-view 三个修复点的接线（fix/view-result-routing 
     expect(source).toContain("onAnalysisActiveTabChange={setModuleActiveTab}")
   })
 })
+
+
+it("明确重新提取要旁路成功结果缓存，而非仅创建新任务", async () => {
+  const { readFileSync } = await import("node:fs")
+  const source = readFileSync(new URL("./book-analysis-view.tsx", import.meta.url), "utf8")
+  const start = source.indexOf("const openPipelineDialog =")
+  const end = source.indexOf("const openExistingPipelineDialog =", start)
+  expect(source.slice(start, end)).toContain("forceNew: true")
+  expect(source.slice(start, end)).toContain("forceRefresh: true")
+})

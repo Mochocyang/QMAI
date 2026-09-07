@@ -754,3 +754,28 @@ describe("Gemini thought summaries", () => {
     expect(body.generationConfig).toBeUndefined()
   })
 })
+
+
+describe("缓存路由参数的协议隔离", () => {
+  it.each(["chat_completions", "responses"] as const)("官方%s只发送snake_case字段", (apiMode) => {
+    const target = customConfig({ customEndpoint: "https://api.openai.com/v1", apiMode })
+    const body = getProviderConfig(target).buildBody([{ role: "user", content: "测试" }], { promptCacheKey: "a".repeat(64) }) as Record<string, unknown>
+    expect(body.prompt_cache_key).toBe("a".repeat(64))
+    expect(body).not.toHaveProperty("promptCacheKey")
+    expect(body).not.toHaveProperty("prompt_cache_retention")
+    expect(body).not.toHaveProperty("prompt_cache_options")
+  })
+
+  it("未知兼容网关不泄露内部字段", () => {
+    const body = getProviderConfig(customConfig()).buildBody([{ role: "user", content: "测试" }], { promptCacheKey: "internal" }) as Record<string, unknown>
+    expect(body).not.toHaveProperty("promptCacheKey")
+    expect(body).not.toHaveProperty("prompt_cache_key")
+  })
+
+  it("Anthropic只保留原有cache_control，不接受OpenAI路由字段", () => {
+    const body = getProviderConfig(customConfig({ provider: "anthropic" })).buildBody([{ role: "user", content: [{ type: "text", text: "共同材料", cacheControl: true }] }], { promptCacheKey: "internal" }) as Record<string, unknown>
+    expect(body).not.toHaveProperty("promptCacheKey")
+    expect(body).not.toHaveProperty("prompt_cache_key")
+    expect(JSON.stringify(body)).toContain('"cache_control":{"type":"ephemeral"}')
+  })
+})

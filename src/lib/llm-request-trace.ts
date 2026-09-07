@@ -21,6 +21,9 @@ const LLM_REQUEST_TRACE_PROVIDERS = new Set<LlmConfig["provider"]>([
 export type LlmRequestTraceStatus = "success" | "error" | "cancelled" | "network_error"
 
 export interface LlmRequestCacheTrace {
+  surface?: string
+  stage?: string
+  requestId?: string
   provider: LlmConfig["provider"]
   model: string
   apiMode: string
@@ -49,9 +52,15 @@ function resolveLlmRequestApiMode(config: LlmConfig): string {
   return "chat_completions"
 }
 
-interface LlmRequestTraceSnapshot {
+export interface LlmRequestUsageTotals extends LlmUsage {
+  requestCount: number
+}
+
+export interface LlmRequestTraceSnapshot {
+  requestIds?: string[]
   requests: LlmRequestCacheTrace[]
   omittedRequestCount: number
+  usageTotals: LlmRequestUsageTotals
 }
 
 function textBlocksThroughLastBreakpoint(messages: ChatMessage[]): ChatMessage[] | null {
@@ -118,6 +127,7 @@ export async function buildLlmRequestPrefixDescriptor(
 }
 
 export function buildLlmRequestCacheTrace(input: {
+  requestId?: string
   config: LlmConfig
   prefixFingerprint?: string
   prefixEstimatedTokens?: number
@@ -128,6 +138,7 @@ export function buildLlmRequestCacheTrace(input: {
   status: LlmRequestTraceStatus
 }): LlmRequestCacheTrace {
   return {
+    ...(input.requestId ? { requestId: input.requestId } : {}),
     provider: input.config.provider,
     model: input.config.model,
     apiMode: resolveLlmRequestApiMode(input.config),
@@ -161,8 +172,46 @@ function requestKey(trace: LlmRequestCacheTrace): string | null {
 export class LlmRequestTraceCollector {
   private traces: LlmRequestCacheTrace[] = []
   private omitted = 0
+  private readonly requestIds = new Set<string>()
+  private requestCount = 0
+  private readonly totals: LlmUsage = {}
+  private readonly reports: Partial<Record<keyof LlmUsage, number>> = {}
+
+  constructor(initial?: LlmRequestTraceSnapshot) {
+    if (!initial) return
+    this.traces = initial.requests.filter(isLlmRequestCacheTrace).slice(-MAX_LLM_REQUEST_CACHE_TRACES).map(copyLlmRequestCacheTrace)
+    this.requestCount = Math.max(this.traces.length, Number.isSafeInteger(initial.usageTotals.requestCount) ? initial.usageTotals.requestCount : 0)
+    this.omitted = Math.max(0, this.requestCount - this.traces.length)
+    for (const id of Array.isArray(initial.requestIds) ? initial.requestIds : []) {
+      if (typeof id === "string" && id) this.requestIds.add(id)
+    }
+    for (const trace of this.traces) if (trace.requestId) this.requestIds.add(trace.requestId)
+    for (const field of ["inputTokens", "outputTokens", "cachedInputTokens", "cacheWriteInputTokens"] as const) {
+      const value = initial.usageTotals[field]
+      if (value === undefined || !Number.isFinite(value) || value < 0) continue
+      this.totals[field] = value
+      this.reports[field] = this.requestCount
+    }
+  }
 
   record = (trace: LlmRequestCacheTrace): void => {
+    if (trace.requestId) {
+      if (this.requestIds.has(trace.requestId)) return
+      this.requestIds.add(trace.requestId)
+    }
+    this.requestCount += 1
+    const usage: LlmUsage = {
+      inputTokens: trace.inputTokens,
+      outputTokens: trace.outputTokens,
+      cachedInputTokens: trace.cacheReadTokens,
+      cacheWriteInputTokens: trace.cacheWriteTokens,
+    }
+    for (const field of Object.keys(usage) as Array<keyof LlmUsage>) {
+      const value = usage[field]
+      if (value === undefined || !Number.isFinite(value) || value < 0) continue
+      this.totals[field] = (this.totals[field] ?? 0) + value
+      this.reports[field] = (this.reports[field] ?? 0) + 1
+    }
     this.traces.push(copyLlmRequestCacheTrace(trace))
     this.traces.sort((left, right) => left.startedAt - right.startedAt)
     if (this.traces.length > MAX_LLM_REQUEST_CACHE_TRACES) {
@@ -187,12 +236,20 @@ export class LlmRequestTraceCollector {
       }
       return trace
     })
-    return { requests, omittedRequestCount: this.omitted }
+    const usageTotals: LlmRequestUsageTotals = { requestCount: this.requestCount }
+    for (const field of Object.keys(this.totals) as Array<keyof LlmUsage>) {
+      // 缺失不是零：仅所有请求均上报的字段可以称为完整工作流总量。
+      if (this.reports[field] === this.requestCount) usageTotals[field] = this.totals[field]
+    }
+    return { requests, requestIds: [...this.requestIds], omittedRequestCount: this.omitted, usageTotals }
   }
 }
 
 export function copyLlmRequestCacheTrace(trace: LlmRequestCacheTrace): LlmRequestCacheTrace {
   return {
+    ...(trace.surface !== undefined ? { surface: trace.surface } : {}),
+    ...(trace.stage !== undefined ? { stage: trace.stage } : {}),
+    ...(trace.requestId !== undefined ? { requestId: trace.requestId } : {}),
     provider: trace.provider,
     model: trace.model,
     apiMode: trace.apiMode,
@@ -217,7 +274,11 @@ export function isLlmRequestCacheTrace(value: unknown): value is LlmRequestCache
   const source = value as Record<string, unknown>
   const optionalNumber = (key: string) => source[key] === undefined
     || (typeof source[key] === "number" && Number.isFinite(source[key]) && source[key] >= 0)
-  return typeof source.provider === "string"
+  const optionalLabel = (key: string) => source[key] === undefined
+    || (typeof source[key] === "string" && source[key].length > 0 && source[key].length <= 80)
+  return optionalLabel("surface") && optionalLabel("stage")
+    && (source.requestId === undefined || (typeof source.requestId === "string" && source.requestId.length > 0))
+    && typeof source.provider === "string"
     && LLM_REQUEST_TRACE_PROVIDERS.has(source.provider as LlmConfig["provider"])
     && typeof source.model === "string"
     && typeof source.apiMode === "string"

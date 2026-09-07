@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import type { ContextPack, buildContextPack as buildProjectContextPack } from "@/lib/novel/context-engine"
+import { DataSourceRegistry, type ContextLoadContext } from "@/lib/novel/context-data-source"
+import { parseContextHubSnapshot, parseContextHubSnapshotRef } from "./types"
 import { ContextHubController } from "./context-hub"
 import type {
   CachedArtifact,
@@ -73,7 +75,7 @@ function createHarness() {
     pruneSnapshots: vi.fn(async () => {}),
     dispose: vi.fn(),
   }
-  const buildContextPack = vi.fn(async () => pack())
+  const buildContextPack = vi.fn<typeof buildProjectContextPack>(async () => pack())
   const readFile = vi.fn(async (path: string) => `内容:${path}:${readFile.mock.calls.length}`)
   const controller = new ContextHubController("E:/Novel", {
     registry,
@@ -245,6 +247,36 @@ describe("ContextHubController", () => {
       sessionSummary: result?.sessionSummary,
       dynamicContext: result?.dynamicContext,
     })
+  })
+
+  it("passes cacheable counters through prepare and both persisted snapshot shapes", async () => {
+    const harness = createHarness()
+    harness.buildContextPack.mockImplementation(async (projectPath, task, chapterNumber, options) => {
+      const sources = new DataSourceRegistry({ loadAdapter: options?.loadAdapter })
+      sources.registerAll([
+        { name: "relatedSettings", priority: 1, load: async () => "旧车站" },
+        { name: "searchResults", priority: 1, load: async () => "查询结果" },
+        { name: "outline", priority: 1, load: async () => "" },
+      ])
+      const context: ContextLoadContext = {
+        projectPath, task, chapterNumber,
+        config: { recentSummaryWindow: 8, searchTopK: 5, snapshotLookback: 3, revisionFeedbackWindowConfig: {} },
+      }
+      const values = await sources.loadAll(context)
+      return { ...pack(), relatedSettings: values.relatedSettings, searchResults: values.searchResults }
+    })
+
+    const cold = await harness.controller.prepare(request)
+    const warm = await harness.controller.prepare(request)
+    expect(cold?.stats).toMatchObject({ cacheableLoaded: 2, cacheableHits: 0 })
+    expect(warm?.stats).toMatchObject({ cacheHits: 2, empty: 1, cacheableLoaded: 2, cacheableHits: 1 })
+
+    const reference = await harness.controller.saveSnapshot("assistant:cache-metrics", warm!)
+    const stored = await harness.controller.readSnapshot(reference)
+    const restored = parseContextHubSnapshot(JSON.parse(JSON.stringify(stored)))
+    const restoredRef = parseContextHubSnapshotRef(JSON.parse(JSON.stringify(reference)))
+    expect(restored?.stats).toMatchObject({ cacheableLoaded: 2, cacheableHits: 1 })
+    expect(restoredRef?.stats).toMatchObject({ cacheableLoaded: 2, cacheableHits: 1 })
   })
 
   it("returns the lightweight reference when snapshot persistence fails", async () => {
