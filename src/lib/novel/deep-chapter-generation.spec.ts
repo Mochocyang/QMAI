@@ -20,12 +20,6 @@ import {
 } from "./deep-chapter-prompts"
 import { contractToTaskBriefText, createEmptyContract, type ChapterExecutionContract } from "./chapter-execution-contract"
 
-const loadSmartDeAiSkillMock = vi.hoisted(() => vi.fn(async () => null))
-
-vi.mock("./de-ai-adapter", () => ({
-  loadSmartDeAiSkill: loadSmartDeAiSkillMock,
-}))
-
 const llmConfig = {
   provider: "custom",
   apiKey: "test-key",
@@ -103,6 +97,19 @@ function chapterText(prefix: string, count = 3000): string {
 
 // 写作阶段现在可能把 user 消息内容拆成带 cache_control 的文本块（见 applyCachePrefix）；
 // provider 侧会把纯文本块拼回字符串，这里在测试桩里也照做，保持按关键字匹配阶段的逻辑。
+function isStage6Prompt(prompt: string): boolean {
+  return prompt.includes("简单审查") || prompt.includes("局部修改")
+}
+
+const leftoverWarning: NovelReviewResult = {
+  severity: "warning",
+  type: "plot",
+  message: "结尾钩子偏弱",
+  evidence: "正文",
+  relatedMemory: "",
+  suggestion: "补强钩子",
+}
+
 function messagesPromptText(messages: ChatMessage[]): string {
   return messages
     .map((message) =>
@@ -118,7 +125,7 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
     "写作任务书内容",
     chapterText("初稿正文内容"),
     chapterText("返修正文内容"),
-    chapterText("最终去AI味正文"),
+    chapterText("局部修改后正文"),
   ]
   return {
     buildContextPack: vi.fn(async () => contextPack),
@@ -135,7 +142,7 @@ function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerat
     })),
     streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
       const prompt = messagesPromptText(messages)
-      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+      const content = isStage6Prompt(prompt)
         ? responses[3]
         : prompt.includes("返修")
           ? responses[2]
@@ -197,7 +204,7 @@ describe("runDeepChapterGeneration", () => {
     expect(onRequestTrace).toHaveBeenCalled()
   })
 
-  it("routes workflow, prose, and de-AI stages to their configured models", async () => {
+  it("routes workflow and prose stages to their configured models", async () => {
     const previousState = useWikiStore.getState()
     useWikiStore.setState({
       aiChatModel: "custom/writer-model",
@@ -240,8 +247,8 @@ describe("runDeepChapterGeneration", () => {
       ) => {
         calledModels.push(config.model)
         const prompt = messagesPromptText(messages)
-        const content = prompt.includes("简单审查") || prompt.includes("去AI味")
-          ? chapterText("最终去AI味正文")
+        const content = isStage6Prompt(prompt)
+          ? chapterText("局部修改后正文")
           : prompt.includes("返修")
             ? chapterText("返修正文内容")
             : prompt.includes("正文")
@@ -267,7 +274,7 @@ describe("runDeepChapterGeneration", () => {
         "workflow-model",
         "writer-model",
         "writer-model",
-        "de-ai-model",
+        "writer-model",
       ])
     } finally {
       useWikiStore.setState({
@@ -279,10 +286,9 @@ describe("runDeepChapterGeneration", () => {
     }
   })
 
-  it("uses the confirmed plan when retrieving context and selecting the de-AI skill", async () => {
+  it("uses the confirmed plan when retrieving context", async () => {
     const deps = createDeps()
     const planBlueprint = "确认计划：新角色顾舟在北塔登场，并带出铜钥匙。"
-    loadSmartDeAiSkillMock.mockClear()
 
     await runDeepChapterGeneration(
       {
@@ -300,11 +306,6 @@ describe("runDeepChapterGeneration", () => {
       "E:/Novel",
       expect.stringContaining(planBlueprint),
       3,
-    )
-    expect(loadSmartDeAiSkillMock).toHaveBeenCalledWith(
-      "E:/Novel",
-      expect.stringContaining(planBlueprint),
-      expect.any(Object),
     )
   })
 
@@ -364,7 +365,7 @@ describe("runDeepChapterGeneration", () => {
     const planningPrompt = buildDeepChapterBriefPrompt("", "上下文包内容", "生成第3章", 3)
     const draftPrompt = buildDeepChapterDraftPrompt("", "上下文包内容", "写作任务书内容", "生成第3章", 3)
     const revisionPrompt = buildDeepChapterRevisionPrompt("", "上下文包内容", "写作任务书内容", "初稿正文内容", reviewResults, "生成第3章", 3)
-    const finalPolishPrompt = buildDeepChapterFinalPolishPrompt("", "上下文包内容", "写作任务书内容", "返修正文内容", "生成第3章", 3)
+    const finalPolishPrompt = buildDeepChapterFinalPolishPrompt("", "上下文包内容", "写作任务书内容", "返修正文内容", reviewResults, "生成第3章", 3)
 
     for (const prompt of [planningPrompt, draftPrompt]) {
       expect(prompt).toContain(`低于 ${DEEP_CHAPTER_MIN_CHARS} 字`)
@@ -379,9 +380,10 @@ describe("runDeepChapterGeneration", () => {
       expect(prompt).not.toContain("全文安全上限")
       expect(prompt).not.toContain("2200-3200 字")
     }
-    expect(finalPolishPrompt).toContain("中文小说去 AI 味补充规则")
-    expect(finalPolishPrompt).toContain("角色声线")
-    expect(finalPolishPrompt).toContain("不要按非虚构文章规则硬删副词")
+    expect(finalPolishPrompt).toContain("剩余问题：")
+    expect(finalPolishPrompt).toContain("测试问题")
+    expect(finalPolishPrompt).toContain("只修改清单中指出的有问题部分")
+    expect(finalPolishPrompt).not.toContain("中文小说去 AI 味补充规则")
     expect(planningPrompt).not.toContain("用户已确认的章节计划")
     expect(planningPrompt).toContain("章节节奏曲线")
     expect(planningPrompt).toContain("对话目标")
@@ -485,7 +487,7 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     const streamPrompts = vi.mocked(deps.streamChat).mock.calls.map((call) => messagesPromptText(call[1]))
     expect(streamPrompts.join("\n")).toContain("用户确认计划的执行清单")
     expect(streamPrompts.join("\n")).toContain("完成后状态：主角进入旧屋。")
@@ -721,7 +723,7 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(result.executionReport).toContain("执行报告生成失败")
     expect(result.planCompliance).toBe("")
     expect(deps.runChapterPlanComplianceCheck).not.toHaveBeenCalled()
@@ -761,7 +763,7 @@ describe("runDeepChapterGeneration", () => {
     expect(deps.runChapterPlanComplianceCheck).toHaveBeenCalledWith(
       expect.any(Object),
       expect.stringContaining("用户已确认的章节计划执行摘要"),
-      expect.stringContaining("最终去AI味正文"),
+      expect.stringContaining("初稿正文内容"),
       undefined,
     )
     expect(compliancePlanArg.length).toBeLessThan(fullPlan.length)
@@ -847,7 +849,7 @@ describe("runDeepChapterGeneration", () => {
     expect(deps.runChapterPlanComplianceCheck).toHaveBeenCalledWith(
       expect.any(Object),
       expect.stringContaining("确认计划：旧屋揭示，章末脚步声钩子。"),
-      expect.stringContaining("最终去AI味正文"),
+      expect.stringContaining("初稿正文内容"),
       controller.signal,
     )
   })
@@ -882,7 +884,7 @@ describe("runDeepChapterGeneration", () => {
         _signal?: AbortSignal,
       ) => {
         expect(plan).toContain("用户已确认的章节计划执行摘要")
-        expect(content).toContain("最终去AI味正文")
+        expect(content).toContain("初稿正文内容")
         expect(String(compliance)).toContain("章末钩子")
         return repairedContent
       }),
@@ -909,7 +911,7 @@ describe("runDeepChapterGeneration", () => {
     expect(result.revised).toBe(true)
     expect(result.planCompliance).toContain("计划偏离点返修：已完成")
     expect(result.planCompliance).not.toContain("partial_deviation")
-    expect(finalContents[0]).toContain("最终去AI味正文")
+    expect(finalContents[0]).toContain("初稿正文内容")
     expect(finalContents[finalContents.length - 1]).toBe(repairedContent)
     const complianceEvent = activityEvents.find((event) => event.stageId === "plan_compliance")
     expect(complianceEvent?.content).toContain("履约状态：部分偏离")
@@ -951,7 +953,7 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(result.revised).toBe(false)
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(workflowEvents).toContainEqual(expect.objectContaining({
       type: "error",
       name: "chapter_plan_deviation_repair",
@@ -989,7 +991,7 @@ describe("runDeepChapterGeneration", () => {
 
     expect(deps.runChapterPlanComplianceCheck).toHaveBeenCalledTimes(2)
     expect(result.revised).toBe(false)
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(result.finalContent).not.toBe(repairedContent)
   })
 
@@ -1014,7 +1016,7 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(deps.runChapterPlanDeviationRepair).not.toHaveBeenCalled()
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     const complianceEvent = activityEvents.find((event) => event.stageId === "plan_compliance")
     expect(complianceEvent?.content).toContain("履约状态：基本符合")
     expect(complianceEvent?.content).toContain("处理决定：无需返修")
@@ -1053,7 +1055,7 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(deps.runChapterPlanDeviationRepair).toHaveBeenCalledOnce()
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(result.finalContent).not.toBe("短正文")
     expect(finalContents).toHaveLength(1)
     const repairEvent = activityEvents.find((event) => event.stageId === "plan_deviation_repair")
@@ -1085,7 +1087,7 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     const repairEvent = activityEvents.find((event) => event.stageId === "plan_deviation_repair")
     expect(repairEvent?.content).toContain("原因：返修后正文明显变长")
   })
@@ -1117,7 +1119,7 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     const repairEvent = activityEvents.find((event) => event.stageId === "plan_deviation_repair")
     expect(repairEvent?.content).toContain("原因：返修后未保留原正文主要内容")
   })
@@ -1167,13 +1169,14 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(result.revised).toBe(false)
     expect(thinking.join("\n")).toContain("阶段1：上下文分析")
     expect(thinking.join("\n")).toContain("阶段2：写作任务书")
     expect(thinking.join("\n")).toContain("阶段3：正文初稿")
     expect(thinking.join("\n")).toContain("阶段4：AI审稿")
-    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).toContain("未发现剩余问题，已采用当前正文作为最终正文。")
+    expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
     expect(thinking.join("\n")).toContain("未发现阻断问题")
   })
 
@@ -1192,22 +1195,22 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("初稿正文内容")
     expect(thinking.join("\n")).toContain("AI 审稿失败")
     expect(thinking.join("\n")).not.toContain("AI 审稿完成，未发现阻断问题")
     expect(events.filter((event) => event.name === "chapter_review").map((event) => event.type))
       .toEqual(["started", "error"])
   })
 
-  it("keeps the pre-polish draft when final polish fails", async () => {
-    const deps = createDeps()
+  it("keeps the pre-fix draft when stage 6 local fix fails", async () => {
+    const deps = createDeps([leftoverWarning])
     vi.mocked(deps.streamChat).mockImplementation(async (
       _config: LlmConfig,
       messages: ChatMessage[],
       callbacks: StreamCallbacks,
     ) => {
       const prompt = messagesPromptText(messages)
-      if (prompt.includes("简单审查") || prompt.includes("去AI味")) {
+      if (isStage6Prompt(prompt)) {
         throw new Error("error decoding response body")
       }
       const content = prompt.includes("返修")
@@ -1233,9 +1236,9 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(result.finalContent).toContain("初稿正文内容")
-    expect(result.finalContent).not.toContain("最终去AI味正文")
+    expect(result.finalContent).not.toContain("局部修改后正文")
     expect(delivered[0]).toContain("初稿正文内容")
-    expect(thinking.join("\n")).toContain("已保留去AI味前的正文")
+    expect(thinking.join("\n")).toContain("已保留修改前的正文")
     expect(events.filter((event) => event.name === "chapter_final_polish").map((event) => event.type))
       .toEqual(["started", "error"])
     expect(events.some((event) => event.name === "chapter_complete" && event.type === "completed")).toBe(true)
@@ -1267,12 +1270,12 @@ describe("runDeepChapterGeneration", () => {
     expect(activityEvents.some((event) => event.kind === "stage_output" && event.content.includes("任务书"))).toBe(true)
     expect(activityEvents.some((event) => event.stageId === "final_polish")).toBe(false)
     expect(contextOutput?.content).toContain("写作任务书和正文初稿后直接完成")
-    expect(contextOutput?.content).not.toContain("审稿和最终去AI味")
+    expect(contextOutput?.content).not.toContain("审稿；若有剩余问题再局部修改")
     expect(activityEvents.some((event) => event.content.includes("进入阶段6"))).toBe(false)
   })
 
-  it("emits a dedicated 去AI味 stage between 校验与修正 and 最终输出", async () => {
-    const deps = createDeps()
+  it("emits a dedicated local-fix stage between 校验与修正 and 最终输出 when leftover issues remain", async () => {
+    const deps = createDeps([leftoverWarning])
     const activityEvents: AgentActivityEvent[] = []
 
     await runDeepChapterGeneration(
@@ -1307,9 +1310,9 @@ describe("runDeepChapterGeneration", () => {
       (event) => event.stageId === "read_context" && event.kind === "stage_output",
     )
 
-    expect(polishStarted?.content).toContain("去除复读、机械套话和 AI 味")
-    expect(polishOutput?.content).toContain("简单审查与去AI味完成")
-    expect(contextOutput?.content).toContain("审稿和最终去AI味阶段")
+    expect(polishStarted?.content).toContain("按剩余问题做局部修改")
+    expect(polishOutput?.content).toContain("简单审查与修改完成")
+    expect(contextOutput?.content).toContain("审稿；若有剩余问题再局部修改")
     expect(validateOutputIndex).toBeGreaterThanOrEqual(0)
     expect(polishStartedIndex).toBeGreaterThan(validateOutputIndex)
     expect(finalOutputIndex).toBeGreaterThan(polishStartedIndex)
@@ -1326,7 +1329,7 @@ describe("runDeepChapterGeneration", () => {
     vi.mocked(deps.streamChat).mockImplementation(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
       const prompt = messagesPromptText(messages)
       capturedPrompts.push(prompt)
-      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+      const content = isStage6Prompt(prompt)
         ? chapterText("最终文风正文", 3000)
         : prompt.includes("返修")
           ? chapterText("返修文风正文", 3000)
@@ -1366,7 +1369,7 @@ describe("runDeepChapterGeneration", () => {
     ) => {
       requests.push({ model: config.model, maxTokens: requestOverrides?.max_tokens })
       const prompt = messagesPromptText(messages)
-      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+      const content = isStage6Prompt(prompt)
         ? chapterText("最终无上限正文", 3000)
         : prompt.includes("返修")
           ? chapterText("返修无上限正文", 3000)
@@ -1428,9 +1431,9 @@ describe("runDeepChapterGeneration", () => {
 
       expect(requests).toContainEqual({ model: "workflow-model", maxTokens: 40_000 })
       expect(requests).toContainEqual({ model: "writer-model", maxTokens: 39_321 })
-      expect(requests).toContainEqual({ model: "de-ai-model", maxTokens: 30_720 })
-      // 共享资料包仍受最小的 204800-token 去 AI 味模型限制。
-      expect(sharedContextTokenBudget).toBe(133_120)
+      expect(requests.some((item) => item.model === "de-ai-model")).toBe(false)
+      // 共享资料包按写作模型窗口规划，不再被去 AI 味模型窗口压低。
+      expect(sharedContextTokenBudget).toBeGreaterThan(133_120)
     } finally {
       useWikiStore.setState({
         aiChatModel: previousState.aiChatModel,
@@ -1466,11 +1469,9 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(overrides.length).toBeGreaterThan(0)
-    // Analysis is raised to the 16384 thinking floor; generation stays at
-    // the larger window-fraction budget (30720 on the shared 204800 window).
+    // Analysis is raised to the 16384 thinking floor; generation uses the writing window.
     expect(overrides.every((item) => (item?.max_tokens ?? 0) >= 16_384)).toBe(true)
     expect(overrides.some((item) => item?.max_tokens === 16_384)).toBe(true)
-    expect(overrides.some((item) => item?.max_tokens === 30_720)).toBe(true)
   })
 
   it("preserves configured model reasoning for chapter generation calls", async () => {
@@ -1519,7 +1520,7 @@ describe("runDeepChapterGeneration", () => {
       }
 
       const prompt = messagesPromptText(messages)
-      const content = prompt.includes("简单审查") || prompt.includes("去AI味")
+      const content = isStage6Prompt(prompt)
         ? chapterText("最终兜底正文", 3000)
         : prompt.includes("返修")
           ? chapterText("返修兜底正文", 3000)
@@ -1536,7 +1537,7 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终兜底正文")
+    expect(result.finalContent).toContain("初稿兜底正文")
     expect(overrides[0]?.reasoning).toBeUndefined()
     expect(overrides[1]).toEqual({
       // Budgets are planned once per run, from the configured "high" reasoning
@@ -1563,7 +1564,7 @@ describe("runDeepChapterGeneration", () => {
       callbacks: StreamCallbacks,
     ) => {
       const prompt = messagesPromptText(messages)
-      const body = prompt.includes("简单审查") || prompt.includes("去AI味")
+      const body = isStage6Prompt(prompt)
         ? chapterText("最终兜底正文", 3000)
         : prompt.includes("返修")
           ? chapterText("返修兜底正文", 3000)
@@ -1606,7 +1607,7 @@ describe("runDeepChapterGeneration", () => {
     expect(fastDeps.reviewChapter).not.toHaveBeenCalled()
     expect(skippedCollect).not.toHaveBeenCalled()
     expect(fastActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
-    expect(fastActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
+    expect(fastActivity.some((event) => event.content.includes("若有剩余问题再局部修改"))).toBe(false)
 
     const standardCollect = vi.fn(async () => ({ markdown: "", searchedNames: [], notes: [] }))
     const standardDeps = { ...createDeps(), collectWritingEntityWebSearch: standardCollect }
@@ -1626,7 +1627,7 @@ describe("runDeepChapterGeneration", () => {
     expect(standardThinking.join("\n")).not.toContain("快速模式")
     expect(standardThinking.join("\n")).not.toContain("进入阶段6")
     expect(standardActivity.some((event) => event.content.includes("进入阶段6"))).toBe(false)
-    expect(standardActivity.some((event) => event.content.includes("审稿和最终去AI味"))).toBe(false)
+    expect(standardActivity.some((event) => event.content.includes("若有剩余问题再局部修改"))).toBe(false)
     expect(standardCollect).toHaveBeenCalled()
 
     const collectWritingEntityWebSearch = vi.fn(async () => ({
@@ -1640,7 +1641,7 @@ describe("runDeepChapterGeneration", () => {
       {},
       strictDeps,
     )
-    expect(strictDeps.streamChat).toHaveBeenCalledTimes(3)
+    expect(strictDeps.streamChat).toHaveBeenCalledTimes(2)
     expect(strictDeps.reviewChapter).toHaveBeenCalled()
     expect(collectWritingEntityWebSearch).toHaveBeenCalled()
   })
@@ -1811,10 +1812,10 @@ describe("runDeepChapterGeneration", () => {
       "completed:chapter_draft",
       "started:chapter_review",
       "completed:chapter_review",
-      "started:chapter_final_polish",
-      "completed:chapter_final_polish",
       "completed:chapter_complete",
     ]))
+    expect(eventKeys).not.toContain("started:chapter_final_polish")
+    expect(events.find((event) => event.name === "chapter_final_polish")?.result).toContain("未发现剩余问题，跳过阶段6")
     expect(events.find((event) => event.name === "chapter_task_brief")?.title).toBe("生成写作任务书")
     expect(events.find((event) => event.name === "chapter_complete")?.result).toContain("多任务写作循环完成")
   })
@@ -1997,27 +1998,80 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toContain("最终去AI味正文")
+    expect(result.finalContent).toContain("局部修改后正文")
     expect(result.revised).toBe(true)
     expect(deps.streamChat).toHaveBeenCalledTimes(4)
     expect(thinking.join("\n")).toContain("阶段5：自动返修")
-    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).toContain("阶段6：简单审查与修改")
     expect(thinking.join("\n")).toContain("没有承接上一章门缝声")
+    const stage6Prompt = vi.mocked(deps.streamChat).mock.calls
+      .map((call) => messagesPromptText(call[1]))
+      .find((prompt) => isStage6Prompt(prompt))
+    expect(stage6Prompt).toContain("没有承接上一章门缝声")
+    expect(stage6Prompt).toContain("只修改清单中指出的有问题部分")
+  })
+
+  it("skips stage 6 when post-revision review is clean", async () => {
+    const blockingIssue: NovelReviewResult = {
+      severity: "error",
+      type: "plot",
+      message: "没有承接上一章门缝声。",
+      evidence: "初稿正文内容",
+      relatedMemory: "上一章结尾",
+      suggestion: "补上门缝声的承接。",
+    }
+    const deps = createDeps([blockingIssue])
+    vi.mocked(deps.reviewChapter)
+      .mockResolvedValueOnce([blockingIssue])
+      .mockResolvedValueOnce([])
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+
+    expect(result.finalContent).toContain("返修正文内容")
+    expect(result.revised).toBe(true)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).toContain("返修后复审未发现新的阻断问题")
+    expect(thinking.join("\n")).toContain("返修后未发现剩余问题，已采用返修后正文作为最终正文。")
+    expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
+  })
+
+  it("runs stage 6 only for leftover warnings and keeps the issue list in the prompt", async () => {
+    const deps = createDeps([leftoverWarning])
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+
+    expect(result.finalContent).toContain("局部修改后正文")
+    expect(result.revised).toBe(false)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(thinking.join("\n")).toContain("阶段6：简单审查与修改")
+    const stage6Prompt = vi.mocked(deps.streamChat).mock.calls
+      .map((call) => messagesPromptText(call[1]))
+      .find((prompt) => isStage6Prompt(prompt))
+    expect(stage6Prompt).toContain("结尾钩子偏弱")
+    expect(stage6Prompt).toContain("只修改清单中指出的有问题部分")
+    expect(stage6Prompt).not.toContain("中文小说去 AI 味补充规则")
   })
 
   it("automatically expands a too-short draft before review and final output", async () => {
     const shortDraft = chapterText("短稿", 800)
     const expandedDraft = chapterText("扩写后正文", 3000)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
       contextPackToPrompt: vi.fn(() => "上下文包内容"),
       reviewChapter: vi.fn(async () => []),
       streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
         const prompt = messagesPromptText(messages)
-        const content = prompt.includes("简单审查") || prompt.includes("去AI味")
-          ? finalPolished
-          : prompt.includes("扩写补足")
+        const content = prompt.includes("扩写补足")
           ? expandedDraft
           : prompt.includes("章节正文")
             ? shortDraft
@@ -2034,11 +2088,11 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(finalPolished)
-    expect(deps.streamChat).toHaveBeenCalledTimes(4)
+    expect(result.finalContent).toBe(expandedDraft)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", expandedDraft, 3, expect.objectContaining({}))
     expect(thinking.join("\n")).toContain("阶段3：正文扩写补足")
-    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
   })
 
   it("fails the workflow when expansion is still far below the minimum chapter length", async () => {
@@ -2081,13 +2135,11 @@ describe("runDeepChapterGeneration", () => {
     }))
   })
 
-  it("does not force expansion after final polish even when the result is short", async () => {
+  it("does not force expansion after a clean review even when the draft is short of later polish", async () => {
     const draft = chapterText("初稿正文内容", 3000)
-    const shortFinal = chapterText("最终润色后过短", 1800)
     const responses = [
       "写作任务书内容",
       draft,
-      shortFinal,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2107,10 +2159,11 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(shortFinal)
-    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(result.finalContent).toBe(draft)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
     expect(thinking.join("\n")).toContain("阶段5：无需自动返修")
-    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(thinking.join("\n")).toContain("未发现剩余问题，已采用当前正文作为最终正文。")
+    expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
     expect(thinking.join("\n")).not.toContain("阶段6：字数检查未达标")
     expect(thinking.join("\n")).not.toContain("阶段3：正文扩写补足")
   })
@@ -2119,12 +2172,10 @@ describe("runDeepChapterGeneration", () => {
     const repeatUnit = "屋外雨声小了些，风还从门缝挤进来。旧木箱的盖子松松地合上，那东西还在。小晴在床上动了动，掌心湿热，像两股不同的水在交汇。\n"
     const runawayDraft = repeatUnit.repeat(900)
     const optimizedDraft = chapterText("阶段4优化后正文", 3000)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       runawayDraft,
       optimizedDraft,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2144,18 +2195,16 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(result.draftContent).toBe(optimizedDraft)
-    expect(result.finalContent).toBe(finalPolished)
+    expect(result.finalContent).toBe(optimizedDraft)
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", optimizedDraft, 3, expect.objectContaining({}))
     expect(thinking.join("\n")).toContain("检测到模型重复输出")
   })
 
   it("does not stop the AI chat stream at the old chapter hard max", async () => {
     const longDraft = chapterText("超过旧硬上限但不是重复输出的正文", 6500)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       longDraft,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2182,11 +2231,9 @@ describe("runDeepChapterGeneration", () => {
 
   it("sends long drafts directly to review without a stage 4 length rewrite", async () => {
     const overlongDraft = chapterText("过长初稿正文", 5200)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       overlongDraft,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2206,18 +2253,16 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", overlongDraft, 3, expect.objectContaining({}))
-    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
     expect(thinking.join("\n")).not.toContain("2200-3200")
     expect(thinking.join("\n")).not.toContain("字数优化")
   })
 
   it("does not optimize the stage 3 draft in stage 4 before review", async () => {
     const draft = chapterText("阶段3较长初稿", 5500)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       draft,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2237,17 +2282,15 @@ describe("runDeepChapterGeneration", () => {
     )
 
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", draft, 3, expect.objectContaining({}))
-    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
     expect(thinking.join("\n")).not.toContain("2200-3200")
   })
 
   it("does not retry stage 4 length optimization when the draft stays long", async () => {
     const draft = chapterText("阶段3超长初稿", 5500)
-    const finalPolished = chapterText("最终去AI味正文", 3000)
     const responses = [
       "写作任务书内容",
       draft,
-      finalPolished,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2266,20 +2309,18 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(finalPolished)
+    expect(result.finalContent).toBe(draft)
     expect(deps.reviewChapter).toHaveBeenCalledWith("E:/Novel", draft, 3, expect.objectContaining({}))
-    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
     expect(thinking.join("\n")).not.toContain("2200-3200")
     expect(thinking.join("\n")).not.toContain("连续尝试")
   })
 
-  it("does not force a length rewrite after final polish", async () => {
+  it("does not force a length rewrite after a clean review", async () => {
     const draft = chapterText("初稿正文内容", 3000)
-    const overlongFinal = chapterText("简单审查后过长正文", 5200)
     const responses = [
       "写作任务书内容",
       draft,
-      overlongFinal,
     ]
     const deps: DeepChapterGenerationDeps = {
       buildContextPack: vi.fn(async () => contextPack),
@@ -2298,22 +2339,23 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(overlongFinal)
-    expect(deps.streamChat).toHaveBeenCalledTimes(3)
-    expect(thinking.join("\n")).toContain("阶段6：简单审查与去AI味")
+    expect(result.finalContent).toBe(draft)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
+    expect(thinking.join("\n")).toContain("未发现剩余问题，已采用当前正文作为最终正文。")
+    expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
     expect(thinking.join("\n")).not.toContain("2200-3200")
     expect(thinking.join("\n")).not.toContain("字数检查与正文优化")
   })
 
   it("resumes from a saved review checkpoint instead of regenerating earlier stages", async () => {
-    const finalPolished = chapterText("恢复后的最终正文", 3000)
+    const draftContent = chapterText("阶段4完成后的正文草稿", 3000)
     const checkpoint: DeepChapterGenerationResumeCheckpoint = {
       version: 1,
       originalRequest: "生成第3章",
       chapterNumber: 3,
       stage: "after_review",
       taskBrief: "写作任务书内容",
-      draftContent: chapterText("阶段4完成后的正文草稿", 3000),
+      draftContent,
       reviewResults: [],
     }
     const deps: DeepChapterGenerationDeps = {
@@ -2323,7 +2365,7 @@ describe("runDeepChapterGeneration", () => {
         throw new Error("resume should not rerun review")
       }),
       streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
-        callbacks.onToken(finalPolished)
+        callbacks.onToken(chapterText("不应再生成的正文", 3000))
         callbacks.onDone()
       }),
     }
@@ -2341,9 +2383,9 @@ describe("runDeepChapterGeneration", () => {
       deps,
     )
 
-    expect(result.finalContent).toBe(finalPolished)
+    expect(result.finalContent).toBe(draftContent)
     expect(result.revised).toBe(false)
-    expect(deps.streamChat).toHaveBeenCalledTimes(1)
+    expect(deps.streamChat).not.toHaveBeenCalled()
     expect(deps.reviewChapter).not.toHaveBeenCalled()
     expect(thinking.join("\n")).not.toContain("阶段1：上下文分析")
     expect(thinking.join("\n")).not.toContain("阶段2：写作任务书")

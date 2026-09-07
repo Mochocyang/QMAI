@@ -270,7 +270,7 @@ describe("activity trace", () => {
   })
 
   it("resolves titles for post-draft strict stages", () => {
-    expect(resolveAgentStageTitle("final_polish")).toBe("去AI味")
+    expect(resolveAgentStageTitle("final_polish")).toBe("简单审查与修改")
     expect(resolveAgentStageTitle("execution_report")).toBe("执行报告")
     expect(resolveAgentStageTitle("execution_recheck")).toBe("执行复检")
     expect(resolveAgentStageTitle("plan_compliance")).toBe("计划履约")
@@ -377,10 +377,10 @@ describe("activity trace", () => {
     ])
   })
 
-  it("places 去AI味 between 校验与修正 and 最终输出", () => {
+  it("places 简单审查与修改 between 校验与修正 and 最终输出", () => {
     const stages: AgentStageTrace[] = [
       { id: "final_output", title: "最终输出", status: "done", summary: "完成", events: [], startedAt: 400 },
-      { id: "final_polish", title: "去AI味", status: "running", summary: "去AI味中", events: [], startedAt: 300 },
+      { id: "final_polish", title: "简单审查与修改", status: "running", summary: "局部修改中", events: [], startedAt: 300 },
       { id: "validate_revision", title: "校验与修正", status: "done", summary: "校验", events: [], startedAt: 200 },
     ]
 

@@ -207,7 +207,7 @@ const aiWorkflowModeOptions: Array<{
     mode: "strict",
     label: "严格",
     description: "完整质检",
-    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、按需局部修改和计划验收。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"

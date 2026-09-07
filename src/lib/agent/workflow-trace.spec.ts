@@ -138,7 +138,7 @@ describe("getWorkflowToolDescription", () => {
     expect(getWorkflowToolDescription(call({ id: "brief", name: "chapter_task_brief" }))).toBe("生成写作任务书")
     expect(getWorkflowToolDescription(call({ id: "draft", name: "chapter_draft", params: { chars: 3200 } }))).toBe("生成章节正文初稿")
     expect(getWorkflowToolDescription(call({ id: "review", name: "chapter_review" }))).toBe("执行 AI 审稿")
-    expect(getWorkflowToolDescription(call({ id: "polish", name: "chapter_final_polish" }))).toBe("简单审查与去AI味")
+    expect(getWorkflowToolDescription(call({ id: "polish", name: "chapter_final_polish" }))).toBe("简单审查与修改")
     expect(getWorkflowToolDescription(call({ id: "report", name: "chapter_execution_report" }))).toBe("检查章节执行清单")
     expect(getWorkflowToolDescription(call({ id: "repair", name: "chapter_execution_repair" }))).toBe("返修执行清单失败项")
     expect(getWorkflowToolDescription(call({ id: "recheck", name: "chapter_execution_recheck" }))).toBe("复检章节执行清单")

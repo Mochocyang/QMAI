@@ -296,7 +296,7 @@ export function getWorkflowToolDescription(call: WorkflowToolCall): string {
     case "chapter_post_revision_review":
       return "返修后角色一致性复审"
     case "chapter_final_polish":
-      return "简单审查与去AI味"
+      return "简单审查与修改"
     case "chapter_execution_report":
       return "检查章节执行清单"
     case "chapter_execution_repair":

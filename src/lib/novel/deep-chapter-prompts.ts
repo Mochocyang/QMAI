@@ -1,6 +1,5 @@
 import type { NovelReviewResult } from "./review-adapter"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
-import { CHINESE_NOVEL_DE_AI_RULES } from "./de-ai-rules"
 
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
@@ -44,7 +43,7 @@ function chapterLengthBoundary(lengthSpec: ChapterLengthSpec): string {
  * 跨阶段稳定上下文前缀：把“完整大纲 + 上下文包”放在每个阶段提示词的最前面，
  * 且在同一次章节生成里逐字节相同。
  *
- * 任务书 / 初稿 / 扩写 / 返修 / 去AI味这几个阶段都由同一份 outline + contextPrompt
+ * 任务书 / 初稿 / 扩写 / 返修 / 阶段6局部修改这几个阶段都由同一份 outline + contextPrompt
  * 拼出相同前缀，DeepSeek / OpenAI 的自动前缀缓存即可命中这段最大的内容，
  * 重复阶段按命中价计费（约 1/10），不再每阶段全价重发整段上下文。
  *
@@ -270,28 +269,23 @@ export function buildDeepChapterFinalPolishPrompt(
   contextPrompt: string,
   taskBrief: string,
   currentContent: string,
+  pendingFixIssues: NovelReviewResult[],
   userRequest: string,
   chapterNumber?: number,
   goldenThreeChapter?: GoldenThreeChapterRequest,
-  customDeAiSkill?: string,
 ): string {
-  const deAiRules = customDeAiSkill && customDeAiSkill.trim() ? customDeAiSkill.trim() : CHINESE_NOVEL_DE_AI_RULES
   return [
     buildStableContextPrefix(outline, contextPrompt),
     "",
-    "你是小说正文最终质检与去AI味助手。",
-    "请对二次审查/返修后的章节做最后一遍简单审查，并进行去AI味处理。",
+    "你是小说正文简单审查与局部修改助手。",
+    "请只根据下方剩余问题清单，对当前正文做局部修改。",
     "",
     "处理目标：",
-    "1. 检查是否存在明显复读、循环段落、前后矛盾、突兀跳转、解释腔和机械套话。",
-    "2. 去掉 AI 味：减少总结腔、模板句、过度解释、相同句式堆叠和空泛形容。",
-    "3. 保留原有剧情事实、人物关系、时间线、伏笔和章节结尾钩子，不要另起新剧情。",
-    "4. 只做必要的自然化、顺滑化和轻量修补，不要大幅重写。",
-    "5. 不再强制压缩到固定字数区间；只做必要的自然化、顺滑化和轻量修补，禁止为了凑字数复读。",
-    `6. ${chapterTitleRequirement()}`,
-    "7. 只输出最终可保存的小说正文，不要输出审查报告、解释或修改说明。",
-    "",
-    deAiRules,
+    "1. 只修改清单中指出的有问题部分。",
+    "2. 保留原有剧情事实、人物关系、时间线、伏笔和章节结尾钩子，不要另起新剧情。",
+    "3. 不再强制压缩到固定字数区间；禁止为了凑字数复读。",
+    `4. ${chapterTitleRequirement()}`,
+    "5. 只输出修改后的完整小说正文，不要输出审查报告、解释或修改说明。",
     "",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
@@ -300,7 +294,10 @@ export function buildDeepChapterFinalPolishPrompt(
     "写作任务书：",
     taskBrief,
     "",
-    "待最终简单审查与去AI味正文：",
+    "剩余问题：",
+    formatReviewIssues(pendingFixIssues),
+    "",
+    "待局部修改正文：",
     currentContent,
   ].filter(Boolean).join("\n")
 }

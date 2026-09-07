@@ -36,7 +36,7 @@ import {
   type CollectWritingEntityWebSearchInput,
   type WritingEntityWebSearchResult,
 } from "./writing-entity-web-search";
-import { resolveDefaultModel, resolveNovelModel } from "./model-resolver";
+import { resolveDefaultModel } from "./model-resolver";
 import { reviewChapter, type NovelReviewResult } from "./review-adapter";
 import type { TaskRouteResult } from "./task-router";
 import type { GoldenThreeChapterRequest } from "./golden-three-chapters";
@@ -219,7 +219,7 @@ interface ChapterWorkflowProfile {
   mode: AiWorkflowMode;
   runExecutionContractBuild: boolean;
   runAiReview: boolean;
-  runFinalPolish: boolean;
+  allowFinalIssueFix: boolean;
   runPostRevisionReview: boolean;
   runPostDraftPlanAudits: boolean;
   completionTitle: string;
@@ -235,7 +235,7 @@ function resolveChapterWorkflowProfile(
       mode: "fast",
       runExecutionContractBuild: false,
       runAiReview: false,
-      runFinalPolish: false,
+      allowFinalIssueFix: false,
       runPostRevisionReview: false,
       runPostDraftPlanAudits: false,
       completionTitle: "完成快速写作",
@@ -247,7 +247,7 @@ function resolveChapterWorkflowProfile(
       mode: "standard",
       runExecutionContractBuild: false,
       runAiReview: false,
-      runFinalPolish: false,
+      allowFinalIssueFix: false,
       runPostRevisionReview: false,
       runPostDraftPlanAudits: false,
       completionTitle: "完成标准写作",
@@ -258,7 +258,7 @@ function resolveChapterWorkflowProfile(
     mode: "strict",
     runExecutionContractBuild: true,
     runAiReview: true,
-    runFinalPolish: true,
+    allowFinalIssueFix: true,
     runPostRevisionReview: true,
     runPostDraftPlanAudits: true,
     completionTitle: "完成多任务写作循环",
@@ -273,20 +273,39 @@ function workflowModeLabel(profile: ChapterWorkflowProfile): string {
 }
 
 function describeContextPackHandoff(profile: ChapterWorkflowProfile): string {
-  if (profile.runAiReview || profile.runFinalPolish) {
-    return "已形成章节生成约束包，将传入写作任务书、正文初稿、审稿和最终去AI味阶段。";
+  if (profile.runAiReview || profile.allowFinalIssueFix) {
+    return "已形成章节生成约束包，将传入写作任务书、正文初稿和审稿；若有剩余问题再局部修改。";
   }
   return "已形成章节生成约束包，将传入写作任务书和正文初稿后直接完成。";
 }
 
 function describeSkippedReviewAndPolish(profile: ChapterWorkflowProfile): string {
   const skipped = ["AI 审稿", "返修"];
-  if (!profile.runFinalPolish) skipped.push("最终去AI味");
+  if (!profile.allowFinalIssueFix) skipped.push("阶段6局部修改");
   return `${workflowModeLabel(profile)}跳过 ${skipped.join("、")}，直接使用阶段3正文初稿。`;
 }
 
 function describeSkippedFinalPolish(profile: ChapterWorkflowProfile): string {
-  return `${workflowModeLabel(profile)}跳过最终去AI味，直接采用阶段3正文作为最终正文。`;
+  return `${workflowModeLabel(profile)}跳过阶段6局部修改，直接采用阶段3正文作为最终正文。`;
+}
+
+function describeSkippedFinalIssueFix(): string {
+  return "未发现剩余问题，跳过阶段6。";
+}
+
+function isPendingFixIssue(item: NovelReviewResult): boolean {
+  return item.severity === "error" || item.severity === "warning";
+}
+
+function collectPendingFixIssues(input: {
+  reviewFailed: boolean;
+  revised: boolean;
+  reviewResults: NovelReviewResult[];
+  postRevisionBlockingIssues: NovelReviewResult[];
+}): NovelReviewResult[] {
+  if (input.reviewFailed) return [];
+  if (input.revised) return input.postRevisionBlockingIssues;
+  return input.reviewResults.filter(isPendingFixIssue);
 }
 
 function describeSkippedPostDraftCompletion(profile: ChapterWorkflowProfile): string {
@@ -503,10 +522,8 @@ export async function runDeepChapterGeneration(
   const novelConfig = useWikiStore.getState().novelConfig;
   const writingConfig = resolveWritingConfig(input.llmConfig);
   const workflowConfig = resolveDefaultModel(input.llmConfig);
-  const deAiConfig = resolveNovelModel(input.llmConfig, novelConfig, "deAi");
   const workflowProfile = resolveChapterWorkflowProfile(input.aiWorkflowMode);
   const lengthSpec = resolveCurrentChapterLengthSpec();
-  const { loadSmartDeAiSkill } = await import("./de-ai-adapter");
   const planBlueprint =
     input.planBlueprint?.trim() || resumeCheckpoint?.planBlueprint?.trim() || undefined;
   const contextRequest = [
@@ -558,9 +575,6 @@ export async function runDeepChapterGeneration(
   if (!resumeCheckpoint) {
     startChapterWorkflowStep(callbacks, contextWorkflowStep);
   }
-
-  // 将在阶段1构建contextPack后再加载skill（需要contextPack用于场景检测）
-  let customDeAiSkill: string | null = null;
 
   // 阶段0：前情分析。快速模式始终跳过；标准/严格模式跟随写作设置。
   // 记忆库的近期摘要与上一章结尾仍会注入。
@@ -685,15 +699,7 @@ export async function runDeepChapterGeneration(
     });
   }
 
-  // 阶段1后：加载智能skill（传递contextPack用于场景检测）
-  customDeAiSkill = await loadSmartDeAiSkill(
-    input.projectPath,
-    contextRequest,
-    contextPack,
-  );
-  throwIfAborted(signal);
-
-  // 任务书(workflowConfig)、初稿/返修(writingConfig)、去AI味(deAiConfig)可能
+  // 任务书(workflowConfig)、初稿/返修/阶段6局部修改(writingConfig)可能
   // 使用不同模型。每个阶段的输出预算必须按实际调用模型的窗口与输出上限计算；
   // 否则一个小窗口的辅助模型会错误压缩大窗口工作流模型的任务书输出。
   const chapterAnalysisBudget = planChapterRequestBudget({
@@ -714,30 +720,17 @@ export async function runDeepChapterGeneration(
       writingConfig.reasoning ?? { mode: "auto" },
     ),
   });
-  const chapterDeAiBudget = planChapterRequestBudget({
-    maxContextSize: deAiConfig.maxContextSize,
-    chapterTargetChars: novelConfig.chapterTargetChars,
-    stage: "generation",
-    maxOutputTokens: getEffectiveMaxOutputTokens(deAiConfig),
-    thinkingFloorTokens: thinkingMinMaxTokens(
-      deAiConfig.reasoning ?? { mode: "auto" },
-    ),
-  });
-  // 三个阶段仍复用同一份 outlinePrompt + contextPrompt。共享输入取各阶段
+  // 各写作阶段仍复用同一份 outlinePrompt + contextPrompt。共享输入取各阶段
   // 实际可用上下文预算的最小值，确保任一模型都无需依赖 llm-client 末级截断。
   const totalContextTokenBudget = Math.min(
     chapterAnalysisBudget.contextTokenBudget,
     chapterGenerationBudget.contextTokenBudget,
-    chapterDeAiBudget.contextTokenBudget,
   );
   const analysisRequestOverrides: RequestOverrides = {
     max_tokens: chapterAnalysisBudget.outputTokens,
   };
   const generationRequestOverrides: RequestOverrides = {
     max_tokens: chapterGenerationBudget.outputTokens,
-  };
-  const deAiRequestOverrides: RequestOverrides = {
-    max_tokens: chapterDeAiBudget.outputTokens,
   };
   // Same density as the token estimator / trimContextPack (CJK 1, English 4).
   const charsPerToken = charsPerTokenForLanguage();
@@ -787,7 +780,7 @@ export async function runDeepChapterGeneration(
     .filter(Boolean)
     .join("\n\n");
 
-  // 稳定上下文前缀：与任务书/初稿/扩写/返修/去AI味各阶段提示词开头逐字节一致。
+  // 稳定上下文前缀：与任务书/初稿/扩写/返修/阶段6局部修改各阶段提示词开头逐字节一致。
   // 作为显式 prompt 缓存断点传入（Anthropic/MiniMax 走 cache_control；
   // OpenAI/DeepSeek 该断点被折叠回字符串、由其自动前缀缓存命中）。
   const cachePrefix = buildStableContextPrefix(outlinePrompt, contextPrompt);
@@ -1226,7 +1219,7 @@ export async function runDeepChapterGeneration(
     callbacks.onThinking?.(
       formatStageThinking(
         "阶段5：已跳过自动返修",
-        "AI 审稿失败，无法安全判断阻断问题，已跳过自动返修并继续最终简单审查。",
+        "AI 审稿失败，无法安全判断阻断问题，已跳过自动返修。",
       ),
     );
   } else if (blockingIssues.length === 0) {
@@ -1245,7 +1238,7 @@ export async function runDeepChapterGeneration(
       callbacks.onThinking?.(
         formatStageThinking(
           "阶段5：无需自动返修",
-          "AI审稿未发现阻断问题，跳过自动返修，进入阶段6简单审查与去AI味。",
+          "AI审稿未发现阻断问题，跳过自动返修。",
         ),
       );
     }
@@ -1331,6 +1324,7 @@ export async function runDeepChapterGeneration(
 
   // 阶段5.5：返修后复审（只在发生了返修时执行，只审查角色一致性维度，降低token消耗，不再自动返修避免循环）
   const shouldRunPostRevisionReview = workflowProfile.runPostRevisionReview;
+  let postRevisionBlockingIssues: NovelReviewResult[] = [];
   if (revised && shouldRunPostRevisionReview) {
     const postRevisionWorkflowStep: ChapterWorkflowStepSpec = {
       name: "chapter_post_revision_review",
@@ -1372,19 +1366,19 @@ export async function runDeepChapterGeneration(
               onRequestTrace: callbacks.onRequestTrace,
             },
           );
-      const postBlockingIssues = (postRevisionResults || []).filter(
+      postRevisionBlockingIssues = (postRevisionResults || []).filter(
         (item) => item.severity === "error",
       );
-      if (postBlockingIssues.length > 0) {
+      if (postRevisionBlockingIssues.length > 0) {
         callbacks.onThinking?.(
           formatStageThinking(
             "阶段5.5：返修后复审",
             [
-              `返修后复审发现 ${postBlockingIssues.length} 个阻断问题（不再自动返修，避免循环）：`,
+              `返修后复审发现 ${postRevisionBlockingIssues.length} 个阻断问题（不再自动返修，避免循环）：`,
               "",
-              formatReviewIssueList(postBlockingIssues),
+              formatReviewIssueList(postRevisionBlockingIssues),
               "",
-              "这些问题将在阶段6去AI味时一并处理，或需要手动修改。",
+              "这些问题将在阶段6按问题局部修改。",
             ].join("\n"),
           ),
         );
@@ -1393,15 +1387,15 @@ export async function runDeepChapterGeneration(
         callbacks.onThinking?.(
           formatStageThinking(
             "阶段5.5：返修后复审",
-            "返修后复审未发现新的阻断问题，进入阶段6。",
+            "返修后复审未发现新的阻断问题。",
           ),
         );
       }
       completeChapterWorkflowStep(
         callbacks,
         postRevisionWorkflowStep,
-        `返修后复审完成，发现 ${postBlockingIssues.length} 个阻断问题。`,
-        { blockingIssueCount: postBlockingIssues.length },
+        `返修后复审完成，发现 ${postRevisionBlockingIssues.length} 个阻断问题。`,
+        { blockingIssueCount: postRevisionBlockingIssues.length },
       );
     } catch (err) {
       rethrowIfUserAbort(err, signal);
@@ -1410,26 +1404,34 @@ export async function runDeepChapterGeneration(
       callbacks.onThinking?.(
         formatStageThinking(
           "阶段5.5：返修后复审",
-          `返修后复审失败：${getErrorMessage(err)}。已继续进入最终简单审查，请在保存前手动复核正文。`,
+          `返修后复审失败：${getErrorMessage(err)}。已跳过阶段6局部修改，请在保存前手动复核正文。`,
         ),
       );
     }
   }
 
+  const pendingFixIssues = collectPendingFixIssues({
+    reviewFailed: Boolean(reviewFailureMessage),
+    revised,
+    reviewResults,
+    postRevisionBlockingIssues,
+  });
+  const shouldRunFinalFix =
+    workflowProfile.allowFinalIssueFix && pendingFixIssues.length > 0;
   const finalPolishWorkflowStep: ChapterWorkflowStepSpec = {
     name: "chapter_final_polish",
-    title: "简单审查与去AI味",
-    detail: "做最后一遍简单审查，减少复读、机械套话和 AI 味。",
+    title: "简单审查与修改",
+    detail: "按剩余问题做局部修改。",
     params: workflowBaseParams,
   };
   let polishFailureMessage = "";
   let finalContent = currentContent;
-  if (workflowProfile.runFinalPolish) {
+  if (shouldRunFinalFix) {
     emitDeepChapterStageStarted(
       callbacks,
       "final_polish",
-      "去AI味",
-      "正在做最后一遍简单审查，去除复读、机械套话和 AI 味。",
+      "简单审查与修改",
+      "按剩余问题做局部修改。",
     );
     try {
       finalContent = await runChapterWorkflowStep(
@@ -1437,43 +1439,43 @@ export async function runDeepChapterGeneration(
         finalPolishWorkflowStep,
         () =>
           finalPolishChapter(
-            deAiConfig,
+            writingConfig,
             outlinePrompt,
             contextPrompt,
             taskBrief,
             currentContent,
+            pendingFixIssues,
             input,
             contextPack,
             callbacks,
             deps,
             signal,
-            customDeAiSkill || undefined,
             cachePrefix,
-            deAiRequestOverrides,
+            generationRequestOverrides,
           ),
         (value) =>
-          `简单审查与去AI味完成，最终正文约 ${countChapterChars(value)} 字。`,
+          `简单审查与修改完成，最终正文约 ${countChapterChars(value)} 字。`,
         (value) => ({ chars: countChapterChars(value) }),
       );
       emitDeepChapterActivity(callbacks, {
         id: `deep_chapter:final_polish:output:${Date.now()}`,
         stageId: "final_polish",
         kind: "stage_output",
-        title: "去AI味",
-        content: `简单审查与去AI味完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
+        title: "简单审查与修改",
+        content: `简单审查与修改完成，最终正文约 ${countChapterChars(finalContent)} 字。`,
       });
     } catch (err) {
       rethrowIfUserAbort(err, signal);
-      polishFailureMessage = `简单审查与去AI味失败：${getErrorMessage(err)}。已保留去AI味前的正文。`;
+      polishFailureMessage = `简单审查与修改失败：${getErrorMessage(err)}。已保留修改前的正文。`;
       finalContent = currentContent;
       callbacks.onThinking?.(
-        formatStageThinking("阶段6：简单审查与去AI味", polishFailureMessage),
+        formatStageThinking("阶段6：简单审查与修改", polishFailureMessage),
       );
       emitDeepChapterActivity(callbacks, {
         id: `deep_chapter:final_polish:error:${Date.now()}`,
         stageId: "final_polish",
         kind: "analysis",
-        title: "去AI味失败",
+        title: "简单审查与修改失败",
         content: polishFailureMessage,
       });
     }
@@ -1481,7 +1483,9 @@ export async function runDeepChapterGeneration(
     completeChapterWorkflowStep(
       callbacks,
       finalPolishWorkflowStep,
-      describeSkippedFinalPolish(workflowProfile),
+      workflowProfile.allowFinalIssueFix
+        ? describeSkippedFinalIssueFix()
+        : describeSkippedFinalPolish(workflowProfile),
       { skipped: true, chars: countChapterChars(finalContent) },
     );
   }
@@ -1489,14 +1493,16 @@ export async function runDeepChapterGeneration(
     formatStageThinking(
       "阶段7：完成",
       polishFailureMessage
-        ? "简单审查与去AI味失败，已保留去AI味前的正文作为最终正文。"
-        : workflowProfile.runFinalPolish
-          ? reviewFailureMessage
-            ? "AI 审稿失败；已保留正文并完成最后一遍简单审查与去AI味，请在保存前手动复核。"
-            : revised
-              ? "采用返修并完成简单审查、去AI味后的正文作为最终正文。"
-              : "未发现阻断问题，已完成最后一遍简单审查与去AI味。"
-          : describeSkippedPostDraftCompletion(workflowProfile),
+        ? "简单审查与修改失败，已保留修改前的正文作为最终正文。"
+        : reviewFailureMessage
+          ? "AI 审稿失败；已保留正文作为最终正文，请在保存前手动复核。"
+          : shouldRunFinalFix
+            ? "已按剩余问题完成阶段6局部修改。"
+            : workflowProfile.allowFinalIssueFix
+              ? revised
+                ? "返修后未发现剩余问题，已采用返修后正文作为最终正文。"
+                : "未发现剩余问题，已采用当前正文作为最终正文。"
+              : describeSkippedPostDraftCompletion(workflowProfile),
     ),
   );
   emitDeepChapterActivity(callbacks, {
@@ -1841,29 +1847,29 @@ export async function runDeepChapterGeneration(
 }
 
 async function finalPolishChapter(
-  deAiConfig: LlmConfig,
+  writingConfig: LlmConfig,
   outlinePrompt: string,
   contextPrompt: string,
   taskBrief: string,
   currentContent: string,
+  pendingFixIssues: NovelReviewResult[],
   input: DeepChapterGenerationInput,
   _contextPack: ContextPack,
   callbacks: DeepChapterGenerationCallbacks,
   deps: DeepChapterGenerationDeps,
   signal?: AbortSignal,
-  customDeAiSkill?: string,
   cachePrefix?: string,
   requestOverrides?: RequestOverrides,
 ): Promise<string> {
   assertNotAborted(signal);
   callbacks.onThinking?.(
     formatStageThinking(
-      "阶段6：简单审查与去AI味",
-      "正在进行最后一遍简单审查，去除复读、机械套话和 AI 味。",
+      "阶段6：简单审查与修改",
+      "正在按剩余问题做局部修改。",
     ),
   );
   const polished = await collectModelText(
-    deAiConfig,
+    writingConfig,
     [
       {
         role: "user",
@@ -1872,10 +1878,10 @@ async function finalPolishChapter(
           contextPrompt,
           taskBrief,
           currentContent,
+          pendingFixIssues,
           input.userRequest,
           input.chapterNumber,
           input.goldenThreeChapter,
-          customDeAiSkill,
         ),
       },
     ],
@@ -1883,7 +1889,7 @@ async function finalPolishChapter(
     signal,
     (partial) =>
       callbacks.onThinking?.(
-        formatStageThinking("阶段6：简单审查与去AI味", partial),
+        formatStageThinking("阶段6：简单审查与修改", partial),
       ),
     requestOverrides,
     cachePrefix,
