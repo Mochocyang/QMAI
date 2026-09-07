@@ -124,6 +124,8 @@ export interface ContextHubStats {
   cacheHitTokens?: number
   /** 本轮加载的任务级（查询依赖）数据源数量；不计入可缓存命中率。旧快照缺失时按 0 处理。 */
   taskScopedLoaded?: number
+  /** 本轮任务级数据源的缓存命中数；从可缓存命中率分子中扣除。旧快照缺失时按 0 处理。 */
+  taskScopedHits?: number
   stablePrefixStatus?: StablePrefixStatus
   /** Estimated tokens (local heuristic). */
   stableTokens: number

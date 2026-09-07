@@ -317,6 +317,7 @@ export class ContextHubController implements ContextHub {
         writeFailed: cacheStats.writeFailed,
         cacheHitTokens: cacheStats.cacheHitTokens,
         taskScopedLoaded: cacheStats.taskScopedLoaded,
+        taskScopedHits: cacheStats.taskScopedHits,
         stablePrefixStatus,
       },
       cacheItems: withRelativeDependencyPaths(this.projectPath, cacheItems),

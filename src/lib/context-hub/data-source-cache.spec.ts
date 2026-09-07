@@ -255,6 +255,39 @@ describe("DataSourceCacheAdapter", () => {
     expect(forced).toEqual(refreshed)
   })
 
+  it("counts task-scoped hits separately from cacheable hits", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "searchResults", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => "检索结果")
+
+    await harness.adapter.load(source, context, directLoad)
+    await harness.adapter.load(source, context, directLoad)
+
+    expect(directLoad).toHaveBeenCalledOnce()
+    expect(harness.adapter.getStats()).toMatchObject({
+      cacheHits: 1,
+      reloaded: 1,
+      taskScopedLoaded: 2,
+      taskScopedHits: 1,
+    })
+  })
+
+  it("does not count chapter-scoped hits as task-scoped", async () => {
+    const harness = createHarness()
+    const source: DataSource<string> = { name: "outline", priority: 1, load: async () => "" }
+    const directLoad = vi.fn(async () => "大纲")
+
+    await harness.adapter.load(source, context, directLoad)
+    await harness.adapter.load(source, context, directLoad)
+
+    expect(harness.adapter.getStats()).toMatchObject({
+      cacheHits: 1,
+      reloaded: 1,
+      taskScopedLoaded: 0,
+      taskScopedHits: 0,
+    })
+  })
+
   it("invalidates search results when a snapshot or community-summary file is added", async () => {
     const harness = createHarness()
     const source: DataSource<string> = { name: "searchResults", priority: 1, load: async () => "" }

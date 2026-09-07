@@ -45,6 +45,8 @@ interface DataSourceCacheStats {
   cacheHitTokens: number
   /** 本轮加载的任务级（查询依赖）数据源数量；这类源无法跨消息复用，不计入可缓存命中率。 */
   taskScopedLoaded: number
+  /** 本轮任务级数据源的缓存命中数；从可缓存命中率分子中扣除。 */
+  taskScopedHits: number
 }
 
 const STATIC_SOURCES = new Set([
@@ -153,6 +155,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     writeFailed: 0,
     cacheHitTokens: 0,
     taskScopedLoaded: 0,
+    taskScopedHits: 0,
   }
   private readonly traceItems: ContextCacheItemTrace[] = []
 
@@ -262,6 +265,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
         const cached = await this.options.storage.readArtifact<T>(key)
         if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
           this.stats.cacheHits += 1
+          if (TASK_SCOPED_SOURCES.has(sourceName)) this.stats.taskScopedHits += 1
           this.stats.cacheHitTokens += valueToTokens(cached.value)
           this.upsertTrace(makeTrace("cache_hit"))
           return cached.value

@@ -1,3 +1,4 @@
+import { cacheableHitRate } from "@/lib/context-hub/cacheable-hit-rate"
 import type { ContextHubStats } from "@/lib/context-hub/types"
 
 function formatTokens(tokens: number): string {
@@ -24,11 +25,7 @@ export function ContextHubStatsSummary({ stats, className }: ContextHubStatsSumm
   }
 
   // 任务级（查询依赖）数据源无法跨消息复用，不计入可缓存命中率；旧快照缺失按 0 处理。
-  const taskScopedLoaded = stats.taskScopedLoaded ?? 0
-  const cacheableTotal = total - taskScopedLoaded
-  const hitRate = cacheableTotal > 0
-    ? Math.round((stats.cacheHits / cacheableTotal) * 100)
-    : 0
+  const hitRate = cacheableHitRate(stats)
   // 实际注入上下文的估算 token（真实尺度）；相比全量候选没发送的部分才叫「节省」。
   const composedTokens = stats.composedTokens ?? 0
   const savedTokens = stats.estimatedSavedTokens ?? 0
