@@ -99,16 +99,6 @@ function App() {
     if (!isCurrentProject(proj)) return
 
     try {
-      const { restoreQueue } = await import("@/lib/ingest-queue")
-      if (!isCurrentProject(proj)) return
-      await restoreQueue(proj.id, proj.path)
-    } catch (err) {
-      console.error("恢复摄取队列失败:", err)
-    }
-
-    if (!isCurrentProject(proj)) return
-
-    try {
       const { restoreQueue: restoreDedupQueue } = await import("@/lib/dedup-queue")
       await restoreDedupQueue(proj.id, proj.path)
     } catch (err) {

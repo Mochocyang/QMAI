@@ -14,7 +14,7 @@ import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
-import { useDeAiTaskStore } from "@/stores/de-ai-task-store"
+import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
@@ -2051,19 +2051,22 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
   }, [project, tasks])
 
   const projectDeAiTasks = useMemo(() => {
-    if (!project) return []
-    const projectPath = normalizePath(project.path)
-    return deAiTasks
-      .filter((t) =>
-        t.projectPath === projectPath
-        && (t.status === "processing" || t.status === "ready" || t.status === "failed")
-      )
+    return selectProjectDeAiTasks(deAiTasks, project?.path)
+      .filter((t) => t.status === "processing" || t.status === "ready" || t.status === "failed")
       .sort((a, b) => b.createdAt - a.createdAt)
   }, [project, deAiTasks])
 
   const runningTasks = projectTasks.filter((t) => t.status === "running")
-  const hasRunning = runningTasks.length > 0 || projectDeAiTasks.length > 0
+  const settledImportTasks = projectTasks.filter((t) => t.status !== "running")
+  const processingDeAiTasks = projectDeAiTasks.filter((t) => t.status === "processing")
+  const settledDeAiTasks = projectDeAiTasks.filter((t) => t.status !== "processing")
+  const runningCount = runningTasks.length + processingDeAiTasks.length
+  const hasRunning = runningCount > 0
   const hasAnyTask = projectTasks.length > 0 || projectDeAiTasks.length > 0
+
+  useEffect(() => {
+    useImportProgressStore.getState().pruneSettledTasks()
+  }, [])
 
   useEffect(() => {
     if (hasRunning) setExpanded(true)
@@ -2084,14 +2087,27 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
         <BookOpen className="h-3.5 w-3.5 shrink-0 text-amber-600" />
         <span className="flex-1 text-left font-medium text-muted-foreground">提取中</span>
         {hasRunning ? (
-          <span className="text-xs text-primary">{runningTasks.length} 个任务运行中</span>
+          <span className="text-xs text-primary">{runningCount} 个任务运行中</span>
         ) : null}
       </button>
       {expanded && (
         <div className="ml-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-xs text-muted-foreground">
           {hasAnyTask ? (
             <>
-            {projectTasks.slice(0, 20).map((task) => {
+            {processingDeAiTasks.map((task) => (
+              <div key={task.id} className="space-y-1 rounded-md bg-muted/30 px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+                  <span className="truncate text-foreground font-medium">
+                    去AI味：{task.chapterTitle}
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Skill：{task.skillName} · 模型：{task.modelName}
+                </div>
+              </div>
+            ))}
+            {[...runningTasks, ...settledImportTasks].map((task) => {
               const kindLabel = task.kind === "outline" ? "AI 大纲" : "章节"
               const progressPercent = task.total > 0
                 ? Math.round((task.completed / task.total) * 100)
@@ -2159,27 +2175,20 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
                 </div>
               )
             })}
-            {projectDeAiTasks.map((task) => (
+            {settledDeAiTasks.map((task) => (
               <div key={task.id} className="space-y-1 rounded-md bg-muted/30 px-2 py-1.5">
                 <div className="flex items-center gap-1">
-                  {task.status === "processing" ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
-                  ) : task.status === "ready" ? (
+                  {task.status === "ready" ? (
                     <Check className="h-3 w-3 shrink-0 text-emerald-500" />
                   ) : (
                     <X className="h-3 w-3 shrink-0 text-destructive" />
                   )}
-                  <span className={`truncate ${task.status === "processing" ? "text-foreground font-medium" : ""}`}>
+                  <span className="truncate">
                     去AI味：{task.chapterTitle}
                     {task.status === "ready" ? " · 待确认" : ""}
                     {task.status === "failed" ? ` · 失败：${task.error ?? ""}` : ""}
                   </span>
                 </div>
-                {task.status === "processing" && (
-                  <div className="text-muted-foreground">
-                    Skill：{task.skillName} · 模型：{task.modelName}
-                  </div>
-                )}
               </div>
             ))}
             </>

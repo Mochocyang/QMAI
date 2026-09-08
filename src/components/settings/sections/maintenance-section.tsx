@@ -308,7 +308,7 @@ export function MaintenanceSection() {
   // Poll the queue at 1Hz so the UI reflects pending → processing →
   // failed transitions and cross-window queue activity (e.g. a merge
   // that completed while the user was on a different settings tab).
-  // Same pattern activity-panel uses for ingest-queue.
+  // Poll local queue state the same way other in-app queues do.
   const [tasks, setTasks] = useState<readonly DedupTask[]>([])
   const [mergeProgress, setMergeProgress] = useState<{
     taskId: string
