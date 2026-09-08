@@ -136,6 +136,7 @@ describe("getWorkflowToolDescription", () => {
 
   it("describes synthetic chapter workflow calls as user-visible writing steps", () => {
     expect(getWorkflowToolDescription(call({ id: "brief", name: "chapter_task_brief" }))).toBe("生成写作任务书")
+    expect(getWorkflowToolDescription(call({ id: "brief-retry", name: "chapter_task_brief_retry" }))).toBe("重新生成写作任务书")
     expect(getWorkflowToolDescription(call({ id: "draft", name: "chapter_draft", params: { chars: 3200 } }))).toBe("生成章节正文初稿")
     expect(getWorkflowToolDescription(call({ id: "review", name: "chapter_review" }))).toBe("执行 AI 审稿")
     expect(getWorkflowToolDescription(call({ id: "polish", name: "chapter_final_polish" }))).toBe("简单审查与修改")

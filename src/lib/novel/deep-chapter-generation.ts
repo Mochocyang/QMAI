@@ -64,6 +64,7 @@ import {
 import {
   resolveChapterLengthSpec,
   type ChapterLengthSpec,
+  DEEP_CHAPTER_BRIEF_MIN_CHARS,
   buildDeepChapterBriefPrompt,
   buildDeepChapterDraftPrompt,
   buildDeepChapterExpansionPrompt,
@@ -808,6 +809,13 @@ export async function runDeepChapterGeneration(
   let taskBrief = hasCheckpointTaskBrief(resumeCheckpoint)
     ? resumeCheckpoint.taskBrief.trim()
     : "";
+  if (
+    taskBrief &&
+    !hasCheckpointDraft(resumeCheckpoint) &&
+    !isUsableTaskBrief(taskBrief)
+  ) {
+    taskBrief = "";
+  }
   if (!taskBrief) {
     emitDeepChapterStageStarted(
       callbacks,
@@ -822,6 +830,35 @@ export async function runDeepChapterGeneration(
       title: "接收内容",
       content: "章节生成约束包",
     });
+    const collectTaskBrief = () =>
+      collectModelText(
+        workflowConfig,
+        [
+          {
+            role: "user",
+            content: buildDeepChapterBriefPrompt(
+              outlinePrompt,
+              contextPrompt,
+              input.userRequest,
+              input.chapterNumber,
+              input.goldenThreeChapter,
+              lengthSpec,
+              planExecutionSummary,
+              executionContractText,
+              input.skillsPrompt,
+            ),
+          },
+        ],
+        deps,
+        signal,
+        (partial) =>
+          callbacks.onThinking?.(
+            formatStageThinking("阶段2：写作任务书", partial),
+          ),
+        analysisRequestOverrides,
+        cachePrefix,
+        callbacks.onRequestTrace,
+      );
     taskBrief = await runChapterWorkflowStep(
       callbacks,
       {
@@ -830,38 +867,38 @@ export async function runDeepChapterGeneration(
         detail: "根据上下文拆解本章目标、关键情节和写作约束。",
         params: workflowBaseParams,
       },
-      () =>
-        collectModelText(
-          workflowConfig,
-          [
-            {
-              role: "user",
-              content: buildDeepChapterBriefPrompt(
-                outlinePrompt,
-                contextPrompt,
-                input.userRequest,
-                input.chapterNumber,
-                input.goldenThreeChapter,
-                lengthSpec,
-                planExecutionSummary,
-                executionContractText,
-                input.skillsPrompt,
-              ),
-            },
-          ],
-          deps,
-          signal,
-          (partial) =>
-            callbacks.onThinking?.(
-              formatStageThinking("阶段2：写作任务书", partial),
-            ),
-          analysisRequestOverrides,
-          cachePrefix,
-          callbacks.onRequestTrace,
-        ),
-      (value) => `写作任务书完成，约 ${countChapterChars(value)} 字。`,
+      collectTaskBrief,
+      (value) => {
+        const chars = countChapterChars(value);
+        return chars < DEEP_CHAPTER_BRIEF_MIN_CHARS
+          ? `写作任务书仅约 ${chars} 字，低于最低完成线 ${DEEP_CHAPTER_BRIEF_MIN_CHARS} 字，进入重新生成。`
+          : `写作任务书完成，约 ${chars} 字。`;
+      },
       (value) => ({ chars: countChapterChars(value) }),
     );
+    if (!isUsableTaskBrief(taskBrief)) {
+      taskBrief = await runChapterWorkflowStep(
+        callbacks,
+        {
+          name: "chapter_task_brief_retry",
+          title: "重新生成写作任务书",
+          detail: "上次任务书过短，按同一约束整份重写。",
+          params: workflowBaseParams,
+        },
+        async () => {
+          const regenerated = await collectTaskBrief();
+          const chars = countChapterChars(regenerated);
+          if (chars < DEEP_CHAPTER_BRIEF_MIN_CHARS) {
+            throw new Error(
+              `写作任务书生成失败：重生成后仅约 ${chars} 字，低于最低完成线 ${DEEP_CHAPTER_BRIEF_MIN_CHARS} 字。`,
+            );
+          }
+          return regenerated;
+        },
+        (value) => `写作任务书完成，约 ${countChapterChars(value)} 字。`,
+        (value) => ({ chars: countChapterChars(value) }),
+      );
+    }
     assertNotAborted(signal);
     callbacks.onThinking?.(formatStageThinking("阶段2：写作任务书", taskBrief));
     emitDeepChapterActivity(callbacks, {
@@ -2045,6 +2082,10 @@ async function collectModelText(
 
 function countChapterChars(content: string): number {
   return content.replace(/\s+/g, "").length;
+}
+
+function isUsableTaskBrief(content: string): boolean {
+  return countChapterChars(content) >= DEEP_CHAPTER_BRIEF_MIN_CHARS;
 }
 
 function formatPlanComplianceActivityContent(

@@ -15,6 +15,7 @@ import {
   buildDeepChapterDraftPrompt,
   buildDeepChapterFinalPolishPrompt,
   buildDeepChapterRevisionPrompt,
+  DEEP_CHAPTER_BRIEF_MIN_CHARS,
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
   DEEP_CHAPTER_MIN_CHARS,
 } from "./deep-chapter-prompts"
@@ -95,6 +96,22 @@ function chapterText(prefix: string, count = 3000): string {
   return text.slice(0, count)
 }
 
+function taskBriefText(prefix = "写作任务书"): string {
+  return [
+    prefix,
+    "本章目标：承接上一章门缝声并推进旧屋线索。",
+    "S1门口试探：确认金属拖拽声来源。",
+    "S2进屋搜查：发现浸软旧信与第二把钥匙。",
+    "必须执行：主角进入旧屋，推进锈钥匙。",
+    "禁止违背：不得提前揭露旧屋主人身份。",
+    "章末钩子：门外出现第二个人影。",
+  ].join("")
+}
+
+function isBriefPrompt(prompt: string): boolean {
+  return prompt.includes("只输出任务书")
+}
+
 // 写作阶段现在可能把 user 消息内容拆成带 cache_control 的文本块（见 applyCachePrefix）；
 // provider 侧会把纯文本块拼回字符串，这里在测试桩里也照做，保持按关键字匹配阶段的逻辑。
 function isStage6Prompt(prompt: string): boolean {
@@ -122,7 +139,7 @@ function messagesPromptText(messages: ChatMessage[]): string {
 
 function createDeps(reviewResults: NovelReviewResult[] = []): DeepChapterGenerationDeps {
   const responses = [
-    "写作任务书内容",
+    taskBriefText(),
     chapterText("初稿正文内容"),
     chapterText("返修正文内容"),
     chapterText("局部修改后正文"),
@@ -184,7 +201,7 @@ describe("runDeepChapterGeneration", () => {
         status: "success",
       })
       const prompt = messagesPromptText(messages)
-      callbacks.onToken(prompt.includes("正文") ? chapterText("正文") : "写作任务书")
+      callbacks.onToken(prompt.includes("正文") ? chapterText("正文") : taskBriefText())
       callbacks.onDone()
     })
 
@@ -253,7 +270,7 @@ describe("runDeepChapterGeneration", () => {
             ? chapterText("返修正文内容")
             : prompt.includes("正文")
               ? chapterText("初稿正文内容")
-              : "写作任务书内容"
+              : taskBriefText()
         callbacks.onToken(content)
         callbacks.onDone()
       })
@@ -1217,7 +1234,7 @@ describe("runDeepChapterGeneration", () => {
         ? chapterText("返修正文内容")
         : prompt.includes("正文")
           ? chapterText("初稿正文内容")
-          : "写作任务书内容"
+          : taskBriefText()
       callbacks.onToken(content)
       callbacks.onDone()
     })
@@ -1335,7 +1352,7 @@ describe("runDeepChapterGeneration", () => {
           ? chapterText("返修文风正文", 3000)
           : prompt.includes("正文")
             ? chapterText("初稿文风正文", 3000)
-            : "写作任务书内容"
+            : taskBriefText()
       callbacks.onToken(content)
       callbacks.onDone()
     })
@@ -1375,7 +1392,7 @@ describe("runDeepChapterGeneration", () => {
           ? chapterText("返修无上限正文", 3000)
           : prompt.includes("正文")
             ? chapterText("初稿无上限正文", 3000)
-            : "写作任务书内容"
+            : taskBriefText()
       callbacks.onToken(content)
       callbacks.onDone()
     })
@@ -1456,7 +1473,7 @@ describe("runDeepChapterGeneration", () => {
     ) => {
       overrides.push(requestOverrides)
       const prompt = messagesPromptText(messages)
-      callbacks.onToken(prompt.includes("正文") ? chapterText("思考档位正文", 3000) : "写作任务书内容")
+      callbacks.onToken(prompt.includes("正文") ? chapterText("思考档位正文", 3000) : taskBriefText())
       callbacks.onDone()
     })
 
@@ -1486,7 +1503,7 @@ describe("runDeepChapterGeneration", () => {
     ) => {
       overrides.push(requestOverrides)
       const prompt = messagesPromptText(messages)
-      callbacks.onToken(prompt.includes("正文") ? chapterText("保留推理正文", 3000) : "写作任务书内容")
+      callbacks.onToken(prompt.includes("正文") ? chapterText("保留推理正文", 3000) : taskBriefText())
       callbacks.onDone()
     })
 
@@ -1526,7 +1543,7 @@ describe("runDeepChapterGeneration", () => {
           ? chapterText("返修兜底正文", 3000)
           : prompt.includes("正文")
             ? chapterText("初稿兜底正文", 3000)
-            : "写作任务书内容"
+            : taskBriefText()
       callbacks.onToken(content)
       callbacks.onDone()
     })
@@ -1570,8 +1587,8 @@ describe("runDeepChapterGeneration", () => {
           ? chapterText("返修兜底正文", 3000)
           : prompt.includes("正文")
             ? chapterText("初稿兜底正文", 3000)
-            : "写作任务书内容"
-      callbacks.onToken(body === "写作任务书内容" ? body : `${dump}\n\n${body}`)
+            : taskBriefText()
+      callbacks.onToken(body === taskBriefText() ? body : `${dump}\n\n${body}`)
       callbacks.onDone()
     })
 
@@ -2075,7 +2092,7 @@ describe("runDeepChapterGeneration", () => {
           ? expandedDraft
           : prompt.includes("章节正文")
             ? shortDraft
-            : "写作任务书内容"
+            : taskBriefText()
         callbacks.onToken(content)
         callbacks.onDone()
       }),
@@ -2097,7 +2114,7 @@ describe("runDeepChapterGeneration", () => {
 
   it("fails the workflow when expansion is still far below the minimum chapter length", async () => {
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       "请提供第239章章纲后再继续。",
       "当前资料不足，无法扩写。",
     ]
@@ -2138,7 +2155,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not force expansion after a clean review even when the draft is short of later polish", async () => {
     const draft = chapterText("初稿正文内容", 3000)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       draft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2173,7 +2190,7 @@ describe("runDeepChapterGeneration", () => {
     const runawayDraft = repeatUnit.repeat(900)
     const optimizedDraft = chapterText("阶段4优化后正文", 3000)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       runawayDraft,
       optimizedDraft,
     ]
@@ -2203,7 +2220,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not stop the AI chat stream at the old chapter hard max", async () => {
     const longDraft = chapterText("超过旧硬上限但不是重复输出的正文", 6500)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       longDraft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2232,7 +2249,7 @@ describe("runDeepChapterGeneration", () => {
   it("sends long drafts directly to review without a stage 4 length rewrite", async () => {
     const overlongDraft = chapterText("过长初稿正文", 5200)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       overlongDraft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2261,7 +2278,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not optimize the stage 3 draft in stage 4 before review", async () => {
     const draft = chapterText("阶段3较长初稿", 5500)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       draft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2289,7 +2306,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not retry stage 4 length optimization when the draft stays long", async () => {
     const draft = chapterText("阶段3超长初稿", 5500)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       draft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2319,7 +2336,7 @@ describe("runDeepChapterGeneration", () => {
   it("does not force a length rewrite after a clean review", async () => {
     const draft = chapterText("初稿正文内容", 3000)
     const responses = [
-      "写作任务书内容",
+      taskBriefText(),
       draft,
     ]
     const deps: DeepChapterGenerationDeps = {
@@ -2345,6 +2362,131 @@ describe("runDeepChapterGeneration", () => {
     expect(thinking.join("\n")).not.toContain("阶段6：简单审查与修改")
     expect(thinking.join("\n")).not.toContain("2200-3200")
     expect(thinking.join("\n")).not.toContain("字数检查与正文优化")
+  })
+
+  it("regenerates a too-short task brief before drafting the chapter", async () => {
+    const shortBrief = "资料不足，无法规划本章。"
+    const usableBrief = taskBriefText("可用写作任务书")
+    expect(shortBrief.replace(/\s+/g, "").length).toBeLessThan(DEEP_CHAPTER_BRIEF_MIN_CHARS)
+    expect(usableBrief.replace(/\s+/g, "").length).toBeGreaterThanOrEqual(DEEP_CHAPTER_BRIEF_MIN_CHARS)
+    const draft = chapterText("按重生成任务书写出的正文", 3000)
+    let briefCalls = 0
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        if (isBriefPrompt(prompt)) {
+          briefCalls += 1
+          callbacks.onToken(briefCalls === 1 ? shortBrief : usableBrief)
+        } else {
+          callbacks.onToken(draft)
+        }
+        callbacks.onDone()
+      }),
+    }
+    const events: Array<{ type: string; name: string; result?: string }> = []
+
+    const result = await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )
+
+    const draftPrompt = vi.mocked(deps.streamChat).mock.calls
+      .map((call) => messagesPromptText(call[1]))
+      .find((prompt) => prompt.includes("起草章节正文"))
+
+    expect(result.taskBrief).toBe(usableBrief)
+    expect(result.finalContent).toBe(draft)
+    expect(draftPrompt).toContain(usableBrief)
+    expect(draftPrompt).not.toContain(shortBrief)
+    expect(deps.streamChat).toHaveBeenCalledTimes(3)
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_task_brief",
+      result: expect.stringContaining("进入重新生成"),
+    }))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_task_brief_retry",
+      result: expect.stringContaining("写作任务书完成"),
+    }))
+  })
+
+  it("fails the workflow when the regenerated task brief is still too short", async () => {
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        callbacks.onToken("无法生成。")
+        callbacks.onDone()
+      }),
+    }
+    const events: Array<{ type: string; name: string; result?: string }> = []
+
+    await expect(runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
+      { onWorkflowEvent: (event) => events.push(event) },
+      deps,
+    )).rejects.toThrow(/重生成后仅约 .*低于最低完成线/)
+
+    expect(deps.reviewChapter).not.toHaveBeenCalled()
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      name: "chapter_task_brief",
+      result: expect.stringContaining("进入重新生成"),
+    }))
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      name: "chapter_task_brief_retry",
+      result: expect.stringContaining("写作任务书生成失败"),
+    }))
+    expect(events).not.toContainEqual(expect.objectContaining({
+      name: "chapter_draft",
+    }))
+  })
+
+  it("regenerates a too-short resumed task brief before drafting", async () => {
+    const usableBrief = taskBriefText("恢复后重写的任务书")
+    const draft = chapterText("恢复后初稿", 3000)
+    const checkpoint: DeepChapterGenerationResumeCheckpoint = {
+      version: 1,
+      originalRequest: "生成第3章",
+      chapterNumber: 3,
+      stage: "after_task_brief",
+      taskBrief: "写作任务书内容",
+    }
+    const deps: DeepChapterGenerationDeps = {
+      buildContextPack: vi.fn(async () => contextPack),
+      contextPackToPrompt: vi.fn(() => "上下文包内容"),
+      reviewChapter: vi.fn(async () => []),
+      streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
+        const prompt = messagesPromptText(messages)
+        callbacks.onToken(isBriefPrompt(prompt) ? usableBrief : draft)
+        callbacks.onDone()
+      }),
+    }
+    const thinking: string[] = []
+
+    const result = await runDeepChapterGeneration(
+      {
+        projectPath: "E:/Novel",
+        userRequest: "生成第3章",
+        chapterNumber: 3,
+        llmConfig,
+        resumeCheckpoint: checkpoint,
+      },
+      { onThinking: (content) => thinking.push(content) },
+      deps,
+    )
+
+    expect(result.taskBrief).toBe(usableBrief)
+    expect(result.finalContent).toBe(draft)
+    expect(deps.streamChat).toHaveBeenCalledTimes(2)
+    expect(thinking.join("\n")).toContain("阶段2：写作任务书")
   })
 
   it("resumes from a saved review checkpoint instead of regenerating earlier stages", async () => {
@@ -2407,7 +2549,7 @@ describe("runDeepChapterGeneration", () => {
           callbacks.onError(new Error("Request cancelled"))
           return
         }
-        callbacks.onToken("写作任务书内容")
+        callbacks.onToken(taskBriefText())
         callbacks.onDone()
       }),
     }
@@ -2427,7 +2569,7 @@ describe("runDeepChapterGeneration", () => {
       reviewChapter: vi.fn(async () => []),
       streamChat: vi.fn(async (_config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks) => {
         const prompt = messagesPromptText(messages)
-        callbacks.onToken(prompt.includes("章节正文") ? chapterText("被停止的正文", 3000) : "写作任务书内容")
+        callbacks.onToken(prompt.includes("章节正文") ? chapterText("被停止的正文", 3000) : taskBriefText())
         if (prompt.includes("章节正文")) controller.abort()
         callbacks.onDone()
       }),

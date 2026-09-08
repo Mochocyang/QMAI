@@ -4,6 +4,8 @@ import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
 export const DEEP_CHAPTER_DRAFT_MAX_CHARS = 3500
+/** 写作任务书失败探针：低于此字数视为生成失败，整份重生成。 */
+export const DEEP_CHAPTER_BRIEF_MIN_CHARS = 100
 /** 与写作设置 UI 的单章目标字数范围保持一致，避免设置值被运行时悄悄钳死。 */
 export const CHAPTER_TARGET_CHARS_MIN = 1000
 export const CHAPTER_TARGET_CHARS_MAX = 10_000
