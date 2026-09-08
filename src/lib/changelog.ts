@@ -7,6 +7,25 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_SIXTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.16",
+  date: "2026-09-08",
+  highlights: {
+    en: [
+      "[Strict Mode Local Edits] Strict mode stage 6 no longer de-AIs the whole draft when review is clean; it only patches remaining problem spots from the checklist.",
+      "[Short Task Brief Regenerates] A task brief under 100 characters is treated as a failed generation and rebuilt from scratch, including the no-draft recovery path.",
+      "[Sidebar Extract Display] De-AI runs count as in-progress and rise to the top of the list; finished extracts keep only the latest three. The unused Activity panel is gone.",
+      "[Cache Hit Rate Cap] Cacheable hit rate no longer counts task-scoped hits, so retries cannot push the rate above 100%.",
+    ],
+    zh: [
+      "【严格模式按需局部改】审稿干净时不再全文去AI味；只在有剩余问题时按清单改问题部分",
+      "【短任务书整份重生成】任务书不足 100 字视为失败并整份重跑，避免用残片写初稿和扩写；无初稿恢复路径同样处理",
+      "【侧栏提取显示修复】去AI味计入运行中并排到顶部，已结束提取只保留最近 3 条；去掉无入口的活动栏",
+      "【命中率不再虚高】可缓存命中率扣除任务级命中，同任务重试后不会超过 100%",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_FIFTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.15",
   date: "2026-09-04",
@@ -1511,6 +1530,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_SIXTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_SIXTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FIFTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_FIFTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FOURTEEN_CHANGELOG.version)
@@ -1646,6 +1667,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_SIXTEEN_CHANGELOG,
     THREE_POINT_TWO_FIFTEEN_CHANGELOG,
     THREE_POINT_TWO_FOURTEEN_CHANGELOG,
     THREE_POINT_TWO_THIRTEEN_CHANGELOG,
