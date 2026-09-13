@@ -6,7 +6,12 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.16", "3.2.15", "3.2.14"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.17", "3.2.16", "3.2.15"])
+    const release3217 = currentVersionChangelog("3.2.17")[0]
+    expect(release3217.version).toBe("3.2.17")
+    expect(release3217.highlights.zh.join("\n")).toContain("大纲计划模式")
+    expect(release3217.highlights.zh.join("\n")).toContain("思考深度滑块")
+    expect(release3217.highlights.en.join("\n")).toContain("Outline Plan Mode")
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
     expect(versions).toContain("2.1.0")

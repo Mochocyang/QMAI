@@ -7,6 +7,21 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_SEVENTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.17",
+  date: "2026-09-13",
+  highlights: {
+    en: [
+      "[Outline Plan Mode] Outline chat adds a plan mode: when required elements are missing, it asks first, then shows a plan for confirmation before generating.",
+      "[Reasoning Depth Slider] Writing and outline chats get a reasoning-depth slider (default / off / low / medium / high / max). It only applies to the actual draft-generation call and stays hidden when the model has no reasoning control or writing is in quick mode.",
+    ],
+    zh: [
+      "【大纲计划模式】大纲对话新增「计划」模式：要素不齐时先问答再出计划，确认后才生成，避免信息不足就直接写大纲",
+      "【思考深度滑块】写作和大纲聊天可调思考深度（默认/关闭/低/中/高/最大），只作用于真正出稿的那次调用；模型不支持或写作快速模式不显示",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_SIXTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.16",
   date: "2026-09-08",
@@ -1530,6 +1545,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_SEVENTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_SEVENTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SIXTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_SIXTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FIFTEEN_CHANGELOG.version)
@@ -1667,6 +1684,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_SEVENTEEN_CHANGELOG,
     THREE_POINT_TWO_SIXTEEN_CHANGELOG,
     THREE_POINT_TWO_FIFTEEN_CHANGELOG,
     THREE_POINT_TWO_FOURTEEN_CHANGELOG,
