@@ -392,6 +392,16 @@
     "selectModel": "Select model",
     "searchModel": "Search models...",
     "noModelFound": "No matching model",
+    "reasoningDepth": {
+      "label": "Thinking depth",
+      "auto": "Default",
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "max": "Max",
+      "hint": "Applies only to the selected chat model's drafting call; the default orchestration model is unaffected. \"Default\" keeps the provider's reasoning setting from Settings."
+    },
     "contextUsage": {
       "title": "Context Usage",
       "percentFull": "{{percent}}% Full",

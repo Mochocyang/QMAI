@@ -263,6 +263,16 @@
     "selectModel": "选择模型",
     "searchModel": "搜索模型...",
     "noModelFound": "未找到匹配的模型",
+    "reasoningDepth": {
+      "label": "思考深度",
+      "auto": "默认",
+      "off": "关闭",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "max": "最大",
+      "hint": "只影响所选聊天模型的出稿调用，不改变编排用的默认模型。「默认」表示沿用设置里该供应商的推理配置。"
+    },
     "contextUsage": {
       "title": "上下文用量",
       "percentFull": "{{percent}}% 已占用",

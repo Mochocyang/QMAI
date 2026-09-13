@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getCustomCompatibleHeaders, getProviderConfig, parseGoogleLine, parseOpenAiSseError, withCustomOriginHeader } from "./llm-providers"
+import { getCustomCompatibleHeaders, getProviderConfig, modelSupportsReasoningControl, parseGoogleLine, parseOpenAiSseError, withCustomOriginHeader } from "./llm-providers"
 import { filterDeAiOutput } from "./novel/de-ai-output"
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
@@ -752,5 +752,122 @@ describe("Gemini thought summaries", () => {
     ) as Record<string, unknown>
 
     expect(body.generationConfig).toBeUndefined()
+  })
+})
+
+describe("modelSupportsReasoningControl", () => {
+  it("hides the control for local CLI providers that ignore config.reasoning", () => {
+    // Claude Code takes no thinking parameter; Cursor CLI reads effort out of
+    // the model id (`model[reasoning_effort=high]`) instead.
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "claude-code",
+      model: "claude-sonnet-4-5",
+    }))).toBe(false)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "cursor-cli",
+      model: "gpt-5.4",
+    }))).toBe(false)
+  })
+
+  it("offers the control for Codex CLI, which maps the mode onto turn effort", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "codex-cli",
+      model: "gpt-5.4-codex",
+    }))).toBe(true)
+  })
+
+  it("gates Gemini on the same version check that guards thinkingConfig", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "google",
+      model: "gemini-2.5-pro",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "google",
+      model: "gemini-1.5-pro",
+    }))).toBe(false)
+  })
+
+  it("requires Claude 3.7+ on the Anthropic wire, since 3.5 rejects thinking", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "anthropic",
+      model: "claude-3-7-sonnet-latest",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "anthropic",
+      model: "claude-3-5-sonnet-20241022",
+    }))).toBe(false)
+  })
+
+  it("applies the Anthropic gate to MiniMax and anthropic_messages custom endpoints", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "minimax",
+      model: "MiniMax-M2",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      apiMode: "anthropic_messages",
+      model: "claude-opus-4-1",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      apiMode: "anthropic_messages",
+      model: "claude-3-haiku-20240307",
+    }))).toBe(false)
+  })
+
+  it("offers the control only for reasoning models on the OpenAI wire", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "openai",
+      model: "o3",
+    }))).toBe(true)
+    // gpt-4o either ignores reasoning_effort or 400s on it.
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "openai",
+      model: "gpt-4o",
+    }))).toBe(false)
+  })
+
+  it("recognises vendor-prefixed reasoning ids served by OpenAI-compatible gateways", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "openai/o3",
+      customEndpoint: "https://openrouter.ai/api/v1",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "x-ai/grok-4-reasoning",
+      customEndpoint: "https://openrouter.ai/api/v1",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "meta-llama/llama-3.3-70b-instruct",
+      customEndpoint: "https://openrouter.ai/api/v1",
+    }))).toBe(false)
+  })
+
+  it("covers the vendor-specific thinking branches of buildOpenAiCompatibleBody", () => {
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "deepseek-chat",
+      customEndpoint: "https://api.deepseek.com/v1",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "qwen3-235b-a22b",
+    }))).toBe(true)
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "glm-5",
+      customEndpoint: "https://open.bigmodel.cn/api/paas/v4",
+    }))).toBe(true)
+  })
+
+  it("does not offer the control for GLM-5 outside the official Zhipu endpoint", () => {
+    // Third-party GLM deployments may not accept the top-level thinking
+    // object, which is why the body builder gates on the endpoint too.
+    expect(modelSupportsReasoningControl(customConfig({
+      model: "glm-5",
+      customEndpoint: "https://api.atlascloud.ai/v1",
+    }))).toBe(false)
   })
 })

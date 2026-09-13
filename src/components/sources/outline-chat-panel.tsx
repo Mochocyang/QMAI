@@ -29,7 +29,11 @@ import {
 } from "@/lib/agent/workflow-mode";
 import { OUTPUT_TRUNCATED_ERROR_MARKER } from "@/lib/llm-client";
 import { Button } from "@/components/ui/button";
-import { saveAiOutlineModel, saveOutlineWorkflowMode } from "@/lib/project-store";
+import {
+  saveAiOutlineModel,
+  saveAiOutlineReasoningDepth,
+  saveOutlineWorkflowMode,
+} from "@/lib/project-store";
 import {
   useOutlineChatStore,
   type OutlineMultiAgentRunState,
@@ -146,6 +150,8 @@ import {
   thinkingMinMaxTokens,
 } from "@/lib/llm-providers";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
+import { ReasoningDepthControl } from "@/components/chat/reasoning-depth-control";
+import { applyReasoningDepth } from "@/lib/reasoning-depth";
 import { ContextUsageRing } from "@/components/chat/context-usage-ring";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
@@ -1433,6 +1439,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const aiOutlineModel = useWikiStore((s) => s.aiOutlineModel);
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel);
   const setAiOutlineModel = useWikiStore((s) => s.setAiOutlineModel);
+  const aiOutlineReasoningDepth = useWikiStore((s) => s.aiOutlineReasoningDepth);
+  const setAiOutlineReasoningDepth = useWikiStore((s) => s.setAiOutlineReasoningDepth);
   const outlineWorkflowMode = resolveOutlineWorkflowMode(
     useWikiStore((s) => s.outlineWorkflowMode),
   );
@@ -1536,6 +1544,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       );
     }
     return getEffectiveMaxContextSize(config);
+  }, [effectiveOutlineModelId, llmConfig, novelConfig, providerConfigs]);
+
+  /** The config the thinking-depth slider steers, or null to hide the slider. */
+  const reasoningDepthTargetConfig = useMemo(() => {
+    let config = resolveNovelModel(llmConfig, novelConfig, "writing");
+    if (effectiveOutlineModelId) {
+      config = resolveModelConfig(effectiveOutlineModelId, config, providerConfigs);
+    }
+    return config;
   }, [effectiveOutlineModelId, llmConfig, novelConfig, providerConfigs]);
 
   const [inputValue, setInputValue] = useState("");
@@ -2133,6 +2150,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           providerConfigs,
         );
       }
+      // Intent analysis and plan element-check turns are the orchestration
+      // half of the outline loop; only generation turns actually emit outline
+      // content, so only they take the footer's thinking depth. Stamping it
+      // here rather than at the request keeps the budget planner below in
+      // sync, since it derives its output floor from `config.reasoning`.
+      const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "intent_analysis"
+        || options.planPhase !== undefined
+        ? "analysis"
+        : "generation";
+      if (outlineBudgetStage === "generation") {
+        effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
+      }
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         addMessage(convId, {
@@ -2295,10 +2324,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 避免整段结果被静默丢弃。
       let bestGeneratedText = "";
       let deliverableTruncated = false;
-      const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "intent_analysis"
-        || options.planPhase !== undefined
-        ? "analysis"
-        : "generation";
       const outlineRequestBudget = planOutlineRequestBudget({
         maxContextSize: effectiveLlmConfig.maxContextSize,
         stage: outlineBudgetStage,
@@ -3397,6 +3422,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       novelConfig,
       providerConfigs,
       effectiveOutlineModelId,
+      aiOutlineReasoningDepth,
       activeConv,
       activeConversationId,
       createConversation,
@@ -3775,6 +3801,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (effectiveOutlineModelId) {
         effectiveLlmConfig = resolveModelConfig(effectiveOutlineModelId, effectiveLlmConfig, providerConfigs);
       }
+      // Resuming picks up a generation run, so it takes the footer depth.
+      effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         toast.error("请先在设置中配置并选择一个可用的 AI 模型。");
@@ -4115,7 +4143,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         clearStreamingContent(capturedConvId);
       }
     },
-    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent, setConversationContextSummary],
+    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, aiOutlineReasoningDepth, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent, setConversationContextSummary],
   );
 
   const handleFocusInput = useCallback(() => {
@@ -4199,6 +4227,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           providerConfigs,
         );
       }
+      // Regenerating replays a generation turn, so it takes the footer depth.
+      effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         addMessage(activeConversationId, {
@@ -4693,6 +4723,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       novelConfig,
       providerConfigs,
       effectiveOutlineModelId,
+      aiOutlineReasoningDepth,
       activeConv,
       activeConversationId,
       addMessage,
@@ -5288,18 +5319,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
           rightControls={
             hasAvailableModels ? (
-              <ChatModelSelector
-                value={localModelId}
-                onChange={(value) => {
-                  setLocalModelId(value);
-                  setAiOutlineModel(value);
-                  if (activeConversationId) {
-                    setConversationModel(activeConversationId, value);
-                  }
-                  persistOutlineModel(value);
-                }}
-                disabled={false}
-              />
+              <>
+                <ReasoningDepthControl
+                  value={aiOutlineReasoningDepth}
+                  onChange={(depth) => {
+                    setAiOutlineReasoningDepth(depth);
+                    void saveAiOutlineReasoningDepth(depth);
+                  }}
+                  modelConfig={reasoningDepthTargetConfig}
+                />
+                <ChatModelSelector
+                  value={localModelId}
+                  onChange={(value) => {
+                    setLocalModelId(value);
+                    setAiOutlineModel(value);
+                    if (activeConversationId) {
+                      setConversationModel(activeConversationId, value);
+                    }
+                    persistOutlineModel(value);
+                  }}
+                  disabled={false}
+                />
+              </>
             ) : (
               <p
                 className="max-w-48 truncate text-xs text-destructive"

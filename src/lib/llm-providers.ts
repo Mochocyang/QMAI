@@ -831,6 +831,79 @@ function isOpenAiStrictCompletionModel(config: LlmConfig): boolean {
   return config.provider === "custom" && isAzureOpenAiEndpoint(config.customEndpoint)
 }
 
+/**
+ * Model families that honour Anthropic extended thinking. Claude 3.5 and
+ * earlier reject a `thinking` block with a 400, so the version gate is
+ * load-bearing rather than cosmetic.
+ *
+ * Covers Claude 3.7, the 4.x families in both the `claude-opus-4` and
+ * `claude-4-opus` spellings, and MiniMax M-series reasoning models served
+ * over the Messages wire.
+ */
+function isAnthropicThinkingModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  if (/claude[-_]?3[.\-_]?7/.test(normalized)) return true
+  if (/claude[-_](?:opus|sonnet|haiku)[-_]?([4-9]|\d{2,})/.test(normalized)) return true
+  if (/claude[-_]?([4-9]|\d{2,})(?:[.\-_]|$)/.test(normalized)) return true
+  if (/minimax[-_]?m\d/.test(normalized) || /^m\d+$/.test(normalized)) return true
+  return false
+}
+
+/**
+ * Reasoning models reached through OpenAI-compatible aggregators, where the
+ * id usually carries a vendor prefix (`openai/o3`, `x-ai/grok-4-reasoning`).
+ * `isOpenAiStrictCompletionModel` only matches bare ids on first-party
+ * OpenAI/Azure because it also governs the `max_completion_tokens` rewrite,
+ * so aggregator ids need their own gate.
+ */
+function isPrefixedReasoningModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  const tail = normalized.includes("/")
+    ? normalized.slice(normalized.lastIndexOf("/") + 1)
+    : normalized
+  return /^gpt-5(?:[.\-_]|$)/.test(tail)
+    || /^o\d+(?:[.\-_]|$)/.test(tail)
+    || /(?:^|[-_])(?:reasoning|thinking)(?:[-_]|$)/.test(tail)
+}
+
+/**
+ * Whether thinking depth can actually be steered for this model. False means
+ * every explicit reasoning mode would either be dropped on the floor or
+ * rejected outright, so callers should hide the control rather than offer a
+ * knob that does nothing.
+ *
+ * Deliberately a conservative allow-list instead of the inverse of the wire
+ * adaptations. `buildOpenAiCompatibleBody` sends `reasoning_effort` to any
+ * openai/azure/custom provider that asks for it, which non-reasoning models
+ * like gpt-4o either ignore or 400 on, and the Anthropic path has the same
+ * problem with `thinking` on Claude 3.5. Listing only the families known to
+ * honour the parameter keeps a useless slider off the screen.
+ */
+export function modelSupportsReasoningControl(config: LlmConfig): boolean {
+  // Claude Code CLI takes no thinking parameter at all, and Cursor CLI
+  // carries effort inside the model id (`model[reasoning_effort=high]`)
+  // rather than reading config.reasoning.
+  if (config.provider === "claude-code" || config.provider === "cursor-cli") return false
+  // Codex CLI maps the mode straight onto `turn/start.effort`.
+  if (config.provider === "codex-cli") return true
+  if (config.provider === "google") return googleModelSupportsThinkingConfig(config.model)
+
+  const anthropicWire = config.provider === "anthropic"
+    || config.provider === "minimax"
+    || (config.provider === "custom" && config.apiMode === "anthropic_messages")
+  if (anthropicWire) return isAnthropicThinkingModel(config.model)
+
+  if (config.provider === "custom" && config.apiMode === "responses") {
+    return isOpenAiStrictCompletionModel(config) || isPrefixedReasoningModel(config.model)
+  }
+
+  if (isDeepSeekEndpoint(config)) return true
+  if (isChatTemplateThinkingModel(config.model) || isMiMoEndpoint(config)) return true
+  if (isGLMThinkingModel(config.model) && isZhipuEndpoint(config)) return true
+  if (isOpenAiStrictCompletionModel(config)) return true
+  return isPrefixedReasoningModel(config.model)
+}
+
 function adaptOpenAiStrictCompletionBody(config: LlmConfig, body: Record<string, unknown>): void {
   if (!isOpenAiStrictCompletionModel(config)) return
 

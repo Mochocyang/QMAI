@@ -21,6 +21,11 @@ import {
   type UiFontFamily,
 } from "@/lib/font-settings"
 import {
+  DEFAULT_REASONING_DEPTH,
+  normalizeReasoningDepth,
+  type ReasoningDepth,
+} from "@/lib/reasoning-depth"
+import {
   DEFAULT_VISUAL_STYLE,
   VISUAL_STYLE_STORAGE_KEY,
   VISUAL_STYLE_STORAGE_VERSION,
@@ -597,6 +602,14 @@ interface WikiState {
   /** Dedicated global AI outline model key; isolated from AI chat. */
   aiOutlineModel: string
   aiOutlineModelRevision: number
+  /**
+   * Thinking depth for the chat model picked in the writing footer. Applies
+   * only to chapter body generation (`chapterWritingLlmConfig`), never to the
+   * orchestrating agent, which runs on the default model.
+   */
+  aiChatReasoningDepth: ReasoningDepth
+  /** Thinking depth for the outline chat model; applies to generation turns only. */
+  aiOutlineReasoningDepth: ReasoningDepth
   /** 默认模型（工作流）：拆文库、导入队列、去重、角色 aura 等。章节/大纲记忆摄取见 novelConfig.extractModel */
   defaultLlmModel: string
   /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
@@ -672,6 +685,8 @@ interface WikiState {
   setLlmConfig: (config: LlmConfig) => void
   setAiChatModel: (model: string) => void
   setAiOutlineModel: (model: string) => void
+  setAiChatReasoningDepth: (depth: ReasoningDepth) => void
+  setAiOutlineReasoningDepth: (depth: ReasoningDepth) => void
   setDefaultLlmModel: (model: string) => void
   setProviderConfigs: (configs: ProviderConfigs) => void
   setActivePresetId: (id: string | null) => void
@@ -760,6 +775,8 @@ export const useWikiStore = create<WikiState>((set) => ({
   aiChatModel: "",
   aiOutlineModel: "",
   aiOutlineModelRevision: 0,
+  aiChatReasoningDepth: DEFAULT_REASONING_DEPTH,
+  aiOutlineReasoningDepth: DEFAULT_REASONING_DEPTH,
   defaultLlmModel: "",
   providerConfigs: {},
   activePresetId: null,
@@ -932,6 +949,12 @@ export const useWikiStore = create<WikiState>((set) => ({
     aiOutlineModel,
     aiOutlineModelRevision: state.aiOutlineModelRevision + 1,
   })),
+  setAiChatReasoningDepth: (depth) => set({
+    aiChatReasoningDepth: normalizeReasoningDepth(depth),
+  }),
+  setAiOutlineReasoningDepth: (depth) => set({
+    aiOutlineReasoningDepth: normalizeReasoningDepth(depth),
+  }),
   setDefaultLlmModel: (defaultLlmModel) => set({ defaultLlmModel }),
   setProviderConfigs: (providerConfigs) => set({
     providerConfigs: normalizeProviderConfigs(providerConfigs),
