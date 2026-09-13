@@ -179,7 +179,8 @@ describe("ContextTracePanel selected skills", () => {
 
     expect(html).toContain("本次命中 1 项")
     expect(html).toContain("命中率 100%")
-    expect(html).toContain("节省约 0 Token")
+    // 没有截断就没有「节省」，不能显示 0 Token 这种无意义口径
+    expect(html).not.toContain("节省约")
     expect(html).not.toContain("Codex 线程累计实际用量")
   })
 

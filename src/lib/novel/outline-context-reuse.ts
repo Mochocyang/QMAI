@@ -2,6 +2,7 @@ import {
   resolveOutlineWorkflowMode,
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
+import type { OutlinePlanPhase } from "./outline-plan-protocol"
 
 export const OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS = [
   "read_chapter",
@@ -38,6 +39,7 @@ interface OutlineContextReuseInput {
   systemGenerated?: boolean
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
 }
 
 interface OutlineContextReuseDecision {
@@ -55,17 +57,20 @@ interface OutlineAgentHistoryInput {
   summaryInSystem?: boolean
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
   enableMultiAgent?: boolean
 }
 
 export function shouldShowOutlineWorkflowProcess(input: {
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
   enableMultiAgent?: boolean
 }): boolean {
-  if (resolveOutlineWorkflowMode(input.workflowMode) !== "standard") return false
+  if (resolveOutlineWorkflowMode(input.workflowMode) === "fast") return false
   return input.intentPhase === "intent_analysis"
     || input.intentPhase === "generation"
+    || input.planPhase !== undefined
     || input.enableMultiAgent === true
 }
 
@@ -222,6 +227,7 @@ function refreshReason(input: OutlineContextReuseInput): string {
   if (!input.hasPriorAssistantAnswer) return "首次生成需要建立上下文。"
   if (input.forceRefresh) return "用户手动要求强制刷新上下文。"
   if (input.enableMultiAgent) return "固定生成向导或多 Agent 任务需要完整上下文。"
+  if (input.planPhase) return "计划模式要素盘点需要读取项目已有大纲。"
   if (shouldShowOutlineWorkflowProcess(input)) return "标准大纲工作流需要完整上下文。"
   if (input.attachedReferenceCount > 0) return "本轮带有新的引用资料。"
   if (REFRESH_KEYWORD_PATTERN.test(input.inputText.trim())) {

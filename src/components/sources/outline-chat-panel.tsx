@@ -247,7 +247,21 @@ import {
   extractNextStep,
   buildNextStepPromptSuffix,
 } from "@/lib/novel/outline-next-step";
+import {
+  buildOutlinePlanClarifyAnswerPrompt,
+  buildOutlinePlanElementCheckPrompt,
+  buildOutlinePlanExecutionPrompt,
+  buildOutlinePlanPhaseSystemRules,
+  parseOutlinePlanProtocol,
+  validateOutlinePlanProtocol,
+  type OutlinePlanAnswer,
+  type OutlinePlanPhase,
+  type OutlinePlanProtocol,
+} from "@/lib/novel/outline-plan-protocol";
+import { getOutlinePlanRequiredElements } from "@/lib/novel/outline-plan-elements";
 import { IntentOptionsCard } from "@/components/sources/outline-intent-options-card";
+import { OutlineClarifyCard } from "@/components/sources/outline-clarify-card";
+import { OutlinePlanCard } from "@/components/sources/outline-plan-card";
 import { NextStepCard } from "@/components/sources/outline-next-step-card";
 import { ConversationRunStatusIcon } from "@/components/common/conversation-run-status-icon";
 import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog";
@@ -498,6 +512,12 @@ const OUTLINE_WORKFLOW_MODE_OPTIONS: Array<{
     description: "完整工作流",
     routeDescription: "先做意图分析或向导多 Agent，再生成可保存的大纲，并保留澄清与分步生成。",
   },
+  {
+    mode: "plan",
+    label: "计划",
+    description: "先问后写",
+    routeDescription: "先按大纲结构盘点要素，缺口用选项追问补齐，再生成计划并等你确认后才开始写。",
+  },
 ];
 
 export function buildOutlineAgentSystemPrompt(options: {
@@ -505,28 +525,45 @@ export function buildOutlineAgentSystemPrompt(options: {
   webResearchContext?: string;
   soulDoc?: string;
   mode?: OutlineWorkflowMode;
+  /** 计划模式的目标模块；只有在要素盘点轮才传，正文生成轮不传。 */
+  planModule?: string;
 }): string {
   const mode = resolveOutlineWorkflowMode(options.mode);
+  const sharedAnalysisRules = [
+    "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
+    "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
+    "回答必须基于已读取内容进行分析，说明关键判断依据。",
+    "## AI大纲固定分析流程",
+    "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
+    "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
+    "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
+    "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
+    "## AI大纲生成工作流",
+    "固定向导提交的小说生成需求必须先进入“需求分析/生成方案”阶段：先判断缺失信息，信息足够时只输出生成方案、文件清单、保存位置和生成顺序，并询问用户是否确认开始生成；用户确认前不得生成完整文件，不得调用保存工具。",
+    "需求分析必须执行充分性闸门：缺少篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向或预期章节结构时，只追问最关键缺口。",
+    "长篇小说必须先卷后章：先形成核心设定、总纲、卷节拍表、卷时间线和卷纲，再生成章纲；不得从灵感直接跳到全书章纲。",
+    "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
+    "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
+  ];
   const workflowRules = mode === "fast"
     ? [
       "快速模式下像普通对话一样直接出结果。可以按需读取必要上下文，但不要主动进入需求分析、意图分析或多 Agent 编排。",
       "用户要求生成或修改大纲时，直接输出可保存的大纲正文；不要先追问方案或等待确认才开始写。",
     ]
+    : mode === "plan"
+    ? [
+      ...sharedAnalysisRules,
+      "## 计划模式总则",
+      "计划模式不做意图清晰度分析，禁止输出 intent_clarity。要素齐备并经用户确认生成计划后，才允许生成大纲正文。",
+      ...(options.planModule
+        ? [buildOutlinePlanPhaseSystemRules(
+          options.planModule,
+          getOutlinePlanRequiredElements(options.planModule),
+        )]
+        : []),
+    ]
     : [
-      "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
-      "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
-      "回答必须基于已读取内容进行分析，说明关键判断依据。",
-      "## AI大纲固定分析流程",
-      "1. 先调用 list_outlines、list_chapters、list_memories、list_deductions 确认可用资料范围。",
-      "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
-      "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
-      "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
-      "## AI大纲生成工作流",
-      "固定向导提交的小说生成需求必须先进入“需求分析/生成方案”阶段：先判断缺失信息，信息足够时只输出生成方案、文件清单、保存位置和生成顺序，并询问用户是否确认开始生成；用户确认前不得生成完整文件，不得调用保存工具。",
-      "需求分析必须执行充分性闸门：缺少篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向或预期章节结构时，只追问最关键缺口。",
-      "长篇小说必须先卷后章：先形成核心设定、总纲、卷节拍表、卷时间线和卷纲，再生成章纲；不得从灵感直接跳到全书章纲。",
-      "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
-      "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
+      ...sharedAnalysisRules,
       "## 意图清晰度分析阶段",
       "仅当系统明确标记本轮为“意图分析”时，才输出 intent_clarity；正文生成阶段严禁再次输出该标记。",
       "当本轮为意图分析时：",
@@ -548,10 +585,13 @@ export function buildOutlineAgentSystemPrompt(options: {
     "需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
     ...workflowRules,
     "",
-    "## 下一步推荐输出",
-    "生成完成后，在回复末尾附加 <!-- next_step --> JSON 标记块。",
-    "推荐方向仅限大纲体系内（人物小传、组织势力、力量体系等），严禁推荐正文生成。",
-    "必须包含一个 id 为 D 的自定义选项。",
+    // 计划模式的要素盘点轮只允许输出协议块，这里不能再要求附加下一步推荐
+    ...(options.planModule ? [] : [
+      "## 下一步推荐输出",
+      "生成完成后，在回复末尾附加 <!-- next_step --> JSON 标记块。",
+      "推荐方向仅限大纲体系内（人物小传、组织势力、力量体系等），严禁推荐正文生成。",
+      "必须包含一个 id 为 D 的自定义选项。",
+    ]),
     ...(mode === "fast" ? [] : [
       "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
     ]),
@@ -989,6 +1029,9 @@ function OutlineAssistantMessage({
   onRejectTool,
   onSendMessage,
   onContinueIntentGeneration,
+  onSubmitPlanAnswers,
+  onConfirmPlan,
+  onCancelPlan,
   onResumeMultiAgent,
   resumeMultiAgentDisabled,
   nextStepDisabled,
@@ -1010,6 +1053,17 @@ function OutlineAssistantMessage({
   onRejectTool: (call: ToolCallRecord & { preview?: string }) => void;
   onSendMessage: (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => Promise<boolean>;
   onContinueIntentGeneration: (messageId: string, result: IntentClarityResult) => Promise<void>;
+  onSubmitPlanAnswers: (
+    messageId: string,
+    protocol: OutlinePlanProtocol,
+    answers: OutlinePlanAnswer[],
+  ) => Promise<boolean>;
+  onConfirmPlan: (
+    messageId: string,
+    protocol: OutlinePlanProtocol,
+    planText: string,
+  ) => Promise<boolean>;
+  onCancelPlan: (messageId: string) => void;
   onResumeMultiAgent: (messageId: string) => Promise<void>;
   resumeMultiAgentDisabled: boolean;
   nextStepDisabled: boolean;
@@ -1047,7 +1101,12 @@ function OutlineAssistantMessage({
       ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
       : undefined)
     : undefined;
-  const canUseAsOutlineContent = intentProtocol.kind === "none" && !intentProtocolError;
+  const planProtocol = msg.outlinePlanProtocol ?? null;
+  const planDecided = Boolean(msg.outlinePlanDecision);
+  const isPlanProtocolMessage = Boolean(planProtocol) || Boolean(msg.outlinePlanPhase);
+  const canUseAsOutlineContent = intentProtocol.kind === "none"
+    && !intentProtocolError
+    && !isPlanProtocolMessage;
   const historicalClearIntent = !msg.intentClarityResult
     && !msg.intentProtocolError
     && msg.intentPhase !== "generation"
@@ -1064,10 +1123,12 @@ function OutlineAssistantMessage({
   }>({ textContent: "", edits: [], hasEdits: false });
   const renderedMarkdownContent = useMemo(() => {
     const rawContent = parsed.textContent || answer;
+    // 计划模式的协议块只用卡片渲染，气泡里不能漏出 JSON
+    if (isPlanProtocolMessage) return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
     return prepareOutlineSaveSourceContent(rawContent);
-  }, [answer, intentProtocol, msg.intentProtocolError, parsed.textContent]);
+  }, [answer, intentProtocol, isPlanProtocolMessage, msg.intentProtocolError, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
       setParsed({ textContent: "", edits: [], hasEdits: false });
@@ -1137,6 +1198,11 @@ function OutlineAssistantMessage({
       {intentProtocolError ? (
         <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {intentProtocolError}
+        </div>
+      ) : null}
+      {msg.outlinePlanError && !messageIsStreaming ? (
+        <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {msg.outlinePlanError}
         </div>
       ) : null}
       <StreamingMarkdown
@@ -1209,6 +1275,30 @@ function OutlineAssistantMessage({
             继续生成
           </button>
         </div>
+      ) : null}
+      {/* 计划模式：要素缺口追问 */}
+      {planProtocol?.status === "needs_input" && !isStreaming ? (
+        <OutlineClarifyCard
+          protocol={planProtocol}
+          onSubmitAnswers={(answers) => onSubmitPlanAnswers(msg.id, planProtocol, answers)}
+          disabled={nextStepDisabled || planDecided}
+          disabledReason={planDecided
+            ? "该轮追问已提交，请在最新消息里继续。"
+            : nextStepDisabledReason}
+        />
+      ) : null}
+      {/* 计划模式：生成计划确认 */}
+      {planProtocol?.status === "ready" && !isStreaming ? (
+        <OutlinePlanCard
+          protocol={planProtocol}
+          onConfirm={(planText) => onConfirmPlan(msg.id, planProtocol, planText)}
+          onSupplement={onFocusInput}
+          onCancel={() => onCancelPlan(msg.id)}
+          disabled={nextStepDisabled || planDecided}
+          disabledReason={planDecided
+            ? "该计划已处理过，请在下方继续对话。"
+            : nextStepDisabledReason}
+        />
       ) : null}
       {/* 意图不清晰时的推荐选项 */}
       {msg.intentClarityResult?.clarity === "needs_input" && !isStreaming ? (
@@ -2010,6 +2100,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         conversationId?: string;
         clearDraft?: boolean;
         intentPhase?: "intent_analysis" | "generation" | "waiting_user_input";
+        /** 计划模式的要素盘点轮；正文生成腿仍复用 intentPhase: "generation"。 */
+        planPhase?: OutlinePlanPhase;
+        planModule?: string;
         novelGenerationRequest?: NovelGenerationRequestPackage;
         systemGenerated?: boolean;
         userMessageVisibility?: "visible" | "internal";
@@ -2074,6 +2167,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (!isCurrentRun()) return { started: true, sent: false };
         setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, stage));
       };
+      // 沿允许的转移链推进阶段，链路走不通就停在最后一个合法阶段
+      const advanceCapturedWorkflowStages = (targets: OutlineWorkflowStage[]) => {
+        if (!isCurrentRun()) return;
+        setOutlineWorkflowStages((stages) => {
+          let stage = stages[capturedConvId] ?? "idle";
+          for (const target of targets) {
+            if (stage === target) continue;
+            if (!canTransitionOutlineWorkflow(stage, target)) break;
+            stage = target;
+          }
+          return setOutlineSessionValue(stages, capturedConvId, stage);
+        });
+      };
+      // 计划模式的停机态要留在界面上等用户操作，不能被收尾复位成 idle
+      const resetCapturedWorkflowStageToIdle = () => {
+        if (!isCurrentRun()) return;
+        setOutlineWorkflowStages((stages) => {
+          const stage = stages[capturedConvId] ?? "idle";
+          if (stage === "collecting_requirements" || stage === "waiting_user_confirm") return stages;
+          return setOutlineSessionValue(stages, capturedConvId, "idle");
+        });
+      };
       if (shouldClearOutlineDraft({
         clearDraft: options.clearDraft !== false,
         invocationConversationId: capturedConvId,
@@ -2094,6 +2209,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       );
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
       const enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== "fast";
+      const planTargetModule = options.planModule
+        ?? intentContextsRef.current[capturedConvId]?.title
+        ?? "大纲";
       const forceRefresh = options.forceRefresh === true || forceRefreshNext;
       const contextDecision = planOutlineContextReuse({
         hasPriorAssistantAnswer,
@@ -2104,6 +2222,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated: options.systemGenerated,
         workflowMode: outlineMode,
         intentPhase: options.intentPhase,
+        planPhase: options.planPhase,
       });
       const cachedSummary =
         contextDecision.mode === "reuse"
@@ -2118,6 +2237,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         cachedSummary,
         workflowMode: outlineMode,
         intentPhase: options.intentPhase,
+        planPhase: options.planPhase,
         enableMultiAgent,
       });
       if (forceRefreshNext) {
@@ -2154,6 +2274,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         showThinkingProcess: historyPlan.showThinkingProcess,
         isAgentRunning: true,
         intentPhase: options.intentPhase,
+        outlinePlanPhase: options.planPhase,
       });
       clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
@@ -2175,6 +2296,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       let bestGeneratedText = "";
       let deliverableTruncated = false;
       const outlineBudgetStage: OutlineBudgetStage = options.intentPhase === "intent_analysis"
+        || options.planPhase !== undefined
         ? "analysis"
         : "generation";
       const outlineRequestBudget = planOutlineRequestBudget({
@@ -2245,15 +2367,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           (): DeAiSkillConfig | null => null,
         );
         const soulDoc = await readSoulDoc(project.path).catch(() => "");
+        const planModule = options.planPhase ? planTargetModule : undefined;
         const baseSystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
           mode: outlineMode,
+          planModule,
         });
         const legacySystemPrompt = buildOutlineAgentSystemPrompt({
           projectName: project.name,
           webResearchContext: webResearchMarkdown,
           soulDoc,
           mode: outlineMode,
+          planModule,
         }) + `\n\n## 本轮上下文策略\n${contextDecision.instruction}\n\n${historyPlan.instruction}`;
         const commonDynamicParts = [
           webResearchMarkdown ? `## 本轮联网资料\n${webResearchMarkdown}` : "",
@@ -2984,6 +3109,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
         }
         const rawFinalContent = filteredRawFinalContent.content || "AI大纲未返回内容。";
+        // 计划模式的要素盘点轮：先过协议闸门，未通过一律不放行到生成
+        const planProtocolOutcome = options.planPhase
+          ? parseOutlinePlanProtocol(rawFinalContent)
+          : { kind: "none" as const };
+        const planValidation = planProtocolOutcome.kind === "valid"
+          ? validateOutlinePlanProtocol(
+            planProtocolOutcome.protocol,
+            getOutlinePlanRequiredElements(planProtocolOutcome.protocol.module || planTargetModule),
+          )
+          : null;
+        const planProtocolError = options.planPhase
+          ? planProtocolOutcome.kind === "invalid"
+            ? `计划协议格式无效，尚未开始生成：${planProtocolOutcome.error}`
+            : planProtocolOutcome.kind === "none"
+              ? "计划协议格式无效，尚未开始生成：模型未返回 outline_plan 协议块"
+              : planValidation?.kind === "invalid"
+                ? `计划协议不满足计划模式要求，尚未开始生成：${planValidation.error}`
+                : undefined
+          : undefined;
         const rawIntentProtocol = parseIntentClarityProtocol(rawFinalContent);
         const nextStepExtraction = extractNextStep(rawFinalContent, {
           allowFallback: options.intentPhase === "generation",
@@ -3047,12 +3191,31 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               )
             : [],
           isAgentRunning: false,
-          nextStepRecommendation: intentProtocolError ? null : nextStepExtraction.recommendation,
+          nextStepRecommendation: intentProtocolError || options.planPhase
+            ? null
+            : nextStepExtraction.recommendation,
           intentProtocolError,
+          outlinePlanProtocol: planValidation && planValidation.kind !== "invalid"
+            ? planValidation.protocol
+            : null,
+          outlinePlanError: planProtocolError,
         }));
         if (!isCurrentRun()) {
           void useOutlineChatStore.getState().saveToDisk();
           return { started: true, sent: false };
+        }
+
+        // 计划模式阶段机：追问停在 collecting_requirements，计划停在 waiting_user_confirm
+        if (options.planPhase && planValidation) {
+          if (planValidation.kind === "needs_input") {
+            advanceCapturedWorkflowStages(["collecting_requirements"]);
+          } else if (planValidation.kind === "ready") {
+            advanceCapturedWorkflowStages([
+              "sufficiency_check",
+              "generation_plan",
+              "waiting_user_confirm",
+            ]);
+          }
         }
 
         // 解析意图清晰度结果
@@ -3129,7 +3292,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sessionKey: capturedConvId,
           });
         }
-        if (intentProtocol.kind === "none" && !intentProtocolError && !deliverableTruncated) {
+        // 计划模式的盘点轮只产出协议块，没有可保存正文，不能进保存链路
+        if (
+          intentProtocol.kind === "none"
+          && !intentProtocolError
+          && !deliverableTruncated
+          && !options.planPhase
+        ) {
           await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         }
         if (!isCurrentRun()) return { started: true, sent: false };
@@ -3152,7 +3321,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }));
         }
         void useOutlineChatStore.getState().saveToDisk();
-        setCapturedWorkflowStage("idle");
+        resetCapturedWorkflowStageToIdle();
         finishConversationRun(
           capturedConvId,
           useOutlineChatStore.getState().activeConversationId,
@@ -3218,7 +3387,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         return { started: true, sent: false };
       } finally {
         outlineConversationRunRegistry.remove(capturedConvId, controller);
-        if (isCurrentRun()) setCapturedWorkflowStage("idle");
+        resetCapturedWorkflowStageToIdle();
       }
     },
     [
@@ -3245,11 +3414,51 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     ],
   );
 
+  // 计划模式统一入口：先把会话推进到要素盘点，再让模型按 outline_plan 协议盘点缺口
+  const startOutlinePlanElementCheck = useCallback(
+    (conversationId: string, input: {
+      module: string;
+      requestHint: string;
+      originalRequest?: string;
+      references?: ReferenceToken[];
+      userDisplayText?: string;
+      clearDraft?: boolean;
+    }) => {
+      if (canTransitionOutlineWorkflow(
+        outlineWorkflowStages[conversationId] ?? "idle",
+        "collecting_requirements",
+      )) {
+        setOutlineWorkflowStages((stages) => (
+          setOutlineSessionValue(stages, conversationId, "collecting_requirements")
+        ));
+      }
+      return handleSend(
+        buildOutlinePlanElementCheckPrompt({
+          module: input.module,
+          requestHint: input.requestHint,
+          originalRequest: input.originalRequest,
+        }),
+        input.references ?? [],
+        {
+          conversationId,
+          planPhase: "element_check",
+          planModule: input.module,
+          systemGenerated: true,
+          clearDraft: input.clearDraft,
+          userDisplayText: input.userDisplayText,
+          preferredSkillNames: getOutlineSkillNames(input.module || input.requestHint),
+        },
+      );
+    },
+    [handleSend, outlineWorkflowStages],
+  );
+
   const handleGenerateSection = useCallback(
     (title: string, requestHint: string) => {
       const capturedConvId = activeConversationId ?? createConversation();
       const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === title);
-      const fastMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast";
+      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+      const fastMode = outlineMode === "fast";
       intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
         title,
         hint: requestHint,
@@ -3265,6 +3474,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         });
         return;
       }
+      if (outlineMode === "plan") {
+        void startOutlinePlanElementCheck(capturedConvId, {
+          module: title,
+          requestHint,
+          userDisplayText: `生成${title}`,
+        });
+        return;
+      }
       if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
         setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
       }
@@ -3276,14 +3493,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         userDisplayText: `生成${title}`,
       });
     },
-    [activeConversationId, createConversation, handleSend, outlineWorkflowStages],
+    [
+      activeConversationId,
+      createConversation,
+      handleSend,
+      outlineWorkflowStages,
+      startOutlinePlanElementCheck,
+    ],
   );
 
   const handleDirectSubmit = useCallback(
     async (text: string, references: ReferenceToken[] = []) => {
-      if (resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast") {
+      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+      if (outlineMode === "fast") {
         return handleSend(text, references);
       }
+      // 非生成类输入在计划模式下也照旧直接问答，不进要素盘点
       const directRequest = classifyDirectOutlineGenerationRequest(text);
       if (!directRequest) return handleSend(text, references);
 
@@ -3295,6 +3520,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         references: [...references],
         skillNames: getOutlineSkillNames(directRequest.module || text),
       });
+      if (outlineMode === "plan") {
+        return startOutlinePlanElementCheck(capturedConvId, {
+          module: directRequest.module,
+          requestHint: text.trim(),
+          originalRequest: text.trim(),
+          references,
+          userDisplayText: text,
+        });
+      }
       if (canTransitionOutlineWorkflow(outlineWorkflowStages[capturedConvId] ?? "idle", "intent_analysis")) {
         setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "intent_analysis"));
       }
@@ -3303,7 +3537,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         intentPhase: "intent_analysis",
       });
     },
-    [activeConversationId, createConversation, handleSend, outlineWorkflowStages],
+    [
+      activeConversationId,
+      createConversation,
+      handleSend,
+      outlineWorkflowStages,
+      startOutlinePlanElementCheck,
+    ],
   );
 
   const handleContinueIntentGeneration = useCallback(
@@ -3343,6 +3583,99 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       );
     },
     [activeConversationId, canStartConversationRun, handleSend],
+  );
+
+  const markOutlinePlanDecision = useCallback(
+    (
+      conversationId: string,
+      messageId: string,
+      decision: NonNullable<OutlineChatMessage["outlinePlanDecision"]>,
+    ) => {
+      updateOutlineAssistantMessage(conversationId, messageId, (message) => ({
+        ...message,
+        outlinePlanDecision: decision,
+      }));
+      void useOutlineChatStore.getState().saveToDisk();
+    },
+    [],
+  );
+
+  // 追问答案回填：走内部消息重跑要素盘点，累计要素靠对话历史传递
+  const handleSubmitOutlinePlanAnswers = useCallback(
+    async (messageId: string, protocol: OutlinePlanProtocol, answers: OutlinePlanAnswer[]) => {
+      const capturedConvId = activeConversationId;
+      if (!capturedConvId || !canStartConversationRun(capturedConvId)) {
+        toast.info("当前会话正在生成，请等待生成完成后再补充信息。", {
+          dedupeKey: "outline-plan:busy",
+        });
+        return false;
+      }
+      markOutlinePlanDecision(capturedConvId, messageId, "answered");
+      const result = await handleSend(
+        buildOutlinePlanClarifyAnswerPrompt({
+          module: protocol.module,
+          answers,
+          collected: protocol.elements,
+        }),
+        [],
+        {
+          conversationId: capturedConvId,
+          planPhase: "element_check",
+          planModule: protocol.module,
+          systemGenerated: true,
+          clearDraft: false,
+          userMessageVisibility: "internal",
+        },
+      );
+      return result.sent;
+    },
+    [activeConversationId, canStartConversationRun, handleSend, markOutlinePlanDecision],
+  );
+
+  // 确认计划：复用既有 generation 腿，markdown 修复与保存确认零改动
+  const handleConfirmOutlinePlan = useCallback(
+    async (messageId: string, protocol: OutlinePlanProtocol, planText: string) => {
+      const capturedConvId = activeConversationId;
+      if (!capturedConvId || !canStartConversationRun(capturedConvId)) {
+        toast.info("当前会话正在生成，请等待生成完成后再确认计划。", {
+          dedupeKey: "outline-plan:busy",
+        });
+        return false;
+      }
+      markOutlinePlanDecision(capturedConvId, messageId, "confirmed");
+      setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "idle"));
+      const intentContext = intentContextsRef.current[capturedConvId];
+      const result = await handleSend(
+        buildOutlinePlanExecutionPrompt({
+          module: protocol.module,
+          planText,
+          elements: protocol.elements,
+        }),
+        intentContext?.references ?? [],
+        {
+          conversationId: capturedConvId,
+          intentPhase: "generation",
+          systemGenerated: true,
+          clearDraft: false,
+          userMessageVisibility: "internal",
+          enableMultiAgent: (protocol.plan?.files.length ?? 0) > 1,
+          preferredSkillNames: intentContext?.skillNames
+            ?? getOutlineSkillNames(protocol.module),
+        },
+      );
+      return result.sent;
+    },
+    [activeConversationId, canStartConversationRun, handleSend, markOutlinePlanDecision],
+  );
+
+  const handleCancelOutlinePlan = useCallback(
+    (messageId: string) => {
+      const capturedConvId = activeConversationId;
+      if (!capturedConvId) return;
+      markOutlinePlanDecision(capturedConvId, messageId, "cancelled");
+      setOutlineWorkflowStages((stages) => setOutlineSessionValue(stages, capturedConvId, "idle"));
+    },
+    [activeConversationId, markOutlinePlanDecision],
   );
 
   const handleSendMessage = useCallback(
@@ -3796,7 +4129,29 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleSubmitOutlineWizard = useCallback(
     (request: OutlineWizardRequest) => {
-      const fastMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) === "fast";
+      const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
+      const fastMode = outlineMode === "fast";
+      if (outlineMode === "plan") {
+        // 计划模式不直接短路到生成：向导需求先当作要素输入做盘点
+        const capturedConvId = activeConversationId ?? createConversation();
+        const wizardPrompt = buildOutlineWizardPrompt(request, { mode: "standard" });
+        const module = request.targets[0] || "完整新书规划";
+        intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+          title: module,
+          hint: wizardPrompt,
+          originalRequest: request.inspiration.trim(),
+          references: [...outlineReferenceTokensRef.current],
+          skillNames: getOutlineWizardSkillNames(request),
+        });
+        void startOutlinePlanElementCheck(capturedConvId, {
+          module,
+          requestHint: wizardPrompt,
+          originalRequest: request.inspiration.trim(),
+          references: outlineReferenceTokensRef.current,
+          userDisplayText: createNovelGenerationRequestPackage(request, wizardPrompt).summary,
+        });
+        return;
+      }
       const modelContent = fastMode
         ? buildOutlineWizardPrompt(request, { mode: "fast" })
         : buildOutlineWizardMultiAgentPrompt(request);
@@ -3809,7 +4164,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated: true,
       });
     },
-    [handleSend],
+    [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck],
   );
 
   const handleStop = useCallback(() => {
@@ -4627,6 +4982,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                   {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
                    outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
+                   outlineWorkflowStage === "collecting_requirements" ? "收集要素" :
+                   outlineWorkflowStage === "waiting_user_confirm" ? "等待确认计划" :
                    outlineWorkflowStage === "sufficiency_check" ? "生成中" :
                    "处理中"}
                 </span>
@@ -4755,6 +5112,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onRejectTool={handleRejectTool}
                   onSendMessage={handleSendMessage}
                   onContinueIntentGeneration={handleContinueIntentGeneration}
+                  onSubmitPlanAnswers={handleSubmitOutlinePlanAnswers}
+                  onConfirmPlan={handleConfirmOutlinePlan}
+                  onCancelPlan={handleCancelOutlinePlan}
                   onResumeMultiAgent={handleResumeMultiAgent}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}

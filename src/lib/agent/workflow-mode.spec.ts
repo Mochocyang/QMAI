@@ -3,6 +3,7 @@ import {
   DEFAULT_AI_WORKFLOW_MODE,
   DEFAULT_OUTLINE_WORKFLOW_MODE,
   getWorkflowModeLabel,
+  isOutlineWorkflowMode,
   resolveAiWorkflowMode,
   resolveOutlineWorkflowMode,
   type AiWorkflowMode,
@@ -40,11 +41,20 @@ describe("workflow mode", () => {
     expect(DEFAULT_OUTLINE_WORKFLOW_MODE).toBe("standard")
   })
 
-  it("maps outline workflow mode to fast or standard only", () => {
+  it("maps outline workflow mode to fast, standard or plan only", () => {
     expect(resolveOutlineWorkflowMode("fast")).toBe("fast")
     expect(resolveOutlineWorkflowMode("standard")).toBe("standard")
+    expect(resolveOutlineWorkflowMode("plan")).toBe("plan")
     expect(resolveOutlineWorkflowMode("strict")).toBe("standard")
     expect(resolveOutlineWorkflowMode(null)).toBe("standard")
     expect(resolveOutlineWorkflowMode(undefined)).toBe("standard")
+  })
+
+  it("recognises outline workflow modes without accepting writing-only modes", () => {
+    expect(isOutlineWorkflowMode("fast")).toBe(true)
+    expect(isOutlineWorkflowMode("standard")).toBe(true)
+    expect(isOutlineWorkflowMode("plan")).toBe(true)
+    expect(isOutlineWorkflowMode("strict")).toBe(false)
+    expect(isOutlineWorkflowMode(null)).toBe(false)
   })
 })

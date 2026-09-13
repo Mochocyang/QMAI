@@ -271,6 +271,14 @@ describe("AI 大纲上下文复用策略", () => {
       workflowMode: "standard",
       intentPhase: undefined,
     })).toBe(false)
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "plan",
+      planPhase: "element_check",
+    })).toBe(true)
+    expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "plan",
+      intentPhase: "generation",
+    })).toBe(true)
 
     const decision = planOutlineContextReuse({
       hasPriorAssistantAnswer: true,
@@ -317,7 +325,33 @@ describe("AI 大纲上下文复用策略", () => {
     })
     expect(plan.showToolProcess).toBe(false)
     expect(plan.showThinkingProcess).toBe(false)
-    expect(plan.showToolProcessOnError).toBe(true)
-    expect(plan.sources).toContain("过程: 已隐藏重复工具过程")
+  })
+
+  it("计划模式要素盘点强制刷新上下文并说明原因", () => {
+    const decision = planOutlineContextReuse({
+      hasPriorAssistantAnswer: true,
+      attachedReferenceCount: 0,
+      inputText: "请对以下大纲请求做计划模式要素盘点",
+      enableMultiAgent: false,
+      systemGenerated: true,
+      workflowMode: "plan",
+      planPhase: "element_check",
+    })
+
+    expect(decision.mode).toBe("refresh")
+    expect(decision.reason).toBe("计划模式要素盘点需要读取项目已有大纲。")
+
+    const plan = planOutlineAgentHistory({
+      history: [
+        { role: "user", content: "生成章纲" },
+        { role: "assistant", content: "已生成" },
+      ],
+      contextDecision: decision,
+      workflowMode: "plan",
+      planPhase: "element_check",
+    })
+
+    expect(plan.showToolProcess).toBe(true)
+    expect(plan.showThinkingProcess).toBe(true)
   })
 })

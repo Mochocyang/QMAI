@@ -295,4 +295,64 @@ describe("outline-chat-store", () => {
     expect(getOutlineMessageModelContent(message)).toBe("????")
   })
 
+  it("持久化计划模式的追问与确认状态", async () => {
+    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    const stored = conversation("plan")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "",
+      outlinePlanPhase: "element_check",
+      outlinePlanDecision: "answered",
+      outlinePlanProtocol: {
+        status: "needs_input",
+        module: "章节细纲",
+        elements: [{ key: "chapterRange", value: "第11-15章", source: "user", satisfied: true }],
+        missing: ["本章目标"],
+        questions: [{
+          id: "q1",
+          key: "chapterGoal",
+          question: "本章目标是什么？",
+          multiple: false,
+          options: [
+            { id: "A", label: "推进主线", description: "" },
+            { id: "B", label: "铺垫伏笔", description: "" },
+            { id: "C", label: "兑现爽点", description: "" },
+            { id: "CUSTOM", label: "其它（我来补充描述）", description: "" },
+          ],
+        }],
+      },
+    }]
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "plan" }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    const message = useOutlineChatStore.getState().conversations[0].messages[0]
+    expect(message.outlinePlanPhase).toBe("element_check")
+    expect(message.outlinePlanDecision).toBe("answered")
+    expect(message.outlinePlanProtocol?.questions[0].options).toHaveLength(4)
+  })
+
+  it.each([
+    null,
+    { status: "clear", module: "章节细纲", elements: [], missing: [], questions: [] },
+    { status: "ready", module: "", elements: [], missing: [], questions: [] },
+    { status: "needs_input", module: "章节细纲", elements: [], missing: [], questions: [{ question: 1 }] },
+    { status: "ready", module: "章节细纲", elements: [], missing: [], questions: [], plan: { steps: [] } },
+  ])("丢弃结构不完整的计划协议 %#", async (invalidProtocol) => {
+    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    const stored = conversation("invalid-plan")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "",
+      outlinePlanProtocol: invalidProtocol as never,
+    }]
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "invalid-plan" }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].outlinePlanProtocol).toBeUndefined()
+  })
+
 })

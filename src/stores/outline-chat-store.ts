@@ -15,6 +15,12 @@ import {
 import { useWikiStore } from "@/stores/wiki-store"
 import type { IntentClarityResult } from "@/lib/novel/outline-intent-clarity"
 import type { NextStepRecommendation } from "@/lib/novel/outline-next-step"
+import {
+  isOutlinePlanProtocol,
+  type OutlinePlanDecision,
+  type OutlinePlanPhase,
+  type OutlinePlanProtocol,
+} from "@/lib/novel/outline-plan-protocol"
 import { isNovelGenerationRequestPackage, type NovelGenerationRequestPackage } from "@/lib/novel/novel-generation-request-package"
 import type { CharacterAgentResult } from "@/lib/novel/character-multi-agent"
 import {
@@ -101,6 +107,13 @@ export interface OutlineChatMessage {
   intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"
   intentClarityResult?: IntentClarityResult | null
   intentProtocolError?: string
+  /** 计划模式：本轮是要素盘点还是方案提案。 */
+  outlinePlanPhase?: OutlinePlanPhase
+  /** 计划模式：追问或生成计划的协议结果。 */
+  outlinePlanProtocol?: OutlinePlanProtocol | null
+  outlinePlanError?: string
+  /** 计划模式：卡片已被使用，重载后保持置灰。 */
+  outlinePlanDecision?: OutlinePlanDecision
   nextStepRecommendation?: NextStepRecommendation | null
   novelGenerationRequest?: NovelGenerationRequestPackage
   contextHubSnapshot?: ContextHubSnapshotRef
@@ -421,6 +434,10 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
           ...message,
           novelGenerationRequest: isNovelGenerationRequestPackage(message.novelGenerationRequest)
             ? message.novelGenerationRequest
+            : undefined,
+          // 结构不完整的计划协议一律丢弃，避免重载后渲染出残缺卡片
+          outlinePlanProtocol: isOutlinePlanProtocol(message.outlinePlanProtocol)
+            ? message.outlinePlanProtocol
             : undefined,
           // 验证 resumeablePlan 数据完整性，清除结构不完整的续传数据
           multiAgentRun: message.multiAgentRun
