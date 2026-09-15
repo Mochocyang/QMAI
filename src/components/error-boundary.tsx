@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react"
+import { captureAppException } from "@/instrument"
 import { isTauri } from "@/lib/platform"
 
 interface Props {
@@ -24,6 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("ErrorBoundary caught:", error, info.componentStack)
+    captureAppException(error)
     this.setState({ componentStack: info.componentStack ?? null })
     if (isTauri()) {
       try {

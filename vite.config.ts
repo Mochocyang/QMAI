@@ -3,16 +3,35 @@ import { readFileSync } from "fs"
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
+import { sentryVitePlugin } from "@sentry/vite-plugin"
 
 const host = process.env.TAURI_DEV_HOST
 
 // Read version from package.json at config-load time so the Settings
 // UI can show the running app version without duplicating the string.
 const pkgJson = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"))
+const sentryRelease = `qmai@${pkgJson.version}`
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN
+const uploadSentrySourcemaps = Boolean(sentryAuthToken)
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Last plugin. No token → no maps, no upload (local / CI check).
+    sentryVitePlugin({
+      disable: !uploadSentrySourcemaps,
+      org: process.env.SENTRY_ORG || "qmai-c5",
+      project: process.env.SENTRY_PROJECT || "qmai",
+      authToken: sentryAuthToken,
+      telemetry: false,
+      release: { name: sentryRelease },
+      sourcemaps: {
+        filesToDeleteAfterUpload: ["./dist/**/*.map"],
+      },
+    }),
+  ],
 
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "./src") },
@@ -28,6 +47,8 @@ export default defineConfig(async () => ({
   // 1. prevent vite from obscuring rust errors
   clearScreen: false,
   build: {
+    // Hidden maps only when uploading; never ship *.map in the Tauri bundle.
+    sourcemap: uploadSentrySourcemaps ? "hidden" : false,
     chunkSizeWarningLimit: 700,
     modulePreload: {
       resolveDependencies(_filename: string, deps: string[]) {

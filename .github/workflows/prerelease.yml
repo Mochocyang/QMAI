@@ -78,11 +78,26 @@ jobs:
             cat release-assets/changelog.txt
           } > release-assets/prerelease-notes.txt
 
+      - name: Require Sentry sourcemap token
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN}" ]; then
+            echo "SENTRY_AUTH_TOKEN is required to upload production sourcemaps." >&2
+            echo "Create an org token (project:releases, org:read) at https://qmai-c5.sentry.io/settings/auth-tokens/" >&2
+            echo "Then: gh secret set SENTRY_AUTH_TOKEN -R Mochocyang/QMAI" >&2
+            exit 1
+          fi
+
       - name: Build Tauri NSIS installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: qmai-c5
+          SENTRY_PROJECT: qmai
         run: npx tauri build --bundles nsis
 
       - name: Package Windows 内测 assets

@@ -26,6 +26,7 @@
     "@milkdown/react": "^7.22.1",
     "@milkdown/theme-nord": "^7.22.1",
     "@react-sigma/core": "^5.0.6",
+    "@sentry/react": "^10.74.0",
     "@sigma/edge-curve": "^3.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "^2.11.1",
@@ -67,6 +68,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@sentry/vite-plugin": "^5.4.0",
     "@tauri-apps/cli": "^2.11.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.13.4",
@@ -77,6 +79,6 @@
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.1"
   }
 }
