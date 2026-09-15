@@ -112,8 +112,7 @@ fn isolated_codex_config(home_dir: Option<&Path>) -> toml::Table {
     let mut isolated = toml::Table::new();
     let source = home_dir
         .and_then(|home| std::fs::read_to_string(home.join(".codex").join("config.toml")).ok())
-        .and_then(|content| content.parse::<toml::Value>().ok())
-        .and_then(|value| value.as_table().cloned())
+        .and_then(|content| content.parse::<toml::Table>().ok())
         .unwrap_or_default();
     for key in CODEX_CONFIG_PASSTHROUGH_KEYS {
         if let Some(value) = source.get(*key) {
@@ -839,7 +838,7 @@ command = "danger"
         );
 
         let serialized = serialize_isolated_codex_config(Some(&dir)).unwrap();
-        let reparsed = serialized.parse::<toml::Value>().unwrap();
+        let reparsed = serialized.parse::<toml::Table>().unwrap();
         assert_eq!(
             reparsed.get("model_provider").and_then(toml::Value::as_str),
             Some("proxy")
