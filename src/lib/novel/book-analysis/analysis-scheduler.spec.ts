@@ -435,4 +435,45 @@ describe("analysis scheduler", () => {
     expect(aggregateSignal?.aborted).toBe(true)
     expect(scheduler.getSnapshot().tasks[0].status).toBe("cancelled")
   })
+
+  it("llmConfig 传函数时按任务解析，adapter 拿到该任务选定的模型", async () => {
+    const seenModels: string[] = []
+    const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
+      skill,
+      {
+        skill,
+        async runChunk({ chunk, llmConfig }) {
+          seenModels.push(llmConfig.model)
+          return { result: { chunkId: chunk.id }, evidence: [] }
+        },
+        async aggregate() {
+          return { skill }
+        },
+        async publish() {
+          return `${skill}.json`
+        },
+      } satisfies AnalysisSkillAdapter,
+    ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+    const savedResults = new Map<string, unknown>()
+    const scheduler = createAnalysisScheduler({
+      adapters,
+      llmConfig: (target) => ({ model: target.modelKey ?? "default-model" }) as LlmConfig,
+      saveTask: vi.fn(async () => {}),
+      saveChunk: vi.fn(async () => {}),
+      saveCompletedChunk: vi.fn(async (_bookPath, chunk, result) => {
+        const resultPath = `${chunk.skill}-${chunk.id}.result.json`
+        savedResults.set(resultPath, result)
+        return { ...chunk, status: "completed", resultPath, completedAt: 10, updatedAt: 10 }
+      }),
+      loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
+      now: () => 10,
+    })
+    const configured = { ...task(["style"], ["chunk-1"]), modelKey: "openai/gpt-4o-mini" }
+    scheduler.initialize([configured], chunks(["style"], 1))
+
+    await scheduler.continueTask("task-1")
+    await scheduler.whenIdle()
+
+    expect(seenModels).toEqual(["openai/gpt-4o-mini"])
+  })
 })

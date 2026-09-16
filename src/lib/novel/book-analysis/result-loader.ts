@@ -7,6 +7,7 @@
 import { readFile, listDirectory } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { findCharacterForSkillFile } from "./skill-character-match"
+import { migrateStyleProfile } from "./style-profile-schema"
 import type {
   BookAnalysisResult,
   BookAnalysisMetadata,
@@ -19,7 +20,7 @@ import type {
 async function loadStyleProfile(bookPath: string): Promise<BookStyleProfile | null> {
   try {
     const raw = await readFile(joinPath(bookPath, "style-profile.json"))
-    return JSON.parse(raw) as BookStyleProfile
+    return migrateStyleProfile(JSON.parse(raw) as BookStyleProfile)
   } catch {
     return null
   }

@@ -10,14 +10,10 @@ import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { bindCharacterAura, listBindableNovelCharacters } from "@/lib/novel/character-aura"
 import { importBookAnalysisSkillsAsAuras, type ImportedBookAnalysisAura } from "@/lib/novel/book-analysis/aura-adapter"
-import { analyzeWritingStyle } from "@/lib/novel/book-analysis/style-extraction-engine"
-import { STYLE_DIMENSIONS } from "@/lib/novel/book-analysis/style-prompts"
+import { WRITING_DNA_LAYERS, needsReextraction } from "@/lib/novel/book-analysis/style-profile-schema"
 import { upsertWritingStylePreset, setEnabledWritingStyle, getEnabledWritingStyle } from "@/lib/novel/writing-style-store"
-import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
 import { refreshProjectState } from "@/lib/project-refresh"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { hasUsableLlm } from "@/lib/has-usable-llm"
 import type { BookAnalysisResult, BookAnalysisMetadata, ExtractedCharacter, PersonalityProfile } from "@/lib/novel/book-analysis/types"
 
 interface BookAnalysisResultViewerProps {
@@ -38,8 +34,7 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
   const [selectedAuraId, setSelectedAuraId] = useState("")
   // feature/fix-viewer-ui：多选小说人物
   const [selectedNovelCharacterIds, setSelectedNovelCharacterIds] = useState<Set<string>>(new Set())
-  // feature/book-style-extraction：作品文风提取 / 启用
-  const [styleExtracting, setStyleExtracting] = useState(false)
+  // feature/book-style-extraction：作品文风启用态
   const [styleEnabledSourceBook, setStyleEnabledSourceBook] = useState<string | null>(null)
 
   const currentProject = useWikiStore((s) => s.project)
@@ -115,33 +110,9 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
     ? [...characters].sort((a, b) => b.importance - a.importance || a.name.localeCompare(b.name, "zh-CN"))
     : characters
 
-  // feature/book-style-extraction：提取作品级写作文风
-  const handleExtractStyle = async () => {
-    if (!currentProject?.path || styleExtracting) return
-    const bookId = task?.bookId
-    if (!bookId) {
-      toast.error("未找到作品标识")
-      return
-    }
-    const storeState = useWikiStore.getState()
-    const llmConfig = resolveDefaultModel(storeState.llmConfig)
-    if (!hasUsableLlm(llmConfig, storeState.providerConfigs)) {
-      toast.error("未配置 LLM，请先在设置中配置")
-      return
-    }
-    const bookPath = joinPath(currentProject.path, "book-analysis", bookId)
-    setStyleExtracting(true)
-    try {
-      const profile = await analyzeWritingStyle(bookPath, llmConfig)
-      if (task) useBookAnalysisStore.getState().updateTaskStyleProfile(task.id, profile)
-      const cur = useBookAnalysisStore.getState().currentResult
-      if (cur) useBookAnalysisStore.getState().setCurrentResult({ ...cur, styleProfile: profile })
-      toast.success("已提取作品文风")
-    } catch (err) {
-      toast.error(`提取文风失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setStyleExtracting(false)
-    }
+  // Writing DNA 分层蒸馏需要用户先选章节范围，只能从拆书库的 pipeline 入口发起
+  const handleExtractStyle = () => {
+    toast.info("请在拆书库中提取文风：分层蒸馏需要先选择章节范围。")
   }
 
   // feature/book-style-extraction：启用 / 取消启用该作品文风
@@ -312,7 +283,9 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                 <Feather className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="text-sm font-medium shrink-0">作品文风</span>
                 <span className="text-xs text-muted-foreground truncate">
-                  {styleProfile ? (styleProfile.narrativeDensity || "已提取") : "尚未提取叙事文风（与角色灵魂相互独立）"}
+                  {styleProfile
+                    ? (needsReextraction(styleProfile) ? "旧版画像，建议重新提取" : "已蒸馏 Writing DNA")
+                    : "尚未提取叙事文风（与角色灵魂相互独立）"}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -325,8 +298,8 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
                     {styleEnabled ? "已启用 ✓" : "启用此文风"}
                   </Button>
                 )}
-                <Button variant="outline" size="sm" onClick={handleExtractStyle} disabled={styleExtracting}>
-                  {styleExtracting ? "提取中..." : styleProfile ? "重新提取文风" : "提取文风"}
+                <Button variant="outline" size="sm" onClick={handleExtractStyle}>
+                  {styleProfile ? "重新提取文风" : "提取文风"}
                 </Button>
               </div>
             </div>
@@ -334,11 +307,13 @@ export function BookAnalysisResultViewer({ projectPath, result, onClose }: BookA
               也可以在拆书库主界面统一管理文风、角色 Skill 和绑定关系。
             </div>
             {styleProfile && (
-              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {STYLE_DIMENSIONS.map((d) => (
-                  <div key={d.key} className="min-w-0">
-                    <span className="text-foreground">{d.label}：</span>
-                    <span className="break-all">{(styleProfile[d.key] as string) || "\u2014"}</span>
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {WRITING_DNA_LAYERS.map((layer) => (
+                  <div key={layer.key} className="min-w-0">
+                    <span className="text-foreground">{layer.level} {layer.label}：</span>
+                    <span className="break-all">
+                      {styleProfile.layers?.[layer.key]?.trim() ? "已蒸馏" : "\u2014"}
+                    </span>
                   </div>
                 ))}
               </div>

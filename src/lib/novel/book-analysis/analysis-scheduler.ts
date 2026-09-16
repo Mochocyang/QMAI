@@ -44,7 +44,11 @@ export interface AnalysisScheduler {
 
 interface AnalysisSchedulerOptions {
   adapters: Record<AnalysisSkill, AnalysisSkillAdapter>
-  llmConfig: LlmConfig | (() => LlmConfig)
+  /**
+   * 模型解析。传函数时会拿到当前任务，用于让每个任务用回自己选定的 `task.modelKey`；
+   * 暂停/继续和并行任务都靠这个保证模型不会串。
+   */
+  llmConfig: LlmConfig | ((task: BookAnalysisPipelineTask) => LlmConfig)
   concurrency?: number
   saveTask?: typeof saveAnalysisTask
   saveChunk?: typeof saveAnalysisChunk
@@ -162,8 +166,8 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     if (changed) notify()
   }
 
-  function resolveLlmConfig(): LlmConfig {
-    return typeof options.llmConfig === "function" ? options.llmConfig() : options.llmConfig
+  function resolveLlmConfig(task: BookAnalysisPipelineTask): LlmConfig {
+    return typeof options.llmConfig === "function" ? options.llmConfig(task) : options.llmConfig
   }
 
   async function acquirePermit(): Promise<void> {
@@ -192,7 +196,7 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
       skill,
       bookPath: task.bookPath,
       projectPath: task.projectPath,
-      llmConfig: resolveLlmConfig(),
+      llmConfig: resolveLlmConfig(task),
     }
   }
 

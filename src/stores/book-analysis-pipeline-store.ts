@@ -19,6 +19,7 @@ import {
   type AnalysisRuntimeProgress,
   type AnalysisSkill,
   type BookAnalysisPipelineTask,
+  type StyleAnalysisDepth,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 import { createAnalysisScheduler, type AnalysisScheduler } from "@/lib/novel/book-analysis/analysis-scheduler"
@@ -26,7 +27,7 @@ import { characterAnalysisAdapter } from "@/lib/novel/book-analysis/character-an
 import { storyAnalysisAdapter } from "@/lib/novel/book-analysis/story-analysis-adapter"
 import { styleAnalysisAdapter } from "@/lib/novel/book-analysis/style-analysis-adapter"
 import { clearActiveAnalysisSnapshot, setActiveAnalysisSnapshot } from "@/lib/novel/book-analysis/analysis-active-registry"
-import { resolveDefaultModel } from "@/lib/novel/model-resolver"
+import { resolveTaskLlmConfig } from "@/lib/novel/book-analysis/analysis-model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
 let taskCounter = 0
@@ -93,7 +94,12 @@ interface BookAnalysisPipelineState {
     selectedSkills: AnalysisSkill[]
     forceNew?: boolean
   }): Promise<BookAnalysisPipelineTask | null>
-  configureTaskRange(taskId: string, range: AnalysisChapterRange, selectedSkills?: AnalysisSkill[]): Promise<void>
+  configureTaskRange(
+    taskId: string,
+    range: AnalysisChapterRange,
+    selectedSkills?: AnalysisSkill[],
+    options?: { modelKey?: string; styleDepth?: StyleAnalysisDepth },
+  ): Promise<void>
   setTaskRecognizedCharacters(taskId: string, characters: RecognizedCharacter[]): Promise<void>
   failTask(taskId: string, error: string): Promise<void>
   confirmCharacterSelection(taskId: string, selectedIds: string[]): Promise<void>
@@ -154,7 +160,7 @@ export function createBookAnalysisPipelineStore() {
           story: storyAnalysisAdapter,
           style: styleAnalysisAdapter,
         },
-        llmConfig: () => resolveDefaultModel(useWikiStore.getState().llmConfig),
+        llmConfig: (task) => resolveTaskLlmConfig(task),
       })
       scheduler = nextScheduler
       nextScheduler.initialize(mergedTasks, mergedChunks)
@@ -197,13 +203,16 @@ export function createBookAnalysisPipelineStore() {
       setActiveAnalysisSnapshot(projectPath, [...get().tasks])
       return task
     },
-    async configureTaskRange(taskId, range, nextSkills) {
+    async configureTaskRange(taskId, range, nextSkills, options) {
       const task = get().tasks.find((item) => item.id === taskId)
       if (!task) throw new Error("未找到分析任务")
       const selectedSkills = normalizeSelectedSkills(nextSkills ?? task.selectedSkills)
       if (selectedSkills.length === 0) throw new Error("请至少选择一个提取项目")
+      const modelKey = options?.modelKey?.trim() ?? task.modelKey ?? ""
+      const styleDepth = options?.styleDepth ?? task.styleDepth
       const chapters = await loadChapterList(task.bookPath)
-      const llmConfig = resolveDefaultModel(useWikiStore.getState().llmConfig)
+      // 仍按任务模型解析 maxContextSize，但 computeAnalysisChunkCharLimit 当前对所有已配置模型都返回 40000
+      const llmConfig = resolveTaskLlmConfig({ modelKey })
       const plan = buildAnalysisChunkPlan(
         chapters.map((chapter) => ({ id: chapter.chapterId, order: chapter.order, wordCount: chapter.wordCount })),
         range,
@@ -215,6 +224,8 @@ export function createBookAnalysisPipelineStore() {
         ...task,
         selectedSkills,
         range,
+        modelKey: modelKey || undefined,
+        styleDepth,
         status: needsCharacterSelection ? "awaiting-character-selection" : "queued",
         currentSkill: null,
         error: null,
@@ -339,9 +350,11 @@ export function createBookAnalysisPipelineStore() {
       if (task.status === "awaiting-character-selection") {
         throw new Error("请先选择要深度分析的角色")
       }
-      const wikiState = useWikiStore.getState()
-      if (!hasUsableLlm(resolveDefaultModel(wikiState.llmConfig), wikiState.providerConfigs)) {
-        throw new Error("未配置可用模型，请先在设置中配置默认模型")
+      const { providerConfigs } = useWikiStore.getState()
+      if (!hasUsableLlm(resolveTaskLlmConfig(task), providerConfigs)) {
+        throw new Error(task.modelKey
+          ? `所选模型「${task.modelKey}」不可用，请重新选择模型或在设置中补全其配置`
+          : "未配置可用模型，请先在设置中配置默认模型")
       }
       await current.enqueue(task, get().chunks.filter((chunk) => chunk.taskId === taskId))
     },

@@ -11,6 +11,7 @@ import { createDirectory, fileExists, listDirectory, readFile, writeFile } from 
 import { joinPath } from "@/lib/path-utils"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import type { ExtractedCharacter } from "./types"
+import { isWritingDnaProfile, migrateStyleProfile } from "./style-profile-schema"
 import type { BookStyleProfile } from "./types"
 import type { StoryMap } from "./story-map-types"
 import { STORY_BRANCH_KIND_LABELS } from "./story-map-types"
@@ -89,6 +90,18 @@ function characterProfileText(character: ExtractedCharacter): string {
 }
 
 function styleProfileText(profile: BookStyleProfile): string {
+  // v2 优先审计分层产物与整合文档；v1 数据（或分层缺失）才回落到 9 个维度
+  if (isWritingDnaProfile(profile)) {
+    const layers = profile.layers
+    return [
+      profile.integratedDna?.trim() ? `整合文档：\n${profile.integratedDna}` : "",
+      layers?.languageDna ? `L1 语言 DNA：\n${layers.languageDna}` : "",
+      layers?.structurePatterns ? `L2 章节结构：\n${layers.structurePatterns}` : "",
+      layers?.cognitiveFrame ? `L3-L5 认知框架：\n${layers.cognitiveFrame}` : "",
+      layers?.rhythmGuide ? `L6 排版与节奏：\n${layers.rhythmGuide}` : "",
+      `风格宪法：\n${profile.constitution}`,
+    ].filter(Boolean).join("\n\n")
+  }
   return [
     `叙事密度：${profile.narrativeDensity}`,
     `描写比重：${profile.descriptionWeight}`,
@@ -315,7 +328,9 @@ export function createVerificationEngine(
       if (!await dependencies.fileExists(joinPath(bookPath, "style-profile.json"))) {
         return reportForMissingSource(skill, bookPath, now)
       }
-      const profile = JSON.parse(await readFile(joinPath(bookPath, "style-profile.json"))) as BookStyleProfile
+      const profile = migrateStyleProfile(
+        JSON.parse(await readFile(joinPath(bookPath, "style-profile.json"))) as BookStyleProfile,
+      )
       units.push(await verifyUnit(
         "style",
         "作品文风",

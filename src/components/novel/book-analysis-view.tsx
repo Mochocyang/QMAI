@@ -41,6 +41,7 @@ import {
   analysisProgressKey,
   type AnalysisChapterRange,
   type AnalysisSkill,
+  type StyleAnalysisDepth,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { loadChapterList } from "@/lib/novel/book-analysis/analysis-engine"
 import { BookAnalysisRunDialog } from "./book-analysis-run-dialog"
@@ -110,6 +111,8 @@ export function BookAnalysisView() {
     initialSkills: AnalysisSkill[]
     lockedSkills?: AnalysisSkill[]
     initialRange?: AnalysisChapterRange | null
+    initialModelKey?: string
+    initialStyleDepth?: StyleAnalysisDepth
   } | null>(null)
   const [characterSkillDialogOpen, setCharacterSkillDialogOpen] = useState(false)
   const [characterSkillGenerating, setCharacterSkillGenerating] = useState(false)
@@ -200,10 +203,8 @@ export function BookAnalysisView() {
 
   // 作品库操作钩子
   const {
-    styleExtracting,
     addingToSoul,
     reloadLibraryState,
-    handleLibraryExtractStyle,
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
     handleLibraryDeleteBook,
@@ -650,8 +651,11 @@ export function BookAnalysisView() {
       initialSkills: [skill],
       lockedSkills: [skill],
       initialRange: existingModule?.range ?? null,
+      // 沿用上一次该书用过的模型与深度，省得每次重选
+      initialModelKey: selectedPipelineTask?.modelKey ?? "",
+      initialStyleDepth: selectedPipelineTask?.styleDepth,
     })
-  }, [createAwaitingRangeTask, selectedLibraryBook])
+  }, [createAwaitingRangeTask, selectedLibraryBook, selectedPipelineTask])
 
   const openExistingPipelineDialog = useCallback(async () => {
     if (!selectedLibraryBook || !selectedPipelineTask) return
@@ -660,6 +664,8 @@ export function BookAnalysisView() {
       chapters: await loadChapterList(selectedLibraryBook.path),
       initialSkills: selectedPipelineTask.selectedSkills,
       initialRange: selectedPipelineTask.range,
+      initialModelKey: selectedPipelineTask.modelKey ?? "",
+      initialStyleDepth: selectedPipelineTask.styleDepth,
     })
   }, [selectedLibraryBook, selectedPipelineTask])
 
@@ -791,7 +797,9 @@ export function BookAnalysisView() {
       state={libraryState}
       selectedBookId={selectedLibraryBook?.id ?? selectedBookId}
       selectedCharacterId={selectedCharacterId}
-      extractingStyle={styleExtracting}
+      extractingStyle={
+        selectedPipelineTask?.status === "running" && selectedPipelineTask.currentSkill === "style"
+      }
       extractingCharacters={chapterSelectionData !== null}
       extractingStoryFramework={storyFrameworkExtracting}
       addingToSoul={addingToSoul}
@@ -824,7 +832,7 @@ export function BookAnalysisView() {
       onSelectBook={handleSelectBook}
       onSelectCharacter={setSelectedCharacterId}
       onImportNovel={() => setInputDialogOpen(true)}
-      onExtractStyle={handleLibraryExtractStyle}
+      onExtractStyle={() => void openPipelineDialog("style")}
       onExtractStoryFramework={handleOpenStoryFrameworkSelection}
       onCreateOutlineFromFramework={(frameworkId) => setOutlineCreatorFrameworkId(frameworkId)}
       onOpenStoryMap={(bookPath) => {
@@ -870,12 +878,14 @@ export function BookAnalysisView() {
         initialSkills={pipelineDialog.initialSkills}
         lockedSkills={pipelineDialog.lockedSkills}
         initialRange={pipelineDialog.initialRange}
+        initialModelKey={pipelineDialog.initialModelKey}
+        initialStyleDepth={pipelineDialog.initialStyleDepth}
         onOpenChange={(open) => !open && setPipelineDialog(null)}
-        onSubmit={async ({ range, selectedSkills }) => {
+        onSubmit={async ({ range, selectedSkills, modelKey, styleDepth }) => {
           const taskId = pipelineDialog.taskId
           const chapters = pipelineDialog.chapters
           const bookPath = useBookAnalysisPipelineStore.getState().tasks.find((t) => t.id === taskId)?.bookPath
-          await configureTaskRange(taskId, range, selectedSkills)
+          await configureTaskRange(taskId, range, selectedSkills, { modelKey, styleDepth })
           setPipelineDialog(null)
           if (selectedSkills.includes("characters")) {
             if (!bookPath) {

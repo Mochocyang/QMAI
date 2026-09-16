@@ -1,9 +1,13 @@
+import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 import type {
   AnalysisChapterRange,
   AnalysisChunkPlan,
 } from "./analysis-pipeline-types"
 
 export const MAX_ANALYSIS_CHAPTERS = 100
+/** 单次调用喂给模型的正文上限。失败重试的代价随这值上升，所以故意封顶。 */
+export const MAX_ANALYSIS_CHUNK_CHARS = 40_000
+export const MIN_ANALYSIS_CHUNK_CHARS = 8_000
 const DEFAULT_CHAPTERS_PER_CHUNK = 10
 
 interface AnalysisChapterSummary {
@@ -39,9 +43,20 @@ export function validateAnalysisRange(
   }
 }
 
+/**
+ * 单次调用喂给模型的正文上限（字符），不是按窗口实时推导。
+ * 公式是 context * 0.45 再夹到 [8000, 40000]；
+ * 项目的 MIN_USER_LLM_CONTEXT_SIZE = 204_800，0.45 × 204800 = 92160 恒被夹到 40000，
+ * 所以当前所有已配置模型实际都是 40000。
+ */
 export function computeAnalysisChunkCharLimit(maxContextSize: number): number {
   const requested = Math.floor(maxContextSize * 0.45)
-  return Math.max(8000, Math.min(40000, requested))
+  return Math.max(MIN_ANALYSIS_CHUNK_CHARS, Math.min(MAX_ANALYSIS_CHUNK_CHARS, requested))
+}
+
+/** adapter 发给模型前会把每章截到这个长度，预算必须按截断后的量算，否则超长章会被过度切片。 */
+export function analysisBudgetChars(wordCount: number): number {
+  return Math.min(Math.max(0, wordCount), CHAPTER_BODY_EXCERPT_MAX_CHARS)
 }
 
 export function buildAnalysisChunkPlan(
@@ -62,6 +77,7 @@ export function buildAnalysisChunkPlan(
   const chunks: AnalysisChunkPlan[] = []
   let current: AnalysisChapterSummary[] = []
   let currentWordCount = 0
+  let currentBudgetChars = 0
 
   const flush = () => {
     if (current.length === 0) return
@@ -76,15 +92,18 @@ export function buildAnalysisChunkPlan(
     })
     current = []
     currentWordCount = 0
+    currentBudgetChars = 0
   }
 
   for (const chapter of selected) {
+    const budget = analysisBudgetChars(chapter.wordCount)
     const wouldExceedCount = current.length >= targetChapterCount
-    const wouldExceedChars = current.length > 0 && currentWordCount + chapter.wordCount > maxChunkChars
+    const wouldExceedChars = current.length > 0 && currentBudgetChars + budget > maxChunkChars
     if (wouldExceedCount || wouldExceedChars) flush()
     current.push(chapter)
     currentWordCount += chapter.wordCount
-    if (chapter.wordCount > maxChunkChars) flush()
+    currentBudgetChars += budget
+    if (budget > maxChunkChars) flush()
   }
   flush()
   return chunks

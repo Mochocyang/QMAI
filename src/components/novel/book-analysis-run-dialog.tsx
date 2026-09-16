@@ -4,10 +4,20 @@ import { Button } from "@/components/ui/button"
 import type { ChapterSelectionState } from "@/lib/novel/book-analysis/types"
 import {
   ANALYSIS_SKILL_ORDER,
+  DEFAULT_STYLE_ANALYSIS_DEPTH,
   type AnalysisChapterRange,
   type AnalysisSkill,
+  type StyleAnalysisDepth,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
-import { MAX_ANALYSIS_CHAPTERS } from "@/lib/novel/book-analysis/analysis-chunk-planner"
+import {
+  MAX_ANALYSIS_CHAPTERS,
+  MAX_ANALYSIS_CHUNK_CHARS,
+  buildAnalysisChunkPlan,
+  computeAnalysisChunkCharLimit,
+} from "@/lib/novel/book-analysis/analysis-chunk-planner"
+import { resolveTaskLlmConfig } from "@/lib/novel/book-analysis/analysis-model-resolver"
+import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
+import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 
 interface BookAnalysisRunDialogProps {
   open: boolean
@@ -15,8 +25,15 @@ interface BookAnalysisRunDialogProps {
   initialSkills?: AnalysisSkill[]
   lockedSkills?: AnalysisSkill[]
   initialRange?: AnalysisChapterRange | null
+  initialModelKey?: string
+  initialStyleDepth?: StyleAnalysisDepth
   onOpenChange: (open: boolean) => void
-  onSubmit: (value: { range: AnalysisChapterRange; selectedSkills: AnalysisSkill[] }) => Promise<void> | void
+  onSubmit: (value: {
+    range: AnalysisChapterRange
+    selectedSkills: AnalysisSkill[]
+    modelKey: string
+    styleDepth: StyleAnalysisDepth
+  }) => Promise<void> | void
 }
 
 const SKILL_LABELS: Record<AnalysisSkill, string> = {
@@ -25,18 +42,35 @@ const SKILL_LABELS: Record<AnalysisSkill, string> = {
   style: "文风 Skill",
 }
 
+const DEPTH_OPTIONS: Array<{ value: StyleAnalysisDepth; label: string; hint: string }> = [
+  {
+    value: "full",
+    label: "完整",
+    hint: "跑齐 L1-L6 六层，每个章节区块 3 次模型调用，结果最细但最慢最贵",
+  },
+  {
+    value: "fast",
+    label: "快速",
+    hint: "只跑语言与排版层，每个章节区块 1 次调用，代表片段由脚本截取；适合大部头先出结果",
+  },
+]
+
 export function BookAnalysisRunDialog({
   open,
   chapters,
   initialSkills = [],
   lockedSkills,
   initialRange,
+  initialModelKey = "",
+  initialStyleDepth = DEFAULT_STYLE_ANALYSIS_DEPTH,
   onOpenChange,
   onSubmit,
 }: BookAnalysisRunDialogProps) {
   const [start, setStart] = useState("")
   const [end, setEnd] = useState("")
   const [skills, setSkills] = useState<AnalysisSkill[]>([])
+  const [modelKey, setModelKey] = useState("")
+  const [styleDepth, setStyleDepth] = useState<StyleAnalysisDepth>(DEFAULT_STYLE_ANALYSIS_DEPTH)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -44,7 +78,9 @@ export function BookAnalysisRunDialog({
     setStart(initialRange ? String(initialRange.startOrder) : "")
     setEnd(initialRange ? String(initialRange.endOrder) : "")
     setSkills(lockedSkills?.length ? [...lockedSkills] : [...initialSkills])
-  }, [initialRange, initialSkills, lockedSkills, open])
+    setModelKey(initialModelKey)
+    setStyleDepth(initialStyleDepth)
+  }, [initialModelKey, initialRange, initialSkills, initialStyleDepth, lockedSkills, open])
 
   const range = useMemo<AnalysisChapterRange | null>(() => {
     const startOrder = Number(start)
@@ -72,12 +108,40 @@ export function BookAnalysisRunDialog({
             ? `第 ${missingChapter} 章不存在，请根据作品实际章节范围选择`
             : ""
   const canSubmit = Boolean(range && !error && skills.length > 0 && !submitting)
+  const estimatedChunks = useMemo(() => {
+    if (!range || !start || !end || error) return []
+    const llmConfig = resolveTaskLlmConfig({ modelKey })
+    try {
+      return buildAnalysisChunkPlan(
+        chapters.map((chapter) => ({ id: chapter.chapterId, order: chapter.order, wordCount: chapter.wordCount })),
+        range,
+        { maxChunkChars: computeAnalysisChunkCharLimit(llmConfig.maxContextSize) },
+      )
+    } catch {
+      return []
+    }
+  }, [chapters, end, error, modelKey, range, start])
+  const truncatedOrders = useMemo(() => {
+    if (!range || !start || !end || error) return []
+    return chapters
+      .filter((chapter) => (
+        chapter.order >= range.startOrder
+        && chapter.order <= range.endOrder
+        && chapter.wordCount > CHAPTER_BODY_EXCERPT_MAX_CHARS
+      ))
+      .map((chapter) => chapter.order)
+  }, [chapters, end, error, range, start])
 
   const submit = async () => {
     if (!range || !canSubmit) return
     setSubmitting(true)
     try {
-      await onSubmit({ range, selectedSkills: ANALYSIS_SKILL_ORDER.filter((skill) => skills.includes(skill)) })
+      await onSubmit({
+        range,
+        selectedSkills: ANALYSIS_SKILL_ORDER.filter((skill) => skills.includes(skill)),
+        modelKey: modelKey.trim(),
+        styleDepth,
+      })
       onOpenChange(false)
     } finally {
       setSubmitting(false)
@@ -133,8 +197,45 @@ export function BookAnalysisRunDialog({
               )}
             </div>
           </fieldset>
+          {skills.includes("style") && (
+            <fieldset>
+              <legend className="text-sm font-medium">文风蒸馏深度</legend>
+              <div className="mt-2 space-y-2">
+                {DEPTH_OPTIONS.map((option) => (
+                  <label key={option.value} className="flex gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="style-depth"
+                      className="mt-1 shrink-0"
+                      value={option.value}
+                      checked={styleDepth === option.value}
+                      onChange={() => setStyleDepth(option.value)}
+                    />
+                    <span>
+                      <span className="font-medium">{option.label}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{option.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">分析模型</span>
+            <ChatModelSelector value={modelKey} onChange={setModelKey} disabled={submitting} />
+            <p className="text-xs text-muted-foreground">
+              不选则使用项目默认模型。每个章节区块最多喂 {MAX_ANALYSIS_CHUNK_CHARS.toLocaleString()} 字正文。
+            </p>
+          </div>
           {range && !error && (
-            <p className="text-sm text-muted-foreground">预计 {Math.ceil(count / 10)} 个章节区块</p>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>预计 {estimatedChunks.length} 个章节区块</p>
+              {truncatedOrders.length > 0 && (
+                <p role="status">
+                  第 {truncatedOrders.join("、")} 章超过 {CHAPTER_BODY_EXCERPT_MAX_CHARS.toLocaleString()} 字，仅前 {CHAPTER_BODY_EXCERPT_MAX_CHARS.toLocaleString()} 字会被分析
+                </p>
+              )}
+            </div>
           )}
         </div>
         <DialogFooter className="shrink-0">
