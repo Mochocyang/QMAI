@@ -766,6 +766,23 @@
         "description": "Open tutorials and novel-writing guides in your browser while configuring the app.",
         "open": "Open"
       },
+      "feedback": {
+        "title": "Feedback",
+        "description": "Use the official Sentry feedback form. Do not submit API keys, manuscript text, or private information.",
+        "open": "Open feedback form",
+        "required": "(required)",
+        "unavailable": "Feedback widget is not initialized",
+        "formTitle": "Feedback",
+        "submit": "Send feedback",
+        "cancel": "Cancel",
+        "name": "Name",
+        "namePlaceholder": "Your name (optional)",
+        "email": "Email",
+        "emailPlaceholder": "your.email@example.org",
+        "message": "Description",
+        "messagePlaceholder": "Describe the problem, expected result, or suggested use case.",
+        "success": "Thanks, your feedback was sent."
+      },
       "contactSupport": {
         "title": "Contact & Support",
         "description": "Use these channels to send feedback, discuss usage, or support ongoing maintenance.",

@@ -16,7 +16,16 @@ if (import.meta.env.MODE !== "test") {
     profilesSampleRate: 0,
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 0,
-    integrations: [Sentry.browserTracingIntegration()],
+    integrations: [
+      Sentry.browserTracingIntegration(),
+      Sentry.feedbackIntegration({
+        autoInject: false,
+        enableScreenshot: false,
+        colorScheme: "system",
+        showBranding: false,
+        tags: { source: "settings" },
+      }),
+    ],
     tracesSampleRate: import.meta.env.PROD ? 0.2 : 1.0,
     // Do not attach sentry-trace headers to LLM / third-party fetches.
     tracePropagationTargets: [],
