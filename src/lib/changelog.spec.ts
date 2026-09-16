@@ -11,6 +11,8 @@ describe("changelog", () => {
     expect(release3217.version).toBe("3.2.17")
     expect(release3217.highlights.zh.join("\n")).toContain("大纲计划模式")
     expect(release3217.highlights.zh.join("\n")).toContain("思考深度滑块")
+    expect(release3217.highlights.zh.join("\n")).toContain("正文补搜能触发了")
+    expect(release3217.highlights.zh.join("\n")).toContain("语料统计去AI味")
     expect(release3217.highlights.en.join("\n")).toContain("Outline Plan Mode")
     expect(versions).toContain("3.0.9")
     expect(versions).toContain("2.2.37")
