@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_EIGHTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.18",
+  date: "2026-09-16",
+  highlights: {
+    en: [
+      "[Writing DNA Style] Book-analysis style extraction is now layered DNA distillation (L1-L6). Writing injects the integrated DNA; old profiles migrate in place.",
+      "[Style Depth and Model] The analysis dialog can pick full or fast depth and a per-task model. Pause/resume and parallel tasks keep the model they started with.",
+      "[Chunk Budget Matches Sends] Oversized chapters count as 12,000 characters when planning chunks. The dialog shows the real chunk count and warns which chapters will be truncated.",
+    ],
+    zh: [
+      "【Writing DNA 文风】拆书文风改为分层蒸馏（L1-L6），写作时注入 integrated DNA；旧 profile 原地迁移",
+      "【文风深度与模型】分析弹窗可选完整/快速深度，并按任务选择分析模型；暂停继续和并行任务沿用当初选的模型",
+      "【分片按实际发送量】超长章按每章 12,000 字计入预算，弹窗显示真实片数并提示哪些章会被截断",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_SEVENTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.17",
   date: "2026-09-16",
@@ -1549,6 +1566,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_EIGHTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_EIGHTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SEVENTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_SEVENTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SIXTEEN_CHANGELOG.version)
@@ -1688,6 +1707,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_EIGHTEEN_CHANGELOG,
     THREE_POINT_TWO_SEVENTEEN_CHANGELOG,
     THREE_POINT_TWO_SIXTEEN_CHANGELOG,
     THREE_POINT_TWO_FIFTEEN_CHANGELOG,

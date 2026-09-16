@@ -6,7 +6,13 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.17", "3.2.16", "3.2.15"])
+    expect(versions.slice(0, 3)).toEqual(["3.2.18", "3.2.17", "3.2.16"])
+    const release3218 = currentVersionChangelog("3.2.18")[0]
+    expect(release3218.version).toBe("3.2.18")
+    expect(release3218.highlights.zh.join("\n")).toContain("Writing DNA 文风")
+    expect(release3218.highlights.zh.join("\n")).toContain("文风深度与模型")
+    expect(release3218.highlights.zh.join("\n")).toContain("分片按实际发送量")
+    expect(release3218.highlights.en.join("\n")).toContain("Writing DNA Style")
     const release3217 = currentVersionChangelog("3.2.17")[0]
     expect(release3217.version).toBe("3.2.17")
     expect(release3217.highlights.zh.join("\n")).toContain("大纲计划模式")
