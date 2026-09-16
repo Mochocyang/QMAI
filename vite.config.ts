@@ -1,6 +1,6 @@
 import path from "path"
 import { readFileSync } from "fs"
-import { defineConfig } from "vite"
+import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import { sentryVitePlugin } from "@sentry/vite-plugin"
@@ -15,7 +15,7 @@ const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN
 const uploadSentrySourcemaps = Boolean(sentryAuthToken)
 
 // https://vitejs.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
@@ -136,4 +136,4 @@ export default defineConfig(async () => ({
       "**/.worktrees/**",
     ],
   },
-}))
+})
