@@ -1,5 +1,6 @@
 import { readFile, writeFile, writeFileAtomic } from "@/commands/fs"
 import { join } from "@tauri-apps/api/path"
+import { corpusStatSkillContent } from "@/lib/novel/de-ai-skills/corpus-stat-content"
 import { DEFAULT_SKILL_PRIORITY, type UserSkill } from "@/lib/novel/skill-library"
 
 export type DeAiSkillSource = "built-in" | "project" | "legacy"
@@ -500,6 +501,14 @@ export const BUILT_IN_DE_AI_SKILLS: DeAiSkill[] = [
     description: "去掉空泛文艺腔和修饰堆叠，保留有效意象与画面，不按比喻数量硬砍。",
     templateId: "literary-retain",
     content: literaryRetainSkillContent,
+    source: "built-in",
+  },
+  {
+    id: "built-in:corpus-stat",
+    name: "语料统计去 AI 味",
+    description: "moxt.ai 提供",
+    templateId: "corpus-stat",
+    content: corpusStatSkillContent,
     source: "built-in",
   },
 ]
