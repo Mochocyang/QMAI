@@ -9,15 +9,19 @@ interface ChangelogEntry {
 
 const THREE_POINT_TWO_SEVENTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.17",
-  date: "2026-09-13",
+  date: "2026-09-16",
   highlights: {
     en: [
       "[Outline Plan Mode] Outline chat adds a plan mode: when required elements are missing, it asks first, then shows a plan for confirmation before generating.",
       "[Reasoning Depth Slider] Writing and outline chats get a reasoning-depth slider (default / off / low / medium / high / max). It only applies to the actual draft-generation call and stays hidden when the model has no reasoning control or writing is in quick mode.",
+      "[Writing Search Trigger Fix] Chapter web search no longer skips real names just because the model claimed enough knowledge; skip reasons are shown as notes.",
+      "[Corpus De-AI Option] A built-in corpus-stats de-AI style is available (moxt.ai lieflat-less-ai-tone whitelist rules). The default skill is unchanged.",
     ],
     zh: [
       "【大纲计划模式】大纲对话新增「计划」模式：要素不齐时先问答再出计划，确认后才生成，避免信息不足就直接写大纲",
       "【思考深度滑块】写作和大纲聊天可调思考深度（默认/关闭/低/中/高/最大），只作用于真正出稿的那次调用；模型不支持或写作快速模式不显示",
+      "【正文补搜能触发了】补搜按名称性质判定，不再因模型自评「知识够」而漏搜；跳过时会写入可见说明",
+      "【语料统计去AI味】新增语料统计去AI味内置选项（moxt.ai 白名单改写规则），默认技能不变",
     ],
   },
 };
