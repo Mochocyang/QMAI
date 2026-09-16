@@ -55,4 +55,11 @@ describe("filterDeAiOutput", () => {
 
     expect(filterDeAiOutput(output)).toBe(output)
   })
+
+  it("去掉语料统计 skill 诱发的风格文档过程句", () => {
+    const body = "地下暗轨深处，空气沉得像一汪死水。"
+
+    expect(filterDeAiOutput(`先核对工作区是否有风格文档，再按规则逐句处理正文。\n\n${body}`)).toBe(body)
+    expect(filterDeAiOutput(`先核对工作区是否有风格文档，再按规则逐句处理正文。${body}`)).toBe(body)
+  })
 })
