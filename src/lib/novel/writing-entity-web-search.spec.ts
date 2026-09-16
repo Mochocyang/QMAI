@@ -81,6 +81,11 @@ describe("writing entity local lookup", () => {
     expect(isLocallyResolvedEntity("降龙十八掌", corpus, ["黄蓉"])).toBe(false)
   })
 
+  it("does not let a short local name short-circuit a longer compound candidate", () => {
+    expect(isLocallyResolvedEntity("洛云宗", "无关正文", ["洛云"])).toBe(false)
+    expect(isLocallyResolvedEntity("洛云", "无关正文", ["洛云宗掌门"])).toBe(true)
+  })
+
   it("does not treat names that only appear in the chapter outline as resolved", () => {
     const corpus = buildLocalWritingCorpus({
       ...pack,
@@ -196,7 +201,9 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(search).not.toHaveBeenCalled()
     expect(result.markdown).toBe("")
-    expect(result.notes).toContain("未配置外部搜索")
+    expect(result.skipped).toBe(true)
+    expect(result.notes.join("\n")).toContain("未配置外部搜索")
+    expect(result.notes.join("\n")).toContain("设置 → 网页搜索")
   })
 
   it("does not search names found in previous text or the entity table", async () => {
@@ -350,9 +357,51 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(search).not.toHaveBeenCalled()
     expect(result.searchedNames).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(result.notes.join("\n")).toContain("林烬")
   })
 
-  it("asks the judge to search only when real knowledge is incomplete", async () => {
+  it("reports why it skipped when every candidate is already local", async () => {
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章郭靖出场",
+      contextPack: pack,
+      streamChat: streamChatReturning(['{"entities":["郭靖"]}']),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search: vi.fn(),
+    })
+    expect(result.skipped).toBe(true)
+    expect(result.notes.join("\n")).toContain("跳过联网补搜")
+  })
+
+  it("surfaces an llm failure instead of silently reporting nothing to search", async () => {
+    const search = vi.fn()
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章出场",
+      contextPack: pack,
+      streamChat: vi.fn(async (
+        _config: LlmConfig,
+        _messages: ChatMessage[],
+        callbacks: StreamCallbacks,
+      ) => {
+        callbacks.onError(new Error("工作流模型不可用"))
+      }),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).not.toHaveBeenCalled()
+    expect(result.skipped).toBeUndefined()
+    expect(result.notes.join("\n")).toContain("工作流模型不可用")
+  })
+
+  it("asks the judge to fall back to searching when a name's nature is uncertain", async () => {
     let judgePrompt = ""
     const streamChat = vi.fn(async (
       _config: LlmConfig,
@@ -379,11 +428,12 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search: vi.fn(),
     })
-    expect(judgePrompt).toContain("确信真实且知识不够才搜")
-    expect(judgePrompt).toContain("已知则不搜")
-    expect(judgePrompt).toContain("不确定则不搜")
-    expect(judgePrompt).not.toContain("默认放入")
-    expect(judgePrompt).not.toContain("不确定的名字一律放入")
+    expect(judgePrompt).toContain("无法确定是真实还是自造时放入 needExternal")
+    expect(judgePrompt).toContain("判断的是名称性质，不是你的知识量")
+    expect(judgePrompt).toContain("不要用「我已经知道它是什么」当排除理由")
+    // 这两条曾让判定的通过条件变成空集：自造名走「不确定则不搜」，真实名走「已知则不搜」。
+    expect(judgePrompt).not.toContain("已知则不搜")
+    expect(judgePrompt).not.toContain("不确定则不搜")
   })
 
   it("searches englishQuery alongside the Chinese name and dedupes by url", async () => {

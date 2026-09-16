@@ -1809,6 +1809,28 @@ describe("runDeepChapterGeneration", () => {
     expect(failed?.result).toContain("网络超时")
   })
 
+  it("reports a deliberate entity-search skip as completed instead of failed", async () => {
+    const events: Array<{ type: string; name: string; result?: string }> = []
+    await runDeepChapterGeneration(
+      { projectPath: "E:/Novel", userRequest: "生成第三章", chapterNumber: 3, llmConfig, aiWorkflowMode: "strict" },
+      { onWorkflowEvent: (event) => events.push(event) },
+      {
+        ...createDeps(),
+        collectWritingEntityWebSearch: vi.fn(async () => ({
+          markdown: "",
+          searchedNames: [] as string[],
+          notes: ["判定为本书自造、无需联网：林烬"],
+          items: [],
+          skipped: true,
+        })),
+      },
+    )
+
+    expect(events.some((event) => event.name === "web_search" && event.type === "error")).toBe(false)
+    const completed = events.find((event) => event.name === "web_search" && event.type === "completed")
+    expect(completed?.result).toContain("林烬")
+  })
+
   it("emits visible workflow events for the chapter multi-task loop", async () => {
     const deps = createDeps()
     const events: Array<{ type: string; id: string; name: string; title: string; result?: string }> = []

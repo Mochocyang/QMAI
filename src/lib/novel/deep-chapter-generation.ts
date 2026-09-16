@@ -2496,7 +2496,7 @@ function emitWritingEntityWebSearchWorkflow(
   startVisibleSearch: (query: string) => void,
 ): void {
   const query = result.searchedNames.join("、");
-  const notes = result.notes.filter((note) => note !== "未配置外部搜索");
+  const notes = result.notes;
   const hasVisibleSearch = Boolean(
     query || result.markdown.trim() || notes.length > 0 || (result.items?.length ?? 0) > 0,
   );
@@ -2510,7 +2510,7 @@ function emitWritingEntityWebSearchWorkflow(
     ...(sources.length > 0 ? { sources } : {}),
   };
   const output = serializeWritingEntitySearchWorkflowResult(result);
-  const failed = result.searchedNames.length === 0 && notes.length > 0;
+  const failed = !result.skipped && result.searchedNames.length === 0 && notes.length > 0;
   if (failed) {
     errorChapterWorkflowStep(callbacks, { ...spec, params }, output || notes.join("\n"));
     return;

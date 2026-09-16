@@ -17,6 +17,8 @@ export interface WritingEntityWebSearchResult {
   searchedNames: string[]
   notes: string[]
   items?: Array<{ name: string; results: WebSearchResult[] }>
+  /** 按规则主动跳过（无候选、判定无需联网、未配置搜索源），区别于检索失败。 */
+  skipped?: boolean
 }
 
 export interface CollectWritingEntityWebSearchInput {
@@ -116,9 +118,11 @@ export function isLocallyResolvedEntity(
   const trimmed = name.trim()
   if (trimmed.length < MIN_NAME_LENGTH) return true
   if (corpus.includes(trimmed)) return true
+  // 只认「本地条目更完整地覆盖了候选」这一个方向。反向包含会把「洛云宗」「郭靖的降龙十八掌」
+  // 这类复合名按本地的两字人名短路掉，本地其实没有它们的资料。
   return entityNames.some((entityName) => (
     entityName.length >= MIN_NAME_LENGTH
-    && (trimmed.includes(entityName) || entityName.includes(trimmed))
+    && entityName.includes(trimmed)
   ))
 }
 
@@ -411,7 +415,13 @@ export async function collectWritingEntityWebSearch(
 ): Promise<WritingEntityWebSearchResult> {
   const notes: string[] = []
   if (!isWebSearchConfigured(input.searchApiConfig)) {
-    return { markdown: "", searchedNames: [], notes: ["未配置外部搜索"], items: [] }
+    return {
+      markdown: "",
+      searchedNames: [],
+      notes: ["未配置外部搜索，跳过联网补搜；可在「设置 → 网页搜索」配置搜索源"],
+      items: [],
+      skipped: true,
+    }
   }
 
   throwIfAborted(input.signal)
@@ -437,13 +447,19 @@ export async function collectWritingEntityWebSearch(
     const extracted = await extractEntityNames(input)
     const unresolved = selectUnresolvedEntities(extracted, corpus, entityNames)
     if (unresolved.length === 0) {
-      return { markdown: "", searchedNames: [], notes, items: [] }
+      notes.push(
+        extracted.length === 0
+          ? "未从任务与章纲中抽出候选实体，跳过联网补搜"
+          : `候选实体已能在前文或实体表中找到，跳过联网补搜：${extracted.join("、")}`,
+      )
+      return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
 
     const needExternal = await judgeNeedExternal(input, unresolved)
     const queries = needExternal.slice(0, MAX_SEARCH_QUERIES)
     if (queries.length === 0) {
-      return { markdown: "", searchedNames: [], notes, items: [] }
+      notes.push(`判定为本书自造、无需联网：${unresolved.join("、")}`)
+      return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
 
     input.onSearchStart?.(launchedQueriesFor(queries))
@@ -519,11 +535,13 @@ async function judgeNeedExternal(
       role: "user",
       content: [
         "下列名称在本库前文和实体表都未找到。",
-        "确信真实且知识不够才搜：必须同时满足「明确不是本书自造、对应现实人物/地点/机构/历史事件/公开 IP/已出版作品设定」以及「内置知识不足以支撑本章写准」。",
-        "已知则不搜：内置知识已经明确它是什么、足够写准。",
-        "不确定则不搜：本书原创、占位、捏造，或无法确定是真实还是自造时，一律排除。",
-        "englishQuery 仅在已知但要补资料、且英文检索明显更好时填写；不要为自造名硬翻英文，不要把拼音当英文检索词。",
+        "判断的是名称性质，不是你的知识量：这个名称是否可能对应现实世界或已公开的资料。",
+        "要搜：现实人物、地点、机构、历史事件、装备与型号、专业术语与行业流程、公开 IP 或已出版作品的设定。",
+        "不搜：一眼可认定是本书自造的人名、门派、功法、法宝、架空地名，以及「主角」这类占位词。",
+        "无法确定是真实还是自造时放入 needExternal：搜到无关结果的代价远小于把真实设定写错。",
+        "不要用「我已经知道它是什么」当排除理由，你的记忆可能过时或细节有误。",
         '只输出 JSON：{"needExternal":[{"name":"名称","englishQuery":"English query"}]}',
+        "englishQuery 仅在英文检索明显更好时填写（外国人名、外文机构、技术型号）；不要为自造名硬翻英文，不要把拼音当英文检索词。",
         "无合适英文检索词时省略 englishQuery。",
         "",
         unresolved.join("\n"),
@@ -538,18 +556,22 @@ async function completeText(
   messages: ChatMessage[],
 ): Promise<string> {
   let result = ""
+  // streamChat 报错走 onError 而不 throw；不记下来的话模型不可用会静默变成「没有实体要搜」。
+  const failures: Error[] = []
   await input.streamChat(
     input.llmConfig,
     messages,
     {
       onToken: (token) => { result += token },
       onDone: () => {},
-      onError: () => {},
+      onError: (error) => { failures.push(error) },
       onRequestTrace: input.onRequestTrace,
     },
     input.signal,
   )
-  return result.trim()
+  const text = result.trim()
+  if (!text && failures.length > 0) throw failures[0]
+  return text
 }
 
 function parseJsonPayload(text: string): unknown | null {
