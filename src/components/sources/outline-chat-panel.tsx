@@ -524,6 +524,12 @@ const OUTLINE_WORKFLOW_MODE_OPTIONS: Array<{
     description: "先问后写",
     routeDescription: "先按大纲结构盘点要素，缺口用选项追问补齐，再生成计划并等你确认后才开始写。",
   },
+  {
+    mode: "discuss",
+    label: "共创",
+    description: "边聊边定",
+    routeDescription: "把 AI 当责编来回讨论：每轮给出判断、抛出需要你决策的分歧点和它自己的倾向，等你说定稿才输出正文。",
+  },
 ];
 
 export function buildOutlineAgentSystemPrompt(options: {
@@ -555,6 +561,18 @@ export function buildOutlineAgentSystemPrompt(options: {
     ? [
       "快速模式下像普通对话一样直接出结果。可以按需读取必要上下文，但不要主动进入需求分析、意图分析或多 Agent 编排。",
       "用户要求生成或修改大纲时，直接输出可保存的大纲正文；不要先追问方案或等待确认才开始写。",
+    ]
+    : mode === "discuss"
+    ? [
+      ...sharedAnalysisRules,
+      "## 共创讨论模式总则",
+      "本模式是责编和作者围绕大纲来回讨论，不是一次性交付。未经作者确认定稿前，不要输出完整大纲正文，也不要输出 outlineSaveRequest 保存请求。",
+      "禁止输出 intent_clarity 和 outline_plan 协议块；本模式靠自然语言讨论推进，不靠协议闸门。",
+      "每轮回复必须包含三部分：1）你基于已读取资料得出的关键判断和依据；2）1-3 个需要作者拍板的具体分歧点，每个都要给出可选方案、你自己的倾向和理由；3）一句下一步建议。",
+      "抛出分歧点时必须给出具体可选方案，禁止只抛开放式问题让作者自己想；禁止用「你希望怎么写」这类空问题占位。",
+      "资料已经足够、确实没有需要拍板的分歧时，直接说明为什么可以开写，并请作者确认定稿，不要为了提问而提问。",
+      "只有当作者明确表示定稿、就按这个写、开始生成、可以了之类的确认时，才输出完整可保存正文并附加保存请求。",
+      "作者明确要求「先直接给我一版」时可以给出草案，但草案之后仍要列出你认为需要继续讨论的点。",
     ]
     : mode === "plan"
     ? [
@@ -598,6 +616,13 @@ export function buildOutlineAgentSystemPrompt(options: {
       "推荐方向仅限大纲体系内（人物小传、组织势力、力量体系等），严禁推荐正文生成。",
       "必须包含一个 id 为 D 的自定义选项。",
     ]),
+    ...(mode === "fast" || options.planModule ? [] : [
+      "## 主动性要求",
+      "读完资料后如果发现剧情矛盾、人物动机站不住、卖点不足、伏笔无法回收或结构失衡，必须主动指出，不要沉默照做。",
+      "每轮最多提出 1 条对用户已有设定的质疑，且必须同时给出替代方案和这样改的代价；没有发现真实问题时不要为了质疑而质疑。",
+      "指出问题时先给结论，再给依据，再给你建议的改法；禁止只否定不给方案。",
+      "如果系统标记本轮为意图分析或要素盘点，本节不适用，仍然只输出对应协议块。",
+    ]),
     ...(mode === "fast" ? [] : [
       "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
     ]),
@@ -629,7 +654,9 @@ export function buildOutlineAgentSystemPrompt(options: {
     "- **身份：** 穿越者→清水村村民→清水社首领→异姓王→隐士",
     "- **核心技能：** 高中/大学化学知识（有机/无机化学基础）、物理常识、急救知识",
     "- **性格：** 表面冷漠实则心软，前期被动应对，中后期主动布局",
-    "最终回复只输出大纲标题和大纲正文；如果内容需要保存，末尾附加 AI 大纲输出协议 JSON 保存块（含 content）。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
+    "## 输出边界（按本轮性质区分）",
+    "当本轮要交付可保存的大纲正文时：最终回复只输出大纲标题和大纲正文；如果内容需要保存，末尾附加 AI 大纲输出协议 JSON 保存块（含 content）。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
+    "当本轮是讨论、答疑、方案对比、澄清或提出异议时：允许并鼓励输出你的判断、依据、疑问和方案对比，不要用「只输出正文」的规则压制讨论；此时仍然禁止输出工具调用报告和流程完成报告。",
     mode === "fast"
       ? "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。不要用流程说明冒充生成结果。"
       : "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。资料不足以生成完整正文时，先提出最少必要澄清问题，不要用流程说明冒充生成结果。",
@@ -697,6 +724,29 @@ function buildGenerationPrompt(
     "",
     "如果资料足够，直接输出完整正文。",
     buildNextStepPromptSuffix(),
+  ].join("\n");
+}
+
+/** 共创模式的开场 prompt：先讨论清楚要怎么写，定稿前不出正文。 */
+function buildOutlineDiscussionPrompt(
+  title: string,
+  requestHint: string,
+  originalRequest?: string,
+): string {
+  return [
+    `本轮进入共创讨论，目标是和我一起把「${title}」讨论清楚，先不要交付正文。`,
+    originalRequest ? `\n## 我的原始请求\n${originalRequest}\n` : "",
+    "## 本轮要做的事",
+    "1. 读取相关大纲、章节、设定和记忆，说明你实际看到了什么。",
+    "2. 给出你对当前素材的关键判断：哪里够用、哪里有矛盾或缺口，各自的依据是什么。",
+    "3. 抛出 1-3 个需要我拍板的具体分歧点，每个都给可选方案、你的倾向和理由。",
+    "4. 最后给一句下一步建议。",
+    "",
+    "## 本分项内容要求（讨论时用来判断缺口，不是本轮的输出格式）",
+    requestHint,
+    getOutlineSectionOutputRules(title),
+    "",
+    "在我明确说定稿或开始生成之前，不要输出完整正文，也不要输出保存请求。",
   ].join("\n");
 }
 
@@ -2237,7 +2287,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         (message) => message.role === "assistant" && message.content.trim(),
       );
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
-      const enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== "fast";
+      // 共创模式靠自然语言来回讨论推进，多 Agent 编排会直接产出成品，绕过讨论
+      const enableMultiAgent = Boolean(options.enableMultiAgent)
+        && outlineMode !== "fast"
+        && outlineMode !== "discuss";
       const planTargetModule = options.planModule
         ?? intentContextsRef.current[capturedConvId]?.title
         ?? "大纲";
@@ -3500,6 +3553,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         });
         return;
       }
+      if (outlineMode === "discuss") {
+        void handleSend(buildOutlineDiscussionPrompt(title, requestHint), [], {
+          conversationId: capturedConvId,
+          systemGenerated: true,
+          userDisplayText: `讨论${title}`,
+          preferredSkillNames: getOutlineSkillNames(title),
+        });
+        return;
+      }
       if (outlineMode === "plan") {
         void startOutlinePlanElementCheck(capturedConvId, {
           module: title,
@@ -3531,7 +3593,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const handleDirectSubmit = useCallback(
     async (text: string, references: ReferenceToken[] = []) => {
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
-      if (outlineMode === "fast") {
+      // 共创模式不进意图分析和要素盘点：讨论由 system 规则驱动，闸门只会把讨论压成协议块
+      if (outlineMode === "fast" || outlineMode === "discuss") {
         return handleSend(text, references);
       }
       // 非生成类输入在计划模式下也照旧直接问答，不进要素盘点
@@ -4159,6 +4222,31 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     (request: OutlineWizardRequest) => {
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
       const fastMode = outlineMode === "fast";
+      if (outlineMode === "discuss") {
+        // 共创模式把向导需求当讨论起点：先对齐方案再产出，不直接开写
+        const capturedConvId = activeConversationId ?? createConversation();
+        const wizardPrompt = buildOutlineWizardPrompt(request, { mode: "standard" });
+        const module = request.targets[0] || "完整新书规划";
+        intentContextsRef.current = setOutlineSessionValue(intentContextsRef.current, capturedConvId, {
+          title: module,
+          hint: wizardPrompt,
+          originalRequest: request.inspiration.trim(),
+          references: [...outlineReferenceTokensRef.current],
+          skillNames: getOutlineWizardSkillNames(request),
+        });
+        void handleSend(
+          buildOutlineDiscussionPrompt(module, wizardPrompt, request.inspiration.trim()),
+          outlineReferenceTokensRef.current,
+          {
+            conversationId: capturedConvId,
+            disableWriteTools: true,
+            preferredSkillNames: getOutlineWizardSkillNames(request),
+            systemGenerated: true,
+            userDisplayText: createNovelGenerationRequestPackage(request, wizardPrompt).summary,
+          },
+        );
+        return;
+      }
       if (outlineMode === "plan") {
         // 计划模式不直接短路到生成：向导需求先当作要素输入做盘点
         const capturedConvId = activeConversationId ?? createConversation();
@@ -4271,7 +4359,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (
         regenerateAsIntentAnalysis
         && precedingUserMessage
-        && resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode) !== "fast"
+        && !["fast", "discuss"].includes(
+          resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode),
+        )
       ) {
         const precedingUserContent = getOutlineMessageModelContent(precedingUserMessage);
         const directRequest = classifyDirectOutlineGenerationRequest(precedingUserContent);

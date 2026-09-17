@@ -1004,7 +1004,9 @@ describe("OutlineChatPanel controls", () => {
 
   it("快速模式源码跳过意图分析和多 Agent，人物小传不再降级为 analysis 预算", () => {
     expect(source).toContain('outlineWorkflowMode === "fast"')
-    expect(source).toContain("enableMultiAgent = Boolean(options.enableMultiAgent) && outlineMode !== \"fast\"")
+    expect(source).toMatch(
+      /enableMultiAgent = Boolean\(options\.enableMultiAgent\)\s*\n\s*&& outlineMode !== "fast"/,
+    )
     expect(source).toContain("outlineMode !== \"fast\"")
     expect(source).toMatch(/const charRun = await runOutlineAgentOnce\([\s\S]{0,400}budgetStage: "generation"/)
     expect(source).not.toMatch(/const charRun = await runOutlineAgentOnce\([\s\S]{0,400}budgetStage: "analysis"/)
@@ -1095,7 +1097,8 @@ describe("OutlineChatPanel controls", () => {
     })
     const options = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
       .filter((button) => button.getAttribute("role") === "option")
-    expect(options.map((option) => option.textContent)).toHaveLength(3)
+    expect(options.map((option) => option.textContent)).toHaveLength(4)
+    expect(options.some((option) => option.textContent?.includes("共创"))).toBe(true)
     const planOption = options.find((option) => option.textContent?.includes("计划"))
     expect(planOption).toBeDefined()
 
@@ -1351,6 +1354,47 @@ describe("OutlineChatPanel controls", () => {
     expect(generationPrompt).not.toContain("## 本轮阶段：计划模式要素盘点")
     expect(generationPrompt).toContain("## 下一步推荐输出")
     expect(generationPrompt).toContain("outlineSaveRequest")
+  })
+
+  it("共创模式系统提示要求主动抛决策点，且定稿前不出正文", () => {
+    const discussPrompt = buildOutlineAgentSystemPrompt({
+      projectName: "测试项目",
+      mode: "discuss",
+    })
+
+    expect(discussPrompt).toContain("## 共创讨论模式总则")
+    expect(discussPrompt).toContain("未经作者确认定稿前，不要输出完整大纲正文")
+    expect(discussPrompt).toContain("1-3 个需要作者拍板的具体分歧点")
+    expect(discussPrompt).toContain("禁止只抛开放式问题让作者自己想")
+    // 共创模式不能再被协议闸门接管
+    expect(discussPrompt).not.toContain("## 意图清晰度分析阶段")
+    expect(discussPrompt).not.toContain("## 计划模式总则")
+  })
+
+  it("讨论轮不再被「只输出正文」规则压制，且质疑必须带替代方案", () => {
+    const standardPrompt = buildOutlineAgentSystemPrompt({
+      projectName: "测试项目",
+      mode: "standard",
+    })
+
+    expect(standardPrompt).toContain("## 输出边界（按本轮性质区分）")
+    expect(standardPrompt).toContain("当本轮要交付可保存的大纲正文时")
+    expect(standardPrompt).toContain("不要用「只输出正文」的规则压制讨论")
+    expect(standardPrompt).toContain("## 主动性要求")
+    expect(standardPrompt).toContain("每轮最多提出 1 条对用户已有设定的质疑")
+    expect(standardPrompt).toContain("必须同时给出替代方案")
+
+    // 盘点轮只允许输出协议块，主动性要求不能挤进来
+    expect(buildOutlineAgentSystemPrompt({ mode: "plan", planModule: "章节细纲" }))
+      .not.toContain("## 主动性要求")
+  })
+
+  it("共创模式三个入口都不进意图分析和多 Agent", () => {
+    expect(source).toContain('if (outlineMode === "fast" || outlineMode === "discuss") {')
+    expect(source).toContain("function buildOutlineDiscussionPrompt(")
+    expect(source).toContain('&& outlineMode !== "discuss"')
+    expect(source).toMatch(/if \(outlineMode === "discuss"\) \{\s*\n\s*void handleSend\(buildOutlineDiscussionPrompt\(title, requestHint\)/)
+    expect(source).toContain("// 共创模式把向导需求当讨论起点：先对齐方案再产出，不直接开写")
   })
 
   it("三个入口在计划模式下都走要素盘点，不直接进生成", () => {

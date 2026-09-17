@@ -41,10 +41,11 @@ describe("workflow mode", () => {
     expect(DEFAULT_OUTLINE_WORKFLOW_MODE).toBe("standard")
   })
 
-  it("maps outline workflow mode to fast, standard or plan only", () => {
+  it("maps outline workflow mode to fast, standard, plan or discuss only", () => {
     expect(resolveOutlineWorkflowMode("fast")).toBe("fast")
     expect(resolveOutlineWorkflowMode("standard")).toBe("standard")
     expect(resolveOutlineWorkflowMode("plan")).toBe("plan")
+    expect(resolveOutlineWorkflowMode("discuss")).toBe("discuss")
     expect(resolveOutlineWorkflowMode("strict")).toBe("standard")
     expect(resolveOutlineWorkflowMode(null)).toBe("standard")
     expect(resolveOutlineWorkflowMode(undefined)).toBe("standard")
@@ -54,6 +55,7 @@ describe("workflow mode", () => {
     expect(isOutlineWorkflowMode("fast")).toBe(true)
     expect(isOutlineWorkflowMode("standard")).toBe(true)
     expect(isOutlineWorkflowMode("plan")).toBe(true)
+    expect(isOutlineWorkflowMode("discuss")).toBe(true)
     expect(isOutlineWorkflowMode("strict")).toBe(false)
     expect(isOutlineWorkflowMode(null)).toBe(false)
   })
