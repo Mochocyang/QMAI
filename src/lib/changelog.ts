@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_NINETEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.19",
+  date: "2026-09-17",
+  highlights: {
+    en: [
+      "[Outline Co-creation Mode] Outline chat adds a discuss mode: the model acts as an editor, raises 1-3 decision points with its own preference, and only writes a full outline after you confirm. Standard and plan modes can now discuss instead of being forced to output body text only.",
+      "[Settings Feedback Form] Settings now use Sentry official Feedback instead of the homemade form and Cloudflare submit path. The widget follows the app theme and does not capture screenshots.",
+      "[Corpus De-AI Prefix] Corpus-stats de-AI results no longer keep the model's leftover process sentence such as 'first check the style document'.",
+    ],
+    zh: [
+      "【大纲共创模式】大纲对话新增「共创」档：AI 当责编抛出 1-3 个决策点和自己的倾向，你确认定稿后才出正文；标准/计划档的讨论轮也不再被「只输出正文」压住",
+      "【设置页反馈表单】设置页改用 Sentry 官方 Feedback，替换自写表单和 Cloudflare 提交链路；跟随应用主题，不截图",
+      "【语料去AI味前缀】语料统计去AI味结果不再带上模型残留的「先核对风格文档」过程句",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_EIGHTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.18",
   date: "2026-09-16",
@@ -1566,6 +1583,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_NINETEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_NINETEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_EIGHTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_EIGHTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_SEVENTEEN_CHANGELOG.version)
@@ -1707,6 +1726,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_NINETEEN_CHANGELOG,
     THREE_POINT_TWO_EIGHTEEN_CHANGELOG,
     THREE_POINT_TWO_SEVENTEEN_CHANGELOG,
     THREE_POINT_TWO_SIXTEEN_CHANGELOG,
