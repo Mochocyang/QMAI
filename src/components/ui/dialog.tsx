@@ -4,6 +4,7 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
 import { cn } from "@/lib/utils"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
@@ -64,7 +65,7 @@ function DialogContent({
           >
             <XIcon
             />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{IS_UI_TEST_BUILD ? "关闭" : "Close"}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>
@@ -102,7 +103,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
-          Close
+          {IS_UI_TEST_BUILD ? "关闭" : "Close"}
         </DialogPrimitive.Close>
       )}
     </div>

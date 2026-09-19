@@ -1,4 +1,5 @@
 import { getStore } from "@/lib/web-store"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
@@ -30,8 +31,8 @@ import {
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
 
-const RECENT_PROJECTS_KEY = "recentProjects"
-const LAST_PROJECT_KEY = "lastProject"
+const RECENT_PROJECTS_KEY = IS_UI_TEST_BUILD ? "recentProjects__uiTest" : "recentProjects"
+const LAST_PROJECT_KEY = IS_UI_TEST_BUILD ? "lastProject__uiTest" : "lastProject"
 
 export async function getRecentProjects(): Promise<WikiProject[]> {
   const store = await getStore()
@@ -780,7 +781,7 @@ export async function loadRerankConfig(projectId?: string, projectPath?: string)
   return config
 }
 
-const THEME_KEY = "theme"
+const THEME_KEY = IS_UI_TEST_BUILD ? "theme__uiTest" : "theme"
 const VISUAL_STYLE_KEY = "visualStyle"
 const VISUAL_STYLE_VERSION_KEY = "visualStyleVersion"
 

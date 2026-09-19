@@ -9,16 +9,18 @@ import {
 } from "react"
 import { ArrowUp, AtSign, Square } from "lucide-react"
 import { isImeComposing } from "@/lib/keyboard-utils"
+import { IS_UI_TEST_BUILD, UI_TEST_STORAGE_PREFIX } from "@/lib/ui-test"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { ReferenceChip } from "./ReferenceChip"
 
 export type InsertReferenceTokens = ((tokens: ReferenceToken[]) => void) | null
 
-const REFERENCE_INPUT_HEIGHT_KEY = "qmai-reference-input-height"
-// Keep enough space below the workflow-mode trigger for its three-option menu.
-// Saved heights from older versions are clamped to this new lower bound.
-const DEFAULT_REFERENCE_INPUT_HEIGHT = 192
-const MIN_REFERENCE_INPUT_HEIGHT = 192
+const REFERENCE_INPUT_HEIGHT_KEY = IS_UI_TEST_BUILD
+  ? `${UI_TEST_STORAGE_PREFIX}reference-input-height`
+  : "qmai-reference-input-height"
+// 正式版保留模式菜单所需的原高度；测试版按图稿使用独立高度与偏好。
+const DEFAULT_REFERENCE_INPUT_HEIGHT = IS_UI_TEST_BUILD ? 96 : 192
+const MIN_REFERENCE_INPUT_HEIGHT = IS_UI_TEST_BUILD ? 48 : 192
 const MAX_REFERENCE_INPUT_HEIGHT = 300
 
 interface ReferenceInputProps {

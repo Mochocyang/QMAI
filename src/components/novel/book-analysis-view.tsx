@@ -1,3 +1,5 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import "@/components/uitest/ui-test-tools.css"
 import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -800,7 +802,7 @@ export function BookAnalysisView() {
     }
   }, [currentProject?.path, selectedLibraryBook])
 
-  const libraryLayout = (
+  const libraryContent = (
     <>
     <BookAnalysisLibraryLayout
       state={libraryState}
@@ -970,6 +972,19 @@ export function BookAnalysisView() {
     })()}
     </>
   )
+
+  const libraryLayout = IS_UI_TEST_BUILD ? (
+    <section data-ui-page={IS_UI_TEST_BUILD ? "analysis" : undefined} data-ui-state={IS_UI_TEST_BUILD ? (selectedPipelineTask?.status ?? (selectedLibraryBook ? "book" : "empty")) : undefined}>
+      <header data-ui="tool-heading">
+        <div>
+          <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>拆书库</span><span aria-hidden="true">/</span><span aria-current="page">{selectedLibraryBook?.metadata.title ?? "作品"}</span></nav>
+          <h1 className="ui-test-page-title">读懂一个故事的构成。</h1>
+        </div>
+        <Button size="sm" onClick={() => setInputDialogOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />导入作品</Button>
+      </header>
+      <div data-ui="analysis-content">{libraryContent}</div>
+    </section>
+  ) : libraryContent
 
   if (tasks.length === 0) {
     return (

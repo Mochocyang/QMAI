@@ -1,0 +1,121 @@
+import { confirmModelAction } from "./model-confirm"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ChevronDown, Plus, RefreshCw, Trash2, X } from "lucide-react"
+import { useWikiStore, type ProviderOverride } from "@/stores/wiki-store"
+import { resolveConfig } from "@/components/settings/preset-resolver"
+import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { testLlmConnection, testLlmFunction } from "@/lib/connection-tests"
+import { FunctionCallingControls, ReasoningControls, withOutputRoomForReasoning } from "@/components/settings/sections/llm-provider-section"
+import { ModelSecretInput } from "./model-secret-input"
+import { mergeProviderModels, removeProviderModel, validateProviderDraft } from "./provider-data"
+import { useProviderDraft } from "./provider-draft"
+import { useModelDraftGuard } from "./model-draft-guard"
+import { saveUiTestProvider } from "./provider-save"
+import { safeModelError, validateModelEndpoint } from "./model-feedback"
+import "./model-settings.css"
+
+export function UiTestCustomProviders() {
+  const configs = useWikiStore(s => s.providerConfigs)
+  const [added, setAdded] = useState<string[]>([])
+  const ids = [...new Set([...Object.keys(configs).filter(id => id.startsWith("custom-")), ...added])]
+  const [expanded, setExpanded] = useState<string | null>(() => ids[0] ?? null)
+  return <section className="model-custom-providers" aria-label="自定义模型配置">
+    <div className="model-section-heading"><div><h2>我的模型配置</h2><p>连接信息保存后生效，测试不会自动保存。</p></div><button type="button" className="model-button" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setAdded(previous => [...previous, id]); setExpanded(id) }}><Plus />添加模型</button></div>
+    {!ids.length && <div className="model-empty"><h3>添加你的第一个写作模型</h3><p>填写接口地址与模型 ID，测试连接后保存。支持 OpenAI 兼容、Responses 和 Anthropic 兼容接口。</p></div>}
+    {ids.map(id => <UiTestProviderCard key={id} id={id} isNew={added.includes(id)} expanded={expanded === id} onToggle={() => setExpanded(expanded === id ? null : id)} onRemoved={() => { setAdded(previous => previous.filter(value => value !== id)); setExpanded(null) }} />)}
+  </section>
+}
+
+const CUSTOM_DEFAULTS: ProviderOverride = { label: "我的写作模型", baseUrl: "", apiKey: "", model: "", apiMode: "chat_completions", maxContextSize: 204800, maxOutputTokens: 16384, reasoning: { mode: "auto" }, functionCallingEnabled: true, savedModels: [], enabled: true }
+interface Props { id: string; expanded: boolean; isNew: boolean; onToggle: () => void; onRemoved: () => void }
+export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }: Props) {
+  const state = useProviderDraft(id, CUSTOM_DEFAULTS, isNew)
+  const { draft, saved, dirty, saving, status, revision, update, reset, save, setStatus } = state
+  const fallback = useWikiStore(s => s.llmConfig)
+  const [manual, setManual] = useState("")
+  useModelDraftGuard(`provider-manual:${id}`, "待添加模型 ID", Boolean(manual.trim()))
+  const [options, setOptions] = useState<string[]>([])
+  const [search, setSearch] = useState("")
+  const [action, setAction] = useState<{ running: boolean; kind: string; error?: boolean; text: string } | null>(null)
+  const [failed, setFailed] = useState<string[]>([])
+  const failedTestKind = useRef<"connection" | "function">("connection")
+  const [deleting, setDeleting] = useState(false)
+  const deletingRef = useRef(false)
+  useModelDraftGuard(`provider-delete:${id}`, "删除模型配置", false, deleting)
+  const mounted = useRef(true)
+  const request = useRef(0)
+  const busyRef = useRef(false)
+  const savedModels = draft.savedModels ?? []
+  const config = useMemo(() => resolveConfig({ id, label: draft.label || "自定义模型", provider: "custom", baseUrl: draft.baseUrl, defaultModel: draft.model, apiMode: draft.apiMode }, draft, fallback), [id, draft, fallback])
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current++ } }, [])
+  useEffect(() => { request.current++; busyRef.current = false; setOptions([]); setAction(null); setFailed([]) }, [draft.baseUrl, draft.apiKey, draft.apiMode])
+  useEffect(() => { request.current++; busyRef.current = false; setAction(null); setFailed([]) }, [draft])
+  const change = (patch: Partial<ProviderOverride>) => { update(patch); request.current++; busyRef.current = false; setAction(null); setFailed([]) }
+  const chooseModels = (ids: string[]) => { change(mergeProviderModels(draft, ids)); setManual("") }
+  async function execute(kind: "fetch" | "connection" | "function" | "batch" | "retry") {
+    if (busyRef.current) return
+    const endpointError = validateModelEndpoint(draft.baseUrl ?? "")
+    const models = kind === "retry" ? failed : kind === "batch" ? (savedModels.length ? savedModels.map(item => item.model) : [draft.model ?? ""]) : [draft.model?.trim() || savedModels[0]?.model || ""]
+    const error = endpointError ?? (kind !== "fetch" && !models.every(model => model.trim()) ? "请先填写或选择模型 ID。" : null)
+    if (error) { setAction({ kind, running: false, error: true, text: error }); return }
+    if (kind !== "fetch" && !(await confirmModelAction(`本次${kind === "batch" || kind === "retry" ? `将测试 ${models.length} 个模型，` : "模型测试"}会向当前接口发送请求，可能消耗 token 和费用。不会自动保存配置。是否继续？`))) return
+    const testKind = kind === "retry" ? failedTestKind.current : kind === "function" ? "function" : "connection"
+    if (kind !== "fetch") failedTestKind.current = testKind
+    const generation = ++request.current, draftRevision = revision.current
+    const current = () => mounted.current && generation === request.current && draftRevision === revision.current
+    busyRef.current = true; setAction({ kind, running: true, text: kind === "fetch" ? "正在拉取模型列表…" : `正在测试 0/${models.length}…` })
+    try {
+      if (kind === "fetch") {
+        const result = await fetchLlmModelList(config)
+        if (!current()) return
+        setOptions([...new Set(result.models)]); setAction({ kind, running: false, text: `已拉取 ${result.models.length} 个模型，请选择后保存配置。` })
+      } else {
+        const failedIds: string[] = [], failures: string[] = []
+        for (const [index, model] of models.entries()) {
+          if (!current()) return
+          let result
+          try { result = await (testKind === "function" ? testLlmFunction : testLlmConnection)({ ...config, model }) }
+          catch (error) { result = { ok: false, message: safeModelError(error, [draft.apiKey ?? ""]) } }
+          if (!current()) return
+          if (!result.ok) { failedIds.push(model); failures.push(`${model}：${safeModelError(result.message, [draft.apiKey ?? ""])}`) }
+          setAction({ kind, running: true, text: `已测试 ${index + 1}/${models.length}` })
+        }
+        if (!current()) return
+        setFailed(failedIds)
+        setAction({ kind, running: false, error: !!failedIds.length, text: failedIds.length ? `测试完成，${models.length - failedIds.length}/${models.length} 通过。${failures.join("；")}` : `${testKind === "function" ? "功能" : "连接"}测试通过（${models.length}/${models.length}）。${dirty ? "当前配置尚未保存。" : "本次测试没有修改配置。"}` })
+      }
+    } catch (error) { if (current()) setAction({ kind, running: false, error: true, text: `操作失败：${safeModelError(error, [draft.apiKey ?? ""])}` }) }
+    finally { if (generation === request.current) busyRef.current = false }
+  }
+  async function remove() {
+    if (deletingRef.current || saving) return
+    if (!(await confirmModelAction(`确定删除“${draft.label || "这项模型配置"}”？引用此模型的默认选择可能回退；不会删除小说。`))) return
+    if (!saved) { onRemoved(); return }
+    deletingRef.current = true; setDeleting(true)
+    try { await saveUiTestProvider(id, null, saved); onRemoved() }
+    catch (error) { setStatus({ error: true, text: safeModelError(error, [draft.apiKey ?? ""]) }) }
+    finally { deletingRef.current = false; if (mounted.current) setDeleting(false) }
+  }
+  const canSave = dirty && !saving && !deleting && !manual.trim()
+  return <article className="model-provider-card" data-model-provider={id}>
+    <header><button type="button" className="model-provider-title" aria-expanded={expanded} aria-controls={`${id}-fields`} onClick={onToggle}><ChevronDown className={expanded ? "" : "is-collapsed"} /><span>{draft.label || "未命名配置"}<small>{!saved ? "新配置 · 尚未保存" : dirty ? "有未保存修改" : draft.enabled === false ? "已保存 · 已停用" : "已保存 · 已启用"}</small></span></button><button type="button" role="switch" aria-label="启用此模型配置" aria-checked={draft.enabled !== false} className="model-switch" disabled={saving || deleting} onClick={() => change({ enabled: draft.enabled === false })}><span /></button><span className="model-switch-label">启用</span></header>
+    <div id={`${id}-fields`} hidden={!expanded}>
+      <fieldset disabled={saving || deleting} className="model-form">
+        <div className="model-fields">
+          <label className="model-field full"><span>配置名称</span><input aria-label="配置名称" value={draft.label ?? ""} onChange={event => change({ label: event.target.value })} placeholder="例如：我的写作模型" /></label>
+          <label className="model-field"><span>API 模式</span><select aria-label="API 模式" value={draft.apiMode ?? "chat_completions"} onChange={event => change({ apiMode: event.target.value as ProviderOverride["apiMode"] })}><option value="chat_completions">OpenAI 兼容</option><option value="responses">Responses API</option><option value="anthropic_messages">Anthropic 兼容</option></select></label>
+          <label className="model-field"><span>接口地址</span><input aria-label="接口地址" value={draft.baseUrl ?? ""} onChange={event => change({ baseUrl: event.target.value })} placeholder="https://api.example.com/v1" spellCheck={false} /></label>
+          <div className="model-field"><span>API 密钥</span><ModelSecretInput value={draft.apiKey ?? ""} onChange={apiKey => change({ apiKey })} /><small>默认遮蔽，不在摘要和错误反馈中显示。</small></div>
+          <label className="model-field"><span>当前模型 ID</span><input aria-label="当前模型 ID" value={draft.model ?? ""} onChange={event => change({ model: event.target.value })} onBlur={() => { if (savedModels.length && draft.model?.trim() && !savedModels.some(item => item.model === draft.model)) chooseModels([draft.model]) }} placeholder="填写服务商提供的模型 ID" spellCheck={false} /></label>
+        </div>
+        <div className="model-actions"><button type="button" className="model-button" disabled={action?.running} onClick={() => void execute("fetch")}><RefreshCw />拉取模型</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("connection")}>测试连接</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("function")}>测试功能</button>{savedModels.length > 1 && <button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("batch")}>批量测试已选模型</button>}{failed.length > 0 && <button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("retry")}>重试失败模型</button>}</div>
+        {action && <p className={`model-feedback${action.error ? " error" : ""}`} role="status" aria-live="polite">{action.text}</p>}
+        {!!options.length && <div className="model-catalog"><div className="model-section-heading"><label className="model-field"><span>搜索已拉取模型</span><input aria-label="搜索已拉取模型" value={search} onChange={event => setSearch(event.target.value)} placeholder="按模型 ID 搜索" /></label><div className="model-actions"><button type="button" className="model-button ghost" onClick={() => chooseModels(options)}>全选</button><button type="button" className="model-button ghost" onClick={() => change({ savedModels: [], model: "" })}>清空选择</button></div></div><div className="model-catalog-list">{options.filter(model => model.toLowerCase().includes(search.toLowerCase())).map(model => <button type="button" key={model} aria-pressed={savedModels.some(item => item.model === model)} onClick={() => savedModels.some(item => item.model === model) ? change(removeProviderModel(draft, model)) : chooseModels([model])}>{model}</button>)}</div></div>}
+        <details className="model-advanced"><summary>多模型与显示名称／备注{savedModels.length ? ` · 已选 ${savedModels.length} 个` : ""}</summary><div className="model-manual-input"><input aria-label="批量添加模型 ID" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); chooseModels(manual.split(/[,，\n]+/)) } }} placeholder="多个模型 ID 用逗号分隔" /><button type="button" className="model-button" onClick={() => chooseModels(manual.split(/[,，\n]+/))} disabled={!manual.trim()}>添加</button></div><div className="model-selected-list">{savedModels.map(item => <div key={item.id}><code title={item.model}>{item.model}</code><div className="model-saved-metadata"><input aria-label={`${item.model}的显示名称`} value={item.name} placeholder="显示名称" onChange={event => change({ savedModels: savedModels.map(value => value.id === item.id ? { ...value, name: event.target.value } : value) })} /><input aria-label={`${item.model}的备注`} value={item.description ?? ""} placeholder="备注（可选）" onChange={event => change({ savedModels: savedModels.map(value => value.id === item.id ? { ...value, description: event.target.value } : value) })} /></div><button type="button" className="model-icon-button" aria-label={`移除模型${item.model}`} onClick={() => change(removeProviderModel(draft, item.model))}><X /></button></div>)}</div></details>
+        <div className="model-fields"><label className="model-field"><span>上下文窗口（tokens）</span><input type="number" aria-label="上下文窗口" min={204800} step={1} value={draft.maxContextSize ?? ""} onChange={event => change({ maxContextSize: Number(event.target.value) })} /></label><label className="model-field"><span>输出上限（tokens）</span><input type="number" aria-label="输出上限" min={512} step={1} value={draft.maxOutputTokens ?? ""} onChange={event => change({ maxOutputTokens: Number(event.target.value) })} /></label></div><p className="model-note">正文与大纲沿用应用的 200K 上下文要求。参数应按服务商实际能力填写；调大数值不会改变模型能力。</p>
+        <details className="model-advanced"><summary>高级选项 · 工具调用与推理</summary><FunctionCallingControls enabled={draft.functionCallingEnabled !== false} onChange={functionCallingEnabled => change({ functionCallingEnabled })} /><ReasoningControls value={draft.reasoning ?? { mode: "auto" }} onChange={reasoning => change(withOutputRoomForReasoning(reasoning, draft.maxOutputTokens))} /></details>
+      </fieldset>
+      <footer className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”，再保存配置。" : status?.text ?? (dirty ? "有未保存修改，保存后才会进入模型选择器。" : "当前配置已保存。")}</p><small>测试和保存是两种独立操作。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{(dirty || manual.trim()) && saved && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if ((await confirmModelAction("放弃本项未保存的修改，恢复已保存配置？"))) { reset(); setManual("") } }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!canSave} onClick={() => void save(!draft.label?.trim() ? "请填写配置名称。" : validateProviderDraft(draft))}>{saving ? "正在保存…" : "保存配置"}</button></div></footer>
+    </div>
+  </article>
+}

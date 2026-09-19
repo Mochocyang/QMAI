@@ -12,6 +12,10 @@ import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-init
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
 import { checkForAppUpdate } from "@/lib/app-updater"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
+import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
+import { UiTestShell } from "@/components/uitest/ui-test-shell"
 import { initAnalytics } from "@/lib/analytics"
 import { AppLayout } from "@/components/layout/app-layout"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
@@ -57,6 +61,15 @@ function App() {
     const current = useWikiStore.getState().project
     if (!current || current.id !== proj.id) return false
     return normalizePath(current.path) === normalizePath(proj.path)
+  }
+
+    // UI 测试版专用：识别正式版小说目录，避免测试时误开旧数据。
+  function isFormalNovelDirectory(path: string): boolean {
+    if (!IS_UI_TEST_BUILD) return false
+    const normalized = normalizePath(path)
+    const isUnderQmBook = /[\\/]QM-BOOK(?:[\\/]|$)/i.test(normalized)
+    const isUiTest = /[\\/]QM-BOOK-UI-TEST(?:[\\/]|$)/i.test(normalized)
+    return isUnderQmBook && !isUiTest
   }
 
   async function hydrateProjectSideStores(proj: WikiProject): Promise<void> {
@@ -150,7 +163,7 @@ function App() {
   }, [uiFontFamily])
 
   useEffect(() => {
-    applyVisualStyle(visualStyle)
+    applyVisualStyle(IS_UI_TEST_BUILD ? "classic" : visualStyle)
   }, [visualStyle])
 
   // 监听社区摘要生成错误，弹窗提示
@@ -173,10 +186,10 @@ function App() {
         getCurrentWindow().onCloseRequested(async (event) => {
           // 防止递归：close() 会再次触发 onCloseRequested
           if (isClosing) return
-          isClosing = true
-
-          // 阻止窗口立即关闭，等待保存完成
+          // 原生关闭必须先同步阻止，再异步等待用户确认，否则窗口会先于确认销毁。
           event.preventDefault()
+          if (IS_UI_TEST_BUILD && !(await confirmModelDraftLeave())) return
+          isClosing = true
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
           await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))
@@ -227,7 +240,7 @@ function App() {
         const savedVisualStyle = await loadVisualStyle()
         const visualStyleToUse = savedVisualStyle ?? useWikiStore.getState().visualStyle
         useWikiStore.getState().setVisualStyle(visualStyleToUse)
-        applyVisualStyle(visualStyleToUse)
+        applyVisualStyle(IS_UI_TEST_BUILD ? "classic" : visualStyleToUse)
         const savedUiFontFamily = await loadUiFontFamily()
         if (savedUiFontFamily) {
           useWikiStore.getState().setUiFontFamily(savedUiFontFamily)
@@ -319,8 +332,10 @@ function App() {
         console.error("应用初始化失败:", err)
       } finally {
         setLoading(false)
-        void checkForAppUpdate()
-        void initAnalytics()
+        if (!IS_UI_TEST_BUILD) {
+          void checkForAppUpdate()
+          void initAnalytics()
+        }
       }
     }
     init()
@@ -373,7 +388,7 @@ function App() {
   }, [dataVersion, project?.path])
 
   useEffect(() => {
-    const title = formatAppTitle(project?.name, appTitleTotalWordCount)
+    const title = `${formatAppTitle(project?.name, appTitleTotalWordCount)}${IS_UI_TEST_BUILD ? " · UI 测试版" : ""}`
     document.title = title
     if (isTauri()) {
       import("@tauri-apps/api/window")
@@ -383,6 +398,7 @@ function App() {
   }, [appTitleTotalWordCount, project?.name])
 
   async function handleProjectOpened(proj: WikiProject) {
+    const uiTestPreference = IS_UI_TEST_BUILD ? readUiTestWorkspacePreference(proj.id) : undefined
     await resetProjectState()
     await initializeProjectContextCache(proj.path)
 
@@ -432,6 +448,10 @@ function App() {
       useWikiStore.getState().setChatExpanded(true)
     }
 
+    if (IS_UI_TEST_BUILD && uiTestPreference && isCurrentProject(proj)) {
+      await restoreUiTestWorkspace(proj, uiTestPreference)
+    }
+
     // 文件树由 AppLayout 通过 refreshProjectFileTree 加载；重队列/定时导入/审查/聊天后置 hydration。
     void hydrateDeferredProjectState(proj)
   }
@@ -448,6 +468,10 @@ function App() {
   async function handleOpenProject() {
     const path = await pickDirectory()
     if (!path) return
+    if (isFormalNovelDirectory(path)) {
+      const confirmed = window.confirm("检测到这是正式版小说目录。UI 测试版数据与正式版隔离，为避免误写旧书，建议取消并选择测试版目录。\n\n是否仍要继续打开？")
+      if (!confirmed) return
+    }
     try {
       const proj = await openProject(path)
       await handleProjectOpened(proj)
@@ -469,8 +493,21 @@ function App() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-muted-foreground">
-        Loading...
+        {IS_UI_TEST_BUILD ? "正在打开 UI 测试版…" : "Loading..."}
       </div>
+    )
+  }
+
+  if (IS_UI_TEST_BUILD) {
+    return (
+      <UiTestShell
+        project={project}
+        onCreateProject={() => setShowCreateDialog(true)}
+        onOpenProject={handleOpenProject}
+        onSelectProject={handleSelectRecent}
+        onSwitchProject={handleSwitchProject}
+        onProjectOpened={handleProjectOpened}
+      />
     )
   }
 

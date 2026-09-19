@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, MoreHorizontal, X } from "lucide-react"
+import { BookOpen, Brain, Check, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -61,6 +61,11 @@ import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } fro
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui-test-editor"
+import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
+import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -236,6 +241,8 @@ export function PreviewPanel() {
   const [chapterToolbarCompact, setChapterToolbarCompact] = useState(true)
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
+  const [uiTestSaveState, setUiTestSaveState] = useState<UiTestEditorSaveState | null>(null)
+  const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
   const pendingScrollRestoreRef = useRef<number | null>(null)
   // Snapshot of what was most recently loaded from disk. Milkdown re-emits
@@ -250,6 +257,13 @@ export function PreviewPanel() {
   const deAiSkillPickerRef = useRef<HTMLDivElement | null>(null)
   const chapterToolbarRef = useRef<HTMLDivElement | null>(null)
   const titleMeasureRef = useRef<HTMLSpanElement | null>(null)
+  // 只观察原保存结果，不改变写入时机、内容或冲突策略。
+  const reportUiTestSave = useCallback((path: string, phase: UiTestEditorSaveState["phase"], expectedMarkdown?: string, generation?: number, retryAction?: UiTestEditorSaveState["retryAction"]) => {
+    if (!IS_UI_TEST_BUILD || selectedFileRef.current !== path) return
+    if (generation !== undefined && generation !== saveGenerationRef.current) return
+    if (expectedMarkdown !== undefined && getDiskSyncNormalize(path)(fileContentRef.current) !== expectedMarkdown) return
+    setUiTestSaveState({ path, phase, retryAction })
+  }, [])
   const chapterDeAiOptions = useDeAiSkillOptions({
     projectPath: project?.path,
     selectedSkillId: chapterDeAiSkillId,
@@ -296,7 +310,7 @@ export function PreviewPanel() {
     rememberLoadedChapter(normalizedPath, diskContent)
     fileContentRef.current = diskContent
     if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
-      const scrollTop = wikiEditorRef.current?.getImmersiveScrollTop()
+      const scrollTop = IS_UI_TEST_BUILD ? uiTestScrollRef.current?.scrollTop : wikiEditorRef.current?.getImmersiveScrollTop()
       if (scrollTop != null) {
         pendingScrollRestoreRef.current = scrollTop
       }
@@ -310,7 +324,10 @@ export function PreviewPanel() {
     const pending = pendingScrollRestoreRef.current
     if (pending == null) return
     pendingScrollRestoreRef.current = null
-    const restore = () => wikiEditorRef.current?.setImmersiveScrollTop(pending)
+    const restore = () => {
+      if (IS_UI_TEST_BUILD && uiTestScrollRef.current) uiTestScrollRef.current.scrollTop = pending
+      else wikiEditorRef.current?.setImmersiveScrollTop(pending)
+    }
     restore()
     // WritingTextarea autofocus/caret-to-end can scrollIntoView after mount;
     // re-apply on the next frames so the restored position sticks.
@@ -453,6 +470,7 @@ export function PreviewPanel() {
     setSelectionTransformSkillName("")
     setSelectionTransformModelName("")
     setLoadedFilePath(null)
+    if (IS_UI_TEST_BUILD) setUiTestSaveState(null)
 
     if (!selectedFile) {
       setFileContent("")
@@ -489,6 +507,7 @@ export function PreviewPanel() {
         setFileContent(content)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
+        reportUiTestSave(selectedFile, "loaded")
       })
       .catch((err) => {
         console.log("[PreviewPanel][debug] readFile error", { selectedFile, err, cancelled, storeSelectedFile: useWikiStore.getState().selectedFile })
@@ -498,12 +517,13 @@ export function PreviewPanel() {
         setFileContent(`Error loading file: ${err}`)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
+        reportUiTestSave(selectedFile, "load-error")
       })
     return () => {
       console.log("[PreviewPanel][debug] useEffect cleanup", { selectedFile })
       cancelled = true
     }
-  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave])
+  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave, reportUiTestSave])
 
   useEffect(() => {
     if (!selectedFile) return
@@ -550,6 +570,7 @@ export function PreviewPanel() {
       const normalizedPath = normalizePath(pathAtSave)
       const lastLoadedForPath = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
       if (persistedMarkdown === lastLoadedForPath) return
+      reportUiTestSave(pathAtSave, "pending")
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       const generation = saveGenerationRef.current
       saveTimerRef.current = setTimeout(() => {
@@ -559,11 +580,13 @@ export function PreviewPanel() {
             if (pathAtSave !== selectedFileRef.current) return
             if (normalizePath(pathAtSave) !== normalizedPath) return
 
+            reportUiTestSave(pathAtSave, "saving", persistedMarkdown, generation)
             let diskContent: string
             try {
               diskContent = await readFile(normalizedPath)
             } catch (err) {
               console.error("保存前读取磁盘失败:", err)
+              reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
               return
             }
 
@@ -571,21 +594,24 @@ export function PreviewPanel() {
             const normalize = getDiskSyncNormalize(normalizedPath)
             if (normalize(diskContent) !== normalize(currentLastLoaded)) {
               await applyDiskSyncIfSafe(normalizedPath)
+              reportUiTestSave(pathAtSave, "conflict", persistedMarkdown, generation)
               return
             }
 
             await writeFileAtomic(pathAtSave, persistedMarkdown)
+            reportUiTestSave(pathAtSave, "saved", persistedMarkdown, generation)
             rememberLoadedChapter(normalizedPath, persistedMarkdown)
             bumpDataVersion()
           } catch (err) {
             console.error("保存失败:", err)
+            reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
           } finally {
             saveTimerRef.current = null
           }
         })()
       }, 1000)
     },
-    [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe]
+    [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe, reportUiTestSave]
   )
 
   const chapterFrontmatter = useMemo(() => {
@@ -790,18 +816,21 @@ export function PreviewPanel() {
     return trimmed
   }, [chapterNumber])
 
-  const commitChapterTitleDraft = useCallback(async () => {
+  const commitChapterTitleDraft = useCallback(async (titleDraft = chapterTitleDraft) => {
     if (!selectedFile || !isChapterPath(selectedFile) || !chapterHeader) return
-    const normalizedTitle = normalizeChapterTitleInput(chapterTitleDraft)
+    const normalizedTitle = normalizeChapterTitleInput(titleDraft)
     const fallbackTitle = chapterDisplayTitle || (chapterNumber !== null ? makeDefaultChapterTitle(chapterNumber) : "")
     const nextTitle = normalizedTitle || fallbackTitle
     setChapterTitleDraft(nextTitle)
     setChapterTitleEditing(false)
     if (nextTitle === chapterDisplayTitle) return
+    reportUiTestSave(selectedFile, "saving")
     try {
       await syncChapterToCanonicalPath(selectedFile, updateChapterTitle(fileContent, nextTitle), { renameToCanonical: true })
+      reportUiTestSave(selectedFile, "saved")
     } catch (error) {
       console.error("章节标题同步失败:", error)
+      reportUiTestSave(selectedFile, "error", undefined, undefined, "title")
     }
   }, [
     chapterHeader,
@@ -812,6 +841,7 @@ export function PreviewPanel() {
     normalizeChapterTitleInput,
     selectedFile,
     syncChapterToCanonicalPath,
+    reportUiTestSave,
   ])
 
   const cancelChapterTitleEditing = useCallback(() => {
@@ -835,6 +865,8 @@ export function PreviewPanel() {
     updatePhase(true, "saving")
 
     const novelConfig = useWikiStore.getState().novelConfig
+    let uiTestFinalFileSaved = false
+    reportUiTestSave(selectedFile, "saving")
 
     try {
       if (saveTimerRef.current) {
@@ -856,6 +888,10 @@ export function PreviewPanel() {
       const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown, { renameToCanonical: true })
       const targetPath = syncResult.targetPath
       savePath = targetPath
+      if (IS_UI_TEST_BUILD) {
+        uiTestFinalFileSaved = true
+        reportUiTestSave(targetPath, "saved")
+      }
       rememberLoadedChapter(targetPath, syncResult.markdown)
       fileContentRef.current = syncResult.markdown
       setFileContent(syncResult.markdown)
@@ -913,10 +949,11 @@ export function PreviewPanel() {
       const message = error instanceof Error ? error.message : String(error)
       updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
       console.error("[preview-panel] ingest failed:", error)
+      if (IS_UI_TEST_BUILD && !uiTestFinalFileSaved) reportUiTestSave(selectedFile, "error", undefined, undefined, "final")
     } finally {
       setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, project, selectedFile, setFileContent, setFinalChapterSave, syncChapterToCanonicalPath, syncDiskBeforeAction])
+  }, [chapterFrontmatter, project, selectedFile, setFileContent, setFinalChapterSave, syncChapterToCanonicalPath, syncDiskBeforeAction, reportUiTestSave])
 
   const handleReingest = useCallback(async () => {
     if (!project || !selectedFile || !chapterFrontmatter) return
@@ -982,13 +1019,16 @@ export function PreviewPanel() {
     const formatted = normalizeChapterWriting(fileContent)
     setFileContent(formatted)
     rememberLoadedChapter(selectedFile, formatted)
+    reportUiTestSave(selectedFile, "saving")
     try {
       await writeFileAtomic(selectedFile, formatted)
+      reportUiTestSave(selectedFile, "saved", formatted)
       bumpDataVersion()
     } catch (err) {
       console.error("格式化写作内容失败:", err)
+      reportUiTestSave(selectedFile, "error", formatted, undefined, "format")
     }
-  }, [canFormatWriting, fileContent, rememberLoadedChapter, selectedFile, setFileContent, bumpDataVersion])
+  }, [canFormatWriting, fileContent, rememberLoadedChapter, selectedFile, setFileContent, bumpDataVersion, reportUiTestSave])
 
   const handleIngestOutline = useCallback(() => {
     if (!project || !selectedFile || !canIngestOutline || isOutlineIngesting) return
@@ -1301,6 +1341,14 @@ export function PreviewPanel() {
   }
 
   if (!selectedFile) {
+    if (IS_UI_TEST_BUILD) {
+      return (
+        <div className="ui-test-editor-empty">
+          <h2>选择一份文档，开始写作</h2>
+          <p>从目录打开章节或大纲，也可以使用目录中的新建、导入入口。</p>
+        </div>
+      )
+    }
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t("preview.empty")}
@@ -1327,8 +1375,97 @@ export function PreviewPanel() {
     )
   }
 
+  const useUiTestEditor = IS_UI_TEST_BUILD && category === "markdown" && (isSelectedChapter || isOutlinePath(selectedFile))
+  const uiTestParsed = useUiTestEditor ? parseFrontmatter(fileContent) : null
+  const uiTestHeading = uiTestParsed ? splitChapterHeading(uiTestParsed.body) : null
+  const uiTestFolders = useUiTestEditor
+    ? (getDirName(selectedFile).split(isSelectedChapter ? "/wiki/chapters" : "/wiki/outlines")[1] ?? "").split("/").filter(Boolean)
+    : []
+
   return (
     <div className="flex h-full flex-col">
+      {useUiTestEditor ? (
+        <UiTestEditor
+          key={selectedFile}
+          kind={isSelectedChapter ? "chapter" : "outline"}
+          path={selectedFile}
+          breadcrumbs={[...(project ? [project.name] : []), ...(uiTestFolders.length ? uiTestFolders : [isSelectedChapter ? "章节" : "大纲"])]}
+          title={isSelectedChapter ? chapterDisplayTitle : uiTestHeading?.heading || getOutlineFileName(selectedFile)}
+          onTitleCommit={isSelectedChapter ? commitChapterTitleDraft : (title) => {
+            if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body))
+          }}
+          statusLabel={isSelectedChapter ? chapterHeader?.statusLabel ?? "草稿" : isOutlineIngesting ? "正在提取记忆" : outlineIngested ? "已提取记忆" : "待提取记忆"}
+          wordCount={countChapterBodyWords(fileContent)}
+          saveState={uiTestSaveState}
+          taskStatus={currentFinalChapterSave?.phase === "ingest_failed" && !alreadyFinal ? "正式章节保存未完成，请核对文件后重试。" : visibleSaveStatus}
+          onRetrySave={() => {
+            if (uiTestSaveState?.retryAction === "format") void handleFormatWriting()
+            else if (uiTestSaveState?.retryAction === "title") void commitChapterTitleDraft()
+            else if (uiTestSaveState?.retryAction === "final") void handleSaveAsFinal()
+            else handleSave(wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current)
+          }}
+          onClose={() => setSelectedFile(null)}
+          scrollRef={uiTestScrollRef}
+          documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
+          auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
+          actions={isSelectedChapter ? (
+            <>
+              <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
+                <Sparkles aria-hidden="true" />{chapterDeAiButtonLabel}
+              </button>
+              {canSaveAsFinal && chapterHeader?.status === "draft" ? (
+                <button type="button" className="ui-test-editor-action is-primary" onClick={() => void handleSaveAsFinal()} disabled={isFinalChapterSaving}>
+                  <Check aria-hidden="true" />{isFinalChapterSaving ? "正在保存为正式章节…" : "保存为正式章节"}
+                </button>
+              ) : null}
+              <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
+                <Brain aria-hidden="true" />查看记忆
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="ui-test-editor-action" onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
+                <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取初始记忆"}
+              </button>
+              <button type="button" className="ui-test-editor-action" onClick={() => {
+                if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
+                else setSaveStatus("尚未提取记忆。请先使用“提取初始记忆”，完成后可在此查看。")
+              }}><BookOpen aria-hidden="true" />查看记忆</button>
+              <button type="button" className="ui-test-editor-action" onClick={() => useOutlineGenerationStore.getState().setPanelOpen(true)}>
+                <Sparkles aria-hidden="true" />生成大纲
+              </button>
+            </>
+          )}
+          moreActions={[
+            ...(isSelectedChapter ? [{ label: chatExpanded ? "关闭会话栏" : "打开会话栏", icon: <MessageSquare aria-hidden="true" />, onClick: () => setChatExpanded(getNextChatExpanded(chatExpanded)) }] : []),
+            ...(canSaveAsFinal && alreadyFinal ? [{ label: "重新提取记忆", icon: <RefreshCw aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleReingest() }] : []),
+            ...(canSaveAsFinal && !alreadyFinal && chapterHeader?.status !== "draft" ? [{ label: "保存为正式章节", icon: <Check aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleSaveAsFinal() }] : []),
+            ...(canFormatWriting ? [{ label: "一键排版", icon: <Type aria-hidden="true" />, onClick: () => void handleFormatWriting() }] : []),
+            { label: "关闭文档", icon: <X aria-hidden="true" />, onClick: () => setSelectedFile(null) },
+          ]}
+        >
+          {(mode) => isSelectedChapter && mode === "read" ? (
+            <div className="ui-test-editor-reader">
+              <WikiReader body={(uiTestHeading?.body ?? "").replace(/^　　/gm, "")} highlightHandcraftZones />
+            </div>
+          ) : (
+            <WikiEditor
+              ref={wikiEditorRef}
+              key={`${selectedFile}:${diskSyncEpoch}`}
+              content={fileContent}
+              onSave={handleSave}
+              defaultMode={mode}
+              immersiveWriting={isSelectedChapter}
+              onSelectionAction={isSelectedChapter ? handleSelectionAction : undefined}
+              highlightRequest={isSelectedChapter ? activeHighlightRequest : null}
+              onHighlightHandled={() => {
+                if (activeHighlightRequest) setPendingEditorHighlight(null)
+              }}
+            />
+          )}
+        </UiTestEditor>
+      ) : (
+      <>
       <div className="flex h-12 shrink-0 items-center border-b px-3">
         <div ref={chapterToolbarRef} className="flex min-w-0 flex-1 items-center gap-2">
           <div className="relative flex min-w-0 min-h-0 flex-1 items-center gap-1 overflow-hidden">
@@ -1643,6 +1780,8 @@ export function PreviewPanel() {
           />
         )}
       </div>
+      </>
+      )}
       {showSnapshot && project && chapterNumber !== null ? (
         <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>}>
           <SnapshotViewer

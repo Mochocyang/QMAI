@@ -1,3 +1,6 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { filterUiTestDirectory } from "@/lib/ui-test-layout"
+import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Sparkles, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -64,6 +67,7 @@ export interface KnowledgeCreateRequest {
 }
 
 interface KnowledgeTreeProps {
+  searchQuery?: string
   filterType: "chapter" | "outline"
   refreshKey?: number
   pendingPages?: WikiPageInfo[]
@@ -334,6 +338,7 @@ function countMarkdownDescendants(node: FileNode): number {
 }
 
 export function KnowledgeTree({
+  searchQuery = "",
   filterType,
   refreshKey,
   pendingPages = EMPTY_PENDING_PAGES,
@@ -446,7 +451,9 @@ export function KnowledgeTree({
   }, [armedPath])
 
   useEffect(() => {
-    const closeMenus = () => {
+    const closeMenus = (event: Event) => {
+      if (IS_UI_TEST_BUILD && event instanceof KeyboardEvent && event.key !== "Escape") return
+      if (IS_UI_TEST_BUILD && event.type === "keydown") containerRef.current?.querySelector<HTMLButtonElement>(`[data-page-path="${pageMenu?.path}"] > button`)?.focus()
       setCreateMenu(null)
       setPageMenu(null)
     }
@@ -457,6 +464,11 @@ export function KnowledgeTree({
       document.removeEventListener("keydown", closeMenus)
     }
   }, [])
+
+  useEffect(() => {
+    if (!IS_UI_TEST_BUILD || !pageMenu) return
+    containerRef.current?.querySelector<HTMLButtonElement>('[aria-label="文档更多操作"] button')?.focus()
+  }, [pageMenu])
 
   const pageInfoByPath = useMemo(() => {
     const map = new Map<string, WikiPageInfo>()
@@ -1382,8 +1394,8 @@ export function KnowledgeTree({
       parentDir,
       targetFolderName,
       targetFolderPath: parentDir,
-      x: rect ? event.clientX - rect.left : event.clientX,
-      y: rect ? event.clientY - rect.top : event.clientY,
+      x: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)) : rect ? event.clientX - rect.left : event.clientX,
+      y: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)) : rect ? event.clientY - rect.top : event.clientY,
     })
     setPageMenu(null)
   }, [])
@@ -1394,8 +1406,8 @@ export function KnowledgeTree({
     const rect = containerRef.current?.getBoundingClientRect()
     setPageMenu({
       path: pagePath,
-      x: rect ? event.clientX - rect.left : event.clientX,
-      y: rect ? event.clientY - rect.top : event.clientY,
+      x: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)) : rect ? event.clientX - rect.left : event.clientX,
+      y: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)) : rect ? event.clientY - rect.top : event.clientY,
     })
     setCreateMenu(null)
   }, [])
@@ -1446,6 +1458,8 @@ export function KnowledgeTree({
     }
   }, [])
 
+  const visibleSectionNodes = useMemo(() => filterUiTestDirectory(sectionNodes, searchQuery, new Map(Array.from(pageInfoByPath, ([path, page]) => [path, page.title]))), [sectionNodes, searchQuery, pageInfoByPath])
+
   const rootLabel = filterType === "chapter" ? t("sidebar.knowledge") : t("sidebar.files")
   const emptyLabel = filterType === "chapter"
     ? t("knowledgeTree.emptyFiltered", { label: t("trash.kindChapter") })
@@ -1458,16 +1472,17 @@ export function KnowledgeTree({
     return sortFileNodes(nodes, pageInfoByPath, filterType).flatMap((node) => {
       const normalizedPath = normalizePath(node.path)
       if (node.is_dir) {
-        const isCollapsed = collapsedFolders[normalizedPath] ?? false
+        const isCollapsed = searchQuery ? false : collapsedFolders[normalizedPath] ?? false
         const isRenamingFolder = renamingFolderPath === normalizedPath
         const isOutlineDropTarget = outlineDropFolderPath === normalizedPath
         const folderRow = (
           <div key={normalizedPath}>
             <div
               data-knowledge-interactive="true"
+              data-ui-tree-row={IS_UI_TEST_BUILD ? "folder" : undefined}
               data-folder-path={normalizedPath}
               className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground qm-hover ${isOutlineDropTarget ? "ring-2 ring-primary/50" : ""}`}
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
+              style={{ paddingLeft: `${IS_UI_TEST_BUILD ? 2 : depth * 16 + 8}px` }}
               onContextMenu={(event) => openCreateMenu(event, normalizedPath, node.name)}
             >
               <button
@@ -1543,6 +1558,7 @@ export function KnowledgeTree({
         <div
           key={normalizedPath}
           data-knowledge-interactive="true"
+          data-ui-tree-row={IS_UI_TEST_BUILD ? "file" : undefined}
           data-page-path={normalizedPath}
           className={`group flex items-center gap-1 rounded-md ${isSelected ? "qm-selected" : "qm-hover"} ${isChapterChecked ? "ring-1 ring-primary/35" : ""} ${isDragSource ? "ring-2 ring-primary/50" : ""} ${isInsertTarget ? "border-t-[3px] border-primary/70" : ""}`}
           onContextMenu={(event) => handlePageContextMenu(event, normalizedPath)}
@@ -1575,7 +1591,7 @@ export function KnowledgeTree({
             className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-sm ${
               isSelected ? "qm-selected-muted" : "text-muted-foreground group-hover:text-foreground"
             }`}
-            title={normalizedPath}
+            title={IS_UI_TEST_BUILD ? page.title : normalizedPath}
           >
             {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             {renamingPath === normalizedPath ? (
@@ -1603,10 +1619,10 @@ export function KnowledgeTree({
               />
             ) : (
               <>
-                <span className="min-w-0 flex-1 truncate">{page.title}</span>
+                <span className="min-w-0 flex-1 truncate">{IS_UI_TEST_BUILD ? page.title.replace(/^第(\d+)章\s*/, "$1 ") : page.title}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
                   <span className={`shrink-0 text-right text-[11px] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
-                    {page.wordCountLabel}
+                    {IS_UI_TEST_BUILD ? page.wordCountLabel.replace(/\s*字$/, "") : page.wordCountLabel}
                   </span>
                 )}
               </>
@@ -1616,7 +1632,7 @@ export function KnowledgeTree({
             <Button
               variant="ghost"
               size="icon"
-              className={`mr-0 h-7 w-7 shrink-0 ${isOutlineExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
+              className={`mr-0 h-7 w-7 shrink-0 ${IS_UI_TEST_BUILD ? "ui-test-tree-extract" : ""} ${isOutlineExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
               title={isOutlineExtracted ? t("novel.outlineGenerator.reingestTitle") : t("novel.outlineGenerator.ingest")}
               disabled={isOutlineIngesting}
               onClick={(event) => {
@@ -1633,10 +1649,11 @@ export function KnowledgeTree({
               )}
             </Button>
           ) : null}
+          {IS_UI_TEST_BUILD && renamingPath !== normalizedPath ? <button type="button" className="ui-test-tree-more" aria-label={`${page.title}的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); openPageMenu(event, normalizedPath) }}><MoreHorizontal /></button> : null}
           <DeleteButton
             armed={isArmed}
             deleting={showDeleteLoading}
-            className={`mr-1 transition-opacity ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+            className={`mr-1 transition-opacity ${IS_UI_TEST_BUILD ? `ui-test-tree-delete${isArmed ? " is-armed" : ""}` : ""} ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             onClick={() => void handleDeleteClick(normalizedPath)}
             name={page.title}
           />
@@ -1673,6 +1690,7 @@ export function KnowledgeTree({
     dragSource,
     dragInsertIndex,
     isDragging,
+    searchQuery,
     sortedChapterPages,
     novelMode,
     extractedOutlinePaths,
@@ -1693,7 +1711,7 @@ export function KnowledgeTree({
     <ScrollArea className="h-full">
       <div
         ref={containerRef}
-        className="relative flex min-h-full flex-col p-2 select-none"
+        className={`relative flex min-h-full flex-col p-2 select-none${IS_UI_TEST_BUILD ? " ui-test-knowledge-tree" : ""}`}
         style={{
           userSelect: filterType === "chapter" ? "none" : undefined,
           WebkitUserSelect: filterType === "chapter" ? "none" : undefined,
@@ -1706,7 +1724,7 @@ export function KnowledgeTree({
         onContextMenu={handleBlankContextMenu}
         onPointerMove={handleContainerPointerMove}
       >
-        <div className="mb-2 flex items-center justify-between gap-2 px-2 text-xs font-semibold uppercase text-muted-foreground">
+        <div className={`mb-2 flex items-center justify-between gap-2 px-2 text-xs font-semibold uppercase text-muted-foreground${IS_UI_TEST_BUILD ? " ui-test-tree-root-label" : ""}`}>
           <span>{rootLabel}</span>
         </div>
         {filterType === "chapter" && chapterBatchMode && selectableChapterPaths.length > 0 && (
@@ -1757,16 +1775,16 @@ export function KnowledgeTree({
             </button>
           </div>
         )}
-        {sectionNodes.length === 0 && pendingPages.length === 0 ? (
-          <div className="px-2 py-4 text-center text-xs text-muted-foreground">{emptyLabel}</div>
+        {visibleSectionNodes.length === 0 && pendingPages.length === 0 ? (
+          <div className="px-2 py-4 text-center text-xs text-muted-foreground">{searchQuery ? "没有找到匹配的文档" : emptyLabel}</div>
         ) : (
-          renderNodes(sectionNodes)
+          renderNodes(visibleSectionNodes)
         )}
 
         {createMenu && (
           <div
             className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
-            style={{ left: createMenu.x, top: createMenu.y }}
+            style={{ left: createMenu.x, top: createMenu.y, ...(IS_UI_TEST_BUILD ? { position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const : {}) }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -1830,8 +1848,19 @@ export function KnowledgeTree({
 
         {pageMenu && (
           <div
-            className="absolute z-20 w-48 rounded-md border bg-background py-1 text-xs shadow-lg"
-            style={{ left: pageMenu.x, top: pageMenu.y }}
+            role={IS_UI_TEST_BUILD ? "menu" : undefined}
+          aria-label={IS_UI_TEST_BUILD ? "文档更多操作" : undefined}
+          className="absolute z-20 w-48 rounded-md border bg-background py-1 text-xs shadow-lg"
+            onKeyDown={IS_UI_TEST_BUILD ? (event) => {
+              if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPageMenu(null); containerRef.current?.querySelector<HTMLButtonElement>(`[data-page-path="${pageMenu.path}"] > button`)?.focus(); return }
+              if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return
+              event.preventDefault(); event.stopPropagation()
+              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"))
+              const index = items.indexOf(document.activeElement as HTMLButtonElement)
+              const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
+              items[next]?.focus()
+            } : undefined}
+            style={{ left: pageMenu.x, top: pageMenu.y, ...(IS_UI_TEST_BUILD ? { position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const : {}) }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2036,11 +2065,11 @@ export function KnowledgeTree({
   )
 }
 
-export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?: () => void }) {
+export function RawSourcesSection({ onCancelExtraction, uiTestActivityView = false }: { onCancelExtraction?: () => void; uiTestActivityView?: boolean }) {
   const project = useWikiStore((s) => s.project)
   const tasks = useImportProgressStore((s) => s.tasks)
   const deAiTasks = useDeAiTaskStore((s) => s.tasks)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(uiTestActivityView)
 
   const projectTasks = useMemo(() => {
     if (!project) return []
@@ -2069,6 +2098,8 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
     if (hasRunning) setExpanded(true)
   }, [hasRunning])
 
+  if (IS_UI_TEST_BUILD && uiTestActivityView && !hasAnyTask) return null
+
   return (
     <div className="shrink-0 border-t bg-background/95 p-2 backdrop-blur">
       <button
@@ -2082,7 +2113,7 @@ export function RawSourcesSection({ onCancelExtraction }: { onCancelExtraction?:
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <BookOpen className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-        <span className="flex-1 text-left font-medium text-muted-foreground">提取中</span>
+        <span className="flex-1 text-left font-medium text-muted-foreground">{uiTestActivityView ? "导入、提取与去AI味任务" : "提取中"}</span>
         {hasRunning ? (
           <span className="text-xs text-primary">{runningTasks.length} 个任务运行中</span>
         ) : null}

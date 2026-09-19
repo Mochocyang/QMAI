@@ -1,0 +1,256 @@
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Leaf, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
+import { useWikiStore, type WikiState } from "@/stores/wiki-store"
+import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
+import { ContentArea } from "@/components/layout/content-area"
+import { SidebarPanel } from "@/components/layout/sidebar-panel"
+import { RawSourcesSection } from "@/components/layout/knowledge-tree"
+import { registerUiTestProject } from "@/lib/ui-test-library"
+import { ActivityPanel } from "@/components/layout/activity-panel"
+import { ErrorBoundary } from "@/components/error-boundary"
+import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
+import { isTauri } from "@/lib/platform"
+import { CreateProjectDialog } from "@/components/project/create-project-dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { applyTheme } from "@/lib/theme-utils"
+import { saveTheme } from "@/lib/project-store"
+import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
+import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as preferenceKey } from "@/lib/ui-test-workspace-preferences"
+import { normalizePath } from "@/lib/path-utils"
+import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
+import type { WikiProject } from "@/types/wiki"
+import { UiTestShelf } from "./ui-test-shelf"
+import { useUiTestWidth } from "./use-ui-test-width"
+import { confirmModelDraftLeave } from "./models/model-draft-guard"
+import "./ui-test.css"
+
+const UiTestWorkspace = lazy(async () => ({ default: (await import("./ui-test-workspace")).UiTestWorkspace }))
+type NavView = WikiState["activeView"]
+interface UiTestShellProps {
+  project: WikiProject | null
+  onCreateProject: () => void
+  onOpenProject: () => void
+  onSelectProject: (project: WikiProject) => void
+  onSwitchProject: () => void
+  onProjectOpened: (project: WikiProject) => void
+}
+const PRIMARY_NAV: Array<{ view: NavView; label: string }> = [
+  { view: "sources", label: "大纲" }, { view: "wiki", label: "章节" }, { view: "soul", label: "灵魂" },
+]
+const TOOL_GROUPS = [
+  [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
+  [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
+  [ { view: "activity", label: "后台活动", icon: History }, { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
+] as const
+function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
+  event.preventDefault()
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)'))
+  const index = items.indexOf(document.activeElement as HTMLButtonElement)
+  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
+  items[next]?.focus()
+}
+
+export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchProject, onProjectOpened }: UiTestShellProps) {
+  const activeView = useWikiStore((s) => s.activeView)
+  const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setTheme = useWikiStore((s) => s.setTheme)
+  const selectedFile = useWikiStore((s) => s.selectedFile)
+  const chatExpanded = useWikiStore((s) => s.chatExpanded)
+  const setChatExpanded = useWikiStore((s) => s.setChatExpanded)
+  const outlineExpanded = useOutlineGenerationStore((s) => s.panelOpen)
+  const setOutlineExpanded = useOutlineGenerationStore((s) => s.setPanelOpen)
+  const [skin, setSkin] = useState<UiTestSkin>(() => readUiTestSkin())
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showGlobalSettings, setShowGlobalSettings] = useState(false)
+  const [showActivity, setShowActivity] = useState(false)
+  const [libraryError, setLibraryError] = useState("")
+  const [toolOpen, setToolOpen] = useState(false)
+  const [skinOpen, setSkinOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
+  const [preference, setPreference] = useState(() => readPreference(project?.id))
+  const preferenceProject = useRef(project?.id)
+  const appRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLDivElement>(null)
+  const skinsRef = useRef<HTMLDivElement>(null)
+  const toolRef = useRef<HTMLButtonElement>(null)
+  const skinRef = useRef<HTMLButtonElement>(null)
+  const directoryRef = useRef<HTMLButtonElement>(null)
+  const cancelImportRef = useRef<(() => void) | null>(null)
+  const appWidth = useUiTestWidth(appRef, window.innerWidth - 48)
+  const writing = Boolean(project && (activeView === "wiki" || activeView === "sources"))
+  const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
+  const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
+  const hasDirectory = Boolean(project && activeView !== "settings")
+  const overlayDirectory = viewportWidth < 1180 || (writing && assistantOpen && appWidth < requestedWidth + 480 + 220 + 12)
+  const sidebarPreference = preference.directory?.[activeView] ?? activeView !== "graph"
+  const sidebarVisible = hasDirectory && (overlayDirectory ? drawerOpen : sidebarPreference)
+  const showShelf = !project && !showGlobalSettings
+
+  useEffect(() => {
+    const nextTheme = skin === "xing" ? "dark" : "light"
+    document.documentElement.dataset.uiTestSkin = skin
+    applyTheme(nextTheme); setTheme(nextTheme); writeUiTestSkin(skin)
+    void saveTheme(nextTheme).catch(() => undefined)
+    return () => { delete document.documentElement.dataset.uiTestSkin }
+  }, [skin, setTheme])
+  useEffect(() => {
+    const onSkinChange = (event: Event) => {
+      const next = (event as CustomEvent).detail
+      if (next === "jing" || next === "zhi" || next === "xing") setSkin(next)
+    }
+    window.addEventListener("qmai-ui-test-skin-change", onSkinChange)
+    return () => window.removeEventListener("qmai-ui-test-skin-change", onSkinChange)
+  }, [])
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+  useEffect(() => {
+    if (!isTauri()) return
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(false)).catch((err) => console.warn("设置测试版窗口外观失败：", err))
+  }, [])
+  useEffect(() => {
+    if (preferenceProject.current !== project?.id) {
+      preferenceProject.current = project?.id
+      setPreference(readPreference(project?.id)); setDrawerOpen(false); setShowGlobalSettings(false)
+    }
+    if (!project) return
+    try { registerUiTestProject(project); setLibraryError("") } catch (error) { setLibraryError(error instanceof Error ? error.message : "书架索引保存失败，小说仍可正常打开。") }
+    void refreshProjectFileTree(project.path, { projectId: project.id, clearDisplayTreeFirst: false })
+  }, [project?.id, project?.path])
+  useEffect(() => {
+    if (preferenceProject.current !== project?.id) return
+    try { localStorage.setItem(preferenceKey(project?.id), JSON.stringify(preference)) } catch { /* 界面偏好写入失败不影响正文。 */ }
+  }, [preference, project?.id])
+  useEffect(() => {
+    if (!writing || !selectedFile || !project) return
+    const view = activeView === "sources" ? "sources" : "wiki"
+    const validPath = getUiTestDocumentPath(project.path, selectedFile, view)
+    if (!validPath) return
+    const relativePath = validPath.slice(normalizePath(project.path).replace(/\/+$/, "").length + 1)
+    setPreference((previous) => previous.files?.[view] === relativePath ? previous : { ...previous, files: { ...previous.files, [view]: relativePath } })
+  }, [selectedFile, activeView, project?.id, writing])
+  useEffect(() => {
+    if (!project || preferenceProject.current !== project.id || !["wiki", "sources", "soul"].includes(activeView)) return
+    const view = activeView as "wiki" | "sources" | "soul"
+    setPreference(previous => {
+      const assistant = view === "sources" ? outlineExpanded : chatExpanded
+      if (previous.lastView === view && (view === "soul" || previous.assistant?.[view] === assistant)) return previous
+      return { ...previous, lastView: view, ...(view === "soul" ? {} : { assistant: { ...previous.assistant, [view]: assistant } }) }
+    })
+  }, [activeView, chatExpanded, outlineExpanded, project?.id])
+  useEffect(() => { setDrawerOpen(false) }, [selectedFile, activeView])
+  useEffect(() => {
+    if (!toolOpen && !skinOpen) return
+    const menu = toolOpen ? toolsRef.current : skinsRef.current
+    menu?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
+    const outside = (event: MouseEvent) => {
+      if (toolsRef.current?.contains(event.target as Node) || skinsRef.current?.contains(event.target as Node)) return
+      setToolOpen(false); setSkinOpen(false)
+    }
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault(); setToolOpen(false); setSkinOpen(false)
+      ;(toolOpen ? toolRef : skinRef).current?.focus()
+    }
+    document.addEventListener("mousedown", outside); document.addEventListener("keydown", escape)
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
+  }, [toolOpen, skinOpen])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDrawerOpen(false); directoryRef.current?.focus() } }
+    document.addEventListener("keydown", escape)
+    return () => document.removeEventListener("keydown", escape)
+  }, [drawerOpen])
+
+  const minimizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().minimize()).catch(() => undefined) }
+  const toggleMaximizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize()).catch(() => undefined) }
+  const closeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close()).catch(() => undefined) }
+  const chooseSkin = (next: UiTestSkin) => { setSkin(next); setSkinOpen(false); skinRef.current?.focus() }
+  const toggleDirectory = () => {
+    if (overlayDirectory) setDrawerOpen((open) => !open)
+    else setPreference((previous) => ({ ...previous, directory: { ...previous.directory, [activeView]: !sidebarVisible } }))
+  }
+  const navigate = async (view: NavView) => {
+    setToolOpen(false); setSkinOpen(false)
+    if (!project && view !== "settings") return
+    if (view === "settings") setShowGlobalSettings(true)
+    if (activeView === view) return
+    if (activeView === "settings" && !(await confirmModelDraftLeave())) return
+    setActiveView(view)
+    // 仍由旧 store 决定能否离开有未保存草稿的功能，不能绕过其保护。
+    if (useWikiStore.getState().activeView !== view) return
+    if (view === "sources" || view === "wiki") {
+      const kind = view === "sources" ? "/outlines/" : "/chapters/"
+      const current = useWikiStore.getState().selectedFile
+      if (!(current ? normalizePath(current).includes(kind) : false)) useWikiStore.getState().setSelectedFile(project ? getUiTestDocumentPath(project.path, preference.files?.[view], view) : null)
+    }
+  }
+  const returnToShelf = async () => {
+    if (!showShelf && activeView === "settings" && !(await confirmModelDraftLeave())) return
+    setShowGlobalSettings(false)
+    if (project) onSwitchProject()
+  }
+  const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
+
+  return (
+    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView}>
+      <div ref={appRef} className="ui-test-app">
+        <header className="ui-test-header" data-tauri-drag-region>
+          <div className="ui-test-brand"><Leaf aria-hidden="true" /><span className="ui-test-brand-name">青幕</span>
+            <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
+            {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
+          </div>
+          <nav className="ui-test-nav" aria-label="主模块">
+            {PRIMARY_NAV.map((item) => <button key={item.view} type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>)}
+          </nav>
+          <div className="ui-test-actions">
+            {hasDirectory && <button ref={directoryRef} type="button" className={`ui-test-header-action${sidebarVisible ? " is-active" : ""}`} aria-label={sidebarVisible ? "收起目录" : "展开目录"} aria-expanded={sidebarVisible} aria-controls="ui-test-directory" title={sidebarVisible ? "收起目录" : "展开目录"} onClick={toggleDirectory}><PanelLeft /><span>目录</span></button>}
+            {writing ? <button type="button" className={`ui-test-header-action${assistantOpen ? " is-active" : ""}`} aria-label="AI 对话" aria-expanded={assistantOpen} title="AI 对话" onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><Sparkles /><span>AI 对话</span></button> : <>
+              <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
+              <button type="button" className="ui-test-icon-btn" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
+            </>}
+            <div ref={toolsRef} className="ui-test-menu-anchor">
+              <button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" title="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => { setToolOpen(!toolOpen); setSkinOpen(false) }}><Grid2X2 /></button>
+              {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" onKeyDown={menuKeyboard}>
+                <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
+                {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
+                  {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project && view !== "settings"} onClick={() => { if (view === "activity") { setShowActivity(true); setToolOpen(false) } else navigate(view) }}><Icon /><span>{label}</span></button>)}
+                </div>)}
+              </div>}
+            </div>
+            <div ref={skinsRef} className="ui-test-menu-anchor">
+              <button ref={skinRef} type="button" className="ui-test-icon-btn" aria-label="外观" title="外观" aria-haspopup="menu" aria-expanded={skinOpen} onClick={() => { setSkinOpen(!skinOpen); setToolOpen(false) }}><Moon /></button>
+              {skinOpen && <div className="ui-test-menu-pop ui-test-skin-menu" role="menu" aria-label="外观" onKeyDown={menuKeyboard}><div className="ui-test-menu-title">外观</div>
+                {UI_TEST_SKINS.map(item => <button type="button" role="menuitemradio" aria-checked={skin === item.id} className="ui-test-menu-item" key={item.id} onClick={() => chooseSkin(item.id)}><span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} /><span className="ui-test-skin-copy"><span>{item.name}</span><small>{item.hint}</small></span>{skin === item.id && <Check />}</button>)}
+              </div>}
+            </div>
+            <div className="ui-test-win-actions">
+              <button type="button" className="ui-test-win-btn" aria-label="最小化" title="最小化" onClick={minimizeWindow}><Minus /></button>
+              <button type="button" className="ui-test-win-btn" aria-label="最大化或还原" title="最大化或还原" onClick={toggleMaximizeWindow}><Square /></button>
+              <button type="button" className="ui-test-win-btn ui-test-win-close" aria-label="关闭窗口" title="关闭窗口" onClick={closeWindow}><X /></button>
+            </div>
+          </div>
+        </header>
+        {libraryError && <p className="ui-test-local-warning" role="alert">{libraryError}</p>}
+        <div className="ui-test-workspace">
+          {showShelf ? <UiTestShelf onCreateProject={() => setShowCreateDialog(true)} onOpenProject={onOpenProject} onSelectProject={onSelectProject} /> : <>
+            {sidebarVisible && overlayDirectory && <button type="button" className="ui-test-directory-scrim" aria-label="关闭目录遮罩" onClick={() => setDrawerOpen(false)} />}
+            {hasDirectory && <aside hidden={!sidebarVisible} id="ui-test-directory" className={`ui-test-sidebar${overlayDirectory ? " is-drawer" : ""}`} aria-label="工作区目录">
+              <div className="ui-test-directory-content"><SidebarPanel onUiTestCloseDirectory={toggleDirectory} onUiTestRegisterCancel={(cancel) => { cancelImportRef.current = cancel }} /></div>
+            </aside>}
+            <main className="ui-test-main"><ErrorBoundary>
+              {writing ? <Suspense fallback={<div className="ui-test-loading">正在打开工作区…</div>}><UiTestWorkspace mode={activeView === "sources" ? "outline" : "chapter"} requestedWidth={requestedWidth} viewportWidth={viewportWidth} onWidthChange={(aiWidth) => setPreference(previous => ({ ...previous, aiWidth }))} /></Suspense> : <ContentArea />}
+            </ErrorBoundary></main>
+          </>}
+        </div>
+      </div>
+      <span className="ui-test-build-label">UI 测试版 · 独立数据</span>
+      <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
+      <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><ActivityPanel /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+    </div>
+  )
+}

@@ -1,6 +1,9 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+
 const FALLBACK_INSTALL_DRIVE = "D"
 
-const DEFAULT_NOVEL_DIR_NAME = "QM-BOOK"
+// 正式版继续使用 QM-BOOK；UI 测试版使用独立目录，避免与正式小说混写。
+const DEFAULT_NOVEL_DIR_NAME = IS_UI_TEST_BUILD ? "QM-BOOK-UI-TEST" : "QM-BOOK"
 
 function extractWindowsDriveLetter(pathLike: string): string | null {
   const match = pathLike.trim().match(/^([a-zA-Z]):[\\/]/)

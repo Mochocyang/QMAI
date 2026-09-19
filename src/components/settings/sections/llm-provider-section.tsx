@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState, useRef } from "react"
+import { confirmModelAction } from "@/components/uitest/models/model-confirm"
+import { ModelSecretInput } from "@/components/uitest/models/model-secret-input"
+import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batch"
+import { isProviderAvailable } from "@/lib/llm-model-keys"
+import { useProviderDraft } from "@/components/uitest/models/provider-draft"
+import { validateProviderDraft } from "@/components/uitest/models/provider-data"
+import { safeModelError } from "@/components/uitest/models/model-feedback"
+import "@/components/uitest/models/model-settings.css"
+import { useEffect, useId, useMemo, useState, useRef } from "react"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
@@ -29,6 +38,17 @@ import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
 
 const MODEL_PARAM_DOCS_URL = "https://global.modelmesh.info/model"
+
+const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
+  anthropic: "官方 Claude API",
+  "claude-code-cli": "使用本机 claude 命令及其登录状态，无需 API Key",
+  "codex-cli": "使用本机 codex 命令及其登录状态，无需 API Key",
+  "cursor-cli": "通过 cursor-api-proxy 使用本机 agent 命令，无需官方 API Key",
+  openai: "官方 OpenAI API",
+  google: "Google 生成式语言 API",
+  azure: "Azure OpenAI 资源接口；模型字段填写部署名称",
+  "ollama-local": "本机部署的 llama.cpp / Ollama 服务",
+}
 
 /**
  * Raise the declared output ceiling when the chosen reasoning level needs more
@@ -61,9 +81,11 @@ export function LlmProviderSection() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
+  const [uiTestSource, setUiTestSource] = useState<"custom" | "presets">("custom")
+  const uiTestTabsId = useId()
 
   function toggleExpand(id: string) {
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
+    setExpanded((prev) => IS_UI_TEST_BUILD ? { [id]: !prev[id] } : ({ ...prev, [id]: !prev[id] }))
   }
 
   async function persist(newConfigs: typeof providerConfigs, newActive: string | null) {
@@ -117,6 +139,62 @@ export function LlmProviderSection() {
     const next = { ...current, [id]: merged }
     setProviderConfigs(next)
     persist(next, currentActive).catch(() => {})
+  }
+
+  if (IS_UI_TEST_BUILD) {
+    return (
+      <div data-ui="llm-sources">
+        <div className="ui-test-tool-tabs" role="tablist" aria-label="模型配置来源">
+          {(["custom", "presets"] as const).map((source) => (
+            <button
+              key={source}
+              id={`${uiTestTabsId}-${source}-tab`}
+              type="button"
+              role="tab"
+              data-ui-llm-source={source}
+              aria-selected={uiTestSource === source}
+              aria-controls={`${uiTestTabsId}-${source}-panel`}
+              tabIndex={uiTestSource === source ? 0 : -1}
+              onClick={() => setUiTestSource(source)}
+              onKeyDown={(event) => {
+                const next = event.key === "Home" ? "custom" : event.key === "End" ? "presets"
+                  : event.key === "ArrowLeft" || event.key === "ArrowRight" ? (source === "custom" ? "presets" : "custom") : null
+                if (!next) return
+                event.preventDefault()
+                setUiTestSource(next)
+                document.getElementById(`${uiTestTabsId}-${next}-tab`)?.focus()
+              }}
+            >
+              {source === "custom" ? "自定义模型" : "配置示例"}
+            </button>
+          ))}
+        </div>
+        <details data-ui="llm-context-notice">
+          <summary><AlertCircle aria-hidden="true" className="h-4 w-4" /><span>{t("settings.sections.llm.longWritingContextTitle")}</span><span className="ui-test-notice-toggle">查看说明</span></summary>
+          <div>
+            <p>{t("settings.sections.llm.description")}</p>
+            <p>{t("settings.sections.llm.longWritingContextHint")}</p>
+            <ResourceLink href={MODEL_PARAM_DOCS_URL} title={t("settings.sections.llm.longWritingContextDocs")}>
+              {t("settings.sections.llm.longWritingContextDocs")}
+            </ResourceLink>
+          </div>
+        </details>
+        {/* 两个面板保持挂载，切来源不丢未提交的模型 ID、展开状态与测试结果。 */}
+        <div id={`${uiTestTabsId}-custom-panel`} role="tabpanel" aria-labelledby={`${uiTestTabsId}-custom-tab`} data-ui="llm-custom" hidden={uiTestSource !== "custom"}>
+          <CustomProviderCards />
+        </div>
+        <div id={`${uiTestTabsId}-presets-panel`} role="tabpanel" aria-labelledby={`${uiTestTabsId}-presets-tab`} data-ui="llm-presets" hidden={uiTestSource !== "presets"}>
+          <p className="ui-test-provider-note">保留全部内置提供方与本地 CLI 能力。配置先保留在草稿，点击本项“保存配置”后生效。检测、拉取和测试需要主动点击。</p>
+          <div className="space-y-2">
+            {LLM_PRESETS.filter((preset) => preset.id !== "custom").map((preset) => {
+              return (
+                <UiTestPresetCard key={preset.id} preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[preset.id]} onToggle={() => toggleExpand(preset.id)} />
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -187,6 +265,19 @@ interface PresetRowProps {
   onChange: (patch: ProviderOverride) => void
 }
 
+function UiTestPresetCard({ preset, expanded, onToggle }: { preset: LlmPreset; expanded: boolean; onToggle: () => void }) {
+  const initial = useMemo<ProviderOverride>(() => ({ model: preset.defaultModel ?? "", baseUrl: preset.baseUrl, apiMode: preset.apiMode, maxContextSize: preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE, maxOutputTokens: preset.suggestedMaxOutputTokens ?? 131072 }), [preset.id])
+  const { draft, saved, dirty, saving, status, update, save, reset } = useProviderDraft(preset.id, initial)
+  const localCli = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "cursor-cli"
+  const enabled = isProviderAvailable(preset.id, draft)
+  return <div className="model-preset-card" data-model-provider={preset.id}>
+    <fieldset disabled={saving}>
+      <PresetRow preset={preset} override={draft} isActive={false} isEnabled={enabled} isExpanded={expanded} savedHere={false} onToggleActive={() => {}} onToggleEnabled={() => update({ enabled: !enabled })} onToggleExpand={onToggle} onChange={update} />
+    </fieldset>
+    {(expanded || dirty) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (dirty ? "有未保存修改，启用状态也将在保存后生效。" : saved ? "当前配置已保存。" : "配置示例，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions">{dirty && <button type="button" className="model-button ghost" disabled={saving} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) reset() }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!dirty || saving} onClick={() => void save(validateProviderDraft(draft, { endpointRequired: !localCli && ["custom", "azure", "ollama"].includes(preset.provider), modelRequired: !localCli }))}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
+  </div>
+}
+
 type ProviderTestState =
   | { kind: "idle" }
   | { kind: "running"; label: string }
@@ -232,7 +323,17 @@ function PresetRow({
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
   const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
   const savedModelsTextareaRef = useRef<HTMLTextAreaElement>(null)
-  const { modelTestState, runBatchTest, retryFailed } = useBatchModelTest(t)
+  const uiTestCurrentOverride = useRef(JSON.stringify(ov))
+  const uiTestRevision = useRef(0), uiTestMounted = useRef(true)
+  if (uiTestCurrentOverride.current !== JSON.stringify(ov)) {
+    uiTestCurrentOverride.current = JSON.stringify(ov)
+    uiTestRevision.current++
+  }
+  useEffect(() => { uiTestMounted.current = true; return () => { uiTestMounted.current = false; uiTestRevision.current++ } }, [])
+  useEffect(() => { if (IS_UI_TEST_BUILD) { setTestState({ kind: "idle" }); setModelListState(null) } }, [ov])
+  const originalBatch = useBatchModelTest(t)
+  const uiTestBatch = useUiTestProviderBatch(ov, IS_UI_TEST_BUILD)
+  const { modelTestState, runBatchTest, retryFailed } = IS_UI_TEST_BUILD ? uiTestBatch : originalBatch
   const hasConfig =
     !!apiKey ||
     !!ov.baseUrl ||
@@ -261,6 +362,17 @@ function PresetRow({
   }, [apiKey, apiMode, baseUrl, preset.id, preset.provider])
 
   async function runProviderTest(kind: "connection" | "function") {
+    if (IS_UI_TEST_BUILD) {
+      if (!(await confirmModelAction("测试会向当前模型发送请求，可能消耗 token 和费用；不会自动保存配置。是否继续？"))) return
+      const captured = uiTestRevision.current
+      setTestState({ kind: "running", label: "正在测试…" })
+      try {
+        const result = await (kind === "connection" ? testLlmConnection : testLlmFunction)(resolvedConfig)
+        if (!uiTestMounted.current || uiTestRevision.current !== captured) return
+        setTestState({ kind: "done", result: { ok: result.ok, message: result.ok ? "测试通过，配置仍需单独保存。" : safeModelError(result.message, [apiKey]) } })
+      } catch (error) { if (uiTestMounted.current && uiTestRevision.current === captured) setTestState({ kind: "done", result: { ok: false, message: safeModelError(error, [apiKey]) } }) }
+      return
+    }
     setTestState({
       kind: "running",
       label: kind === "connection"
@@ -274,6 +386,7 @@ function PresetRow({
   }
 
   async function loadModelOptions() {
+    const captured = uiTestRevision.current
     setModelListState({
       loading: true,
       success: false,
@@ -282,6 +395,7 @@ function PresetRow({
 
     try {
       const result = await fetchLlmModelList(resolvedConfig)
+      if (IS_UI_TEST_BUILD && (!uiTestMounted.current || uiTestRevision.current !== captured)) return
       setModelOptions(result.models)
 
       // 拉取成功后自动展开模型选择区域
@@ -293,6 +407,7 @@ function PresetRow({
         message: t("settings.sections.shared.modelListSuccess", { count: result.models.length }),
       })
     } catch (error) {
+      if (IS_UI_TEST_BUILD && (!uiTestMounted.current || uiTestRevision.current !== captured)) return
       setModelListState({
         loading: false,
         success: false,
@@ -619,16 +734,18 @@ function PresetRow({
           {needsApiKey && (
             <div className="space-y-2">
               <Label>{t("settings.sections.llm.apiKey")}</Label>
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => onChange({ apiKey: e.target.value })}
-                placeholder={
-                  preset.provider === "custom"
-                    ? t("settings.sections.llm.apiKeyPlaceholderCustom")
-                    : t("settings.sections.llm.apiKeyPlaceholder")
-                }
-              />
+              {IS_UI_TEST_BUILD ? <ModelSecretInput value={apiKey} onChange={(apiKey) => onChange({ apiKey })} /> : (
+                <Input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => onChange({ apiKey: e.target.value })}
+                  placeholder={
+                    preset.provider === "custom"
+                      ? t("settings.sections.llm.apiKeyPlaceholderCustom")
+                      : t("settings.sections.llm.apiKeyPlaceholder")
+                  }
+                />
+              )}
             </div>
           )}
 
@@ -748,13 +865,13 @@ function PresetRow({
             </div>
             {modelListState?.message ? (
               <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
-                {modelListState.message}
+                {IS_UI_TEST_BUILD ? safeModelError(modelListState.message, [apiKey]) : modelListState.message}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
                 <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
-                  {modelTestState.message}
+                  {IS_UI_TEST_BUILD ? safeModelError(modelTestState.message, [apiKey]) : modelTestState.message}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
