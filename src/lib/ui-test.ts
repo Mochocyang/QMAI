@@ -1,4 +1,4 @@
-// UI 测试版开关。
+﻿// UI 测试版开关。
 // 优先使用本机持久化偏好（可通过设置页切换）；打包时传入 VITE_QMAI_UI_TEST=1 仅作为强制开启的兜底。
 // 切换后需要重启软件，运行时按启动时的值渲染界面。
 const UI_TEST_MODE_KEY = "qmai-ui-test-mode"
@@ -22,7 +22,7 @@ export const IS_UI_TEST_BUILD = STORED_UI_TEST_MODE ?? FORCE_UI_TEST_BUILD
 /** 写入本机界面版本偏好：true=新版界面，false=旧版界面。 */
 export function setUiTestMode(enabled: boolean): void {
   if (typeof localStorage === "undefined") {
-    throw new Error("???????????????")
+    throw new Error("当前环境不支持保存本机界面偏好")
   }
   localStorage.setItem(UI_TEST_MODE_KEY, enabled ? "1" : "0")
 }

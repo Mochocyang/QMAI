@@ -23,11 +23,12 @@
 5. 新增 `src/lib/ui-test.test.ts`，覆盖旧版默认、新版默认、偏好覆盖和写入本机偏好。
 6. 清理本轮修改文件中误插入到源码中间的 UTF-8 BOM。
 7. 删除新版 UI 最外侧画布留白、18px 圆角与投影，应用内容铺满窗口；窄屏同步取消外框效果。
+8. 同时关闭 Tauri 原生窗口阴影，避免 Windows 在无装饰窗口外再次绘制 1px 边框。
 
 ## 验证状态
 
 - `npm run typecheck`：通过。
-- UI 测试专项：28 个测试文件 / 212 项通过。
+- UI 测试专项：28 个测试文件 / 213 项通过。
 - `npm run build`：通过。
 - `npx tauri build --no-bundle`：通过。
 - 默认构建未设置 `VITE_QMAI_UI_TEST`，产物默认走旧版。
@@ -36,11 +37,11 @@
 ## 打包记录
 
 - 版本：3.2.16
-- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-noouterframe-20260919-105930.exe`
+- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-noouterframe-20260919-111420.exe`
 - 文件大小：213406720 字节
-- 最新 SHA-256：`F38E80452A60998DD92B7E3885EFD5C7FEA7E020C549D81E7BD7256F83EEA3A3`
-- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-runtime-switch-20260919-0949.exe`
-- 上一轮 SHA-256：`BFE265EE82A76C4E3F4BEB5EE1C3963974C92B6B73CA2F462EC30ED515225752`
+- 最新 SHA-256：`B90C95A926D75F8AA9BDE0A8E84B514CE88BBB4F13C7E7E37A2422BC85DC18C3`
+- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-noouterframe-20260919-105930.exe`
+- 上一轮 SHA-256：`F38E80452A60998DD92B7E3885EFD5C7FEA7E020C549D81E7BD7256F83EEA3A3`
 
 ## 提交状态
 

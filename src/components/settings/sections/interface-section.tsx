@@ -96,8 +96,13 @@ const SIDEBAR_NAV_LABEL_KEYS: Record<SidebarNavItemId, string> = {
 /** 测试版只切换独立皮肤；字体等继续交给设置草稿和原保存流程。 */
 async function switchUiTestMode(enabled: boolean) {
   const targetLabel = enabled ? "新版界面" : "旧版界面"
-  if (!window.confirm("切换到" + targetLabel + "需要重启软件。是否立即关闭并重启？")) return
-  try { setUiTestMode(enabled) } catch {}
+  if (!window.confirm("切换到" + targetLabel + "需要重启软件。是否立即关闭软件？关闭后请重新打开。")) return
+  try {
+    setUiTestMode(enabled)
+  } catch {
+    window.alert("无法保存界面版本设置，软件不会关闭。请检查本机存储权限后重试。")
+    return
+  }
   if (isTauri()) {
     void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close().catch(() => {}))
   } else {

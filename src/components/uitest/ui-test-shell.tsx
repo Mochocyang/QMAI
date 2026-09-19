@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
+﻿import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Leaf, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
@@ -110,7 +110,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   }, [])
   useEffect(() => {
     if (!isTauri()) return
-    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(false)).catch((err) => console.warn("设置测试版窗口外观失败：", err))
+    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => { const win = getCurrentWindow(); await Promise.all([win.setDecorations(false), win.setShadow(false)]) }).catch((err) => console.warn("设置测试版窗口外观失败：", err))
   }, [])
   useEffect(() => {
     if (preferenceProject.current !== project?.id) {
