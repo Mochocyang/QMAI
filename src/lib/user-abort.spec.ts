@@ -21,4 +21,9 @@ describe("user-abort", () => {
   it("ignores unrelated errors", () => {
     expect(() => rethrowIfUserAbort(new Error("timeout"))).not.toThrow()
   })
+
+  it("treats Tauri invalid resource id as abort", () => {
+    expect(isUserAbortError("The resource id 2199732775 is invalid.")).toBe(true)
+    expect(isUserAbortError(new Error("The resource id 1 is invalid."))).toBe(true)
+  })
 })

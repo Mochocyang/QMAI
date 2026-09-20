@@ -1,4 +1,8 @@
 import * as Sentry from "@sentry/react"
+import {
+  isTauriInvalidResourceIdError,
+  shouldDropSentryEvent,
+} from "@/lib/tauri-resource-error"
 
 const SENTRY_DSN =
   import.meta.env.VITE_SENTRY_DSN ??
@@ -33,12 +37,26 @@ if (import.meta.env.MODE !== "test") {
       userInfo: false,
       httpBodies: [],
     },
+    // QMAI-2: plugin-http abort races reject a bare string after the
+    // native resource is already dropped. Not an app bug.
+    ignoreErrors: [/The resource id \d+ is invalid/i],
     beforeBreadcrumb(breadcrumb) {
       if (typeof breadcrumb.message === "string" && breadcrumb.message.length > 200) {
         breadcrumb.message = `${breadcrumb.message.slice(0, 200)}…`
       }
       return breadcrumb
     },
+    beforeSend(event, hint) {
+      if (shouldDropSentryEvent(event, hint.originalException)) {
+        return null
+      }
+      return event
+    },
+  })
+
+  window.addEventListener("unhandledrejection", (event) => {
+    if (!isTauriInvalidResourceIdError(event.reason)) return
+    event.preventDefault()
   })
 }
 
