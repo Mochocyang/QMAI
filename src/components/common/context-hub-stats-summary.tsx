@@ -1,5 +1,6 @@
-import type { ContextHubStats } from "@/lib/context-hub/types"
+﻿import type { ContextHubStats } from "@/lib/context-hub/types"
 import { cn } from "@/lib/utils"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 
 function formatTokens(tokens: number): string {
   return `${tokens.toLocaleString()} Token`
@@ -42,6 +43,18 @@ export function ContextHubStatsSummary({ stats, className }: ContextHubStatsSumm
   if ((stats.composedTokens ?? 0) > 0) estimates.push(`上下文约 ${formatTokens(stats.composedTokens!)}`)
   if (stats.estimatedSavedTokens > 0) {
     estimates.push(`相比全量，估算少发送约 ${formatTokens(stats.estimatedSavedTokens)}（不代表缓存价格折扣）`)
+  }
+  if (IS_UI_TEST_BUILD) {
+    const compactTokens = stats.composedTokens ?? 0
+    const compactLocal = localRate !== undefined ? `${localRate}%` : "—"
+    const compactProvider = providerRate !== undefined ? `${providerRate}%` : "—"
+    return (
+      <div className={cn("ui-test-context-stats", className)}>
+        <span title={`上下文约 ${formatTokens(compactTokens)}`}>{formatTokens(compactTokens)}</span>
+        <span title={`模型输入缓存命中率 ${providerSummary}（${providerScope}）`}>{compactProvider}</span>
+        <span title={`本地资料复用率 ${localSummary}`}>{compactLocal}</span>
+      </div>
+    )
   }
   return (
     <div className={cn("min-w-0 whitespace-normal break-words", className)}>

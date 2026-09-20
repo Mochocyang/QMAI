@@ -1,8 +1,8 @@
-import type { FileNode } from "@/types/wiki"
+﻿import type { FileNode } from "@/types/wiki"
 
-export const UI_TEST_AI_DEFAULT_WIDTH = 360
-export const UI_TEST_AI_MIN_WIDTH = 300
-export const UI_TEST_AI_MAX_WIDTH = 560
+export const UI_TEST_AI_DEFAULT_WIDTH = 320
+export const UI_TEST_AI_MIN_WIDTH = 280
+export const UI_TEST_AI_MAX_WIDTH = 520
 export const UI_TEST_PANEL_GAP = 12
 
 export function getUiTestPanelLayout(containerWidth: number, requestedWidth: number, viewportWidth: number) {

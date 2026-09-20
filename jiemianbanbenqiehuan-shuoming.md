@@ -26,11 +26,12 @@
 8. 同时关闭 Tauri 原生窗口阴影，避免 Windows 在无装饰窗口外再次绘制 1px 边框。
 9. 删除新版左侧底部的“先有方向，再落笔”提示，以及右下角的“UI 测试版 · 独立数据”构建标签。
 10. 删除 AI 输入区“Enter 发送 / Shift + Enter 换行”提示；输入框默认高度由 96px 调整为 128px，最小高度调整为 112px；减弱输入区边框与聚焦颜色，并将 AI 面板底部内边距收紧至 6px，使输入区整体向下移动、视觉更轻。
+11. 删除大纲助手顶部无用的“1”上下文边框；上下文中控默认只显示 Token、模型输入缓存、命中率数字，悬停时再显示指标说明；AI 助手默认宽度由 360px 收窄到 320px，头像图标由 34px 收窄到 24px；AI 大纲输入框聚焦时不再显示选中边框和线条，只保留输入光标。
 
 ## 验证状态
 
 - `npm run typecheck`：通过。
-- UI 测试专项：28 个测试文件 / 214 项通过。
+- UI 测试专项：30 个测试文件 / 222 项通过。
 - `npm run build`：通过。
 - `npx tauri build --no-bundle`：通过。
 - 默认构建未设置 `VITE_QMAI_UI_TEST`，产物默认走旧版。
@@ -39,11 +40,11 @@
 ## 打包记录
 
 - 版本：3.2.16
-- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-ai-input-20260920-105617.exe`
+- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-panel-refine-20260920-111342.exe`
 - 文件大小：213406720 字节
-- 最新 SHA-256：`4E1C0AD5556ACC30C888D6C6D5183C55291D1E9ABD2C9BB2EF28E306655C4536`
-- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-ai-composer-20260920-104805.exe`
-- 上一轮 SHA-256：`633ACB5C239A976A8A565BBE744CBCA4781DB88E2F954549A28F07C5156B2595`
+- 最新 SHA-256：`1F539835605CC440054A8C80E197218804B84978247AB227BA08BABC50D7D067`
+- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-ai-input-20260920-105617.exe`
+- 上一轮 SHA-256：`4E1C0AD5556ACC30C888D6C6D5183C55291D1E9ABD2C9BB2EF28E306655C4536`
 
 ## 提交状态
 

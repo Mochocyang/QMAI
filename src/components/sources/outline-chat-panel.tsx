@@ -1,4 +1,4 @@
-import {
+﻿import {
   type CSSProperties,
   useRef,
   useCallback,
@@ -30,7 +30,7 @@ import {
 import { OUTPUT_TRUNCATED_ERROR_MARKER } from "@/lib/llm-client";
 import { Button } from "@/components/ui/button";
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
-import { UiTestAiIdentity, UiTestAiContext, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, UiTestAiComposer, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts";
+import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, UiTestAiComposer, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts";
 import "@/components/uitest/ui-test-ai.css";
 import { saveAiOutlineModel, saveOutlineWorkflowMode } from "@/lib/project-store";
 import {
@@ -1361,7 +1361,6 @@ function OutlineGenerationMenu({
 
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project);
-  const selectedFile = useWikiStore((s) => s.selectedFile);
   const llmConfig = useWikiStore((s) => s.llmConfig);
   const novelConfig = useWikiStore((s) => s.novelConfig);
   const providerConfigs = useWikiStore((s) => s.providerConfigs);
@@ -4764,7 +4763,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {IS_UI_TEST_BUILD && project && <UiTestAiContext projectName={project.name} selectedFile={selectedFile} />}
+
       {IS_UI_TEST_BUILD && outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" && (
         <p className="ui-test-ai-stage" role="status">{outlineWorkflowStage === "intent_analysis" ? "意图分析中" : outlineWorkflowStage === "waiting_user_input" ? "等待选择" : outlineWorkflowStage === "sufficiency_check" ? "生成中" : "处理中"}</p>
       )}

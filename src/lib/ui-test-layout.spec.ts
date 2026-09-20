@@ -1,28 +1,28 @@
-import { describe, expect, it } from "vitest"
+﻿import { describe, expect, it } from "vitest"
 import { getUiTestPanelLayout, resizeUiTestAiByKey, filterUiTestDirectory, getUiTestDocumentPath } from "./ui-test-layout"
 
 describe("测试版基于实际容器的布局", () => {
-  it("桌面保留480正文，AI默认360，不突破容器", () => {
-    expect(getUiTestPanelLayout(1140, 360, 1440)).toEqual({ mode: "split", aiWidth: 360, editorWidth: 768, maxAiWidth: 560 })
+  it("桌面保留480正文，AI默认320，不突破容器", () => {
+    expect(getUiTestPanelLayout(1140, 360, 1440)).toEqual({ mode: "split", aiWidth: 360, editorWidth: 768, maxAiWidth: 520 })
     const small = getUiTestPanelLayout(810, 560, 1200)
     expect(small.aiWidth).toBe(318)
     expect(small.editorWidth).toBe(480)
   })
-  it("中等窗口正文至少360、AI至少300；空间不足用页签", () => {
+  it("中等窗口正文至少360、AI至少280；空间不足用页签", () => {
     expect(getUiTestPanelLayout(710, 560, 900)).toMatchObject({ mode: "split", aiWidth: 338, editorWidth: 360 })
     expect(getUiTestPanelLayout(600, 560, 900)).toMatchObject({ mode: "tabs", aiWidth: 600, editorWidth: 600 })
     expect(getUiTestPanelLayout(720, 360, 767).mode).toBe("tabs")
   })
-  it("AI限宽300到560，异常偏好使用360", () => {
-    expect(getUiTestPanelLayout(1200, 30, 1440).aiWidth).toBe(300)
-    expect(getUiTestPanelLayout(1200, Infinity, 1440).aiWidth).toBe(360)
-    expect(getUiTestPanelLayout(1200, 999, 1440).aiWidth).toBe(560)
+  it("AI限宽280到520，异常偏好使用320", () => {
+    expect(getUiTestPanelLayout(1200, 30, 1440).aiWidth).toBe(280)
+    expect(getUiTestPanelLayout(1200, Infinity, 1440).aiWidth).toBe(320)
+    expect(getUiTestPanelLayout(1200, 999, 1440).aiWidth).toBe(520)
   })
   it("键盘拖柄16px步进、Home最小/End最大", () => {
     expect(resizeUiTestAiByKey(360, "ArrowLeft")).toBe(376)
     expect(resizeUiTestAiByKey(360, "ArrowRight")).toBe(344)
-    expect(resizeUiTestAiByKey(360, "Home")).toBe(300)
-    expect(resizeUiTestAiByKey(360, "End")).toBe(560)
+    expect(resizeUiTestAiByKey(360, "Home")).toBe(280)
+    expect(resizeUiTestAiByKey(360, "End")).toBe(520)
     expect(resizeUiTestAiByKey(360, "Enter")).toBe(360)
   })
 })
