@@ -1,9 +1,9 @@
-/* 仅两个助手的 VITE_QMAI_UI_TEST 标识生效；宽度、外壳与共享 portal 主题由主布局负责。 */
+﻿/* 仅两个助手的 VITE_QMAI_UI_TEST 标识生效；宽度、外壳与共享 portal 主题由主布局负责。 */
 [data-ui-ai-panel] {
   min-width: 0;
   min-height: 0;
   gap: 18px;
-  padding: 24px 18px 18px;
+  padding: 24px 18px 6px;
   border: 0;
   background: var(--ui-panel);
   color: var(--ui-ink);
