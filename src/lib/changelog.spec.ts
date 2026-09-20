@@ -9,10 +9,13 @@ describe("changelog", () => {
     expect(versions.slice(0, 3)).toEqual(["3.2.19", "3.2.18", "3.2.17"])
     const release3219 = currentVersionChangelog("3.2.19")[0]
     expect(release3219.version).toBe("3.2.19")
+    expect(release3219.date).toBe("2026-09-20")
     expect(release3219.highlights.zh.join("\n")).toContain("大纲共创模式")
     expect(release3219.highlights.zh.join("\n")).toContain("设置页反馈表单")
     expect(release3219.highlights.zh.join("\n")).toContain("语料去AI味前缀")
+    expect(release3219.highlights.zh.join("\n")).toContain("过短失败保留原文")
     expect(release3219.highlights.en.join("\n")).toContain("Outline Co-creation Mode")
+    expect(release3219.highlights.en.join("\n")).toContain("Short Failure Keeps Original")
     const release3218 = currentVersionChangelog("3.2.18")[0]
     expect(release3218.version).toBe("3.2.18")
     expect(release3218.highlights.zh.join("\n")).toContain("Writing DNA 文风")

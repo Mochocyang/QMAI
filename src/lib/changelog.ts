@@ -9,17 +9,19 @@ interface ChangelogEntry {
 
 const THREE_POINT_TWO_NINETEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.19",
-  date: "2026-09-17",
+  date: "2026-09-20",
   highlights: {
     en: [
       "[Outline Co-creation Mode] Outline chat adds a discuss mode: the model acts as an editor, raises 1-3 decision points with its own preference, and only writes a full outline after you confirm. Standard and plan modes can now discuss instead of being forced to output body text only.",
       "[Settings Feedback Form] Settings now use Sentry official Feedback instead of the homemade form and Cloudflare submit path. The widget follows the app theme and does not capture screenshots.",
       "[Corpus De-AI Prefix] Corpus-stats de-AI results no longer keep the model's leftover process sentence such as 'first check the style document'.",
+      "[Short Failure Keeps Original] When a task brief, draft, or expansion falls below the completion line, the model's original text is written into the chat log so you can tell a refusal from empty output.",
     ],
     zh: [
       "【大纲共创模式】大纲对话新增「共创」档：AI 当责编抛出 1-3 个决策点和自己的倾向，你确认定稿后才出正文；标准/计划档的讨论轮也不再被「只输出正文」压住",
       "【设置页反馈表单】设置页改用 Sentry 官方 Feedback，替换自写表单和 Cloudflare 提交链路；跟随应用主题，不截图",
       "【语料去AI味前缀】语料统计去AI味结果不再带上模型残留的「先核对风格文档」过程句",
+      "【过短失败保留原文】任务书/初稿/扩写低于完成线时，把模型原文写入聊天记录，避免只看到「约 N 字」无法判断是拒写还是空输出",
     ],
   },
 };
