@@ -2149,24 +2149,30 @@ describe("runDeepChapterGeneration", () => {
         callbacks.onDone()
       }),
     }
-    const events: Array<{ type: string; name: string; result?: string }> = []
+    const events: Array<{ type: string; name: string; result?: string; params?: Record<string, unknown> }> = []
 
     await expect(runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第239章", chapterNumber: 239, llmConfig },
       { onWorkflowEvent: (event) => events.push(event) },
       deps,
-    )).rejects.toThrow(/扩写后仅约 .*低于最低完成线/)
+    )).rejects.toThrow(/扩写后仅约 .*低于最低完成线[\s\S]*原文：当前资料不足，无法扩写。/)
 
     expect(deps.reviewChapter).not.toHaveBeenCalled()
     expect(events).toContainEqual(expect.objectContaining({
       type: "completed",
       name: "chapter_draft",
-      result: expect.stringContaining("低于最低完成线"),
+      result: expect.stringContaining("原文：请提供第239章章纲后再继续。"),
+      params: expect.objectContaining({
+        preview: "请提供第239章章纲后再继续。",
+      }),
     }))
     expect(events).toContainEqual(expect.objectContaining({
       type: "error",
       name: "chapter_expansion",
-      result: expect.stringContaining("章节正文生成失败"),
+      result: expect.stringContaining("原文：当前资料不足，无法扩写。"),
+      params: expect.objectContaining({
+        preview: "当前资料不足，无法扩写。",
+      }),
     }))
     expect(events).not.toContainEqual(expect.objectContaining({
       type: "completed",
@@ -2447,24 +2453,30 @@ describe("runDeepChapterGeneration", () => {
         callbacks.onDone()
       }),
     }
-    const events: Array<{ type: string; name: string; result?: string }> = []
+    const events: Array<{ type: string; name: string; result?: string; params?: Record<string, unknown> }> = []
 
     await expect(runDeepChapterGeneration(
       { projectPath: "E:/Novel", userRequest: "生成第3章", chapterNumber: 3, llmConfig },
       { onWorkflowEvent: (event) => events.push(event) },
       deps,
-    )).rejects.toThrow(/重生成后仅约 .*低于最低完成线/)
+    )).rejects.toThrow(/重生成后仅约 .*低于最低完成线[\s\S]*原文：无法生成。/)
 
     expect(deps.reviewChapter).not.toHaveBeenCalled()
     expect(events).toContainEqual(expect.objectContaining({
       type: "completed",
       name: "chapter_task_brief",
-      result: expect.stringContaining("进入重新生成"),
+      result: expect.stringContaining("原文：无法生成。"),
+      params: expect.objectContaining({
+        preview: "无法生成。",
+      }),
     }))
     expect(events).toContainEqual(expect.objectContaining({
       type: "error",
       name: "chapter_task_brief_retry",
-      result: expect.stringContaining("写作任务书生成失败"),
+      result: expect.stringContaining("原文：无法生成。"),
+      params: expect.objectContaining({
+        preview: "无法生成。",
+      }),
     }))
     expect(events).not.toContainEqual(expect.objectContaining({
       name: "chapter_draft",

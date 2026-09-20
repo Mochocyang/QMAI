@@ -404,6 +404,10 @@ function errorChapterWorkflowStep(
 ): void {
   emitChapterWorkflowEvent(callbacks, "error", spec, {
     result: getErrorMessage(error),
+    params:
+      error instanceof ShortModelOutputError
+        ? { chars: error.chars, preview: error.preview }
+        : undefined,
   });
 }
 
@@ -871,10 +875,13 @@ export async function runDeepChapterGeneration(
       (value) => {
         const chars = countChapterChars(value);
         return chars < DEEP_CHAPTER_BRIEF_MIN_CHARS
-          ? `写作任务书仅约 ${chars} 字，低于最低完成线 ${DEEP_CHAPTER_BRIEF_MIN_CHARS} 字，进入重新生成。`
+          ? formatShortOutputResult(
+              `写作任务书仅约 ${chars} 字，低于最低完成线 ${DEEP_CHAPTER_BRIEF_MIN_CHARS} 字，进入重新生成。`,
+              value,
+            )
           : `写作任务书完成，约 ${chars} 字。`;
       },
-      (value) => ({ chars: countChapterChars(value) }),
+      (value) => shortOutputStepParams(value, DEEP_CHAPTER_BRIEF_MIN_CHARS),
     );
     if (!isUsableTaskBrief(taskBrief)) {
       taskBrief = await runChapterWorkflowStep(
@@ -889,8 +896,9 @@ export async function runDeepChapterGeneration(
           const regenerated = await collectTaskBrief();
           const chars = countChapterChars(regenerated);
           if (chars < DEEP_CHAPTER_BRIEF_MIN_CHARS) {
-            throw new Error(
+            throw new ShortModelOutputError(
               `写作任务书生成失败：重生成后仅约 ${chars} 字，低于最低完成线 ${DEEP_CHAPTER_BRIEF_MIN_CHARS} 字。`,
+              regenerated,
             );
           }
           return regenerated;
@@ -975,10 +983,13 @@ export async function runDeepChapterGeneration(
       (value) => {
         const chars = countChapterChars(value);
         return chars < lengthSpec.minChars
-          ? `正文初稿仅约 ${chars} 字，低于最低完成线 ${lengthSpec.minChars} 字，进入扩写补足。`
+          ? formatShortOutputResult(
+              `正文初稿仅约 ${chars} 字，低于最低完成线 ${lengthSpec.minChars} 字，进入扩写补足。`,
+              value,
+            )
           : `正文初稿完成，约 ${chars} 字。`;
       },
-      (value) => ({ chars: countChapterChars(value) }),
+      (value) => shortOutputStepParams(value, lengthSpec.minChars),
     );
     assertNotAborted(signal);
     if (countChapterChars(draftContent) < lengthSpec.minChars) {
@@ -1020,8 +1031,9 @@ export async function runDeepChapterGeneration(
           );
           const expandedChars = countChapterChars(expanded);
           if (expandedChars < lengthSpec.minChars) {
-            throw new Error(
+            throw new ShortModelOutputError(
               `章节正文生成失败：扩写后仅约 ${expandedChars} 字，低于最低完成线 ${lengthSpec.minChars} 字。`,
+              expanded,
             );
           }
           return expanded;
@@ -2082,6 +2094,36 @@ async function collectModelText(
 
 function countChapterChars(content: string): number {
   return content.replace(/\s+/g, "").length;
+}
+
+function shortOutputPreview(content: string): string {
+  return content.trim() || "（空）";
+}
+
+function formatShortOutputResult(message: string, content: string): string {
+  return `${message}\n原文：${shortOutputPreview(content)}`;
+}
+
+function shortOutputStepParams(
+  content: string,
+  minChars: number,
+): Record<string, unknown> {
+  const chars = countChapterChars(content);
+  if (chars >= minChars) return { chars };
+  return { chars, preview: shortOutputPreview(content) };
+}
+
+class ShortModelOutputError extends Error {
+  readonly chars: number;
+  readonly preview: string;
+
+  constructor(message: string, content: string) {
+    const preview = shortOutputPreview(content);
+    super(`${message}\n原文：${preview}`);
+    this.name = "ShortModelOutputError";
+    this.chars = countChapterChars(content);
+    this.preview = preview;
+  }
 }
 
 function isUsableTaskBrief(content: string): boolean {
