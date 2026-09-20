@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 const css = readFileSync(resolve(__dirname, "ui-test.css"), "utf8")
 const shell = readFileSync(resolve(__dirname, "ui-test-shell.tsx"), "utf8")
+const sidebar = readFileSync(resolve(__dirname, "../layout/sidebar-panel.tsx"), "utf8")
 
 describe("新版 UI 最外侧窗口", () => {
   it("根容器不再保留外层画布留白", () => {
@@ -22,5 +23,11 @@ describe("新版 UI 最外侧窗口", () => {
   it("测试版窗口同时关闭原生装饰和阴影", () => {
     expect(shell).toContain("win.setDecorations(false)")
     expect(shell).toContain("win.setShadow(false)")
+  })
+
+  it("新版不再显示底部目录提示和构建标签", () => {
+    expect(sidebar).not.toContain('className="ui-test-directory-note"')
+    expect(sidebar).not.toContain("先有方向，再落笔")
+    expect(shell).not.toContain("ui-test-build-label")
   })
 })

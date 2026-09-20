@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+﻿import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
@@ -11,7 +11,6 @@ import {
   Clock3,
   FileText,
   GitBranchPlus,
-  Leaf,
   Plus,
   RefreshCw,
   Sparkles,
@@ -1285,7 +1284,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           onSendToOutline={!isChapter ? handleSendOutlineToOutlineChat : undefined}
         />
       </div>
-      {IS_UI_TEST_BUILD ? <div className="ui-test-directory-note"><button type="button" title="功能使用说明" onClick={() => void openExternalUrl(USAGE_GUIDE_URL)}><Leaf aria-hidden="true" />先有方向，再落笔<br />目录可以收起，文字仍在这里。</button></div> : (
+      {!IS_UI_TEST_BUILD && (
       <div className="border-t px-3 py-2">
         <button
           type="button"

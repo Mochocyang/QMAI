@@ -1,4 +1,4 @@
-/* 独立 UI 测试版。视觉基准：20260907-003151 图稿；正式版无匹配选择器。 */
+﻿/* 独立 UI 测试版。视觉基准：20260907-003151 图稿；正式版无匹配选择器。 */
 .ui-test-root, .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] * { box-sizing: border-box; }
 .ui-test-root, html[data-ui-test-skin] {
   --ui: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
@@ -112,7 +112,6 @@
 .ui-test-workspace-tabs button[aria-selected="true"] { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-workspace-tabs svg { width: 16px; height: 16px; }
 .ui-test-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--ui-muted); font-size: 14px; }
-.ui-test-build-label { position: absolute; right: 28px; bottom: 3px; color: var(--ui-muted); font-size: 11px; line-height: 17px; }
 .ui-test-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 13px; border-radius: 8px; border: 0; background: var(--ui-panel); color: var(--ui-muted); white-space: nowrap; font-size: 13px; font-weight: 500; cursor: pointer; }
 .ui-test-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
 .ui-test-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); }
@@ -138,7 +137,7 @@ html[data-ui-test-skin] .ui-test-activity-dialog { width: min(600px, calc(100vw 
 @media (max-width: 1279px) { .ui-test-current-book { max-width: 110px; } .ui-test-nav-item { padding-inline: 22px; } .ui-test-header { gap: 12px; padding-inline: 22px; } .ui-test-win-actions { margin-left: 4px; } }
 @media (max-width: 1179px) { .ui-test-current-book { display: none; } .ui-test-header-action { padding-inline: 9px; } .ui-test-brand { gap: 8px; } .ui-test-crumb { margin-left: 0; } .ui-test-header { padding-inline: 18px; } .ui-test-nav-item { padding-inline: 18px; } }
 @media (max-width: 959px) { .ui-test-root { padding: 0; } .ui-test-brand-name { font-size: 19px; } .ui-test-header { gap: 8px; padding-inline: 16px; } .ui-test-nav-item { padding-inline: 14px; } .ui-test-header-action span { display: none; } .ui-test-header-action { width: 34px; padding: 8px; } .ui-test-actions { gap: 3px; } .ui-test-win-btn { width: 19px; } }
-@media (max-width: 767px) { .ui-test-root { padding: 0; } .ui-test-app { border-radius: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-header-action { width: 32px; min-height: 32px; } .ui-test-menu-pop { position: fixed; top: 68px; right: 20px; max-height: calc(100dvh - 100px); } .ui-test-build-label { right: 14px; } .ui-test-sidebar { min-width: 0; } .ui-test-tree-more { opacity: 1; } }
+@media (max-width: 767px) { .ui-test-root { padding: 0; } .ui-test-app { border-radius: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-header-action { width: 32px; min-height: 32px; } .ui-test-menu-pop { position: fixed; top: 68px; right: 20px; max-height: calc(100dvh - 100px); } .ui-test-sidebar { min-width: 0; } .ui-test-tree-more { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] { transition: none !important; animation: none !important; } }
 
 /* 文档行把完整标题留给用户，低频动作在悬停/键盘焦点时原位出现。 */
