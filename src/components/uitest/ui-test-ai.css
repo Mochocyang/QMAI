@@ -86,8 +86,8 @@
 [data-ui-ai-tools] button[aria-pressed="true"] { background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-tools] button:hover:not(:disabled) { background: var(--ui-soft); }
 [data-ui-ai-tools] [aria-label="上下文用量"] { color: var(--ui-muted); }
-[data-ui-ai-composer] div:has(> [data-reference-input-footer]) { border: 1px solid var(--ui-soft); border-radius: 14px; background: var(--ui-paper); box-shadow: none; }
-[data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { outline: 1px solid var(--ui-accent); outline-offset: -1px; }
+[data-ui-ai-composer] div:has(> [data-reference-input-footer]) { border: 1px solid color-mix(in srgb, var(--ui-line) 45%, transparent); border-radius: 14px; background: var(--ui-paper); box-shadow: none; }
+[data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { outline: 1px solid color-mix(in srgb, var(--ui-accent) 35%, transparent); outline-offset: -1px; box-shadow: none; }
 [data-ui-ai-composer] [role="separator"] { background: transparent; }
 [data-ui-ai-composer] [role="separator"] > span { background: var(--ui-soft); }
 [data-ui-ai-composer] textarea { color: var(--ui-ink); font: 14px/1.7 var(--ui); }
@@ -104,7 +104,6 @@
 [data-ui-ai-composer] .relative > .flex.flex-wrap { max-height: 96px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
 [data-ui-ai-panel] [data-reference-id] { display: inline-block; max-width: 100%; min-width: 0; border-color: transparent; background: var(--ui-soft); color: var(--ui-accent); font-size: 12px; white-space: normal; overflow-wrap: anywhere; vertical-align: middle; }
 [data-ui-ai-panel] [data-reference-id] button { display: inline-flex; vertical-align: middle; color: var(--ui-muted); }
-[data-ui-ai-panel] .ui-test-ai-input-hint { margin: 8px 0 0; text-align: center; color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
 
 /* 这些菜单由本面板创建；配色 token 由测试版的共享 portal 桥接继承。 */
 [data-ui-ai-menu] { max-width: calc(100vw - 16px); max-height: min(60dvh, 360px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 0; border-radius: 12px; padding: 8px; background: var(--ui-paper); color: var(--ui-ink); font: 13px/1.65 var(--ui); box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent); }

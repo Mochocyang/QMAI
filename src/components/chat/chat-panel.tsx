@@ -2944,7 +2944,6 @@ export function ChatPanel() {
                   : t(novelMode ? "novel.chat.typeAMessage" : "chat.typeAMessage")
               }
             />
-            {IS_UI_TEST_BUILD && <p className="ui-test-ai-input-hint">Enter 发送 · Shift + Enter 换行</p>}
           </div>
           <ReferencePickerDialog
             open={referencePickerOpen}

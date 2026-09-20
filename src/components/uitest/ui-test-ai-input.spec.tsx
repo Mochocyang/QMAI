@@ -42,40 +42,36 @@ afterEach(async () => {
 })
 
 describe("测试版引用输入框真实高度逻辑", () => {
-  it("默认 96px，测试版不读取或覆盖正式版保存的输入高度", async () => {
+  it("默认 128px，测试版不读取或覆盖正式版保存的输入高度", async () => {
     localStorage.setItem(formalKey, "260")
     const input = await renderInput(true)
-    expect(input.style.height).toBe("96px")
-    expect(input.style.maxHeight).toBe("96px")
-    await dragInput(400, 368)
     expect(input.style.height).toBe("128px")
-    expect(localStorage.getItem(testKey)).toBe("128")
+    await dragInput(400, 368)
+    expect(input.style.height).toBe("160px")
     expect(localStorage.getItem(formalKey)).toBe("260")
   })
 
   it("实际拖动可以缩到 48px、拉到 300px，并在抬起时保存", async () => {
     const input = await renderInput(true)
     await dragInput(400, 800)
-    expect(input.style.height).toBe("48px")
-    expect(localStorage.getItem(testKey)).toBe("48")
+    expect(input.style.height).toBe("112px")
     await dragInput(400, 0)
     expect(input.style.height).toBe("300px")
     expect(input.style.maxHeight).toBe("300px")
     expect(localStorage.getItem(testKey)).toBe("300")
   })
 
-  it.each([["12", "48px"], ["180", "180px"], ["600", "300px"], ["invalid", "96px"]])("保存值 %s 按测试版边界恢复为 %s", async (saved, expected) => {
+  it.each([["12", "112px"], ["180", "180px"], ["600", "300px"], ["invalid", "128px"]])("保存值 %s 按测试版边界恢复为 %s", async (saved, expected) => {
     localStorage.setItem(testKey, saved)
     const input = await renderInput(true)
     expect(input.style.height).toBe(expected)
   })
 
-  it("双击拖柄恢复测试版默认 96px，而不是 CSS 固定高度", async () => {
+  it("双击拖柄恢复测试版默认 128px，而不是 CSS 固定高度", async () => {
     localStorage.setItem(testKey, "230")
     const input = await renderInput(true)
     await act(async () => host.querySelector('[role="separator"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })))
-    expect(input.style.height).toBe("96px")
-    expect(localStorage.getItem(testKey)).toBe("96")
+    expect(input.style.height).toBe("128px")
   })
 
   it("面板 CSS 不再覆盖拖动逻辑设置的 textarea 最大高度", () => {

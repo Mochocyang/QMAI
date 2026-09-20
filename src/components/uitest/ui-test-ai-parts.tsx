@@ -53,7 +53,6 @@ export function UiTestAiComposer({ enabled, children }: {
     <>
       <div data-ui-ai-tools>{children.props.leftFooterControls}</div>
       {cloneElement(children, { leftFooterControls: undefined })}
-      <p className="ui-test-ai-input-hint">Enter 发送 · Shift + Enter 换行</p>
     </>
   )
 }

@@ -25,6 +25,7 @@
 7. 删除新版 UI 最外侧画布留白、18px 圆角与投影，应用内容铺满窗口；窄屏同步取消外框效果。
 8. 同时关闭 Tauri 原生窗口阴影，避免 Windows 在无装饰窗口外再次绘制 1px 边框。
 9. 删除新版左侧底部的“先有方向，再落笔”提示，以及右下角的“UI 测试版 · 独立数据”构建标签。
+10. 删除 AI 输入区“Enter 发送 / Shift + Enter 换行”提示；输入框默认高度由 96px 调整为 128px，最小高度调整为 112px；减弱输入区边框与聚焦颜色，使输入区整体更靠下、视觉更轻。
 
 ## 验证状态
 
@@ -38,11 +39,11 @@
 ## 打包记录
 
 - 版本：3.2.16
-- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-clean-20260920-103105.exe`
+- 最新产物（已移除最外侧边框）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-ai-composer-20260920-104805.exe`
 - 文件大小：213406720 字节
-- 最新 SHA-256：`F7328D00E1ECFB2D9C3FDF02570A1F706F9DCFA0F6C3410F52BFE73403A91AE7`
-- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-noouterframe-20260919-111420.exe`
-- 上一轮 SHA-256：`B90C95A926D75F8AA9BDE0A8E84B514CE88BBB4F13C7E7E37A2422BC85DC18C3`
+- 最新 SHA-256：`633ACB5C239A976A8A565BBE744CBCA4781DB88E2F954549A28F07C5156B2595`
+- 上一轮产物（保留备份）：`C:\QMAI_C\QMAI-main\release-portable-uitest\QMaiWrite-UI-test-clean-20260920-103105.exe`
+- 上一轮 SHA-256：`F7328D00E1ECFB2D9C3FDF02570A1F706F9DCFA0F6C3410F52BFE73403A91AE7`
 
 ## 提交状态
 

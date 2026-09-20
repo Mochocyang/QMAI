@@ -178,7 +178,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(footer?.textContent).toContain("本地验证模型")
     expect(footer?.contains(mode!)).toBe(false)
     expect(container.querySelectorAll("textarea")).toHaveLength(1)
-    expect(container.querySelector("[data-ui-ai-composer]")?.textContent).toContain("Shift + Enter 换行")
+    expect(container.querySelector("[data-ui-ai-composer]")?.textContent).not.toContain("Enter 发送")
     await click(mode ?? null)
     const menu = document.querySelector('[data-ui-ai-menu="mode"]')
     expect(menu).not.toBeNull()
