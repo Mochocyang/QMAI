@@ -16,6 +16,7 @@
         "width": 1200,
         "height": 800,
         "resizable": true,
+        "transparent": true,
         "fullscreen": false,
         "additionalBrowserArgs": "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding"
       }

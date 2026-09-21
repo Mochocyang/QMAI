@@ -2,8 +2,8 @@
 [data-ui-ai-panel] {
   min-width: 0;
   min-height: 0;
-  gap: 18px;
-  padding: 24px 18px 6px;
+  gap: 12px;
+  padding: 12px 18px 6px;
   border: 0;
   background: var(--ui-panel);
   color: var(--ui-ink);
@@ -19,7 +19,7 @@
   background: transparent;
 }
 
-[data-ui-ai-panel] .ui-test-ai-identity { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; }
+[data-ui-ai-panel] .ui-test-ai-identity { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
 [data-ui-ai-panel] .ui-test-ai-mark { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 7px; background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-panel] .ui-test-ai-mark svg { width: 13px; height: 13px; }
 [data-ui-ai-panel] .ui-test-ai-heading { min-width: 0; flex: 1; }
@@ -38,6 +38,8 @@
 [data-ui-ai-panel] .ui-test-ai-context svg { width: 14px; height: 14px; flex-shrink: 0; }
 [data-ui-ai-panel] .ui-test-ai-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-test-context-details { margin-top: 8px; }
+.ui-test-reference-context-column { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ui-test-reference-context-column .ui-test-context-details { margin-top: 0; }
 .ui-test-context-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ui-muted); font-size: 12px; line-height: 1.6; }
 .ui-test-context-stats span { white-space: nowrap; }
 [data-ui-ai-body] { min-width: 0; gap: 18px; }
@@ -97,8 +99,17 @@
 [data-ui-ai-composer] textarea { color: var(--ui-ink); font: 14px/1.7 var(--ui); }
 [data-ui-ai-composer] textarea::placeholder { color: var(--ui-muted); opacity: 1; }
 [data-ui-ai-composer] [data-reference-input-footer] { gap: 8px; padding: 8px 10px; border: 0; }
-[data-ui-ai-composer] [data-reference-input-footer] > div:last-child { flex: 1; min-width: 0; gap: 8px; }
-[data-ui-ai-composer] [data-reference-input-footer] > div:last-child > :is(.relative, .ui-test-ai-model) { flex: 1; min-width: 0; }
+[data-ui-ai-composer] [data-reference-input-footer] > div:last-child {
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
+  gap: 8px;
+}
+[data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .ui-test-ai-model {
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 0;
+}
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative > button,
 [data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: 100%; min-width: 0; max-width: 100%; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
 [data-ui-ai-composer] [aria-label="引用内容"] { flex-shrink: 0; color: var(--ui-muted); }
@@ -125,6 +136,7 @@
 [data-ui-ai-menu="generation"] [role="menuitem"] { min-height: 34px; color: var(--ui-ink); }
 [data-ui-ai-menu="generation"] .truncate { white-space: normal; }
 [data-ui-ai-panel] :is(button, textarea):focus-visible, [data-ui-ai-menu] button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+[data-ui-ai-composer] textarea:focus-visible { outline: none; box-shadow: none; }
 
 @media (pointer: coarse) {
   [data-ui-ai-header] button { width: 40px; height: 44px; }

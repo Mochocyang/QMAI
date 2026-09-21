@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react"
 import { Menu } from "@base-ui/react/menu"
-import { Check, ChevronRight, Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
+import { ChevronRight, Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
 import "./ui-test-editor.css"
 
 export interface UiTestEditorSaveState {
@@ -36,11 +36,9 @@ interface UiTestEditorProps {
   children: (mode: "read" | "edit") => ReactNode
 }
 
-const SAVE_LABELS: Record<UiTestEditorSaveState["phase"], string> = {
-  loaded: "已从本地读取",
+const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
   pending: "等待自动保存…",
   saving: "正在保存…",
-  saved: "已保存到本地",
   error: "保存失败，修改尚未保存",
   conflict: "文件已在外部修改，当前内容尚未保存；请核对原文件",
   "load-error": "读取文件失败，请重新打开文档",
@@ -61,6 +59,10 @@ export function UiTestEditor({
   const cancelTitleRef = useRef(false)
   const wordCountLabel = `${wordCount.toLocaleString("zh-CN")} 字`
   const currentSaveState = saveState?.path === path ? saveState : null
+  const saveLabel = currentSaveState && currentSaveState.phase !== "loaded" && currentSaveState.phase !== "saved"
+    ? SAVE_LABELS[currentSaveState.phase]
+    : undefined
+  const showFooter = Boolean(taskStatus || saveLabel)
 
   useEffect(() => {
     if (!editingTitle) setTitleDraft(title)
@@ -138,10 +140,12 @@ export function UiTestEditor({
                 }}>{title}</button>
               </h1>
             )}
-            <div className="ui-test-editor-meta">
-              <span className="ui-test-editor-status">{statusLabel}</span>
-              <span>{wordCountLabel}</span>
-            </div>
+            {kind === "chapter" ? (
+              <div className="ui-test-editor-meta">
+                <span className="ui-test-editor-status">{statusLabel}</span>
+                <span>{wordCountLabel}</span>
+              </div>
+            ) : null}
           </div>
           <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
             {actions}
@@ -186,17 +190,19 @@ export function UiTestEditor({
         <div className="ui-test-editor-body" data-mode={mode}>
           {children(mode)}
         </div>
-        <footer className="ui-test-editor-footer">
-          <div className="ui-test-editor-save">
-            <span role="status" aria-live="polite" aria-atomic="true" data-ui-test-save-state={currentSaveState?.phase ?? "unknown"}>
-              {currentSaveState?.phase === "saved" ? <Check aria-hidden="true" /> : null}
-              {currentSaveState ? SAVE_LABELS[currentSaveState.phase] : "保存状态待确认"}
-            </span>
-            {currentSaveState?.phase === "error" ? <button className="ui-test-editor-action" type="button" onClick={onRetrySave}>重试保存</button> : null}
-            {taskStatus ? <p className="ui-test-editor-task-status" role="status" aria-live="polite">{taskStatus}</p> : null}
-          </div>
-          <span className="ui-test-editor-footer-meta">{kind === "chapter" ? "章节字数" : "大纲字数"} {wordCountLabel} · {statusLabel}</span>
-        </footer>
+        {showFooter ? (
+          <footer className="ui-test-editor-footer">
+            <div className="ui-test-editor-save">
+              {saveLabel ? (
+                <span role="status" aria-live="polite" aria-atomic="true" data-ui-test-save-state={currentSaveState?.phase}>
+                  {saveLabel}
+                </span>
+              ) : null}
+              {currentSaveState?.phase === "error" ? <button className="ui-test-editor-action" type="button" onClick={onRetrySave}>重试保存</button> : null}
+              {taskStatus ? <p className="ui-test-editor-task-status" role="status" aria-live="polite">{taskStatus}</p> : null}
+            </div>
+          </footer>
+        ) : null}
       </article>
     </div>
   )

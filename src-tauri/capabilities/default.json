@@ -11,6 +11,8 @@
     "core:window:allow-set-shadow",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-is-fullscreen",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:webview:allow-create-webview-window",

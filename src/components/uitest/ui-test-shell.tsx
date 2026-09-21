@@ -68,6 +68,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [toolOpen, setToolOpen] = useState(false)
   const [skinOpen, setSkinOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [windowFilled, setWindowFilled] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   const [preference, setPreference] = useState(() => readPreference(project?.id))
   const preferenceProject = useRef(project?.id)
@@ -110,7 +111,19 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   }, [])
   useEffect(() => {
     if (!isTauri()) return
-    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => { const win = getCurrentWindow(); await Promise.all([win.setDecorations(false), win.setShadow(false)]) }).catch((err) => console.warn("设置测试版窗口外观失败：", err))
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+      const win = getCurrentWindow()
+      await Promise.all([win.setDecorations(false), win.setShadow(false)])
+      const syncWindowFilled = async () => {
+        const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()])
+        if (!cancelled) setWindowFilled(maximized || fullscreen)
+      }
+      await syncWindowFilled()
+      unlisten = await win.onResized(() => { void syncWindowFilled() })
+    }).catch((err) => console.warn("设置测试版窗口外观失败：", err))
+    return () => { cancelled = true; unlisten?.() }
   }, [])
   useEffect(() => {
     if (preferenceProject.current !== project?.id) {
@@ -197,7 +210,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
 
   return (
-    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView}>
+    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-window-filled={windowFilled ? "true" : undefined}>
       <div ref={appRef} className="ui-test-app">
         <header className="ui-test-header" data-tauri-drag-region>
           <div className="ui-test-brand"><Leaf aria-hidden="true" /><span className="ui-test-brand-name">青幕</span>

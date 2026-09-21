@@ -4,8 +4,8 @@ import type { ReferenceInput } from "@/components/reference/ReferenceInput"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getEffectiveSavedModels, getStableAvailableModelKey } from "@/lib/llm-model-keys"
 
-export function UiTestAiIdentity({ title, conversationTitle, status }: {
-  title: string
+export function UiTestAiIdentity({ conversationTitle, status }: {
+  title?: string
   conversationTitle?: string
   status?: ReactNode
 }) {
@@ -13,10 +13,7 @@ export function UiTestAiIdentity({ title, conversationTitle, status }: {
     <div className="ui-test-ai-identity">
       <span className="ui-test-ai-mark"><Sparkles aria-hidden="true" /></span>
       <div className="ui-test-ai-heading">
-        <div className="ui-test-ai-title"><strong>{title}</strong>{status}</div>
-        <span className="ui-test-ai-session" title={conversationTitle}>
-          {conversationTitle ? `当前会话 · ${conversationTitle}` : "尚未开始对话"}
-        </span>
+        <div className="ui-test-ai-title"><strong>{conversationTitle?.trim() || "标题"}</strong>{status}</div>
       </div>
     </div>
   )

@@ -123,20 +123,21 @@ describe("测试版正文编辑器", () => {
     await mount()
     const toolbar = container.querySelector('.ui-test-editor-toolbar')!
     expect(button("去AI味", toolbar).disabled).toBe(false)
-    expect(button("保存为正式章节", toolbar).disabled).toBe(false)
+    expect(button("提取记忆", toolbar).disabled).toBe(false)
     expect(button("查看记忆", toolbar).disabled).toBe(false)
     await click("更多编辑器操作")
-    expect(container.querySelector('[role="menu"]')).not.toBeNull()
+    const menu = container.querySelector('[role="menu"]')
+    expect(menu).not.toBeNull()
     button("一键排版")
     button("关闭文档")
-    await click("打开会话栏")
-    expect(useWikiStore.getState().chatExpanded).toBe(true)
+    expect(menu?.textContent ?? "").not.toContain("关闭会话栏")
+    expect(menu?.textContent ?? "").not.toContain("打开会话栏")
   })
 
-  it("正式章节不重复显示转正式按钮，但保留重新提取入口", async () => {
+  it("正式章节不重复显示提取记忆按钮，但保留重新提取入口", async () => {
     fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
     await mount()
-    expect(container.querySelector(".ui-test-editor-toolbar")?.textContent ?? "").not.toContain("保存为正式章节")
+    expect(container.querySelector(".ui-test-editor-toolbar")?.textContent ?? "").not.toContain("提取记忆")
     await click("更多编辑器操作")
     button("重新提取记忆")
   })
@@ -166,8 +167,10 @@ describe("测试版正文编辑器", () => {
 
   it("大纲有真实标题和生成入口，尚未提取记忆也能看到解释", async () => {
     await mount(outlinePath)
+    expect(container.querySelector(".ui-test-editor-meta")).toBeNull()
+    expect(container.textContent).not.toContain("待提取记忆")
     expect(container.querySelector("h1")?.textContent ?? "").toContain("实际大纲标题")
-    button("提取初始记忆")
+    button("提取记忆")
     await click("生成大纲")
     expect(useOutlineGenerationStore.getState().panelOpen).toBe(true)
     await click("查看记忆")
@@ -181,11 +184,12 @@ describe("测试版正文编辑器", () => {
     expect(container.textContent).not.toContain("已保存")
   })
 
-  it("加载文件不冒充刚保存成功，只有异步写入成功才显示已保存", async () => {
+  it("加载文件不显示常驻底部状态，异步保存中只显示必要提示", async () => {
     await mount()
     const status = () => container.querySelector('[data-ui-test-save-state]')
-    expect(status()?.textContent ?? "").toContain("已从本地读取")
-    expect(status()?.textContent ?? "").not.toContain("已保存")
+    expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
+    expect(container.textContent).not.toContain("已从本地读取")
+    expect(container.textContent).not.toContain("大纲字数")
     vi.useFakeTimers()
     let finishWrite!: () => void
     fixture.write.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve }))
@@ -195,7 +199,7 @@ describe("测试版正文编辑器", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(status()?.textContent ?? "").toContain("正在保存")
     await act(async () => { finishWrite() })
-    expect(status()?.textContent ?? "").toContain("已保存到本地")
+    expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
   })
 
   it("写入失败常驻中文反馈，不显示虚假的保存成功", async () => {
@@ -278,14 +282,14 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("保存失败")
     await click("重试保存")
     expect(fixture.write).toHaveBeenCalledTimes(2)
-    expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("已保存到本地")
+    expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
   })
 
-  it("转正式写入失败时不能沿用旧提示声称已保存正式章节", async () => {
+  it("提取记忆写入失败时不能沿用旧提示声称已保存正式章节", async () => {
     await mount()
     vi.spyOn(console, "error").mockImplementation(() => {})
     fixture.write.mockRejectedValueOnce(new Error("磁盘不可写"))
-    await click("保存为正式章节")
+    await click("提取记忆")
     const footer = container.querySelector(".ui-test-editor-footer")!
     expect(footer.textContent).not.toContain("已保存为正式章节")
     expect(footer.textContent).toMatch(/失败|未完成/)

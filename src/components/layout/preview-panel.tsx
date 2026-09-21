@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Check, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
+import { BookOpen, Brain, Check, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -1415,7 +1415,7 @@ export function PreviewPanel() {
               </button>
               {canSaveAsFinal && chapterHeader?.status === "draft" ? (
                 <button type="button" className="ui-test-editor-action is-primary" onClick={() => void handleSaveAsFinal()} disabled={isFinalChapterSaving}>
-                  <Check aria-hidden="true" />{isFinalChapterSaving ? "正在保存为正式章节…" : "保存为正式章节"}
+                  <Check aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : "提取记忆"}
                 </button>
               ) : null}
               <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
@@ -1425,11 +1425,11 @@ export function PreviewPanel() {
           ) : (
             <>
               <button type="button" className="ui-test-editor-action" onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
-                <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取初始记忆"}
+                <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
               </button>
               <button type="button" className="ui-test-editor-action" onClick={() => {
                 if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
-                else setSaveStatus("尚未提取记忆。请先使用“提取初始记忆”，完成后可在此查看。")
+                else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
               }}><BookOpen aria-hidden="true" />查看记忆</button>
               <button type="button" className="ui-test-editor-action" onClick={() => useOutlineGenerationStore.getState().setPanelOpen(true)}>
                 <Sparkles aria-hidden="true" />生成大纲
@@ -1437,9 +1437,8 @@ export function PreviewPanel() {
             </>
           )}
           moreActions={[
-            ...(isSelectedChapter ? [{ label: chatExpanded ? "关闭会话栏" : "打开会话栏", icon: <MessageSquare aria-hidden="true" />, onClick: () => setChatExpanded(getNextChatExpanded(chatExpanded)) }] : []),
             ...(canSaveAsFinal && alreadyFinal ? [{ label: "重新提取记忆", icon: <RefreshCw aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleReingest() }] : []),
-            ...(canSaveAsFinal && !alreadyFinal && chapterHeader?.status !== "draft" ? [{ label: "保存为正式章节", icon: <Check aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleSaveAsFinal() }] : []),
+            ...(canSaveAsFinal && !alreadyFinal && chapterHeader?.status !== "draft" ? [{ label: "提取记忆", icon: <Check aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleSaveAsFinal() }] : []),
             ...(canFormatWriting ? [{ label: "一键排版", icon: <Type aria-hidden="true" />, onClick: () => void handleFormatWriting() }] : []),
             { label: "关闭文档", icon: <X aria-hidden="true" />, onClick: () => setSelectedFile(null) },
           ]}

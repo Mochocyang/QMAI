@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
-import { UiTestAiIdentity, UiTestAiContext, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
+import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
 import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
@@ -2707,7 +2707,6 @@ export function ChatPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background" data-ui-ai-panel={IS_UI_TEST_BUILD ? "chapter" : undefined}>
       <ConversationTabs onBeforeDelete={cancelPendingChapterPlan} />
-      {IS_UI_TEST_BUILD && project && <UiTestAiContext projectName={project.name} selectedFile={selectedFile} />}
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-ui-ai-body={IS_UI_TEST_BUILD || undefined}>
         {!activeConversationId ? (

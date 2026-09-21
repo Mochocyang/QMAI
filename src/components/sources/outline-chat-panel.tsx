@@ -1104,6 +1104,28 @@ function OutlineAssistantMessage({
     intentPhase: msg.intentPhase,
     hasMultiAgentRun: Boolean(msg.multiAgentRun),
   });
+  const contextHubDetails = !isStreaming && currentContextHubSnapshot ? (
+    <ContextHubDetails reference={currentContextHubSnapshot} />
+  ) : null;
+  const sourceDetails = msg.sources && msg.sources.length > 0 && !isStreaming ? (
+    <details className="mt-2 border-t pt-2">
+      <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <FileText className="h-3 w-3" />
+        引用资料（{msg.sources.length}）
+      </summary>
+      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        {msg.sources.map((src, si) => (
+          <li key={si}>• {src}</li>
+        ))}
+      </ul>
+    </details>
+  ) : null;
+  const referenceContextColumn = (
+    <div className="ui-test-reference-context-column">
+      {sourceDetails}
+      {contextHubDetails}
+    </div>
+  );
 
   return (
     <>
@@ -1149,11 +1171,7 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
-      {!isStreaming && currentContextHubSnapshot ? (
-        <ContextHubDetails
-          reference={currentContextHubSnapshot}
-        />
-      ) : null}
+      {IS_UI_TEST_BUILD ? referenceContextColumn : contextHubDetails}
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
@@ -1164,20 +1182,7 @@ function OutlineAssistantMessage({
           results={editResults}
         />
       ) : null}
-      {/* Sources */}
-      {msg.sources && msg.sources.length > 0 && !isStreaming ? (
-        <details className="mt-2 border-t pt-2">
-          <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <FileText className="h-3 w-3" />
-            引用资料（{msg.sources.length}）
-          </summary>
-          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-            {msg.sources.map((src, si) => (
-              <li key={si}>• {src}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      {!IS_UI_TEST_BUILD ? sourceDetails : null}
       {/* Action buttons */}
       {actionContent && canUseAsOutlineContent && !isStreaming ? (
         <div className="mt-2 flex gap-2 border-t pt-2" data-ui-ai-actions={IS_UI_TEST_BUILD || undefined}>

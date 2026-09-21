@@ -9,6 +9,7 @@ import { OutlineChatPanel } from "@/components/sources/outline-chat-panel"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 import { getUiTestAiMenuStyle } from "./ui-test-ai-parts"
 
 const build = vi.hoisted(() => ({ enabled: true }))
@@ -136,20 +137,57 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(container.querySelector(".qmai-new-conversation-button")).not.toBeNull()
   })
 
-  it("标题、当前会话副标题、历史、新建和关闭入口取真实会话状态", async () => {
+  it("顶部只保留当前对话，并保留历史、新建和关闭入口", async () => {
     seed(kind)
     const container = await mount(kind)
     const panel = container.querySelector(`[data-ui-ai-panel="${kind}"]`)
     expect(panel).not.toBeNull()
     const header = panel?.querySelector("[data-ui-ai-header]")
-    expect(header?.textContent).toContain(kind === "chapter" ? "写作助手" : "大纲助手")
-    expect(header?.querySelector(".ui-test-ai-session")?.textContent).toBe(`当前会话 · ${title}`)
-    expect(header?.querySelector(".ui-test-ai-session")?.getAttribute("title")).toBe(title)
+    expect(header?.querySelector(".ui-test-ai-title strong")?.textContent).toBe(title)
+    expect(header?.textContent).not.toContain("当前对话")
+    expect(header?.textContent).not.toContain("写作助手")
+    expect(header?.textContent).not.toContain("大纲助手")
+    expect(header?.querySelector(".ui-test-ai-session")).toBeNull()
+    expect(panel?.querySelector(".ui-test-ai-context")).toBeNull()
     expect(header?.querySelector(".qmai-new-conversation-button")).not.toBeNull()
     expect(header?.querySelector("[aria-expanded]")).not.toBeNull()
     await click(header?.querySelector(`[aria-label="关闭${kind === "chapter" ? "写作" : "大纲"}助手"]`) ?? null)
     if (kind === "chapter") expect(useWikiStore.getState().chatExpanded).toBe(false)
     else expect(closeOutline).toHaveBeenCalledOnce()
+  })
+
+  it("大纲回复先显示引用资料，再显示上下文 Token 数字", async () => {
+    seed("outline")
+    const contextHubSnapshot: ContextHubSnapshotRef = {
+      id: "answer-existing",
+      surface: "ai-outline",
+      createdAt: now,
+      stats: {
+        cacheHits: 3, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+        cacheableHits: 0, cacheableLoaded: 5, stableTokens: 1200, summaryTokens: 60, dynamicTokens: 420,
+        candidateTokens: 3000, composedTokens: 109, estimatedSavedTokens: 1320, estimatedSavedPercent: 44,
+        expanded: false, providerCacheEnabled: true, providerInputTokens: 1000, providerCachedTokens: 0,
+      },
+    }
+    useOutlineChatStore.setState((state) => ({
+      conversations: state.conversations.map((conversation) => conversation.id !== "outline-active"
+        ? conversation
+        : {
+            ...conversation,
+            messages: conversation.messages.map((message) => message.role === "assistant"
+              ? { ...message, sources: ["第一章", "第二章"], contextHubSnapshot }
+              : message),
+          }),
+    }))
+
+    const container = await mount("outline")
+    const column = container.querySelector(".ui-test-reference-context-column")
+    const sources = column?.querySelector("details")
+    const stats = column?.querySelector(".ui-test-context-stats")
+    expect(column).not.toBeNull()
+    expect(sources?.textContent).toContain("引用资料（2）")
+    expect(stats?.textContent).toContain("109 Token")
+    expect(sources && stats && (sources.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
   })
 
   it("独立滚动区渲染原始消息，保存与重试动作仍在消息后", async () => {
@@ -302,6 +340,9 @@ it("专用样式仅命中测试版标识，覆盖对话/长引用/菜单并消�
   expect(css).toContain("overflow-wrap: anywhere")
   expect(css).toContain("overflow-y: auto")
   expect(css).not.toMatch(/(^|\})\s*(body|:root|\.ui-test-root)\s*\{/m)
+  expect(css.lastIndexOf("[data-ui-ai-composer] textarea:focus-visible")).toBeGreaterThan(
+    css.indexOf("[data-ui-ai-panel] :is(button, textarea):focus-visible"),
+  )
 })
 
 it("大纲空会话的生成入口沿用原有不可发送状态", async () => {

@@ -41,6 +41,14 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
+describe("测试版 AI 模型选择布局", () => {
+  it("模型选择固定 220px 并贴近输入框右侧，不随模型名称长短变化", () => {
+    const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*justify-content: flex-end;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*flex: 0 0 220px;[^}]*width: 220px;/s)
+  })
+})
+
 describe("测试版引用输入框真实高度逻辑", () => {
   it("默认 128px，测试版不读取或覆盖正式版保存的输入高度", async () => {
     localStorage.setItem(formalKey, "260")
