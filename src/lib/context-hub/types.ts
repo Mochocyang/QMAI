@@ -120,6 +120,14 @@ export interface ContextHubStats {
   fallbackUsed: number
   readFailed: number
   writeFailed: number
+  /** 本地复用资料的估算 token 之和，不代表少发送的 token 或缓存价格折扣。 */
+  cacheHitTokens?: number
+  /** 任务型加载次数，仅作诊断；旧快照不可据此反推任务型命中数。 */
+  taskScopedLoaded?: number
+  /** 非任务型实际加载次数（并发去重，含空值和失败）；旧快照缺失表示未知。 */
+  cacheableLoaded?: number
+  /** 同范围内的缓存复用次数（含缓存空值）；须与 cacheableLoaded 成对出现。 */
+  cacheableHits?: number
   stablePrefixStatus?: StablePrefixStatus
   /** Estimated tokens (local heuristic). */
   stableTokens: number
@@ -276,10 +284,16 @@ function normalizeRequestDiagnostics(value: unknown): LlmRequestDiagnostics | un
 }
 
 function normalizeContextHubStats(source: ContextHubStats): ContextHubStats {
-  const { requestDiagnostics: _requestDiagnostics, ...rest } = source
+  const { requestDiagnostics: _requestDiagnostics, cacheableLoaded, cacheableHits, ...rest } = source
   const requestDiagnostics = normalizeRequestDiagnostics(source.requestDiagnostics)
+  const validCacheCounters = typeof cacheableLoaded === "number"
+    && Number.isSafeInteger(cacheableLoaded) && cacheableLoaded >= 0
+    && typeof cacheableHits === "number"
+    && Number.isSafeInteger(cacheableHits) && cacheableHits >= 0
+    && cacheableHits <= cacheableLoaded
   return {
     ...rest,
+    ...(validCacheCounters ? { cacheableLoaded, cacheableHits } : {}),
     ...(requestDiagnostics ? { requestDiagnostics } : {}),
   }
 }

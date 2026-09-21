@@ -13,6 +13,7 @@ import {
   isWebSearchConfigured,
   parseExtractedEntityNames,
   parseNeedExternalNames,
+  parseNeedExternalQueries,
   parseWritingEntitySearchWorkflowResult,
   selectUnresolvedEntities,
   serializeWritingEntitySearchWorkflowResult,
@@ -145,6 +146,27 @@ describe("writing entity parse helpers", () => {
     expect(parseNeedExternalNames('{"needExternal":["黄蓉","原创甲"]}', ["黄蓉", "降龙十八掌"])).toEqual(["黄蓉"])
     expect(parseNeedExternalNames('{"entities":[{"name":"黄蓉","needExternal":true},{"name":"林烬","needExternal":false}]}', ["黄蓉", "林烬"])).toEqual(["黄蓉"])
   })
+
+  it("parses structured needExternal queries with optional englishQuery", () => {
+    expect(parseNeedExternalQueries('{"needExternal":["李鸿章"]}', ["李鸿章"])).toEqual([
+      { name: "李鸿章" },
+    ])
+    expect(parseNeedExternalQueries(
+      '{"needExternal":[{"name":"鲁茨科伊","englishQuery":"Alexander Rutskoy"},{"name":"林烬"}]}',
+      ["鲁茨科伊", "林烬"],
+    )).toEqual([
+      { name: "鲁茨科伊", englishQuery: "Alexander Rutskoy" },
+      { name: "林烬" },
+    ])
+    expect(parseNeedExternalQueries(
+      '{"needExternal":[{"name":"李鸿章","englishQuery":"李鸿章"}]}',
+      ["李鸿章"],
+    )).toEqual([{ name: "李鸿章" }])
+    expect(parseNeedExternalQueries(
+      '[{"name":"鲁茨科伊","englishQuery":"Alexander Rutskoy"}]',
+      ["鲁茨科伊"],
+    )).toEqual([{ name: "鲁茨科伊", englishQuery: "Alexander Rutskoy" }])
+  })
 })
 
 describe("isWebSearchConfigured", () => {
@@ -224,7 +246,7 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search,
     })
-    expect(search).toHaveBeenCalledWith("李鸿章", configuredSearch, 4)
+    expect(search).toHaveBeenCalledWith("李鸿章", configuredSearch, 8)
     expect(result.searchedNames).toEqual(["李鸿章"])
   })
 
@@ -249,7 +271,7 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search,
     })
-    expect(search).toHaveBeenCalledWith("降龙十八掌", configuredSearch, 4)
+    expect(search).toHaveBeenCalledWith("降龙十八掌", configuredSearch, 8)
     expect(result.searchedNames).toEqual(["降龙十八掌"])
     expect(result.items?.[0]?.name).toBe("降龙十八掌")
     expect(result.markdown).toContain(WRITING_ENTITY_SEARCH_HEADING)
@@ -283,6 +305,33 @@ describe("collectWritingEntityWebSearch", () => {
     expect(onSearchStart).toHaveBeenCalledWith(["李鸿章"])
   })
 
+  it("searches more than three needExternal names", async () => {
+    const names = ["李鸿章", "赫德", "总理衙门", "北洋水师"]
+    const search = vi.fn(async (query: string) => [{
+      title: `${query} 资料`,
+      url: `https://example.test/${encodeURIComponent(query)}`,
+      snippet: "公开资料摘要",
+      source: "example.test",
+    }])
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章与赫德在总理衙门谈北洋水师",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        JSON.stringify({ entities: names }),
+        JSON.stringify({ needExternal: names }),
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).toHaveBeenCalledTimes(4)
+    expect(search).toHaveBeenCalledWith("北洋水师", configuredSearch, 8)
+    expect(result.searchedNames).toEqual(names)
+  })
+
   it("does not search original names the model can invent", async () => {
     const search = vi.fn()
     const result = await collectWritingEntityWebSearch({
@@ -301,6 +350,99 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(search).not.toHaveBeenCalled()
     expect(result.searchedNames).toEqual([])
+  })
+
+  it("asks the judge to search only when real knowledge is incomplete", async () => {
+    let judgePrompt = ""
+    const streamChat = vi.fn(async (
+      _config: LlmConfig,
+      messages: ChatMessage[],
+      callbacks: StreamCallbacks,
+    ) => {
+      const user = messages.find((message) => message.role === "user")?.content ?? ""
+      if (user.includes("下列名称")) {
+        judgePrompt = messages.map((message) => message.content).join("\n")
+        callbacks.onToken('{"needExternal":[]}')
+      } else {
+        callbacks.onToken('{"entities":["李鸿章"]}')
+      }
+      callbacks.onDone()
+    })
+    await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章出场",
+      contextPack: pack,
+      streamChat,
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search: vi.fn(),
+    })
+    expect(judgePrompt).toContain("确信真实且知识不够才搜")
+    expect(judgePrompt).toContain("已知则不搜")
+    expect(judgePrompt).toContain("不确定则不搜")
+    expect(judgePrompt).not.toContain("默认放入")
+    expect(judgePrompt).not.toContain("不确定的名字一律放入")
+  })
+
+  it("searches englishQuery alongside the Chinese name and dedupes by url", async () => {
+    const onSearchStart = vi.fn()
+    const search = vi.fn(async (query: string) => {
+      const shared = {
+        title: "鲁茨科伊",
+        url: "https://example.test/rutskoy",
+        snippet: "公开资料摘要",
+        source: "example.test",
+      }
+      if (query === "Alexander Rutskoy") {
+        return [
+          shared,
+          {
+            title: "Alexander Rutskoy",
+            url: "https://example.test/rutskoy-en",
+            snippet: "English-only snippet",
+            source: "example.test",
+          },
+        ]
+      }
+      return [shared]
+    })
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章鲁茨科伊出场",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        '{"entities":["鲁茨科伊"]}',
+        '{"needExternal":[{"name":"鲁茨科伊","englishQuery":"Alexander Rutskoy"}]}',
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => ["黄蓉"],
+      readPreviousBodies: async () => [],
+      search,
+      onSearchStart,
+    })
+    expect(onSearchStart).toHaveBeenCalledWith(["鲁茨科伊", "Alexander Rutskoy"])
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(search).toHaveBeenCalledWith("鲁茨科伊", configuredSearch, 8)
+    expect(search).toHaveBeenCalledWith("Alexander Rutskoy", configuredSearch, 8)
+    expect(result.searchedNames).toEqual(["鲁茨科伊", "Alexander Rutskoy"])
+    expect(result.items?.[0]?.name).toBe("鲁茨科伊")
+    expect(result.items?.[0]?.results).toEqual([
+      {
+        title: "鲁茨科伊",
+        url: "https://example.test/rutskoy",
+        snippet: "公开资料摘要",
+        source: "example.test",
+      },
+      {
+        title: "Alexander Rutskoy",
+        url: "https://example.test/rutskoy-en",
+        snippet: "English-only snippet",
+        source: "example.test",
+      },
+    ])
   })
 })
 

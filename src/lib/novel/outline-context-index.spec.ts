@@ -8,6 +8,7 @@ vi.mock("@/commands/fs", () => ({
 import { listDirectory, readFile } from "@/commands/fs"
 import {
   buildOutlineContext,
+  buildOutlineContextLayers,
   buildRelevantCharacterBriefs,
   buildRelevantForeshadowing,
   capOutlineSourcesToBudget,
@@ -183,5 +184,42 @@ describe("outline context index", () => {
     expect(characters).toContain("林岚人物详情")
     expect(characters).not.toContain("周野人物详情")
     expect(foreshadowing).toContain("古钥匙")
+  })
+})
+
+
+describe("大纲缓存分层", () => {
+  it("稳定层只含总纲和设定，分卷选择只改变任务层，完整旧接口不变", async () => {
+    const paths = {
+      master: `${root}/大纲/总纲.md`,
+      volume1: `${root}/卷纲/第一卷.md`,
+      volume2: `${root}/卷纲/第二卷.md`,
+      setting: `${root}/设定/世界观.md`,
+    }
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/大纲`, [file(paths.master)]),
+      directory(`${root}/卷纲`, [file(paths.volume1), file(paths.volume2)]),
+      directory(`${root}/设定`, [file(paths.setting)]),
+    ])
+    const contents: Record<string, string> = {
+      [paths.master]: "# 总纲\n全书寻找真相",
+      [paths.volume1]: "# 第一卷\n旧城寻人\n\n| 章节 | 事件 |\n| --- | --- |\n| 第1章 | 起点 |",
+      [paths.volume2]: "# 第二卷\n新城追踪\n\n| 章节 | 事件 |\n| --- | --- |\n| 第20章 | 追踪 |",
+      [paths.setting]: "# 世界观设定\n没有超自然力量",
+    }
+    vi.mocked(readFile).mockImplementation(async (path) => contents[String(path)] ?? "")
+    const index = await loadOutlineDocumentIndex("/book")
+    const first = buildOutlineContextLayers(index, 1)
+    const second = buildOutlineContextLayers(index, 20)
+    expect(first.project).toBe(second.project)
+    expect(first.project).toContain("全书寻找真相")
+    expect(first.project).toContain("没有超自然力量")
+    expect(first.project).not.toContain("旧城寻人")
+    expect(first.task).toContain("旧城寻人")
+    expect(second.task).toContain("新城追踪")
+    expect(second.task).not.toContain("旧城寻人")
+    expect(second.task).not.toContain("全书寻找真相")
+    expect(first.full).toBe(buildOutlineContext(index, 1))
+    expect(second.full).toBe(buildOutlineContext(index, 20))
   })
 })

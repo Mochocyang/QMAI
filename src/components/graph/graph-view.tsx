@@ -1,4 +1,6 @@
-﻿import { useEffect, useCallback, useMemo, useState, useRef } from "react"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import "@/components/uitest/ui-test-tools.css"
+import { useEffect, useCallback, useMemo, useState, useRef } from "react"
 import Graph from "graphology"
 import { SigmaContainer, useLoadGraph, useRegisterEvents, useSigma } from "@react-sigma/core"
 import "@react-sigma/core/lib/style.css"
@@ -1078,6 +1080,25 @@ export function GraphView() {
   const [editStatus, setEditStatus] = useState<string | null>(null)
   const [savingNode, setSavingNode] = useState(false)
   const graphContainerRef = useRef<HTMLDivElement>(null)
+  const [uiTestGraphColors, setUiTestGraphColors] = useState<{ ink: string; muted: string } | null>(null)
+
+  // Canvas 不解析 CSS 变量；只在测试版同步皮肤文字色，不改节点、边或布局数据。
+  useEffect(() => {
+    if (!IS_UI_TEST_BUILD) return
+    const readSkinColors = () => {
+      const root = document.querySelector(".ui-test-root")
+      if (!root) return
+      const style = getComputedStyle(root)
+      const ink = style.getPropertyValue("--ui-ink").trim()
+      const muted = style.getPropertyValue("--ui-muted").trim()
+      if (ink && muted) setUiTestGraphColors({ ink, muted })
+    }
+    readSkinColors()
+    const observer = new MutationObserver(readSkinColors)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-ui-test-skin"] })
+    return () => observer.disconnect()
+  }, [])
+
   // i18n node type labels (populated after mount to support language switching)
   const [nodeTypeLabels, setNodeTypeLabels] = useState<Record<string, string>>({})
 
@@ -1401,7 +1422,7 @@ export function GraphView() {
 
   if (!project) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div data-ui-page={IS_UI_TEST_BUILD ? "graph" : undefined} data-ui-state={IS_UI_TEST_BUILD ? "no-project" : undefined} className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Network className="h-10 w-10 opacity-30" />
         <p className="text-sm">{t("graph.openProject")}</p>
       </div>
@@ -1410,7 +1431,7 @@ export function GraphView() {
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div data-ui-page={IS_UI_TEST_BUILD ? "graph" : undefined} data-ui-state={IS_UI_TEST_BUILD ? "loading" : undefined} className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <RefreshCw className="h-8 w-8 animate-spin opacity-50" />
         <p className="text-sm">{t("graph.buildingGraph")}</p>
       </div>
@@ -1419,7 +1440,7 @@ export function GraphView() {
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div data-ui-page={IS_UI_TEST_BUILD ? "graph" : undefined} data-ui-state={IS_UI_TEST_BUILD ? "error" : undefined} className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Network className="h-10 w-10 opacity-30" />
         <p className="text-sm text-destructive">{error}</p>
         <Button variant="outline" size="sm" onClick={loadGraph}>{t("graph.retry")}</Button>
@@ -1429,7 +1450,7 @@ export function GraphView() {
 
   if (!loading && nodes.length === 0 && !error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div data-ui-page={IS_UI_TEST_BUILD ? "graph" : undefined} data-ui-state={IS_UI_TEST_BUILD ? "empty" : undefined} className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Network className="h-10 w-10 opacity-30" />
         <p className="text-sm">{t("graph.noPages")}</p>
         <p className="text-xs">{t(novelMode ? "novel.graph.importSourcesHint" : "graph.importSourcesHint")}</p>
@@ -1438,12 +1459,21 @@ export function GraphView() {
   }
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div data-ui-page={IS_UI_TEST_BUILD ? "graph" : undefined} data-ui-state={IS_UI_TEST_BUILD ? displayMode : undefined} className="relative flex h-full flex-col">
+      {IS_UI_TEST_BUILD && (
+        <header data-ui="tool-heading">
+          <div>
+            <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{project.name}</span><span aria-hidden="true">/</span><span aria-current="page">小说图谱</span></nav>
+            <h1 className="ui-test-page-title">看见故事里的连接。</h1>
+          </div>
+        </header>
+      )}
       {/* Graph canvas + Insights side panel */}
-      <div className="flex flex-1 min-h-0">
+      <div data-ui={IS_UI_TEST_BUILD ? "graph-workspace" : undefined} className="flex flex-1 min-h-0">
         {/* Graph canvas */}
         <div
           ref={graphContainerRef}
+          data-ui={IS_UI_TEST_BUILD ? "graph-canvas" : undefined}
           className="relative min-h-0 flex-1 min-w-0 overflow-hidden bg-slate-50 dark:bg-slate-950"
           onContextMenu={(e) => e.preventDefault()}
           onClick={() => setNodeMenu(null)}
@@ -1490,6 +1520,10 @@ export function GraphView() {
                   edgeLabelSize: 14,
                   edgeLabelWeight: "600",
                   edgeLabelColor: { color: "#334155" },
+                  ...(IS_UI_TEST_BUILD ? {
+                    labelColor: { color: uiTestGraphColors?.ink ?? "#1e293b" },
+                    edgeLabelColor: { color: uiTestGraphColors?.muted ?? "#334155" },
+                  } : {}),
                   labelDensity: labelDisplayMode === "all" ? 1 : labelDisplayMode === "focused" ? 0.25 : 0.4,
                   labelRenderedSizeThreshold: labelDisplayMode === "all" ? 0 : labelDisplayMode === "focused" ? 8 : 6,
                   stagePadding: 30,
@@ -1565,7 +1599,7 @@ export function GraphView() {
           )}
 
           {showFilters && (
-            <div className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs shadow-lg backdrop-blur-sm">
+            <div data-ui={IS_UI_TEST_BUILD ? "graph-filters" : undefined} className="absolute top-3 left-3 w-72 rounded-lg border bg-background/95 p-3 text-xs shadow-lg backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 font-semibold text-foreground">
                   <Filter className="h-3.5 w-3.5" />
@@ -1941,7 +1975,7 @@ export function GraphView() {
 
         {/* Insights Side Panel */}
         {showInsights && (
-          <div className="w-80 shrink-0 border-l bg-background overflow-y-auto">
+          <div data-ui={IS_UI_TEST_BUILD ? "graph-insights" : undefined} className="w-80 shrink-0 border-l bg-background overflow-y-auto">
             <div className="px-4 py-3 border-b">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">

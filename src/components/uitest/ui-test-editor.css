@@ -1,0 +1,248 @@
+/* 正文编辑器专用测试版皮肤；不命中正式版，不改动持久化文本。 */
+.ui-test-root .ui-test-editor {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 28px clamp(20px, 4vw, 48px) 36px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font-family: var(--ui);
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-soft) transparent;
+}
+
+.ui-test-root .ui-test-editor-document {
+  width: 100%;
+  max-width: 800px;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.ui-test-root .ui-test-editor-breadcrumbs {
+  margin-bottom: 16px;
+  color: var(--ui-muted);
+  font: 400 13px/1.6 var(--ui);
+}
+
+.ui-test-root .ui-test-editor-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.ui-test-root .ui-test-editor-breadcrumbs li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-editor-breadcrumbs svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+.ui-test-root .ui-test-editor-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-editor-title,
+.ui-test-root .ui-test-editor-title-input {
+  flex: 1 1 18rem;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-ink);
+  font: 500 28px/1.45 var(--serif);
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-editor-title button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.ui-test-root .ui-test-editor-title-input { min-height: 41px; resize: none; overflow: hidden; field-sizing: content; }
+
+.ui-test-root .ui-test-editor-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--ui-muted);
+  font: 400 14px/1.6 var(--ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-test-root .ui-test-editor-status { padding: 3px 8px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-accent); }
+
+.ui-test-root .ui-test-editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
+
+.ui-test-root .ui-test-editor-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font: 500 13px/1.5 var(--ui);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.ui-test-root .ui-test-editor-action svg,
+.ui-test-root .ui-test-editor-menu-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.ui-test-root .ui-test-editor-action:hover { background: var(--ui-soft); color: var(--ui-accent); }
+.ui-test-root .ui-test-editor-action.is-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-test-root .ui-test-editor-action:disabled { cursor: not-allowed; opacity: .6; }
+.ui-test-root .ui-test-editor-more { min-width: 36px; background: transparent; }
+.ui-test-root .ui-test-editor :is(button, textarea, [contenteditable]):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+
+.ui-test-root .ui-test-editor-menu-positioner { z-index: 50; }
+.ui-test-root .ui-test-editor-menu {
+  width: 240px;
+  max-width: min(var(--available-width), calc(100vw - 24px));
+  max-height: min(var(--available-height), 70dvh);
+  overflow: auto;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent);
+  outline: none;
+}
+
+.ui-test-root .ui-test-editor-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: 400 13px/1.6 var(--ui);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-editor-menu-item:is(:hover, [data-highlighted]) { background: var(--ui-soft); }
+.ui-test-root .ui-test-editor-menu-item[data-disabled] { opacity: .6; cursor: not-allowed; }
+.ui-test-root .ui-test-editor-path { margin: 0 0 20px; color: var(--ui-muted); font: 400 13px/1.6 var(--ui); overflow-wrap: anywhere; }
+
+.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 18px/1.95 var(--serif); overflow-wrap: anywhere; }
+/* 让旧编辑器参与正文排版，不再叠加文档卡片和第二个滚动容器。 */
+.ui-test-root .ui-test-editor-body > div { height: auto; overflow: visible; }
+.ui-test-root .ui-test-editor-body .immersive-scroll-container { height: auto; overflow: visible; }
+.ui-test-root .ui-test-editor-body .immersive-scroll-container > div { max-width: 100%; padding: 0; }
+.ui-test-root .ui-test-editor-body .prose { padding: 0; overflow: visible; }
+.ui-test-root .ui-test-editor-body .milkdown { padding: 0; }
+.ui-test-root .ui-test-editor-body .ProseMirror,
+.ui-test-root .ui-test-editor-body [dir][lang],
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { color: var(--ui-ink); font: 400 18px/1.95 var(--serif); }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: 1.95; text-indent: 2em; }
+.ui-test-root .ui-test-editor-body :is(h1, h2, h3, h4, h5, h6, li, blockquote, pre),
+.ui-test-root .ui-test-editor-body :is(li, blockquote) p { text-indent: 0; }
+.ui-test-root .ui-test-editor-body :is(h2, h3, h4, h5, h6) { margin: 26px 0 12px; font: 600 18px/1.6 var(--ui); color: var(--ui-ink); }
+.ui-test-root .ui-test-editor-body :is(ul, ol) { margin: 6px 0 16px; padding-left: 1.5em; }
+.ui-test-root .ui-test-editor-body :is(pre, table) { max-width: 100%; overflow-x: auto; }
+.ui-test-root .ui-test-editor-body img { max-width: 100%; height: auto; }
+/* 原写作文本已经含全角缩进，不能再叠加 CSS 缩进。Enter/查找/选区沿用原编辑器。 */
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { text-indent: 0; }
+/* 声明视觉缩进，不改 textarea 值、选区或写盘；原生控件的支持限制见下。 */
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea[data-ui-test-indent="visual"] { text-indent: 2em each-line; }
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { display: block; caret-color: var(--ui-accent); }
+/* Chrome textarea 的 each-line 当前只绘制首行，查找层须匹配实际绘制位置。 */
+.ui-test-root .ui-test-editor-body [data-find-highlights] { font-size: 18px; line-height: 1.95; }
+.ui-test-root .ui-test-editor-body [data-writing-editor] > div:has(> textarea[data-ui-test-indent="visual"]) > [data-find-highlights] { text-indent: 2em; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body { padding-top: 24px; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > :is(h2, h3):first-child { margin-top: 0; }
+/* 正文以插入光标表示焦点，按钮、标题、菜单继续保留键盘焦点轮廓。 */
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea:focus-visible,
+.ui-test-root .ui-test-editor-body .ProseMirror:focus-visible { outline: none; box-shadow: none; caret-color: var(--ui-accent); }
+.ui-test-root .ui-test-editor-body [data-ui-test-frontmatter] { display: none; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { font-size: 18px; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { text-indent: 0; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: 16px; line-height: 1.9; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: 16px; line-height: 1.9; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: 16px; line-height: 1.9; text-indent: 0; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li::marker { color: var(--ui-ink); font-size: 12px; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: 16px; }
+.ui-test-root .ui-test-editor-details,
+.ui-test-root .ui-test-editor-auxiliary { margin: 0 0 24px; padding: 16px; border-radius: 8px; background: var(--ui-panel); font: 400 13px/1.6 var(--ui); overflow-wrap: anywhere; }
+.ui-test-root .ui-test-editor-details .not-prose { margin: 0; border: 0; background: none; box-shadow: none; }
+.ui-test-root .ui-test-editor-details .ui-test-editor-path { margin-bottom: 8px; }
+.ui-test-root .ui-test-editor-auxiliary[hidden] { display: none; }
+/* 原 Edit/Done 切换及重复标题已迁入中文更多菜单和可编辑标题，不丢操作。 */
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body > div > button { display: none; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body > div > .px-6 { padding: 0; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > h1:first-child { display: none; }
+
+.ui-test-root .ui-test-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-top: 32px;
+  color: var(--ui-muted);
+  font: 400 13px/1.6 var(--ui);
+}
+
+.ui-test-root .ui-test-editor-save { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.ui-test-root .ui-test-editor-save [data-ui-test-save-state] { display: inline-flex; align-items: center; gap: 6px; }
+.ui-test-root .ui-test-editor-save svg { width: 14px; height: 14px; flex-shrink: 0; }
+.ui-test-root .ui-test-editor-save .ui-test-editor-action { margin-left: 8px; }
+.ui-test-root .ui-test-editor-task-status { margin-top: 8px; }
+.ui-test-root .ui-test-editor-footer-meta { font-variant-numeric: tabular-nums; }
+.ui-test-root .ui-test-editor-empty { display: grid; height: 100%; place-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--ui-muted); font: 400 14px/1.7 var(--ui); }
+.ui-test-root .ui-test-editor-empty h2 { margin: 0; color: var(--ui-ink); font: 500 22px/1.5 var(--serif); }
+
+@media (max-width: 640px) {
+  .ui-test-root .ui-test-editor { padding: 22px 20px 28px; }
+  .ui-test-root .ui-test-editor-title-row { gap: 10px; }
+  .ui-test-root .ui-test-editor-meta { margin-left: 0; }
+  .ui-test-root .ui-test-editor-toolbar { gap: 6px; margin-bottom: 24px; }
+  .ui-test-root .ui-test-editor-action,
+  .ui-test-root .ui-test-editor-menu-item { min-height: 44px; }
+  .ui-test-root .ui-test-editor-footer-meta { flex-basis: 100%; }
+}
+
+@media (pointer: coarse) {
+  .ui-test-root .ui-test-editor-action,
+  .ui-test-root .ui-test-editor-menu-item { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-test-root .ui-test-editor-action { transition: none; }
+}

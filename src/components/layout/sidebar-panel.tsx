@@ -1,5 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+﻿import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import {
   BookOpenCheck,
   BookText,
@@ -440,7 +442,7 @@ async function getUniqueWikiPagePath(dir: string, fileName: string): Promise<str
   return `${dir}/${stem}-${Date.now()}${extension}`
 }
 
-export function SidebarPanel() {
+export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }: { onUiTestCloseDirectory?: () => void; onUiTestRegisterCancel?: (cancel: (() => void) | null) => void } = {}) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const activeView = useWikiStore((s) => s.activeView)
@@ -457,6 +459,8 @@ export function SidebarPanel() {
   const setOutlineChatOpen = useOutlineGenerationStore((s) => s.setPanelOpen)
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
+  const [uiTestQuery, setUiTestQuery] = useState("")
+  useEffect(() => setUiTestQuery(""), [activeView])
   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
   const [inputTitle, setInputTitle] = useState("")
   const [creating, setCreating] = useState(false)
@@ -980,6 +984,12 @@ export function SidebarPanel() {
     }
   }, [activeView, loadMemoryCenter, novelMode, project?.path])
 
+  useEffect(() => {
+    if (!IS_UI_TEST_BUILD || !onUiTestRegisterCancel) return
+    onUiTestRegisterCancel(handleCancelImportMemoryExtraction)
+    return () => onUiTestRegisterCancel(null)
+  }, [onUiTestRegisterCancel])
+
   if (activeView === "storySimulation") {
     return <StorySimulationSidebarPanel />
   }
@@ -1111,6 +1121,21 @@ export function SidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
+      {IS_UI_TEST_BUILD ? (
+        <UiTestDirectoryHeader
+          kind={isChapter ? "chapter" : "outline"}
+          query={uiTestQuery}
+          onQueryChange={setUiTestQuery}
+          busy={creating || outlineImporting || chapterImporting}
+          onCreate={() => { setUiTestQuery(""); if (isChapter) void handleCreateNextChapter(); else beginCreate({ kind: "outline" }) }}
+          onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
+          onImportFiles={() => { if (isChapter) void handleImportChapterFiles(); else void handleImportOutlineFiles() }}
+          onImportFolder={() => { if (isChapter) void handleImportChapterFolder(); else void handleImportOutlineFolder() }}
+          onOpenAssistant={() => { if (isChapter) setChatExpanded(true); else setOutlineChatOpen(true) }}
+          onClose={onUiTestCloseDirectory}
+          onHelp={() => void openExternalUrl(USAGE_GUIDE_URL)}
+        />
+      ) : (
       <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
@@ -1204,6 +1229,7 @@ export function SidebarPanel() {
           </button>
         </div>
       </div>
+      )}
 
       {pendingCreate && (
         <div className="flex flex-col gap-2 border-b px-2 py-2">
@@ -1212,7 +1238,7 @@ export function SidebarPanel() {
             value={inputTitle}
             onChange={(event) => setInputTitle(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && inputTitle.trim()) {
+              if (event.key === "Enter" && inputTitle.trim() && (!IS_UI_TEST_BUILD || !event.nativeEvent.isComposing)) {
                 void handleCreateFromInput()
               } else if (event.key === "Escape") {
                 cancelPendingCreate()
@@ -1248,6 +1274,7 @@ export function SidebarPanel() {
 
       <div className="flex-1 overflow-hidden">
         <KnowledgeTree
+          searchQuery={IS_UI_TEST_BUILD ? uiTestQuery : undefined}
           filterType={isChapter ? "chapter" : "outline"}
           refreshKey={refreshKey}
           pendingPages={pendingPages.filter((page) => page.type === (isChapter ? "chapter" : "outline"))}
@@ -1257,6 +1284,7 @@ export function SidebarPanel() {
           onSendToOutline={!isChapter ? handleSendOutlineToOutlineChat : undefined}
         />
       </div>
+      {!IS_UI_TEST_BUILD && (
       <div className="border-t px-3 py-2">
         <button
           type="button"
@@ -1269,7 +1297,8 @@ export function SidebarPanel() {
           <span>{t("iconSidebar.usageGuide")}</span>
         </button>
       </div>
-      <RawSourcesSection onCancelExtraction={handleCancelImportMemoryExtraction} />
+      )}
+      {!IS_UI_TEST_BUILD && <RawSourcesSection onCancelExtraction={handleCancelImportMemoryExtraction} />}
       <Dialog
         open={Boolean(memoryDecisionRequest)}
         onOpenChange={(open) => {

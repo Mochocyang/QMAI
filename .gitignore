@@ -28,22 +28,14 @@ yarn-error.log*
 # 测试与 test helpers 必须纳入版本控制，不在此忽略。
 
 # === 根目录文档（仅本地保留）===
-/docs/
-/AGENTS.md
 /PDD.MD
 /QM-QUAI.md
 /soul.md
 /ter
 /_fix_encoding.py
-CLAUDE.md
 de-ai-skill.md
 
 # === 中文命名文档/临时文件 ===
-提示词.md
-项目完成度分析报告.md
-soul文档软件更新分析.md
-jueseyizhixing分支说明.md
-xinjiangongzuohuihua.md
 diff_chapter.txt
 qmai-backup-*.zip
 QMaiWrite_*.zip
@@ -53,9 +45,6 @@ QMaiWrite_*.zip
 reasonix.toml
 QMdelete/
 tokenyouhua/
-De-AI-Prompt-Enhancer-Writer-Booster-SKILL-main/
-De-AI-Prompt-Enhancer-Writer-Booster-SKILL-main.zip
-.claude/
 .codegraph/
 
 # === IDE / 工具临时文件 ===
@@ -69,11 +58,6 @@ De-AI-Prompt-Enhancer-Writer-Booster-SKILL-main.zip
 .vscode/
 /.zed/
 
-# === 杂项 ===
-/1.txt
-/nul
-/xiufuzonghebug-分支说明.md
-/zed-design-standard.html
 
 # === 开发调试产物（勿提交根目录）===
 /test-mocks-*-report.json

@@ -33,9 +33,19 @@ describe("function calling helpers", () => {
     expect(modelSupportsTools("gpt-4o")).toBe(true)
   })
 
-  it("blocks local CLI providers from agent tools", () => {
+  it("blocks Claude Code CLI from agent tools", () => {
     expect(modelSupportsTools("opus", "claude-code")).toBe(false)
-    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(false)
+  })
+
+  it("allows cursor-cli native tools", () => {
+    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(true)
+    expect(effectiveToolsEnabled("composer-2-fast", { ...baseLlm, provider: "cursor-cli", model: "composer-2-fast" })).toBe(true)
+    expect(effectiveToolsEnabled("composer-2-fast", {
+      ...baseLlm,
+      provider: "cursor-cli",
+      model: "composer-2-fast",
+      functionCallingEnabled: false,
+    })).toBe(false)
   })
 
   it("allows Codex app-server dynamic tools", () => {
@@ -56,5 +66,19 @@ describe("buildAgentConfig functionCallingEnabled", () => {
 
     expect(config.tools).toEqual([])
     expect(registry.list()).toEqual([])
+  })
+
+  it("keeps cursor-cli on native tools without a text-JSON prompt", () => {
+    const registry = new ToolRegistry()
+    const config = buildAgentConfig("composer-2-fast", "You are helpful", registry, {
+      wikiPath: "/tmp/wiki",
+      getSkillConfig: () => null,
+      getChatConversations: () => [],
+      getOutlineConversations: () => [],
+      llmConfig: { ...baseLlm, provider: "cursor-cli", model: "composer-2-fast" },
+    })
+
+    expect(config.systemPrompt).toBe("You are helpful")
+    expect(config.systemPrompt).not.toContain("只输出一个 JSON")
   })
 })

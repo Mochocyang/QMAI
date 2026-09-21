@@ -13,6 +13,7 @@ import { RESPONSE_RESERVE_FRAC } from "./context-budget"
 import type { LlmUsage } from "./llm-usage"
 import { isThoughtDumpText } from "./thought-dump"
 import type { UserMemorySurface } from "./user-memory/types"
+import { supportsPromptCacheRouting } from "./prompt-cache-routing"
 
 /**
  * One piece of a multimodal message body. Text + image is the only
@@ -94,6 +95,8 @@ export interface RequestOverrides {
   userMemoryProjectKey?: string
   /** Internal: conversation/session scope key for layered user-memory selection. */
   userMemorySessionKey?: string
+  /** Internal: opaque routing key; emitted only to supported official OpenAI endpoints. */
+  promptCacheKey?: string
 }
 
 interface ProviderConfig {
@@ -223,6 +226,23 @@ function parseOpenAiLine(line: string): string | null {
   } catch {
     return null
   }
+}
+
+/** SSE error objects (cursor-api-proxy agent_exit_*, OpenAI-style `{error:{message}}`). */
+export function parseOpenAiSseError(line: string): string | null {
+  const data = line.startsWith("data: ") ? line.slice(6).trim() : line.trim()
+  if (!data || data === "[DONE]") return null
+  try {
+    const parsed = JSON.parse(data) as { error?: { message?: string } | string }
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim()
+    if (parsed.error && typeof parsed.error === "object") {
+      const message = parsed.error.message?.trim()
+      if (message) return message
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 function tokenCount(value: unknown): number | undefined {
@@ -622,6 +642,7 @@ function buildResponsesBody(
     stream: true,
   }
 
+  if (overrides?.promptCacheKey && supportsPromptCacheRouting(config)) body.prompt_cache_key = overrides.promptCacheKey
   if (overrides?.temperature !== undefined) body.temperature = overrides.temperature
   if (overrides?.top_p !== undefined) body.top_p = overrides.top_p
   if (overrides?.max_tokens !== undefined) body.max_output_tokens = overrides.max_tokens
@@ -643,6 +664,7 @@ function stripWireAgnosticOverrides(overrides?: RequestOverrides): Omit<
   | "userMemorySurface"
   | "userMemoryProjectKey"
   | "userMemorySessionKey"
+  | "promptCacheKey"
   | "tools"
   | "toolChoice"
 > {
@@ -652,6 +674,7 @@ function stripWireAgnosticOverrides(overrides?: RequestOverrides): Omit<
     userMemorySurface: _userMemorySurface,
     userMemoryProjectKey: _userMemoryProjectKey,
     userMemorySessionKey: _userMemorySessionKey,
+    promptCacheKey: _promptCacheKey,
     tools: _tools,
     toolChoice: _toolChoice,
     ...rest
@@ -853,6 +876,7 @@ function buildOpenAiCompatibleBody(
   // Pass full overrides: buildOpenAiBody strips internal/wire-agnostic
   // fields (including tools/toolChoice) then re-emits tools + tool_choice.
   const body: Record<string, unknown> = buildOpenAiBody(wiredMessages, overrides)
+  if (overrides?.promptCacheKey && supportsPromptCacheRouting(config)) body.prompt_cache_key = overrides.promptCacheKey
   if (
     config.provider === "openai"
     || config.provider === "azure"

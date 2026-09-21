@@ -1,0 +1,46 @@
+import { fileExists } from "@/commands/fs"
+import { getUiTestDocumentPath } from "@/lib/ui-test-layout"
+import { useWikiStore, type WikiState } from "@/stores/wiki-store"
+import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
+import { normalizePath } from "@/lib/path-utils"
+import type { WikiProject } from "@/types/wiki"
+
+type View = WikiState["activeView"]
+export interface UiTestWorkspacePreference {
+  version: 1
+  aiWidth?: number
+  directory?: Partial<Record<View, boolean>>
+  files?: Partial<Record<View, string | null>>
+  lastView?: "sources" | "wiki" | "soul"
+  assistant?: Partial<Record<"sources" | "wiki", boolean>>
+}
+export function uiTestWorkspaceKey(projectId?: string) { return `qm-uitest-workspace-v1-${projectId ?? "library"}` }
+export function readUiTestWorkspacePreference(projectId?: string): UiTestWorkspacePreference {
+  try {
+    const data = JSON.parse(localStorage.getItem(uiTestWorkspaceKey(projectId)) ?? "null")
+    if (data?.version === 1) return data
+  } catch { /* 损坏的界面偏好不阻止打开小说。 */ }
+  return { version: 1 }
+}
+export async function restoreUiTestWorkspace(project: WikiProject, saved = readUiTestWorkspacePreference(project.id)): Promise<void> {
+  const current = () => {
+    const active = useWikiStore.getState().project
+    return active?.id === project.id && normalizePath(active.path) === normalizePath(project.path)
+  }
+  if (!current()) return
+  const view = saved.lastView
+  if (view !== "wiki" && view !== "sources" && view !== "soul") return
+  const path = view === "soul" ? null : getUiTestDocumentPath(project.path, saved.files?.[view], view)
+  const exists = path ? await fileExists(path).catch(() => false) : false
+  if (!current()) return
+  useWikiStore.getState().setActiveView(view)
+  if (view === "wiki" || view === "sources") {
+    if (exists) useWikiStore.getState().setSelectedFile(path)
+    else if (view === "sources") useWikiStore.getState().setSelectedFile(null)
+    const assistant = saved.assistant?.[view]
+    if (typeof assistant === "boolean") {
+      if (view === "sources") useOutlineGenerationStore.getState().setPanelOpen(assistant)
+      else useWikiStore.getState().setChatExpanded(assistant)
+    }
+  }
+}

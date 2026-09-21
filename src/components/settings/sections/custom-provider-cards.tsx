@@ -1,3 +1,5 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { UiTestCustomProviders } from "@/components/uitest/models/provider-custom"
 import { useState, useMemo, useEffect, useRef } from "react"
 import { Plus, Trash2, ChevronDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -156,6 +158,8 @@ export function CustomProviderCards() {
       console.error("保存当前模型预设失败:", error)
     }
   }
+
+  if (IS_UI_TEST_BUILD) return <UiTestCustomProviders />
 
   return (
     <div className="space-y-4">

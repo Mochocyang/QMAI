@@ -466,7 +466,13 @@ function groupSourcesByDocument(
   }))
 }
 
-export function buildOutlineContext(index: OutlineDocumentIndex, chapterNumber?: number): string {
+export interface OutlineContextLayers {
+  full: string
+  project: string
+  task: string
+}
+
+export function buildOutlineContextLayers(index: OutlineDocumentIndex, chapterNumber?: number): OutlineContextLayers {
   const master = index.segments.filter((segment) => segment.kind === "master")
   const settings = index.segments.filter((segment) => segment.kind === "setting")
   let volumes: OutlineSegment[] = []
@@ -481,7 +487,16 @@ export function buildOutlineContext(index: OutlineDocumentIndex, chapterNumber?:
     volumes = index.segments.filter((segment) => segment.kind === "volume")
     chapterPlans = index.segments.filter((segment) => segment.kind === "chapter-plan")
   }
-  return uniqueSourceBlocks(groupSourcesByDocument([...master, ...volumes, ...chapterPlans, ...settings])).join("\n\n")
+  const render = (segments: OutlineSegment[]) => uniqueSourceBlocks(groupSourcesByDocument(segments)).join("\n\n")
+  return {
+    full: render([...master, ...volumes, ...chapterPlans, ...settings]),
+    project: render([...master, ...settings]),
+    task: render([...volumes, ...chapterPlans]),
+  }
+}
+
+export function buildOutlineContext(index: OutlineDocumentIndex, chapterNumber?: number): string {
+  return buildOutlineContextLayers(index, chapterNumber).full
 }
 
 function extractHeadingSection(content: string, chapterNumber: number): string {

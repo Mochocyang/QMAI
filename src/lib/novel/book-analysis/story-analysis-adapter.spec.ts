@@ -77,8 +77,10 @@ describe("story analysis adapter", () => {
       now: () => 10,
     })
     const inputTask = task()
+    const onRequestTrace = vi.fn()
     const output = await adapter.runChunk({
       task: inputTask,
+      onRequestTrace,
       skill: "story",
       bookPath: inputTask.bookPath,
       projectPath: inputTask.projectPath,
@@ -104,8 +106,16 @@ describe("story analysis adapter", () => {
     })
 
     expect(recognizeCharacters).toHaveBeenCalledTimes(1)
-    expect(callModel.mock.calls[0][0][1].content).toContain("临时人物线索")
-    expect(callModel.mock.calls[0][0][1].content).toContain("禁止输出角色 Skill")
+    const content = callModel.mock.calls[0][0][1].content
+    expect(Array.isArray(content)).toBe(true)
+    expect(content[0]).toMatchObject({ type: "text", cacheControl: true })
+    expect(content[0].text).toContain("林远推门而入")
+    expect(content[0].text).not.toContain("临时人物线索")
+    const text = content.map((block: { text: string }) => block.text).join("")
+    expect(text).toContain("临时人物线索")
+    expect(recognizeCharacters.mock.calls[0][0].onRequestTrace).toBe(onRequestTrace)
+    expect(callModel.mock.calls[0][3]).toBe(onRequestTrace)
+    expect(text).toContain("禁止输出角色 Skill")
     expect(output.result.map.chapters[0].id).toBe("ch-0001")
     expect(output.result.map.chapters[0].branches[0].kind).toBe("foreshadow")
     expect(output.evidence[0].skill).toBe("story")

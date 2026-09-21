@@ -6,6 +6,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { readFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { toast } from "@/lib/toast"
+import { buildSimpleExtractionMessages } from "@/lib/novel/book-analysis/simple-extraction-messages"
 import type {
   AnalysisDepth,
   ExtractedCharacter,
@@ -36,6 +37,18 @@ interface UseCharacterExtractionParams {
   recognizedCharacters: RecognizedCharacter[]
   selectedCharacterIds: string[]
   reloadLibraryState: () => Promise<void>
+}
+
+async function readSimpleExtractionSamples(bookPath: string, chapterIds: string[], signal: AbortSignal): Promise<string> {
+  const samples: string[] = []
+  for (const [index, chapterId] of chapterIds.entries()) {
+    if (signal.aborted) throw new Error("用户取消")
+    const raw = await readFile(joinPath(bookPath, "chapters", `${chapterId}.md`))
+    const body = raw.replace(/^---[\s\S]*?---\n/, "")
+    samples.push(`【第 ${index + 1} 章】\n${body.slice(0, 1500)}`)
+    if (signal.aborted) throw new Error("用户取消")
+  }
+  return samples.join("\n\n")
 }
 
 /**
@@ -195,16 +208,13 @@ export function useCharacterExtraction({
         .filter((c) => selectedChapterIds.includes(c.id))
         .sort((a, b) => a.order - b.order)
 
-      const samples: string[] = []
-      for (let i = 0; i < selectedChapters.length; i++) {
-        const ch = selectedChapters[i]
-        const chapterPath = joinPath(bookPath, "chapters", `${ch.id}.md`)
-        const raw = await readFile(chapterPath)
-        const body = raw.replace(/^---[\s\S]*?---\n/, "")
-        samples.push(`【第 ${i + 1} 章】\n${body.slice(0, 1500)}`)
-        if (abortController.signal.aborted) throw new Error("用户取消")
-      }
-      const chapterSamples = samples.join("\n\n")
+      const sampleChapterIds = selectedChapters.map((chapter) => chapter.id)
+      useBookAnalysisStore.setState((state) => ({
+        tasks: state.tasks.map((task) => task.id === taskId
+          ? { ...task, bookPath, config: { ...task.config, selectedChapters: sampleChapterIds } }
+          : task),
+      }))
+      const chapterSamples = await readSimpleExtractionSamples(bookPath, sampleChapterIds, abortController.signal)
 
       updateTaskProgress(taskId, {
         stage: "extracting_characters",
@@ -218,11 +228,11 @@ export function useCharacterExtraction({
         throw new Error("未配置 LLM，请先在设置中配置 LLM 后再提取")
       }
       const { streamChat } = await import("@/lib/llm-client")
-      const realLlmCall = async (prompt: string): Promise<string> => {
+      const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
         let response = ""
         await streamChat(
           llmConfig,
-          [{ role: "user", content: prompt }],
+          buildSimpleExtractionMessages(prompt, cachePrefix),
           {
             onToken: (text) => { response += text },
             onDone: () => {},
@@ -422,11 +432,11 @@ export function useCharacterExtraction({
       return
     }
     const { streamChat } = await import("@/lib/llm-client")
-    const realLlmCall = async (prompt: string): Promise<string> => {
+    const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
       let response = ""
       await streamChat(
         llmConfig,
-        [{ role: "user", content: prompt }],
+        buildSimpleExtractionMessages(prompt, cachePrefix),
         {
           onToken: (text) => { response += text },
           onDone: () => {},
@@ -437,20 +447,23 @@ export function useCharacterExtraction({
       return response.trim()
     }
 
-    const sourceBook = (task.metadata as any)?.sourceBook
+    const sourceBook = task.bookPath || (task.metadata as any)?.sourceBook
     if (!sourceBook) {
       alert("找不到原始作品路径，无法继续生成")
       return
     }
-    const samples: string[] = []
+    const sampleChapterIds = task.config.selectedChapters
+    if (sampleChapterIds.length === 0) {
+      alert("未保存上次提取的章节范围，请重新选择章节后提取")
+      return
+    }
+    let chapterSamples: string
     try {
-      const raw = await readFile(joinPath(sourceBook, "chapters", "1.md"))
-      samples.push(`【第 1 章】\n${raw.replace(/^---[\s\S]*?---\n/, "").slice(0, 1500)}`)
+      chapterSamples = await readSimpleExtractionSamples(sourceBook, sampleChapterIds, abortController.signal)
     } catch {
       alert("无法读取原始章节内容，请重新发起提取")
       return
     }
-    const chapterSamples = samples.join("\n\n")
 
     const { extractSingleProfile } = await import(
       "@/lib/novel/book-analysis/simple-extraction-engine"

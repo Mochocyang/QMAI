@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState } from "react"
 import {
   Bot,
   BookOpen,
@@ -19,7 +19,9 @@ import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type ModelSettingsTabId } from "@/stores/wiki-store"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import "@/components/uitest/ui-test-tools.css"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
@@ -27,6 +29,10 @@ import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { UiFontFamily } from "@/lib/font-settings"
 import { ModelSettingsSection } from "./sections/model-settings-section"
+import { LlmProviderSection } from "./sections/llm-provider-section"
+import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
+import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
+import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
 import { InterfaceSection } from "./sections/interface-section"
 import { NovelSection } from "./sections/novel-section"
 import { ClassificationSection } from "./sections/classification-section"
@@ -96,6 +102,76 @@ const CATEGORIES_WITH_SAVE_FOOTER: CategoryId[] = [
   "interface",
   "novel",
 ]
+
+const UI_TEST_MODEL_TABS: Array<{ id: ModelSettingsTabId; label: string }> = [
+  { id: "default", label: "默认模型" },
+  { id: "llm", label: "大语言模型" },
+  { id: "rerank", label: "重排模型" },
+  { id: "embedding", label: "向量模型" },
+]
+
+/** 测试版子页按需挂载并保留草稿；业务调用仍复用原配置接口。 */
+function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft; setDraft: DraftSetter }) {
+  const requestedTab = useWikiStore((s) => s.activeModelSettingsTab)
+  const setRequestedTab = useWikiStore((s) => s.setActiveModelSettingsTab)
+  const [active, setActive] = useState<ModelSettingsTabId>(() => requestedTab ?? "llm")
+  const id = useId()
+  const project = useWikiStore((s) => s.project)
+  const [visited, setVisited] = useState<Set<ModelSettingsTabId>>(() => new Set([requestedTab ?? "llm"]))
+  const activate = (tab: ModelSettingsTabId) => {
+    setVisited((previous) => previous.has(tab) ? previous : new Set([...previous, tab]))
+    setActive(tab)
+  }
+
+  useEffect(() => {
+    if (!requestedTab) return
+    activate(requestedTab)
+    setRequestedTab(null)
+  }, [requestedTab, setRequestedTab])
+
+  return (
+    <div data-ui="settings-model">
+      <h1 className="ui-test-page-title">{UI_TEST_MODEL_TABS.find((tab) => tab.id === active)?.label}</h1>
+      <div role="tablist" aria-label="模型设置" className="ui-test-tool-tabs">
+        {UI_TEST_MODEL_TABS.map((tab, index) => (
+          <button
+            key={tab.id}
+            id={`${id}-${tab.id}`}
+            type="button"
+            role="tab"
+            data-ui-model-tab={tab.id}
+            aria-selected={active === tab.id}
+            aria-controls={`${id}-${tab.id}-panel`}
+            tabIndex={active === tab.id ? 0 : -1}
+            onClick={() => activate(tab.id)}
+            onKeyDown={(event) => {
+              const nextIndex = event.key === "Home" ? 0
+                : event.key === "End" ? UI_TEST_MODEL_TABS.length - 1
+                : event.key === "ArrowRight" ? (index + 1) % UI_TEST_MODEL_TABS.length
+                : event.key === "ArrowLeft" ? (index + UI_TEST_MODEL_TABS.length - 1) % UI_TEST_MODEL_TABS.length
+                : null
+              if (nextIndex === null) return
+              event.preventDefault()
+              const next = UI_TEST_MODEL_TABS[nextIndex]
+              activate(next.id)
+              document.getElementById(`${id}-${next.id}`)?.focus()
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {UI_TEST_MODEL_TABS.map((tab) => (
+        <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>
+          {visited.has(tab.id) && tab.id === "llm" && <LlmProviderSection />}
+          {visited.has(tab.id) && tab.id === "default" && <DefaultModelSettingsPanel draft={draft} setDraft={setDraft} />}
+          {visited.has(tab.id) && tab.id === "rerank" && <UiTestRerankModels key={project?.id ?? "global"} />}
+          {visited.has(tab.id) && tab.id === "embedding" && <UiTestEmbeddingModels key={project?.id ?? "global"} />}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function initialDraft(
   llm: ReturnType<typeof useWikiStore.getState>["llmConfig"],
@@ -212,13 +288,19 @@ export function SettingsView() {
     ),
   )
 
+  const changeCategory = useCallback(async (category: CategoryId) => {
+    if (category === active) return
+    if (IS_UI_TEST_BUILD && active === "model" && !(await confirmModelDraftLeave())) return
+    setActive(category)
+  }, [active])
+
   useEffect(() => {
     if (!activeSettingsCategory) return
     if (CATEGORIES.some((category) => category.id === activeSettingsCategory)) {
-      setActive(activeSettingsCategory as CategoryId)
+      changeCategory(activeSettingsCategory as CategoryId)
     }
     setActiveSettingsCategory(null)
-  }, [activeSettingsCategory, setActiveSettingsCategory])
+  }, [activeSettingsCategory, changeCategory, setActiveSettingsCategory])
 
   useEffect(() => {
     let cancelled = false
@@ -433,6 +515,7 @@ export function SettingsView() {
   const body = useMemo(() => {
     switch (active) {
       case "model":
+        if (IS_UI_TEST_BUILD) return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />
         return <ModelSettingsSection draft={draft} setDraft={setDraft} />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
@@ -465,13 +548,14 @@ export function SettingsView() {
     }
   }, [active, draft, setDraft])
 
-  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active)
+  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active) && !(IS_UI_TEST_BUILD && active === "model")
+  const activeCategory = CATEGORIES.find((category) => category.id === active)!
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden" data-ui-page={IS_UI_TEST_BUILD ? "settings" : undefined} data-ui-settings-category={IS_UI_TEST_BUILD ? active : undefined}>
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
           pattern so the two navigational surfaces feel like one app. */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+      <aside data-ui={IS_UI_TEST_BUILD ? "settings-sidebar" : undefined} className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}
@@ -479,7 +563,7 @@ export function SettingsView() {
             className="cursor-pointer text-sidebar-foreground/65 transition-colors hover:text-sidebar-foreground"
           />
         </div>
-        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <nav aria-label={IS_UI_TEST_BUILD ? "设置分类" : undefined} data-ui={IS_UI_TEST_BUILD ? "settings-navigation" : undefined} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {CATEGORIES.map((c) => {
             const Icon = c.icon
             const isActive = c.id === active
@@ -487,8 +571,9 @@ export function SettingsView() {
             return (
               <button
                 key={c.id}
+                data-ui-settings-category-button={IS_UI_TEST_BUILD ? c.id : undefined}
                 type="button"
-                onClick={() => setActive(c.id)}
+                onClick={() => changeCategory(c.id)}
                 aria-current={isActive ? "page" : undefined}
                 className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
                   isActive
@@ -518,13 +603,30 @@ export function SettingsView() {
       </aside>
 
       {/* Content */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-          <div className="mx-auto max-w-2xl">{body}</div>
+      <div data-ui={IS_UI_TEST_BUILD ? "settings-content" : undefined} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {IS_UI_TEST_BUILD && (
+          <div data-ui="settings-mobile-navigation">
+            <label htmlFor="ui-test-settings-category">设置分类</label>
+            <select id="ui-test-settings-category" aria-label="设置分类" value={active} onChange={(event) => changeCategory(event.target.value as CategoryId)}>
+              {CATEGORIES.map((category) => <option key={category.id} value={category.id}>{t(category.labelKey, { defaultValue: category.defaultLabel })}</option>)}
+            </select>
+          </div>
+        )}
+        <div data-ui={IS_UI_TEST_BUILD ? "settings-scroll" : undefined} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <div data-ui={IS_UI_TEST_BUILD ? "settings-section" : undefined} className="mx-auto max-w-2xl">
+            {IS_UI_TEST_BUILD && (
+              <nav aria-label="面包屑" className="ui-test-breadcrumb">
+                <span>设置</span><span aria-hidden="true">/</span>
+                <span>{active === "classification" || active === "novel" ? (project?.name ?? "未选择项目") : "全局设置"}</span><span aria-hidden="true">/</span>
+                <span aria-current="page">{t(activeCategory.labelKey, { defaultValue: activeCategory.defaultLabel })}</span>
+              </nav>
+            )}
+            {body}
+          </div>
         </div>
 
         {showSaveFooter && (
-          <div className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+          <div data-ui={IS_UI_TEST_BUILD ? "settings-footer" : undefined} className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
               <p className="text-xs text-muted-foreground">
                 {saved ? t("settings.savedTick") : t("settings.changeHint")}

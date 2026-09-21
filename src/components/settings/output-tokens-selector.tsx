@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { normalizeUserLlmMaxOutputTokens } from "@/lib/llm-context-size"
 
 const OUTPUT_TOKEN_PRESETS = [
+  { value: 49152, label: "48K" },
   { value: 65536, label: "64K" },
   { value: 131072, label: "128K" },
   { value: 262144, label: "256K" },

@@ -278,6 +278,105 @@ describe("activity trace", () => {
     expect(resolveAgentStageTitle("plan_deviation_recheck")).toBe("计划偏离复检")
   })
 
+  it("hides task_understanding from display", () => {
+    const stages: AgentStageTrace[] = [
+      {
+        id: "task_understanding",
+        title: "任务理解",
+        status: "done",
+        summary: "快速模式（普通对话）",
+        events: [
+          {
+            id: "route-1",
+            stageId: "task_understanding",
+            kind: "analysis",
+            title: "当前执行路线",
+            content: "识别任务：general_chat",
+            timestamp: 100,
+          },
+        ],
+        startedAt: 100,
+      },
+      {
+        id: "read_context",
+        title: "读取上下文",
+        status: "done",
+        summary: "上下文",
+        events: [],
+        startedAt: 200,
+      },
+    ]
+
+    expect(prepareAgentStagesForDisplay(stages).map((stage) => stage.id)).toEqual(["read_context"])
+  })
+
+  it("hides capability_selection when no skill is enabled", () => {
+    const stages: AgentStageTrace[] = [
+      {
+        id: "capability_selection",
+        title: "能力选择",
+        status: "done",
+        summary: "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。",
+        events: [
+          {
+            id: "skill-1",
+            stageId: "capability_selection",
+            kind: "skill_used",
+            title: "本次启用 Skill",
+            content: "本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。",
+            timestamp: 100,
+          },
+        ],
+        startedAt: 100,
+      },
+      {
+        id: "generate_draft",
+        title: "生成章节草稿",
+        status: "done",
+        summary: "草稿",
+        events: [],
+        startedAt: 200,
+      },
+    ]
+
+    expect(prepareAgentStagesForDisplay(stages).map((stage) => stage.id)).toEqual(["generate_draft"])
+  })
+
+  it("keeps capability_selection when skills are actually enabled", () => {
+    const stages: AgentStageTrace[] = [
+      {
+        id: "capability_selection",
+        title: "能力选择",
+        status: "done",
+        summary: "1. 正文输出协议｜阶段：output｜类型：output｜优先级：10",
+        events: [
+          {
+            id: "skill-1",
+            stageId: "capability_selection",
+            kind: "skill_used",
+            title: "本次启用 Skill",
+            content: "1. 正文输出协议｜阶段：output｜类型：output｜优先级：10",
+            timestamp: 100,
+          },
+        ],
+        startedAt: 100,
+      },
+      {
+        id: "read_context",
+        title: "读取上下文",
+        status: "done",
+        summary: "上下文",
+        events: [],
+        startedAt: 200,
+      },
+    ]
+
+    expect(prepareAgentStagesForDisplay(stages).map((stage) => stage.id)).toEqual([
+      "capability_selection",
+      "read_context",
+    ])
+  })
+
   it("places 去AI味 between 校验与修正 and 最终输出", () => {
     const stages: AgentStageTrace[] = [
       { id: "final_output", title: "最终输出", status: "done", summary: "完成", events: [], startedAt: 400 },

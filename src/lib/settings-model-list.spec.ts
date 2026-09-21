@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { invoke } from "@tauri-apps/api/core"
+import { getCursorCliCatalog, rememberCursorCliCatalog } from "@/lib/cursor-acp-models"
 
 const fetchMock = vi.fn()
 
@@ -33,6 +34,7 @@ function customConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
 afterEach(() => {
   fetchMock.mockReset()
   vi.mocked(invoke).mockReset()
+  rememberCursorCliCatalog([])
 })
 
 describe("settings model list", () => {
@@ -138,6 +140,98 @@ describe("settings model list", () => {
 
     expect(invoke).toHaveBeenCalledWith("codex_cli_detect")
     expect(result.models).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"])
+  })
+
+  it("filters the cursor-cli list through ACP params and keeps CLI ids", async () => {
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === "cursor_proxy_ensure") {
+        return {
+          healthy: true,
+          base_url: "http://127.0.0.1:8765",
+          managed: true,
+          error: null,
+        }
+      }
+      if (command === "cursor_cli_apply_acp_model") return undefined
+      if (command === "cursor_cli_acp_models") {
+        return [
+          { name: "grok-4.6", modelId: "grok-4.6[effort=high,fast=true]" },
+          { name: "composer-2.5", modelId: "composer-2.5[fast=true]" },
+        ]
+      }
+      throw new Error(`unexpected invoke ${command}`)
+    })
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: "cursor-grok-4.6-medium-fast" },
+              { id: "cursor-grok-4.6-high-fast" },
+              { id: "cursor-grok-4.6-high" },
+              { id: "composer-2-fast" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    )
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    const result = await fetchLlmModelList(customConfig({
+      provider: "cursor-cli",
+      apiKey: "",
+      model: "cursor-grok-4.6-medium-fast",
+      customEndpoint: "http://127.0.0.1:8765/v1",
+    }))
+
+    expect(invoke).toHaveBeenCalledWith("cursor_cli_acp_models")
+    expect(invoke).toHaveBeenCalledWith("cursor_cli_apply_acp_model", {
+      model: "grok-4.6",
+      cliModel: "cursor-grok-4.6-medium-fast",
+      fast: true,
+      effort: "medium",
+    })
+    expect(result.models).toEqual([
+      "composer-2-fast",
+      "cursor-grok-4.6-high-fast",
+    ])
+    expect(getCursorCliCatalog()).toEqual([
+      "cursor-grok-4.6-high-fast",
+      "composer-2-fast",
+    ])
+  })
+
+  it("fails closed when the ACP catalog is empty", async () => {
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === "cursor_proxy_ensure") {
+        return {
+          healthy: true,
+          base_url: "http://127.0.0.1:8765",
+          managed: true,
+          error: null,
+        }
+      }
+      if (command === "cursor_cli_apply_acp_model") return undefined
+      if (command === "cursor_cli_acp_models") return []
+      throw new Error(`unexpected invoke ${command}`)
+    })
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: [{ id: "cursor-grok-4.6-high-fast" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    )
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    await expect(fetchLlmModelList(customConfig({
+      provider: "cursor-cli",
+      apiKey: "",
+      model: "cursor-grok-4.6-high-fast",
+      customEndpoint: "http://127.0.0.1:8765/v1",
+    }))).rejects.toThrow("ACP catalog 为空")
   })
 
   it("rejects a Codex CLI without app-server dynamic tools", async () => {

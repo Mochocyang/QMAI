@@ -11,6 +11,7 @@ import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { codexAppServerServiceTier } from "@/lib/codex-cli-speed"
 import type { LlmUsage } from "@/lib/llm-usage"
 import { applyGlobalUserMemoryToMessages } from "@/lib/user-memory/request-integration"
+import { buildAgentRequestMessages } from "./cache-aware-messages"
 import type { ToolRegistry } from "./registry"
 import {
   RequiredToolsNotCalledError,
@@ -257,7 +258,7 @@ export class CodexAppServerRunner {
     messagesWithContract.splice(contractIndex < 0 ? messagesWithContract.length : contractIndex, 0, taskContract)
 
     const { messages: memoryMessages, decision } = applyGlobalUserMemoryToMessages(
-      messagesWithContract,
+      buildAgentRequestMessages(messagesWithContract, messageContentText(taskContract.content)),
       config.requestOverrides,
     )
     record.userMemoryDecision = decision

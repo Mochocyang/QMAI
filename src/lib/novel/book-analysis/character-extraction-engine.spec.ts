@@ -102,7 +102,13 @@ describe("extractCharactersFromChapters 目标角色约束", () => {
       return `---\ntitle: 第${order}章\norder: ${order}\n---\n林烬与乌鸦同时出现。`
     })
     streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
-      expect(messages[0].content).toContain('角色"林烬"')
+      const content = messages[0].content
+      const text = typeof content === "string" ? content : content.map((block: { text: string }) => block.text).join("")
+      expect(text).toContain('角色"林烬"')
+      expect(Array.isArray(content)).toBe(true)
+      expect(content[0]).toMatchObject({ cacheControl: true })
+      expect(content[0].text).not.toContain('角色"林烬"')
+      handlers.onRequestTrace?.({ requestId: "details" })
       handlers.onToken(JSON.stringify({
         name: "林烬",
         category: "protagonist",
@@ -121,7 +127,9 @@ describe("extractCharactersFromChapters 目标角色约束", () => {
       sourceBook: "book-1",
     }
 
+    const onRequestTrace = vi.fn()
     const result = await extractCharactersFromChapters({
+      onRequestTrace,
       bookPath: "E:/Novel/book-analysis/book-1",
       selectedChapterIds: ["chapter-1", "chapter-2"],
       llmConfig: fakeLlmConfig,
@@ -129,6 +137,8 @@ describe("extractCharactersFromChapters 目标角色约束", () => {
       targetCharacters: [selected],
     })
 
+    expect(onRequestTrace).toHaveBeenCalledWith({ requestId: "details" })
+    expect(analyzeSixDimensionsMock.mock.calls[0][0].onRequestTrace).toBe(onRequestTrace)
     expect(streamChatMock).toHaveBeenCalledTimes(1)
     expect(analyzeSixDimensionsMock).toHaveBeenCalledTimes(1)
     expect(analyzeSixDimensionsMock.mock.calls[0][0].character.name).toBe("林烬")
@@ -182,7 +192,8 @@ describe("extractCharactersFromChapters 角色识别失败处理", () => {
   it("单个角色详情失败时跳过该角色并保留其他成功结果", async () => {
     vi.mocked(readFile).mockResolvedValue("---\ntitle: 第一章\norder: 1\n---\n林烬与顾司玥同行。")
     streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
-      const prompt = messages[0]?.content ?? ""
+      const content = messages[0]?.content ?? ""
+      const prompt = typeof content === "string" ? content : content.map((block: { text: string }) => block.text).join("")
       if (prompt.includes('角色"顾司玥"')) {
         handlers.onError(new Error("JSON Parse error: Unterminated string"))
         return
@@ -258,6 +269,7 @@ describe("extractSingleCharacter (fix/character-reextract-and-loading-state)", (
 
     // 关键断言：streamChat 至少被调用一次（说明走了真实 LLM 路径，不是 defaultLlmCall 抛错）
     expect(streamChatMock).toHaveBeenCalled()
+    expect(streamChatMock.mock.calls[0][1]).toEqual([{ role: "user", content: "test prompt" }])
     expect(result.character.personalityProfile?.personality).toBe("冷静")
     // 清掉 6 维旧数据
     expect(result.character.sixDimensionResearch).toBeUndefined()
@@ -289,5 +301,78 @@ describe("extractSingleCharacter (fix/character-reextract-and-loading-state)", (
         llmConfig: fakeLlmConfig,
       }),
     ).rejects.toThrow(/简单提取失败/)
+  })
+})
+
+
+describe("simple 模式实际缓存消息", () => {
+  it("真实单人引擎经包装调用 streamChat，两个角色共享完整缓存块且只在末块换人", async () => {
+    const { extractSingleProfile } = await import("./simple-extraction-engine")
+    const actual = await vi.importActual<typeof import("./simple-extraction-engine")>("./simple-extraction-engine")
+    const chapterSamples = "共同章节材料。".repeat(3000)
+    const signal = new AbortController().signal
+
+    for (const name of ["Actor_A", "Actor_B"]) {
+      vi.mocked(extractSingleProfile).mockImplementationOnce(actual.extractSingleProfile)
+      streamChatMock.mockImplementationOnce(async (_cfg, _messages, handlers) => {
+        handlers.onToken(JSON.stringify([{
+          name, personality: "冷静", motivation: "守护", speechStyle: "简短",
+          behaviorPatterns: "克制", quotes: ["台词1", "台词2", "台词3"],
+        }]))
+        handlers.onDone()
+      })
+      const result = await extractSingleCharacter({
+        bookPath: "E:/Novel/book-analysis/book-1", bookId: "book-1",
+        character: { ...fakeCharacter, name, corpus: chapterSamples },
+        mode: "simple", llmConfig: fakeLlmConfig, signal,
+      })
+      expect(result.character.personalityProfile?.quotes).toHaveLength(3)
+    }
+
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
+    const firstMessages = streamChatMock.mock.calls[0][1]
+    const secondMessages = streamChatMock.mock.calls[1][1]
+    expect(firstMessages).toHaveLength(1)
+    expect(firstMessages[0].role).toBe("user")
+    expect(Array.isArray(firstMessages[0].content)).toBe(true)
+    const [prefix, suffix] = firstMessages[0].content
+    expect(firstMessages[0].content).toHaveLength(2)
+    expect(prefix.type).toBe("text")
+    expect(prefix.cacheControl).toBe(true)
+    expect(prefix).not.toHaveProperty("cache_control")
+    expect(prefix.text.includes(chapterSamples)).toBe(true)
+    expect(prefix.text).not.toContain("# 角色列表")
+    expect(prefix.text).not.toContain("Actor_A")
+    expect(prefix.text).not.toContain("Actor_B")
+    expect(prefix).toEqual(secondMessages[0].content[0])
+    expect(suffix).toEqual({ type: "text", text: "\n\n# 角色列表\n- Actor_A" })
+    expect(secondMessages[0].content[1]).toEqual({ type: "text", text: "\n\n# 角色列表\n- Actor_B" })
+    for (const call of streamChatMock.mock.calls) {
+      expect(call).toHaveLength(4)
+      expect(call[0]).toBe(fakeLlmConfig)
+      expect(call[3]).toBe(signal)
+    }
+  })
+
+  it("章节原文包含同名角色列表分隔符时不误切缓存材料", async () => {
+    const { extractSingleProfile } = await import("./simple-extraction-engine")
+    const actual = await vi.importActual<typeof import("./simple-extraction-engine")>("./simple-extraction-engine")
+    vi.mocked(extractSingleProfile).mockImplementationOnce(actual.extractSingleProfile)
+    const chapterSamples = "原文开头\n\n# 角色列表\n- 原文人物\n😀原文结尾\n"
+    streamChatMock.mockImplementationOnce(async (_cfg, _messages, handlers) => {
+      handlers.onToken(JSON.stringify([{ name: fakeCharacter.name, personality: "冷静", quotes: [] }]))
+      handlers.onDone()
+    })
+
+    await extractSingleCharacter({
+      bookPath: "E:/Novel/book-analysis/book-1", bookId: "book-1",
+      character: { ...fakeCharacter, corpus: chapterSamples }, mode: "simple", llmConfig: fakeLlmConfig,
+    })
+
+    const content = streamChatMock.mock.calls[0][1][0].content
+    expect(Array.isArray(content)).toBe(true)
+    expect(content[0].text.endsWith(chapterSamples)).toBe(true)
+    expect(content[0].cacheControl).toBe(true)
+    expect(content[1]).toEqual({ type: "text", text: `\n\n# 角色列表\n- ${fakeCharacter.name}` })
   })
 })

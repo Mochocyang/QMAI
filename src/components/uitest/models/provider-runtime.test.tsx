@@ -1,0 +1,138 @@
+// @vitest-environment jsdom
+import { act } from "react"
+import { beforeEach, afterEach, expect, it, vi } from "vitest"
+import { useWikiStore, type ProviderOverride } from "@/stores/wiki-store"
+import { UiTestCustomProviders, UiTestProviderCard } from "./provider-custom"
+import { saveProviderConfigs } from "@/lib/project-store"
+import { flushAppState } from "@/lib/web-store"
+import { fetchLlmModelList } from "@/lib/settings-model-list"
+import { testLlmConnection, testLlmFunction } from "@/lib/connection-tests"
+import { mountModel, changeInput, click, button, deferred } from "./model-test-utils"
+import { confirmModelDraftLeave } from "./model-draft-guard"
+vi.mock("@/lib/project-store", () => ({ saveProviderConfigs: vi.fn(), saveLlmConfig: vi.fn(), saveActivePresetId: vi.fn() }))
+vi.mock("@/lib/web-store", () => ({ flushAppState: vi.fn() }))
+vi.mock("@/lib/settings-model-list", () => ({ fetchLlmModelList: vi.fn() }))
+vi.mock("@/lib/connection-tests", () => ({ testLlmConnection: vi.fn(), testLlmFunction: vi.fn() }))
+vi.mock("@/components/settings/sections/llm-provider-section", () => ({ FunctionCallingControls: () => null, ReasoningControls: () => null, withOutputRoomForReasoning: () => ({}) }))
+const original: ProviderOverride = { enabled: true, label: "模拟提供方", baseUrl: "https://example.invalid/v1", apiKey: "mock-only-secret", model: "alpha", maxContextSize: 204800, maxOutputTokens: 16384, savedModels: [{ id: "old-alpha", model: "alpha", name: "原模型", description: "保留这条备注", createdAt: 1 }] }
+let host: HTMLDivElement, unmount: () => Promise<void>
+beforeEach(async () => {
+  vi.resetAllMocks(); vi.spyOn(window, "confirm").mockReturnValue(true)
+  useWikiStore.setState({ providerConfigs: { "custom-unit": original }, activePresetId: null })
+  ;({ host, unmount } = await mountModel(<UiTestProviderCard id="custom-unit" expanded isNew={false} onToggle={() => {}} onRemoved={() => {}} />))
+})
+afterEach(async () => { await unmount(); vi.restoreAllMocks() })
+it("输入仅改变草稿，明确保存之后生效且保留原模型元数据", async () => {
+  await changeInput(host, "配置名称", "新的名称")
+  expect(useWikiStore.getState().providerConfigs["custom-unit"]).toBe(original)
+  expect(saveProviderConfigs).not.toHaveBeenCalled()
+  await click(host, "保存配置")
+  expect(useWikiStore.getState().providerConfigs["custom-unit"].label).toBe("新的名称")
+  expect(useWikiStore.getState().providerConfigs["custom-unit"].savedModels).toEqual(original.savedModels)
+  expect(host.textContent).toContain("配置已保存")
+})
+it("保存失败保留输入并脱敏，重试可以成功", async () => {
+  vi.mocked(flushAppState).mockRejectedValueOnce(new Error("失败 mock-only-secret"))
+  await changeInput(host, "配置名称", "失败后的草稿"); await click(host, "保存配置")
+  expect(host.textContent).toContain("保存失败")
+  expect(host.textContent).not.toContain("mock-only-secret")
+  expect((host.querySelector('[aria-label="配置名称"]') as HTMLInputElement).value).toBe("失败后的草稿")
+  expect(useWikiStore.getState().providerConfigs["custom-unit"]).toBe(original)
+  await click(host, "保存配置")
+  expect(useWikiStore.getState().providerConfigs["custom-unit"].label).toBe("失败后的草稿")
+})
+it("无效地址阻止保存，密钥显示开关不改配置", async () => {
+  await changeInput(host, "接口地址", "not-a-url"); await click(host, "保存配置")
+  expect(host.textContent).toContain("接口地址")
+  expect(saveProviderConfigs).not.toHaveBeenCalled()
+  const input = host.querySelector<HTMLInputElement>('[aria-label="API 密钥"]')!
+  expect(input.type).toBe("password")
+  await click(host, "显示密钥"); expect(input.type).toBe("text")
+  await click(host, "隐藏密钥"); expect(input.type).toBe("password")
+})
+it("批量手输去重、移除最后一项后不保留幽灵模型", async () => {
+  await changeInput(host, "批量添加模型 ID", "alpha,beta，beta"); await click(host, "添加")
+  expect(host.querySelectorAll('.model-selected-list > div')).toHaveLength(2)
+  await click(host, "移除模型alpha"); await click(host, "移除模型beta")
+  expect((host.querySelector('[aria-label="当前模型 ID"]') as HTMLInputElement).value).toBe("")
+  await click(host, "保存配置"); expect(saveProviderConfigs).not.toHaveBeenCalled()
+})
+it("连接与功能测试均使用草稿且不会隐式保存", async () => {
+  vi.mocked(testLlmConnection).mockResolvedValue({ ok: true, message: "OK" })
+  vi.mocked(testLlmFunction).mockResolvedValue({ ok: true, message: "OK" })
+  await changeInput(host, "API 密钥", "mock-new-key")
+  await click(host, "测试连接"); await click(host, "测试功能")
+  expect(testLlmConnection).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "mock-new-key", model: "alpha" }))
+  expect(testLlmFunction).toHaveBeenCalledOnce()
+  expect(saveProviderConfigs).not.toHaveBeenCalled()
+  expect(host.textContent).toContain("尚未保存")
+})
+it("修改接口后，旧拉取请求不能回填到新配置", async () => {
+  const pending = deferred<{ models: string[]; source: string }>()
+  vi.mocked(fetchLlmModelList).mockReturnValueOnce(pending.promise)
+  await click(host, "拉取模型")
+  await changeInput(host, "接口地址", "https://another.invalid/v1")
+  await act(async () => pending.resolve({ models: ["obsolete-model"], source: "mock" }))
+  expect(host.textContent).not.toContain("obsolete-model")
+  expect(button(host, "拉取模型").disabled).toBe(false)
+})
+it("删除进行中也阻止离开，防止删除结果丢失", async () => {
+  const pending = deferred<void>()
+  vi.mocked(flushAppState).mockReturnValueOnce(pending.promise)
+  await click(host, "删除配置")
+  const alert = vi.spyOn(window, "alert").mockImplementation(() => {})
+  expect(await confirmModelDraftLeave()).toBe(false)
+  expect(alert).toHaveBeenCalledOnce()
+  await act(async () => pending.resolve())
+})
+
+it("连接抛异常后提供失败重试，而不是丢失失败模型", async () => {
+  vi.mocked(testLlmConnection).mockRejectedValueOnce(new Error("网络中断 mock-only-secret"))
+  await click(host, "测试连接")
+  expect(host.textContent).toContain("重试失败模型")
+  vi.mocked(testLlmConnection).mockResolvedValueOnce({ ok: true, message: "OK" })
+  await click(host, "重试失败模型")
+  expect(host.textContent).toContain("连接测试通过")
+})
+
+it("手输但尚未加入列表的模型同样受草稿保护", async () => {
+  vi.mocked(window.confirm).mockReturnValue(false)
+  await changeInput(host, "批量添加模型 ID", "pending-model")
+  expect(await confirmModelDraftLeave()).toBe(false)
+  expect(host.textContent).toContain("先点击“添加”")
+})
+it("功能测试的失败重试不能退化成仅连接测试", async () => {
+  vi.mocked(testLlmFunction).mockRejectedValueOnce(new Error("功能测试中断")).mockResolvedValueOnce({ ok: true, message: "OK" })
+  await click(host, "测试功能"); await click(host, "重试失败模型")
+  expect(testLlmFunction).toHaveBeenCalledTimes(2)
+  expect(testLlmConnection).not.toHaveBeenCalled()
+})
+
+it("添加配置自动展开，不会把未填写的新卡写进运行配置", async () => {
+  await unmount(); useWikiStore.setState({ providerConfigs: {} })
+  ;({ host, unmount } = await mountModel(<UiTestCustomProviders />))
+  await click(host, "添加模型")
+  expect(host.querySelector('.model-provider-title')?.getAttribute("aria-expanded")).toBe("true")
+  expect(saveProviderConfigs).not.toHaveBeenCalled()
+  await click(host, "保存配置")
+  expect(host.textContent).toContain("请填写接口地址")
+  expect(Object.keys(useWikiStore.getState().providerConfigs)).toHaveLength(0)
+})
+
+it("确认尚未完成或被取消时，不得发送网络请求", async () => {
+  const answer = deferred<boolean>()
+  vi.mocked(window.confirm).mockReturnValueOnce(answer.promise as unknown as boolean)
+  vi.mocked(testLlmConnection).mockResolvedValue({ok:true,message:"OK"})
+  await click(host,"测试连接")
+  expect(testLlmConnection).not.toHaveBeenCalled()
+  await act(async () => answer.resolve(false))
+  expect(testLlmConnection).not.toHaveBeenCalled()
+})
+it("取消异步删除确认不能写配置或关闭卡片", async () => {
+  const answer=deferred<boolean>()
+  vi.mocked(window.confirm).mockReturnValueOnce(answer.promise as unknown as boolean)
+  await click(host,"删除配置")
+  expect(saveProviderConfigs).not.toHaveBeenCalled()
+  await act(async () => answer.resolve(false))
+  expect(useWikiStore.getState().providerConfigs["custom-unit"]).toBe(original)
+})

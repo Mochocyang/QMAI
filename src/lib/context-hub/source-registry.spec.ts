@@ -188,4 +188,31 @@ describe("ContextSourceRegistry", () => {
     const changed = await harness.registry.getDependencyStamp(["retrieval"])
     expect(changed.fingerprint).not.toBe(initial.fingerprint)
   })
+
+  it("computes a prefix-scoped dependency stamp only from matching paths", async () => {
+    const chapter = "E:/Novel/wiki/chapters/1.md"
+    const outline = "E:/Novel/wiki/outlines/main.md"
+    const harness = createHarness([file(chapter, 1), file(outline, 1)])
+    harness.hashes.set(chapter, "chapter-v1")
+    harness.hashes.set(outline, "outline-v1")
+    await harness.registry.refresh()
+
+    const chapterStamp = await harness.registry.getDependencyStampForPrefixes(["wiki/chapters/"])
+    const outlineStamp = await harness.registry.getDependencyStampForPrefixes(["wiki/outlines/"])
+
+    expect(chapterStamp.sourceCount).toBe(1)
+    expect(outlineStamp.sourceCount).toBe(1)
+    expect(chapterStamp.fingerprint).not.toBe(outlineStamp.fingerprint)
+
+    // 只改章节文件，outline 前缀戳不受影响
+    harness.hashes.set(chapter, "chapter-v2")
+    harness.setFiles([file(chapter, 2), file(outline, 1)])
+    await harness.registry.refresh()
+
+    const chapterStamp2 = await harness.registry.getDependencyStampForPrefixes(["wiki/chapters/"])
+    const outlineStamp2 = await harness.registry.getDependencyStampForPrefixes(["wiki/outlines/"])
+
+    expect(chapterStamp2.fingerprint).not.toBe(chapterStamp.fingerprint)
+    expect(outlineStamp2.fingerprint).toBe(outlineStamp.fingerprint)
+  })
 })

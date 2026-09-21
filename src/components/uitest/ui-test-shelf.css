@@ -1,0 +1,453 @@
+/* 仅限独立 UI 测试书架及其新建弹窗；尺寸和八色取自指定图稿包。 */
+.ui-test-root .ui-test-shelf {
+  --ui-shelf-cover-1: #89967d;
+  --ui-shelf-cover-2: #b28f88;
+  --ui-shelf-cover-3: #beb08e;
+  --ui-shelf-cover-4: #71878b;
+  --ui-shelf-cover-5: #c5a173;
+  --ui-shelf-cover-6: #8f9984;
+  --ui-shelf-cover-7: #958ba8;
+  --ui-shelf-cover-8: #7c9b96;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-inner {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1088px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 18px 0 30px;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-heading { min-width: 0; }
+.ui-test-root .ui-test-shelf .ui-test-eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-shelf .ui-test-hero-title {
+  font: 500 32px/1.45 var(--serif);
+  letter-spacing: 0;
+  margin: 6px 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-hero-sub {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-test-root .ui-test-shelf .ui-test-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.ui-test-root .ui-test-shelf .ui-test-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); }
+.ui-test-root .ui-test-shelf .ui-test-btn.ghost { background: transparent; }
+.ui-test-root .ui-test-shelf .ui-test-btn:hover { filter: brightness(.97); }
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 20px;
+  margin: 0;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.ui-test-root .ui-test-shelf .ui-test-tab {
+  padding: 8px 13px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+.ui-test-root .ui-test-shelf .ui-test-tab.is-active { background: var(--ui-soft); color: var(--ui-accent); }
+
+.ui-test-root .ui-test-shelf .ui-test-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-muted);
+  width: 240px;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ui-panel);
+}
+.ui-test-root .ui-test-shelf .ui-test-searchbox svg { width: 14px; height: 14px; flex-shrink: 0; }
+.ui-test-root .ui-test-shelf .ui-test-searchbox input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ui-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.ui-test-root .ui-test-shelf .ui-test-searchbox input::placeholder { color: var(--ui-muted); opacity: 1; }
+
+.ui-test-root .ui-test-shelf .ui-test-shelf-count {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 23px 0 15px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ui-muted);
+}
+.ui-test-root .ui-test-shelf .ui-test-shelf-alert {
+  margin: 0 0 16px;
+  color: var(--ui-danger);
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-books-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 30px 28px;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-book-card {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-shelf .ui-test-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  position: relative;
+  min-height: 0;
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 23px;
+  color: #fffff3;
+  isolation: isolate;
+}
+.ui-test-root .ui-test-shelf .ui-test-cover::before {
+  content: "";
+  position: absolute;
+  left: -25%;
+  bottom: -32%;
+  width: 142%;
+  height: 71%;
+  background: #ffffff15;
+  border-radius: 45%;
+  transform: rotate(-23deg);
+  pointer-events: none;
+}
+.ui-test-root .ui-test-shelf .ui-test-cover::after {
+  content: attr(data-char);
+  position: absolute;
+  right: 7px;
+  bottom: 0;
+  font: 100px/1.2 var(--serif);
+  opacity: .13;
+  pointer-events: none;
+}
+.ui-test-root .ui-test-shelf .ui-test-cover small {
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 2.2px;
+  opacity: .85;
+}
+.ui-test-root .ui-test-shelf .ui-test-cover-title {
+  position: relative;
+  z-index: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 26px 0 auto;
+  font: 500 26px/1.5 var(--serif);
+  letter-spacing: 2px;
+}
+.ui-test-root .ui-test-shelf .ui-test-book-info { display: block; padding: 12px 0 0; }
+.ui-test-root .ui-test-shelf .ui-test-book-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  margin: 0 0 7px;
+  font: 600 16px/24px var(--ui);
+  color: var(--ui-ink);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-stats {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  margin: 8px 0 13px;
+  color: var(--ui-muted);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-stats strong {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+.ui-test-root .ui-test-shelf .ui-test-book-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+.ui-test-root .ui-test-shelf .ui-test-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ui-muted);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-next > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-test-root .ui-test-shelf .ui-test-book-next svg { width: 16px; height: 16px; flex-shrink: 0; }
+.ui-test-root .ui-test-shelf .ui-test-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 80px 20px;
+  text-align: center;
+  color: var(--ui-muted);
+}
+.ui-test-root .ui-test-shelf .ui-test-empty > svg { width: 32px; height: 32px; }
+.ui-test-root .ui-test-shelf .ui-test-empty p { margin: 0; font-size: 14px; line-height: 1.8; }
+.ui-test-root .ui-test-shelf .ui-test-empty h2 { margin: 0; font-size: 18px; color: var(--ui-ink); }
+
+.ui-test-shelf-tooltip {
+  max-width: min(36rem, calc(100vw - 32px));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ui-test-root .ui-test-shelf button:focus-visible,
+.ui-test-root .ui-test-shelf .ui-test-searchbox:focus-within {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+.ui-test-root .ui-test-shelf .ui-test-tab:hover { background: var(--ui-soft); }
+
+/* Portal 不一定是 .ui-test-root 的后代，使用仅测试版 JSX 才有的标记隔离弹窗。 */
+.ui-test-create-project-dialog[data-ui-test-dialog="create-project"][data-slot="dialog-content"] {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 620px;
+  max-width: calc(100vw - 32px);
+  max-height: 88dvh;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: var(--ui-paper, #fcfdfb);
+  color: var(--ui-ink, #273c35);
+  font-family: var(--ui, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif);
+  box-shadow: 0 24px 80px #20362825;
+}
+.ui-test-create-project-dialog .ui-test-create-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 25px 28px 18px;
+}
+.ui-test-create-project-dialog .ui-test-create-title { margin: 0 0 7px; font-size: 20px; font-weight: 500; line-height: 1.5; }
+.ui-test-create-project-dialog .ui-test-create-caption { margin: 0; font-size: 13px; line-height: 1.8; color: var(--ui-muted, #5d6e64); }
+.ui-test-create-project-dialog .ui-test-create-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -8px -10px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted, #5d6e64);
+  cursor: pointer;
+}
+.ui-test-create-project-dialog .ui-test-create-close:hover { background: var(--ui-panel, #f2f5ef); }
+.ui-test-create-project-dialog .ui-test-create-close svg { width: 18px; height: 18px; }
+.ui-test-create-project-dialog .ui-test-create-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.ui-test-create-project-dialog .ui-test-create-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 3px 28px 18px; }
+.ui-test-create-project-dialog .ui-test-create-field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; min-width: 0; }
+.ui-test-create-project-dialog .ui-test-create-field label { font-size: 14px; line-height: 22px; font-weight: 400; }
+.ui-test-create-project-dialog .ui-test-create-name {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ui-panel, #f2f5ef);
+  color: var(--ui-ink, #273c35);
+  font-size: 16px;
+  line-height: 24px;
+  box-shadow: none;
+}
+.ui-test-create-project-dialog .ui-test-create-location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px 0 14px;
+  border-radius: 8px;
+  background: var(--ui-panel, #f2f5ef);
+}
+.ui-test-create-project-dialog .ui-test-create-path { flex: 1; min-width: 0; padding: 11px 0; font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ui-test-create-project-dialog .ui-test-create-hint { margin: 0; font-size: 12px; line-height: 1.6; color: var(--ui-muted, #5d6e64); }
+.ui-test-create-project-dialog .ui-test-create-note { margin-top: 4px; padding: 14px 16px; border-radius: 10px; background: var(--ui-panel, #f2f5ef); color: var(--ui-muted, #5d6e64); font-size: 14px; line-height: 1.8; }
+.ui-test-create-project-dialog .ui-test-create-note p { margin: 0; }
+.ui-test-create-project-dialog .ui-test-create-error { margin: 8px 0 0; font-size: 13px; line-height: 1.8; color: var(--ui-danger, #943f36); overflow-wrap: anywhere; }
+.ui-test-create-project-dialog .ui-test-create-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: flex-end; gap: 10px; padding: 18px 28px 22px; background: var(--ui-paper, #fcfdfb); }
+.ui-test-create-project-dialog .ui-test-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ui-panel, #f2f5ef);
+  color: var(--ui-muted, #5d6e64);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ui-test-create-project-dialog .ui-test-create-button.primary { background: var(--ui-accent, #45624f); color: var(--ui-on-accent, #ffffff); }
+.ui-test-create-project-dialog .ui-test-create-button.browse { flex-shrink: 0; min-height: 44px; padding: 8px; background: transparent; }
+.ui-test-create-project-dialog .ui-test-create-button svg { width: 16px; height: 16px; }
+.ui-test-create-project-dialog button:disabled { opacity: .55; cursor: not-allowed; }
+.ui-test-create-project-dialog button:not(:disabled):hover { filter: brightness(.96); }
+.ui-test-create-project-dialog button:focus-visible,
+.ui-test-create-project-dialog input:focus-visible { outline: 2px solid var(--ui-accent, #45624f); outline-offset: 2px; }
+
+@media (width < 1180px) {
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (width < 900px) {
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-hero { align-items: flex-start; }
+  .ui-test-root .ui-test-shelf .ui-test-hero-title { font-size: 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-controls { flex-wrap: wrap; }
+}
+@media (width < 640px) {
+  .ui-test-root .ui-test-shelf .ui-test-shelf-hero { flex-direction: column; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-actions { margin-left: 0; }
+  .ui-test-root .ui-test-shelf .ui-test-searchbox { width: 100%; }
+}
+@media (width < 480px) {
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: 1fr; gap: 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-inner { padding: 17px 20px 35px; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-hero { margin: 8px 0 21px; }
+  .ui-test-root .ui-test-shelf .ui-test-hero-title { font-size: 25px; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-count > span:last-child { display: none; }
+  .ui-test-create-project-dialog .ui-test-create-header { padding: 18px; }
+  .ui-test-create-project-dialog .ui-test-create-body { padding: 0 18px 18px; }
+  .ui-test-create-project-dialog .ui-test-create-footer { padding: 14px 18px; flex-direction: column; align-items: stretch; }
+  .ui-test-create-project-dialog .ui-test-create-footer .ui-test-create-button { width: 100%; min-height: 44px; }
+}
+@media (pointer: coarse) {
+  .ui-test-root .ui-test-shelf .ui-test-btn,
+  .ui-test-root .ui-test-shelf .ui-test-tab { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-test-root .ui-test-shelf button,
+  .ui-test-shelf-tooltip,
+  .ui-test-create-project-dialog { animation: none; transition: none; }
+}

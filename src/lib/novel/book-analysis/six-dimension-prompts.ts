@@ -203,3 +203,9 @@ export const ALL_DIMENSIONS: SixDimensionKey[] = [
   "decisionLog",
   "timeline",
 ]
+
+
+/** 共用语料只发送一次；每维原有规则留在后面的任务区，仍沿用 6000 字符上限。 */
+export function buildSixDimensionCachePrefix(input: PromptInput): string {
+  return `【作品与人物】\n作品：${input.bookTitle}\n作者：${input.bookAuthor || "未知"}\n人物称谓：${aliasList(input.character.aliasMap, [input.character.name, ...input.character.aliases])}\n\n【原文章节语料（已截断）】\n${truncate(input.corpus, CORPUS_LIMIT_PER_DIM)}\n\n`
+}

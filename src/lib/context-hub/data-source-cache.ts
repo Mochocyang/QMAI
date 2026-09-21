@@ -3,8 +3,9 @@ import type {
   DataSource,
   DataSourceLoadAdapter,
 } from "@/lib/novel/context-data-source"
-import { getDataSourceKinds } from "./source-paths"
+import { getDataSourceKinds, getSourceDependencyPrefixes } from "./source-paths"
 import { sha256Text } from "./fingerprint"
+import { estimateContextTokens } from "./token-estimator"
 import {
   CONTEXT_CACHE_SCHEMA_VERSION,
   type CachedArtifact,
@@ -18,6 +19,7 @@ import {
 interface DataSourceCacheRegistry {
   refresh(): Promise<unknown>
   getDependencyStamp(kinds?: ContextSourceKind[]): Promise<DependencyStamp>
+  getDependencyStampForPrefixes(prefixes: string[]): Promise<DependencyStamp>
   getDependencyPreview(kinds?: ContextSourceKind[], limit?: number): string[]
 }
 
@@ -39,6 +41,14 @@ interface DataSourceCacheStats {
   fallbackUsed: number
   readFailed: number
   writeFailed: number
+  /** 本地复用资料的估算 token 之和，不代表少发送的 token 或缓存价格折扣。 */
+  cacheHitTokens: number
+  /** 任务型实际加载次数（并发去重），仅保留作诊断，不用于反推复用率。 */
+  taskScopedLoaded: number
+  /** 非任务型的实际加载次数；并发共享的操作仅记一次，包含空值和失败。 */
+  cacheableLoaded: number
+  /** 上述同一范围内直接复用缓存的次数，包含缓存中的空值。 */
+  cacheableHits: number
 }
 
 const STATIC_SOURCES = new Set([
@@ -47,6 +57,25 @@ const STATIC_SOURCES = new Set([
   "soulDoc",
   "storyFrameworkBinding",
   "relatedSettings",
+  // 以下源加载的是项目级数据（不依赖章节号），改用恒定 key 跨章节/跨消息复用
+  "fallbackRecentSummaries",
+  "fallbackCharacterStates",
+  "fallbackForeshadowingStates",
+  "fallbackTimeline",
+  "cognitionText",
+  // retrieval 现在返回项目级原始条目（按章节过滤移到构建阶段），同样跨章节复用
+  "retrieval",
+])
+
+/**
+ * 任务级数据源：加载结果依赖用户查询文本（搜索/检索/相关引用/章节简报），
+ * 缓存 key 必须包含任务文本，无法安全跨消息复用；命中率统计时不计入可缓存部分。
+ */
+const TASK_SCOPED_SOURCES = new Set([
+  "searchResults",
+  "graphSearchResults",
+  "bookAnalysisReferences",
+  "sectionBriefing",
 ])
 
 const CHAPTER_SCOPED_SOURCES = new Set([
@@ -55,20 +84,14 @@ const CHAPTER_SCOPED_SOURCES = new Set([
   "volumeContext",
   "snapshots",
   "recentChapterContents",
-  "fallbackRecentSummaries",
   "fallbackPreviousEnding",
-  "fallbackCharacterStates",
-  "fallbackForeshadowingStates",
-  "fallbackTimeline",
   "revisionFeedback",
-  "cognitionText",
-  "retrieval",
 ])
 
 // Bump only the affected data source when its extraction semantics change.
 // This prevents a previously cached wrong-chapter outline from surviving the fix.
 const SOURCE_CACHE_VERSIONS: Partial<Record<string, number>> = {
-  outline: 2,
+  outline: 3,
   chapterOutline: 3,
   volumeContext: 2,
   sectionBriefing: 2,
@@ -112,6 +135,17 @@ function hasCacheableValue(value: unknown): boolean {
   return value !== null && value !== undefined
 }
 
+/** 估算本地复用资料的 token 数，与发送量及供应商计费无关。 */
+function valueToTokens(value: unknown): number {
+  if (typeof value === "string") return estimateContextTokens(value)
+  if (Array.isArray(value)) {
+    const strings = value.filter((item) => typeof item === "string")
+    return strings.length > 0 ? estimateContextTokens(strings.join("\n")) : 0
+  }
+  if (value && typeof value === "object") return estimateContextTokens(JSON.stringify(value))
+  return estimateContextTokens(String(value ?? ""))
+}
+
 export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
   private readonly pending = new Map<string, Promise<unknown>>()
   private readonly stats: DataSourceCacheStats = {
@@ -121,6 +155,10 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     fallbackUsed: 0,
     readFailed: 0,
     writeFailed: 0,
+    cacheHitTokens: 0,
+    taskScopedLoaded: 0,
+    cacheableLoaded: 0,
+    cacheableHits: 0,
   }
   private readonly traceItems: ContextCacheItemTrace[] = []
 
@@ -133,7 +171,10 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
   ): Promise<T> {
     await this.options.registry.refresh()
     const kinds = getDataSourceKinds(source.name)
-    const dependencyStamp = await this.options.registry.getDependencyStamp(kinds)
+    const prefixes = getSourceDependencyPrefixes(source.name)
+    const dependencyStamp = prefixes.length > 0
+      ? await this.options.registry.getDependencyStampForPrefixes(prefixes)
+      : await this.options.registry.getDependencyStamp(kinds)
     const dependencyPaths = this.options.registry.getDependencyPreview(kinds, 20)
     const key = await sourceRequestKey(source.name, context)
     const pending = this.pending.get(key)
@@ -212,6 +253,10 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     dependencyPaths: string[],
     directLoad: () => Promise<T>,
   ): Promise<T> {
+    const cacheable = cacheScopeFor(sourceName) !== "task"
+    if (cacheable) this.stats.cacheableLoaded += 1
+    if (TASK_SCOPED_SOURCES.has(sourceName)) this.stats.taskScopedLoaded += 1
+
     const makeTrace = (status: ContextSourceTraceStatus): ContextCacheItemTrace => ({
       key,
       sourceName,
@@ -226,6 +271,8 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
         const cached = await this.options.storage.readArtifact<T>(key)
         if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
           this.stats.cacheHits += 1
+          if (cacheable) this.stats.cacheableHits += 1
+          this.stats.cacheHitTokens += valueToTokens(cached.value)
           this.upsertTrace(makeTrace("cache_hit"))
           return cached.value
         }

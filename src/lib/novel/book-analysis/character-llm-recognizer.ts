@@ -1,3 +1,6 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
+import { resolveRuntimeLocalCliConfig } from "@/lib/local-cli-config"
+import { createAnalysisStageCache } from "./analysis-stage-cache"
 /**
  * LLM 角色识别（feature/llm-character-recognizer）
  *
@@ -34,6 +37,9 @@ interface LlmRecognizeInput {
   /** 失败兜底时会用此源书名生成稳定 id */
   sourceBook?: string
   signal?: AbortSignal
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
+  bookPath?: string
+  forceRefresh?: boolean
   /** 测试注入点：跳过真实 HTTP 调用，直接返回字符串。生产环境不传 */
   _llmCall?: (prompt: string) => Promise<string>
 }
@@ -87,11 +93,20 @@ export async function llmRecognizeCharacters(
   const prompt = RECOGNITION_PROMPT.replace("{{chapters}}", chapterText)
 
   // 2. 调 LLM（生产：streamChat 累积 token；测试：注入 _llmCall 直接返回字符串）
+  const stageCache = createAnalysisStageCache()
+  const cacheInput = input.bookPath ? { bookPath: input.bookPath,
+    llmConfig: await resolveRuntimeLocalCliConfig(llmConfig), stage: "character-recognition",
+    materials: { chapters, sourceBook } } : null
+  const cacheKey = cacheInput ? await stageCache.createKey(cacheInput) : null
+  const cached = cacheInput && cacheKey && !input.forceRefresh ? await stageCache.read<string>(cacheInput, cacheKey) : null
+  if (signal?.aborted) throw new Error("用户取消识别")
   let raw: string
-  if (_llmCall) {
+  if (typeof cached === "string" && parseRecognitionResponse(cached).length > 0) {
+    raw = cached
+  } else if (_llmCall) {
     raw = await _llmCall(prompt)
   } else {
-    raw = await callLlmForRecognition(llmConfig, prompt, signal)
+    raw = await callLlmForRecognition(llmConfig, prompt, signal, input.onRequestTrace)
   }
 
   // 3. 解析 JSON
@@ -126,6 +141,11 @@ export async function llmRecognizeCharacters(
     })
   }
 
+  if (signal?.aborted) throw new Error("用户取消识别")
+  if (cacheInput && cacheKey && cached !== raw && results.length > 0 && await stageCache.createKey(cacheInput) === cacheKey) {
+    await stageCache.write(cacheInput, cacheKey, raw, signal)
+  }
+
   // 5. 按重要度降序
   return results.sort((a, b) => b.importanceScore - a.importanceScore)
 }
@@ -136,9 +156,10 @@ export async function llmRecognizeCharacters(
 async function callLlmForRecognition(
   llmConfig: LlmConfig,
   prompt: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
-  const messages: ChatMessage[] = [{ role: "user", content: prompt }]
+  const messages: ChatMessage[] = [{ role: "user", content: [{ type: "text", text: prompt, cacheControl: true }] }]
   let response = ""
   let streamError: Error | null = null
   await streamChat(
@@ -149,6 +170,7 @@ async function callLlmForRecognition(
         response += text
       },
       onDone: () => {},
+      onRequestTrace,
       onError: (err) => {
         // 不能吞掉错误：否则 429 / 网络失败会被当成“没识别出角色”，
         // 让用户以为是章节没人物，而不是模型调用失败。

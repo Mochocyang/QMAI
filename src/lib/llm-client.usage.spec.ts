@@ -87,6 +87,7 @@ describe("streamChat usage", () => {
     expect(JSON.parse(String(request.body))).toMatchObject({
       stream: true,
       stream_options: { include_usage: true },
+      prompt_cache_key: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(onUsage).toHaveBeenCalledOnce()
     expect(onUsage).toHaveBeenCalledWith({
@@ -610,5 +611,48 @@ describe("streamChat usage", () => {
 
     expect(onRequestTrace).toHaveBeenCalledWith(expect.objectContaining({ status: "cancelled" }))
     expect(onDone).toHaveBeenCalledOnce()
+  })
+})
+
+
+describe("实际外发请求的离线稳定前缀验收（非供应商命中率）", () => {
+  it.each(["chat", "outline", "characters", "story", "style"] as const)("%s 稳定材料占多数时，任务变化不破坏前面至少95%的可复用输入", async (surface) => {
+    const { buildAgentRequestMessages } = await import("./agent/cache-aware-messages")
+    const { buildSimpleExtractionPromptParts } = await import("./novel/book-analysis/simple-extraction-prompts")
+    const { buildSimpleExtractionMessages } = await import("./novel/book-analysis/simple-extraction-messages")
+    const { buildStoryMapCacheContent } = await import("./novel/book-analysis/story-map-prompts")
+    const { buildStyleExtractionPrompt } = await import("./novel/book-analysis/style-prompts")
+    const material = "长篇小说的稳定作品资料与章节原文。".repeat(1000)
+    const build = (target: string): ChatMessage[] => {
+      if (surface === "chat" || surface === "outline") return buildAgentRequestMessages([
+        { role: "system", content: [{ type: "text", text: "固定规则及作品资料\n" + material, cacheControl: true }, { type: "text", text: `本轮参考：${target}` }] },
+        { role: "user", content: "已确认故事目标" }, { role: "assistant", content: "此前方案" },
+        { role: "user", content: `继续处理${target}` },
+      ], `目标契约：${target}`)
+      if (surface === "characters") {
+        const parts = buildSimpleExtractionPromptParts({ chapterSamples: material, characterNames: [target] })
+        return buildSimpleExtractionMessages(parts.stablePrefix + parts.dynamicSuffix, parts.stablePrefix)
+      }
+      if (surface === "story") return [{ role: "user", content: buildStoryMapCacheContent({ bookTitle: "测试作品",
+        chapters: [{ id: "ch-1", title: "第一章", order: 1, content: material }],
+        temporaryCharacters: [{ name: target, aliases: [], category: "主角" }],
+      }) }]
+      return [{ role: "user", content: [{ type: "text", text: buildStyleExtractionPrompt(material, "测试作品"), cacheControl: true }] }]
+    }
+    mocks.fetch.mockReset()
+    mocks.fetch.mockImplementation(async () => new Response('data: {"choices":[{"delta":{"content":"完成"}}]}\ndata: [DONE]\n', { status: 200 }))
+    const onError = vi.fn()
+    const onUsage = vi.fn()
+    for (const target of ["目标甲", "目标乙"]) await streamChat(config, build(target), { onToken: vi.fn(), onDone: vi.fn(), onError, onUsage })
+    expect(onError).not.toHaveBeenCalled()
+    expect(mocks.fetch).toHaveBeenCalledTimes(2)
+    const bodies = mocks.fetch.mock.calls.map((call) => JSON.parse(String(call[1].body)))
+    const inputs = bodies.map((body) => JSON.stringify(body.messages))
+    let common = 0
+    while (common < Math.min(inputs[0].length, inputs[1].length) && inputs[0][common] === inputs[1][common]) common += 1
+    expect(common / Math.max(inputs[0].length, inputs[1].length)).toBeGreaterThan(0.95)
+    expect(bodies[0].prompt_cache_key).toBe(bodies[1].prompt_cache_key)
+    // 模拟流没有 usage，不能将公共前缀比例伪装成实际缓存 Token。
+    expect(onUsage).not.toHaveBeenCalled()
   })
 })

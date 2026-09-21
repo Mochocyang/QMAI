@@ -91,6 +91,13 @@ function toFingerprintPath(projectPath: string, path: string): string {
   return matchesProject ? normalizedPath.slice(prefix.length) : normalizedPath
 }
 
+/** 判断一个已扫描的项目文件路径是否命中某项目相对路径前缀（含文件路径本身）。 */
+function matchesPathPrefix(projectPath: string, path: string, prefix: string): boolean {
+  const relative = toFingerprintPath(projectPath, path)
+  if (relative === prefix) return true
+  return relative.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
+}
+
 export class ContextSourceRegistry {
   private readonly projectPath: string
   private readonly scanFiles: () => Promise<FileNode[]>
@@ -102,6 +109,7 @@ export class ContextSourceRegistry {
   private versions: Record<string, SourceVersion> = {}
   private readonly kindStampCache = new Map<ContextSourceKind, Promise<DependencyStamp>>()
   private readonly combinedStampCache = new Map<string, Promise<DependencyStamp>>()
+  private readonly prefixStampCache = new Map<string, Promise<DependencyStamp>>()
 
   constructor(projectPath: string, options: ContextSourceRegistryOptions = {}) {
     this.projectPath = normalizePath(projectPath)
@@ -143,12 +151,43 @@ export class ContextSourceRegistry {
       .slice(0, Math.max(0, limit))
   }
 
+  /**
+   * 按数据源声明的路径前缀计算依赖戳：只哈希匹配任一前缀的文件。
+   * 相比按 kind 聚合，避免同类其它文件变化导致无关源缓存失效。
+   */
+  getDependencyStampForPrefixes(prefixes: string[]): Promise<DependencyStamp> {
+    const normalized = [...new Set(prefixes.map(normalizeContextPath))].sort()
+    const key = `prefix:${normalized.join("\u0000")}`
+    const cached = this.prefixStampCache.get(key)
+    if (cached) return cached
+    const pending = (async () => {
+      const paths = sortContextSourcePaths(
+        Object.keys(this.versions).filter((path) =>
+          normalized.some((prefix) => matchesPathPrefix(this.projectPath, path, prefix)),
+        ),
+      )
+      const canonical = paths.map((path) => {
+        const version = this.versions[path]
+        const relative = toFingerprintPath(this.projectPath, path)
+        return `${relative}\u0000${version.hash ?? `revision:${version.revision}`}`
+      }).join("\n")
+      return {
+        fingerprint: await sha256Text(canonical),
+        sourceCount: paths.length,
+        kinds: [],
+      }
+    })()
+    this.prefixStampCache.set(key, pending)
+    return pending
+  }
+
   dispose(): void {
     this.unsubscribe()
     this.dirtyPaths.clear()
     this.versions = {}
     this.kindStampCache.clear()
     this.combinedStampCache.clear()
+    this.prefixStampCache.clear()
   }
 
   private async refreshInternal(): Promise<SourceRefreshResult> {
@@ -198,6 +237,7 @@ export class ContextSourceRegistry {
     this.versions = next
     this.kindStampCache.clear()
     this.combinedStampCache.clear()
+    this.prefixStampCache.clear()
     this.dirtyPaths.clear()
 
     return {

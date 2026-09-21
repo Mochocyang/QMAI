@@ -6,16 +6,18 @@ interface SimpleExtractionPromptInput {
 export function buildSimpleExtractionPrompt(
   input: SimpleExtractionPromptInput
 ): string {
+  const { stablePrefix, dynamicSuffix } = buildSimpleExtractionPromptParts(input)
+  return stablePrefix + dynamicSuffix
+}
+
+/** 固定说明、输出结构和完整材料共享前缀，目标人物仅放在动态后缀。 */
+export function buildSimpleExtractionPromptParts(
+  input: SimpleExtractionPromptInput
+): { stablePrefix: string; dynamicSuffix: string } {
   const { characterNames, chapterSamples } = input
   const nameList = characterNames.map((n) => `- ${n}`).join("\n")
 
-  return `你是一个小说角色分析助手。请根据下列章节内容，分析以下角色的人物特征。
-
-# 角色列表
-${nameList}
-
-# 章节内容
-${chapterSamples}
+  const stablePrefix = `你是一个小说角色分析助手。请根据下列章节内容，分析以下角色的人物特征。
 
 # 分析要求
 对每个角色输出 4 个字段 + 3-5 句代表性台词：
@@ -37,5 +39,14 @@ ${chapterSamples}
   }
 ]
 
-只返回 JSON，不要其他文字。`
+只返回 JSON，不要其他文字。
+
+# 章节内容
+${chapterSamples}`
+  const dynamicSuffix = `
+
+# 角色列表
+${nameList}`
+
+  return { stablePrefix, dynamicSuffix }
 }

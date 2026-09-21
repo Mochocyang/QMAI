@@ -1,3 +1,5 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { UiTestDefaultModels } from "@/components/uitest/models/default-models"
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -159,6 +161,8 @@ export function DefaultModelSettingsPanel({ draft, setDraft }: Props) {
       }))
     }
   }
+
+  if (IS_UI_TEST_BUILD) return <UiTestDefaultModels key={project?.id ?? "global"} />
 
   return (
     <div className="space-y-4">

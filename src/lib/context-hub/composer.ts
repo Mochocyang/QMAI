@@ -58,7 +58,7 @@ function stableFragments(pack: ContextPack): ContextFragment[] {
     { title: "硬性世界规则", text: pack.canonRules, layer: "stable" },
     { title: "核心设定", text: pack.relatedSettings, layer: "stable" },
     { title: "写作风格", text: pack.writingStyle, layer: "stable" },
-    { title: "大纲骨架", text: pack.outline, layer: "stable" },
+    { title: "大纲骨架", text: pack.projectOutline ?? pack.outline, layer: "stable" },
   ]
 }
 
@@ -77,6 +77,7 @@ function dynamicFragments(input: ComposeContextInput, expanded: boolean): Contex
     ...referenceFragments(input),
     { title: "本轮任务", text: pack.task, required: true, layer: "dynamic" },
     { title: "章节目标", text: pack.chapterGoal, required: true, layer: "dynamic" },
+    { title: "分卷与当前章纲", text: pack.chapterOutlineContext ?? "", required: true, layer: "dynamic" },
     { title: "必须做到", text: pack.mustDo, required: true, layer: "dynamic" },
     { title: "必须避免", text: pack.mustAvoid, required: true, layer: "dynamic" },
     { title: "本节简报", text: pack.sectionBriefing ?? "", required: true, layer: "dynamic" },

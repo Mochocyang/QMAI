@@ -68,7 +68,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          cacheHits: 4, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          cacheHits: 4, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 4, cacheableLoaded: 5,
           stableTokens: 1200,
           summaryTokens: 180,
           dynamicTokens: 420,
@@ -85,9 +85,8 @@ describe("ContextTracePanel selected skills", () => {
 
     expect(html).toContain("上下文中控")
     expect(html).not.toContain("4ms")
-    expect(html).toContain("本次命中 4 项")
-    expect(html).toContain("命中率 80%")
-    expect(html).toContain("节省约 1,400 Token")
+    expect(html).toContain("本地资料复用率 80%")
+    expect(html).toContain("估算少发送约 1,400 Token")
     expect(html).not.toContain("本轮数据源")
     expect(html).not.toContain("供应商已确认命中")
   })
@@ -108,7 +107,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          cacheHits: 0, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          cacheHits: 0, reloaded: 2, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 0, cacheableLoaded: 2,
           stableTokens: 900,
           summaryTokens: 0,
           dynamicTokens: 300,
@@ -127,9 +126,9 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("本次命中 0 项")
-    expect(html).toContain("命中率 0%")
-    expect(html).toContain("节省约 600 Token")
+    expect(html).toContain("本地资料复用率 0%")
+    expect(html).toContain("模型输入缓存命中率 50%")
+    expect(html).toContain("估算少发送约 600 Token")
     expect(html).not.toContain("低置信度扩展")
     expect(html).not.toContain("供应商已确认命中")
   })
@@ -149,7 +148,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 1, cacheableLoaded: 1,
           stableTokens: 100,
           summaryTokens: 0,
           dynamicTokens: 20,
@@ -177,9 +176,8 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("本次命中 1 项")
-    expect(html).toContain("命中率 100%")
-    expect(html).toContain("节省约 0 Token")
+    expect(html).toContain("本地资料复用率 100%")
+    expect(html).not.toContain("估算少发送约")
     expect(html).not.toContain("Codex 线程累计实际用量")
   })
 
@@ -204,7 +202,7 @@ describe("ContextTracePanel selected skills", () => {
       surface: "ai-chat",
       createdAt: 10,
       stats: {
-        cacheHits: 2, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+        cacheHits: 2, reloaded: 1, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 2, cacheableLoaded: 3,
         stableTokens: 100,
         summaryTokens: 20,
         dynamicTokens: 30,
@@ -221,9 +219,8 @@ describe("ContextTracePanel selected skills", () => {
     )
 
     expect(html).toContain("上下文中控")
-    expect(html).toContain("本次命中 2 项")
-    expect(html).toContain("命中率 67%")
-    expect(html).toContain("节省约 150 Token")
+    expect(html).toContain("本地资料复用率 67%")
+    expect(html).toContain("估算少发送约 150 Token")
     expect(html).not.toContain("展开上下文中控")
   })
 
@@ -242,7 +239,7 @@ describe("ContextTracePanel selected skills", () => {
         retrievalHits: [],
         trimmedSections: [],
         contextHub: {
-          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0,
+          cacheHits: 1, reloaded: 0, empty: 0, fallbackUsed: 0, readFailed: 0, writeFailed: 0, cacheableHits: 1, cacheableLoaded: 1,
           stableTokens: 100,
           summaryTokens: 20,
           dynamicTokens: 30,
@@ -292,9 +289,8 @@ describe("ContextTracePanel selected skills", () => {
 
     const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
 
-    expect(html).toContain("本次命中 1 项")
-    expect(html).toContain("命中率 100%")
-    expect(html).toContain("节省约 50 Token")
+    expect(html).toContain("本地资料复用率 100%")
+    expect(html).toContain("估算少发送约 50 Token")
     expect(html).not.toContain("供应商前缀")
     expect(html).not.toContain("请求缓存与间隔")
   })

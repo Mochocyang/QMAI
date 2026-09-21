@@ -41,6 +41,7 @@ import {
   CHAPTER_EXTRACT_REQUEST_OVERRIDES,
   resolveChapterExtractMaxTokens,
 } from "./chapter-ingest-extract"
+import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -313,6 +314,7 @@ type IngestFailReason = "no_llm" | "not_chapter" | "not_final" | "invalid_chapte
 interface IngestResult {
   snapshot: ChapterSnapshot | null
   failReason?: IngestFailReason
+  error?: string
 }
 
 interface IngestChapterOptions {
@@ -335,31 +337,64 @@ export async function ingestChapter(
   const novelConfig = state.novelConfig
   // 使用 resolveNovelModel 正确解析提取模型（含供应商配置切换）
   const runtimeLlmConfig = resolveNovelModel(llmConfig, novelConfig, "extract")
-  if (!hasUsableLlm(runtimeLlmConfig, state.providerConfigs)) return { snapshot: null, failReason: "no_llm" }
+  const startedAt = Date.now()
+  let resolvedChapterNumber = chapterNumberOverride
+  const logFail = async (failReason: IngestFailReason, error?: string) => {
+    const message = error ?? failReason
+    console.error(`[Chapter Ingest] ${failReason}:`, message)
+    await appendChapterIngestLog(pp, {
+      event: "fail",
+      chapterNumber: resolvedChapterNumber,
+      chapterPath,
+      failReason,
+      error: message,
+      model: runtimeLlmConfig.model,
+      provider: runtimeLlmConfig.provider,
+      elapsedMs: Date.now() - startedAt,
+    })
+    return { snapshot: null, failReason, error: message } satisfies IngestResult
+  }
+
+  if (!hasUsableLlm(runtimeLlmConfig, state.providerConfigs)) {
+    return logFail("no_llm", "提取模型不可用")
+  }
 
   const content = await readFile(chapterPath)
   const parsed = parseFrontmatter(content)
   const fm = parsed.frontmatter as Record<string, unknown> | null
-  if (!fm || !isChapterPage(fm)) return { snapshot: null, failReason: "not_chapter" }
+  if (!fm || !isChapterPage(fm)) return logFail("not_chapter", "不是章节页")
   if (!options.allowDraft && !isFinalChapter(fm)) {
     console.warn(`[Chapter Ingest] Chapter status is not final, skipping ingest.`)
-    return { snapshot: null, failReason: "not_final" }
+    return logFail("not_final", "章节不是正式稿")
   }
 
   const chapterNumber = chapterNumberOverride ?? parseChapterNumber(fm.chapter_number) ?? 0
+  resolvedChapterNumber = chapterNumber
   if (chapterNumber <= 0) {
     console.warn("[Chapter Ingest] Invalid chapter number, skipping ingest.")
-    return { snapshot: null, failReason: "invalid_chapter_number" }
+    return logFail("invalid_chapter_number", "章节号无效")
   }
   const body = parsed.body
 
-  if (signal?.aborted) return { snapshot: null, failReason: "cancelled" }
+  if (signal?.aborted) return logFail("cancelled", "已取消")
+  await appendChapterIngestLog(pp, {
+    event: "start",
+    chapterNumber,
+    chapterPath,
+    model: runtimeLlmConfig.model,
+    provider: runtimeLlmConfig.provider,
+  })
   const existingSnapshotPromise = readCurrentSnapshot(pp, chapterNumber)
-  const extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+  let extractedSnapshot: ChapterSnapshot | null
+  try {
+    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+  } catch (err) {
+    return logFail("extract_failed", err instanceof Error ? err.message : String(err))
+  }
   const snapshot = extractedSnapshot ? canonicalizeSnapshotCharacters(extractedSnapshot) : null
 
   if (!snapshot) {
-    return { snapshot: null, failReason: "extract_failed" as IngestFailReason }
+    return logFail("extract_failed", "模型没有返回快照")
   }
 
   const existingSnapshot = await existingSnapshotPromise
@@ -420,7 +455,7 @@ export async function ingestChapter(
   if (!isReingest && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
     const rebuildCommunitySummaries = async () => {
       try {
-        await generateCommunitySummaries(pp, llmConfig, novelConfig)
+        await generateCommunitySummaries(pp, llmConfig, novelConfig, signal)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         console.warn("[Chapter Ingest] 社区摘要生成失败:", message)
@@ -466,6 +501,14 @@ export async function ingestChapter(
     }
   }
 
+  await appendChapterIngestLog(pp, {
+    event: "ok",
+    chapterNumber,
+    chapterPath,
+    model: runtimeLlmConfig.model,
+    provider: runtimeLlmConfig.provider,
+    elapsedMs: Date.now() - startedAt,
+  })
   return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
 }
 
@@ -553,10 +596,15 @@ async function extractSnapshotWithLLM(
       max_tokens: resolveChapterExtractMaxTokens(llmConfig.maxContextSize),
     })
     if (streamError) throw streamError
+    if (!result.trim()) {
+      throw new Error("章节快照提取失败：模型返回空内容（流结束但没有任何正文）")
+    }
 
     const parsed = parseLlmJsonObject(result)
     if (!parsed) {
-      throw new Error("章节快照提取失败：模型没有返回可解析的 JSON")
+      throw new Error(
+        `章节快照提取失败：模型没有返回可解析的 JSON（${result.trim().length} chars） ${previewLlmOutput(result, 400)}`,
+      )
     }
     return normalizeChapterSnapshot({
       ...parsed,

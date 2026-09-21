@@ -1,12 +1,13 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
+import { useWikiStore, type ModelSettingsTabId } from "@/stores/wiki-store"
 import { LlmProviderSection } from "./llm-provider-section"
 import { EmbeddingSection } from "./embedding-section"
 import { RerankSection } from "./rerank-section"
 import { DefaultModelSettingsPanel } from "./default-model-settings-panel"
 
-type ModelTabId = "default" | "llm" | "rerank" | "embedding"
+type ModelTabId = ModelSettingsTabId
 
 interface Props {
   draft: SettingsDraft
@@ -28,7 +29,15 @@ export function ModelSettingsSection({ draft, setDraft }: Props) {
     { id: "embedding", label: t("settings.categories.embedding", { defaultValue: "向量模型" }) },
   ]
 
-  const [active, setActive] = useState<ModelTabId>("llm")
+  const requestedTab = useWikiStore((s) => s.activeModelSettingsTab)
+  const setRequestedTab = useWikiStore((s) => s.setActiveModelSettingsTab)
+  const [active, setActive] = useState<ModelTabId>(() => requestedTab ?? "llm")
+
+  useEffect(() => {
+    if (!requestedTab) return
+    setActive(requestedTab)
+    setRequestedTab(null)
+  }, [requestedTab, setRequestedTab])
 
   return (
     <div className="space-y-4">

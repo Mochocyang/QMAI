@@ -49,6 +49,24 @@ describe("ToastProvider", () => {
     expect(document.body.textContent).not.toContain("普通四")
   })
 
+  it("invokes onClick when the toast card is clicked and then dismisses", async () => {
+    const onClick = vi.fn()
+    await act(async () => { api.error("未配置可用的提取模型，请先在设置中配置 LLM。", { onClick }) })
+    const card = document.querySelector<HTMLElement>('[data-toast-clickable="true"]')
+    expect(card).not.toBeNull()
+    await act(async () => { card?.click() })
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(document.body.textContent).not.toContain("未配置可用的提取模型")
+  })
+
+  it("does not navigate when the close button is clicked", async () => {
+    const onClick = vi.fn()
+    await act(async () => { api.error("可点击错误", { onClick }) })
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="关闭提示"]')?.click())
+    expect(onClick).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain("可点击错误")
+  })
+
   it("flushes global toast calls made by descendant mount effects", async () => {
     function OnMount() {
       useEffect(() => { toast.error("挂载错误", { persistent: true, dedupeKey: "mount-error" }) }, [])

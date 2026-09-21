@@ -7,6 +7,89 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_FIFTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.15",
+  date: "2026-09-04",
+  highlights: {
+    en: [
+      "[Slimmer Generation Process Display] In AI conversation, the routine 'Task Understanding' stage is no longer shown, and 'Capability Selection' only appears when skills are actually enabled; real workflow stages (read context, draft generation, de-AI polish) remain visible.",
+    ],
+    zh: [
+      "【AI 对话生成过程更精简】「任务理解」阶段不再在界面显示；「能力选择」仅在标准/严格模式实际启用技能时显示；读取上下文、生成章节草稿、去AI味等真实工作流阶段照常保留",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_FOURTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.14",
+  date: "2026-09-04",
+  highlights: {
+    en: [
+      "[Writing Search Only When Needed] Entity web search now runs only for real names that lack enough knowledge, avoiding junk results from invented or uncertain names. When English helps, the same entity is searched in both Chinese and English with URL dedupe.",
+      "[Jump to Default Model] Clicking an extract-model error toast or result tip opens Settings on the default model page.",
+      "[Auto Pick Chat Model] If no chat model is selected after model setup, the first available model is chosen and remembered.",
+    ],
+    zh: [
+      "【写作补搜更克制】只有真实且知识不够的名字才会联网，不确定或自造名称不再默认搜；需要英文时同一实体中英双搜并按 URL 去重",
+      "【提取模型错误可跳转】点击提取模型错误 toast 或结果提示，直接进入设置的默认模型页",
+      "【聊天自动选模型】模型设好后若聊天还没选模型，会自动选中并记住第一个可用模型",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_THIRTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.13",
+  date: "2026-09-03",
+  highlights: {
+    en: [
+      "[Platform Baseline] Drops Intel Mac builds. macOS is Apple Silicon only, 13.0+. Windows is x64 with AVX2 from 10 2004; Linux is x86_64 with AVX2. Release binaries use -O3 and thin LTO.",
+      "[Writing Web Search Switch] Standard and strict writing modes both follow the writing-settings web-search toggle instead of locking search to strict mode. Entity extraction and query caps are raised, and search defaults to on when eligible.",
+      "[Cursor CLI reasoning_effort] ACP catalog filtering now reads reasoning_effort instead of effort, so models such as gemini-3.8-flash are no longer dropped.",
+    ],
+    zh: [
+      "【平台基线】停打 Intel Mac，macOS 仅 Apple Silicon 且最低 13.0；Windows 为 2004+ x64 且需 AVX2，Linux 仅 x86_64 且需 AVX2。正式包改为 -O3 与 thin LTO。",
+      "【写作联网搜索独立开关】标准和严格模式都按写作设置开关补搜，不再绑死严格模式；实体抽取与查询上限提高，符合条件时默认要搜。",
+      "【Cursor CLI 识别 reasoning_effort】ACP catalog 按 reasoning_effort 过滤，不再误丢 gemini-3.8-flash。",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_TWELVE_CHANGELOG: ChangelogEntry = {
+  version: "3.2.12",
+  date: "2026-09-02",
+  highlights: {
+    en: [
+      "[Chapter Workflow Budget Bleed] Output budgets now follow each stage's actual model window, so a small-window helper model no longer crushes the task brief.",
+      "[Writing Done System Banner] Chapter writing success or failure sends a system notification with sound on Windows/macOS. Planning and user-stop do not notify.",
+      "[48K Output Preset] Settings now include a 48K output token option.",
+      "[Cursor CLI Tool Calls] Cursor CLI is reworked for native function calling instead of scraping tool_calls from text.",
+      "[Community Summary Rebuild] Community summaries are keyed by member fingerprint, so Louvain re-numbering no longer treats the same people as a new community and re-runs.",
+    ],
+    zh: [
+      "【章节工作流预算串扰】按各阶段实际模型窗口算输出预算，避免小窗口辅助模型把任务书压太短",
+      "【写作完成系统通知】章节写作完成或失败会发系统横幅，Windows/macOS 带提示音；计划阶段和用户停止不打扰",
+      "【输出上限加 48K】设置里输出 token 可选 48K",
+      "【Cursor CLI 支持工具调用】重构 Cursor CLI 对接，走原生 function calling，不再从文本里解析 tool_calls",
+      "【社区摘要误刷】社区摘要按成员指纹增量重建，Louvain 重编号后不再把同一批人当成新社区重跑",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_ELEVEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.11",
+  date: "2026-08-28",
+  highlights: {
+    en: [
+      "[Filter Thinking Output] Outline generation and de-AI now strip model thinking segments, including unlabeled Gemini thought dumps. A thinking-only response retries once with reasoning off, so English analysis no longer leaks into the outline or chapter text.",
+      "[Short Story Import Without Chapters] When a file has no chapter markers, a non-empty full text is saved as a single chapter instead of failing import. Empty files are still rejected.",
+    ],
+    zh: [
+      "【过滤思考输出】大纲和去AI味会滤掉模型思考段（含 Gemini 无标签思考），纯思考响应会关 reasoning 再试一次，避免英文分析进正文或大纲",
+      "【无章节短篇导入】没有章节标记的短篇，会把非空全文当作一章导入，不再失败；空文件仍会拦截",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_TEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.10",
   date: "2026-08-28",
@@ -1422,6 +1505,16 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_FIFTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_FIFTEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_FOURTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_FOURTEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_THIRTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_THIRTEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_TWELVE_CHANGELOG.version)
+    return [THREE_POINT_TWO_TWELVE_CHANGELOG];
+  if (version === THREE_POINT_TWO_ELEVEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_ELEVEN_CHANGELOG];
   if (version === THREE_POINT_TWO_TEN_CHANGELOG.version)
     return [THREE_POINT_TWO_TEN_CHANGELOG];
   if (version === THREE_POINT_TWO_NINE_CHANGELOG.version)
@@ -1547,6 +1640,11 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_FIFTEEN_CHANGELOG,
+    THREE_POINT_TWO_FOURTEEN_CHANGELOG,
+    THREE_POINT_TWO_THIRTEEN_CHANGELOG,
+    THREE_POINT_TWO_TWELVE_CHANGELOG,
+    THREE_POINT_TWO_ELEVEN_CHANGELOG,
     THREE_POINT_TWO_TEN_CHANGELOG,
     THREE_POINT_TWO_NINE_CHANGELOG,
     THREE_POINT_TWO_EIGHT_CHANGELOG,

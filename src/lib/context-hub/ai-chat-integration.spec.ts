@@ -12,7 +12,9 @@ describe("AI chat context hub integration", () => {
   })
 
   it("uses cacheable system blocks and cache-aware read tools only for hub requests", () => {
-    expect(source).toContain("buildContextHubSystemContent(")
+    expect(source).toContain("buildContextHubPromptParts(")
+    expect(source).toContain("withContextHubTaskContent(baseUserContent, contextHubPromptParts.taskContext)")
+    expect(source).toContain("currentInput: baseUserContent,")
     expect(source).toContain("prePluginResult?.finalSystemRulesPrompt?.trim()")
     expect(source).toContain("contextHubSoftwareRules")
     expect(source).toContain("readTextFile: contextHubResult.readFile")

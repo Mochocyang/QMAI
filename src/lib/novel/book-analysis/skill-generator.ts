@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 /**
  * 角色 Skill 生成器
  * 为提取的角色生成可复用的 Skill 文件
@@ -92,7 +93,8 @@ export async function generateCharacterSkill(
   character: ExtractedCharacter,
   bookMetadata: BookAnalysisMetadata,
   llmConfig: LlmConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
   // 6 维度模式：直接组装，跳过 LLM（研究阶段已调用过 6 次 LLM）
   if (isSixDimensionSkill(character)) {
@@ -151,7 +153,7 @@ export async function generateCharacterSkill(
 请直接输出完整的 Markdown 内容，不要额外说明。`
 
   const messages: ChatMessage[] = [
-    { role: "user", content: prompt }
+    { role: "user", content: [{ type: "text", text: prompt, cacheControl: true }] }
   ]
 
   let skillContent = ""
@@ -161,6 +163,7 @@ export async function generateCharacterSkill(
       onToken: (text) => { skillContent += text },
       onDone: () => {},
       onError: (err) => { console.error(err) },
+      onRequestTrace,
     }, signal)
 
     // 如果生成的内容没有 frontmatter，添加一个
@@ -258,7 +261,8 @@ export async function generateSkillsForCharacters(
     percentage: number
     currentItem?: string
   }) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<CharacterSkill[]> {
   const skills: CharacterSkill[] = []
 
@@ -282,7 +286,8 @@ export async function generateSkillsForCharacters(
       character,
       bookMetadata,
       llmConfig,
-      signal
+      signal,
+      onRequestTrace,
     )
 
     // 生成安全的文件名

@@ -1,4 +1,5 @@
 import type { SessionContextSummary } from "./types"
+import { estimateContextTokens } from "./token-estimator"
 
 interface SessionSummaryMessage {
   role: string
@@ -14,8 +15,17 @@ interface BuildSessionContextSummaryInput {
 export function selectContextHistoryMessages<T extends SessionSummaryMessage>(
   messages: readonly T[],
   summary: string | undefined,
+  historyTokenBudget?: number,
 ): T[] {
-  return summary?.trim() ? messages.slice(-2) : [...messages]
+  if (!summary?.trim()) return [...messages]
+  // 只对预算内纯文本历史保留完整增量前缀；图片等沿用近期消息策略。
+  const textOnly = messages.every((message) => typeof message.content === "string"
+    || (Array.isArray(message.content) && message.content.every((block) => block?.type === "text")))
+  if (historyTokenBudget !== undefined && Number.isFinite(historyTokenBudget) && historyTokenBudget > 0 && textOnly) {
+    const tokens = messages.reduce((sum, message) => sum + estimateContextTokens(messageText(message.content)) + 4, 0)
+    if (tokens <= historyTokenBudget) return [...messages]
+  }
+  return messages.slice(-2)
 }
 
 function messageText(content: unknown): string {

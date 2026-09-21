@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
+import { rememberCursorCliCatalog } from "@/lib/cursor-acp-models"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { modelSupportsTools } from "@/lib/agent/config"
 import { getProviderConfig } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { toCursorProxyV1Endpoint } from "@/lib/cursor-cli-proxy"
+import { toCursorProxyV1Endpoint, withCursorProxyEndpoint } from "@/lib/cursor-cli-proxy"
 
 const base: LlmConfig = {
   provider: "cursor-cli",
@@ -22,8 +23,8 @@ describe("cursor-cli provider", () => {
     expect(hasUsableLlm(base, { "cursor-cli": { enabled: true } })).toBe(true)
   })
 
-  it("is blocked from agent tools like other local CLI providers", () => {
-    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(false)
+  it("supports native agent tools over the proxy", () => {
+    expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(true)
     expect(modelSupportsTools("gpt-4o", "openai")).toBe(true)
   })
 
@@ -42,4 +43,36 @@ describe("cursor-cli provider", () => {
     expect(toCursorProxyV1Endpoint("http://127.0.0.1:9123")).toBe("http://127.0.0.1:9123/v1")
     expect(toCursorProxyV1Endpoint("http://127.0.0.1:9123/v1")).toBe("http://127.0.0.1:9123/v1")
   })
+
+  it("sends the saved CLI id so overlapping requests keep their own model", () => {
+    rememberCursorCliCatalog([
+      "cursor-grok-4.6-medium-fast",
+      "cursor-grok-4.6-high",
+      "composer-2-fast",
+    ])
+    const grok = withCursorProxyEndpoint(
+      { ...base, model: "cursor-grok-4.6-medium-fast" },
+      "http://127.0.0.1:9123/v1",
+    )
+    const composer = withCursorProxyEndpoint(
+      { ...base, model: "composer-2-fast" },
+      "http://127.0.0.1:9123/v1",
+    )
+    expect(grok.model).toBe("cursor-grok-4.6-medium-fast")
+    expect(composer.model).toBe("composer-2-fast")
+    expect(grok.model).not.toBe(composer.model)
+    expect(grok.customEndpoint).toBe("http://127.0.0.1:9123/v1")
+  })
+
+  it("keeps HTTP model=default for Auto", () => {
+    const cfg = withCursorProxyEndpoint(
+      { ...base, model: "auto" },
+      "http://127.0.0.1:9123/v1",
+    )
+    expect(cfg.model).toBe("default")
+  })
+})
+
+afterEach(() => {
+  rememberCursorCliCatalog([])
 })

@@ -1,3 +1,4 @@
+import { estimateContextTokens } from "@/lib/context-hub/token-estimator"
 import {
   resolveOutlineWorkflowMode,
   type OutlineWorkflowMode,
@@ -52,6 +53,7 @@ interface OutlineAgentHistoryInput {
   history: OutlineAgentHistoryMessage[]
   contextDecision: OutlineContextReuseDecision
   cachedSummary?: string
+  historyTokenBudget?: number
   summaryInSystem?: boolean
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
@@ -150,9 +152,11 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
   const totalChars = history.reduce((sum, message) => sum + message.content.length, 0)
   const level: OutlineContextPressureLevel =
     history.length > 6 || totalChars > 6_000 ? "high" : totalChars > 2_500 ? "medium" : "low"
+  const preserveHistory = (input.historyTokenBudget ?? 0) > 0
+    && history.reduce((sum, message) => sum + estimateContextTokens(message.content) + 4, 0) <= input.historyTokenBudget!
   const compactedMessages = level === "high" ? compactOutlineHistory(history) : history.slice(-4)
   const cachedSummary = input.cachedSummary?.trim()
-  const messages = cachedSummary
+  const messages = preserveHistory ? history : cachedSummary
     ? input.summaryInSystem
       ? compactedMessages.slice(-2)
       : [
@@ -164,7 +168,9 @@ export function planOutlineAgentHistory(input: OutlineAgentHistoryInput): Outlin
       ]
     : compactedMessages
   const instruction = [
-    level === "high"
+    preserveHistory
+      ? "已在预算内保留原始对话前缀，后续消息按顺序追加；不会为缓存无限扩大历史。"
+      : level === "high"
       ? "已压缩历史上下文：仅保留首轮目标、最近关键结论和最近对话，避免重复消耗 Token。"
       : "已裁剪历史上下文：仅保留最近有效对话，避免重复发送旧过程。",
     cachedSummary

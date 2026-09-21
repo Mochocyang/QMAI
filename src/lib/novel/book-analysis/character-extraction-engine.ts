@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 /**
  * 角色提取引擎
  * 从选定的章节中提取所有角色信息
@@ -22,6 +23,7 @@ import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine
 import { stableCharacterId } from "./character-recognition-engine"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
 import { parseLlmJsonObject } from "./llm-json"
+import { buildSimpleExtractionMessages } from "./simple-extraction-messages"
 
 interface CharacterExtractionInput {
   bookPath: string
@@ -50,6 +52,7 @@ interface CharacterExtractionInput {
     dimensions?: SixDimensionProgressItem[]
   }) => void
   signal?: AbortSignal
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
   /** 是否把中间结果写入正式角色目录；分析区块并发执行时必须关闭。 */
   persistResults?: boolean
 }
@@ -69,7 +72,8 @@ async function identifyCharactersInChapter(
   chapterTitle: string,
   _chapterOrder: number,
   llmConfig: LlmConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<Array<{ name: string; aliases: string[]; importance: number }>> {
   const prompt = `请分析以下小说章节，识别出现的所有角色。
 
@@ -92,7 +96,7 @@ ${chapterContent.substring(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)} ${chapterContent.
 只返回JSON，不要其他说明。`
 
   const messages: ChatMessage[] = [
-    { role: "user", content: prompt }
+    { role: "user", content: [{ type: "text", text: prompt, cacheControl: true }] }
   ]
 
   let response = ""
@@ -103,6 +107,7 @@ ${chapterContent.substring(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)} ${chapterContent.
       onToken: (text) => { response += text },
       onDone: () => {},
       onError: (err) => { streamError = err },
+      onRequestTrace,
     }, signal)
 
     if (streamError) throw streamError
@@ -140,9 +145,10 @@ async function identifyCharactersInChapterSafe(
   llmConfig: LlmConfig,
   signal: AbortSignal | undefined,
   warnings: string[],
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<Array<{ name: string; aliases: string[]; importance: number }>> {
   try {
-    return await identifyCharactersInChapter(chapterContent, chapterTitle, chapterOrder, llmConfig, signal)
+    return await identifyCharactersInChapter(chapterContent, chapterTitle, chapterOrder, llmConfig, signal, onRequestTrace)
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.message === "用户取消分析")) throw error
     const message = error instanceof Error ? error.message : String(error)
@@ -158,7 +164,8 @@ async function analyzeCharacterDetails(
   characterName: string,
   relevantChapters: Array<{ id: string; title: string; content: string; order: number }>,
   llmConfig: LlmConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<ExtractedCharacter | null> {
   // 收集角色相关的文本片段
   const corpus = relevantChapters
@@ -166,14 +173,14 @@ async function analyzeCharacterDetails(
     .join("\n\n")
     .substring(0, 20000) // 限制长度
 
-  const prompt = `请深度分析小说角色"${characterName}"的详细信息。
+  const cachePrefix = `请依据章节材料提取目标角色，遵循以下 JSON 格式。
 
 相关章节内容：
 ${corpus}
 
 请以JSON格式返回分析结果：
 {
-  "name": "${characterName}",
+  "name": "目标角色名",
   "aliases": ["别名数组"],
   "category": "protagonist/antagonist/supporting/minor",
   "description": "角色外貌、身份、背景描述",
@@ -207,9 +214,8 @@ ${corpus}
 
 只返回JSON，不要其他说明。`
 
-  const messages: ChatMessage[] = [
-    { role: "user", content: prompt }
-  ]
+  const prompt = `${cachePrefix}\n\n请深度分析小说角色"${characterName}"的详细信息。`
+  const messages = buildSimpleExtractionMessages(prompt, cachePrefix)
 
   let response = ""
   let streamError: Error | null = null
@@ -219,6 +225,7 @@ ${corpus}
       onToken: (text) => { response += text },
       onDone: () => {},
       onError: (err) => { streamError = err },
+      onRequestTrace,
     }, signal)
 
     if (streamError) throw streamError
@@ -355,6 +362,7 @@ export async function extractCharactersFromChapters(
         llmConfig,
         signal,
         warnings,
+        input.onRequestTrace,
       )
 
       // 汇总角色出现次数
@@ -422,6 +430,7 @@ export async function extractCharactersFromChapters(
       relevantChapters,
       llmConfig,
       signal,
+      input.onRequestTrace,
     )
 
     if (character) {
@@ -479,6 +488,7 @@ export async function extractCharactersFromChapters(
             })
           },
           signal,
+          onRequestTrace: input.onRequestTrace,
         })
         characters[i] = result.character
       } catch (e) {
@@ -531,6 +541,7 @@ interface SingleCharacterReextractInput {
   bookTitle?: string
   bookAuthor?: string
   signal?: AbortSignal
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
 }
 
 interface SingleCharacterReextractResult {
@@ -556,15 +567,16 @@ export async function extractSingleCharacter(
   // 内部统一 LLM call 包装（fix/character-reextract-and-loading-state）：
   // simple / six-dimension 都直接使用同一实现，six-dimension 已自带 streamChat，
   // 这里我们额外提供 simple 模式用的 LLM 闭包
-  const realLlmCall = async (prompt: string): Promise<string> => {
+  const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
     let response = ""
     await streamChat(
       llmConfig,
-      [{ role: "user", content: prompt }],
+      buildSimpleExtractionMessages(prompt, cachePrefix),
       {
         onToken: (text) => { response += text },
         onDone: () => {},
         onError: (err) => { console.error("[single-reextract] LLM error:", err) },
+        onRequestTrace: input.onRequestTrace,
       },
       signal,
     )
@@ -627,6 +639,7 @@ export async function extractSingleCharacter(
     bookTitle: bookTitle || "未知作品",
     bookAuthor,
     signal,
+    onRequestTrace: input.onRequestTrace,
   })
   try {
     await writeFile(

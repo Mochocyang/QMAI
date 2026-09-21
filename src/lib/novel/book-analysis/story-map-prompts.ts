@@ -42,7 +42,6 @@ export function buildStoryMapPrompt(input: {
   return [
     `拆书作品：《${input.bookTitle}》`,
     "",
-    ...characterLines,
     "你是小说故事结构拆解专家。请把下面提供的章节拆解成「主线 + 分支」的故事导图（思维导图式结构），供作者写新书时复用节奏与结构。",
     "",
     "核心约定：",
@@ -85,7 +84,17 @@ export function buildStoryMapPrompt(input: {
     "",
     "原文样本（已截断）：",
     truncate(chapterBlocks, SAMPLE_TEXT_LIMIT),
+    ...characterLines,
   ].join("\n")
+}
+
+export function buildStoryMapCacheContent(input: Parameters<typeof buildStoryMapPrompt>[0]): import("@/lib/llm-providers").ContentBlock[] {
+  const prefix = buildStoryMapPrompt({ ...input, temporaryCharacters: undefined })
+  const prompt = buildStoryMapPrompt(input)
+  return [
+    { type: "text", text: prefix, cacheControl: true },
+    ...(prompt.length > prefix.length ? [{ type: "text" as const, text: prompt.slice(prefix.length) }] : []),
+  ]
 }
 
 /** 多区块汇总 prompt：合并各区块 StoryMap JSON，保留衔接 */

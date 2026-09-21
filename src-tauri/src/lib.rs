@@ -2,8 +2,11 @@ mod app_state;
 mod atomic_file;
 mod commands;
 mod panic_guard;
+mod platform_guard;
 mod proxy;
 mod types;
+
+pub use platform_guard::assert_supported_platform;
 
 #[tauri::command]
 fn set_proxy_env(config: proxy::ProxyConfig) -> String {
@@ -43,6 +46,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             use tauri::Manager;
             if let Ok(dir) = app.path().resource_dir() {
@@ -107,6 +111,10 @@ pub fn run() {
             commands::codex_cli::codex_app_server_write,
             commands::codex_cli::codex_app_server_stop,
             commands::cursor_cli::cursor_cli_detect,
+            commands::cursor_cli::cursor_cli_about,
+            commands::cursor_cli::cursor_cli_update,
+            commands::cursor_cli::cursor_cli_apply_acp_model,
+            commands::cursor_cli::cursor_cli_acp_models,
             commands::cursor_cli::cursor_proxy_status,
             commands::cursor_cli::cursor_proxy_ensure,
             commands::cursor_cli::cursor_proxy_stop,

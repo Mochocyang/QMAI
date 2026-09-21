@@ -433,6 +433,10 @@ const CHAPTER_WRITING_INTENTS = new Set<NovelTaskIntent>([
   "polish_chapter",
 ])
 
+export function isChapterWritingIntent(intent?: string | null): boolean {
+  return Boolean(intent && CHAPTER_WRITING_INTENTS.has(intent as NovelTaskIntent))
+}
+
 export function buildTaskDirective(route: TaskRouteResult): string {
   const directives: Record<NovelTaskIntent, string> = {
     write_chapter: "用户要求生成新章节。请根据上下文包中的大纲、人物状态和伏笔状态，生成完整的章节正文。注意保持人设一致，结尾留有钩子。",

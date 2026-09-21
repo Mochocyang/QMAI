@@ -43,7 +43,16 @@ export function parseNovelChapters(content: string): ParsedNovelChapter[] {
   const matches = Array.from(content.matchAll(chapterRegex))
 
   if (matches.length === 0) {
-    throw new Error("未能识别到章节标记，请确保小说文件包含\"第X章\"格式的章节标题")
+    const fullText = content.trim()
+    if (!fullText) throw new Error("小说文件内容为空")
+
+    // 短篇小说可能没有“第X章”标题。保留完整原文并作为单章导入，
+    // 避免为了满足解析器而要求用户手工篡改源文件。
+    return [{
+      title: "全文",
+      content: fullText,
+      order: 1,
+    }]
   }
 
   return matches.map((match, index) => {

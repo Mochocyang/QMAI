@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 /**
  * 作品级写作文风提取引擎（feature/book-style-extraction）
  *
@@ -26,6 +27,7 @@ const MIN_SAMPLE_WORD_COUNT = 800
 interface AnalyzeWritingStyleOptions {
   onProgress?: (message: string) => void
   signal?: AbortSignal
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
   /** 新分析入口必须传入用户明确选择的章节；未传时仅保留旧入口兼容抽样。 */
   selectedChapterIds?: string[]
 }
@@ -110,6 +112,7 @@ export async function analyzeWritingStyle(
     {
       onToken: (token) => { result += token },
       onDone: () => {},
+      onRequestTrace: options.onRequestTrace,
       onError: (err) => { streamError = err },
     },
     signal,

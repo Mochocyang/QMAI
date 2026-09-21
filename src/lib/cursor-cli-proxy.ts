@@ -8,6 +8,14 @@
 
 import { invoke } from "@tauri-apps/api/core"
 import type { LlmConfig } from "@/stores/wiki-store"
+import {
+  getCursorCliCatalog,
+  inferCursorEffortFromModel,
+  inferCursorSpeedModeFromModel,
+  rememberCursorCliCatalog,
+  toCursorAcpModelId,
+  toCursorHttpModel,
+} from "@/lib/cursor-acp-models"
 import { isTauri } from "@/lib/platform"
 import type { LocalCliDetectResult } from "./local-cli-config"
 
@@ -25,6 +33,48 @@ export function toCursorProxyV1Endpoint(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "")
   if (/\/v1$/i.test(trimmed)) return trimmed
   return `${trimmed}/v1`
+}
+
+export interface CursorAgentAboutResult {
+  installed: boolean
+  version: string | null
+  latest_status: string | null
+  latest_version: string | null
+  path: string | null
+  error: string | null
+}
+
+export interface CursorAgentUpdateResult {
+  ok: boolean
+  version: string | null
+  output: string
+  error: string | null
+}
+
+export async function checkCursorAgentUpdate(): Promise<CursorAgentAboutResult> {
+  if (!isTauri()) {
+    return {
+      installed: false,
+      version: null,
+      latest_status: null,
+      latest_version: null,
+      path: null,
+      error: "仅桌面端支持本地 CLI 检测",
+    }
+  }
+  return invoke<CursorAgentAboutResult>("cursor_cli_about")
+}
+
+export async function updateCursorAgent(): Promise<CursorAgentUpdateResult> {
+  if (!isTauri()) {
+    return {
+      ok: false,
+      version: null,
+      output: "",
+      error: "仅桌面端可更新 Cursor agent",
+    }
+  }
+  return invoke<CursorAgentUpdateResult>("cursor_cli_update")
 }
 
 export async function detectCursorCli(): Promise<LocalCliDetectResult> {
@@ -55,7 +105,7 @@ export async function getCursorProxyStatus(): Promise<CursorProxyStatus> {
  * Ensure proxy is up; returns the live OpenAI-compatible base (`…/v1`).
  */
 export async function ensureCursorProxyRunning(
-  config: Pick<LlmConfig, "provider">,
+  config: Pick<LlmConfig, "provider"> & Partial<Pick<LlmConfig, "model" | "apiKey">>,
   options?: { forceRestart?: boolean },
 ): Promise<string> {
   if (config.provider !== "cursor-cli") {
@@ -70,7 +120,49 @@ export async function ensureCursorProxyRunning(
   if (!status.healthy) {
     throw new Error(status.error ?? `cursor-api-proxy 未就绪：${status.base_url}`)
   }
-  return toCursorProxyV1Endpoint(status.base_url)
+  const endpoint = toCursorProxyV1Endpoint(status.base_url)
+  await refreshCursorCliCatalogIfEmpty(endpoint, config.apiKey)
+  const acpModel = toCursorAcpModelId(config.model ?? "")
+  if (acpModel) {
+    const cliModel = toCursorHttpModel(config.model ?? "")
+    await invoke("cursor_cli_apply_acp_model", {
+      model: acpModel,
+      cliModel,
+      fast: inferCursorSpeedModeFromModel(cliModel) === "fast",
+      effort: inferCursorEffortFromModel(cliModel),
+    })
+  }
+  return endpoint
+}
+
+async function refreshCursorCliCatalogIfEmpty(
+  v1Endpoint: string,
+  apiKey?: string,
+): Promise<void> {
+  if (getCursorCliCatalog().length > 0) return
+  try {
+    const { getHttpFetch } = await import("@/lib/tauri-fetch")
+    const httpFetch = await getHttpFetch()
+    const response = await httpFetch(`${v1Endpoint.replace(/\/+$/, "")}/models`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey?.trim() || "unused"}`,
+      },
+    })
+    if (!response.ok) return
+    const raw = await response.json() as { data?: unknown[] }
+    const ids: string[] = []
+    for (const item of raw.data ?? []) {
+      if (typeof item === "string" && item.trim()) ids.push(item.trim())
+      else if (item && typeof item === "object") {
+        const id = (item as { id?: unknown }).id
+        if (typeof id === "string" && id.trim()) ids.push(id.trim())
+      }
+    }
+    if (ids.length > 0) rememberCursorCliCatalog(ids)
+  } catch {
+    /* catalog stays empty; HTTP falls back to heuristics */
+  }
 }
 
 /** After Authentication required, kill managed proxy and respawn with zshrc credentials. */
@@ -82,5 +174,12 @@ export async function restartCursorProxyWithAuth(
 
 /** Apply the live proxy `/v1` endpoint onto an LlmConfig for HTTP dispatch. */
 export function withCursorProxyEndpoint(config: LlmConfig, v1Endpoint: string): LlmConfig {
-  return { ...config, customEndpoint: v1Endpoint, apiMode: "chat_completions" }
+  return {
+    ...config,
+    customEndpoint: v1Endpoint,
+    apiMode: "chat_completions",
+    // Send a CLI catalog id so overlapping requests keep their own --model.
+    // ACP names are remapped to auto; default/auto stay default.
+    model: toCursorHttpModel(config.model ?? ""),
+  }
 }

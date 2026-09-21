@@ -1,3 +1,4 @@
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import {
   Dialog,
@@ -71,6 +72,7 @@ function OptionGroup<T extends string>({
   value: T
   onChange: (value: T) => void
 }) {
+  if (IS_UI_TEST_BUILD) return <label className="ui-test-wizard-field"><span>{label}</span><select aria-label={label} value={value} onChange={event => onChange(event.target.value as T)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
@@ -149,6 +151,35 @@ export function OutlineWizardDialog({
   }
 
   if (!open) return null
+
+  if (IS_UI_TEST_BUILD) return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="ui-test-outline-wizard">
+        <DialogHeader><DialogTitle>生成小说大纲</DialogTitle><DialogDescription>填写本次需求，发送到当前大纲会话；确认结果后再写入小说。</DialogDescription></DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="ui-test-wizard-scroll">
+            <div className="ui-test-wizard-grid">
+              <OptionGroup label="生成任务" options={OUTLINE_WIZARD_TASK_OPTIONS} value={request.task} onChange={task => updateRequest({ task }, ["task"])} />
+              <OptionGroup label="篇幅类型" options={OUTLINE_WIZARD_LENGTH_OPTIONS} value={request.length} onChange={length => updateRequest({ length }, ["length"])} />
+              <OptionGroup label="频道方向" options={OUTLINE_WIZARD_CHANNEL_OPTIONS} value={request.channel} onChange={handleChannelChange} />
+              <OptionGroup label="题材类型" options={genreOptions} value={request.genre} onChange={genre => updateRequest({ genre }, ["genre"])} />
+            </div>
+            {request.genre === "custom" && <label className="ui-test-wizard-field"><span>自定义题材</span><Input aria-label="自定义题材" value={request.customGenre} placeholder="请输入你想要的题材" onChange={event => updateRequest({ customGenre: event.target.value }, ["customGenre"])} /></label>}
+            <label className="ui-test-wizard-field"><span>故事灵感 / 处理要求</span><Textarea aria-label="故事灵感/处理要求" value={request.inspiration} placeholder="写下故事灵感、主角处境，或说明要分析、修改、补全的要求…" onChange={event => updateRequest({ inspiration: event.target.value }, ["inspiration"])} /></label>
+            <div className="ui-test-wizard-field"><span>核心卖点</span><div className="ui-test-wizard-chips">{OUTLINE_WIZARD_SELLING_POINTS.map(point => <button type="button" key={point} aria-pressed={request.sellingPoints.includes(point)} onClick={() => updateRequest({ sellingPoints: toggleListValue(request.sellingPoints, point) }, ["sellingPoints"])}>{point}</button>)}</div></div>
+            <div className="ui-test-wizard-field"><span>生成目标（至少一项）</span><div className="ui-test-wizard-chips">{OUTLINE_WIZARD_TARGETS.map(target => <button type="button" key={target} aria-pressed={request.targets.includes(target)} onClick={() => updateRequest({ targets: toggleListValue(request.targets, target) }, ["targets"])}>{target}</button>)}</div></div>
+            <div className="ui-test-wizard-grid">
+              <label className="ui-test-wizard-field"><span>作品规模</span><Input aria-label="作品规模" value={request.scale} placeholder="例如：100章左右 / 30万字" onChange={event => updateRequest({ scale: event.target.value }, ["scale"])} /></label>
+              <OptionGroup label="叙事方式" options={OUTLINE_WIZARD_NARRATIVE_OPTIONS} value={request.narrative} onChange={narrative => updateRequest({ narrative }, ["narrative"])} />
+            </div>
+            <OptionGroup label="已有资料来源" options={OUTLINE_WIZARD_MATERIAL_OPTIONS} value={request.materialSource} onChange={materialSource => updateRequest({ materialSource }, ["materialSource"])} />
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          </div>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button><Button type="submit">提交需求</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

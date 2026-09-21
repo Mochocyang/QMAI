@@ -1,4 +1,6 @@
-﻿import { useState, useCallback, useMemo, useEffect, memo } from "react"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import "@/components/uitest/ui-test-tools.css"
+import { useState, useCallback, useMemo, useEffect, memo } from "react"
 import { Search, FileText, ImageIcon, X, ArrowUpRight } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
@@ -374,13 +376,20 @@ export function SearchView({ onClose, onOpenFile }: SearchViewProps) {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b px-4 py-3">
+    <div data-ui-page={IS_UI_TEST_BUILD ? "search" : undefined} data-ui-state={IS_UI_TEST_BUILD ? (searching ? "loading" : !hasSearched ? "idle" : results.length ? "results" : "empty") : undefined} className="flex h-full flex-col overflow-hidden">
+      {IS_UI_TEST_BUILD && (
+        <header data-ui="tool-heading"><div>
+          <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{project?.name ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">搜索</span></nav>
+          <h1 className="ui-test-page-title">找到故事的线索。</h1>
+        </div></header>
+      )}
+      <div data-ui={IS_UI_TEST_BUILD ? "search-query" : undefined} className="shrink-0 border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
+              aria-label={IS_UI_TEST_BUILD ? "搜索书内内容" : undefined}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {

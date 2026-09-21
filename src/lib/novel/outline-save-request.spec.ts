@@ -25,6 +25,14 @@ const SAMPLE_CHAPTER_OUTLINE = [
   "门外传来脚步声",
 ].join("\n")
 
+const GEMINI_OUTLINE_THOUGHT_DUMP = [
+  "I'm currently focused on defining the project scope and the requested chapter outline.",
+  "",
+  "**Examining the Narrative Details**",
+  "",
+  "I'm now analyzing the source text and identifying the required plot points.",
+].join("\n")
+
 describe("outline-save-request", () => {
   it("解析 AI 大纲回复中的单个保存请求", () => {
     const result = parseOutlineSaveRequests([
@@ -52,6 +60,41 @@ describe("outline-save-request", () => {
       fileType: "chapter-outline",
       writeMode: "create",
     })
+  })
+
+  it("清理保存请求 content 中前置的 Gemini 思考摘要", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "章纲",
+        fileName: "章纲-第001章.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成第001章章纲",
+        content: `${GEMINI_OUTLINE_THOUGHT_DUMP}\n\n${SAMPLE_CHAPTER_OUTLINE}`,
+      },
+    }))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0]?.content).toBe(SAMPLE_CHAPTER_OUTLINE)
+  })
+
+  it("拒绝 content 仅包含 Gemini 思考摘要的保存请求", () => {
+    const result = parseOutlineSaveRequests(JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "大纲",
+        fileName: "总纲.md",
+        fileType: "outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成总纲",
+        content: GEMINI_OUTLINE_THOUGHT_DUMP,
+      },
+    }))
+
+    expect(result.requests).toHaveLength(0)
+    expect(result.errors).toContain("第 1 个保存请求的 content 仅包含模型思考过程。")
   })
 
   it("未闭合 json 围栏时仍能回收完整保存请求", () => {

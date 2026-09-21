@@ -10,6 +10,7 @@ import {
   type BookAnalysisPipelineTask,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
+import { BookAnalysisUsageSummary } from "./book-analysis-usage-summary"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 
 export type BookAnalysisModuleTab = "characters" | "story" | "style" | "evidence"
@@ -331,6 +332,8 @@ export function BookAnalysisModuleView(props: BookAnalysisModuleViewProps) {
             </div>
           </section>
         )}
+
+        {activeTask && <BookAnalysisUsageSummary task={activeTask} />}
 
         {activeTask?.status === "awaiting-range" && (
           <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 p-3">

@@ -131,18 +131,12 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "Local `agent` via cursor-api-proxy — no official API key needed",
     provider: "cursor-cli",
     baseUrl: "http://127.0.0.1:8765/v1",
-    defaultModel: "composer-2-fast",
+    defaultModel: "composer-2.5-fast",
     apiMode: "chat_completions",
-    // Picks aligned with cursor-api-proxy docs/cursor-models-picks.md.
+    // Only ids that survive ACP-catalog filtering of `agent --list-models`.
     suggestedModels: [
       "auto",
-      "composer-2-fast",
-      "claude-opus-4-7-medium-fast",
-      "claude-opus-4-7-high",
-      "gpt-5.3-codex-high",
-      "gpt-5.3-codex-xhigh",
-      "gpt-5.5-medium",
-      "claude-opus-4-7-thinking-max",
+      "composer-2.5-fast",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },

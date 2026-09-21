@@ -231,6 +231,7 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     autoIngestOnSave: true,
     autoExtractOnImport: true,
     deepPreviousChaptersAnalysis: false,
+    writingWebSearchEnabled: true,
     reviewReasoningEffort: "high",
     writingModel: "claude-4-sonnet",
     reviewModel: "claude-4-sonnet",

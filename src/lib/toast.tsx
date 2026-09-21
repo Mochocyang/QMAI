@@ -5,9 +5,9 @@ import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react"
 
 type ToastKind = "success" | "error" | "info"
 interface ToastAction { label: string; onClick: () => void }
-interface ToastOptions { title?: string; action?: ToastAction; persistent?: boolean; dedupeKey?: string }
+interface ToastOptions { title?: string; action?: ToastAction; onClick?: () => void; persistent?: boolean; dedupeKey?: string }
 export type ToastArgument = ToastAction | ToastOptions | undefined
-interface ToastItem { id: number; key: string; kind: ToastKind; title?: string; message: string; createdAt: number; action?: ToastAction; persistent: boolean }
+interface ToastItem { id: number; key: string; kind: ToastKind; title?: string; message: string; createdAt: number; action?: ToastAction; onClick?: () => void; persistent: boolean }
 export interface ToastApi {
   success: (message: string, options?: ToastArgument) => void
   error: (message: string, options?: ToastArgument) => void
@@ -49,6 +49,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       message,
       createdAt: Date.now(),
       action: options.action,
+      onClick: options.onClick,
       persistent: options.persistent === true,
     }
     itemsRef.current = [...itemsRef.current, item]
@@ -56,7 +57,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
   useEffect(() => {
     for (const item of items.slice(0, MAX_VISIBLE_TOASTS)) {
-      if (item.persistent || item.action || timersRef.current.has(item.id)) continue
+      if (item.persistent || item.action || item.onClick || timersRef.current.has(item.id)) continue
       const timer = setTimeout(() => dismiss(item.id), TOAST_DURATION_MS)
       timersRef.current.set(item.id, timer)
     }
@@ -90,16 +91,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
   const config = KIND_STYLES[item.kind]
   const Icon = config.icon
-  const handleAction = () => { try { item.action?.onClick() } finally { onDismiss() } }
+  const runAndDismiss = (handler?: () => void) => {
+    try { handler?.() } finally { onDismiss() }
+  }
+  const handleAction = () => runAndDismiss(item.action?.onClick)
+  const handleClick = item.onClick ? () => runAndDismiss(item.onClick) : undefined
   return (
-    <div role={item.kind === "error" ? "alert" : "status"} data-toast-card="true" className={`pointer-events-auto flex items-start gap-2 rounded-md border bg-background p-3 shadow-lg ${config.container}`}>
+    <div
+      role={item.kind === "error" ? "alert" : "status"}
+      data-toast-card="true"
+      data-toast-clickable={item.onClick ? "true" : undefined}
+      onClick={handleClick}
+      className={`pointer-events-auto flex items-start gap-2 rounded-md border bg-background p-3 shadow-lg ${config.container}${item.onClick ? " cursor-pointer" : ""}`}
+    >
       <Icon aria-hidden="true" className={`mt-0.5 h-4 w-4 shrink-0 ${config.iconClass}`} />
       <div className="min-w-0 flex-1">
         {item.title ? <div className="mb-0.5 text-sm font-medium text-foreground">{item.title}</div> : null}
         <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{item.message}</div>
       </div>
-      {item.action ? <button type="button" onClick={handleAction} className="ml-1 shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20">{item.action.label}</button> : null}
-      <button type="button" onClick={onDismiss} className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="关闭提示"><X className="h-3.5 w-3.5" /></button>
+      {item.action ? <button type="button" onClick={(event) => { event.stopPropagation(); handleAction() }} className="ml-1 shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/20">{item.action.label}</button> : null}
+      <button type="button" onClick={(event) => { event.stopPropagation(); onDismiss() }} className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-muted" aria-label="关闭提示"><X className="h-3.5 w-3.5" /></button>
     </div>
   )
 }

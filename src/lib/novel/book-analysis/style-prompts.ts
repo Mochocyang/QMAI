@@ -178,3 +178,16 @@ export function parseStyleProfileResult(raw: string, sampledChapterIds: string[]
     samples: asStringArray(parsed.samples).slice(0, 6),
   }
 }
+
+
+/** 与解析兜底分开：兜底模板可以展示，但不能作为成功的付费分析结果缓存。 */
+export function isStyleProfileResponseCacheable(raw: string): boolean {
+  const body = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw
+  const json = body.match(/\{[\s\S]*\}/)?.[0]
+  if (!json) return false
+  try {
+    const value = JSON.parse(json)
+    return typeof value.constitution === "string" && Boolean(value.constitution.trim())
+      && Array.isArray(value.samples) && value.samples.every((sample: unknown) => typeof sample === "string")
+  } catch { return false }
+}

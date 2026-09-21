@@ -1,8 +1,11 @@
 import { useRef, useEffect, useCallback, useState, useMemo, useDeferredValue, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown } from "lucide-react"
+import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
+import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
 import { ChatModelSelector } from "./chat-model-selector"
@@ -62,7 +65,7 @@ import { useAgentConfig } from "@/hooks/use-agent-config"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { executeIngestWrites } from "@/lib/ingest"
-import { routeTask, buildTaskDirective, type TaskRouteResult } from "@/lib/novel/task-router"
+import { routeTask, buildTaskDirective, isChapterWritingIntent, type TaskRouteResult } from "@/lib/novel/task-router"
 import { writeFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   detectLastGeneratedChapterNumber,
@@ -118,6 +121,7 @@ import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { buildPlanExecutePolicyPrompt, WRITING_INTENTS } from "@/lib/agent/plan-execute-policy"
 import {
   buildOutlineFindProtocol,
+  splitOutlineFindProtocolForCache,
   shouldIncludeOutlineFindProtocol,
 } from "@/lib/novel/outline-find-protocol"
 import { createContextTrace, finishTrace, setContextInfo, type ContextTrace } from "@/lib/agent/context-trace"
@@ -136,7 +140,8 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
 import {
-  buildContextHubSystemContent,
+  buildContextHubPromptParts,
+  withContextHubTaskContent,
   buildSessionContextSummary,
   flattenContextHubSystemContent,
   buildLlmRequestDiagnostics,
@@ -157,6 +162,25 @@ import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service"
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service"
+import {
+  ensureSystemNotificationPermission,
+  notifyChapterWritingOutcome,
+} from "@/lib/system-notification"
+
+/** 快速模式普通对话（general_chat）时不给模型暴露的小说资料读取类工具，避免对无关问候无谓读取记忆/资料浪费 token。 */
+const NOVEL_CONTEXT_READ_TOOLS = new Set([
+  "read_chapter",
+  "read_outline",
+  "read_memory",
+  "read_deduction",
+  "read_chat_history",
+  "read_outline_history",
+  "search_chapters",
+  "list_chapters",
+  "list_outlines",
+  "list_memories",
+  "list_deductions",
+])
 
 
 /* spec-test patterns */
@@ -188,7 +212,7 @@ const aiWorkflowModeOptions: Array<{
     mode: "strict",
     label: "严格",
     description: "完整质检",
-    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。会联网搜索。",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
@@ -306,6 +330,7 @@ function buildChatAgentSystemPrompt(options: {
   mode: "chat" | "ingest"
   chatEditModeEnabled: boolean
   aiWorkflowMode?: AiWorkflowMode
+  writingWebSearchEnabled?: boolean
   planExecuteEnabled?: boolean
   agentWritingSkills?: UserSkill[]
   projectName?: string
@@ -364,9 +389,15 @@ function buildChatAgentSystemPrompt(options: {
         lines.push("标准模式：读取上下文，生成任务书和正文初稿后直接完成，不做正文后审核。")
         break
       case "strict":
-        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+        lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。")
         break
       }
+    if (
+      options.writingWebSearchEnabled
+      && options.aiWorkflowMode !== "fast"
+    ) {
+      lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+    }
     if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
     }
@@ -574,6 +605,8 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
     isStreamingConversation,
   )
   const historyCount = historyConversations.length
+  const menuConversations = IS_UI_TEST_BUILD ? conversations : historyConversations
+  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && historyOpen && Boolean(historyDropdownStyle), historyDropdownRef, historyButtonRef, setHistoryOpen)
   const hasSentUserMessage = activeConversationId
     ? messages.some((message) =>
         message.conversationId === activeConversationId && message.role === "user",
@@ -618,6 +651,10 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
     function updatePosition() {
       const rect = historyButtonRef.current?.getBoundingClientRect()
       if (!rect) return
+      if (IS_UI_TEST_BUILD) {
+        setHistoryDropdownStyle(getUiTestAiMenuStyle(rect))
+        return
+      }
       const vw = window.innerWidth
       const vh = window.innerHeight
       // 水平：默认贴按钮右边展开，右侧空间不够时贴按钮左边
@@ -717,6 +754,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
           type="button"
           className="flex items-center gap-2 rounded-full px-2 py-1.5"
           onClick={() => setActiveConversation(conv.id)}
+          aria-current={IS_UI_TEST_BUILD ? isActive : undefined}
           title={conv.title}
         >
           <ConversationRunStatusIcon state={runState} />
@@ -739,7 +777,14 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   // 顶部统一为三段式：新建写作绘画 / 正在工作的绘画 / 绘画历史记录
   return (
     <>
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header={IS_UI_TEST_BUILD || undefined}>
+        {IS_UI_TEST_BUILD && (
+          <UiTestAiIdentity
+            title="写作助手"
+            conversationTitle={conversations.find((conversation) => conversation.id === activeConversationId)?.title}
+            status={activeConversationId ? <ConversationRunStatusIcon state={runStates[activeConversationId]} /> : undefined}
+          />
+        )}
         {/* 1. 新建写作绘画 */}
         <span
           className="inline-flex shrink-0"
@@ -769,7 +814,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
         </span>
 
         {/* 2. 正在工作的绘画：当前、生成中和今日保留项，最多显示三个 */}
-        <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+        {!IS_UI_TEST_BUILD && <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {topConversations.length > 0 ? (
             <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
               {topConversations.map((conv) => renderConversationChip(conv))}
@@ -779,7 +824,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
               {t(novelMode ? "novel.chat.noConversationsYet" : "chat.noConversationsYet")}
             </span>
           )}
-        </div>
+        </div>}
 
         {/* 3. 绘画历史记录（点击展开下拉面板，显示全部历史会话） */}
         <div className="relative ml-auto shrink-0" ref={historyRef}>
@@ -807,38 +852,47 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
             createPortal(
               <div
                 ref={historyDropdownRef}
+                data-ui-ai-menu={IS_UI_TEST_BUILD ? "history" : undefined}
+                role={IS_UI_TEST_BUILD ? "dialog" : undefined}
+                aria-label={IS_UI_TEST_BUILD ? "写作会话历史" : undefined}
                 className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
                 style={historyDropdownStyle}
               >
               {historyCount > 0 && (
                 <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
                   <span className="text-xs text-muted-foreground">
-                    {t("chat.historyConversationCount", { count: historyCount })}
+                    {IS_UI_TEST_BUILD ? `全部会话 ${menuConversations.length} 条` : t("chat.historyConversationCount", { count: historyCount })}
                   </span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    aria-label={t("chat.clearHistory")}
+                    aria-label={IS_UI_TEST_BUILD ? "清理旧会话" : t("chat.clearHistory")}
+                    title={IS_UI_TEST_BUILD ? `仅清理 ${historyCount} 条旧会话，保留当前和运行中的会话` : undefined}
                     onClick={requestClearHistory}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {t("chat.clearHistory")}
+                    {IS_UI_TEST_BUILD ? "清理旧会话" : t("chat.clearHistory")}
                   </Button>
                 </div>
               )}
-              {historyCount === 0 ? (
+              {menuConversations.length === 0 ? (
                 <div className="px-2 py-3 text-center text-xs text-muted-foreground">
                   {t(novelMode ? "novel.chat.noHistoryConversations" : "chat.noHistoryConversations")}
                 </div>
               ) : (
-                historyConversations.map((conv) => renderConversationChip(conv))
+                menuConversations.map((conv) => renderConversationChip(conv))
               )}
               </div>,
               document.body,
             )}
         </div>
+        {IS_UI_TEST_BUILD && (
+          <button type="button" onClick={() => useWikiStore.getState().setChatExpanded(false)} aria-label="关闭写作助手" title="关闭写作助手">
+            <X className="h-4 w-4" />
+          </button>
+        )}
     </div>
     <ConversationDeleteConfirmDialog
       open={pendingDeleteId !== null}
@@ -927,11 +981,13 @@ export function ChatPanel() {
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [deAiSkillWarningMessage, setDeAiSkillWarningMessage] = useState<string>("")
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  const writingWebSearchEnabled = useWikiStore((s) => s.novelConfig.writingWebSearchEnabled)
   const setAiWorkflowMode = useWikiStore((s) => s.setAiWorkflowMode)
   const [workflowModeDropdownOpen, setWorkflowModeDropdownOpen] = useState(false)
   const workflowModeTriggerRef = useRef<HTMLButtonElement>(null)
-  const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<CSSProperties | null>(null)
   const workflowModeDropdownRef = useRef<HTMLDivElement | null>(null)
+  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && workflowModeDropdownOpen && Boolean(workflowModeDropdownStyle), workflowModeDropdownRef, workflowModeTriggerRef, setWorkflowModeDropdownOpen)
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
   const [isSavingChapter, setIsSavingChapter] = useState(false)
@@ -991,6 +1047,10 @@ export function ChatPanel() {
     const updatePosition = () => {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect()
       if (!rect) return
+      if (IS_UI_TEST_BUILD) {
+        setWorkflowModeDropdownStyle(getUiTestAiMenuStyle(rect, 320, true))
+        return
+      }
       const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 8)
       const top = rect.bottom + 6
       setWorkflowModeDropdownStyle({
@@ -1033,6 +1093,7 @@ export function ChatPanel() {
         mode,
         chatEditModeEnabled,
         aiWorkflowMode,
+        writingWebSearchEnabled,
         planExecuteEnabled: aiWorkflowMode !== "fast" && planExecuteEnabled,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
@@ -1043,6 +1104,7 @@ export function ChatPanel() {
       mode,
       novelMode,
       aiWorkflowMode,
+      writingWebSearchEnabled,
       planExecuteEnabled,
       project?.name,
     ],
@@ -1071,6 +1133,7 @@ export function ChatPanel() {
         && !message.isAgentRunning
       )),
       activeConversation?.contextSummary?.text,
+      Math.min(4000, Math.floor((agentConfig?.llmConfig ? getEffectiveMaxContextSize(agentConfig.llmConfig) : 204_800) * 0.05)),
     )
     const measuredAt = activeConversation?.lastContextUsage?.measuredAt ?? 0
     const pendingToolResultTexts = activeMessages
@@ -1726,6 +1789,7 @@ export function ChatPanel() {
         mode,
         chatEditModeEnabled,
         aiWorkflowMode: sessionWorkflowMode,
+        writingWebSearchEnabled,
         planExecuteEnabled: planExecuteActive,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
@@ -1736,7 +1800,11 @@ export function ChatPanel() {
           !(novelMode && (sessionWorkflowMode !== "fast" || planExecuteActive)),
       })
 
-      if (novelMode && effectiveTaskRoute) {
+      // 快速模式普通对话（general_chat）与小说内容无关：不预载小说上下文、不给模型暴露读取类工具，
+      // 避免对「你好」这类问候白白读取记忆/资料浪费 token；小说相关问题仍按原逻辑读取。
+      const isQuickGeneralChat = sessionWorkflowMode === "fast" && effectiveTaskRoute?.intent === "general_chat"
+
+      if (novelMode && effectiveTaskRoute && !isQuickGeneralChat) {
         const contextHub = getContextHub(pp)
         try {
           contextHubResult = await contextHub.prepare({
@@ -1852,7 +1920,7 @@ export function ChatPanel() {
       const qmQuaiSystemPrompt = shouldUseQmQuaiSkill ? buildQmQuaiSystemPrompt() : ""
       novelContextPrompt = ""
 
-      if (novelMode && effectiveTaskRoute) {
+      if (novelMode && effectiveTaskRoute && !isQuickGeneralChat) {
         try {
           taskDirective = buildTaskDirective(effectiveTaskRoute)
           const goldenThreeChapter = detectGoldenThreeChapterRequest(plainText, effectiveTaskRoute.chapterNumber)
@@ -1933,11 +2001,16 @@ export function ChatPanel() {
         : [
             baseSystemPrompt,
           ].filter(Boolean).join("\n")
-      const contextHubSoftwareRules = hasSplitSystemRules
+      const rawContextHubSoftwareRules = hasSplitSystemRules
         ? (stableSystemRulesPrompt ?? "")
         : (prePluginSystemRulesPrompt || sessionAgentSystemPrompt)
-      const contextHubSystemContent = contextHubResult
-        ? buildContextHubSystemContent(contextHubSoftwareRules, contextHubResult, [
+      const { stableRules: contextHubSoftwareRules, dynamicRules: outlineCacheRules } = splitOutlineFindProtocolForCache(
+        rawContextHubSoftwareRules,
+        targetChapterNumber,
+      )
+      const contextHubPromptParts = contextHubResult
+        ? buildContextHubPromptParts(contextHubSoftwareRules, contextHubResult, [
+            outlineCacheRules,
             dynamicSystemRulesPrompt ?? "",
             qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
@@ -1948,20 +2021,27 @@ export function ChatPanel() {
               : "",
           ])
         : null
+      const contextHubSystemContent = contextHubPromptParts?.systemContent ?? null
       const systemPromptForConfig = contextHubSystemContent
         ? flattenContextHubSystemContent(contextHubSystemContent)
         : effectiveSystemPrompt
 
       const deAiMode = activeConv?.deAiMode ?? false
       const rawUserContent = buildAgentUserContent(plainText, tokens)
-      const userContent = !effectiveDeAiSkill && deAiMode
+      const baseUserContent = !effectiveDeAiSkill && deAiMode
         ? injectDeAiDirective(rawUserContent, deAiMode)
         : rawUserContent
-      const readChapterToolAvailable = !prePluginResult?.enabledToolNames
+      const userContent = contextHubPromptParts
+        ? withContextHubTaskContent(baseUserContent, contextHubPromptParts.taskContext)
+        : baseUserContent
+      const readChapterToolAvailable = !isQuickGeneralChat && (
+        !prePluginResult?.enabledToolNames
         || prePluginResult.enabledToolNames.includes("read_chapter")
+      )
       const historyForModel = selectContextHistoryMessages(
         activeConvMessages,
         contextHubResult?.sessionSummary,
+        Math.min(4000, Math.floor(getEffectiveMaxContextSize(agentConfig.llmConfig) * 0.05)),
       )
       const historyMessages = await buildAgentHistoryMessages(historyForModel, {
         projectPath: pp,
@@ -2014,6 +2094,9 @@ export function ChatPanel() {
       }
 
       try {
+        if (isChapterWritingIntent(effectiveTaskRoute?.intent)) {
+          void ensureSystemNotificationPermission()
+        }
         const requiredToolsOnce = resolveRequiredToolsOnce({
           novelMode,
           intent: effectiveTaskRoute?.intent,
@@ -2024,11 +2107,12 @@ export function ChatPanel() {
         // 计划阶段硬管控：不依赖任务路由/pre-plugin 是否命中，直接从本轮可用
         // 工具中移除正文生成与写入类工具（模型的 tools 广告和文本工具调用解析
         // 都以 config.tools 为准），从根上阻止模型跳过计划直接产出正文。
-        const sessionTools = planExecuteActive
+        const sessionTools = (planExecuteActive
           ? agentConfig.tools.filter(
               (tool) => tool.name !== "run_chapter_workflow" && tool.category !== "write",
             )
-          : agentConfig.tools
+          : agentConfig.tools)
+          .filter((tool) => !(isQuickGeneralChat && NOVEL_CONTEXT_READ_TOOLS.has(tool.name)))
         const advertisedTools = prePluginResult?.enabledToolNames
           ? sessionTools.filter((tool) => prePluginResult.enabledToolNames!.includes(tool.name))
           : sessionTools
@@ -2046,7 +2130,7 @@ export function ChatPanel() {
               ? message.content
               : message.content.map((block) => block.type === "text" ? block.text : "").join("")
           )),
-          currentInput: userContent,
+          currentInput: baseUserContent,
         })
         // Seed this turn's baseline so the ring can grow with tool reads before the first usage report.
         useChatStore.getState().setConversationContextUsage(capturedConvId, usageSnapshotBase)
@@ -2174,6 +2258,7 @@ export function ChatPanel() {
                   record.usage,
                   Math.max(1, record.roundsUsed || 1),
                   {
+                    usageTotals: record.requestUsageTotals,
                     requests: record.requestTraces,
                     omittedRequestCount: record.omittedRequestTraceCount,
                     requestCountAvailable: record.providerRequestCountAvailable,
@@ -2355,6 +2440,12 @@ export function ChatPanel() {
         if (hasAgentError) {
           useChatStore.getState().failConversationRun(capturedConvId, lastAgentError, runId)
           showRunErrorToast(lastAgentErrorObject ?? new Error(lastAgentError))
+          void notifyChapterWritingOutcome({
+            intent: effectiveTaskRoute?.intent,
+            ok: false,
+            chapterNumber: effectiveTaskRoute?.chapterNumber,
+            error: lastAgentError,
+          })
         } else {
           useChatStore.getState().finishConversationRun(
             capturedConvId,
@@ -2362,6 +2453,7 @@ export function ChatPanel() {
             runId,
           )
         }
+        let chapterWritingPlanOnly = false
         if (!hasAgentError && planExecuteActive) {
           const storeState = useChatStore.getState()
           const lastAssistant = storeState.messages.find(
@@ -2388,6 +2480,7 @@ export function ChatPanel() {
             ?? (planFallbackEligible && fullContent.trim()
               ? { plan: fullContent.trim(), body: "" }
               : null)
+          chapterWritingPlanOnly = Boolean(extracted) || hasMarker
           if (extracted) {
             console.info("[PlanExecute] 计划提取成功，弹出确认对话框", {
               planLength: extracted.plan.length,
@@ -2423,6 +2516,14 @@ export function ChatPanel() {
             })
           }
         }
+        if (!hasAgentError) {
+          void notifyChapterWritingOutcome({
+            intent: effectiveTaskRoute?.intent,
+            planOnly: chapterWritingPlanOnly,
+            ok: true,
+            chapterNumber: effectiveTaskRoute?.chapterNumber,
+          })
+        }
       } catch (error) {
         if (controller.signal.aborted) return
         if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
@@ -2442,6 +2543,12 @@ export function ChatPanel() {
         })
         useChatStore.getState().failConversationRun(capturedConvId, errorMessage, runId)
         showRunErrorToast(resolvedError)
+        void notifyChapterWritingOutcome({
+          intent: effectiveTaskRoute?.intent,
+          ok: false,
+          chapterNumber: effectiveTaskRoute?.chapterNumber,
+          error: errorMessage,
+        })
       }
     },
     [
@@ -2598,12 +2705,12 @@ export function ChatPanel() {
   const showWriteButton = mode === "ingest" && !isStreaming && hasAssistantMessages
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="flex h-full flex-col overflow-hidden bg-background" data-ui-ai-panel={IS_UI_TEST_BUILD ? "chapter" : undefined}>
       <ConversationTabs onBeforeDelete={cancelPendingChapterPlan} />
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-ui-ai-body={IS_UI_TEST_BUILD || undefined}>
         {!activeConversationId ? (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          IS_UI_TEST_BUILD ? <UiTestAiEmpty kind="chapter" /> : <div className="flex flex-1 items-center justify-center text-muted-foreground">
             <div className="text-center">
               <MessageSquare className="mx-auto mb-3 h-8 w-8 opacity-30" />
               <p className="text-sm">{t(novelMode ? "novel.chat.startNewConversation" : "chat.startNewConversation")}</p>
@@ -2614,12 +2721,14 @@ export function ChatPanel() {
           <>
             <div
               ref={scrollContainerRef}
+              data-ui-ai-scroll={IS_UI_TEST_BUILD || undefined}
               className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2"
             >
               <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
+                {IS_UI_TEST_BUILD && activeMessages.length === 0 && !isStreaming && <UiTestAiEmpty kind="chapter" />}
                 {activeMessages.map((msg, idx) => {
                   const isLastAssistant = msg.role === "assistant" && idx === lastAssistantIndex
-                  return (
+                  const messageElement = (
                     <ChatMessage
                       key={msg.id}
                       message={msg}
@@ -2634,8 +2743,19 @@ export function ChatPanel() {
                       isSaving={isSavingChapter}
                     />
                   )
+                  return IS_UI_TEST_BUILD ? (
+                    <div key={msg.id} data-ui-ai-message={msg.role}>
+                      {msg.role === "assistant" && <UiTestAiAuthor running={isStreaming && Boolean(msg.isAgentRunning)} />}
+                      {messageElement}
+                    </div>
+                  ) : messageElement
                 })}
-                {isStreaming && batchedStreamingContent && !activeMessages.some((msg) => msg.role === "assistant" && msg.isAgentRunning) && <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />}
+                {isStreaming && batchedStreamingContent && !activeMessages.some((msg) => msg.role === "assistant" && msg.isAgentRunning) && (IS_UI_TEST_BUILD ? (
+                  <div data-ui-ai-message="assistant" data-ui-ai-stream>
+                    <UiTestAiAuthor running />
+                    <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />
+                  </div>
+                ) : <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />)}
                 <div ref={bottomRef} />
               </div>
             </div>
@@ -2667,14 +2787,14 @@ export function ChatPanel() {
           </>
         )}
 
-        <div className="shrink-0 bg-background">
+        <div className="shrink-0 bg-background" data-ui-ai-composer={IS_UI_TEST_BUILD || undefined}>
           {deAiSkillWarningMessage ? (
             <div className="border-t border-amber-500/20 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
               {deAiSkillWarningMessage}
             </div>
           ) : null}
           <div className="border-t px-3 py-2">
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-2 flex items-center justify-between gap-2" data-ui-ai-tools={IS_UI_TEST_BUILD || undefined}>
               <TooltipProvider delay={200}>
                 <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
                   {novelMode && (
@@ -2705,9 +2825,11 @@ export function ChatPanel() {
                             />
                             <div
                               ref={workflowModeDropdownRef}
+                              data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined}
                               role="listbox"
                               className="fixed rounded-md border bg-popover p-1 shadow-md"
                               style={{
+                                ...(IS_UI_TEST_BUILD ? workflowModeDropdownStyle : {}),
                                 left: workflowModeDropdownStyle.left,
                                 top: workflowModeDropdownStyle.top,
                                 width: workflowModeDropdownStyle.width,
@@ -2783,6 +2905,7 @@ export function ChatPanel() {
                   )}
                 </div>
               </TooltipProvider>
+              {IS_UI_TEST_BUILD && <ContextUsageRing usage={liveContextUsage} onCreateConversation={() => createConversation()} />}
             </div>
             <ReferenceInput
               value={referenceText}
@@ -2792,13 +2915,14 @@ export function ChatPanel() {
               submitDisabled={concurrencyFull}
               submitDisabledReason={concurrencyFull ? concurrencyLimitReason : undefined}
               onStop={handleStop}
-              leftFooterControls={
+              leftFooterControls={IS_UI_TEST_BUILD ? undefined : (
                 <ContextUsageRing
                   usage={liveContextUsage}
                   onCreateConversation={() => createConversation()}
                 />
-              }
+              )}
               rightControls={
+                <UiTestAiModel enabled={IS_UI_TEST_BUILD} value={aiChatModel}>
                 <ChatModelSelector
                   value={aiChatModel}
                   onChange={(model) => {
@@ -2806,6 +2930,7 @@ export function ChatPanel() {
                     void saveAiChatModel(model)
                   }}
                 />
+                </UiTestAiModel>
               }
               insertTokensRef={insertReferenceTokensRef}
               onChange={updateReferenceDraft}
@@ -2813,7 +2938,7 @@ export function ChatPanel() {
               onSubmit={handleSend}
               onAtTrigger={() => setReferencePickerOpen(true)}
               placeholder={
-                mode === "ingest"
+                IS_UI_TEST_BUILD ? "写下你的想法，或 @ 引用资料..." : mode === "ingest"
                   ? t(novelMode ? "novel.chat.ingestPlaceholder" : "chat.ingestPlaceholder")
                   : t(novelMode ? "novel.chat.typeAMessage" : "chat.typeAMessage")
               }

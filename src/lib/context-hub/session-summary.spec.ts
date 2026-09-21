@@ -105,3 +105,28 @@ describe("session context summary", () => {
     expect(summary.text).toContain("最新进展")
   })
 })
+
+
+describe("缓存友好的历史选择", () => {
+  it("预算内保留逐条追加的短历史，不因已有摘要而每轮滑动两条消息", () => {
+    const history = [
+      { role: "user", content: "保持悬疑主线" },
+      { role: "assistant", content: "确认，不提前揭露真相" },
+      { role: "user", content: "设计第二章" },
+      { role: "assistant", content: "第二章保留旧车站线索" },
+    ]
+    expect(selectContextHistoryMessages(history, "已有摘要", 1000)).toEqual(history)
+    const next = [...history, { role: "user", content: "补充配角" }, { role: "assistant", content: "新增守站人" }]
+    expect(selectContextHistoryMessages(next, "更新摘要", 1000).slice(0, history.length)).toEqual(history)
+  })
+
+  it("长历史不为命中率无限增长，超出预算回到摘要加近期对话", () => {
+    const history = [
+      { role: "user", content: "旧材料".repeat(2000) },
+      { role: "assistant", content: "旧回答".repeat(2000) },
+      { role: "user", content: "当前问题" },
+      { role: "assistant", content: "最新结论" },
+    ]
+    expect(selectContextHistoryMessages(history, "摘要", 500)).toEqual(history.slice(-2))
+  })
+})

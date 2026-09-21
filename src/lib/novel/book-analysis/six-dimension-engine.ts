@@ -1,3 +1,4 @@
+import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 /**
  * 拆书 6 维度分析 - 6 维度提取引擎
  *
@@ -26,6 +27,7 @@ import {
   ALL_DIMENSIONS,
   DIMENSION_LABELS,
   PROMPT_BUILDERS,
+  buildSixDimensionCachePrefix,
   type PromptInput,
 } from "./six-dimension-prompts"
 import { buildNameAliasMap } from "./alias-resolver"
@@ -41,6 +43,7 @@ interface SixDimensionInput {
   bookAuthor?: string
   onProgress?: (p: SixDimensionProgress) => void
   signal?: AbortSignal
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void
 }
 
 /**
@@ -111,9 +114,14 @@ function fastResearch(character: ExtractedCharacter): SixDimensionResearch {
 async function callLlmForDimension(
   llmConfig: LlmConfig,
   prompt: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
+  cachePrefix?: string,
 ): Promise<string> {
-  const messages: ChatMessage[] = [{ role: "user", content: prompt }]
+  const messages: ChatMessage[] = [{ role: "user", content: cachePrefix ? [
+    { type: "text", text: cachePrefix, cacheControl: true },
+    { type: "text", text: prompt },
+  ] : prompt }]
   let response = ""
   await streamChat(
     llmConfig,
@@ -123,6 +131,7 @@ async function callLlmForDimension(
         response += text
       },
       onDone: () => {},
+      onRequestTrace,
       onError: (err) => {
         console.error("[six-dimension] LLM error:", err)
       },
@@ -251,9 +260,9 @@ export async function analyzeSixDimensions(
       throw new Error("aborted")
     }
 
-    const prompt = builder(promptInput)
+    const prompt = builder({ ...promptInput, corpus: "请使用前面提供的原文章节语料。" })
     try {
-      const text = await callLlmForDimension(llmConfig, prompt, signal)
+      const text = await callLlmForDimension(llmConfig, prompt, signal, input.onRequestTrace, buildSixDimensionCachePrefix(promptInput))
       research[key] = text || `（${label} 提取失败或返回空）`
       runningState = setItemStatus(runningState, key, "done")
     } catch (e) {
