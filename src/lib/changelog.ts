@@ -12,10 +12,16 @@ const THREE_POINT_TWO_FIFTEEN_CHANGELOG: ChangelogEntry = {
   date: "2026-09-04",
   highlights: {
     en: [
+      "[Context Hub Stats Made Honest] Context hub stats now show only after the final answer is generated; wording corrected to a truthful scale - 'Context approx X tokens' (actually injected) plus 'approx Y tokens saved vs full volume' (only when truncation really occurs). Hit rate counts only cacheable sources.",
+      "[Deeper Cache Hit Optimization] Project-level sources are statically scoped with constant keys for cross-chapter/message reuse; dependency stamps are refined per path prefix so unrelated file changes no longer invalidate whole categories; retrieval caches raw project-level entries and filters by chapter at context build time.",
       "[Slimmer Generation Process Display] In AI conversation, the routine 'Task Understanding' stage is no longer shown, and 'Capability Selection' only appears when skills are actually enabled; real workflow stages (read context, draft generation, de-AI polish) remain visible.",
+      "[Quick-Mode Chat Saves Tokens] In quick mode, ordinary chats unrelated to the novel (e.g. a simple greeting) no longer preload novel context or expose novel-data reading tools, avoiding wasteful token consumption; novel-related questions still read as before.",
     ],
     zh: [
-      "【AI 对话生成过程更精简】「任务理解」阶段不再在界面显示；「能力选择」仅在标准/严格模式实际启用技能时显示；读取上下文、生成章节草稿、去AI味等真实工作流阶段照常保留",
+      "【AI 对话上下中控信息更真实】中控统计在回答生成完成后再显示，数字口径修正为真实尺度：「上下文约 X Token」（实际注入量）+「相比全量节省约 Y Token」（仅当确实截断时显示），命中率按可缓存源口径统计",
+      "【上下文命中率深度优化，更省更快】项目级资料（近期摘要、角色状态、伏笔状态、时间线等）改为跨章节、跨消息稳定复用；依赖检查按路径前缀精细统计，修改某处资料不再导致整类资料失效重读；AI 大纲「重新生成/后续生成」不再强制清空缓存",
+      "【AI 对话生成过程面板更精简】「任务理解」阶段不再在界面显示；「能力选择」仅在标准/严格模式实际启用技能时显示；读取上下文、生成章节草稿、去AI味等真实工作流阶段照常保留",
+      "【快速模式闲聊更省 token】快速模式下的普通对话（如「你好」等与小说无关的问候）不再预载小说上下文，也不再给模型暴露小说资料读取类工具，避免无谓读取记忆/资料浪费 token；小说相关问题仍按原逻辑正常读取",
     ],
   },
 };
