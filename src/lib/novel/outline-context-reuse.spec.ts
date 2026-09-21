@@ -276,6 +276,10 @@ describe("AI 大纲上下文复用策略", () => {
       planPhase: "element_check",
     })).toBe(true)
     expect(shouldShowOutlineWorkflowProcess({
+      workflowMode: "discuss",
+      discussPhase: "decision",
+    })).toBe(true)
+    expect(shouldShowOutlineWorkflowProcess({
       workflowMode: "plan",
       intentPhase: "generation",
     })).toBe(true)
@@ -349,6 +353,34 @@ describe("AI 大纲上下文复用策略", () => {
       contextDecision: decision,
       workflowMode: "plan",
       planPhase: "element_check",
+    })
+
+    expect(plan.showToolProcess).toBe(true)
+    expect(plan.showThinkingProcess).toBe(true)
+  })
+
+  it("共创讨论轮强制刷新上下文并说明原因", () => {
+    const decision = planOutlineContextReuse({
+      hasPriorAssistantAnswer: true,
+      attachedReferenceCount: 0,
+      inputText: "本轮进入共创讨论",
+      enableMultiAgent: false,
+      systemGenerated: true,
+      workflowMode: "discuss",
+      discussPhase: "decision",
+    })
+
+    expect(decision.mode).toBe("refresh")
+    expect(decision.reason).toBe("共创讨论需要读取项目已有大纲再抛决策点。")
+
+    const plan = planOutlineAgentHistory({
+      history: [
+        { role: "user", content: "讨论章纲" },
+        { role: "assistant", content: "先对齐钩子" },
+      ],
+      contextDecision: decision,
+      workflowMode: "discuss",
+      discussPhase: "decision",
     })
 
     expect(plan.showToolProcess).toBe(true)

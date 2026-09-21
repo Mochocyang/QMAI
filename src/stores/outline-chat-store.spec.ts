@@ -355,4 +355,63 @@ describe("outline-chat-store", () => {
     expect(useOutlineChatStore.getState().conversations[0].messages[0].outlinePlanProtocol).toBeUndefined()
   })
 
+  it("持久化共创模式的拍板与定稿状态", async () => {
+    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    const stored = conversation("discuss")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "",
+      outlineDiscussPhase: "decision",
+      outlineDiscussDecision: "answered",
+      outlineDiscussProtocol: {
+        status: "needs_decision",
+        module: "章节细纲",
+        judgment: "第45章还缺开场",
+        nextStep: "先定钩子",
+        decisions: [{
+          id: "d1",
+          question: "这章用什么钩子？",
+          options: [
+            { id: "A", label: "仇人登门", description: "" },
+            { id: "B", label: "旧信重现", description: "" },
+            { id: "CUSTOM", label: "其它（我来补充描述）", description: "" },
+          ],
+          preferenceId: "A",
+          preferenceReason: "冲突更快",
+        }],
+        agreed: [],
+      },
+    }]
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "discuss" }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    const message = useOutlineChatStore.getState().conversations[0].messages[0]
+    expect(message.outlineDiscussPhase).toBe("decision")
+    expect(message.outlineDiscussDecision).toBe("answered")
+    expect(message.outlineDiscussProtocol?.decisions[0].options).toHaveLength(3)
+  })
+
+  it.each([
+    null,
+    { status: "needs_input", module: "章节细纲", judgment: "", nextStep: "", decisions: [], agreed: [] },
+    { status: "ready", module: "", judgment: "判断", nextStep: "", decisions: [], agreed: [] },
+    { status: "needs_decision", module: "章节细纲", judgment: "", nextStep: "", decisions: [{ question: 1 }], agreed: [] },
+  ])("丢弃结构不完整的共创协议 %#", async (invalidProtocol) => {
+    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    const stored = conversation("invalid-discuss")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "",
+      outlineDiscussProtocol: invalidProtocol as never,
+    }]
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "invalid-discuss" }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].outlineDiscussProtocol).toBeUndefined()
+  })
+
 })

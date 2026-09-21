@@ -1356,19 +1356,33 @@ describe("OutlineChatPanel controls", () => {
     expect(generationPrompt).toContain("outlineSaveRequest")
   })
 
-  it("共创模式系统提示要求主动抛决策点，且定稿前不出正文", () => {
+  it("共创讨论轮系统提示必须输出 outline_discuss，且不含计划/意图闸门", () => {
     const discussPrompt = buildOutlineAgentSystemPrompt({
       projectName: "测试项目",
       mode: "discuss",
+      discussModule: "章节细纲",
     })
 
     expect(discussPrompt).toContain("## 共创讨论模式总则")
     expect(discussPrompt).toContain("未经作者确认定稿前，不要输出完整大纲正文")
     expect(discussPrompt).toContain("1-3 个需要作者拍板的具体分歧点")
     expect(discussPrompt).toContain("禁止只抛开放式问题让作者自己想")
-    // 共创模式不能再被协议闸门接管
+    expect(discussPrompt).toContain("必须输出 outline_discuss")
+    expect(discussPrompt).toContain("## 本轮阶段：共创讨论")
+    expect(discussPrompt).toContain("禁止输出 intent_clarity 和 outline_plan")
     expect(discussPrompt).not.toContain("## 意图清晰度分析阶段")
     expect(discussPrompt).not.toContain("## 计划模式总则")
+    expect(discussPrompt).not.toContain("## 下一步推荐输出")
+    expect(discussPrompt).not.toContain("必须按 PRD 3.1 主流程执行")
+    expect(discussPrompt).not.toContain("## AI 大纲输出协议")
+
+    const generationPrompt = buildOutlineAgentSystemPrompt({
+      projectName: "测试项目",
+      mode: "discuss",
+    })
+    expect(generationPrompt).toContain("作者已经确认定稿")
+    expect(generationPrompt).toContain("outlineSaveRequest")
+    expect(generationPrompt).not.toContain("## 本轮阶段：共创讨论")
   })
 
   it("讨论轮不再被「只输出正文」规则压制，且质疑必须带替代方案", () => {
@@ -1390,11 +1404,127 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("共创模式三个入口都不进意图分析和多 Agent", () => {
-    expect(source).toContain('if (outlineMode === "fast" || outlineMode === "discuss") {')
     expect(source).toContain("function buildOutlineDiscussionPrompt(")
     expect(source).toContain('&& outlineMode !== "discuss"')
     expect(source).toMatch(/if \(outlineMode === "discuss"\) \{\s*\n\s*void handleSend\(buildOutlineDiscussionPrompt\(title, requestHint\)/)
     expect(source).toContain("// 共创模式把向导需求当讨论起点：先对齐方案再产出，不直接开写")
+    expect(source).toContain('outlineModeForBudget === "discuss" && options.intentPhase !== "generation"')
+    expect(source).toContain("isOutlineDiscussFinalizeRequest")
+  })
+
+  function outlineDiscussBlock(payload: unknown): string {
+    return `判断如下。\n<!-- outline_discuss -->\n${JSON.stringify(payload)}\n<!-- /outline_discuss -->\n下一步先定钩子。`
+  }
+
+  it("共创模式自由输入渲染决策点卡片，协议 JSON 不进气泡", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    const calls: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      calls.push({
+        system: agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? ""),
+        user: agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? ""),
+      })
+      const text = outlineDiscussBlock({
+        status: "needs_decision",
+        module: "章节细纲",
+        judgment: "第45章还缺一个开场选择",
+        nextStep: "先定钩子",
+        decisions: [{
+          id: "d1",
+          question: "这章用什么钩子？",
+          options: [
+            { id: "A", label: "仇人登门", description: "更狠" },
+            { id: "B", label: "旧信重现", description: "更慢" },
+          ],
+          preferenceId: "A",
+          preferenceReason: "冲突来得更快",
+        }],
+        agreed: [],
+      })
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "我们来写第45章")
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).toContain("## 本轮阶段：共创讨论")
+    expect(calls[0].system).not.toContain("本轮阶段：意图分析")
+    expect(calls[0].system).not.toContain("## 本轮阶段：计划模式要素盘点")
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    expect(assistant?.outlineDiscussPhase).toBe("decision")
+    expect(assistant?.outlineDiscussProtocol?.status).toBe("needs_decision")
+    expect(assistant?.outlineDiscussError).toBeUndefined()
+    expect(container.textContent).not.toContain("outline_discuss")
+    expect(container.textContent).not.toContain("needs_decision")
+    expect(container.textContent).toContain("需要你拍板")
+    expect(container.textContent).toContain("仇人登门")
+    expect(container.textContent).toContain("AI 倾向")
+    expect(container.textContent).toContain("等待拍板")
+    expect(container.textContent).not.toContain("缺少要素")
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
+  })
+
+  it("共创模式定稿后才进入正文生成", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    const calls: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      calls.push({
+        system: agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? ""),
+        user: agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? ""),
+      })
+      const text = outlineDiscussBlock({
+        status: "ready",
+        module: "章节细纲",
+        judgment: "冲突和人物动机已经对齐",
+        nextStep: "确认后开写",
+        decisions: [],
+        agreed: [{ id: "a1", question: "开场钩子", value: "仇人登门" }],
+      })
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "继续讨论第45章")
+
+    expect(container.textContent).toContain("可以定稿")
+    expect(container.textContent).toContain("开场钩子：仇人登门")
+    expect(container.textContent).toContain("等待定稿")
+
+    const confirm = container.querySelector<HTMLButtonElement>('[aria-label="定稿开始生成"]')
+    expect(confirm).not.toBeNull()
+
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      calls.push({
+        system: agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? ""),
+        user: agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? ""),
+      })
+      const text = "# 第45章\n\n章纲正文"
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+
+    await act(async () => {
+      confirm?.click()
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        if (useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    expect(calls[1].system).toContain("作者已经确认定稿")
+    expect(calls[1].system).not.toContain("## 本轮阶段：共创讨论")
+    expect(calls[1].user).toContain("已经定稿")
   })
 
   it("三个入口在计划模式下都走要素盘点，不直接进生成", () => {
