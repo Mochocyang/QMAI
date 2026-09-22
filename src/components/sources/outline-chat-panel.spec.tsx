@@ -987,6 +987,7 @@ describe("OutlineChatPanel controls", () => {
     expect(prompt).toContain("outlineSaveRequest")
     expect(prompt).toContain("Markdown 格式约束：结构化资料使用一级标题")
     expect(prompt).toContain("像普通对话一样直接出结果")
+    expect(prompt).toContain("主动建议分成两章章纲")
     expect(prompt).not.toContain("必须按 PRD 3.1 主流程执行")
     expect(prompt).not.toContain("先提出最少必要澄清问题")
   })
@@ -1000,6 +1001,18 @@ describe("OutlineChatPanel controls", () => {
     expect(prompt).toContain("outlineSaveRequest")
     expect(prompt).toContain("必须按 PRD 3.1 主流程执行")
     expect(prompt).toContain("先提出最少必要澄清问题")
+    expect(prompt).toContain("主动建议分成两章章纲")
+  })
+
+  it("快速模式提示分支引用两章章纲建议补丁，讨论轮不注入", () => {
+    expect(source).toContain("TWO_CHAPTER_OUTLINE_SUGGESTION_RULE")
+    expect(source).toMatch(/mode === "fast"[\s\S]{0,500}TWO_CHAPTER_OUTLINE_SUGGESTION_RULE/)
+    const discussPrompt = buildOutlineAgentSystemPrompt({
+      mode: "discuss",
+      discussModule: "章节细纲",
+    })
+    expect(discussPrompt).not.toContain("主动建议分成两章章纲")
+    expect(buildOutlineAgentSystemPrompt({ mode: "discuss" })).toContain("主动建议分成两章章纲")
   })
 
   it("快速模式源码跳过意图分析和多 Agent，人物小传不再降级为 analysis 预算", () => {

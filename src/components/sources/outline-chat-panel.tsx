@@ -545,6 +545,10 @@ const OUTLINE_WORKFLOW_MODE_OPTIONS: Array<{
   },
 ];
 
+/** 只在模型自己建议拆成两章章纲时补写第 2 章章纲，不改其他范围规则。 */
+const TWO_CHAPTER_OUTLINE_SUGGESTION_RULE =
+  "如果你在本轮或上一轮主动建议分成两章章纲，这次章纲生成必须按完整流程写出这两章章纲，各一份，后一章章纲承接前一章章纲的钩子。「下一章交接」不能代替第 2 章章纲，不要等用户再说「连续生成」。用户拒绝该建议、建议不是两章章纲、或明确只要一章时，不要应用这条。";
+
 export function buildOutlineAgentSystemPrompt(options: {
   projectName?: string;
   webResearchContext?: string;
@@ -578,6 +582,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     ? [
       "快速模式下像普通对话一样直接出结果。可以按需读取必要上下文，但不要主动进入需求分析、意图分析或多 Agent 编排。",
       "用户要求生成或修改大纲时，直接输出可保存的大纲正文；不要先追问方案或等待确认才开始写。",
+      TWO_CHAPTER_OUTLINE_SUGGESTION_RULE,
     ]
     : mode === "discuss"
     ? discussTurn
@@ -628,11 +633,14 @@ export function buildOutlineAgentSystemPrompt(options: {
       "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
       "用户选择或回复后，直接进入生成流程，不再二次分析。",
     ];
+  const appliedWorkflowRules = mode !== "fast" && !discussTurn
+    ? [...workflowRules, TWO_CHAPTER_OUTLINE_SUGGESTION_RULE]
+    : workflowRules;
   return [
     "你是专业小说大纲分析与创作助手。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
     "需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
-    ...workflowRules,
+    ...appliedWorkflowRules,
     "",
     // 协议轮只允许输出对应协议块，不能再要求附加下一步推荐
     ...(protocolTurn ? [] : [
