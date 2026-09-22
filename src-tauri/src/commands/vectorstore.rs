@@ -1,12 +1,19 @@
 use lancedb::connect;
+use lancedb::index::scalar::BTreeIndexBuilder;
+use lancedb::index::Index;
 use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::table::optimize::Duration as LanceDuration;
+use lancedb::table::{CompactionOptions, OptimizeAction};
+use lancedb::{Connection, ObjectStoreRegistry, Session};
 use arrow_array::{
     Float32Array, RecordBatch, StringArray, FixedSizeListArray, ArrayRef,
     UInt32Array,
 };
 use arrow_schema::{DataType, Field, Schema};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 use crate::panic_guard::run_guarded_async;
 
@@ -51,14 +58,176 @@ const TABLE_V1: &str = "wiki_vectors";
 /// v2 (current) table name. One row per CHUNK — a page is typically
 /// represented by multiple rows sharing the same `page_id`.
 const TABLE_V2: &str = "wiki_chunks_v2";
+/// Staging table for a full rebuild. Swapped onto `TABLE_V2` only after
+/// every batch has been written, so a failed rebuild leaves the live index.
+const TABLE_V2_BUILDING: &str = "wiki_chunks_v2_building";
+/// Directory rename target used while swapping the staging table into place.
+/// Not a table we query. Removed after a successful swap.
+const TABLE_V2_BACKUP: &str = "wiki_chunks_v2_previous";
+
+const INDEX_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const METADATA_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const COMPACT_EVERY_WRITES: u32 = 32;
+
+struct CachedDb {
+    conn: Connection,
+    writes: u32,
+}
+
+fn db_cache() -> &'static tokio::sync::Mutex<HashMap<String, CachedDb>> {
+    static CACHE: OnceLock<tokio::sync::Mutex<HashMap<String, CachedDb>>> = OnceLock::new();
+    CACHE.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+fn small_session() -> Arc<Session> {
+    Arc::new(Session::new(
+        INDEX_CACHE_BYTES,
+        METADATA_CACHE_BYTES,
+        Arc::new(ObjectStoreRegistry::default()),
+    ))
+}
+
+fn table_dir(project_path: &str, table: &str) -> PathBuf {
+    PathBuf::from(db_path(project_path)).join(format!("{table}.lance"))
+}
+
+/// If a swap crashed after the live table was moved aside, put it back.
+/// A leftover backup next to a live table is the previous index and can go.
+fn recover_interrupted_swap(project_path: &str) -> Result<(), String> {
+    let live = table_dir(project_path, TABLE_V2);
+    let backup = table_dir(project_path, TABLE_V2_BACKUP);
+    if !live.exists() && backup.exists() {
+        std::fs::rename(&backup, &live).map_err(|e| format!("Restore vector index error: {e}"))?;
+    } else if live.exists() && backup.exists() {
+        std::fs::remove_dir_all(&backup)
+            .map_err(|e| format!("Remove old vector index error: {e}"))?;
+    }
+    Ok(())
+}
+
+async fn invalidate_db(project_path: &str) {
+    let path = db_path(project_path);
+    let mut guard = db_cache().lock().await;
+    guard.remove(&path);
+}
+
+async fn open_project_db(project_path: &str) -> Result<Connection, String> {
+    recover_interrupted_swap(project_path)?;
+    let path = db_path(project_path);
+    let mut guard = db_cache().lock().await;
+    if let Some(entry) = guard.get(&path) {
+        return Ok(entry.conn.clone());
+    }
+    let conn = connect(&path)
+        .session(small_session())
+        .execute()
+        .await
+        .map_err(|e| format!("DB connect error: {e}"))?;
+    guard.insert(
+        path,
+        CachedDb {
+            conn: conn.clone(),
+            writes: 0,
+        },
+    );
+    Ok(conn)
+}
+
+async fn drop_table_if_present(db: &Connection, name: &str) -> Result<(), String> {
+    let tables = db
+        .table_names()
+        .execute()
+        .await
+        .map_err(|e| format!("List tables error: {e}"))?;
+    if tables.iter().any(|table| table == name) {
+        db.drop_table(name, &[])
+            .await
+            .map_err(|e| format!("Drop table error: {e}"))?;
+    }
+    Ok(())
+}
+
+async fn ensure_page_id_index(table: &lancedb::Table) -> Result<(), String> {
+    let indices = match table.list_indices().await {
+        Ok(indices) => indices,
+        Err(_) => Vec::new(),
+    };
+    if indices.iter().any(|index| index.columns.iter().any(|column| column == "page_id")) {
+        return Ok(());
+    }
+    table
+        .create_index(&["page_id"], Index::BTree(BTreeIndexBuilder::default()))
+        .execute()
+        .await
+        .map_err(|e| format!("Create page_id index error: {e}"))?;
+    Ok(())
+}
+
+async fn compact_and_prune(table: &lancedb::Table) -> Result<(), String> {
+    table
+        .optimize(OptimizeAction::Compact {
+            options: CompactionOptions::default(),
+            remap_options: None,
+        })
+        .await
+        .map_err(|e| format!("Compact error: {e}"))?;
+    if let Err(e) = table
+        .optimize(OptimizeAction::Prune {
+            older_than: Some(LanceDuration::zero()),
+            delete_unverified: Some(true),
+            error_if_tagged_old_versions: Some(false),
+        })
+        .await
+    {
+        eprintln!("[vectorstore v2] prune after compact failed: {e}");
+    }
+    Ok(())
+}
+
+async fn note_write_and_maybe_compact(project_path: &str) {
+    let path = db_path(project_path);
+    let should_compact = {
+        let mut guard = db_cache().lock().await;
+        let Some(entry) = guard.get_mut(&path) else {
+            return;
+        };
+        entry.writes = entry.writes.saturating_add(1);
+        if entry.writes >= COMPACT_EVERY_WRITES {
+            entry.writes = 0;
+            true
+        } else {
+            false
+        }
+    };
+    if !should_compact {
+        return;
+    }
+    let Ok(db) = open_project_db(project_path).await else {
+        return;
+    };
+    let Ok(table) = db.open_table(TABLE_V2).execute().await else {
+        return;
+    };
+    if let Err(e) = compact_and_prune(&table).await {
+        eprintln!("[vectorstore v2] periodic compact failed: {e}");
+    }
+}
+
+/// `page_id` is interpolated into `page_id = '...'`.
+/// Reject the characters that can break out of that quoted literal.
+/// Spaces and Unicode punctuation are real wiki filenames.
+fn page_id_breaks_filter(page_id: &str) -> bool {
+    page_id
+        .chars()
+        .any(|c| c == '\'' || c == '\\' || c.is_control())
+}
 
 /// Validate page_id to prevent filter injection
 fn validate_page_id(page_id: &str) -> Result<(), String> {
     if page_id.is_empty() || page_id.len() > 256 {
         return Err("Invalid page_id: empty or too long".to_string());
     }
-    // Only allow alphanumeric, hyphens, underscores, dots
-    if !page_id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    if page_id_breaks_filter(page_id) {
         return Err(format!("Invalid page_id: contains disallowed characters: {}", page_id));
     }
     Ok(())
@@ -329,19 +498,7 @@ pub async fn vector_count(
 // ──────────────────────────────────────────────────────────────────────────
 
 fn validate_page_id_for_v2(page_id: &str) -> Result<(), String> {
-    if page_id.is_empty() || page_id.len() > 256 {
-        return Err("Invalid page_id: empty or too long".to_string());
-    }
-    if !page_id
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return Err(format!(
-            "Invalid page_id: contains disallowed characters: {}",
-            page_id
-        ));
-    }
-    Ok(())
+    validate_page_id(page_id)
 }
 
 fn make_schema_v2(dim: i32) -> Arc<Schema> {
@@ -441,10 +598,7 @@ pub async fn do_vector_upsert_chunks(
         return Err("Chunk #0 has empty embedding".to_string());
     }
 
-    let db = connect(&db_path(&project_path))
-        .execute()
-        .await
-        .map_err(|e| format!("DB connect error: {e}"))?;
+    let db = open_project_db(&project_path).await?;
 
     let schema = make_schema_v2(dim);
     let batch = make_batch_v2(schema.clone(), &page_id, &chunks, dim)?;
@@ -478,13 +632,21 @@ pub async fn do_vector_upsert_chunks(
             .execute()
             .await
             .map_err(|e| format!("Add error: {e}"))?;
+        if let Err(e) = ensure_page_id_index(&table).await {
+            eprintln!("[vectorstore v2] page_id index skipped: {e}");
+        }
     } else {
-        db.create_table(TABLE_V2, data)
+        let table = db
+            .create_table(TABLE_V2, data)
             .execute()
             .await
             .map_err(|e| format!("Create table error: {e}"))?;
+        if let Err(e) = ensure_page_id_index(&table).await {
+            eprintln!("[vectorstore v2] page_id index skipped: {e}");
+        }
     }
 
+    note_write_and_maybe_compact(&project_path).await;
     Ok(())
 }
 
@@ -505,10 +667,7 @@ pub async fn do_vector_search_chunks(
     query_embedding: Vec<f32>,
     top_k: usize,
 ) -> Result<Vec<ChunkSearchResult>, String> {
-    let db = connect(&db_path(&project_path))
-        .execute()
-        .await
-        .map_err(|e| format!("DB connect error: {e}"))?;
+    let db = open_project_db(&project_path).await?;
 
     let tables = db
         .table_names()
@@ -600,10 +759,7 @@ pub async fn do_vector_delete_page(
 ) -> Result<(), String> {
     validate_page_id_for_v2(&page_id)?;
 
-    let db = connect(&db_path(&project_path))
-        .execute()
-        .await
-        .map_err(|e| format!("DB connect error: {e}"))?;
+    let db = open_project_db(&project_path).await?;
 
     let tables = db
         .table_names()
@@ -626,6 +782,7 @@ pub async fn do_vector_delete_page(
         .await
         .map_err(|e| format!("Delete error: {e}"))?;
 
+    note_write_and_maybe_compact(&project_path).await;
     Ok(())
 }
 
@@ -640,10 +797,7 @@ pub async fn vector_delete_page(
 /// Total chunk count in the v2 table (not pages — chunks). Useful for
 /// "vector index has N chunks" status text.
 pub async fn do_vector_count_chunks(project_path: String) -> Result<usize, String> {
-    let db = connect(&db_path(&project_path))
-        .execute()
-        .await
-        .map_err(|e| format!("DB connect error: {e}"))?;
+    let db = open_project_db(&project_path).await?;
 
     let tables = db
         .table_names()
@@ -746,6 +900,197 @@ pub async fn vector_drop_legacy(project_path: String) -> Result<(), String> {
     run_guarded_async("vector_drop_legacy", do_vector_drop_legacy(project_path)).await
 }
 
+/// One chunk inside a rebuild batch. `page_id` is per row so a batch can
+/// span pages; the staging table is append-only until commit.
+#[derive(Debug, Deserialize)]
+pub struct ChunkRebuildInput {
+    pub page_id: String,
+    pub chunk_index: u32,
+    pub chunk_text: String,
+    pub heading_path: String,
+    pub embedding: Vec<f32>,
+}
+
+fn make_batch_rebuild(
+    schema: Arc<Schema>,
+    chunks: &[ChunkRebuildInput],
+    dim: i32,
+) -> Result<RecordBatch, String> {
+    let mut chunk_ids: Vec<String> = Vec::with_capacity(chunks.len());
+    let mut page_ids: Vec<String> = Vec::with_capacity(chunks.len());
+    let mut indexes: Vec<u32> = Vec::with_capacity(chunks.len());
+    let mut texts: Vec<String> = Vec::with_capacity(chunks.len());
+    let mut heading_paths: Vec<String> = Vec::with_capacity(chunks.len());
+    let mut flat_vectors: Vec<f32> = Vec::with_capacity(chunks.len() * dim as usize);
+
+    for c in chunks {
+        validate_page_id_for_v2(&c.page_id)?;
+        if c.embedding.len() as i32 != dim {
+            return Err(format!(
+                "Chunk #{} on page '{}' has embedding dim {} but batch dim is {}",
+                c.chunk_index,
+                c.page_id,
+                c.embedding.len(),
+                dim
+            ));
+        }
+        chunk_ids.push(format!("{}#{}", c.page_id, c.chunk_index));
+        page_ids.push(c.page_id.clone());
+        indexes.push(c.chunk_index);
+        texts.push(c.chunk_text.clone());
+        heading_paths.push(c.heading_path.clone());
+        flat_vectors.extend_from_slice(&c.embedding);
+    }
+
+    let values = Float32Array::from(flat_vectors);
+    let vector_arr: ArrayRef = Arc::new(FixedSizeListArray::new(
+        Arc::new(Field::new("item", DataType::Float32, true)),
+        dim,
+        Arc::new(values),
+        None,
+    ));
+
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(StringArray::from(chunk_ids)) as ArrayRef,
+            Arc::new(StringArray::from(page_ids)),
+            Arc::new(UInt32Array::from(indexes)),
+            Arc::new(StringArray::from(texts)),
+            Arc::new(StringArray::from(heading_paths)),
+            vector_arr,
+        ],
+    )
+    .map_err(|e| format!("Batch error: {e}"))
+}
+
+pub async fn do_vector_rebuild_begin(project_path: String) -> Result<(), String> {
+    let db = open_project_db(&project_path).await?;
+    drop_table_if_present(&db, TABLE_V2_BUILDING).await
+}
+
+pub async fn do_vector_rebuild_append(
+    project_path: String,
+    chunks: Vec<ChunkRebuildInput>,
+) -> Result<(), String> {
+    if chunks.is_empty() {
+        return Ok(());
+    }
+    let dim = chunks[0].embedding.len() as i32;
+    if dim == 0 {
+        return Err("Chunk #0 has empty embedding".to_string());
+    }
+    let db = open_project_db(&project_path).await?;
+    let schema = make_schema_v2(dim);
+    let batch = make_batch_rebuild(schema.clone(), &chunks, dim)?;
+    let data = vec![batch];
+
+    let tables = db
+        .table_names()
+        .execute()
+        .await
+        .map_err(|e| format!("List tables error: {e}"))?;
+    if tables.iter().any(|table| table == TABLE_V2_BUILDING) {
+        let table = db
+            .open_table(TABLE_V2_BUILDING)
+            .execute()
+            .await
+            .map_err(|e| format!("Open table error: {e}"))?;
+        table
+            .add(data)
+            .execute()
+            .await
+            .map_err(|e| format!("Add error: {e}"))?;
+    } else {
+        db.create_table(TABLE_V2_BUILDING, data)
+            .execute()
+            .await
+            .map_err(|e| format!("Create table error: {e}"))?;
+    }
+    Ok(())
+}
+
+fn swap_staging_into_place(project_path: &str) -> Result<(), String> {
+    let live = table_dir(project_path, TABLE_V2);
+    let staging = table_dir(project_path, TABLE_V2_BUILDING);
+    let backup = table_dir(project_path, TABLE_V2_BACKUP);
+    if !staging.exists() {
+        return Err("Staging vector index is missing".to_string());
+    }
+    if backup.exists() {
+        std::fs::remove_dir_all(&backup)
+            .map_err(|e| format!("Remove previous vector index error: {e}"))?;
+    }
+    if live.exists() {
+        std::fs::rename(&live, &backup)
+            .map_err(|e| format!("Move live vector index aside error: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(&staging, &live) {
+        if backup.exists() && !live.exists() {
+            let _ = std::fs::rename(&backup, &live);
+        }
+        return Err(format!("Swap vector index error: {e}"));
+    }
+    if backup.exists() {
+        std::fs::remove_dir_all(&backup)
+            .map_err(|e| format!("Remove previous vector index error: {e}"))?;
+    }
+    Ok(())
+}
+
+pub async fn do_vector_rebuild_commit(project_path: String) -> Result<(), String> {
+    recover_interrupted_swap(&project_path)?;
+    let staging = table_dir(&project_path, TABLE_V2_BUILDING);
+    if !staging.exists() {
+        // Nothing was appended. Keep the live index.
+        return Ok(());
+    }
+    // Drop file handles before renaming the lance directories.
+    invalidate_db(&project_path).await;
+    swap_staging_into_place(&project_path)?;
+    let db = open_project_db(&project_path).await?;
+    let table = db
+        .open_table(TABLE_V2)
+        .execute()
+        .await
+        .map_err(|e| format!("Open table error: {e}"))?;
+    compact_and_prune(&table).await?;
+    ensure_page_id_index(&table).await?;
+    Ok(())
+}
+
+pub async fn do_vector_rebuild_abort(project_path: String) -> Result<(), String> {
+    let db = open_project_db(&project_path).await?;
+    drop_table_if_present(&db, TABLE_V2_BUILDING).await
+}
+
+#[tauri::command]
+pub async fn vector_rebuild_begin(project_path: String) -> Result<(), String> {
+    run_guarded_async("vector_rebuild_begin", do_vector_rebuild_begin(project_path)).await
+}
+
+#[tauri::command]
+pub async fn vector_rebuild_append(
+    project_path: String,
+    chunks: Vec<ChunkRebuildInput>,
+) -> Result<(), String> {
+    run_guarded_async(
+        "vector_rebuild_append",
+        do_vector_rebuild_append(project_path, chunks),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn vector_rebuild_commit(project_path: String) -> Result<(), String> {
+    run_guarded_async("vector_rebuild_commit", do_vector_rebuild_commit(project_path)).await
+}
+
+#[tauri::command]
+pub async fn vector_rebuild_abort(project_path: String) -> Result<(), String> {
+    run_guarded_async("vector_rebuild_abort", do_vector_rebuild_abort(project_path)).await
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Tests
 //
@@ -760,6 +1105,17 @@ pub async fn vector_drop_legacy(project_path: String) -> Result<(), String> {
 mod tests_v2 {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn page_id_allows_wiki_punctuation_and_rejects_filter_breakers() {
+        assert!(validate_page_id_for_v2("2S25「章鱼」-SD").is_ok());
+        assert!(validate_page_id_for_v2("第11章-We will bury them").is_ok());
+        assert!(validate_page_id_for_v2("鲍里斯·普戈").is_ok());
+        assert!(validate_page_id_for_v2("第一卷第29—48章史实与部署依据").is_ok());
+        assert!(validate_page_id("a'b").is_err());
+        assert!(validate_page_id("a\\b").is_err());
+        assert!(validate_page_id("a\nb").is_err());
+    }
 
     /// Unique temp project dir per test. `tokio::test` runs tests in
     /// parallel threads so wall-clock nanoseconds aren't sufficient — a
@@ -1037,5 +1393,80 @@ mod tests_v2 {
 
         // Should just return Ok(()), not error.
         vector_drop_legacy(pp).await.unwrap();
+    }
+
+    fn rebuild_row(page_id: &str, index: u32, dim: usize) -> ChunkRebuildInput {
+        ChunkRebuildInput {
+            page_id: page_id.to_string(),
+            chunk_index: index,
+            chunk_text: format!("{page_id} chunk {index}"),
+            heading_path: format!("## Heading {index}"),
+            embedding: fake_embedding(index, dim),
+        }
+    }
+
+    #[tokio::test]
+    async fn rebuild_abort_keeps_the_live_table() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+
+        vector_rebuild_begin(pp.clone()).await.unwrap();
+        vector_rebuild_append(pp.clone(), vec![rebuild_row("page-b", 0, 16)])
+            .await
+            .unwrap();
+        vector_rebuild_abort(pp.clone()).await.unwrap();
+
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
+        let results = vector_search_chunks(pp, fake_embedding(0, 16), 10)
+            .await
+            .unwrap();
+        assert!(results.iter().all(|row| row.page_id == "page-a"));
+    }
+
+    #[tokio::test]
+    async fn rebuild_commit_without_rows_keeps_the_live_table() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+        vector_rebuild_begin(pp.clone()).await.unwrap();
+        vector_rebuild_commit(pp.clone()).await.unwrap();
+
+        assert_eq!(vector_count_chunks(pp).await.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn rebuild_commit_swaps_compacts_and_replaces_rows() {
+        let p = tmp_project();
+        let pp = p.to_string_lossy().to_string();
+
+        vector_upsert_chunks(pp.clone(), "page-a".into(), make_chunks("page-a", 3, 16))
+            .await
+            .unwrap();
+
+        vector_rebuild_begin(pp.clone()).await.unwrap();
+        vector_rebuild_append(
+            pp.clone(),
+            vec![rebuild_row("page-b", 0, 16), rebuild_row("page-b", 1, 16)],
+        )
+        .await
+        .unwrap();
+        vector_rebuild_append(pp.clone(), vec![rebuild_row("page-c", 0, 16)])
+            .await
+            .unwrap();
+        vector_rebuild_commit(pp.clone()).await.unwrap();
+
+        assert_eq!(vector_count_chunks(pp.clone()).await.unwrap(), 3);
+        let results = vector_search_chunks(pp, fake_embedding(0, 16), 10)
+            .await
+            .unwrap();
+        assert!(!results.is_empty());
+        assert!(results.iter().all(|row| row.page_id != "page-a"));
     }
 }

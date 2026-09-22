@@ -88,11 +88,18 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   const handleReindex = useCallback(async () => {
     if (!project) return
     setReindex({ kind: "running", done: 0, total: 0 })
-    const count = await embedAllPages(project.path, embeddingConfig, (done, total) => {
-      setReindex({ kind: "running", done, total })
-    })
-    setReindex({ kind: "done", count })
-    await refreshStats()
+    setLastError(null)
+    try {
+      const count = await embedAllPages(project.path, embeddingConfig, (done, total) => {
+        setReindex({ kind: "running", done, total })
+      })
+      setReindex({ kind: "done", count })
+      await refreshStats()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setLastError(message)
+      setReindex({ kind: "idle" })
+    }
   }, [project, embeddingConfig, refreshStats])
 
   const handleDropLegacy = useCallback(async () => {
