@@ -1,4 +1,4 @@
-﻿/* 独立 UI 测试版。视觉基准：20260907-003151 图稿；正式版无匹配选择器。 */
+/* 独立 UI 测试版。视觉基准：20260907-003151 图稿；正式版无匹配选择器。 */
 .ui-test-root, .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] * { box-sizing: border-box; }
 .ui-test-root, html[data-ui-test-skin] {
   --ui: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
@@ -57,6 +57,9 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-crumb svg { width: 15px; height: 15px; }
 .ui-test-current-book { font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .ui-test-nav { display: flex; gap: 6px; padding: 5px; background: var(--ui-panel); border-radius: 12px; }
+.ui-test-nav-slot { position: relative; }
+.ui-test-nav-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; min-width: 150px; max-height: min(420px, calc(100dvh - 120px)); overflow: auto; }
+.ui-test-nav-menu.is-right { left: auto; right: 0; }
 .ui-test-nav-item { border: 0; border-radius: 8px; background: transparent; padding: 10px 32px; color: var(--ui-muted); font-size: 14px; font-weight: 500; line-height: 1.4; white-space: nowrap; transition: background .15s; }
 .ui-test-nav-item.is-active { background: var(--ui-paper); color: var(--ui-accent); box-shadow: 0 2px 9px #203b2b08; }
 .ui-test-nav-item:disabled { opacity: .8 !important; }

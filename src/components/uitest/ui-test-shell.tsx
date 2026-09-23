@@ -1,4 +1,4 @@
-﻿import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Leaf, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
@@ -16,6 +16,7 @@ import { applyTheme } from "@/lib/theme-utils"
 import { saveTheme } from "@/lib/project-store"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as preferenceKey } from "@/lib/ui-test-workspace-preferences"
+import { availablePrimaryNav, movePrimaryNav, normalizePrimaryNav, PRIMARY_NAV_LONG_PRESS_MS, readPrimaryNav, writePrimaryNav, type PrimaryNavItem, type PrimaryNavView } from "@/lib/ui-test-primary-nav"
 import { normalizePath } from "@/lib/path-utils"
 import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
 import type { WikiProject } from "@/types/wiki"
@@ -34,9 +35,6 @@ interface UiTestShellProps {
   onSwitchProject: () => void
   onProjectOpened: (project: WikiProject) => void
 }
-const PRIMARY_NAV: Array<{ view: NavView; label: string }> = [
-  { view: "sources", label: "大纲" }, { view: "wiki", label: "章节" }, { view: "soul", label: "灵魂" },
-]
 const TOOL_GROUPS = [
   [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
@@ -67,6 +65,11 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [libraryError, setLibraryError] = useState("")
   const [toolOpen, setToolOpen] = useState(false)
   const [skinOpen, setSkinOpen] = useState(false)
+  const [primaryNav, setPrimaryNav] = useState<PrimaryNavItem[]>(() => readPrimaryNav())
+  const [navMenu, setNavMenu] = useState<PrimaryNavView | null>(null)
+  const navMenuRef = useRef<HTMLDivElement | null>(null)
+  const [navMenuAlign, setNavMenuAlign] = useState<"left" | "right">("left")
+  const navPressRef = useRef<{ view: PrimaryNavView; x: number; y: number; timer: number } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [windowFilled, setWindowFilled] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
@@ -161,17 +164,33 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     const menu = toolOpen ? toolsRef.current : skinsRef.current
     menu?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
     const outside = (event: MouseEvent) => {
-      if (toolsRef.current?.contains(event.target as Node) || skinsRef.current?.contains(event.target as Node)) return
-      setToolOpen(false); setSkinOpen(false)
+      if (toolsRef.current?.contains(event.target as Node) || skinsRef.current?.contains(event.target as Node) || (event.target as HTMLElement).closest(".ui-test-nav-slot")) return
+      setToolOpen(false); setSkinOpen(false); setNavMenu(null)
     }
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return
-      event.preventDefault(); setToolOpen(false); setSkinOpen(false)
+      event.preventDefault(); setToolOpen(false); setSkinOpen(false); setNavMenu(null)
       ;(toolOpen ? toolRef : skinRef).current?.focus()
     }
     document.addEventListener("mousedown", outside); document.addEventListener("keydown", escape)
     return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
   }, [toolOpen, skinOpen])
+  useEffect(() => {
+    if (!navMenu) return
+    navMenuRef.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
+    const outside = (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest(".ui-test-nav-slot")) return
+      setNavMenu(null)
+    }
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      setNavMenu(null)
+    }
+    document.addEventListener("mousedown", outside)
+    document.addEventListener("keydown", escape)
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
+  }, [navMenu])
   useEffect(() => {
     if (!drawerOpen) return
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDrawerOpen(false); directoryRef.current?.focus() } }
@@ -186,6 +205,42 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const toggleDirectory = () => {
     if (overlayDirectory) setDrawerOpen((open) => !open)
     else setPreference((previous) => ({ ...previous, directory: { ...previous.directory, [activeView]: !sidebarVisible } }))
+  }
+  const updatePrimaryNav = (items: PrimaryNavItem[]) => {
+    const next = normalizePrimaryNav(items.map((item) => item.view))
+    setPrimaryNav(next)
+    writePrimaryNav(next)
+  }
+  const openNavMenu = (event: { preventDefault(): void; clientX: number }, view: PrimaryNavView) => {
+    event.preventDefault()
+    setNavMenuAlign(window.innerWidth - event.clientX < 220 ? "right" : "left")
+    setNavMenu(view)
+    setToolOpen(false)
+    setSkinOpen(false)
+  }
+  const pressNav = (event: React.PointerEvent<HTMLElement>, view: PrimaryNavView) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return
+    window.clearTimeout(navPressRef.current?.timer)
+    const point = { clientX: event.clientX, preventDefault() {} }
+    const timer = window.setTimeout(() => openNavMenu(point, view), PRIMARY_NAV_LONG_PRESS_MS)
+    navPressRef.current = { view, x: event.clientX, y: event.clientY, timer }
+  }
+  const moveNavPress = (event: React.PointerEvent<HTMLElement>) => {
+    const press = navPressRef.current
+    if (!press || Math.hypot(event.clientX - press.x, event.clientY - press.y) < 8) return
+    window.clearTimeout(press.timer)
+    navPressRef.current = null
+  }
+  const releaseNavPress = () => {
+    window.clearTimeout(navPressRef.current?.timer)
+    navPressRef.current = null
+  }
+  const removePrimaryNav = async (view: PrimaryNavView) => {
+    const remaining = primaryNav.filter((item) => item.view !== view)
+    if (remaining.length === 0) return
+    updatePrimaryNav(remaining)
+    setNavMenu(null)
+    if (activeView === view) await navigate(remaining[0].view)
   }
   const navigate = async (view: NavView) => {
     setToolOpen(false); setSkinOpen(false)
@@ -217,8 +272,19 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
             {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
           </div>
-          <nav className="ui-test-nav" aria-label="主模块">
-            {PRIMARY_NAV.map((item) => <button key={item.view} type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>)}
+          <nav className="ui-test-nav" aria-label="主模块" onContextMenu={(event) => event.preventDefault()}>
+            {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
+              <button type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
+              {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} onKeyDown={menuKeyboard}>
+                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === 0} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, -1)); setNavMenu(null) }}>左移</button>
+                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === primaryNav.length - 1} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, 1)); setNavMenu(null) }}>右移</button>
+                <div className="ui-test-menu-title">替换为</div>
+                {availablePrimaryNav(primaryNav).map((option) => <button key={option.view} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => { updatePrimaryNav(primaryNav.map((current) => current.view === item.view ? option : current)); setNavMenu(null) }}>{option.label}</button>)}
+                <div className="ui-test-menu-title">新增功能</div>
+                {availablePrimaryNav(primaryNav).map((option) => <button key={`add-${option.view}`} type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.length >= 5} onClick={() => { updatePrimaryNav([...primaryNav, option]); setNavMenu(null) }}>添加{option.label}</button>)}
+                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.length <= 1} onClick={() => void removePrimaryNav(item.view)}>删除功能</button>
+              </div>}
+            </div>)}
           </nav>
           <div className="ui-test-actions">
             {hasDirectory && <button ref={directoryRef} type="button" className={`ui-test-header-action${sidebarVisible ? " is-active" : ""}`} aria-label={sidebarVisible ? "收起目录" : "展开目录"} aria-expanded={sidebarVisible} aria-controls="ui-test-directory" title={sidebarVisible ? "收起目录" : "展开目录"} onClick={toggleDirectory}><PanelLeft /><span>目录</span></button>}
