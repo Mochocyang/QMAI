@@ -325,16 +325,9 @@ function SkillLibraryHeaderActions({ activeTab }: { activeTab: "skillLibrary" | 
 
 export function UnifiedSkillLibraryView() {
   const activeView = useWikiStore((s) => s.activeView)
-  const project = useWikiStore((s) => s.project)
 
   return (
     <div data-ui-page={IS_UI_TEST_BUILD ? "skills" : undefined} data-ui-state={IS_UI_TEST_BUILD ? activeView : undefined} data-testid="unified-skill-library-view" className="flex h-full flex-col overflow-hidden">
-      {IS_UI_TEST_BUILD && (
-        <header data-ui="tool-heading"><div>
-          <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{project?.name ?? "未选择项目"}</span><span aria-hidden="true">/</span><span>技能库</span><span aria-hidden="true">/</span><span aria-current="page">{activeView === "writingSkillLibrary" ? "写作技能" : activeView === "skillFavorites" ? "收藏" : "去AI味技能"}</span></nav>
-          <h1 className="ui-test-page-title">把方法，留给下一次灵感。</h1>
-        </div></header>
-      )}
       <SkillLibraryHeader />
       <div data-ui={IS_UI_TEST_BUILD ? "skills-content" : undefined} className="min-h-0 flex-1 overflow-hidden">
         {activeView === "writingSkillLibrary" ? (

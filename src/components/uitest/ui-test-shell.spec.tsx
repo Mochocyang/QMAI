@@ -24,6 +24,14 @@ let host: HTMLDivElement
 let root: Root
 const project = { id: "ui-sample", name: "测试小说", path: "/QM-BOOK-UI-TEST/sample" }
 const callbacks = { onCreateProject: vi.fn(), onOpenProject: vi.fn(), onSelectProject: vi.fn(), onSwitchProject: vi.fn(), onProjectOpened: vi.fn() }
+async function hover(label: string) {
+  const button = [...host.querySelectorAll("button")].find((item) => item.textContent?.trim() === label)
+  expect(button, label).toBeTruthy()
+  const propsKey = Object.keys(button!).find((key) => key.startsWith("__reactProps"))
+  const onMouseEnter = propsKey ? (button as unknown as Record<string, { onMouseEnter?: () => void }>)[propsKey].onMouseEnter : undefined
+  expect(onMouseEnter, label).toEqual(expect.any(Function))
+  await act(async () => { onMouseEnter!() })
+}
 async function click(label: string) {
   const button = [...host.querySelectorAll("button")].find((item) => item.getAttribute("aria-label") === label || item.textContent?.trim() === label)
   expect(button, label).toBeTruthy()
@@ -105,6 +113,7 @@ describe("独立UI测试版外壳", () => {
       vi.advanceTimersByTime(PRIMARY_NAV_LONG_PRESS_MS)
     })
     expect(host.querySelector('[aria-label="灵魂功能菜单"]')).not.toBeNull()
+    await hover("移动")
     await click("左移")
     expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
     vi.useRealTimers()
@@ -114,16 +123,18 @@ describe("独立UI测试版外壳", () => {
     expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
     const movedSoul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "灵魂") as HTMLElement
     await act(async () => { movedSoul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
+    await hover("替换为")
     await click("技能库")
     expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
     await act(async () => { skill.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
-    await click("添加小说图谱")
+    await hover("新增功能")
+    await click("小说图谱")
     expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "小说图谱"])
     useWikiStore.setState({ activeView: "graph" })
     const graph = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "小说图谱") as HTMLElement
     await act(async () => { graph.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
-    await click("删除功能")
+    await click("删除")
     expect(useWikiStore.getState().activeView).toBe("sources")
     expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
   })
@@ -132,6 +143,50 @@ describe("独立UI测试版外壳", () => {
     const slot = host.querySelector(".ui-test-nav-slot") as HTMLElement
     await act(async () => { slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     expect(host.querySelector('[role="menu"]')).not.toBeNull()
+  })
+  it("替换当前功能时同步切换页面，替换其他功能时保持页面", async () => {
+    await render()
+    const soul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.textContent?.includes("灵魂")) as HTMLElement
+    await act(async () => { soul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 20 })) })
+    await hover("替换为")
+    await click("技能库")
+    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
+    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
+
+    useWikiStore.setState({ activeView: "sources" })
+    const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
+    await act(async () => { skill.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 20 })) })
+    await hover("替换为")
+    await click("小说图谱")
+    expect(useWikiStore.getState().activeView).toBe("sources")
+    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱"])
+  })
+  it("取消离开确认时不替换当前功能", async () => {
+    draftState.dirty = true
+    vi.spyOn(window, "confirm").mockReturnValue(false)
+    useWikiStore.setState({ activeView: "soul" })
+    await render()
+    const soul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.textContent?.includes("灵魂")) as HTMLElement
+    await act(async () => { soul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 20 })) })
+    await hover("替换为")
+    await click("技能库")
+    expect(useWikiStore.getState().activeView).toBe("soul")
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "灵魂"])
+    const menu = host.querySelector('[aria-label="灵魂功能菜单"]')!
+    const submenu = menu.querySelector<HTMLElement>('[aria-label="灵魂二级菜单"]')!
+    expect([...submenu.querySelectorAll(".ui-test-menu-item")].map((button) => button.textContent)).toEqual(["技能库", "小说图谱", "拆书库", "审查中心", "剧情搜索", "剧情推演", "记忆中心"])
+  })
+  it("窄窗口中的功能菜单保持在窗口内并可滚动", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true })
+    await render()
+    const soul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.textContent?.includes("灵魂")) as HTMLElement
+    await act(async () => { soul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 360, clientY: 20 })) })
+    const menu = host.querySelector<HTMLElement>('[aria-label="灵魂功能菜单"]')!
+    const rect = menu.getBoundingClientRect()
+    expect(rect.width).toBeLessThanOrEqual(window.innerWidth - 32)
+    expect(rect.left).toBeGreaterThanOrEqual(0)
+    expect(rect.right).toBeLessThanOrEqual(window.innerWidth)
+    expect(menu.className).toContain("is-right")
   })
   it("重复点击当前主导航不改变文件选择", async () => {
     useWikiStore.setState({ activeView: "soul", selectedFile: "/QM-BOOK-UI-TEST/sample/wiki/chapters/01.md" })

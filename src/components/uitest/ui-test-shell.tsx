@@ -67,6 +67,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [skinOpen, setSkinOpen] = useState(false)
   const [primaryNav, setPrimaryNav] = useState<PrimaryNavItem[]>(() => readPrimaryNav())
   const [navMenu, setNavMenu] = useState<PrimaryNavView | null>(null)
+  const [navMenuSection, setNavMenuSection] = useState<"move" | "replace" | "add" | null>(null)
+  const navMenuCloseTimer = useRef<number | null>(null)
   const navMenuRef = useRef<HTMLDivElement | null>(null)
   const [navMenuAlign, setNavMenuAlign] = useState<"left" | "right">("left")
   const navPressRef = useRef<{ view: PrimaryNavView; x: number; y: number; timer: number } | null>(null)
@@ -177,7 +179,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   }, [toolOpen, skinOpen])
   useEffect(() => {
     if (!navMenu) return
-    navMenuRef.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
+    if (!navMenuSection) navMenuRef.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
     const outside = (event: MouseEvent) => {
       if ((event.target as HTMLElement).closest(".ui-test-nav-slot")) return
       setNavMenu(null)
@@ -190,7 +192,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     document.addEventListener("mousedown", outside)
     document.addEventListener("keydown", escape)
     return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
-  }, [navMenu])
+  }, [navMenu, navMenuSection])
   useEffect(() => {
     if (!drawerOpen) return
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDrawerOpen(false); directoryRef.current?.focus() } }
@@ -211,9 +213,18 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     setPrimaryNav(next)
     writePrimaryNav(next)
   }
+  const showNavSection = (section: "move" | "replace" | "add") => {
+    if (navMenuCloseTimer.current !== null) window.clearTimeout(navMenuCloseTimer.current)
+    setNavMenuSection(section)
+  }
+  const hideNavSectionSoon = () => {
+    if (navMenuCloseTimer.current !== null) window.clearTimeout(navMenuCloseTimer.current)
+    navMenuCloseTimer.current = window.setTimeout(() => setNavMenuSection(null), 180)
+  }
   const openNavMenu = (event: { preventDefault(): void; clientX: number }, view: PrimaryNavView) => {
     event.preventDefault()
     setNavMenuAlign(window.innerWidth - event.clientX < 220 ? "right" : "left")
+    setNavMenuSection(null)
     setNavMenu(view)
     setToolOpen(false)
     setSkinOpen(false)
@@ -241,6 +252,15 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     updatePrimaryNav(remaining)
     setNavMenu(null)
     if (activeView === view) await navigate(remaining[0].view)
+  }
+  const replacePrimaryNav = async (current: PrimaryNavView, next: PrimaryNavItem) => {
+    if (!primaryNav.some((item) => item.view === current) || primaryNav.some((item) => item.view === next.view)) return
+    const replaced = primaryNav.map((item) => item.view === current ? next : item)
+    if (project && activeView === current && !(await confirmModelDraftLeave())) return
+    if (project && activeView === current) await navigate(next.view)
+    if (useWikiStore.getState().activeView !== (project && activeView === current ? next.view : activeView)) return
+    updatePrimaryNav(replaced)
+    setNavMenu(null)
   }
   const navigate = async (view: NavView) => {
     setToolOpen(false); setSkinOpen(false)
@@ -275,14 +295,19 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
           <nav className="ui-test-nav" aria-label="主模块" onContextMenu={(event) => event.preventDefault()}>
             {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
               <button type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
-              {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} onKeyDown={menuKeyboard}>
-                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === 0} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, -1)); setNavMenu(null) }}>左移</button>
-                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === primaryNav.length - 1} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, 1)); setNavMenu(null) }}>右移</button>
-                <div className="ui-test-menu-title">替换为</div>
-                {availablePrimaryNav(primaryNav).map((option) => <button key={option.view} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => { updatePrimaryNav(primaryNav.map((current) => current.view === item.view ? option : current)); setNavMenu(null) }}>{option.label}</button>)}
-                <div className="ui-test-menu-title">新增功能</div>
-                {availablePrimaryNav(primaryNav).map((option) => <button key={`add-${option.view}`} type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.length >= 5} onClick={() => { updatePrimaryNav([...primaryNav, option]); setNavMenu(null) }}>添加{option.label}</button>)}
-                <button type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.length <= 1} onClick={() => void removePrimaryNav(item.view)}>删除功能</button>
+              {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>
+                <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "move"} aria-haspopup="menu" onMouseEnter={() => showNavSection("move")} onFocus={() => showNavSection("move")}>移动</button>
+                <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "replace"} aria-haspopup="menu" onMouseEnter={() => showNavSection("replace")} onFocus={() => showNavSection("replace")}>替换为</button>
+                <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "add"} aria-haspopup="menu" disabled={primaryNav.length >= 5 || availablePrimaryNav(primaryNav).length === 0} onMouseEnter={() => showNavSection("add")} onFocus={() => showNavSection("add")}>新增功能</button>
+                <button type="button" role="menuitem" className="ui-test-menu-item ui-test-nav-delete" disabled={primaryNav.length <= 1} onMouseEnter={hideNavSectionSoon} onClick={() => void removePrimaryNav(item.view)}>删除</button>
+                {navMenuSection && <div className={`ui-test-nav-submenu${navMenuAlign === "right" ? " is-left" : ""}`} role="menu" aria-label={`${item.label}二级菜单`} onMouseEnter={() => showNavSection(navMenuSection)}>
+                  {navMenuSection === "move" && <>
+                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === 0} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, -1)); setNavMenu(null) }}>左移</button>
+                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === primaryNav.length - 1} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, 1)); setNavMenu(null) }}>右移</button>
+                  </>}
+                  {navMenuSection === "replace" && availablePrimaryNav(primaryNav).map((option) => <button key={option.view} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => void replacePrimaryNav(item.view, option)}>{option.label}</button>)}
+                  {navMenuSection === "add" && availablePrimaryNav(primaryNav).map((option) => <button key={`add-${option.view}`} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => { updatePrimaryNav([...primaryNav, option]); setNavMenu(null) }}>{option.label}</button>)}
+                </div>}
               </div>}
             </div>)}
           </nav>
