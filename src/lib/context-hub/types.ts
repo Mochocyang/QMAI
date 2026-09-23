@@ -128,6 +128,8 @@ export interface ContextHubStats {
   cacheableLoaded?: number
   /** 同范围内的缓存复用次数（含缓存空值）；须与 cacheableLoaded 成对出现。 */
   cacheableHits?: number
+  /** 本轮任务级数据源的缓存命中数；从可缓存命中率分子中扣除。旧快照缺失时按 0 处理。 */
+  taskScopedHits?: number
   stablePrefixStatus?: StablePrefixStatus
   /** Estimated tokens (local heuristic). */
   stableTokens: number

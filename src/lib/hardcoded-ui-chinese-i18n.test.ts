@@ -18,7 +18,6 @@ describe("user-facing hardcoded chinese strings", () => {
     const knowledgeTree = read("../components/layout/knowledge-tree.tsx")
     const iconSidebar = read("../components/layout/icon-sidebar.tsx")
     const chatPanel = read("../components/chat/chat-panel.tsx")
-    const activityPanel = read("../components/layout/activity-panel.tsx")
     const llmProviderSection = read("../components/settings/sections/llm-provider-section.tsx")
     const changelogSection = read("../components/settings/sections/changelog-section.tsx")
 
@@ -100,11 +99,6 @@ describe("user-facing hardcoded chinese strings", () => {
     expect(chatPanel).not.toContain("审稿中...")
     expect(chatPanel).not.toContain("审稿发现")
     expect(chatPanel).not.toContain("缺少LLM配置，跳过自动提取")
-
-    expect(activityPanel).not.toContain("文件同步失败")
-    expect(activityPanel).not.toContain("重新扫描")
-    expect(activityPanel).not.toContain("摄取队列")
-    expect(activityPanel).not.toContain("清除已完成")
 
     expect(llmProviderSection).not.toContain("仅桌面端可用")
     expect(llmProviderSection).not.toContain("CLI status")

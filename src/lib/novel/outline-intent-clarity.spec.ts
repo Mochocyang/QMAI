@@ -132,6 +132,11 @@ describe("stripStructuredMarkers", () => {
     expect(stripStructuredMarkers(text).trim()).toBe("正文")
   })
 
+  it("移除 outline_discuss 标记块", () => {
+    const text = `判断如下\n<!-- outline_discuss -->\n{"status":"ready"}\n<!-- /outline_discuss -->\n\n下一步建议`
+    expect(stripStructuredMarkers(text)).toBe("判断如下\n\n下一步建议")
+  })
+
   it("无标记块时原样返回", () => {
     const text = "纯文本内容"
     expect(stripStructuredMarkers(text)).toBe("纯文本内容")

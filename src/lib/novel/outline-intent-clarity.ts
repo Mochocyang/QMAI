@@ -1,3 +1,6 @@
+import { stripOutlineDiscussMarkers } from "./outline-discuss-protocol"
+import { stripOutlinePlanMarkers } from "./outline-plan-protocol"
+
 export type IntentClarity = "clear" | "needs_input"
 
 export interface IntentClarityOption {
@@ -240,7 +243,7 @@ export function buildIntentPhaseSystemRules(
 }
 
 export function stripStructuredMarkers(text: string): string {
-  return text
+  return stripOutlineDiscussMarkers(stripOutlinePlanMarkers(text))
     // 1. 移除完整的标记对（现有逻辑）
     .replace(/<!--\s*intent_clarity\s*-->[\s\S]*?<!--\s*\/intent_clarity\s*-->/gi, "")
     .replace(/<!--\s*next_step\s*-->[\s\S]*?<!--\s*\/next_step\s*-->/gi, "")

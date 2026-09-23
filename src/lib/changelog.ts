@@ -7,6 +7,80 @@ interface ChangelogEntry {
   };
 }
 
+const THREE_POINT_TWO_NINETEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.19",
+  date: "2026-09-20",
+  highlights: {
+    en: [
+      "[Outline Co-creation Mode] Outline chat adds a discuss mode: the model acts as an editor, raises 1-3 decision points with its own preference, and only writes a full outline after you confirm. Standard and plan modes can now discuss instead of being forced to output body text only.",
+      "[Settings Feedback Form] Settings now use Sentry official Feedback instead of the homemade form and Cloudflare submit path. The widget follows the app theme and does not capture screenshots.",
+      "[Corpus De-AI Prefix] Corpus-stats de-AI results no longer keep the model's leftover process sentence such as 'first check the style document'.",
+      "[Short Failure Keeps Original] When a task brief, draft, or expansion falls below the completion line, the model's original text is written into the chat log so you can tell a refusal from empty output.",
+    ],
+    zh: [
+      "【大纲共创模式】大纲对话新增「共创」档：AI 当责编抛出 1-3 个决策点和自己的倾向，你确认定稿后才出正文；标准/计划档的讨论轮也不再被「只输出正文」压住",
+      "【设置页反馈表单】设置页改用 Sentry 官方 Feedback，替换自写表单和 Cloudflare 提交链路；跟随应用主题，不截图",
+      "【语料去AI味前缀】语料统计去AI味结果不再带上模型残留的「先核对风格文档」过程句",
+      "【过短失败保留原文】任务书/初稿/扩写低于完成线时，把模型原文写入聊天记录，避免只看到「约 N 字」无法判断是拒写还是空输出",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_EIGHTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.18",
+  date: "2026-09-16",
+  highlights: {
+    en: [
+      "[Writing DNA Style] Book-analysis style extraction is now layered DNA distillation (L1-L6). Writing injects the integrated DNA; old profiles migrate in place.",
+      "[Style Depth and Model] The analysis dialog can pick full or fast depth and a per-task model. Pause/resume and parallel tasks keep the model they started with.",
+      "[Chunk Budget Matches Sends] Oversized chapters count as 12,000 characters when planning chunks. The dialog shows the real chunk count and warns which chapters will be truncated.",
+    ],
+    zh: [
+      "【Writing DNA 文风】拆书文风改为分层蒸馏（L1-L6），写作时注入 integrated DNA；旧 profile 原地迁移",
+      "【文风深度与模型】分析弹窗可选完整/快速深度，并按任务选择分析模型；暂停继续和并行任务沿用当初选的模型",
+      "【分片按实际发送量】超长章按每章 12,000 字计入预算，弹窗显示真实片数并提示哪些章会被截断",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_SEVENTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.17",
+  date: "2026-09-16",
+  highlights: {
+    en: [
+      "[Outline Plan Mode] Outline chat adds a plan mode: when required elements are missing, it asks first, then shows a plan for confirmation before generating.",
+      "[Reasoning Depth Slider] Writing and outline chats get a reasoning-depth slider (default / off / low / medium / high / max). It only applies to the actual draft-generation call and stays hidden when the model has no reasoning control or writing is in quick mode.",
+      "[Writing Search Trigger Fix] Chapter web search no longer skips real names just because the model claimed enough knowledge; skip reasons are shown as notes.",
+      "[Corpus De-AI Option] A built-in corpus-stats de-AI style is available (moxt.ai lieflat-less-ai-tone whitelist rules). The default skill is unchanged.",
+    ],
+    zh: [
+      "【大纲计划模式】大纲对话新增「计划」模式：要素不齐时先问答再出计划，确认后才生成，避免信息不足就直接写大纲",
+      "【思考深度滑块】写作和大纲聊天可调思考深度（默认/关闭/低/中/高/最大），只作用于真正出稿的那次调用；模型不支持或写作快速模式不显示",
+      "【正文补搜能触发了】补搜按名称性质判定，不再因模型自评「知识够」而漏搜；跳过时会写入可见说明",
+      "【语料统计去AI味】新增语料统计去AI味内置选项（moxt.ai 白名单改写规则），默认技能不变",
+    ],
+  },
+};
+
+const THREE_POINT_TWO_SIXTEEN_CHANGELOG: ChangelogEntry = {
+  version: "3.2.16",
+  date: "2026-09-08",
+  highlights: {
+    en: [
+      "[Strict Mode Local Edits] Strict mode stage 6 no longer de-AIs the whole draft when review is clean; it only patches remaining problem spots from the checklist.",
+      "[Short Task Brief Regenerates] A task brief under 100 characters is treated as a failed generation and rebuilt from scratch, including the no-draft recovery path.",
+      "[Sidebar Extract Display] De-AI runs count as in-progress and rise to the top of the list; finished extracts keep only the latest three. The unused Activity panel is gone.",
+      "[Cache Hit Rate Cap] Cacheable hit rate no longer counts task-scoped hits, so retries cannot push the rate above 100%.",
+    ],
+    zh: [
+      "【严格模式按需局部改】审稿干净时不再全文去AI味；只在有剩余问题时按清单改问题部分",
+      "【短任务书整份重生成】任务书不足 100 字视为失败并整份重跑，避免用残片写初稿和扩写；无初稿恢复路径同样处理",
+      "【侧栏提取显示修复】去AI味计入运行中并排到顶部，已结束提取只保留最近 3 条；去掉无入口的活动栏",
+      "【命中率不再虚高】可缓存命中率扣除任务级命中，同任务重试后不会超过 100%",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_FIFTEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.15",
   date: "2026-09-04",
@@ -1511,6 +1585,14 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === THREE_POINT_TWO_NINETEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_NINETEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_EIGHTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_EIGHTEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_SEVENTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_SEVENTEEN_CHANGELOG];
+  if (version === THREE_POINT_TWO_SIXTEEN_CHANGELOG.version)
+    return [THREE_POINT_TWO_SIXTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FIFTEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_FIFTEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_FOURTEEN_CHANGELOG.version)
@@ -1646,6 +1728,10 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    THREE_POINT_TWO_NINETEEN_CHANGELOG,
+    THREE_POINT_TWO_EIGHTEEN_CHANGELOG,
+    THREE_POINT_TWO_SEVENTEEN_CHANGELOG,
+    THREE_POINT_TWO_SIXTEEN_CHANGELOG,
     THREE_POINT_TWO_FIFTEEN_CHANGELOG,
     THREE_POINT_TWO_FOURTEEN_CHANGELOG,
     THREE_POINT_TWO_THIRTEEN_CHANGELOG,

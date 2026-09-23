@@ -35,7 +35,7 @@ const stages: Record<string, string> = {
   draft: buildDeepChapterDraftPrompt(outline, contextPrompt, "写作任务书", "生成第3章", 3),
   expansion: buildDeepChapterExpansionPrompt(outline, contextPrompt, "写作任务书", "过短正文", "生成第3章", 3),
   revision: buildDeepChapterRevisionPrompt(outline, contextPrompt, "写作任务书", "初稿正文", reviewResults, "生成第3章", 3),
-  polish: buildDeepChapterFinalPolishPrompt(outline, contextPrompt, "写作任务书", "当前正文", "生成第3章", 3),
+  polish: buildDeepChapterFinalPolishPrompt(outline, contextPrompt, "写作任务书", "当前正文", reviewResults, "生成第3章", 3),
 }
 const stageList = Object.values(stages)
 // buildStableContextPrefix(outline, contextPrompt) 的输出：[outline,"上下文：",contextPrompt].join("\n")
@@ -56,8 +56,8 @@ describe("deep chapter prompts share a stable cacheable prefix (stage 2)", () =>
     // ── 测量报告（chars/4 估算 token，与 context-budget.ts 同口径）──
     const prefixChars = stableBlock.length
     const estTok = (chars: number) => Math.round(chars / 4)
-    // 写作侧实际会重复携带这段前缀的阶段：任务书 / 初稿 /（扩写）/（返修）/ 去AI味。
-    // 取最常见路径：任务书 + 初稿 + 去AI味 = 3 次必然发生，扩写/返修按需。
+    // 写作侧实际会重复携带这段前缀的阶段：任务书 / 初稿 /（扩写）/（返修）/ 阶段6局部修改。
+    // 取最常见路径：任务书 + 初稿 + 阶段6局部修改 = 3 次，扩写/返修/阶段6按需。
     const writingStages = 3
     const repeatedPrefixChars = prefixChars * (writingStages - 1) // 第2、3次重复携带
     // 自动前缀缓存命中后，重复前缀约按 1/10 计费。

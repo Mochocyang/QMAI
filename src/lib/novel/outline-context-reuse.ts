@@ -3,6 +3,8 @@ import {
   resolveOutlineWorkflowMode,
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
+import type { OutlineDiscussPhase } from "./outline-discuss-protocol"
+import type { OutlinePlanPhase } from "./outline-plan-protocol"
 
 export const OUTLINE_CONTEXT_REUSE_DISABLED_TOOLS = [
   "read_chapter",
@@ -39,6 +41,8 @@ interface OutlineContextReuseInput {
   systemGenerated?: boolean
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
+  discussPhase?: OutlineDiscussPhase
 }
 
 interface OutlineContextReuseDecision {
@@ -57,17 +61,23 @@ interface OutlineAgentHistoryInput {
   summaryInSystem?: boolean
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
+  discussPhase?: OutlineDiscussPhase
   enableMultiAgent?: boolean
 }
 
 export function shouldShowOutlineWorkflowProcess(input: {
   workflowMode?: OutlineWorkflowMode | null
   intentPhase?: OutlineIntentPhase
+  planPhase?: OutlinePlanPhase
+  discussPhase?: OutlineDiscussPhase
   enableMultiAgent?: boolean
 }): boolean {
-  if (resolveOutlineWorkflowMode(input.workflowMode) !== "standard") return false
+  if (resolveOutlineWorkflowMode(input.workflowMode) === "fast") return false
   return input.intentPhase === "intent_analysis"
     || input.intentPhase === "generation"
+    || input.planPhase !== undefined
+    || input.discussPhase !== undefined
     || input.enableMultiAgent === true
 }
 
@@ -128,7 +138,7 @@ export function planOutlineContextReuse(input: OutlineContextReuseInput): Outlin
       "本轮是同一 AI 大纲会话的后续追问。",
       "请优先复用已有对话历史、上一轮最终结论和用户本轮新输入，不要重新读取项目资料、章节、大纲、记忆、推演、历史会话或 Skill。",
       "只有当用户明确要求重新读取资料，或本轮消息带有新的 @ 引用时，才应该进入刷新上下文流程。",
-      "请直接回答用户当前问题，保留必要推理结论，不要输出内部过程说明。",
+      "请直接回答用户当前问题，保留必要推理结论和你的判断依据，不要输出工具调用过程和流程说明。",
     ].join("\n"),
     sourceLabel: "已复用上次上下文",
     reason: "后续普通追问未附带新引用，也未要求重新读取资料。",
@@ -228,6 +238,8 @@ function refreshReason(input: OutlineContextReuseInput): string {
   if (!input.hasPriorAssistantAnswer) return "首次生成需要建立上下文。"
   if (input.forceRefresh) return "用户手动要求强制刷新上下文。"
   if (input.enableMultiAgent) return "固定生成向导或多 Agent 任务需要完整上下文。"
+  if (input.planPhase) return "计划模式要素盘点需要读取项目已有大纲。"
+  if (input.discussPhase) return "共创讨论需要读取项目已有大纲再抛决策点。"
   if (shouldShowOutlineWorkflowProcess(input)) return "标准大纲工作流需要完整上下文。"
   if (input.attachedReferenceCount > 0) return "本轮带有新的引用资料。"
   if (REFRESH_KEYWORD_PATTERN.test(input.inputText.trim())) {

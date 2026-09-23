@@ -478,6 +478,8 @@ npm run build:github-release
 - 本项目灵感来源：（webnovel-writer）https://github.com/lingfengQAQ/webnovel-writer
 - 项目框架UI设计依托LLM WIKI：https://github.com/nashsu/llm_wiki
 - 内置角色灵魂设计参考女娲.skill：https://github.com/alchaincyf/nuwa-skill
+- 拆书文风 Writing DNA 参考 writing-dna-skill：https://github.com/larashero3-dotcom/writing-dna-skill
+- 语料统计去 AI 味参考 lieflat-less-ai-tone（moxt.ai）：https://github.com/larashero3-dotcom/lieflat-less-ai-tone
 - 感谢LINUXDO提供的帮助：https://linux.do/
 
 

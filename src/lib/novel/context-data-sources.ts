@@ -354,9 +354,9 @@ const writingStyleDataSource: DataSource<string> = {
   name: "writingStyle",
   priority: 12,
   async load(context: ContextLoadContext): Promise<string> {
-    // 优先级1: 已启用的拆书作品文风预设
+    // 优先级1: 已启用的拆书作品文风预设（传 task 以按题材检索最接近的原文片段）
     try {
-      const enabledStyle = await buildWritingStyleContext(context.projectPath)
+      const enabledStyle = await buildWritingStyleContext(context.projectPath, { task: context.task })
       if (enabledStyle.trim()) return enabledStyle
     } catch {}
 

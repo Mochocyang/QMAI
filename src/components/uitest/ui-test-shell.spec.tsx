@@ -12,7 +12,7 @@ vi.mock("@/components/layout/content-area", () => ({ ContentArea: () => { useMod
 vi.mock("@/components/layout/knowledge-tree", () => ({ RawSourcesSection: () => null }))
 vi.mock("@/lib/ui-test-library", () => ({ registerUiTestProject: vi.fn() }))
 vi.mock("@/components/layout/sidebar-panel", () => ({ SidebarPanel: () => <div>测试目录</div> }))
-vi.mock("@/components/layout/activity-panel", () => ({ ActivityPanel: () => <div data-testid="activity-panel">活动记录</div> }))
+
 vi.mock("@/components/project/create-project-dialog", () => ({ CreateProjectDialog: () => null }))
 vi.mock("./ui-test-shelf", () => ({ UiTestShelf: () => <div data-testid="shelf">书架内容</div> }))
 vi.mock("@/lib/project-file-tree-refresh", () => ({ refreshProjectFileTree: vi.fn().mockResolvedValue(undefined) }))
@@ -84,7 +84,7 @@ describe("独立UI测试版外壳", () => {
   })
   it("没有固定活动栏；目录与窗口操作有中文可访问名称", async () => {
     await render()
-    expect(host.querySelector('[data-testid="activity-panel"]')).toBeNull()
+    expect(host.textContent).not.toContain("活动记录")
     expect(host.querySelector('[aria-label="收起目录"]')).not.toBeNull()
     expect(host.querySelector('[aria-label="最小化"]')).not.toBeNull()
     expect(host.querySelector('[aria-label="最大化或还原"]')).not.toBeNull()

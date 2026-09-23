@@ -1,4 +1,5 @@
-﻿import type { ContextHubStats } from "@/lib/context-hub/types"
+import { cacheableHitRate } from "@/lib/context-hub/cacheable-hit-rate"
+import type { ContextHubStats } from "@/lib/context-hub/types"
 import { cn } from "@/lib/utils"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 
@@ -56,10 +57,19 @@ export function ContextHubStatsSummary({ stats, className }: ContextHubStatsSumm
       </div>
     )
   }
+  const total = stats.cacheHits + stats.reloaded + stats.empty + stats.fallbackUsed + stats.readFailed + stats.writeFailed
+  const hitRate = cacheableHitRate(stats)
+  const legacyParts = [
+    `本次命中 ${stats.cacheHits.toLocaleString()} 项`,
+    `命中率 ${hitRate}%`,
+  ]
+  if ((stats.composedTokens ?? 0) > 0) legacyParts.push(`上下文约 ${formatTokens(stats.composedTokens!)}`)
+  if ((stats.estimatedSavedTokens ?? 0) > 0) legacyParts.push(`相比全量节省约 ${formatTokens(stats.estimatedSavedTokens)}`)
   return (
     <div className={cn("min-w-0 whitespace-normal break-words", className)}>
       <div>本地资料复用率 {localSummary}</div>
       <div>模型输入缓存命中率 {providerSummary}（{providerScope}）</div>
+      {total > 0 && <div>{legacyParts.join(" · ")}</div>}
       {estimates.length > 0 && <div>{estimates.join(" · ")}</div>}
     </div>
   )

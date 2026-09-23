@@ -49,6 +49,8 @@ interface DataSourceCacheStats {
   cacheableLoaded: number
   /** 上述同一范围内直接复用缓存的次数，包含缓存中的空值。 */
   cacheableHits: number
+  /** 本轮任务级数据源的缓存命中数；从可缓存命中率分子中扣除。 */
+  taskScopedHits: number
 }
 
 const STATIC_SOURCES = new Set([
@@ -159,6 +161,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
     taskScopedLoaded: 0,
     cacheableLoaded: 0,
     cacheableHits: 0,
+    taskScopedHits: 0,
   }
   private readonly traceItems: ContextCacheItemTrace[] = []
 
@@ -272,6 +275,7 @@ export class DataSourceCacheAdapter implements DataSourceLoadAdapter {
         if (cached && dependencyStampsMatch(cached.dependencyStamp, dependencyStamp)) {
           this.stats.cacheHits += 1
           if (cacheable) this.stats.cacheableHits += 1
+          if (TASK_SCOPED_SOURCES.has(sourceName)) this.stats.taskScopedHits += 1
           this.stats.cacheHitTokens += valueToTokens(cached.value)
           this.upsertTrace(makeTrace("cache_hit"))
           return cached.value

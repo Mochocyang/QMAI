@@ -4,7 +4,6 @@ import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
 import { IconSidebar } from "./icon-sidebar"
 import { SidebarPanel } from "./sidebar-panel"
 import { ContentArea } from "./content-area"
-import { ActivityPanel } from "./activity-panel"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { clampSidebarWidth } from "@/lib/workspace-layout"
@@ -262,7 +261,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               <div className="min-h-0 flex-1 overflow-hidden">
                 <SidebarPanel />
               </div>
-              <ActivityPanel />
             </div>
             <div
               className="w-1 shrink-0 cursor-col-resize bg-border/20 transition-colors hover:bg-primary/25 active:bg-primary/30"

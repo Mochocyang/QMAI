@@ -285,6 +285,8 @@ export function getWorkflowToolDescription(call: WorkflowToolCall): string {
       return "分析前情章节"
     case "chapter_task_brief":
       return "生成写作任务书"
+    case "chapter_task_brief_retry":
+      return "重新生成写作任务书"
     case "chapter_draft":
       return "生成章节正文初稿"
     case "chapter_expansion":
@@ -296,7 +298,7 @@ export function getWorkflowToolDescription(call: WorkflowToolCall): string {
     case "chapter_post_revision_review":
       return "返修后角色一致性复审"
     case "chapter_final_polish":
-      return "简单审查与去AI味"
+      return "简单审查与修改"
     case "chapter_execution_report":
       return "检查章节执行清单"
     case "chapter_execution_repair":

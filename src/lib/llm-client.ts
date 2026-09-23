@@ -10,6 +10,8 @@ import {
   type RequestOverrides,
 } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
+import { isUserAbortError } from "./user-abort"
+import { isTauriInvalidResourceIdError } from "./tauri-resource-error"
 import { countReasoningCharsInLine, extractReasoningTextFromLine } from "./reasoning-detector"
 import {
   formatReasoningReplayRiskForError,
@@ -528,7 +530,7 @@ async function streamChatHeld(
     try {
       response = await sendRequest(requestInit)
     } catch (err) {
-      if (signal?.aborted || (combinedSignal?.aborted && !timeoutFired)) {
+      if (signal?.aborted || (combinedSignal?.aborted && !timeoutFired) || isTauriInvalidResourceIdError(err)) {
         onDone()
         return
       }
@@ -896,7 +898,7 @@ async function streamChatHeld(
       finishRequestTrace(activeRequestTrace, "success", streamUsage)
       onDone()
     } catch (err) {
-      if (err instanceof Error && (err.name === "AbortError" || (signal?.aborted))) {
+      if (isUserAbortError(err, signal)) {
         finishRequestTrace(activeRequestTrace, "cancelled", streamUsage)
         onDone()
         return

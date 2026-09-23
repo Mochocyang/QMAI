@@ -2,7 +2,6 @@ import { useState, useCallback } from "react"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { analyzeWritingStyle } from "@/lib/novel/book-analysis/style-extraction-engine"
 import { importBookAnalysisSkillsAsAuras } from "@/lib/novel/book-analysis/aura-adapter"
 import { deleteOrphanAurasForBook } from "@/lib/novel/book-analysis/aura-cleanup"
 import {
@@ -56,7 +55,6 @@ export function useLibraryOperations({
   providerConfigs,
   startTask,
 }: UseLibraryOperationsParams) {
-  const [styleExtracting, setStyleExtracting] = useState(false)
   const [addingToSoul, setAddingToSoul] = useState(false)
   const deletePublishedBook = useBookAnalysisImportStore((state) => state.deletePublishedBook)
 
@@ -74,69 +72,6 @@ export function useLibraryOperations({
         : next.books[0]?.id ?? null,
     )
   }, [currentProjectPath, setLibraryState, setSelectedBookId])
-
-  const handleLibraryExtractStyle = useCallback(async () => {
-    if (!currentProjectPath || !selectedLibraryBook || styleExtracting) return
-    if (!hasUsableLlm(llmConfig, providerConfigs)) {
-      toast.error("未配置可用模型，请先在设置中配置 LLM。")
-      return
-    }
-    setStyleExtracting(true)
-
-    const abortController = new AbortController()
-    const taskId = useBookAnalysisStore.getState().startTask(currentProjectPath, {
-      sourceType: "file",
-      sourcePath: selectedLibraryBook.path,
-      selectedChapters: [],
-    }, abortController)
-    useBookAnalysisStore.getState().updateTaskBookData(taskId, selectedLibraryBook.id, [])
-    useBookAnalysisStore.getState().updateTaskProgress(taskId, {
-      stage: "extracting_style",
-      stageLabel: "提取文风",
-      percentage: 0,
-    })
-
-    try {
-      const progressMap: Record<string, number> = {
-        "读取章节列表…": 10,
-        "读取": 25,
-        "正在分析作品文风…": 50,
-        "保存文风画像…": 90,
-      }
-      const profile = await analyzeWritingStyle(selectedLibraryBook.path, llmConfig, {
-        signal: abortController.signal,
-        onProgress: (msg) => {
-          const pct = Object.entries(progressMap).find(([k]) => msg.includes(k))?.[1]
-          if (pct !== undefined) {
-            useBookAnalysisStore.getState().updateTaskProgress(taskId, {
-              stage: "extracting_style",
-              stageLabel: "提取文风",
-              percentage: pct,
-              currentItem: msg,
-            })
-          }
-        },
-      })
-      useBookAnalysisStore.getState().updateTaskStyleProfile(taskId, profile)
-      useBookAnalysisStore.getState().updateTaskProgress(taskId, {
-        stage: "extracting_style",
-        stageLabel: "提取文风",
-        percentage: 100,
-        currentItem: "完成",
-      })
-      useBookAnalysisStore.getState().completeTask(taskId)
-      toast.success("已提取作品文风。")
-      await reloadLibraryState()
-      useBookAnalysisStore.getState().triggerSidebarRefresh()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error("[文风提取失败]", msg)
-      useBookAnalysisStore.getState().errorTask(taskId, msg)
-      toast.error(`提取文风失败：${msg}`)
-    } finally {
-      setStyleExtracting(false)
-    }
-  }, [currentProjectPath, selectedLibraryBook, styleExtracting, llmConfig, reloadLibraryState])
 
   const handleLibraryToggleStyle = useCallback(async () => {
     if (!currentProjectPath || !selectedLibraryBook?.styleProfile) return
@@ -388,10 +323,8 @@ export function useLibraryOperations({
   }, [currentProjectPath, selectedLibraryBook, llmConfig, startTask, setChapterSelectionData])
 
   return {
-    styleExtracting,
     addingToSoul,
     reloadLibraryState,
-    handleLibraryExtractStyle,
     handleLibraryToggleStyle,
     handleLibraryAddSkillsToSoul,
     handleLibraryBindCharacter,

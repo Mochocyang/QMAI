@@ -46,9 +46,10 @@ const mocks = vi.hoisted(() => {
   const setShowResultViewer = vi.fn()
   const clearRecognition = vi.fn()
   const reloadLibraryState = vi.fn()
-  const handleLibraryExtractStyle = vi.fn()
   const handleLibraryReextractCharacters = vi.fn()
   const loadBookStoryFrameworkChapters = vi.fn()
+  const createAwaitingRangeTask = vi.fn()
+  const loadChapterList = vi.fn()
 
   return {
     candidates,
@@ -103,9 +104,28 @@ const mocks = vi.hoisted(() => {
     setShowResultViewer,
     clearRecognition,
     reloadLibraryState,
-    handleLibraryExtractStyle,
     handleLibraryReextractCharacters,
     loadBookStoryFrameworkChapters,
+    createAwaitingRangeTask,
+    loadChapterList,
+    pipelineState: {
+      tasks: [] as unknown[],
+      chunks: [] as unknown[],
+      progresses: {} as Record<string, unknown>,
+      initializeProject: vi.fn(async () => {}),
+      createAwaitingRangeTask,
+      configureTaskRange: vi.fn(async () => {}),
+      setTaskRecognizedCharacters: vi.fn(async () => {}),
+      failTask: vi.fn(async () => {}),
+      confirmCharacterSelection: vi.fn(async () => {}),
+      setRuntimeProgress: vi.fn(),
+      startTask: vi.fn(async () => {}),
+      pauseTask: vi.fn(async () => {}),
+      continueTask: vi.fn(async () => {}),
+      retryFailedChunk: vi.fn(async () => {}),
+      cancelTask: vi.fn(async () => {}),
+      dispose: vi.fn(async () => {}),
+    },
     reloadedLibraryState: libraryState,
     libraryParams: null as any,
     inputDialogProps: null as any,
@@ -130,6 +150,14 @@ vi.mock("@/stores/book-analysis-store", () => {
   return { useBookAnalysisStore }
 })
 
+vi.mock("@/stores/book-analysis-pipeline-store", () => {
+  const useBookAnalysisPipelineStore = Object.assign(
+    (selector: (state: typeof mocks.pipelineState) => unknown) => selector(mocks.pipelineState),
+    { getState: () => mocks.pipelineState },
+  )
+  return { useBookAnalysisPipelineStore }
+})
+
 vi.mock("@/stores/book-analysis-import-store", () => {
   const useBookAnalysisImportStore = Object.assign(
     (selector: (state: typeof mocks.importState) => unknown) => selector(mocks.importState),
@@ -142,10 +170,8 @@ vi.mock("./hooks/use-library-operations", () => ({
   useLibraryOperations: (params: any) => {
     mocks.libraryParams = params
     return {
-      styleExtracting: false,
       addingToSoul: false,
       reloadLibraryState: mocks.reloadLibraryState,
-      handleLibraryExtractStyle: mocks.handleLibraryExtractStyle,
       handleLibraryToggleStyle: vi.fn(),
       handleLibraryAddSkillsToSoul: vi.fn(),
       handleLibraryDeleteBook: vi.fn(),
@@ -329,8 +355,9 @@ beforeEach(() => {
   mocks.setCurrentResult.mockReset()
   mocks.setShowResultViewer.mockReset()
   mocks.clearRecognition.mockReset()
-  mocks.handleLibraryExtractStyle.mockReset()
   mocks.handleLibraryReextractCharacters.mockReset()
+  mocks.createAwaitingRangeTask.mockReset().mockResolvedValue({ id: "pipeline-task-1" })
+  mocks.loadChapterList.mockReset().mockResolvedValue([])
   mocks.loadBookStoryFrameworkChapters.mockReset().mockResolvedValue([
     { id: "chapter-1", title: "第一章", order: 1, content: "正文" },
   ])
@@ -489,7 +516,10 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
     await clickButton("旧框架入口")
 
     expect(mocks.handleLibraryReextractCharacters).toHaveBeenCalledTimes(1)
-    expect(mocks.handleLibraryExtractStyle).toHaveBeenCalledTimes(1)
+    // 旧文风入口不再走单轮提取，统一走 pipeline 的 style skill
+    expect(mocks.createAwaitingRangeTask).toHaveBeenCalledWith(
+      expect.objectContaining({ bookId: "book-1", selectedSkills: ["style"] }),
+    )
     expect(mocks.loadBookStoryFrameworkChapters).toHaveBeenCalledWith(mocks.libraryState.books[0].path)
     expect(host.querySelector('[data-testid="章节选择面板"]')).not.toBeNull()
     expect(host.querySelector('[data-testid="历史结果查看器"]')).not.toBeNull()

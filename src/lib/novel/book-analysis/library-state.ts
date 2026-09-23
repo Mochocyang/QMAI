@@ -5,6 +5,7 @@ import { joinPath, normalizePath } from "@/lib/path-utils"
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
 import { loadRecognizedCharacters } from "./recognized-character-store"
 import { findCharacterForSkillFile } from "./skill-character-match"
+import { migrateStyleProfile } from "./style-profile-schema"
 import type {
   BookAnalysisMetadata,
   BookAnalysisResult,
@@ -172,7 +173,8 @@ export async function loadBookAnalysisLibraryState(projectPath: string): Promise
       ? storedRecognizedCharacters
       : recognizedFromExtractedCharacters(entry.path, characters)
     const skills = await loadSkills(entry.path, metadata, characters)
-    const styleProfile = await readJson<BookStyleProfile>(joinPath(entry.path, "style-profile.json"))
+    const storedStyleProfile = await readJson<BookStyleProfile>(joinPath(entry.path, "style-profile.json"))
+    const styleProfile = storedStyleProfile ? migrateStyleProfile(storedStyleProfile) : null
     const analysisManifest = await readJson<BookAnalysisModuleManifest>(joinPath(entry.path, "analysis", "manifest.json"))
     const evidenceCollection = await readJson<{ snippets?: AnalysisEvidenceSnippet[] }>(joinPath(entry.path, "analysis", "evidence.json"))
     const styleStatus: BookStyleStatus =

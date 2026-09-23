@@ -1,8 +1,10 @@
 import pangu from "pangu"
 import { parseFrontmatter } from "@/lib/frontmatter"
 
+// pangu 10 still treats CJK-N hyphen as an operator: 苏-35 → 苏 - 35
 const CJK_MODEL_HYPHEN =
   /(?<=[\p{Script=Han}])-(?=(?=[A-Z0-9-]*\d)[A-Z0-9]+(?:-[A-Z0-9]+)*)/gu
+// pangu 10 still normalizes · • ‧ to katakana ・
 const LOSSY_MIDDLE_DOT = /[·•‧]/gu
 const PROTECTED_TEXT_PATTERN = /\uE100(\d+)\uE101/gu
 
@@ -18,7 +20,7 @@ function spacingChapterText(text: string): string {
     .replace(CJK_MODEL_HYPHEN, () => protect("-"))
 
   return pangu
-    .spacingText(protectedText)
+    .spaceText(protectedText)
     .replace(PROTECTED_TEXT_PATTERN, (_match, index: string) => protectedValues[Number(index)] ?? "")
 }
 

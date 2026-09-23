@@ -1,3 +1,5 @@
+import { isTauriInvalidResourceIdError } from "./tauri-resource-error"
+
 export const USER_ABORT_MESSAGE = "已停止生成"
 
 export function throwIfAborted(signal?: AbortSignal): void {
@@ -6,6 +8,7 @@ export function throwIfAborted(signal?: AbortSignal): void {
 
 export function isUserAbortError(error: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return true
+  if (isTauriInvalidResourceIdError(error)) return true
   if (!(error instanceof Error)) return false
   if (error.message === USER_ABORT_MESSAGE) return true
   if (error.name === "AbortError") return true

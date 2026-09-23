@@ -43,13 +43,19 @@ describe("de-ai skill library", () => {
     writeFileAtomicMock.mockResolvedValue(undefined)
   })
 
-  it("ships five built-in de-AI skills", () => {
+  const qmaiTemplateSkillIds = [
+    "built-in:comprehensive",
+    "built-in:reduce-explanation",
+    "built-in:dialogue-natural",
+    "built-in:break-regularity",
+    "built-in:literary-retain",
+  ]
+  const qmaiTemplateSkills = BUILT_IN_DE_AI_SKILLS.filter((skill) => qmaiTemplateSkillIds.includes(skill.id))
+
+  it("ships six built-in de-AI skills", () => {
     expect(BUILT_IN_DE_AI_SKILLS.map((skill) => skill.id)).toEqual([
-      "built-in:comprehensive",
-      "built-in:reduce-explanation",
-      "built-in:dialogue-natural",
-      "built-in:break-regularity",
-      "built-in:literary-retain",
+      ...qmaiTemplateSkillIds,
+      "built-in:corpus-stat",
     ])
   })
 
@@ -104,8 +110,8 @@ describe("de-ai skill library", () => {
     }
   })
 
-  it("ships professional editing workflows for every built-in skill", () => {
-    for (const skill of BUILT_IN_DE_AI_SKILLS) {
+  it("ships professional editing workflows for QMAI template built-in skills", () => {
+    for (const skill of qmaiTemplateSkills) {
       expect(skill.content).toContain("## 适用场景")
       expect(skill.content).toContain("## 诊断步骤")
       expect(skill.content).toContain("## 改写优先级")
@@ -114,8 +120,8 @@ describe("de-ai skill library", () => {
     }
   })
 
-  it("keeps every built-in prompt centered on de-AI work instead of generic polishing", () => {
-    for (const skill of BUILT_IN_DE_AI_SKILLS) {
+  it("keeps QMAI template built-in prompts centered on de-AI work instead of generic polishing", () => {
+    for (const skill of qmaiTemplateSkills) {
       expect(skill.content).toContain("## 去AI味核心目标")
       expect(skill.content).toContain("## AI味识别清单")
       expect(skill.content).toContain("## 去AI味处理流程")
@@ -125,6 +131,23 @@ describe("de-ai skill library", () => {
       expect((skill.content.match(/去AI味/g) ?? []).length).toBeGreaterThanOrEqual(8)
       expect((skill.content.match(/AI味/g) ?? []).length).toBeGreaterThanOrEqual(8)
     }
+  })
+
+  it("ships the corpus-stat skill from moxt.ai with whitelist rewrite rules", () => {
+    const skill = BUILT_IN_DE_AI_SKILLS.find((item) => item.id === "built-in:corpus-stat")
+
+    expect(skill).toMatchObject({
+      name: "语料统计去 AI 味",
+      description: "moxt.ai 提供",
+      templateId: "corpus-stat",
+      source: "built-in",
+    })
+    expect(skill?.content).toContain("# 去AI味")
+    expect(skill?.content).toContain("翻案腔")
+    expect(skill?.content).toContain("信息守恒")
+    expect(skill?.content).toContain("段首零主语评论")
+    expect(skill?.content).not.toContain("## 去AI味核心目标")
+    expect(skill?.content).not.toContain("## 适用场景")
   })
 
   it("normalizes an empty config to the built-in comprehensive skill", () => {

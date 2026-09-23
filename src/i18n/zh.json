@@ -263,6 +263,16 @@
     "selectModel": "选择模型",
     "searchModel": "搜索模型...",
     "noModelFound": "未找到匹配的模型",
+    "reasoningDepth": {
+      "label": "思考深度",
+      "auto": "默认",
+      "off": "关闭",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "max": "最大",
+      "hint": "只影响所选聊天模型的出稿调用，不改变编排用的默认模型。「默认」表示沿用设置里该供应商的推理配置。"
+    },
     "contextUsage": {
       "title": "上下文用量",
       "percentFull": "{{percent}}% 已占用",
@@ -461,6 +471,23 @@
         "title": "软件使用说明",
         "description": "常用教程和小说功能说明会在浏览器中打开，方便边看边配置。",
         "open": "打开"
+      },
+      "feedback": {
+        "title": "反馈与建议",
+        "description": "使用 Sentry 官方反馈表单提交。请勿提交 API Key、项目原文或隐私信息。",
+        "open": "打开反馈表单",
+        "required": "（必填）",
+        "unavailable": "反馈组件未初始化",
+        "formTitle": "反馈与建议",
+        "submit": "提交反馈",
+        "cancel": "取消",
+        "name": "称呼",
+        "namePlaceholder": "你的称呼（选填）",
+        "email": "邮箱",
+        "emailPlaceholder": "your.email@example.org",
+        "message": "反馈内容",
+        "messagePlaceholder": "请描述你遇到的问题、期望的效果，或建议的使用场景。",
+        "success": "反馈已提交，谢谢。"
       },
       "contactSupport": {
         "title": "联系与支持",

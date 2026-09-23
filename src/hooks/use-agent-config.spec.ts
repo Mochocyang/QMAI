@@ -12,6 +12,7 @@ import type { UserSkillConfig } from "@/lib/novel/user-skill-store"
 import type { McpConfig } from "@/lib/mcp/config"
 import type { UseAgentConfigResult } from "@/hooks/use-agent-config"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
+import type { ReasoningDepth } from "@/lib/reasoning-depth"
 
 const baseLlmConfig: LlmConfig = {
   provider: "openai",
@@ -34,6 +35,7 @@ interface StoreStates {
     searchApiConfig: SearchApiConfig
     mcpConfig: McpConfig
     aiWorkflowMode: AiWorkflowMode
+    aiChatReasoningDepth: ReasoningDepth
   }>
   chat?: Partial<{
     conversations: Conversation[]
@@ -79,6 +81,7 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
     mcpConfig: { servers: [] } as McpConfig,
     novelMode: true,
     aiWorkflowMode: "standard" as AiWorkflowMode,
+    aiChatReasoningDepth: "auto" as ReasoningDepth,
     ...overrides.wiki,
   }
 
@@ -353,6 +356,123 @@ describe("useAgentConfig", () => {
     await workflowTool?.execute({ userRequest: "写第三章" })
     expect(runDeepChapterGeneration).toHaveBeenCalledWith(
       expect.objectContaining({ llmConfig: expect.objectContaining({ model: "writer-model" }) }),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
+
+    await cleanup()
+  }, 15000)
+
+  it("applies the thinking depth to chapter body generation without touching the orchestration model", async () => {
+    const providerConfigs: ProviderConfigs = {
+      custom: {
+        enabled: true,
+        apiKey: "test-key",
+        reasoning: { mode: "auto" },
+        savedModels: [
+          { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
+          { id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 2 },
+        ],
+      },
+    }
+    const { result, cleanup } = await renderHook("test prompt", {
+      wiki: {
+        aiChatModel: "custom/writer-model",
+        defaultLlmModel: "custom/workflow-model",
+        novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+        providerConfigs,
+        project: { path: "/tmp/project" } as WikiProject,
+        aiChatReasoningDepth: "high",
+      },
+      skillConfig: {
+        version: 1,
+        defaultSkillId: "built-in:comprehensive",
+        disabledSkillIds: [],
+        projectSkills: [],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      },
+    })
+
+    // The orchestrating agent runs on the default model and must keep whatever
+    // reasoning its own provider config specifies.
+    expect(result.config?.llmConfig.model).toBe("workflow-model")
+    expect(result.config?.llmConfig.reasoning).toEqual({ mode: "auto" })
+
+    const workflowTool = result.registry.get("run_chapter_workflow")
+    const deepChapterModule = await import("@/lib/novel/deep-chapter-generation")
+    const runDeepChapterGeneration = vi.mocked(deepChapterModule.runDeepChapterGeneration)
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    })
+    await workflowTool?.execute({ userRequest: "写第三章" })
+
+    expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmConfig: expect.objectContaining({
+          model: "writer-model",
+          reasoning: { mode: "high" },
+        }),
+      }),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
+
+    await cleanup()
+  }, 15000)
+
+  it("leaves the chapter writing config untouched at the default depth", async () => {
+    const providerConfigs: ProviderConfigs = {
+      custom: {
+        enabled: true,
+        apiKey: "test-key",
+        reasoning: { mode: "custom", budgetTokens: 20000 },
+        savedModels: [
+          { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
+        ],
+      },
+    }
+    const { result, cleanup } = await renderHook("test prompt", {
+      wiki: {
+        aiChatModel: "custom/writer-model",
+        providerConfigs,
+        project: { path: "/tmp/project" } as WikiProject,
+        aiChatReasoningDepth: "auto",
+      },
+      skillConfig: {
+        version: 1,
+        defaultSkillId: "built-in:comprehensive",
+        disabledSkillIds: [],
+        projectSkills: [],
+        builtInSkillOverrides: [],
+        lastChapterDeAiSkillId: null,
+      },
+    })
+
+    const workflowTool = result.registry.get("run_chapter_workflow")
+    const deepChapterModule = await import("@/lib/novel/deep-chapter-generation")
+    const runDeepChapterGeneration = vi.mocked(deepChapterModule.runDeepChapterGeneration)
+    runDeepChapterGeneration.mockResolvedValueOnce({
+      finalContent: "正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    })
+    await workflowTool?.execute({ userRequest: "写第三章" })
+
+    expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        llmConfig: expect.objectContaining({
+          reasoning: { mode: "custom", budgetTokens: 20000 },
+        }),
+      }),
       expect.any(Object),
       undefined,
       undefined,

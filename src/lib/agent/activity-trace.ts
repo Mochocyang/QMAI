@@ -397,7 +397,7 @@ export function resolveAgentStageTitle(stageId: string, fallbackTitle?: string):
     chapter_workflow: "多任务写作循环",
     generate_draft: "生成章节草稿",
     validate_revision: "校验与修正",
-    final_polish: "去AI味",
+    final_polish: "简单审查与修改",
     execution_report: "执行报告",
     execution_recheck: "执行复检",
     plan_compliance: "计划履约",

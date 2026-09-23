@@ -17,7 +17,22 @@
  * from any environment without crashing at module load.
  */
 
+import { asAbortError, isTauriInvalidResourceIdError } from "./tauri-resource-error"
+
 let pluginFetchPromise: Promise<typeof globalThis.fetch> | null = null
+
+function wrapPluginHttpFetch(pluginFetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (async (input, init) => {
+    try {
+      return await pluginFetch(input, init)
+    } catch (error) {
+      if (isTauriInvalidResourceIdError(error)) {
+        throw asAbortError()
+      }
+      throw error
+    }
+  }) as typeof globalThis.fetch
+}
 
 /**
  * True when running outside a browser / webview (vitest, SSR, any
@@ -47,7 +62,7 @@ export function getHttpFetch(): Promise<typeof globalThis.fetch> {
       pluginFetchPromise = Promise.resolve(globalThis.fetch.bind(globalThis))
     } else {
       pluginFetchPromise = import("@tauri-apps/plugin-http")
-        .then((m) => m.fetch as unknown as typeof globalThis.fetch)
+        .then((m) => wrapPluginHttpFetch(m.fetch as unknown as typeof globalThis.fetch))
         .catch(() => globalThis.fetch.bind(globalThis))
     }
   }

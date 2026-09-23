@@ -6,7 +6,6 @@ import { ContentArea } from "@/components/layout/content-area"
 import { SidebarPanel } from "@/components/layout/sidebar-panel"
 import { RawSourcesSection } from "@/components/layout/knowledge-tree"
 import { registerUiTestProject } from "@/lib/ui-test-library"
-import { ActivityPanel } from "@/components/layout/activity-panel"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
 import { isTauri } from "@/lib/platform"
@@ -353,7 +352,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         </div>
       </div>
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
-      <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><ActivityPanel /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
     </div>
   )
 }

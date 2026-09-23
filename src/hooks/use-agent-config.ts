@@ -6,6 +6,7 @@ import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-ski
 import { loadAllLinkedSkillsContent, loadUserSkillConfig, resolveEnabledWritingSkills } from "@/lib/novel/user-skill-store"
 import type { UserSkill } from "@/lib/novel/skill-library"
 import { resolveAgentSessionModel, resolveModelConfig } from "@/lib/novel/model-resolver"
+import { applyReasoningDepth } from "@/lib/reasoning-depth"
 import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
@@ -41,6 +42,7 @@ export function useAgentConfig(
   const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
   const mcpConfig = useWikiStore((s) => s.mcpConfig)
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  const aiChatReasoningDepth = useWikiStore((s) => s.aiChatReasoningDepth)
 
   const chatConversations = useChatStore((s) => s.conversations)
   const chatMessages = useChatStore((s) => s.messages)
@@ -132,7 +134,16 @@ export function useAgentConfig(
       }
     }
 
-    const chapterWritingLlmConfig = resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs)
+    // The thinking-depth slider is stamped here and nowhere else. This config
+    // reaches `deep-chapter-generation` as `writingConfig` (passed through
+    // verbatim) and drives the draft, expansion, revision and local-polish
+    // calls. The orchestrating `agentLlmConfig` above, and the auxiliary
+    // `workflowConfig` the workflow re-resolves from the default model, both
+    // stay on whatever reasoning their own provider config specifies.
+    const chapterWritingLlmConfig = applyReasoningDepth(
+      resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs),
+      aiChatReasoningDepth,
+    )
     const registry = new ToolRegistry()
     const wikiPath = `${normalizePath(projectPath)}/wiki`
     const novelMode = useWikiStore.getState().novelMode
@@ -183,6 +194,7 @@ export function useAgentConfig(
     providerConfigs,
     mcpConfig,
     aiWorkflowMode,
+    aiChatReasoningDepth,
     getSearchApiConfig,
     getUserSkills,
     systemPrompt,

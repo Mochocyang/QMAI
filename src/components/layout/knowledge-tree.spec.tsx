@@ -38,4 +38,23 @@ describe("KnowledgeTree chapter memory extraction menu", () => {
     expect(source).toContain('listDirectory(`${projectPath}/wiki/chapters`)')
     expect(source).toContain('listDirectory(`${projectPath}/wiki/outlines`)')
   })
+
+  it("counts processing de-AI tasks in the sidebar running total", () => {
+    expect(source).toContain("selectProjectDeAiTasks")
+    expect(source).toContain("selectProjectDeAiTasks(deAiTasks, project?.path)")
+    expect(source).toContain('t.status === "processing"')
+    expect(source).toContain("const processingDeAiTasks = projectDeAiTasks.filter((t) => t.status === \"processing\")")
+    expect(source).toContain("const runningCount = runningTasks.length + processingDeAiTasks.length")
+    expect(source).toContain("{runningCount} 个任务运行中")
+    expect(source).not.toContain("{runningTasks.length} 个任务运行中")
+  })
+
+  it("renders running de-AI tasks above settled import rows and keeps recent finished import tasks", () => {
+    expect(source).toContain("useImportProgressStore.getState().pruneSettledTasks()")
+    expect(source).toContain("{processingDeAiTasks.map((task) => (")
+    expect(source).toContain("{[...runningTasks, ...settledImportTasks].map((task) => {")
+    expect(source).toContain("{settledDeAiTasks.map((task) => (")
+    expect(source).not.toContain("{projectTasks.slice(0, 20).map((task) => {")
+    expect(source).not.toContain("{projectDeAiTasks.map((task) => (")
+  })
 })

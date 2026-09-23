@@ -120,7 +120,7 @@ pub fn read_codex_local_config(home_dir: Option<&Path>) -> LocalCliConfigInfo {
     let Ok(content) = std::fs::read_to_string(path) else {
         return LocalCliConfigInfo::default();
     };
-    let Ok(value) = content.parse::<toml::Value>() else {
+    let Ok(value) = content.parse::<toml::Table>() else {
         return LocalCliConfigInfo::default();
     };
 

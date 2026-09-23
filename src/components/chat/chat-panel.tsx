@@ -9,6 +9,7 @@ import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
 import { ChatModelSelector } from "./chat-model-selector"
+import { ReasoningDepthControl } from "./reasoning-depth-control"
 import { useSourceFiles } from "./chat-shared"
 import { useStreamingText } from "@/hooks/use-streaming-text"
 import {
@@ -90,7 +91,8 @@ import {
   canCreateNewConversation,
   EMPTY_CONVERSATION_CREATE_REASON,
 } from "@/lib/conversation-create-guard"
-import { saveAiChatModel, saveAiWorkflowMode } from "@/lib/project-store"
+import { saveAiChatModel, saveAiChatReasoningDepth, saveAiWorkflowMode } from "@/lib/project-store"
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import {
   buildGoldenThreeChapterDirective,
   detectGoldenThreeChapterRequest,
@@ -212,7 +214,7 @@ const aiWorkflowModeOptions: Array<{
     mode: "strict",
     label: "严格",
     description: "完整质检",
-    routeDescription: "读取更完整上下文，执行审稿、返修、复审、去AI味和计划验收。",
+    routeDescription: "读取更完整上下文，执行审稿、返修、复审、按需局部修改和计划验收。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
@@ -967,6 +969,9 @@ export function ChatPanel() {
   const bindingVersion = useWikiStore((s) => s.bindingVersion)
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const setAiChatModel = useWikiStore((s) => s.setAiChatModel)
+  const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  const aiChatReasoningDepth = useWikiStore((s) => s.aiChatReasoningDepth)
+  const setAiChatReasoningDepth = useWikiStore((s) => s.setAiChatReasoningDepth)
   const chatEditModeEnabled = useWikiStore((s) => s.chatEditModeEnabled)
   const selectedFile = useWikiStore((s) => s.selectedFile)
 
@@ -990,6 +995,20 @@ export function ChatPanel() {
   useUiTestAiMenuFocus(IS_UI_TEST_BUILD && workflowModeDropdownOpen && Boolean(workflowModeDropdownStyle), workflowModeDropdownRef, workflowModeTriggerRef, setWorkflowModeDropdownOpen)
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
+
+  /**
+   * The config the thinking-depth slider steers, or null to hide the slider.
+   *
+   * Depth is stamped onto `chapterWritingLlmConfig`, which only reaches a
+   * request through `run_chapter_workflow`. Fast mode has the main agent draft
+   * inline instead of calling that tool, so the knob would be inert there.
+   */
+  const reasoningDepthTargetConfig = useMemo(
+    () => aiWorkflowMode === "fast"
+      ? null
+      : resolveModelConfig(aiChatModel, llmConfig, providerConfigs),
+    [aiWorkflowMode, aiChatModel, llmConfig, providerConfigs],
+  )
   const [isSavingChapter, setIsSavingChapter] = useState(false)
   // 故事框架绑定状态
   const [activeBinding, setActiveBinding] = useState<{ binding: FrameworkBinding; framework: StoryFramework } | null>(null)
@@ -2923,13 +2942,21 @@ export function ChatPanel() {
               )}
               rightControls={
                 <UiTestAiModel enabled={IS_UI_TEST_BUILD} value={aiChatModel}>
-                <ChatModelSelector
-                  value={aiChatModel}
-                  onChange={(model) => {
-                    setAiChatModel(model)
-                    void saveAiChatModel(model)
-                  }}
-                />
+                  <ReasoningDepthControl
+                    value={aiChatReasoningDepth}
+                    onChange={(depth) => {
+                      setAiChatReasoningDepth(depth)
+                      void saveAiChatReasoningDepth(depth)
+                    }}
+                    modelConfig={reasoningDepthTargetConfig}
+                  />
+                  <ChatModelSelector
+                    value={aiChatModel}
+                    onChange={(model) => {
+                      setAiChatModel(model)
+                      void saveAiChatModel(model)
+                    }}
+                  />
                 </UiTestAiModel>
               }
               insertTokensRef={insertReferenceTokensRef}

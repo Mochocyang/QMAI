@@ -85,7 +85,7 @@ export function createRunChapterWorkflowTool(options: RunChapterWorkflowToolOpti
     name: "run_chapter_workflow",
     description: [
       "运行小说章节写作工作流。用于生成、续写、改写或润色章节。",
-      "调用后会读取项目上下文、生成写作任务书、生成正文，并按当前模式执行审稿、返修和去AI味。",
+      "调用后会读取项目上下文、生成写作任务书、生成正文，并按当前模式执行审稿、返修；严格模式若有剩余问题再做局部修改。",
       "正文由本工具直接交付给用户，调用成功后本轮任务即结束：不要复述、改写或补充正文。",
       "一次调用只处理一章；保存到项目文件仍需要写入工具和用户确认。",
     ].join("\n"),

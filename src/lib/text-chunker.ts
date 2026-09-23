@@ -347,8 +347,16 @@ function tokenizeAtoms(text: string): Atom[] {
     }
 
     // Regular paragraph: accumulate consecutive non-blank, non-special lines.
+    //
+    // The first line is taken unconditionally. Blank lines and fences are
+    // already handled above, so the only other way in is a lone `|` line
+    // that failed the table check — and the loop guard below rejects `|`.
+    // Re-testing it here consumed nothing, so `i` never advanced and this
+    // pushed empty atoms until the process ran out of memory.
     const start = cursor
-    const bodyLines: string[] = []
+    const bodyLines: string[] = [line]
+    cursor += line.length + 1
+    i++
     while (
       i < lines.length &&
       lines[i].trim() !== "" &&

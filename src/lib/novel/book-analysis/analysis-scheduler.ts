@@ -50,7 +50,11 @@ export interface AnalysisScheduler {
 
 interface AnalysisSchedulerOptions {
   adapters: Record<AnalysisSkill, AnalysisSkillAdapter>
-  llmConfig: LlmConfig | (() => LlmConfig)
+  /**
+   * 模型解析。传函数时会拿到当前任务，用于让每个任务用回自己选定的 `task.modelKey`；
+   * 暂停/继续和并行任务都靠这个保证模型不会串。
+   */
+  llmConfig: LlmConfig | ((task: BookAnalysisPipelineTask) => LlmConfig)
   concurrency?: number
   saveTask?: typeof saveAnalysisTask
   saveChunk?: typeof saveAnalysisChunk
@@ -178,8 +182,8 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     if (changed) notify()
   }
 
-  function resolveLlmConfig(): LlmConfig {
-    return typeof options.llmConfig === "function" ? options.llmConfig() : options.llmConfig
+  function resolveLlmConfig(task: BookAnalysisPipelineTask): LlmConfig {
+    return typeof options.llmConfig === "function" ? options.llmConfig(task) : options.llmConfig
   }
 
   async function acquirePermit(): Promise<void> {
@@ -271,22 +275,15 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
 
   function contextFor(task: BookAnalysisPipelineTask, skill: AnalysisSkill, stage = "chunk"): AnalysisSkillContext {
     return {
-      task: copyTask(task), skill, bookPath: task.bookPath, projectPath: task.projectPath,
-      llmConfig: resolveLlmConfig(),
+      task: copyTask(task),
+      skill,
+      bookPath: task.bookPath,
+      projectPath: task.projectPath,
+      llmConfig: resolveLlmConfig(task),
       onRequestTrace: (trace) => {
         void recordRequestTrace(task, { ...trace, surface: "book-analysis", stage: trace.stage ?? `${skill}:${stage}` })
           .catch(() => console.warn("拆书请求用量保存失败，内存中的统计仍保留"))
       },
-    }
-  }
-
-  async function cacheInputFor(task: BookAnalysisPipelineTask, skill: AnalysisSkill, chunk: AnalysisChunkRecord): Promise<AnalysisResultCacheInput> {
-    const context = contextFor(task, skill)
-    const config = await resolveRuntimeLocalCliConfig(context.llmConfig)
-    return {
-      ...context,
-      chunk: copyChunk(chunk),
-      llmConfig: { ...config, reasoning: config.reasoning ? { ...config.reasoning } : undefined },
     }
   }
 
