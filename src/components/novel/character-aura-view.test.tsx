@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/i18n"
 import { BUILT_IN_CHARACTER_AURAS } from "@/lib/novel/character-aura"
-import { useWikiStore, DEFAULT_NOVEL_CONFIG } from "@/stores/wiki-store"
+import { useWikiStore } from "@/stores/wiki-store"
 import { CharacterAuraView } from "./character-aura-view"
 
 const auraMocks = vi.hoisted(() => ({
@@ -22,19 +22,6 @@ const auraMocks = vi.hoisted(() => ({
   loadCharacterAuraSkillDocument: vi.fn(),
   unbindCharacterAura: vi.fn(),
   updateCustomCharacterAura: vi.fn(),
-}))
-
-const contextEngineMocks = vi.hoisted(() => ({
-  buildContextPack: vi.fn(),
-  contextPackToPrompt: vi.fn(),
-}))
-
-const llmClientMocks = vi.hoisted(() => ({
-  streamChat: vi.fn(),
-}))
-
-const modelResolverMocks = vi.hoisted(() => ({
-  resolveNovelModel: vi.fn(),
 }))
 
 vi.mock("@/lib/novel/character-aura", async () => {
@@ -54,19 +41,6 @@ vi.mock("@/lib/novel/character-aura", async () => {
     updateCustomCharacterAura: auraMocks.updateCustomCharacterAura,
   }
 })
-
-vi.mock("@/lib/novel/context-engine", () => ({
-  buildContextPack: contextEngineMocks.buildContextPack,
-  contextPackToPrompt: contextEngineMocks.contextPackToPrompt,
-}))
-
-vi.mock("@/lib/llm-client", () => ({
-  streamChat: llmClientMocks.streamChat,
-}))
-
-vi.mock("@/lib/novel/model-resolver", () => ({
-  resolveNovelModel: modelResolverMocks.resolveNovelModel,
-}))
 
 const source = readFileSync(resolve(__dirname, "character-aura-view.tsx"), "utf8")
 const iconSidebarSource = readFileSync(resolve(__dirname, "..", "layout", "icon-sidebar.tsx"), "utf8")
@@ -90,9 +64,13 @@ async function flush() {
 }
 
 describe("角色灵魂页面", () => {
-  it("绑定小说人物卡片位于详情内容上方", () => {
-    expect(source.indexOf("绑定小说人物")).toBeGreaterThan(-1)
-    expect(source.indexOf("绑定小说人物")).toBeLessThan(source.lastIndexOf('effectiveSection === "custom" ? ('))
+  it("绑定小说人物下拉框位于内置灵魂位置并需要点击绑定", () => {
+    const heading = source.slice(source.indexOf('<h2 className="min-w-0 text-xl font-semibold">{aura.name}</h2>'), source.indexOf('Detail label="人物分类"'))
+    expect(heading).toContain('<CharacterBindingControl')
+    expect(source).toContain('aria-label="绑定小说人物"')
+    expect(source).toContain('pendingBound ? "取消绑定" : "绑定"')
+    expect(source).toContain("已绑定${boundNames.join")
+    expect(source).not.toContain("仅使用公开或已授权资料")
   })
 
   it("自定义灵魂先显示预览，再进入新建或编辑表单", () => {
@@ -198,18 +176,11 @@ describe("角色灵魂页面", () => {
     expect(source).toContain("如果你要补充或修正网页资料、本地文档来源，也可以在这里一起维护。")
   })
 
-  it("提供灵魂注入预览入口和空状态提示", () => {
-    expect(source).toContain("灵魂注入预览")
-    expect(source).toContain("写作任务")
-    expect(source).toContain("预览本次注入")
-    expect(source).toContain("未匹配到已绑定人物灵魂。只有任务中出现已绑定人物名时，灵魂才会注入。")
-  })
-
-  it("灵魂注入预览复用上下文构建函数并显示结果", () => {
-    expect(source).toContain("buildCharacterAuraContext")
-    expect(source).toContain("async function handlePreviewAuraContext")
-    expect(source).toContain("setAuraPreview")
-    expect(source).toContain("setAuraPreviewLoading(true)")
+  it("不再保留页面下方的绑定说明和灵魂注入预览", () => {
+    expect(source).not.toContain("从小说人物下拉框中选择要绑定的人物")
+    expect(source).not.toContain("灵魂注入预览")
+    expect(source).not.toContain("预览本次注入")
+    expect(source).not.toContain("async function handlePreviewAuraContext")
   })
 
   it("用户可见文案不再出现旧功能名", () => {
@@ -235,36 +206,6 @@ describe("CharacterAuraView hideSidebar selection", () => {
     auraMocks.getCharacterAuraBindings.mockResolvedValue([])
     auraMocks.loadCharacterAuraSkillDocument.mockResolvedValue("")
     auraMocks.loadCharacterAuraResearchDocument.mockResolvedValue("")
-    auraMocks.buildCharacterAuraContext.mockResolvedValue("")
-    contextEngineMocks.buildContextPack.mockResolvedValue({
-      task: "",
-      chapterGoal: "",
-      outline: "",
-      recentSummaries: [],
-      previousChapterEnding: "",
-      characterStates: "",
-      soulDoc: "",
-      characterAuras: "",
-      cognitionStates: "",
-      foreshadowingStates: "",
-      timeline: "",
-      relatedSettings: "",
-      canonRules: "",
-      writingStyle: "",
-      searchResults: "",
-      graphSearchResults: "",
-      mustDo: "",
-      mustAvoid: "",
-      nextChapterAdvice: "",
-      revisionDirectives: "",
-    })
-    contextEngineMocks.contextPackToPrompt.mockReturnValue("CONTEXT_PROMPT")
-    modelResolverMocks.resolveNovelModel.mockImplementation((llmConfig: unknown) => llmConfig)
-    llmClientMocks.streamChat.mockImplementation(async (_config, _messages, callbacks) => {
-      callbacks.onToken("AI预览片段")
-      callbacks.onDone()
-    })
-
     host = document.createElement("div")
     document.body.appendChild(host)
     root = createRoot(host)
@@ -314,59 +255,6 @@ describe("CharacterAuraView hideSidebar selection", () => {
     expect(host.querySelector("h2")?.textContent).toBe(customAura.name)
   })
 
-  it("uses AI to generate the aura preview instead of local extracted text", async () => {
-    const targetAura = BUILT_IN_CHARACTER_AURAS[0]
-    auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
-    auraMocks.buildCharacterAuraContext.mockResolvedValue("角色灵魂上下文")
-    useWikiStore.setState({
-      project: { id: "proj-1", name: "proj", path: "/proj" },
-      selectedSoulId: targetAura.id,
-      selectedSoulSection: "builtIn",
-      selectedSoulTab: "character",
-      llmConfig: {
-        provider: "openai",
-        apiKey: "test-key",
-        model: "main-model",
-        ollamaUrl: "http://localhost:11434",
-        customEndpoint: "",
-        maxContextSize: 200000,
-        reasoning: { mode: "auto" },
-      },
-      novelConfig: { ...DEFAULT_NOVEL_CONFIG, writingModel: "novel-writing-model" },
-    })
-
-    await act(async () => {
-      root.render(<CharacterAuraView hideSidebar />)
-    })
-    await flush()
-
-    const textarea = host.querySelector("textarea")
-    const button = Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.includes("预览本次注入"))
-    if (!(textarea instanceof HTMLTextAreaElement) || !(button instanceof HTMLButtonElement)) {
-      throw new Error("preview controls not found")
-    }
-
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
-      if (!setValue) throw new Error("textarea value setter not found")
-      setValue.call(textarea, "写杨墨在皇城议事厅第一次独自面对群臣质疑")
-      textarea.dispatchEvent(new Event("input", { bubbles: true }))
-    })
-    await flush()
-
-    await act(async () => {
-      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
-      await Promise.resolve()
-    })
-    await flush()
-
-    expect(contextEngineMocks.buildContextPack).toHaveBeenCalled()
-    expect(auraMocks.buildCharacterAuraContext).toHaveBeenCalledWith("/proj", expect.any(String), expect.objectContaining({ fallbackAuraId: targetAura.id }))
-    expect(modelResolverMocks.resolveNovelModel).toHaveBeenCalled()
-    expect(llmClientMocks.streamChat).toHaveBeenCalled()
-    expect(host.textContent).toContain("AI预览片段")
-  })
-
   it("binds a character and bumps the shared data version for the project sidebar", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
@@ -389,10 +277,20 @@ describe("CharacterAuraView hideSidebar selection", () => {
     })
     await flush()
 
-    const bindButton = Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.includes("绑定"))
-    if (!(bindButton instanceof HTMLButtonElement)) {
-      throw new Error("bind button not found")
+    const bindSelect = host.querySelector('select[aria-label="绑定小说人物"]')
+    const bindButton = Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.trim() === "绑定")
+    if (!(bindSelect instanceof HTMLSelectElement) || !(bindButton instanceof HTMLButtonElement)) {
+      throw new Error("bind controls not found")
     }
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+      if (!setValue) throw new Error("select value setter not found")
+      setValue.call(bindSelect, "杨墨")
+      bindSelect.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flush()
+    expect(auraMocks.bindCharacterAura).not.toHaveBeenCalled()
 
     await act(async () => {
       bindButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))

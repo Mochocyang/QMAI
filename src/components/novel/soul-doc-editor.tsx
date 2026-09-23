@@ -153,13 +153,6 @@ export function SoulDocEditor() {
 
   return (
     <div className="flex h-full min-h-0 w-full max-w-none flex-col gap-5 px-8 py-7">
-      <div className="space-y-1">
-        <Label className="text-base font-semibold">{i18n.t("novel.soul.projectSoul")}</Label>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          定义本项目的核心气质、创作边界、叙事原则和长期写作总则。当前启用的写作风格会同步写入 soul.md，并进入 AI 会话、大纲和推演上下文。
-        </p>
-      </div>
-
       <div className="grid min-h-[34rem] flex-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col rounded-md border bg-background/35">
           <div className="flex items-center justify-between border-b px-3 py-2">

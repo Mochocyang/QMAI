@@ -376,11 +376,11 @@ describe("真实模型列表的测试版分组", () => {
 })
 
 describe("测试版灵魂单列与旧编辑能力", () => {
-  it("项目灵魂使用真实项目面包屑，保留已有长规则和全部风格动作", async () => {
+  it("项目灵魂不显示顶部标题与面包屑，保留已有长规则和全部风格动作", async () => {
     await render(<SoulView />)
     expect(container.querySelector('[data-ui-page="soul"][data-ui-soul="project"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="面包屑"]')?.textContent).toContain("当前项目名称")
-    expect(container.querySelector('h1')?.textContent).toBe("让故事，拥有自己的气质。")
+    expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
+    expect(container.querySelector('h1')).toBeNull()
     expect(container.querySelector('[data-ui="soul-project-editor"] textarea')?.textContent).toBe("既有长规则。".repeat(1000))
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2)
     expect(container.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(1)
@@ -396,7 +396,7 @@ describe("测试版灵魂单列与旧编辑能力", () => {
     await render(<SoulView />)
     expect(container.querySelector(`[data-ui-soul="${section === "custom" ? "custom" : "role"}"]`)).not.toBeNull()
     expect(container.querySelector('[data-existing-aura-view][data-hide-sidebar="true"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="面包屑"]')?.textContent).toContain(section === "custom" ? "自定义灵魂" : "角色灵魂")
+    expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
   })
 
   it("正式版项目编辑器不套测试版布局", async () => {

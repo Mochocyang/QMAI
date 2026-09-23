@@ -1,17 +1,12 @@
-﻿import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Link2, PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
+import { PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
-import { buildContextPack, contextPackToPrompt } from "@/lib/novel/context-engine"
-import { resolveContextPackTokenBudget } from "@/lib/context-budget"
-import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
   bindCharacterAura,
-  buildCharacterAuraContext,
   BUILT_IN_CHARACTER_AURAS,
   CHARACTER_AURA_RESEARCH_FILES,
   createCustomCharacterAuraSkill,
@@ -71,8 +66,6 @@ const EMPTY_FORM: AuraFormState = {
   enableWebSearch: false,
 }
 
-const EMPTY_AURA_PREVIEW_MESSAGE = "未匹配到已绑定人物灵魂。只有任务中出现已绑定人物名时，灵魂才会注入。"
-
 function formFromAura(aura: CharacterAura) {
   return {
     name: aura.name,
@@ -124,8 +117,6 @@ function buildUpdatePayload(form: AuraFormState) {
 export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boolean }) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
-  const llmConfig = useWikiStore((s) => s.llmConfig)
-  const novelConfig = useWikiStore((s) => s.novelConfig)
   const storedSelectedSoulId = useWikiStore((s) => s.selectedSoulId)
   const setStoredSelectedSoulId = useWikiStore((s) => s.setSelectedSoulId)
   const storedSelectedSoulSection = useWikiStore((s) => s.selectedSoulSection)
@@ -137,13 +128,8 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [auras, setAuras] = useState<CharacterAura[]>(BUILT_IN_CHARACTER_AURAS)
   const [selectedId, setSelectedId] = useState(BUILT_IN_CHARACTER_AURAS[0]?.id ?? "")
   const [form, setForm] = useState<AuraFormState>(EMPTY_FORM)
-  const [characterName, setCharacterName] = useState("")
-  const [characterAliases, setCharacterAliases] = useState("")
   const [characterOptions, setCharacterOptions] = useState<string[]>([])
   const [bindings, setBindings] = useState<CharacterAuraBinding[]>([])
-  const [auraPreviewTask, setAuraPreviewTask] = useState("")
-  const [auraPreview, setAuraPreview] = useState("")
-  const [auraPreviewLoading, setAuraPreviewLoading] = useState(false)
   const [isGeneratingCustomAura, setIsGeneratingCustomAura] = useState(false)
   const [generationProgress, setGenerationProgress] = useState<CharacterAuraGenerationProgress | null>(null)
   const [message, setMessage] = useState("")
@@ -213,10 +199,6 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     setAuras(loaded)
     setCharacterOptions(loadedCharacters)
     setBindings(loadedBindings)
-    setCharacterName((current) => {
-      if (current && loadedCharacters.includes(current)) return current
-      return loadedCharacters[0] ?? ""
-    })
     setSelectedId((current) => {
       const currentSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : current
       if (currentSelectedId !== "new-custom-soul" && loaded.some((aura) => aura.id === currentSelectedId)) {
@@ -312,22 +294,17 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     }, "自定义灵魂删除失败，请检查项目文件权限后重试")
   }
 
-  async function handleBind() {
-    if (!project || !selected || !characterName.trim() || blockWhileGenerating("角色灵魂生成完成后再绑定人物，避免把半成品绑定进剧情。")) return
+  async function handleBindCharacter(nextCharacterName: string) {
+    if (!project || !selected || !nextCharacterName.trim() || blockWhileGenerating("角色灵魂生成完成后再绑定人物，避免把半成品绑定进剧情。")) return
+    if (selectedBindings.some((binding) => binding.characterName === nextCharacterName)) return
     await runAction(async () => {
-      const aliases = characterAliases
-        .split(/[,，、\s]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
       await bindCharacterAura(project.path, {
-        characterName: characterName.trim(),
+        characterName: nextCharacterName.trim(),
         auraId: selected.id,
-        aliases: aliases.length > 0 ? aliases : undefined,
       })
       await refresh()
       bumpDataVersion()
-      setMessage(`已将「${selected.name}」绑定到人物「${characterName.trim()}」`)
-      setCharacterAliases("")
+      setMessage(`已将「${selected.name}」绑定到人物「${nextCharacterName.trim()}」`)
     }, "绑定失败，请稍后重试")
   }
 
@@ -339,67 +316,6 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
       bumpDataVersion()
       setMessage(`已取消“${targetCharacterName}”与“${selected.name}”的绑定`)
     }, "取消绑定失败，请稍后重试")
-  }
-
-  async function handlePreviewAuraContext() {
-    if (!project || !auraPreviewTask.trim()) return
-    setAuraPreviewLoading(true)
-    setAuraPreview("")
-    await runAction(async () => {
-      const characterAuraPreview = await buildCharacterAuraContext(
-        project.path,
-        auraPreviewTask,
-        selected ? { fallbackAuraId: selected.id } : undefined,
-      )
-      if (!characterAuraPreview.trim()) {
-        setAuraPreview(EMPTY_AURA_PREVIEW_MESSAGE)
-        return
-      }
-      const contextPack = await buildContextPack(project.path, auraPreviewTask)
-      const previewPack = { ...contextPack, characterAuras: characterAuraPreview }
-      // 预算须绑定实际发起调用的模型窗口，而非 store 里的基础 llmConfig。
-      const effectiveConfig = resolveNovelModel(llmConfig, novelConfig, "writing")
-      const contextPrompt = contextPackToPrompt(previewPack, resolveContextPackTokenBudget({
-        maxContextSize: effectiveConfig.maxContextSize,
-      }))
-      const messages: ChatMessage[] = [
-        {
-          role: "system",
-          content: "你是小说写作预览助手。请严格根据给定的小说上下文和角色灵魂，只输出一小段用于测试效果的中文小说正文，不要解释，不要分点，不要加标题，不要输出分析说明。",
-        },
-        {
-          role: "user",
-          content: [
-            contextPrompt,
-            "",
-            "## 本次预览任务",
-            auraPreviewTask,
-            "",
-            "请直接生成一小段正文预览，重点体现当前角色灵魂已经如何影响这段写作。",
-          ].join("\n"),
-        },
-      ]
-      let preview = ""
-      let streamError: Error | null = null
-      await streamChat(
-        effectiveConfig,
-        messages,
-        {
-          onToken: (token) => {
-            preview += token
-          },
-          onDone: () => undefined,
-          onError: (error) => {
-            streamError = error
-          },
-        },
-        AbortSignal.timeout(120000),
-        { temperature: 0.7 },
-      )
-      if (streamError) throw streamError
-      setAuraPreview(preview.trim() ? preview.trim() : EMPTY_AURA_PREVIEW_MESSAGE)
-    }, "灵魂注入预览失败，请稍后重试")
-    setAuraPreviewLoading(false)
   }
 
   function handleSelectBuiltInSection() {
@@ -543,96 +459,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
 
       <main className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl space-y-6">
-          <div className="rounded-lg border bg-card p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-500" />
-              <div className="text-sm leading-6 text-muted-foreground">
-                创建自定义灵魂时，仅使用公开或已授权资料，避免输入隐私、敏感信息或未授权聊天记录。角色灵魂不是复活真人，也不能用于冒充、欺骗或替代真实人物。
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-card p-4">
-            <h3 className="mb-2 font-semibold">绑定小说人物</h3>
-            <p className="mb-3 text-sm text-muted-foreground">从小说人物下拉框中选择要绑定的人物，绑定后也可以直接取消。</p>
-            <div className="flex gap-2">
-              <select
-                value={characterName}
-                onChange={(event) => setCharacterName(event.target.value)}
-                className="flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                disabled={characterOptions.length === 0 || isGeneratingCustomAura}
-              >
-                {characterOptions.length === 0 ? (
-                  <option value="">请先在人物小传或实体页中添加小说人物</option>
-                ) : (
-                  characterOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))
-                )}
-              </select>
-              <Button onClick={handleBind} disabled={!selected || !characterName.trim() || isGeneratingCustomAura || characterOptions.length === 0}>
-                <Link2 className="mr-2 h-4 w-4" />
-                绑定
-              </Button>
-            </div>
-            <div className="mt-3">
-              <Label>角色别名/昵称（可选，用逗号分隔）</Label>
-              <input
-                type="text"
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                value={characterAliases}
-                onChange={(event) => setCharacterAliases(event.target.value)}
-                placeholder="例如：小林, 烬哥, 林公子"
-                disabled={characterOptions.length === 0 || isGeneratingCustomAura}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">绑定后，任务描述或初稿正文中出现别名时也会命中该角色的灵魂设定。</p>
-            </div>
-            <div className="mt-3 rounded-md border bg-muted/20 p-3">
-              <div className="text-xs font-medium text-muted-foreground">当前灵魂已绑定人物</div>
-              {selectedBindings.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedBindings.map((binding) => (
-                    <button
-                      key={`${binding.auraId}:${binding.characterName}`}
-                      type="button"
-                      onClick={() => void handleUnbind(binding.characterName)}
-                      className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background px-3 py-1 text-xs qm-hover"
-                    >
-                      <span>
-                        {binding.characterName}
-                        {binding.aliases && binding.aliases.length > 0 ? `（别名：${binding.aliases.join("、")}）` : ""}
-                      </span>
-                      <Trash2 className="h-3 w-3 text-destructive" />
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-2 text-xs text-muted-foreground">当前灵魂还没有绑定任何小说人物。</div>
-              )}
-            </div>
-            {message && <div role="status" className="mt-3 text-sm text-muted-foreground">{message}</div>}
-          </div>
-
-          <div className="rounded-lg border bg-card p-4">
-            <h3 className="mb-2 font-semibold">灵魂注入预览</h3>
-            <p className="mb-3 text-sm text-muted-foreground">输入本次写作任务，预览会进入上下文包的角色灵魂内容。只有任务中出现已绑定人物名时，灵魂才会注入。</p>
-            <Label>写作任务</Label>
-            <textarea
-              className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              value={auraPreviewTask}
-              onChange={(event) => setAuraPreviewTask(event.target.value)}
-              placeholder="例如：写林烬进入皇城，与太子第一次交锋"
-            />
-            <div className="mt-3 flex items-center gap-2">
-              <Button onClick={handlePreviewAuraContext} disabled={!project || !auraPreviewTask.trim() || auraPreviewLoading}>
-                预览本次注入
-              </Button>
-              {auraPreviewLoading && <span className="text-sm text-muted-foreground">正在构建灵魂上下文…</span>}
-            </div>
-            <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm leading-6 text-muted-foreground">
-              {auraPreview ? <pre className="whitespace-pre-wrap text-xs leading-5">{auraPreview}</pre> : EMPTY_AURA_PREVIEW_MESSAGE}
-            </div>
-          </div>
+          {message && <div role="status" className="text-sm text-muted-foreground">{message}</div>}
 
           {effectiveSection === "custom" ? (
             showCustomEditor ? (
@@ -655,6 +482,10 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                 onEdit={!selected.builtIn ? handleStartEditingCustomAura : undefined}
                 onDelete={!selected.builtIn ? () => void handleDelete(selected) : undefined}
                 actionsDisabled={isGeneratingCustomAura}
+                characterOptions={characterOptions}
+                bindings={selectedBindings}
+                onBind={handleBindCharacter}
+                onUnbind={handleUnbind}
               />
             ) : (
               <div className="rounded-lg border border-dashed bg-card p-6 text-sm text-muted-foreground">
@@ -662,7 +493,15 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               </div>
             )
           ) : selected && selected.builtIn ? (
-            <AuraDetails aura={selected} badgeLabel="内置灵魂" actionsDisabled={isGeneratingCustomAura} />
+            <AuraDetails
+              aura={selected}
+              badgeLabel="内置灵魂"
+              actionsDisabled={isGeneratingCustomAura}
+              characterOptions={characterOptions}
+              bindings={selectedBindings}
+              onBind={handleBindCharacter}
+              onUnbind={handleUnbind}
+            />
           ) : null}
         </div>
       </main>
@@ -678,12 +517,20 @@ function AuraDetails({
   onEdit,
   onDelete,
   actionsDisabled = false,
+  characterOptions,
+  bindings,
+  onBind,
+  onUnbind,
 }: {
   aura: CharacterAura
   badgeLabel: string
   onEdit?: () => void
   onDelete?: () => void
   actionsDisabled?: boolean
+  characterOptions: string[]
+  bindings: CharacterAuraBinding[]
+  onBind: (characterName: string) => void
+  onUnbind: (characterName: string) => void
 }) {
   const project = useWikiStore((s) => s.project)
   const [skillDocument, setSkillDocument] = useState("")
@@ -739,7 +586,7 @@ function AuraDetails({
   return (
     <div className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">{aura.name}</h2>
+        <h2 className="min-w-0 text-xl font-semibold">{aura.name}</h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {onEdit && (
             <Button variant="outline" size="sm" onClick={onEdit} disabled={actionsDisabled}>
@@ -759,7 +606,14 @@ function AuraDetails({
               删除灵魂
             </Button>
           )}
-          <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">{badgeLabel}</span>
+          <CharacterBindingControl
+            badgeLabel={badgeLabel}
+            options={characterOptions}
+            bindings={bindings}
+            disabled={actionsDisabled}
+            onBind={onBind}
+            onUnbind={onUnbind}
+          />
         </div>
       </div>
 
@@ -970,11 +824,64 @@ function CustomAuraForm({
   )
 }
 
+function CharacterBindingControl({
+  badgeLabel,
+  options,
+  bindings,
+  disabled,
+  onBind,
+  onUnbind,
+}: {
+  badgeLabel: string
+  options: string[]
+  bindings: CharacterAuraBinding[]
+  disabled: boolean
+  onBind: (characterName: string) => void
+  onUnbind: (characterName: string) => void
+}) {
+  const [pendingName, setPendingName] = useState("")
+  const boundNames = bindings.map((binding) => binding.characterName)
+  const pendingBound = pendingName !== "" && boundNames.includes(pendingName)
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+      <select
+        aria-label="绑定小说人物"
+        value={pendingName}
+        disabled={disabled || options.length === 0}
+        onChange={(event) => setPendingName(event.target.value)}
+        className="min-w-40 max-w-64 rounded-md border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+      >
+        <option value="">
+          {options.length === 0 ? "请先添加小说人物" : "选择小说人物"}
+        </option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+      <Button
+        type="button"
+        size="sm"
+        variant={pendingBound ? "outline" : "default"}
+        disabled={disabled || !pendingName}
+        onClick={() => {
+          if (pendingBound) onUnbind(pendingName)
+          else onBind(pendingName)
+        }}
+      >
+        {pendingBound ? "取消绑定" : "绑定"}
+      </Button>
+      <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+        {boundNames.length > 0 ? `已绑定${boundNames.join("、")}` : badgeLabel}
+      </span>
+    </div>
+  )
+}
+
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="mb-3">
-      <div className="text-sm font-medium">{label}</div>
-      <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{value || "未填写"}</div>
+    <div className="mb-4">
+      <div className="text-sm font-semibold text-foreground">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap text-sm font-normal leading-6 text-muted-foreground">{value || "未填写"}</div>
     </div>
   )
 }

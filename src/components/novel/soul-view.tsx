@@ -13,16 +13,8 @@ export function SoulView() {
   if (IS_UI_TEST_BUILD) {
     const isProjectSoul = selectedSoulTab === "project" || selectedSoulId === "project-soul"
     const section = isProjectSoul ? "project" : selectedSoulSection === "custom" ? "custom" : "role"
-    const sectionLabel = isProjectSoul ? "项目灵魂" : section === "custom" ? "自定义灵魂" : "角色灵魂"
     return (
       <section data-ui-page="soul" data-ui-soul={section} data-ui-state={project ? "ready" : "empty"}>
-        <header data-ui="soul-heading">
-          <nav aria-label="面包屑" className="ui-test-breadcrumb">
-            <span>{project?.name ?? "未选择项目"}</span><span aria-hidden="true">/</span>
-            <span>灵魂</span><span aria-hidden="true">/</span><span aria-current="page">{sectionLabel}</span>
-          </nav>
-          {isProjectSoul && <h1 className="ui-test-page-title">让故事，拥有自己的气质。</h1>}
-        </header>
         {isProjectSoul ? (
           project ? <div data-ui="soul-project-editor"><SoulDocEditor /></div>
             : <p className="ui-test-empty-state">请先打开一本书，再编辑项目灵魂。</p>
@@ -35,7 +27,7 @@ export function SoulView() {
 
   if (selectedSoulTab === "project" || selectedSoulId === "project-soul") {
     return (
-      <div className="flex h-full min-h-0 w-full overflow-y-auto">
+      <div className="flex h-full min-h-0 w-full overflow-hidden">
         <SoulDocEditor />
       </div>
     )
