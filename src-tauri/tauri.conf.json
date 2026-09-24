@@ -4,7 +4,7 @@
   "version": "3.2.19",
   "identifier": "com.qingmuai.writer",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/gc-debug-artifacts.mjs && npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npx vite build",
     "frontendDist": "../dist"
