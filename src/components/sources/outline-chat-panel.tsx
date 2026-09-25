@@ -5670,7 +5670,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         </div>
         <UiTestAiComposer enabled={false}>
         <ReferenceInput
-          renderTextOverlay={renderOutlineCommandText}
+          renderTextOverlay={undefined}
           value={inputValue}
           tokens={outlineReferenceTokens}
           onStop={handleStop}

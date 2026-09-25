@@ -732,9 +732,8 @@ export function PreviewPanel() {
   })()
   const chapterStatusMeta = chapterHeader ? (
     chapterHeader.status === "final" ? (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium leading-5 text-emerald-700 dark:text-emerald-300">
-        <Check className="h-3 w-3" />
-        <span>{chapterHeader.statusLabel}</span>
+      <span className="shrink-0 text-sm font-medium leading-5 text-emerald-600">
+        {chapterHeader.statusLabel}
       </span>
     ) : chapterHeader.status === "draft" ? (
       <span className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-muted/60 px-2 py-0.5 text-xs font-medium leading-5 text-muted-foreground">

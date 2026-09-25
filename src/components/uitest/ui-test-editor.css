@@ -94,6 +94,7 @@
 }
 
 .ui-test-root .ui-test-editor-status { padding: 3px 8px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-accent); }
+.ui-test-root .ui-test-editor-status.is-final { padding: 0; border-radius: 0; background: transparent; color: #2f9e62; font-weight: 500; }
 
 .ui-test-root .ui-test-editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
 

@@ -142,7 +142,7 @@ export function UiTestEditor({
             )}
             {kind === "chapter" ? (
               <div className="ui-test-editor-meta">
-                <span className="ui-test-editor-status">{statusLabel}</span>
+                <span className={`ui-test-editor-status${statusLabel === "正式章节" ? " is-final" : ""}`}>{statusLabel}</span>
                 <span>{wordCountLabel}</span>
               </div>
             ) : null}

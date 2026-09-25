@@ -628,7 +628,7 @@ describe("OutlineChatPanel controls", () => {
       setValue?.call(input, request)
       input?.dispatchEvent(new Event("input", { bubbles: true }))
     })
-    expect(input?.parentElement?.querySelector(".ui-test-outline-command")?.textContent).toBe("/章节细纲")
+    expect(input?.parentElement?.querySelector(".ui-test-command-overlay")).toBeNull()
     await act(async () => {
       input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
       for (let attempt = 0; attempt < 100; attempt += 1) {
