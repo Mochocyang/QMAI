@@ -75,6 +75,7 @@ export function buildLlmRequestDiagnostics(
     ...(traceOptions.omittedRequestCount !== undefined
       ? { omittedRequestCount: Math.max(0, traceOptions.omittedRequestCount) }
       : {}),
+    ...(traceOptions.usageTotals ? { usageTotals: { ...traceOptions.usageTotals } } : {}),
   }
 }
 

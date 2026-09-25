@@ -16,7 +16,6 @@ const breakpoint = {
   usedSkills: [],
   usedTools: ["run_chapter_workflow"],
   searches: [],
-  mcpCalls: [],
   createdAt: 100,
   updatedAt: 200,
 }

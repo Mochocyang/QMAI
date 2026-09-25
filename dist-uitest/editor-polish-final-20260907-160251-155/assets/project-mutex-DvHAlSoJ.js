@@ -1,0 +1,1 @@
+var e=new Map;async function t(t,n){let r=e.get(t)??Promise.resolve(),i,a=new Promise(e=>{i=e});e.set(t,r.then(()=>a));try{return await r.catch(()=>{}),await n()}finally{if(i(),e.get(t)===a||e.size>1024){let n=e.get(t);n&&Promise.resolve().then(()=>{e.get(t)===n&&e.delete(t)})}}}export{t};

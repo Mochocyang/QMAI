@@ -38,7 +38,6 @@ import { NovelSection } from "./sections/novel-section"
 import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
 import { WebSearchSection } from "./sections/web-search-section"
-import { McpSection } from "./sections/mcp-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
 import { FeedbackSection } from "./sections/feedback-section"
@@ -52,7 +51,6 @@ type CategoryId =
   | "model"
   | "network"
   | "web-search"
-  | "mcp"
   | "interface"
   | "novel"
   | "user-memory"
@@ -82,7 +80,6 @@ const CATEGORIES: Category[] = [
   { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
-  { id: "mcp", labelKey: "settings.categories.mcp", icon: Network },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
   { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
@@ -521,8 +518,6 @@ export function SettingsView() {
         return <NetworkSection draft={draft} setDraft={setDraft} />
       case "web-search":
         return <WebSearchSection />
-      case "mcp":
-        return <McpSection />
       case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":

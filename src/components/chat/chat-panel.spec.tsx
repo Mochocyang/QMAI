@@ -292,12 +292,6 @@ describe("chat-panel agent reference integration", () => {
     expect(source).not.toContain("本次写作将注入角色灵魂上下文")
   })
 
-  it("passes MCP capabilities from agent config into the novel pre-plugin chain", () => {
-    expect(source).toContain("mcpCapabilities: agentMcpCapabilities")
-    expect(source).not.toContain("mcpCapabilities: ([] as any[])")
-    expect(source).not.toContain("mcpCapabilities: _agentMcpCapabilities")
-  })
-
   it("passes selected capability tool names into the session runner for tool scoping", () => {
     expect(source).toContain("enabledToolNames: prePluginResult?.enabledToolNames")
     expect(source).not.toContain('import { scopeAgentConfigTools } from "@/lib/agent/tool-scope"')

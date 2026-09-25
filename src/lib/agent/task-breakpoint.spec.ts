@@ -18,7 +18,6 @@ describe("createTaskBreakpoint", () => {
     expect(bp.usedSkills).toEqual([])
     expect(bp.usedTools).toEqual([])
     expect(bp.searches).toEqual([])
-    expect(bp.mcpCalls).toEqual([])
     expect(bp.createdAt).toBeGreaterThan(0)
     expect(bp.updatedAt).toBeGreaterThan(0)
   })
@@ -63,7 +62,6 @@ describe("buildBreakpointResumePrompt", () => {
       usedSkills: ["章节承接"],
       usedTools: ["read_chapter", "load_context"],
       searches: [{ query: "人物背景", provider: "web", resultCount: 3, searchedAt: Date.now(), status: "ok", sources: [] }],
-      mcpCalls: [{ serverId: "graph", serverName: "GraphRAG", toolName: "query", calledAt: Date.now(), status: "ok" }],
     })
     const prompt = buildBreakpointResumePrompt(bp)
     expect(prompt).toContain("任务断点恢复")

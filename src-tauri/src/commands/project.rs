@@ -1,5 +1,6 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use chrono::Local;
 use tauri::AppHandle;
@@ -257,6 +258,90 @@ pub fn open_project(path: String) -> Result<WikiProject, String> {
             // Forward slashes for cross-platform consistency in the TS layer.
             path: path.replace('\\', "/"),
         })
+    })
+}
+
+fn validate_project_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".."
+        || trimmed.chars().any(|ch| matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || ch.is_control())
+    {
+        return Err("小说名称不能为空，也不能包含路径符号。".to_string());
+    }
+    Ok(())
+}
+
+fn project_parent_and_name(path: &str) -> Result<(PathBuf, String), String> {
+    let root = PathBuf::from(resolve_project_storage_path(path));
+    validate_wiki_project_root(&root)?;
+    let parent = root.parent().filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| "小说目录没有可写入的上级文件夹。".to_string())?
+        .to_path_buf();
+    let name = root.file_name().and_then(|value| value.to_str())
+        .ok_or_else(|| "小说目录名称无法读取。".to_string())?
+        .to_string();
+    Ok((parent, name))
+}
+
+#[tauri::command]
+pub fn rename_project(path: String, name: String) -> Result<WikiProject, String> {
+    run_guarded("rename_project", || {
+        let next_name = name.trim().to_string();
+        validate_project_name(&next_name)?;
+        let (parent, current_name) = project_parent_and_name(&path)?;
+        let source = parent.join(&current_name);
+        let target = parent.join(&next_name);
+        if current_name.eq_ignore_ascii_case(&next_name) && current_name != next_name {
+            return Err("Windows 不区分大小写，请使用不同的小说名称。".to_string());
+        }
+        if target.exists() {
+            return Err(format!("目录已存在：'{}'", target.display()));
+        }
+        fs::rename(&source, &target)
+            .map_err(|error| format!("重命名小说失败：{}", error))?;
+        Ok(WikiProject { name: next_name, path: target.to_string_lossy().replace('\\', "/") })
+    })
+}
+
+#[tauri::command]
+pub fn move_project_to_system_trash(path: String) -> Result<(), String> {
+    run_guarded("move_project_to_system_trash", || {
+        let (parent, name) = project_parent_and_name(&path)?;
+        let source = parent.join(&name);
+        let script = format!(
+            "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{}','OnlyErrorDialogs','SendToRecycleBin')",
+            source.to_string_lossy().replace('\'', "''")
+        );
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .map_err(|error| format!("无法打开系统回收站：{}", error))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("移入系统回收站失败：{}", message.trim()));
+        }
+        Ok(())
+    })
+}
+
+fn cover_directory(path: &str) -> Result<PathBuf, String> {
+    let (parent, name) = project_parent_and_name(path)?;
+    Ok(parent.join(name).join(".qmai").join("covers"))
+}
+
+#[tauri::command]
+pub fn save_project_cover(path: String, source: String) -> Result<String, String> {
+    run_guarded("save_project_cover", || {
+        let source_path = PathBuf::from(resolve_project_storage_path(&source));
+        let extension = source_path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+        if !["png", "jpg", "jpeg", "webp", "gif"].contains(&extension.as_str()) {
+            return Err("封面仅支持 PNG、JPEG、WebP 或 GIF。".to_string());
+        }
+        let directory = cover_directory(&path)?;
+        fs::create_dir_all(&directory).map_err(|error| format!("创建封面文件夹失败：{}", error))?;
+        let destination = directory.join(format!("cover.{extension}"));
+        fs::copy(&source_path, &destination).map_err(|error| format!("保存封面失败：{}", error))?;
+        Ok(destination.to_string_lossy().replace('\\', "/"))
     })
 }
 

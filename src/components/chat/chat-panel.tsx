@@ -128,7 +128,6 @@ import {
 } from "@/lib/novel/outline-find-protocol"
 import { createContextTrace, finishTrace, setContextInfo, type ContextTrace } from "@/lib/agent/context-trace"
 import { settleRunningAgentToolCalls } from "@/lib/agent/tool-events"
-import { appendMcpCallTrace } from "@/lib/agent/mcp-trace"
 import { runNovelPrePluginChain } from "@/lib/agent/novel-pre-plugin-chain"
 import { buildInitialContextTraceInfo } from "@/lib/agent/context-trace-builders"
 import { runPostWriteCheckAI } from "@/lib/agent/plugins/post-write-check-ai"
@@ -258,7 +257,7 @@ function appendWebSearchTrace(trace: ContextTrace, event: AgentToolEvent): Conte
   if (event.name !== "web_search" || event.type !== "result") return trace
   const fallback: NonNullable<ContextTrace["contextInfo"]> = {
     intent: "general_chat" as any, confidence: 1, routeSource: "default" as any,
-    loadedSources: [], blockedSources: [], webSearches: [], mcpCalls: [],
+    loadedSources: [], blockedSources: [], webSearches: [],
     retrievalHits: [], trimmedSections: [],
   }
   const info = trace.contextInfo ?? fallback
@@ -520,6 +519,7 @@ function appendAgentChatMessages(conversationId: string, content: string, tokens
     agentToolCalls: [],
     agentStages: [],
     isAgentRunning: true,
+    generationTiming: { startedAt: now },
   }
 
   useChatStore.setState((state) => {
@@ -548,9 +548,13 @@ function updateAgentAssistantMessage(
   updater: (message: DisplayMessage) => DisplayMessage,
 ): void {
   useChatStore.setState((state) => ({
-    messages: state.messages.map((message) =>
-      message.id === messageId ? updater(message) : message,
-    ),
+    messages: state.messages.map((message) => {
+      if (message.id !== messageId) return message
+      const next = updater(message)
+      return next.isAgentRunning === false && message.generationTiming && !message.generationTiming.finishedAt
+        ? { ...next, generationTiming: { ...message.generationTiming, finishedAt: Date.now() } }
+        : next
+    }),
   }))
 }
 
@@ -999,15 +1003,13 @@ export function ChatPanel() {
   /**
    * The config the thinking-depth slider steers, or null to hide the slider.
    *
-   * Depth is stamped onto `chapterWritingLlmConfig`, which only reaches a
-   * request through `run_chapter_workflow`. Fast mode has the main agent draft
-   * inline instead of calling that tool, so the knob would be inert there.
+   * Depth is stamped onto `chapterWritingLlmConfig`, which drives the chapter
+   * body request. The slider stays available in every workflow mode for a
+   * reasoning-capable chat model.
    */
   const reasoningDepthTargetConfig = useMemo(
-    () => aiWorkflowMode === "fast"
-      ? null
-      : resolveModelConfig(aiChatModel, llmConfig, providerConfigs),
-    [aiWorkflowMode, aiChatModel, llmConfig, providerConfigs],
+    () => resolveModelConfig(aiChatModel, llmConfig, providerConfigs),
+    [aiChatModel, llmConfig, providerConfigs],
   )
   const [isSavingChapter, setIsSavingChapter] = useState(false)
   // 故事框架绑定状态
@@ -1141,7 +1143,6 @@ export function ChatPanel() {
     skillConfigLoaded: agentSkillConfigLoaded,
     skillConfig: agentSkillConfig,
     writingSkills: agentUserWritingSkills,
-    mcpCapabilities: agentMcpCapabilities,
   } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)
   const deferredReferenceText = useDeferredValue(referenceText)
   const liveContextUsage = useMemo(() => {
@@ -1169,6 +1170,8 @@ export function ChatPanel() {
       windowTokens: agentConfig?.llmConfig
         ? getEffectiveMaxContextSize(agentConfig.llmConfig)
         : undefined,
+      softwareRules: agentSystemPrompt,
+      toolDefinitionsJson: agentConfig?.tools?.length ? JSON.stringify(agentConfig.tools) : "",
       sessionSummaryText: activeConversation?.contextSummary?.text ?? "",
       historyTexts: historyMessages.map((message) => message.content),
       currentInput: deferredReferenceText,
@@ -1179,6 +1182,8 @@ export function ChatPanel() {
     activeConversation?.lastContextUsage,
     activeMessages,
     agentConfig?.llmConfig,
+    agentConfig?.tools,
+    agentSystemPrompt,
     deferredReferenceText,
   ])
   const runChapterPlanSelfCheck = useCallback(async (planContent: string, contextPack?: ContextPack | null) => {
@@ -1877,7 +1882,6 @@ export function ChatPanel() {
               planExecuteEnabled: planExecuteActive,
               availableSkills: availableAgentSkills,
               selectedSkills: explicitSkills,
-              mcpCapabilities: agentMcpCapabilities,
               selectedFile,
             },
             deps: contextHubResult
@@ -2202,7 +2206,6 @@ export function ChatPanel() {
               onToolEvent: (event) => {
                 if (contextTrace) {
                   contextTrace = appendWebSearchTrace(contextTrace, event)
-                  contextTrace = appendMcpCallTrace(contextTrace, event)
                 }
                 if (!streamSessionGuardRef.current.isActive(capturedConvId, sessionId)) return
                 updateAgentAssistantMessage(assistantMessage.id, (message) => ({
@@ -2573,7 +2576,6 @@ export function ChatPanel() {
     [
       activeBinding?.framework.title,
       agentConfig,
-      agentMcpCapabilities,
       agentRegistry,
       agentSkillConfig,
       agentSkillConfigLoaded,
@@ -2847,13 +2849,7 @@ export function ChatPanel() {
                               data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined}
                               role="listbox"
                               className="fixed rounded-md border bg-popover p-1 shadow-md"
-                              style={{
-                                ...(IS_UI_TEST_BUILD ? workflowModeDropdownStyle : {}),
-                                left: workflowModeDropdownStyle.left,
-                                top: workflowModeDropdownStyle.top,
-                                width: workflowModeDropdownStyle.width,
-                                zIndex: 9999,
-                              }}
+                              style={{ ...workflowModeDropdownStyle, zIndex: 9999 }}
                             >
                               {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
                                 <button
@@ -2924,7 +2920,6 @@ export function ChatPanel() {
                   )}
                 </div>
               </TooltipProvider>
-              {IS_UI_TEST_BUILD && <ContextUsageRing usage={liveContextUsage} onCreateConversation={() => createConversation()} />}
             </div>
             <ReferenceInput
               value={referenceText}
@@ -2934,7 +2929,7 @@ export function ChatPanel() {
               submitDisabled={concurrencyFull}
               submitDisabledReason={concurrencyFull ? concurrencyLimitReason : undefined}
               onStop={handleStop}
-              leftFooterControls={IS_UI_TEST_BUILD ? undefined : (
+              leftFooterControls={(
                 <ContextUsageRing
                   usage={liveContextUsage}
                   onCreateConversation={() => createConversation()}

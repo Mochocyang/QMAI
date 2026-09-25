@@ -30,6 +30,8 @@ import {
 import { OUTPUT_TRUNCATED_ERROR_MARKER } from "@/lib/llm-client";
 import { Button } from "@/components/ui/button";
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
+import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, UiTestAiComposer, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts";
+import "@/components/uitest/ui-test-ai.css";
 import {
   saveAiOutlineModel,
   saveAiOutlineReasoningDepth,
@@ -729,6 +731,19 @@ function getOutlineSectionOutputRules(title: string): string {
   return "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。";
 }
 
+function renderOutlineCommandText(text: string) {
+  const match = text.match(/^(\/[^\s]+)([\s\S]*)$/);
+  if (!match || !OUTLINE_SECTION_GENERATION_CONFIGS.some((config) => `/${config.title}` === match[1])) {
+    return text;
+  }
+  return (
+    <>
+      <span className="ui-test-outline-command">{match[1]}</span>
+      {match[2]}
+    </>
+  );
+}
+
 function buildGenerationPrompt(
   title: string,
   requestHint: string,
@@ -861,9 +876,13 @@ function updateOutlineAssistantMessage(
       if (conversation.id !== conversationId) return conversation;
       return {
         ...conversation,
-        messages: conversation.messages.map((message) =>
-          message.id === messageId ? updater(message) : message,
-        ),
+        messages: conversation.messages.map((message) => {
+          if (message.id !== messageId) return message
+          const next = updater(message)
+          return next.isAgentRunning === false && message.generationTiming && !message.generationTiming.finishedAt
+            ? { ...next, generationTiming: { ...message.generationTiming, finishedAt: Date.now() } }
+            : next
+        }),
       };
     }),
   }));
@@ -1267,15 +1286,14 @@ function OutlineAssistantMessage({
     hasMultiAgentRun: Boolean(msg.multiAgentRun),
   });
   const contextHubDetails = !isStreaming && currentContextHubSnapshot ? (
-    <ContextHubDetails reference={currentContextHubSnapshot} />
+    <ContextHubDetails reference={currentContextHubSnapshot} timing={msg.generationTiming} />
   ) : null;
   const sourceDetails = msg.sources && msg.sources.length > 0 && !isStreaming ? (
-    <details className="mt-2 border-t pt-2">
-      <summary className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        <FileText className="h-3 w-3" />
-        引用资料（{msg.sources.length}）
+    <details className="relative">
+      <summary className="inline-flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" title={`引用资料（${msg.sources.length}）`} aria-label={`引用资料（${msg.sources.length}）`}>
+        <FileText className="h-3.5 w-3.5" />
       </summary>
-      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+      <ul className="absolute bottom-full left-0 z-30 mb-2 w-56 rounded-lg border bg-background p-2 shadow-md space-y-0.5 text-xs text-muted-foreground">
         {msg.sources.map((src, si) => (
           <li key={si}>• {src}</li>
         ))}
@@ -1316,6 +1334,7 @@ function OutlineAssistantMessage({
           onReject={onRejectTool}
         />
       )}
+      {IS_UI_TEST_BUILD && <UiTestAiAuthor running={messageIsStreaming} />}
       {messageIsStreaming && !msg.content && runStatusText ? (
         <div className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
           {runStatusText}
@@ -1343,7 +1362,7 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
-      {IS_UI_TEST_BUILD ? referenceContextColumn : contextHubDetails}
+      {IS_UI_TEST_BUILD ? null : contextHubDetails}
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
@@ -1357,26 +1376,34 @@ function OutlineAssistantMessage({
       {!IS_UI_TEST_BUILD ? sourceDetails : null}
       {/* Action buttons */}
       {actionContent && canUseAsOutlineContent && !isStreaming ? (
-        <div className="mt-2 flex gap-2 border-t pt-2">
+        <div className="mt-2 flex w-full items-center gap-1" data-ui-ai-actions={IS_UI_TEST_BUILD || undefined}>
           <button
             onClick={() => void onSaveAsOutline(actionContent)}
-            className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+            title="保存为大纲"
+            aria-label="保存为大纲"
           >
-            <Save className="h-3 w-3" /> 保存为大纲
+            <Save className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onCopy(actionContent, msg.id)}
-            className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+            title={copied === msg.id ? "已复制" : "复制"}
+            aria-label={copied === msg.id ? "已复制" : "复制"}
           >
-            <Copy className="h-3 w-3" /> {copied === msg.id ? "已复制" : "复制"}
+            {copied === msg.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
           <button
             onClick={() => void onRegenerate(index)}
             disabled={isStreaming}
-            className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-accent disabled:opacity-50"
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
+            title="重新生成"
+            aria-label="重新生成"
           >
-            <RefreshCw className="h-3 w-3" /> 重新生成
+            <RefreshCw className="h-3.5 w-3.5" />
           </button>
+          {IS_UI_TEST_BUILD ? sourceDetails : null}
+          {IS_UI_TEST_BUILD ? <div className="ml-auto">{contextHubDetails}</div> : null}
         </div>
       ) : null}
       {historicalClearIntent && !isStreaming ? (
@@ -1457,41 +1484,60 @@ function OutlineAssistantMessage({
 
 function OutlineGenerationMenu({
   disabled,
-  onGenerate,
+  open,
+  onOpenChange,
+  onSelect,
 }: {
   disabled: boolean;
-  onGenerate: (title: string, requestHint: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onSelect: (title: string, requestHint: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const setMenuOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
+  const generationButtonRef = useRef<HTMLButtonElement>(null);
+  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && isOpen, menuRef, generationButtonRef, setMenuOpen);
+  const [menuPosition, setMenuPosition] = useState<CSSProperties>({ left: 0, top: 0 });
 
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
         !rootRef.current?.contains(target) &&
         !menuRef.current?.contains(target)
       ) {
-        setOpen(false);
+        setMenuOpen(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") setMenuOpen(false);
     };
+    const updateMenu = () => {
+      const rect = generationButtonRef.current?.getBoundingClientRect();
+      if (rect && IS_UI_TEST_BUILD) setMenuPosition(getUiTestAiMenuStyle(rect, 320, true));
+    };
+    updateMenu();
+    window.addEventListener("resize", updateMenu);
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      window.removeEventListener("resize", updateMenu);
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [isOpen]);
 
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
+        ref={generationButtonRef}
         type="button"
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
@@ -1505,35 +1551,36 @@ function OutlineGenerationMenu({
             ),
             top: rect.top,
           });
-          setOpen((value) => !value);
+          setMenuOpen(!isOpen);
         }}
         disabled={disabled}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-accent/50 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title="生成大纲模块"
         aria-label="生成大纲模块"
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={isOpen}
       >
         <ListPlus className="h-4 w-4" />
       </button>
-      {open ? (
+      {isOpen ? (
         <div
           ref={menuRef}
           className="qmai-outline-generation-menu fixed z-50 w-56 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-          style={{
+          style={IS_UI_TEST_BUILD ? menuPosition : {
             left: menuPosition.left,
             top: menuPosition.top,
             transform: "translateY(calc(-100% - 8px))",
           }}
           role="menu"
+          data-ui-ai-menu={IS_UI_TEST_BUILD ? "generation" : undefined}
         >
           {OUTLINE_SECTION_GENERATION_CONFIGS.map((config) => (
             <button
               key={config.key}
               type="button"
               onClick={() => {
-                setOpen(false);
-                onGenerate(config.title, config.requestHint);
+                setMenuOpen(false);
+                onSelect(config.title, config.requestHint);
               }}
               disabled={disabled}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
@@ -1684,6 +1731,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     );
     return composeLiveContextUsage(activeConv?.lastContextUsage, {
       windowTokens: effectiveOutlineContextWindow,
+      softwareRules: buildOutlineAgentSystemPrompt({ projectName: project?.name ?? "", mode: outlineWorkflowMode }),
       sessionSummaryText: activeConv?.contextSummary?.text ?? "",
       historyTexts: historyMessages.map((message) => message.content),
       currentInput: deferredInputValue,
@@ -1694,6 +1742,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     activeMessages,
     deferredInputValue,
     effectiveOutlineContextWindow,
+    outlineWorkflowMode,
+    project?.name,
   ]);
   const [outlineReferenceTokens, setOutlineReferenceTokens] = useState<
     ReferenceToken[]
@@ -1702,6 +1752,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [forceRefreshNext, setForceRefreshNext] = useState(false);
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [outlineWizardOpen, setOutlineWizardOpen] = useState(false);
+  const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
   const [localModelId, setLocalModelId] = useState(effectiveOutlineModelId);
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null);
   const [hoveredConversationId, setHoveredConversationId] = useState<string | null>(null);
@@ -1716,6 +1767,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const historyButtonRef = useRef<HTMLButtonElement | null>(null);
   const historyDropdownRef = useRef<HTMLDivElement | null>(null);
   const [historyDropdownStyle, setHistoryDropdownStyle] = useState<CSSProperties | null>(null);
+  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && historyOpen && Boolean(historyDropdownStyle), historyDropdownRef, historyButtonRef, setHistoryOpen);
+  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && workflowModeDropdownOpen && Boolean(workflowModeDropdownStyle), workflowModeDropdownRef, workflowModeTriggerRef, setWorkflowModeDropdownOpen);
   const [deAiSkillConfig, setDeAiSkillConfig] = useState<DeAiSkillConfig | null>(null);
   const [writingSkills, setWritingSkills] = useState<UserSkill[]>([]);
   const intentContextsRef = useRef<Record<string, {
@@ -1882,6 +1935,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     function updatePosition() {
       const rect = historyButtonRef.current?.getBoundingClientRect();
       if (!rect) return;
+      if (IS_UI_TEST_BUILD) {
+        setHistoryDropdownStyle(getUiTestAiMenuStyle(rect));
+        return;
+      }
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       const left = Math.min(
@@ -1916,7 +1973,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     function updatePosition() {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setWorkflowModeDropdownStyle({
+      setWorkflowModeDropdownStyle(IS_UI_TEST_BUILD ? getUiTestAiMenuStyle(rect, 320, true) : {
         left: rect.left,
         top: rect.top - 8,
         width: Math.max(rect.width, 320),
@@ -2439,6 +2496,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         intentPhase: options.intentPhase,
         outlinePlanPhase: options.planPhase,
         outlineDiscussPhase: discussPhase,
+        generationTiming: { startedAt: Date.now() },
       });
       clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
@@ -3649,8 +3707,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     [handleSend, outlineWorkflowStages],
   );
 
+  const insertOutlineGenerationCommand = useCallback((title: string) => {
+    setInputValue((current) => {
+      const withoutSlash = current.endsWith("/") ? current.slice(0, -1) : current;
+      const separator = withoutSlash && !/\s$/.test(withoutSlash) ? " " : "";
+      return `${withoutSlash}${separator}/${title} `;
+    });
+  }, []);
+
   const handleGenerateSection = useCallback(
-    (title: string, requestHint: string) => {
+    (title: string, requestHint: string, displayText?: string) => {
       const capturedConvId = activeConversationId ?? createConversation();
       const config = OUTLINE_SECTION_GENERATION_CONFIGS.find(c => c.title === title);
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
@@ -3666,7 +3732,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           conversationId: capturedConvId,
           intentPhase: "generation",
           systemGenerated: true,
-          userDisplayText: `生成${title}`,
+          userDisplayText: displayText ?? `生成${title}`,
         });
         return;
       }
@@ -3674,7 +3740,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         void handleSend(buildOutlineDiscussionPrompt(title, requestHint), [], {
           conversationId: capturedConvId,
           systemGenerated: true,
-          userDisplayText: `讨论${title}`,
+          userDisplayText: displayText ?? `讨论${title}`,
           preferredSkillNames: getOutlineSkillNames(title),
         });
         return;
@@ -3683,7 +3749,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         void startOutlinePlanElementCheck(capturedConvId, {
           module: title,
           requestHint,
-          userDisplayText: `生成${title}`,
+          userDisplayText: displayText ?? `生成${title}`,
         });
         return;
       }
@@ -3695,7 +3761,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         conversationId: capturedConvId,
         intentPhase: "intent_analysis",
         systemGenerated: true,
-        userDisplayText: `生成${title}`,
+        userDisplayText: displayText ?? `生成${title}`,
       });
     },
     [
@@ -3709,6 +3775,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleDirectSubmit = useCallback(
     async (text: string, references: ReferenceToken[] = []) => {
+      const command = text.trim().match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
+      const commandConfig = command
+        ? OUTLINE_SECTION_GENERATION_CONFIGS.find((config) => config.title === command[1])
+        : undefined;
+      if (commandConfig) {
+        const userIdea = command?.[2]?.trim() ?? "";
+        const request = [commandConfig.requestHint, userIdea ? `用户补充想法：${userIdea}` : ""]
+          .filter(Boolean)
+          .join("\n");
+        return handleGenerateSection(commandConfig.title, request, text.trim());
+      }
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
       // 共创模式不进意图分析和要素盘点：讨论轮自动上 discussPhase，短确认句走定稿生成
       if (outlineMode === "fast") {
@@ -3772,6 +3849,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     [
       activeConversationId,
       createConversation,
+      handleGenerateSection,
       handleSend,
       outlineWorkflowStages,
       startOutlinePlanElementCheck,
@@ -5289,9 +5367,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     : undefined;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border-border bg-background">
+    <div className="flex h-full flex-col overflow-hidden border-border bg-background" data-ui-ai-panel={IS_UI_TEST_BUILD ? "outline" : undefined}>
       {/* Header with conversation tabs */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header={IS_UI_TEST_BUILD || undefined}>
+        {IS_UI_TEST_BUILD && <UiTestAiIdentity conversationTitle={activeConv?.title || "大纲对话"} status={<ConversationRunStatusIcon state={runStates[activeConversationId ?? ""]} />} />}
         <span
           className="inline-flex shrink-0"
           title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}
@@ -5387,7 +5466,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             aria-expanded={historyOpen}
           >
             <History className="h-3.5 w-3.5" />
-            <span>会话历史</span>
+            <span>{IS_UI_TEST_BUILD ? "历史大纲对话" : "会话历史"}</span>
             {historyCount > 0 ? (
               <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
                 {historyCount}
@@ -5401,10 +5480,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   ref={historyDropdownRef}
                   className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
                   style={historyDropdownStyle}
+                  data-ui-ai-menu={IS_UI_TEST_BUILD ? "history" : undefined}
                 >
                   {historyCount > 0 ? (
                     <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
-                      <span className="text-xs text-muted-foreground">共 {historyCount} 条</span>
+                      <span className="text-xs text-muted-foreground">{IS_UI_TEST_BUILD ? `全部会话 ${historyCount} 条` : `共 ${historyCount} 条`}</span>
                       <button
                         type="button"
                         aria-label="一键清理会话历史"
@@ -5412,7 +5492,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                         className="inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        一键清理
+                        {IS_UI_TEST_BUILD ? "清理旧会话" : "一键清理"}
                       </button>
                     </div>
                   ) : null}
@@ -5447,6 +5527,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
+            aria-label={IS_UI_TEST_BUILD ? "关闭大纲助手" : undefined}
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -5458,9 +5539,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         <div
           ref={scrollRef}
           className="h-full w-full min-w-0 max-w-full space-y-3 overflow-x-hidden overflow-y-auto px-3 py-2"
+          data-ui-ai-scroll={IS_UI_TEST_BUILD || undefined}
         >
         {activeMessages.length === 0 && !isStreaming ? (
-          <p className="text-center text-xs text-muted-foreground py-8">
+          IS_UI_TEST_BUILD ? <UiTestAiEmpty kind="outline" onGenerateOutline={() => setOutlineWizardOpen(true)} generateDisabled={submitDisabled} generateDisabledReason={submitDisabledReason} /> : <p className="text-center text-xs text-muted-foreground py-8">
             输入关于大纲的问题或指令，AI
             会基于当前大纲和章节内容进行回答和创作。
           </p>
@@ -5469,6 +5551,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           <div
             key={msg.id}
             className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            data-ui-ai-message={IS_UI_TEST_BUILD ? msg.role : undefined}
           >
             <div
               className={`${msg.role === "user" ? "w-fit max-w-full lg:max-w-[50vw]" : "w-full min-w-0 max-w-full"} rounded-lg px-3 py-2 text-sm ${
@@ -5514,7 +5597,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     <NovelGenerationRequestMessage request={msg.novelGenerationRequest} />
                   ) : (
                     <span className="block whitespace-pre-wrap break-words">
-                      {msg.content}
+                      {renderOutlineCommandText(msg.content)}
                     </span>
                   )}
                   {msg.attachedReferences &&
@@ -5545,8 +5628,32 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Input */}
-      <div className="shrink-0 border-t px-3 py-2">
+      <div className="shrink-0 border-t px-3 py-2" data-ui-ai-composer={IS_UI_TEST_BUILD || undefined}>
         <div className="mb-2 flex items-center justify-between gap-2">
+          {IS_UI_TEST_BUILD && (
+            <>
+              <div className="relative hidden">
+                <Button ref={workflowModeTriggerRef} type="button" variant="outline" size="sm" aria-haspopup="listbox" aria-expanded={workflowModeDropdownOpen} aria-label="AI 大纲执行模式" className="h-8 shrink-0 rounded-full border px-2.5 text-xs" onClick={() => setWorkflowModeDropdownOpen((open) => !open)}>
+                  <span className="mr-1">{OUTLINE_WORKFLOW_MODE_OPTIONS.find((option) => option.mode === outlineWorkflowMode)?.label ?? "标准"}</span>
+                  <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
+                </Button>
+                {workflowModeDropdownOpen && workflowModeDropdownStyle ? createPortal(
+                  <>
+                    <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
+                    <div ref={workflowModeDropdownRef} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, zIndex: 9999 }} data-ui-ai-menu="mode">
+                      {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
+                        <button key={mode} type="button" role="option" aria-selected={outlineWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setOutlineWorkflowMode(mode); void saveOutlineWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
+                          <Check className={`mt-0.5 h-4 w-4 shrink-0 ${outlineWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
+                          <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
+                        </button>
+                      ))}
+                    </div>
+                  </>,
+                  document.body,
+                ) : null}
+              </div>
+            </>
+          )}
           <p className="text-xs text-muted-foreground">
             {isOutlineFastMode
               ? "通过固定选项收集需求后，直接生成大纲正文"
@@ -5561,7 +5668,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             选择生成你想要的小说
           </button>
         </div>
+        <UiTestAiComposer enabled={false}>
         <ReferenceInput
+          renderTextOverlay={renderOutlineCommandText}
           value={inputValue}
           tokens={outlineReferenceTokens}
           onStop={handleStop}
@@ -5571,6 +5680,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           placeholder="输入关于大纲的问题..."
           onChange={(text, tokens) => {
             setInputValue(text);
+            if (/(?:^|\s)\/$/.test(text)) setGenerationMenuOpen(true);
             outlineReferenceTokensRef.current = tokens;
             setOutlineReferenceTokens(tokens);
           }}
@@ -5616,13 +5726,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                         ref={workflowModeDropdownRef}
                         role="listbox"
                         className="fixed rounded-md border bg-popover p-1 shadow-md"
-                        style={{
-                          left: workflowModeDropdownStyle.left,
-                          top: workflowModeDropdownStyle.top,
-                          width: workflowModeDropdownStyle.width,
-                          transform: workflowModeDropdownStyle.transform,
-                          zIndex: 9999,
-                        }}
+                        style={{ ...workflowModeDropdownStyle, zIndex: 9999 }}
+                        data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined}
                       >
                         {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
                           <button
@@ -5664,7 +5769,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               <TooltipProvider delay={200}>
                 <OutlineGenerationMenu
                   disabled={submitDisabled}
-                  onGenerate={handleGenerateSection}
+                  open={generationMenuOpen}
+                  onOpenChange={setGenerationMenuOpen}
+                  onSelect={(title) => insertOutlineGenerationCommand(title)}
                 />
               </TooltipProvider>
             </>
@@ -5672,6 +5779,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           rightControls={
             hasAvailableModels ? (
               <>
+              <UiTestAiModel enabled={IS_UI_TEST_BUILD} value={localModelId}>
                 <ReasoningDepthControl
                   value={aiOutlineReasoningDepth}
                   onChange={(depth) => {
@@ -5692,6 +5800,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   }}
                   disabled={false}
                 />
+              </UiTestAiModel>
               </>
             ) : (
               <p
@@ -5703,6 +5812,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             )
           }
         />
+        </UiTestAiComposer>
         <ReferencePickerDialog
           open={referencePickerOpen}
           providers={referenceProviders}

@@ -195,8 +195,34 @@ describe("parseContextHubSnapshot", () => {
       requestCountAvailable: false,
       usageScope: "provider_thread",
     })
-    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("requestCountAvailable")
-    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("usageScope")
+  })
+
+  it("保留章节工作流完整总账，供界面显示真实用量", () => {
+    const snapshot = parseContextHubSnapshot({
+      schemaVersion: CONTEXT_CACHE_SCHEMA_VERSION,
+      id: "assistant:chapter-usage",
+      surface: "ai-chat",
+      createdAt: 12,
+      stats: {
+        ...currentStats,
+        requestDiagnostics: {
+          requestCount: 3,
+          providerUsageAvailable: true,
+          usageTotals: { requestCount: 3, inputTokens: 1000, outputTokens: 200, cachedInputTokens: 600 },
+        },
+      },
+      items: [],
+      stableCore: "stable",
+      sessionSummary: "",
+      dynamicContext: "dynamic",
+    })
+
+    expect(snapshot?.stats.requestDiagnostics?.usageTotals).toEqual({
+      requestCount: 3,
+      inputTokens: 1000,
+      outputTokens: 200,
+      cachedInputTokens: 600,
+    })
   })
 })
 

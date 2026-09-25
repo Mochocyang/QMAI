@@ -53,16 +53,6 @@ export interface TraceWebSearch {
   searchedAt: number
 }
 
-export interface TraceMcpCall {
-  serverId: string
-  serverName: string
-  toolName: string
-  status: "ok" | "error"
-  summary?: string
-  message?: string
-  calledAt: number
-}
-
 export interface TraceSelectedCapability {
   id: string
   name: string
@@ -117,7 +107,6 @@ export interface ClassificationVersionInfo {
   selectedSkills?: TraceSelectedSkill[]
   selectedCapabilities?: TraceSelectedCapability[]
   webSearches?: TraceWebSearch[]
-  mcpCalls?: TraceMcpCall[]
   retrievalHits: TraceRetrievalHit[]
   trimmedSections: string[]
   contextBudget?: TraceContextBudget

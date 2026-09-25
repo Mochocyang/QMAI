@@ -40,7 +40,6 @@ import {
   type AiWorkflowMode,
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
-import { DEFAULT_MCP_CONFIG, type McpConfig } from "@/lib/mcp/config"
 import {
   normalizeProviderConfigs,
   normalizeUserLlmConfig,
@@ -617,7 +616,6 @@ interface WikiState {
   /** Which preset is currently active. `null` = no LLM configured. */
   activePresetId: string | null
   searchApiConfig: SearchApiConfig
-  mcpConfig: McpConfig
   embeddingConfig: EmbeddingConfig
   rerankConfig: RerankConfig
   multimodalConfig: MultimodalConfig
@@ -691,7 +689,6 @@ interface WikiState {
   setProviderConfigs: (configs: ProviderConfigs) => void
   setActivePresetId: (id: string | null) => void
   setSearchApiConfig: (config: SearchApiConfig) => void
-  setMcpConfig: (mcpConfig: McpConfig) => void
   setEmbeddingConfig: (config: EmbeddingConfig) => void
   setRerankConfig: (config: Partial<RerankConfig>) => void
   setMultimodalConfig: (config: MultimodalConfig) => void
@@ -872,7 +869,6 @@ export const useWikiStore = create<WikiState>((set) => ({
     searXngCategories: ["general"],
     providerConfigs: {},
   },
-  mcpConfig: DEFAULT_MCP_CONFIG,
 
   embeddingConfig: {
     enabled: false,
@@ -961,7 +957,6 @@ export const useWikiStore = create<WikiState>((set) => ({
   }),
   setActivePresetId: (activePresetId) => set({ activePresetId }),
   setSearchApiConfig: (searchApiConfig) => set({ searchApiConfig }),
-  setMcpConfig: (mcpConfig) => set({ mcpConfig }),
   setEmbeddingConfig: (embeddingConfig) => set({ embeddingConfig }),
   setRerankConfig: (rerankConfig) => set((state) => ({ rerankConfig: { ...state.rerankConfig, ...rerankConfig } })),
   setMultimodalConfig: (multimodalConfig) => set({ multimodalConfig }),

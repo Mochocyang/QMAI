@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { MoreHorizontal, Plus, Search, Sparkles, Upload, X } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface UiTestDirectoryHeaderProps {
   kind: "chapter" | "outline"
@@ -16,7 +17,7 @@ interface UiTestDirectoryHeaderProps {
 }
 
 export function UiTestDirectoryHeader({ kind, query, onQueryChange, busy, onCreate, onCreateContainer, onImportFiles, onImportFolder, onOpenAssistant, onClose, onHelp }: UiTestDirectoryHeaderProps) {
-  const [menu, setMenu] = useState<"import" | "more" | null>(null)
+  const [menu, setMenu] = useState<"create" | "import" | "more" | null>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
   const importRef = useRef<HTMLButtonElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
@@ -36,15 +37,18 @@ export function UiTestDirectoryHeader({ kind, query, onQueryChange, busy, onCrea
   const execute = (action: () => void) => { setMenu(null); action() }
   return <>
     <div className="ui-test-directory-head"><h2>{label}列表</h2><div className="ui-test-directory-head-actions">
-      <button type="button" className="ui-test-icon-btn" aria-label={`打开${label}助手`} title={`打开${label}助手`} onClick={onOpenAssistant}><Sparkles /></button>
+      <Tooltip>
+        <TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label={kind === "outline" ? "批量大纲提取" : "一键提取"} onClick={onOpenAssistant}><Sparkles /></button>} />
+        <TooltipContent>{kind === "outline" ? "批量大纲提取" : "一键提取"}</TooltipContent>
+      </Tooltip>
       <button type="button" className="ui-test-icon-btn" aria-label="收起目录" title="收起目录" onClick={onClose}><X /></button>
     </div></div>
     <label className="ui-test-directory-search"><Search aria-hidden="true" /><input aria-label={`查找${label}`} placeholder={`查找${label}`} value={query} onChange={event => onQueryChange(event.target.value)} /></label>
     <div className="ui-test-directory-tools" ref={toolsRef}>
-      <button type="button" disabled={busy} onClick={onCreate}><Plus />新建</button>
+      <button type="button" disabled={busy} aria-haspopup="menu" aria-expanded={menu === "create"} onClick={() => setMenu(menu === "create" ? null : "create")}><Plus />新建</button>
       <button ref={importRef} type="button" disabled={busy} aria-haspopup="menu" aria-expanded={menu === "import"} onClick={() => setMenu(menu === "import" ? null : "import")}><Upload />{busy ? "处理中" : "导入"}</button>
-      <button ref={moreRef} type="button" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}><MoreHorizontal />更多</button>
-      {menu && <div className="ui-test-menu-pop" role="menu" aria-label={menu === "import" ? `导入${label}` : `${label}更多操作`} onKeyDown={event => {
+      {false && <button ref={moreRef} type="button" aria-haspopup="menu" aria-expanded={menu === "more"} onClick={() => setMenu(menu === "more" ? null : "more")}><MoreHorizontal />更多</button>}
+      {menu && <div className="ui-test-menu-pop" role="menu" aria-label={menu === "create" ? "新建大纲" : menu === "import" ? `导入${label}` : `${label}更多操作`} onKeyDown={event => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return
         event.preventDefault()
         const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
@@ -52,7 +56,10 @@ export function UiTestDirectoryHeader({ kind, query, onQueryChange, busy, onCrea
         const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
         items[next]?.focus()
       }}>
-        {menu === "import" ? <>
+        {menu === "create" ? <>
+          <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onCreate)}>{kind === "chapter" ? "新建章节" : "新建大纲"}</button>
+          <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onCreateContainer)}>{kind === "chapter" ? "新建卷" : "新建文件夹"}</button>
+        </> : menu === "import" ? <>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onImportFiles)}>导入文件</button>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onImportFolder)}>导入文件夹</button>
         </> : <>

@@ -24,6 +24,8 @@ import {
   Image as ImageIcon,
   Loader2,
   Info,
+  Save,
+  ArrowRight,
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import { readFile } from "@/commands/fs";
@@ -39,6 +41,8 @@ import { ReferenceChip } from "@/components/reference/ReferenceChip";
 import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
+import { UiTestGenerationStats } from "@/components/common/context-hub-stats-summary";
+import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
 import { getStreamingTailDisplay } from "@/components/common/streaming-display-text";
 import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 
@@ -217,7 +221,7 @@ export function ChatMessage({
           />
         )}
         {isAssistant && !message.discarded && (
-          <div className="flex items-center gap-1 flex-wrap">
+          <div className="flex w-full items-center gap-1 flex-wrap">
             {canResumeUnfinished && (
               <div className="basis-full rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[11px] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
@@ -230,9 +234,11 @@ export function ChatMessage({
                   onSaveAsChapter(message.id, message.content, message.agentToolCalls)
                 }
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
+                title={isSaving ? "保存中" : "保存到章节库"}
+                aria-label={isSaving ? "保存中" : "保存到章节库"}
               >
-                {isSaving ? "保存中..." : "保存到章节库"}
+                <Save className="h-3.5 w-3.5" />
               </button>
             )}
             {novelMode && isLastAssistant && onContinueNextChapter && (
@@ -240,9 +246,11 @@ export function ChatMessage({
                 type="button"
                 onClick={onContinueNextChapter}
                 disabled={isSaving}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-accent disabled:opacity-50"
+                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
+                title="继续生成下一章"
+                aria-label="继续生成下一章"
               >
-                继续生成下一章
+                <ArrowRight className="h-3.5 w-3.5" />
               </button>
             )}
             {canResumeUnfinished && (
@@ -266,31 +274,21 @@ export function ChatMessage({
               <button
                 type="button"
                 onClick={onRegenerate}
-                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                title="重新生成这条回复"
+                className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent transition-colors"
+                title="重新生成"
+                aria-label="重新生成"
               >
-                <RefreshCw className="h-3 w-3" /> 重新生成
+                <RefreshCw className="h-3.5 w-3.5" />
               </button>
             )}
-            {hasContextTrace && (
-              <button
-                type="button"
-                onClick={() => setContextTraceExpanded(!contextTraceExpanded)}
-                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                title="查看生成详情"
-              >
-                <Info className="h-3 w-3" />
-                {contextTraceExpanded ? "收起详情" : "查看生成详情"}
-                {contextTraceExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-              </button>
-            )}
+            {IS_UI_TEST_BUILD && !message.isAgentRunning ? (
+              <div className="ml-auto"><UiTestGenerationStats stats={currentContextHubSnapshot?.stats} timing={message.generationTiming} /></div>
+            ) : currentContextHubSnapshot ? (
+              <div className="ml-auto"><ContextHubDetails reference={currentContextHubSnapshot} timing={message.generationTiming} /></div>
+            ) : null}
           </div>
         )}
-        {isAssistant &&
+        {false && isAssistant &&
           !message.discarded &&
           !message.isAgentRunning &&
           contextTraceExpanded &&
@@ -300,6 +298,7 @@ export function ChatMessage({
                 <ContextTracePanel
                   trace={message.contextTrace}
                   contextHubSnapshot={currentContextHubSnapshot ?? undefined}
+                  generationTiming={message.generationTiming}
                   projectPath={projectPath}
                   onRebuildRetrievalIndex={onRebuildRetrievalIndex}
                   retrievalIndexHasIndex={retrievalIndexHasIndex}
@@ -309,6 +308,7 @@ export function ChatMessage({
               ) : currentContextHubSnapshot ? (
                 <ContextHubDetails
                   reference={currentContextHubSnapshot}
+                  timing={message.generationTiming}
                 />
               ) : null}
             </div>
@@ -349,15 +349,15 @@ function CopyButton({
       type="button"
       onClick={handleCopy}
       disabled={!copyable}
-      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+      className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent transition-colors disabled:opacity-40"
+      aria-label={copied ? "已复制" : "复制"}
       title={
         hasRecoveredChapterBody
           ? "复制已完成的章节正文（不含错误信息）"
           : "复制到剪贴板"
       }
     >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      {copied ? "已复制" : hasRecoveredChapterBody ? "复制正文" : "复制"}
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
 }

@@ -1,4 +1,4 @@
-﻿import { readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
@@ -10,7 +10,10 @@ const tauriConfig = readFileSync(resolve(__dirname, "../../../src-tauri/tauri.co
 describe("新版 UI 最外侧窗口", () => {
   it("圆角外使用透明背景并提供阴影缓冲", () => {
     expect(css).toMatch(/html\[data-ui-test-skin\][^{]*\{[^}]*background:\s*transparent\s*!important;/)
-    expect(css).toMatch(/\.ui-test-root\s*\{[^}]*padding:\s*14px;[^}]*background:\s*transparent;/)
+    expect(css).toMatch(/\.ui-test-root\s*\{[^}]*padding:\s*0;[^}]*background:\s*transparent;/)
+    expect(css).toContain(".ui-test-resize-edge")
+    expect(shell).toContain('top: "North"')
+    expect(shell).toContain('se: "SouthEast"')
     expect(tauriConfig).toContain('"transparent": true')
   })
 
@@ -23,8 +26,8 @@ describe("新版 UI 最外侧窗口", () => {
   })
 
   it("窄屏保留透明阴影缓冲和圆角", () => {
-    expect(css).toContain("@media (max-width: 959px) { .ui-test-root { padding: 12px; }")
-    expect(css).toContain("@media (max-width: 767px) { .ui-test-root { padding: 10px; } .ui-test-app { border-radius: 8px; }")
+    expect(css).not.toContain("@media (max-width: 959px) { .ui-test-root { padding: 12px; }")
+    expect(css).toContain("@media (max-width: 767px) { .ui-test-app { border-radius: 8px; }")
   })
 
   it("测试版窗口同时关闭原生装饰和阴影", () => {

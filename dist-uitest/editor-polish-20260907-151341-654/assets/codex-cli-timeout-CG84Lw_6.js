@@ -1,0 +1,1 @@
+function e(e){return Number.isFinite(e)?Math.max(1,Math.min(240,Math.floor(e))):40}function t(t){let n=e(t);return Math.max(40,n)}export{e as n,t};

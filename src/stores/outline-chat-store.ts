@@ -130,6 +130,7 @@ export interface OutlineChatMessage {
   nextStepRecommendation?: NextStepRecommendation | null
   novelGenerationRequest?: NovelGenerationRequestPackage
   contextHubSnapshot?: ContextHubSnapshotRef
+  generationTiming?: { startedAt: number; finishedAt?: number }
   /** Thinking-model chain-of-thought; must be replayed on subsequent turns. */
   reasoning_content?: string
 }

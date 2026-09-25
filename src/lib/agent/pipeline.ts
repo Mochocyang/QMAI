@@ -20,7 +20,6 @@ export interface PrePluginInput {
   planExecuteEnabled?: boolean
   availableSkills?: UserSkill[]
   selectedSkills?: UserSkill[]
-  mcpCapabilities?: AiCapability[]
   availableCapabilities?: AiCapability[]
   selectedCapabilities?: SelectedCapabilityTrace[]
   novelSystemPrompt?: string

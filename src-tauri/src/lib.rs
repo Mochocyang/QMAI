@@ -65,7 +65,6 @@ pub fn run() {
             app.manage(commands::codex_cli::CodexAppServerState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
-            app.manage(commands::mcp_stdio::McpStdioState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
             Ok(())
         })
@@ -92,6 +91,9 @@ pub fn run() {
             commands::project::create_project,
             commands::project::open_project,
             commands::project::open_project_folder,
+            commands::project::rename_project,
+            commands::project::move_project_to_system_trash,
+            commands::project::save_project_cover,
             commands::project::open_file_location,
             commands::vectorstore::vector_upsert,
             commands::vectorstore::vector_search,
@@ -130,10 +132,6 @@ pub fn run() {
             commands::file_sync::get_file_change_queue,
             commands::file_sync::retry_file_change_task,
             commands::file_sync::ignore_file_change_task,
-            commands::mcp_stdio::mcp_stdio_spawn,
-            commands::mcp_stdio::mcp_stdio_write,
-            commands::mcp_stdio::mcp_stdio_read,
-            commands::mcp_stdio::mcp_stdio_kill,
             commands::backup::export_backup,
             commands::backup::import_backup,
             commands::backup::read_backup_manifest,

@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
-import logoImg from "@/assets/QM-LOGO.png"
+import { BrandLogo } from "@/components/brand-logo"
 import type { WikiState } from "@/stores/wiki-store"
 import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
@@ -271,10 +271,9 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
           className="mb-2 flex items-center justify-center rounded-md p-0.5 transition-colors hover:bg-accent/50"
           title={t("iconSidebar.toggleSidebar")}
         >
-          <img
-            src={logoImg}
-            alt={t("iconSidebar.logoAlt")}
-            className="h-6 w-6 rounded-[22%]"
+          <BrandLogo
+            title={t("iconSidebar.logoAlt")}
+            className="h-6 w-6 text-brand-600"
           />
         </button>
         {/* Top: configurable feature entries */}

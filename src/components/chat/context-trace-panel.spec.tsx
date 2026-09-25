@@ -419,44 +419,6 @@ describe("ContextTracePanel selected skills", () => {
     expect(html).toContain("confirm")
   })
 
-  it("renders MCP call summaries in the overview", () => {
-    const trace: ContextTrace = {
-      id: "trace-mcp",
-      startedAt: 1,
-      finishedAt: 5,
-      status: "done",
-      toolCalls: [],
-      contextInfo: {
-        intent: "character_query",
-        confidence: 0.9,
-        routeSource: "default",
-        loadedSources: [],
-        blockedSources: [],
-        retrievalHits: [],
-        trimmedSections: [],
-        mcpCalls: [
-          {
-            serverId: "graph",
-            serverName: "Graph MCP",
-            toolName: "query",
-            status: "error",
-            summary: "not available",
-            message: "MCP 调用失败，普通 AI 会话可以继续。",
-            calledAt: 100,
-          },
-        ],
-      },
-    }
-
-    const html = renderToStaticMarkup(<ContextTracePanel trace={trace} />)
-
-    expect(html).toContain("MCP 调用")
-    expect(html).toContain("Graph MCP")
-    expect(html).toContain("query")
-    expect(html).toContain("error")
-    expect(html).toContain("普通 AI 会话可以继续")
-  })
-
   it("renders AI mode label when postWriteCheckMeta source is ai", () => {
     const trace: ContextTrace = {
       id: "trace-ai-mode",

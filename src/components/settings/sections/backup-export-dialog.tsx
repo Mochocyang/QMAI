@@ -186,7 +186,7 @@ export function BackupExportDialog({
               />
               <span>
                 <span className="block font-medium">模型与 AI 配置</span>
-                <span className="text-xs text-muted-foreground">模型供应商、Embedding、Rerank、搜索、MCP 和写作配置</span>
+                <span className="text-xs text-muted-foreground">模型供应商、Embedding、Rerank、搜索和写作配置</span>
               </span>
             </label>
             <label className="flex items-start gap-3 border px-3 py-2 text-sm">

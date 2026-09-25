@@ -24,7 +24,9 @@ it("草稿显示真正生效模型，环节测试不修改聊天或自动保存"
   vi.mocked(testLlmConnection).mockResolvedValue({ ok: true, message: "OK" })
   await choose(host, "审稿模型", "custom-b/review")
   const row = host.querySelector('[aria-label="审稿模型"]')!.closest('.model-default-row') as HTMLElement
-  expect(row.textContent).toContain("实际使用：模拟审稿")
+  expect((row.querySelector("select") as HTMLSelectElement).disabled).toBe(false)
+  expect(row.textContent).not.toContain("实际使用")
+  expect(row.textContent).not.toContain("打开小说后可配置此项")
   await click(row, "测试模型")
   expect(testLlmConnection).toHaveBeenCalledWith(expect.objectContaining({ model: "review", apiKey: "mock-review", customEndpoint: "https://review.invalid/v1" }))
   expect(useWikiStore.getState().aiChatModel).toBe("custom-a/chat")

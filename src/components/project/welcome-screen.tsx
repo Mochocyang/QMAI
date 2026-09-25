@@ -6,7 +6,7 @@ import type { WikiProject } from "@/types/wiki"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { importBackup } from "@/lib/backup/import"
-import logoImg from "@/assets/QM-LOGO.png"
+import { BrandLogo } from "@/components/brand-logo"
 
 interface WelcomeScreenProps {
   onCreateProject: () => void
@@ -62,10 +62,9 @@ export function WelcomeScreen({
       <div className="flex flex-col items-center gap-8 px-4">
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="rounded-2xl bg-brand-100/60 p-3 ring-1 ring-brand-200/40">
-            <img
-              src={logoImg}
-              alt={t(novelMode ? "novel.app.title" : "app.title")}
-              className="h-12 w-12 rounded-[22%]"
+            <BrandLogo
+              title={t(novelMode ? "novel.app.title" : "app.title")}
+              className="h-12 w-12 text-brand-600"
             />
           </div>
           <div>

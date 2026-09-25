@@ -51,10 +51,10 @@ it("无效地址阻止保存，密钥显示开关不改配置", async () => {
   await click(host, "隐藏密钥"); expect(input.type).toBe("password")
 })
 it("批量手输去重、移除最后一项后不保留幽灵模型", async () => {
-  await changeInput(host, "批量添加模型 ID", "alpha,beta，beta"); await click(host, "添加")
-  expect(host.querySelectorAll('.model-selected-list > div')).toHaveLength(2)
+  await changeInput(host, "模型", "alpha,beta，beta"); await click(host, "添加")
+  expect(host.querySelectorAll('.model-tag-input > span')).toHaveLength(2)
   await click(host, "移除模型alpha"); await click(host, "移除模型beta")
-  expect((host.querySelector('[aria-label="当前模型 ID"]') as HTMLInputElement).value).toBe("")
+  expect(host.querySelectorAll('.model-tag-input > span')).toHaveLength(0)
   await click(host, "保存配置"); expect(saveProviderConfigs).not.toHaveBeenCalled()
 })
 it("连接与功能测试均使用草稿且不会隐式保存", async () => {
@@ -97,7 +97,7 @@ it("连接抛异常后提供失败重试，而不是丢失失败模型", async (
 
 it("手输但尚未加入列表的模型同样受草稿保护", async () => {
   vi.mocked(window.confirm).mockReturnValue(false)
-  await changeInput(host, "批量添加模型 ID", "pending-model")
+  await changeInput(host, "模型", "pending-model")
   expect(await confirmModelDraftLeave()).toBe(false)
   expect(host.textContent).toContain("先点击“添加”")
 })
@@ -119,14 +119,11 @@ it("添加配置自动展开，不会把未填写的新卡写进运行配置", a
   expect(Object.keys(useWikiStore.getState().providerConfigs)).toHaveLength(0)
 })
 
-it("确认尚未完成或被取消时，不得发送网络请求", async () => {
-  const answer = deferred<boolean>()
-  vi.mocked(window.confirm).mockReturnValueOnce(answer.promise as unknown as boolean)
+it("测试连接直接发送请求，不再等待费用确认", async () => {
   vi.mocked(testLlmConnection).mockResolvedValue({ok:true,message:"OK"})
   await click(host,"测试连接")
-  expect(testLlmConnection).not.toHaveBeenCalled()
-  await act(async () => answer.resolve(false))
-  expect(testLlmConnection).not.toHaveBeenCalled()
+  expect(testLlmConnection).toHaveBeenCalledOnce()
+  expect(window.confirm).not.toHaveBeenCalled()
 })
 it("取消异步删除确认不能写配置或关闭卡片", async () => {
   const answer=deferred<boolean>()

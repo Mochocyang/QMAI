@@ -38,7 +38,7 @@ vi.mock("@/hooks/use-agent-config", () => ({
     config: { maxRounds: 3, tools: [], systemPrompt, llmConfig: useWikiStore.getState().llmConfig },
     registry: { get: vi.fn(), has: () => false, list: () => [], register: vi.fn() },
     supportsTools: true, skillConfigLoaded: true, skillConfig: null,
-    writingSkills: [], mcpCapabilities: [], mcpWarnings: [],
+    writingSkills: [],
   }),
 }))
 vi.mock("@/components/chat/chat-shared", () => ({ useSourceFiles: () => [], getLastQueryPages: () => [] }))
@@ -146,9 +146,10 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(header?.querySelector(".ui-test-ai-title strong")?.textContent).toBe(title)
     expect(header?.textContent).not.toContain("当前对话")
     expect(header?.textContent).not.toContain("写作助手")
-    expect(header?.textContent).not.toContain("大纲助手")
+    if (kind === "outline") expect(header?.textContent).toContain("历史大纲对话")
     expect(header?.querySelector(".ui-test-ai-session")).toBeNull()
     expect(panel?.querySelector(".ui-test-ai-context")).toBeNull()
+    expect(header?.textContent).not.toContain(kind === "outline" ? "暂无大纲对话" : "暂无会话")
     expect(header?.querySelector(".qmai-new-conversation-button")).not.toBeNull()
     expect(header?.querySelector("[aria-expanded]")).not.toBeNull()
     await click(header?.querySelector(`[aria-label="关闭${kind === "chapter" ? "写作" : "大纲"}助手"]`) ?? null)
@@ -181,13 +182,29 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     }))
 
     const container = await mount("outline")
-    const column = container.querySelector(".ui-test-reference-context-column")
-    const sources = column?.querySelector("details")
-    const stats = column?.querySelector(".ui-test-context-stats")
-    expect(column).not.toBeNull()
-    expect(sources?.textContent).toContain("引用资料（2）")
-    expect(stats?.textContent).toContain("109 Token")
+    const row = container.querySelector("[data-ui-ai-actions]")
+    const sources = row?.querySelector("details")
+    const stats = row?.querySelector(".ui-test-context-stats")
+    const regenerate = row?.querySelector("[aria-label='重新生成']")
+    expect(row).not.toBeNull()
+    expect(sources?.querySelector("summary")?.getAttribute("aria-label")).toContain("引用资料（2）")
+    expect(stats?.querySelector("[aria-label='查看本轮用量']")).not.toBeNull()
+    expect(stats?.querySelector("[aria-label^='用时']")).not.toBeNull()
+    expect(regenerate && sources && (regenerate.compareDocumentPosition(sources) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
     expect(sources && stats && (sources.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(stats?.closest(".ml-auto")).not.toBeNull()
+  })
+
+  it("章节回复右侧显示用量、用时和结束时间", async () => {
+    if (kind !== "chapter") return
+    seed(kind)
+    const container = await mount(kind)
+    const assistant = container.querySelector('[data-ui-ai-message="assistant"]')
+    const stats = assistant?.querySelector(".ui-test-context-stats")
+    expect(stats?.querySelector("[aria-label='查看本轮用量']")?.textContent).toContain("未提供")
+    expect(stats?.querySelector("[aria-label^='用时']")).not.toBeNull()
+    expect(stats?.querySelector("time")?.textContent).toBe("—")
+    expect(stats?.closest(".ml-auto")).not.toBeNull()
   })
 
   it("独立滚动区渲染原始消息，保存与重试动作仍在消息后", async () => {
@@ -198,20 +215,58 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(scroll?.querySelector('[data-ui-ai-message="user"]')?.textContent).toContain(userText)
     const assistant = scroll?.querySelector('[data-ui-ai-message="assistant"]')
     expect(assistant?.textContent).toContain(answerText)
-    expect(assistant?.textContent).toContain(kind === "chapter" ? "保存到章节库" : "保存为大纲")
-    expect(assistant?.textContent).toContain("重新生成")
+    expect(assistant?.querySelector(`[aria-label='${kind === "chapter" ? "保存到章节库" : "保存为大纲"}']`)).not.toBeNull()
+    expect(assistant?.querySelector("[aria-label='重新生成']")).not.toBeNull()
     expect(container.textContent).not.toMatch(/黑雨之下|雨停之前|28%/)
   })
 
+  it("大纲说明在输入框上方，共创与上下文统计回到 @ 左侧", async () => {
+    if (kind !== "outline") return
+    seed(kind)
+    const container = await mount(kind)
+    const composer = container.querySelector("[data-ui-ai-composer]")
+    const footer = composer?.querySelector("[data-reference-input-footer]")
+    const mode = footer?.querySelector('[aria-label="AI 大纲执行模式"]')
+    const usage = footer?.querySelector('[aria-label="上下文用量"]')
+    const reference = footer?.querySelector('[aria-label="引用内容"]')
+    expect(composer?.textContent).toContain("通过固定选项生成大纲需求")
+    expect(composer?.textContent).toContain("选择生成你想要的小说")
+    expect(mode).not.toBeNull()
+    expect(usage).not.toBeNull()
+    expect(reference).not.toBeNull()
+    expect(mode && usage && reference && (mode.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(usage && reference && (usage.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    await act(async () => {
+      useWikiStore.setState({
+        aiOutlineModel: "deepseek/deepseek-v4-flash",
+        llmConfig: { ...useWikiStore.getState().llmConfig, provider: "deepseek", model: "deepseek-v4-flash", customEndpoint: "https://api.deepseek.com/v1" },
+        providerConfigs: { deepseek: { enabled: true, apiKey: "ui-test-only", savedModels: [{ id: "deepseek-v4-flash", model: "deepseek-v4-flash", name: "DeepSeek-V4-Flash", createdAt: 1 }] } },
+      })
+    })
+    await flushLayoutFrame()
+    const reasoning = footer?.querySelector('[aria-label="思考深度"]')
+    const model = footer?.querySelector(".ui-test-ai-model")
+    expect(reasoning).not.toBeNull()
+    expect(model?.contains(reasoning!)).toBe(true)
+    expect(reasoning && model?.lastElementChild && (reasoning.compareDocumentPosition(model.lastElementChild) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    const trigger = footer?.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
+    vi.spyOn(trigger!, "getBoundingClientRect").mockReturnValue({ left: 48, right: 112, top: 620, bottom: 652, width: 64, height: 32, x: 48, y: 620, toJSON: () => ({}) })
+    await click(trigger ?? null)
+    const menu = document.querySelector<HTMLElement>('[data-ui-ai-menu="mode"]')
+    expect(Number.parseFloat(menu!.style.bottom)).toBeGreaterThan(0)
+    expect(menu!.style.top).toBe("")
+  })
+
   it("模式与真实上下文占用在输入框上方，引用和模型保留于输入框底部", async () => {
+    if (kind === "outline") return
     seed(kind)
     const container = await mount(kind)
     const tools = container.querySelector("[data-ui-ai-tools]")
     expect(tools).not.toBeNull()
     const mode = tools?.querySelector(`[aria-label="${kind === "chapter" ? "AI 会话执行模式" : "AI 大纲执行模式"}"]`)
     expect(mode).not.toBeNull()
-    expect(tools?.querySelector('[aria-label="上下文用量"]')).not.toBeNull()
     const footer = container.querySelector("[data-reference-input-footer]")
+    expect(footer?.querySelector('[aria-label="上下文用量"]')).not.toBeNull()
     expect(footer?.querySelector('[aria-label="引用内容"]')).not.toBeNull()
     expect(footer?.textContent).toContain("本地验证模型")
     expect(footer?.contains(mode!)).toBe(false)
@@ -220,7 +275,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await click(mode ?? null)
     const menu = document.querySelector('[data-ui-ai-menu="mode"]')
     expect(menu).not.toBeNull()
-    expect(menu?.querySelectorAll('[role="option"]')).toHaveLength(kind === "chapter" ? 3 : 2)
+    expect(menu?.querySelectorAll('[role="option"]')).toHaveLength(kind === "chapter" ? 3 : 4)
     await click(menu?.querySelector('[role="option"]') ?? null)
     expect(kind === "chapter" ? useWikiStore.getState().aiWorkflowMode : useWikiStore.getState().outlineWorkflowMode).toBe("fast")
   })
@@ -230,7 +285,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => window.clearTimeout(id))
     seed(kind)
     const container = await mount(kind)
-    await click(container.querySelector('[data-ui-ai-tools] [aria-haspopup="listbox"]'))
+    await click(container.querySelector(kind === "outline" ? '[data-reference-input-footer] [aria-haspopup="listbox"]' : '[data-ui-ai-tools] [aria-haspopup="listbox"]'))
     expect(document.querySelector('[data-ui-ai-menu="mode"]')).not.toBeNull()
   })
 
@@ -240,12 +295,13 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await click(container.querySelector("[data-ui-ai-header] [aria-expanded]"))
     const menu = document.querySelector('[data-ui-ai-menu="history"]')
     expect(menu).not.toBeNull()
-    expect(menu?.textContent).toContain("全部会话 3 条")
-    expect(menu?.querySelector('[aria-label="清理旧会话"]')?.textContent).toContain("清理旧会话")
-    for (const name of [title, "另一个正在生成的会话", "以前的会话"]) {
+    expect(menu?.textContent).toContain(kind === "chapter" ? "全部会话 3 条" : "全部会话 1 条")
+    expect(menu?.textContent).toContain("清理旧会话")
+    const names = kind === "chapter" ? [title, "另一个正在生成的会话", "以前的会话"] : ["以前的会话"]
+    for (const name of names) {
       expect(Array.from(menu?.querySelectorAll("button[title]") ?? []).some((button) => button.getAttribute("title") === name)).toBe(true)
     }
-    expect(menu?.querySelector('[aria-label="正在生成"]')).not.toBeNull()
+    if (kind === "chapter") expect(menu?.querySelector('[aria-label="正在生成"]')).not.toBeNull()
     await click(menu?.querySelector('button[title="以前的会话"]') ?? null)
     expect(kind === "chapter" ? useChatStore.getState().activeConversationId : useOutlineChatStore.getState().activeConversationId).toBe(`${kind}-old`)
     expect(document.querySelector('[data-ui-ai-menu="history"]')).toBeNull()
@@ -337,6 +393,7 @@ it("专用样式仅命中测试版标识，覆盖对话/长引用/菜单并消�
   expect(css).toContain("var(--ui)")
   expect(css).toContain("[data-ui-ai-scroll]")
   expect(css).toContain("[data-reference-id]")
+  expect(css).toContain(".ui-test-outline-command { color: var(--ui-accent);")
   expect(css).toContain("overflow-wrap: anywhere")
   expect(css).toContain("overflow-y: auto")
   expect(css).not.toMatch(/(^|\})\s*(body|:root|\.ui-test-root)\s*\{/m)
@@ -369,8 +426,8 @@ it("大纲生成菜单保留完整向导与九类分项入口，窗口缩小时�
   vi.spyOn(trigger!, "getBoundingClientRect").mockReturnValue({ left: 600, right: 700, top: 450, bottom: 482, width: 100, height: 32, x: 600, y: 450, toJSON: () => ({}) })
   await click(trigger)
   let menu = document.querySelector<HTMLElement>('[data-ui-ai-menu="generation"]')
-  expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(10)
-  expect(menu?.textContent).toContain("生成小说大纲")
+  expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(9)
+  expect(menu?.textContent).toContain("章节细纲")
   vi.stubGlobal("innerWidth", 260)
   vi.stubGlobal("innerHeight", 260)
   await act(async () => window.dispatchEvent(new Event("resize")))
@@ -384,5 +441,8 @@ it("向上弹出的短菜单贴近触发入口，不预留整块最大高度空�
   vi.stubGlobal("innerHeight", 800)
   const style = getUiTestAiMenuStyle({ left: 700, top: 650, bottom: 682 }, 320, true)
   expect(style.bottom).toBe(158)
+  const nearTop = getUiTestAiMenuStyle({ left: 40, top: 24, bottom: 56 }, 320, true)
+  expect(nearTop.bottom).toBe(784)
+  expect(nearTop.top).toBeUndefined()
   expect(style.top).toBeUndefined()
 })

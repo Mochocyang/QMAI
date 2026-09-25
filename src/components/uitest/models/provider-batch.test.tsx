@@ -22,7 +22,7 @@ it("批测异常逐项反馈，重试仅请求失败项并脱敏", async () => {
   await act(async () => value.retryFailed(build))
   expect(vi.mocked(testSettingsLlmModel).mock.calls.map(([c]) => c.model)).toEqual(["a", "b", "b"])
   expect(value.modelTestState.success).toBe(true)
-  expect(window.confirm).toHaveBeenCalledTimes(2)
+  expect(window.confirm).not.toHaveBeenCalled()
 })
 it("离开组件后不继续批次，也不回填过期结果", async () => {
   ;({ unmount } = await mountModel(<Harness />))

@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Leaf, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
+import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
+import logoImg from "@/assets/QM-LOGO.png"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { ContentArea } from "@/components/layout/content-area"
@@ -37,7 +39,7 @@ interface UiTestShellProps {
 const TOOL_GROUPS = [
   [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
-  [ { view: "activity", label: "后台活动", icon: History }, { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
+  [ { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
 ] as const
 function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
@@ -284,10 +286,16 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
 
   return (
-    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-window-filled={windowFilled ? "true" : undefined}>
+    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-window-filled={windowFilled ? "true" : undefined} onContextMenu={(event) => event.preventDefault()}>
+      {!windowFilled && (["top", "right", "bottom", "left", "nw", "ne", "sw", "se"] as const).map((edge) => <div key={edge} className={`ui-test-resize-edge ${edge}${edge.length === 2 ? " corner" : ""}`} data-resize-edge={edge} onPointerDown={(event) => {
+        if (event.button !== 0 || !isTauri()) return
+        event.preventDefault()
+        const direction = { top: "North", right: "East", bottom: "South", left: "West", nw: "NorthWest", ne: "NorthEast", sw: "SouthWest", se: "SouthEast" }[edge]
+        void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startResizeDragging(direction))
+      }} />)}
       <div ref={appRef} className="ui-test-app">
         <header className="ui-test-header" data-tauri-drag-region>
-          <div className="ui-test-brand"><Leaf aria-hidden="true" /><span className="ui-test-brand-name">青幕</span>
+          <div className="ui-test-brand"><img className="ui-test-brand-logo" src={logoImg} alt="" /><span className="ui-test-brand-name">青幕AI写作</span>
             <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
             {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
           </div>
@@ -321,7 +329,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" onKeyDown={menuKeyboard}>
                 <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
                 {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
-                  {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project && view !== "settings"} onClick={() => { if (view === "activity") { setShowActivity(true); setToolOpen(false) } else navigate(view) }}><Icon /><span>{label}</span></button>)}
+                  {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project && view !== "settings"} onClick={() => navigate(view)}><Icon /><span>{label}</span></button>)}
                 </div>)}
               </div>}
             </div>
@@ -331,6 +339,10 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
                 {UI_TEST_SKINS.map(item => <button type="button" role="menuitemradio" aria-checked={skin === item.id} className="ui-test-menu-item" key={item.id} onClick={() => chooseSkin(item.id)}><span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} /><span className="ui-test-skin-copy"><span>{item.name}</span><small>{item.hint}</small></span>{skin === item.id && <Check />}</button>)}
               </div>}
             </div>
+            <Tooltip>
+              <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="后台活动" onClick={() => setShowActivity(true)}><History /></button>} />
+              <TooltipContent>后台活动</TooltipContent>
+            </Tooltip>
             <div className="ui-test-win-actions">
               <button type="button" className="ui-test-win-btn" aria-label="最小化" title="最小化" onClick={minimizeWindow}><Minus /></button>
               <button type="button" className="ui-test-win-btn" aria-label="最大化或还原" title="最大化或还原" onClick={toggleMaximizeWindow}><Square /></button>

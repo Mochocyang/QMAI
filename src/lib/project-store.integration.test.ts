@@ -8,7 +8,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { realFs, createTempProject, writeFileRaw, fileExists, readFileRaw } from "@/test-helpers/fs-temp"
 import type { LlmConfig, NovelConfig, ProviderConfigs, RevisionFeedbackWindowConfig, SourceWatchConfig, RerankConfig } from "@/stores/wiki-store"
-import type { McpConfig } from "@/lib/mcp/config"
 
 vi.mock("@/commands/fs", () => realFs)
 
@@ -36,8 +35,6 @@ import {
   loadRevisionFeedbackWindowConfig,
   saveSourceWatchConfig,
   loadSourceWatchConfig,
-  saveMcpConfig,
-  loadMcpConfig,
   loadLlmConfig,
   loadProviderConfigs,
   saveProviderConfigs,
@@ -285,28 +282,6 @@ function makeRerankConfig(overrides: Partial<RerankConfig> = {}): RerankConfig {
     ...overrides,
   }
 }
-function makeMcpConfig(): McpConfig {
-  return {
-    servers: [{
-      id: "graph",
-      name: "Knowledge Graph",
-      enabled: true,
-      tools: [{
-        serverId: "graph",
-        serverName: "Knowledge Graph",
-        name: "query_graph",
-        description: "Query graph",
-        operation: "read",
-        inputSchema: {
-          type: "object",
-          properties: { query: { type: "string", description: "Query" } },
-          required: ["query"],
-        },
-      }],
-    }],
-  }
-}
-
 describe("novelConfig — project-directory persistence", () => {
   it("round-trip save then load returns identical config", async () => {
     const config = makeNovelConfig({ contextTokenBudget: 100000, searchTopK: 15 })
@@ -542,25 +517,6 @@ describe("rerankConfig persistence", () => {
     const loaded = await loadRerankConfig("rerank-r", tmp.path)
     expect(loaded?.model).toBe("local-rerank")
     expect(loaded?.maxCandidates).toBe(18)
-  })
-})
-
-describe("mcpConfig persistence", () => {
-  it("round-trip save then load returns normalized MCP config", async () => {
-    const config = makeMcpConfig()
-
-    await saveMcpConfig(config)
-    const loaded = await loadMcpConfig()
-
-    expect(loaded).toEqual(config)
-  })
-
-  it("normalizes invalid stored MCP config to an empty config", async () => {
-    inMemoryStore.set("mcpConfig", { servers: "bad" })
-
-    const loaded = await loadMcpConfig()
-
-    expect(loaded).toEqual({ servers: [] })
   })
 })
 

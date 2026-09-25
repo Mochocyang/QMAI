@@ -65,7 +65,6 @@ vi.mock("@/components/settings/sections/interface-section", () => ({ InterfaceSe
 vi.mock("@/components/settings/sections/novel-section", () => ({ NovelSection: () => <div data-capability="novel" /> }))
 vi.mock("@/components/settings/sections/network-section", () => ({ NetworkSection: () => <div data-capability="network" /> }))
 vi.mock("@/components/settings/sections/web-search-section", () => ({ WebSearchSection: () => <div data-capability="web-search" /> }))
-vi.mock("@/components/settings/sections/mcp-section", () => ({ McpSection: () => <div data-capability="mcp" /> }))
 vi.mock("@/components/settings/sections/user-memory-section", () => ({ UserMemorySection: () => <div data-capability="user-memory" /> }))
 vi.mock("@/components/settings/sections/usage-guide-section", () => ({ UsageGuideSection: () => <div data-capability="usage-guide" /> }))
 vi.mock("@/components/settings/sections/maintenance-section", () => ({ MaintenanceSection: () => <div data-capability="maintenance" /> }))
@@ -76,7 +75,7 @@ vi.mock("@/components/settings/sections/contact-support-section", () => ({ Conta
 vi.mock("@/components/settings/sections/classification-section", () => ({ ClassificationSection: () => <div data-capability="classification" /> }))
 vi.mock("@/components/settings/sections/changelog-section", () => ({ ChangelogSection: () => <div data-capability="changelog" /> }))
 
-const categories = ["model", "novel", "network", "web-search", "mcp", "interface", "user-memory", "usage-guide", "maintenance", "data-management", "export-center", "feedback", "contact-support", "classification", "changelog"]
+const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "usage-guide", "maintenance", "data-management", "export-center", "feedback", "contact-support", "classification", "changelog"]
 let container: HTMLDivElement
 let root: Root
 
@@ -118,11 +117,11 @@ async function click(selector: string) {
 }
 
 describe("测试版设置布局与正式版隔离", () => {
-  it("只保留一份 15 分类左栏，真实面包屑随分类切换", async () => {
+  it("只保留一份 14 分类左栏，真实面包屑随分类切换", async () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
-    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(15)
+    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(14)
     for (const category of categories) {
       await click(`[data-ui-settings-category-button="${category}"]`)
       expect(container.querySelector(`[data-capability="${category === "model" ? "llm" : category}"]`)).not.toBeNull()
@@ -137,7 +136,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
-    expect(select?.options).toHaveLength(15)
+    expect(select?.options).toHaveLength(14)
     await act(async () => {
       select!.value = "interface"
       select!.dispatchEvent(new Event("change", { bubbles: true }))
@@ -306,26 +305,22 @@ describe("真实模型列表的测试版分组", () => {
 
   it("默认只展示自定义模型，风险说明折叠但完整可展开", async () => {
     await renderProviders()
-    expect(container.querySelectorAll('[aria-label="模型配置来源"] [role="tab"]')).toHaveLength(2)
-    expect(container.querySelector('[data-ui-llm-source="custom"]')?.textContent).toBe("自定义模型")
-    expect(container.querySelector('[data-ui-llm-source="presets"]')?.textContent).toBe("配置示例")
-    expect(container.querySelector<HTMLElement>('[data-ui="llm-custom"]')?.hidden).toBe(false)
-    expect(container.querySelector<HTMLElement>('[data-ui="llm-presets"]')?.hidden).toBe(true)
-    const notice = container.querySelector<HTMLDetailsElement>('[data-ui="llm-context-notice"]')
-    expect(notice?.open).toBe(false)
-    expect(notice?.textContent).toContain(i18n.t("settings.sections.llm.longWritingContextHint"))
-    await click('[data-ui="llm-context-notice"] > summary')
-    expect(notice?.open).toBe(true)
+    expect(container.textContent).toContain("我的模型配置")
+    expect(container.textContent).toContain("我的模型配置")
+    expect(container.textContent).toContain("＋ 添加提供方")
+    expect(container.textContent).toContain("＋ 添加自定义模型")
+    expect(container.querySelector(".model-add-panel")).toBeNull()
     expect(modelIo.connection).not.toHaveBeenCalled()
     expect(modelIo.functionTest).not.toHaveBeenCalled()
   })
 
-  it("配置示例保留每个内置提供方、中文说明与真实连接测试，切换不重置测试结果", async () => {
+  it("提供方模型保留每个内置提供方、中文说明与真实连接测试，切换不重置测试结果", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true)
     useWikiStore.setState({ providerConfigs: { deepseek: { apiKey: "仅测试占位", model: "existing-model", baseUrl: "https://example.invalid/v1" } } })
     await renderProviders()
-    await click('[data-ui-llm-source="presets"]')
-    const panel = container.querySelector<HTMLElement>('[data-ui="llm-presets"]')!
+    const addProvider = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("添加提供方"))!
+    await act(async () => { addProvider.click() })
+    const panel = container.querySelector<HTMLElement>("[data-ui='llm-library']")!
     expect(panel?.hidden).toBe(false)
     for (const preset of LLM_PRESETS.filter((preset) => preset.id !== "custom")) expect(panel.textContent).toContain(preset.label)
     expect(panel.textContent).toContain("官方 Claude API")
@@ -333,33 +328,27 @@ describe("真实模型列表的测试版分组", () => {
     expect(modelIo.connection).not.toHaveBeenCalled()
     const deepseek = Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("DeepSeek"))!
     await act(async () => { deepseek.click() })
-    const test = Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("测试连接"))!
-    expect(test).toBeDefined()
-    await act(async () => { test.click() })
-    expect(modelIo.connection).toHaveBeenCalledWith(expect.objectContaining({ model: "existing-model" }))
-    await click('[data-ui-llm-source="custom"]')
-    await click('[data-ui-llm-source="presets"]')
-    expect(panel.textContent).toContain("测试通过，配置仍需单独保存")
-    const presetTab = container.querySelector<HTMLElement>('[data-ui-llm-source="presets"]')!
-    await act(async () => { presetTab.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })) })
-    expect(container.querySelector<HTMLElement>('[data-ui="llm-custom"]')?.hidden).toBe(false)
-    expect(document.activeElement).toBe(container.querySelector('[data-ui-llm-source="custom"]'))
+    expect(panel.querySelector('[aria-label="模型"]')).not.toBeNull()
+    expect(panel.querySelector('[aria-label="API 密钥"]')).not.toBeNull()
+    expect(panel.textContent).toContain("拉取模型")
+    expect(modelIo.connection).not.toHaveBeenCalled()
   })
 
   it("切换来源不卸载自定义配置编辑器，不丢临时模型输入", async () => {
     useWikiStore.setState({ providerConfigs: { "custom-ui-existing": { label: "已保存配置", enabled: true, savedModels: [] } } })
     await renderProviders()
-    expect(container.querySelector('[data-ui="llm-custom"] .model-provider-title')?.getAttribute("aria-expanded")).toBe("true")
-    await click('[data-ui="llm-custom"] .model-advanced > summary')
-    const panel = container.querySelector('[data-ui="llm-custom"]')!
-    const input = panel.querySelector<HTMLInputElement>('[aria-label="批量添加模型 ID"]')!
+    expect(container.querySelector(".model-provider-title")?.getAttribute("aria-expanded")).toBe("false")
+    await act(async () => { container.querySelector<HTMLButtonElement>(".model-provider-title")?.click() })
+    await click(".model-advanced > summary")
+    const panel = container.querySelector("[data-ui='llm-library']")!
+    const input = panel.querySelector<HTMLInputElement>('[aria-label="模型"]')!
     expect(input).toBeDefined()
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "尚未添加的模型ID")
       input.dispatchEvent(new Event("input", { bubbles: true }))
     })
-    await click('[data-ui-llm-source="presets"]')
-    await click('[data-ui-llm-source="custom"]')
+    const addProvider = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("添加提供方"))!
+    await act(async () => { addProvider.click(); addProvider.click() })
     expect(panel.contains(input)).toBe(true)
     expect(input.value).toBe("尚未添加的模型ID")
   })

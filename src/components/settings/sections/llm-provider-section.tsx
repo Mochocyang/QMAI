@@ -8,7 +8,7 @@ import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
 import { useEffect, useId, useMemo, useState, useRef } from "react"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
-import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react"
+import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
@@ -26,7 +26,9 @@ import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { useBatchModelTest } from "../hooks/use-batch-model-test"
 import { ModelSelectInput } from "../model-select-input"
 import { SavedModelsManager } from "./saved-models-manager"
+import { mergeProviderModels, removeProviderModel } from "@/components/uitest/models/provider-data"
 import { CustomProviderCards } from "./custom-provider-cards"
+import { UiTestProviderCard } from "@/components/uitest/models/provider-custom"
 import { ResourceLink } from "../resource-link"
 import {
   MIN_USER_LLM_CONTEXT_SIZE,
@@ -81,7 +83,9 @@ export function LlmProviderSection() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
-  const [uiTestSource, setUiTestSource] = useState<"custom" | "presets">("custom")
+  const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
+  const [selectedPresetId, setSelectedPresetId] = useState(LLM_PRESETS.find((preset) => preset.id !== "custom")?.id ?? "")
+  const [customDraftIds, setCustomDraftIds] = useState<string[]>([])
   const uiTestTabsId = useId()
 
   function toggleExpand(id: string) {
@@ -142,7 +146,33 @@ export function LlmProviderSection() {
   }
 
   if (IS_UI_TEST_BUILD) {
+    const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds])]
+    const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
+    const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? presets[0]
     return (
+      <div data-ui="llm-library">
+        <div className="model-library-heading"><h3>我的模型配置</h3><span>{configured.length} 个配置</span></div>
+        <div className="model-library-list">
+          {configured.map((id) => {
+            const config = providerConfigs[id] ?? {}
+            const preset = LLM_PRESETS.find((item) => item.id === id)
+            return <div key={id}>{id.startsWith("custom-") ? <UiTestProviderCard id={id} isNew={customDraftIds.includes(id)} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setCustomDraftIds((ids) => ids.filter((item) => item !== id))} /> : preset ? <UiTestPresetCard preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} /> : <div className="model-library-item"><div><strong>{config.label || "自定义模型"}</strong><small>{config.model || "未选择模型"}</small></div></div>}</div>
+          })}
+          {!configured.length && <p>还没有模型配置。</p>}
+        </div>
+        <div className="model-add-row">
+          <button type="button" className="model-add-card" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
+          <button type="button" className="model-add-card" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
+        </div>
+        {uiTestSource === "presets" && selectedPreset && <div className="model-add-panel">
+          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} className={preset.id === selectedPreset.id ? "is-selected" : ""} onClick={() => { setSelectedPresetId(preset.id); setExpanded({ [preset.id]: true }) }}><strong>{preset.label}</strong><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
+          <UiTestPresetCard preset={{ ...selectedPreset, hint: UI_TEST_PROVIDER_HINTS[selectedPreset.id] ?? selectedPreset.hint }} expanded onToggle={() => {}} />
+        </div>}
+      </div>
+    )
+  }
+
+  if (false) return (
       <div data-ui="llm-sources">
         <div className="ui-test-tool-tabs" role="tablist" aria-label="模型配置来源">
           {(["custom", "presets"] as const).map((source) => (
@@ -165,7 +195,7 @@ export function LlmProviderSection() {
                 document.getElementById(`${uiTestTabsId}-${next}-tab`)?.focus()
               }}
             >
-              {source === "custom" ? "自定义模型" : "配置示例"}
+              {source === "custom" ? "自定义模型" : "提供方模型"}
             </button>
           ))}
         </div>
@@ -184,7 +214,7 @@ export function LlmProviderSection() {
           <CustomProviderCards />
         </div>
         <div id={`${uiTestTabsId}-presets-panel`} role="tabpanel" aria-labelledby={`${uiTestTabsId}-presets-tab`} data-ui="llm-presets" hidden={uiTestSource !== "presets"}>
-          <p className="ui-test-provider-note">保留全部内置提供方与本地 CLI 能力。配置先保留在草稿，点击本项“保存配置”后生效。检测、拉取和测试需要主动点击。</p>
+          <p className="ui-test-provider-note">填入 API 密钥后可拉取并测试模型。选择结果保存在同一个输入框中，点击“保存配置”后生效。</p>
           <div className="space-y-2">
             {LLM_PRESETS.filter((preset) => preset.id !== "custom").map((preset) => {
               return (
@@ -194,8 +224,7 @@ export function LlmProviderSection() {
           </div>
         </div>
       </div>
-    )
-  }
+  )
 
   return (
     <div className="space-y-6">
@@ -265,6 +294,21 @@ interface PresetRowProps {
   onChange: (patch: ProviderOverride) => void
 }
 
+function UiTestProviderModelInput({ model, savedModels, options, failedModels, onChange }: { model: string; savedModels: SavedModel[]; options: string[]; failedModels: string[]; onChange: (patch: ProviderOverride) => void }) {
+  const [manual, setManual] = useState("")
+  const add = (values: string[], includeManual = false) => {
+    const source = includeManual ? { model, savedModels } : { model: "", savedModels }
+    const next = mergeProviderModels(source, values)
+    onChange({ model: next.model, savedModels: next.savedModels })
+    setManual("")
+  }
+  return <div className="model-field full"><span>模型</span><div className="model-tag-input">
+    {savedModels.map(item => <span key={item.id} className={failedModels.includes(item.model) ? "is-failed" : ""}>{item.model}<button type="button" aria-label={`移除模型${item.model}`} onClick={() => onChange(removeProviderModel({ model, savedModels }, item.model))}><X /></button></span>)}
+    <input aria-label="模型" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); add(manual.split(/[,，\n]+/), true) } }} placeholder={savedModels.length ? "输入模型名称，按回车添加" : "输入模型名称或拉取后选择"} spellCheck={false} />
+    <button type="button" className="model-button" disabled={!manual.trim()} onClick={() => add(manual.split(/[,，\n]+/), true)}>添加</button>
+  </div>{!!options.length && <div className="model-catalog"><div className="model-section-heading"><p>已拉取 {options.length} 个模型 · 已选择 {savedModels.length} 个</p><div className="model-actions"><button type="button" className="model-button ghost" onClick={() => add(options)}>全选</button><button type="button" className="model-button ghost" onClick={() => onChange({ savedModels: [], model: "" })}>清空</button></div></div><p className="model-note">点击模型加入上方输入框，再次点击可取消。</p><div className="model-catalog-list">{options.map(item => { const selected = savedModels.some(saved => saved.model === item); return <button type="button" key={item} aria-pressed={selected} className={failedModels.includes(item) ? "is-failed" : ""} onClick={() => selected ? onChange(removeProviderModel({ model, savedModels }, item)) : add([item])}>{item}</button> })}</div></div>}</div>
+}
+
 function UiTestPresetCard({ preset, expanded, onToggle }: { preset: LlmPreset; expanded: boolean; onToggle: () => void }) {
   const initial = useMemo<ProviderOverride>(() => ({ model: preset.defaultModel ?? "", baseUrl: preset.baseUrl, apiMode: preset.apiMode, maxContextSize: preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE, maxOutputTokens: preset.suggestedMaxOutputTokens ?? 131072 }), [preset.id])
   const { draft, saved, dirty, saving, status, update, save, reset } = useProviderDraft(preset.id, initial)
@@ -274,7 +318,7 @@ function UiTestPresetCard({ preset, expanded, onToggle }: { preset: LlmPreset; e
     <fieldset disabled={saving}>
       <PresetRow preset={preset} override={draft} isActive={false} isEnabled={enabled} isExpanded={expanded} savedHere={false} onToggleActive={() => {}} onToggleEnabled={() => update({ enabled: !enabled })} onToggleExpand={onToggle} onChange={update} />
     </fieldset>
-    {(expanded || dirty) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (dirty ? "有未保存修改，启用状态也将在保存后生效。" : saved ? "当前配置已保存。" : "配置示例，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions">{dirty && <button type="button" className="model-button ghost" disabled={saving} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) reset() }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!dirty || saving} onClick={() => void save(validateProviderDraft(draft, { endpointRequired: !localCli && ["custom", "azure", "ollama"].includes(preset.provider), modelRequired: !localCli }))}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
+    {(expanded || dirty) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (dirty ? "有未保存修改，启用状态也将在保存后生效。" : saved ? "当前配置已保存。" : "提供方模型，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions">{dirty && <button type="button" className="model-button ghost" disabled={saving} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) reset() }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!dirty || saving} onClick={() => void save(validateProviderDraft(draft, { endpointRequired: !localCli && ["custom", "azure", "ollama"].includes(preset.provider), modelRequired: !localCli }))}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
   </div>
 }
 
@@ -749,6 +793,15 @@ function PresetRow({
             </div>
           )}
 
+          {IS_UI_TEST_BUILD ? (
+            <UiTestProviderModelInput
+              model={model}
+              savedModels={ov.savedModels ?? []}
+              options={modelOptions}
+              failedModels={modelTestState?.failedModels ?? []}
+              onChange={onChange}
+            />
+          ) : (
           <div className="space-y-2">
             <Label>
               {preset.provider === "azure"
@@ -765,9 +818,10 @@ function PresetRow({
               onChange={(v) => onChange({ model: v })}
             />
           </div>
+          )}
 
           {/* 拉取模型后的多选标签区域 */}
-          {modelOptions.length > 0 && (
+          {!IS_UI_TEST_BUILD && modelOptions.length > 0 && (
             <div className="space-y-2 border-t pt-4">
               <div className="flex items-center justify-between">
                 <button
@@ -811,7 +865,7 @@ function PresetRow({
           )}
 
           {/* 已选模型显示 */}
-          {(ov.savedModels ?? []).length > 0 && (
+          {!IS_UI_TEST_BUILD && (ov.savedModels ?? []).length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
               <textarea
@@ -825,7 +879,7 @@ function PresetRow({
             </div>
           )}
 
-          <SavedModelsManager
+          {!IS_UI_TEST_BUILD && <SavedModelsManager
             savedModels={ov.savedModels ?? []}
             onChange={(models) => onChange({ savedModels: models })}
             hideEndpoint={isCursorCliProvider}
@@ -838,7 +892,7 @@ function PresetRow({
                 ? resolvedConfig.customEndpoint
                 : (saved.customEndpoint?.trim() || resolvedConfig.customEndpoint),
             })}
-          />
+          />}
 
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">
@@ -927,7 +981,7 @@ function PresetRow({
             onChange={(functionCallingEnabled) => onChange({ functionCallingEnabled })}
           />
 
-          <div className="space-y-2 rounded-md border p-3">
+          {!IS_UI_TEST_BUILD && <div className="space-y-2 rounded-md border p-3">
             <div>
               <div className="text-sm font-medium">
                 {t("settings.sections.llm.providerTests")}
@@ -968,7 +1022,7 @@ function PresetRow({
                 {testState.result.message}
               </div>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>
@@ -998,7 +1052,7 @@ export function FunctionCallingControls({
         <div className="text-xs text-muted-foreground">
           {t(
             "settings.sections.llm.functionCalling.hint",
-            "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具与 MCP），用于兼容不支持工具调用的中转或本地模型。",
+            "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具），用于兼容不支持工具调用的中转或本地模型。",
           )}
         </div>
       </div>

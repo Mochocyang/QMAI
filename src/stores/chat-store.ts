@@ -46,6 +46,7 @@ export interface DisplayMessage {
   attachedReferences?: ReferenceToken[]
   contextTrace?: ContextTrace
   contextHubSnapshot?: ContextHubSnapshotRef
+  generationTiming?: { startedAt: number; finishedAt?: number }
   reasoning_content?: string
   /** Chapter number / path clue written when the user saves to the chapter library. */
   chapterRef?: ChapterRef

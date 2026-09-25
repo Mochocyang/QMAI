@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -50,13 +50,32 @@ describe("新版上下文中控数字摘要", () => {
     const { ContextHubStatsSummary } = await import("./context-hub-stats-summary")
     await act(async () => root.render(<ContextHubStatsSummary stats={stats} />))
 
-    expect(host.textContent).toContain("109 Token")
+    expect(host.querySelector("[aria-label='查看本轮用量']")).not.toBeNull()
+    expect(host.querySelector("[aria-label^='用时']")).not.toBeNull()
     expect(host.textContent).not.toContain("上下文中控")
     expect(host.textContent).not.toContain("本地资料复用率")
     expect(host.textContent).not.toContain("模型输入缓存命中率")
 
-    expect(host.querySelector('[title^="上下文约"]')).not.toBeNull()
-    expect(host.querySelector('[title^="模型输入缓存命中率"]')).not.toBeNull()
-    expect(host.querySelector('[title^="本地资料复用率"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="查看本轮用量"]')).not.toBeNull()
+    expect(host.querySelector("[aria-label='用时 —']")).not.toBeNull()
+  })
+
+  it("章节工作流总账有用量时显示真实数字", async () => {
+    const { UiTestGenerationStats } = await import("./context-hub-stats-summary")
+    await act(async () => root.render(<UiTestGenerationStats stats={{
+      ...stats,
+      requestDiagnostics: {
+        requestCount: 3,
+        providerUsageAvailable: true,
+        usageTotals: { requestCount: 3, inputTokens: 1000, outputTokens: 200, cachedInputTokens: 600 },
+      },
+    }} />))
+
+    expect(host.querySelector("[aria-label='查看本轮用量']")?.textContent).toContain("1.8K tok")
+    await act(async () => host.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(host.textContent).toContain("60%")
+    expect(host.textContent).toContain("400 tok")
+    expect(host.textContent).toContain("600 tok")
+    expect(host.textContent).toContain("200 tok")
   })
 })

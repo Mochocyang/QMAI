@@ -12,7 +12,7 @@ const webSearchSectionSource = readFileSync(
 const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8")
 
 describe("Web Search settings restore", () => {
-  it("mounts web-search as an independent settings category between network and mcp", () => {
+  it("mounts web-search as an independent settings category after network", () => {
     expect(settingsViewSource).toContain('| "web-search"')
     expect(settingsViewSource).toContain(
       '{ id: "web-search", labelKey: "settings.categories.webSearch", icon: Search }',
@@ -23,10 +23,9 @@ describe("Web Search settings restore", () => {
 
     const networkIdx = settingsViewSource.indexOf('{ id: "network"')
     const webSearchIdx = settingsViewSource.indexOf('{ id: "web-search"')
-    const mcpIdx = settingsViewSource.indexOf('{ id: "mcp"')
     expect(networkIdx).toBeGreaterThan(-1)
     expect(webSearchIdx).toBeGreaterThan(networkIdx)
-    expect(mcpIdx).toBeGreaterThan(webSearchIdx)
+    expect(settingsViewSource).not.toContain('{ id: "mcp"')
   })
 
   it("lists domestic providers before self-hosted and international ones", () => {

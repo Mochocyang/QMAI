@@ -170,6 +170,8 @@ export function composeLiveContextUsage(
   lastUsage: ContextUsageSnapshot | null | undefined,
   live: {
     windowTokens?: number
+    softwareRules?: string
+    toolDefinitionsJson?: string
     sessionSummaryText?: string
     historyTexts?: string[]
     currentInput?: string
@@ -201,6 +203,8 @@ export function composeLiveContextUsage(
   const segments: ContextUsageSegment[] = CONTEXT_USAGE_SEGMENT_ORDER.map((key) => {
     if (key === "currentInput") return { key, tokens: currentInputTokens }
     if (key === "toolResults") return { key, tokens: pendingToolTokens }
+    if (!calibrated && key === "softwareRules") return { key, tokens: estimateText(live.softwareRules) }
+    if (!calibrated && key === "toolDefinitions") return { key, tokens: estimateText(live.toolDefinitionsJson) }
     if (!calibrated && key === "history") return { key, tokens: historyTokens }
     if (!calibrated && key === "sessionSummary") return { key, tokens: summaryTokens }
     return { key, tokens: lastByKey.get(key) ?? 0 }

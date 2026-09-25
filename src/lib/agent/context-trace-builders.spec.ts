@@ -173,16 +173,4 @@ describe("context trace builders", () => {
     expect(JSON.stringify(info.selectedCapabilities)).not.toContain("private skill content")
     expect(JSON.stringify(info.selectedCapabilities)).not.toContain("raw web page body")
   })
-
-  it("initializes MCP call trace collection", () => {
-    const info = buildInitialContextTraceInfo(
-      {
-        intent: "character_query",
-        confidence: 0.9,
-        extractedParams: {},
-      } as any,
-    )
-
-    expect(info.mcpCalls).toEqual([])
-  })
 })

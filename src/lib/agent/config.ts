@@ -63,7 +63,6 @@ export function buildAgentConfig(
     : {
         ...options,
         enabledToolNames: [],
-        mcpTools: [],
       })
 
   return {

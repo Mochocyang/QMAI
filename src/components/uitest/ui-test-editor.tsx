@@ -149,35 +149,29 @@ export function UiTestEditor({
           </div>
           <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
             {actions}
-            <Menu.Root modal={false}>
+            {false && kind === "chapter" && <Menu.Root modal={false}>
               <Menu.Trigger className="ui-test-editor-action ui-test-editor-more" aria-label="更多编辑器操作" title="更多编辑器操作">
                 <MoreHorizontal aria-hidden="true" />
               </Menu.Trigger>
               <Menu.Portal container={scrollRef}>
               <Menu.Positioner className="ui-test-editor-menu-positioner" positionMethod="fixed" align="end" sideOffset={6} collisionPadding={12}>
                 <Menu.Popup className="ui-test-editor-menu" aria-label="更多编辑器操作">
-                  <Menu.Item nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" onClick={() => setMode(mode === "edit" ? "read" : "edit")}>
+                  {kind === "chapter" ? <Menu.Item nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" onClick={() => setMode(mode === "edit" ? "read" : "edit")}>
                     {mode === "edit" ? <Eye aria-hidden="true" /> : <Pencil aria-hidden="true" />}
                     {mode === "edit" ? "预览正文" : "编辑正文"}
-                  </Menu.Item>
-                  {kind === "outline" && auxiliaryPanel ? (
-                    <Menu.Item nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" aria-expanded={showAuxiliary} onClick={() => {
-                      setAuxiliaryMounted(true)
-                      setShowAuxiliary((open) => !open)
-                    }}><MoreHorizontal aria-hidden="true" />批量大纲工具</Menu.Item>
-                  ) : null}
-                  {moreActions.map((action) => (
+                  </Menu.Item> : null}
+                  {moreActions.filter((action) => kind === "chapter" || action.label !== "关闭文档").map((action) => (
                     <Menu.Item key={action.label} nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" disabled={action.disabled} onClick={action.onClick}>
                       {action.icon}{action.label}
                     </Menu.Item>
                   ))}
-                  <Menu.Item nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" onClick={() => setShowPath((value) => !value)}>
+                  {kind === "chapter" ? <Menu.Item nativeButton render={<button type="button" />} className="ui-test-editor-menu-item" onClick={() => setShowPath((value) => !value)}>
                     <FileText aria-hidden="true" />{showPath ? "收起文件详情" : "查看文件详情"}
-                  </Menu.Item>
+                  </Menu.Item> : null}
                 </Menu.Popup>
               </Menu.Positioner>
               </Menu.Portal>
-            </Menu.Root>
+            </Menu.Root>}
           </div>
           {kind === "outline" && auxiliaryMounted ? <div className="ui-test-editor-auxiliary" hidden={!showAuxiliary}>{auxiliaryPanel}</div> : null}
           {showPath ? (

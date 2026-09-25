@@ -57,7 +57,7 @@ describe("SelectCapabilitiesPlugin", () => {
     expect(result.selectedCapabilities).toEqual([])
   })
 
-  it("merges MCP capabilities with selected skills when building available capabilities", async () => {
+  it("selects enabled skills when building available capabilities", async () => {
     const plugin = createSelectCapabilitiesPlugin()
     const selectedSkill = normalizeUserSkill({
       id: "plot-turns",
@@ -77,24 +77,12 @@ describe("SelectCapabilitiesPlugin", () => {
       novelMode: true,
       aiWorkflowMode: "strict",
       selectedSkills: [selectedSkill],
-      mcpCapabilities: [{
-        id: "mcp:graph:query_graph",
-        name: "Knowledge Graph / query_graph",
-        kind: "mcp_tool",
-        permission: "auto",
-        modes: ["strict"],
-        intents: ["search_plot", "character_query", "general"],
-        toolName: "mcp_graph_query_graph",
-        source: "mcp",
-      }],
       taskRoute: { intent: "search_plot", confidence: 0.9, extractedParams: {} },
     })
 
     expect(result.selectedCapabilities).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "mcp:graph:query_graph", kind: "mcp_tool" }),
       expect.objectContaining({ id: "skill:plot-turns", kind: "user_skill" }),
     ]))
-    expect(result.enabledToolNames).toContain("mcp_graph_query_graph")
   })
 
   it("filters out writing tools during plan phase in standard mode", async () => {

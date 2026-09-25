@@ -16,7 +16,6 @@ const breakpointMocks = vi.hoisted(() => ({
     usedSkills: [],
     usedTools: [],
     searches: [],
-    mcpCalls: [],
     createdAt: 0,
     updatedAt: 0,
   })),

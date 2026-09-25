@@ -1,4 +1,3 @@
-import { confirmModelAction } from "./model-confirm"
 import { useEffect, useRef, useState } from "react"
 import type { LlmConfig, ProviderOverride } from "@/stores/wiki-store"
 import { testSettingsLlmModel } from "@/lib/settings-model-test"
@@ -17,7 +16,6 @@ export function useUiTestProviderBatch(draft: ProviderOverride, enabled: boolean
   async function runBatchTest(models: string[], buildConfig: (model: string) => LlmConfig) {
     if (!enabled || busy.current) return
     if (!models.length || models.some(model => !model.trim())) { setState({ ...IDLE, message: "请先输入或选择模型。" }); return }
-    if (!(await confirmModelAction(`将测试 ${models.length} 个模型，可能消耗 token 和费用；不会保存配置。是否继续？`))) return
     const generation = ++revision.current
     const current = () => alive.current && revision.current === generation
     busy.current = true; setState({ loading: true, success: false, message: "正在测试…" })

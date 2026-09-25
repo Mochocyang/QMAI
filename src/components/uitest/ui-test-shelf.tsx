@@ -1,24 +1,45 @@
-import { useEffect, useMemo, useState } from "react"
-import { FolderOpen, Plus, Search, ArrowRight, BookOpen } from "lucide-react"
+import { useEffect, useState } from "react"
+import { FolderOpen, Plus, BookOpen, RectangleVertical } from "lucide-react"
 import type { WikiProject } from "@/types/wiki"
-import { getExecutableDir, listDirectory, readFile } from "@/commands/fs"
+import { getExecutableDir, listDirectory, moveProjectToSystemTrash, openProjectFolder, readFile, renameProject } from "@/commands/fs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { normalizeComparablePath } from "@/lib/path-utils"
-import { getRecentProjects } from "@/lib/project-store"
+import { getRecentProjects, removeProjectRecords } from "@/lib/project-store"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
-import { getUiTestProjects, mergeUiTestProjects, registerUiTestProjects } from "@/lib/ui-test-library"
+import { getUiTestProjects, mergeUiTestProjects, registerUiTestProjects, replaceUiTestProjectPath } from "@/lib/ui-test-library"
 import "./ui-test-shelf.css"
 
 const COVER_COLORS = Array.from({ length: 8 }, (_, index) => `var(--ui-shelf-cover-${index + 1})`)
+const COVER_SIZE_KEY = "qm-uitest-shelf-cover-size-v1"
+const COVER_SIZES = [
+  { id: "large", label: "大封面", size: 22 },
+  { id: "medium", label: "中封面", size: 17 },
+  { id: "small", label: "小封面", size: 13 },
+] as const
+type CoverSize = (typeof COVER_SIZES)[number]["id"]
+
+function readCoverSize(): CoverSize {
+  try {
+    const value = localStorage.getItem(COVER_SIZE_KEY)
+    return COVER_SIZES.some((item) => item.id === value) ? value as CoverSize : "medium"
+  } catch {
+    return "medium"
+  }
+}
 
 interface ShelfBook {
   project: WikiProject
   wordCount: number | null
-  wordCountError: boolean
   coverIndex: number
+}
+
+interface ShelfMenu {
+  project: WikiProject
+  x: number
+  y: number
 }
 
 interface UiTestShelfProps {
@@ -34,8 +55,12 @@ async function countBookWords(projectPath: string): Promise<number> {
   let total = 0
   for (const file of files) {
     if (!/\.md$/i.test(file.path)) continue
-    const content = await readFile(file.path)
-    total += countChapterBodyWords(content)
+    try {
+      const content = await readFile(file.path)
+      total += countChapterBodyWords(content)
+    } catch {
+      // 单章读取失败不隐藏整本书，已读章节仍累计。
+    }
   }
   return total
 }
@@ -78,9 +103,12 @@ export function UiTestShelf({
 }: UiTestShelfProps) {
   const [books, setBooks] = useState<ShelfBook[]>([])
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState("")
-  const [status, setStatus] = useState<"all" | "writing" | "planning">("all")
   const [scanError, setScanError] = useState("")
+  const [actionError, setActionError] = useState("")
+  const [menu, setMenu] = useState<ShelfMenu | null>(null)
+  const [renaming, setRenaming] = useState<WikiProject | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [coverSize, setCoverSize] = useState<CoverSize>(readCoverSize)
 
   useEffect(() => {
     if (!IS_UI_TEST_BUILD) return
@@ -116,21 +144,15 @@ export function UiTestShelf({
         warnings.push(error instanceof Error ? error.message : "书架索引保存失败，小说文件未受影响。")
       }
       setScanError([...new Set(warnings)].join(" "))
-      setBooks(merged.map((project, index) => ({ project, wordCount: null, wordCountError: false, coverIndex: index % COVER_COLORS.length })))
+      setBooks(merged.map((project, index) => ({ project, wordCount: null, coverIndex: index % COVER_COLORS.length })))
       setLoading(false)
 
       for (const project of merged) {
         if (cancelled) return
-        let wordCount: number | null = null
-        let wordCountError = false
-        try {
-          wordCount = await countBookWords(project.path)
-        } catch {
-          wordCountError = true
-        }
+        const wordCount = await countBookWords(project.path).catch(() => -1)
         if (cancelled) return
         setBooks((current) => current.map((book) => book.project.path === project.path
-          ? { ...book, wordCount, wordCountError }
+          ? { ...book, wordCount }
           : book))
       }
     }
@@ -145,100 +167,96 @@ export function UiTestShelf({
     }
   }, [])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase()
-    return books.filter((book) => {
-      const matchQuery = !q || book.project.name.toLocaleLowerCase().includes(q)
-      const matchStatus = status === "all" || (book.wordCount !== null
-        && (status === "writing" ? book.wordCount > 0 : book.wordCount === 0))
-      return matchQuery && matchStatus
-    })
-  }, [books, query, status])
+  async function renameBook() {
+    if (!renaming) return
+    try {
+      const renamed = await renameProject(renaming.path, renameValue)
+      await removeProjectRecords(renaming.path)
+      replaceUiTestProjectPath(renaming.path, renamed)
+      setBooks((current) => current.map((book) => book.project.path === renaming.path ? { ...book, project: renamed } : book))
+      setRenaming(null)
+      setActionError("")
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "重命名失败，原小说未改动。")
+    }
+  }
+
+  async function removeBook(project: WikiProject) {
+    if (!window.confirm(`确定将“${project.name}”移入系统回收站？`)) return
+    try {
+      await moveProjectToSystemTrash(project.path)
+      await removeProjectRecords(project.path)
+      const remaining = getUiTestProjects().filter((item) => item.path !== project.path)
+      localStorage.setItem("qm-uitest-library", JSON.stringify({ schemaVersion: 1, projects: remaining }))
+      setBooks((current) => current.filter((book) => book.project.path !== project.path))
+      setMenu(null)
+      setActionError("")
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "移入系统回收站失败，小说未删除。")
+    }
+  }
 
   if (!IS_UI_TEST_BUILD) return null
 
-  const countLabel = loading ? "正在读取书架…" : `${filtered.length} 部小说`
-  const hasFilter = !!query.trim() || status !== "all"
+  const countLabel = loading ? "正在读取书架…" : `${books.length} 部小说`
 
   return (
     <div className="ui-test-shelf">
       <div className="ui-test-shelf-inner">
         <div className="ui-test-shelf-hero">
-          <div className="ui-test-shelf-heading">
-            <div className="ui-test-eyebrow">你的私人书架 · 每一本，都是一个世界</div>
-            <h1 className="ui-test-hero-title">每个故事，都有自己的位置。</h1>
-            <p className="ui-test-hero-sub">开一本新书，或接着上次的灵感。不必从头寻找。</p>
-          </div>
           <div className="ui-test-shelf-actions">
+            <button type="button" className="ui-test-btn primary" onClick={onCreateProject}>
+              <Plus aria-hidden="true" />
+              新建小说
+            </button>
             <button type="button" className="ui-test-btn ghost" onClick={onOpenProject}>
               <FolderOpen aria-hidden="true" />
               打开已有
             </button>
+          </div>
+          <div className="ui-test-cover-sizes" role="group" aria-label="封面大小">
+            {COVER_SIZES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`ui-test-cover-size${coverSize === item.id ? " is-active" : ""}`}
+                aria-label={item.label}
+                aria-pressed={coverSize === item.id}
+                title={item.label}
+                onClick={() => {
+                  setCoverSize(item.id)
+                  try { localStorage.setItem(COVER_SIZE_KEY, item.id) } catch { /* 尺寸切换仍对当前页面生效。 */ }
+                }}
+              >
+                <RectangleVertical aria-hidden="true" size={item.size} strokeWidth={1.8} />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ui-test-shelf-count">
+          <span role="status" aria-live="polite">{countLabel}</span>
+        </div>
+        {scanError && <p className="ui-test-shelf-alert" role="alert">{scanError}</p>}
+        {actionError && <p className="ui-test-shelf-alert" role="alert">{actionError}</p>}
+
+        {loading ? (
+          <div className="ui-test-empty" role="status"><p>正在读取本地书架…</p></div>
+        ) : books.length === 0 ? (
+          <div className="ui-test-empty">
+            <BookOpen aria-hidden="true" className="h-8 w-8" />
+            <h2>这里还没有书</h2>
+            <p>新建一本小说，或打开已有目录，开始写作。</p>
             <button type="button" className="ui-test-btn primary" onClick={onCreateProject}>
               <Plus aria-hidden="true" />
               新建小说
             </button>
           </div>
-        </div>
-
-        <div className="ui-test-shelf-controls">
-          <div className="ui-test-tabs" role="group" aria-label="按创作状态筛选">
-            {(["all", "writing", "planning"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`ui-test-tab${status === value ? " is-active" : ""}`}
-                aria-pressed={status === value}
-                onClick={() => setStatus(value)}
-              >
-                {value === "all" ? "全部小说" : value === "writing" ? "创作中" : "构思中"}
-              </button>
-            ))}
-          </div>
-          <label className="ui-test-searchbox">
-            <Search aria-hidden="true" />
-            <input
-              type="search"
-              aria-label="搜索小说"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="找一本书…"
-            />
-          </label>
-        </div>
-
-        <div className="ui-test-shelf-count">
-          <span role="status" aria-live="polite">{countLabel}</span>
-          <span>点击书封，直接继续上次的创作</span>
-        </div>
-        {scanError && <p className="ui-test-shelf-alert" role="alert">{scanError}</p>}
-
-        {loading ? (
-          <div className="ui-test-empty" role="status"><p>正在读取本地书架…</p></div>
-        ) : filtered.length === 0 ? (
-          <div className="ui-test-empty">
-            <BookOpen aria-hidden="true" className="h-8 w-8" />
-            <h2>{hasFilter ? "没有找到匹配的小说" : "这里还没有书"}</h2>
-            <p>{hasFilter ? "试试其他书名，或清除筛选查看全部小说。" : "新建一本小说，或打开已有目录，开始写作。"}</p>
-            {hasFilter ? (
-              <button type="button" className="ui-test-btn" onClick={() => { setQuery(""); setStatus("all") }}>
-                清除筛选
-              </button>
-            ) : (
-              <button type="button" className="ui-test-btn primary" onClick={onCreateProject}>
-                <Plus aria-hidden="true" />
-                新建小说
-              </button>
-            )}
-          </div>
         ) : (
-          <div className="ui-test-books-grid">
-            {filtered.map((book) => {
+          <div className={`ui-test-books-grid is-${coverSize}`}>
+            {books.map((book) => {
               const name = book.project.name.trim().replace(/^《(.+)》$/s, "$1")
-              const isWriting = book.wordCount !== null && book.wordCount > 0
-              const isPlanning = book.wordCount === 0
               const coverChar = Array.from(name)[0] || "书"
-              const words = book.wordCountError ? "读取失败" : book.wordCount === null ? "统计中…" : formatWords(book.wordCount)
               return (
                 <Tooltip key={book.project.path}>
                   <TooltipTrigger render={
@@ -246,6 +264,7 @@ export function UiTestShelf({
                       type="button"
                       className="ui-test-book-card"
                       onClick={() => onSelectProject(book.project)}
+                      onContextMenu={(event) => { event.preventDefault(); setMenu({ project: book.project, x: event.clientX, y: event.clientY }) }}
                       aria-label={`打开小说：${name}`}
                     />
                   }>
@@ -255,17 +274,7 @@ export function UiTestShelf({
                     </span>
                     <span className="ui-test-book-info">
                       <span className="ui-test-book-title" role="heading" aria-level={2}>{name}</span>
-                      <span className="ui-test-book-stats">
-                        <strong aria-live="polite">{words}</strong>
-                        <span className="ui-test-book-status">
-                          {(isWriting || isPlanning) && <i className="ui-test-status-dot" aria-hidden="true" />}
-                          {isWriting ? "创作中" : isPlanning ? "构思中" : "状态待确认"}
-                        </span>
-                      </span>
-                      <span className="ui-test-book-next">
-                        <span>{isPlanning ? "从大纲开始" : "打开小说"}</span>
-                        <ArrowRight aria-hidden="true" />
-                      </span>
+                      <span className="ui-test-book-words">{book.wordCount == null ? "字数读取中" : book.wordCount < 0 ? "字数不可用" : formatWords(book.wordCount)}</span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent className="ui-test-shelf-tooltip" side="bottom">{name}</TooltipContent>
@@ -274,6 +283,17 @@ export function UiTestShelf({
             })}
           </div>
         )}
+        {menu && <div className="ui-test-shelf-menu" role="menu" style={{ left: menu.x, top: menu.y }} onMouseLeave={() => setMenu(null)}>
+          <button type="button" role="menuitem" onClick={() => { setRenaming(menu.project); setRenameValue(menu.project.name); setMenu(null) }}>重命名</button>
+          <button type="button" role="menuitem" onClick={() => { void openProjectFolder(menu.project.path).catch((error) => setActionError(error instanceof Error ? error.message : "打开文件夹失败。")); setMenu(null) }}>打开文件夹</button>
+          <button type="button" role="menuitem" onClick={() => void removeBook(menu.project)}>删除</button>
+        </div>}
+        {renaming && <div className="ui-test-shelf-rename">
+          <form onSubmit={(event) => { event.preventDefault(); void renameBook() }}>
+            <label>小说名称<input aria-label="小说名称" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus /></label>
+            <div className="ui-test-shelf-rename-actions"><button type="button" onClick={() => setRenaming(null)}>取消</button><button type="submit">保存</button></div>
+          </form>
+        </div>}
       </div>
     </div>
   )

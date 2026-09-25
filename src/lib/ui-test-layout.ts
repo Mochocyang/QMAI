@@ -1,26 +1,31 @@
-﻿import type { FileNode } from "@/types/wiki"
+import type { FileNode } from "@/types/wiki"
 
 export const UI_TEST_AI_DEFAULT_WIDTH = 320
 export const UI_TEST_AI_MIN_WIDTH = 280
-export const UI_TEST_AI_MAX_WIDTH = 520
 export const UI_TEST_PANEL_GAP = 12
+
+export function getUiTestAiMaxWidth(containerWidth: number): number {
+  return Math.max(UI_TEST_AI_MIN_WIDTH, Math.floor(Math.max(0, containerWidth) * 0.5))
+}
 
 export function getUiTestPanelLayout(containerWidth: number, requestedWidth: number, viewportWidth: number) {
   const width = Math.max(0, Number.isFinite(containerWidth) ? containerWidth : 0)
   const editorMin = viewportWidth >= 1180 ? 480 : 360
+  const maxByHalf = getUiTestAiMaxWidth(width)
   const tabs = viewportWidth < 768 || width < editorMin + UI_TEST_AI_MIN_WIDTH + UI_TEST_PANEL_GAP
-  if (tabs) return { mode: "tabs" as const, aiWidth: width, editorWidth: width, maxAiWidth: UI_TEST_AI_MAX_WIDTH }
-  const maxAiWidth = Math.min(UI_TEST_AI_MAX_WIDTH, width - UI_TEST_PANEL_GAP - editorMin)
+  if (tabs) return { mode: "tabs" as const, aiWidth: width, editorWidth: width, maxAiWidth: maxByHalf }
+  const maxAiWidth = Math.min(maxByHalf, width - UI_TEST_PANEL_GAP - editorMin)
   const desired = Number.isFinite(requestedWidth) ? requestedWidth : UI_TEST_AI_DEFAULT_WIDTH
   const aiWidth = Math.round(Math.max(UI_TEST_AI_MIN_WIDTH, Math.min(maxAiWidth, desired)))
   return { mode: "split" as const, aiWidth, editorWidth: width - UI_TEST_PANEL_GAP - aiWidth, maxAiWidth }
 }
 
-export function resizeUiTestAiByKey(width: number, key: string): number {
+export function resizeUiTestAiByKey(width: number, key: string, containerWidth = 1040): number {
+  const maxWidth = getUiTestAiMaxWidth(containerWidth)
   if (key === "Home") return UI_TEST_AI_MIN_WIDTH
-  if (key === "End") return UI_TEST_AI_MAX_WIDTH
+  if (key === "End") return maxWidth
   const step = key === "ArrowLeft" ? 16 : key === "ArrowRight" ? -16 : 0
-  return Math.max(UI_TEST_AI_MIN_WIDTH, Math.min(UI_TEST_AI_MAX_WIDTH, width + step))
+  return Math.max(UI_TEST_AI_MIN_WIDTH, Math.min(maxWidth, width + step))
 }
 
 export function filterUiTestDirectory(nodes: FileNode[], query: string, titles: Map<string, string>): FileNode[] {

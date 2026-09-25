@@ -1,7 +1,8 @@
-﻿import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
+import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import {
   BookOpenCheck,
   BookText,
@@ -469,6 +470,8 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const [outlineImporting, setOutlineImporting] = useState(false)
+  const [bulkOutlineOpen, setBulkOutlineOpen] = useState(false)
+  const [bulkChapterOpen, setBulkChapterOpen] = useState(false)
   const [outlineImportMenuOpen, setOutlineImportMenuOpen] = useState(false)
   const outlineImportMenuRef = useRef<HTMLDivElement | null>(null)
   const [chapterImporting, setChapterImporting] = useState(false)
@@ -1131,7 +1134,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
           onImportFiles={() => { if (isChapter) void handleImportChapterFiles(); else void handleImportOutlineFiles() }}
           onImportFolder={() => { if (isChapter) void handleImportChapterFolder(); else void handleImportOutlineFolder() }}
-          onOpenAssistant={() => { if (isChapter) setChatExpanded(true); else setOutlineChatOpen(true) }}
+          onOpenAssistant={() => { if (isChapter) setBulkChapterOpen((open) => !open); else setBulkOutlineOpen((open) => !open) }}
           onClose={onUiTestCloseDirectory}
           onHelp={() => void openExternalUrl(USAGE_GUIDE_URL)}
         />
@@ -1272,6 +1275,8 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
         </div>
       )}
 
+      {IS_UI_TEST_BUILD && !isChapter && bulkOutlineOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools /></div>}
+      {IS_UI_TEST_BUILD && isChapter && bulkChapterOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools kind="chapter" /></div>}
       <div className="flex-1 overflow-hidden">
         <KnowledgeTree
           searchQuery={IS_UI_TEST_BUILD ? uiTestQuery : undefined}

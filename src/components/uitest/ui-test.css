@@ -29,7 +29,19 @@
   --brand-500: #7ba37e; --brand-600: #b0c9ae; --brand-700: #c2d6c0; --brand-800: #d9e7d7;
 }
 html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #root { background: transparent !important; }
-.ui-test-root { position: fixed; inset: 0; padding: 14px; background: transparent; color: var(--ui-ink); font: 14px/1.6 var(--ui); isolation: isolate; }
+.ui-test-root { position: fixed; inset: 0; padding: 0; background: transparent; color: var(--ui-ink); font: 14px/1.6 var(--ui); isolation: isolate; }
+.ui-test-resize-edge { position: fixed; z-index: 100; touch-action: none; }
+.ui-test-resize-edge.top, .ui-test-resize-edge.bottom { left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.ui-test-resize-edge.top { top: 0; }
+.ui-test-resize-edge.bottom { bottom: 0; }
+.ui-test-resize-edge.left, .ui-test-resize-edge.right { top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.ui-test-resize-edge.left { left: 0; }
+.ui-test-resize-edge.right { right: 0; }
+.ui-test-resize-edge.corner { width: 12px; height: 12px; }
+.ui-test-resize-edge.nw { top: 0; left: 0; cursor: nwse-resize; }
+.ui-test-resize-edge.ne { top: 0; right: 0; cursor: nesw-resize; }
+.ui-test-resize-edge.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.ui-test-resize-edge.se { bottom: 0; right: 0; cursor: nwse-resize; }
 .ui-test-root button, .ui-test-root input, .ui-test-root textarea, .ui-test-root select { font-family: var(--ui); }
 .ui-test-root button { cursor: pointer; }
 .ui-test-root button:disabled { cursor: not-allowed; opacity: .5; }
@@ -50,9 +62,9 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
     0 0 14px rgba(23, 35, 29, .055);
 }
 .ui-test-header { height: 68px; min-height: 68px; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 18px; padding: 0 28px; position: relative; z-index: 25; background: var(--ui-paper); }
-.ui-test-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.ui-test-brand > svg { width: 23px; height: 23px; color: var(--ui-accent); flex-shrink: 0; }
-.ui-test-brand-name { font: 500 21px/1.4 var(--serif); letter-spacing: 3px; white-space: nowrap; }
+.ui-test-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ui-test-brand-logo { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; display: block; }
+.ui-test-brand-name { font: 500 18px/1.3 var(--serif); letter-spacing: 1px; white-space: nowrap; }
 .ui-test-crumb { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; padding: 6px 0; font-size: 12px; color: var(--ui-muted); white-space: nowrap; margin-left: 8px; }
 .ui-test-crumb svg { width: 15px; height: 15px; }
 .ui-test-current-book { font-size: 13px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -72,6 +84,7 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-icon-btn { width: 36px; }
 .ui-test-icon-btn > svg, .ui-test-header-action > svg { width: 18px; height: 18px; flex-shrink: 0; }
 .ui-test-icon-btn:hover, .ui-test-header-action:hover { background: var(--ui-panel); }
+.ui-test-activity-entry { width: 36px; overflow: hidden; }
 .ui-test-header-action { padding: 8px 13px; gap: 7px; font-size: 13px; background: var(--ui-panel); white-space: nowrap; }
 .ui-test-header-action.is-active { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-win-actions { display: flex; align-items: center; margin-left: 12px; gap: 2px; }
@@ -125,7 +138,7 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-writing-panes { min-height: 0; min-width: 0; flex: 1; display: flex; overflow: hidden; }
 .ui-test-editor-pane { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .ui-test-ai-pane { min-height: 0; flex-shrink: 0; background: var(--ui-panel); overflow: hidden; }
-.ui-test-resize-handle { width: 12px; flex: 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; }
+.ui-test-resize-handle { width: 12px; flex: 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: ew-resize; touch-action: none; }
 .ui-test-resize-handle span { display: block; width: 3px; height: 48px; border-radius: 3px; background: var(--ui-soft); transition: background .15s; }
 .ui-test-resize-handle:hover span, .ui-test-resize-handle:focus-visible span { background: var(--ui-accent); }
 .ui-test-workspace-tabs { display: flex; flex-shrink: 0; gap: 6px; padding: 8px 16px; background: var(--ui-paper); }
@@ -157,8 +170,8 @@ html[data-ui-test-skin] .ui-test-activity-dialog { width: min(600px, calc(100vw 
 .ui-test-activity-body .max-h-64 { max-height: none; }
 @media (max-width: 1279px) { .ui-test-current-book { max-width: 110px; } .ui-test-nav-item { padding-inline: 22px; } .ui-test-header { gap: 12px; padding-inline: 22px; } .ui-test-win-actions { margin-left: 4px; } }
 @media (max-width: 1179px) { .ui-test-current-book { display: none; } .ui-test-header-action { padding-inline: 9px; } .ui-test-brand { gap: 8px; } .ui-test-crumb { margin-left: 0; } .ui-test-header { padding-inline: 18px; } .ui-test-nav-item { padding-inline: 18px; } }
-@media (max-width: 959px) { .ui-test-root { padding: 12px; } .ui-test-brand-name { font-size: 19px; } .ui-test-header { gap: 8px; padding-inline: 16px; } .ui-test-nav-item { padding-inline: 14px; } .ui-test-header-action span { display: none; } .ui-test-header-action { width: 34px; padding: 8px; } .ui-test-actions { gap: 3px; } .ui-test-win-btn { width: 19px; } }
-@media (max-width: 767px) { .ui-test-root { padding: 10px; } .ui-test-app { border-radius: 8px; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-header-action { width: 32px; min-height: 32px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 68px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-sidebar { min-width: 0; } .ui-test-tree-more { opacity: 1; } }
+@media (max-width: 959px) { .ui-test-brand-name { font-size: 19px; } .ui-test-header { gap: 8px; padding-inline: 16px; } .ui-test-nav-item { padding-inline: 14px; } .ui-test-header-action span { display: none; } .ui-test-header-action { width: 34px; padding: 8px; } .ui-test-actions { gap: 3px; } .ui-test-win-btn { width: 19px; } }
+@media (max-width: 767px) { .ui-test-app { border-radius: 8px; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-header-action { width: 32px; min-height: 32px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 68px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-sidebar { min-width: 0; } .ui-test-tree-more { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] { transition: none !important; animation: none !important; } }
 
 /* 文档行把完整标题留给用户，低频动作在悬停/键盘焦点时原位出现。 */
@@ -177,7 +190,12 @@ html[data-ui-test-skin] .ui-test-activity-dialog { width: min(600px, calc(100vw 
 .ui-test-root .ui-test-tree-delete { position: absolute; right: 0; visibility: hidden; }
 .ui-test-root .ui-test-tree-delete:focus-visible { visibility: visible; z-index: 4; opacity: 1; background: var(--ui-panel); }
 .ui-test-root .ui-test-tree-root-label { margin: 20px 8px 6px; padding: 0; font-size: 12px; font-weight: 400; }
-.ui-test-root .ui-test-outline-tools { background: var(--ui-panel); border-radius: 10px; padding: 12px; color: var(--ui-muted); font: 13px/1.7 var(--ui); }
+.ui-test-root .ui-test-outline-tools { background: var(--ui-paper); border-radius: 10px; padding: 14px; color: var(--ui-ink); font: 14px/1.6 var(--ui); }
+.ui-test-root .ui-test-outline-confirm p { margin: 0 0 12px; }
+.ui-test-root .ui-test-outline-confirm div { display: flex; justify-content: flex-end; gap: 8px; }
+.ui-test-root .ui-test-outline-confirm button { min-height: 32px; padding: 5px 12px; border-radius: 8px; font: inherit; cursor: pointer; }
+.ui-test-root .ui-test-outline-confirm .cancel { border: 1px solid var(--ui-line); background: var(--ui-paper); color: var(--ui-muted); }
+.ui-test-root .ui-test-outline-confirm .confirm { border: 0; background: var(--ui-accent); color: var(--ui-on-accent); }
 .ui-test-root .ui-test-outline-tools [data-slot="button"] { border: 0; background: var(--ui-soft); box-shadow: none; }
 .ui-test-root .ui-test-outline-tools p { white-space: pre-wrap; margin-top: 10px; }
 .ui-test-root .ui-test-local-warning { flex-shrink: 0; padding: 8px 24px; color: var(--ui-danger); background: var(--ui-warm); font-size: 13px; }

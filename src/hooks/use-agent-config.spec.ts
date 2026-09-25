@@ -9,7 +9,6 @@ import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { OutlineChatConversation } from "@/stores/outline-chat-store"
 import type { DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
 import type { UserSkillConfig } from "@/lib/novel/user-skill-store"
-import type { McpConfig } from "@/lib/mcp/config"
 import type { UseAgentConfigResult } from "@/hooks/use-agent-config"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import type { ReasoningDepth } from "@/lib/reasoning-depth"
@@ -33,7 +32,6 @@ interface StoreStates {
     defaultLlmModel: string
     novelConfig: NovelConfig
     searchApiConfig: SearchApiConfig
-    mcpConfig: McpConfig
     aiWorkflowMode: AiWorkflowMode
     aiChatReasoningDepth: ReasoningDepth
   }>
@@ -78,7 +76,6 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
       searXngCategories: ["general"],
       providerConfigs: {},
     } as SearchApiConfig,
-    mcpConfig: { servers: [] } as McpConfig,
     novelMode: true,
     aiWorkflowMode: "standard" as AiWorkflowMode,
     aiChatReasoningDepth: "auto" as ReasoningDepth,
@@ -152,10 +149,6 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
     webSearch: (...args: unknown[]) => webSearchMock(...args),
   }))
 
-  vi.doMock("@/lib/mcp/real-connector", () => ({
-    RealMcpConnector: RealMcpConnectorMock,
-  }))
-
   const { useAgentConfig } = await import("@/hooks/use-agent-config")
 
   let result: UseAgentConfigResult | null = null
@@ -191,15 +184,11 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
 }
 
 const webSearchMock = vi.fn()
-const realMcpCallerMock = vi.fn()
-const RealMcpConnectorMock = vi.fn()
 
 describe("useAgentConfig", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     webSearchMock.mockReset()
-    realMcpCallerMock.mockReset()
-    RealMcpConnectorMock.mockReset()
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   })
 
@@ -211,7 +200,6 @@ describe("useAgentConfig", () => {
     vi.doUnmock("@/lib/novel/user-skill-store")
     vi.doUnmock("@/lib/novel/deep-chapter-generation")
     vi.doUnmock("@/lib/web-search")
-    vi.doUnmock("@/lib/mcp/real-connector")
   })
 
   it("当 aiChatModel 在不支持列表中时，返回 supportsTools: false 且 config: null", async () => {
@@ -395,10 +383,10 @@ describe("useAgentConfig", () => {
       },
     })
 
-    // The orchestrating agent runs on the default model and must keep whatever
-    // reasoning its own provider config specifies.
+    // The chapter session model also receives the slider depth, so fast mode
+    // and direct chapter requests honor the same selection.
     expect(result.config?.llmConfig.model).toBe("workflow-model")
-    expect(result.config?.llmConfig.reasoning).toEqual({ mode: "auto" })
+    expect(result.config?.llmConfig.reasoning).toEqual({ mode: "high" })
 
     const workflowTool = result.registry.get("run_chapter_workflow")
     const deepChapterModule = await import("@/lib/novel/deep-chapter-generation")
@@ -614,54 +602,6 @@ describe("useAgentConfig", () => {
     await cleanup()
   }, 15000)
 
-  it("passes enabled MCP config into agent tools and exposes MCP capabilities", async () => {
-    const mcpConfig: McpConfig = {
-      servers: [{
-        id: "graph",
-        name: "Knowledge Graph",
-        enabled: true,
-        tools: [{
-          serverId: "graph",
-          serverName: "Knowledge Graph",
-          name: "query_graph",
-          description: "Query graph",
-          operation: "read",
-          inputSchema: {
-            type: "object",
-            properties: { query: { type: "string", description: "Query" } },
-            required: ["query"],
-          },
-        }],
-      }],
-    }
-    const { result, cleanup } = await renderHook("test prompt", {
-      wiki: {
-        aiChatModel: "openai/gpt-4o",
-        project: { path: "/tmp/project" } as WikiProject,
-        mcpConfig,
-      },
-      skillConfig: {
-        version: 1,
-        defaultSkillId: "built-in:comprehensive",
-        disabledSkillIds: [],
-        projectSkills: [],
-        builtInSkillOverrides: [],
-        lastChapterDeAiSkillId: null,
-      },
-    })
-
-    expect(result.registry.has("mcp_graph_query_graph")).toBe(true)
-    expect(result.config?.tools.some((tool) => tool.name === "mcp_graph_query_graph")).toBe(true)
-    expect(result.mcpCapabilities).toContainEqual(expect.objectContaining({
-      kind: "mcp_tool",
-      toolName: "mcp_graph_query_graph",
-      source: "mcp",
-    }))
-    expect(result.mcpWarnings).toEqual([])
-
-    await cleanup()
-  }, 15000)
-
   it("passes chapter workflow dependencies into the agent tool registry", async () => {
     const { result, cleanup } = await renderHook("test prompt", {
       wiki: {
@@ -681,65 +621,6 @@ describe("useAgentConfig", () => {
 
     expect(result.registry.has("run_chapter_workflow")).toBe(true)
     expect(result.config?.tools.some((tool) => tool.name === "run_chapter_workflow")).toBe(true)
-
-    await cleanup()
-  }, 15000)
-
-  it("MCP server 含 command 时注入 RealMcpConnector caller", async () => {
-    realMcpCallerMock.mockResolvedValue({
-      status: "ok",
-      content: "真实 MCP 结果",
-      summary: "真实 MCP 结果",
-    })
-    RealMcpConnectorMock.mockImplementation(function (this: { caller: unknown }) {
-      this.caller = realMcpCallerMock
-    })
-
-    const mcpConfig: McpConfig = {
-      servers: [{
-        id: "graph",
-        name: "Knowledge Graph",
-        enabled: true,
-        command: "node",
-        args: ["server.js"],
-        tools: [{
-          serverId: "graph",
-          serverName: "Knowledge Graph",
-          name: "query_graph",
-          description: "Query graph",
-          operation: "read",
-          inputSchema: {
-            type: "object",
-            properties: { query: { type: "string", description: "Query" } },
-            required: ["query"],
-          },
-        }],
-      }],
-    }
-    const { result, cleanup } = await renderHook("test prompt", {
-      wiki: {
-        aiChatModel: "openai/gpt-4o",
-        project: { path: "/tmp/project" } as WikiProject,
-        mcpConfig,
-      },
-      skillConfig: {
-        version: 1,
-        defaultSkillId: "built-in:comprehensive",
-        disabledSkillIds: [],
-        projectSkills: [],
-        builtInSkillOverrides: [],
-        lastChapterDeAiSkillId: null,
-      },
-    })
-
-    await result.registry.get("mcp_graph_query_graph")?.execute({ query: "主角" })
-
-    expect(RealMcpConnectorMock).toHaveBeenCalledWith(mcpConfig)
-    expect(realMcpCallerMock).toHaveBeenCalledWith(
-      expect.objectContaining({ serverId: "graph", toolName: "query_graph" }),
-      { query: "主角" },
-      undefined,
-    )
 
     await cleanup()
   }, 15000)

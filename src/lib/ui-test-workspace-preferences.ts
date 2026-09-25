@@ -28,8 +28,7 @@ export async function restoreUiTestWorkspace(project: WikiProject, saved = readU
     return active?.id === project.id && normalizePath(active.path) === normalizePath(project.path)
   }
   if (!current()) return
-  const view = saved.lastView
-  if (view !== "wiki" && view !== "sources" && view !== "soul") return
+  const view = "wiki"
   const path = view === "soul" ? null : getUiTestDocumentPath(project.path, saved.files?.[view], view)
   const exists = path ? await fileExists(path).catch(() => false) : false
   if (!current()) return

@@ -594,14 +594,59 @@ describe("OutlineChatPanel controls", () => {
     expect(modelIndex).toBeGreaterThan(rightControlsIndex)
   })
 
+  it("把生成模块写入输入框，并允许用斜杠打开同一菜单", async () => {
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run")
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="生成大纲模块"]')
+    await act(async () => {
+      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((button) => button.textContent?.includes("章节细纲"))
+    await act(async () => {
+      item?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input?.value).toBe("/章节细纲 ")
+    expect(runSpy).not.toHaveBeenCalled()
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "/")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(document.querySelector(".qmai-outline-generation-menu")).not.toBeNull()
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText("已收到")
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: "已收到" }
+    })
+    const request = "/章节细纲 生成关于第三章的细纲内容，结合故事生成"
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, request)
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(input?.parentElement?.querySelector(".ui-test-outline-command")?.textContent).toBe("/章节细纲")
+    await act(async () => {
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (container.textContent?.includes(request)) break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+    expect(container.textContent).toContain(request)
+  })
+
   it("renders outline generation from an icon button and keeps the menu backed by existing configs", () => {
     expect(source).toContain("ListPlus")
     expect(source).toContain('aria-label="生成大纲模块"')
     expect(source).toContain("qmai-outline-generation-menu")
     expect(source).toContain('className="qmai-outline-generation-menu fixed')
     expect(source).toContain("OUTLINE_SECTION_GENERATION_CONFIGS.map")
-    expect(source).toContain("onGenerate(config.title, config.requestHint)")
-    expect(source).toContain("onGenerate={handleGenerateSection}")
+    expect(source).toContain("onSelect(config.title, config.requestHint)")
+    expect(source).toContain("onSelect={(title) => insertOutlineGenerationCommand(title)}")
   })
 
   it("adds selected references to the outline agent request instead of only storing chips", () => {
@@ -887,7 +932,7 @@ describe("OutlineChatPanel controls", () => {
 
     expect(container.textContent).toContain("继续生成")
     expect(container.textContent).not.toContain('"status":"clear"')
-    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent?.includes("保存为大纲"))).toBe(false)
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.getAttribute("aria-label") === "保存为大纲")).toBe(false)
     expect(runSpy).not.toHaveBeenCalled()
 
     const continueButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
@@ -914,7 +959,7 @@ describe("OutlineChatPanel controls", () => {
 
     expect(container.textContent).toContain("意图分析格式无效，尚未开始生成")
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
-    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent?.includes("保存为大纲"))).toBe(false)
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.getAttribute("aria-label") === "保存为大纲")).toBe(false)
   })
 
   it("routes every outline generation menu item through the PRD 3.1 content workflow", () => {
@@ -1418,6 +1463,7 @@ describe("OutlineChatPanel controls", () => {
   it("共创模式三个入口都不进意图分析和多 Agent", () => {
     expect(source).toContain("function buildOutlineDiscussionPrompt(")
     expect(source).toContain('&& outlineMode !== "discuss"')
+    expect(source).toContain("insertOutlineGenerationCommand")
     expect(source).toMatch(/if \(outlineMode === "discuss"\) \{\s*\n\s*void handleSend\(buildOutlineDiscussionPrompt\(title, requestHint\)/)
     expect(source).toContain("// 共创模式把向导需求当讨论起点：先对齐方案再产出，不直接开写")
     expect(source).toContain('outlineModeForBudget === "discuss" && options.intentPhase !== "generation"')
@@ -1613,7 +1659,7 @@ describe("OutlineChatPanel controls", () => {
     }])], "outline-active")
     const container = await renderOutlineChatPanel()
     const saveButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("保存为大纲"))
+      .find((button) => button.getAttribute("aria-label") === "保存为大纲")
 
     expect(saveButton).toBeUndefined()
     expect(container.textContent).not.toContain("Examining the Narrative Details")
@@ -1969,7 +2015,7 @@ describe("OutlineChatPanel controls", () => {
     expect(assistant?.content).toContain("\u6cbf\u7528\u65e2\u6709\u4e16\u754c\u89c2\u5b8c\u6210\u666e\u901a\u751f\u6210\u7ed3\u679c\u3002")
     expect(container.textContent).toContain("\u591a Agent \u751f\u6210\u5931\u8d25\uff0c\u5df2\u81ea\u52a8\u5207\u6362\u4e3a\u666e\u901a\u751f\u6210\u3002")
     const saveButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u4fdd\u5b58\u4e3a\u5927\u7eb2"))
+      .find((button) => button.getAttribute("aria-label") === "保存为大纲")
     const nextButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent?.includes("\u7ee7\u7eed\u5b8c\u5584\u4eba\u7269\u5173\u7cfb"))
     expect(saveButton?.disabled).toBe(false)
@@ -2067,7 +2113,7 @@ describe("OutlineChatPanel controls", () => {
       { id: "a1", role: "assistant", content: "# \u65e7\u7ed3\u679c\n\n## \u4e3b\u89d2\n\u65e7\u5185\u5bb9" },
     ])], "outline-active")
     const container = await renderOutlineChatPanel()
-    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent?.includes("\u91cd\u65b0\u751f\u6210"))
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.getAttribute("aria-label") === "重新生成")
     await act(async () => { button?.click(); for (let i = 0; i < 100 && useOutlineChatStore.getState().runStates["outline-active"]?.status === "running"; i += 1) await new Promise((resolve) => setTimeout(resolve, 5)) })
     const answer = useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content ?? ""
     expect(answer).toContain("# \u4eba\u7269\u8bbe\u5b9a")
@@ -2094,7 +2140,7 @@ describe("OutlineChatPanel controls", () => {
     ])], "outline-active")
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((item) => item.textContent?.includes("重新生成"))
+      .find((item) => item.getAttribute("aria-label") === "重新生成")
 
     await act(async () => {
       button?.click()
@@ -2124,7 +2170,7 @@ describe("OutlineChatPanel controls", () => {
     ])], "outline-active")
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((item) => item.textContent?.includes("重新生成"))
+      .find((item) => item.getAttribute("aria-label") === "重新生成")
     await act(async () => {
       button?.click()
       for (let attempt = 0; attempt < 100; attempt += 1) {

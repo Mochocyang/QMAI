@@ -78,6 +78,12 @@ export function registerUiTestProjects(projects: WikiProject[]): void {
   }
 }
 
+export function replaceUiTestProjectPath(from: string, project: WikiProject): void {
+  if (!IS_UI_TEST_BUILD) return
+  const projects = getUiTestProjects().map((item) => pathKey(item.path) === pathKey(from) ? project : item)
+  localStorage.setItem(LIBRARY_KEY, JSON.stringify({ schemaVersion: 1, projects: mergeUiTestProjects(projects) }))
+}
+
 /** Shell 在成功打开或创建后调用；存储失败抛中文错误，调用方可提示但不应中断开书。 */
 export function registerUiTestProject(project: WikiProject): void {
   registerUiTestProjects([project])

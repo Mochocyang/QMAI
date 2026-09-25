@@ -1,4 +1,4 @@
-﻿import { Database } from "lucide-react"
+import { Database } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import {
@@ -10,14 +10,15 @@ import { ContextHubStatsSummary } from "./context-hub-stats-summary"
 
 interface ContextHubDetailsProps {
   reference: ContextHubSnapshotRef
+  timing?: { startedAt: number; finishedAt?: number }
   className?: string
 }
 
 /** 上下文中控：仅展示单行摘要，不再提供快照展开与技术详情。 */
-export function ContextHubDetails({ reference, className }: ContextHubDetailsProps) {
+export function ContextHubDetails({ reference, timing, className }: ContextHubDetailsProps) {
   const stats = isCurrentContextHubStats(reference.stats) ? reference.stats : null
   if (!stats) return null
-  if (IS_UI_TEST_BUILD) return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} /></div>
+  if (IS_UI_TEST_BUILD) return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} timing={timing} /></div>
 
   return (
     <div className={cn("mt-2 min-w-0 border-t border-border/60 pt-2", className)}>

@@ -1,4 +1,14 @@
 /* 仅独立UI测试版的模型配置，不改变正式版与调用引擎。 */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-library-list,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel,:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { display:grid; gap:10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { border:1px solid var(--ui-line); border-radius:12px; padding:12px; background:var(--ui-panel); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card { flex:1; min-height:68px; border:1.5px dashed var(--ui-line); border-radius:12px; background:transparent; color:var(--ui-muted); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button { display:grid; width:100%; min-height:76px; border:1px solid var(--ui-line); border-radius:10px; padding:10px; background:transparent; text-align:left; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button.is-selected { border-color:var(--ui-accent); background:var(--ui-soft); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid small,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item small { display:block; color:var(--ui-muted); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { margin-top:14px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel input,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel select { width:100%; margin-top:4px; }
 :is(.ui-test-root,html[data-ui-test-skin]) :is(.model-custom-providers,.model-defaults,.model-retrieval,.model-preset-card) { color: var(--ui-ink); font: 14px/1.65 var(--ui); min-width: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 18px 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-heading h2 { font: 500 16px/1.5 var(--ui); margin: 0; }
@@ -46,11 +56,26 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow-y: auto; padding: 3px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog-list button { font-size: 12px; min-height: 32px; padding: 5px 8px; background: var(--ui-paper); border: 1px solid transparent; border-radius: 6px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog-list button[aria-pressed="true"] { background: var(--ui-soft); color: var(--ui-accent); border-color: var(--ui-accent); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-catalog-list button.is-failed { color: #b42318; border-color: #b42318; background: #fff1f0; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-inline-fields { display: flex; flex-wrap: wrap; gap: 18px 32px; margin: 22px 0 8px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-inline-field { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 13px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-inline-field > span { flex: 0 0 auto; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-inline-field > input { width: 150px; min-width: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-advanced { margin: 22px 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-advanced > summary { cursor: pointer; color: var(--ui-muted); font-size: 13px; padding: 8px 0; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-advanced[open] > summary { margin-bottom: 12px; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-advanced > .space-y-2 + .space-y-2 { margin-top: 20px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-advanced[open] > summary { margin-bottom: 18px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-advanced > * + * { margin-top: 22px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-manual-input { display: flex; gap: 8px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input { display: flex; min-height: 42px; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-paper); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > span { display: inline-flex; max-width: 100%; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-accent); font-size: 12px; overflow-wrap: anywhere; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > span.is-failed { color: #b42318; box-shadow: inset 0 0 0 1px #b42318; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > span > button { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > input { min-width: 140px; flex: 1; border: 0; outline: none; background: transparent; color: var(--ui-ink); font: 14px/1.6 var(--ui); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > .model-button { flex: 0 0 auto; min-height: 30px; padding: 4px 10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-catalog { margin: 8px 0 0; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-section-heading { align-items: center; gap: 8px 16px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-field { min-width: 180px; margin: 0; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-field > select { width: 100%; min-height: 36px; margin-top: 8px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-paper); color: var(--ui-ink); font: 13px/1.5 var(--ui); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list { display: flex; flex-direction: column; gap: 10px; max-height: 280px; overflow-y: auto; margin-top: 12px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(100px,.7fr) 34px; align-items: center; gap: 8px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list code { font: 12px/1.6 var(--ui); overflow-wrap: anywhere; }
@@ -63,6 +88,8 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row h3 { font: 500 15px/1.5 var(--ui); margin: 0 0 6px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row p { font-size: 12px; color: var(--ui-muted); margin: 5px 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row > div:last-child { display: flex; flex-direction: column; gap: 8px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-default-choice { display: flex; align-items: center; gap: 8px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-default-choice select { flex: 1; min-width: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row .model-button { align-self: flex-end; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-note { padding: 12px 14px; border-radius: 8px; background: var(--ui-panel); color: var(--ui-muted); font-size: 13px; margin: 16px 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-retrieval > .model-fields { margin: 24px 0; }

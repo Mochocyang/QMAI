@@ -49,7 +49,6 @@ export interface ToolFactoryOptions {
   getChatConversations: () => { id: string; title: string; messages: { role: string; content: string }[] }[]
   getOutlineConversations: () => { id: string; title: string; messages: { role: string; content: string }[] }[]
   virtualToolContext?: VirtualToolContext
-  mcpTools?: Tool[]
   draftMode?: boolean
   projectPath?: string
   /** Session model context window in tokens (for trim_context defaults). */
@@ -127,9 +126,6 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       getPlanBlueprint: options.getPlanBlueprint,
       getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
     }))
-  }
-  for (const tool of options.mcpTools ?? []) {
-    if (shouldRegister(tool.name)) registry.register(tool)
   }
 
   if (options.virtualToolContext) {

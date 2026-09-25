@@ -1,0 +1,1 @@
+import{M as e,j as t}from"./index-BBZg1EZx.js";var n=null,r=null,i=0,a=null,o=new Set,s=new Map;async function c(){i++,n?.(),r?.(),n=null,r=null,a&&=(clearTimeout(a),null),o.clear(),s.clear(),e.getState().clear();try{await t()}catch{}}export{c as stopProjectFileSync};

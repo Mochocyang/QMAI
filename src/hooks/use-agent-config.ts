@@ -12,10 +12,6 @@ import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config"
 import type { AgentConfig } from "@/lib/agent/types"
-import type { AiCapability } from "@/lib/agent/capabilities/types"
-import { buildMcpRuntime } from "@/lib/mcp/runtime"
-import { RealMcpConnector } from "@/lib/mcp/real-connector"
-
 export interface UseAgentConfigResult {
   config: AgentConfig | null
   registry: ToolRegistry
@@ -23,8 +19,6 @@ export interface UseAgentConfigResult {
   skillConfigLoaded: boolean
   skillConfig: DeAiSkillConfig | null
   writingSkills: UserSkill[]
-  mcpCapabilities: AiCapability[]
-  mcpWarnings: string[]
 }
 
 export function useAgentConfig(
@@ -40,7 +34,6 @@ export function useAgentConfig(
   const baseLlmConfig = useWikiStore((s) => s.llmConfig)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
-  const mcpConfig = useWikiStore((s) => s.mcpConfig)
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
   const aiChatReasoningDepth = useWikiStore((s) => s.aiChatReasoningDepth)
 
@@ -116,7 +109,10 @@ export function useAgentConfig(
   )
 
   return useMemo(() => {
-    const agentLlmConfig = resolveAgentSessionModel(baseLlmConfig, novelConfig, aiWorkflowMode)
+    const agentLlmConfig = applyReasoningDepth(
+      resolveAgentSessionModel(baseLlmConfig, novelConfig, aiWorkflowMode),
+      aiChatReasoningDepth,
+    )
     const modelOk = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
     const fcEnabled = isFunctionCallingEnabled(agentLlmConfig)
     const supportsTools = modelOk && fcEnabled
@@ -129,8 +125,6 @@ export function useAgentConfig(
         skillConfigLoaded: false,
         skillConfig,
         writingSkills,
-        mcpCapabilities: [],
-        mcpWarnings: [],
       }
     }
 
@@ -147,13 +141,6 @@ export function useAgentConfig(
     const registry = new ToolRegistry()
     const wikiPath = `${normalizePath(projectPath)}/wiki`
     const novelMode = useWikiStore.getState().novelMode
-    const realMcpConnector = fcEnabled
-      && (mcpConfig?.servers ?? []).some((server) => server.enabled && server.command)
-      ? new RealMcpConnector(mcpConfig)
-      : undefined
-    const mcpRuntime = fcEnabled
-      ? buildMcpRuntime(mcpConfig, undefined, realMcpConnector)
-      : { mcpTools: [], mcpCapabilities: [], warnings: [] as string[] }
     const config = buildAgentConfig(agentLlmConfig.model, systemPrompt, registry, {
       wikiPath,
       getSkillConfig,
@@ -161,7 +148,6 @@ export function useAgentConfig(
       getSearchApiConfig,
       getChatConversations,
       getOutlineConversations,
-      mcpTools: mcpRuntime.mcpTools,
       llmConfig: agentLlmConfig,
       maxContextSize: agentLlmConfig.maxContextSize,
       chapterWritingLlmConfig,
@@ -181,8 +167,6 @@ export function useAgentConfig(
       skillConfigLoaded: true,
       skillConfig,
       writingSkills,
-      mcpCapabilities: mcpRuntime.mcpCapabilities,
-      mcpWarnings: mcpRuntime.warnings,
     }
   }, [
     aiChatModel,
@@ -192,7 +176,6 @@ export function useAgentConfig(
     skillConfigLoaded,
     baseLlmConfig,
     providerConfigs,
-    mcpConfig,
     aiWorkflowMode,
     aiChatReasoningDepth,
     getSearchApiConfig,

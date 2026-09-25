@@ -96,19 +96,6 @@ function outputSkill() {
   })
 }
 
-function mcpCapability(): AiCapability {
-  return {
-    id: "mcp:knowledge-graph:query",
-    name: "Knowledge Graph Query",
-    kind: "mcp_tool",
-    permission: "auto",
-    modes: ["strict"],
-    intents: ["character_query", "setting_query", "general"],
-    toolName: "mcp_knowledge_graph_query",
-    source: "mcp",
-  }
-}
-
 async function runWorkflow(input: {
   userMessage: string
   intent: any
@@ -247,45 +234,5 @@ describe("AI chat workflow convergence", () => {
 
     expect(result.enabledToolNames ?? []).not.toContain("web_search")
     expect((result.selectedCapabilities ?? []).some((item) => item.kind === "web_search")).toBe(false)
-  })
-
-  it("strict knowledge graph task can select read-only MCP capability", async () => {
-    const result = await runWorkflow({
-      userMessage: "use knowledge graph to analyze protagonist relationship",
-      intent: "character_query",
-      mode: "strict",
-      capabilities: [
-        ...agentConfig().tools.map((item): AiCapability => ({
-          id: `tool:${item.name}`,
-          name: item.name,
-          kind: item.name === "web_search" || item.name === "read_web_page" ? "web_search" as const : "built_in_tool" as const,
-          permission: item.permission ?? "auto",
-          modes: ["fast", "standard", "strict"],
-          intents: ["general"],
-          toolName: item.name,
-          source: "built-in" as const,
-        })),
-        mcpCapability(),
-      ],
-    })
-
-    expect(result.enabledToolNames).toContain("mcp_knowledge_graph_query")
-    expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({
-      kind: "mcp_tool",
-      toolName: "mcp_knowledge_graph_query",
-    }))
-  })
-
-  it("classification graph block prevents MCP graph capability selection", async () => {
-    const result = await runWorkflow({
-      userMessage: "use knowledge graph to analyze protagonist relationship",
-      intent: "character_query",
-      mode: "strict",
-      capabilities: [mcpCapability()],
-      blockedSources: ["graph"],
-    })
-
-    expect(result.enabledToolNames).not.toContain("mcp_knowledge_graph_query")
-    expect(result.selectedCapabilities?.some((item) => item.kind === "mcp_tool")).toBe(false)
   })
 })

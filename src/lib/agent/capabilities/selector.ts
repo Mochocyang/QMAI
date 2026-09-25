@@ -74,13 +74,6 @@ function selectionReason(
   input: SelectCapabilitiesInput & { mode: AiWorkflowMode },
   blockedSources: Set<DataSourceCategory>,
 ): string | null {
-  if (capability.kind === "mcp_tool") {
-    if (blockedSources.has("graph")) return null
-    if (input.mode !== "strict") return null
-    if (!isKnowledgeGraphRequest(input.userMessage, input.intent)) return null
-    return "strict mode knowledge task can use future MCP placeholder"
-  }
-
   if (capability.kind === "web_search") {
     if (isExplicitSearchRequest(input.userMessage)) {
       return "user explicitly requested external search"

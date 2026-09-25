@@ -73,12 +73,12 @@ export function getUiTestAiMenuStyle(anchor: Pick<DOMRect, "left" | "top" | "bot
   const width = Math.max(0, Math.min(preferredWidth, window.innerWidth - gap * 2))
   const above = Math.max(0, anchor.top - gap * 2)
   const below = Math.max(0, window.innerHeight - anchor.bottom - gap * 2)
-  const openAbove = preferAbove ? above >= below : below < 160 && above > below
-  const maxHeight = Math.min(360, window.innerHeight * 0.6, openAbove ? above : below)
+  const openAbove = preferAbove ? above > 0 : below < 160 && above > below
+  const maxHeight = Math.min(360, window.innerHeight * 0.6, Math.max(1, openAbove ? above : below))
   return {
     left: Math.max(gap, Math.min(anchor.left, window.innerWidth - width - gap)),
     ...(openAbove
-      ? { bottom: Math.max(gap, Math.min(window.innerHeight - anchor.top + gap, window.innerHeight - maxHeight - gap)) }
+      ? { bottom: Math.max(gap, window.innerHeight - anchor.top + gap) }
       : { top: Math.max(gap, Math.min(anchor.bottom + gap, window.innerHeight - maxHeight - gap)) }),
     width,
     maxHeight,

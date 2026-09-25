@@ -417,7 +417,6 @@ function inferStageTitle(event: AgentActivityEvent): string {
 
 function inferActivityKindFromToolName(name: string): AgentActivityKind {
   if (/skill/.test(name)) return "skill_used"
-  if (/mcp/.test(name)) return "mcp_call"
   if (name === "web_search" || name === "read_web_page" || name === "summarize_search_results" || /web|search/.test(name)) {
     return "web_search"
   }

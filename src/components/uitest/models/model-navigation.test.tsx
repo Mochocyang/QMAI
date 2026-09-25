@@ -27,7 +27,6 @@ vi.mock("@/components/settings/sections/novel-section", () => ({ NovelSection: (
 vi.mock("@/components/settings/sections/classification-section", () => ({ ClassificationSection: () => <div>ClassificationSection</div> }))
 vi.mock("@/components/settings/sections/network-section", () => ({ NetworkSection: () => <div>NetworkSection</div> }))
 vi.mock("@/components/settings/sections/web-search-section", () => ({ WebSearchSection: () => <div>WebSearchSection</div> }))
-vi.mock("@/components/settings/sections/mcp-section", () => ({ McpSection: () => <div>McpSection</div> }))
 vi.mock("@/components/settings/sections/changelog-section", () => ({ ChangelogSection: () => <div>ChangelogSection</div> }))
 vi.mock("@/components/settings/sections/maintenance-section", () => ({ MaintenanceSection: () => <div>MaintenanceSection</div> }))
 vi.mock("@/components/settings/sections/feedback-section", () => ({ FeedbackSection: () => <div>FeedbackSection</div> }))

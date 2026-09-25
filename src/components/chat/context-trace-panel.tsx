@@ -56,6 +56,7 @@ interface RebuildRetrievalResult {
 interface ContextTracePanelProps {
   trace: ContextTrace | null
   contextHubSnapshot?: ContextHubSnapshotRef
+  generationTiming?: { startedAt: number; finishedAt?: number }
   projectPath?: string | null
   onClose?: () => void
   className?: string
@@ -351,6 +352,7 @@ function RetrievalIndexSection({
 function OverviewTab({
   contextInfo,
   contextHubSnapshot,
+  generationTiming,
   projectPath,
   onUpgraded,
   onRebuildRetrievalIndex,
@@ -360,6 +362,7 @@ function OverviewTab({
 }: {
   contextInfo: TraceContextInfo | undefined
   contextHubSnapshot?: ContextHubSnapshotRef
+  generationTiming?: { startedAt: number; finishedAt?: number }
   projectPath?: string | null
   onUpgraded?: () => void
   onRebuildRetrievalIndex?: () => Promise<RebuildRetrievalResult>
@@ -396,7 +399,7 @@ function OverviewTab({
   }
   if (!contextInfo) {
     if (currentHubSnapshot) {
-      return <ContextHubDetails reference={currentHubSnapshot} className="mt-0 border-t-0 pt-0" />
+      return <ContextHubDetails reference={currentHubSnapshot} timing={generationTiming} className="mt-0 border-t-0 pt-0" />
     }
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -490,6 +493,7 @@ function OverviewTab({
           <div className="my-1 h-px bg-border/60" />
           <ContextHubDetails
             reference={currentHubSnapshot}
+            timing={generationTiming}
             className="mt-0 border-t-0 pt-2"
           />
         </>
@@ -613,46 +617,6 @@ function OverviewTab({
                     <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
                       {search.message}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {contextInfo.mcpCalls && contextInfo.mcpCalls.length > 0 && (
-        <>
-          <div className="my-1 h-px bg-border/60" />
-          <div className="py-2">
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-cyan-100 text-cyan-600 dark:bg-cyan-950/40 dark:text-cyan-400">
-                <Network className="h-3.5 w-3.5" />
-              </div>
-              <div className="text-[11px] font-medium text-foreground">
-                MCP 调用
-              </div>
-              <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300">
-                {contextInfo.mcpCalls.length}
-              </span>
-            </div>
-            <div className="ml-9 space-y-1.5">
-              {contextInfo.mcpCalls.map((call, index) => (
-                <div key={`${call.serverId}-${call.toolName}-${call.calledAt}-${index}`} className="rounded-md border bg-background px-2 py-1.5">
-                  <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-foreground">
-                    <span>{call.serverName}</span>
-                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {call.toolName}
-                    </span>
-                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {call.status}
-                    </span>
-                  </div>
-                  {call.summary && (
-                    <div className="text-[11px] text-muted-foreground">{call.summary}</div>
-                  )}
-                  {call.message && (
-                    <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">{call.message}</div>
                   )}
                 </div>
               ))}
@@ -1115,6 +1079,7 @@ function CopyTraceButton({ trace }: { trace: ContextTrace }) {
 export function ContextTracePanel({
   trace,
   contextHubSnapshot,
+  generationTiming,
   projectPath,
   onClose,
   className,
@@ -1187,6 +1152,7 @@ export function ContextTracePanel({
             <OverviewTab
               contextInfo={trace.contextInfo}
               contextHubSnapshot={contextHubSnapshot}
+              generationTiming={generationTiming}
               projectPath={projectPath}
               onRebuildRetrievalIndex={onRebuildRetrievalIndex}
               retrievalIndexHasIndex={retrievalIndexHasIndex}

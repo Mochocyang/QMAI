@@ -74,27 +74,6 @@ describe("registerAllBuiltInTools", () => {
     expect(registry.has("web_search")).toBe(false)
   })
 
-  it("registers provided MCP tools through the same filtering rules", () => {
-    const registry = new ToolRegistry()
-    const mcpTool = {
-      name: "mcp_graph_query",
-      description: "Query graph",
-      category: "read" as const,
-      permission: "auto" as const,
-      parameters: {},
-      execute: async () => "ok",
-    }
-
-    registerAllBuiltInTools(registry, {
-      ...baseOptions,
-      mcpTools: [mcpTool],
-      enabledToolNames: ["mcp_graph_query"],
-    })
-
-    expect(registry.has("mcp_graph_query")).toBe(true)
-    expect(registry.has("read_chapter")).toBe(false)
-  })
-
   it("registers the chapter workflow tool when dependencies are provided", () => {
     const registry = new ToolRegistry()
 

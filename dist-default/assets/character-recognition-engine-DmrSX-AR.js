@@ -1,0 +1,1 @@
+import{n as e}from"./content-fingerprint-DhZ2Y8yb.js";function t(t,n){let r=`${t}|${n}`;return e(r).slice(0,12)}export{t};

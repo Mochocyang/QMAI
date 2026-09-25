@@ -1,5 +1,4 @@
 import type { TraceWebSearch } from "./context-trace"
-import type { TraceMcpCall } from "./mcp-trace"
 
 export interface TaskBreakpoint {
   taskId: string
@@ -9,7 +8,6 @@ export interface TaskBreakpoint {
   usedSkills: string[]
   usedTools: string[]
   searches: TraceWebSearch[]
-  mcpCalls: TraceMcpCall[]
   createdAt: number
   updatedAt: number
 }
@@ -22,7 +20,6 @@ export function createTaskBreakpoint(params: {
   usedSkills?: string[]
   usedTools?: string[]
   searches?: TraceWebSearch[]
-  mcpCalls?: TraceMcpCall[]
 }): TaskBreakpoint {
   const now = Date.now()
   return {
@@ -33,7 +30,6 @@ export function createTaskBreakpoint(params: {
     usedSkills: params.usedSkills || [],
     usedTools: params.usedTools || [],
     searches: params.searches || [],
-    mcpCalls: params.mcpCalls || [],
     createdAt: now,
     updatedAt: now,
   }
@@ -105,7 +101,6 @@ export function buildBreakpointResumePrompt(bp: TaskBreakpoint): string {
     `当前阶段：${bp.currentStage}`,
     `已使用的 Skill：${bp.usedSkills.length > 0 ? bp.usedSkills.join(", ") : "无"}`,
     bp.searches.length > 0 ? `已执行的搜索：${bp.searches.map((s) => s.query).join(", ")}` : "",
-    bp.mcpCalls.length > 0 ? `已完成的 MCP 调用：${bp.mcpCalls.length} 次` : "",
     "",
     "请基于以上已完成的阶段继续执行，不要从头开始。",
   ]

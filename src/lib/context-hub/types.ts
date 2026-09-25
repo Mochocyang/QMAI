@@ -110,6 +110,13 @@ export interface LlmRequestDiagnostics {
   cacheWriteTokens?: number
   requests?: LlmRequestCacheTrace[]
   omittedRequestCount?: number
+  usageTotals?: {
+    requestCount: number
+    inputTokens?: number
+    outputTokens?: number
+    cachedInputTokens?: number
+    cacheWriteInputTokens?: number
+  }
 }
 
 /** Generation-details stats: source traces + independent stablePrefixStatus; token fields are estimates. */
@@ -263,6 +270,16 @@ function normalizeRequestDiagnostics(value: unknown): LlmRequestDiagnostics | un
   const requests = Array.isArray(source.requests)
     ? source.requests.filter(isLlmRequestCacheTrace).map(copyLlmRequestCacheTrace)
     : undefined
+  const totalsSource = source.usageTotals
+  const usageTotals = totalsSource && typeof totalsSource === "object" && isFiniteNumber((totalsSource as { requestCount?: unknown }).requestCount)
+    ? {
+        requestCount: Math.max(0, Math.floor((totalsSource as { requestCount: number }).requestCount)),
+        ...(isFiniteNumber((totalsSource as { inputTokens?: unknown }).inputTokens) ? { inputTokens: (totalsSource as { inputTokens: number }).inputTokens } : {}),
+        ...(isFiniteNumber((totalsSource as { outputTokens?: unknown }).outputTokens) ? { outputTokens: (totalsSource as { outputTokens: number }).outputTokens } : {}),
+        ...(isFiniteNumber((totalsSource as { cachedInputTokens?: unknown }).cachedInputTokens) ? { cachedInputTokens: (totalsSource as { cachedInputTokens: number }).cachedInputTokens } : {}),
+        ...(isFiniteNumber((totalsSource as { cacheWriteInputTokens?: unknown }).cacheWriteInputTokens) ? { cacheWriteInputTokens: (totalsSource as { cacheWriteInputTokens: number }).cacheWriteInputTokens } : {}),
+      }
+    : undefined
   const requestCountAvailable = typeof source.requestCountAvailable === "boolean"
     ? source.requestCountAvailable
     : undefined
@@ -279,6 +296,7 @@ function normalizeRequestDiagnostics(value: unknown): LlmRequestDiagnostics | un
     ...(isFiniteNumber(source.cacheReadTokens) ? { cacheReadTokens: source.cacheReadTokens } : {}),
     ...(isFiniteNumber(source.cacheWriteTokens) ? { cacheWriteTokens: source.cacheWriteTokens } : {}),
     ...(requests ? { requests } : {}),
+    ...(usageTotals ? { usageTotals } : {}),
     ...(isFiniteNumber(source.omittedRequestCount)
       ? { omittedRequestCount: Math.max(0, Math.floor(source.omittedRequestCount)) }
       : {}),

@@ -699,8 +699,12 @@ function snapshotFilePrefix(chapterNumber: number): string {
   return String(chapterNumber).padStart(3, "0")
 }
 
+export function chapterSnapshotJsonPath(projectPath: string, chapterNumber: number): string {
+  return `${normalizePath(projectPath)}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.json`
+}
+
 function snapshotJsonPath(projectPath: string, chapterNumber: number): string {
-  return `${projectPath}/.novel/snapshots/${snapshotFilePrefix(chapterNumber)}.snapshot.json`
+  return chapterSnapshotJsonPath(projectPath, chapterNumber)
 }
 
 function snapshotMarkdownPath(projectPath: string, chapterNumber: number): string {

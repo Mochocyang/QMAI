@@ -20,7 +20,6 @@ const wikiState = {
   },
   providerConfigs: {},
   searchApiConfig: { provider: "none", providerConfigs: {} },
-  mcpConfig: { servers: [] },
   bindingVersion: 0,
   aiChatModel: "openai/gpt-4o",
   chatEditModeEnabled: false,
@@ -93,8 +92,6 @@ vi.mock("@/hooks/use-agent-config", () => ({
     skillConfigLoaded: true,
     skillConfig: mockAgentSkillConfig,
     writingSkills: [],
-    mcpCapabilities: [],
-    mcpWarnings: [],
   }),
 }))
 

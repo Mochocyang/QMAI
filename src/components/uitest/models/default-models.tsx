@@ -1,4 +1,3 @@
-import { confirmModelAction } from "./model-confirm"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useWikiStore, type NovelConfig } from "@/stores/wiki-store"
 import { saveDefaultLlmModel, saveNovelConfig } from "@/lib/project-store"
@@ -45,7 +44,6 @@ export function UiTestDefaultModels() {
     const common = draft.defaultLlmModel
     const actual = resolveDraftDefaultModel(field === "defaultLlmModel" ? common : draft[field], common, chat, llm, providers)
     if (!actual.config) { setTests(previous => ({ ...previous, [field]: { error: true, text: "尚无可用模型，请先添加并保存大语言模型配置。" } })); return }
-    if (!(await confirmModelAction(`将使用当前草稿解析出的模型“${actual.config.model}”发送测试请求，可能消耗 token 和费用，不会保存设置。是否继续？`))) return
     const generation = revision.current, requestScope = scope
     setTests(previous => ({ ...previous, [field]: { running: true, text: "正在测试…" } }))
     try {
@@ -77,13 +75,11 @@ export function UiTestDefaultModels() {
     finally { savingRef.current = false; if (mounted.current) setSaving(false) }
   }
   return <section className="model-defaults" aria-label="默认模型设置">
-    <p className="model-section-note">{project ? `作用范围：当前小说“${project.name}”，同时沿用现有全局默认规则。` : "作用范围：全局默认。打开小说后可单独指定各写作环节。"} 保存后生效。</p>
     {!options.length && <p className="model-feedback">尚无已启用模型。请先到“大语言模型”添加模型并保存配置。</p>}
     {ROWS.map((row, index) => {
       const actual = resolveDraftDefaultModel(draft[row.field], draft.defaultLlmModel, chat, llm, providers)
       const available = options.some(option => option.key === draft[row.field])
-      const disabled = saving || (!project && index > 0)
-      return <div key={row.field} className="model-default-row"><div><h3>{row.label}</h3><p>{row.hint}</p><p>实际使用：{actual.config ? `${options.find(option => option.key === actual.key)?.label ?? actual.config.model}` : "尚无可用模型"}</p>{actual.fallback && <p className="model-feedback error">原选择不可用，将按默认／聊天模型回退。请核对后保存。</p>}{!project && index > 0 && <p>打开小说后可配置此项。</p>}</div><div><select aria-label={row.label} value={draft[row.field]} disabled={disabled} onChange={event => change(row.field, event.target.value)}><option value="">{index === 0 ? "跟随聊天模型" : "跟随默认模型"}</option>{!!draft[row.field] && !available && <option value={draft[row.field]}>原选择（不可用）：{draft[row.field]}</option>}{options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select><button type="button" className="model-button ghost" disabled={disabled || !actual.config || tests[row.field]?.running} onClick={() => void test(row.field)}>{tests[row.field]?.running ? "正在测试…" : "测试模型"}</button>{tests[row.field] && <p className={tests[row.field].error ? "model-feedback error" : "model-feedback"} role="status">{tests[row.field].text}</p>}</div></div>
+      return <div key={row.field} className="model-default-row"><div><h3>{row.label}</h3><p>{row.hint}</p>{actual.fallback && <p className="model-feedback error">原选择不可用，将按默认／聊天模型回退。请核对后保存。</p>}</div><div><div className="model-default-choice"><select aria-label={row.label} value={draft[row.field]} disabled={saving} onChange={event => change(row.field, event.target.value)}><option value="">{index === 0 ? "跟随聊天模型" : "跟随默认模型"}</option>{!!draft[row.field] && !available && <option value={draft[row.field]}>原选择（不可用）：{draft[row.field]}</option>}{options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select><button type="button" className="model-button ghost" disabled={saving || !actual.config || tests[row.field]?.running} onClick={() => void test(row.field)}>{tests[row.field]?.running ? "正在测试…" : "测试模型"}</button></div>{tests[row.field] && <p className={tests[row.field].error ? "model-feedback error" : "model-feedback"} role="status">{tests[row.field].text}</p>}</div></div>
     })}
     <div className="model-save-footer"><p role="status" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (dirty ? "有未保存的模型选择。" : "已保存的设置才会用于下一次请求。")}</p><button type="button" className="model-button primary" disabled={!dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button></div>
   </section>

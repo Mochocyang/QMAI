@@ -37,7 +37,6 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
       const availableCapabilities = input.availableCapabilities ?? buildAvailableCapabilities({
         toolNames: input.agentConfig.tools?.map((tool) => tool.name) ?? [],
         selectedSkills: input.selectedSkills ?? [],
-        mcpCapabilities: input.mcpCapabilities ?? [],
       })
 
       const mode = resolveAiWorkflowMode(input.aiWorkflowMode)

@@ -39,6 +39,7 @@ interface ReferenceInputProps {
   onStop?: () => void
   onAtTrigger?: () => void
   insertTokensRef?: MutableRefObject<InsertReferenceTokens>
+  renderTextOverlay?: (text: string) => ReactNode
 }
 
 function clampInputHeight(height: number): number {
@@ -74,6 +75,7 @@ export function ReferenceInput({
   onStop,
   onAtTrigger,
   insertTokensRef,
+  renderTextOverlay,
 }: ReferenceInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isControlled = value !== undefined
@@ -159,7 +161,7 @@ export function ReferenceInput({
     const pointerId = event.pointerId
     const previousCursor = document.body.style.cursor
     let savedHeight = startHeight
-    document.body.style.cursor = "ns-resize"
+    document.body.style.cursor = "row-resize"
 
     try {
       handle.setPointerCapture(pointerId)
@@ -213,7 +215,7 @@ export function ReferenceInput({
         role="separator"
         aria-label="拖动调整输入框高度"
         title="拖动调整输入框高度，双击恢复默认高度"
-        className="flex h-2 cursor-ns-resize items-center justify-center bg-muted/20 transition-colors hover:bg-muted/50"
+        className="flex h-2 cursor-row-resize items-center justify-center bg-muted/20 transition-colors hover:bg-muted/50"
         onPointerDown={handleResizePointerDown}
         onDoubleClick={resetInputHeight}
       >
@@ -226,12 +228,16 @@ export function ReferenceInput({
             {renderedTokens}
           </div>
         ) : null}
+        {renderTextOverlay ? (
+          <div className="ui-test-command-overlay" aria-hidden="true">{renderTextOverlay(text)}</div>
+        ) : null}
         <textarea
           ref={textareaRef}
           value={text}
           className="w-full resize-none overflow-y-auto bg-transparent px-0 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ height: inputHeight, maxHeight: inputHeight }}
           placeholder={placeholder}
+          spellCheck={false}
           disabled={inputDisabled}
           rows={1}
           onChange={handleTextareaChange}

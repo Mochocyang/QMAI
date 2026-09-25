@@ -5,13 +5,12 @@ export type CapabilityKind =
   | "built_in_tool"
   | "user_skill"
   | "web_search"
-  | "mcp_tool"
 
 export type CapabilityPermission = "auto" | "confirm"
 
 export type CapabilityIntent = NovelTaskIntent | "external_search" | "general"
 
-export type CapabilitySource = "built-in" | "project" | "uploaded" | "mcp" | "linked"
+export type CapabilitySource = "built-in" | "project" | "uploaded" | "linked"
 
 export interface AiCapability {
   id: string

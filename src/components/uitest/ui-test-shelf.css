@@ -32,29 +32,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin: 18px 0 30px;
-}
-
-.ui-test-root .ui-test-shelf .ui-test-shelf-heading { min-width: 0; }
-.ui-test-root .ui-test-shelf .ui-test-eyebrow {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 3px;
-  color: var(--ui-muted);
-}
-
-.ui-test-root .ui-test-shelf .ui-test-hero-title {
-  font: 500 32px/1.45 var(--serif);
-  letter-spacing: 0;
-  margin: 6px 0 8px;
-  overflow-wrap: anywhere;
-}
-
-.ui-test-root .ui-test-shelf .ui-test-hero-sub {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--ui-muted);
+  margin: 0 0 22px;
 }
 
 .ui-test-root .ui-test-shelf .ui-test-shelf-actions {
@@ -62,7 +40,6 @@
   flex-shrink: 0;
   align-items: center;
   gap: 10px;
-  margin-left: auto;
 }
 
 .ui-test-root .ui-test-shelf .ui-test-btn {
@@ -88,59 +65,21 @@
 .ui-test-root .ui-test-shelf .ui-test-btn.ghost { background: transparent; }
 .ui-test-root .ui-test-shelf .ui-test-btn:hover { filter: brightness(.97); }
 
-.ui-test-root .ui-test-shelf .ui-test-shelf-controls {
-  display: flex;
+.ui-test-root .ui-test-shelf .ui-test-cover-size {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: 20px;
-  margin: 0;
-}
-
-.ui-test-root .ui-test-shelf .ui-test-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-.ui-test-root .ui-test-shelf .ui-test-tab {
-  padding: 8px 13px;
-  min-height: 36px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border: 0;
   border-radius: 8px;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 400;
   background: transparent;
   color: var(--ui-muted);
   cursor: pointer;
 }
-.ui-test-root .ui-test-shelf .ui-test-tab.is-active { background: var(--ui-soft); color: var(--ui-accent); }
-
-.ui-test-root .ui-test-shelf .ui-test-searchbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ui-muted);
-  width: 240px;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 36px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--ui-panel);
-}
-.ui-test-root .ui-test-shelf .ui-test-searchbox svg { width: 14px; height: 14px; flex-shrink: 0; }
-.ui-test-root .ui-test-shelf .ui-test-searchbox input {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--ui-ink);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 20px;
-}
-.ui-test-root .ui-test-shelf .ui-test-searchbox input::placeholder { color: var(--ui-muted); opacity: 1; }
+.ui-test-root .ui-test-shelf .ui-test-cover-size.is-active { background: var(--ui-soft); color: var(--ui-accent); }
+.ui-test-root .ui-test-shelf .ui-test-cover-size svg { flex-shrink: 0; }
 
 .ui-test-root .ui-test-shelf .ui-test-shelf-count {
   display: flex;
@@ -159,12 +98,22 @@
   overflow-wrap: anywhere;
 }
 
+.ui-test-root .ui-test-shelf .ui-test-cover-sizes { display: flex; gap: 4px; flex: 0 0 auto; }
 .ui-test-root .ui-test-shelf .ui-test-books-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 30px 28px;
 }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 22px 16px; }
 
+.ui-test-shelf-menu { position: fixed; z-index: 80; display: grid; min-width: 148px; padding: 6px; border-radius: 10px; background: var(--ui-paper); box-shadow: 0 12px 32px #18241c24; }
+.ui-test-shelf-menu button, .ui-test-shelf-rename button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; text-align: left; padding: 6px 10px; }
+.ui-test-shelf-rename { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: #18241c55; }
+.ui-test-shelf-rename form { display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); padding: 16px; border-radius: 12px; background: var(--ui-paper); }
+.ui-test-shelf-rename label { display: grid; gap: 6px; }
+.ui-test-shelf-rename-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: -2px; }
+.ui-test-shelf-rename input { min-height: 40px; border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px 10px; }
 .ui-test-root .ui-test-shelf .ui-test-book-card {
   display: block;
   width: 100%;
@@ -185,13 +134,17 @@
   justify-content: flex-start;
   position: relative;
   min-height: 0;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 2 / 3;
+  background-position: center;
+  background-size: cover;
   border-radius: 10px;
   overflow: hidden;
   padding: 23px;
   color: #fffff3;
   isolation: isolate;
 }
+.ui-test-root .ui-test-shelf .is-large .ui-test-cover { padding: 28px; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover { padding: 12px; border-radius: 8px; }
 .ui-test-root .ui-test-shelf .ui-test-cover::before {
   content: "";
   position: absolute;
@@ -231,6 +184,10 @@
   font: 500 26px/1.5 var(--serif);
   letter-spacing: 2px;
 }
+.ui-test-root .ui-test-shelf .is-large .ui-test-cover-title { font-size: 32px; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover-title { margin-top: 12px; font-size: 16px; letter-spacing: 0; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover small { display: none; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-book-next { display: none; }
 .ui-test-root .ui-test-shelf .ui-test-book-info { display: block; padding: 12px 0 0; }
 .ui-test-root .ui-test-shelf .ui-test-book-title {
   display: -webkit-box;
@@ -243,6 +200,7 @@
   font: 600 16px/24px var(--ui);
   color: var(--ui-ink);
 }
+.ui-test-root .ui-test-shelf .ui-test-book-words { display: block; color: var(--ui-muted); font-size: 14px; line-height: 22px; font-variant-numeric: tabular-nums; }
 .ui-test-root .ui-test-shelf .ui-test-book-stats {
   display: flex;
   align-items: baseline;
@@ -309,12 +267,11 @@
   line-height: 1.6;
 }
 
-.ui-test-root .ui-test-shelf button:focus-visible,
-.ui-test-root .ui-test-shelf .ui-test-searchbox:focus-within {
+.ui-test-root .ui-test-shelf button:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 3px;
 }
-.ui-test-root .ui-test-shelf .ui-test-tab:hover { background: var(--ui-soft); }
+.ui-test-root .ui-test-shelf .ui-test-cover-size:hover { background: var(--ui-soft); }
 
 /* Portal 不一定是 .ui-test-root 的后代，使用仅测试版 JSX 才有的标记隔离弹窗。 */
 .ui-test-create-project-dialog[data-ui-test-dialog="create-project"][data-slot="dialog-content"] {
@@ -418,24 +375,23 @@
 .ui-test-create-project-dialog input:focus-visible { outline: 2px solid var(--ui-accent, #45624f); outline-offset: 2px; }
 
 @media (width < 1180px) {
-  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid,
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 @media (width < 900px) {
-  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid,
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ui-test-root .ui-test-shelf .ui-test-shelf-hero { align-items: flex-start; }
-  .ui-test-root .ui-test-shelf .ui-test-hero-title { font-size: 28px; }
-  .ui-test-root .ui-test-shelf .ui-test-shelf-controls { flex-wrap: wrap; }
 }
 @media (width < 640px) {
-  .ui-test-root .ui-test-shelf .ui-test-shelf-hero { flex-direction: column; }
-  .ui-test-root .ui-test-shelf .ui-test-shelf-actions { margin-left: 0; }
-  .ui-test-root .ui-test-shelf .ui-test-searchbox { width: 100%; }
+  .ui-test-root .ui-test-shelf .ui-test-shelf-hero { flex-direction: column; align-items: stretch; }
 }
 @media (width < 480px) {
   .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: 1fr; gap: 28px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-inner { padding: 17px 20px 35px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-hero { margin: 8px 0 21px; }
-  .ui-test-root .ui-test-shelf .ui-test-hero-title { font-size: 25px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-count > span:last-child { display: none; }
   .ui-test-create-project-dialog .ui-test-create-header { padding: 18px; }
   .ui-test-create-project-dialog .ui-test-create-body { padding: 0 18px 18px; }

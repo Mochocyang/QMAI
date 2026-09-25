@@ -46,7 +46,6 @@ export function UiTestEmbeddingModels() {
   async function network(kind: "fetch" | "test") {
     const error = validateModelEndpoint(draft.endpoint) ?? (kind === "test" ? validateEmbeddingDraft({ ...draft, enabled: true }) : null)
     if (error) { setAction({ error: true, text: error }); return }
-    if (kind === "test" && !(await confirmModelAction("将向当前向量接口发送测试文本，可能产生费用；不会保存配置或重建索引。是否继续？"))) return
     const version = revision.current, id = ++actionId.current, captured = { ...draft, enabled: true }
     const current = () => alive.current && revision.current === version && actionId.current === id
     setAction({ running: true, text: kind === "fetch" ? "正在拉取模型…" : "正在测试向量模型…" })
@@ -120,7 +119,6 @@ export function UiTestRerankModels() {
   async function network(kind: "fetch" | "test") {
     const error = kind === "test" ? validateRerankDraft({ ...draft, enabled: true }, llm.model) : draft.provider === "custom" && !draft.useMainLlm ? validateModelEndpoint(draft.customEndpoint) : null
     if (error) { setAction({ error: true, text: error }); return }
-    if (kind === "test" && !(await confirmModelAction("将向当前重排模型发送测试请求，可能消耗 token 和费用；不会保存配置。是否继续？"))) return
     const id = ++request.current, generation = revision.current, config = { ...draft, enabled: true }
     const current = () => alive.current && request.current === id && revision.current === generation
     setAction({ running: true, text: kind === "fetch" ? "正在拉取模型…" : "正在测试重排模型…" })
@@ -151,7 +149,7 @@ export function UiTestRerankModels() {
           <label className="model-field"><span>模型 ID</span><ModelSelectInput value={draft.model} options={options} onChange={model => change({ model })} inputPlaceholder="输入重排模型 ID" selectPlaceholder="选择已拉取的重排模型" /></label>
           {candidatesField}
         </div>
-        {["claude-code", "codex-cli", "cursor-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的配置示例中完成检测与登录；此处不会自动安装或登录。</p>}
+        {["claude-code", "codex-cli", "cursor-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的提供方模型中完成检测与登录；此处不会自动安装或登录。</p>}
       </>}
       <p className="model-section-note">TOPN 不是 TOPK：这里只控制送入重排的候选数量（3–30），不是最终返回数量。重排不可用时沿用原有检索降级。</p>
       <div className="model-actions">

@@ -172,7 +172,7 @@ function statusLabel(status: AgentStageStatus): string {
 
 function activityIcon(kind: AgentActivityKind) {
   if (kind === "read_source" || kind === "extract_goal" || kind === "extract_result") return FileText
-  if (kind === "web_search" || kind === "mcp_call") return Search
+  if (kind === "web_search") return Search
   if (kind === "tool_call" || kind === "skill_used") return Wrench
   if (kind === "error") return AlertTriangle
   return Sparkles

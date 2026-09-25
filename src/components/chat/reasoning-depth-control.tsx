@@ -83,7 +83,7 @@ export function ReasoningDepthControl({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open])
 
-  if (!modelConfig || !modelSupportsReasoningControl(modelConfig)) return null
+  if (!modelConfig) return null
 
   const activeIndex = reasoningDepthToIndex(value)
   const lastIndex = REASONING_DEPTH_STEPS.length - 1

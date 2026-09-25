@@ -26,6 +26,7 @@ vi.mock("@/lib/ui-test", () => ({
   get IS_UI_TEST_BUILD() { return mocks.uiTest },
   UI_TEST_STORAGE_PREFIX: "qm-uitest-",
 }))
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => `asset://${path}` }))
 vi.mock("@/commands/fs", () => ({
   getExecutableDir: mocks.getExecutableDir,
   listDirectory: mocks.listDirectory,
@@ -34,9 +35,15 @@ vi.mock("@/commands/fs", () => ({
   createProject: mocks.createProject,
   createDirectory: mocks.createDirectory,
   writeFile: mocks.writeFile,
+  fileExists: vi.fn(async () => false),
+  openProjectFolder: vi.fn(),
+  renameProject: vi.fn(),
+  moveProjectToSystemTrash: vi.fn(),
+  saveProjectCover: vi.fn(),
 }))
 vi.mock("@/lib/project-store", () => ({
   getRecentProjects: mocks.getRecentProjects,
+  removeProjectRecords: vi.fn(),
   saveOutputLanguage: mocks.saveOutputLanguage,
 }))
 vi.mock("@/lib/platform", () => ({ pickDirectory: mocks.pickDirectory }))
@@ -78,7 +85,9 @@ beforeEach(() => {
   mocks.listDirectory.mockImplementation(async (path: string) => path.endsWith("/wiki/chapters")
     ? [{ name: "第一章.md", path: `${path}/第一章.md`, is_dir: false }]
     : [])
-  mocks.readFile.mockResolvedValue("---\ntitle: 第一章\n---\n# 第一章\n甲乙\n\n丙丁")
+  mocks.readFile.mockImplementation(async (path: string) => path.endsWith("/.qmai/project.json")
+    ? JSON.stringify({ id: "novel-1", createdAt: Date.parse("2026-09-24T10:30:00") })
+    : "---\ntitle: 第一章\n---\n# 第一章\n甲乙\n\n丙丁")
   mocks.createProject.mockResolvedValue(project)
   mocks.createDirectory.mockResolvedValue(undefined)
   mocks.writeFile.mockResolvedValue(undefined)
@@ -97,7 +106,7 @@ afterEach(() => {
 })
 
 function button(text: string, container: ParentNode = host): HTMLButtonElement {
-  const found = Array.from(container.querySelectorAll("button")).find((node) => node.textContent?.trim() === text)
+  const found = Array.from(container.querySelectorAll("button")).find((node) => node.textContent?.trim() === text || node.getAttribute("aria-label") === text)
   expect(found, `应有“${text}”按钮`).toBeDefined()
   return found!
 }
@@ -121,67 +130,31 @@ async function typeInto(input: HTMLInputElement, value: string) {
 }
 
 describe("独立 UI 书架", () => {
-  it("按已有正文章节规则统计真实字数，不显示时间", async () => {
+  it("封面下显示书名和累计字数，不显示日期时间", async () => {
     await renderShelf()
     const card = host.querySelector(".ui-test-book-card")!
+    expect(card.textContent).toContain("真实小说")
     expect(card.textContent).toContain("4 字")
-    expect(card.textContent).toContain("创作中")
-    expect(card.textContent).not.toMatch(/刚刚|昨天|分钟前|2026-/)
+    expect(card.textContent).not.toContain("2026")
+    expect(card.querySelector("time")).toBeNull()
   })
 
-  it("任一章读取失败都显示读取失败，不把失败伪装成零字", async () => {
+  it("身份文件读取失败时显示0字，不回退到日期", async () => {
     mocks.readFile.mockRejectedValue(new Error("拒绝读取"))
     await renderShelf()
     const card = host.querySelector(".ui-test-book-card")!
-    expect(card.textContent).toContain("读取失败")
-    expect(card.textContent).not.toContain("0 字")
-    expect(card.textContent).not.toContain("构思中")
-  })
-
-  it("未完成统计的书不提前标为构思中", async () => {
-    mocks.readFile.mockReturnValue(new Promise(() => {}))
-    await renderShelf()
-    const card = host.querySelector(".ui-test-book-card")!
-    expect(card.textContent).toContain("统计中")
-    expect(card.textContent).not.toContain("构思中")
-    await act(async () => button("构思中").click())
-    expect(host.querySelector(".ui-test-book-card")).toBeNull()
-  })
-
-  it("只有真实空章节目录显示零字和从大纲开始", async () => {
-    mocks.listDirectory.mockResolvedValue([])
-    await renderShelf()
-    const card = host.querySelector(".ui-test-book-card")!
     expect(card.textContent).toContain("0 字")
-    expect(card.textContent).toContain("从大纲开始")
+    expect(card.textContent).not.toContain("2026")
+    expect(card.querySelector("time")).toBeNull()
   })
 
-  it("有中文搜索标签和可感知的状态筛选，空结果可清除筛选", async () => {
-    await renderShelf()
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="搜索小说"]')
-    expect(input).not.toBeNull()
-    expect(button("全部小说").getAttribute("aria-pressed")).toBe("true")
-    await act(async () => button("创作中").click())
-    expect(button("创作中").getAttribute("aria-pressed")).toBe("true")
-    await typeInto(input!, "不匹配的书名")
-    expect(host.textContent).toContain("没有找到匹配的小说")
-    expect(input!.value).toBe("不匹配的书名")
-    await act(async () => button("清除筛选").click())
-    expect(input!.value).toBe("")
-    expect(button("全部小说").getAttribute("aria-pressed")).toBe("true")
-    expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
-  })
-
-  it("读取完整独立书库而不是最近十条，搜索也覆盖旧记录", async () => {
+  it("读取完整独立书库而不是最近十条", async () => {
     const projects = Array.from({ length: 15 }, (_, n) => ({ id: `book-${n}`, name: `小说${n}`, path: `C:/登记目录/${n}` }))
     localStorage.setItem("qm-uitest-library", JSON.stringify({ schemaVersion: 1, projects }))
     mocks.getRecentProjects.mockResolvedValue(projects.slice(5))
     await renderShelf()
     expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(15)
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="搜索小说"]')!
-    await typeInto(input, "小说0")
-    expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
-    expect(host.querySelector(".ui-test-book-card")?.textContent).toContain("小说0")
+    expect(host.textContent).toContain("小说0")
   })
 
   it("只读发现默认测试目录，不调用会迁移或登记正式配置的打开函数", async () => {
@@ -222,25 +195,29 @@ describe("独立 UI 书架", () => {
     expect(actions.onSelectProject).toHaveBeenCalledWith(longProject)
   })
 
-  it("章节目录不可读时保留书卡，不显示零字", async () => {
+  it("章节目录不可读时仍保留书卡并显示字数不可用", async () => {
     mocks.listDirectory.mockImplementation(async (path: string) => {
       if (path.endsWith("/wiki/chapters")) throw new Error("目录无读取权限")
       return []
     })
     await renderShelf()
     expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
-    expect(host.querySelector(".ui-test-book-card")?.textContent).toContain("读取失败")
-    expect(host.querySelector(".ui-test-book-card")?.textContent).not.toContain("0 字")
+    expect(host.querySelector(".ui-test-book-card")?.textContent).toContain("字数不可用")
+    expect(host.querySelector(".ui-test-book-card")?.textContent).not.toContain("2026")
   })
 
-  it("部分章节失败不把已读部分冒充整本字数", async () => {
+  it("单章读取失败时仍累计其余章节字数", async () => {
     mocks.listDirectory.mockImplementation(async (path: string) => path.endsWith("/wiki/chapters")
       ? [1, 2].map((n) => ({ name: `第${n}章.md`, path: `${path}/第${n}章.md`, is_dir: false }))
       : [])
-    mocks.readFile.mockResolvedValueOnce("# 第一章\n甲乙丙丁").mockRejectedValueOnce(new Error("第二章读取失败"))
+    mocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("/.qmai/project.json")) return JSON.stringify({ id: "novel-1", createdAt: Date.parse("2026-09-24T10:30:00") })
+      if (path.endsWith("第2章.md")) throw new Error("第二章读取失败")
+      return "# 第一章\n甲乙丙丁"
+    })
     await renderShelf()
-    expect(host.querySelector(".ui-test-book-card")?.textContent).toContain("读取失败")
-    expect(host.querySelector(".ui-test-book-card")?.textContent).not.toContain("4 字")
+    expect(host.querySelector(".ui-test-book-card")?.textContent).toContain("4 字")
+    expect(host.querySelector(".ui-test-book-card")?.textContent).not.toContain("2026")
   })
 
   it("索引损坏给出中文提醒，不覆盖原文，也不藏起仍可读取的项目", async () => {
@@ -271,6 +248,19 @@ describe("独立 UI 书架", () => {
     expect(localStorage.getItem("qm-uitest-library")).toBeNull()
   })
 
+  it("右键菜单提供重命名、打开文件夹和删除", async () => {
+    await renderShelf()
+    const card = host.querySelector<HTMLButtonElement>(".ui-test-book-card")!
+    await act(async () => card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 30 })))
+    const labels = Array.from(host.querySelectorAll(".ui-test-shelf-menu button")).map((button) => button.textContent)
+    expect(labels).toEqual(["重命名", "打开文件夹", "删除"])
+    expect(labels).not.toContain("上传封面")
+    expect(host.textContent).not.toContain("刷新")
+    expect(host.textContent).not.toContain("另存")
+    expect(host.textContent).not.toContain("打印")
+    expect(host.textContent).not.toContain("更多工具")
+  })
+
   it("书架头部两个动作仍调用原回调", async () => {
     const actions = await renderShelf()
     await act(async () => button("打开已有").click())
@@ -279,15 +269,35 @@ describe("独立 UI 书架", () => {
     expect(actions.onCreateProject).toHaveBeenCalledOnce()
   })
 
+  it("不显示书架顶部介绍，封面可在大中小之间切换并记住", async () => {
+    await renderShelf()
+    expect(host.textContent).not.toContain("每个故事，都有自己的位置。")
+    expect(host.textContent).not.toContain("你的私人书架")
+    expect(host.textContent).not.toContain("不必从头寻找")
+    expect(host.textContent).not.toContain("全部小说")
+    expect(host.textContent).not.toContain("找一本书")
+    expect(host.textContent).not.toContain("点击书封，直接继续上次的创作")
+    const actions = Array.from(host.querySelectorAll(".ui-test-shelf-actions button")).map((item) => item.textContent)
+    expect(actions[0]).toContain("新建小说")
+    expect(actions[1]).toContain("打开已有")
+    const grid = host.querySelector(".ui-test-books-grid")!
+    expect(grid.className).toContain("is-medium")
+    await act(async () => button("大封面").click())
+    expect(grid.className).toContain("is-large")
+    expect(button("大封面").getAttribute("aria-pressed")).toBe("true")
+    expect(button("大封面").querySelector("svg")).not.toBeNull()
+    expect(localStorage.getItem("qm-uitest-shelf-cover-size-v1")).toBe("large")
+    await act(async () => button("小封面").click())
+    expect(grid.className).toContain("is-small")
+  })
+
   it("封面八色取自参考图，筛选后同一本书不换色", async () => {
     const projects = Array.from({ length: 8 }, (_, n) => ({ id: `color-${n}`, name: `配色小说${n}`, path: `C:/书/${n}` }))
     mocks.getRecentProjects.mockResolvedValue(projects)
     await renderShelf()
     const backgrounds = Array.from(host.querySelectorAll<HTMLElement>(".ui-test-cover")).map((cover) => cover.style.backgroundColor)
     expect(new Set(backgrounds).size).toBe(8)
-    const lastColor = backgrounds[7]
-    await typeInto(host.querySelector<HTMLInputElement>("input")!, "配色小说7")
-    expect(host.querySelector<HTMLElement>(".ui-test-cover")!.style.backgroundColor).toBe(lastColor)
+    expect(backgrounds[7]).not.toBe(backgrounds[0])
   })
 })
 
@@ -425,7 +435,9 @@ describe("书架图稿尺寸约束", () => {
   it("专用样式锁定4:5、10px、28px、16/24书名和14/22字数", () => {
     const path = resolve(__dirname, "ui-test-shelf.css")
     const css = existsSync(path) ? readFileSync(path, "utf8") : ""
-    expect(css).toMatch(/aspect-ratio:\s*4\s*\/\s*5/)
+    expect(css).toContain("is-large")
+    expect(css).toContain("is-small")
+    expect(css).toMatch(/aspect-ratio:\s*2\s*\/\s*3/)
     expect(css).toMatch(/border-radius:\s*10px/)
     expect(css).toMatch(/gap:\s*30px\s+28px/)
     expect(css).toMatch(/font:\s*600\s+16px\s*\/\s*24px/)
@@ -460,21 +472,14 @@ describe("书架局部样式不依赖外壳", () => {
     expect(shelf.flexGrow).toBe("1")
   })
 
-  it("搜索图标与输入框水平居中，无边框且占满剩余空间", async () => {
+  it("封面大小图标与动作按钮位于同一行两端", async () => {
     await renderShelf()
-    const search = getComputedStyle(host.querySelector(".ui-test-searchbox")!)
-    const icon = getComputedStyle(host.querySelector(".ui-test-searchbox svg")!)
-    const input = getComputedStyle(host.querySelector(".ui-test-searchbox input")!)
-    expect(search.display).toBe("flex")
-    expect(search.alignItems).toBe("center")
-    expect(search.gap).toBe("8px")
-    expect(icon.width).toBe("14px")
-    expect(icon.height).toBe("14px")
+    const hero = getComputedStyle(host.querySelector(".ui-test-shelf-hero")!)
+    const icon = getComputedStyle(host.querySelector(".ui-test-cover-size svg")!)
+    expect(hero.display).toBe("flex")
+    expect(hero.justifyContent).toBe("space-between")
     expect(icon.flexShrink).toBe("0")
-    expect(input.width).toBe("100%")
-    expect(input.minWidth).toMatch(/^0(?:px)?$/)
-    expect(input.borderTopWidth).toBe("0px")
-    expect(input.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    expect(host.querySelector(".ui-test-searchbox")).toBeNull()
   })
 
   it("书架动作按钮有自己的图标、布局和命中高度定义", async () => {

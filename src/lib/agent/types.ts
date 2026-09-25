@@ -129,7 +129,6 @@ export type AgentActivityKind =
   | "analysis"
   | "tool_call"
   | "skill_used"
-  | "mcp_call"
   | "web_search"
   | "stage_output"
   | "final_output"

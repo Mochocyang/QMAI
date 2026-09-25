@@ -119,47 +119,29 @@ describe("测试版正文编辑器", () => {
     expect(metadata?.textContent ?? "").toContain(`${countChapterBodyWords(chapter)} 字`)
   })
 
-  it("草稿有三项轻操作，低频操作放入真正可用的更多菜单", async () => {
+  it("章节显示去AI味、提取记忆、查看记忆和一键排版", async () => {
     await mount()
     const toolbar = container.querySelector('.ui-test-editor-toolbar')!
     expect(button("去AI味", toolbar).disabled).toBe(false)
     expect(button("提取记忆", toolbar).disabled).toBe(false)
     expect(button("查看记忆", toolbar).disabled).toBe(false)
-    await click("更多编辑器操作")
-    const menu = container.querySelector('[role="menu"]')
-    expect(menu).not.toBeNull()
-    button("一键排版")
-    button("关闭文档")
-    expect(menu?.textContent ?? "").not.toContain("关闭会话栏")
-    expect(menu?.textContent ?? "").not.toContain("打开会话栏")
+    expect(button("一键排版", toolbar).disabled).toBe(false)
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
+    expect(toolbar.textContent).not.toContain("预览正文")
+    expect(toolbar.textContent).not.toContain("关闭文档")
+    expect(toolbar.textContent).not.toContain("查看文件详情")
   })
 
-  it("正式章节不重复显示提取记忆按钮，但保留重新提取入口", async () => {
+  it("正式章节直接显示重新提取记忆", async () => {
     fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
     await mount()
-    expect(container.querySelector(".ui-test-editor-toolbar")?.textContent ?? "").not.toContain("提取记忆")
-    await click("更多编辑器操作")
-    button("重新提取记忆")
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
+    button("重新提取记忆", container.querySelector(".ui-test-editor-toolbar")!)
   })
 
-  it("更多菜单支持 Escape 关闭并归还焦点", async () => {
+  it("章节正文保持编辑状态，不提供预览切换", async () => {
     await mount()
-    const trigger = button("更多编辑器操作")
-    await act(async () => { trigger.focus(); trigger.click() })
-    const menu = container.querySelector('[role="menu"]')!
-    expect(menu).not.toBeNull()
-    await act(async () => { menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })) })
-    expect(trigger.getAttribute("aria-expanded")).toBe("false")
-    expect(document.activeElement).toBe(trigger)
-  })
-
-  it("章节可从更多切换预览再回到原编辑器，不修改文本", async () => {
-    await mount()
-    await click("更多编辑器操作")
-    await click("预览正文")
-    expect(container.querySelector(".ui-test-editor-reader")?.textContent).toContain("有人推开了门。")
-    await click("更多编辑器操作")
-    await click("编辑正文")
+    expect(container.querySelector(".ui-test-editor-reader")).toBeNull()
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')
     expect(textarea?.value).toContain("有人推开了门。")
     expect(fixture.write).not.toHaveBeenCalled()
@@ -243,9 +225,7 @@ describe("编辑器异常与原业务回归", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(fixture.write).toHaveBeenCalledWith(outlinePath, useWikiStore.getState().fileContent)
     vi.useRealTimers()
-    await click("更多编辑器操作")
-    await click("预览正文")
-    expect(container.querySelector('.ui-test-editor-body[data-mode="read"]')?.textContent).toContain("这是实际的大纲。")
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
   })
 
   it("旧保存请求完成时不能盖掉较新编辑的待保存状态", async () => {
@@ -277,7 +257,6 @@ describe("编辑器异常与原业务回归", () => {
     await mount()
     vi.spyOn(console, "error").mockImplementation(() => {})
     fixture.write.mockRejectedValueOnce(new Error("磁盘不可写"))
-    await click("更多编辑器操作")
     await click("一键排版")
     expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("保存失败")
     await click("重试保存")
@@ -285,14 +264,11 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
   })
 
-  it("提取记忆写入失败时不能沿用旧提示声称已保存正式章节", async () => {
+  it("章节提取记忆入口位于去AI味和查看记忆之间", async () => {
     await mount()
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    fixture.write.mockRejectedValueOnce(new Error("磁盘不可写"))
-    await click("提取记忆")
-    const footer = container.querySelector(".ui-test-editor-footer")!
-    expect(footer.textContent).not.toContain("已保存为正式章节")
-    expect(footer.textContent).toMatch(/失败|未完成/)
+    const toolbar = container.querySelector(".ui-test-editor-toolbar")!
+    const labels = [...toolbar.querySelectorAll("button")].map((item) => item.textContent?.trim())
+    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "一键排版"])
   })
 
   it("读取失败不把错误文本当成可编辑正文或标题", async () => {
@@ -326,11 +302,9 @@ describe("图稿复核修正", () => {
     fixture.files.set(outlinePath, '---\ntitle: 真实资料标题\ntype: outline\ndescription: 保留资料说明\n---\n\n' + outline)
     await mount(outlinePath)
     expect(container.querySelector('.ui-test-editor-body [data-ui-test-frontmatter]')).not.toBeNull()
-    await click("更多编辑器操作")
-    await click("查看文件详情")
-    const details = container.querySelector('.ui-test-editor-details')!
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
+    const details = container.querySelector('.ui-test-editor-body')!
     expect(details?.textContent).toContain("保留资料说明")
-    expect(details?.textContent).toContain(outlinePath)
     expect(fixture.write).not.toHaveBeenCalled()
   })
 
@@ -347,20 +321,10 @@ describe("图稿复核修正", () => {
     }
     await act(async () => { root.render(<div className="ui-test-root"><UiTestEditor {...props}>{() => <p>正文</p>}</UiTestEditor></div>) })
     expect(container.querySelector('.ui-test-editor-auxiliary')).toBeNull()
-    await click("更多编辑器操作")
-    await click("批量大纲工具")
-    await click("已完成 0")
-    await click("更多编辑器操作")
-    await click("批量大纲工具")
-    expect(container.querySelector<HTMLElement>('.ui-test-editor-auxiliary')?.hidden).toBe(true)
-    expect(container.querySelector('.ui-test-editor-auxiliary')?.textContent).toContain("已完成 1")
-    await click("更多编辑器操作")
-    await click("批量大纲工具")
-    expect(container.querySelector<HTMLElement>('.ui-test-editor-auxiliary')?.hidden).toBe(false)
-    expect(container.querySelector('.ui-test-editor-auxiliary')?.textContent).toContain("已完成 1")
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
+    expect(container.querySelector<HTMLElement>('.ui-test-editor-auxiliary')).toBeNull()
     await act(async () => { root.render(<div className="ui-test-root"><UiTestEditor {...props} kind="chapter">{() => <p>正文</p>}</UiTestEditor></div>) })
-    await click("更多编辑器操作")
-    expect(container.querySelector('[role="menu"]')?.textContent).not.toContain("批量大纲工具")
+    expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
   })
 })
 

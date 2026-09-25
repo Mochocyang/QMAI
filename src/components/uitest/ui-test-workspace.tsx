@@ -3,7 +3,7 @@ import { FileText, Sparkles } from "lucide-react"
 import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
-import { getUiTestPanelLayout, resizeUiTestAiByKey, UI_TEST_AI_DEFAULT_WIDTH, UI_TEST_AI_MAX_WIDTH, UI_TEST_AI_MIN_WIDTH } from "@/lib/ui-test-layout"
+import { getUiTestAiMaxWidth, getUiTestPanelLayout, resizeUiTestAiByKey, UI_TEST_AI_DEFAULT_WIDTH, UI_TEST_AI_MIN_WIDTH } from "@/lib/ui-test-layout"
 import { useUiTestWidth } from "./use-ui-test-width"
 
 const ChatPanel = lazy(async () => ({ default: (await import("@/components/chat/chat-panel")).ChatPanel }))
@@ -75,7 +75,7 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
               onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
                 event.preventDefault()
-                onWidthChange(resizeUiTestAiByKey(layout.aiWidth, event.key))
+                onWidthChange(resizeUiTestAiByKey(layout.aiWidth, event.key, width))
               }}
               onPointerDown={(event) => {
                 if (event.button !== 0) return
@@ -84,13 +84,13 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
                 dragging.current = true
                 previousSelection.current = document.body.style.userSelect
                 document.body.style.userSelect = "none"
-                document.body.style.cursor = "col-resize"
+                document.body.style.cursor = "ew-resize"
                 document.body.dataset.panelResizing = "true"
               }}
               onPointerMove={(event) => {
                 if (!dragging.current || !containerRef.current) return
                 const right = containerRef.current.getBoundingClientRect().right
-                onWidthChange(Math.max(UI_TEST_AI_MIN_WIDTH, Math.min(UI_TEST_AI_MAX_WIDTH, right - event.clientX)))
+                onWidthChange(Math.max(UI_TEST_AI_MIN_WIDTH, Math.min(getUiTestAiMaxWidth(width), right - event.clientX)))
               }}
               onPointerUp={endResize}
               onPointerCancel={endResize}

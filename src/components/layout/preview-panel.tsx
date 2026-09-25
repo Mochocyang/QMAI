@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Check, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
+import { BookOpen, Brain, Check, Eraser, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -1411,16 +1411,15 @@ export function PreviewPanel() {
           actions={isSelectedChapter ? (
             <>
               <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
-                <Sparkles aria-hidden="true" />{chapterDeAiButtonLabel}
+                <Eraser aria-hidden="true" />去AI味
               </button>
-              {canSaveAsFinal && chapterHeader?.status === "draft" ? (
-                <button type="button" className="ui-test-editor-action is-primary" onClick={() => void handleSaveAsFinal()} disabled={isFinalChapterSaving}>
-                  <Check aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : "提取记忆"}
-                </button>
-              ) : null}
+              <button type="button" className="ui-test-editor-action" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+                {alreadyFinal ? <RefreshCw aria-hidden="true" /> : <Check aria-hidden="true" />}{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
+              </button>
               <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
                 <Brain aria-hidden="true" />查看记忆
               </button>
+              {canFormatWriting ? <button type="button" className="ui-test-editor-action" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" />一键排版</button> : null}
             </>
           ) : (
             <>
@@ -1436,12 +1435,7 @@ export function PreviewPanel() {
               </button>
             </>
           )}
-          moreActions={[
-            ...(canSaveAsFinal && alreadyFinal ? [{ label: "重新提取记忆", icon: <RefreshCw aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleReingest() }] : []),
-            ...(canSaveAsFinal && !alreadyFinal && chapterHeader?.status !== "draft" ? [{ label: "提取记忆", icon: <Check aria-hidden="true" />, disabled: isFinalChapterSaving, onClick: () => void handleSaveAsFinal() }] : []),
-            ...(canFormatWriting ? [{ label: "一键排版", icon: <Type aria-hidden="true" />, onClick: () => void handleFormatWriting() }] : []),
-            { label: "关闭文档", icon: <X aria-hidden="true" />, onClick: () => setSelectedFile(null) },
-          ]}
+          moreActions={[]}
         >
           {(mode) => isSelectedChapter && mode === "read" ? (
             <div className="ui-test-editor-reader">

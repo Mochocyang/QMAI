@@ -58,14 +58,12 @@ const TOOL_LABELS: Record<string, string> = {
 interface BuildAvailableCapabilitiesOptions {
   toolNames?: string[]
   selectedSkills?: UserSkill[]
-  mcpCapabilities?: AiCapability[]
 }
 
 export function buildAvailableCapabilities(options: BuildAvailableCapabilitiesOptions): AiCapability[] {
   return [
     ...buildBuiltInToolCapabilities(options.toolNames ?? []),
     ...buildUserSkillCapabilities(options.selectedSkills ?? []),
-    ...(options.mcpCapabilities ?? []),
   ]
 }
 

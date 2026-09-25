@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "QMaiWrite",
+  "productName": "青幕AI写作",
   "version": "3.2.19",
   "identifier": "com.qingmuai.writer",
   "build": {
