@@ -12,6 +12,7 @@ import { detectLanguage } from "@/lib/detect-language";
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata";
 import { useWikiStore } from "@/stores/wiki-store";
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram";
+import { outlineExtensionHtml, renderOutlineExtensionText } from "@/lib/outline-source-format";
 import { transformHandcraftZonesForReader } from "@/lib/novel/handcraft-zone";
 
 interface WikiReaderProps {
@@ -46,7 +47,7 @@ export function WikiReader({
     if (highlightHandcraftZones) {
       processed = transformHandcraftZonesForReader(processed);
     }
-    return processed;
+    return outlineExtensionHtml(processed);
   }, [body, highlightHandcraftZones]);
   const renderLanguage = detectLanguage(body);
   const direction = getTextDirection(renderLanguage);
@@ -54,7 +55,27 @@ export function WikiReader({
   const projectPath = project ? normalizePath(project.path) : null;
   const wikiRoot = projectPath ? `${projectPath}/wiki` : null;
 
-  function handleAnchorClick(
+  function renderOutlineChildren(children: React.ReactNode): React.ReactNode {
+  return Array.isArray(children)
+    ? children.map((child, index) => <span key={index}>{renderOutlineChild(child)}</span>)
+    : renderOutlineChild(children);
+}
+
+function renderOutlineChild(child: React.ReactNode): React.ReactNode {
+  if (typeof child !== "string" || !child.includes("⟨")) return child;
+  return renderOutlineExtensionText(child).map((node, index) => {
+    if (typeof node === "string") return <span key={index}>{node}</span>;
+    if (node.type === "color") return <span key={index} style={{ color: node.color }}>{node.value}</span>;
+    if (node.type === "u") return <u key={index}>{node.value}</u>;
+    if (node.type === "mark") return <mark key={index}>{node.value}</mark>;
+    if (node.type === "align") return <span key={index} style={{ display: "block", textAlign: node.align as "left" | "center" | "right" }}>{node.value}</span>;
+    if (node.type === "sup") return <sup key={index}>{node.value}</sup>;
+    if (node.type === "sub") return <sub key={index}>{node.value}</sub>;
+    return <span key={index}>{node.value}</span>;
+  });
+}
+
+function handleAnchorClick(
     e: React.MouseEvent<HTMLAnchorElement>,
     href: string,
   ) {
@@ -114,7 +135,7 @@ export function WikiReader({
           ),
           p: ({ children, ...props }) => (
             <p className="my-3 leading-7 text-foreground" {...props}>
-              {children}
+              {renderOutlineChildren(children)}
             </p>
           ),
           ul: ({ children, ...props }) => (

@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Eraser, MoreHorizontal, Sparkles, Type, X } from "lucide-react"
+import { BookOpen, Brain, Eraser, MoreHorizontal, Type, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -1418,9 +1418,6 @@ export function PreviewPanel() {
                 if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
                 else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
               }}><BookOpen aria-hidden="true" />查看记忆</button>
-              <button type="button" className="ui-test-editor-action" onClick={() => useOutlineGenerationStore.getState().setPanelOpen(true)}>
-                <Sparkles aria-hidden="true" />生成大纲
-              </button>
             </>
           )}
           moreActions={[]}
@@ -1437,6 +1434,7 @@ export function PreviewPanel() {
               onSave={handleSave}
               defaultMode={mode}
               immersiveWriting={isSelectedChapter}
+              formatToolbar={!isSelectedChapter}
               onSelectionAction={isSelectedChapter ? handleSelectionAction : undefined}
               highlightRequest={isSelectedChapter ? activeHighlightRequest : null}
               onHighlightHandled={() => {

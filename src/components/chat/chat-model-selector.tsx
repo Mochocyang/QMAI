@@ -38,8 +38,9 @@ export function getChatModelDropdownStyle(
     height: typeof window !== "undefined" ? window.innerHeight : 0,
   },
 ): ChatModelDropdownStyle {
-  const width = Math.max(rect.width, 280)
-  const right = Math.max(4, viewport.width - rect.right)
+  const width = Math.min(Math.max(rect.width, 280), Math.max(0, viewport.width - 8))
+  const desiredRight = viewport.width - rect.right - Math.max(0, width - rect.width)
+  const right = Math.max(4, Math.min(desiredRight, Math.max(4, viewport.width - width - 4)))
   const spaceAbove = rect.top
   const spaceBelow = viewport.height - rect.bottom
   const openBelow =
@@ -184,9 +185,9 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         variant="outline"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
-        className="h-8 w-32 justify-between gap-2 px-3 text-xs"
+        className="h-8 w-fit max-w-40 justify-start gap-1 px-2 text-xs"
       >
-        <span className="min-w-0 flex-1 truncate text-left">
+        <span className="max-w-32 truncate text-left">
           {selectedModel?.name ?? (value && value.trim() ? value : t("chat.selectModel"))}
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />

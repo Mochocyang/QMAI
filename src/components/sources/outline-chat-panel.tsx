@@ -3538,9 +3538,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               conversation.id === convId
                 ? {
                     ...conversation,
-                    title:
-                      firstUser.content.slice(0, 20) +
-                      (firstUser.content.length > 20 ? "..." : ""),
+                    title: firstUser.content.slice(0, 50),
                   }
                 : conversation,
             ),
@@ -5342,33 +5340,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex h-full flex-col overflow-hidden border-border bg-background" data-ui-ai-panel="outline">
       {/* Header with conversation tabs */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header>
         {<UiTestAiIdentity conversationTitle={activeConv?.title || "大纲对话"} status={<ConversationRunStatusIcon state={runStates[activeConversationId ?? ""]} />} />}
-        <span
-          className="inline-flex shrink-0"
-          title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              createConversation();
-            }}
-            className="qmai-new-conversation-button flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-accent/60 text-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
-            disabled={!canCreateConversation}
-            title={canCreateConversation ? "新建大纲对话" : EMPTY_CONVERSATION_CREATE_REASON}
-            aria-label="新建大纲对话"
-            aria-describedby={!canCreateConversation
-              ? "outline-new-conversation-disabled-reason"
-              : undefined}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-          {!canCreateConversation && (
-            <span id="outline-new-conversation-disabled-reason" className="sr-only">
-              {EMPTY_CONVERSATION_CREATE_REASON}
-            </span>
-          )}
-        </span>
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {topConversations.length > 0 ? (
             <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
@@ -5428,6 +5401,32 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             </span>
           )}
         </div>
+        <div className="qmai-header-actions ml-auto flex shrink-0 items-center">
+        <span
+          className="inline-flex shrink-0"
+          title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              createConversation();
+            }}
+            className="qmai-new-conversation-button flex h-7 w-7 shrink-0 items-center justify-center"
+            disabled={!canCreateConversation}
+            title={canCreateConversation ? "新建大纲对话" : EMPTY_CONVERSATION_CREATE_REASON}
+            aria-label="新建大纲对话"
+            aria-describedby={!canCreateConversation
+              ? "outline-new-conversation-disabled-reason"
+              : undefined}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          {!canCreateConversation && (
+            <span id="outline-new-conversation-disabled-reason" className="sr-only">
+              {EMPTY_CONVERSATION_CREATE_REASON}
+            </span>
+          )}
+        </span>
         <div className="relative shrink-0" ref={historyRef}>
           <button
             ref={historyButtonRef}
@@ -5496,13 +5495,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               )
             : null}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent"
             aria-label="关闭大纲助手"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>

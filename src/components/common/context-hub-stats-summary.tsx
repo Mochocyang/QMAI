@@ -34,7 +34,12 @@ export function UiTestGenerationStats({ stats, timing, className }: { stats?: Co
   const output = diagnostics?.outputTokens ?? totals?.outputTokens
   const uncached = input !== undefined && cached !== undefined ? Math.max(0, input - cached) : undefined
   const total = [input, output].every((value) => value !== undefined) ? input! + (cached ?? 0) + output! : undefined
-  const cacheRate = input && cached !== undefined ? Math.round((cached / input) * 1000) / 10 : undefined
+  const localCacheRate = stats && stats.cacheableLoaded
+    ? Math.round(((stats.cacheableHits ?? 0) / stats.cacheableLoaded) * 1000) / 10
+    : undefined
+  const cacheRate = input && cached !== undefined
+    ? Math.round((cached / input) * 1000) / 10
+    : localCacheRate
   const duration = timing?.finishedAt ? formatDuration(timing.finishedAt - timing.startedAt) : "—"
   const finished = timing?.finishedAt ? formatFinishTime(timing.finishedAt) : "—"
   const value = (tokens: number | undefined) => tokens === undefined ? "未提供" : `${tokens.toLocaleString()} tok`

@@ -126,11 +126,11 @@ describe("OutlineSaveConfirmDialog", () => {
       )
     })
 
-    expect(document.body.textContent).toContain("章纲-第001章.md")
+    expect(document.querySelector<HTMLInputElement>('[aria-label="修改 章纲-第001章.md 的文件名"]')?.value).toBe("章纲-第001章")
     expect(document.body.textContent).toContain("章纲")
   })
 
-  it("非人物保存预览展示类型、写入方式、来源和引用 skill", async () => {
+  it("非人物保存预览隐藏类型、写入方式、来源和引用 skill", async () => {
     await act(async () => {
       root.render(
         <OutlineSaveConfirmDialog
@@ -154,10 +154,10 @@ describe("OutlineSaveConfirmDialog", () => {
     })
 
     const text = document.body.textContent ?? ""
-    expect(text).toContain("类型：chapter-outline")
-    expect(text).toContain("写入方式：create")
-    expect(text).toContain("来源：生成第001章章纲")
-    expect(text).toContain("引用 skill：ZhanggangSkill/chapter-outline-builder")
+    expect(text).not.toContain("类型：chapter-outline")
+    expect(text).not.toContain("写入方式：create")
+    expect(text).not.toContain("来源：生成第001章章纲")
+    expect(text).not.toContain("引用 skill：ZhanggangSkill/chapter-outline-builder")
   })
 
   it("非人物保存时允许用户选择目标文件夹并提交选择结果", async () => {

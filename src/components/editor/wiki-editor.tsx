@@ -7,7 +7,7 @@ import {
   useState,
   forwardRef,
 } from "react";
-import { Editor, rootCtx, defaultValueCtx } from "@milkdown/kit/core";
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
@@ -27,8 +27,11 @@ import {
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection";
 import type { PendingEditorHighlight } from "@/stores/wiki-store";
+import { EditorContextMenu, type EditorContextAction } from "@/components/editor/editor-context-menu";
 import { TextareaFindBar } from "@/components/editor/textarea-find-bar";
 import { TextareaFindHighlights } from "@/components/editor/textarea-find-highlights";
+import { OutlineFormatToolbar } from "@/components/editor/outline-format-toolbar";
+import { outlineUnderlinePlugin, readOutlinePlainText, replaceOutlinePlainText, runOutlineToolbarAction, selectAllOutline } from "@/components/editor/outline-toolbar-actions";
 import {
   findAllMatches,
   findInitialMatchIndex,
@@ -40,6 +43,7 @@ import {
 interface WikiEditorInnerProps {
   content: string;
   onSave: (markdown: string) => void;
+  formatToolbar?: boolean;
 }
 
 /** Prefer CSS `field-sizing: content` when available; otherwise JS scrollHeight. */
@@ -96,6 +100,9 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
     const [toolbarPosition, setToolbarPosition] =
       useState<FloatingToolbarPosition | null>(null);
     const [findOpen, setFindOpen] = useState(false);
+    const [replaceOpen, setReplaceOpen] = useState(false);
+    const [replacement, setReplacement] = useState("");
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; start: number; end: number; text: string } | null>(null);
     const [findQuery, setFindQuery] = useState("");
     const [activeMatchIndex, setActiveMatchIndex] = useState(-1);
     const findMatches = useMemo(
@@ -354,10 +361,59 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
 
     const closeFindBar = useCallback(() => {
       setFindOpen(false);
+      setReplaceOpen(false);
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });
     }, []);
+
+    const replaceCurrent = useCallback(() => {
+      const textarea = textareaRef.current
+      const start = findMatches[activeMatchIndex]
+      if (!textarea || start === undefined || !findQuery) return
+      const next = `${value.slice(0, start)}${replacement}${value.slice(start + findQuery.length)}`
+      setValue(next)
+      rebuild(heading, next)
+      requestAnimationFrame(() => textarea.setSelectionRange(start, start + replacement.length))
+    }, [activeMatchIndex, findMatches, findQuery, heading, rebuild, replacement, value])
+
+    const replaceAllMatches = useCallback(() => {
+      if (!findQuery) return
+      const pattern = new RegExp(findQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")
+      const next = value.replace(pattern, replacement)
+      setValue(next)
+      rebuild(heading, next)
+    }, [findQuery, heading, rebuild, replacement, value])
+
+    const runTextAction = useCallback(async (action: EditorContextAction) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const start = contextMenu?.start ?? textarea.selectionStart
+      const end = contextMenu?.end ?? textarea.selectionEnd
+      if (action === "undo") { document.execCommand("undo"); return }
+      if (action === "redo") { document.execCommand("redo"); return }
+      if (action === "selectAll") { textarea.focus(); textarea.setSelectionRange(0, textarea.value.length); return }
+      if (action === "copy" || action === "cut") {
+        const selected = contextMenu?.text || value.slice(start, end)
+        if (!selected) return
+        await navigator.clipboard.writeText(selected)
+        if (action === "cut") {
+          const next = `${value.slice(0, start)}${value.slice(end)}`
+          setValue(next); rebuild(heading, next)
+          requestAnimationFrame(() => textarea.setSelectionRange(start, start))
+        }
+        return
+      }
+      if (action === "paste") {
+        const pasted = await navigator.clipboard.readText()
+        const next = `${value.slice(0, start)}${pasted}${value.slice(end)}`
+        setValue(next); rebuild(heading, next)
+        requestAnimationFrame(() => { const caret = start + pasted.length; textarea.setSelectionRange(caret, caret) })
+        return
+      }
+      setReplaceOpen(action === "replace")
+      openFindBar(value.slice(start, end))
+    }, [contextMenu, heading, openFindBar, rebuild, value])
 
     const goToNextMatch = useCallback(() => {
       if (!findQuery || findMatches.length === 0) {
@@ -442,9 +498,13 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
         <TextareaFindBar
           open={findOpen}
           query={findQuery}
+          replacement={replacement}
           activeMatchIndex={activeMatchIndex}
           matchCount={findMatches.length}
           onQueryChange={setFindQuery}
+          onReplacementChange={replaceOpen ? setReplacement : undefined}
+          onReplace={replaceCurrent}
+          onReplaceAll={replaceAllMatches}
           onNext={goToNextMatch}
           onPrevious={goToPreviousMatch}
           onClose={closeFindBar}
@@ -497,6 +557,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
               setToolbarPosition(null);
               rebuild(heading, next);
             }}
+            onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); const target = event.currentTarget; setContextMenu({ x: event.clientX, y: event.clientY, start: target.selectionStart, end: target.selectionEnd, text: target.value.slice(target.selectionStart, target.selectionEnd) }) }}
             onSelect={refreshSelection}
             onMouseUp={refreshSelection}
             onKeyUp={refreshSelection}
@@ -537,26 +598,39 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
             spellCheck={false}
           />
         </div>
+        <EditorContextMenu position={contextMenu} disabled={{ copy: !contextMenu?.text, cut: !contextMenu?.text }} onAction={(action) => void runTextAction(action)} onClose={() => setContextMenu(null)} />
       </div>
     );
   },
 );
 
-function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
+function WikiEditorInner({ content, onSave, formatToolbar = false }: WikiEditorInnerProps) {
   // Milkdown fires `markdownUpdated` once on initial parse before any
   // user interaction. That one emit must not be forwarded as a save,
   // otherwise just opening a file can overwrite its content with
   // Milkdown's normalized-but-equivalent re-emit (or, worse, with a
   // placeholder string that came back from a failed read).
   const initialEmitConsumedRef = useRef(false);
+  const actionRef = useRef(runOutlineToolbarAction);
+  const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string; from: number; to: number } | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [replacement, setReplacement] = useState("");
+  actionRef.current = runOutlineToolbarAction;
 
-  useEditor(
+  const { get } = useEditor(
     (root) =>
       Editor.make()
         .config(nord)
         .config((ctx) => {
           ctx.set(rootCtx, root);
           ctx.set(defaultValueCtx, content);
+          ctx.update(editorViewOptionsCtx, (options) => ({
+            ...options,
+            attributes: { ...(options.attributes ?? {}), "data-outline-milkdown": formatToolbar ? "true" : "false" },
+          }));
           initialEmitConsumedRef.current = false;
           ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
             if (!initialEmitConsumedRef.current) {
@@ -567,13 +641,69 @@ function WikiEditorInner({ content, onSave }: WikiEditorInnerProps) {
           });
         })
         .use(commonmark)
+        .use(outlineUnderlinePlugin)
         .use(gfm)
         .use(history)
         .use(listener),
     [],
   );
 
-  return <Milkdown />;
+  const updateOutlineToolbar = useCallback(() => {
+    if (!formatToolbar) return;
+    const editor = get();
+    const root = editor?.ctx.get(rootCtx) as HTMLElement | undefined;
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const inside = Boolean(root && anchor && root.contains(anchor));
+    const text = selection?.toString().trim() ?? "";
+    const rect = selection?.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
+    setToolbarPosition(inside && text && rect && rect.width + rect.height > 0 ? { top: rect.top, left: rect.left + rect.width / 2 } : null);
+  }, [formatToolbar, get]);
+
+  useEffect(() => {
+    if (!formatToolbar) return;
+    document.addEventListener("selectionchange", updateOutlineToolbar);
+    return () => document.removeEventListener("selectionchange", updateOutlineToolbar);
+  }, [formatToolbar, updateOutlineToolbar]);
+
+  const runOutlineContextAction = async (action: EditorContextAction) => {
+    const editor = get()
+    if (!editor) return
+    if (action === "undo" || action === "redo") { actionRef.current(editor, action); return }
+    if (action === "selectAll") { selectAllOutline(editor); return }
+    const selected = contextMenu?.text || window.getSelection()?.toString() || ""
+    if (action === "copy" || action === "cut") {
+      if (!selected) return
+      await navigator.clipboard.writeText(selected)
+      if (action === "cut" && contextMenu) editor.action((ctx) => { const view = ctx.get(editorViewCtx); view.dispatch(view.state.tr.insertText("", contextMenu.from, contextMenu.to)); view.focus() })
+      return
+    }
+    if (action === "paste") {
+      const pasted = await navigator.clipboard.readText()
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx)
+        const { from, to } = view.state.selection
+        view.dispatch(view.state.tr.insertText(pasted, from, to))
+        view.focus()
+      })
+      return
+    }
+    setFindQuery(selected)
+    setReplaceOpen(action === "replace")
+    setFindOpen(true)
+  }
+
+  const outlineText = findOpen ? (get() ? readOutlinePlainText(get()!) : "") : ""
+  const outlineMatches = findAllMatches(outlineText, findQuery, { caseSensitive: false })
+
+  return (
+    <div onContextMenu={(event) => { if (!formatToolbar) return; event.preventDefault(); event.stopPropagation(); const editor = get(); const range = editor?.action((ctx) => { const selection = ctx.get(editorViewCtx).state.selection; return { from: selection.from, to: selection.to } }) ?? { from: 0, to: 0 }; setContextMenu({ x: event.clientX, y: event.clientY, text: window.getSelection()?.toString() ?? "", ...range }) }}>
+      <TextareaFindBar open={findOpen} query={findQuery} replacement={replacement} activeMatchIndex={outlineMatches.length ? 0 : -1} matchCount={outlineMatches.length} onQueryChange={setFindQuery} onReplacementChange={replaceOpen ? setReplacement : undefined} onReplace={() => { const editor = get(); if (editor) replaceOutlinePlainText(editor, findQuery, replacement, false) }} onReplaceAll={() => { const editor = get(); if (editor) replaceOutlinePlainText(editor, findQuery, replacement, true) }} onNext={() => undefined} onPrevious={() => undefined} onClose={() => { setFindOpen(false); setReplaceOpen(false) }} />
+      {formatToolbar ? <OutlineFormatToolbar position={toolbarPosition} onAction={(action, payload) => { const editor = get(); if (editor) actionRef.current(editor, action, payload) }} /> : null}
+      <Milkdown />
+      {formatToolbar ? <EditorContextMenu position={contextMenu} disabled={{ copy: !contextMenu?.text, cut: !contextMenu?.text }} onAction={(action) => void runOutlineContextAction(action)} onClose={() => setContextMenu(null)} /> : null}
+    </div>
+  );
 }
 
 interface WikiEditorProps {
@@ -587,6 +717,7 @@ interface WikiEditorProps {
   ) => void;
   highlightRequest?: PendingEditorHighlight | null;
   onHighlightHandled?: () => void;
+  formatToolbar?: boolean;
 }
 
 export interface WikiEditorHandle {
@@ -605,6 +736,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
       onSelectionAction,
       highlightRequest,
       onHighlightHandled,
+      formatToolbar = false,
     },
     ref,
   ) {
@@ -738,7 +870,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
               {!immersiveWriting && frontmatter && (
                 <div data-ui-test-frontmatter="true"><FrontmatterPanel data={frontmatter} /></div>
               )}
-              <WikiEditorInner content={body} onSave={handleSave} />
+              <WikiEditorInner content={body} onSave={handleSave} formatToolbar={formatToolbar} />
             </div>
           </MilkdownProvider>
         )}

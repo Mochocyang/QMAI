@@ -303,7 +303,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
           msgs.push({ id: crypto.randomUUID(), role: "assistant", content, sources })
         }
         const firstUser = msgs.find((m) => m.role === "user")
-        const title = firstUser ? firstUser.content.slice(0, 20) + (firstUser.content.length > 20 ? "..." : "") : c.title
+        const title = firstUser ? firstUser.content.slice(0, 50) : c.title
         return { ...c, messages: msgs, title, updatedAt: now }
       }),
     }))

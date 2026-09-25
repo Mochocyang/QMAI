@@ -1479,7 +1479,7 @@ export function KnowledgeTree({
               data-ui-tree-row="folder"
               data-folder-path={normalizedPath}
               className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground qm-hover ${isOutlineDropTarget ? "ring-2 ring-primary/50" : ""}`}
-              style={{ paddingLeft: "2px" }}
+              style={{ paddingLeft: `${2 + depth * 16}px` }}
               onContextMenu={(event) => openCreateMenu(event, normalizedPath, node.name)}
             >
               <button

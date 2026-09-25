@@ -44,7 +44,7 @@ afterEach(async () => {
 describe("测试版 AI 模型选择布局", () => {
   it("思考按钮与模型选择同一行，模型框不超过 148px", () => {
     const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*justify-content: flex-end;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex: 0 0 auto;[^}]*gap: 2px;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: max-content;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \[data-reference-input-footer\] \[aria-label="上下文用量"\] \{[^}]*display: inline-flex;/s)
   })

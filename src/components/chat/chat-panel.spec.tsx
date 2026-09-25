@@ -379,7 +379,7 @@ describe("chat-panel agent reference integration", () => {
   })
 
   it("pins the conversation history control to the far right of the AI chat toolbar", () => {
-    expect(source).toContain('className="relative ml-auto shrink-0"')
+    expect(source).toContain('className="qmai-header-actions ml-auto flex shrink-0 items-center"')
     expect(source).toContain("qmai-history-button")
   })
 })

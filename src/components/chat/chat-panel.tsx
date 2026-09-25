@@ -780,12 +780,13 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   // 顶部统一为三段式：新建写作绘画 / 正在工作的绘画 / 绘画历史记录
   return (
     <>
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header>
         <UiTestAiIdentity
           title="写作助手"
           conversationTitle={conversations.find((conversation) => conversation.id === activeConversationId)?.title}
           status={activeConversationId ? <ConversationRunStatusIcon state={runStates[activeConversationId]} /> : undefined}
         />
+        <div className="qmai-header-actions ml-auto flex shrink-0 items-center">
         {/* 1. 新建写作绘画 */}
         <span
           className="inline-flex shrink-0"
@@ -794,7 +795,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
           <Button
             variant="ghost"
             size="icon-sm"
-            className="qmai-new-conversation-button shrink-0 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+            className="qmai-new-conversation-button shrink-0"
             onClick={() => createConversation()}
             disabled={!canCreateConversation}
             title={canCreateConversation
@@ -805,7 +806,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
               ? "chat-new-conversation-disabled-reason"
               : undefined}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4" />
           </Button>
           {!canCreateConversation && (
             <span id="chat-new-conversation-disabled-reason" className="sr-only">
@@ -818,7 +819,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
 
 
         {/* 3. 绘画历史记录（点击展开下拉面板，显示全部历史会话） */}
-        <div className="relative ml-auto shrink-0" ref={historyRef}>
+        <div className="relative shrink-0" ref={historyRef}>
           <Button
             ref={historyButtonRef}
             variant="ghost"
@@ -882,6 +883,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
         <button type="button" onClick={() => useWikiStore.getState().setChatExpanded(false)} aria-label="关闭写作助手" title="关闭写作助手">
           <X className="h-4 w-4" />
         </button>
+        </div>
     </div>
     <ConversationDeleteConfirmDialog
       open={pendingDeleteId !== null}

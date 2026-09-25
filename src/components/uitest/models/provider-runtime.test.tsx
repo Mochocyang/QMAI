@@ -119,6 +119,17 @@ it("添加配置自动展开，不会把未填写的新卡写进运行配置", a
   expect(Object.keys(useWikiStore.getState().providerConfigs)).toHaveLength(0)
 })
 
+it("测试连接覆盖已选的全部模型，失败模型以红色标记", async () => {
+  const models = ["alpha", "beta", "gamma"].map((model, index) => ({ id: model, model, name: model, description: "", createdAt: index }))
+  useWikiStore.setState({ providerConfigs: { "custom-unit": { ...original, savedModels: models } } })
+  await unmount(); ({ host, unmount } = await mountModel(<UiTestProviderCard id="custom-unit" expanded isNew={false} onToggle={() => {}} onRemoved={() => {}} />))
+  vi.mocked(testLlmConnection).mockImplementation(async config => ({ ok: config.model !== "beta", message: config.model === "beta" ? "连接失败" : "OK" }))
+  await click(host, "测试连接")
+  expect(testLlmConnection).toHaveBeenCalledTimes(3)
+  expect(host.textContent).toContain("测试完成，2/3 通过。beta：连接失败")
+  expect(host.querySelector(".model-feedback")?.classList.contains("error")).toBe(true)
+  expect(host.querySelector(".model-tag-input > span.is-failed")?.textContent).toContain("beta")
+})
 it("测试连接直接发送请求，不再等待费用确认", async () => {
   vi.mocked(testLlmConnection).mockResolvedValue({ok:true,message:"OK"})
   await click(host,"测试连接")

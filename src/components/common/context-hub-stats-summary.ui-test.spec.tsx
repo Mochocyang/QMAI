@@ -78,4 +78,12 @@ describe("新版上下文中控数字摘要", () => {
     expect(host.textContent).toContain("600 tok")
     expect(host.textContent).toContain("200 tok")
   })
+
+  it("供应商未返回缓存字段时显示本地缓存命中率", async () => {
+    const { UiTestGenerationStats } = await import("./context-hub-stats-summary")
+    await act(async () => root.render(<UiTestGenerationStats stats={stats} />))
+    await act(async () => host.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(host.textContent).toContain("60%")
+    expect(host.textContent).not.toContain("缓存命中未提供")
+  })
 })

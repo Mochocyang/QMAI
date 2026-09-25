@@ -146,7 +146,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(header?.querySelector(".ui-test-ai-title strong")?.textContent).toBe(title)
     expect(header?.textContent).not.toContain("当前对话")
     expect(header?.textContent).not.toContain("写作助手")
-    if (kind === "outline") expect(header?.textContent).toContain("历史大纲对话")
+    if (kind === "outline") expect(header?.querySelector('[aria-label="大纲会话历史"]')).not.toBeNull()
     expect(header?.querySelector(".ui-test-ai-session")).toBeNull()
     expect(panel?.querySelector(".ui-test-ai-context")).toBeNull()
     expect(header?.textContent).not.toContain(kind === "outline" ? "暂无大纲对话" : "暂无会话")

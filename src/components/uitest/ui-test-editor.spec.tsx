@@ -147,14 +147,13 @@ describe("测试版正文编辑器", () => {
     expect(fixture.write).not.toHaveBeenCalled()
   })
 
-  it("大纲有真实标题和生成入口，尚未提取记忆也能看到解释", async () => {
+  it("大纲有真实标题和记忆入口，尚未提取记忆也能看到解释", async () => {
     await mount(outlinePath)
     expect(container.querySelector(".ui-test-editor-meta")).toBeNull()
     expect(container.textContent).not.toContain("待提取记忆")
     expect(container.querySelector("h1")?.textContent ?? "").toContain("实际大纲标题")
+    expect(container.textContent).not.toContain("生成大纲")
     button("提取记忆")
-    await click("生成大纲")
-    expect(useOutlineGenerationStore.getState().panelOpen).toBe(true)
     await click("查看记忆")
     expect(container.textContent).toContain("尚未提取记忆")
     expect(fixture.write).not.toHaveBeenCalled()

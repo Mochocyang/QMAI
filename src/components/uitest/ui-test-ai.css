@@ -19,22 +19,27 @@
   background: transparent;
 }
 
-[data-ui-ai-panel] .ui-test-ai-identity { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+[data-ui-ai-panel] .ui-test-ai-identity { display: flex; align-items: center; gap: 8px; min-width: 0; order: 0; justify-content: flex-start; }
 [data-ui-ai-panel] .ui-test-ai-mark { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 7px; background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-panel] .ui-test-ai-mark svg { width: 13px; height: 13px; }
 [data-ui-ai-panel] .ui-test-ai-heading { min-width: 0; flex: 1; }
 [data-ui-ai-panel] .ui-test-ai-title { display: flex; align-items: center; gap: 6px; }
 [data-ui-ai-panel] .ui-test-ai-title strong { font-size: 14px; font-weight: 500; line-height: 1.5; }
 [data-ui-ai-panel] .ui-test-ai-session { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--ui-muted); }
-[data-ui-ai-header] > .ml-auto, [data-ui-ai-header] > .relative { margin-left: 0; }
+[data-ui-ai-header] > .qmai-header-actions { order: 0; margin-left: auto; }
+[data-ui-ai-header] > .relative { margin-left: 0; }
 [data-ui-ai-header] > .flex.min-w-0 { display: none; }
+[data-ui-ai-header] .qmai-new-conversation-button { width: 30px; height: 30px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+[data-ui-ai-header] .qmai-new-conversation-button svg, [data-ui-ai-header] [aria-label^="关闭"] svg { width: 16px; height: 16px; }
+[data-ui-ai-header] .qmai-history-button, [data-ui-ai-header] .qmai-outline-history-button { width: auto; min-width: 0; padding: 5px 8px; }
 [data-ui-ai-header] button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; padding: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-muted); box-shadow: none; }
 [data-ui-ai-header] button:hover:not(:disabled) { background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-header] button:disabled { opacity: .45; }
 /* 图标入口保留中文 aria-label；只收起重复文字及数量，不隐藏操作。 */
-[data-ui-ai-header] .qmai-history-button > span,
-[data-ui-ai-header] .qmai-history-button > svg:last-child { display: none; }
-[data-ui-ai-header] .qmai-outline-history-button { width: auto; padding: 5px 8px; }
+[data-ui-ai-header] .qmai-history-button > span:first-of-type,
+[data-ui-ai-header] .qmai-outline-history-button > span:first-of-type,
+[data-ui-ai-header] .qmai-history-button > svg:last-child,
+[data-ui-ai-header] .qmai-outline-history-button > svg:last-child { display: none; }
 
 [data-ui-ai-panel] .ui-test-ai-context { display: flex; align-items: center; gap: 7px; flex-shrink: 0; min-width: 0; padding: 9px 10px; border-radius: 8px; background: var(--ui-paper); color: var(--ui-muted); font-size: 12px; line-height: 1.6; }
 [data-ui-ai-panel] .ui-test-ai-context svg { width: 14px; height: 14px; flex-shrink: 0; }
@@ -116,10 +121,12 @@
 [data-ui-ai-composer] textarea::placeholder { color: var(--ui-muted); opacity: 1; }
 [data-ui-ai-composer] [data-reference-input-footer] { gap: 8px; padding: 8px 10px; border: 0; }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child {
-  flex: 1;
+  flex: 0 0 auto;
   justify-content: flex-end;
+  width: auto;
   min-width: 0;
-  gap: 8px;
+  margin-left: auto;
+  gap: 2px;
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .ui-test-ai-model {
   display: flex;
@@ -135,9 +142,10 @@
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative,
 [data-ui-ai-composer] .ui-test-ai-model > .relative { flex: 0 0 auto; width: auto; min-width: 0; }
-[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { flex: 0 0 auto; width: auto; min-width: 7.5rem; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { flex: 0 0 auto; width: auto; min-width: 0; }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative > button,
-[data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: auto; min-width: 0; max-width: 100%; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: fit-content; min-width: 0; max-width: 9rem; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative > button > span { flex: 0 1 auto; width: auto; }
 [data-ui-ai-composer] [aria-label="引用内容"] { flex-shrink: 0; color: var(--ui-muted); }
 [data-ui-ai-composer] [aria-label="发送消息"] { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: var(--ui-accent); color: var(--ui-on-accent); }
 [data-ui-ai-composer] [aria-label="发送消息"]:disabled { background: var(--ui-soft); color: var(--ui-muted); }

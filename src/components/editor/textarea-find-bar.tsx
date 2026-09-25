@@ -5,9 +5,13 @@ import { isImeComposing } from "@/lib/keyboard-utils"
 interface TextareaFindBarProps {
   open: boolean
   query: string
+  replacement?: string
   activeMatchIndex: number
   matchCount: number
   onQueryChange: (query: string) => void
+  onReplacementChange?: (replacement: string) => void
+  onReplace?: () => void
+  onReplaceAll?: () => void
   onNext: () => void
   onPrevious: () => void
   onClose: () => void
@@ -16,9 +20,13 @@ interface TextareaFindBarProps {
 export function TextareaFindBar({
   open,
   query,
+  replacement = "",
   activeMatchIndex,
   matchCount,
   onQueryChange,
+  onReplacementChange,
+  onReplace,
+  onReplaceAll,
   onNext,
   onPrevious,
   onClose,
@@ -71,6 +79,13 @@ export function TextareaFindBar({
         aria-label="查找正文"
         className="h-7 w-44 rounded border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
       />
+      {onReplacementChange ? (
+        <>
+          <input type="text" value={replacement} onChange={(event) => onReplacementChange(event.target.value)} placeholder="替换为" aria-label="替换内容" className="h-7 w-36 rounded border border-input bg-background px-2 text-sm outline-none" />
+          <button type="button" className="rounded px-1.5 py-1 text-xs hover:bg-accent" onMouseDown={(event) => event.preventDefault()} onClick={onReplace}>替换</button>
+          <button type="button" className="rounded px-1.5 py-1 text-xs hover:bg-accent" onMouseDown={(event) => event.preventDefault()} onClick={onReplaceAll}>全部</button>
+        </>
+      ) : null}
       <span className="min-w-10 text-center text-xs text-muted-foreground">{statusLabel}</span>
       <button
         type="button"

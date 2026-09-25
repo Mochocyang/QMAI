@@ -7,8 +7,8 @@ const source = readFileSync(resolve(__dirname, "chat-model-selector.tsx"), "utf8
 
 describe("chat model selector sizing", () => {
   it("uses a narrow fixed trigger width with truncated model text", () => {
-    expect(source).toContain('className="h-8 w-32 justify-between gap-2 px-3 text-xs"')
-    expect(source).toContain('className="min-w-0 flex-1 truncate text-left"')
+    expect(source).toContain('className="h-8 w-fit max-w-40 justify-start gap-1 px-2 text-xs"')
+    expect(source).toContain('className="max-w-32 truncate text-left"')
     expect(source).not.toContain("min-w-[160px]")
     expect(source).not.toContain("max-w-[200px]")
   })
@@ -20,7 +20,7 @@ describe("getChatModelDropdownStyle", () => {
       { top: 120, bottom: 152, right: 400, width: 128 },
       { width: 800, height: 900 },
     )
-    expect(style).toMatchObject({ top: 156, right: 400 })
+    expect(style).toMatchObject({ top: 156, right: 248 })
     expect(style.bottom).toBeUndefined()
     expect(style.maxHeight).toBeLessThanOrEqual(360)
     expect(style.maxHeight).toBeGreaterThan(200)
@@ -34,6 +34,16 @@ describe("getChatModelDropdownStyle", () => {
     expect(style.top).toBeUndefined()
     expect(style.bottom).toBe(800 - 700 + 4)
     expect(style.maxHeight).toBeLessThanOrEqual(700 - 4 - 4)
+  })
+
+  it("shifts a left-edge menu right so its full width stays visible", () => {
+    const style = getChatModelDropdownStyle(
+      { top: 300, bottom: 332, right: 180, width: 128 },
+      { width: 692, height: 938 },
+    )
+    expect(style.width).toBe(280)
+    expect(style.right).toBe(692 - 180 - (280 - 128))
+    expect(style.right).toBeGreaterThanOrEqual(4)
   })
 
   it("caps downward maxHeight so the menu stays inside the viewport", () => {

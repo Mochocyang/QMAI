@@ -158,17 +158,16 @@ export function OutlineSaveConfirmDialog({
                     className="mt-1 h-4 w-4 shrink-0 accent-primary"
                   />
                   <span className="min-w-0 flex-1">
-                    <div className="font-medium">{request.fileName}</div>
-                    <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
-                      <div>类型：{request.fileType}</div>
-                      <div>写入方式：{request.writeMode}</div>
-                      <div>来源：{request.sourceIntent || "未标注"}</div>
-                      <div>
-                        引用 skill：{request.referencedSkills.length > 0
-                          ? request.referencedSkills.join("、")
-                          : "无"}
-                      </div>
-                    </div>
+                    <input
+                      aria-label={`修改 ${request.fileName} 的文件名`}
+                      value={request.fileName.replace(/\.md$/i, "")}
+                      onClick={(event) => event.preventDefault()}
+                      onChange={(event) => {
+                        const fileName = `${event.target.value.replace(/[\\/:*?"<>|]/g, "").trim() || "未命名"}.md`
+                        setNormalRequests((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, fileName } : item))
+                      }}
+                      className="h-8 w-full rounded-md border bg-background px-2 text-sm font-medium"
+                    />
                     <div className="mt-2 grid gap-1.5 text-xs text-muted-foreground">
                       <label htmlFor={`outline-save-folder-${index}`}>
                         保存文件夹
