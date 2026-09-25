@@ -15,7 +15,6 @@ import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
 import { saveOutputLanguage } from "@/lib/project-store"
 import { pickDirectory } from "@/lib/platform"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-shelf.css"
 
 interface CreateProjectDialogProps {
@@ -75,7 +74,6 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
 
   // 测试版只读路径预览独立等待，不改变正式版的初始化或创建流程。
   useEffect(() => {
-    if (!IS_UI_TEST_BUILD) return
     if (!isOpen) {
       setUiDefaultPath("")
       return
@@ -134,8 +132,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     }
   }
 
-  if (IS_UI_TEST_BUILD) {
-    const uiError = error && (error === t("project.errorNameRequired")
+  const uiError = error && (error === t("project.errorNameRequired")
       ? "请输入小说名称。"
       : /[\u4e00-\u9fff]/.test(error)
         ? error.replace(/^Error:\s*/, "")
@@ -227,44 +224,4 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
         </DialogContent>
       </Dialog>
     )
-  }
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t("project.createTitle")}</DialogTitle>
-        </DialogHeader>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!creating) {
-              void handleCreate()
-            }
-          }}
-        >
-          <div className="flex flex-col gap-4 py-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name">{t("project.name")}</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("project.namePlaceholder")} />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="path">{t("project.parentDir")}</Label>
-              <div className="flex gap-2">
-                <Input id="path" value={path} onChange={(e) => setPath(e.target.value)} placeholder={t("project.parentDirPlaceholder")} className="flex-1" />
-                <Button variant="outline" size="icon" onClick={handleBrowse} type="button">
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("project.cancel")}</Button>
-            <Button type="submit" disabled={creating}>{creating ? t("project.creating") : t("project.create")}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
 }

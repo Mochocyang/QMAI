@@ -12,7 +12,7 @@ describe("soul-sidebar-panel", () => {
   })
 
   it("shows which novel character is bound before the aura selector", () => {
-    expect(source).toContain("小说人物")
+    expect(source).toContain("人物绑定")
     expect(source).toContain("绑定角色灵魂")
   })
 

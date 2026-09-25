@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import {
@@ -988,7 +987,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   }, [activeView, loadMemoryCenter, novelMode, project?.path])
 
   useEffect(() => {
-    if (!IS_UI_TEST_BUILD || !onUiTestRegisterCancel) return
+    if (!onUiTestRegisterCancel) return
     onUiTestRegisterCancel(handleCancelImportMemoryExtraction)
     return () => onUiTestRegisterCancel(null)
   }, [onUiTestRegisterCancel])
@@ -1124,115 +1123,19 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
   return (
     <div className="flex h-full flex-col">
-      {IS_UI_TEST_BUILD ? (
-        <UiTestDirectoryHeader
-          kind={isChapter ? "chapter" : "outline"}
-          query={uiTestQuery}
-          onQueryChange={setUiTestQuery}
-          busy={creating || outlineImporting || chapterImporting}
-          onCreate={() => { setUiTestQuery(""); if (isChapter) void handleCreateNextChapter(); else beginCreate({ kind: "outline" }) }}
-          onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
-          onImportFiles={() => { if (isChapter) void handleImportChapterFiles(); else void handleImportOutlineFiles() }}
-          onImportFolder={() => { if (isChapter) void handleImportChapterFolder(); else void handleImportOutlineFolder() }}
-          onOpenAssistant={() => { if (isChapter) setBulkChapterOpen((open) => !open); else setBulkOutlineOpen((open) => !open) }}
-          onClose={onUiTestCloseDirectory}
-          onHelp={() => void openExternalUrl(USAGE_GUIDE_URL)}
-        />
-      ) : (
-      <div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-            <PanelHeaderWithHelp
-              title={isChapter ? t("sidebar.knowledge") : t("sidebar.files")}
-              helpKey={isChapter ? "chapter" : "outline"}
-              helpTitle={isChapter ? "章节功能使用说明" : "大纲功能使用说明"}
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {isChapter ? (
-            <div ref={chapterImportMenuRef} className="relative">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={() => setChapterImportMenuOpen((prev) => !prev)}
-                disabled={chapterImporting}
-              >
-                {chapterImporting ? "导入中..." : "导入"}
-                <ChevronDown className="ml-1 h-3.5 w-3.5" />
-              </Button>
-              {chapterImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg">
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportChapterFiles()}
-                  >
-                    导入文件
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportChapterFolder()}
-                  >
-                    导入文件夹
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div ref={outlineImportMenuRef} className="relative">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={() => setOutlineImportMenuOpen((prev) => !prev)}
-                disabled={outlineImporting}
-              >
-                {outlineImporting ? t("sources.importing") : t("sources.import")}
-                <ChevronDown className="ml-1 h-3.5 w-3.5" />
-              </Button>
-              {outlineImportMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-1 w-28 rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-lg">
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportOutlineFiles()}
-                  >
-                    {t("sources.importFiles")}
-                  </button>
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-                    onClick={() => void handleImportOutlineFolder()}
-                  >
-                    {t("sources.importFolder")}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              if (isChapter) {
-                void handleCreateNextChapter()
-                return
-              }
-              beginCreate({ kind: "outline" })
-            }}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title={isChapter ? t("sidebar.newChapter") : t("sidebar.newOutline")}
-            disabled={creating || outlineImporting || chapterImporting}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-      )}
+      <UiTestDirectoryHeader
+        kind={isChapter ? "chapter" : "outline"}
+        query={uiTestQuery}
+        onQueryChange={setUiTestQuery}
+        busy={creating || outlineImporting || chapterImporting}
+        onCreate={() => { setUiTestQuery(""); if (isChapter) void handleCreateNextChapter(); else beginCreate({ kind: "outline" }) }}
+        onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
+        onImportFiles={() => { if (isChapter) void handleImportChapterFiles(); else void handleImportOutlineFiles() }}
+        onImportFolder={() => { if (isChapter) void handleImportChapterFolder(); else void handleImportOutlineFolder() }}
+        onOpenAssistant={() => { if (isChapter) setBulkChapterOpen((open) => !open); else setBulkOutlineOpen((open) => !open) }}
+        onClose={onUiTestCloseDirectory}
+        onHelp={() => void openExternalUrl(USAGE_GUIDE_URL)}
+      />
 
       {pendingCreate && (
         <div className="flex flex-col gap-2 border-b px-2 py-2">
@@ -1241,7 +1144,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
             value={inputTitle}
             onChange={(event) => setInputTitle(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && inputTitle.trim() && (!IS_UI_TEST_BUILD || !event.nativeEvent.isComposing)) {
+              if (event.key === "Enter" && inputTitle.trim() && !event.nativeEvent.isComposing) {
                 void handleCreateFromInput()
               } else if (event.key === "Escape") {
                 cancelPendingCreate()
@@ -1275,11 +1178,11 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
         </div>
       )}
 
-      {IS_UI_TEST_BUILD && !isChapter && bulkOutlineOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools /></div>}
-      {IS_UI_TEST_BUILD && isChapter && bulkChapterOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools kind="chapter" /></div>}
+      {!isChapter && bulkOutlineOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools /></div>}
+      {isChapter && bulkChapterOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools kind="chapter" /></div>}
       <div className="flex-1 overflow-hidden">
         <KnowledgeTree
-          searchQuery={IS_UI_TEST_BUILD ? uiTestQuery : undefined}
+          searchQuery={uiTestQuery}
           filterType={isChapter ? "chapter" : "outline"}
           refreshKey={refreshKey}
           pendingPages={pendingPages.filter((page) => page.type === (isChapter ? "chapter" : "outline"))}
@@ -1289,21 +1192,6 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           onSendToOutline={!isChapter ? handleSendOutlineToOutlineChat : undefined}
         />
       </div>
-      {!IS_UI_TEST_BUILD && (
-      <div className="border-t px-3 py-2">
-        <button
-          type="button"
-          onClick={() => {
-            void openExternalUrl(USAGE_GUIDE_URL)
-          }}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <CircleHelp className="h-4 w-4 shrink-0" />
-          <span>{t("iconSidebar.usageGuide")}</span>
-        </button>
-      </div>
-      )}
-      {!IS_UI_TEST_BUILD && <RawSourcesSection onCancelExtraction={handleCancelImportMemoryExtraction} />}
       <Dialog
         open={Boolean(memoryDecisionRequest)}
         onOpenChange={(open) => {

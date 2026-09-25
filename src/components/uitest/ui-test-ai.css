@@ -103,8 +103,8 @@
 [data-ui-ai-tools] button:hover:not(:disabled) { background: var(--ui-soft); }
 [data-ui-ai-tools] [aria-label="上下文用量"] { color: var(--ui-muted); }
 [data-ui-ai-composer] div:has(> [data-reference-input-footer]) { border: 1px solid color-mix(in srgb, var(--ui-line) 45%, transparent); border-radius: 14px; background: var(--ui-paper); box-shadow: none; }
-[data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { outline: none; box-shadow: none; }
-[data-ui-ai-panel="outline"] [data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { border-color: color-mix(in srgb, var(--ui-line) 45%, transparent); box-shadow: none; outline: none; }
+[data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { border-color: color-mix(in srgb, var(--ui-line) 45%, transparent); outline: none; box-shadow: none; --tw-ring-shadow: 0 0 #0000; }
+[data-ui-ai-panel="outline"] [data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { border-color: color-mix(in srgb, var(--ui-line) 45%, transparent); box-shadow: none; outline: none; --tw-ring-shadow: 0 0 #0000; }
 [data-ui-ai-composer] textarea:focus, [data-ui-ai-composer] textarea:focus-visible { outline: none; box-shadow: none; }
 [data-ui-ai-panel="outline"] [data-ui-ai-composer] textarea:is(:focus, :focus-visible) { caret-color: var(--ui-accent); }
 [data-ui-ai-panel] .ui-test-outline-command { color: var(--ui-accent); font-weight: 600; }
@@ -123,16 +123,19 @@
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .ui-test-ai-model {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   width: auto;
   max-width: none;
-  min-width: 0;
+  min-width: max-content;
+  overflow: visible;
   gap: 2px;
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative,
 [data-ui-ai-composer] .ui-test-ai-model > .relative { flex: 0 0 auto; width: auto; min-width: 0; }
-[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { flex: 1 1 auto; min-width: 0; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { flex: 0 0 auto; width: auto; min-width: 7.5rem; }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative > button,
 [data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: auto; min-width: 0; max-width: 100%; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
 [data-ui-ai-composer] [aria-label="引用内容"] { flex-shrink: 0; color: var(--ui-muted); }

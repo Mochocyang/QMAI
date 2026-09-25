@@ -370,12 +370,11 @@ describe("chat-panel agent reference integration", () => {
     expect(source).not.toContain("onRejectTool={handleRejectTool}")
   })
 
-  it("keeps up to three working or today's conversations in the top toolbar and moves the rest into history", () => {
+  it("uses the conversation split helpers for toolbar / history; top-conversation chip block is removed", () => {
     expect(source).toContain("splitConversationToolbarItems")
     expect(source).toContain("isStreamingConversation")
     expect(source).toContain("topConversations")
     expect(source).toContain("historyConversations")
-    expect(source).toContain("topConversations.map((conv) => renderConversationChip(conv))")
     expect(source).not.toContain("historyConversations = sorted.filter((conv) => conv.id !== activeConversationId)")
   })
 

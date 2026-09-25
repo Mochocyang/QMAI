@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Check, Eraser, MoreHorizontal, RefreshCw, Sparkles, Type, X } from "lucide-react"
+import { BookOpen, Brain, Eraser, MoreHorizontal, Sparkles, Type, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -61,7 +61,6 @@ import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } fro
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui-test-editor"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
@@ -259,7 +258,7 @@ export function PreviewPanel() {
   const titleMeasureRef = useRef<HTMLSpanElement | null>(null)
   // 只观察原保存结果，不改变写入时机、内容或冲突策略。
   const reportUiTestSave = useCallback((path: string, phase: UiTestEditorSaveState["phase"], expectedMarkdown?: string, generation?: number, retryAction?: UiTestEditorSaveState["retryAction"]) => {
-    if (!IS_UI_TEST_BUILD || selectedFileRef.current !== path) return
+    if (selectedFileRef.current !== path) return
     if (generation !== undefined && generation !== saveGenerationRef.current) return
     if (expectedMarkdown !== undefined && getDiskSyncNormalize(path)(fileContentRef.current) !== expectedMarkdown) return
     setUiTestSaveState({ path, phase, retryAction })
@@ -310,7 +309,7 @@ export function PreviewPanel() {
     rememberLoadedChapter(normalizedPath, diskContent)
     fileContentRef.current = diskContent
     if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
-      const scrollTop = IS_UI_TEST_BUILD ? uiTestScrollRef.current?.scrollTop : wikiEditorRef.current?.getImmersiveScrollTop()
+      const scrollTop = uiTestScrollRef.current?.scrollTop
       if (scrollTop != null) {
         pendingScrollRestoreRef.current = scrollTop
       }
@@ -325,8 +324,7 @@ export function PreviewPanel() {
     if (pending == null) return
     pendingScrollRestoreRef.current = null
     const restore = () => {
-      if (IS_UI_TEST_BUILD && uiTestScrollRef.current) uiTestScrollRef.current.scrollTop = pending
-      else wikiEditorRef.current?.setImmersiveScrollTop(pending)
+      if (uiTestScrollRef.current) uiTestScrollRef.current.scrollTop = pending
     }
     restore()
     // WritingTextarea autofocus/caret-to-end can scrollIntoView after mount;
@@ -470,7 +468,7 @@ export function PreviewPanel() {
     setSelectionTransformSkillName("")
     setSelectionTransformModelName("")
     setLoadedFilePath(null)
-    if (IS_UI_TEST_BUILD) setUiTestSaveState(null)
+    setUiTestSaveState(null)
 
     if (!selectedFile) {
       setFileContent("")
@@ -887,10 +885,8 @@ export function PreviewPanel() {
       const syncResult = await syncChapterToCanonicalPath(selectedFile, updatedMarkdown, { renameToCanonical: true })
       const targetPath = syncResult.targetPath
       savePath = targetPath
-      if (IS_UI_TEST_BUILD) {
-        uiTestFinalFileSaved = true
-        reportUiTestSave(targetPath, "saved")
-      }
+      uiTestFinalFileSaved = true
+      reportUiTestSave(targetPath, "saved")
       rememberLoadedChapter(targetPath, syncResult.markdown)
       fileContentRef.current = syncResult.markdown
       setFileContent(syncResult.markdown)
@@ -948,7 +944,7 @@ export function PreviewPanel() {
       const message = error instanceof Error ? error.message : String(error)
       updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
       console.error("[preview-panel] ingest failed:", error)
-      if (IS_UI_TEST_BUILD && !uiTestFinalFileSaved) reportUiTestSave(selectedFile, "error", undefined, undefined, "final")
+      if (!uiTestFinalFileSaved) reportUiTestSave(selectedFile, "error", undefined, undefined, "final")
     } finally {
       setIsSavingFinal(false)
     }
@@ -1340,17 +1336,10 @@ export function PreviewPanel() {
   }
 
   if (!selectedFile) {
-    if (IS_UI_TEST_BUILD) {
-      return (
-        <div className="ui-test-editor-empty">
-          <h2>选择一份文档，开始写作</h2>
-          <p>从目录打开章节或大纲，也可以使用目录中的新建、导入入口。</p>
-        </div>
-      )
-    }
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {t("preview.empty")}
+      <div className="ui-test-editor-empty">
+        <h2>选择一份文档，开始写作</h2>
+        <p>从目录打开章节或大纲，也可以使用目录中的新建、导入入口。</p>
       </div>
     )
   }
@@ -1374,7 +1363,7 @@ export function PreviewPanel() {
     )
   }
 
-  const useUiTestEditor = IS_UI_TEST_BUILD && category === "markdown" && (isSelectedChapter || isOutlinePath(selectedFile))
+  const useUiTestEditor = category === "markdown" && (isSelectedChapter || isOutlinePath(selectedFile))
   const uiTestParsed = useUiTestEditor ? parseFrontmatter(fileContent) : null
   const uiTestHeading = uiTestParsed ? splitChapterHeading(uiTestParsed.body) : null
   const uiTestFolders = useUiTestEditor
@@ -1413,7 +1402,7 @@ export function PreviewPanel() {
                 <Eraser aria-hidden="true" />去AI味
               </button>
               <button type="button" className="ui-test-editor-action" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
-                {alreadyFinal ? <RefreshCw aria-hidden="true" /> : <Check aria-hidden="true" />}{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
+                <Brain aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
               </button>
               <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
                 <Brain aria-hidden="true" />查看记忆

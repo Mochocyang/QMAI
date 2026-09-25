@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-tools.css"
 import { useEffect, useMemo, useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -153,7 +152,7 @@ function SkillLibraryHeader({ compact = false }: { compact?: boolean }) {
     : "skillLibrary"
 
   return (
-    <div data-ui={IS_UI_TEST_BUILD && !compact ? "skills-tabs" : undefined} className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b ${compact ? "px-2 py-2" : "px-4 py-3"}`}>
+    <div data-ui={!compact ? "skills-tabs" : undefined} className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b ${compact ? "px-2 py-2" : "px-4 py-3"}`}>
       <div className="flex items-center gap-1">
         {skillLibraryTabs.map((tab) => (
           <button
@@ -327,9 +326,9 @@ export function UnifiedSkillLibraryView() {
   const activeView = useWikiStore((s) => s.activeView)
 
   return (
-    <div data-ui-page={IS_UI_TEST_BUILD ? "skills" : undefined} data-ui-state={IS_UI_TEST_BUILD ? activeView : undefined} data-testid="unified-skill-library-view" className="flex h-full flex-col overflow-hidden">
+    <div data-ui-page="skills" data-ui-state={activeView} data-testid="unified-skill-library-view" className="flex h-full flex-col overflow-hidden">
       <SkillLibraryHeader />
-      <div data-ui={IS_UI_TEST_BUILD ? "skills-content" : undefined} className="min-h-0 flex-1 overflow-hidden">
+      <div data-ui="skills-content" className="min-h-0 flex-1 overflow-hidden">
         {activeView === "writingSkillLibrary" ? (
           <WritingSkillLibraryView />
         ) : activeView === "skillFavorites" ? (

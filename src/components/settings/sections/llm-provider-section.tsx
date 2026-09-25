@@ -6,8 +6,7 @@ import { useProviderDraft } from "@/components/uitest/models/provider-draft"
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
-import { useEffect, useId, useMemo, useState, useRef } from "react"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
+import { useEffect, useMemo, useState, useRef } from "react"
 import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
@@ -21,18 +20,12 @@ import { resolveConfig } from "../preset-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
-import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
+import type { ProviderTestResult } from "@/lib/connection-tests"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
-import { useBatchModelTest } from "../hooks/use-batch-model-test"
-import { ModelSelectInput } from "../model-select-input"
-import { SavedModelsManager } from "./saved-models-manager"
 import { mergeProviderModels, removeProviderModel } from "@/components/uitest/models/provider-data"
-import { CustomProviderCards } from "./custom-provider-cards"
 import { UiTestProviderCard } from "@/components/uitest/models/provider-custom"
-import { ResourceLink } from "../resource-link"
 import {
   MIN_USER_LLM_CONTEXT_SIZE,
-  normalizeProviderOverride,
   normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
@@ -73,80 +66,17 @@ export function withOutputRoomForReasoning(
 }
 
 export function LlmProviderSection() {
-  const { t } = useTranslation()
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
-  const setProviderConfigs = useWikiStore((s) => s.setProviderConfigs)
-  const activePresetId = useWikiStore((s) => s.activePresetId)
-  const setActivePresetId = useWikiStore((s) => s.setActivePresetId)
-  const setLlmConfig = useWikiStore((s) => s.setLlmConfig)
-  const llmConfig = useWikiStore((s) => s.llmConfig)
-
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [savedId, setSavedId] = useState<string | null>(null)
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
   const [selectedPresetId, setSelectedPresetId] = useState(LLM_PRESETS.find((preset) => preset.id !== "custom")?.id ?? "")
   const [customDraftIds, setCustomDraftIds] = useState<string[]>([])
-  const uiTestTabsId = useId()
 
   function toggleExpand(id: string) {
-    setExpanded((prev) => IS_UI_TEST_BUILD ? { [id]: !prev[id] } : ({ ...prev, [id]: !prev[id] }))
+    setExpanded((prev) => ({ [id]: !prev[id] }))
   }
 
-  async function persist(newConfigs: typeof providerConfigs, newActive: string | null) {
-    const { saveProviderConfigs, saveActivePresetId, saveLlmConfig } = await import(
-      "@/lib/project-store"
-    )
-    await saveProviderConfigs(newConfigs)
-    await saveActivePresetId(newActive)
-    if (newActive) {
-      const preset = LLM_PRESETS.find((p) => p.id === newActive)
-      if (preset) {
-        const resolved = resolveConfig(preset, newConfigs[newActive], llmConfig)
-        setLlmConfig(resolved)
-        await saveLlmConfig(resolved)
-      }
-    }
-  }
-
-  function updateOverride(id: string, patch: ProviderOverride) {
-    const current = useWikiStore.getState().providerConfigs
-    const currentActive = useWikiStore.getState().activePresetId
-    const merged: ProviderOverride = normalizeProviderOverride({
-      ...(current[id] ?? {}),
-      ...patch,
-    })
-    const next = { ...current, [id]: merged }
-    setProviderConfigs(next)
-    persist(next, currentActive).catch(() => {})
-    // If this preset is active, refresh the resolved LlmConfig live.
-    if (id === currentActive) {
-      const preset = LLM_PRESETS.find((p) => p.id === id)
-      if (preset) setLlmConfig(resolveConfig(preset, merged, llmConfig))
-    }
-    setSavedId(id)
-    setTimeout(() => setSavedId((cur) => (cur === id ? null : cur)), 1500)
-  }
-
-  function toggleActive(id: string) {
-    const currentActive = useWikiStore.getState().activePresetId
-    const next = id === currentActive ? null : id
-    setActivePresetId(next)
-    persist(useWikiStore.getState().providerConfigs, next).catch(() => {})
-  }
-
-  function toggleEnabled(id: string) {
-    const current = useWikiStore.getState().providerConfigs
-    const currentActive = useWikiStore.getState().activePresetId
-    const entry = current[id]
-    const currentEnabled = entry?.enabled === true
-    const merged: ProviderOverride = { ...(entry ?? {}), enabled: !currentEnabled }
-    const next = { ...current, [id]: merged }
-    setProviderConfigs(next)
-    persist(next, currentActive).catch(() => {})
-  }
-
-  if (IS_UI_TEST_BUILD) {
-    const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds])]
+  const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds])]
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
     const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? presets[0]
     return (
@@ -170,115 +100,7 @@ export function LlmProviderSection() {
         </div>}
       </div>
     )
-  }
 
-  if (false) return (
-      <div data-ui="llm-sources">
-        <div className="ui-test-tool-tabs" role="tablist" aria-label="模型配置来源">
-          {(["custom", "presets"] as const).map((source) => (
-            <button
-              key={source}
-              id={`${uiTestTabsId}-${source}-tab`}
-              type="button"
-              role="tab"
-              data-ui-llm-source={source}
-              aria-selected={uiTestSource === source}
-              aria-controls={`${uiTestTabsId}-${source}-panel`}
-              tabIndex={uiTestSource === source ? 0 : -1}
-              onClick={() => setUiTestSource(source)}
-              onKeyDown={(event) => {
-                const next = event.key === "Home" ? "custom" : event.key === "End" ? "presets"
-                  : event.key === "ArrowLeft" || event.key === "ArrowRight" ? (source === "custom" ? "presets" : "custom") : null
-                if (!next) return
-                event.preventDefault()
-                setUiTestSource(next)
-                document.getElementById(`${uiTestTabsId}-${next}-tab`)?.focus()
-              }}
-            >
-              {source === "custom" ? "自定义模型" : "提供方模型"}
-            </button>
-          ))}
-        </div>
-        <details data-ui="llm-context-notice">
-          <summary><AlertCircle aria-hidden="true" className="h-4 w-4" /><span>{t("settings.sections.llm.longWritingContextTitle")}</span><span className="ui-test-notice-toggle">查看说明</span></summary>
-          <div>
-            <p>{t("settings.sections.llm.description")}</p>
-            <p>{t("settings.sections.llm.longWritingContextHint")}</p>
-            <ResourceLink href={MODEL_PARAM_DOCS_URL} title={t("settings.sections.llm.longWritingContextDocs")}>
-              {t("settings.sections.llm.longWritingContextDocs")}
-            </ResourceLink>
-          </div>
-        </details>
-        {/* 两个面板保持挂载，切来源不丢未提交的模型 ID、展开状态与测试结果。 */}
-        <div id={`${uiTestTabsId}-custom-panel`} role="tabpanel" aria-labelledby={`${uiTestTabsId}-custom-tab`} data-ui="llm-custom" hidden={uiTestSource !== "custom"}>
-          <CustomProviderCards />
-        </div>
-        <div id={`${uiTestTabsId}-presets-panel`} role="tabpanel" aria-labelledby={`${uiTestTabsId}-presets-tab`} data-ui="llm-presets" hidden={uiTestSource !== "presets"}>
-          <p className="ui-test-provider-note">填入 API 密钥后可拉取并测试模型。选择结果保存在同一个输入框中，点击“保存配置”后生效。</p>
-          <div className="space-y-2">
-            {LLM_PRESETS.filter((preset) => preset.id !== "custom").map((preset) => {
-              return (
-                <UiTestPresetCard key={preset.id} preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[preset.id]} onToggle={() => toggleExpand(preset.id)} />
-              )
-            })}
-          </div>
-        </div>
-      </div>
-  )
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">{t("settings.sections.llm.title")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("settings.sections.llm.description")}
-        </p>
-      </div>
-
-      <div className="flex gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div className="min-w-0 space-y-1.5">
-          <div className="font-medium">
-            {t("settings.sections.llm.longWritingContextTitle")}
-          </div>
-          <p className="text-xs leading-relaxed text-emerald-800/80 dark:text-emerald-200/75">
-            {t("settings.sections.llm.longWritingContextHint")}
-          </p>
-          <ResourceLink
-            href={MODEL_PARAM_DOCS_URL}
-            title={t("settings.sections.llm.longWritingContextDocs")}
-          >
-            {t("settings.sections.llm.longWritingContextDocs")}
-          </ResourceLink>
-        </div>
-      </div>
-
-      {/* Custom Provider Cards - 放在顶部 */}
-      <CustomProviderCards />
-
-      {/* Keep every provider; each provider defaults to at least the writing floor. */}
-      <div className="space-y-2">
-        {LLM_PRESETS.filter((p) => p.id !== "custom").map((preset) => {
-          const ov = providerConfigs[preset.id]
-          return (
-            <PresetRow
-              key={preset.id}
-              preset={preset}
-              override={ov}
-              isActive={activePresetId === preset.id}
-              isEnabled={ov?.enabled === true}
-              isExpanded={!!expanded[preset.id]}
-              savedHere={savedId === preset.id}
-              onToggleActive={() => toggleActive(preset.id)}
-              onToggleEnabled={() => toggleEnabled(preset.id)}
-              onToggleExpand={() => toggleExpand(preset.id)}
-              onChange={(patch) => updateOverride(preset.id, patch)}
-            />
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 interface PresetRowProps {
@@ -362,11 +184,10 @@ function PresetRow({
   const codexFastEnabled = codexSpeedMode === "fast"
   const showLocalCliIsolation = preset.provider === "claude-code"
   const isCursorCliProvider = preset.provider === "cursor-cli"
-  const [testState, setTestState] = useState<ProviderTestState>({ kind: "idle" })
+  const [, setTestState] = useState<ProviderTestState>({ kind: "idle" })
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [modelListState, setModelListState] = useState<ModelActionState>(null)
-  const [isModelSelectionExpanded, setIsModelSelectionExpanded] = useState(false)
-  const savedModelsTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const [, setIsModelSelectionExpanded] = useState(false)
   const uiTestCurrentOverride = useRef(JSON.stringify(ov))
   const uiTestRevision = useRef(0), uiTestMounted = useRef(true)
   if (uiTestCurrentOverride.current !== JSON.stringify(ov)) {
@@ -374,10 +195,9 @@ function PresetRow({
     uiTestRevision.current++
   }
   useEffect(() => { uiTestMounted.current = true; return () => { uiTestMounted.current = false; uiTestRevision.current++ } }, [])
-  useEffect(() => { if (IS_UI_TEST_BUILD) { setTestState({ kind: "idle" }); setModelListState(null) } }, [ov])
-  const originalBatch = useBatchModelTest(t)
-  const uiTestBatch = useUiTestProviderBatch(ov, IS_UI_TEST_BUILD)
-  const { modelTestState, runBatchTest, retryFailed } = IS_UI_TEST_BUILD ? uiTestBatch : originalBatch
+  useEffect(() => { setTestState({ kind: "idle" }); setModelListState(null) }, [ov])
+  const uiTestBatch = useUiTestProviderBatch(ov, true)
+  const { modelTestState, runBatchTest, retryFailed } = uiTestBatch
   const hasConfig =
     !!apiKey ||
     !!ov.baseUrl ||
@@ -405,30 +225,6 @@ function PresetRow({
     setModelListState(null)
   }, [apiKey, apiMode, baseUrl, preset.id, preset.provider])
 
-  async function runProviderTest(kind: "connection" | "function") {
-    if (IS_UI_TEST_BUILD) {
-      if (!(await confirmModelAction("测试会向当前模型发送请求，可能消耗 token 和费用；不会自动保存配置。是否继续？"))) return
-      const captured = uiTestRevision.current
-      setTestState({ kind: "running", label: "正在测试…" })
-      try {
-        const result = await (kind === "connection" ? testLlmConnection : testLlmFunction)(resolvedConfig)
-        if (!uiTestMounted.current || uiTestRevision.current !== captured) return
-        setTestState({ kind: "done", result: { ok: result.ok, message: result.ok ? "测试通过，配置仍需单独保存。" : safeModelError(result.message, [apiKey]) } })
-      } catch (error) { if (uiTestMounted.current && uiTestRevision.current === captured) setTestState({ kind: "done", result: { ok: false, message: safeModelError(error, [apiKey]) } }) }
-      return
-    }
-    setTestState({
-      kind: "running",
-      label: kind === "connection"
-        ? t("settings.sections.llm.testingConnection")
-        : t("settings.sections.llm.testingFunction"),
-    })
-    const result = kind === "connection"
-      ? await testLlmConnection(resolvedConfig)
-      : await testLlmFunction(resolvedConfig)
-    setTestState({ kind: "done", result })
-  }
-
   async function loadModelOptions() {
     const captured = uiTestRevision.current
     setModelListState({
@@ -439,7 +235,7 @@ function PresetRow({
 
     try {
       const result = await fetchLlmModelList(resolvedConfig)
-      if (IS_UI_TEST_BUILD && (!uiTestMounted.current || uiTestRevision.current !== captured)) return
+      if (!uiTestMounted.current || uiTestRevision.current !== captured) return
       setModelOptions(result.models)
 
       // 拉取成功后自动展开模型选择区域
@@ -451,7 +247,7 @@ function PresetRow({
         message: t("settings.sections.shared.modelListSuccess", { count: result.models.length }),
       })
     } catch (error) {
-      if (IS_UI_TEST_BUILD && (!uiTestMounted.current || uiTestRevision.current !== captured)) return
+      if (!uiTestMounted.current || uiTestRevision.current !== captured) return
       setModelListState({
         loading: false,
         success: false,
@@ -460,30 +256,6 @@ function PresetRow({
         }),
       })
     }
-  }
-
-  function toggleModelSelection(modelId: string) {
-    const currentSaved = ov.savedModels ?? []
-    const isSelected = currentSaved.some((m) => m.model === modelId)
-
-    let updatedModels: SavedModel[]
-
-    if (isSelected) {
-      updatedModels = currentSaved.filter((m) => m.model !== modelId)
-    } else {
-      const newModel: SavedModel = {
-        id: `model-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: modelId,
-        model: modelId,
-        apiKey: apiKey || undefined,
-        // Cursor CLI endpoint is managed dynamically — never bake 8765 into saved models.
-        customEndpoint: isCursorCliProvider ? undefined : (baseUrl || undefined),
-        createdAt: Date.now(),
-      }
-      updatedModels = [...currentSaved, newModel]
-    }
-
-    onChange({ savedModels: updatedModels })
   }
 
   async function runSelectedModelTest() {
@@ -778,121 +550,17 @@ function PresetRow({
           {needsApiKey && (
             <div className="space-y-2">
               <Label>{t("settings.sections.llm.apiKey")}</Label>
-              {IS_UI_TEST_BUILD ? <ModelSecretInput value={apiKey} onChange={(apiKey) => onChange({ apiKey })} /> : (
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => onChange({ apiKey: e.target.value })}
-                  placeholder={
-                    preset.provider === "custom"
-                      ? t("settings.sections.llm.apiKeyPlaceholderCustom")
-                      : t("settings.sections.llm.apiKeyPlaceholder")
-                  }
-                />
-              )}
+              <ModelSecretInput value={apiKey} onChange={(apiKey) => onChange({ apiKey })} />
             </div>
           )}
 
-          {IS_UI_TEST_BUILD ? (
-            <UiTestProviderModelInput
-              model={model}
-              savedModels={ov.savedModels ?? []}
-              options={modelOptions}
-              failedModels={modelTestState?.failedModels ?? []}
-              onChange={onChange}
-            />
-          ) : (
-          <div className="space-y-2">
-            <Label>
-              {preset.provider === "azure"
-                ? t("settings.sections.llm.deploymentName", "Deployment name")
-                : t("settings.sections.llm.model")}
-            </Label>
-            <ModelPicker
-              value={model}
-              suggestions={preset.suggestedModels ?? []}
-              fetchedModels={modelOptions}
-              placeholder={preset.defaultModel ?? "e.g. gpt-4o"}
-              selectPlaceholder={t("settings.sections.shared.modelSelectPlaceholder")}
-              inputPlaceholder={t("settings.sections.shared.modelManualPlaceholder")}
-              onChange={(v) => onChange({ model: v })}
-            />
-          </div>
-          )}
-
-          {/* 拉取模型后的多选标签区域 */}
-          {!IS_UI_TEST_BUILD && modelOptions.length > 0 && (
-            <div className="space-y-2 border-t pt-4">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setIsModelSelectionExpanded(!isModelSelectionExpanded)}
-                  className="flex items-center gap-2 text-xs font-medium hover:text-primary"
-                >
-                  <span>{t("settings.sections.llm.fetchedModelsCount", { count: modelOptions.length })}</span>
-                  <span className="text-muted-foreground">{t("settings.sections.llm.selectedModelsCount", { count: (ov.savedModels ?? []).length })}</span>
-                </button>
-              </div>
-
-              {isModelSelectionExpanded && (
-                <>
-                  <div className="text-xs text-muted-foreground">
-                    {t("settings.sections.llm.toggleModelHint")}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {modelOptions.map((modelId) => {
-                      const isSelected = (ov.savedModels ?? []).some((m) => m.model === modelId)
-                      return (
-                        <button
-                          key={modelId}
-                          type="button"
-                          onClick={() => toggleModelSelection(modelId)}
-                          className={`rounded-md border px-2 py-1 text-xs transition-colors ${
-                            isSelected
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-border bg-background hover:bg-accent"
-                          }`}
-                        >
-                          {modelId}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* 已选模型显示 */}
-          {!IS_UI_TEST_BUILD && (ov.savedModels ?? []).length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-xs">{t("settings.sections.llm.selectedModels")}</Label>
-              <textarea
-                ref={savedModelsTextareaRef}
-                value={(ov.savedModels ?? []).map((m) => m.model).join(", ")}
-                readOnly
-                placeholder={t("settings.sections.llm.pleaseFetchModels")}
-                className="flex min-h-[40px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
-                rows={1}
-              />
-            </div>
-          )}
-
-          {!IS_UI_TEST_BUILD && <SavedModelsManager
+          <UiTestProviderModelInput
+            model={model}
             savedModels={ov.savedModels ?? []}
-            onChange={(models) => onChange({ savedModels: models })}
-            hideEndpoint={isCursorCliProvider}
-            buildTestConfig={(saved) => ({
-              ...resolvedConfig,
-              model: saved.model,
-              apiKey: saved.apiKey?.trim() || resolvedConfig.apiKey,
-              // Cursor CLI ignores saved endpoints; other providers may override.
-              customEndpoint: isCursorCliProvider
-                ? resolvedConfig.customEndpoint
-                : (saved.customEndpoint?.trim() || resolvedConfig.customEndpoint),
-            })}
-          />}
+            options={modelOptions}
+            failedModels={modelTestState?.failedModels ?? []}
+            onChange={onChange}
+          />
 
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">
@@ -919,13 +587,13 @@ function PresetRow({
             </div>
             {modelListState?.message ? (
               <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
-                {IS_UI_TEST_BUILD ? safeModelError(modelListState.message, [apiKey]) : modelListState.message}
+                {safeModelError(modelListState.message, [apiKey])}
               </p>
             ) : null}
             {modelTestState?.message ? (
               <div className="space-y-1.5">
                 <p className={`text-xs ${modelTestState.success ? "text-emerald-600" : "text-destructive"}`}>
-                  {IS_UI_TEST_BUILD ? safeModelError(modelTestState.message, [apiKey]) : modelTestState.message}
+                  {safeModelError(modelTestState.message, [apiKey])}
                 </p>
                 {modelTestState.failedModels && modelTestState.failedModels.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
@@ -980,49 +648,6 @@ function PresetRow({
             enabled={ov.functionCallingEnabled !== false}
             onChange={(functionCallingEnabled) => onChange({ functionCallingEnabled })}
           />
-
-          {!IS_UI_TEST_BUILD && <div className="space-y-2 rounded-md border p-3">
-            <div>
-              <div className="text-sm font-medium">
-                {t("settings.sections.llm.providerTests")}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("settings.sections.llm.providerTestsHint")}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void runProviderTest("connection")}
-                disabled={testState.kind === "running"}
-                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {t("settings.sections.llm.testConnection")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void runProviderTest("function")}
-                disabled={testState.kind === "running"}
-                className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {t("settings.sections.llm.testFunction")}
-              </button>
-            </div>
-            {testState.kind === "running" && (
-              <p className="text-xs text-muted-foreground">{testState.label}</p>
-            )}
-            {testState.kind === "done" && (
-              <div
-                className={`rounded-md border px-3 py-2 text-xs ${
-                  testState.result.ok
-                    ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
-                    : "border-destructive/40 bg-destructive/5 text-destructive"
-                }`}
-              >
-                {testState.result.message}
-              </div>
-            )}
-          </div>}
         </div>
       )}
     </div>
@@ -1221,92 +846,6 @@ function EndpointField({ value, mode, placeholder, onChange }: EndpointFieldProp
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-interface ModelPickerProps {
-  value: string
-  suggestions: string[]
-  fetchedModels: string[]
-  placeholder: string
-  selectPlaceholder: string
-  inputPlaceholder: string
-  onChange: (value: string) => void
-}
-
-/**
- * Model input with a chip-based suggestion row above it. The input stays
- * free-text so users can always type unlisted models (fine-tunes, preview
- * IDs, local Ollama tags, etc.). Clicking a chip just fills the input.
- *
- * The currently-selected chip (if the value matches one of the suggestions)
- * gets the accent highlight so users can see at a glance which preset
- * model is active without reading the text field. Presets with no
- * `suggestedModels` render the input alone.
- */
-function ModelPicker({
-  value,
-  suggestions,
-  fetchedModels,
-  placeholder,
-  selectPlaceholder,
-  inputPlaceholder,
-  onChange,
-}: ModelPickerProps) {
-  const { t } = useTranslation()
-  const hasSuggestions = suggestions.length > 0
-  const isCustom = hasSuggestions && value.length > 0 && !suggestions.includes(value)
-  const mergedOptions = useMemo(
-    () => Array.from(new Set([...fetchedModels, value].map((item) => item.trim()).filter(Boolean))),
-    [fetchedModels, value],
-  )
-
-  return (
-    <div className="space-y-2">
-      {hasSuggestions && (
-        <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((m) => {
-            const active = m === value
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => onChange(m)}
-                className={`rounded-md border px-2 py-0.5 text-xs font-mono transition-colors ${
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background hover:bg-accent hover:text-accent-foreground"
-                }`}
-                title={t("settings.sections.llm.useModel", { model: m })}
-              >
-                {m}
-              </button>
-            )
-          })}
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
-              isCustom
-                ? "border-primary/60 bg-primary/10 text-primary"
-                : "border-dashed border-muted-foreground/40 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
-            title={t("settings.sections.llm.typeCustomModel")}
-          >
-            {isCustom
-              ? t("settings.sections.llm.customModelBadge", { model: value })
-              : t("settings.sections.llm.customModel")}
-          </button>
-        </div>
-      )}
-      <ModelSelectInput
-        value={value}
-        options={mergedOptions}
-        onChange={onChange}
-        selectPlaceholder={selectPlaceholder}
-        inputPlaceholder={inputPlaceholder || placeholder}
-      />
     </div>
   )
 }

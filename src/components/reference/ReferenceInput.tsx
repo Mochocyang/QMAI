@@ -9,18 +9,16 @@ import {
 } from "react"
 import { ArrowUp, AtSign, Square } from "lucide-react"
 import { isImeComposing } from "@/lib/keyboard-utils"
-import { IS_UI_TEST_BUILD, UI_TEST_STORAGE_PREFIX } from "@/lib/ui-test"
+import { UI_TEST_STORAGE_PREFIX } from "@/lib/ui-test"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { ReferenceChip } from "./ReferenceChip"
 
 export type InsertReferenceTokens = ((tokens: ReferenceToken[]) => void) | null
 
-const REFERENCE_INPUT_HEIGHT_KEY = IS_UI_TEST_BUILD
-  ? `${UI_TEST_STORAGE_PREFIX}reference-input-height`
-  : "qmai-reference-input-height"
+const REFERENCE_INPUT_HEIGHT_KEY = `${UI_TEST_STORAGE_PREFIX}reference-input-height`
 // 正式版保留模式菜单所需的原高度；测试版按图稿使用独立高度与偏好。
-const DEFAULT_REFERENCE_INPUT_HEIGHT = IS_UI_TEST_BUILD ? 128 : 192
-const MIN_REFERENCE_INPUT_HEIGHT = IS_UI_TEST_BUILD ? 112 : 192
+const DEFAULT_REFERENCE_INPUT_HEIGHT = 128
+const MIN_REFERENCE_INPUT_HEIGHT = 112
 const MAX_REFERENCE_INPUT_HEIGHT = 300
 
 interface ReferenceInputProps {
@@ -210,7 +208,7 @@ export function ReferenceInput({
   )
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-background shadow-sm focus-within:ring-2 focus-within:ring-ring">
+    <div className="overflow-hidden rounded-lg border bg-background shadow-sm">
       <div
         role="separator"
         aria-label="拖动调整输入框高度"

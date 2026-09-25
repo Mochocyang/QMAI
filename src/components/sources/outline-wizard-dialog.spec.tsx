@@ -18,6 +18,12 @@ function findButton(host: HTMLElement, text: string): HTMLButtonElement {
   return button
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+  setter?.call(select, value)
+  select.dispatchEvent(new Event("change", { bubbles: true }))
+}
+
 describe("OutlineWizardDialog", () => {
   let host: HTMLDivElement
   let root: Root
@@ -48,7 +54,7 @@ describe("OutlineWizardDialog", () => {
       root.render(<OutlineWizardDialog open onOpenChange={() => {}} onSubmit={() => {}} />)
     })
 
-    expect(document.body.textContent).toContain("选择生成你想要的小说")
+    expect(document.body.textContent).toContain("生成小说大纲")
     expect(document.body.textContent).toContain("生成任务")
     expect(document.body.textContent).toContain("篇幅类型")
     expect(document.body.textContent).toContain("频道方向")
@@ -63,7 +69,7 @@ describe("OutlineWizardDialog", () => {
     })
 
     await act(async () => {
-      findButton(document.body, "确定生成").click()
+      findButton(document.body, "提交需求").click()
     })
 
     expect(onSubmit).not.toHaveBeenCalled()
@@ -87,7 +93,7 @@ describe("OutlineWizardDialog", () => {
       textarea.dispatchEvent(new Event("input", { bubbles: true }))
     })
     await act(async () => {
-      findButton(document.body, "确定生成").click()
+      findButton(document.body, "提交需求").click()
     })
 
     expect(onSubmit).toHaveBeenCalledOnce()
@@ -99,6 +105,7 @@ describe("OutlineWizardDialog", () => {
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
   it("marks real initial values as implicit", async () => {
     const { createDefaultOutlineWizardRequest } = await import("./outline-wizard-dialog")
     const request = createDefaultOutlineWizardRequest()
@@ -109,36 +116,36 @@ describe("OutlineWizardDialog", () => {
   it("clears explicit genre fields when channel derives a new genre", async () => {
     const onSubmit = vi.fn()
     await act(async () => root.render(<OutlineWizardDialog open onOpenChange={() => {}} onSubmit={onSubmit} />))
-    const select = document.body.querySelector("select") as HTMLSelectElement
+    // 选择自定义题材并填入
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
-      setter?.call(select, "custom")
-      select.dispatchEvent(new Event("change", { bubbles: true }))
+      setSelectValue(document.body.querySelector('select[aria-label="题材类型"]') as HTMLSelectElement, "custom")
     })
-    const custom = document.body.querySelector("#outline-wizard-custom-genre") as HTMLInputElement
+    const custom = document.body.querySelector('input[aria-label="自定义题材"]') as HTMLInputElement
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
       setter?.call(custom, "自定义题材")
       custom.dispatchEvent(new Event("input", { bubbles: true }))
-      findButton(document.body, "女频").click()
+      // 切换到女频：题材与自定义题材的显式标记都被清空
+      setSelectValue(document.body.querySelector('select[aria-label="频道方向"]') as HTMLSelectElement, "female")
     })
     const textarea = document.body.querySelector("textarea") as HTMLTextAreaElement
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
       setter?.call(textarea, "灵感")
       textarea.dispatchEvent(new Event("input", { bubbles: true }))
-      findButton(document.body, "确定生成").click()
+      findButton(document.body, "提交需求").click()
     })
     expect(onSubmit.mock.calls[0][0].explicit.genre).toBeUndefined()
     expect(onSubmit.mock.calls[0][0].explicit.customGenre).toBeUndefined()
     expect(createNovelGenerationRequestPackage(onSubmit.mock.calls[0][0], "model").details.join("\n")).not.toContain("题材类型")
+    // 切回男频并选择真实题材：题材的显式标记保留，生成详情包含题材
     await act(async () => {
-      const currentSelect = document.body.querySelector("select") as HTMLSelectElement
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
-      setter?.call(currentSelect, currentSelect.options[1].value)
-      currentSelect.dispatchEvent(new Event("change", { bubbles: true }))
+      setSelectValue(document.body.querySelector('select[aria-label="频道方向"]') as HTMLSelectElement, "male")
     })
-    await act(async () => findButton(document.body, "确定生成").click())
+    await act(async () => {
+      setSelectValue(document.body.querySelector('select[aria-label="题材类型"]') as HTMLSelectElement, "dushi")
+    })
+    await act(async () => findButton(document.body, "提交需求").click())
     expect(onSubmit.mock.calls[1][0].explicit.genre).toBe(true)
     expect(createNovelGenerationRequestPackage(onSubmit.mock.calls[1][0], "model").details.join("\n")).toContain("题材类型")
   })

@@ -122,7 +122,7 @@ describe("ReferencePickerDialog", () => {
     })
 
     const confirm = Array.from(host.querySelectorAll("button")).find(
-      (button) => button.textContent === "确认",
+      (button) => button.textContent?.includes("确认引用"),
     )
     await act(async () => {
       confirm?.click()

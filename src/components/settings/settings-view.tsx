@@ -20,7 +20,6 @@ import i18n from "@/i18n"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { useWikiStore, type ModelSettingsTabId } from "@/stores/wiki-store"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-tools.css"
 import { isTauri } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
@@ -28,7 +27,6 @@ import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-s
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { UiFontFamily } from "@/lib/font-settings"
-import { ModelSettingsSection } from "./sections/model-settings-section"
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
@@ -82,13 +80,10 @@ const CATEGORIES: Category[] = [
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
-  { id: "usage-guide", labelKey: "settings.categories.usageGuide", icon: HelpCircle },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
-  { id: "export-center", labelKey: "settings.categories.exportCenter", defaultLabel: "导出中心", icon: Download },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "contact-support", labelKey: "settings.categories.contactSupport", icon: HeartHandshake },
-  { id: "classification", labelKey: "settings.categories.classification", icon: FileText },
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
 ]
 
@@ -128,7 +123,7 @@ function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft;
 
   return (
     <div data-ui="settings-model">
-      <h1 className="ui-test-page-title">{UI_TEST_MODEL_TABS.find((tab) => tab.id === active)?.label}</h1>
+      <h1 className="ui-test-page-title hidden">{UI_TEST_MODEL_TABS.find((tab) => tab.id === active)?.label}</h1>
       <div role="tablist" aria-label="模型设置" className="ui-test-tool-tabs">
         {UI_TEST_MODEL_TABS.map((tab, index) => (
           <button
@@ -287,7 +282,7 @@ export function SettingsView() {
 
   const changeCategory = useCallback(async (category: CategoryId) => {
     if (category === active) return
-    if (IS_UI_TEST_BUILD && active === "model" && !(await confirmModelDraftLeave())) return
+    if (active === "model" && !(await confirmModelDraftLeave())) return
     setActive(category)
   }, [active])
 
@@ -512,8 +507,7 @@ export function SettingsView() {
   const body = useMemo(() => {
     switch (active) {
       case "model":
-        if (IS_UI_TEST_BUILD) return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />
-        return <ModelSettingsSection draft={draft} setDraft={setDraft} />
+        return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
       case "web-search":
@@ -543,14 +537,13 @@ export function SettingsView() {
     }
   }, [active, draft, setDraft])
 
-  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active) && !(IS_UI_TEST_BUILD && active === "model")
-  const activeCategory = CATEGORIES.find((category) => category.id === active)!
+  const showSaveFooter = CATEGORIES_WITH_SAVE_FOOTER.includes(active) && active !== "model"
 
   return (
-    <div className="flex h-full overflow-hidden" data-ui-page={IS_UI_TEST_BUILD ? "settings" : undefined} data-ui-settings-category={IS_UI_TEST_BUILD ? active : undefined}>
+    <div className="flex h-full overflow-hidden" data-ui-page="settings" data-ui-settings-category={active}>
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
           pattern so the two navigational surfaces feel like one app. */}
-      <aside data-ui={IS_UI_TEST_BUILD ? "settings-sidebar" : undefined} className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+      <aside data-ui="settings-sidebar" className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}
@@ -558,7 +551,7 @@ export function SettingsView() {
             className="cursor-pointer text-sidebar-foreground/65 transition-colors hover:text-sidebar-foreground"
           />
         </div>
-        <nav aria-label={IS_UI_TEST_BUILD ? "设置分类" : undefined} data-ui={IS_UI_TEST_BUILD ? "settings-navigation" : undefined} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <nav aria-label="设置分类" data-ui="settings-navigation" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {CATEGORIES.map((c) => {
             const Icon = c.icon
             const isActive = c.id === active
@@ -566,7 +559,7 @@ export function SettingsView() {
             return (
               <button
                 key={c.id}
-                data-ui-settings-category-button={IS_UI_TEST_BUILD ? c.id : undefined}
+                data-ui-settings-category-button={c.id}
                 type="button"
                 onClick={() => changeCategory(c.id)}
                 aria-current={isActive ? "page" : undefined}
@@ -598,30 +591,21 @@ export function SettingsView() {
       </aside>
 
       {/* Content */}
-      <div data-ui={IS_UI_TEST_BUILD ? "settings-content" : undefined} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {IS_UI_TEST_BUILD && (
-          <div data-ui="settings-mobile-navigation">
+      <div data-ui="settings-content" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div data-ui="settings-mobile-navigation">
             <label htmlFor="ui-test-settings-category">设置分类</label>
             <select id="ui-test-settings-category" aria-label="设置分类" value={active} onChange={(event) => changeCategory(event.target.value as CategoryId)}>
               {CATEGORIES.map((category) => <option key={category.id} value={category.id}>{t(category.labelKey, { defaultValue: category.defaultLabel })}</option>)}
             </select>
           </div>
-        )}
-        <div data-ui={IS_UI_TEST_BUILD ? "settings-scroll" : undefined} className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-          <div data-ui={IS_UI_TEST_BUILD ? "settings-section" : undefined} className="mx-auto max-w-2xl">
-            {IS_UI_TEST_BUILD && (
-              <nav aria-label="面包屑" className="ui-test-breadcrumb">
-                <span>设置</span><span aria-hidden="true">/</span>
-                <span>{active === "classification" || active === "novel" ? (project?.name ?? "未选择项目") : "全局设置"}</span><span aria-hidden="true">/</span>
-                <span aria-current="page">{t(activeCategory.labelKey, { defaultValue: activeCategory.defaultLabel })}</span>
-              </nav>
-            )}
+        <div data-ui="settings-scroll" className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <div data-ui="settings-section" className="mx-auto max-w-2xl">
             {body}
           </div>
         </div>
 
         {showSaveFooter && (
-          <div data-ui={IS_UI_TEST_BUILD ? "settings-footer" : undefined} className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
+          <div data-ui="settings-footer" className="shrink-0 border-t bg-background/80 backdrop-blur px-8 py-3">
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
               <p className="text-xs text-muted-foreground">
                 {saved ? t("settings.savedTick") : t("settings.changeHint")}

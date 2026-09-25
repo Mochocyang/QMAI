@@ -11,15 +11,15 @@ const indexCssSource = readFileSync(resolve(root, "src/index.css"), "utf8")
 const classicDarkBlock = indexCssSource.match(/\.dark \{[\s\S]*?\n\}/)?.[0] ?? ""
 
 describe("settings visual refresh style", () => {
-  it("registers the compact square visual style as a selectable interface style", () => {
+  it("registers the compact square visual style and exposes a selectable appearance skin picker", () => {
     expect(visualStyleSource).toContain('| "fangzheng"')
     expect(visualStyleSource).toContain('fangzheng: "visual-fangzheng"')
     expect(visualStyleSource).toContain("VISUAL_STYLE_STORAGE_VERSION")
     expect(visualStyleSource).toContain("resolveStoredVisualStyle")
     expect(visualStyleSource).toContain('"fangzheng"')
-    expect(interfaceSectionSource).toContain('value: "fangzheng"')
-    expect(interfaceSectionSource).toContain("直角工具型")
-    expect(interfaceSectionSource).toContain("无圆角")
+    expect(interfaceSectionSource).toContain('data-ui="interface-skins"')
+    expect(interfaceSectionSource).toContain("UI_TEST_SKINS")
+    expect(interfaceSectionSource).toContain("data-ui-skin-choice")
   })
 
   it("defines light and dark tokens with no rounded corners for the compact style", () => {
@@ -56,11 +56,11 @@ describe("settings visual refresh style", () => {
     expect(appLayoutSource).not.toContain("w-2 shrink-0 cursor-col-resize bg-border/40")
   })
 
-  it("makes visual style option hover states obvious across low-contrast themes", () => {
-    expect(interfaceSectionSource).toContain("hover:border-primary/70")
-    expect(interfaceSectionSource).toContain("hover:bg-accent/70")
-    expect(interfaceSectionSource).toContain("hover:shadow-sm")
-    expect(interfaceSectionSource).toContain("hover:ring-1")
+  it("makes the appearance skin selection state obvious across low-contrast themes", () => {
+    expect(interfaceSectionSource).toContain("aria-pressed={skin === option.id}")
+    expect(interfaceSectionSource).toContain("data-ui-skin-choice")
+    expect(interfaceSectionSource).toContain("已选择")
+    expect(interfaceSectionSource).toContain("ui-test-skin-dot-")
     expect(interfaceSectionSource).not.toContain("border-border hover:bg-accent/50")
   })
 
@@ -71,7 +71,8 @@ describe("settings visual refresh style", () => {
   })
 
   it("refreshes yuebai dailan with a clearer moon-white and indigo palette", () => {
-    expect(interfaceSectionSource).toContain('colors: ["#F4F7FC", "#304A8A", "#D6A35C"]')
+    expect(visualStyleSource).toContain('| "yuebai"')
+    expect(visualStyleSource).toContain('yuebai: "visual-yuebai"')
     expect(indexCssSource).toContain(":root.visual-yuebai")
     expect(indexCssSource).toContain("--background: #f4f7fc")
     expect(indexCssSource).toContain("--primary: #304a8a")
@@ -85,7 +86,7 @@ describe("settings visual refresh style", () => {
   })
 
   it("redesigns classic dark mode as a deep green tool palette without beige menu blocks", () => {
-    expect(interfaceSectionSource).toContain('colors: ["#FFFFFF", "#10251D", "#9AD7B7"]')
+    expect(visualStyleSource).toContain('| "classic"')
     expect(classicDarkBlock).toContain("--background: #10251d")
     expect(classicDarkBlock).toContain("--card: #173426")
     expect(classicDarkBlock).toContain("--popover: #1d3d2f")

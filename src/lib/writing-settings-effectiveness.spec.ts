@@ -62,10 +62,6 @@ const zhI18n = readFileSync(
   resolve(__dirname, "../i18n/zh.json"),
   "utf8",
 )
-const enI18n = readFileSync(
-  resolve(__dirname, "../i18n/en.json"),
-  "utf8",
-)
 
 describe("writing settings still reach runtime", () => {
   it("persists novelConfig, feedback window, and chat history immediately from the writing settings panel", () => {
@@ -114,7 +110,7 @@ describe("writing settings still reach runtime", () => {
     expect(wikiStore).toContain("writingWebSearchEnabled")
     expect(projectStore).toContain("writingWebSearchEnabled")
     expect(zhI18n).toContain("writingWebSearchEnabled")
-    expect(enI18n).toContain("writingWebSearchEnabled")
+    expect(zhI18n).toContain("writingWebSearchEnabled")
     expect(deepChapter).toContain("novelConfig.writingWebSearchEnabled")
     expect(deepChapter).toContain("workflowProfile.mode !== \"fast\" && novelConfig.writingWebSearchEnabled")
     expect(deepChapter).not.toContain("workflowProfile.mode === \"strict\"")
@@ -126,7 +122,7 @@ describe("writing settings still reach runtime", () => {
     expect(wikiStore).not.toContain("deepChapterReview")
     expect(projectStore).not.toContain("deepChapterReview")
     expect(zhI18n).not.toContain("deepChapterReview")
-    expect(enI18n).not.toContain("deepChapterReview")
+    expect(zhI18n).not.toContain("deepChapterReview")
     expect(deepChapter).toContain("const shouldRunAiReview = workflowProfile.runAiReview")
     expect(deepChapter).not.toContain("novelConfig.deepChapterReview")
   })

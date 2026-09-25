@@ -1,17 +1,9 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const MODE_KEY = "qmai-ui-test-mode"
 
-async function loadUiTestModule(force: "0" | "1", stored?: "0" | "1") {
-  localStorage.clear()
-  if (stored !== undefined) localStorage.setItem(MODE_KEY, stored)
-  vi.stubEnv("VITE_QMAI_UI_TEST", force)
-  vi.resetModules()
-  return import("./ui-test")
-}
-
-describe("UI 版本切换偏好", () => {
+describe("UI 界面版本（只保留新版）", () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     localStorage.clear()
@@ -24,28 +16,25 @@ describe("UI 版本切换偏好", () => {
     localStorage.clear()
   })
 
-  it("正式包没有保存偏好时默认进入旧版界面", async () => {
-    const uiTest = await loadUiTestModule("0")
-    expect(uiTest.IS_UI_TEST_BUILD).toBe(false)
+  it("只保留新版界面：无论本机偏好与构建环境如何，恒为最新版", async () => {
+    // 无本机偏好、无强制环境变量
+    vi.stubEnv("VITE_QMAI_UI_TEST", undefined)
+    vi.resetModules()
+    const a = await import("./ui-test")
+
+    // 明确写了旧版偏好 + 构建强制开关
+    localStorage.setItem(MODE_KEY, "0")
+    vi.stubEnv("VITE_QMAI_UI_TEST", "0")
+    vi.resetModules()
+    const b = await import("./ui-test")
+
+    expect(a.IS_UI_TEST_BUILD).toBe(true)
+    expect(b.IS_UI_TEST_BUILD).toBe(true)
   })
 
-  it("测试构建没有保存偏好时默认进入新版界面", async () => {
-    const uiTest = await loadUiTestModule("1")
-    expect(uiTest.IS_UI_TEST_BUILD).toBe(true)
-  })
-
-  it("本机明确保存新版偏好后进入新版界面", async () => {
-    const uiTest = await loadUiTestModule("0", "1")
-    expect(uiTest.IS_UI_TEST_BUILD).toBe(true)
-  })
-
-  it("本机明确保存旧版偏好后，即使测试构建默认开启也保持旧版", async () => {
-    const uiTest = await loadUiTestModule("1", "0")
-    expect(uiTest.IS_UI_TEST_BUILD).toBe(false)
-  })
-
-  it("设置界面版本时写入本机偏好", async () => {
-    const uiTest = await loadUiTestModule("0")
+  it("setUiTestMode 仍兼容写入本机偏好（不再改变界面选择）", async () => {
+    vi.resetModules()
+    const uiTest = await import("./ui-test")
     uiTest.setUiTestMode(true)
     expect(localStorage.getItem(MODE_KEY)).toBe("1")
   })

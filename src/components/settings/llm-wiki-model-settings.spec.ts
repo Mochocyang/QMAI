@@ -30,11 +30,11 @@ describe("QMAI model settings", () => {
       resolve(__dirname, "sections/llm-provider-section.tsx"),
       "utf8",
     )
-    expect(source).toContain("settings.sections.llm.longWritingContextTitle")
-    expect(source).toContain("settings.sections.llm.longWritingContextHint")
-    expect(source).toContain("settings.sections.llm.longWritingContextDocs")
     expect(source).toContain("https://global.modelmesh.info/model")
-    expect(source).toContain("text-emerald-800 dark:text-emerald-200")
+    expect(source).toContain("MIN_USER_LLM_CONTEXT_SIZE")
+    expect(source).toContain("maxContextSize: preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE")
+    expect(source).toContain("<ContextSizeSelector")
+    expect(source).toContain('t("settings.sections.llm.contextWindow")')
     expect(source).not.toContain("bg-emerald-500/10 px-3 py-2 text-sm text-white")
   })
 

@@ -15,9 +15,9 @@ describe("settings model categories", () => {
     expect(settingsViewSource).not.toContain('| "embedding"')
   })
 
-  it("renders the merged ModelSettingsSection for the model category", () => {
+  it("renders the merged UiTestModelSettingsSection for the model category", () => {
     expect(settingsViewSource).toContain('case "model":')
-    expect(settingsViewSource).toContain("return <ModelSettingsSection draft={draft} setDraft={setDraft} />")
+    expect(settingsViewSource).toContain("return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />")
   })
 
   it("uses the requested Chinese model category names", () => {

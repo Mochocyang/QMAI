@@ -1,6 +1,5 @@
 import { confirmModelAction } from "@/components/uitest/models/model-confirm"
 import { useEffect, useId, useRef, useState } from "react"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { safeModelError, validateModelEndpoint } from "@/components/uitest/models/model-feedback"
 import { useModelDraftGuard } from "@/components/uitest/models/model-draft-guard"
@@ -12,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "@/lib/toast"
-import { testSettingsLlmModel, normalizeModelTestError } from "@/lib/settings-model-test"
+import { testSettingsLlmModel } from "@/lib/settings-model-test"
 import type { LlmConfig, SavedModel } from "@/stores/wiki-store"
 
 interface SavedModelsManagerProps {
@@ -57,14 +56,14 @@ export function SavedModelsManager({
   const uiTestPrevious = useRef(uiTestSignature)
   if (uiTestPrevious.current !== uiTestSignature) { uiTestPrevious.current = uiTestSignature; uiTestRevision.current++ }
   useEffect(() => { uiTestAlive.current = true; return () => { uiTestAlive.current = false; uiTestRevision.current++ } }, [])
-  useEffect(() => { if (IS_UI_TEST_BUILD) { setFetchingModels(false); setTestingModel(null) } }, [uiTestSignature])
-  useEffect(() => { if (IS_UI_TEST_BUILD) setUiTestModelOptions([]) }, [formData.apiKey, formData.customEndpoint, dialogOpen])
+  useEffect(() => { setFetchingModels(false); setTestingModel(null) }, [uiTestSignature])
+  useEffect(() => { setUiTestModelOptions([]) }, [formData.apiKey, formData.customEndpoint, dialogOpen])
   const uiTestEditorId = useId()
   const original = savedModels.find(model => model.id === editingId)
   const uiTestDirty = dialogOpen && (Object.keys(formData) as Array<keyof ModelFormData>).some(key => formData[key] !== (original?.[key] ?? ""))
-  useModelDraftGuard(`model-editor:${uiTestEditorId}`, "模型编辑", IS_UI_TEST_BUILD && uiTestDirty)
+  useModelDraftGuard(`model-editor:${uiTestEditorId}`, "模型编辑", uiTestDirty)
   async function closeDialog() {
-    if (IS_UI_TEST_BUILD && uiTestDirty && !(await confirmModelAction("模型编辑还有未应用的修改，确定放弃并关闭？"))) return
+    if (uiTestDirty && !(await confirmModelAction("模型编辑还有未应用的修改，确定放弃并关闭？"))) return
     setDialogOpen(false)
   }
 
@@ -97,13 +96,11 @@ export function SavedModelsManager({
       return
     }
 
-    if (IS_UI_TEST_BUILD) {
-      const error = !hideEndpoint && formData.customEndpoint.trim() ? validateModelEndpoint(formData.customEndpoint) : null
-      if (error) { toast.error(error); return }
-      if (savedModels.some(model => model.id !== editingId && model.model === formData.model.trim())) { toast.error("此模型 ID 已在列表中，请编辑原模型，避免重复添加。"); return }
-    }
+    const error = !hideEndpoint && formData.customEndpoint.trim() ? validateModelEndpoint(formData.customEndpoint) : null
+    if (error) { toast.error(error); return }
+    if (savedModels.some(model => model.id !== editingId && model.model === formData.model.trim())) { toast.error("此模型 ID 已在列表中，请编辑原模型，避免重复添加。"); return }
     const newModel: SavedModel = {
-      ...(IS_UI_TEST_BUILD ? original : {}),
+      ...original,
       id: editingId || `model-${Date.now()}`,
       name: formData.name.trim(),
       model: formData.model.trim(),
@@ -127,81 +124,33 @@ export function SavedModelsManager({
   }
 
   async function handleDelete(id: string) {
-    const confirmed = IS_UI_TEST_BUILD ? await confirmModelAction(t("settings.sections.llm.savedModels.confirmDelete")) : confirm(t("settings.sections.llm.savedModels.confirmDelete"))
+    const confirmed = await confirmModelAction(t("settings.sections.llm.savedModels.confirmDelete"))
     if (confirmed) {
       onChange(savedModels.filter((m) => m.id !== id))
     }
   }
 
   async function handleFetchModels() {
-    if (IS_UI_TEST_BUILD) {
-      const error = formData.customEndpoint.trim() ? validateModelEndpoint(formData.customEndpoint) : null
-      if (error) { toast.error(error); return }
-      const config = buildTestConfig({ id: "draft", ...formData, createdAt: 0 })
-      const generation = ++uiTestRevision.current
-      const current = () => uiTestAlive.current && uiTestRevision.current === generation
-      setFetchingModels(true)
-      try { const result = await fetchLlmModelList(config); if (current()) { setUiTestModelOptions(result.models); toast.success(`已拉取 ${result.models.length} 个模型，请从列表中选择。`) } }
-      catch (error) { if (current()) toast.error(safeModelError(error, [config.apiKey, formData.apiKey])) }
-      finally { if (current()) setFetchingModels(false) }
-      return
-    }
+    const error = formData.customEndpoint.trim() ? validateModelEndpoint(formData.customEndpoint) : null
+    if (error) { toast.error(error); return }
+    const config = buildTestConfig({ id: "draft", ...formData, createdAt: 0 })
+    const generation = ++uiTestRevision.current
+    const current = () => uiTestAlive.current && uiTestRevision.current === generation
     setFetchingModels(true)
-    try {
-      const endpoint = formData.customEndpoint.trim() || ""
-      const apiKey = formData.apiKey.trim() || ""
-
-      if (!endpoint) {
-        toast.error("请先填写接口地址")
-        return
-      }
-
-      const response = await fetch(`${endpoint}/models`, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      const models = data.data || []
-
-      toast.success(`已拉取 ${models.length} 个模型`)
-      console.log("Available models:", models)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "未知错误")
-    } finally {
-      setFetchingModels(false)
-    }
+    try { const result = await fetchLlmModelList(config); if (current()) { setUiTestModelOptions(result.models); toast.success(`已拉取 ${result.models.length} 个模型，请从列表中选择。`) } }
+    catch (error) { if (current()) toast.error(safeModelError(error, [config.apiKey, formData.apiKey])) }
+    finally { if (current()) setFetchingModels(false) }
+    return
   }
 
   async function handleTestModel(model: SavedModel) {
-    if (IS_UI_TEST_BUILD) {
-      if (!(await confirmModelAction(`将测试“${model.name}”，可能消耗 token 和费用；不会保存配置。是否继续？`))) return
-      const config = buildTestConfig(model), generation = ++uiTestRevision.current
-      const current = () => uiTestAlive.current && uiTestRevision.current === generation
-      setTestingModel(model.id)
-      try { await testSettingsLlmModel(config); if (current()) toast.success(`模型“${model.name}”测试通过，配置仍需单独保存。`) }
-      catch (error) { if (current()) toast.error(safeModelError(error, [config.apiKey, model.apiKey ?? ""])) }
-      finally { if (current()) setTestingModel(null) }
-      return
-    }
+    if (!(await confirmModelAction(`将测试“${model.name}”，可能消耗 token 和费用；不会保存配置。是否继续？`))) return
+    const config = buildTestConfig(model), generation = ++uiTestRevision.current
+    const current = () => uiTestAlive.current && uiTestRevision.current === generation
     setTestingModel(model.id)
-    try {
-      const result = await testSettingsLlmModel(buildTestConfig(model))
-      toast.success(`模型 ${model.name} 可正常使用：${result.content.slice(0, 40)}`)
-    } catch (error) {
-      const normalized = error instanceof Error
-        ? normalizeModelTestError(error)
-        : new Error(String(error))
-      toast.error(normalized.message || "未知错误")
-    } finally {
-      setTestingModel(null)
-    }
+    try { await testSettingsLlmModel(config); if (current()) toast.success(`模型“${model.name}”测试通过，配置仍需单独保存。`) }
+    catch (error) { if (current()) toast.error(safeModelError(error, [config.apiKey, model.apiKey ?? ""])) }
+    finally { if (current()) setTestingModel(null) }
   }
 
   return (
@@ -269,7 +218,7 @@ export function SavedModelsManager({
               {!hideEndpoint && model.customEndpoint && (
                 <p className="truncate text-xs text-muted-foreground">
                   <span className="font-medium">接口：</span>
-                  {IS_UI_TEST_BUILD ? safeModelError(model.customEndpoint, [model.apiKey ?? ""]) : model.customEndpoint}
+                  {safeModelError(model.customEndpoint, [model.apiKey ?? ""])}
                 </p>
               )}
 
@@ -292,7 +241,7 @@ export function SavedModelsManager({
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => open ? setDialogOpen(true) : closeDialog()}>
-        <DialogContent className={IS_UI_TEST_BUILD ? "max-w-2xl model-editor-dialog" : "max-w-2xl"}>
+        <DialogContent className="max-w-2xl model-editor-dialog">
           <DialogHeader>
             <DialogTitle>
               {editingId
@@ -329,22 +278,14 @@ export function SavedModelsManager({
                 onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                 placeholder={t("settings.sections.llm.savedModels.modelIdPlaceholder")}
               />
-              {IS_UI_TEST_BUILD && uiTestModelOptions.length > 0 && <select aria-label="已拉取模型" value={formData.model} onChange={event => setFormData({ ...formData, model: event.target.value, name: formData.name || event.target.value })} className="w-full min-w-0 rounded-md bg-muted px-3 py-2"><option value="">请选择模型</option>{formData.model && !uiTestModelOptions.includes(formData.model) && <option value={formData.model}>当前：{formData.model}</option>}{uiTestModelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select>}
+              {uiTestModelOptions.length > 0 && <select aria-label="已拉取模型" value={formData.model} onChange={event => setFormData({ ...formData, model: event.target.value, name: formData.name || event.target.value })} className="w-full min-w-0 rounded-md bg-muted px-3 py-2"><option value="">请选择模型</option>{formData.model && !uiTestModelOptions.includes(formData.model) && <option value={formData.model}>当前：{formData.model}</option>}{uiTestModelOptions.map(model => <option key={model} value={model}>{model}</option>)}</select>}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="model-api-key">
                 {t("settings.sections.llm.savedModels.apiKey")}
               </Label>
-              {IS_UI_TEST_BUILD ? <ModelSecretInput id="model-api-key" label="模型 API 密钥" value={formData.apiKey} onChange={apiKey => setFormData({ ...formData, apiKey })} /> : (
-                <Input
-                  id="model-api-key"
-                  type="password"
-                  value={formData.apiKey}
-                  onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                  placeholder={t("settings.sections.llm.savedModels.apiKeyPlaceholder")}
-                />
-              )}
+              <ModelSecretInput id="model-api-key" label="模型 API 密钥" value={formData.apiKey} onChange={apiKey => setFormData({ ...formData, apiKey })} />
               <p className="text-xs text-muted-foreground">
                 {t("settings.sections.llm.savedModels.apiKeyHint")}
               </p>
@@ -385,7 +326,7 @@ export function SavedModelsManager({
                   type="button"
                   variant="outline"
                   onClick={handleFetchModels}
-                  disabled={fetchingModels || (!IS_UI_TEST_BUILD && !formData.customEndpoint.trim())}
+                  disabled={fetchingModels}
                   className="flex-1"
                 >
                   <Download className="mr-2 h-4 w-4" />
@@ -418,7 +359,7 @@ export function SavedModelsManager({
             </div>
           </div>
 
-          {IS_UI_TEST_BUILD && <p className="text-xs text-muted-foreground">应用到配置后，还需点击提供方的“保存配置”才会生效。</p>}
+          <p className="text-xs text-muted-foreground">应用到配置后，还需点击提供方的“保存配置”才会生效。</p>
           <DialogFooter>
             <Button
               type="button"
@@ -434,7 +375,7 @@ export function SavedModelsManager({
               disabled={!formData.name.trim() || !formData.model.trim()}
             >
               <Check className="mr-2 h-4 w-4" />
-              {IS_UI_TEST_BUILD ? "应用到配置" : t("common.save")}
+应用到配置
             </Button>
           </DialogFooter>
         </DialogContent>

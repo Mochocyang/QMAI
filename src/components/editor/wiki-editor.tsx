@@ -17,7 +17,6 @@ import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import "@milkdown/theme-nord/style.css";
 import { Pencil, Eye } from "lucide-react";
 import { formatChapterWriting } from "@/lib/chapter-formatting";
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel";
 import { WikiReader } from "@/components/editor/wiki-reader";
@@ -489,7 +488,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
           ) : null}
           <textarea
             ref={textareaRef}
-            data-ui-test-indent={IS_UI_TEST_BUILD ? (/^(?:[　 \t]|#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\||```)/m.test(value) ? "source" : "visual") : undefined}
+            data-ui-test-indent={(/^(?:[　 \t]|#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\||```)/m.test(value) ? "source" : "visual")}
             value={value}
             onChange={(e) => {
               const next = e.target.value;
@@ -693,9 +692,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
         {effectiveMode === "read" ? (
           <div className="px-6 py-6">
             {!immersiveWriting && frontmatter && (
-              IS_UI_TEST_BUILD ? (
-                <div data-ui-test-frontmatter="true"><FrontmatterPanel data={frontmatter} /></div>
-              ) : <FrontmatterPanel data={frontmatter} />
+              <div data-ui-test-frontmatter="true"><FrontmatterPanel data={frontmatter} /></div>
             )}
             <WikiReader body={body} highlightHandcraftZones={true} />
           </div>
@@ -739,9 +736,7 @@ export const WikiEditor = forwardRef<WikiEditorHandle, WikiEditorProps>(
           <MilkdownProvider>
             <div className="prose prose-invert min-w-0 max-w-none overflow-hidden p-6">
               {!immersiveWriting && frontmatter && (
-                IS_UI_TEST_BUILD ? (
-                  <div data-ui-test-frontmatter="true"><FrontmatterPanel data={frontmatter} /></div>
-                ) : <FrontmatterPanel data={frontmatter} />
+                <div data-ui-test-frontmatter="true"><FrontmatterPanel data={frontmatter} /></div>
               )}
               <WikiEditorInner content={body} onSave={handleSave} />
             </div>

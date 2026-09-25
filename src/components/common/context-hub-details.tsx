@@ -1,6 +1,4 @@
-import { Database } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import {
   isCurrentContextHubStats,
   type ContextHubSnapshotRef,
@@ -18,21 +16,7 @@ interface ContextHubDetailsProps {
 export function ContextHubDetails({ reference, timing, className }: ContextHubDetailsProps) {
   const stats = isCurrentContextHubStats(reference.stats) ? reference.stats : null
   if (!stats) return null
-  if (IS_UI_TEST_BUILD) return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} timing={timing} /></div>
-
-  return (
-    <div className={cn("mt-2 min-w-0 border-t border-border/60 pt-2", className)}>
-      <div className="flex w-full min-w-0 items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-          <Database aria-hidden="true" className="h-3.5 w-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-foreground">上下文中控</div>
-          <ContextHubStatsSummary stats={stats} />
-        </div>
-      </div>
-    </div>
-  )
+  return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} timing={timing} /></div>
 }
 
 /** Stats-only surface for generation details without a full snapshot body. */
@@ -44,18 +28,5 @@ export function ContextHubStatsOnly({
   className?: string
 }) {
   if (!isCurrentContextHubStats(stats)) return null
-  if (IS_UI_TEST_BUILD) return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} /></div>
-  return (
-    <div className={cn("mt-2 min-w-0 border-t border-border/60 pt-2", className)}>
-      <div className="flex w-full min-w-0 items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
-          <Database aria-hidden="true" className="h-3.5 w-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-foreground">上下文中控</div>
-          <ContextHubStatsSummary stats={stats} />
-        </div>
-      </div>
-    </div>
-  )
+  return <div className={cn("ui-test-context-details", className)}><ContextHubStatsSummary stats={stats} /></div>
 }

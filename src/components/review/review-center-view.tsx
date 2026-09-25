@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-tools.css"
 import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -20,8 +19,8 @@ export function ReviewCenterView() {
   const novelMode = useWikiStore((s) => s.novelMode)
   const project = useWikiStore((s) => s.project)
   const selectedReviewFilePath = useWikiStore((s) => s.selectedReviewFilePath)
-  const renderReview = (content: ReactNode) => IS_UI_TEST_BUILD ? (
-    <section data-ui-page={IS_UI_TEST_BUILD ? "review" : undefined} data-ui-state={IS_UI_TEST_BUILD ? (selectedReviewDimension ?? "summary") : undefined}>
+  const renderReview = (content: ReactNode) => (
+    <section data-ui-page="review" data-ui-state={selectedReviewDimension ?? "summary"}>
       <header data-ui="tool-heading">
         <div>
           <nav aria-label="面包屑" className="ui-test-breadcrumb">
@@ -33,37 +32,25 @@ export function ReviewCenterView() {
       </header>
       <div data-ui="review-content">{content}</div>
     </section>
-  ) : content
+  )
 
   if (selectedReviewDimension === "ai-review") {
-    if (IS_UI_TEST_BUILD) return renderReview(<ReviewView />)
-    return <ReviewView />
+    return renderReview(<ReviewView />)
   }
 
   if (selectedReviewDimension === "character-report") {
-    if (IS_UI_TEST_BUILD) return renderReview(<ReviewView title="角色命中报告" emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />)
-    return <ReviewView title="角色命中报告" emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />
+    return renderReview(<ReviewView title="角色命中报告" emptyMessage="暂无角色命中报告，请先运行AI审稿。" characterOnly />)
   }
 
   if (!selectedReviewDimension || !novelMode) {
-    if (IS_UI_TEST_BUILD) return renderReview(<DashboardView headerActions={<ReviewStartButton />} />)
-    return <DashboardView headerActions={<ReviewStartButton />} />
+    return renderReview(<DashboardView headerActions={<ReviewStartButton />} />)
   }
 
   if (!isSixReviewDimensionKey(selectedReviewDimension)) {
-    if (IS_UI_TEST_BUILD) return renderReview(<DashboardView headerActions={<ReviewStartButton />} />)
-    return <DashboardView headerActions={<ReviewStartButton />} />
+    return renderReview(<DashboardView headerActions={<ReviewStartButton />} />)
   }
 
-  if (IS_UI_TEST_BUILD) return renderReview(
-    <ReviewView
-      title={t(`reviewCenter.dimension.${selectedReviewDimension}`)}
-      emptyMessage={t("reviewCenter.noResults")}
-      dimensionKey={selectedReviewDimension}
-    />
-  )
-
-  return (
+  return renderReview(
     <ReviewView
       title={t(`reviewCenter.dimension.${selectedReviewDimension}`)}
       emptyMessage={t("reviewCenter.noResults")}

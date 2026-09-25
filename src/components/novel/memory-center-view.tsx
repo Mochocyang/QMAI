@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-tools.css"
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -97,7 +96,7 @@ function SnapshotCard({
     ? (card.chapterTitle || `大纲快照(${card.chapterNumber})`)
     : (card.chapterTitle || t("novel.memoryCenter.snapshots.chapter", { chapter: card.chapterNumber }))
   return (
-    <div data-ui={IS_UI_TEST_BUILD ? "memory-snapshot" : undefined} className="rounded-md border p-3">
+    <div data-ui="memory-snapshot" className="rounded-md border p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">
@@ -435,7 +434,7 @@ export function MemoryCenterView() {
 
   if (loading && selectedMemoryCenterEntry && !detailView) {
     return (
-      <div data-ui-page={IS_UI_TEST_BUILD ? "memory" : undefined} data-ui-state={IS_UI_TEST_BUILD ? "loading" : undefined} className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div data-ui-page="memory" data-ui-state="loading" className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
         {t("novel.memoryCenter.loading")}
       </div>
@@ -443,11 +442,11 @@ export function MemoryCenterView() {
   }
 
   return (
-    <div data-ui-page={IS_UI_TEST_BUILD ? "memory" : undefined} data-ui-state={IS_UI_TEST_BUILD ? (error ? "error" : detailView || frameworkSummary ? "detail" : selectedMemoryCenterEntry ? "loading" : "empty") : undefined} className="flex h-full flex-col">
-      <div data-ui={IS_UI_TEST_BUILD ? "tool-heading" : undefined} className="flex items-center justify-between border-b px-4 py-3">
+    <div data-ui-page="memory" data-ui-state={error ? "error" : detailView || frameworkSummary ? "detail" : selectedMemoryCenterEntry ? "loading" : "empty"} className="flex h-full flex-col">
+      <div data-ui="tool-heading" className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
-          {IS_UI_TEST_BUILD && <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{project?.name ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">记忆中心</span></nav>}
-          <h2 data-ui={IS_UI_TEST_BUILD ? "tool-title" : undefined} className="text-sm font-semibold">
+          <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{project?.name ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">记忆中心</span></nav>
+          <h2 data-ui="tool-title" className="text-sm font-semibold">
             {detailView?.title ?? t("novel.memoryCenter.title")}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -472,7 +471,7 @@ export function MemoryCenterView() {
         )}
       </div>
 
-      <div data-ui={IS_UI_TEST_BUILD ? "memory-body" : undefined} ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div data-ui="memory-body" ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {error ? (
           <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
@@ -648,9 +647,9 @@ function MemoryCenterDetailPanel({
 
   if (isSnapshotList) {
     return (
-      <div data-ui={IS_UI_TEST_BUILD ? "memory-snapshots" : undefined} className="flex h-full gap-0">
+      <div data-ui="memory-snapshots" className="flex h-full gap-0">
         {/* 左侧章节列表 */}
-        <div data-ui={IS_UI_TEST_BUILD ? "memory-chapter-filter" : undefined} className="flex w-48 shrink-0 flex-col border-r">
+        <div data-ui="memory-chapter-filter" className="flex w-48 shrink-0 flex-col border-r">
           <div className="border-b px-3 py-2">
             <div className="flex items-center gap-1.5">
               <Search className="h-3.5 w-3.5 text-muted-foreground" />
@@ -809,7 +808,7 @@ function EditableMarkdownMemory({
   }
 
   return (
-    <div data-ui={IS_UI_TEST_BUILD ? "memory-detail" : undefined} className="rounded-lg border bg-background p-4">
+    <div data-ui="memory-detail" className="rounded-lg border bg-background p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {detailView.editable ? t("novel.memoryCenter.editHint") : t("novel.memoryCenter.snapshots.detailDescription")}

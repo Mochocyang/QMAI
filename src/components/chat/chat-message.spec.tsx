@@ -224,7 +224,7 @@ describe("AI 对话上下文中控入口", () => {
     const html = renderToStaticMarkup(<ChatMessage message={message} />)
 
     expect(html).not.toContain("查看生成详情")
-    expect(html).toContain("上下文中控")
+    expect(html).toContain("查看本轮用量")
   })
 })
 

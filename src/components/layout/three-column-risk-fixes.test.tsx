@@ -30,6 +30,6 @@ describe("three-column risk fixes", () => {
 
   it("keeps non-novel review center compatible with the existing dashboard view", () => {
     expect(reviewCenterSource).toContain("!novelMode")
-    expect(reviewCenterSource).toContain("return <DashboardView headerActions={<ReviewStartButton />} />")
+    expect(reviewCenterSource).toContain("renderReview(<DashboardView headerActions={<ReviewStartButton />} />)")
   })
 })

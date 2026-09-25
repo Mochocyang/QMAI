@@ -72,7 +72,7 @@ describe("ChatPanel mount 基础设施", () => {
   it("基础渲染：chat-panel mount 成功并显示空会话入口", async () => {
     const view = await renderChatPanel()
 
-    expect(view.container.textContent).toContain("novel.chat.startNewConversation")
+    expect(view.container.textContent).toContain("一起写下一段故事")
 
     await view.unmount()
   })
@@ -80,7 +80,7 @@ describe("ChatPanel mount 基础设施", () => {
   it("Agent skill 配置为空时仍可打开 ChatPanel", async () => {
     const view = await renderChatPanel({ agentSkillConfig: null })
 
-    expect(view.container.textContent).toContain("novel.chat.startNewConversation")
+    expect(view.container.textContent).toContain("一起写下一段故事")
 
     await view.unmount()
   })
@@ -123,15 +123,12 @@ describe("ChatPanel mount 基础设施", () => {
     await view.unmount()
   })
 
-  it("在顶部会话标签显示逐会话运行状态", async () => {
+  it("顶栏身份区显示当前运行会话的状态", async () => {
     const view = await renderChatPanel({
       activeConversationId: "conv-active",
-      conversations: [
-        conversation("conv-active", "当前会话", 400),
-        conversation("conv-running", "生成中会话", 300),
-      ],
+      conversations: [conversation("conv-active", "当前会话", 400)],
       runStates: {
-        "conv-running": { status: "running", updatedAt: 500, runId: "run-running" },
+        "conv-active": { status: "running", updatedAt: 500, runId: "run-running" },
       },
     })
 
@@ -221,11 +218,17 @@ describe("ChatPanel mount 基础设施", () => {
         "conv-running": { status: "running", updatedAt: 200, runId: "run-delete" },
       },
     })
-    const chip = view.container.querySelector('button[title="运行中会话"]')
+    // 运行中会话的 chip 位于历史下拉面板中，先打开再操作
+    await click(view.container.querySelector('[aria-label="novel.chat.conversationHistory"]'))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    const chip = document.body.querySelector('button[title="运行中会话"]')
+    expect(chip).not.toBeNull()
     await act(async () => {
       chip?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
     })
-    await click(view.container.querySelector('[aria-label="删除会话"]'))
+    await click(document.body.querySelector('[aria-label="删除会话"]'))
     expect(document.body.textContent).toContain("停止并删除会话？")
     await click(Array.from(document.body.querySelectorAll("button")).find((button) => button.textContent === "取消") ?? null)
     expect(useChatStore.getState().conversations.some((item) => item.id === "conv-running")).toBe(true)
@@ -253,7 +256,7 @@ describe("ChatPanel mount 基础设施", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
-    await click(document.body.querySelector('[aria-label="chat.clearHistory"]'))
+    await click(document.body.querySelector('[aria-label="清理旧会话"]'))
     expect(document.body.textContent).toContain("chat.clearHistoryTitle")
     await click(Array.from(document.body.querySelectorAll("button"))
       .find((button) => button.textContent === "chat.clearHistoryConfirm") ?? null)

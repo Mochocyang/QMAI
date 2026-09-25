@@ -13,7 +13,6 @@ import { describe, it, expect } from "vitest"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { readFileSync, readdirSync, statSync } from "node:fs"
-import en from "./en.json"
 import zh from "./zh.json"
 
 /** Flattens a nested translation object to "a.b.c" dot-path keys. */
@@ -117,9 +116,8 @@ function collectScopedOrphanCandidates(): string[] {
   ]
 }
 
-describe("i18n referenced-key coverage (en.json and zh.json)", () => {
+describe("i18n referenced-key coverage (zh.json)", () => {
   const i18nDir = dirname(fileURLToPath(import.meta.url))
-  const enKeys = new Set(flattenKeys(en))
   const zhKeys = new Set(flattenKeys(zh))
   const referencedKeys = collectReferencedI18nKeys()
   const dynamicKeyWhitelist = collectDynamicKeyWhitelist()
@@ -138,16 +136,7 @@ describe("i18n referenced-key coverage (en.json and zh.json)", () => {
       return [...duplicates].sort()
     }
 
-    expect(findDuplicates("en.json"), "duplicate top-level keys in en.json").toEqual([])
     expect(findDuplicates("zh.json"), "duplicate top-level keys in zh.json").toEqual([])
-  })
-
-  it("every referenced key without an explicit fallback exists in en.json", () => {
-    const missing = referencedKeys.filter((k) => !enKeys.has(k))
-    expect(
-      missing,
-      `Referenced keys missing from en.json:\n  ${missing.join("\n  ")}`,
-    ).toEqual([])
   })
 
   it("every referenced key without an explicit fallback exists in zh.json", () => {
@@ -204,27 +193,19 @@ describe("i18n referenced-key coverage (en.json and zh.json)", () => {
     ]
 
     requiredKeys.forEach((key) => {
-      expect(enKeys.has(key), `missing en key: ${key}`).toBe(true)
       expect(zhKeys.has(key), `missing zh key: ${key}`).toBe(true)
     })
   })
 
-  it("keeps the approved dynamic-key whitelist present in both bundles", () => {
+  it("keeps the approved dynamic-key whitelist present in the Chinese bundle", () => {
     dynamicKeyWhitelist.forEach((key) => {
-      expect(enKeys.has(key), `missing en dynamic key: ${key}`).toBe(true)
       expect(zhKeys.has(key), `missing zh dynamic key: ${key}`).toBe(true)
     })
   })
 
   it("has no scoped orphan keys in the confirmed cleanup set", () => {
     const allowedReferencedKeys = new Set([...referencedKeys, ...dynamicKeyWhitelist])
-    const orphanEnKeys = scopedOrphanCandidates.filter((key) => enKeys.has(key) && !allowedReferencedKeys.has(key))
     const orphanZhKeys = scopedOrphanCandidates.filter((key) => zhKeys.has(key) && !allowedReferencedKeys.has(key))
-
-    expect(
-      orphanEnKeys,
-      `Scoped orphan keys in en.json:\n  ${orphanEnKeys.join("\n  ")}`,
-    ).toEqual([])
     expect(
       orphanZhKeys,
       `Scoped orphan keys in zh.json:\n  ${orphanZhKeys.join("\n  ")}`,
@@ -232,7 +213,6 @@ describe("i18n referenced-key coverage (en.json and zh.json)", () => {
   })
 
   it("keeps novel extract model copy explicit and distinct from embedding model", () => {
-    expect(enKeys.has("novel.settings.extractModelHint"), "missing en extract model hint").toBe(true)
     expect(zhKeys.has("novel.settings.extractModelHint"), "missing zh extract model hint").toBe(true)
     expect(zh.novel.settings.extractModel).toContain("非嵌入模型")
     expect(zh.novel.settings.extractModelHint).toContain("大纲")
@@ -252,7 +232,6 @@ describe("i18n referenced-key coverage (en.json and zh.json)", () => {
         expect((ref as string).length, `${label}: ${path} is empty`).toBeGreaterThan(0)
       }
     }
-    check(en, "en.json")
     check(zh, "zh.json")
   })
 
@@ -269,7 +248,6 @@ describe("i18n referenced-key coverage (en.json and zh.json)", () => {
         }
       }
     }
-    check(en, "en.json")
     check(zh, "zh.json")
   })
 })

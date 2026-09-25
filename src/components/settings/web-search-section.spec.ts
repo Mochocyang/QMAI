@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import zh from "@/i18n/zh.json"
-import en from "@/i18n/en.json"
 
 const settingsViewSource = readFileSync(resolve(__dirname, "settings-view.tsx"), "utf8")
 const webSearchSectionSource = readFileSync(
@@ -46,12 +45,9 @@ describe("Web Search settings restore", () => {
     expect(appSource).toContain("setSearchApiConfig(savedSearchApiConfig)")
   })
 
-  it("provides Chinese and English category/section copy", () => {
+  it("provides Chinese category/section copy", () => {
     expect(zh.settings.categories.webSearch).toBe("网页搜索")
     expect(zh.settings.sections.webSearch.title).toBe("网页搜索")
     expect(zh.settings.sections.webSearch.description).toContain("博查")
-    expect(en.settings.categories.webSearch).toBe("Web Search")
-    expect(en.settings.sections.webSearch.title).toBe("Web Search")
-    expect(en.settings.sections.webSearch.description).toContain("Bocha")
   })
 })

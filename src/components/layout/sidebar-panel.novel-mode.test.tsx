@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest"
 const source = readFileSync(resolve(__dirname, "sidebar-panel.tsx"), "utf8")
 
 describe("小说模式侧栏", () => {
-  it("章节库和大纲库顶部只保留单标题模式", () => {
-    expect(source).toContain('className="flex shrink-0 items-center justify-between border-b px-3 py-2"')
-    expect(source).toContain('isChapter ? t("sidebar.knowledge") : t("sidebar.files")')
+  it("章节库和大纲库顶部只保留统一的目录标题头", () => {
+    expect(source).toContain("<UiTestDirectoryHeader")
+    expect(source).toContain('kind={isChapter ? "chapter" : "outline"}')
     expect(source).not.toContain("border-b-2 border-primary")
   })
 
@@ -34,8 +34,8 @@ describe("小说模式侧栏", () => {
   it("大纲库顶部提供导入文件和导入文件夹入口", () => {
     expect(source).toContain("handleImportOutlineFiles")
     expect(source).toContain("handleImportOutlineFolder")
-    expect(source).toContain('t("sources.importFiles")')
-    expect(source).toContain('t("sources.importFolder")')
+    expect(source).toContain("onImportFiles")
+    expect(source).toContain("onImportFolder")
   })
 
   it("章节导入记忆确认支持提取、只导入和取消导入三种结果", () => {

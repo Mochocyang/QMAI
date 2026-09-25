@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import zh from "@/i18n/zh.json"
 
 const interfaceSectionSource = readFileSync(resolve(__dirname, "sections/interface-section.tsx"), "utf8")
 const settingsTypesSource = readFileSync(resolve(__dirname, "settings-types.ts"), "utf8")
@@ -15,12 +14,13 @@ describe("settings sidebar nav preferences", () => {
     expect(settingsViewSource).toContain("setSidebarNavConfig(draft.sidebarNavConfig)")
   })
 
-  it("renders a Chinese sidebar feature visibility section in interface settings", () => {
-    expect(interfaceSectionSource).toContain("SIDEBAR_NAV_LABEL_KEYS")
-    expect(interfaceSectionSource).toContain("skillLibrary")
-    expect(interfaceSectionSource).toContain('setDraft("sidebarNavConfig"')
-    expect(interfaceSectionSource).toContain('type="checkbox"')
-    expect(zh.settings.sections.interface.sidebarNavTitle).toBe("左侧功能栏")
-    expect(zh.settings.sections.interface.sidebarNavDescription).toBe("勾选要在左侧显示的功能，取消勾选后该功能入口会隐藏。")
+  it("renders a Chinese appearance section (skins + font settings) in interface settings", () => {
+    expect(interfaceSectionSource).toContain("UI_TEST_SKINS")
+    expect(interfaceSectionSource).toContain('data-ui="interface-skins"')
+    expect(interfaceSectionSource).toContain("data-ui-skin-choice")
+    expect(interfaceSectionSource).toContain('aria-label="推荐外观"')
+    expect(interfaceSectionSource).toContain('setDraft("uiFontFamily"')
+    expect(interfaceSectionSource).toContain('setDraft("uiFontSizeScale"')
+    expect(interfaceSectionSource).toContain('type="range"')
   })
 })

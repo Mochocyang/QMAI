@@ -3,7 +3,6 @@ import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
 import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -611,8 +610,8 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
     isStreamingConversation,
   )
   const historyCount = historyConversations.length
-  const menuConversations = IS_UI_TEST_BUILD ? conversations : historyConversations
-  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && historyOpen && Boolean(historyDropdownStyle), historyDropdownRef, historyButtonRef, setHistoryOpen)
+  const menuConversations = conversations
+  useUiTestAiMenuFocus(historyOpen && Boolean(historyDropdownStyle), historyDropdownRef, historyButtonRef, setHistoryOpen)
   const hasSentUserMessage = activeConversationId
     ? messages.some((message) =>
         message.conversationId === activeConversationId && message.role === "user",
@@ -657,10 +656,8 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
     function updatePosition() {
       const rect = historyButtonRef.current?.getBoundingClientRect()
       if (!rect) return
-      if (IS_UI_TEST_BUILD) {
-        setHistoryDropdownStyle(getUiTestAiMenuStyle(rect))
-        return
-      }
+      setHistoryDropdownStyle(getUiTestAiMenuStyle(rect))
+      return
       const vw = window.innerWidth
       const vh = window.innerHeight
       // 水平：默认贴按钮右边展开，右侧空间不够时贴按钮左边
@@ -760,7 +757,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
           type="button"
           className="flex items-center gap-2 rounded-full px-2 py-1.5"
           onClick={() => setActiveConversation(conv.id)}
-          aria-current={IS_UI_TEST_BUILD ? isActive : undefined}
+          aria-current={isActive}
           title={conv.title}
         >
           <ConversationRunStatusIcon state={runState} />
@@ -783,14 +780,12 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   // 顶部统一为三段式：新建写作绘画 / 正在工作的绘画 / 绘画历史记录
   return (
     <>
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header={IS_UI_TEST_BUILD || undefined}>
-        {IS_UI_TEST_BUILD && (
-          <UiTestAiIdentity
-            title="写作助手"
-            conversationTitle={conversations.find((conversation) => conversation.id === activeConversationId)?.title}
-            status={activeConversationId ? <ConversationRunStatusIcon state={runStates[activeConversationId]} /> : undefined}
-          />
-        )}
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+        <UiTestAiIdentity
+          title="写作助手"
+          conversationTitle={conversations.find((conversation) => conversation.id === activeConversationId)?.title}
+          status={activeConversationId ? <ConversationRunStatusIcon state={runStates[activeConversationId]} /> : undefined}
+        />
         {/* 1. 新建写作绘画 */}
         <span
           className="inline-flex shrink-0"
@@ -820,17 +815,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
         </span>
 
         {/* 2. 正在工作的绘画：当前、生成中和今日保留项，最多显示三个 */}
-        {!IS_UI_TEST_BUILD && <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-          {topConversations.length > 0 ? (
-            <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
-              {topConversations.map((conv) => renderConversationChip(conv))}
-            </div>
-          ) : (
-            <span className="shrink-0 truncate text-xs text-muted-foreground">
-              {t(novelMode ? "novel.chat.noConversationsYet" : "chat.noConversationsYet")}
-            </span>
-          )}
-        </div>}
+
 
         {/* 3. 绘画历史记录（点击展开下拉面板，显示全部历史会话） */}
         <div className="relative ml-auto shrink-0" ref={historyRef}>
@@ -858,28 +843,28 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
             createPortal(
               <div
                 ref={historyDropdownRef}
-                data-ui-ai-menu={IS_UI_TEST_BUILD ? "history" : undefined}
-                role={IS_UI_TEST_BUILD ? "dialog" : undefined}
-                aria-label={IS_UI_TEST_BUILD ? "写作会话历史" : undefined}
+                data-ui-ai-menu="history"
+                role="dialog"
+                aria-label="写作会话历史"
                 className="fixed z-50 max-h-[60vh] w-72 overflow-y-auto rounded-md border border-border bg-background p-1 shadow-lg"
                 style={historyDropdownStyle}
               >
               {historyCount > 0 && (
                 <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
                   <span className="text-xs text-muted-foreground">
-                    {IS_UI_TEST_BUILD ? `全部会话 ${menuConversations.length} 条` : t("chat.historyConversationCount", { count: historyCount })}
+                    {`全部会话 ${menuConversations.length} 条`}
                   </span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    aria-label={IS_UI_TEST_BUILD ? "清理旧会话" : t("chat.clearHistory")}
-                    title={IS_UI_TEST_BUILD ? `仅清理 ${historyCount} 条旧会话，保留当前和运行中的会话` : undefined}
+                    aria-label="清理旧会话"
+                    title={`仅清理 ${historyCount} 条旧会话，保留当前和运行中的会话`}
                     onClick={requestClearHistory}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {IS_UI_TEST_BUILD ? "清理旧会话" : t("chat.clearHistory")}
+                    {"清理旧会话"}
                   </Button>
                 </div>
               )}
@@ -894,11 +879,9 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
               document.body,
             )}
         </div>
-        {IS_UI_TEST_BUILD && (
-          <button type="button" onClick={() => useWikiStore.getState().setChatExpanded(false)} aria-label="关闭写作助手" title="关闭写作助手">
-            <X className="h-4 w-4" />
-          </button>
-        )}
+        <button type="button" onClick={() => useWikiStore.getState().setChatExpanded(false)} aria-label="关闭写作助手" title="关闭写作助手">
+          <X className="h-4 w-4" />
+        </button>
     </div>
     <ConversationDeleteConfirmDialog
       open={pendingDeleteId !== null}
@@ -996,7 +979,7 @@ export function ChatPanel() {
   const workflowModeTriggerRef = useRef<HTMLButtonElement>(null)
   const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<CSSProperties | null>(null)
   const workflowModeDropdownRef = useRef<HTMLDivElement | null>(null)
-  useUiTestAiMenuFocus(IS_UI_TEST_BUILD && workflowModeDropdownOpen && Boolean(workflowModeDropdownStyle), workflowModeDropdownRef, workflowModeTriggerRef, setWorkflowModeDropdownOpen)
+  useUiTestAiMenuFocus(workflowModeDropdownOpen && Boolean(workflowModeDropdownStyle), workflowModeDropdownRef, workflowModeTriggerRef, setWorkflowModeDropdownOpen)
   const planExecuteEnabled = useWikiStore((s) => s.planExecuteEnabled)
   const setPlanExecuteEnabled = useWikiStore((s) => s.setPlanExecuteEnabled)
 
@@ -1068,10 +1051,8 @@ export function ChatPanel() {
     const updatePosition = () => {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect()
       if (!rect) return
-      if (IS_UI_TEST_BUILD) {
-        setWorkflowModeDropdownStyle({ ...getUiTestAiMenuStyle(rect, 320, true), maxHeight: "none" })
-        return
-      }
+      setWorkflowModeDropdownStyle({ ...getUiTestAiMenuStyle(rect, 320, true), maxHeight: "none" })
+      return
       const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 8)
       const top = rect.bottom + 6
       setWorkflowModeDropdownStyle({
@@ -2726,27 +2707,20 @@ export function ChatPanel() {
   const showWriteButton = mode === "ingest" && !isStreaming && hasAssistantMessages
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background" data-ui-ai-panel={IS_UI_TEST_BUILD ? "chapter" : undefined}>
+    <div className="flex h-full flex-col overflow-hidden bg-background" data-ui-ai-panel="chapter">
       <ConversationTabs onBeforeDelete={cancelPendingChapterPlan} />
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-ui-ai-body={IS_UI_TEST_BUILD || undefined}>
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {!activeConversationId ? (
-          IS_UI_TEST_BUILD ? <UiTestAiEmpty kind="chapter" /> : <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <MessageSquare className="mx-auto mb-3 h-8 w-8 opacity-30" />
-              <p className="text-sm">{t(novelMode ? "novel.chat.startNewConversation" : "chat.startNewConversation")}</p>
-              <p className="mt-1 text-xs opacity-60">{t(novelMode ? "novel.chat.clickNewChatToBegin" : "chat.clickNewChatToBegin")}</p>
-            </div>
-          </div>
+          <UiTestAiEmpty kind="chapter" />
         ) : (
           <>
             <div
               ref={scrollContainerRef}
-              data-ui-ai-scroll={IS_UI_TEST_BUILD || undefined}
               className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2"
             >
               <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
-                {IS_UI_TEST_BUILD && activeMessages.length === 0 && !isStreaming && <UiTestAiEmpty kind="chapter" />}
+                {activeMessages.length === 0 && !isStreaming && <UiTestAiEmpty kind="chapter" />}
                 {activeMessages.map((msg, idx) => {
                   const isLastAssistant = msg.role === "assistant" && idx === lastAssistantIndex
                   const messageElement = (
@@ -2764,19 +2738,19 @@ export function ChatPanel() {
                       isSaving={isSavingChapter}
                     />
                   )
-                  return IS_UI_TEST_BUILD ? (
+                  return (
                     <div key={msg.id} data-ui-ai-message={msg.role}>
                       {msg.role === "assistant" && <UiTestAiAuthor running={isStreaming && Boolean(msg.isAgentRunning)} />}
                       {messageElement}
                     </div>
-                  ) : messageElement
+                  )
                 })}
-                {isStreaming && batchedStreamingContent && !activeMessages.some((msg) => msg.role === "assistant" && msg.isAgentRunning) && (IS_UI_TEST_BUILD ? (
+                {isStreaming && batchedStreamingContent && !activeMessages.some((msg) => msg.role === "assistant" && msg.isAgentRunning) && (
                   <div data-ui-ai-message="assistant" data-ui-ai-stream>
                     <UiTestAiAuthor running />
                     <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />
                   </div>
-                ) : <StreamingMessage content={batchedStreamingContent} isStreaming={isStreaming} />)}
+                )}
                 <div ref={bottomRef} />
               </div>
             </div>
@@ -2808,14 +2782,14 @@ export function ChatPanel() {
           </>
         )}
 
-        <div className="shrink-0 bg-background" data-ui-ai-composer={IS_UI_TEST_BUILD || undefined}>
+        <div className="shrink-0 bg-background">
           {deAiSkillWarningMessage ? (
             <div className="border-t border-amber-500/20 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
               {deAiSkillWarningMessage}
             </div>
           ) : null}
-          <div className="border-t px-3 py-2">
-            <div className="hidden" data-ui-ai-tools={IS_UI_TEST_BUILD || undefined} />
+          <div className="border-t px-3 py-2" data-ui-ai-composer>
+            <div className="hidden" data-ui-ai-tools />
             <div className="hidden">
               <TooltipProvider delay={200}>
                 <div className="hidden">
@@ -2847,7 +2821,7 @@ export function ChatPanel() {
                             />
                             <div
                               ref={workflowModeDropdownRef}
-                              data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined}
+                              data-ui-ai-menu="mode"
                               role="listbox"
                               className="fixed rounded-md border bg-popover p-1 shadow-md"
                               style={{ ...workflowModeDropdownStyle, zIndex: 9999 }}
@@ -2956,7 +2930,7 @@ export function ChatPanel() {
                         {workflowModeDropdownOpen && workflowModeDropdownStyle && createPortal(
                           <>
                             <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
-                            <div ref={workflowModeDropdownRef} data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }}>
+                            <div ref={workflowModeDropdownRef} data-ui-ai-menu="mode" role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }}>
                               {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
                                 <button key={mode} type="button" role="option" aria-selected={aiWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setAiWorkflowMode(mode); void saveAiWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
                                   <Check className={`mt-0.5 h-4 w-4 shrink-0 ${aiWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
@@ -2979,7 +2953,7 @@ export function ChatPanel() {
                 </>
               )}
               rightControls={
-                <UiTestAiModel enabled={IS_UI_TEST_BUILD} value={aiChatModel}>
+                <UiTestAiModel enabled value={aiChatModel}>
                   <ReasoningDepthControl
                     value={aiChatReasoningDepth}
                     onChange={(depth) => {
@@ -3002,11 +2976,7 @@ export function ChatPanel() {
               onTokensChange={updateCurrentTokens}
               onSubmit={handleSend}
               onAtTrigger={() => setReferencePickerOpen(true)}
-              placeholder={
-                IS_UI_TEST_BUILD ? "写下你的想法，或 @ 引用资料..." : mode === "ingest"
-                  ? t(novelMode ? "novel.chat.ingestPlaceholder" : "chat.ingestPlaceholder")
-                  : t(novelMode ? "novel.chat.typeAMessage" : "chat.typeAMessage")
-              }
+              placeholder={"写下你的想法，或 @ 引用资料..."}
             />
           </div>
           <ReferencePickerDialog

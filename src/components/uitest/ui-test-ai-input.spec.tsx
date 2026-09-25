@@ -45,7 +45,7 @@ describe("测试版 AI 模型选择布局", () => {
   it("思考按钮与模型选择同一行，模型框不超过 148px", () => {
     const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*justify-content: flex-end;/s)
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex: 0 1 148px;[^}]*max-width: 148px;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: max-content;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \[data-reference-input-footer\] \[aria-label="上下文用量"\] \{[^}]*display: inline-flex;/s)
   })
 })
@@ -96,6 +96,8 @@ describe("测试版引用输入框真实高度逻辑", () => {
     expect(rule).toMatch(/border-color:\s*color-mix/)
     expect(rule).toMatch(/box-shadow:\s*none/)
     expect(rule).toMatch(/outline:\s*none/)
+    expect(rule).toMatch(/--tw-ring-shadow:\s*0 0 #0000/)
+    expect(css).toMatch(/\[data-ui-ai-composer\]\s+div:has\(>\s*\[data-reference-input-footer\]\):focus-within\s*\{[^}]*--tw-ring-shadow:\s*0 0 #0000/)
     expect(css).toMatch(/\[data-ui-ai-panel="outline"\]\s+\[data-ui-ai-composer\]\s+textarea:is\(:focus,\s*:focus-visible\)\s*\{[^}]*caret-color:\s*var\(--ui-accent\)/)
   })
 })

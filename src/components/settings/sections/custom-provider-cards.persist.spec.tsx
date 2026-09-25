@@ -15,6 +15,10 @@ const persistMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/project-store", () => persistMocks)
 
+vi.mock("@/lib/web-store", () => ({
+  flushAppState: vi.fn(async () => {}),
+}))
+
 vi.mock("react-i18next", () => ({
   initReactI18next: {
     type: "3rdParty",
@@ -85,42 +89,64 @@ describe("CustomProviderCards persistence UI", () => {
 
   it("shows custom models that arrive after the panel has already mounted", async () => {
     await act(async () => root.render(<CustomProviderCards />))
-    expect(host.textContent).toContain("暂未添加任何模型配置")
+    expect(host.textContent).toContain("添加你的第一个写作模型")
 
     await act(async () => {
       useWikiStore.getState().setProviderConfigs(SAVED_CONFIGS)
     })
 
     expect(host.textContent).toContain("自建 DeepSeek")
-    expect(host.textContent).not.toContain("暂未添加任何模型配置")
+    expect(host.textContent).not.toContain("添加你的第一个写作模型")
   })
 
-  it("keeps a newly added model in the store so a remount can restore it", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(1710000000123)
+  it("keeps a newly added model in the store after save so a remount can restore it", async () => {
     await act(async () => root.render(<CustomProviderCards />))
 
     const add = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("添加模型"))
     expect(add).toBeTruthy()
     await act(async () => add!.click())
 
-    expect(useWikiStore.getState().providerConfigs["custom-1710000000123"]).toMatchObject({
-      label: "自定义模型",
+    const card = host.querySelector<HTMLElement>('[data-model-provider^="custom-"]')
+    expect(card).toBeTruthy()
+    const id = card!.dataset.modelProvider!
+    expect(id).toMatch(/^custom-/)
+
+    const setInput = (selector: string, value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          card!.querySelector<HTMLInputElement>(selector),
+          value,
+        )
+        card!.querySelector<HTMLInputElement>(selector)!.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    await setInput('input[aria-label="接口地址"]', "https://api.example.com/v1")
+    await setInput('input[aria-label="模型"]', "mymodel")
+
+    const addModel = [...card!.querySelectorAll("button")].find((b) => b.textContent?.trim() === "添加")
+    expect(addModel).toBeTruthy()
+    await act(async () => addModel!.click())
+
+    const saveButton = [...card!.querySelectorAll("button")].find((b) => b.textContent?.includes("保存配置"))
+    expect(saveButton).toBeTruthy()
+    await act(async () => saveButton!.click())
+
+    expect(useWikiStore.getState().providerConfigs[id]).toMatchObject({
+      label: "我的写作模型",
       enabled: true,
     })
     expect(persistMocks.saveProviderConfigs).toHaveBeenCalled()
     expect(persistMocks.saveProviderConfigs.mock.calls.at(-1)?.[0]).toMatchObject({
-      "custom-1710000000123": { label: "自定义模型", enabled: true },
+      [id]: { label: "我的写作模型", enabled: true },
     })
 
     await act(async () => root.unmount())
     root = createRoot(host)
     await act(async () => root.render(<CustomProviderCards />))
-    expect(host.textContent).toContain("自定义模型")
-    expect(host.textContent).not.toContain("暂未添加任何模型配置")
-    vi.restoreAllMocks()
+    expect(host.textContent).toContain("我的写作模型")
+    expect(host.textContent).not.toContain("添加你的第一个写作模型")
   })
 
-  it("allows deleting the entire default model name", async () => {
+  it("blocks saving a newly emptied config name and preserves the saved label", async () => {
     useWikiStore.setState({
       providerConfigs: {
         "custom-1710000000000": { label: "自定义模型", enabled: true },
@@ -128,28 +154,21 @@ describe("CustomProviderCards persistence UI", () => {
     })
     await act(async () => root.render(<CustomProviderCards />))
 
-    const labelButton = [...host.querySelectorAll("button")].find(
-      (button) => button.textContent?.trim() === "自定义模型",
-    )
-    expect(labelButton).toBeTruthy()
-    await act(async () => labelButton!.click())
-
-    const input = host.querySelector<HTMLInputElement>('input[placeholder="配置名称"]')
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="配置名称"]')
     expect(input).toBeTruthy()
     await act(async () => {
-      const valueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set
-      valueSetter?.call(input, "")
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "")
       input!.dispatchEvent(new Event("input", { bubbles: true }))
     })
-
     expect(input!.value).toBe("")
-    expect(useWikiStore.getState().providerConfigs["custom-1710000000000"]?.label).toBe("")
-    expect(persistMocks.saveProviderConfigs.mock.calls.at(-1)?.[0]).toMatchObject({
-      "custom-1710000000000": { label: "" },
-    })
+
+    const saveButton = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("保存配置"))
+    expect(saveButton).toBeTruthy()
+    await act(async () => saveButton!.click())
+
+    expect(host.textContent).toContain("请填写配置名称")
+    expect(useWikiStore.getState().providerConfigs["custom-1710000000000"]?.label).toBe("自定义模型")
+    expect(persistMocks.saveProviderConfigs).not.toHaveBeenCalled()
   })
 })
 
@@ -168,7 +187,10 @@ describe("close-path wiring", () => {
 
   it("derives custom cards from the store instead of a one-shot local snapshot", () => {
     const source = readFileSync(resolve(__dirname, "custom-provider-cards.tsx"), "utf8")
-    expect(source).toContain("listCustomProviderCards(providerConfigs)")
+    expect(source).toContain("return <UiTestCustomProviders />")
     expect(source).not.toContain("useState<CustomProviderCard[]>(")
+
+    const providerCustomSource = readFileSync(resolve(__dirname, "../../uitest/models/provider-custom.tsx"), "utf8")
+    expect(providerCustomSource).toContain("useWikiStore(s => s.providerConfigs)")
   })
 })

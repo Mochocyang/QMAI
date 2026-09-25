@@ -190,10 +190,8 @@ export function composeLiveContextUsage(
   const summaryTokens = live.sessionSummaryText !== undefined
     ? estimateText(live.sessionSummaryText)
     : nonNegativeInt(lastUsage?.segments.find((segment) => segment.key === "sessionSummary")?.tokens)
-  const windowTokens = Math.max(
-    1,
-    nonNegativeInt(live.windowTokens) || nonNegativeInt(lastUsage?.windowTokens) || 1,
-  )
+  const windowTokens = nonNegativeInt(live.windowTokens) || nonNegativeInt(lastUsage?.windowTokens)
+  if (windowTokens <= 0) return null
   const lastByKey = new Map(
     (lastUsage?.segments ?? []).map((segment) => [segment.key, nonNegativeInt(segment.tokens)]),
   )

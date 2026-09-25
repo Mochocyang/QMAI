@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -452,8 +451,8 @@ export function KnowledgeTree({
 
   useEffect(() => {
     const closeMenus = (event: Event) => {
-      if (IS_UI_TEST_BUILD && event instanceof KeyboardEvent && event.key !== "Escape") return
-      if (IS_UI_TEST_BUILD && event.type === "keydown") containerRef.current?.querySelector<HTMLButtonElement>(`[data-page-path="${pageMenu?.path}"] > button`)?.focus()
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return
+      if (event.type === "keydown") containerRef.current?.querySelector<HTMLButtonElement>(`[data-page-path="${pageMenu?.path}"] > button`)?.focus()
       setCreateMenu(null)
       setPageMenu(null)
     }
@@ -466,7 +465,7 @@ export function KnowledgeTree({
   }, [])
 
   useEffect(() => {
-    if (!IS_UI_TEST_BUILD || !pageMenu) return
+    if (!pageMenu) return
     containerRef.current?.querySelector<HTMLButtonElement>('[aria-label="文档更多操作"] button')?.focus()
   }, [pageMenu])
 
@@ -1389,13 +1388,12 @@ export function KnowledgeTree({
   const openCreateMenu = useCallback((event: React.MouseEvent, parentDir?: string, targetFolderName?: string) => {
     event.preventDefault()
     event.stopPropagation()
-    const rect = containerRef.current?.getBoundingClientRect()
     setCreateMenu({
       parentDir,
       targetFolderName,
       targetFolderPath: parentDir,
-      x: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)) : rect ? event.clientX - rect.left : event.clientX,
-      y: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)) : rect ? event.clientY - rect.top : event.clientY,
+      x: Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)),
+      y: Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)),
     })
     setPageMenu(null)
   }, [])
@@ -1403,11 +1401,10 @@ export function KnowledgeTree({
   const openPageMenu = useCallback((event: React.MouseEvent, pagePath: string) => {
     event.preventDefault()
     event.stopPropagation()
-    const rect = containerRef.current?.getBoundingClientRect()
     setPageMenu({
       path: pagePath,
-      x: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)) : rect ? event.clientX - rect.left : event.clientX,
-      y: IS_UI_TEST_BUILD ? Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)) : rect ? event.clientY - rect.top : event.clientY,
+      x: Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)),
+      y: Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)),
     })
     setCreateMenu(null)
   }, [])
@@ -1479,10 +1476,10 @@ export function KnowledgeTree({
           <div key={normalizedPath}>
             <div
               data-knowledge-interactive="true"
-              data-ui-tree-row={IS_UI_TEST_BUILD ? "folder" : undefined}
+              data-ui-tree-row="folder"
               data-folder-path={normalizedPath}
               className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground qm-hover ${isOutlineDropTarget ? "ring-2 ring-primary/50" : ""}`}
-              style={{ paddingLeft: `${IS_UI_TEST_BUILD ? 2 : depth * 16 + 8}px` }}
+              style={{ paddingLeft: "2px" }}
               onContextMenu={(event) => openCreateMenu(event, normalizedPath, node.name)}
             >
               <button
@@ -1558,7 +1555,7 @@ export function KnowledgeTree({
         <div
           key={normalizedPath}
           data-knowledge-interactive="true"
-          data-ui-tree-row={IS_UI_TEST_BUILD ? "file" : undefined}
+          data-ui-tree-row="file"
           data-page-path={normalizedPath}
           className={`group flex items-center gap-1 rounded-md ${isSelected ? "qm-selected" : "qm-hover"} ${isChapterChecked ? "ring-1 ring-primary/35" : ""} ${isDragSource ? "ring-2 ring-primary/50" : ""} ${isInsertTarget ? "border-t-[3px] border-primary/70" : ""}`}
           onContextMenu={(event) => handlePageContextMenu(event, normalizedPath)}
@@ -1591,7 +1588,7 @@ export function KnowledgeTree({
             className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1 text-left text-sm ${
               isSelected ? "qm-selected-muted" : "text-muted-foreground group-hover:text-foreground"
             }`}
-            title={IS_UI_TEST_BUILD ? page.title : normalizedPath}
+            title={page.title}
           >
             {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             {renamingPath === normalizedPath ? (
@@ -1619,10 +1616,10 @@ export function KnowledgeTree({
               />
             ) : (
               <>
-                <span className="min-w-0 flex-1 truncate">{IS_UI_TEST_BUILD ? page.title.replace(/^第(\d+)章\s*/, "$1 ") : page.title}</span>
+                <span className="min-w-0 flex-1 truncate">{page.title.replace(/^第(\d+)章\s*/, "$1 ")}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
                   <span className={`shrink-0 text-right text-[11px] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
-                    {IS_UI_TEST_BUILD ? page.wordCountLabel.replace(/\s*字$/, "") : page.wordCountLabel}
+                    {page.wordCountLabel.replace(/\s*字$/, "")}
                   </span>
                 )}
               </>
@@ -1632,7 +1629,7 @@ export function KnowledgeTree({
             <Button
               variant="ghost"
               size="icon"
-              className={`mr-0 h-7 w-7 shrink-0 ${IS_UI_TEST_BUILD ? "ui-test-tree-extract" : ""} ${isOutlineExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
+              className={`mr-0 h-7 w-7 shrink-0 ui-test-tree-extract ${isOutlineExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
               title={isOutlineExtracted ? t("novel.outlineGenerator.reingestTitle") : t("novel.outlineGenerator.ingest")}
               disabled={isOutlineIngesting}
               onClick={(event) => {
@@ -1649,11 +1646,11 @@ export function KnowledgeTree({
               )}
             </Button>
           ) : null}
-          {IS_UI_TEST_BUILD && renamingPath !== normalizedPath ? <button type="button" className="ui-test-tree-more" aria-label={`${page.title}的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); openPageMenu(event, normalizedPath) }}><MoreHorizontal /></button> : null}
+          {renamingPath !== normalizedPath ? <button type="button" className="ui-test-tree-more" aria-label={`${page.title}的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); openPageMenu(event, normalizedPath) }}><MoreHorizontal /></button> : null}
           <DeleteButton
             armed={isArmed}
             deleting={showDeleteLoading}
-            className={`mr-1 transition-opacity ${IS_UI_TEST_BUILD ? `ui-test-tree-delete${isArmed ? " is-armed" : ""}` : ""} ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+            className={`mr-1 transition-opacity ui-test-tree-delete${isArmed ? " is-armed" : ""} ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             onClick={() => void handleDeleteClick(normalizedPath)}
             name={page.title}
           />
@@ -1711,7 +1708,7 @@ export function KnowledgeTree({
     <ScrollArea className="h-full">
       <div
         ref={containerRef}
-        className={`relative flex min-h-full flex-col p-2 select-none${IS_UI_TEST_BUILD ? " ui-test-knowledge-tree" : ""}`}
+        className={`relative flex min-h-full flex-col p-2 select-none ui-test-knowledge-tree`}
         style={{
           userSelect: filterType === "chapter" ? "none" : undefined,
           WebkitUserSelect: filterType === "chapter" ? "none" : undefined,
@@ -1724,7 +1721,7 @@ export function KnowledgeTree({
         onContextMenu={handleBlankContextMenu}
         onPointerMove={handleContainerPointerMove}
       >
-        <div className={`mb-2 flex items-center justify-between gap-2 px-2 text-xs font-semibold uppercase text-muted-foreground${IS_UI_TEST_BUILD ? " ui-test-tree-root-label" : ""}`}>
+        <div className={`mb-2 flex items-center justify-between gap-2 px-2 text-xs font-semibold uppercase text-muted-foreground ui-test-tree-root-label`}>
           <span>{rootLabel}</span>
         </div>
         {filterType === "chapter" && chapterBatchMode && selectableChapterPaths.length > 0 && (
@@ -1784,7 +1781,7 @@ export function KnowledgeTree({
         {createMenu && (
           <div
             className="absolute z-20 w-40 rounded-md border bg-background py-1 text-xs shadow-lg"
-            style={{ left: createMenu.x, top: createMenu.y, ...(IS_UI_TEST_BUILD ? { position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const : {}) }}
+            style={{ left: createMenu.x, top: createMenu.y, ...({ position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const) }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -1848,10 +1845,10 @@ export function KnowledgeTree({
 
         {pageMenu && (
           <div
-            role={IS_UI_TEST_BUILD ? "menu" : undefined}
-          aria-label={IS_UI_TEST_BUILD ? "文档更多操作" : undefined}
-          className="absolute z-20 w-48 rounded-md border bg-background py-1 text-xs shadow-lg"
-            onKeyDown={IS_UI_TEST_BUILD ? (event) => {
+            role="menu"
+            aria-label="文档更多操作"
+            className="absolute z-20 w-48 rounded-md border bg-background py-1 text-xs shadow-lg"
+            onKeyDown={(event) => {
               if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setPageMenu(null); containerRef.current?.querySelector<HTMLButtonElement>(`[data-page-path="${pageMenu.path}"] > button`)?.focus(); return }
               if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return
               event.preventDefault(); event.stopPropagation()
@@ -1859,8 +1856,8 @@ export function KnowledgeTree({
               const index = items.indexOf(document.activeElement as HTMLButtonElement)
               const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
               items[next]?.focus()
-            } : undefined}
-            style={{ left: pageMenu.x, top: pageMenu.y, ...(IS_UI_TEST_BUILD ? { position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const : {}) }}
+            }}
+            style={{ left: pageMenu.x, top: pageMenu.y, ...({ position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const) }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2101,7 +2098,7 @@ export function RawSourcesSection({ onCancelExtraction, uiTestActivityView = fal
     if (hasRunning) setExpanded(true)
   }, [hasRunning])
 
-  if (IS_UI_TEST_BUILD && uiTestActivityView && !hasAnyTask) return null
+  if (uiTestActivityView && !hasAnyTask) return null
 
   return (
     <div className="shrink-0 border-t bg-background/95 p-2 backdrop-blur">

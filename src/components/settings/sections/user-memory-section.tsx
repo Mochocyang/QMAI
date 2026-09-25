@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Brain, Download, Eraser, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
+import { Download, Eraser, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -114,11 +114,7 @@ export function UserMemorySection() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2">
-          <Brain className="h-5 w-5" />
-          <h2 className="text-xl font-semibold">全局用户记忆</h2>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">从用户请求中学习可复用习惯，并让所有 AI 功能按任务需要遵循这些规则。</p>
+        <h2 className="text-xl font-semibold">全局用户记忆</h2>
       </div>
 
       <section className="border-y">

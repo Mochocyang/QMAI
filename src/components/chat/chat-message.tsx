@@ -42,7 +42,6 @@ import type { DisplayMessage } from "@/stores/chat-store";
 import { ContextTracePanel } from "@/components/chat/context-trace-panel";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
 import { UiTestGenerationStats } from "@/components/common/context-hub-stats-summary";
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
 import { getStreamingTailDisplay } from "@/components/common/streaming-display-text";
 import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 
@@ -281,7 +280,7 @@ export function ChatMessage({
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
             )}
-            {IS_UI_TEST_BUILD && !message.isAgentRunning ? (
+            {!message.isAgentRunning ? (
               <div className="ml-auto"><UiTestGenerationStats stats={currentContextHubSnapshot?.stats} timing={message.generationTiming} /></div>
             ) : currentContextHubSnapshot ? (
               <div className="ml-auto"><ContextHubDetails reference={currentContextHubSnapshot} timing={message.generationTiming} /></div>

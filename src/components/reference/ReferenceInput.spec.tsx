@@ -44,19 +44,19 @@ afterEach(() => {
 
 describe("ReferenceInput", () => {
   it("keeps the input at least as tall as the workflow-mode dropdown", async () => {
-    localStorage.setItem("qmai-reference-input-height", "48")
+    localStorage.setItem("qm-uitest-reference-input-height", "48")
 
     await act(async () => {
       root.render(<ReferenceInput tokens={[]} onSubmit={vi.fn()} />)
     })
 
     const editor = host.querySelector("textarea") as HTMLTextAreaElement
-    expect(editor.style.height).toBe("192px")
-    expect(editor.style.maxHeight).toBe("192px")
+    expect(editor.style.height).toBe("112px")
+    expect(editor.style.maxHeight).toBe("112px")
   })
 
   it("allows resizing up to 300px and clamps larger saved heights", async () => {
-    localStorage.setItem("qmai-reference-input-height", "480")
+    localStorage.setItem("qm-uitest-reference-input-height", "480")
 
     await act(async () => {
       root.render(<ReferenceInput tokens={[]} onSubmit={vi.fn()} />)

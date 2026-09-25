@@ -153,6 +153,14 @@
   min-width: 0;
 }
 
+.ui-test-root [data-ui="settings-section"] :is(h1, h2) {
+  display: none;
+}
+
+.ui-test-root [data-ui="settings-section"] h2 + p {
+  display: none;
+}
+
 .ui-test-root [data-ui="settings-section"] :is(h3, label) {
   color: var(--ui-ink);
 }

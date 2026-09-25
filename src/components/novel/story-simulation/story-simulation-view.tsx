@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test";
 import "@/components/uitest/ui-test-tools.css";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -1108,17 +1107,15 @@ export function StorySimulationView() {
   })();
 
   return (
-    <div data-ui-page={IS_UI_TEST_BUILD ? "simulation" : undefined} data-ui-state={IS_UI_TEST_BUILD ? phase : undefined} className="flex h-full">
+    <div data-ui-page="simulation" data-ui-state={phase} className="flex h-full">
       {/* 主区域：单栏全宽 */}
-      <div data-ui={IS_UI_TEST_BUILD ? "simulation-content" : undefined} className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
-        {IS_UI_TEST_BUILD && (
-          <header data-ui="tool-heading">
+      <div data-ui="simulation-content" className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
+        <header data-ui="tool-heading">
             <div>
               <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{projectName ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">故事推演</span></nav>
               <h1 className="ui-test-page-title">{phase === "report-viewing" ? "推演报告" : phase === "draft-viewing" ? "故事草稿" : phase === "framework-confirming" ? "确认故事框架" : "让角色先走一步。"}</h1>
             </div>
           </header>
-        )}
         {error && (
           <div className="flex items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-400">
             <span>
@@ -1533,7 +1530,7 @@ export function StorySimulationView() {
             </div>
           </div>
         ) : (
-          <div data-ui={IS_UI_TEST_BUILD ? "simulation-config" : undefined} className="min-h-0 flex-1 overflow-y-auto">
+          <div data-ui="simulation-config" className="min-h-0 flex-1 overflow-y-auto">
             <SimulationConfigPanel onStart={() => void handleStart()} />
           </div>
         )}

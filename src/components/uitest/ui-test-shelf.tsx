@@ -8,7 +8,6 @@ import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { normalizeComparablePath } from "@/lib/path-utils"
 import { getRecentProjects, removeProjectRecords } from "@/lib/project-store"
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { getUiTestProjects, mergeUiTestProjects, registerUiTestProjects, replaceUiTestProjectPath } from "@/lib/ui-test-library"
 import "./ui-test-shelf.css"
 
@@ -111,7 +110,6 @@ export function UiTestShelf({
   const [coverSize, setCoverSize] = useState<CoverSize>(readCoverSize)
 
   useEffect(() => {
-    if (!IS_UI_TEST_BUILD) return
     let cancelled = false
 
     async function load() {
@@ -195,8 +193,6 @@ export function UiTestShelf({
       setActionError(error instanceof Error ? error.message : "移入系统回收站失败，小说未删除。")
     }
   }
-
-  if (!IS_UI_TEST_BUILD) return null
 
   const countLabel = loading ? "正在读取书架…" : `${books.length} 部小说`
 

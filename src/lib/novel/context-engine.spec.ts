@@ -125,13 +125,7 @@ describe("selectWritingEntitySearchOutline", () => {
 })
 
 describe("trimContextPack 两级裁剪", () => {
-  // Trim-level cases were authored against the old hardcoded ×4 char quota.
-  // Pin English density so tokenBudget→chars stays comparable; CJK coverage
-  // lives in the language-density nested suite below.
   beforeEach(async () => {
-    await i18n.changeLanguage("en")
-  })
-  afterEach(async () => {
     await i18n.changeLanguage("zh")
   })
 
@@ -198,7 +192,7 @@ describe("trimContextPack 两级裁剪", () => {
       task: "测试",
       relatedSettings: "世界设定内容。" + "详细描述。".repeat(100),
     }
-    const result = trimContextPack(smallPack, 100)
+    const result = trimContextPack(smallPack, 400)
     expect(result.partiallyTrimmedField).toBeDefined()
     expect(result.partiallyTrimmedField?.fieldKey).toBe("relatedSettings")
     expect(result.partiallyTrimmedField?.keptChars).toBeLessThan(result.partiallyTrimmedField?.originalChars ?? 0)
@@ -212,7 +206,7 @@ describe("trimContextPack 两级裁剪", () => {
       ...basePack,
       task: "测试",
       recentSummaries: longSummaries,
-    }, 100)
+    }, 400)
     expect(result.partiallyTrimmedField).toBeDefined()
     expect(result.partiallyTrimmedField?.fieldKey).toBe("recentSummaries")
     expect(result.prompt).toContain("第20章摘要")
@@ -225,7 +219,7 @@ describe("trimContextPack 两级裁剪", () => {
       ...basePack,
       task: "测试",
       soulDoc: longText,
-    }, 100)
+    }, 400)
     expect(result.partiallyTrimmedField).toBeDefined()
     expect(result.partiallyTrimmedField?.fieldKey).toBe("soulDoc")
     expect(result.prompt.length).toBeLessThan(500)
@@ -233,7 +227,7 @@ describe("trimContextPack 两级裁剪", () => {
   })
 
   it("高优先级字段始终保留", () => {
-    const result = trimContextPack(fullPack, 50)
+    const result = trimContextPack(fullPack, 200)
     expect(result.prompt).toContain("生成第10章正文")
     expect(result.prompt).toContain("主角遭遇反派")
   })
@@ -255,16 +249,13 @@ describe("trimContextPack 两级裁剪", () => {
       await i18n.changeLanguage("zh")
     })
 
-    it("同 token 预算下 CJK 字符配额约为英文的 1/4，并更早触发裁剪", async () => {
+    it("中文界面使用中文密度，长内容会触发裁剪", async () => {
       const tokenBudget = 500
-      // Fits English (×4 → 2000 chars) but not CJK (×1 → 500 chars).
       const pack: ContextPack = {
         ...basePack,
         task: "测试语言密度",
         soulDoc: "文".repeat(1_200),
       }
-
-      expect(charsPerTokenForLanguage("zh")).toBe(charsPerTokenForLanguage("en") / 4)
 
       await i18n.changeLanguage("zh")
       expect(charsPerTokenForLanguage()).toBe(1)
@@ -272,13 +263,6 @@ describe("trimContextPack 两级裁剪", () => {
       expect(
         cjk.trimmedFields.length + (cjk.partiallyTrimmedField ? 1 : 0),
       ).toBeGreaterThan(0)
-
-      await i18n.changeLanguage("en")
-      expect(charsPerTokenForLanguage()).toBe(4)
-      const en = trimContextPack(pack, tokenBudget)
-      expect(en.trimmedFields).toHaveLength(0)
-      expect(en.partiallyTrimmedField).toBeUndefined()
-      expect(en.finalChars).toBeGreaterThan(cjk.finalChars)
     })
   })
 })

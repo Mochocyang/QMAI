@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import "@/components/uitest/ui-test-tools.css"
 import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -983,8 +982,8 @@ export function BookAnalysisView() {
     </>
   )
 
-  const libraryLayout = IS_UI_TEST_BUILD ? (
-    <section data-ui-page={IS_UI_TEST_BUILD ? "analysis" : undefined} data-ui-state={IS_UI_TEST_BUILD ? (selectedPipelineTask?.status ?? (selectedLibraryBook ? "book" : "empty")) : undefined}>
+  const libraryLayout = (
+    <section data-ui-page="analysis" data-ui-state={selectedPipelineTask?.status ?? (selectedLibraryBook ? "book" : "empty")}>
       <header data-ui="tool-heading">
         <div>
           <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>拆书库</span><span aria-hidden="true">/</span><span aria-current="page">{selectedLibraryBook?.metadata.title ?? "作品"}</span></nav>
@@ -994,7 +993,7 @@ export function BookAnalysisView() {
       </header>
       <div data-ui="analysis-content">{libraryContent}</div>
     </section>
-  ) : libraryContent
+  )
 
   if (tasks.length === 0) {
     return (

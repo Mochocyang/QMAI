@@ -75,7 +75,7 @@ vi.mock("@/components/settings/sections/contact-support-section", () => ({ Conta
 vi.mock("@/components/settings/sections/classification-section", () => ({ ClassificationSection: () => <div data-capability="classification" /> }))
 vi.mock("@/components/settings/sections/changelog-section", () => ({ ChangelogSection: () => <div data-capability="changelog" /> }))
 
-const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "usage-guide", "maintenance", "data-management", "export-center", "feedback", "contact-support", "classification", "changelog"]
+const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "maintenance", "data-management", "feedback", "contact-support", "changelog"]
 let container: HTMLDivElement
 let root: Root
 
@@ -117,17 +117,20 @@ async function click(selector: string) {
 }
 
 describe("测试版设置布局与正式版隔离", () => {
-  it("只保留一份 14 分类左栏，真实面包屑随分类切换", async () => {
+  it("只保留十一个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
-    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(14)
+    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(11)
+    expect(container.querySelector('[data-ui-settings-category-button="export-center"]')).toBeNull()
+    expect(container.querySelector('[data-ui-settings-category-button="usage-guide"]')).toBeNull()
+    expect(container.querySelector('[data-ui-settings-category-button="classification"]')).toBeNull()
+    expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
     for (const category of categories) {
       await click(`[data-ui-settings-category-button="${category}"]`)
       expect(container.querySelector(`[data-capability="${category === "model" ? "llm" : category}"]`)).not.toBeNull()
       const selected = container.querySelector(`[data-ui-settings-category-button="${category}"]`)
       expect(selected?.getAttribute("aria-current")).toBe("page")
-      expect(container.querySelector('[aria-label="面包屑"] [aria-current="page"]')?.textContent).toBe(selected?.querySelector("span > span")?.textContent)
     }
   })
 
@@ -136,7 +139,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
-    expect(select?.options).toHaveLength(14)
+    expect(select?.options).toHaveLength(11)
     await act(async () => {
       select!.value = "interface"
       select!.dispatchEvent(new Event("change", { bubbles: true }))
@@ -161,24 +164,16 @@ describe("测试版设置布局与正式版隔离", () => {
     expect(container.querySelector('[data-ui="settings-footer"] button')).toBeNull()
   })
 
-  it("项目写作设置显示当前项目作用域，不误标全局设置", async () => {
+  it("项目写作设置不再显示顶部路径", async () => {
     await render(<SettingsView />)
     await click('[data-ui-settings-category-button="novel"]')
-    expect(container.querySelector('[aria-label="面包屑"]')?.textContent).toContain("当前项目名称")
+    expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
   })
 
-  it("正式版仍使用原模型聚合页，不出现测试版标识或新增导航", async () => {
-    ui.enabled = false
-    await render(<SettingsView />)
-    expect(container.querySelector('[data-capability="legacy-model"]')).not.toBeNull()
-    expect(container.querySelector('[data-ui-page]')).toBeNull()
-    expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
-    expect(container.querySelector('select[aria-label="设置分类"]')).toBeNull()
-  })
+
 })
 
-describe("真实外观页的测试皮肤与兼容设置", () => {
-  const legacyNames = ["经典原版", "直角工具型", "天青釉色", "青瓷墨韵", "云山黛色", "苍苍竹色", "月白黛蓝", "古墨流金"]
+describe("真实外观页的测试皮肤", () => {
 
   async function renderInterface() {
     const { InterfaceSection } = await vi.importActual<typeof import("@/components/settings/sections/interface-section")>("@/components/settings/sections/interface-section")
@@ -195,7 +190,7 @@ describe("真实外观页的测试皮肤与兼容设置", () => {
     return onChange
   }
 
-  it("只把三款测试皮肤放在顶部，初始化读取当前选择，旧八款位于折叠兼容区", async () => {
+  it("只显示三款测试皮肤，不保留旧版界面切换和旧版风格", async () => {
     writeUiTestSkin("zhi")
     await renderInterface()
     const choices = container.querySelectorAll('[data-ui="interface-skins"] button')
@@ -203,12 +198,9 @@ describe("真实外观页的测试皮肤与兼容设置", () => {
     expect(container.querySelector('[data-ui-skin-choice="zhi"]')?.getAttribute("aria-pressed")).toBe("true")
     expect(container.querySelectorAll('[data-ui="interface-skins"] [aria-pressed="true"]')).toHaveLength(1)
     expect(container.querySelector('h1')?.textContent).toBe("外观与界面")
-    const compatibility = container.querySelector<HTMLDetailsElement>('[data-ui="interface-compatibility"]')
-    expect(compatibility?.open).toBe(false)
-    expect(compatibility?.querySelector("summary")?.textContent).toContain("兼容界面设置")
-    expect(compatibility?.textContent).toContain("仅供旧布局兼容")
-    for (const name of legacyNames) expect(compatibility?.textContent).toContain(name)
-    expect(container.querySelector('[data-ui="interface-skins"]')?.textContent).not.toContain("经典原版")
+    expect(container.textContent).not.toContain("切换到旧版界面")
+    expect(container.querySelector('[data-ui="interface-compatibility"]')).toBeNull()
+    expect(container.textContent).not.toContain("经典原版")
   })
 
   it("点击每个皮肤立即持久化并发送约定事件，不写入正式视觉风格草稿", async () => {
@@ -245,32 +237,19 @@ describe("真实外观页的测试皮肤与兼容设置", () => {
     }
   })
 
-  it("字体、字号及语言控件仍更新原草稿，兼容区中的旧风格和显隐仍可操作", async () => {
+  it("字体、字号及语言控件仍更新原草稿", async () => {
     const setDraft = await renderInterface()
     const font = container.querySelector<HTMLSelectElement>('select[aria-label="界面字体"]')!
     expect(font).not.toBeNull()
     expect(Array.from(font.options).map((option) => option.value)).toEqual(UI_FONT_OPTIONS.map((option) => option.value))
     await act(async () => { font.value = "simsun"; font.dispatchEvent(new Event("change", { bubbles: true })) })
     expect(setDraft).toHaveBeenLastCalledWith("uiFontFamily", "simsun")
-    const language = container.querySelector<HTMLSelectElement>('select[aria-label="界面语言"]')!
-    expect(language).not.toBeNull()
-    await act(async () => { language.value = "en"; language.dispatchEvent(new Event("change", { bubbles: true })) })
-    expect(setDraft).toHaveBeenLastCalledWith("uiLanguage", "en")
+    expect(container.querySelector('[aria-label="界面语言"]')).toBeNull()
     const scale = container.querySelector<HTMLSelectElement>('select[aria-label="字号预设"]')!
     expect(scale).not.toBeNull()
     await act(async () => { scale.value = "1.15"; scale.dispatchEvent(new Event("change", { bubbles: true })) })
     expect(setDraft).toHaveBeenLastCalledWith("uiFontSizeScale", 1.15)
     expect(container.querySelector<HTMLInputElement>('input[aria-label="界面字号"]')?.value).toBe("115")
-    await click('[data-ui="interface-compatibility"] > summary')
-    expect(container.querySelector<HTMLDetailsElement>('[data-ui="interface-compatibility"]')?.open).toBe(true)
-    await click('[data-ui-legacy-style="classic"]')
-    expect(setDraft).toHaveBeenLastCalledWith("visualStyle", "classic")
-    expect(container.querySelector('[data-ui-legacy-style="classic"]')?.getAttribute("aria-pressed")).toBe("true")
-    const visible = container.querySelectorAll<HTMLInputElement>('[data-ui="interface-compatibility"] input[type="checkbox"]')
-    expect(visible).toHaveLength(DEFAULT_SIDEBAR_NAV_CONFIG.order.length)
-    const label = i18n.t("novel.nav.graph")
-    await click(`[data-ui="interface-compatibility"] input[aria-label="${label}"]`)
-    expect(setDraft).toHaveBeenLastCalledWith("sidebarNavConfig", expect.objectContaining({ hidden: ["graph"] }))
   })
 
   it("皮肤保存失败时保留原选择并提示中文错误，不发送虚假应用事件", async () => {
@@ -287,14 +266,7 @@ describe("真实外观页的测试皮肤与兼容设置", () => {
     } finally { storage.mockRestore(); window.removeEventListener("qmai-ui-test-skin-change", listener) }
   })
 
-  it("正式版保持原八种风格与侧栏设置，不渲染测试皮肤或兼容折叠", async () => {
-    ui.enabled = false
-    await renderInterface()
-    expect(container.querySelector('[data-ui="interface-skins"]')).toBeNull()
-    expect(container.querySelector("details")).toBeNull()
-    for (const name of legacyNames) expect(container.textContent).toContain(name)
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(DEFAULT_SIDEBAR_NAV_CONFIG.order.length)
-  })
+
 })
 
 describe("真实模型列表的测试版分组", () => {
@@ -353,15 +325,7 @@ describe("真实模型列表的测试版分组", () => {
     expect(input.value).toBe("尚未添加的模型ID")
   })
 
-  it("正式版仍同时显示自定义和内置列表及原风险说明", async () => {
-    ui.enabled = false
-    await renderProviders()
-    expect(container.querySelector('[aria-label="模型配置来源"]')).toBeNull()
-    expect(container.querySelector('details')).toBeNull()
-    expect(container.textContent).toContain("自定义模型配置")
-    expect(container.textContent).toContain("Official Claude API")
-    expect(container.textContent).toContain(i18n.t("settings.sections.llm.longWritingContextHint"))
-  })
+
 })
 
 describe("测试版灵魂单列与旧编辑能力", () => {
@@ -388,13 +352,7 @@ describe("测试版灵魂单列与旧编辑能力", () => {
     expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
   })
 
-  it("正式版项目编辑器不套测试版布局", async () => {
-    ui.enabled = false
-    await render(<SoulView />)
-    expect(container.querySelector('textarea')).not.toBeNull()
-    expect(container.querySelector('[data-ui-page]')).toBeNull()
-    expect(container.querySelector('h1')).toBeNull()
-  })
+
 })
 
 const cssPath = resolve(__dirname, "ui-test-tools.css")
@@ -473,7 +431,7 @@ describe("工具页样式规格及作用域", () => {
     ["skills", "skill-library/unified-skill-library-view.tsx"],
   ])("%s 有明确页面和状态布局标识，不影响正式版分支", (page, path) => {
     const source = readFileSync(resolve(__dirname, "..", path), "utf8")
-    expect(source.includes(`data-ui-page={IS_UI_TEST_BUILD ? "${page}" : undefined}`)).toBe(true)
+    expect(source.includes(`data-ui-page="${page}"`)).toBe(true)
     expect(source).toContain("data-ui-state=")
     expect(readFileSync(cssPath, "utf8")).toContain(`[data-ui-page="${page}"]`)
   })

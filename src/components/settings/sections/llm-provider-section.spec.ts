@@ -7,14 +7,14 @@ const source = readFileSync(resolve(__dirname, "llm-provider-section.tsx"), "utf
 describe("LLM provider model controls", () => {
   it("keeps fetched model selection wired into the LLM provider panel", () => {
     expect(source).toContain('import { fetchLlmModelList } from "@/lib/settings-model-list"')
-    expect(source).toContain('import { useBatchModelTest } from "../hooks/use-batch-model-test"')
-    expect(source).toContain('import { ModelSelectInput } from "../model-select-input"')
+    expect(source).toContain('import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batch"')
+    expect(source).toContain('import { mergeProviderModels, removeProviderModel } from "@/components/uitest/models/provider-data"')
 
     expect(source).toContain("const [modelOptions, setModelOptions] = useState<string[]>([])")
     expect(source).toContain("await fetchLlmModelList(resolvedConfig)")
     expect(source).toContain("runBatchTest(modelsToTest, (modelId) => ({ ...resolvedConfig, model: modelId }))")
-    expect(source).toContain("<ModelSelectInput")
-    expect(source).toContain('selectPlaceholder={t("settings.sections.shared.modelSelectPlaceholder")}')
+    expect(source).toContain("<UiTestProviderModelInput")
+    expect(source).toContain('aria-label="模型"')
   })
 
   it("shows separate controls for fetching models and testing the selected model", () => {

@@ -120,6 +120,13 @@ describe("context usage snapshot", () => {
     expect(composeLiveContextUsage(null, { windowTokens: 32_000, currentInput: "   " })).toBeNull()
   })
 
+  it("does not treat a missing context window as a 1-token window", () => {
+    expect(composeLiveContextUsage(null, {
+      softwareRules: "系统规则",
+      currentInput: " ",
+    })).toBeNull()
+  })
+
   it("adds pending tool reads on top of a calibrated snapshot without rewriting stable layers", () => {
     const last = calibrateContextUsageSnapshot(
       buildContextUsageSnapshot({

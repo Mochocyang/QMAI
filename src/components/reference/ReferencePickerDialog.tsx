@@ -1,4 +1,3 @@
-import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Search, X } from "lucide-react"
 import type { ReferenceCategory, ReferenceToken, SkillSubtype } from "@/lib/reference/types"
@@ -42,7 +41,7 @@ export function ReferencePickerDialog({
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   useEffect(() => {
-    if (!IS_UI_TEST_BUILD || !open) return
+    if (!open) return
     const previous = document.activeElement as HTMLElement | null
     uiTestDialogRef.current?.querySelector<HTMLElement>("button, input")?.focus()
     const keyboard = (event: KeyboardEvent) => {
@@ -126,10 +125,10 @@ export function ReferencePickerDialog({
   if (!open) return null
 
   return (
-    <div data-ui-reference={IS_UI_TEST_BUILD ? "overlay" : undefined} className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+    <div data-ui-reference="overlay" className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <div
         ref={uiTestDialogRef}
-        data-ui-reference={IS_UI_TEST_BUILD ? "dialog" : undefined}
+        data-ui-reference="dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="reference-picker-title"
@@ -150,14 +149,14 @@ export function ReferencePickerDialog({
           </button>
         </div>
 
-        <div data-ui-reference={IS_UI_TEST_BUILD ? "body" : undefined} className="flex min-h-0 flex-1 overflow-hidden">
-          <div data-ui-reference={IS_UI_TEST_BUILD ? "tabs" : undefined} role={IS_UI_TEST_BUILD ? "tablist" : undefined} aria-label={IS_UI_TEST_BUILD ? "引用分类" : undefined} className="flex w-40 shrink-0 flex-col gap-1 border-r bg-muted/30 p-2">
+        <div data-ui-reference="body" className="flex min-h-0 flex-1 overflow-hidden">
+          <div data-ui-reference="tabs" role="tablist" aria-label="引用分类" className="flex w-40 shrink-0 flex-col gap-1 border-r bg-muted/30 p-2">
             {availableTabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
-                role={IS_UI_TEST_BUILD ? "tab" : undefined}
-                aria-selected={IS_UI_TEST_BUILD ? activeTab === tab.key : undefined}
+                role="tab"
+                aria-selected={activeTab === tab.key}
                 className={`flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
                   activeTab === tab.key
                     ? "border border-primary/30 bg-background font-medium text-primary shadow-sm"
@@ -202,14 +201,14 @@ export function ReferencePickerDialog({
                   type="search"
                   className="w-full rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm outline-none focus:ring-1 focus:ring-ring"
                   placeholder="搜索引用内容"
-                  aria-label={IS_UI_TEST_BUILD ? "搜索引用内容" : undefined}
+                  aria-label="搜索引用内容"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </label>
             </div>
 
-            <div data-ui-reference={IS_UI_TEST_BUILD ? "list" : undefined} className="min-h-[320px] min-h-0 flex-1 overflow-y-auto p-2">
+            <div data-ui-reference="list" className="min-h-[320px] min-h-0 flex-1 overflow-y-auto p-2">
               {loading ? (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载中...</div>
               ) : filteredItems.length === 0 ? (
@@ -277,18 +276,14 @@ export function ReferencePickerDialog({
               )}
             </div>
 
-            <div data-ui-reference={IS_UI_TEST_BUILD ? "selection" : undefined} className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+            <div data-ui-reference="selection" className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
               <span>
                 已选 {selected.length}/{MAX_REFERENCE_COUNT}
                 {selected.length >= MAX_REFERENCE_COUNT && (
                   <span className="ml-1 text-destructive">（已达上限）</span>
                 )}
               </span>
-              {IS_UI_TEST_BUILD ? <div data-ui-reference="selected">{selected.map(item => <button type="button" key={item.id} aria-label={`移除引用${item.displayTitle || item.title}`} onClick={() => toggleItem(item)}>{item.displayTitle || item.title}<X aria-hidden="true" /></button>)}</div> : selected.length > 0 ? (
-                <span className="max-w-[60%] truncate">
-                  {selected.map((item) => item.displayTitle || item.title).join("、")}
-                </span>
-              ) : null}
+              {<div data-ui-reference="selected">{selected.map(item => <button type="button" key={item.id} aria-label={`移除引用${item.displayTitle || item.title}`} onClick={() => toggleItem(item)}>{item.displayTitle || item.title}<X aria-hidden="true" /></button>)}</div>}
             </div>
           </div>
         </div>
@@ -307,7 +302,7 @@ export function ReferencePickerDialog({
             disabled={selected.length === 0}
             onClick={handleConfirm}
           >
-            {IS_UI_TEST_BUILD ? `确认引用 ${selected.length} 项` : "确认"}
+            {`确认引用 ${selected.length} 项`}
           </button>
         </div>
       </div>
