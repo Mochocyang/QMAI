@@ -15,6 +15,8 @@
         "title": "青幕AI写作",
         "width": 1200,
         "height": 800,
+        "minWidth": 1100,
+        "minHeight": 700,
         "resizable": true,
         "transparent": true,
         "fullscreen": false,

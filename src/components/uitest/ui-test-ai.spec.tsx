@@ -257,19 +257,20 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(menu!.style.top).toBe("")
   })
 
-  it("模式与真实上下文占用在输入框上方，引用和模型保留于输入框底部", async () => {
+  it("章节模式位于上下文用量和引用之间，引用和模型保留于输入框底部", async () => {
     if (kind === "outline") return
     seed(kind)
     const container = await mount(kind)
-    const tools = container.querySelector("[data-ui-ai-tools]")
-    expect(tools).not.toBeNull()
-    const mode = tools?.querySelector(`[aria-label="${kind === "chapter" ? "AI 会话执行模式" : "AI 大纲执行模式"}"]`)
-    expect(mode).not.toBeNull()
     const footer = container.querySelector("[data-reference-input-footer]")
-    expect(footer?.querySelector('[aria-label="上下文用量"]')).not.toBeNull()
-    expect(footer?.querySelector('[aria-label="引用内容"]')).not.toBeNull()
+    const mode = footer?.querySelector(`[aria-label="${kind === "chapter" ? "AI 会话执行模式" : "AI 大纲执行模式"}"]`)
+    expect(mode).not.toBeNull()
+    const usage = footer?.querySelector('[aria-label="上下文用量"]')
+    const reference = footer?.querySelector('[aria-label="引用内容"]')
+    expect(usage).not.toBeNull()
+    expect(reference).not.toBeNull()
+    expect((usage!.compareDocumentPosition(mode!) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect((mode!.compareDocumentPosition(reference!) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
     expect(footer?.textContent).toContain("本地验证模型")
-    expect(footer?.contains(mode!)).toBe(false)
     expect(container.querySelectorAll("textarea")).toHaveLength(1)
     expect(container.querySelector("[data-ui-ai-composer]")?.textContent).not.toContain("Enter 发送")
     await click(mode ?? null)
@@ -285,7 +286,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => window.clearTimeout(id))
     seed(kind)
     const container = await mount(kind)
-    await click(container.querySelector(kind === "outline" ? '[data-reference-input-footer] [aria-haspopup="listbox"]' : '[data-ui-ai-tools] [aria-haspopup="listbox"]'))
+    await click(container.querySelector('[data-reference-input-footer] [aria-haspopup="listbox"]'))
     expect(document.querySelector('[data-ui-ai-menu="mode"]')).not.toBeNull()
   })
 

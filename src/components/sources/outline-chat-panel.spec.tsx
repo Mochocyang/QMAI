@@ -1154,6 +1154,8 @@ describe("OutlineChatPanel controls", () => {
     })
     const options = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
       .filter((button) => button.getAttribute("role") === "option")
+    const menu = document.querySelector<HTMLElement>('[role="listbox"]')
+    expect(menu?.style.maxHeight).toBe("none")
     expect(options.map((option) => option.textContent)).toHaveLength(4)
     expect(options.some((option) => option.textContent?.includes("共创"))).toBe(true)
     const planOption = options.find((option) => option.textContent?.includes("计划"))

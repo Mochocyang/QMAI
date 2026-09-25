@@ -98,6 +98,7 @@
 [data-ui-ai-tools] > .flex { flex: 1; flex-wrap: wrap; gap: 4px; overflow: visible; }
 [data-ui-ai-tools] > [aria-label="上下文用量"] { order: 3; margin-left: auto; }
 [data-ui-ai-tools] :is(button[aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-pressed]) { width: auto; min-height: 28px; height: auto; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--ui-muted); font: 12px/1.5 var(--ui); box-shadow: none; }
+[data-reference-input-footer] :is(button[aria-haspopup="listbox"], button[aria-haspopup="menu"], button[aria-pressed]) { border: 0; border-radius: 7px; background: transparent; box-shadow: none; }
 [data-ui-ai-tools] button[aria-pressed="true"] { background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-tools] button:hover:not(:disabled) { background: var(--ui-soft); }
 [data-ui-ai-tools] [aria-label="上下文用量"] { color: var(--ui-muted); }
@@ -144,6 +145,7 @@
 
 /* 这些菜单由本面板创建；配色 token 由测试版的共享 portal 桥接继承。 */
 [data-ui-ai-menu] { max-width: calc(100vw - 16px); max-height: min(60dvh, 360px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 0; border-radius: 12px; padding: 8px; background: var(--ui-paper); color: var(--ui-ink); font: 13px/1.65 var(--ui); box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent); }
+[data-ui-ai-menu="mode"] { max-height: none; overflow: visible; }
 [data-ui-ai-menu="history"] > .group { width: 100%; min-width: 0; margin: 2px 0; padding: 4px; border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
 [data-ui-ai-menu="history"] > .group > button:first-child { min-width: 0; flex: 1; text-align: left; }
 [data-ui-ai-menu="history"] > .group > button:first-child > .truncate { flex: 1; min-width: 0; max-width: none; }

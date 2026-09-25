@@ -1554,7 +1554,7 @@ function OutlineGenerationMenu({
           setMenuOpen(!isOpen);
         }}
         disabled={disabled}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-accent/50 text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title="生成大纲模块"
         aria-label="生成大纲模块"
         aria-haspopup="menu"
@@ -1973,7 +1973,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     function updatePosition() {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setWorkflowModeDropdownStyle(IS_UI_TEST_BUILD ? getUiTestAiMenuStyle(rect, 320, true) : {
+      setWorkflowModeDropdownStyle(IS_UI_TEST_BUILD ? { ...getUiTestAiMenuStyle(rect, 320, true), maxHeight: "none" } : {
         left: rect.left,
         top: rect.top - 8,
         width: Math.max(rect.width, 320),
@@ -5640,7 +5640,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 {workflowModeDropdownOpen && workflowModeDropdownStyle ? createPortal(
                   <>
                     <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
-                    <div ref={workflowModeDropdownRef} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, zIndex: 9999 }} data-ui-ai-menu="mode">
+                    <div ref={workflowModeDropdownRef} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }} data-ui-ai-menu="mode">
                       {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
                         <button key={mode} type="button" role="option" aria-selected={outlineWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setOutlineWorkflowMode(mode); void saveOutlineWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
                           <Check className={`mt-0.5 h-4 w-4 shrink-0 ${outlineWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
@@ -5706,7 +5706,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   aria-haspopup="listbox"
                   aria-expanded={workflowModeDropdownOpen}
                   aria-label="AI 大纲执行模式"
-                  className="h-8 shrink-0 rounded-full border px-2.5 text-xs"
+                  className="h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none"
                   onClick={() => setWorkflowModeDropdownOpen((open) => !open)}
                 >
                   <span className="mr-1">
@@ -5726,7 +5726,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                         ref={workflowModeDropdownRef}
                         role="listbox"
                         className="fixed rounded-md border bg-popover p-1 shadow-md"
-                        style={{ ...workflowModeDropdownStyle, zIndex: 9999 }}
+                        style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }}
                         data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined}
                       >
                         {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (

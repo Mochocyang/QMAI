@@ -133,7 +133,7 @@ export function ReferencePickerDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="reference-picker-title"
-        className="flex max-h-[min(720px,calc(100vh-32px))] w-[920px] max-w-[min(920px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border bg-background text-foreground shadow-2xl"
+        className="flex h-[min(720px,calc(100vh-32px))] w-[920px] max-w-[min(920px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border bg-background text-foreground shadow-2xl"
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="min-w-0">

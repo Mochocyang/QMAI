@@ -228,7 +228,7 @@ html[data-ui-test-skin] .ui-test-activity-dialog { width: min(600px, calc(100vw 
 
 /* @七类引用选择器：按图稿横向分类，不改变跨分类选择和十项上限。 */
 html[data-ui-test-skin] [data-ui-reference="overlay"] { background: #18251d2e; backdrop-filter: blur(3px); }
-html[data-ui-test-skin] [data-ui-reference="dialog"] { width: 720px; max-width: calc(100vw - 32px); max-height: 88dvh; border: 0; border-radius: 18px; background: var(--ui-paper); color: var(--ui-ink); padding: 24px 28px 22px; font: 14px/1.6 var(--ui); }
+html[data-ui-test-skin] [data-ui-reference="dialog"] { width: 720px; max-width: calc(100vw - 32px); height: min(620px, calc(100dvh - 32px)); max-height: min(620px, calc(100dvh - 32px)); border: 0; border-radius: 18px; background: var(--ui-paper); color: var(--ui-ink); padding: 24px 28px 22px; font: 14px/1.6 var(--ui); }
 html[data-ui-test-skin] [data-ui-reference="dialog"] > div:first-child { padding: 0 0 20px; border: 0; }
 html[data-ui-test-skin] [data-ui-reference="dialog"] h3 { font: 500 22px/1.45 var(--serif); }
 html[data-ui-test-skin] [data-ui-reference="body"] { flex-direction: column; }

@@ -135,7 +135,7 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("读取更完整上下文，执行审稿、返修、复审、按需局部修改和计划验收。")
     expect(source).not.toContain("读取更完整上下文，执行审稿、返修、复审、按需局部修改和计划验收。会联网搜索。")
     expect(source).not.toContain("前文与实体表")
-    expect(source).toContain("workflowModeDropdownStyle.width")
+    expect(source).toContain("workflowModeDropdownStyle")
     expect(source).toContain("routeDescription")
   })
 

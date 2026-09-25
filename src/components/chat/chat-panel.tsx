@@ -1069,7 +1069,7 @@ export function ChatPanel() {
       const rect = workflowModeTriggerRef.current?.getBoundingClientRect()
       if (!rect) return
       if (IS_UI_TEST_BUILD) {
-        setWorkflowModeDropdownStyle(getUiTestAiMenuStyle(rect, 320, true))
+        setWorkflowModeDropdownStyle({ ...getUiTestAiMenuStyle(rect, 320, true), maxHeight: "none" })
         return
       }
       const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 8)
@@ -2815,14 +2815,15 @@ export function ChatPanel() {
             </div>
           ) : null}
           <div className="border-t px-3 py-2">
-            <div className="mb-2 flex items-center justify-between gap-2" data-ui-ai-tools={IS_UI_TEST_BUILD || undefined}>
+            <div className="hidden" data-ui-ai-tools={IS_UI_TEST_BUILD || undefined} />
+            <div className="hidden">
               <TooltipProvider delay={200}>
-                <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-                  {novelMode && (
+                <div className="hidden">
+                  {false && novelMode && (
                     <>
                       <div className="relative">
                         <Button
-                          ref={workflowModeTriggerRef}
+                          ref={null as never}
                           type="button"
                           variant="outline"
                           size="sm"
@@ -2930,10 +2931,52 @@ export function ChatPanel() {
               submitDisabledReason={concurrencyFull ? concurrencyLimitReason : undefined}
               onStop={handleStop}
               leftFooterControls={(
-                <ContextUsageRing
-                  usage={liveContextUsage}
-                  onCreateConversation={() => createConversation()}
-                />
+                <>
+                  <ContextUsageRing
+                    usage={liveContextUsage}
+                    onCreateConversation={() => createConversation()}
+                  />
+                  {novelMode && (
+                    <>
+                      <div className="relative">
+                        <Button
+                          ref={workflowModeTriggerRef}
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-haspopup="listbox"
+                          aria-expanded={workflowModeDropdownOpen}
+                          aria-label={aiSessionWorkflowModeLabel}
+                          className="h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none"
+                          onClick={() => setWorkflowModeDropdownOpen(!workflowModeDropdownOpen)}
+                        >
+                          <span className="mr-1">{aiWorkflowModeOptions.find((option) => option.mode === aiWorkflowMode)?.label ?? "标准"}</span>
+                          <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
+                        </Button>
+                        {workflowModeDropdownOpen && workflowModeDropdownStyle && createPortal(
+                          <>
+                            <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
+                            <div ref={workflowModeDropdownRef} data-ui-ai-menu={IS_UI_TEST_BUILD ? "mode" : undefined} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }}>
+                              {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
+                                <button key={mode} type="button" role="option" aria-selected={aiWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setAiWorkflowMode(mode); void saveAiWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
+                                  <Check className={`mt-0.5 h-4 w-4 shrink-0 ${aiWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
+                                  <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
+                                </button>
+                              ))}
+                            </div>
+                          </>,
+                          document.body,
+                        )}
+                      </div>
+                      <Tooltip>
+                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
+                          <ListChecks className="mr-1 h-3.5 w-3.5" />计划
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs leading-5">{aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式。" : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}</TooltipContent>
+                      </Tooltip>
+                    </>
+                  )}
+                </>
               )}
               rightControls={
                 <UiTestAiModel enabled={IS_UI_TEST_BUILD} value={aiChatModel}>
