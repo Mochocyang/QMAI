@@ -6,7 +6,13 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["4.0.0", "3.2.19", "3.2.18"])
+    expect(versions.slice(0, 3)).toEqual(["4.0.1", "4.0.0", "3.2.19"])
+    const release401 = currentVersionChangelog("4.0.1")[0]
+    expect(release401.version).toBe("4.0.1")
+    expect(release401.date).toBe("2026-09-27")
+    expect(release401.highlights.zh.join("\n")).toContain("书架找回历史小说")
+    expect(release401.highlights.zh.join("\n")).toContain("macOS 窗口")
+    expect(release401.highlights.en.join("\n")).toContain("Shelf Restores Your Novels")
     const release400 = currentVersionChangelog("4.0.0")[0]
     expect(release400.version).toBe("4.0.0")
     expect(release400.date).toBe("2026-09-27")

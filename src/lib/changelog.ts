@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ZERO_ONE_CHANGELOG: ChangelogEntry = {
+  version: "4.0.1",
+  date: "2026-09-27",
+  highlights: {
+    en: [
+      "[Shelf Restores Your Novels] The new interface reads the registered library again (recent projects, last project and project registry), so existing novels no longer disappear from the shelf after upgrading. A missing default folder no longer hides registered novels.",
+      "[Reasoning Depth Entry] Models whose provider cannot adjust reasoning keep the reasoning depth entry hidden.",
+      "[macOS Window] macOS gets self-drawn traffic-light buttons and fixed window corners, so square edges no longer show outside the rounded corners and system corners come back after focus or resize. When the writing bottom bar runs out of room, the reasoning control and model picker wrap together, and action buttons no longer look selected by default.",
+    ],
+    zh: [
+      "【书架找回历史小说】新版界面书架恢复读取已登记的正式书库（最近项目、上次项目、项目登记表），升级后历史小说不再从书架消失；默认目录缺失也不再挡住已登记的小说",
+      "【思考深度入口】不支持调节思考深度的模型，继续隐藏思考深度入口",
+      "【macOS 窗口】macOS 改为自绘红黄绿窗口按钮，并修正窗口圆角外露直角底的问题，聚焦和缩放后恢复系统圆角；写作底栏放不下时，思考控件与模型选择整组换行，操作按钮不再默认呈选中态",
+    ],
+  },
+};
+
 const FOUR_POINT_ZERO_ZERO_CHANGELOG: ChangelogEntry = {
   version: "4.0.0",
   date: "2026-09-27",
@@ -1614,6 +1631,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ZERO_ONE_CHANGELOG.version)
+    return [FOUR_POINT_ZERO_ONE_CHANGELOG];
   if (version === FOUR_POINT_ZERO_ZERO_CHANGELOG.version)
     return [FOUR_POINT_ZERO_ZERO_CHANGELOG];
   if (version === THREE_POINT_TWO_NINETEEN_CHANGELOG.version)
@@ -1759,6 +1778,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ZERO_ONE_CHANGELOG,
     FOUR_POINT_ZERO_ZERO_CHANGELOG,
     THREE_POINT_TWO_NINETEEN_CHANGELOG,
     THREE_POINT_TWO_EIGHTEEN_CHANGELOG,
