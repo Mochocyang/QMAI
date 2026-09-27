@@ -10,9 +10,9 @@ interface ContextHubStatsSummaryProps {
 }
 
 function compactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M tok`
-  if (tokens >= 1_000) return `${Math.round(tokens / 100) / 10}K tok`
-  return `${Math.round(tokens)} tok`
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M tokens`
+  if (tokens >= 1_000) return `${Math.round(tokens / 100) / 10}K tokens`
+  return `${Math.round(tokens)} tokens`
 }
 
 function formatDuration(milliseconds: number): string {
@@ -42,7 +42,7 @@ export function UiTestGenerationStats({ stats, timing, className }: { stats?: Co
     : localCacheRate
   const duration = timing?.finishedAt ? formatDuration(timing.finishedAt - timing.startedAt) : "—"
   const finished = timing?.finishedAt ? formatFinishTime(timing.finishedAt) : "—"
-  const value = (tokens: number | undefined) => tokens === undefined ? "未提供" : `${tokens.toLocaleString()} tok`
+  const value = (tokens: number | undefined) => tokens === undefined ? "未提供" : `${tokens.toLocaleString()} tokens`
   return (
     <div className={cn("ui-test-context-stats", className)}>
       <div className="relative">

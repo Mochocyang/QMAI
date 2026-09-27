@@ -71,12 +71,12 @@ describe("新版上下文中控数字摘要", () => {
       },
     }} />))
 
-    expect(host.querySelector("[aria-label='查看本轮用量']")?.textContent).toContain("1.8K tok")
+    expect(host.querySelector("[aria-label='查看本轮用量']")?.textContent).toContain("1.8K tokens")
     await act(async () => host.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
     expect(host.textContent).toContain("60%")
-    expect(host.textContent).toContain("400 tok")
-    expect(host.textContent).toContain("600 tok")
-    expect(host.textContent).toContain("200 tok")
+    expect(host.textContent).toContain("400 tokens")
+    expect(host.textContent).toContain("600 tokens")
+    expect(host.textContent).toContain("200 tokens")
   })
 
   it("供应商未返回缓存字段时显示本地缓存命中率", async () => {
