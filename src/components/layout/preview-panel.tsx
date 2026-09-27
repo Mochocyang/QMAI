@@ -15,7 +15,7 @@ import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
+import { chapterOrdersFromTree, isLatestDraftReopen, maxChapterOrder, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig } from "@/lib/project-store"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
@@ -252,6 +252,7 @@ export function PreviewPanel() {
     visible: false,
     dismissed: false,
     hintEnabled: true,
+    hintedLatestChapter: null as number | null,
   })
   const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
@@ -754,6 +755,7 @@ export function PreviewPanel() {
     return buildChapterEditorHeader(fileContent)
   }, [fileContent, selectedFile])
   const draftMemoryHintEnabled = useWikiStore((s) => s.novelConfig.draftMemoryHintEnabled)
+  const fileTree = useWikiStore((s) => s.fileTree)
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
   const dismissDraftMemoryHint = useCallback(() => {
     draftHintSessionRef.current.dismissed = true
@@ -794,8 +796,19 @@ export function PreviewPanel() {
       session.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
       session.persistedWords = words
     }
+    const maxChapterNumber = maxChapterOrder([
+      chapterNumber,
+      session.hintedLatestChapter,
+      ...chapterOrdersFromTree(fileTree),
+    ])
+    let latestAlreadyHinted = isLatestDraftReopen({
+      chapterNumber,
+      maxChapterNumber,
+      hintedLatestChapter: session.hintedLatestChapter,
+    })
     if (!session.hintEnabled && draftMemoryHintEnabled && !session.dismissed) {
       session.arrival = "select"
+      latestAlreadyHinted = false
     }
     session.hintEnabled = draftMemoryHintEnabled
     const next = resolveDraftMemoryHint({
@@ -806,11 +819,15 @@ export function PreviewPanel() {
       dismissed: session.dismissed,
       extracting: isFinalChapterSaving,
       enabled: draftMemoryHintEnabled,
+      latestAlreadyHinted,
       currentlyVisible: session.visible,
     })
     session.visible = next
+    if (next && chapterNumber != null && chapterNumber === maxChapterNumber) {
+      session.hintedLatestChapter = chapterNumber
+    }
     setDraftHintVisible(next)
-  }, [chapterHeader, draftMemoryHintEnabled, fileContent, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
+  }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, fileContent, fileTree, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""

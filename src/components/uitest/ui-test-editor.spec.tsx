@@ -371,6 +371,20 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-draft-hint")?.textContent).toContain("这一章还是草稿")
   })
 
+  it("已经提示过的最新草稿章再点开不再提示，更早的草稿章仍提示", async () => {
+    await mount()
+    expect(container.querySelector(".ui-test-editor-draft-hint")).not.toBeNull()
+    const earlierPath = `${project.path}/wiki/chapters/第一卷/第4章.md`
+    fixture.files.set(earlierPath, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
+    await act(async () => { useWikiStore.setState({ selectedFile: earlierPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.querySelector(".ui-test-editor-draft-hint")?.textContent).toContain("这一章还是草稿")
+    await act(async () => { useWikiStore.setState({ selectedFile: chapterPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第16章 实际章名")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+  })
+
   it("读取失败不把错误文本当成可编辑正文或标题", async () => {
     fixture.files.delete(chapterPath)
     await mount()
