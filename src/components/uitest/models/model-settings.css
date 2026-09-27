@@ -46,6 +46,21 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-field input[aria-invalid="true"] { border-color: var(--ui-danger); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input { display: flex; align-items: center; background: var(--ui-paper); border-radius: 8px; min-width: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input input { flex: 1; }
+/* 主题把页面输入框边框设为透明，且底色与配置卡片同为 panel。只在这张卡片上恢复边框。
+   主题用 :is()，整条规则按其中 input 的优先级计算，select 也要带上同样的 :not 才能压过。 */
+.ui-test-root [data-ui-page] .model-provider-card .model-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
+.ui-test-root [data-ui-page] .model-provider-card .model-inline-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
+.ui-test-root [data-ui-page] .model-provider-card .model-field > select:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
+.ui-test-root [data-ui-page] .model-provider-card [data-slot="input"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
+  border: 1px solid var(--ui-line);
+}
+.ui-test-root [data-ui-page] .model-provider-card .model-secret-input {
+  border: 1px solid var(--ui-line);
+}
+.ui-test-root [data-ui-page] .model-provider-card .model-secret-input input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
+  border: 0;
+  background-color: transparent;
+}
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input > button { flex-shrink: 0; width: 38px; height: 38px; display: grid; place-items: center; background: none; border: 0; color: var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input svg { width: 16px; height: 16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
