@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useTranslation } from "react-i18next"
 import { RefreshCw, Download, CheckCircle, AlertCircle, Globe } from "lucide-react"
 import { allChangelog } from "@/lib/changelog"
@@ -7,10 +7,15 @@ import {
   APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE,
   isAppAutoUpdateSupported,
 } from "@/lib/app-update-support"
-import { isTauri } from "@/lib/platform"
-import { formatUpdateErrorMessage } from "@/lib/update-error-message"
+import {
+  checkForChangelogUpdate,
+  downloadChangelogUpdate,
+  getChangelogUpdateSnapshot,
+  installChangelogUpdate,
+  redownloadChangelogUpdate,
+  subscribeChangelogUpdateSession,
+} from "@/lib/changelog-update-session"
 
-type UpdateStatus = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "ready" | "error"
 const COLLAPSED_CHANGELOG_ITEM_COUNT = 5
 
 export function ChangelogSection() {
@@ -18,89 +23,17 @@ export function ChangelogSection() {
   const lang: "en" | "zh" = i18n.language?.startsWith("zh") ? "zh" : "en"
   const entries = allChangelog()
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(() => new Set())
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle")
-  const [latestVersion, setLatestVersion] = useState("")
-  const [updateNotes, setUpdateNotes] = useState("")
-  const [errorMessage, setErrorMessage] = useState("")
-  const [downloadProgress, setDownloadProgress] = useState(0)
-  const updateHandleRef = useRef<unknown>(null)
+  const update = useSyncExternalStore(
+    subscribeChangelogUpdateSession,
+    getChangelogUpdateSnapshot,
+    getChangelogUpdateSnapshot,
+  )
   const autoUpdateSupported = isAppAutoUpdateSupported()
-
-  async function handleCheckUpdate() {
-    if (!isTauri()) {
-      setUpdateStatus("error")
-      setErrorMessage("仅桌面版支持自动更新检测")
-      return
-    }
-    if (!autoUpdateSupported) {
-      setUpdateStatus("error")
-      setErrorMessage(APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE)
-      return
-    }
-    setUpdateStatus("checking")
-    setErrorMessage("")
-    setDownloadProgress(0)
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater")
-      const update = await check()
-      if (!update) {
-        setUpdateStatus("up-to-date")
-      } else {
-        setUpdateStatus("available")
-        setLatestVersion(update.version)
-        setUpdateNotes(update.body?.trim() ?? "")
-        updateHandleRef.current = update
-      }
-    } catch (err) {
-      setUpdateStatus("error")
-      setErrorMessage(formatUpdateErrorMessage(err))
-    }
-  }
-
-  async function handleDownloadUpdate() {
-    if (!updateHandleRef.current) return
-    setUpdateStatus("downloading")
-    setDownloadProgress(0)
-    try {
-      const update = updateHandleRef.current as {
-        download: (onEvent?: (event: { event: string; data: { contentLength?: number; chunkLength?: number } }) => void) => Promise<void>
-        install: () => Promise<void>
-      }
-      let totalSize = 0
-      let downloaded = 0
-      await update.download((event) => {
-        if (event.event === "Started" && event.data.contentLength) {
-          totalSize = event.data.contentLength
-          downloaded = 0
-        } else if (event.event === "Progress" && event.data.chunkLength) {
-          downloaded += event.data.chunkLength
-          if (totalSize > 0) {
-            setDownloadProgress(Math.min(Math.round((downloaded / totalSize) * 100), 99))
-          } else {
-            setDownloadProgress((prev) => Math.min(prev + 1, 99))
-          }
-        } else if (event.event === "Finished") {
-          setDownloadProgress(100)
-        }
-      })
-      // 下载完成，不自动安装，等待用户确认
-      setUpdateStatus("ready")
-      setDownloadProgress(100)
-    } catch (err) {
-      setUpdateStatus("error")
-      setErrorMessage(formatUpdateErrorMessage(err))
-    }
-  }
-
-  async function handleInstallNow() {
-    if (!updateHandleRef.current) return
-    try {
-      const update = updateHandleRef.current as { install: () => Promise<void> }
-      await update.install()
-    } catch {
-      // Expected: app restarts during install
-    }
-  }
+  const updateStatus = update.status
+  const latestVersion = update.latestVersion
+  const updateNotes = update.updateNotes
+  const errorMessage = update.errorMessage
+  const downloadProgress = update.downloadProgress
 
   return (
     <div className="space-y-6">
@@ -119,7 +52,7 @@ export function ChangelogSection() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => void handleCheckUpdate()}
+              onClick={() => void checkForChangelogUpdate()}
               disabled={updateStatus === "checking" || updateStatus === "downloading"}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -182,7 +115,7 @@ export function ChangelogSection() {
               </div>
               <button
                 type="button"
-                onClick={() => void handleDownloadUpdate()}
+                onClick={() => void downloadChangelogUpdate()}
                 className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -210,16 +143,29 @@ export function ChangelogSection() {
         {updateStatus === "ready" ? (
           <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/40">
             <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
-              ✅ 更新已下载完成！安装时会关闭当前软件，请确保已保存编辑内容。
+              v{latestVersion} 已下载完成。安装时会关闭当前软件，请确保已保存编辑内容。
             </p>
-            <button
-              type="button"
-              onClick={() => void handleInstallNow()}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-            >
-              <Download className="h-4 w-4" />
-              立即安装
-            </button>
+            {errorMessage ? (
+              <p className="mt-2 text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void installChangelogUpdate()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                <Download className="h-4 w-4" />
+                安装
+              </button>
+              <button
+                type="button"
+                onClick={() => void redownloadChangelogUpdate()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-950"
+              >
+                <RefreshCw className="h-4 w-4" />
+                重新下载
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
