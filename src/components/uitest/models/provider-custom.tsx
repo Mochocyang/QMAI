@@ -49,16 +49,26 @@ export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }:
   const config = useMemo(() => resolveConfig({ id, label: draft.label || "自定义模型", provider: "custom", baseUrl: draft.baseUrl, defaultModel: draft.model, apiMode: draft.apiMode }, draft, fallback), [id, draft, fallback])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current++ } }, [])
   useEffect(() => { request.current++; busyRef.current = false; setOptions([]); setAction(null); setFailed([]) }, [draft.baseUrl, draft.apiKey, draft.apiMode])
-  useEffect(() => { request.current++; busyRef.current = false; setAction(null); setFailed([]) }, [draft])
-  const change = (patch: Partial<ProviderOverride>) => { update(patch); request.current++; busyRef.current = false; setAction(null); setFailed([]) }
+  useEffect(() => { request.current++; busyRef.current = false; setAction(null) }, [draft])
+  const retainFailed = (models: { model: string }[] | undefined) => {
+    const selected = new Set((models ?? []).map(item => item.model))
+    setFailed(previous => {
+      const next = previous.filter(model => selected.has(model))
+      return next.length === previous.length ? previous : next
+    })
+  }
+  const change = (patch: Partial<ProviderOverride>) => {
+    update(patch); request.current++; busyRef.current = false; setAction(null)
+    if ("savedModels" in patch) retainFailed(patch.savedModels)
+  }
   const chooseModels = (ids: string[]) => { change(mergeProviderModels(draft, ids)); setManual("") }
   const chooseFetchedModel = (model: string) => { change(mergeProviderModels({ ...draft, model: "", savedModels: draft.savedModels ?? [] }, [model])); setManual("") }
   async function execute(kind: "fetch" | "connection" | "function" | "retry") {
     if (busyRef.current) return
     const endpointError = validateModelEndpoint(draft.baseUrl ?? "")
     const selectedModels = savedModels.map(item => item.model).filter(model => model.trim())
-    const models = kind === "retry" ? failed : selectedModels.length ? selectedModels : [draft.model?.trim() || ""]
-    const error = endpointError ?? (kind !== "fetch" && !models.every(model => model.trim()) ? "请先填写或选择模型 ID。" : null)
+    const models = kind === "retry" ? failed : selectedModels
+    const error = endpointError ?? (kind !== "fetch" && models.length === 0 ? "请先在模型框中选择要测试的模型。" : null)
     if (error) { setAction({ kind, running: false, error: true, text: error }); return }
     const testKind = kind === "retry" ? failedTestKind.current : kind === "function" ? "function" : "connection"
     if (kind !== "fetch") failedTestKind.current = testKind
@@ -109,8 +119,10 @@ export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }:
           <div className="model-field"><span>API 密钥</span><ModelSecretInput value={draft.apiKey ?? ""} onChange={apiKey => change({ apiKey })} /><small>默认遮蔽，不在摘要和错误反馈中显示。</small></div>
           <div className="model-field full"><span>模型</span><div className="model-tag-input">
             {savedModels.map(item => <span key={item.id} className={failed.includes(item.model) ? "is-failed" : ""}>{item.model}<button type="button" aria-label={`移除模型${item.model}`} onClick={() => change(removeProviderModel(draft, item.model))}><X /></button></span>)}
-            <input aria-label="模型" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); chooseModels(manual.split(/[,，\n]+/)) } }} placeholder={savedModels.length ? "输入模型名称，按回车添加" : "输入模型名称或拉取后选择"} spellCheck={false} />
-            <button type="button" className="model-button" onClick={() => chooseModels(manual.split(/[,，\n]+/))} disabled={!manual.trim()}>添加</button>
+            <div className="model-tag-compose">
+              <input aria-label="模型" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); chooseModels(manual.split(/[,，\n]+/)) } }} placeholder={savedModels.length ? "输入模型名称，按回车添加" : "输入模型名称或拉取后选择"} spellCheck={false} />
+              <button type="button" className="model-button" onClick={() => chooseModels(manual.split(/[,，\n]+/))} disabled={!manual.trim()}>添加</button>
+            </div>
           </div></div>
         </div>
         <div className="model-actions"><button type="button" className="model-button" disabled={action?.running} onClick={() => void execute("fetch")}><RefreshCw />拉取模型</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("connection")}>测试连接</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("function")}>测试功能</button>{failed.length > 0 && <button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("retry")}>重试失败模型</button>}</div>
@@ -119,7 +131,7 @@ export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }:
         <div className="model-inline-fields"><label className="model-inline-field"><span>上下文窗口（tokens）</span><input type="number" aria-label="上下文窗口" min={204800} step={1} value={draft.maxContextSize ?? ""} onChange={event => change({ maxContextSize: Number(event.target.value) })} /></label><label className="model-inline-field"><span>输出上限（tokens）</span><input type="number" aria-label="输出上限" min={512} step={1} value={draft.maxOutputTokens ?? ""} onChange={event => change({ maxOutputTokens: Number(event.target.value) })} /></label></div><p className="model-note">上下文窗口最低 200K。请按服务商实际能力填写；数值只限制本次请求，不会提高模型能力。</p>
         <details className="model-advanced"><summary>高级选项 · 工具调用与推理</summary><FunctionCallingControls enabled={draft.functionCallingEnabled !== false} onChange={functionCallingEnabled => change({ functionCallingEnabled })} /><ReasoningControls value={draft.reasoning ?? { mode: "auto" }} onChange={reasoning => change(withOutputRoomForReasoning(reasoning, draft.maxOutputTokens))} /></details>
       </fieldset>
-      <footer className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”，再保存配置。" : status?.text ?? (dirty ? "有未保存修改，保存后才会进入模型选择器。" : "当前配置已保存。")}</p><small>测试和保存是两种独立操作。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{(dirty || manual.trim()) && saved && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if ((await confirmModelAction("放弃本项未保存的修改，恢复已保存配置？"))) { reset(); setManual("") } }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!canSave} onClick={() => void save(!draft.label?.trim() ? "请填写配置名称。" : validateProviderDraft(draft))}>{saving ? "正在保存…" : "保存配置"}</button></div></footer>
+      <footer className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”，再保存配置。" : status?.text ?? (dirty ? "有未保存修改，保存后才会进入模型选择器。" : "当前配置已保存。")}</p><small>测试和保存是两种独立操作。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{(dirty || manual.trim()) && saved && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if ((await confirmModelAction("放弃本项未保存的修改，恢复已保存配置？"))) { reset(); setManual(""); retainFailed(useWikiStore.getState().providerConfigs[id]?.savedModels) } }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!canSave} onClick={() => void save(!draft.label?.trim() ? "请填写配置名称。" : validateProviderDraft(draft))}>{saving ? "正在保存…" : "保存配置"}</button></div></footer>
     </div>
   </article>
 }

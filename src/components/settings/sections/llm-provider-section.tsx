@@ -126,8 +126,10 @@ function UiTestProviderModelInput({ model, savedModels, options, failedModels, o
   }
   return <div className="model-field full"><span>模型</span><div className="model-tag-input">
     {savedModels.map(item => <span key={item.id} className={failedModels.includes(item.model) ? "is-failed" : ""}>{item.model}<button type="button" aria-label={`移除模型${item.model}`} onClick={() => onChange(removeProviderModel({ model, savedModels }, item.model))}><X /></button></span>)}
-    <input aria-label="模型" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); add(manual.split(/[,，\n]+/), true) } }} placeholder={savedModels.length ? "输入模型名称，按回车添加" : "输入模型名称或拉取后选择"} spellCheck={false} />
-    <button type="button" className="model-button" disabled={!manual.trim()} onClick={() => add(manual.split(/[,，\n]+/), true)}>添加</button>
+    <div className="model-tag-compose">
+      <input aria-label="模型" value={manual} onChange={event => setManual(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); add(manual.split(/[,，\n]+/), true) } }} placeholder={savedModels.length ? "输入模型名称，按回车添加" : "输入模型名称或拉取后选择"} spellCheck={false} />
+      <button type="button" className="model-button" disabled={!manual.trim()} onClick={() => add(manual.split(/[,，\n]+/), true)}>添加</button>
+    </div>
   </div>{!!options.length && <div className="model-catalog"><div className="model-section-heading"><p>已拉取 {options.length} 个模型 · 已选择 {savedModels.length} 个</p><div className="model-actions"><button type="button" className="model-button ghost" onClick={() => add(options)}>全选</button><button type="button" className="model-button ghost" onClick={() => onChange({ savedModels: [], model: "" })}>清空</button></div></div><p className="model-note">点击模型加入上方输入框，再次点击可取消。</p><div className="model-catalog-list">{options.map(item => { const selected = savedModels.some(saved => saved.model === item); return <button type="button" key={item} aria-pressed={selected} className={failedModels.includes(item) ? "is-failed" : ""} onClick={() => selected ? onChange(removeProviderModel({ model, savedModels }, item)) : add([item])}>{item}</button> })}</div></div>}</div>
 }
 
