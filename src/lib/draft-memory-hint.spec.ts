@@ -9,6 +9,7 @@ function hint(overrides: Partial<Parameters<typeof resolveDraftMemoryHint>[0]> =
     arrival: "select",
     dismissed: false,
     extracting: false,
+    enabled: true,
     currentlyVisible: false,
     ...overrides,
   })
@@ -35,5 +36,6 @@ describe("草稿提取记忆提示", () => {
     expect(hint({ isChapter: false })).toBe(false)
     expect(hint({ dismissed: true })).toBe(false)
     expect(hint({ extracting: true })).toBe(false)
+    expect(hint({ enabled: false })).toBe(false)
   })
 })

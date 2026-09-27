@@ -1253,6 +1253,8 @@
       "chapterTargetCharsHint": "控制 AI 生成单章正文的目标字数（按去除空白后的字符数计）。章节生成、扩写补足和“继续生成下一章”的提示词都会按这个目标推算，默认 3000 字。",
       "autoIngestOnSave": "保存正式章节时自动提取记忆",
       "autoIngestOnSaveHint": "开启后，章节保存为正式章节时会自动从正文中提取人物、地点、事件、关系和设定，写入小说记忆库，方便后续检索和续写。",
+      "draftMemoryHintEnabled": "草稿章节提取记忆提示",
+      "draftMemoryHintEnabledHint": "开启后，查看仍是草稿且已有正文的章节时，会提示先保存为正式章节，再点击「提取记忆」。关闭后不再弹出。提示里的「不再提醒」也会关闭此项。",
       "reviewBeforeSave": "保存前自动审稿",
       "reviewBeforeSaveHint": "开启后，保存正式章节前会先调用审稿模型检查连贯性、设定冲突和需要修复的问题。",
       "deepPreviousChaptersAnalysis": "前情分析（额外调用）",

@@ -71,6 +71,7 @@ const novelConfig: NovelConfig = {
   communitySummaryInterval: 5,
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
+  draftMemoryHintEnabled: true,
 }
 
 function node(id: string, community: number) {

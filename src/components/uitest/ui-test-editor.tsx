@@ -34,11 +34,11 @@ interface UiTestEditorProps {
   onRetrySave: () => void
   onClose: () => void
   scrollRef: RefObject<HTMLDivElement | null>
-  draftMemoryHint?: { onDismiss: () => void } | null
+  draftMemoryHint?: { onDismiss: () => void; onMute: () => void } | null
   children: (mode: "read" | "edit") => ReactNode
 }
 
-function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void } | null | undefined): ReactNode {
+function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void; onMute: () => void } | null | undefined): ReactNode {
   if (!hint) return actions
   const visit = (node: ReactNode): ReactNode => {
     if (!isValidElement(node)) return node
@@ -55,7 +55,10 @@ function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void }
         })}
         <div className="ui-test-editor-draft-hint" role="status">
           <p>{DRAFT_MEMORY_HINT_MESSAGE}</p>
-          <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onDismiss}>知道了</button>
+          <div className="ui-test-editor-draft-hint-actions">
+            <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onDismiss}>知道了</button>
+            <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onMute}>不再提醒</button>
+          </div>
         </div>
       </span>
     )

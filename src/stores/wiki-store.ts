@@ -352,6 +352,8 @@ export interface NovelConfig {
   communitySummaryAsync: boolean
   /** 生成章节时自动输出标题：开启后AI在正文开头输出 # 第X章 标题名 格式的标题，保存时自动使用（默认开）。 */
   autoGenerateChapterTitle: boolean
+  /** 草稿章节是否提示先保存为正式再提取记忆。关闭后不再弹出（默认开）。 */
+  draftMemoryHintEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -375,6 +377,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryInterval: 5,
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
+  draftMemoryHintEnabled: true,
 }
 
 export interface RevisionFeedbackWindowConfig {

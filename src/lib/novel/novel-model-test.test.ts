@@ -39,6 +39,7 @@ const baseNovelConfig: NovelConfig = {
   communitySummaryInterval: 5,
   communitySummaryAsync: false,
   autoGenerateChapterTitle: true,
+  draftMemoryHintEnabled: true,
 }
 
 describe("testNovelModel", () => {

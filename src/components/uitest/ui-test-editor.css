@@ -127,9 +127,9 @@
   transform: rotate(45deg);
 }
 .ui-test-root .ui-test-editor-draft-hint p { margin: 0; }
+.ui-test-root .ui-test-editor-draft-hint-actions { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
 .ui-test-root .ui-test-editor-draft-hint-dismiss {
   display: inline-flex;
-  margin-top: 8px;
   padding: 0;
   border: 0;
   background: transparent;

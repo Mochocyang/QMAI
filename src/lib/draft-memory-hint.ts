@@ -13,9 +13,10 @@ export function resolveDraftMemoryHint(input: {
   arrival: DraftMemoryHintArrival
   dismissed: boolean
   extracting: boolean
+  enabled: boolean
   currentlyVisible: boolean
 }): boolean {
-  if (!input.isChapter || input.status !== "draft" || input.wordCount <= 0 || input.dismissed || input.extracting) {
+  if (!input.enabled || !input.isChapter || input.status !== "draft" || input.wordCount <= 0 || input.dismissed || input.extracting) {
     return false
   }
   if (input.arrival === "stay") return input.currentlyVisible

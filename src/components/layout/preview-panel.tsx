@@ -16,6 +16,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
+import { saveNovelConfig } from "@/lib/project-store"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
@@ -250,6 +251,7 @@ export function PreviewPanel() {
     persistedWords: null as number | null,
     visible: false,
     dismissed: false,
+    hintEnabled: true,
   })
   const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
@@ -751,11 +753,23 @@ export function PreviewPanel() {
     if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return null
     return buildChapterEditorHeader(fileContent)
   }, [fileContent, selectedFile])
+  const draftMemoryHintEnabled = useWikiStore((s) => s.novelConfig.draftMemoryHintEnabled)
+  const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
   const dismissDraftMemoryHint = useCallback(() => {
     draftHintSessionRef.current.dismissed = true
     draftHintSessionRef.current.visible = false
     setDraftHintVisible(false)
   }, [])
+  const muteDraftMemoryHint = useCallback(() => {
+    draftHintSessionRef.current.visible = false
+    draftHintSessionRef.current.hintEnabled = false
+    setDraftHintVisible(false)
+    const next = { ...useWikiStore.getState().novelConfig, draftMemoryHintEnabled: false }
+    setNovelConfig({ draftMemoryHintEnabled: false })
+    void saveNovelConfig(next, project?.id, project?.path).catch((error) => {
+      console.error("关闭草稿提取记忆提示失败:", error)
+    })
+  }, [project?.id, project?.path, setNovelConfig])
   useEffect(() => {
     const session = draftHintSessionRef.current
     if (session.path !== selectedFile) {
@@ -780,6 +794,10 @@ export function PreviewPanel() {
       session.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
       session.persistedWords = words
     }
+    if (!session.hintEnabled && draftMemoryHintEnabled && !session.dismissed) {
+      session.arrival = "select"
+    }
+    session.hintEnabled = draftMemoryHintEnabled
     const next = resolveDraftMemoryHint({
       isChapter: isChapterPath(selectedFile),
       status: chapterHeader?.status ?? null,
@@ -787,11 +805,12 @@ export function PreviewPanel() {
       arrival: session.arrival,
       dismissed: session.dismissed,
       extracting: isFinalChapterSaving,
+      enabled: draftMemoryHintEnabled,
       currentlyVisible: session.visible,
     })
     session.visible = next
     setDraftHintVisible(next)
-  }, [chapterHeader, fileContent, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
+  }, [chapterHeader, draftMemoryHintEnabled, fileContent, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""
@@ -1463,7 +1482,7 @@ export function PreviewPanel() {
       }}
       onClose={() => setSelectedFile(null)}
       scrollRef={uiTestScrollRef}
-      draftMemoryHint={draftHintVisible ? { onDismiss: dismissDraftMemoryHint } : null}
+      draftMemoryHint={draftHintVisible ? { onDismiss: dismissDraftMemoryHint, onMute: muteDraftMemoryHint } : null}
       documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (

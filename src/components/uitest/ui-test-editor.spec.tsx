@@ -33,6 +33,10 @@ vi.mock("@/commands/fs", async (importOriginal) => ({
   fileExists: vi.fn(async (path: string) => fixture.files.has(path)),
   listDirectory: vi.fn(async () => []),
 }))
+vi.mock("@/lib/project-store", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/project-store")>(),
+  saveNovelConfig: vi.fn(async () => {}),
+}))
 vi.mock("@/components/skill-library/use-de-ai-skill-options", () => ({
   useDeAiSkillOptions: () => ({ loading: false, skills: [], effectiveName: "未启用", currentSkillId: null, defaultSkillId: null, loadError: "" }),
 }))
@@ -308,6 +312,24 @@ describe("编辑器异常与原业务回归", () => {
     expect(hint?.textContent).toContain("这一章还是草稿")
     expect(hint?.textContent).toContain("点击「提取记忆」会先保存为正式章节")
     expect(container.querySelector(".ui-test-editor-action.is-hint-target")?.textContent).toContain("提取记忆")
+    const actions = container.querySelector(".ui-test-editor-draft-hint-actions")
+    expect(actions?.textContent).toContain("知道了")
+    expect(actions?.textContent).toContain("不再提醒")
+  })
+
+  it("不再提醒会关闭写作设置里的草稿提取提示", async () => {
+    await mount()
+    await click("不再提醒")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    expect(useWikiStore.getState().novelConfig.draftMemoryHintEnabled).toBe(false)
+  })
+
+  it("写作设置关闭后不再显示草稿提取提示", async () => {
+    useWikiStore.setState({
+      novelConfig: { ...useWikiStore.getState().novelConfig, draftMemoryHintEnabled: false },
+    })
+    await mount()
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 
   it("正式章节不显示草稿提取提示", async () => {

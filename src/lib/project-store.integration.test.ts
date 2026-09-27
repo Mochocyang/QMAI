@@ -247,6 +247,7 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     communitySummaryInterval: 5,
     communitySummaryAsync: false,
     autoGenerateChapterTitle: true,
+    draftMemoryHintEnabled: true,
     ...overrides,
     defaultLlmModel: overrides.defaultLlmModel ?? "",
     deAiModel: overrides.deAiModel ?? "",
