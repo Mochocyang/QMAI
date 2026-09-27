@@ -1,10 +1,13 @@
 /* 仅独立UI测试版的模型配置，不改变正式版与调用引擎。 */
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-list,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel,:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { display:grid; gap:10px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading { margin-bottom: 16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { border:1px solid var(--ui-line); border-radius:12px; padding:12px; background:var(--ui-panel); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-add-card { flex:1; min-height:68px; border:1.5px dashed var(--ui-line); border-radius:12px; background:transparent; color:var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button { display:grid; width:100%; min-height:76px; border:1px solid var(--ui-line); border-radius:10px; padding:10px; background:transparent; text-align:left; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button { display:grid; align-content:center; width:100%; min-height:76px; border:1px solid var(--ui-line); border-radius:10px; padding:10px; background:transparent; text-align:left; gap:2px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid-name { display:flex; align-items:center; gap:8px; min-width:0; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid-name strong { min-width:0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button.is-selected { border-color:var(--ui-accent); background:var(--ui-soft); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid small,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item small { display:block; color:var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { margin-top:14px; }
@@ -25,10 +28,16 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-empty h3 { font: 500 18px/1.6 var(--serif); color: var(--ui-ink); margin-bottom: 10px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-empty p { font-size: 13px; max-width: 480px; margin-inline: auto; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-card { border-radius: 12px; background: var(--ui-panel); margin-bottom: 18px; min-width: 0; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-card > header { display: flex; align-items: center; gap: 9px; padding: 18px 20px; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title { display: flex; min-width: 0; align-items: center; gap: 9px; flex: 1; text-align: left; border: 0; background: none; font-size: 15px; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title > span { min-width: 0; overflow-wrap: anywhere; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title small { display: block; font-size: 12px; font-weight: 400; color: var(--ui-muted); margin-top: 4px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-card > header,:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-head { display: flex; align-items: center; gap: 9px; padding: 18px 20px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title { display: flex; min-width: 0; align-items: flex-start; gap: 9px; flex: 1; text-align: left; border: 0; background: none; font-size: 15px; color: inherit; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title > svg,:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title > .model-brand-icon { margin-top: 4px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-status { flex-shrink: 0; font-size: 12px; font-weight: 400; color: var(--ui-muted); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-hint { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--ui-muted); }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-brand-icon { width: 16px; height: 16px; flex-shrink: 0; object-fit: contain; }
+:is(.ui-test-root[data-skin="xing"],html[data-ui-test-skin="xing"]) .model-brand-icon.is-mono { filter: invert(1); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title svg { width: 16px; height: 16px; flex-shrink: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-title .is-collapsed { transform: rotate(-90deg); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-switch { border: 0; border-radius: 999px; background: var(--ui-soft); width: 36px; height: 21px; padding: 3px; display: flex; align-items: center; flex-shrink: 0; }
@@ -51,15 +60,45 @@
 .ui-test-root [data-ui-page] .model-provider-card .model-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
 .ui-test-root [data-ui-page] .model-provider-card .model-inline-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
 .ui-test-root [data-ui-page] .model-provider-card .model-field > select:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]),
-.ui-test-root [data-ui-page] .model-provider-card [data-slot="input"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
+.ui-test-root [data-ui-page] :is(.model-provider-card, .model-preset-card) [data-slot="input"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
   border: 1px solid var(--ui-line);
+  background-color: var(--ui-paper);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
 }
-.ui-test-root [data-ui-page] .model-provider-card .model-secret-input {
+/* 密钥框和模型框共用外框。页面规则把 input 设成 panel 底、透明边和 width:100%，
+   眼睛按钮会被顶出边框，模型框里的「添加」也和输入区错位。 */
+.ui-test-root [data-ui-page] :is(.model-provider-card, .model-preset-card) :is(.model-secret-input, .model-tag-input) {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 6px 0 12px;
   border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
 }
-.ui-test-root [data-ui-page] .model-provider-card .model-secret-input input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
+.ui-test-root [data-ui-page] :is(.model-provider-card, .model-preset-card) .model-tag-input {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ui-test-root [data-ui-page] :is(.model-provider-card, .model-preset-card) :is(.model-secret-input, .model-tag-input) > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([aria-invalid="true"]) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
   border: 0;
+  background: transparent;
   background-color: transparent;
+  box-shadow: none;
+  font: 14px/22px var(--ui);
 }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input > button { flex-shrink: 0; width: 38px; height: 38px; display: grid; place-items: center; background: none; border: 0; color: var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-secret-input svg { width: 16px; height: 16px; }
@@ -99,6 +138,7 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-save-footer small { font-size: 12px; color: var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-preset-card { margin-bottom: 14px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-preset-card > fieldset > div { border: 0; background: var(--ui-panel); border-radius: 10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-preset-body { padding: 12px 20px 20px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(240px,.9fr); gap: 12px 30px; margin: 28px 0; align-items: start; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row h3 { font: 500 15px/1.5 var(--ui); margin: 0 0 6px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row p { font-size: 12px; color: var(--ui-muted); margin: 5px 0; }
@@ -111,7 +151,7 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-retrieval > header { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 24px; gap: 18px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-index-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 @media(max-width:760px) { :is(.ui-test-root,html[data-ui-test-skin]) .model-default-row { grid-template-columns: minmax(0,1fr); } :is(.ui-test-root,html[data-ui-test-skin]) .model-save-footer { position: static; flex-wrap: wrap; } :is(.ui-test-root,html[data-ui-test-skin]) .model-save-footer > div:first-child { flex-basis: 100%; } :is(.ui-test-root,html[data-ui-test-skin]) .model-section-heading { align-items: flex-start; } }
-@media(max-width:560px) { :is(.ui-test-root,html[data-ui-test-skin]) .model-fields { grid-template-columns: minmax(0,1fr); gap: 18px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-card > header { padding: 16px 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-form { padding-inline: 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-save-footer { padding-inline: 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list > div { grid-template-columns: minmax(0,1fr) 34px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list code { grid-column: 1/-1; } :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-section-heading { flex-wrap: wrap; } :is(.ui-test-root,html[data-ui-test-skin]) .model-button { min-height: 40px; } }
+@media(max-width:560px) { :is(.ui-test-root,html[data-ui-test-skin]) .model-fields { grid-template-columns: minmax(0,1fr); gap: 18px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-card > header,:is(.ui-test-root,html[data-ui-test-skin]) .model-provider-head { padding: 16px 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-form,:is(.ui-test-root,html[data-ui-test-skin]) .model-preset-body { padding-inline: 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-save-footer { padding-inline: 12px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list > div { grid-template-columns: minmax(0,1fr) 34px; } :is(.ui-test-root,html[data-ui-test-skin]) .model-selected-list code { grid-column: 1/-1; } :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-section-heading { flex-wrap: wrap; } :is(.ui-test-root,html[data-ui-test-skin]) .model-button { min-height: 40px; } }
 
 html[data-ui-test-skin] .model-editor-dialog { width: min(680px,calc(100vw - 32px)); }
 

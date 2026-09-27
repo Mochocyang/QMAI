@@ -1,6 +1,7 @@
 import { confirmModelAction } from "./model-confirm"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Plus, RefreshCw, Trash2, X } from "lucide-react"
+import { Plus, RefreshCw, Trash2, X } from "lucide-react"
+import { CustomModelMark, ModelConfigTitle, modelEnableLabel, modelSaveLabel } from "@/components/settings/provider-brand-icon"
 import { useWikiStore, type ProviderOverride } from "@/stores/wiki-store"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
@@ -98,7 +99,7 @@ export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }:
   }
   const canSave = dirty && !saving && !deleting && !manual.trim()
   return <article className="model-provider-card" data-model-provider={id}>
-    <header><button type="button" className="model-provider-title" aria-expanded={expanded} aria-controls={`${id}-fields`} onClick={onToggle}><ChevronDown className={expanded ? "" : "is-collapsed"} /><span>{draft.label || "未命名配置"}<small>{!saved ? "新配置 · 尚未保存" : dirty ? "有未保存修改" : draft.enabled === false ? "已保存 · 已停用" : "已保存 · 已启用"}</small></span></button><button type="button" role="switch" aria-label="启用此模型配置" aria-checked={draft.enabled !== false} className="model-switch" disabled={saving || deleting} onClick={() => change({ enabled: draft.enabled === false })}><span /></button></header>
+    <header><ModelConfigTitle expanded={expanded} controlsId={`${id}-fields`} onToggle={onToggle} name={draft.label || "未命名配置"} saveLabel={modelSaveLabel(Boolean(saved), dirty)} enableLabel={modelEnableLabel(draft.enabled !== false)} mark={<CustomModelMark />} /><button type="button" role="switch" aria-label="启用此模型配置" aria-checked={draft.enabled !== false} className="model-switch" disabled={saving || deleting} onClick={() => change({ enabled: draft.enabled === false })}><span /></button></header>
     <div id={`${id}-fields`} hidden={!expanded}>
       <fieldset disabled={saving || deleting} className="model-form">
         <div className="model-fields">

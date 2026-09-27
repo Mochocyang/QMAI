@@ -7,7 +7,8 @@ import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
 import { useEffect, useMemo, useState, useRef } from "react"
-import { ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Loader2, XCircle, X } from "lucide-react"
+import { AlertCircle, CheckCircle2, Loader2, XCircle, X } from "lucide-react"
+import { ModelConfigTitle, ProviderBrandIcon, modelEnableLabel, modelSaveLabel } from "../provider-brand-icon"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
@@ -93,7 +94,7 @@ export function LlmProviderSection() {
           <button type="button" className="model-add-card" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
         {uiTestSource === "presets" && selectedPreset && <div className="model-add-panel">
-          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} className={preset.id === selectedPreset.id ? "is-selected" : ""} onClick={() => { setSelectedPresetId(preset.id); setExpanded({ [preset.id]: true }) }}><strong>{preset.label}</strong><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
+          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} className={preset.id === selectedPreset.id ? "is-selected" : ""} onClick={() => { setSelectedPresetId(preset.id); setExpanded({ [preset.id]: true }) }}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
           <UiTestPresetCard preset={{ ...selectedPreset, hint: UI_TEST_PROVIDER_HINTS[selectedPreset.id] ?? selectedPreset.hint }} expanded onToggle={() => {}} />
         </div>}
       </div>
@@ -107,7 +108,8 @@ interface PresetRowProps {
   isActive: boolean
   isEnabled: boolean
   isExpanded: boolean
-  savedHere: boolean
+  persisted: boolean
+  dirty: boolean
   onToggleActive: () => void
   onToggleEnabled: () => void
   onToggleExpand: () => void
@@ -136,7 +138,7 @@ function UiTestPresetCard({ preset, expanded, onToggle }: { preset: LlmPreset; e
   const enabled = isProviderAvailable(preset.id, draft)
   return <div className="model-preset-card" data-model-provider={preset.id}>
     <fieldset disabled={saving}>
-      <PresetRow preset={preset} override={draft} isActive={false} isEnabled={enabled} isExpanded={expanded} savedHere={false} onToggleActive={() => {}} onToggleEnabled={() => update({ enabled: !enabled })} onToggleExpand={onToggle} onChange={update} />
+      <PresetRow preset={preset} override={draft} isActive={false} isEnabled={enabled} isExpanded={expanded} persisted={Boolean(saved)} dirty={dirty} onToggleActive={() => {}} onToggleEnabled={() => update({ enabled: !enabled })} onToggleExpand={onToggle} onChange={update} />
     </fieldset>
     {(expanded || dirty) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (dirty ? "有未保存修改，启用状态也将在保存后生效。" : saved ? "当前配置已保存。" : "提供方模型，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions">{dirty && <button type="button" className="model-button ghost" disabled={saving} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) reset() }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!dirty || saving} onClick={() => void save(validateProviderDraft(draft, { endpointRequired: !localCli && ["custom", "azure", "ollama"].includes(preset.provider), modelRequired: !localCli }))}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
   </div>
@@ -157,7 +159,8 @@ function PresetRow({
   isActive: _isActive,
   isEnabled,
   isExpanded,
-  savedHere,
+  persisted,
+  dirty,
   onToggleActive: _onToggleActive,
   onToggleEnabled,
   onToggleExpand,
@@ -196,13 +199,6 @@ function PresetRow({
   useEffect(() => { setTestState({ kind: "idle" }); setModelListState(null) }, [ov])
   const uiTestBatch = useUiTestProviderBatch(ov, true)
   const { modelTestState, runBatchTest, retryFailed } = uiTestBatch
-  const hasConfig =
-    !!apiKey ||
-    !!ov.baseUrl ||
-    !!ov.model ||
-    !!ov.azureApiVersion ||
-    !!ov.azureModelFamily ||
-    ov.codexSpeedMode === "fast"
   // Local CLI providers authenticate via their own existing login state
   // (inherited by the spawned subprocess), so no API key field is shown.
   // Ollama ditto for its local-only model. Cursor CLI uses cursor-api-proxy;
@@ -270,72 +266,33 @@ function PresetRow({
         isEnabled ? "border-primary/60 bg-primary/5" : "border-border"
       }`}
     >
-      {/* Outer row — always visible */}
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"
+      <div className="model-provider-head">
+        <ModelConfigTitle
+          expanded={isExpanded}
+          onToggle={onToggleExpand}
+          name={preset.label}
+          saveLabel={modelSaveLabel(persisted, dirty)}
+          enableLabel={modelEnableLabel(isEnabled)}
+          hint={preset.hint}
+          mark={<ProviderBrandIcon presetId={preset.id} />}
           title={isExpanded ? t("settings.sections.llm.collapse") : t("settings.sections.llm.expand")}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-
+        />
         <button
           type="button"
-          onClick={onToggleExpand}
-          className="min-w-0 flex-1 text-left"
-        >
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{preset.label}</span>
-            {hasConfig && !isEnabled && (
-              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {t("settings.sections.llm.configuredBadge")}
-              </span>
-            )}
-            {isEnabled && (ov.savedModels ?? []).length > 0 && (
-              <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                {t("settings.sections.llm.enabledBadge", { count: (ov.savedModels ?? []).length })}
-              </span>
-            )}
-            {savedHere && (
-              <span className="shrink-0 text-[10px] text-emerald-600">{t("settings.sections.llm.savedBadge")}</span>
-            )}
-          </div>
-          {preset.hint && (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {preset.hint}
-            </div>
-          )}
-        </button>
-
-        {/* Toggle switch — 启用/停用 */}
-        <button
-          type="button"
+          role="switch"
+          aria-checked={isEnabled}
           onClick={onToggleEnabled}
-          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-            isEnabled
-              ? "border-primary bg-primary"
-              : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-          }`}
+          className="model-switch"
           title={isEnabled ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
           aria-label={isEnabled ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
         >
-          <span
-            className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
-              isEnabled ? "translate-x-4" : "translate-x-0.5"
-            }`}
-          />
+          <span />
         </button>
       </div>
 
       {/* Expanded config panel */}
       {isExpanded && (
-        <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+        <div className="model-preset-body space-y-4 border-t bg-background/50">
           {preset.provider === "custom" && (
             <div className="space-y-2">
               <Label>{t("settings.sections.llm.apiMode")}</Label>
