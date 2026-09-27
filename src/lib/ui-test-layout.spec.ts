@@ -2,29 +2,27 @@ import { describe, expect, it } from "vitest"
 import { getUiTestPanelLayout, resizeUiTestAiByKey, filterUiTestDirectory, getUiTestDocumentPath } from "./ui-test-layout"
 
 describe("测试版基于实际容器的布局", () => {
-  it("桌面保留480正文，AI默认320，不突破容器", () => {
-    expect(getUiTestPanelLayout(1140, 360, 1440)).toEqual({ mode: "split", aiWidth: 360, editorWidth: 768, maxAiWidth: 570 })
-    const small = getUiTestPanelLayout(810, 560, 1200)
-    expect(small.aiWidth).toBe(318)
-    expect(small.editorWidth).toBe(480)
+  it("桌面分栏时 AI 不低于400，装不下则改为页签", () => {
+    expect(getUiTestPanelLayout(1140, 360, 1440)).toEqual({ mode: "split", aiWidth: 400, editorWidth: 728, maxAiWidth: 570 })
+    expect(getUiTestPanelLayout(810, 560, 1200)).toMatchObject({ mode: "tabs", aiWidth: 810, editorWidth: 810 })
   })
-  it("中等窗口正文至少360、AI至少280；空间不足用页签", () => {
-    expect(getUiTestPanelLayout(710, 560, 900)).toMatchObject({ mode: "split", aiWidth: 338, editorWidth: 360 })
+  it("中等窗口装不下400宽的 AI 栏时用页签", () => {
+    expect(getUiTestPanelLayout(710, 560, 900)).toMatchObject({ mode: "tabs", aiWidth: 710, editorWidth: 710 })
     expect(getUiTestPanelLayout(600, 560, 900)).toMatchObject({ mode: "tabs", aiWidth: 600, editorWidth: 600 })
     expect(getUiTestPanelLayout(720, 360, 767).mode).toBe("tabs")
   })
-  it("AI最小280，最大为容器一半，异常偏好使用320", () => {
-    expect(getUiTestPanelLayout(1200, 30, 1440).aiWidth).toBe(280)
-    expect(getUiTestPanelLayout(1200, Infinity, 1440).aiWidth).toBe(320)
+  it("AI最小400，最大为容器一半，异常偏好使用400", () => {
+    expect(getUiTestPanelLayout(1200, 30, 1440).aiWidth).toBe(400)
+    expect(getUiTestPanelLayout(1200, Infinity, 1440).aiWidth).toBe(400)
     expect(getUiTestPanelLayout(1200, 999, 1440).aiWidth).toBe(600)
     expect(getUiTestPanelLayout(1600, 999, 1800).aiWidth).toBe(800)
   })
   it("键盘拖柄16px步进、Home最小/End最大", () => {
-    expect(resizeUiTestAiByKey(360, "ArrowLeft", 1200)).toBe(376)
-    expect(resizeUiTestAiByKey(360, "ArrowRight", 1200)).toBe(344)
-    expect(resizeUiTestAiByKey(360, "Home", 1200)).toBe(280)
-    expect(resizeUiTestAiByKey(360, "End", 1200)).toBe(600)
-    expect(resizeUiTestAiByKey(360, "Enter", 1200)).toBe(360)
+    expect(resizeUiTestAiByKey(416, "ArrowLeft", 1200)).toBe(432)
+    expect(resizeUiTestAiByKey(416, "ArrowRight", 1200)).toBe(400)
+    expect(resizeUiTestAiByKey(416, "Home", 1200)).toBe(400)
+    expect(resizeUiTestAiByKey(416, "End", 1200)).toBe(600)
+    expect(resizeUiTestAiByKey(416, "Enter", 1200)).toBe(416)
   })
 })
 

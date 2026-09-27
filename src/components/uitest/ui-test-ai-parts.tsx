@@ -60,7 +60,10 @@ function UiTestAiModelLabel({ value, children }: { value: string; children: Reac
   const separator = key.indexOf("/")
   const provider = providers[key.slice(0, separator)]
   const model = provider && getEffectiveSavedModels(provider).find((entry) => entry.model === key.slice(separator + 1))
-  return <div className="ui-test-ai-model" title={model ? `${model.name} · ${value}` : value}>{children}</div>
+  const name = model?.name?.trim()
+  const separatorInValue = value.indexOf("/")
+  const modelId = separatorInValue > 0 ? value.slice(separatorInValue + 1) : value
+  return <div className="ui-test-ai-model" title={name || modelId}>{children}</div>
 }
 
 export function UiTestAiModel({ enabled, value, children }: { enabled: boolean; value: string; children: ReactNode }) {

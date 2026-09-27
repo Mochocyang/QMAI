@@ -369,10 +369,10 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(container.querySelector(".ui-test-ai-author")?.textContent).not.toContain("正在生成")
   })
 
-  it("模型名称在窄栏截断后仍可读取完整名称与模型标识", async () => {
+  it("模型名称在窄栏截断后悬停只显示模型名称", async () => {
     seed(kind)
     const container = await mount(kind)
-    expect(container.querySelector(".ui-test-ai-model")?.getAttribute("title")).toBe("本地验证模型 · openai/ui-model")
+    expect(container.querySelector(".ui-test-ai-model")?.getAttribute("title")).toBe("本地验证模型")
   })
 
   it("空会话不注入假消息，保留真实操作并禁止重复新建空会话", async () => {
