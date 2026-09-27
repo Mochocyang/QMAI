@@ -79,6 +79,19 @@ export async function upsertProjectInfo(
   await saveRegistry(registry)
 }
 
+export async function forgetProject(path: string): Promise<void> {
+  const registry = await loadRegistry()
+  const key = normalizePath(path)
+  let changed = false
+  for (const [id, entry] of Object.entries(registry)) {
+    if (entry && normalizePath(entry.path) === key) {
+      delete registry[id]
+      changed = true
+    }
+  }
+  if (changed) await saveRegistry(registry)
+}
+
 export async function getProjectPathById(id: string): Promise<string | null> {
   const registry = await loadRegistry()
   return registry[id]?.path ?? null

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react"
 import { FolderOpen, Plus, BookOpen, RectangleVertical } from "lucide-react"
 import type { WikiProject } from "@/types/wiki"
-import { getExecutableDir, listDirectory, moveProjectToSystemTrash, openProjectFolder, readFile, renameProject } from "@/commands/fs"
+import { fileExists, getExecutableDir, listDirectory, moveProjectToSystemTrash, openProjectFolder, readFile, renameProject } from "@/commands/fs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { normalizeComparablePath } from "@/lib/path-utils"
-import { getRecentProjects, removeProjectRecords } from "@/lib/project-store"
+import { isAbsolutePath, normalizeComparablePath } from "@/lib/path-utils"
+import { getRecentProjects, loadRegisteredProjects, removeProjectRecords } from "@/lib/project-store"
 import { getUiTestProjects, mergeUiTestProjects, registerUiTestProjects, replaceUiTestProjectPath } from "@/lib/ui-test-library"
 import "./ui-test-shelf.css"
 
@@ -68,9 +68,22 @@ function formatWords(n: number): string {
   return `${n.toLocaleString("zh-CN")} 字`
 }
 
+function readableProjects(values: unknown): { projects: WikiProject[]; dropped: boolean } {
+  if (!Array.isArray(values)) return { projects: [], dropped: true }
+  const projects = values.filter((value): value is WikiProject => {
+    if (!value || typeof value !== "object") return false
+    const project = value as Partial<WikiProject>
+    return typeof project.id === "string" && !!project.id.trim()
+      && typeof project.name === "string" && !!project.name.trim()
+      && typeof project.path === "string" && isAbsolutePath(project.path)
+  })
+  return { projects, dropped: projects.length !== values.length }
+}
+
 async function discoverDefaultProjects(cancelled: () => boolean): Promise<WikiProject[]> {
   const executableDir = await getExecutableDir()
   const defaultDir = buildDefaultNovelDir(executableDir)
+  if (!(await fileExists(defaultDir))) return []
   const root = normalizeComparablePath(defaultDir)
   const nodes = await listDirectory(defaultDir, { maxDepth: 1 })
   const projects: WikiProject[] = []
@@ -78,7 +91,7 @@ async function discoverDefaultProjects(cancelled: () => boolean): Promise<WikiPr
     if (cancelled()) break
     if (!node.is_dir || node.name.startsWith(".")) continue
     const path = normalizeComparablePath(node.path)
-    // 只发现测试默认目录的直接子目录，不跟随列表中的其他磁盘或父目录路径。
+    // 只发现默认小说目录的直接子目录，不跟随列表中的其他磁盘或父目录路径。
     if (!path.toLowerCase().startsWith(`${root.toLowerCase()}/`)) continue
     const relative = path.slice(root.length + 1)
     if (!relative || relative.includes("/") || relative === "..") continue
@@ -115,6 +128,7 @@ export function UiTestShelf({
     async function load() {
       const warnings: string[] = []
       let indexed: WikiProject[] = []
+      let registered: WikiProject[] = []
       let recents: WikiProject[] = []
       let scanned: WikiProject[] = []
       try {
@@ -123,19 +137,28 @@ export function UiTestShelf({
         warnings.push(error instanceof Error ? error.message : "书架索引读取失败，原始记录已保留。")
       }
       try {
-        recents = mergeUiTestProjects(await getRecentProjects())
+        const parsed = readableProjects(await loadRegisteredProjects())
+        registered = parsed.projects
+        if (parsed.dropped) warnings.push("已保存的小说目录有无法识别的记录，其余小说仍会显示。")
+      } catch {
+        warnings.push("已保存的小说目录暂不可读，可通过“打开已有”重新选择。")
+      }
+      try {
+        const parsed = readableProjects(await getRecentProjects())
+        recents = parsed.projects
+        if (parsed.dropped) warnings.push("最近记录暂不可读，可通过“打开已有”添加小说。")
       } catch {
         warnings.push("最近记录暂不可读，可通过“打开已有”添加小说。")
       }
       try {
         scanned = await discoverDefaultProjects(() => cancelled)
       } catch {
-        warnings.push("默认测试目录暂不可读，可通过“打开已有”选择小说。")
+        warnings.push("默认小说目录暂不可读，已保存的书架记录仍会显示。")
       }
       if (cancelled) return
 
-      // 独立目录的顺序与已登记位置优先，最近十条仅作为补充，不取代完整书库。
-      const merged = mergeUiTestProjects(indexed, scanned, recents, indexed)
+      // 侧车索引和项目登记决定完整书库；最近十条与默认目录扫描只补充，不取代已有记录。
+      const merged = mergeUiTestProjects(indexed, registered, scanned, recents, indexed)
       try {
         if (merged.length) registerUiTestProjects(merged)
       } catch (error) {

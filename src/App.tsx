@@ -57,14 +57,6 @@ function App() {
     return normalizePath(current.path) === normalizePath(proj.path)
   }
 
-    // UI 测试版专用：识别正式版小说目录，避免测试时误开旧数据。
-  function isFormalNovelDirectory(path: string): boolean {
-    const normalized = normalizePath(path)
-    const isUnderQmBook = /[\\/]QM-BOOK(?:[\\/]|$)/i.test(normalized)
-    const isUiTest = /[\\/]QM-BOOK-UI-TEST(?:[\\/]|$)/i.test(normalized)
-    return isUnderQmBook && !isUiTest
-  }
-
   async function hydrateProjectSideStores(proj: WikiProject): Promise<void> {
     try {
       const savedReview = await loadReviewItems(proj.path)
@@ -444,10 +436,6 @@ function App() {
   async function handleOpenProject() {
     const path = await pickDirectory()
     if (!path) return
-    if (isFormalNovelDirectory(path)) {
-      const confirmed = window.confirm("检测到这是正式版小说目录。UI 测试版数据与正式版隔离，为避免误写旧书，建议取消并选择测试版目录。\n\n是否仍要继续打开？")
-      if (!confirmed) return
-    }
     try {
       const proj = await openProject(path)
       await handleProjectOpened(proj)

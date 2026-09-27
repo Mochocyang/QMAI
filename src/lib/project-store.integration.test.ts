@@ -23,6 +23,11 @@ vi.mock("@/lib/web-store", () => ({
       inMemoryStore.set(key, value)
     },
     save: async (): Promise<void> => {},
+    delete: async (key: string): Promise<boolean> => {
+      const had = inMemoryStore.has(key)
+      inMemoryStore.delete(key)
+      return had
+    },
   }),
 }))
 
@@ -39,6 +44,10 @@ import {
   loadProviderConfigs,
   saveProviderConfigs,
   saveDefaultLlmModel,
+  getRecentProjects,
+  getLastProject,
+  loadRegisteredProjects,
+  removeProjectRecords,
 } from "./project-store"
 
 let tmp: { path: string; cleanup: () => Promise<void> }
@@ -542,5 +551,28 @@ describe("custom LLM providerConfigs persistence", () => {
     expect(loaded?.["custom-1710000000000"]?.model).toBe("deepseek-v4")
     expect(loaded?.["custom-1710000000000"]?.savedModels?.[0]?.model).toBe("deepseek-v4")
     expect(loaded?.openai?.apiKey).toBe("sk-openai")
+  })
+})
+
+describe("历史小说书库", () => {
+  const historical = { id: "hist", name: "旧书", path: "D:/QM-BOOK/旧书" }
+  const kept = { id: "keep", name: "留下", path: "D:/QM-BOOK/留下" }
+
+  it("按最近打开顺序列出项目登记，删除时从登记里去掉", async () => {
+    inMemoryStore.set("projectRegistry", {
+      hist: { ...historical, lastOpened: 1 },
+      keep: { ...kept, lastOpened: 5 },
+    })
+    inMemoryStore.set("recentProjects", [historical, kept])
+    inMemoryStore.set("lastProject", historical)
+
+    expect(await loadRegisteredProjects()).toEqual([kept, historical])
+    await removeProjectRecords("D:\\QM-BOOK\\旧书")
+
+    expect(await getRecentProjects()).toEqual([kept])
+    expect(await getLastProject()).toBeNull()
+    const registry = inMemoryStore.get("projectRegistry") as Record<string, { id: string }>
+    expect(registry.hist).toBeUndefined()
+    expect(registry.keep.id).toBe("keep")
   })
 })

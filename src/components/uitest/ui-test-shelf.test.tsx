@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   openProject: vi.fn(),
   readFile: vi.fn(),
   getRecentProjects: vi.fn(),
+  loadRegisteredProjects: vi.fn(),
+  fileExists: vi.fn(),
   createProject: vi.fn(),
   createDirectory: vi.fn(),
   writeFile: vi.fn(),
@@ -35,7 +37,7 @@ vi.mock("@/commands/fs", () => ({
   createProject: mocks.createProject,
   createDirectory: mocks.createDirectory,
   writeFile: mocks.writeFile,
-  fileExists: vi.fn(async () => false),
+  fileExists: mocks.fileExists,
   openProjectFolder: vi.fn(),
   renameProject: vi.fn(),
   moveProjectToSystemTrash: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock("@/commands/fs", () => ({
 }))
 vi.mock("@/lib/project-store", () => ({
   getRecentProjects: mocks.getRecentProjects,
+  loadRegisteredProjects: mocks.loadRegisteredProjects,
   removeProjectRecords: vi.fn(),
   saveOutputLanguage: mocks.saveOutputLanguage,
 }))
@@ -81,7 +84,9 @@ beforeEach(() => {
   mocks.uiTest = true
   localStorage.clear()
   mocks.getExecutableDir.mockResolvedValue("C:/QMAI")
+  mocks.fileExists.mockResolvedValue(false)
   mocks.getRecentProjects.mockResolvedValue([project])
+  mocks.loadRegisteredProjects.mockResolvedValue([])
   mocks.listDirectory.mockImplementation(async (path: string) => path.endsWith("/wiki/chapters")
     ? [{ name: "第一章.md", path: `${path}/第一章.md`, is_dir: false }]
     : [])
@@ -157,23 +162,37 @@ describe("独立 UI 书架", () => {
     expect(host.textContent).toContain("小说0")
   })
 
-  it("只读发现默认测试目录，不调用会迁移或登记正式配置的打开函数", async () => {
+  it("只读发现默认小说目录，不调用会迁移或登记正式配置的打开函数", async () => {
     mocks.getRecentProjects.mockResolvedValue([])
-    mocks.listDirectory.mockImplementation(async (path: string) => path.replace(/\\/g, "/") === "C:/QM-BOOK-UI-TEST"
+    mocks.fileExists.mockResolvedValue(true)
+    mocks.listDirectory.mockImplementation(async (path: string) => path.replace(/\\/g, "/") === "C:/QM-BOOK"
       ? [
-        { name: "默认小说", path: "C:/QM-BOOK-UI-TEST/默认小说", is_dir: true },
+        { name: "默认小说", path: "C:/QM-BOOK/默认小说", is_dir: true },
         { name: "外部目录", path: "D:/其他目录", is_dir: true },
       ]
       : [])
     mocks.readFile.mockResolvedValue(JSON.stringify({ id: "existing-id" }))
-    mocks.openProject.mockResolvedValue({ id: "existing-id", name: "默认小说", path: "C:/QM-BOOK-UI-TEST/默认小说" })
+    mocks.openProject.mockResolvedValue({ id: "existing-id", name: "默认小说", path: "C:/QM-BOOK/默认小说" })
     await renderShelf()
     expect(mocks.openProject).not.toHaveBeenCalled()
     expect(mocks.writeFile).not.toHaveBeenCalled()
-    expect(mocks.listDirectory).toHaveBeenCalledWith(expect.stringMatching(/C:[\\/]QM-BOOK-UI-TEST$/), { maxDepth: 1 })
-    expect(mocks.readFile).toHaveBeenCalledWith("C:/QM-BOOK-UI-TEST/默认小说/.qmai/project.json")
+    expect(mocks.listDirectory).toHaveBeenCalledWith(expect.stringMatching(/C:[\\/]QM-BOOK$/), { maxDepth: 1 })
+    expect(mocks.readFile).toHaveBeenCalledWith("C:/QM-BOOK/默认小说/.qmai/project.json")
     expect(mocks.readFile.mock.calls.some(([path]) => String(path).startsWith("D:"))).toBe(false)
     expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
+  })
+
+  it("默认目录不存在时仍显示已登记的历史小说", async () => {
+    const historical = { id: "old-1", name: "历史小说", path: "D:/QM-BOOK/历史小说" }
+    const recentOnly = { id: "recent-1", name: "最近小说", path: "E:/作品/最近小说" }
+    mocks.getRecentProjects.mockResolvedValue([recentOnly])
+    mocks.loadRegisteredProjects.mockResolvedValue([historical])
+    mocks.fileExists.mockResolvedValue(false)
+    await renderShelf()
+    expect(host.textContent).toContain("历史小说")
+    expect(host.textContent).toContain("最近小说")
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(mocks.listDirectory.mock.calls.some(([path]) => String(path).replace(/\\/g, "/").toLowerCase() === "c:/qm-book")).toBe(false)
   })
 
   it("标题去书名号仅用于展示，键盘聚焦可看全名，开书仍传原项目", async () => {
@@ -238,14 +257,14 @@ describe("独立 UI 书架", () => {
     expect(JSON.parse(localStorage.getItem("qm-uitest-library")!).projects).toEqual([project])
   })
 
-  it("正式构建即使误挂载书架也不读取小说或登记索引", async () => {
+  it("关闭测试标记后仍显示已登记小说", async () => {
     mocks.uiTest = false
+    mocks.getRecentProjects.mockResolvedValue([])
+    mocks.loadRegisteredProjects.mockResolvedValue([project])
     await renderShelf()
-    expect(host.innerHTML).toBe("")
-    expect(mocks.getRecentProjects).not.toHaveBeenCalled()
-    expect(mocks.getExecutableDir).not.toHaveBeenCalled()
-    expect(mocks.listDirectory).not.toHaveBeenCalled()
-    expect(localStorage.getItem("qm-uitest-library")).toBeNull()
+    expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
+    expect(host.textContent).toContain("真实小说")
+    expect(mocks.loadRegisteredProjects).toHaveBeenCalled()
   })
 
   it("右键菜单提供重命名、打开文件夹和删除", async () => {
@@ -336,7 +355,7 @@ describe("书架新建小说弹窗", () => {
     await act(async () => root.render(<CreateProjectDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />))
     await act(async () => { resolveDirectory("E:/程序安装位置") })
     const output = document.body.querySelector(".ui-test-create-path")
-    expect(output?.textContent).toBe("E:\\QM-BOOK-UI-TEST")
+    expect(output?.textContent).toBe("E:\\QM-BOOK")
   })
 
   it("创建失败保留合法长名称与所选目录，实际错误中文可见", async () => {
@@ -420,14 +439,13 @@ describe("书架新建小说弹窗", () => {
     expect(mocks.createProject).not.toHaveBeenCalled()
   })
 
-  it("正式版继续显示原有 JSX 和按钮，不出现测试版文案", async () => {
+  it("新建弹窗始终使用当前文案，并显示正式小说目录", async () => {
     mocks.uiTest = false
     await act(async () => root.render(<CreateProjectDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />))
-    const dialog = document.body.querySelector('[data-slot="dialog-content"]')!
-    expect(dialog.textContent).toContain("创建项目")
-    expect(dialog.querySelector("#path")).not.toBeNull()
-    expect(dialog.textContent).not.toContain("创建并写大纲")
-    expect(dialog.hasAttribute("data-ui-test-dialog")).toBe(false)
+    const dialog = document.body.querySelector<HTMLElement>('[data-ui-test-dialog="create-project"]')!
+    expect(dialog.textContent).toContain("让一个新故事开始")
+    expect(dialog.textContent).toContain("创建并写大纲")
+    expect(dialog.textContent).toContain("C:\\QM-BOOK")
   })
 })
 

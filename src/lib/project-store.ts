@@ -11,7 +11,8 @@ import {
   resolveStoredVisualStyle,
   type VisualStyle,
 } from "@/lib/visual-style-settings"
-import { normalizePath } from "@/lib/path-utils"
+import { isAbsolutePath, normalizePath } from "@/lib/path-utils"
+import { forgetProject, loadRegistry } from "@/lib/project-identity"
 import { readFile, writeFile, fileExists } from "@/commands/fs"
 import {
   normalizeProviderConfigs,
@@ -30,27 +31,49 @@ import {
 } from "@/lib/agent/workflow-mode"
 import { normalizeReasoningDepth, type ReasoningDepth } from "@/lib/reasoning-depth"
 
-const RECENT_PROJECTS_KEY = IS_UI_TEST_BUILD ? "recentProjects__uiTest" : "recentProjects"
-const LAST_PROJECT_KEY = IS_UI_TEST_BUILD ? "lastProject__uiTest" : "lastProject"
+const RECENT_PROJECTS_KEY = "recentProjects"
+const LAST_PROJECT_KEY = "lastProject"
+
+function isStoredProject(value: unknown): value is WikiProject {
+  if (!value || typeof value !== "object") return false
+  const project = value as Partial<WikiProject>
+  return typeof project.id === "string" && !!project.id.trim()
+    && typeof project.name === "string" && !!project.name.trim()
+    && typeof project.path === "string" && !!project.path.trim()
+}
 
 export async function getRecentProjects(): Promise<WikiProject[]> {
   const store = await getStore()
   const projects = await store.get<WikiProject[]>(RECENT_PROJECTS_KEY)
-  return projects ?? []
+  return Array.isArray(projects) ? projects : []
 }
 
 export async function getLastProject(): Promise<WikiProject | null> {
   const store = await getStore()
   const project = await store.get<WikiProject>(LAST_PROJECT_KEY)
-  return project ?? null
+  return isStoredProject(project) ? project : null
+}
+
+/** 书架用的完整书目。recentProjects 只留最近十条，历史书在 projectRegistry。 */
+export async function loadRegisteredProjects(): Promise<WikiProject[]> {
+  const registry = await loadRegistry()
+  return Object.values(registry)
+    .filter((entry) => isStoredProject(entry) && isAbsolutePath(entry.path))
+    .sort((a, b) => (b.lastOpened ?? 0) - (a.lastOpened ?? 0))
+    .map((entry) => ({ id: entry.id, name: entry.name, path: entry.path }))
 }
 
 export async function removeProjectRecords(path: string): Promise<void> {
   const store = await getStore()
   const existing = (await store.get<WikiProject[]>(RECENT_PROJECTS_KEY)) ?? []
-  await store.set(RECENT_PROJECTS_KEY, existing.filter((project) => normalizePath(project.path) !== normalizePath(path)))
+  const key = normalizePath(path)
+  await store.set(RECENT_PROJECTS_KEY, existing.filter((project) => {
+    if (!project || typeof project.path !== "string") return true
+    return normalizePath(project.path) !== key
+  }))
   const last = await store.get<WikiProject>(LAST_PROJECT_KEY)
-  if (last && normalizePath(last.path) === normalizePath(path)) await store.delete(LAST_PROJECT_KEY)
+  if (last && typeof last.path === "string" && normalizePath(last.path) === key) await store.delete(LAST_PROJECT_KEY)
+  await forgetProject(path)
 }
 
 export async function saveLastProject(project: WikiProject): Promise<void> {
