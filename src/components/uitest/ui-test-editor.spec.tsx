@@ -98,14 +98,10 @@ afterEach(async () => {
 })
 
 describe("测试版正文编辑器", () => {
-  it("只在测试开关启用时替换正式版满宽标题条", async () => {
+  it("章节使用新版编辑器，不渲染旧版满宽标题条", async () => {
     await mount()
     expect(container.querySelector(".ui-test-editor")).not.toBeNull()
-    expect(container.querySelector(".ui-test-editor .h-12")).toBeNull()
-    fixture.enabled = false
-    await act(async () => { root.render(<div><PreviewPanel /></div>) })
-    expect(container.querySelector(".ui-test-editor")).toBeNull()
-    expect(container.querySelector(".h-12")).not.toBeNull()
+    expect(container.querySelector(".h-12")).toBeNull()
   })
 
   it("面包屑、标题、状态和字数全部来自当前真实文件", async () => {
@@ -302,8 +298,55 @@ describe("编辑器异常与原业务回归", () => {
   it("章节提取记忆入口位于去AI味和查看记忆之间", async () => {
     await mount()
     const toolbar = container.querySelector(".ui-test-editor-toolbar")!
-    const labels = [...toolbar.querySelectorAll("button")].map((item) => item.textContent?.trim())
+    const labels = [...toolbar.querySelectorAll("button.ui-test-editor-action")].map((item) => item.textContent?.trim())
     expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "一键排版"])
+  })
+
+  it("已有正文的草稿章打开时提示先保存为正式再提取记忆", async () => {
+    await mount()
+    const hint = container.querySelector(".ui-test-editor-draft-hint")
+    expect(hint?.textContent).toContain("这一章还是草稿")
+    expect(hint?.textContent).toContain("点击「提取记忆」会先保存为正式章节")
+    expect(container.querySelector(".ui-test-editor-action.is-hint-target")?.textContent).toContain("提取记忆")
+  })
+
+  it("正式章节不显示草稿提取提示", async () => {
+    fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
+    await mount()
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+  })
+
+  it("空章节在第一次写作保存成功后才提示，同一章继续保存不重复弹出", async () => {
+    const emptyPath = `${project.path}/wiki/chapters/第一卷/第1章.md`
+    fixture.files.set(emptyPath, "---\ntype: chapter\nchapter_number: 1\nchapter_status: draft\n---\n\n# 第1章 开篇\n\n")
+    await mount(emptyPath)
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    vi.useFakeTimers()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}有人推开了门。`) })
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
+    await act(async () => { changeTextarea(textarea, `${textarea.value}又写了一句。`) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
+    await click("知道了")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    await act(async () => { changeTextarea(textarea, `${textarea.value}再写。`) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+  })
+
+  it("点进另一章仍是草稿时再次提示", async () => {
+    await mount()
+    await click("知道了")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    const otherPath = `${project.path}/wiki/chapters/第一卷/第4章.md`
+    fixture.files.set(otherPath, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
+    await act(async () => { useWikiStore.setState({ selectedFile: otherPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第4章 未定稿")
+    expect(container.querySelector(".ui-test-editor-draft-hint")?.textContent).toContain("这一章还是草稿")
   })
 
   it("读取失败不把错误文本当成可编辑正文或标题", async () => {

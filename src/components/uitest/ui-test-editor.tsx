@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react"
+import { Children, cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react"
 import { Menu } from "@base-ui/react/menu"
 import { ChevronRight, Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
+import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
 import "./ui-test-editor.css"
 
 export interface UiTestEditorSaveState {
@@ -33,7 +34,33 @@ interface UiTestEditorProps {
   onRetrySave: () => void
   onClose: () => void
   scrollRef: RefObject<HTMLDivElement | null>
+  draftMemoryHint?: { onDismiss: () => void } | null
   children: (mode: "read" | "edit") => ReactNode
+}
+
+function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void } | null | undefined): ReactNode {
+  if (!hint) return actions
+  const visit = (node: ReactNode): ReactNode => {
+    if (!isValidElement(node)) return node
+    if (node.type === Symbol.for("react.fragment")) {
+      const fragment = node as ReactElement<{ children?: ReactNode }>
+      return cloneElement(fragment, fragment.props, Children.map(fragment.props.children, visit))
+    }
+    const props = node.props as { className?: string; "data-draft-memory-target"?: string }
+    if (props["data-draft-memory-target"] == null) return node
+    return (
+      <span className="ui-test-editor-hint-anchor">
+        {cloneElement(node as ReactElement<{ className?: string }>, {
+          className: [props.className, "is-hint-target"].filter(Boolean).join(" "),
+        })}
+        <div className="ui-test-editor-draft-hint" role="status">
+          <p>{DRAFT_MEMORY_HINT_MESSAGE}</p>
+          <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onDismiss}>知道了</button>
+        </div>
+      </span>
+    )
+  }
+  return visit(actions)
 }
 
 const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
@@ -47,7 +74,7 @@ const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
 /** 只承载测试版展示和交互；读写、生成、快照仍由 PreviewPanel 原处理器负责。 */
 export function UiTestEditor({
   kind, path, breadcrumbs, title, onTitleCommit, statusLabel, wordCount,
-  actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, children,
+  actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, draftMemoryHint, children,
 }: UiTestEditorProps) {
   const [mode, setMode] = useState<"read" | "edit">("edit")
   const [editingTitle, setEditingTitle] = useState(false)
@@ -153,7 +180,7 @@ export function UiTestEditor({
             ) : null}
           </div>
           <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
-            {actions}
+            {withDraftMemoryHint(actions, draftMemoryHint)}
             {false && kind === "chapter" && <Menu.Root modal={false}>
               <Menu.Trigger className="ui-test-editor-action ui-test-editor-more" aria-label="更多编辑器操作" title="更多编辑器操作">
                 <MoreHorizontal aria-hidden="true" />

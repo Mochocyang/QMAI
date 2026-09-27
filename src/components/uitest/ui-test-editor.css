@@ -97,6 +97,46 @@
 .ui-test-root .ui-test-editor-status.is-final { padding: 0; border-radius: 0; background: transparent; color: #2f9e62; font-weight: 500; }
 
 .ui-test-root .ui-test-editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
+.ui-test-root .ui-test-editor-hint-anchor { position: relative; display: inline-flex; max-width: 100%; }
+.ui-test-root .ui-test-editor-action.is-hint-target { color: var(--ui-accent); box-shadow: 0 0 0 2px var(--ui-accent); }
+.ui-test-root .ui-test-editor-draft-hint {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 10px);
+  left: 0;
+  width: min(280px, calc(100vw - 48px));
+  padding: 12px 14px;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 400 13px/1.6 var(--ui);
+  overflow-wrap: anywhere;
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent);
+}
+.ui-test-root .ui-test-editor-draft-hint::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 36px;
+  width: 12px;
+  height: 12px;
+  background: var(--ui-paper);
+  border-top: 1px solid var(--ui-line);
+  border-left: 1px solid var(--ui-line);
+  transform: rotate(45deg);
+}
+.ui-test-root .ui-test-editor-draft-hint p { margin: 0; }
+.ui-test-root .ui-test-editor-draft-hint-dismiss {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-accent);
+  font: 500 13px/1.5 var(--ui);
+  cursor: pointer;
+}
 
 .ui-test-root .ui-test-editor-action {
   display: inline-flex;

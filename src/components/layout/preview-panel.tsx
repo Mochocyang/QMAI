@@ -14,6 +14,8 @@ import { OutlineDualPreview } from "@/components/editor/outline-dual-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
+import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
@@ -63,7 +65,6 @@ import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dia
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
 import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui-test-editor"
-import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 
@@ -242,6 +243,14 @@ export function PreviewPanel() {
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
   const [uiTestSaveState, setUiTestSaveState] = useState<UiTestEditorSaveState | null>(null)
+  const [draftHintVisible, setDraftHintVisible] = useState(false)
+  const draftHintSessionRef = useRef({
+    path: null as string | null,
+    arrival: "stay" as DraftMemoryHintArrival,
+    persistedWords: null as number | null,
+    visible: false,
+    dismissed: false,
+  })
   const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
   /** 卷纲伴生 .html 内容（存在同名 .html 时启用双格式查看器） */
@@ -742,6 +751,47 @@ export function PreviewPanel() {
     if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return null
     return buildChapterEditorHeader(fileContent)
   }, [fileContent, selectedFile])
+  const dismissDraftMemoryHint = useCallback(() => {
+    draftHintSessionRef.current.dismissed = true
+    draftHintSessionRef.current.visible = false
+    setDraftHintVisible(false)
+  }, [])
+  useEffect(() => {
+    const session = draftHintSessionRef.current
+    if (session.path !== selectedFile) {
+      session.path = selectedFile
+      session.arrival = "select"
+      session.persistedWords = null
+      session.visible = false
+      session.dismissed = false
+    }
+    if (!selectedFile || loadedFilePath !== selectedFile) {
+      session.visible = false
+      setDraftHintVisible(false)
+      return
+    }
+    const words = countChapterBodyWords(fileContent)
+    const phase = uiTestSaveState?.path === selectedFile ? uiTestSaveState.phase : null
+    if (session.persistedWords === null && phase !== "saved") {
+      session.persistedWords = words
+      session.arrival = "select"
+    } else if (phase === "saved") {
+      const previous = session.persistedWords ?? 0
+      session.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
+      session.persistedWords = words
+    }
+    const next = resolveDraftMemoryHint({
+      isChapter: isChapterPath(selectedFile),
+      status: chapterHeader?.status ?? null,
+      wordCount: session.persistedWords ?? 0,
+      arrival: session.arrival,
+      dismissed: session.dismissed,
+      extracting: isFinalChapterSaving,
+      currentlyVisible: session.visible,
+    })
+    session.visible = next
+    setDraftHintVisible(next)
+  }, [chapterHeader, fileContent, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""
@@ -1413,6 +1463,7 @@ export function PreviewPanel() {
       }}
       onClose={() => setSelectedFile(null)}
       scrollRef={uiTestScrollRef}
+      draftMemoryHint={draftHintVisible ? { onDismiss: dismissDraftMemoryHint } : null}
       documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (
@@ -1420,7 +1471,7 @@ export function PreviewPanel() {
           <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
             <Eraser aria-hidden="true" />去AI味
           </button>
-          <button type="button" className="ui-test-editor-action" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+          <button type="button" className="ui-test-editor-action" data-draft-memory-target="" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
             <Brain aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
           </button>
           <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
