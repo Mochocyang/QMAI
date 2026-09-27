@@ -303,6 +303,17 @@ pub fn rename_project(path: String, name: String) -> Result<WikiProject, String>
     })
 }
 
+fn suppress_windows_console(_cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        #[allow(unused_imports)]
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        _cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 #[tauri::command]
 pub fn move_project_to_system_trash(path: String) -> Result<(), String> {
     run_guarded("move_project_to_system_trash", || {
@@ -312,7 +323,9 @@ pub fn move_project_to_system_trash(path: String) -> Result<(), String> {
             "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{}','OnlyErrorDialogs','SendToRecycleBin')",
             source.to_string_lossy().replace('\'', "''")
         );
-        let output = Command::new("powershell")
+        let mut command = Command::new("powershell");
+        suppress_windows_console(&mut command);
+        let output = command
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .output()
             .map_err(|error| format!("无法打开系统回收站：{}", error))?;

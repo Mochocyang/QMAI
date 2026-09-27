@@ -71,6 +71,8 @@ vi.mock("react-i18next", () => ({
   } as Record<string, string>)[key] ?? key }),
 }))
 
+import { moveProjectToSystemTrash } from "@/commands/fs"
+import { removeProjectRecords } from "@/lib/project-store"
 import { UiTestShelf } from "./ui-test-shelf"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 
@@ -265,6 +267,33 @@ describe("独立 UI 书架", () => {
     expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(1)
     expect(host.textContent).toContain("真实小说")
     expect(mocks.loadRegisteredProjects).toHaveBeenCalled()
+  })
+
+  it("目录已不存在时删除只清书架记录，不调用系统回收站", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    await renderShelf()
+    const card = host.querySelector<HTMLButtonElement>(".ui-test-book-card")!
+    await act(async () => card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 30 })))
+    await act(async () => button("删除").click())
+    expect(window.confirm).toHaveBeenCalledWith("“真实小说”的目录已经不存在，确定从书架移除？")
+    expect(moveProjectToSystemTrash).not.toHaveBeenCalled()
+    expect(removeProjectRecords).toHaveBeenCalledWith(project.path)
+    expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(0)
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+    expect(JSON.parse(localStorage.getItem("qm-uitest-library")!).projects).toEqual([])
+  })
+
+  it("目录仍在时删除仍移入系统回收站", async () => {
+    mocks.fileExists.mockImplementation(async (path: string) => path === project.path)
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    await renderShelf()
+    const card = host.querySelector<HTMLButtonElement>(".ui-test-book-card")!
+    await act(async () => card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 30 })))
+    await act(async () => button("删除").click())
+    expect(window.confirm).toHaveBeenCalledWith("确定将“真实小说”移入系统回收站？")
+    expect(moveProjectToSystemTrash).toHaveBeenCalledWith(project.path)
+    expect(removeProjectRecords).toHaveBeenCalledWith(project.path)
+    expect(host.querySelectorAll(".ui-test-book-card")).toHaveLength(0)
   })
 
   it("右键菜单提供重命名、打开文件夹和删除", async () => {

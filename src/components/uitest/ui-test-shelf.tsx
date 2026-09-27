@@ -203,9 +203,20 @@ export function UiTestShelf({
   }
 
   async function removeBook(project: WikiProject) {
-    if (!window.confirm(`确定将“${project.name}”移入系统回收站？`)) return
+    let exists = false
     try {
-      await moveProjectToSystemTrash(project.path)
+      exists = await fileExists(project.path)
+    } catch (error) {
+      setMenu(null)
+      setActionError(error instanceof Error ? error.message : "无法确认小说目录是否还在，未从书架移除。")
+      return
+    }
+    const prompt = exists
+      ? `确定将“${project.name}”移入系统回收站？`
+      : `“${project.name}”的目录已经不存在，确定从书架移除？`
+    if (!window.confirm(prompt)) return
+    try {
+      if (exists) await moveProjectToSystemTrash(project.path)
       await removeProjectRecords(project.path)
       const remaining = getUiTestProjects().filter((item) => item.path !== project.path)
       localStorage.setItem("qm-uitest-library", JSON.stringify({ schemaVersion: 1, projects: remaining }))
@@ -213,7 +224,7 @@ export function UiTestShelf({
       setMenu(null)
       setActionError("")
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "移入系统回收站失败，小说未删除。")
+      setActionError(error instanceof Error ? error.message : exists ? "移入系统回收站失败，小说未删除。" : "从书架移除失败，记录仍保留。")
     }
   }
 
