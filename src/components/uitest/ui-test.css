@@ -98,21 +98,13 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-root[data-platform="macos"] .ui-test-app { border: 0; border-radius: 0; clip-path: none; box-shadow: none; }
 .ui-test-root[data-platform="macos"] .ui-test-brand { padding-left: 76px; }
 .ui-test-root[data-platform="macos"] .ui-test-traffic { position: absolute; left: 19px; top: 0; height: 68px; margin-left: 0; gap: 9px; z-index: 2; }
-.ui-test-traffic-btn { width: 14px; height: 14px; padding: 0; border: 1px solid rgba(0, 0, 0, .18); border-radius: 50%; background: #dddddd; color: rgba(0, 0, 0, .65); display: grid; place-items: center; opacity: 1; }
-.ui-test-traffic-btn svg { opacity: 0; }
-.ui-test-traffic:hover .ui-test-traffic-btn svg { opacity: 1; }
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-close,
-.ui-test-traffic:hover .ui-test-traffic-close { background: #ff6058; }
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-min,
-.ui-test-traffic:hover .ui-test-traffic-min { background: #ffc02f; }
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-zoom,
-.ui-test-traffic:hover .ui-test-traffic-zoom { background: #28c940; }
-.ui-test-traffic:hover .ui-test-traffic-close:active,
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-close:active { background: #bf4740; }
-.ui-test-traffic:hover .ui-test-traffic-min:active,
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-min:active { background: #bf9123; }
-.ui-test-traffic:hover .ui-test-traffic-zoom:active,
-.ui-test-root[data-window-focused="true"] .ui-test-traffic-zoom:active { background: #1f9a31; }
+.ui-test-traffic-btn { width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%; background: #dddddd; display: grid; place-items: center; appearance: none; -webkit-appearance: none; }
+.ui-test-traffic-glyph { grid-area: 1 / 1; width: 14px; height: 14px; display: none; pointer-events: none; }
+.ui-test-root[data-window-focused="true"] .ui-test-traffic-glyph.is-idle { display: block; }
+.ui-test-traffic:hover .ui-test-traffic-glyph.is-idle { display: none; }
+.ui-test-traffic:hover .ui-test-traffic-glyph.is-hover { display: block; }
+.ui-test-traffic:hover .ui-test-traffic-btn:active .ui-test-traffic-glyph.is-hover { display: none; }
+.ui-test-traffic:hover .ui-test-traffic-btn:active .ui-test-traffic-glyph.is-pressed { display: block; }
 .ui-test-menu-anchor { position: relative; }
 .ui-test-menu-pop { position: absolute; top: calc(100% + 14px); right: 0; width: 294px; max-width: calc(100vw - 56px); max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; padding: 14px; background: var(--ui-paper); color: var(--ui-ink); border-radius: 14px; box-shadow: 0 18px 55px #18241c24; z-index: 60; }
 .ui-test-menu-title { font-size: 12px; color: var(--ui-muted); padding: 1px 5px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
