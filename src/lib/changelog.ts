@@ -7,6 +7,31 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ZERO_TWO_CHANGELOG: ChangelogEntry = {
+  version: "4.0.2",
+  date: "2026-09-27",
+  highlights: {
+    en: [
+      "[Draft Memory Hint] Draft chapters now explain that Extract Memory saves the draft as a formal chapter first. The hint can be dismissed with Don't Remind Again and turned back on in Writing settings, and the latest draft chapter only shows it once per app session.",
+      "[Model Settings] Model list rows put the name next to saved and enabled status, providers show brand icons, and inputs on model cards get visible borders. Custom model tests only cover selected models, and removing one failed model keeps the other failures marked red.",
+      "[Install After Leaving Changelog] A downloaded update can still be installed after leaving the changelog page. After download you get Install and Re-download, and a failed install can be retried.",
+      "[Shelf Delete] Novels whose folder is gone can still be removed from the shelf. On Windows, moving to the recycle bin no longer flashes a console window.",
+      "[HTML Preview Follows Skin] Volume outline, chapter outline and story map previews follow the current appearance skin; source and saved files stay unchanged.",
+      "[Chapter Title Save] Saving a chapter title on blur restores the chapter-number hyphen, file rename and body formatting.",
+      "[UI Details] Send and stop icons in the writing chat are centered, macOS window buttons use one consistent line width, the AI chat panel has a 400px minimum and default width, model hover shows only the model name, and usage is labeled tokens.",
+    ],
+    zh: [
+      "【草稿提取记忆提示】草稿章节下会说明：点「提取记忆」会先保存为正式章节再提取；可点「不再提醒」，写作设置里能重新打开；最新草稿章本次打开应用只提示一次",
+      "【模型配置界面】模型列表的名称与保存、启用状态放在同一行，提供方显示图标，模型配置卡片的输入框补上边框；自定义模型测试只测已选模型，移除一个失败模型时其余失败项保持标红",
+      "【离开页面也能安装更新】离开更新日志页面后，已下载的新版本仍可安装；下载完成后提供「安装」和「重新下载」，安装失败可以重试",
+      "【书架删除】小说目录已不存在时也能从书架删除；Windows 上移入回收站不再弹出控制台窗口",
+      "【HTML 预览跟随皮肤】卷纲、章纲和故事导图的预览跟随当前外观皮肤，源码和已保存文件保持原样",
+      "【章节标题保存】章节标题失焦保存时，恢复章节序号连字符、文件重命名和正文排版",
+      "【界面细节】写作对话框的发送和停止图标居中；macOS 窗口按钮线宽统一；AI 对话栏最小和默认宽度调到 400，模型悬停只显示模型名；用量单位统一为 tokens",
+    ],
+  },
+};
+
 const FOUR_POINT_ZERO_ONE_CHANGELOG: ChangelogEntry = {
   version: "4.0.1",
   date: "2026-09-27",
@@ -1631,6 +1656,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ZERO_TWO_CHANGELOG.version)
+    return [FOUR_POINT_ZERO_TWO_CHANGELOG];
   if (version === FOUR_POINT_ZERO_ONE_CHANGELOG.version)
     return [FOUR_POINT_ZERO_ONE_CHANGELOG];
   if (version === FOUR_POINT_ZERO_ZERO_CHANGELOG.version)
@@ -1778,6 +1805,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ZERO_TWO_CHANGELOG,
     FOUR_POINT_ZERO_ONE_CHANGELOG,
     FOUR_POINT_ZERO_ZERO_CHANGELOG,
     THREE_POINT_TWO_NINETEEN_CHANGELOG,

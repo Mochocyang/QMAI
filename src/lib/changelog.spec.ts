@@ -6,7 +6,13 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["4.0.1", "4.0.0", "3.2.19"])
+    expect(versions.slice(0, 3)).toEqual(["4.0.2", "4.0.1", "4.0.0"])
+    const release402 = currentVersionChangelog("4.0.2")[0]
+    expect(release402.version).toBe("4.0.2")
+    expect(release402.date).toBe("2026-09-27")
+    expect(release402.highlights.zh.join("\n")).toContain("草稿提取记忆提示")
+    expect(release402.highlights.zh.join("\n")).toContain("离开页面也能安装更新")
+    expect(release402.highlights.en.join("\n")).toContain("Draft Memory Hint")
     const release401 = currentVersionChangelog("4.0.1")[0]
     expect(release401.version).toBe("4.0.1")
     expect(release401.date).toBe("2026-09-27")
