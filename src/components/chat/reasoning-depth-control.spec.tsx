@@ -64,14 +64,14 @@ describe("ReasoningDepthControl", () => {
     container.remove()
   })
 
-  it("keeps the thinking slider visible even when a model does not advertise reasoning", () => {
+  it("renders nothing when the model's thinking cannot be steered", () => {
     render(createElement(ReasoningDepthControl, {
       value: "high",
       onChange: vi.fn(),
       modelConfig: plainModel,
     }))
 
-    expect(container.querySelector("button")).not.toBeNull()
+    expect(container.querySelector("button")).toBeNull()
   })
 
   it("renders nothing when there is no target config, as in writing fast mode", () => {
