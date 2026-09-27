@@ -7,6 +7,35 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ZERO_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "4.0.0",
+  date: "2026-09-27",
+  highlights: {
+    en: [
+      "[All-New Interface] The whole app interface is rebuilt: window, sidebar, toolbars and content area now share one new look and layout, and the legacy interface is removed so only the new one remains. The top function bar is customizable, and the window becomes a frameless custom shell with a minimum size.",
+      "[Volume Outline Tree] Outline adds a Volume Outline built as 1 volume = 10 stories = 1 major climax, with 10 fixed stages per story. It produces both an MD text version and a collapsible HTML tree with beat checkup, foreshadow tracking, cast appearances, rival moves, suspense debts, growth and resources, and a place/organization index. On save, MD and HTML can be picked separately.",
+      "[Chapter Outline] Outline adds a Chapter Outline generated story by story in batches. Every chapter writes all 17 sections (basic info, carry-over, positioning, condensed plot, core event chain, required conditions, four-beat structure, mood curve, payoff, expansion, visual detail, foreshadow and hook, cast state changes, setting updates, writing constraints, next-chapter handover, writing checklist) and renders as a chapter card-flow HTML.",
+      "[Chapter Outline Reaches Writing] Fixed the case where a written chapter outline was not read while drafting. One outline file covering many chapters is now sliced per chapter for the writing pipeline, so drafting uses that chapter's 17 sections instead of falling back to the volume outline.",
+      "[Validation and Alignment] Saving now runs an automatic checkup: chapter range, beat-by-beat consistency, non-reverting timeline, cast appearances, rival moves, foreshadow seeding and payoff, and the 10 fixed checklist items. Incomplete content triggers one automatic repair and never blocks saving.",
+      "[Outline Co-creation Mode] Discussion turns must output a decision-point card; picking one continues the discussion, and full text is generated only after the outline is finalized. When the model suggests splitting into two chapters, chapter 2 is written automatically.",
+      "[Batch Resume] If batched chapter-outline generation is interrupted (app closed or conversation switched), triggering it again reads the draft and continues from the next batch instead of starting over.",
+      "[Context and Library Cache] Context-hub hit stats now show after AI analysis completes, with corrected hit-rate and saved-token math. Book analysis gains tiered caches and cache routing for cross-chapter reuse and precise invalidation on dependency changes, and the character extraction, plot and style pipelines are improved.",
+      "[Performance and Interaction Fixes] Embedding index rebuild now batches requests and skips unchanged pages by content hash, swapping through a temp table when many pages are dirty, which speeds up rebuilds and caps memory. Fixed a chunking infinite loop caused by a lone '|' line, and page names may contain Chinese punctuation. Formal chapter status uses green text, slash commands drop the overlay to avoid cursor misplacement and duplicate copy, the reference dialog has a fixed height, and app icons are updated.",
+    ],
+    zh: [
+      "【全新界面】整个软件界面重做：窗口、侧栏、工具栏与内容区统一为全新视觉与布局；旧版界面已移除，只保留新版。顶部功能栏支持自定义，窗口改为自绘无外框并设定最小尺寸",
+      "【卷纲折叠树】大纲新增「卷纲」：按「1 卷 = 10 故事 = 1 大高潮」生成，每个故事固定 10 环节；同时产出 MD 文本版与可折叠 HTML 树，附节拍体检、伏笔追踪、人物出场、对手推进、悬念债务、成长资源、地点组织索引等台账；保存时 MD / HTML 可分别勾选落盘",
+      "【章纲（细纲）结构化】大纲新增「章纲（细纲）」：按故事分批生成，每章写满 17 节（基础信息 / 上章承接 / 本章定位 / 浓缩剧情 / 核心事件链 / 必要条件 / 四段式 / 情绪曲线 / 爽点 / 扩写方式 / 画面细节 / 伏笔钩子 / 角色状态变化 / 设定更新 / 写作约束 / 下一章交接 / 写作检查清单），以章节卡片流 HTML 呈现",
+      "【章纲真正被写作读取】修复「写了章纲，写正文却读不到」：一份覆盖多章的章纲文件现在能被正文生成按章裁切读取，写作时直接使用该章的 17 节细则，不再退回卷纲兜底",
+      "【巡检与对齐校验】保存前自动体检：章号区间、节拍逐位一致、时间线不倒退、人物出场、对手出手、伏笔埋收、检查清单十条固定项等；内容不完整会自动补全一次，仍不通过才放行，保存流程不被阻断",
+      "【大纲共创模式】讨论轮强制输出决策点卡，点选后继续讨论，确认定稿才进入正文生成；模型建议拆成两章时自动补写第 2 章",
+      "【分批续跑】章纲分批生成到一半中断（关软件 / 换对话）后，再次触发会读取草稿、直接接着生成下一批，不必从头重写",
+      "【上下文与拆书库缓存】上下文枢纽的命中统计改为 AI 分析完成后展示，命中率与节省量算法修正；拆书库分析新增分级缓存与缓存路由，支持跨章节复用、依赖变更精准失效；角色抽取 / 剧情 / 文风链路完善",
+      "【性能与交互修复】嵌入索引全量重建改为批量请求并按内容哈希跳过未改动页，脏页多时用临时表一次换表，明显加快重建并压住内存；修复单独一行「|」导致的切块死循环，页名允许中文标点；正式章节状态改为绿色文字，斜杠命令去掉覆盖层避免光标错位与复制重复，引用弹窗固定高度；应用图标更新",
+    ],
+  },
+};
+
 const THREE_POINT_TWO_NINETEEN_CHANGELOG: ChangelogEntry = {
   version: "3.2.19",
   date: "2026-09-20",
@@ -1585,6 +1614,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ZERO_ZERO_CHANGELOG.version)
+    return [FOUR_POINT_ZERO_ZERO_CHANGELOG];
   if (version === THREE_POINT_TWO_NINETEEN_CHANGELOG.version)
     return [THREE_POINT_TWO_NINETEEN_CHANGELOG];
   if (version === THREE_POINT_TWO_EIGHTEEN_CHANGELOG.version)
@@ -1728,6 +1759,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ZERO_ZERO_CHANGELOG,
     THREE_POINT_TWO_NINETEEN_CHANGELOG,
     THREE_POINT_TWO_EIGHTEEN_CHANGELOG,
     THREE_POINT_TWO_SEVENTEEN_CHANGELOG,

@@ -6,7 +6,15 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["3.2.19", "3.2.18", "3.2.17"])
+    expect(versions.slice(0, 3)).toEqual(["4.0.0", "3.2.19", "3.2.18"])
+    const release400 = currentVersionChangelog("4.0.0")[0]
+    expect(release400.version).toBe("4.0.0")
+    expect(release400.date).toBe("2026-09-27")
+    expect(release400.highlights.zh.join("\n")).toContain("全新界面")
+    expect(release400.highlights.zh.join("\n")).toContain("卷纲折叠树")
+    expect(release400.highlights.zh.join("\n")).toContain("章纲（细纲）结构化")
+    expect(release400.highlights.zh.join("\n")).toContain("巡检与对齐校验")
+    expect(release400.highlights.en.join("\n")).toContain("All-New Interface")
     const release3219 = currentVersionChangelog("3.2.19")[0]
     expect(release3219.version).toBe("3.2.19")
     expect(release3219.date).toBe("2026-09-20")
