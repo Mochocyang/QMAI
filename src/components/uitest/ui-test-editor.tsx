@@ -114,6 +114,11 @@ export function UiTestEditor({
                   setEditingTitle(false)
                   if (cancelTitleRef.current) { cancelTitleRef.current = false; return }
                   const nextTitle = titleDraft.trim()
+                  // 章节标题失焦即保存：即使文字没改，也要交给原逻辑补连字符、改文件名并排版正文。
+                  if (kind === "chapter") {
+                    void onTitleCommit(nextTitle)
+                    return
+                  }
                   if (nextTitle && nextTitle !== title) void onTitleCommit(nextTitle)
                 }}
                 onKeyDown={(event) => {

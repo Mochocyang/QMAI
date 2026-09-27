@@ -198,6 +198,42 @@ describe("测试版正文编辑器", () => {
 })
 
 describe("编辑器异常与原业务回归", () => {
+  it("未改章节标题直接保存时，补上序号连字符、重命名文件并排版正文", async () => {
+    fixture.files.set(chapterPath, "---\ntype: chapter\nchapter_number: 16\nchapter_status: draft\n---\n\n# 第16章 实际章名\n\n雨停了English。\n\n有人推开了门。")
+    await mount()
+    await act(async () => { container.querySelector<HTMLButtonElement>("h1 button")!.click() })
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="章节标题"]')!
+    await act(async () => { input.blur() })
+    await act(async () => { await vi.waitFor(() => { expect(fixture.write).toHaveBeenCalled() }) })
+    const renamedPath = `${project.path}/wiki/chapters/第一卷/第16章-实际章名.md`
+    const written = String(fixture.write.mock.calls.at(-1)?.[1] ?? "")
+    expect(fixture.write).toHaveBeenCalledWith(renamedPath, expect.any(String))
+    expect(written).toContain("# 第16章-实际章名")
+    expect(written).toContain("　　雨停了 English。")
+    expect(written).toContain("　　有人推开了门。")
+    expect(written).not.toContain("第16章 实际章名")
+    expect(fixture.files.has(chapterPath)).toBe(false)
+    expect(fixture.files.get(renamedPath)).toBe(written)
+  })
+
+  it("修改章节标题保存时，同样补上连字符、重命名并排版正文", async () => {
+    fixture.files.set(chapterPath, "---\ntype: chapter\nchapter_number: 16\nchapter_status: draft\n---\n\n# 第16章 实际章名\n\n雨停了English。\n\n有人推开了门。")
+    await mount()
+    await act(async () => { container.querySelector<HTMLButtonElement>("h1 button")!.click() })
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="章节标题"]')!
+    await act(async () => { changeTextarea(input, "新章名") })
+    await act(async () => { input.blur() })
+    await act(async () => { await vi.waitFor(() => { expect(fixture.write).toHaveBeenCalled() }) })
+    const renamedPath = `${project.path}/wiki/chapters/第一卷/第16章-新章名.md`
+    const written = String(fixture.write.mock.calls.at(-1)?.[1] ?? "")
+    expect(fixture.write).toHaveBeenCalledWith(renamedPath, expect.any(String))
+    expect(written).toContain("# 第16章-新章名")
+    expect(written).toContain("　　雨停了 English。")
+    expect(written).toContain("　　有人推开了门。")
+    expect(fixture.files.has(chapterPath)).toBe(false)
+    expect(fixture.files.get(renamedPath)).toBe(written)
+  })
+
   it("标题输入法回车不提交，Escape 取消不改文件", async () => {
     await mount()
     await act(async () => { container.querySelector<HTMLButtonElement>("h1 button")!.click() })
