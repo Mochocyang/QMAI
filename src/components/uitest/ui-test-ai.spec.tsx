@@ -386,6 +386,14 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
   })
 })
 
+it("章节回复的操作按钮默认没有选中底色，悬停才出现", () => {
+  const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
+  const resting = css.match(/\[data-ui-ai-panel="chapter"\] \[data-ui-ai-message="assistant"\] > \.flex > div:last-child > \.flex\.flex-wrap > button \{([^}]+)\}/)?.[1]
+  expect(resting).toMatch(/background:\s*transparent/)
+  expect(css).not.toMatch(/button:first-of-type[^{]*\{[^}]*background:\s*var\(--ui-soft\)/)
+  expect(css).toMatch(/\[data-ui-ai-panel="chapter"\] \[data-ui-ai-message="assistant"\] > \.flex > div:last-child > \.flex\.flex-wrap > button:hover:not\(:disabled\) \{[^}]*background:\s*var\(--ui-soft\)/)
+})
+
 it("专用样式仅命中测试版标识，覆盖对话/长引用/菜单并消费主代理的主题 token", () => {
   const cssPath = resolve(__dirname, "ui-test-ai.css")
   expect(existsSync(cssPath)).toBe(true)

@@ -10,7 +10,7 @@ import { RawSourcesSection } from "@/components/layout/knowledge-tree"
 import { registerUiTestProject } from "@/lib/ui-test-library"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
-import { isTauri } from "@/lib/platform"
+import { isMacOS, isTauri } from "@/lib/platform"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { applyTheme } from "@/lib/theme-utils"
@@ -24,6 +24,7 @@ import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
 import { useUiTestWidth } from "./use-ui-test-width"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
+import { MacTrafficLights } from "./mac-traffic-lights"
 import "./ui-test.css"
 
 const UiTestWorkspace = lazy(async () => ({ default: (await import("./ui-test-workspace")).UiTestWorkspace }))
@@ -75,6 +76,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const navPressRef = useRef<{ view: PrimaryNavView; x: number; y: number; timer: number } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [windowFilled, setWindowFilled] = useState(false)
+  const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
+  const macOS = isMacOS()
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   const [preference, setPreference] = useState(() => readPreference(project?.id))
   const preferenceProject = useRef(project?.id)
@@ -116,12 +119,29 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     return () => window.removeEventListener("resize", onResize)
   }, [])
   useEffect(() => {
+    const onFocus = () => setWindowFocused(true)
+    const onBlur = () => setWindowFocused(false)
+    window.addEventListener("focus", onFocus)
+    window.addEventListener("blur", onBlur)
+    return () => {
+      window.removeEventListener("focus", onFocus)
+      window.removeEventListener("blur", onBlur)
+    }
+  }, [])
+  useEffect(() => {
     if (!isTauri()) return
     let cancelled = false
     let unlisten: (() => void) | undefined
     void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
       const win = getCurrentWindow()
-      await Promise.all([win.setDecorations(false), win.setShadow(false)])
+      if (isMacOS()) {
+        // 保留系统圆角。setDecorations(false) 会把窗口改成直角，再叠 CSS 圆角就是两层。
+        const { invoke } = await import("@tauri-apps/api/core")
+        await invoke("restore_macos_window_frame")
+      } else {
+        await win.setDecorations(false)
+        await win.setShadow(false)
+      }
       const syncWindowFilled = async () => {
         const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()])
         if (!cancelled) setWindowFilled(maximized || fullscreen)
@@ -286,7 +306,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
 
   return (
-    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-window-filled={windowFilled ? "true" : undefined} onContextMenu={(event) => event.preventDefault()}>
+    <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-platform={macOS ? "macos" : undefined} data-window-focused={windowFocused ? "true" : "false"} data-window-filled={windowFilled ? "true" : undefined} onContextMenu={(event) => event.preventDefault()}>
       {!windowFilled && (["top", "right", "bottom", "left", "nw", "ne", "sw", "se"] as const).map((edge) => <div key={edge} className={`ui-test-resize-edge ${edge}${edge.length === 2 ? " corner" : ""}`} data-resize-edge={edge} onPointerDown={(event) => {
         if (event.button !== 0 || !isTauri()) return
         event.preventDefault()
@@ -295,6 +315,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       }} />)}
       <div ref={appRef} className="ui-test-app">
         <header className="ui-test-header" data-tauri-drag-region>
+          {macOS && <MacTrafficLights onClose={closeWindow} onMinimize={minimizeWindow} onZoom={toggleMaximizeWindow} />}
           <div className="ui-test-brand"><img className="ui-test-brand-logo" src={logoImg} alt="" /><span className="ui-test-brand-name">青幕AI写作</span>
             <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
             {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
@@ -343,11 +364,11 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="后台活动" onClick={() => setShowActivity(true)}><History /></button>} />
               <TooltipContent>后台活动</TooltipContent>
             </Tooltip>
-            <div className="ui-test-win-actions">
+            {!macOS && <div className="ui-test-win-actions">
               <button type="button" className="ui-test-win-btn" aria-label="最小化" title="最小化" onClick={minimizeWindow}><Minus /></button>
               <button type="button" className="ui-test-win-btn" aria-label="最大化或还原" title="最大化或还原" onClick={toggleMaximizeWindow}><Square /></button>
               <button type="button" className="ui-test-win-btn ui-test-win-close" aria-label="关闭窗口" title="关闭窗口" onClick={closeWindow}><X /></button>
-            </div>
+            </div>}
           </div>
         </header>
         {libraryError && <p className="ui-test-local-warning" role="alert">{libraryError}</p>}

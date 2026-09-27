@@ -42,10 +42,14 @@ afterEach(async () => {
 })
 
 describe("测试版 AI 模型选择布局", () => {
-  it("思考按钮与模型选择同一行，模型框不超过 148px", () => {
+  it("思考按钮与模型选择同一行；底栏放不下时整组换到第二排", () => {
     const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex: 0 0 auto;[^}]*gap: 2px;/s)
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: max-content;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \{[^}]*overflow:\s*visible;/s)
+    expect(css).toMatch(/\[data-ui-ai-panel\] \.bg-background:has\(>\s*\[data-ui-ai-composer\]\) \{[^}]*background-color:\s*transparent;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] div:has\(>\s*\[data-reference-input-footer\]\) \{[^}]*overflow:\s*hidden;[^}]*clip-path:\s*inset\(0 round 14px\);[^}]*border-radius:\s*14px;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] \{[^}]*flex-wrap:\s*wrap;[^}]*padding:\s*8px 14px 14px;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex:\s*1 0 auto;[^}]*min-width:\s*min\(100%, max-content\);[^}]*max-width:\s*100%;[^}]*gap:\s*2px;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: 0;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \[data-reference-input-footer\] \[aria-label="上下文用量"\] \{[^}]*display: inline-flex;/s)
   })
 })

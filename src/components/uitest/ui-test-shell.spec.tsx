@@ -7,6 +7,7 @@ import { PRIMARY_NAV_LONG_PRESS_MS } from "@/lib/ui-test-primary-nav"
 import { UiTestShell } from "./ui-test-shell"
 import { useModelDraftGuard } from "./models/model-draft-guard"
 const draftState = vi.hoisted(() => ({ dirty: false, saving: false }))
+const platformState = vi.hoisted(() => ({ macOS: false }))
 
 vi.mock("@/components/layout/content-area", () => ({ ContentArea: () => { useModelDraftGuard("shell-model-test", "模型配置", draftState.dirty, draftState.saving); return <div data-testid="business-view">实际功能页面</div> } }))
 vi.mock("@/components/layout/knowledge-tree", () => ({ RawSourcesSection: () => null }))
@@ -17,7 +18,7 @@ vi.mock("@/components/project/create-project-dialog", () => ({ CreateProjectDial
 vi.mock("./ui-test-shelf", () => ({ UiTestShelf: () => <div data-testid="shelf">书架内容</div> }))
 vi.mock("@/lib/project-file-tree-refresh", () => ({ refreshProjectFileTree: vi.fn().mockResolvedValue(undefined) }))
 vi.mock("@/lib/project-store", () => ({ saveTheme: vi.fn().mockResolvedValue(undefined) }))
-vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
+vi.mock("@/lib/platform", () => ({ isTauri: () => false, isMacOS: () => platformState.macOS }))
 vi.mock("@/lib/theme-utils", () => ({ applyTheme: vi.fn() }))
 
 let host: HTMLDivElement
@@ -46,6 +47,7 @@ async function render(withProject = true) {
   await act(async () => { root.render(<UiTestShell project={withProject ? project : null} {...callbacks} />) })
 }
 beforeEach(() => {
+  platformState.macOS = false
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   Object.defineProperty(window, "innerWidth", { value: 1440, writable: true, configurable: true })
   draftState.dirty = false; draftState.saving = false
@@ -81,6 +83,18 @@ describe("独立UI测试版外壳", () => {
     await click("创作工具")
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
     expect(document.activeElement?.getAttribute("aria-label")).toBe("创作工具")
+  })
+  it("macOS 把关闭按钮放到左侧交通灯最前", async () => {
+    platformState.macOS = true
+    await render()
+    const root = host.querySelector(".ui-test-root")
+    expect(root?.getAttribute("data-platform")).toBe("macos")
+    const labels = [...host.querySelectorAll(".ui-test-win-actions button")].map((button) => button.getAttribute("aria-label"))
+    expect(labels).toEqual(["关闭窗口", "最小化", "最大化或还原"])
+    const actions = host.querySelector(".ui-test-win-actions")
+    const brand = host.querySelector(".ui-test-brand")
+    expect(actions?.compareDocumentPosition(brand!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(host.querySelectorAll(".ui-test-win-actions")).toHaveLength(1)
   })
   it("没有固定活动栏；目录与窗口操作有中文可访问名称", async () => {
     await render()

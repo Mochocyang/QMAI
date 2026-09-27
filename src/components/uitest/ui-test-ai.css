@@ -84,10 +84,9 @@
 [data-ui-ai-panel="chapter"] [data-ui-ai-message="assistant"] > .flex > div:last-child > .flex.flex-wrap { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; width: 100%; margin-top: 15px; padding-top: 0; border: 0; }
 [data-ui-ai-actions] details > ul { position: absolute; }
 [data-ui-ai-actions] > button,
-[data-ui-ai-panel="chapter"] [data-ui-ai-message="assistant"] > .flex > div:last-child > .flex.flex-wrap > button { min-height: 28px; max-width: 100%; padding: 5px 8px; border: 0; border-radius: 7px; color: var(--ui-accent); font: 12px/1.5 var(--ui); white-space: normal; }
-[data-ui-ai-actions] > button:first-of-type,
-[data-ui-ai-panel="chapter"] [data-ui-ai-message="assistant"] > .flex > div:last-child > .flex.flex-wrap > button:first-of-type { background: var(--ui-soft); }
-[data-ui-ai-actions] > button:hover:not(:disabled) { background: var(--ui-soft); }
+[data-ui-ai-panel="chapter"] [data-ui-ai-message="assistant"] > .flex > div:last-child > .flex.flex-wrap > button { min-height: 28px; max-width: 100%; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--ui-accent); font: 12px/1.5 var(--ui); white-space: normal; }
+[data-ui-ai-actions] > button:hover:not(:disabled),
+[data-ui-ai-panel="chapter"] [data-ui-ai-message="assistant"] > .flex > div:last-child > .flex.flex-wrap > button:hover:not(:disabled) { background: var(--ui-soft); }
 
 [data-ui-ai-panel] .ui-test-ai-empty { display: flex; min-height: 180px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px 12px; text-align: center; color: var(--ui-muted); }
 [data-ui-ai-panel] .ui-test-ai-empty > svg { width: 28px; height: 28px; color: var(--ui-accent); }
@@ -95,7 +94,9 @@
 [data-ui-ai-panel] .ui-test-ai-empty p { max-width: 260px; margin: 0; font-size: 13px; line-height: 1.85; }
 [data-ui-ai-panel] .ui-test-ai-empty button { padding: 7px 12px; border-radius: 8px; background: var(--ui-soft); color: var(--ui-accent); font-size: 13px; }
 
-[data-ui-ai-composer] { min-width: 0; max-height: min(58dvh, 460px); padding: 0; border: 0; background: transparent; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+[data-ui-ai-composer] { min-width: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
+/* 写作区输入框包在 .shrink-0.bg-background 里，不是面板的直接子节点。这层直角白底会从圆角外露出来。 */
+[data-ui-ai-panel] .bg-background:has(> [data-ui-ai-composer]) { background-color: transparent; }
 [data-ui-ai-composer] > .border-t { padding: 0; border: 0; }
 [data-ui-ai-panel] [data-reference-input-footer] > div:first-child { flex-wrap: wrap; }
 [data-ui-ai-panel] [data-reference-input-footer] [aria-label="上下文用量"] { display: inline-flex; flex: 0 0 auto; width: 28px; height: 28px; color: var(--ui-muted); }
@@ -107,7 +108,8 @@
 [data-ui-ai-tools] button[aria-pressed="true"] { background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-tools] button:hover:not(:disabled) { background: var(--ui-soft); }
 [data-ui-ai-tools] [aria-label="上下文用量"] { color: var(--ui-muted); }
-[data-ui-ai-composer] div:has(> [data-reference-input-footer]) { border: 1px solid color-mix(in srgb, var(--ui-line) 45%, transparent); border-radius: 14px; background: var(--ui-paper); box-shadow: none; }
+/* WKWebView 里 overflow:auto/scroll 不会把 background 裁进 border-radius，边框是圆的、白底仍是直角。overflow:hidden 加 clip-path 才会裁掉圆弧外的底色。 */
+[data-ui-ai-composer] div:has(> [data-reference-input-footer]) { max-height: min(58dvh, 460px); overflow: hidden; clip-path: inset(0 round 14px); border: 1px solid color-mix(in srgb, var(--ui-line) 45%, transparent); border-radius: 14px; background: var(--ui-paper); background-clip: padding-box; box-shadow: none; }
 [data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { border-color: color-mix(in srgb, var(--ui-line) 45%, transparent); outline: none; box-shadow: none; --tw-ring-shadow: 0 0 #0000; }
 [data-ui-ai-panel="outline"] [data-ui-ai-composer] div:has(> [data-reference-input-footer]):focus-within { border-color: color-mix(in srgb, var(--ui-line) 45%, transparent); box-shadow: none; outline: none; --tw-ring-shadow: 0 0 #0000; }
 [data-ui-ai-composer] textarea:focus, [data-ui-ai-composer] textarea:focus-visible { outline: none; box-shadow: none; }
@@ -119,12 +121,22 @@
 [data-ui-ai-composer] [role="separator"] > span { background: var(--ui-soft); }
 [data-ui-ai-composer] textarea { color: var(--ui-ink); font: 14px/1.7 var(--ui); }
 [data-ui-ai-composer] textarea::placeholder { color: var(--ui-muted); opacity: 1; }
-[data-ui-ai-composer] [data-reference-input-footer] { gap: 8px; padding: 8px 10px; border: 0; }
+[data-ui-ai-composer] [data-reference-input-footer] {
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  /* 底和右侧留出圆角半径，避免发送按钮被 14px 圆角裁掉。 */
+  padding: 8px 14px 14px;
+  border: 0;
+}
+/* 一行放不下时，思考深度、模型和发送整组落到第二排，避免末尾被裁切。 */
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child {
-  flex: 0 0 auto;
+  flex: 1 0 auto;
   justify-content: flex-end;
   width: auto;
-  min-width: 0;
+  min-width: min(100%, max-content);
+  max-width: 100%;
   margin-left: auto;
   gap: 2px;
 }
@@ -133,11 +145,11 @@
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   width: auto;
-  max-width: none;
-  min-width: max-content;
-  overflow: visible;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
   gap: 2px;
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative,

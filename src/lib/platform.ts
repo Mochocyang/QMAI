@@ -2,8 +2,19 @@ type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>
 }
 
+type NavigatorWithClientHints = Navigator & {
+  userAgentData?: { platform?: string }
+}
+
 export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+export function isMacOS(): boolean {
+  if (typeof navigator === "undefined") return false
+  const hinted = (navigator as NavigatorWithClientHints).userAgentData?.platform
+  if (hinted) return hinted === "macOS"
+  return /Mac/i.test(navigator.platform) || /Macintosh|Mac OS X/i.test(navigator.userAgent)
 }
 
 function supportsDirectoryPicker(): boolean {

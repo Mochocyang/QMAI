@@ -1,6 +1,8 @@
 mod app_state;
 mod atomic_file;
 mod commands;
+#[cfg(target_os = "macos")]
+mod macos_window;
 mod panic_guard;
 mod platform_guard;
 mod proxy;
@@ -31,11 +33,32 @@ fn log_diagnostic(message: String) {
     eprintln!("[frontend-diagnostic] message: {}", message);
 }
 
+#[tauri::command]
+fn restore_macos_window_frame(window: tauri::WebviewWindow) {
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+    #[cfg(target_os = "macos")]
+    {
+        let cloned = window.clone();
+        if let Err(error) = window.run_on_main_thread(move || {
+            if let Ok(ptr) = cloned.ns_window() {
+                macos_window::restore_overlay_frame(ptr);
+            }
+        }) {
+            eprintln!("[window] 恢复 macOS 圆角失败：{error}");
+        }
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                if let Ok(ptr) = window.ns_window() {
+                    macos_window::restore_overlay_frame(ptr);
+                }
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -66,6 +89,12 @@ pub fn run() {
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(ptr) = window.ns_window() {
+                    macos_window::restore_overlay_frame(ptr);
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -141,8 +170,22 @@ pub fn run() {
             set_proxy_env,
             log_error,
             log_diagnostic,
+            restore_macos_window_frame,
         ])
         .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(
+                event,
+                tauri::WindowEvent::Focused(_)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ThemeChanged(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                if let Ok(ptr) = window.ns_window() {
+                    macos_window::restore_overlay_frame(ptr);
+                }
+            }
+
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 #[cfg(target_os = "macos")]
                 {
