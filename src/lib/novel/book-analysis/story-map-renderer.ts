@@ -86,20 +86,25 @@ export function renderStoryMapHtml(map: StoryMap): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>《${escapeHtml(map.bookTitle)}》故事导图</title>
 <style>
-  :root { color-scheme: light; }
+  :root {
+    color-scheme: light;
+    --bg: #f6f7fa; --surface: #ffffff; --surface2: #fbfcfe;
+    --ink: #23272f; --ink2: #4b5563; --muted: #6b7280; --border: #e5e8ef;
+    --brand: #4f8cff; --warn: #b45309; --on-brand: #ffffff;
+  }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 24px; background: #f6f7fa; color: #23272f;
+    margin: 0; padding: 24px; background: var(--bg); color: var(--ink);
     font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif; line-height: 1.7;
   }
   .wrap { max-width: 860px; margin: 0 auto; }
-  header.map-header { border-left: 4px solid #4f8cff; padding-left: 14px; margin-bottom: 8px; }
+  header.map-header { border-left: 4px solid var(--brand); padding-left: 14px; margin-bottom: 8px; }
   h1 { font-size: 20px; margin: 0; }
-  .mainline { margin: 6px 0 0; color: #4f8cff; font-weight: 600; font-size: 14px; }
-  .main-summary { margin: 2px 0 0; color: #6b7280; font-size: 13px; }
-  .meta { color: #9aa3b2; font-size: 12px; margin: 8px 0 20px; }
+  .mainline { margin: 6px 0 0; color: var(--brand); font-weight: 600; font-size: 14px; }
+  .main-summary { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .meta { color: var(--muted); font-size: 12px; margin: 8px 0 20px; }
   .chapter {
-    background: #fff; border: 1px solid #e5e8ef; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     margin-bottom: 12px; overflow: hidden;
   }
   .chapter summary {
@@ -107,35 +112,35 @@ export function renderStoryMapHtml(map: StoryMap): string {
     display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
   .chapter summary::-webkit-details-marker { display: none; }
-  .chapter summary::before { content: "▸"; color: #9aa3b2; transition: transform .15s; }
+  .chapter summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
   .chapter[open] summary::before { transform: rotate(90deg); }
-  .chapter-order { font-weight: 700; color: #4f8cff; white-space: nowrap; }
-  .chapter-title { font-weight: 600; }
-  .chapter-count { margin-left: auto; color: #9aa3b2; font-size: 12px; white-space: nowrap; }
-  .chapter-body { padding: 4px 16px 16px; border-top: 1px dashed #e5e8ef; }
-  .chapter-summary { color: #4b5563; font-size: 13px; margin: 10px 0; }
+  .chapter-order { font-weight: 700; color: var(--brand); white-space: nowrap; }
+  .chapter-title { font-weight: 600; color: var(--ink); }
+  .chapter-count { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chapter-body { padding: 4px 16px 16px; border-top: 1px dashed var(--border); }
+  .chapter-summary { color: var(--ink2); font-size: 13px; margin: 10px 0; }
   .section-title {
-    font-size: 12px; font-weight: 700; color: #6b7280; letter-spacing: 1px;
+    font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: 1px;
     margin: 14px 0 8px;
   }
-  .event { border-left: 2px solid #cdd6e4; padding-left: 12px; margin: 10px 0; }
-  .event-label { font-weight: 600; font-size: 14px; }
-  .beats { margin: 4px 0 0; padding-left: 18px; color: #4b5563; font-size: 13px; }
-  .chars, .spinoff { color: #6b7280; font-size: 12px; margin-top: 2px; }
-  .spinoff { color: #b45309; }
-  .empty { color: #9aa3b2; font-size: 13px; }
+  .event { border-left: 2px solid var(--border); padding-left: 12px; margin: 10px 0; }
+  .event-label { font-weight: 600; font-size: 14px; color: var(--ink); }
+  .beats { margin: 4px 0 0; padding-left: 18px; color: var(--ink2); font-size: 13px; }
+  .chars, .spinoff { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .spinoff { color: var(--warn); }
+  .empty { color: var(--muted); font-size: 13px; }
   .branches { display: grid; gap: 10px; }
   .branch {
-    border: 1px solid #e5e8ef; border-left: 3px solid var(--branch-color, #4f8cff);
-    border-radius: 8px; padding: 10px 12px; background: #fbfcfe;
+    border: 1px solid var(--border); border-left: 3px solid var(--branch-color, var(--brand));
+    border-radius: 8px; padding: 10px 12px; background: var(--surface2); color: var(--ink);
   }
   .branch-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .branch-kind {
     font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
   }
-  .branch-label { font-weight: 600; font-size: 13px; }
-  .branch-trigger { color: #6b7280; font-size: 12px; margin-top: 2px; }
-  footer { color: #9aa3b2; font-size: 12px; text-align: center; margin-top: 24px; }
+  .branch-label { font-weight: 600; font-size: 13px; color: var(--ink); }
+  .branch-trigger { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
   @media (max-width: 640px) { body { padding: 12px; } .chapter-count { display: none; } }
 </style>
 </head>

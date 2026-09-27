@@ -26,6 +26,7 @@ import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram"
 import { isTauri } from "@/lib/platform"
+import { useDocumentAppearance, useDocumentAppearanceHtml } from "@/lib/html-document-appearance"
 
 interface FilePreviewProps {
   filePath: string
@@ -312,6 +313,8 @@ function HtmlFilePreview({ filePath, content, onSave }: HtmlFilePreviewProps) {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
+  const skin = useDocumentAppearance()
+  const previewHtml = useDocumentAppearanceHtml(draft)
 
   useEffect(() => {
     setDraft(content)
@@ -376,11 +379,11 @@ function HtmlFilePreview({ filePath, content, onSave }: HtmlFilePreviewProps) {
       <div className="min-h-0 flex-1">
         {mode === "preview" ? (
           <iframe
-            key={draft.length}
+            key={`${skin}:${draft.length}`}
             title="HTML 预览"
-            srcDoc={draft}
+            srcDoc={previewHtml}
             sandbox="allow-same-origin"
-            className="h-full w-full border-0 bg-white"
+            className="h-full w-full border-0 bg-transparent"
           />
         ) : (
           <textarea

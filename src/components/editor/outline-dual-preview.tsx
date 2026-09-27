@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { Code2, LayoutTemplate } from "lucide-react"
+import { useDocumentAppearance, useDocumentAppearanceHtml } from "@/lib/html-document-appearance"
 
 interface OutlineDualPreviewProps {
   /** 同名 .html 伴生文件内容（卷纲折叠树） */
@@ -16,6 +17,8 @@ interface OutlineDualPreviewProps {
  */
 export function OutlineDualPreview({ htmlContent, mdEditor }: OutlineDualPreviewProps) {
   const [mode, setMode] = useState<"html" | "md">("html")
+  const skin = useDocumentAppearance()
+  const previewHtml = useDocumentAppearanceHtml(htmlContent)
   const activeClass = "bg-accent text-accent-foreground"
   const idleClass = "hover:bg-accent"
 
@@ -45,10 +48,11 @@ export function OutlineDualPreview({ htmlContent, mdEditor }: OutlineDualPreview
       <div className="min-h-0 flex-1">
         {mode === "html" ? (
           <iframe
+            key={skin}
             title="卷纲 HTML 预览"
-            srcDoc={htmlContent}
+            srcDoc={previewHtml}
             sandbox=""
-            className="h-full w-full border-0 bg-white"
+            className="h-full w-full border-0 bg-transparent"
           />
         ) : (
           mdEditor

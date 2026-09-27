@@ -13,8 +13,23 @@ import type {
   AnalysisSkill,
   BookAnalysisPipelineTask,
 } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import { useDocumentAppearance, useDocumentAppearanceHtml } from "@/lib/html-document-appearance"
 import { BookAnalysisActiveContext } from "./book-analysis-active-context"
 import { BookAnalysisModuleView, type BookAnalysisModuleTab } from "./book-analysis-module-view"
+
+function StoryMapPreview({ html, title, expanded }: { html: string; title: string; expanded: boolean }) {
+  const skin = useDocumentAppearance()
+  const srcDoc = useDocumentAppearanceHtml(html)
+  return (
+    <iframe
+      key={skin}
+      title={title}
+      srcDoc={srcDoc}
+      sandbox="allow-same-origin"
+      className={`w-full border-0 bg-transparent ${expanded ? "h-[70vh]" : "h-[300px]"}`}
+    />
+  )
+}
 
 interface StoryMapCardData {
   id: string
@@ -140,7 +155,7 @@ export function StoryMapContent({
       {cards.map((card) => {
         const expanded = expandedIds.has(card.id)
         return (
-          <div key={card.id} className="overflow-hidden rounded-md border bg-white">
+          <div key={card.id} className="overflow-hidden rounded-md border bg-background">
             <div className="flex items-start justify-between gap-3 border-b bg-background px-4 py-3">
               <div className="min-w-0">
                 <div className="truncate text-base font-semibold">
@@ -174,11 +189,10 @@ export function StoryMapContent({
               </div>
             </div>
             {card.html ? (
-              <iframe
+              <StoryMapPreview
+                html={card.html}
                 title={`故事导图预览-${card.id}`}
-                srcDoc={card.html}
-                sandbox="allow-same-origin"
-                className={`w-full border-0 ${expanded ? "h-[70vh]" : "h-[300px]"}`}
+                expanded={expanded}
               />
             ) : (
               <div className="p-4 text-sm text-muted-foreground">该历史导图的 HTML 缺失，无法预览。</div>
