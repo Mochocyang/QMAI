@@ -1,1 +1,0 @@
-import{m as e,o as t}from"./fs-DU3hUbcs.js";import{l as n}from"./path-utils-DetyJ9DL.js";var r=`.novel`,i=`project-meta.json`;async function a(a){let o=`${n(a)}/${r}/${i}`;if(!await t(o))return null;try{let t=await e(o);return JSON.parse(t)}catch{return null}}export{a as loadNovelProjectMeta};

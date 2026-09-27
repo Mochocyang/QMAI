@@ -1,1 +1,0 @@
-import{A as e,j as t}from"./index-LwCTHdlb.js";var n=null,r=null,i=0,a=null,o=new Set,s=new Map;async function c(){i++,n?.(),r?.(),n=null,r=null,a&&=(clearTimeout(a),null),o.clear(),s.clear(),t.getState().clear();try{await e()}catch{}}export{c as stopProjectFileSync};

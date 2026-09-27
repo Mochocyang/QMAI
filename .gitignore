@@ -1,5 +1,7 @@
 # === 构建产物 ===
 dist/
+dist-uitest/
+dist-default/
 release-portable/
 release-portable-*/
 release-portable-backup/
@@ -62,3 +64,6 @@ tokenyouhua/
 # === 开发调试产物（勿提交根目录）===
 /test-mocks-*-report.json
 typecheck-output.txt
+.dsh-vision-router/
+.tmp-outline-*.tsx
+/1.txt

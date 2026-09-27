@@ -1,1 +1,0 @@
-import{n as e}from"./rolldown-runtime-hePW80VL.js";import{_ as t,r as n}from"./fs-E_T3zoiZ.js";import{l as r,s as i}from"./path-utils-DetyJ9DL.js";var a=e({persistCharacterToDisk:()=>o});async function o(e,a){let o=r(i(e,`characters`));await n(o);let s=r(i(o,`${a.id}.json`));await t(s,JSON.stringify(a,null,2))}export{o as n,a as t};

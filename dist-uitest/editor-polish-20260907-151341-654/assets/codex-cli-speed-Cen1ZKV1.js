@@ -1,1 +1,0 @@
-function e(e){return e===`fast`?`fast`:`standard`}function t(t){return e(t)===`fast`?`priority`:void 0}export{e as n,t};
