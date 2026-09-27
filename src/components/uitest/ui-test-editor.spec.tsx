@@ -359,26 +359,48 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 
-  it("点进另一章仍是草稿时再次提示", async () => {
-    await mount()
-    await click("知道了")
-    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
-    const otherPath = `${project.path}/wiki/chapters/第一卷/第4章.md`
-    fixture.files.set(otherPath, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
-    await act(async () => { useWikiStore.setState({ selectedFile: otherPath }) })
+  it("这本书提示一次后，只有点开后面已有章节的草稿才再提示", async () => {
+    const chapter4 = `${project.path}/wiki/chapters/第一卷/第4章.md`
+    const chapter5 = `${project.path}/wiki/chapters/第一卷/第5章.md`
+    fixture.files.set(chapter4, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
+    fixture.files.set(chapter5, chapter.replace("chapter_number: 16", "chapter_number: 5").replace("第16章 实际章名", "第5章 新章"))
+    useWikiStore.setState({
+      fileTree: [{
+        name: "第一卷",
+        path: `${project.path}/wiki/chapters/第一卷`,
+        is_dir: true,
+        children: [
+          { name: "第4章.md", path: chapter4, is_dir: false },
+          { name: "第5章.md", path: chapter5, is_dir: false },
+        ],
+      }],
+    })
+    await mount(chapter5)
+    expect(container.querySelector(".ui-test-editor-draft-hint")).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.draftMemoryHintSeen).toBe(true)
+    await act(async () => { useWikiStore.setState({ selectedFile: chapter4 }) })
     await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
     expect(container.textContent).toContain("第4章 未定稿")
     expect(container.querySelector(".ui-test-editor-draft-hint")?.textContent).toContain("这一章还是草稿")
-  })
-
-  it("已经提示过的最新草稿章再点开不再提示，更早的草稿章仍提示", async () => {
-    await mount()
-    expect(container.querySelector(".ui-test-editor-draft-hint")).not.toBeNull()
-    const earlierPath = `${project.path}/wiki/chapters/第一卷/第4章.md`
-    fixture.files.set(earlierPath, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
-    await act(async () => { useWikiStore.setState({ selectedFile: earlierPath }) })
+    await act(async () => { useWikiStore.setState({ selectedFile: chapter5 }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第5章 新章")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    await act(async () => { useWikiStore.setState({ selectedFile: chapter4 }) })
     await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
     expect(container.querySelector(".ui-test-editor-draft-hint")?.textContent).toContain("这一章还是草稿")
+  })
+
+  it("没有更大章号时，离开后再点开同一章不再提示", async () => {
+    const otherPath = `${project.path}/wiki/chapters/第一卷/第4章.md`
+    fixture.files.set(otherPath, chapter.replace("chapter_number: 16", "chapter_number: 4").replace("第16章 实际章名", "第4章 未定稿"))
+    await mount()
+    expect(container.querySelector(".ui-test-editor-draft-hint")).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.draftMemoryHintSeen).toBe(true)
+    await act(async () => { useWikiStore.setState({ selectedFile: otherPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第4章 未定稿")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
     await act(async () => { useWikiStore.setState({ selectedFile: chapterPath }) })
     await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
     expect(container.textContent).toContain("第16章 实际章名")

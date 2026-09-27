@@ -354,6 +354,8 @@ export interface NovelConfig {
   autoGenerateChapterTitle: boolean
   /** 草稿章节是否提示先保存为正式再提取记忆。关闭后不再弹出（默认开）。 */
   draftMemoryHintEnabled: boolean
+  /** 这本书的文件夹里是否已经提示过一次。重新打开开关不会清掉。 */
+  draftMemoryHintSeen: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -378,6 +380,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   communitySummaryAsync: true,
   autoGenerateChapterTitle: true,
   draftMemoryHintEnabled: true,
+  draftMemoryHintSeen: false,
 }
 
 export interface RevisionFeedbackWindowConfig {

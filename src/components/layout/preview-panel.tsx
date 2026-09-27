@@ -15,7 +15,7 @@ import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { chapterOrdersFromTree, isLatestDraftReopen, maxChapterOrder, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
+import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig } from "@/lib/project-store"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
@@ -251,8 +251,6 @@ export function PreviewPanel() {
     persistedWords: null as number | null,
     visible: false,
     dismissed: false,
-    hintEnabled: true,
-    hintedLatestChapter: null as number | null,
   })
   const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
@@ -755,6 +753,7 @@ export function PreviewPanel() {
     return buildChapterEditorHeader(fileContent)
   }, [fileContent, selectedFile])
   const draftMemoryHintEnabled = useWikiStore((s) => s.novelConfig.draftMemoryHintEnabled)
+  const draftMemoryHintSeen = useWikiStore((s) => s.novelConfig.draftMemoryHintSeen)
   const fileTree = useWikiStore((s) => s.fileTree)
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
   const dismissDraftMemoryHint = useCallback(() => {
@@ -764,7 +763,6 @@ export function PreviewPanel() {
   }, [])
   const muteDraftMemoryHint = useCallback(() => {
     draftHintSessionRef.current.visible = false
-    draftHintSessionRef.current.hintEnabled = false
     setDraftHintVisible(false)
     const next = { ...useWikiStore.getState().novelConfig, draftMemoryHintEnabled: false }
     setNovelConfig({ draftMemoryHintEnabled: false })
@@ -796,21 +794,6 @@ export function PreviewPanel() {
       session.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
       session.persistedWords = words
     }
-    const maxChapterNumber = maxChapterOrder([
-      chapterNumber,
-      session.hintedLatestChapter,
-      ...chapterOrdersFromTree(fileTree),
-    ])
-    let latestAlreadyHinted = isLatestDraftReopen({
-      chapterNumber,
-      maxChapterNumber,
-      hintedLatestChapter: session.hintedLatestChapter,
-    })
-    if (!session.hintEnabled && draftMemoryHintEnabled && !session.dismissed) {
-      session.arrival = "select"
-      latestAlreadyHinted = false
-    }
-    session.hintEnabled = draftMemoryHintEnabled
     const next = resolveDraftMemoryHint({
       isChapter: isChapterPath(selectedFile),
       status: chapterHeader?.status ?? null,
@@ -819,15 +802,20 @@ export function PreviewPanel() {
       dismissed: session.dismissed,
       extracting: isFinalChapterSaving,
       enabled: draftMemoryHintEnabled,
-      latestAlreadyHinted,
+      bookHintSeen: draftMemoryHintSeen,
+      hasLaterChapter: chapterHasLaterChapter(chapterNumber, chapterOrdersFromTree(fileTree)),
       currentlyVisible: session.visible,
     })
     session.visible = next
-    if (next && chapterNumber != null && chapterNumber === maxChapterNumber) {
-      session.hintedLatestChapter = chapterNumber
+    if (next && !draftMemoryHintSeen) {
+      const config = { ...useWikiStore.getState().novelConfig, draftMemoryHintSeen: true }
+      setNovelConfig({ draftMemoryHintSeen: true })
+      void saveNovelConfig(config, project?.id, project?.path).catch((error) => {
+        console.error("记录草稿提取记忆提示失败:", error)
+      })
     }
     setDraftHintVisible(next)
-  }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, fileContent, fileTree, isFinalChapterSaving, loadedFilePath, selectedFile, uiTestSaveState])
+  }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, draftMemoryHintSeen, fileContent, fileTree, isFinalChapterSaving, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig, uiTestSaveState])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""

@@ -944,6 +944,7 @@ function normalizeNovelConfig(
     communitySummaryAsync: config.communitySummaryAsync ?? DEFAULT_NOVEL_CONFIG.communitySummaryAsync,
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
     draftMemoryHintEnabled: config.draftMemoryHintEnabled ?? DEFAULT_NOVEL_CONFIG.draftMemoryHintEnabled,
+    draftMemoryHintSeen: config.draftMemoryHintSeen ?? DEFAULT_NOVEL_CONFIG.draftMemoryHintSeen,
   }
 }
 

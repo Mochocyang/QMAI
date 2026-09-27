@@ -14,15 +14,19 @@ export function resolveDraftMemoryHint(input: {
   dismissed: boolean
   extracting: boolean
   enabled: boolean
-  /** 当前章就是全书最新章，而且这章作为最新草稿已经提示过。再次点开不再提示。 */
-  latestAlreadyHinted: boolean
+  /** 这本书的文件夹里已经提示过一次。 */
+  bookHintSeen: boolean
+  /** 点开时，同一本书里已经有更大章号。不看后一章是草稿还是正式。 */
+  hasLaterChapter: boolean
   currentlyVisible: boolean
 }): boolean {
   if (!input.enabled || !input.isChapter || input.status !== "draft" || input.wordCount <= 0 || input.dismissed || input.extracting) {
     return false
   }
-  if (input.arrival === "select" && input.latestAlreadyHinted && !input.currentlyVisible) return false
   if (input.arrival === "stay") return input.currentlyVisible
+  // 同一次打开里刚记下「本书已提示」，不要把正在显示的提示收掉。
+  if (input.currentlyVisible) return true
+  if (input.bookHintSeen && !(input.hasLaterChapter && input.arrival === "select")) return false
   return true
 }
 
@@ -58,22 +62,8 @@ export function chapterOrderFromFileName(name: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-export function maxChapterOrder(values: Array<number | null | undefined>): number | null {
-  let max: number | null = null
-  for (const value of values) {
-    if (value == null || !Number.isFinite(value)) continue
-    max = max == null ? value : Math.max(max, value)
-  }
-  return max
-}
-
-/** 再次点开全书最新草稿，且这章已经提示过。 */
-export function isLatestDraftReopen(input: {
-  chapterNumber: number | null
-  maxChapterNumber: number | null
-  hintedLatestChapter: number | null
-}): boolean {
-  if (input.chapterNumber == null || input.hintedLatestChapter == null) return false
-  const latest = input.maxChapterNumber ?? input.chapterNumber
-  return input.chapterNumber === latest && input.hintedLatestChapter === input.chapterNumber
+/** 章节目录里是否已有比当前章号更大的章节文件。 */
+export function chapterHasLaterChapter(chapterNumber: number | null, orders: Array<number | null | undefined>): boolean {
+  if (chapterNumber == null) return false
+  return orders.some((order) => order != null && order > chapterNumber)
 }

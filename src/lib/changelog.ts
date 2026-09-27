@@ -12,7 +12,7 @@ const FOUR_POINT_ZERO_TWO_CHANGELOG: ChangelogEntry = {
   date: "2026-09-27",
   highlights: {
     en: [
-      "[Draft Memory Hint] Draft chapters now explain that Extract Memory saves the draft as a formal chapter first. The hint can be dismissed with Don't Remind Again and turned back on in Writing settings, and the latest draft chapter only shows it once per app session.",
+      "[Draft Memory Hint] Draft chapters now explain that Extract Memory saves the draft as a formal chapter first. The hint can be dismissed with Don't Remind Again and turned back on in Writing settings. Each novel folder shows it once; after that it appears again only when opening a draft chapter that already has a later chapter.",
       "[Model Settings] Model list rows put the name next to saved and enabled status, providers show brand icons, and inputs on model cards get visible borders. Custom model tests only cover selected models, and removing one failed model keeps the other failures marked red.",
       "[Install After Leaving Changelog] A downloaded update can still be installed after leaving the changelog page. After download you get Install and Re-download, and a failed install can be retried.",
       "[Shelf Delete] Novels whose folder is gone can still be removed from the shelf. On Windows, moving to the recycle bin no longer flashes a console window.",
@@ -21,7 +21,7 @@ const FOUR_POINT_ZERO_TWO_CHANGELOG: ChangelogEntry = {
       "[UI Details] Send and stop icons in the writing chat are centered, macOS window buttons use one consistent line width, the AI chat panel has a 400px minimum and default width, model hover shows only the model name, and usage is labeled tokens.",
     ],
     zh: [
-      "【草稿提取记忆提示】草稿章节下会说明：点「提取记忆」会先保存为正式章节再提取；可点「不再提醒」，写作设置里能重新打开；最新草稿章本次打开应用只提示一次",
+      "【草稿提取记忆提示】草稿章节下会说明：点「提取记忆」会先保存为正式章节再提取；可点「不再提醒」，写作设置里能重新打开；每本小说只提示一次，之后只有点开仍是草稿、且后面已经有章节时才再提示",
       "【模型配置界面】模型列表的名称与保存、启用状态放在同一行，提供方显示图标，模型配置卡片的输入框补上边框；自定义模型测试只测已选模型，移除一个失败模型时其余失败项保持标红",
       "【离开页面也能安装更新】离开更新日志页面后，已下载的新版本仍可安装；下载完成后提供「安装」和「重新下载」，安装失败可以重试",
       "【书架删除】小说目录已不存在时也能从书架删除；Windows 上移入回收站不再弹出控制台窗口",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { chapterOrdersFromTree, isLatestDraftReopen, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "./draft-memory-hint"
+import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "./draft-memory-hint"
 
 function hint(overrides: Partial<Parameters<typeof resolveDraftMemoryHint>[0]> = {}) {
   return resolveDraftMemoryHint({
@@ -10,7 +10,8 @@ function hint(overrides: Partial<Parameters<typeof resolveDraftMemoryHint>[0]> =
     dismissed: false,
     extracting: false,
     enabled: true,
-    latestAlreadyHinted: false,
+    bookHintSeen: false,
+    hasLaterChapter: false,
     currentlyVisible: false,
     ...overrides,
   })
@@ -40,16 +41,24 @@ describe("草稿提取记忆提示", () => {
     expect(hint({ enabled: false })).toBe(false)
   })
 
-  it("再次点开已经提示过的最新草稿章不再显示，停留中的提示不因此收起", () => {
-    expect(hint({ arrival: "select", latestAlreadyHinted: true, currentlyVisible: false })).toBe(false)
-    expect(hint({ arrival: "select", latestAlreadyHinted: true, currentlyVisible: true })).toBe(true)
-    expect(hint({ arrival: "first-save", latestAlreadyHinted: false })).toBe(true)
+  it("这本书已经提示过后，再点开没有更大章号的草稿不显示", () => {
+    expect(hint({ bookHintSeen: true, hasLaterChapter: false, arrival: "select" })).toBe(false)
+    expect(hint({ bookHintSeen: true, hasLaterChapter: false, arrival: "first-save" })).toBe(false)
   })
 
-  it("只有再次打开全书最新章才算已经提示过", () => {
-    expect(isLatestDraftReopen({ chapterNumber: 5, maxChapterNumber: 5, hintedLatestChapter: 5 })).toBe(true)
-    expect(isLatestDraftReopen({ chapterNumber: 4, maxChapterNumber: 5, hintedLatestChapter: 5 })).toBe(false)
-    expect(isLatestDraftReopen({ chapterNumber: 5, maxChapterNumber: 5, hintedLatestChapter: null })).toBe(false)
+  it("这本书已经提示过后，点开仍是草稿且后面已有章节会显示", () => {
+    expect(hint({ bookHintSeen: true, hasLaterChapter: true, arrival: "select" })).toBe(true)
+    expect(hint({ bookHintSeen: true, hasLaterChapter: true, arrival: "first-save" })).toBe(false)
+  })
+
+  it("同一次打开里记下本书已提示后，正在显示的提示不收起", () => {
+    expect(hint({ bookHintSeen: true, hasLaterChapter: false, arrival: "select", currentlyVisible: true })).toBe(true)
+  })
+
+  it("后面已有章节只比较更大章号", () => {
+    expect(chapterHasLaterChapter(4, [4, 5])).toBe(true)
+    expect(chapterHasLaterChapter(5, [4, 5])).toBe(false)
+    expect(chapterHasLaterChapter(null, [5])).toBe(false)
   })
 
   it("从章节目录里取出章号", () => {
