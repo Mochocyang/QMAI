@@ -290,7 +290,9 @@ function exactChapterHeading(content: string, chapterNumber: number): boolean {
   return content.split(/\r?\n/).some((line) => {
     const heading = line.match(/^#{1,6}\s*(.+)$/)?.[1]?.replace(/\s+/g, "").toLowerCase()
     if (!heading) return false
-    const arabic = heading.match(/^第0*(\d+)章(?:章纲|细纲|[：:、\-—]|$)/)
+    // 章纲 MD 的章标题可能写作「## 第5章 无我」/「## 第5章：无我」，
+    // 因此只要求「第N章」后面不是数字即可（(?!\d) 防止 第23章 命中 第230章）。
+    const arabic = heading.match(/^第0*(\d+)章(?!\d)/)
     if (arabic && Number(arabic[1]) === chapterNumber) return true
     return labels.some((label) =>
       heading === label || heading === `${label}章纲` || heading === `${label}细纲` ||
@@ -304,6 +306,56 @@ function pathMatchesChapter(path: string, chapterNumber: number): boolean {
   return new RegExp(`第0*${chapterNumber}章`).test(compact) ||
     compact.includes(`第${numberToChinese(chapterNumber)}章`) ||
     new RegExp(`(?:chapter|ch)[-_ ]*0*${chapterNumber}(?:\\D|$)`, "i").test(path)
+}
+
+interface ChapterRange {
+  start: number
+  end: number
+}
+
+const CHAPTER_RANGE_SEPARATORS = "[-—–－~～至到]"
+
+/** 去掉「章纲 / 细纲」等前缀，得到以「第…章」开头的命名主体。 */
+function chapterRangeSubject(text: string): string {
+  return text
+    .replace(/\s+/g, "")
+    .replace(/^(?:章纲|细纲|章节细纲|章节大纲|chapter[-_ ]*outline)/i, "")
+    .replace(/^[-—–－~～:：、_]+/, "")
+}
+
+function toChapterRange(match: RegExpMatchArray | null): ChapterRange | null {
+  if (!match) return null
+  const start = Number(match[1])
+  const end = Number(match[2])
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= start) return null
+  return { start, end }
+}
+
+/**
+ * 文件名形如「章纲-第01–12章.md」时，解析出覆盖的章号区间。
+ * 要求区间出现在命名主体开头且以「章」收尾，避免「第001章-标题」这类单章命名被误判。
+ */
+function pathChapterRange(path: string): ChapterRange | null {
+  const stem = (path.split("/").pop() ?? "").replace(/\.md$/i, "")
+  const subject = chapterRangeSubject(stem)
+  return toChapterRange(subject.match(new RegExp(`^第0*(\\d+)章?${CHAPTER_RANGE_SEPARATORS}第?0*(\\d+)章`)))
+}
+
+/** 标题形如「# 章纲-第01–12章：雨夜无我」时，解析出覆盖的章号区间。 */
+function titleChapterRange(content: string): ChapterRange | null {
+  const title = content.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? ""
+  const subject = chapterRangeSubject(title)
+  return toChapterRange(subject.match(new RegExp(`^第0*(\\d+)章?${CHAPTER_RANGE_SEPARATORS}第?0*(\\d+)章`)))
+}
+
+/** 一份章纲覆盖多章（如「第01–12章」）时返回其区间，单章命名返回 null。 */
+function standaloneDocumentRange(document: OutlineDocument): ChapterRange | null {
+  return pathChapterRange(document.relativePath) ?? titleChapterRange(document.content)
+}
+
+function rangeContainsChapter(range: ChapterRange | null, chapterNumber: number): boolean {
+  if (!range) return false
+  return chapterNumber >= range.start && chapterNumber <= range.end
 }
 
 function frontmatterChapterNumber(frontmatter: Record<string, unknown> | null): number | undefined {
@@ -561,7 +613,8 @@ function standaloneChapterMatches(document: OutlineDocument, chapterNumber: numb
   const titleLine = document.content.match(/^#{1,6}\s+.+$/m)?.[0] ?? ""
   return frontmatterChapterNumber(document.frontmatter) === chapterNumber ||
     pathMatchesChapter(document.relativePath, chapterNumber) ||
-    exactChapterHeading(titleLine, chapterNumber)
+    exactChapterHeading(titleLine, chapterNumber) ||
+    rangeContainsChapter(standaloneDocumentRange(document), chapterNumber)
 }
 
 export function resolveChapterOutline(index: OutlineDocumentIndex, chapterNumber: number): ChapterOutlineResolution {
@@ -569,8 +622,12 @@ export function resolveChapterOutline(index: OutlineDocumentIndex, chapterNumber
     document.kind === "chapter" && standaloneChapterMatches(document, chapterNumber),
   )
   if (standalone) {
+    // 一份章纲覆盖多章（如「章纲-第01–12章」）时，只取本章那一节；
+    // 单章文件仍返回整份内容。切片失败则退回整份，保证旧行为不回退。
+    const range = standaloneDocumentRange(standalone)
+    const scoped = range ? extractStructuredChapterContent(standalone.content, chapterNumber) : ""
     return {
-      content: excerptHeadTail(standalone.content, MAX_CHAPTER_CONTEXT_CHARS),
+      content: excerptHeadTail(scoped.trim() ? scoped : standalone.content, MAX_CHAPTER_CONTEXT_CHARS),
       sourceKind: "standalone",
       sourcePaths: [standalone.relativePath],
     }

@@ -6,12 +6,9 @@ import {
   Network,
   History,
   Wrench,
-  HelpCircle,
   MessageCircle,
   HeartHandshake,
   Archive,
-  FileText,
-  Download,
   Brain,
   Search,
 } from "lucide-react"

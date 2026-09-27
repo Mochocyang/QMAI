@@ -1,7 +1,6 @@
 import { useEffect, useId, useState } from "react"
 import { Check } from "lucide-react"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
-import { useTranslation } from "react-i18next"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import { UI_FONT_OPTIONS } from "@/lib/font-settings"
 
@@ -18,7 +17,6 @@ const FONT_SIZE_PRESETS = [
 ]
 
 function UiTestInterfaceSection({ draft, setDraft }: Props) {
-  const { t } = useTranslation()
   const id = useId()
   const [skin, setSkin] = useState<UiTestSkin>(readUiTestSkin)
   const [skinError, setSkinError] = useState("")

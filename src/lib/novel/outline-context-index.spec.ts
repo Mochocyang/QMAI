@@ -143,6 +143,81 @@ describe("outline context index", () => {
     expect(result.content).toContain("旧版章纲完整内容")
   })
 
+  it("范围命名的章纲（章纲-第01–12章）按章切片，只取本章那一节", async () => {
+    const chapterPath = `${root}/章纲/章纲-第01–12章.md`
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/章纲`, [file(chapterPath)]),
+    ])
+    vi.mocked(readFile).mockResolvedValue([
+      "# 章纲-第01–12章：雨夜无我",
+      "",
+      "## 第4章 竹哨",
+      "第四章的完整执行单元",
+      "",
+      "## 第5章 无我",
+      "第五章的完整执行单元",
+      "",
+      "## 第6章 断线",
+      "第六章的完整执行单元",
+    ].join("\n"))
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 5)
+
+    expect(result.sourceKind).toBe("standalone")
+    expect(result.sourcePaths).toEqual(["章纲/章纲-第01–12章.md"])
+    expect(result.content).toContain("第五章的完整执行单元")
+    expect(result.content).not.toContain("第四章的完整执行单元")
+    expect(result.content).not.toContain("第六章的完整执行单元")
+  })
+
+  it("范围命名的章纲在区间外不命中（不误选整份文档）", async () => {
+    const chapterPath = `${root}/章纲/章纲-第01–12章.md`
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/章纲`, [file(chapterPath)]),
+    ])
+    vi.mocked(readFile).mockResolvedValue([
+      "# 章纲-第01–12章：雨夜无我",
+      "",
+      "## 第5章 无我",
+      "第五章的完整执行单元",
+    ].join("\n"))
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 15)
+
+    expect(result.sourceKind).toBe("none")
+    expect(result.content).not.toContain("第五章的完整执行单元")
+  })
+
+  it("单章命名（第239章.md）仍返回整份文档，不被范围切片影响", async () => {
+    const chapterPath = `${root}/章纲/第239章.md`
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/章纲`, [file(chapterPath)]),
+    ])
+    vi.mocked(readFile).mockResolvedValue("# 第239章：钢铁来潮\n\n## 场景一\n完整场景要求")
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 239)
+
+    expect(result.sourceKind).toBe("standalone")
+    expect(result.content).toContain("完整场景要求")
+  })
+
+  it("相邻范围章纲各归其章（第13–24章只命中第15章）", async () => {
+    const firstPath = `${root}/章纲/章纲-第01–12章.md`
+    const secondPath = `${root}/章纲/章纲-第13–24章.md`
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/章纲`, [file(firstPath), file(secondPath)]),
+    ])
+    vi.mocked(readFile).mockImplementation(async (path) => String(path) === firstPath
+      ? "# 章纲-第01–12章：雨夜无我\n\n## 第5章 无我\n第一份文档的第五章"
+      : "# 章纲-第13–24章：钢铁来潮\n\n## 第15章 接收链\n第二份文档的第十五章")
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 15)
+
+    expect(result.sourceKind).toBe("standalone")
+    expect(result.sourcePaths).toEqual(["章纲/章纲-第13–24章.md"])
+    expect(result.content).toContain("第二份文档的第十五章")
+  })
+
   it("完整新书规划按语义拆分，人物小传仍只按命中人物加载", async () => {
     const planningPath = `${root}/大纲/完整新书规划.md`
     vi.mocked(listDirectory).mockResolvedValue([

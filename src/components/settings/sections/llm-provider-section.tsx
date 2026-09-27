@@ -32,8 +32,6 @@ import { thinkingMinMaxTokens } from "@/lib/llm-providers"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
 
-const MODEL_PARAM_DOCS_URL = "https://global.modelmesh.info/model"
-
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
   "claude-code-cli": "使用本机 claude 命令及其登录状态，无需 API Key",

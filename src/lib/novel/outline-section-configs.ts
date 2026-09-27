@@ -1,4 +1,5 @@
 type OutlineSectionGenerationKey =
+  | "volumeOutline"
   | "chapterOutlines"
   | "characterBriefs"
   | "organizationsOutline"
@@ -22,12 +23,20 @@ interface OutlineSectionGenerationConfig {
 
 export const OUTLINE_SECTION_GENERATION_CONFIGS: OutlineSectionGenerationConfig[] = [
   {
+    key: "volumeOutline",
+    title: "卷纲",
+    englishTitle: "Volume Outline",
+    englishFileName: "volume-outline.md",
+    requestHint: "根据已有总纲、人物小传与设定，按「卷纲折叠树」结构生成卷纲：1 卷 = 10 个小故事 = 1 个大高潮，每故事固定 10 环节（起3+承3+转2+合2），遵循 8 类期待感、7 类反转库、8 种情绪结构、10 种叙事结构选用纪律、三层线与 12 章排布；产出 MD 正文与 volumeOutlineData 结构化数据（每故事 link、每环节 pay，顶层 position/roles/foreshadows/cast/escalation/debts/rivals/growth/places），由软件套模板渲染折叠树 HTML（含卷级定位、整卷账本、期待感曲线、节拍体检、各类台账面板，保存时可选择 HTML/MD 格式）。若存在多卷，先明确当前要生成哪一卷（默认第 1 卷）。",
+    outputMode: "single",
+  },
+  {
     key: "chapterOutlines",
     title: "章节细纲",
     englishTitle: "Chapter Outlines",
     englishFileName: "chapter-outlines.md",
-    requestHint: "根据已有总纲、分卷大纲与章节推进需要，生成或完善章节细纲，明确每章目标、冲突、转折和结尾钩子。",
-    outputMode: "per_chapter",
+    requestHint: "把选定的故事（10–12 章）拆成逐章可执行的章纲：每章必须写满 17 节标准（基础信息 / 上章承接 / 本章定位 / 浓缩剧情 / 核心事件链（≥6 条有因果）/ 关键词与必要条件 / 四段式 / 情绪曲线 / 爽点与看点 / 关键信息扩写 / 画面细节 / 伏笔与钩子 / 角色状态变化 / 设定增量 / 写作约束 / 下一章交接 / 写作检查清单），并补齐对齐字段（所属环节、章内节拍、主期待感、时间、地点、预埋与回收的伏笔）；节拍、章号、环节必须与卷纲骨架逐字一致。产出 MD 正文与 chapterOutlineData 结构化数据，由软件套模板渲染卡片流 HTML（保存时可选择 HTML/MD 格式）。若存在多卷多故事，先明确当前要拆哪一个故事（默认第一个未完成的故事）。",
+    outputMode: "single",
   },
   {
     key: "characterBriefs",

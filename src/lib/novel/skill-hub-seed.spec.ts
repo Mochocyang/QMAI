@@ -4,8 +4,8 @@ import { DEFAULT_SKILL_HUB_SKILLS } from "./skill-hub-seed"
 
 describe("SkillHub seed", () => {
   it("loads SkillHub files as built-in routed skills", () => {
-    expect(DEFAULT_SKILL_HUB_SKILLS.length).toBe(70)
-    expect(new Set(DEFAULT_SKILL_HUB_SKILLS.map((skill) => skill.name)).size).toBe(70)
+    expect(DEFAULT_SKILL_HUB_SKILLS.length).toBe(72)
+    expect(new Set(DEFAULT_SKILL_HUB_SKILLS.map((skill) => skill.name)).size).toBe(72)
     expect(DEFAULT_SKILL_HUB_SKILLS.every((skill) => skill.source === "built-in")).toBe(true)
   })
 

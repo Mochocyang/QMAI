@@ -287,6 +287,16 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
     }
   }
 
+  async function cacheInputFor(
+    task: BookAnalysisPipelineTask,
+    skill: AnalysisSkill,
+    chunk: AnalysisChunkRecord,
+  ): Promise<AnalysisResultCacheInput> {
+    const context = contextFor(task, skill, "chunk")
+    context.llmConfig = await resolveRuntimeLocalCliConfig(context.llmConfig)
+    return { ...context, chunk }
+  }
+
   async function runChunk(task: BookAnalysisPipelineTask, skill: AnalysisSkill, chunk: AnalysisChunkRecord): Promise<void> {
     const key = chunkKey(chunk)
     const existing = chunkRuns.get(key)

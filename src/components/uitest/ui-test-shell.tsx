@@ -290,7 +290,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       {!windowFilled && (["top", "right", "bottom", "left", "nw", "ne", "sw", "se"] as const).map((edge) => <div key={edge} className={`ui-test-resize-edge ${edge}${edge.length === 2 ? " corner" : ""}`} data-resize-edge={edge} onPointerDown={(event) => {
         if (event.button !== 0 || !isTauri()) return
         event.preventDefault()
-        const direction = { top: "North", right: "East", bottom: "South", left: "West", nw: "NorthWest", ne: "NorthEast", sw: "SouthWest", se: "SouthEast" }[edge]
+        const direction = ({ top: "North", right: "East", bottom: "South", left: "West", nw: "NorthWest", ne: "NorthEast", sw: "SouthWest", se: "SouthEast" } as const)[edge]
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startResizeDragging(direction))
       }} />)}
       <div ref={appRef} className="ui-test-app">

@@ -10,6 +10,7 @@ import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { FilePreview } from "@/components/editor/file-preview"
+import { OutlineDualPreview } from "@/components/editor/outline-dual-preview"
 import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
@@ -243,6 +244,8 @@ export function PreviewPanel() {
   const [uiTestSaveState, setUiTestSaveState] = useState<UiTestEditorSaveState | null>(null)
   const uiTestScrollRef = useRef<HTMLDivElement>(null)
   const [diskSyncEpoch, setDiskSyncEpoch] = useState(0)
+  /** 卷纲伴生 .html 内容（存在同名 .html 时启用双格式查看器） */
+  const [companionHtml, setCompanionHtml] = useState<string | null>(null)
   const pendingScrollRestoreRef = useRef<number | null>(null)
   // Snapshot of what was most recently loaded from disk. Milkdown re-emits
   // `markdownUpdated` on initial parse (before the user types anything),
@@ -334,6 +337,24 @@ export function PreviewPanel() {
       requestAnimationFrame(restore)
     })
   }, [diskSyncEpoch, selectedFile])
+
+  // 卷纲双格式：打开 .md 大纲时并行读取同名 .html 伴生文件（供 HTML/MD 切换）
+  useEffect(() => {
+    const target = selectedFile
+    setCompanionHtml(null)
+    if (!target || !target.toLowerCase().endsWith(".md") || !isOutlinePath(target)) return
+    const htmlPath = target.replace(/\.md$/i, ".html")
+    void (async () => {
+      try {
+        if (!(await fileExists(htmlPath))) return
+        if (selectedFile !== target) return
+        const html = await readFile(htmlPath)
+        if (selectedFile === target && html.trim()) setCompanionHtml(html)
+      } catch {
+        // 伴生 html 读取失败时按普通 MD 查看器处理，不影响主文件
+      }
+    })()
+  }, [selectedFile, diskSyncEpoch])
 
   const syncDiskBeforeAction = useCallback(async () => {
     const path = selectedFileRef.current
@@ -1370,79 +1391,85 @@ export function PreviewPanel() {
     ? (getDirName(selectedFile).split(isSelectedChapter ? "/wiki/chapters" : "/wiki/outlines")[1] ?? "").split("/").filter(Boolean)
     : []
 
+  const uiTestEditorElement = useUiTestEditor ? (
+    <UiTestEditor
+      key={selectedFile}
+      kind={isSelectedChapter ? "chapter" : "outline"}
+      path={selectedFile}
+      breadcrumbs={[...(project ? [project.name] : []), ...(uiTestFolders.length ? uiTestFolders : [isSelectedChapter ? "章节" : "大纲"])]}
+      title={isSelectedChapter ? chapterDisplayTitle : uiTestHeading?.heading || getOutlineFileName(selectedFile)}
+      onTitleCommit={isSelectedChapter ? commitChapterTitleDraft : (title) => {
+        if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body))
+      }}
+      statusLabel={isSelectedChapter ? chapterHeader?.statusLabel ?? "草稿" : isOutlineIngesting ? "正在提取记忆" : outlineIngested ? "已提取记忆" : "待提取记忆"}
+      wordCount={countChapterBodyWords(fileContent)}
+      saveState={uiTestSaveState}
+      taskStatus={currentFinalChapterSave?.phase === "ingest_failed" && !alreadyFinal ? "正式章节保存未完成，请核对文件后重试。" : visibleSaveStatus}
+      onRetrySave={() => {
+        if (uiTestSaveState?.retryAction === "format") void handleFormatWriting()
+        else if (uiTestSaveState?.retryAction === "title") void commitChapterTitleDraft()
+        else if (uiTestSaveState?.retryAction === "final") void handleSaveAsFinal()
+        else handleSave(wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current)
+      }}
+      onClose={() => setSelectedFile(null)}
+      scrollRef={uiTestScrollRef}
+      documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
+      auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
+      actions={isSelectedChapter ? (
+        <>
+          <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
+            <Eraser aria-hidden="true" />去AI味
+          </button>
+          <button type="button" className="ui-test-editor-action" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+            <Brain aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
+          </button>
+          <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
+            <Brain aria-hidden="true" />查看记忆
+          </button>
+          {canFormatWriting ? <button type="button" className="ui-test-editor-action" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" />一键排版</button> : null}
+        </>
+      ) : (
+        <>
+          <button type="button" className="ui-test-editor-action" onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
+            <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+          </button>
+          <button type="button" className="ui-test-editor-action" onClick={() => {
+            if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
+            else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
+          }}><BookOpen aria-hidden="true" />查看记忆</button>
+        </>
+      )}
+      moreActions={[]}
+    >
+      {(mode) => isSelectedChapter && mode === "read" ? (
+        <div className="ui-test-editor-reader">
+          <WikiReader body={(uiTestHeading?.body ?? "").replace(/^　　/gm, "")} highlightHandcraftZones />
+        </div>
+      ) : (
+        <WikiEditor
+          ref={wikiEditorRef}
+          key={`${selectedFile}:${diskSyncEpoch}`}
+          content={fileContent}
+          onSave={handleSave}
+          defaultMode={mode}
+          immersiveWriting={isSelectedChapter}
+          formatToolbar={!isSelectedChapter}
+          onSelectionAction={isSelectedChapter ? handleSelectionAction : undefined}
+          highlightRequest={isSelectedChapter ? activeHighlightRequest : null}
+          onHighlightHandled={() => {
+            if (activeHighlightRequest) setPendingEditorHighlight(null)
+          }}
+        />
+      )}
+    </UiTestEditor>
+  ) : null
+
   return (
     <div className="flex h-full flex-col">
-      {useUiTestEditor ? (
-        <UiTestEditor
-          key={selectedFile}
-          kind={isSelectedChapter ? "chapter" : "outline"}
-          path={selectedFile}
-          breadcrumbs={[...(project ? [project.name] : []), ...(uiTestFolders.length ? uiTestFolders : [isSelectedChapter ? "章节" : "大纲"])]}
-          title={isSelectedChapter ? chapterDisplayTitle : uiTestHeading?.heading || getOutlineFileName(selectedFile)}
-          onTitleCommit={isSelectedChapter ? commitChapterTitleDraft : (title) => {
-            if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body))
-          }}
-          statusLabel={isSelectedChapter ? chapterHeader?.statusLabel ?? "草稿" : isOutlineIngesting ? "正在提取记忆" : outlineIngested ? "已提取记忆" : "待提取记忆"}
-          wordCount={countChapterBodyWords(fileContent)}
-          saveState={uiTestSaveState}
-          taskStatus={currentFinalChapterSave?.phase === "ingest_failed" && !alreadyFinal ? "正式章节保存未完成，请核对文件后重试。" : visibleSaveStatus}
-          onRetrySave={() => {
-            if (uiTestSaveState?.retryAction === "format") void handleFormatWriting()
-            else if (uiTestSaveState?.retryAction === "title") void commitChapterTitleDraft()
-            else if (uiTestSaveState?.retryAction === "final") void handleSaveAsFinal()
-            else handleSave(wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current)
-          }}
-          onClose={() => setSelectedFile(null)}
-          scrollRef={uiTestScrollRef}
-          documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
-          auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
-          actions={isSelectedChapter ? (
-            <>
-              <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
-                <Eraser aria-hidden="true" />去AI味
-              </button>
-              <button type="button" className="ui-test-editor-action" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
-                <Brain aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
-              </button>
-              <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
-                <Brain aria-hidden="true" />查看记忆
-              </button>
-              {canFormatWriting ? <button type="button" className="ui-test-editor-action" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" />一键排版</button> : null}
-            </>
-          ) : (
-            <>
-              <button type="button" className="ui-test-editor-action" onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
-                <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
-              </button>
-              <button type="button" className="ui-test-editor-action" onClick={() => {
-                if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
-                else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
-              }}><BookOpen aria-hidden="true" />查看记忆</button>
-            </>
-          )}
-          moreActions={[]}
-        >
-          {(mode) => isSelectedChapter && mode === "read" ? (
-            <div className="ui-test-editor-reader">
-              <WikiReader body={(uiTestHeading?.body ?? "").replace(/^　　/gm, "")} highlightHandcraftZones />
-            </div>
-          ) : (
-            <WikiEditor
-              ref={wikiEditorRef}
-              key={`${selectedFile}:${diskSyncEpoch}`}
-              content={fileContent}
-              onSave={handleSave}
-              defaultMode={mode}
-              immersiveWriting={isSelectedChapter}
-              formatToolbar={!isSelectedChapter}
-              onSelectionAction={isSelectedChapter ? handleSelectionAction : undefined}
-              highlightRequest={isSelectedChapter ? activeHighlightRequest : null}
-              onHighlightHandled={() => {
-                if (activeHighlightRequest) setPendingEditorHighlight(null)
-              }}
-            />
-          )}
-        </UiTestEditor>
+      {uiTestEditorElement ? (
+        companionHtml ? (
+          <OutlineDualPreview htmlContent={companionHtml} mdEditor={uiTestEditorElement} />
+        ) : uiTestEditorElement
       ) : (
       <>
       <div className="flex h-12 shrink-0 items-center border-b px-3">
@@ -1734,19 +1761,40 @@ export function PreviewPanel() {
       </div>
       <div className={getPreviewContentContainerClass(isSelectedChapter)}>
         {category === "markdown" ? (
-          <WikiEditor
-            ref={wikiEditorRef}
-            key={`${selectedFile}:${diskSyncEpoch}`}
-            content={fileContent}
-            onSave={handleSave}
-            defaultMode={inferEditorMode(selectedFile)}
-            immersiveWriting={isChapterPath(selectedFile)}
-            onSelectionAction={isChapterPath(selectedFile) ? handleSelectionAction : undefined}
-            highlightRequest={isChapterPath(selectedFile) ? activeHighlightRequest : null}
-            onHighlightHandled={() => {
-              if (activeHighlightRequest) setPendingEditorHighlight(null)
-            }}
-          />
+          companionHtml ? (
+            <OutlineDualPreview
+              htmlContent={companionHtml}
+              mdEditor={
+                <WikiEditor
+                  ref={wikiEditorRef}
+                  key={`${selectedFile}:${diskSyncEpoch}`}
+                  content={fileContent}
+                  onSave={handleSave}
+                  defaultMode={inferEditorMode(selectedFile)}
+                  immersiveWriting={isChapterPath(selectedFile)}
+                  onSelectionAction={isChapterPath(selectedFile) ? handleSelectionAction : undefined}
+                  highlightRequest={isChapterPath(selectedFile) ? activeHighlightRequest : null}
+                  onHighlightHandled={() => {
+                    if (activeHighlightRequest) setPendingEditorHighlight(null)
+                  }}
+                />
+              }
+            />
+          ) : (
+            <WikiEditor
+              ref={wikiEditorRef}
+              key={`${selectedFile}:${diskSyncEpoch}`}
+              content={fileContent}
+              onSave={handleSave}
+              defaultMode={inferEditorMode(selectedFile)}
+              immersiveWriting={isChapterPath(selectedFile)}
+              onSelectionAction={isChapterPath(selectedFile) ? handleSelectionAction : undefined}
+              highlightRequest={isChapterPath(selectedFile) ? activeHighlightRequest : null}
+              onHighlightHandled={() => {
+                if (activeHighlightRequest) setPendingEditorHighlight(null)
+              }}
+            />
+          )
         ) : (
           <FilePreview
             key={selectedFile}

@@ -25,6 +25,8 @@ const OUTLINE_SAVE_FOLDER_OPTIONS = [
 export interface OutlineSaveConfirmPayload {
   requests: OutlineSaveRequest[]
   characterDrafts: CharacterSaveDraft[]
+  /** 保存格式选择（默认 md + html 都保存；html 仅当请求含 htmlContent 时生效） */
+  formats?: { md: boolean; html: boolean }
 }
 
 interface OutlineSaveConfirmDialogProps {
@@ -49,9 +51,14 @@ export function OutlineSaveConfirmDialog({
   const [drafts, setDrafts] = useState<CharacterSaveDraft[]>(characterDrafts)
   const [normalRequests, setNormalRequests] = useState<OutlineSaveRequest[]>(requests)
   const [deselectedFiles, setDeselectedFiles] = useState<Set<string>>(new Set())
+  const [formats, setFormats] = useState<{ md: boolean; html: boolean }>({ md: true, html: true })
   const selectedDrafts = useMemo(
     () => drafts.filter((draft) => draft.selected),
     [drafts],
+  )
+  const hasHtmlContent = useMemo(
+    () => normalRequests.some((request) => Boolean(request.htmlContent?.trim())),
+    [normalRequests],
   )
   const folderOptions = useMemo(
     () => Array.from(new Set([...OUTLINE_SAVE_FOLDER_OPTIONS, ...normalRequests.map((request) => request.targetFolder)])),
@@ -63,6 +70,7 @@ export function OutlineSaveConfirmDialog({
     setDrafts(characterDrafts)
     setNormalRequests(requests)
     setDeselectedFiles(new Set())
+    setFormats({ md: true, html: true })
   }, [characterDrafts, open, requests])
 
   if (!open) return null
@@ -196,6 +204,35 @@ export function OutlineSaveConfirmDialog({
                   </span>
                 </label>
               ))}
+              <div className="mt-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
+                <div className="mb-1.5 font-medium">保存格式</div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      aria-label="保存 MD 形式"
+                      type="checkbox"
+                      checked={formats.md}
+                      onChange={(event) => setFormats((f) => ({ ...f, md: event.target.checked }))}
+                      className="h-4 w-4 shrink-0 accent-primary"
+                    />
+                    MD 形式（.md）
+                  </label>
+                  <label className={`flex cursor-pointer items-center gap-2 ${hasHtmlContent ? "" : "pointer-events-none opacity-50"}`}>
+                    <input
+                      aria-label="保存 HTML 形式"
+                      type="checkbox"
+                      checked={formats.html}
+                      disabled={!hasHtmlContent}
+                      onChange={(event) => setFormats((f) => ({ ...f, html: event.target.checked }))}
+                      className="h-4 w-4 shrink-0 accent-primary"
+                    />
+                    HTML 形式（.html 折叠树）
+                  </label>
+                  {!hasHtmlContent ? (
+                    <span className="text-xs text-muted-foreground">本轮未生成 HTML 版本，无法保存 HTML。</span>
+                  ) : null}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -208,7 +245,8 @@ export function OutlineSaveConfirmDialog({
             type="button"
             disabled={
               (mode === "character" && selectedDrafts.length === 0) ||
-              (mode !== "character" && normalRequests.length - deselectedFiles.size === 0)
+              (mode !== "character" &&
+                (normalRequests.length - deselectedFiles.size === 0 || (!formats.md && !formats.html)))
             }
             onClick={() => {
               const filteredRequests = normalRequests.filter(
@@ -217,6 +255,7 @@ export function OutlineSaveConfirmDialog({
               onConfirm({
                 requests: mode === "character" ? requests : filteredRequests,
                 characterDrafts: selectedDrafts,
+                formats: mode === "character" ? undefined : { md: formats.md, html: formats.html },
               })
             }}
           >

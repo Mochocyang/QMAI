@@ -1,5 +1,5 @@
 import type { ToolRegistry } from "../registry"
-import type { AgentToolEvent, Tool } from "../types"
+import type { AgentToolEvent } from "../types"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 import { createReadChapterTool } from "./read-chapter"
 import { createReadOutlineTool } from "./read-outline"

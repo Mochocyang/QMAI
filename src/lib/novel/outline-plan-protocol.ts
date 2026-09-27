@@ -418,6 +418,13 @@ export function buildOutlinePlanElementCheckPrompt(input: {
     "",
     "先读取项目已有资料，判断要素齐备情况，再按 outline_plan 协议输出结果。",
     "要素没齐就只追问，不要生成正文；齐了就给出生成计划等我确认。",
+    "",
+    "## 输出格式（强制，违反则本轮作废）",
+    "最终回复只允许包含下面这一个协议块，开闭标记必须成对出现，JSON 必须完整可解析：",
+    OUTLINE_PLAN_MARKER_OPEN,
+    '{"status":"needs_input|ready","module":"模块名","elements":[...],"missing":[...],"questions":[...],"plan":{...}}',
+    OUTLINE_PLAN_MARKER_CLOSE,
+    "禁止只输出普通文字、Markdown 标题或表格来代替该协议块；禁止省略开闭标记。",
   ]
     .filter(Boolean)
     .join("\n")

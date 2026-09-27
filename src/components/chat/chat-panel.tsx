@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState, useMemo, useDeferredValue, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, MessageSquare, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
+import { BookOpen, Plus, Trash2, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
 import "@/components/uitest/ui-test-ai.css"
@@ -604,7 +604,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   const [pendingClearHistoryIds, setPendingClearHistoryIds] = useState<string[] | null>(null)
 
   const isStreamingConversation = (convId: string) => runStates[convId]?.status === "running"
-  const { topConversations, historyConversations } = splitConversationToolbarItems(
+  const { historyConversations } = splitConversationToolbarItems(
     conversations,
     activeConversationId,
     isStreamingConversation,
@@ -651,44 +651,11 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
       setHistoryDropdownStyle(null)
       return
     }
-    const PANEL_WIDTH = 288
-    const GAP = 6
     function updatePosition() {
       const rect = historyButtonRef.current?.getBoundingClientRect()
       if (!rect) return
       setHistoryDropdownStyle(getUiTestAiMenuStyle(rect))
       return
-      const vw = window.innerWidth
-      const vh = window.innerHeight
-      // 水平：默认贴按钮右边展开，右侧空间不够时贴按钮左边
-      let left: number
-      const rightSpace = vw - rect.right
-      const leftSpace = rect.left
-      if (rightSpace >= PANEL_WIDTH + GAP) {
-        left = rect.right - PANEL_WIDTH
-        if (left < GAP) left = GAP
-      } else if (leftSpace >= PANEL_WIDTH + GAP) {
-        left = rect.left
-        if (left + PANEL_WIDTH > vw - GAP) left = vw - PANEL_WIDTH - GAP
-      } else {
-        // 视口太窄，居左撑开（最大 288，剩边距）
-        left = GAP
-      }
-      // 垂直：默认下方，不够时翻上方
-      const availableBelow = vh - rect.bottom
-      const availableAbove = rect.top
-      const MAX_HEIGHT = 360
-      const MIN_HEIGHT = 160
-      let top: number
-      let maxHeight: number
-      if (availableBelow < MIN_HEIGHT && availableAbove >= MIN_HEIGHT) {
-        maxHeight = Math.min(MAX_HEIGHT, availableAbove - GAP)
-        top = rect.top - maxHeight - GAP
-      } else {
-        maxHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, availableBelow - GAP))
-        top = rect.bottom + GAP
-      }
-      setHistoryDropdownStyle({ left, top, width: PANEL_WIDTH, maxHeight })
     }
     const raf = requestAnimationFrame(updatePosition)
     window.addEventListener("resize", updatePosition)
@@ -1055,13 +1022,6 @@ export function ChatPanel() {
       if (!rect) return
       setWorkflowModeDropdownStyle({ ...getUiTestAiMenuStyle(rect, 320, true), maxHeight: "none" })
       return
-      const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 8)
-      const top = rect.bottom + 6
-      setWorkflowModeDropdownStyle({
-        left: Math.min(rect.left, window.innerWidth - width - 4),
-        top,
-        width,
-      })
     }
     const raf = requestAnimationFrame(updatePosition)
     window.addEventListener("resize", updatePosition)

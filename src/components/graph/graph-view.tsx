@@ -1514,10 +1514,8 @@ export function GraphView() {
                   defaultNodeColor: "#94a3b8",
                   labelSize: 13,
                   labelWeight: "bold",
-                  labelColor: { color: "#1e293b" },
                   edgeLabelSize: 14,
                   edgeLabelWeight: "600",
-                  edgeLabelColor: { color: "#334155" },
                   ...{
                     labelColor: { color: uiTestGraphColors?.ink ?? "#1e293b" },
                     edgeLabelColor: { color: uiTestGraphColors?.muted ?? "#334155" },

@@ -1,9 +1,7 @@
 import { UiTestCustomProviders } from "@/components/uitest/models/provider-custom"
 import type { ProviderConfigs, SavedModel, ReasoningConfig } from "@/stores/wiki-store"
 import {
-  MIN_USER_LLM_CONTEXT_SIZE,
   normalizeUserLlmContextSize,
-  normalizeUserLlmMaxOutputTokens,
 } from "@/lib/llm-context-size"
 
 interface CustomProviderCard {

@@ -1,11 +1,13 @@
 import {
   type CSSProperties,
+  type ReactNode,
   useRef,
   useCallback,
   useEffect,
   useMemo,
   useState,
   useDeferredValue,
+  isValidElement,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -137,10 +139,37 @@ import {
   splitConfirmRequiredSaveRequests,
 } from "@/lib/novel/outline-save-request";
 import {
+  extractVolumeOutlineData,
+  getVolumeSkeletonReference,
+  loadSavedVolumeOutlineDataList,
+  primeVolumeOutlineTemplate,
+  primeVolumeSkeletonReference,
+  validateVolumeOutlineData,
+} from "@/lib/novel/volume-outline-template";
+import {
+  buildChapterBatchPrompt,
+  buildChapterOutlineSaveRequest,
+  crossCheckChapterAgainstVolume,
+  collectProblemChapterNumbers,
+  extractChapterOutlineBatch,
+  extractChapterOutlineData,
+  mergeChapterBatches,
+  nextChapterBatchRange,
+  primeChapterOutlineTemplate,
+  validateChapterOutlineData,
+  type ChapterOutlineData,
+} from "@/lib/novel/chapter-outline-template";
+import {
   resolveModelConfig,
   resolveNovelModel,
   resolveUsableModelKey,
 } from "@/lib/novel/model-resolver";
+import {
+  buildChapterOutlineResumePrompt,
+  clearChapterOutlineDraft,
+  readChapterOutlineDraft,
+  writeChapterOutlineDraft,
+} from "@/lib/novel/chapter-outline-draft";
 import { hasAvailableModels as hasConfiguredModels } from "@/lib/llm-model-keys";
 import {
   planOutlineRequestBudget,
@@ -379,6 +408,14 @@ function showOutlineAutoSaveError(message: string) {
     dedupeKey: `outline-auto-save:${message}`,
   });
 }
+
+/** 自动修复配额按任务类型分开计数：同一条会话里生成卷纲后又生成章纲时，互不挤占配额。 */
+function outlineRepairAttemptsKey(task: "volume" | "chapter", conversationId: string): string {
+  return `${task}:${conversationId}`;
+}
+
+/** 章纲第 1 批生成提示词里的标记：用于识别「首次生成章纲」并触发草稿续跑。 */
+const CHAPTER_OUTLINE_FIRST_BATCH_MARKER = "本次只写第 1 批";
 
 function mergeDisabledTools(...groups: Array<readonly string[] | undefined>): string[] {
   return Array.from(new Set(groups.flatMap((group) => group ?? [])));
@@ -709,8 +746,66 @@ export function buildOutlineAgentSystemPrompt(options: {
 }
 
 function getOutlineSectionOutputRules(title: string): string {
-  if (title.includes("章节细纲")) {
-    return "按章节输出：章节标题、章节目标、核心事件、主要冲突、关键转折、结尾钩子、与前后章节承接。";
+  if (title.includes("卷纲")) {
+    return [
+      "【载体】必须同时产出三部分，缺一不可：",
+      "(1) MD 正文：本卷 10 个故事的文本版卷纲；",
+      "(2) 一个 ```json 围栏，顶层字段为 volumeOutlineData（10 个故事 × 10 个环节的结构化数据）；",
+      "(3) outlineSaveRequest（content 为 MD 正文即可）。",
+      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染折叠树。",
+      "",
+      "【完整性硬要求】",
+      "1. volumeOutlineData.stories 必须写满 10 个故事对象，一个都不能少；",
+      "2. 每个故事 st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每环节必须带 stage、who（人物＋功能位）、use（这一段要完成什么）、pay（该环节埋的期待在哪里兑现，如「合①」「故事五 承②」）、p（3 条具体条目）；",
+      "3. 每个故事必须填全字段：range / deliver / gift / mid / twist / hook / link / climax / beats（12 章节拍序列）；link 说明本故事引线在下一故事起①如何被接住；",
+      "4. 每个故事必须包含 line（main 主线＋sub 支线数组＋daily 日常与日常作用）；",
+      "5. 顶层必须补跨故事台账字段：position（卷级定位：pitch 卷定位 / theme 主题句 / narrative 叙事形态 / structure 结构选用声明 / chapters 建议章数 / ending 卷末落点）、roles（卷级功能位总览：引路/主角/阻力/镜子/代价/预埋 各一条）、foreshadows（伏笔追踪：每条 v 内容 / seed 埋设位置 / pay 回收位置）、cast（人物出场表：每条 n 人物 / role 功能位 / stories 出场故事 / u 作用）、escalation（大高潮分解+代价阶梯：写满 10 条，每条 id 故事 / stake 赌注等级 / lose 付出的代价 / rise 抬升到什么）、debts（悬念债务：每条 q 问题 / from 起始 / plan 计划回收）、rivals（对手推进：每条 n 对手 / moves 每故事的出手目标与动作）、growth（人物成长与资源：每条 n 人物 / gains 获得物与资源演进 / state 能力与状态变化）、places（地点组织索引：每条 n 名称 / kind 类型 / stories 出场故事 / u 剧情作用）；",
+      "6. position.structure 必须声明本卷选用的叙事结构：全卷 1 个 + 单故事 1 个 + 逐章 1 个，并说明为什么不用其余几种（不得叠加）；",
+      "7. 承③(mid) 与 转①(twist) 必须是不同的反转类型。",
+      "",
+      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「此处省略」等任何缩写写法；禁止只写第 1 个和第 10 个故事；禁止输出方法论说明板块（10 环节表 / 8 期待感 / 7 反转库 / 8 情绪结构 / 叙事结构表 / 三层线表 / 12 章排布表 / 跨卷复用）。",
+      "【输出顺序】先写 MD 正文，再写 ```json 的 volumeOutlineData，最后写 outlineSaveRequest。",
+      "【自检】输出前确认：故事数=10、每故事环节数=10、每环节条目数=3、每故事含 link、每环节含 pay、顶层含 position/roles/foreshadows/cast/escalation(10 条)/debts/rivals/growth/places、无省略号、承③≠转①。",
+    ].join("\n");
+  }
+  if (title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲")) {
+    const skeletonReference = getVolumeSkeletonReference();
+    return [
+      "【载体】必须同时产出三部分，缺一不可：",
+      "(1) MD 正文：本故事每一章的章纲文本版（按章分节）；",
+      "(2) 一个 ```json 围栏，顶层字段为 chapterOutlineData（含 story 骨架 + chapters 数组）；",
+      "(3) outlineSaveRequest（content 为 MD 正文即可，文件名形如「章纲-第01–12章.md」）。",
+      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染章纲卡片流。",
+      "",
+      "【每章 17 节硬要求】§1 基础信息 / §2 上章承接 / §3 本章定位 / §4 浓缩剧情 / §5 核心事件链 / §6 关键词与必要条件 / §7 四段式 / §8 情绪曲线 / §9 爽点与看点 / §10 关键信息与扩写方式 / §11 画面细节 / §12 伏笔与钩子 / §13 出场角色与状态变化 / §14 设定与道具更新 / §15 写作约束 / §16 下一章交接 / §17 写作检查清单，一节都不能少。",
+      "",
+      "【对齐补字段（每章必填）】stage（所属环节 起①~合②）、beat（本章节拍）、expect（本章主期待感，8 类之一）、time（章内时间）、place（主要地点）、seedFores / payFores（本章预埋 / 回收的伏笔名，多个用「、」分隔）。这七项必须与卷纲骨架逐字一致。",
+      "",
+      "【完整性硬要求】",
+      "1. chapters 必须写满该故事的每一章，章号连续递增，禁止只写首尾章；",
+      "2. story 骨架（index / name / range / beats）必须与卷纲一致，不得自创；",
+      "3. §5 核心事件链必须 6 条以上，每条必须有 what/cause/action/result/use；",
+      "4. §6 必要条件四类齐全（enter/trigger/interact/result）；",
+      "5. §8 moodCurve 写满 4 个节点，§13 castChanges 至少 1 条；",
+      "6. 各章节拍串起来必须与 story.beats 逐字一致，且遵守节拍纪律（不连续 3 章同拍、顶最多 2 连、顶后接落或缓、悬必须落在末章）；",
+      "7. 第 N 章的 handover.nextStart 必须与第 N+1 章的 carry.hook / carry.left 呼应，章间不得断档；",
+      "8. payFores 里的每一条都必须在本故事更早章节的 seedFores 出现过；",
+      "9. 日常章只能落在 平/落/缓/悬 拍；逐章 info.words 合计与 words 偏差不超过 20%。",
+      "10. 关键节不得留空：§8 moodCurve 写满 4 个节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容（确无新增就写「无新增」）。",
+      "11. §17 checks 必须覆盖 10 条固定项：三行内入戏 / 有明确变化 / 事件链有因果 / 有核心记忆点 / 有动作微细节 / 有爽点 / 回收旧信息 / 埋新信息 / 有追读钩子 / 已写明下一章交接。",
+      "",
+      "【分批输出（重要）】17 节标准体量大，一次写完整故事必被截断，因此**本次只写第 1 批**：从该故事的第 1 章起，连续 3 章（若该故事不足 3 章则写满为止）。",
+      "分批规则：",
+      "1. JSON 顶层字段固定为 `chapterOutlineBatch`（结构与 chapterOutlineData 相同：title / story 骨架 / words / chapters，chapters 只含本批章节）；",
+      "2. 本批**不要**输出 outlineSaveRequest，也不要重复已完成的章节；软件会在最后一批之后自动合并并统一保存；",
+      "3. 必须带上 story 骨架（index / name / range / beats）——软件据此计算剩余批次；",
+      "4. 输出顺序：先写本批 MD 正文，再写 ```json 围栏的 chapterOutlineBatch。",
+      "",
+      skeletonReference || "【卷纲骨架】项目里还没有可用的卷纲结构化数据（伴生 .json），story 骨架必须从卷纲 MD 原文逐字抄写，不得自创。",
+      "",
+      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「同上」「此处省略」等任何缩写写法；禁止输出方法论说明板块。",
+      "【自检】输出前确认：本批章数正确、章号连续、17 节全写、事件链≥6 条有因果、四类必要条件齐全、节拍与骨架逐字一致、章间交接闭合。",
+    ].join("\n");
   }
   if (title.includes("人物")) {
     return "按人物输出：人物定位、目标与动机、欲望和恐惧、关系变化、冲突点、成长或崩坏路径、当前状态。";
@@ -750,7 +845,13 @@ function buildGenerationPrompt(
   outputMode?: "per_chapter" | "per_item" | "single",
   originalRequest?: string,
 ): string {
-  const outputModeInstruction = outputMode === "per_chapter"
+  const isVolumeOutline = title.includes("卷纲");
+  const isChapterOutline = title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲");
+  const outputModeInstruction = isVolumeOutline
+    ? "本次为卷纲：必须在同一条回复里同时产出 (1) MD 正文；(2) ```json 围栏的 volumeOutlineData（10 故事 × 10 环节全写满）；(3) outlineSaveRequest（content=MD 正文）。不要自己写 HTML，软件会套模板渲染折叠树。"
+    : isChapterOutline
+    ? "本次为章纲（分批）：只写第 1 批 3 章，同时产出 (1) 本批 MD 正文；(2) ```json 围栏的 chapterOutlineBatch（story 骨架 + 本批章节的 17 节数据）；本批不要输出 outlineSaveRequest——软件会自动继续下一批，并在最后一批之后合并渲染 HTML 卡片流与统一保存。不要自己写 HTML，不要省略。"
+    : outputMode === "per_chapter"
     ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
     : outputMode === "per_item"
     ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。"
@@ -1013,6 +1114,43 @@ function buildFallbackCharacterDraftsFromRequests(
   });
 }
 
+/** 识别 AI 输出中的 ```html 围栏（卷纲折叠树素材），默认折叠展示避免刷屏 */
+function unwrapHtmlFence(children: ReactNode): { codeText: string } | null {
+  if (!isValidElement(children)) return null;
+  const props = children.props as { className?: string; children?: ReactNode };
+  if (typeof props?.className !== "string" || !props.className.includes("language-html")) {
+    return null;
+  }
+  return { codeText: String(props.children ?? "").replace(/\n$/, "") };
+}
+
+function HtmlFenceBlock({ codeText }: { codeText: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-2 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="font-medium text-foreground">HTML 版本已生成</span>
+          <span>（保存时可选择 HTML 格式）</span>
+        </span>
+        <span>{open ? "收起" : "展开源码"}</span>
+      </button>
+      {open ? (
+        <pre dir="ltr" className="overflow-x-auto bg-background/50 p-2 text-xs" style={{ textAlign: "left" }}>
+          <code
+            className="code-highlight"
+            dangerouslySetInnerHTML={{ __html: highlightCode(codeText, "html") }}
+          />
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 function OutlineMarkdownContent({
   content,
   projectPath,
@@ -1082,6 +1220,8 @@ function OutlineMarkdownContent({
           pre: ({ children, ...props }) => {
             const mermaid = unwrapMermaidPre(children);
             if (mermaid) return <>{mermaid}</>;
+            const htmlFence = unwrapHtmlFence(children);
+            if (htmlFence) return <HtmlFenceBlock codeText={htmlFence.codeText} />;
             return (
               <pre
                 dir="ltr"
@@ -1299,12 +1439,6 @@ function OutlineAssistantMessage({
       </ul>
     </details>
   ) : null;
-  const referenceContextColumn = (
-    <div className="ui-test-reference-context-column">
-      {sourceDetails}
-      {contextHubDetails}
-    </div>
-  );
 
   return (
     <>
@@ -1592,6 +1726,12 @@ function OutlineGenerationMenu({
 
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project);
+  // 卷纲 / 章纲模板与卷纲真骨架：项目变化时预加载（项目目录覆盖 → 程序 skills 目录 → 内置模板）
+  useEffect(() => {
+    void primeVolumeOutlineTemplate(project?.path ?? null);
+    void primeChapterOutlineTemplate(project?.path ?? null);
+    void primeVolumeSkeletonReference(project?.path ?? null);
+  }, [project?.path]);
   const llmConfig = useWikiStore((s) => s.llmConfig);
   const novelConfig = useWikiStore((s) => s.novelConfig);
   const providerConfigs = useWikiStore((s) => s.providerConfigs);
@@ -1923,13 +2063,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       setHistoryDropdownStyle(null);
       return;
     }
-    const panelWidth = 288;
-    const gap = 6;
     function updatePosition() {
       const rect = historyButtonRef.current?.getBoundingClientRect();
       if (!rect) return;
       setHistoryDropdownStyle(getUiTestAiMenuStyle(rect));
-      return;
     }
     const raf = requestAnimationFrame(updatePosition);
     window.addEventListener("resize", updatePosition);
@@ -1978,6 +2115,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [saveConfirmState, setSaveConfirmState] = useState<SaveConfirmBatch | null>(null);
   const saveConfirmStateRef = useRef<SaveConfirmBatch | null>(null);
   const pendingSaveBatchesRef = useRef<SaveConfirmBatch[]>([]);
+  /** 大纲内容不完整时，每类任务（卷纲 / 章纲）在每个会话各最多自动修复一次（避免无限循环消耗 token） */
+  const outlineRepairAttemptsRef = useRef<Map<string, number>>(new Map());
+  /** 待触发的卷纲自动补全（由 handleSend 定义后的 effect 消费；用 state 保证 effect 可靠执行） */
+  const [pendingVolumeRepair, setPendingVolumeRepair] = useState<{ conversationId: string; prompt: string } | null>(null);
+  /** 待触发的章纲自动补全（配额与卷纲分开计数，互不挤占） */
+  const [pendingChapterRepair, setPendingChapterRepair] = useState<{ conversationId: string; prompt: string } | null>(null);
+  /** 章纲分批会话：累积每批解析出的数据与本批 MD，直到最后一批合并保存 */
+  const chapterBatchSessionsRef = useRef<Map<string, Array<{ data: ChapterOutlineData; md: string }>>>(new Map());
+  /** 待触发的下一批章纲生成 */
+  const [pendingChapterBatch, setPendingChapterBatch] = useState<{ conversationId: string; prompt: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2099,6 +2246,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           outlineRoot: `${projectPath}/wiki/outlines`,
           confirmed: true,
           requests,
+          formats: payload.formats ?? { md: true, html: true },
           createDirectory,
           fileExists,
           readFile,
@@ -2118,6 +2266,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (saveResult.errors.length > 0) {
           setSaveStatus(`保存失败：${saveResult.errors.slice(0, 2).join("；")}`);
         }
+        // 保存成功后刷新卷纲真骨架缓存，让紧接着生成的章纲立刻用到最新骨架
+        void primeVolumeSkeletonReference(project?.path ?? null);
       } catch (error) {
         setSaveStatus(`保存失败：${error instanceof Error ? error.message : String(error)}`);
       }
@@ -2141,12 +2291,111 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     ].filter((item): item is string => Boolean(item?.trim())).join("\n");
   }, []);
 
+  /** 有卷纲结构化数据（伴生 .json）时做「卷纲 ↔ 章纲」交叉校验，返回问题列表。 */
+  const collectVolumeCrossProblems = useCallback(
+    async (data: ChapterOutlineData): Promise<string[]> => {
+      const projectPath = project?.path;
+      if (!projectPath) return [];
+      const volumes = await loadSavedVolumeOutlineDataList(projectPath);
+      for (const volume of volumes) {
+        const cross = crossCheckChapterAgainstVolume(data, volume);
+        if (cross) return cross;
+      }
+      return [];
+    },
+    [project],
+  );
+
+  /**
+   * 章纲分批推进：本批只收集数据（不落盘），全部批次到齐后由软件合并成一份保存请求。
+   * 返回 true 表示这条回复已被分批流程接管，不应再走常规保存解析。
+   */
+  const advanceChapterOutlineBatches = useCallback(
+    async (conversationId: string, content: string): Promise<boolean> => {
+      const batch = extractChapterOutlineBatch(content);
+      if (!batch) return false;
+
+      const existing = chapterBatchSessionsRef.current.get(conversationId) ?? [];
+      // 续跑草稿可能属于另一个故事：骨架对不上就丢弃旧批次，避免把两个故事混成一份章纲
+      const sameStory = existing.length === 0
+        || (existing[0].data.story.index === batch.data.story.index
+          && existing[0].data.story.range.trim() === batch.data.story.range.trim());
+      const batches = sameStory ? [...existing, batch] : [batch];
+      chapterBatchSessionsRef.current.set(conversationId, batches);
+      const merged = mergeChapterBatches(batches.map((item) => item.data));
+      void writeChapterOutlineDraft(project?.path, {
+        conversationId,
+        title: merged.title,
+        batches,
+        updatedAt: Date.now(),
+      });
+      const next = nextChapterBatchRange(merged);
+
+      if (next) {
+        setSaveStatus(`章纲已生成 ${merged.chapters.length} 章，正在继续生成第 ${next.from}–${next.to} 章…`);
+        setPendingChapterBatch({
+          conversationId,
+          prompt: buildChapterBatchPrompt({ data: merged, batch: next }),
+        });
+        return true;
+      }
+
+      // 全部批次到齐：先做完整性校验 + 卷纲交叉校验，只重写有问题的批次
+      const problems = [
+        ...validateChapterOutlineData(merged).problems,
+        ...(await collectVolumeCrossProblems(merged)),
+      ];
+      if (problems.length > 0) {
+        const repairKey = outlineRepairAttemptsKey("chapter", conversationId);
+        const attempts = outlineRepairAttemptsRef.current.get(repairKey) ?? 0;
+        const targetChapters = collectProblemChapterNumbers(problems);
+        if (attempts < 1 && targetChapters.length > 0) {
+          outlineRepairAttemptsRef.current.set(repairKey, attempts + 1);
+          setSaveStatus("检测到章纲内容不完整，正在自动补全有问题的批次…");
+          setPendingChapterBatch({
+            conversationId,
+            prompt: buildChapterBatchPrompt({
+              data: merged,
+              batch: { from: targetChapters[0], to: targetChapters[targetChapters.length - 1] },
+              problems,
+            }),
+          });
+          return true;
+        }
+        showOutlineAutoSaveError(
+          `章纲内容仍不完整（${problems.length} 项）：${problems[0]}已保留当前内容，可确认后写入。`,
+        );
+      }
+
+      chapterBatchSessionsRef.current.delete(conversationId);
+      void clearChapterOutlineDraft(project?.path);
+      const md = batches.map((item) => item.md).filter(Boolean).join("\n\n");
+      presentOrQueueSaveBatch({
+        title: "请确认要保存的章纲文件",
+        mode: "normal",
+        requests: [buildChapterOutlineSaveRequest(merged, md || `# ${merged.title}`)],
+        characterDrafts: [],
+      });
+      setSaveStatus(
+        problems.length > 0
+          ? `章纲 ${merged.chapters.length} 章已合并（有 ${problems.length} 项待修，仍可保存）。`
+          : `章纲 ${merged.chapters.length} 章已全部生成，请确认后写入。`,
+      );
+      return true;
+    },
+    [presentOrQueueSaveBatch, collectVolumeCrossProblems, project],
+  );
+
   const handleAutoSaveOutlineRequests = useCallback(
     async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
       if (!project || !canApply()) return;
       const filteredOutput = filterOutlineGeneratedContent(assistantContent);
       if (filteredOutput.reasoningOnly || !filteredOutput.content) return;
       const safeAssistantContent = filteredOutput.content;
+      // 章纲分批：本批只收集数据，全部到齐后由软件合并保存（不在此处落盘）
+      if (await advanceChapterOutlineBatches(conversationId, safeAssistantContent)) return;
+      // 降级路径：AI 未按分批输出（直接给了整份 chapterOutlineData + outlineSaveRequest）时，
+      // 仍走下面的统一校验（章节数与骨架一致、逐章 17 节、卷纲交叉校验），不会静默保存残缺章纲。
       const parsed = parseOutlineSaveRequests(safeAssistantContent);
       if (parsed.requests.length === 0) {
         if (parsed.errors.length > 0) {
@@ -2191,6 +2440,86 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const normalRequests = split.confirmRequired.filter(
           (request) => request.fileType !== "character",
         );
+
+        // 卷纲结构化数据校验（零 token）：数据不完整则自动修复一次，仍失败才放行强制保存
+        const volumeRequests = normalRequests.filter(
+          (request) => request.fileType === "volume-outline",
+        );
+        const volumeValidation = volumeRequests.length > 0
+          ? (() => {
+              const data = extractVolumeOutlineData(safeAssistantContent);
+              const result = validateVolumeOutlineData(data, volumeRequests[0].content);
+              return {
+                count: result.problems.length,
+                text: result.problems.join("；"),
+                fileName: volumeRequests[0].fileName,
+              };
+            })()
+          : { count: 0, text: "", fileName: "" };
+        if (volumeValidation.count > 0) {
+          const repairKey = outlineRepairAttemptsKey("volume", conversationId);
+          const attempts = outlineRepairAttemptsRef.current.get(repairKey) ?? 0;
+          if (attempts < 1) {
+            outlineRepairAttemptsRef.current.set(repairKey, attempts + 1);
+            setSaveStatus("检测到卷纲内容不完整，正在自动补全…");
+            setPendingVolumeRepair({
+              conversationId,
+              prompt: [
+                "系统检测到上一轮卷纲内容不完整，无法渲染折叠树，问题如下：",
+                `- ${volumeValidation.fileName}：${volumeValidation.text}`,
+                "请重新输出完整卷纲：1) MD 正文；2) 一个 ```json 围栏的 volumeOutlineData，stories 必须写满 10 个故事、每个故事 st 必须写满 10 个环节（起①~合②）且每环节带 pay（期待兑现位置）、每个故事带 link（引线如何被下一故事接住）、每条 p 必须 3 条具体条目、顶层必须带 position（卷级定位，其中 structure 要声明选用的叙事结构）/roles/foreshadows/cast/escalation（写满 10 条代价阶梯）/debts/rivals/growth/places、承③(mid) 与 转①(twist) 必须是不同反转类型；3) outlineSaveRequest（content 为 MD 正文即可，不要写 HTML）。禁止任何省略写法。",
+              ].join("\n"),
+            });
+            return;
+          }
+          const shown = volumeValidation.text.length > 120
+            ? `${volumeValidation.text.slice(0, 120)}…`
+            : volumeValidation.text;
+          showOutlineAutoSaveError(
+            `卷纲内容仍不完整（${volumeValidation.count} 项）：${shown}。可保存当前内容，或让 AI 重新生成。`,
+          );
+        }
+
+        // 章纲结构化数据校验（零 token）：与卷纲同机制，不完整则自动补全一次
+        const chapterRequests = normalRequests.filter(
+          (request) => request.fileType === "chapter-outline",
+        );
+        const chapterValidation = chapterRequests.length > 0
+          ? await (async () => {
+              const data = extractChapterOutlineData(safeAssistantContent);
+              const problems = [...validateChapterOutlineData(data).problems];
+              // 有卷纲结构化数据（伴生 .json）时，做「卷纲 ↔ 章纲」交叉校验
+              if (data) problems.push(...(await collectVolumeCrossProblems(data)));
+              return {
+                count: problems.length,
+                text: problems.join("；"),
+                fileName: chapterRequests[0].fileName,
+              };
+            })()
+          : { count: 0, text: "", fileName: "" };
+        if (chapterValidation.count > 0) {
+          const repairKey = outlineRepairAttemptsKey("chapter", conversationId);
+          const attempts = outlineRepairAttemptsRef.current.get(repairKey) ?? 0;
+          if (attempts < 1) {
+            outlineRepairAttemptsRef.current.set(repairKey, attempts + 1);
+            setSaveStatus("检测到章纲内容不完整，正在自动补全…");
+            setPendingChapterRepair({
+              conversationId,
+              prompt: [
+                "系统检测到上一轮章纲内容不完整，无法渲染章纲卡片流，问题如下：",
+                `- ${chapterValidation.fileName}：${chapterValidation.text}`,
+                "请重新输出完整章纲：1) MD 正文；2) 一个 ```json 围栏的 chapterOutlineData —— story 骨架（index/name/range/beats）必须与卷纲一致；chapters 必须写满该故事每一章，每章写满 17 节（§1~§17），并带对齐字段 stage/beat/expect/time/place/seedFores/payFores；§5 核心事件链 ≥6 条且每条含 what/cause/action/result/use；§6 必要条件 enter/trigger/interact/result 四类齐全；§8 moodCurve 写满 4 节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容；§17 checks 覆盖 10 条固定项；各章节拍必须与 story.beats 逐字一致；第 N 章 handover.nextStart 必须与第 N+1 章 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过；3) outlineSaveRequest（content 为 MD 正文，文件名「章纲-第XX–XX章.md」，不要写 HTML）。禁止任何省略写法。",
+              ].join("\n"),
+            });
+            return;
+          }
+          const shown = chapterValidation.text.length > 120
+            ? `${chapterValidation.text.slice(0, 120)}…`
+            : chapterValidation.text;
+          showOutlineAutoSaveError(
+            `章纲内容仍不完整（${chapterValidation.count} 项）：${shown}。可保存当前内容，或让 AI 重新生成。`,
+          );
+        }
 
         if (characterRequests.length > 0) {
           const characterContent = characterRequests
@@ -2252,7 +2581,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         showOutlineAutoSaveError(error instanceof Error ? error.message : String(error));
       }
     },
-    [collectOutlineSaveSourceHint, presentOrQueueSaveBatch, project],
+    [collectOutlineSaveSourceHint, presentOrQueueSaveBatch, project, advanceChapterOutlineBatches, collectVolumeCrossProblems],
   );
 
   const handleSend = useCallback(
@@ -2276,7 +2605,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         userDisplayText?: string;
       } = {},
     ): Promise<OutlineSendResult> => {
-      const prompt = inputText.trim();
+      let prompt = inputText.trim();
       if (!prompt || !project) return { started: false, sent: false };
       const requestedConversationId = options.conversationId ?? activeConversationId;
       const requestedRunState = requestedConversationId
@@ -2285,6 +2614,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (requestedRunState?.status === "running") return { started: false, sent: false };
       let convId = requestedConversationId;
       if (!convId) convId = createConversation();
+      // 章纲分批续跑：第 1 批的生成腿若发现上次未完成的草稿，就不从第 1 批重写，
+      // 直接把提示词换成「继续生成下一批」，并把草稿批次放回本会话，省掉重复生成。
+      if (prompt.includes(CHAPTER_OUTLINE_FIRST_BATCH_MARKER)) {
+        const draft = await readChapterOutlineDraft(project.path);
+        if (draft && draft.conversationId === convId) {
+          const resumePrompt = buildChapterOutlineResumePrompt(draft);
+          if (resumePrompt) {
+            chapterBatchSessionsRef.current.set(convId, draft.batches);
+            prompt = resumePrompt;
+            setSaveStatus(`检测到未完成的章纲草稿（已完成 ${mergeChapterBatches(draft.batches.map((item) => item.data)).chapters.length} 章），正在继续生成…`);
+          } else {
+            void clearChapterOutlineDraft(project.path);
+          }
+        }
+      }
       let effectiveLlmConfig = resolveNovelModel(
         llmConfig,
         novelConfig,
@@ -3638,6 +3982,45 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       outlineWorkflowStage,
     ],
   );
+
+  // 卷纲内容不完整时的自动补全：由 state 驱动 effect，避免 auto-save 回调与 handleSend 循环引用
+  useEffect(() => {
+    if (!pendingVolumeRepair) return;
+    const repair = pendingVolumeRepair;
+    setPendingVolumeRepair(null);
+    void handleSend(repair.prompt, [], {
+      conversationId: repair.conversationId,
+      systemGenerated: true,
+      userMessageVisibility: "internal",
+      userDisplayText: "（系统提示：卷纲内容不完整，正在自动补全）",
+    });
+  }, [pendingVolumeRepair, handleSend]);
+
+  // 章纲内容不完整时的自动补全：与卷纲同机制，由 state 驱动 effect
+  useEffect(() => {
+    if (!pendingChapterRepair) return;
+    const repair = pendingChapterRepair;
+    setPendingChapterRepair(null);
+    void handleSend(repair.prompt, [], {
+      conversationId: repair.conversationId,
+      systemGenerated: true,
+      userMessageVisibility: "internal",
+      userDisplayText: "（系统提示：章纲内容不完整，正在自动补全）",
+    });
+  }, [pendingChapterRepair, handleSend]);
+
+  // 章纲分批：自动继续生成下一批（每批 3 章）
+  useEffect(() => {
+    if (!pendingChapterBatch) return;
+    const batch = pendingChapterBatch;
+    setPendingChapterBatch(null);
+    void handleSend(batch.prompt, [], {
+      conversationId: batch.conversationId,
+      systemGenerated: true,
+      userMessageVisibility: "internal",
+      userDisplayText: "（系统提示：继续生成下一批章纲）",
+    });
+  }, [pendingChapterBatch, handleSend]);
 
   // 计划模式统一入口：先把会话推进到要素盘点，再让模型按 outline_plan 协议盘点缺口
   const startOutlinePlanElementCheck = useCallback(

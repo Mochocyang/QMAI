@@ -72,7 +72,7 @@ export function selectCapabilities(input: SelectCapabilitiesInput): SelectedCapa
 function selectionReason(
   capability: AiCapability,
   input: SelectCapabilitiesInput & { mode: AiWorkflowMode },
-  blockedSources: Set<DataSourceCategory>,
+  _blockedSources: Set<DataSourceCategory>,
 ): string | null {
   if (capability.kind === "web_search") {
     if (isExplicitSearchRequest(input.userMessage)) {
@@ -160,10 +160,4 @@ function toTrace(capability: AiCapability, reason: string): SelectedCapabilityTr
 function isExplicitSearchRequest(message: string): boolean {
   const normalized = message.toLowerCase()
   return /search|web|internet|online|external|latest|联网|搜索|搜一下|查一下|查找|查资料|网页|外部|外部资料|最新/.test(normalized)
-}
-
-function isKnowledgeGraphRequest(message: string, intent: NovelTaskIntent): boolean {
-  const normalized = message.toLowerCase()
-  if (/graphrag|knowledge\s*graph|graph|图谱|知识图谱|关系/.test(normalized)) return true
-  return KNOWLEDGE_INTENTS.has(intent)
 }

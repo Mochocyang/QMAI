@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   characterDraftsToSaveRequests,
   extractBodyContent,
+  extractHtmlBlocks,
   formatOutlineSaveParseFeedback,
   mergeOutlineSaveRequests,
   parseOutlineSaveRequests,
@@ -653,5 +654,146 @@ describe("outline-save-request", () => {
     expect(result.errors).toEqual([])
     expect(result.requests).toHaveLength(1)
     expect(result.requests[0].content).toContain("夺宝筑基")
+  })
+
+  it("透传 htmlContent 字段（卷纲折叠树 HTML）", () => {
+    const html = "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>"
+    const result = parseOutlineSaveRequests([
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "卷纲",
+          fileName: "卷纲-第01卷.md",
+          fileType: "volume-outline",
+          writeMode: "create",
+          referencedSkills: ["DagangSkill/juangangzhedieshu"],
+          sourceIntent: "生成第01卷卷纲",
+          content: "# 卷纲-第01卷\n\n## 卷目标",
+          htmlContent: html,
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].htmlContent).toBe(html)
+  })
+
+  it("htmlContent 缺失时从 ```html 围栏兜底提取", () => {
+    const html = "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>"
+    const result = parseOutlineSaveRequests([
+      "# 卷纲-第01卷",
+      "",
+      "## 卷目标",
+      "大高潮",
+      "",
+      "```html",
+      html,
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "卷纲",
+          fileName: "卷纲-第01卷.md",
+          fileType: "volume-outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成第01卷卷纲",
+          content: "# 卷纲-第01卷",
+        },
+      }),
+      "```",
+    ].join("\n"))
+
+    expect(result.errors).toEqual([])
+    expect(result.requests).toHaveLength(1)
+    expect(result.requests[0].htmlContent).toBe(html)
+  })
+
+  it("extractBodyContent 排除 ```html 围栏，不污染 MD 正文", () => {
+    const body = extractBodyContent([
+      "# 卷纲-第01卷",
+      "",
+      "## 卷目标",
+      "大高潮",
+      "",
+      "```html",
+      "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>",
+      "```",
+    ].join("\n"))
+
+    expect(body).toContain("# 卷纲-第01卷")
+    expect(body).not.toContain("<html")
+    expect(body).not.toContain("```")
+  })
+
+  it("extractHtmlBlocks 提取多个 html 块，首个非空优先", () => {
+    expect(extractHtmlBlocks("```html\n<a></a>\n```\n正文\n```html\n<b></b>\n```")).toEqual([
+      "<a></a>",
+      "<b></b>",
+    ])
+    expect(extractHtmlBlocks("没有 html 块")).toEqual([])
+  })
+
+  it("extractHtmlBlocks 不误抓 ```json / 无语言标记的围栏", () => {
+    expect(extractHtmlBlocks('```json\n{"a":1}\n```')).toEqual([])
+    expect(extractHtmlBlocks("```\n随便一段\n```")).toEqual([])
+    expect(extractHtmlBlocks('```json\n{"volumeOutlineData":{}}\n```\n```html\n<html></html>\n```')).toEqual([
+      "<html></html>",
+    ])
+  })
+
+  it("saveOutlineSaveRequests 按 formats 落盘 .md 与伴生 .html", async () => {
+    const written: Array<{ path: string; content: string }> = []
+    const result = await saveOutlineSaveRequests({
+      outlineRoot: "/root",
+      confirmed: true,
+      formats: { md: true, html: true },
+      requests: [{
+        targetFolder: "卷纲",
+        fileName: "卷纲-第01卷.md",
+        fileType: "volume-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "# 卷纲-第01卷",
+        htmlContent: "<!DOCTYPE html><html></html>",
+      }],
+      createDirectory: async () => {},
+      fileExists: async () => false,
+      writeFile: async (path: string, content: string) => { written.push({ path, content }) },
+    })
+
+    expect(result.saved.map((item) => item.fileName)).toEqual(["卷纲-第01卷.md", "卷纲-第01卷.html"])
+    expect(written.map((item) => item.path)).toEqual([
+      "/root/卷纲/卷纲-第01卷.md",
+      "/root/卷纲/卷纲-第01卷.html",
+    ])
+  })
+
+  it("saveOutlineSaveRequests 只勾选 HTML 时仅落盘 .html", async () => {
+    const written: Array<{ path: string }> = []
+    await saveOutlineSaveRequests({
+      outlineRoot: "/root",
+      confirmed: true,
+      formats: { md: false, html: true },
+      requests: [{
+        targetFolder: "卷纲",
+        fileName: "卷纲-第01卷.md",
+        fileType: "volume-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "测试",
+        content: "# 卷纲-第01卷",
+        htmlContent: "<!DOCTYPE html><html></html>",
+      }],
+      createDirectory: async () => {},
+      fileExists: async () => false,
+      writeFile: async (path: string) => { written.push({ path }) },
+    })
+
+    expect(written.map((item) => item.path)).toEqual(["/root/卷纲/卷纲-第01卷.html"])
   })
 })

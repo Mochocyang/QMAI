@@ -44,8 +44,8 @@ const CHAPTER_OUTLINE_SUPPORT_SKILLS = [
 const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   {
     task: "chapter_outline",
-    aliases: ["章节细纲", "章纲", "章纲完善"],
-    primarySkills: ["chapter-outline-builder"],
+    aliases: ["章节细纲", "章纲", "章纲完善", "细纲", "逐章拆解"],
+    primarySkills: ["zhanggangjiegouhua", "chapter-outline-builder"],
     supportingSkills: CHAPTER_OUTLINE_SUPPORT_SKILLS,
     stage: "outline",
     missingPolicy: "diagnose_and_continue",
@@ -117,7 +117,7 @@ const SKILL_ROUTE_DEFINITIONS: readonly SkillRouteDefinition[] = [
   {
     task: "volume_outline",
     aliases: ["卷纲", "分卷大纲"],
-    primarySkills: ["story-goal-ladder", "outline-master-builder"],
+    primarySkills: ["juangangzhedieshu", "story-goal-ladder", "outline-master-builder"],
     supportingSkills: ["outline-final-assembler"],
     stage: "outline",
     missingPolicy: "diagnose_and_continue",

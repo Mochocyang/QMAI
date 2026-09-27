@@ -430,7 +430,7 @@ export function createStyleAnalysisAdapter(
       return { profile, chapterMeta }
     },
 
-    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, onProgress }) {
+    async publish({ task, bookPath, projectPath, llmConfig, result, evidence, signal, onProgress, onRequestTrace }) {
       onProgress?.({ stageLabel: "正在发布文风结果…", percentage: 97 })
       const metadata = await dependencies.loadMetadata(bookPath)
       if (!metadata) throw new Error("未找到作品元数据，无法发布文风分析")

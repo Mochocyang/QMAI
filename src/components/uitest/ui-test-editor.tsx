@@ -53,8 +53,8 @@ export function UiTestEditor({
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(title)
   const [showPath, setShowPath] = useState(false)
-  const [showAuxiliary, setShowAuxiliary] = useState(false)
-  const [auxiliaryMounted, setAuxiliaryMounted] = useState(false)
+  const [showAuxiliary] = useState(false)
+  const [auxiliaryMounted] = useState(false)
   const titleRef = useRef<HTMLTextAreaElement>(null)
   const cancelTitleRef = useRef(false)
   const wordCountLabel = `${wordCount.toLocaleString("zh-CN")} 字`

@@ -1,8 +1,5 @@
-import { useTranslation } from "react-i18next"
 import { useWikiStore } from "@/stores/wiki-store"
 import { BookOpen, ChevronDown, Plus, Search, Sparkles, Users } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import {
   bindCharacterAura,
   BUILT_IN_CHARACTER_AURAS,
@@ -15,7 +12,6 @@ import {
 import { useEffect, useMemo, useState } from "react"
 
 export function SoulSidebarPanel() {
-  const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)

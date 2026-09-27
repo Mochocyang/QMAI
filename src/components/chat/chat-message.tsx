@@ -23,7 +23,6 @@ import {
   Globe,
   Image as ImageIcon,
   Loader2,
-  Info,
   Save,
   ArrowRight,
 } from "lucide-react";
@@ -116,7 +115,7 @@ export function ChatMessage({
   const isSystem = message.role === "system";
   const isAssistant = message.role === "assistant";
   const [hovered, setHovered] = useState(false);
-  const [contextTraceExpanded, setContextTraceExpanded] = useState(false);
+  const [contextTraceExpanded] = useState(false);
   const canResumeUnfinished = Boolean(
     novelMode &&
     isLastAssistant &&
@@ -126,12 +125,6 @@ export function ChatMessage({
   const currentContextHubSnapshot = message.contextHubSnapshot
     ? parseContextHubSnapshotRef(message.contextHubSnapshot)
     : null;
-  const hasContextTrace = Boolean(
-    currentContextHubSnapshot ||
-    (message.contextTrace &&
-      (message.contextTrace.toolCalls.length > 0 ||
-        message.contextTrace.contextInfo)),
-  );
 
   // 仅对最后一条流式助手消息提取 thinking，避免历史消息重复提取
   const isLastStreamingAssistant = isLastAssistant && isAssistant;
@@ -295,7 +288,7 @@ export function ChatMessage({
             <div className="mt-1">
               {message.contextTrace ? (
                 <ContextTracePanel
-                  trace={message.contextTrace}
+                  trace={message.contextTrace ?? null}
                   contextHubSnapshot={currentContextHubSnapshot ?? undefined}
                   generationTiming={message.generationTiming}
                   projectPath={projectPath}
@@ -306,7 +299,7 @@ export function ChatMessage({
                 />
               ) : currentContextHubSnapshot ? (
                 <ContextHubDetails
-                  reference={currentContextHubSnapshot}
+                  reference={currentContextHubSnapshot!}
                   timing={message.generationTiming}
                 />
               ) : null}

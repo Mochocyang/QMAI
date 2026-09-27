@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>章纲卡片流</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;
+  --qi:#8E6E63;--cheng:#D97757;--zhuan:#B8551D;--he:#F59E42;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;
+  --day:#7FB07F;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+.intro{background:var(--brand-soft);border-bottom:1px solid var(--border);padding:40px 0 32px}
+.intro .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand-text);font-weight:600;margin:0 0 12px}
+.intro h1{margin:0 0 12px;font-size:26px;line-height:1.35}
+.chip{display:inline-flex;gap:6px;background:#fff;border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--ink2);margin:10px 6px 0 0}
+.chip b{color:var(--brand-text)}
+
+/* 故事骨架卡 */
+.story-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:12px}
+.story-card .kv{border-bottom:none;padding:3px 0}
+.story-card .beatrow{display:flex;gap:10px;align-items:flex-start;padding:4px 0 2px;flex-wrap:wrap}
+.story-card .kk{flex:none;width:72px;color:var(--muted);font-size:11.5px}
+
+/* 面板 */
+.panels{margin:14px 0 0}
+.panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.panel .empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+.panel .hint{margin:0;font-size:12px;color:var(--muted)}
+.panel .okbox{margin:0;font-size:12.5px;color:var(--ok);background:var(--ok-soft);border:1px solid #B7DFB7;border-radius:8px;padding:10px 12px}
+
+/* 键值行 */
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:86px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px;margin-top:4px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 锚点导航 */
+.nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin:14px 0 0}
+.nav .navt{font-size:11.5px;color:var(--muted);margin-right:4px}
+.navlink{display:inline-flex;gap:6px;align-items:baseline;font-size:12px;color:var(--ink2);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:2px 10px;background:var(--surface);max-width:260px;overflow:hidden;white-space:nowrap}
+.navlink b{font-size:10.5px;color:#fff;background:var(--brand);border-radius:4px;padding:0 5px;flex:none}
+.navlink:hover{border-color:var(--brand);color:var(--brand-text)}
+
+/* 章节卡流 */
+.cards{margin:14px 0 40px;display:flex;flex-direction:column;gap:10px}
+details.cc{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+details.cc[open]{border-color:var(--brand)}
+details.cc>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:11px 14px;background:var(--surface)}
+details.cc>summary::-webkit-details-marker{display:none}
+details.cc>summary::marker{content:""}
+details.cc>summary::before{content:"▸";color:var(--muted);font-size:11px}
+details.cc[open]>summary::before{content:"▾"}
+details.cc>summary:hover{background:var(--surface2)}
+.cno{font-size:11px;font-weight:700;color:#fff;background:var(--brand);border-radius:5px;padding:1px 8px;flex:none}
+.ct{font-weight:600;font-size:14px}
+.cgoal{font-size:12px;color:var(--muted);flex:1;min-width:200px}
+.cbody{padding:6px 14px 14px}
+.csec{padding:8px 0;border-bottom:1px dashed var(--border)}
+.csec:last-child{border-bottom:none}
+.csec h4{margin:0 0 6px;font-size:12.5px;color:var(--brand-text)}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+details.cc:target{outline:2px solid var(--brand);outline-offset:2px}
+
+/* 标签 */
+.tag{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--border);color:var(--muted);background:var(--surface);flex:none}
+.tag.exp{background:var(--warn-soft);border-color:var(--he);color:var(--warn);font-weight:600}
+.tag.attr{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.mood{background:#F1EDE9;border-color:var(--border);color:#5F4A3E}
+.tag.chap{background:var(--surface2);color:var(--ink2);font-weight:600}
+
+/* 节拍 */
+.beats{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
+.bt{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:2px 7px;background:#fff;line-height:1.5}
+.bt[data-b="平"],.bt[data-b="缓"]{background:#F4EEE8;border-color:#E2D8CF;color:#5F4A3E}
+.bt[data-b="升"],.bt[data-b="起"]{background:#FBEDE6;border-color:#F0CDB8;color:#A8451C}
+.bt[data-b="紧"]{background:#F6E0D2;border-color:#E0A87E;color:#8A3F13}
+.bt[data-b="顶"]{background:var(--brand);border-color:var(--brand);color:#fff}
+.bt[data-b="落"]{background:#EFEAE6;border-color:#D8CCC2;color:#6B5548}
+.bt[data-b="悬"]{background:#FFF7E6;border-color:var(--he);color:#96601A}
+
+/* 情绪曲线 */
+.svgwrap{overflow:auto;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+.svgwrap svg{display:block;width:100%;min-width:880px;height:220px}
+svg .cg{stroke:var(--border);stroke-width:1}
+svg .ct{fill:var(--muted);font-size:11px}
+svg .cl{fill:none;stroke:var(--brand);stroke-width:2}
+svg .ca{fill:var(--brand-soft);opacity:.7}
+svg .cp{fill:var(--he);stroke:#fff;stroke-width:1}
+.ecap{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+
+/* 一致性体检 */
+.chk{padding:6px 9px;border-bottom:1px dashed var(--border)}
+.chk:last-child{border-bottom:none}
+.chkh{font-size:11.5px;font-weight:700;color:var(--brand-text);margin-bottom:2px}
+.issues{margin:0;padding-left:18px;font-size:12px;color:var(--danger);line-height:1.6}
+.issues li{margin:2px 0}
+</style>
+</head>
+<body>
+
+<header class="intro">
+  <div class="wrap">
+    <p class="eyebrow">章纲卡片流 · 17 节标准 × 卷纲骨架对齐</p>
+    <h1>__CHAPTER_TITLE__</h1>
+    __CHAPTER_SUMMARY__
+    <div>__CHAPTER_CHIPS__</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+__CHAPTER_ALIGN__
+__CHAPTER_EXPECT__
+__CHAPTER_FORES__
+__CHAPTER_SCENE__
+__CHAPTER_CURVE__
+__CHAPTER_CHECK__
+  </section>
+  __CHAPTER_NAV__
+  <main class="cards">
+__CHAPTER_CARDS__
+  </main>
+</div>
+
+</body>
+</html>

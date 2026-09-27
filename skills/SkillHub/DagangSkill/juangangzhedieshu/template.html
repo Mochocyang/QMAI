@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卷纲折叠树</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;
+  --qi:#8E6E63;--cheng:#D97757;--zhuan:#B8551D;--he:#F59E42;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;
+  --day:#7FB07F;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+.intro{background:var(--brand-soft);border-bottom:1px solid var(--border);padding:40px 0 32px}
+.intro .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand-text);font-weight:600;margin:0 0 12px}
+.intro h1{margin:0 0 10px;font-size:26px;line-height:1.35}
+.intro p{margin:0;max-width:74ch;color:var(--ink2)}
+.chip{display:inline-flex;gap:6px;background:#fff;border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--ink2);margin:10px 6px 0 0}
+.chip b{color:var(--brand-text)}
+.tree{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 18px 20px;margin:14px 0 40px}
+.trow{display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:8px}
+.line{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.body{flex:1;min-width:0}
+.k{font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 7px;flex:none;letter-spacing:.02em}
+.k-root{background:var(--brand);color:#fff}
+.k-s{background:var(--brand-soft2);color:var(--brand-text);border:1px solid var(--brand)}
+.k-qi{background:#F1EDE9;color:#5F4A3E}
+.k-cheng{background:#FBEDE6;color:#A8451C}
+.k-zhuan{background:var(--brand-soft2);color:var(--brand-text)}
+.k-he{background:#FEF3E2;color:#96601A}
+.t{font-weight:600;font-size:14px}
+.t2{font-weight:600;font-size:13.5px}
+.n{font-size:12px;color:var(--muted)}
+.txt{font-size:12.5px;color:var(--ink2);line-height:1.62}
+.sub{font-size:12px;color:var(--muted);margin-top:2px}
+.tag{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--border);color:var(--muted);background:var(--surface);flex:none}
+.tag.exp{background:var(--warn-soft);border-color:var(--he);color:var(--warn);font-weight:600}
+.tag.twist{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.climax{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.gift{background:var(--ok-soft);border-color:#B7DFB7;color:var(--ok)}
+.tag.warn{background:var(--danger-soft);border-color:#FFCCC7;color:var(--danger)}
+.who{display:flex;gap:7px;flex-wrap:wrap;align-items:baseline;font-size:12px;color:var(--ink2);padding:5px 9px;background:var(--surface2);border-left:2px solid var(--brand);border-radius:0 6px 6px 0}
+.who .lb{font-size:10px;font-weight:700;color:#fff;background:var(--brand);border-radius:4px;padding:0 5px;flex:none}
+.who .nm{font-weight:600;color:var(--ink)}
+.who .ar{color:var(--muted)}
+.bar{height:5px;border-radius:3px;background:linear-gradient(90deg,var(--qi),var(--cheng),var(--zhuan),var(--he));margin-top:8px}
+.lrow{display:flex;gap:7px;flex-wrap:wrap;align-items:baseline;font-size:12.5px;color:var(--ink2);padding:5px 9px;border-radius:0 6px 6px 0;background:var(--surface2);border-left:2px solid var(--border);line-height:1.6}
+.lrow.main{border-left-color:var(--brand)}
+.lrow.sub{border-left-color:var(--cheng)}
+.lrow.day{border-left-color:var(--day)}
+.lrow .lb{font-size:10px;font-weight:700;border-radius:4px;padding:0 5px;flex:none;color:#fff}
+.lrow.main .lb{background:var(--brand)}
+.lrow.sub .lb{background:var(--cheng)}
+.lrow.day .lb{background:var(--day)}
+.lrow .nm{font-weight:600;color:var(--ink)}
+.beats{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px}
+.bt{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:2px 7px;background:#fff;line-height:1.5}
+.bt b{font-size:9.5px;font-weight:600;opacity:.65}
+.bt[data-b="平"],.bt[data-b="缓"]{background:#F4EEE8;border-color:#E2D8CF;color:#5F4A3E}
+.bt[data-b="升"],.bt[data-b="起"]{background:#FBEDE6;border-color:#F0CDB8;color:#A8451C}
+.bt[data-b="紧"]{background:#F6E0D2;border-color:#E0A87E;color:#8A3F13}
+.bt[data-b="顶"]{background:var(--brand);border-color:var(--brand);color:#fff}
+.bt[data-b="落"]{background:#EFEAE6;border-color:#D8CCC2;color:#6B5548}
+.bt[data-b="悬"]{background:#FFF7E6;border-color:var(--he);color:#96601A}
+.tag.chap{background:var(--surface2);border-color:var(--border);color:var(--ink2);font-weight:600}
+.tag.pay{background:var(--ok-soft);border-color:#B7DFB7;color:var(--ok);font-weight:600}
+
+/* 总览面板（反转分布 / 支线矩阵 / 引线闭环 / 伏笔追踪 / 人物出场） */
+.panels{margin:14px 0 0}
+.panel{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.panel .empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+.panel .hint{margin:8px 0 0;font-size:12px;color:var(--muted)}
+.panel .hint.warnline{color:var(--danger);background:var(--danger-soft);border-radius:6px;padding:6px 9px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip.rev{gap:8px}
+.chip.rev.zero{opacity:.42}
+.chip.rev b{color:var(--brand-text)}
+.revgrid{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px}
+.revgrid li{display:flex;align-items:center;gap:8px;font-size:12px;background:var(--surface2);border-radius:7px;padding:5px 9px}
+.revgrid .sg{font-size:10.5px;font-weight:700;color:#fff;background:var(--brand);border-radius:5px;padding:1px 7px;flex:none}
+.revgrid .sr{display:inline-flex;gap:5px;align-items:baseline;color:var(--ink2)}
+.revgrid .sr b{font-size:10.5px;color:var(--muted);font-weight:600}
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child th,table.mx tbody tr:last-child td{border-bottom:none}
+table.mx .mxh{font-weight:600;color:var(--ink);white-space:nowrap;font-size:12px;background:var(--surface)}
+table.mx td{color:var(--ink2)}
+table.mx td.on{color:var(--brand);text-align:center;font-size:14px;line-height:1.25}
+table.mx td.mxc{white-space:nowrap;text-align:center}
+table.mx td.txt{font-size:12px;color:var(--muted)}
+table.mx td .bl{display:block;font-size:10.5px;color:var(--brand-text);margin-top:2px}
+.mxdetail{margin-top:10px}
+details.nd.pnd{margin-top:6px}
+details.nd.pnd>summary{background:var(--surface);border:1px solid var(--border);border-radius:7px}
+.role{font-size:11px;font-weight:600;border-radius:999px;padding:1px 8px;border:1px solid var(--border)}
+.role-lead{background:var(--ok-soft);border-color:#B7DFB7;color:var(--ok)}
+.role-block{background:var(--danger-soft);border-color:#FFCCC7;color:var(--danger)}
+.role-mirror{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text)}
+.role-cost{background:var(--warn-soft);border-color:var(--he);color:var(--warn)}
+.role-hero{background:var(--brand);border-color:var(--brand);color:#fff}
+.role-seed{background:var(--surface2);color:var(--ink2)}
+.role-other{background:var(--surface2);color:var(--muted)}
+.st{font-size:11px;font-weight:600;border-radius:999px;padding:1px 8px;border:1px solid var(--border)}
+.st-ok{background:var(--ok-soft);border-color:#B7DFB7;color:var(--ok)}
+.st-open{background:var(--warn-soft);border-color:var(--he);color:var(--warn)}
+
+/* 卷级定位 / 功能位总览 */
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:72px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.rolecard{display:flex;gap:9px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.rolecard:last-child{border-bottom:none}
+.rolecard .vv{flex:1;min-width:0;color:var(--ink2)}
+
+/* 故事锚点导航（纯静态 :target 高亮） */
+.nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin:0 0 12px}
+.nav .navt{font-size:11.5px;color:var(--muted);margin-right:4px}
+.navlink{display:inline-flex;gap:6px;align-items:baseline;font-size:12px;color:var(--ink2);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:2px 10px;background:var(--surface)}
+.navlink b{font-size:10.5px;color:#fff;background:var(--brand);border-radius:4px;padding:0 5px}
+.navlink:hover{border-color:var(--brand);color:var(--brand-text)}
+.story-wrap:target{outline:2px solid var(--brand);outline-offset:2px;background:var(--brand-soft);border-radius:10px}
+
+/* 期待感强度曲线 */
+.svgwrap{overflow:auto;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
+.svgwrap svg{display:block;width:100%;min-width:880px;height:220px}
+svg .cg{stroke:var(--border);stroke-width:1}
+svg .cs{stroke:var(--border);stroke-width:1;stroke-dasharray:4 4}
+svg .ct{fill:var(--muted);font-size:11px}
+svg .cl{fill:none;stroke:var(--brand);stroke-width:2}
+svg .ca{fill:var(--brand-soft);opacity:.7}
+svg .cp{fill:var(--he);stroke:#fff;stroke-width:1}
+.ecap{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.6}
+
+/* 节拍体检 / 环节完整性 */
+.pace{padding:7px 9px;border-bottom:1px dashed var(--border)}
+.pace:last-child{border-bottom:none}
+.pace .phead{display:flex;gap:8px;align-items:baseline;margin-bottom:4px}
+.pace .sg{font-size:10.5px;font-weight:700;color:#fff;background:var(--brand);border-radius:5px;padding:1px 7px;flex:none}
+.pace .beats{padding:0}
+.issues{margin:5px 0 0;padding-left:18px;font-size:12px;color:var(--danger);line-height:1.6}
+.issues li{margin:2px 0}
+.heat td{text-align:center}
+.heat td.cell-ok{color:var(--ok)}
+.heat td.cell-part{color:var(--he)}
+.heat td.cell-miss{color:var(--muted)}
+
+/* 无 JS 折叠：原生 details/summary */
+details.nd{margin:0}
+details.nd>summary{list-style:none;cursor:pointer;display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:8px}
+details.nd>summary::-webkit-details-marker{display:none}
+details.nd>summary::marker{content:""}
+details.nd>summary::before{content:"▸";width:18px;flex:none;color:var(--muted);font-size:11px;margin-top:4px;text-align:center}
+details.nd[open]>summary::before{content:"▾"}
+details.nd>summary:hover{background:var(--surface)}
+details.nd>.kids{padding-left:24px;position:relative}
+details.nd>.kids::before{content:"";position:absolute;left:11px;top:0;bottom:8px;width:1px;background:var(--border)}
+.leafrow{display:flex;gap:8px;align-items:flex-start;padding:5px 8px}
+.leafrow>.sp{width:18px;flex:none}
+</style>
+</head>
+<body>
+
+<header class="intro">
+  <div class="wrap">
+    <p class="eyebrow">卷纲折叠树 · 10 故事 × 10 环节</p>
+    <h1>__VOLUME_TITLE__</h1>
+    <p>__VOLUME_GOAL__</p>
+    <div>__VOLUME_CHIPS__</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+__VOLUME_POSITION__
+  </section>
+  <section class="panels">
+__VOLUME_LEDGER__
+__VOLUME_REVERSALS__
+__VOLUME_SIDELINES__
+__VOLUME_HOOKS__
+__VOLUME_ESCALATION__
+__VOLUME_RIVALS__
+__VOLUME_FORESHADOWS__
+__VOLUME_CAST__
+__VOLUME_PACING__
+  </section>
+  __VOLUME_NAV__
+  <main class="tree">
+__VOLUME_TREE__
+  </main>
+</div>
+
+</body>
+</html>

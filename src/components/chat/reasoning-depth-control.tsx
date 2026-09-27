@@ -4,7 +4,6 @@ import { Brain } from "lucide-react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { getChatModelDropdownStyle } from "@/components/chat/chat-model-selector"
-import { modelSupportsReasoningControl } from "@/lib/llm-providers"
 import {
   REASONING_DEPTH_STEPS,
   reasoningDepthFromIndex,

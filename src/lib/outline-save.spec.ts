@@ -127,4 +127,37 @@ describe("outline save draft", () => {
     expect(isSaveableOutlineDeliverable("第46章可以按卷纲节拍写冷处理。")).toBe(false)
     expect(isSaveableOutlineDeliverable("好的，我明白了。")).toBe(false)
   })
+
+  it("分类保存的章纲请求也会补上 HTML（此前只给卷纲补，导致章纲保存提示未生成 HTML）", () => {
+    const content = [
+      "# 章纲-第46章：第一次冷处理",
+      "",
+      "## 本章目标",
+      "男主第一次被公司冷处理，被迫从执行者转成旁观者。",
+      "",
+      "## 核心事件",
+      "1. 早会被点名缺席关键项目。",
+      "",
+      "```json",
+      JSON.stringify({
+        chapterOutlineData: {
+          title: "故事一 章纲",
+          story: { index: 1, name: "雨夜无我", range: "第 46–46 章", beats: "平" },
+          words: 0,
+          chapters: [{ n: 46, title: "第一次冷处理" }],
+        },
+      }),
+      "```",
+    ].join("\n")
+
+    const built = buildClassifiedOutlineSaveRequest({
+      content,
+      sourceIntent: "生成完成后自动保存",
+      sourceHint: "编写第 46 章章纲",
+    })
+
+    expect(built?.classification.fileType).toBe("chapter-outline")
+    expect(built?.request.htmlContent).toContain("<html")
+    expect(built?.request.htmlContent).toContain("<details")
+  })
 })

@@ -5,7 +5,7 @@ import {
   classifyOutlineSaveTarget,
   type OutlineSaveClassification,
 } from "./novel/outline-save-classifier"
-import { extractBodyContent, type OutlineSaveRequest } from "./novel/outline-save-request"
+import { attachOutlineHtml, extractBodyContent, type OutlineSaveRequest } from "./novel/outline-save-request"
 
 interface OutlineSaveDraft {
   title: string
@@ -73,7 +73,7 @@ export function buildClassifiedOutlineSaveRequest(input: {
   return {
     draft,
     classification,
-    request: {
+    request: attachOutlineHtml({
       targetFolder: classification.targetFolder,
       fileName: classification.fileName,
       fileType: classification.fileType,
@@ -81,7 +81,7 @@ export function buildClassifiedOutlineSaveRequest(input: {
       referencedSkills: [],
       sourceIntent: input.sourceIntent,
       content: mdContent,
-    },
+    }, input.content),
   }
 }
 

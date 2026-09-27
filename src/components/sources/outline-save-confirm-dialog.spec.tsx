@@ -200,4 +200,80 @@ describe("OutlineSaveConfirmDialog", () => {
     expect(onConfirm).toHaveBeenCalledOnce()
     expect(onConfirm.mock.calls[0][0].requests[0].targetFolder).toBe("大纲")
   })
+
+  it("含 htmlContent 时显示 HTML/MD 格式选择并默认全选提交", async () => {
+    const onConfirm = vi.fn()
+    await act(async () => {
+      root.render(
+        <OutlineSaveConfirmDialog
+          open
+          title="保存卷纲"
+          mode="normal"
+          characterDrafts={[]}
+          requests={[{
+            targetFolder: "卷纲",
+            fileName: "卷纲-第01卷.md",
+            fileType: "volume-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "生成第01卷卷纲",
+            content: "# 卷纲-第01卷",
+            htmlContent: "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>",
+          }]}
+          onClose={() => {}}
+          onConfirm={onConfirm}
+        />,
+      )
+    })
+
+    const mdCheckbox = document.body.querySelector(
+      'input[aria-label="保存 MD 形式"]',
+    ) as HTMLInputElement
+    const htmlCheckbox = document.body.querySelector(
+      'input[aria-label="保存 HTML 形式"]',
+    ) as HTMLInputElement
+    expect(mdCheckbox).not.toBeNull()
+    expect(htmlCheckbox).not.toBeNull()
+    expect(htmlCheckbox.disabled).toBe(false)
+    expect(mdCheckbox.checked).toBe(true)
+    expect(htmlCheckbox.checked).toBe(true)
+
+    await act(async () => {
+      findButton(document.body, "确认保存").click()
+    })
+
+    expect(onConfirm).toHaveBeenCalledOnce()
+    expect(onConfirm.mock.calls[0][0].formats).toEqual({ md: true, html: true })
+  })
+
+  it("无 htmlContent 时 HTML 格式不可选", async () => {
+    await act(async () => {
+      root.render(
+        <OutlineSaveConfirmDialog
+          open
+          title="保存大纲"
+          mode="normal"
+          characterDrafts={[]}
+          requests={[{
+            targetFolder: "卷纲",
+            fileName: "卷纲-第01卷.md",
+            fileType: "volume-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "生成第01卷卷纲",
+            content: "# 卷纲-第01卷",
+          }]}
+          onClose={() => {}}
+          onConfirm={() => {}}
+        />,
+      )
+    })
+
+    const htmlCheckbox = document.body.querySelector(
+      'input[aria-label="保存 HTML 形式"]',
+    ) as HTMLInputElement
+    expect(htmlCheckbox).not.toBeNull()
+    expect(htmlCheckbox.disabled).toBe(true)
+    expect(document.body.textContent).toContain("本轮未生成 HTML 版本，无法保存 HTML")
+  })
 })

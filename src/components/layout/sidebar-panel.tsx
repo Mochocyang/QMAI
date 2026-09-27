@@ -6,8 +6,6 @@ import {
   BookOpenCheck,
   BookText,
   Brain,
-  ChevronDown,
-  CircleHelp,
   Clock3,
   FileText,
   GitBranchPlus,
@@ -17,7 +15,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react"
-import { KnowledgeTree, RawSourcesSection, type KnowledgeCreateRequest } from "./knowledge-tree"
+import { KnowledgeTree, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"

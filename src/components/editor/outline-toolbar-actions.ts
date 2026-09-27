@@ -29,6 +29,7 @@ import { insertTableCommand, toggleStrikethroughCommand } from "@milkdown/kit/pr
 import { redoCommand, undoCommand } from "@milkdown/kit/plugin/history"
 import type { Ctx } from "@milkdown/ctx"
 import type { Editor } from "@milkdown/kit/core"
+import type { CmdKey } from "@milkdown/core"
 import { applyOutlineSourceFormat, type OutlineSourceFormat, type OutlineSourcePayload } from "@/lib/outline-source-format"
 
 export type OutlineToolbarAction =
@@ -39,7 +40,7 @@ export type OutlineToolbarAction =
   | "undo" | "redo"
   | OutlineSourceFormat
 
-function run(ctx: Ctx, command: { key: string }, payload?: unknown) {
+function run(ctx: Ctx, command: { key: string | CmdKey<any> }, payload?: unknown) {
   return ctx.get(commandsCtx).call(command.key, payload)
 }
 
@@ -76,7 +77,7 @@ function runOutlineToolbarActionInCtx(ctx: Ctx, action: OutlineToolbarAction, pa
   if (action === "image") return run(ctx, insertImageCommand, { src: payload?.href || "", alt: payload?.note || "图片" })
   if (action === "undo") return run(ctx, undoCommand)
   if (action === "redo") return run(ctx, redoCommand)
-  return insertSource(ctx, action, payload)
+  return insertSource(ctx, action as OutlineSourceFormat, payload)
 }
 
 export function readOutlinePlainText(editor: Pick<Editor, "action">): string {

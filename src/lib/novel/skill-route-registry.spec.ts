@@ -16,8 +16,9 @@ describe("skill route registry", () => {
     expect(validateSkillRouteRegistry(DEFAULT_SKILL_HUB_SKILLS.map((skill) => skill.name))).toEqual([])
   })
 
-  it("routes chapter outline through the complete eight-skill chain", () => {
+  it("routes chapter outline through the complete nine-skill chain", () => {
     expect(getOutlineSkillNames("把第236章章纲补充详细")).toEqual([
+      "zhanggangjiegouhua",
       "chapter-outline-builder",
       "chapter-attribute-positioning",
       "chapter-keyword-conditions",
@@ -38,7 +39,7 @@ describe("skill route registry", () => {
     ["地点设定", ["world-rules", "map-progression"]],
     ["伏笔计划", ["foreshadowing-suspense"]],
     ["故事大纲", ["outline-master-builder", "outline-final-assembler"]],
-    ["分卷大纲", ["story-goal-ladder", "outline-master-builder", "outline-final-assembler"]],
+    ["分卷大纲", ["juangangzhedieshu", "story-goal-ladder", "outline-master-builder", "outline-final-assembler"]],
     ["大纲质量检查", ["outline-quality-check"]],
   ])("routes %s to canonical SkillHub names", (alias, expected) => {
     expect(getSkillRouteSkillNames(findSkillRouteByAlias(alias)!)).toEqual(expected)
@@ -56,7 +57,7 @@ describe("skill route registry", () => {
 
   it("uses exact id, exact name and controlled aliases without arbitrary substrings", () => {
     const skills = DEFAULT_SKILL_HUB_SKILLS
-    expect(resolveSkillReference(skills, { name: "章节细纲" })?.name).toBe("chapter-outline-builder")
+    expect(resolveSkillReference(skills, { name: "章节细纲" })?.name).toBe("zhanggangjiegouhua")
     expect(resolveSkillReference(skills, { name: "请应用章节细纲技能" })).toBeUndefined()
     expect(resolveSkillReference(skills, { name: "chapter-outline" })).toBeUndefined()
     expect(resolveSkillReference(skills, { id: "skillhub:long-form-drafting" })?.name).toBe("long-form-drafting")

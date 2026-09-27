@@ -1,7 +1,6 @@
 import { fileExists } from "@/commands/fs"
 import { getUiTestDocumentPath } from "@/lib/ui-test-layout"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
-import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { normalizePath } from "@/lib/path-utils"
 import type { WikiProject } from "@/types/wiki"
 
@@ -29,17 +28,11 @@ export async function restoreUiTestWorkspace(project: WikiProject, saved = readU
   }
   if (!current()) return
   const view = "wiki"
-  const path = view === "soul" ? null : getUiTestDocumentPath(project.path, saved.files?.[view], view)
+  const path = getUiTestDocumentPath(project.path, saved.files?.[view], view)
   const exists = path ? await fileExists(path).catch(() => false) : false
   if (!current()) return
   useWikiStore.getState().setActiveView(view)
-  if (view === "wiki" || view === "sources") {
-    if (exists) useWikiStore.getState().setSelectedFile(path)
-    else if (view === "sources") useWikiStore.getState().setSelectedFile(null)
-    const assistant = saved.assistant?.[view]
-    if (typeof assistant === "boolean") {
-      if (view === "sources") useOutlineGenerationStore.getState().setPanelOpen(assistant)
-      else useWikiStore.getState().setChatExpanded(assistant)
-    }
-  }
+  if (exists) useWikiStore.getState().setSelectedFile(path)
+  const assistant = saved.assistant?.[view]
+  if (typeof assistant === "boolean") useWikiStore.getState().setChatExpanded(assistant)
 }

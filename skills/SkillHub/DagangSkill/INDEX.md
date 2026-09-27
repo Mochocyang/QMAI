@@ -1,4 +1,4 @@
-﻿# 大纲如何写 - Skill 索引
+# 大纲如何写 - Skill 索引
 
 ## 调用顺序
 
@@ -10,6 +10,10 @@
 6. `outline-supporting-cast`：按主角缺口配置配角。
 7. `worldbuilding-outline-last`：最后补世界观。
 8. `outline-final-assembler`：合并为完整大纲，并检查黄金三章准备度。
+
+## 卷纲
+
+9. `juangangzhedieshu`：卷纲折叠树（1 卷 = 10 故事 = 1 大高潮，每故事 10 环节）。用户要求「卷纲 / 分卷大纲 / 折叠树」时作为卷纲主技能，同时产出 MD 正文与自包含 HTML 折叠树。
 
 ## 依赖关系
 

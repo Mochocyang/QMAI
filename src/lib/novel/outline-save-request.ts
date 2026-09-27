@@ -4,6 +4,8 @@ import { cleanNextStepArtifacts } from "./outline-next-step"
 import { isLikelyChapterOutline } from "./outline-quality-check"
 import { stripOutlineFrontmatter } from "./outline-markdown"
 import { stripThoughtDumpFromText } from "@/lib/thought-dump"
+import { attachVolumeOutlineHtml } from "./volume-outline-template"
+import { attachChapterOutlineHtml } from "./chapter-outline-template"
 
 export type OutlineSaveRequestFileType =
   | "outline"
@@ -25,6 +27,10 @@ export interface OutlineSaveRequest {
   referencedSkills: string[]
   sourceIntent: string
   content: string
+  /** 可选：自包含 HTML 版本（如卷纲折叠树），保存时落盘为同名 .html 文件 */
+  htmlContent?: string
+  /** 可选：结构化数据（如卷纲 volumeOutlineData 的 JSON），保存时落盘为同名 .json 伴生文件，供章纲等后续环节做交叉校验 */
+  structuredData?: string
 }
 
 interface OutlineSaveRequestParseResult {
@@ -116,9 +122,29 @@ function stripAbsoluteToRelativeFolder(value: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : normalized
 }
 
+/** 提取 AI 原文中的 ```html 围栏内容（仅匹配 html 语言标记的围栏） */
+export function extractHtmlBlocks(text: string): string[] {
+  const blocks: string[] = []
+  // 必须显式带 html 语言标记，否则会误抓 ```json 等其它围栏
+  const fencePattern = /```html[ \t]*\r?\n([\s\S]*?)```/gi
+  for (const match of text.matchAll(fencePattern)) {
+    const block = match[1].trim()
+    if (block) blocks.push(block)
+  }
+  return blocks
+}
+
+/** 按 fileType 分派：卷纲 / 章纲各自补 htmlContent（非真正 HTML 时用结构化数据套模板渲染）。 */
+export function attachOutlineHtml<
+  T extends { fileType: string; htmlContent?: string; content: string },
+>(request: T, text: string): T {
+  if (request.fileType === "volume-outline") return attachVolumeOutlineHtml(request, text)
+  if (request.fileType === "chapter-outline") return attachChapterOutlineHtml(request, text)
+  return request
+}
+
 function extractBalancedJsonObject(text: string): string | null {
   const start = text.indexOf("{")
-  if (start < 0) return null
   let depth = 0
   let inString = false
   let escaped = false
@@ -208,6 +234,7 @@ function normalizeRequest(raw: unknown, index: number): {
   const writeMode = normalizeWriteModeAlias(String(raw.writeMode ?? "")) as OutlineSaveRequestWriteMode
   const rawContent = String(raw.content ?? "").trim()
   const content = stripThoughtDumpFromText(rawContent).trim()
+  const htmlContent = typeof raw.htmlContent === "string" ? raw.htmlContent.trim() : ""
 
   for (const [field, value] of Object.entries({
     targetFolder,
@@ -248,6 +275,7 @@ function normalizeRequest(raw: unknown, index: number): {
         : [],
       sourceIntent: String(raw.sourceIntent ?? "").trim(),
       content,
+      ...(htmlContent ? { htmlContent } : {}),
     },
     errors: [],
   }
@@ -285,6 +313,7 @@ export function extractBodyContent(text: string): string {
         const language = (lang || "").trim().toLowerCase()
         if (language === "json") return ""
         if (language === "markdown" || language === "md") return inner.trim()
+        if (language === "html") return ""
         if (!language) {
           return isOutlineSaveProtocolJson(inner) ? "" : inner.trim()
         }
@@ -358,6 +387,7 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
     })
   }
 
+  const htmlBlocks = extractHtmlBlocks(text)
   const filled = fillContentFromText(requests, text)
   const usable: OutlineSaveRequest[] = []
   filled.forEach((request, index) => {
@@ -374,7 +404,16 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
       )
       return
     }
-    usable.push(request)
+    usable.push(
+      attachOutlineHtml(
+        request.htmlContent
+          ? request
+          : request.fileType === "volume-outline" && htmlBlocks[0]
+            ? { ...request, htmlContent: htmlBlocks[0] }
+            : request,
+        text,
+      ),
+    )
   })
 
   return { requests: usable, errors }
@@ -477,9 +516,12 @@ export async function saveOutlineSaveRequests(input: {
   outlineRoot: string
   requests: OutlineSaveRequest[]
   confirmed?: boolean
+  /** 保存格式选择：md 默认 true；html 仅当请求含 htmlContent 且此处为 true 时写入伴生 .html */
+  formats?: { md: boolean; html: boolean }
 } & OutlineSaveRequestFs): Promise<OutlineSaveRequestSaveResult> {
   const outlineRoot = normalizePath(input.outlineRoot).replace(/\/+$/, "")
   const result: OutlineSaveRequestSaveResult = { saved: [], skipped: [], errors: [] }
+  const formats = input.formats ?? { md: true, html: true }
 
   for (const request of input.requests) {
     const targetDir = `${outlineRoot}/${request.targetFolder}`
@@ -490,17 +532,23 @@ export async function saveOutlineSaveRequests(input: {
         result.skipped.push(`已跳过 ${request.fileName}：${request.writeMode} 需要用户明确确认。`)
         continue
       }
-      const targetPath = `${targetDir}/${request.fileName}`
-      await input.writeFile(targetPath, buildSaveContent(request))
-      result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
+      await writeRequestFormats(input, targetDir, request.fileName, request, formats, result)
       continue
     }
 
     if (request.writeMode === "append") {
       const targetPath = `${targetDir}/${request.fileName}`
       if (input.confirmed) {
-        await input.writeFile(targetPath, buildSaveContent(request))
-        result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
+        if (formats.md) {
+          await input.writeFile(targetPath, buildSaveContent(request))
+          result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
+        }
+        if (request.htmlContent && formats.html) {
+          const htmlFileName = request.fileName.replace(/\.md$/i, ".html")
+          const htmlPath = `${targetDir}/${htmlFileName}`
+          await input.writeFile(htmlPath, request.htmlContent)
+          result.saved.push({ path: htmlPath, fileName: htmlFileName, writeMode: request.writeMode })
+        }
         continue
       }
       if (!input.readFile) {
@@ -514,9 +562,36 @@ export async function saveOutlineSaveRequests(input: {
     }
 
     const target = await resolveUniquePath(input, targetDir, request.fileName)
-    await input.writeFile(target.path, buildSaveContent({ ...request, fileName: target.fileName }))
-    result.saved.push({ path: target.path, fileName: target.fileName, writeMode: request.writeMode })
+    await writeRequestFormats(input, targetDir, target.fileName, request, formats, result)
   }
 
   return result
+}
+
+async function writeRequestFormats(
+  fs: Pick<OutlineSaveRequestFs, "writeFile">,
+  targetDir: string,
+  mdFileName: string,
+  request: OutlineSaveRequest,
+  formats: { md: boolean; html: boolean },
+  result: OutlineSaveRequestSaveResult,
+): Promise<void> {
+  const mdPath = `${targetDir}/${mdFileName}`
+  if (formats.md) {
+    await fs.writeFile(mdPath, buildSaveContent({ ...request, fileName: mdFileName }))
+    result.saved.push({ path: mdPath, fileName: mdFileName, writeMode: request.writeMode })
+  }
+  if (request.htmlContent && formats.html) {
+    const htmlFileName = mdFileName.replace(/\.md$/i, ".html")
+    const htmlPath = `${targetDir}/${htmlFileName}`
+    await fs.writeFile(htmlPath, request.htmlContent)
+    result.saved.push({ path: htmlPath, fileName: htmlFileName, writeMode: request.writeMode })
+  }
+  // 卷纲的结构化数据落盘为伴生 .json，供章纲做「卷纲↔章纲」交叉校验（与 HTML 同开关）
+  if (request.fileType === "volume-outline" && request.structuredData && formats.html) {
+    const jsonFileName = mdFileName.replace(/\.md$/i, ".json")
+    const jsonPath = `${targetDir}/${jsonFileName}`
+    await fs.writeFile(jsonPath, request.structuredData)
+    result.saved.push({ path: jsonPath, fileName: jsonFileName, writeMode: request.writeMode })
+  }
 }
