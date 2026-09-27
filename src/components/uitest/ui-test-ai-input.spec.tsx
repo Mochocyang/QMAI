@@ -51,6 +51,8 @@ describe("测试版 AI 模型选择布局", () => {
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex:\s*1 0 auto;[^}]*min-width:\s*min\(100%, max-content\);[^}]*max-width:\s*100%;[^}]*gap:\s*2px;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: 0;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \[data-reference-input-footer\] \[aria-label="上下文用量"\] \{[^}]*display: inline-flex;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[aria-label="停止生成"\] \{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*padding:\s*0;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[aria-label="发送消息"\] \{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*padding:\s*0;/s)
   })
 })
 

@@ -159,9 +159,10 @@
 [data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: fit-content; min-width: 0; max-width: 9rem; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
 [data-ui-ai-composer] .ui-test-ai-model > .relative > button > span { flex: 0 1 auto; width: auto; }
 [data-ui-ai-composer] [aria-label="引用内容"] { flex-shrink: 0; color: var(--ui-muted); }
-[data-ui-ai-composer] [aria-label="发送消息"] { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: var(--ui-accent); color: var(--ui-on-accent); }
+[data-ui-ai-composer] [aria-label="发送消息"] { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; line-height: 0; border-radius: 9px; background: var(--ui-accent); color: var(--ui-on-accent); }
 [data-ui-ai-composer] [aria-label="发送消息"]:disabled { background: var(--ui-soft); color: var(--ui-muted); }
-[data-ui-ai-composer] [aria-label="停止生成"] { flex-shrink: 0; min-width: 32px; min-height: 32px; }
+/* 外框固定 32px 后，图标仍按行高贴在内容起点，箭头和停止方块都会偏。去掉内边距并居中。 */
+[data-ui-ai-composer] [aria-label="停止生成"] { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; line-height: 0; }
 [data-ui-ai-composer] .relative > .flex.flex-wrap { max-height: 96px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
 [data-ui-ai-panel] [data-reference-id] { display: inline-block; max-width: 100%; min-width: 0; border-color: transparent; background: var(--ui-soft); color: var(--ui-accent); font-size: 12px; white-space: normal; overflow-wrap: anywhere; vertical-align: middle; }
 [data-ui-ai-panel] [data-reference-id] button { display: inline-flex; vertical-align: middle; color: var(--ui-muted); }
