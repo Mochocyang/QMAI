@@ -302,22 +302,6 @@ fn apply_qmai_acp_model(
     Ok(())
 }
 
-#[allow(dead_code)]
-fn qmai_acp_model_value(model: &str, fast: Option<bool>, effort: Option<&str>) -> String {
-    let mut params = Vec::new();
-    if let Some(effort) = effort.map(str::trim).filter(|value| !value.is_empty()) {
-        params.push(format!("effort={effort}"));
-    }
-    if let Some(fast) = fast {
-        params.push(format!("fast={}", if fast { "true" } else { "false" }));
-    }
-    if params.is_empty() {
-        model.to_string()
-    } else {
-        format!("{model}[{}]", params.join(","))
-    }
-}
-
 #[tauri::command]
 pub async fn cursor_cli_apply_acp_model(
     model: String,
@@ -1564,19 +1548,6 @@ mod tests {
         assert!(script.contains("/usr/local/bin/agent"));
         assert!(!script.contains("__QMAI_BAKED_AGENT__"));
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn formats_acp_model_pin() {
-        assert_eq!(qmai_acp_model_value("grok-4.6", None, None), "grok-4.6");
-        assert_eq!(
-            qmai_acp_model_value("grok-4.6", Some(true), Some("high")),
-            "grok-4.6[effort=high,fast=true]"
-        );
-        assert_eq!(
-            qmai_acp_model_value("composer-2.5", Some(false), None),
-            "composer-2.5[fast=false]"
-        );
     }
 
     #[test]

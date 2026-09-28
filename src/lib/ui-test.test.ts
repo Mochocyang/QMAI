@@ -31,11 +31,4 @@ describe("UI 界面版本（只保留新版）", () => {
     expect(a.IS_UI_TEST_BUILD).toBe(true)
     expect(b.IS_UI_TEST_BUILD).toBe(true)
   })
-
-  it("setUiTestMode 仍兼容写入本机偏好（不再改变界面选择）", async () => {
-    vi.resetModules()
-    const uiTest = await import("./ui-test")
-    uiTest.setUiTestMode(true)
-    expect(localStorage.getItem(MODE_KEY)).toBe("1")
-  })
 })

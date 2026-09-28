@@ -38,14 +38,6 @@ pub fn set_resource_dir_hint(dir: std::path::PathBuf) {
     let _ = RESOURCE_DIR_HINT.set(dir);
 }
 
-#[allow(dead_code)]
-fn replace_last_path_segment(path: &str, from: &str, to: &str) -> Option<String> {
-    let mut parts: Vec<&str> = path.split('/').collect();
-    let index = parts.iter().rposition(|part| *part == from)?;
-    parts[index] = to;
-    Some(parts.join("/"))
-}
-
 /// Replace **all** path segments matching `from` with `to`.
 /// Used when the path may contain multiple legacy directory names
 /// (e.g. `wiki/outlines/1/wiki/chapters/xxx.md` → `QM/outlines/1/QM/chapters/xxx.md`).
