@@ -197,11 +197,16 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 .ui-test-root [data-ui-tree-row] > button:first-of-type > svg { width: 15px; height: 15px; color: var(--ui-muted); }
 .ui-test-root [data-ui-tree-row] > button:first-of-type .text-amber-500 { color: var(--ui-muted); }
 .ui-test-root [data-ui-tree-row] > button:first-of-type > span:last-child:not(:first-of-type) { font-size: 12px; }
-.ui-test-root .ui-test-tree-more { position: absolute; right: 2px; top: 5px; width: 28px; height: 28px; border-radius: 6px; background: var(--ui-panel); z-index: 2; }
+.ui-test-root .ui-test-tree-more { position: absolute; right: 2px; top: 5px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: var(--ui-panel); line-height: 0; box-shadow: none; z-index: 2; }
+.ui-test-root .ui-test-tree-more svg { display: block; width: 15px; height: 15px; margin: 0; }
+.ui-test-root .ui-test-tree-more:hover, .ui-test-root .ui-test-tree-more:active, .ui-test-root .ui-test-tree-more:focus-visible { padding: 0; border: 0; border-radius: 6px; box-shadow: none; transform: none; }
 .ui-test-root .ui-test-tree-extract { width: 24px; height: 28px; position: absolute; right: 3px; opacity: .7; }
 .ui-test-root [data-ui-tree-row]:has(.ui-test-tree-extract) > button:first-of-type { padding-right: 30px; }
 .ui-test-root .ui-test-tree-extract:focus-visible { z-index: 3; opacity: 1; }
-.ui-test-root .ui-test-tree-delete { position: absolute; right: 0; visibility: hidden; }
+.ui-test-root .ui-test-tree-delete { position: absolute; top: 5px; right: 0; visibility: hidden; border: 0; box-shadow: none; }
+.ui-test-root .ui-test-tree-delete:not(.is-armed) { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; line-height: 0; }
+.ui-test-root .ui-test-tree-delete:not(.is-armed) svg { display: block; width: 15px; height: 15px; margin: 0; }
+.ui-test-root .ui-test-tree-delete:not(.is-armed):hover, .ui-test-root .ui-test-tree-delete:not(.is-armed):active, .ui-test-root .ui-test-tree-delete:not(.is-armed):focus-visible { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; box-shadow: none; transform: none; }
 .ui-test-root .ui-test-tree-delete:focus-visible { visibility: visible; z-index: 4; opacity: 1; background: var(--ui-panel); }
 .ui-test-root .ui-test-tree-root-label { margin: 20px 8px 6px; padding: 0; font-size: 12px; font-weight: 400; }
 .ui-test-root .ui-test-outline-tools { background: var(--ui-paper); border-radius: 10px; padding: 14px; color: var(--ui-ink); font: 14px/1.6 var(--ui); }
@@ -236,7 +241,7 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 
 .ui-test-root [data-ui-tree-row]:hover .ui-test-tree-delete, .ui-test-root [data-ui-tree-row]:focus-within .ui-test-tree-delete, .ui-test-root .ui-test-tree-delete.is-armed { visibility: visible; right: 30px; opacity: 1; z-index: 3; background: var(--ui-panel); }
 .ui-test-root [data-ui-tree-row]:focus-within .ui-test-tree-more { opacity: 1; }
-.ui-test-root .ui-test-tree-delete.is-armed { width: auto; background: var(--ui-danger); color: #fff; }
+.ui-test-root .ui-test-tree-delete.is-armed { top: 5px; width: auto; height: 28px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: var(--ui-danger); color: #fff; transform: none; }
 .ui-test-root [aria-label="文档更多操作"] { border: 0; background: var(--ui-paper); color: var(--ui-ink); border-radius: 12px; padding: 8px; width: 216px; box-shadow: 0 16px 40px #14231b24; }
 .ui-test-root [aria-label="文档更多操作"] button { font-size: 13px; padding-block: 9px; border-radius: 6px; }
 
