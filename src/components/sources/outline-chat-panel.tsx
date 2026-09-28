@@ -1693,11 +1693,11 @@ function OutlineGenerationMenu({
       >
         <ListPlus className="h-4 w-4" />
       </button>
-      {isOpen ? (
+      {isOpen ? createPortal(
         <div
           ref={menuRef}
           className="qmai-outline-generation-menu fixed z-50 w-56 overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-          style={menuPosition}
+          style={{ ...menuPosition, zIndex: 9999 }}
           role="menu"
           data-ui-ai-menu="generation"
         >
@@ -1718,7 +1718,8 @@ function OutlineGenerationMenu({
               <span className="min-w-0 truncate">{config.title}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

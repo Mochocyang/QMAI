@@ -1,0 +1,9 @@
+## Key Concepts
+- Rotary Position Embedding (RoPE): rotates pairs of dimensions
+
+## Main Arguments
+- RoPE naturally supports variable-length contexts
+
+## Recommendations
+- Create wiki/concepts/rope.md
+- Create wiki/sources/rope-paper.md

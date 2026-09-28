@@ -435,7 +435,7 @@ it("大纲生成菜单保留完整向导与九类分项入口，窗口缩小时�
   vi.spyOn(trigger!, "getBoundingClientRect").mockReturnValue({ left: 600, right: 700, top: 450, bottom: 482, width: 100, height: 32, x: 600, y: 450, toJSON: () => ({}) })
   await click(trigger)
   let menu = document.querySelector<HTMLElement>('[data-ui-ai-menu="generation"]')
-  expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(9)
+  expect(menu?.querySelectorAll('[role="menuitem"]')).toHaveLength(10)
   expect(menu?.textContent).toContain("章节细纲")
   vi.stubGlobal("innerWidth", 260)
   vi.stubGlobal("innerHeight", 260)

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { BookOpen, Brain, Check, Grid2X2, GitBranch, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
+import { BookOpen, Brain, Check, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
 import logoImg from "@/assets/QM-LOGO.png"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
@@ -22,6 +22,7 @@ import { normalizePath } from "@/lib/path-utils"
 import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
 import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
+import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
 import { useUiTestWidth } from "./use-ui-test-width"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
@@ -38,7 +39,7 @@ interface UiTestShellProps {
   onProjectOpened: (project: WikiProject) => void
 }
 const TOOL_GROUPS = [
-  [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
+  [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "soul", label: "灵魂", icon: Sparkles }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
   [ { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
 ] as const
@@ -64,6 +65,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
+  const [showContact, setShowContact] = useState(false)
   const [libraryError, setLibraryError] = useState("")
   const [toolOpen, setToolOpen] = useState(false)
   const [skinOpen, setSkinOpen] = useState(false)
@@ -364,6 +366,10 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="后台活动" onClick={() => setShowActivity(true)}><History /></button>} />
               <TooltipContent>后台活动</TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="联系与支持" aria-haspopup="dialog" onClick={() => setShowContact(true)}><HeartHandshake /></button>} />
+              <TooltipContent>联系与支持</TooltipContent>
+            </Tooltip>
             {!macOS && <div className="ui-test-win-actions">
               <button type="button" className="ui-test-win-btn" aria-label="最小化" title="最小化" onClick={minimizeWindow}><Minus /></button>
               <button type="button" className="ui-test-win-btn" aria-label="最大化或还原" title="最大化或还原" onClick={toggleMaximizeWindow}><Square /></button>
@@ -386,6 +392,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       </div>
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
     </div>
   )
 }

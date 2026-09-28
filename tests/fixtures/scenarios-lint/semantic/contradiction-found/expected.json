@@ -1,0 +1,10 @@
+{
+  "structural": [],
+  "semantic": [
+    {
+      "type": "semantic",
+      "severity": "warning",
+      "titleContains": "Attention function differs"
+    }
+  ]
+}

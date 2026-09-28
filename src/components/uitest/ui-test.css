@@ -178,6 +178,7 @@ html[data-ui-test-skin] [data-slot="dialog-close"] { top: 19px; right: 19px; col
 html[data-ui-test-skin] [data-slot="input"], html[data-ui-test-skin] [data-slot="textarea"] { background: var(--ui-panel); color: var(--ui-ink); border-color: transparent; box-shadow: none; border-radius: 8px; }
 html[data-ui-test-skin] [data-slot="dropdown-menu-content"], html[data-ui-test-skin] [data-slot="popover-content"], html[data-ui-test-skin] [data-slot="select-content"] { background: var(--ui-paper); color: var(--ui-ink); max-height: min(75dvh, var(--available-height, 75dvh)); max-width: calc(100vw - 24px); overflow-y: auto; border-color: var(--ui-line); border-radius: 12px; box-shadow: 0 12px 40px #17251c20; font-family: var(--ui); }
 html[data-ui-test-skin] .ui-test-activity-dialog { width: min(600px, calc(100vw - 32px)); }
+html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw - 32px)); }
 .ui-test-activity-body:empty::before { content: "当前没有后台活动，可以安心写作。"; display: block; padding: 42px 18px; text-align: center; color: var(--ui-muted); background: var(--ui-panel); border-radius: 12px; }
 .ui-test-activity-body > div { border: 0; background: var(--ui-panel); border-radius: 12px; }
 .ui-test-activity-body .max-h-64 { max-height: none; }

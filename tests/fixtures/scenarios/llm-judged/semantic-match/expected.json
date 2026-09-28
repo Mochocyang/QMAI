@@ -1,0 +1,9 @@
+{
+  "resolvedIds": [
+    "r-context-window"
+  ],
+  "pendingIds": [],
+  "resolvedActions": {
+    "r-context-window": "llm-judged"
+  }
+}

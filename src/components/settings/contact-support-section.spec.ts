@@ -19,6 +19,7 @@ describe("settings contact support section", () => {
     expect(sectionSource).toContain("wechat-pay.jpg")
     expect(sectionSource).toContain("alipay-pay.jpg")
     expect(sectionSource).toContain("settings.sections.contactSupport.contact.title")
-    expect(sectionSource).toContain("settings.sections.contactSupport.donation.title")
+    expect(sectionSource).toContain("settings.sections.contactSupport.donation.wechatPay.title")
+    expect(sectionSource).toContain("settings.sections.contactSupport.donation.alipayPay.title")
   })
 })

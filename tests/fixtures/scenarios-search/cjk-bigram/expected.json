@@ -1,0 +1,8 @@
+{
+  "topResultPaths": [
+    "wiki/attention-zh.md"
+  ],
+  "excludedPaths": [
+    "wiki/unrelated-zh.md"
+  ]
+}

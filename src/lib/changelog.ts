@@ -7,6 +7,25 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ZERO_THREE_CHANGELOG: ChangelogEntry = {
+  version: "4.0.3",
+  date: "2026-09-28",
+  highlights: {
+    en: [
+      "[Soul Entry in Creation Tools] The Creation Tools menu now lists Soul between Novel Graph and Skill Library. After replacing the Soul tab with another module, the Soul view can still be reopened from Creation Tools.",
+      "[Contact & Support Entry] A new Contact & Support icon sits to the right of Background Activity. The dialog shows one Contact & Support title with the WeChat contact and both tipping QR codes on one screen, no scrolling needed.",
+      "[Outline Menu Fix] The outline generation menu now renders through a portal on top of the input box, so it is no longer obscured while typing.",
+      "[Draft Memory Hint] The draft extraction hint is shown once per novel folder; after that it appears again only when opening a draft chapter that already has a later chapter.",
+    ],
+    zh: [
+      "【创作工具新增灵魂入口】「创作工具」菜单在「小说图谱」与「技能库」之间新增「灵魂」；顶部标签栏把「灵魂」替换成其它模块后，仍可从「创作工具」重新打开灵魂页面",
+      "【顶部新增联系与支持入口】「后台活动」右侧新增「联系与支持」图标；弹窗只显示「联系与支持」一个标题，添加微信与两个打赏二维码同屏展示，无需滚动",
+      "【大纲生成菜单修复】「生成大纲模块」菜单改为传送门渲染到输入框前面，输入时不再被输入框遮挡",
+      "【草稿提取记忆提示】草稿提取提示按小说文件夹记一次；之后只有点开仍是草稿、且后面已经有章节时才再提示",
+    ],
+  },
+};
+
 const FOUR_POINT_ZERO_TWO_CHANGELOG: ChangelogEntry = {
   version: "4.0.2",
   date: "2026-09-27",
@@ -1656,6 +1675,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ZERO_THREE_CHANGELOG.version)
+    return [FOUR_POINT_ZERO_THREE_CHANGELOG];
   if (version === FOUR_POINT_ZERO_TWO_CHANGELOG.version)
     return [FOUR_POINT_ZERO_TWO_CHANGELOG];
   if (version === FOUR_POINT_ZERO_ONE_CHANGELOG.version)
@@ -1805,6 +1826,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ZERO_THREE_CHANGELOG,
     FOUR_POINT_ZERO_TWO_CHANGELOG,
     FOUR_POINT_ZERO_ONE_CHANGELOG,
     FOUR_POINT_ZERO_ZERO_CHANGELOG,

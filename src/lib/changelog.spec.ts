@@ -6,7 +6,15 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["4.0.2", "4.0.1", "4.0.0"])
+    expect(versions.slice(0, 3)).toEqual(["4.0.3", "4.0.2", "4.0.1"])
+    const release403 = currentVersionChangelog("4.0.3")[0]
+    expect(release403.version).toBe("4.0.3")
+    expect(release403.date).toBe("2026-09-28")
+    expect(release403.highlights.zh.join("\n")).toContain("创作工具新增灵魂入口")
+    expect(release403.highlights.zh.join("\n")).toContain("顶部新增联系与支持入口")
+    expect(release403.highlights.zh.join("\n")).toContain("大纲生成菜单修复")
+    expect(release403.highlights.zh.join("\n")).toContain("草稿提取记忆提示")
+    expect(release403.highlights.en.join("\n")).toContain("Soul Entry in Creation Tools")
     const release402 = currentVersionChangelog("4.0.2")[0]
     expect(release402.version).toBe("4.0.2")
     expect(release402.date).toBe("2026-09-27")

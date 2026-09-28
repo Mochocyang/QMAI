@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react"
+import { Children, Fragment, cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react"
 import { Menu } from "@base-ui/react/menu"
 import { ChevronRight, Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
 import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
@@ -42,7 +42,7 @@ function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void; 
   if (!hint) return actions
   const visit = (node: ReactNode): ReactNode => {
     if (!isValidElement(node)) return node
-    if (node.type === Symbol.for("react.fragment")) {
+    if (node.type === Fragment) {
       const fragment = node as ReactElement<{ children?: ReactNode }>
       return cloneElement(fragment, fragment.props, Children.map(fragment.props.children, visit))
     }
