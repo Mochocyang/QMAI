@@ -6,7 +6,14 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 3)).toEqual(["4.0.3", "4.0.2", "4.0.1"])
+    expect(versions.slice(0, 4)).toEqual(["4.0.4", "4.0.3", "4.0.2", "4.0.1"])
+    const release404 = currentVersionChangelog("4.0.4")[0]
+    expect(release404.version).toBe("4.0.4")
+    expect(release404.date).toBe("2026-09-29")
+    expect(release404.highlights.zh.join("\n")).toContain("生成等待期新增写小说心得")
+    expect(release404.highlights.zh.join("\n")).toContain("等待文案并到光标行")
+    expect(release404.highlights.zh.join("\n")).toContain("文案按字数停留")
+    expect(release404.highlights.en.join("\n")).toContain("Waiting Tips While Generating")
     const release403 = currentVersionChangelog("4.0.3")[0]
     expect(release403.version).toBe("4.0.3")
     expect(release403.date).toBe("2026-09-28")

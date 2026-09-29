@@ -187,6 +187,7 @@ import { ContextUsageRing } from "@/components/chat/context-usage-ring";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
+import { useWaitingHint } from "@/hooks/use-waiting-hint";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
 import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 import {
@@ -1350,6 +1351,15 @@ function OutlineAssistantMessage({
   );
   const actionContent = answer || displayContent;
   const messageIsStreaming = isStreaming && index === activeMessagesLength - 1;
+  // 等待首个 token 期间显示轮播俏皮文案，消解等待的枯燥感。
+  const waitingHint = useWaitingHint(messageIsStreaming && !msg.content);
+  // 文案并到闪烁光标那一行显示，不单独占一行。
+  const waitingText =
+    messageIsStreaming && !msg.content
+      ? runStatusText && waitingHint
+        ? `${runStatusText} · ${waitingHint}`
+        : runStatusText || waitingHint || ""
+      : "";
   const intentProtocol = useMemo(
     () => parseIntentClarityProtocol(answer || displayContent),
     [answer, displayContent],
@@ -1468,11 +1478,6 @@ function OutlineAssistantMessage({
         />
       )}
       {<UiTestAiAuthor running={messageIsStreaming} />}
-      {messageIsStreaming && !msg.content && runStatusText ? (
-        <div className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
-          {runStatusText}
-        </div>
-      ) : null}
       {intentProtocolError ? (
         <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {intentProtocolError}
@@ -1491,6 +1496,7 @@ function OutlineAssistantMessage({
       <StreamingMarkdown
         content={renderedMarkdownContent}
         isStreaming={messageIsStreaming}
+        cursorSuffix={waitingText || undefined}
         renderCommitted={(text) => (
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}

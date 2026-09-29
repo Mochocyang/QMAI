@@ -7,6 +7,23 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ZERO_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "4.0.4",
+  date: "2026-09-29",
+  highlights: {
+    en: [
+      "[Waiting Tips While Generating] While an outline or chapter is being generated, playful lines now rotate through the waiting state, including 199 novel-writing tips (character, plot, dialogue, foreshadowing, pacing and more) so every wait is also a refresher for writing.",
+      "[Waiting Text on the Cursor Line] The waiting tip is shown right after the streaming cursor on the same line instead of taking up a separate row.",
+      "[Hints Read at Their Own Pace] Each waiting line stays long enough to read; longer lines stay longer, based on the character count.",
+    ],
+    zh: [
+      "【生成等待期新增写小说心得】生成大纲或章节时的等待状态会轮播俏皮文案，其中加入 199 条写小说心得（人物、情节、对话、伏笔、节奏等主题），每次等待都能顺便补一条写作知识",
+      "【等待文案并到光标行】等待文案显示在流式光标后面同一行，不再单独占用一行",
+      "【文案按字数停留】每句等待文案都会留够阅读时间，长句停留更久，看完一句才切下一句",
+    ],
+  },
+};
+
 const FOUR_POINT_ZERO_THREE_CHANGELOG: ChangelogEntry = {
   version: "4.0.3",
   date: "2026-09-28",
@@ -1675,6 +1692,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ZERO_FOUR_CHANGELOG.version)
+    return [FOUR_POINT_ZERO_FOUR_CHANGELOG];
   if (version === FOUR_POINT_ZERO_THREE_CHANGELOG.version)
     return [FOUR_POINT_ZERO_THREE_CHANGELOG];
   if (version === FOUR_POINT_ZERO_TWO_CHANGELOG.version)
@@ -1826,6 +1845,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ZERO_FOUR_CHANGELOG,
     FOUR_POINT_ZERO_THREE_CHANGELOG,
     FOUR_POINT_ZERO_TWO_CHANGELOG,
     FOUR_POINT_ZERO_ONE_CHANGELOG,

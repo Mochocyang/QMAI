@@ -6,6 +6,8 @@ interface StreamingMarkdownProps {
   isStreaming: boolean
   renderCommitted: (content: string) => ReactNode
   showCursor?: boolean
+  /** 跟随在闪烁光标后面的文字，用来把等待文案并到光标这一行。 */
+  cursorSuffix?: ReactNode
 }
 
 function StreamingMarkdownImpl({
@@ -13,6 +15,7 @@ function StreamingMarkdownImpl({
   isStreaming,
   renderCommitted,
   showCursor = true,
+  cursorSuffix,
 }: StreamingMarkdownProps) {
   // 对齐 Zed: 已提交行保持不变，只在换行时重新解析 Markdown（等效 should_reparse 防抖）
   const lastCommittedRef = useRef("")
@@ -62,7 +65,16 @@ function StreamingMarkdownImpl({
         </span>
       )}
       {/* 对齐 Zed: 用 Braille spinner 替代闪烁方块光标 */}
-      {showCursor && isStreaming && <StreamingSpinner />}
+      {showCursor && isStreaming && (
+        <>
+          <StreamingSpinner />
+          {cursorSuffix ? (
+            <span className="ml-1.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+              {cursorSuffix}
+            </span>
+          ) : null}
+        </>
+      )}
     </>
   )
 }

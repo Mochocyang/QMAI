@@ -32,6 +32,7 @@ import { normalizePath } from "@/lib/path-utils";
 import { resolveCitedPagePath } from "@/lib/resolve-cited-page-path";
 import { refreshProjectState } from "@/lib/project-refresh";
 import { getLastQueryPages } from "@/components/chat/chat-shared";
+import { useWaitingHint } from "@/hooks/use-waiting-hint";
 import { FileEditPreview } from "@/components/chat/file-edit-preview";
 import { AgentToolCallMessage } from "@/components/chat/agent-tool-call-message";
 import type { ToolCallRecord } from "@/components/chat/agent-tool-call-message";
@@ -745,10 +746,11 @@ export function StreamingMessage({ content, isStreaming = true }: StreamingMessa
 }
 
 function AgentThinkingIndicator() {
+  const hint = useWaitingHint(true);
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      <span>正在生成中...</span>
+      <span>{hint ?? "正在生成中..."}</span>
     </div>
   );
 }

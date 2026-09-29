@@ -5,6 +5,7 @@ import { ThinkingEvent } from "./timeline-thinking-event"
 import { ToolCallEvent } from "./timeline-tool-event"
 import { getToolCallGroupRenderKey, ToolCallGroup } from "./timeline-tool-group"
 import { Brain, Hash } from "lucide-react"
+import { useWaitingHint } from "@/hooks/use-waiting-hint"
 
 interface EventStreamProps {
   events: TimelineEvent[]
@@ -19,6 +20,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens, sh
   const userScrolledRef = useRef(false)
   const scrollFrameRef = useRef<number | null>(null)
   const groupedEvents = useMemo(() => groupTimelineEvents(events), [events])
+  const waitingHint = useWaitingHint(isStreaming && events.length === 0)
 
   const thinkingCount = events.filter((e) => e.kind === "thinking").length
   const toolCount = events.reduce((count, event) => {
@@ -71,7 +73,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens, sh
       return (
         <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-muted-foreground">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
-          <span>思考中...</span>
+          <span>{waitingHint ?? "思考中..."}</span>
         </div>
       )
     }
