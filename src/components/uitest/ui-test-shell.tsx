@@ -316,7 +316,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startResizeDragging(direction))
       }} />)}
       <div ref={appRef} className="ui-test-app">
-        <header className="ui-test-header" data-tauri-drag-region>
+        <header className="ui-test-header" data-tauri-drag-region="deep">
           {macOS && <MacTrafficLights onClose={closeWindow} onMinimize={minimizeWindow} onZoom={toggleMaximizeWindow} />}
           <div className="ui-test-brand"><img className="ui-test-brand-logo" src={logoImg} alt="" /><span className="ui-test-brand-name">青幕AI写作</span>
             <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
@@ -325,7 +325,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
           <nav className="ui-test-nav" aria-label="主模块" onContextMenu={(event) => event.preventDefault()}>
             {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
               <button type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
-              {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>
+              {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} data-tauri-drag-region="false" onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "move"} aria-haspopup="menu" onMouseEnter={() => showNavSection("move")} onFocus={() => showNavSection("move")}>移动</button>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "replace"} aria-haspopup="menu" onMouseEnter={() => showNavSection("replace")} onFocus={() => showNavSection("replace")}>替换为</button>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "add"} aria-haspopup="menu" disabled={primaryNav.length >= 5 || availablePrimaryNav(primaryNav).length === 0} onMouseEnter={() => showNavSection("add")} onFocus={() => showNavSection("add")}>新增功能</button>
@@ -349,7 +349,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </>}
             <div ref={toolsRef} className="ui-test-menu-anchor">
               <button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" title="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => { setToolOpen(!toolOpen); setSkinOpen(false) }}><Grid2X2 /></button>
-              {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" onKeyDown={menuKeyboard}>
+              {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" data-tauri-drag-region="false" onKeyDown={menuKeyboard}>
                 <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
                 {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
                   {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project && view !== "settings"} onClick={() => navigate(view)}><Icon /><span>{label}</span></button>)}
@@ -358,7 +358,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </div>
             <div ref={skinsRef} className="ui-test-menu-anchor">
               <button ref={skinRef} type="button" className="ui-test-icon-btn" aria-label="外观" title="外观" aria-haspopup="menu" aria-expanded={skinOpen} onClick={() => { setSkinOpen(!skinOpen); setToolOpen(false) }}><Moon /></button>
-              {skinOpen && <div className="ui-test-menu-pop ui-test-skin-menu" role="menu" aria-label="外观" onKeyDown={menuKeyboard}><div className="ui-test-menu-title">外观</div>
+              {skinOpen && <div className="ui-test-menu-pop ui-test-skin-menu" role="menu" aria-label="外观" data-tauri-drag-region="false" onKeyDown={menuKeyboard}><div className="ui-test-menu-title">外观</div>
                 {UI_TEST_SKINS.map(item => <button type="button" role="menuitemradio" aria-checked={skin === item.id} className="ui-test-menu-item" key={item.id} onClick={() => chooseSkin(item.id)}><span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} /><span className="ui-test-skin-copy"><span>{item.name}</span><small>{item.hint}</small></span>{skin === item.id && <Check />}</button>)}
               </div>}
             </div>
