@@ -45,11 +45,24 @@ export function modelEnableLabel(enabled: boolean) {
   return enabled ? "已启用" : "已停用"
 }
 
+/** 自定义模型配置标记的专属色：赭金，在浅色、羊皮纸、深绿三种皮肤上都能与品牌图标区分。 */
+const CUSTOM_MARK_COLOR = "#c07c1c"
+
 export function CustomModelMark() {
   return (
     <svg className="model-brand-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="1.25" y="1.25" width="13.5" height="13.5" rx="3.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 4.75v6.5M4.75 8h6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <text
+        x="8"
+        y="8"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="13.5"
+        fontWeight="500"
+        fill={CUSTOM_MARK_COLOR}
+        fontFamily='"PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", sans-serif'
+      >
+        自
+      </text>
     </svg>
   )
 }
