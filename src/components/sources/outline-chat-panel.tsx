@@ -2184,6 +2184,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     [activeConversationId, conversations, isWorkingConversation],
   );
   const historyCount = historyConversations.length;
+  // 当前 UI 用历史下拉统一承载会话切换，隐藏了顶栏 chips；因此下拉必须列出全部会话，
+  // 否则当天新建的非当前会话既不在（隐藏的）chips 里，也不在历史里，导致不可达。
+  const menuConversations = conversations;
+  const menuConversationCount = menuConversations.length;
 
   const hasAvailableModels = useMemo(
     () => hasConfiguredModels(providerConfigs),
@@ -6221,9 +6225,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           >
             <History className="h-3.5 w-3.5" />
             <span>历史大纲对话</span>
-            {historyCount > 0 ? (
+            {menuConversationCount > 0 ? (
               <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
-                {historyCount}
+                {menuConversationCount}
               </span>
             ) : null}
             <ChevronDown className={`h-3 w-3 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
@@ -6236,26 +6240,29 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   style={historyDropdownStyle}
                   data-ui-ai-menu="history"
                 >
-                  {historyCount > 0 ? (
+                  {menuConversationCount > 0 ? (
                     <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-2 py-1.5">
-                      <span className="text-xs text-muted-foreground">{`全部会话 ${historyCount} 条`}</span>
-                      <button
-                        type="button"
-                        aria-label="一键清理会话历史"
-                        onClick={requestClearHistory}
-                        className="inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        清理旧会话
-                      </button>
+                      <span className="text-xs text-muted-foreground">{`全部会话 ${menuConversationCount} 条`}</span>
+                      {historyCount > 0 ? (
+                        <button
+                          type="button"
+                          aria-label="一键清理会话历史"
+                          title={`仅清理 ${historyCount} 条旧会话，保留当前和运行中的会话`}
+                          onClick={requestClearHistory}
+                          className="inline-flex h-7 items-center gap-1 rounded px-2 text-xs text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          清理旧会话
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
-                  {historyCount === 0 ? (
+                  {menuConversationCount === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-muted-foreground">
                       暂无历史大纲对话
                     </div>
                   ) : (
-                    historyConversations.map((conv) => (
+                    menuConversations.map((conv) => (
                       <div
                         key={conv.id}
                         className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"

@@ -555,6 +555,31 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("<ConversationHistoryClearDialog")
   })
 
+  it("历史下拉列出当天非当前会话，避免非当前会话在 UI 上不可达", async () => {
+    const today = Date.now()
+    setOutlineConversations(
+      [
+        { id: "conv-b", title: "会话B", createdAt: today, updatedAt: today, messages: [] },
+        { id: "conv-a", title: "会话A", createdAt: today - 1000, updatedAt: today - 1000, messages: [] },
+      ],
+      "conv-b",
+    )
+    const container = await renderOutlineChatPanel()
+    const trigger = container.querySelector<HTMLButtonElement>(".qmai-outline-history-button")
+    expect(trigger).not.toBeNull()
+    await act(async () => {
+      trigger?.click()
+    })
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+    })
+    // 当天会话会被 splitConversationToolbarItems 归入 top（顶栏 chips 在当前 UI 中隐藏），
+    // 因此下拉必须能列出它们，否则会话 A 既不在 chips 也不在历史里。
+    expect(document.body.textContent).toContain("会话A")
+    expect(document.body.textContent).toContain("全部会话 2 条")
+    expect(source).toContain("menuConversations.map((conv) => (")
+  })
+
   it("passes confirm and reject handlers into the outline tool workflow", () => {
     expect(source).toContain("handleConfirmToolSave")
     expect(source).toContain("handleRejectTool")
