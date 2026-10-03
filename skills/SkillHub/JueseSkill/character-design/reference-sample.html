@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>人物小传 · 角色卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --hero-a:#8A3F13;--hero-b:#B8551D;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 角色头图 */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:40px 0 34px}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#F6E0D2;font-weight:600;margin:0 0 12px}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#FBF0E9;font-size:14.5px}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.34);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he,#F59E42);border-radius:8px;padding:8px 10px}
+
+/* 角色卡分区 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.role{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.fn{background:var(--ok-soft);border-color:var(--ok-border);color:var(--ok);font-weight:600}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">人物小传 · 角色卡</p>
+    <h1>林辰</h1>
+    <div><span class="chip"><b>10</b> 个分区</span><span class="chip"><b>13</b> 条表格记录</span></div>
+    <p class="tagline">一个被天弃过一次的人，从此再不肯把命交给任何人。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">10 个分区</span></h2><div class="kv"><span class="kk">身份</span><span class="vv">问天宗外门弟子 → 缄默会外围（后期）</span></div><div class="kv"><span class="kk">年龄</span><span class="vv">十六（登场）</span></div><div class="kv"><span class="kk">出身</span><span class="vv">落霞海边的小渔村，父母死于无声之雨</span></div><div class="kv"><span class="kk">当前修为</span><span class="vv">三转筑基（卷二末）</span></div><div class="kv"><span class="kk">所属势力</span><span class="vv">问天宗外门；暗中受缄默会照拂</span></div><div class="kv"><span class="kk">登场章节</span><span class="vv">第1章（落崖）</span></div><div class="tags" style="margin-top:10px"><span class="tag">基本信息</span><span class="tag">角色定位</span><span class="tag">外在表现</span><span class="tag">内在分析</span><span class="tag">语言风格</span><span class="tag">关系网络</span><span class="tag">出场记录</span><span class="tag">状态追踪</span><span class="tag warn">写作使用规则</span><span class="tag">别名</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard"><h3><span class="no">1</span>基本信息</h3><div class="kv"><span class="kk">身份</span><span class="vv">问天宗外门弟子 → 缄默会外围（后期）</span></div><div class="kv"><span class="kk">年龄</span><span class="vv">十六（登场）</span></div><div class="kv"><span class="kk">出身</span><span class="vv">落霞海边的小渔村，父母死于无声之雨</span></div><div class="kv"><span class="kk">当前修为</span><span class="vv">三转筑基（卷二末）</span></div><div class="kv"><span class="kk">所属势力</span><span class="vv">问天宗外门；暗中受缄默会照拂</span></div><div class="kv"><span class="kk">登场章节</span><span class="vv">第1章（落崖）</span></div></section><section class="pcard"><h3><span class="no">2</span>角色定位</h3><div class="kv"><span class="kk">故事功能</span><span class="vv">承载主线：把「缄默天劫」从传说变成可追查的事实</span></div><div class="kv"><span class="kk">情绪功能</span><span class="vv">提供「被弃者自救」的核心情绪——不靠天，只靠自己</span></div><div class="kv"><span class="kk">主题功能</span><span class="vv">与「问天宗」的守旧秩序对照，逼出「要不要唤回天」的终极选择</span></div></section><section class="pcard"><h3><span class="no">3</span>外在表现</h3><div class="kv"><span class="kk">外形</span><span class="vv">瘦削，眉骨有一道旧疤；常年穿洗得发白的青衫</span></div><div class="kv"><span class="kk">标志性动作</span><span class="vv">思考时无意识摩挲眉骨旧疤</span></div><div class="kv"><span class="kk">第一印象</span><span class="vv">沉默、克制、不好接近；开口时往往一针见血</span></div></section><section class="pcard"><h3><span class="no">4</span>内在分析</h3><div class="kv"><span class="kk">表层目标</span><span class="vv">活下去，并查明父母死于无声之雨的真相</span></div><div class="kv"><span class="kk">深层动机</span><span class="vv">证明「不求天也能活」——对缄默的执念式反抗</span></div><div class="kv"><span class="kk">最怕失去</span><span class="vv">再一次被「依靠的对象」抛弃（师姐、宗门、甚至洞天）</span></div><div class="kv"><span class="kk">核心矛盾</span><span class="vv">越不想求人，越需要借助洞天与他人的力量</span></div><div class="kv"><span class="kk">价值观</span><span class="vv">命要攥在自己手里；规矩若护不住人，就不算规矩</span></div></section><section class="pcard wide"><h3><span class="no">5</span>语言风格</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">面对对象</th><th class="mxh">语气</th><th class="mxh">口头禅/习惯</th><th class="mxh">忌讳</th></tr></thead><tbody><tr><td class="mxh">长辈与长老</td><td>简短、恭顺但不卑</td><td>「弟子明白」</td><td>不主动提天劫</td></tr><tr><td class="mxh">同门与师姐</td><td>克制中带一点软</td><td>少说，多做</td><td>不谈自己的伤</td></tr><tr><td class="mxh">对手与敌人</td><td>冷、准、只说结论</td><td>「你可以试试」</td><td>不解释动机</td></tr><tr><td class="mxh">无声之民</td><td>放低声音，用手势</td><td>以念代口</td><td>不大声说话</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">6</span>关系网络</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">角色</th><th class="mxh">当前关系</th><th class="mxh">关系阶段</th><th class="mxh">最近变化</th><th class="mxh">后续可能</th></tr></thead><tbody><tr><td class="mxh">苏清月</td><td>师姐 · 庇护者</td><td>信任初建</td><td>第26章替他挡下执事责罚</td><td>第62章因师承暴露而对立</td></tr><tr><td class="mxh">玉虚真人</td><td>长老 · 引路人</td><td>表面倚重</td><td>第34章后山异动后态度转冷</td><td>第60章成为嫌疑人</td></tr><tr><td class="mxh">老哑</td><td>杂役 · 线索人</td><td>单向观察</td><td>第55章以契约言试探</td><td>成为缄默会入口</td></tr><tr><td class="mxh">郑屠</td><td>执事 · 压迫者</td><td>敌意</td><td>第18章内外之比被压制</td><td>后期倒向问天宗高层</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">7</span>出场记录</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">章节</th><th class="mxh">场景</th><th class="mxh">作用</th><th class="mxh">状态变化</th></tr></thead><tbody><tr><td class="mxh">第1章</td><td>落崖</td><td>得符种，开启识海洞天</td><td>从凡人变为修行者</td></tr><tr><td class="mxh">第5章</td><td>青云峰开山</td><td>入门试炼通过</td><td>成为外门弟子</td></tr><tr><td class="mxh">第12章</td><td>峰顶无声之雨</td><td>首次听闻「缄默」</td><td>开始怀疑天劫未结束</td></tr><tr><td class="mxh">第18章</td><td>内外之比</td><td>以推演补全缺页功法</td><td>避开假筑基，修为夯实</td></tr><tr><td class="mxh">第34章</td><td>后山玉璧</td><td>确认天劫未结束</td><td>主动追查归墟秘境</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">8</span>状态追踪</h3><div class="kv"><span class="kk">当前处境</span><span class="vv">问天宗外门，受执事压制，暗中追查缄默真相</span></div><div class="kv"><span class="kk">心理状态</span><span class="vv">警惕而孤独；对师姐的信任正在动摇防线</span></div><div class="kv"><span class="kk">持有资源</span><span class="vv">识海洞天、半页真功法、一枚时序残片</span></div><div class="kv"><span class="kk">未完成心愿</span><span class="vv">查清父母死因；确认天劫会不会重演</span></div></section><section class="pcard lore"><h3><span class="no">9</span>写作使用规则</h3><ul class="clist"><li>他的每一次变强都必须写明代价（神魂暗伤要累积）。</li><li>不得写成「天选之子」——他的优势来自算计与代价，不是天命。</li><li>洞天只能给时间与空间，不能替他做决定。</li><li>面对权威时先忍后反，绝不一开始正面硬刚（会破坏处境真实性）。</li><li>与他人建立信任必须慢，且每次都要付出一点自我暴露。</li></ul></section><section class="pcard"><h3><span class="no">10</span>别名</h3><div class="kv"><span class="kk">宗门内</span><span class="vv">外门林（执事们的贬称）</span></div><div class="kv"><span class="kk">缄默会</span><span class="vv">「持种者」（未当面使用）</span></div><div class="kv"><span class="kk">落霞渡</span><span class="vv">阿辰（村里旧称，仅老哑用过一次）</span></div></section>
+  </main>
+</div>
+
+</body>
+</html>

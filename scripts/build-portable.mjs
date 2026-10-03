@@ -62,13 +62,33 @@ try {
 }
 
 // 复制 skills 文件夹到便携版目录
+// 优先用 robocopy：比 cpSync 快两个数量级，且文件被占用时明确报错跳过（cpSync 会无限重试挂死）。
+// robocopy 成功退出码为 0–7，>=8 才是错误；命令不可用（如非 Windows）时回退到 cpSync。
 const sourceSkillDir = resolve(root, "skills")
 if (existsSync(sourceSkillDir)) {
   try {
     rmSync(outSkillDir, { recursive: true, force: true })
   } catch {}
   mkdirSync(outSkillDir, { recursive: true })
-  cpSync(sourceSkillDir, outSkillDir, { recursive: true })
+  let copied = false
+  try {
+    execSync(
+      `robocopy "${sourceSkillDir}" "${outSkillDir}" /E /MT:16 /R:0 /W:0 /NFL /NDL /NJH /NJS /NP`,
+      { stdio: "ignore" },
+    )
+    copied = true
+  } catch (e) {
+    const code = typeof e?.status === "number" ? e.status : 8
+    if (code < 8) copied = true
+    else console.warn(`robocopy 复制 skills 失败（exit=${code}），回退 cpSync`)
+  }
+  if (!copied) {
+    try {
+      cpSync(sourceSkillDir, outSkillDir, { recursive: true })
+    } catch (e) {
+      console.warn("cpSync 复制 skills 失败：", e?.message ?? e)
+    }
+  }
 }
 
 const exeStat = statSync(outExe)

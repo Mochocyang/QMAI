@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>地点设定 · 地点卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#F8F8FB;--surface2:#F1F1F7;--ink:#1F2030;--ink2:#3E4056;--muted:#71748C;
+  --border:#E1E1EC;--brand:#3B4FA8;--brand-soft:#EEF1FC;--brand-soft2:#E0E6FA;--brand-text:#2E3F8C;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#5C74D8;--hero-a:#141A38;--hero-b:#2B3A7A;--ring:rgba(255,255,255,.14);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 地点头图（同心定位环） */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;right:-60px;top:-80px;width:360px;height:360px;border-radius:50%;
+  background:repeating-radial-gradient(circle,var(--ring) 0 1px,transparent 1px 30px);pointer-events:none}
+.hero::after{content:"";position:absolute;left:34px;bottom:-16px;width:12px;height:12px;border-radius:50% 50% 50% 0;
+  transform:rotate(-45deg);background:var(--he);box-shadow:0 0 0 4px rgba(92,116,216,.28);pointer-events:none}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#C4CCF0;font-weight:600;margin:0 0 12px;position:relative}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;position:relative}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#C4CCF0;font-size:14.5px;position:relative}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0;position:relative}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid #3B4FA8}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 地点：罗盘底纹 + 首列地点块 */
+.pcard.place{border-top:3px solid #3B4FA8}
+.pcard.place .mxwrap{border-color:#D5DBF3;background:linear-gradient(180deg,rgba(59,79,168,.06),transparent 44%)}
+.pcard.place table.mx thead th{background:#E8EBF8;color:#2E3F8C}
+.pcard.place table.mx tbody td:first-child{background:#F0F2FB;color:#2B3A7A;font-weight:700;white-space:nowrap;border-left:3px solid #3B4FA8}
+.pcard.place table.mx tbody tr:nth-child(even) td:first-child{background:#E5E9F7;border-left-color:var(--he)}
+
+/* 空间规则 / 限制等：警示调 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 名册 / 关系 */
+.pcard.roster{border-top:3px solid var(--ok-border)}
+.pcard.roster table.mx thead th{background:var(--ok-soft);color:var(--ok)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">地点设定 · 地点卡</p>
+    <h1>青云峰<span class="role">宗门驻地</span></h1>
+    <div><span class="chip"><b>宗门驻地</b></span><span class="chip"><b>12</b> 个分区</span><span class="chip"><b>23</b> 条表格记录</span></div>
+    <p class="tagline">问天宗外门所在。云锁半山，登阶者众，登顶者稀。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">12 个分区</span></h2><div class="kv"><span class="kk">所处区域</span><span class="vv">截云州 · 问天域</span></div><div class="kv"><span class="kk">地点类型</span><span class="vv">宗门驻地（外门）</span></div><div class="kv"><span class="kk">在世界中的位置与意义</span><span class="vv">主角入门之地，也是他最初的敌人与盟友的来源。</span></div><div class="tags" style="margin-top:10px"><span class="tag">地点定位</span><span class="tag">所属势力</span><span class="tag">空间规则</span><span class="tag">出入条件与限制</span><span class="tag">资源与限制</span><span class="tag">可触发事件</span><span class="tag">常驻人物</span><span class="tag">氛围与感官</span><span class="tag">隐藏信息</span><span class="tag">危险与禁忌</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard place"><h3><span class="no">1</span>地点定位</h3><div class="kv"><span class="kk">所处区域</span><span class="vv">截云州 · 问天域</span></div><div class="kv"><span class="kk">地点类型</span><span class="vv">宗门驻地（外门）</span></div><div class="kv"><span class="kk">在世界中的位置与意义</span><span class="vv">主角入门之地，也是他最初的敌人与盟友的来源。</span></div></section><section class="pcard"><h3><span class="no">2</span>所属势力</h3><div class="kv"><span class="kk">控制方</span><span class="vv">问天宗外门执事堂</span></div><div class="kv"><span class="kk">势力态度</span><span class="vv">表面中立，内里派系倾轧，长老与执事各怀心思。</span></div><div class="kv"><span class="kk">与主角关系</span><span class="vv">庇护与压迫并存——靠它入门，也被它压制。</span></div></section><section class="pcard wide place lore"><h3><span class="no">3</span>空间规则</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">规则</th><th class="mxh">说明</th><th class="mxh">违反后果</th></tr></thead><tbody><tr><td class="mxh">阶上禁飞</td><td>青云阶范围内一律不可御器</td><td>强行者灵气逆冲，经脉受损</td></tr><tr><td class="mxh">顶云不落</td><td>云海之上不得落凡尘</td><td>跌落者废去修为</td></tr><tr><td class="mxh">门前落兵</td><td>山门前不得持兵</td><td>视为挑衅，逐出山门</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">4</span>出入条件与限制</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">条件</th><th class="mxh">说明</th><th class="mxh">限制</th></tr></thead><tbody><tr><td class="mxh">入门</td><td>需引荐人或通过外门试炼</td><td>每年仅开山一次</td></tr><tr><td class="mxh">内门</td><td>需筑基修为并经内门选拔</td><td>配额仅三人</td></tr><tr><td class="mxh">后山</td><td>需执事令牌</td><td>时限一炷香，超时按私闯论</td></tr></tbody></table></div></section><section class="pcard wide matrix place"><h3><span class="no">5</span>资源与限制</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">资源/限制</th><th class="mxh">获取或使用条件</th><th class="mxh">危险</th></tr></thead><tbody><tr><td class="mxh">聚灵阵</td><td>需消耗贡献点</td><td>阵内灵气过载会伤经脉</td></tr><tr><td class="mxh">灵田</td><td>外门弟子轮值照看</td><td>私取灵草者废去外门籍</td></tr><tr><td class="mxh">藏经阁一层</td><td>凭弟子牌可借阅</td><td>越层阅读者封修三日</td></tr></tbody></table></div></section><section class="pcard wide place"><h3><span class="no">6</span>可触发事件</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">事件</th><th class="mxh">触发条件</th><th class="mxh">影响</th></tr></thead><tbody><tr><td class="mxh">入门试炼</td><td>每年开山之日</td><td>决定外门去留（第5章）</td></tr><tr><td class="mxh">内外之比</td><td>内门选拔开启</td><td>触发同门反目（第18章）</td></tr><tr><td class="mxh">后山异动</td><td>玉璧示警</td><td>引出归墟秘境线（第34章）</td></tr><tr><td class="mxh">夜半无声</td><td>无声之雨落于峰顶</td><td>主角首次听闻「缄默」（第12章）</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">7</span>常驻人物</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">人物</th><th class="mxh">身份</th><th class="mxh">立场</th><th class="mxh">可提供的信息或冲突</th></tr></thead><tbody><tr><td class="mxh">玉虚真人</td><td>外门长老</td><td>表面公允，实则别有用心</td><td>主角引路人，同时也是隐患</td></tr><tr><td class="mxh">苏清月</td><td>内门师姐</td><td>偏护主角</td><td>提供内门情报（伏笔F007）</td></tr><tr><td class="mxh">郑屠</td><td>外门执事</td><td>贪财势利</td><td>制造前期冲突</td></tr><tr><td class="mxh">老哑</td><td>杂役，无声之民</td><td>沉默寡言</td><td>缄默之谜的活线索（伏笔F006）</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">8</span>氛围与感官</h3><ul class="clist"><li>视觉：半山云锁，白石长阶直插入云，飞檐在雾中只露一角。</li><li>声音：终日无鸟鸣，只有风声与阶上脚步声。</li><li>气味/触感：冷湿的石苔味，云中带铁锈般的寒腥。</li><li>整体情绪基调：肃穆、压抑，处处规矩却又暗流涌动。</li></ul></section><section class="pcard wide"><h3><span class="no">9</span>隐藏信息</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">信息</th><th class="mxh">谁知道</th><th class="mxh">揭示条件</th></tr></thead><tbody><tr><td class="mxh">玉璧是时序残片所铸</td><td>玉虚真人</td><td>后山异动后主角自行察觉</td></tr><tr><td class="mxh">老哑是缄默会的联络人</td><td>缄默会</td><td>主角以契约言试探（第55章）</td></tr><tr><td class="mxh">云海之下封着东西</td><td>无人明言</td><td>主角跌落云海（第60章）</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">10</span>危险与禁忌</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">危险/禁忌</th><th class="mxh">后果</th><th class="mxh">规避方式</th></tr></thead><tbody><tr><td class="mxh">私自下山</td><td>逐出山门</td><td>事前报备执事</td></tr><tr><td class="mxh">顶撞执事</td><td>罚入后山面壁</td><td>忍让，或借长老之势力压</td></tr><tr><td class="mxh">云海坠落</td><td>废去修为</td><td>远离云海边缘</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">11</span>剧情作用</h3><ul class="clist"><li>把「入门」的压抑感具象成一套空间规则，让规矩成为可感知的压迫。</li><li>后山与云海为前期提供两处封闭式的冲突舞台。</li><li>常驻人物一次配齐引路人、盟友、小人与线索持有者。</li></ul></section><section class="pcard matrix"><h3><span class="no">12</span>写作约束</h3><ul class="clist"><li>进入条件与离开条件必须在首次登场时交代清楚，之后不得随意放宽。</li><li>空间规则一旦违反必须立刻兑现后果，不得含糊。</li><li>青云峰的灵气浓度不得高于内门，否则破坏梯度。</li><li>与地理设定、势力设定保持一致，不得出现冲突描述。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

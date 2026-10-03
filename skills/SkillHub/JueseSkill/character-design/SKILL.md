@@ -49,4 +49,35 @@ description: Use when designing protagonists, heroines, villains, supporting rol
 - 写作使用规则
 - 别名
 
+## 结构化输出契约（必须遵守）
+
+角色小传除 MD 正文外，**必须额外输出一个 ```json 围栏**，顶层字段为 `characterProfileData`（多角色时为 `characterProfiles` 数组）。软件用它渲染专属「角色卡」HTML（模板：本目录 `profile.html`），因此**不要自己写 HTML/CSS**。
+
+```json
+{
+  "characterProfileData": {
+    "name": "林辰",
+    "roleType": "男主",
+    "tagline": "一句话定位",
+    "sections": [
+      { "kind": "kv", "heading": "基本信息", "items": [{ "label": "身份", "text": "…" }] },
+      { "kind": "table", "heading": "关系网络", "head": ["角色", "当前关系", "关系阶段", "最近变化", "后续可能"], "rows": [["", "", "", "", ""]] },
+      { "kind": "list", "heading": "写作使用规则", "items": ["…"] }
+    ]
+  }
+}
+```
+
+- `sections[].kind` 三选一：
+  - `kv`：字段（label）→ 内容（text），用于**基本信息 / 外在表现 / 内在分析 / 状态追踪 / 别名**；
+  - `table`：`head`（表头）+ `rows`（二维数组），用于**关系网络 / 出场记录 / 语言风格·面对不同对象的说话差异**；
+  - `list`：纯条目数组，用于**写作使用规则 / 角色定位补充**。
+- 至少要覆盖：基本信息、角色定位、内在分析、语言风格、关系网络、写作使用规则。
+- 缺失信息写「原文未明确」或「待后续补充」，不得编造成事实。
+
+## HTML 角色卡
+
+保存时软件会把 `characterProfileData` 套 `profile.html` 渲染为同名 `.html` 角色卡（渐变头图 + 分区卡片网格 + 真表格），与卷纲折叠树、章纲卡片流同族。用户可在 `.qmai/人物小传模板.html` 覆盖样式。
+本目录另有 `reference-sample.html`（**详细参考样本**，可直接对照 10 分区与表格列设计）。
+
 

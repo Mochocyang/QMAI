@@ -238,12 +238,16 @@ function paletteBlock(palette: DocumentPalette): string {
 /** 盖住旧文档里写死的白底和浅色正文。节拍选择器比 .bt 更具体，放在后面。 */
 const SURFACE_OVERRIDES = [
   "html,body{background:var(--bg);color:var(--ink)}",
-  ".chip,.tree,.panel,.nav,.story-card,details.cc,.bt{background:var(--bg);border-color:var(--border)}",
+  // 🔴 此处刻意不含 .chip：章纲/卷纲/通用卡片流的芯片本就是 var(--bg)（注入对它们是幂等的），
+  // 而档案卡（角色卡/势力卡/体系卡…）的芯片在深色头图上是白字，注入白底会变成「白底白字」。
+  ".tree,.panel,.nav,.story-card,details.cc,.bt{background:var(--bg);border-color:var(--border)}",
   ".chapter{background:var(--surface);border-color:var(--border);color:var(--ink)}",
   ".branch{background:var(--surface2);border-top-color:var(--border);border-right-color:var(--border);border-bottom-color:var(--border);color:var(--ink)}",
   ".mainline,.chapter-order{color:var(--brand)}",
   ".map-header{border-left-color:var(--brand)}",
-  ".meta,.chapter-count,.empty,footer,.main-summary,.chapter-summary,.chapter .beats,.chars,.section-title,.branch-trigger{color:var(--muted)}",
+  // 同 .chip：此处刻意不含 .empty——章纲/卷纲用的是 `.panel .empty`（特异性更高，注入本就无效），
+  // 只有档案卡的裸 `.empty` 会被染成灰色，丢掉琥珀警示色。
+  ".meta,.chapter-count,footer,.main-summary,.chapter-summary,.chapter .beats,.chars,.section-title,.branch-trigger{color:var(--muted)}",
   ".chapter-title,.event-label,.branch-label{color:var(--ink)}",
   ".spinoff{color:var(--warn)}",
   ".chapter-body{border-top-color:var(--border)}",

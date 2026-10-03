@@ -10,6 +10,8 @@ export interface CharacterSaveDraft {
   content: string
   selected: boolean
   confidence: CharacterSaveConfidence
+  /** 可选：由 AI 的 characterProfileData 或 MD 正文预先渲染好的角色卡 HTML */
+  htmlContent?: string
 }
 
 interface CharacterSaveExtractionResult {

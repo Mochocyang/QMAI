@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>背景设定 · 背景卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FAF7F3;--surface2:#F3EDE5;--ink:#241E1A;--ink2:#463C34;--muted:#7C6E62;
+  --border:#E4DACF;--brand:#8A5A2B;--brand-soft:#FBF4EC;--brand-soft2:#F3E4D3;--brand-text:#6E4620;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#C98A3F;--hero-a:#241B12;--hero-b:#5A3B1E;--dot:rgba(255,255,255,.14);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 背景头图（典籍 / 年轮纹理） */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(var(--dot) 1px,transparent 1.4px);background-size:18px 18px;
+  mask-image:linear-gradient(120deg,#000 0%,transparent 72%)}
+.hero .eyebrow{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:#E7D3B8;font-weight:600;margin:0 0 12px;position:relative}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;position:relative}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#E7D3B8;font-size:14.5px;position:relative}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0;position:relative}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid #8A5A2B}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 背景 / 世界观：卷册分隔线，历史沿革走时间线首列 */
+.pcard.lore{border-top:3px solid #8A5A2B}
+.pcard.lore h3::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--brand-soft2),transparent)}
+.pcard.lore table.mx thead th{background:#F5EADD;color:#6E4620}
+.pcard.lore table.mx tbody td:first-child{background:#FAF3EA;color:#6E4620;font-weight:700;white-space:nowrap;border-left:3px solid #8A5A2B}
+
+/* 规则 / 禁忌：警示调 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">背景设定 · 背景卡</p>
+    <h1>九霄大陆 · 缄默纪元<span class="role">修真 / 灾后纪元</span></h1>
+    <div><span class="chip"><b>修真 / 灾后纪元</b></span><span class="chip"><b>12</b> 个分区</span><span class="chip"><b>25</b> 条表格记录</span></div>
+    <p class="tagline">天不再应人。三百年前那场缄默天劫之后，所有祈求都成了回声。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">12 个分区</span></h2><div class="kv"><span class="kk">世界前提</span><span class="vv">天地灵气在三百年前的「缄默天劫」后骤减三成，天道不再回应任何祈愿。</span></div><div class="kv"><span class="kk">世界格局</span><span class="vv">以九霄大陆为核心的修真文明，外围是失落的旧神疆域与落霞海。</span></div><div class="kv"><span class="kk">核心舞台</span><span class="vv">九霄大陆中部的问天域，正是缄默天劫的落点，也是谜团最集中之处。</span></div><div class="kv"><span class="kk">核心矛盾</span><span class="vv">修士要证道，却失去了可证之道；世人要靠仙法活命，仙法却仍在衰退。</span></div><div class="tags" style="margin-top:10px"><span class="tag">世界观背景</span><span class="tag">世界前提与差异</span><span class="tag">时代风貌</span><span class="tag">社会结构</span><span class="tag">文化习俗</span><span class="tag">语言与称谓</span><span class="tag">历史沿革</span><span class="tag">核心设定规则</span><span class="tag">信息公开度</span><span class="tag">势力格局</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard lore"><h3><span class="no">1</span>世界观背景</h3><div class="kv"><span class="kk">世界前提</span><span class="vv">天地灵气在三百年前的「缄默天劫」后骤减三成，天道不再回应任何祈愿。</span></div><div class="kv"><span class="kk">世界格局</span><span class="vv">以九霄大陆为核心的修真文明，外围是失落的旧神疆域与落霞海。</span></div><div class="kv"><span class="kk">核心舞台</span><span class="vv">九霄大陆中部的问天域，正是缄默天劫的落点，也是谜团最集中之处。</span></div><div class="kv"><span class="kk">核心矛盾</span><span class="vv">修士要证道，却失去了可证之道；世人要靠仙法活命，仙法却仍在衰退。</span></div></section><section class="pcard"><h3><span class="no">2</span>世界前提与差异</h3><div class="kv"><span class="kk">与现实/常规世界的差异</span><span class="vv">没有可祈求的神明，一切力量必须有可解释的来源与代价。</span></div><div class="kv"><span class="kk">核心资源</span><span class="vv">灵石、灵脉，以及缄默天劫留下的时序残片。</span></div><div class="kv"><span class="kk">特殊生态或存在</span><span class="vv">无声之民——被天劫抽走声息的人；以念代口的传音兽。</span></div><div class="kv"><span class="kk">常识与本世界的冲突</span><span class="vv">香火、祈祷、誓言在本世界一旦出口即成契约，违约立遭反噬。</span></div></section><section class="pcard lore"><h3><span class="no">3</span>时代风貌</h3><div class="kv"><span class="kk">时代特征</span><span class="vv">旧秩序崩塌、新宗门崛起，人人自危又人人求变。</span></div><div class="kv"><span class="kk">技术水平</span><span class="vv">以阵法与炼器为核心的灵气技术，无火器、无电能。</span></div><div class="kv"><span class="kk">社会氛围</span><span class="vv">沉默、压抑、多疑，公开谈论「缄默」被视为不祥。</span></div></section><section class="pcard wide lore"><h3><span class="no">4</span>社会结构</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">阶层/群体</th><th class="mxh">地位与权力</th><th class="mxh">生存状态</th><th class="mxh">与主线关系</th></tr></thead><tbody><tr><td class="mxh">顶层宗门</td><td>掌灵脉与传承，制定《问天约》</td><td>富庶但内斗激烈</td><td>主角崛起的主要阻力</td></tr><tr><td class="mxh">世家</td><td>垄断灵材与婚配</td><td>依附宗门而存</td><td>提供盟友与联姻线</td></tr><tr><td class="mxh">散修</td><td>无稳定灵脉可依</td><td>朝不保夕</td><td>主角最初的同类与镜像</td></tr><tr><td class="mxh">无声之民</td><td>被排斥的最底层</td><td>靠乞讨与传音兽求生</td><td>缄默之谜的活线索</td></tr></tbody></table></div></section><section class="pcard lore"><h3><span class="no">5</span>文化习俗</h3><ul class="clist"><li>缄默礼：入门第一课是学会「不问天」，违者视为异端。</li><li>契约言：凡立誓必用灵石为凭，妄言者掌心结誓纹。</li><li>落灯节：每年为无声之民点一盏灯，实则暗中清点人数。</li><li>藏拙：不轻易显露底牌，公开实力等同招祸。</li><li>传音兽为礼：世家之间以传音兽幼崽互赠，暗含监视意味。</li></ul></section><section class="pcard wide"><h3><span class="no">6</span>语言与称谓</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">类别</th><th class="mxh">用法或规则</th><th class="mxh">示例</th></tr></thead><tbody><tr><td class="mxh">敬称</td><td>对高阶修士称「前辈」或「真人」</td><td>真人 · 玉虚</td></tr><tr><td class="mxh">宗门称谓</td><td>入门者为「弟子」，破境者升「执事」</td><td>外门弟子、内门弟子</td></tr><tr><td class="mxh">行业黑话</td><td>散修称大宗门为「高墙」</td><td>「高墙里不缺人，缺的是运气」</td></tr><tr><td class="mxh">禁忌语</td><td>「天听得见」为不祥之语，出口即噤</td><td>无人敢言</td></tr></tbody></table></div></section><section class="pcard wide lore"><h3><span class="no">7</span>历史沿革</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">时期</th><th class="mxh">关键事件</th><th class="mxh">造成的影响</th></tr></thead><tbody><tr><td class="mxh">天启纪元</td><td>天道回应祈愿，神谕立国</td><td>修士与神权合流，形成旧秩序</td></tr><tr><td class="mxh">缄默天劫（三百年前）</td><td>一日之间万祷无应</td><td>神明失联，灵气衰退三成</td></tr><tr><td class="mxh">崩塌百年</td><td>旧神国崩溃，宗门割据</td><td>灵脉成为争夺核心</td></tr><tr><td class="mxh">新律六十年</td><td>十二宗门立《问天约》</td><td>禁止公开求天，违者除籍</td></tr><tr><td class="mxh">当下</td><td>灵脉再度衰退，缄默之谜浮出水面</td><td>主角人生的时代背景</td></tr></tbody></table></div></section><section class="pcard wide lore"><h3><span class="no">8</span>核心设定规则</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">规则</th><th class="mxh">边界（能做/不能做）</th><th class="mxh">违反代价</th></tr></thead><tbody><tr><td class="mxh">契约言</td><td>立誓须以灵石为凭；不可无凭立誓</td><td>掌心结誓纹，反噬随修行加深</td></tr><tr><td class="mxh">缄默</td><td>不可公开求天、不可宣称听见天意</td><td>除籍、封修，视为异端处死</td></tr><tr><td class="mxh">灵气守恒</td><td>灵气可从灵脉取用，不可无中生有</td><td>逆用者入魔，经脉寸断</td></tr><tr><td class="mxh">时序残片</td><td>可采集、封存；不可逆转已发生之事</td><td>强行逆转者神魂俱灭</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">9</span>信息公开度</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">信息</th><th class="mxh">读者</th><th class="mxh">主角</th><th class="mxh">配角</th><th class="mxh">反派</th></tr></thead><tbody><tr><td class="mxh">缄默天劫的真相</td><td>逐步得知</td><td>第34章起怀疑</td><td>多数不知</td><td>反派首脑知情</td></tr><tr><td class="mxh">主角传承的来历</td><td>第5章起暗示</td><td>全然不知</td><td>师姐隐约察觉</td><td>正在追查</td></tr><tr><td class="mxh">师兄的真实身份</td><td>第60章揭示</td><td>一度怀疑</td><td>无人知晓</td><td>本就是其安插的棋子</td></tr><tr><td class="mxh">灵脉衰退的真正原因</td><td>结尾揭示</td><td>始终不知</td><td>不知</td><td>误判为天灾</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">10</span>势力格局</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">势力/阵营</th><th class="mxh">立场</th><th class="mxh">核心诉求</th><th class="mxh">当前态势</th></tr></thead><tbody><tr><td class="mxh">问天宗</td><td>正道之首</td><td>维持《问天约》与自身垄断</td><td>内斗，掌教重伤</td></tr><tr><td class="mxh">缄默会</td><td>地下</td><td>揭开天劫真相</td><td>暗中联络无声之民</td></tr><tr><td class="mxh">十二宗门</td><td>松散联盟</td><td>分食灵脉</td><td>互相提防</td></tr><tr><td class="mxh">旧神余孽</td><td>邪道</td><td>唤回旧神</td><td>蛰伏于旧神疆域</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">11</span>剧情作用</h3><ul class="clist"><li>「天不应人」把修真小说常见的祈愿路径彻底封死，逼出新的生存逻辑。</li><li>契约言贯穿全书，是所有伏笔与背叛的兑现机制。</li><li>灵脉衰退是悬在所有人头上的倒计时，天然提供紧迫感。</li></ul></section><section class="pcard matrix"><h3><span class="no">12</span>写作约束</h3><ul class="clist"><li>绝不出现「临时新增万能规则」解决剧情；规则一旦成立必须自洽。</li><li>所有求天、祈祷、神谕类情节必须付出代价或直接失效。</li><li>信息公开度表是硬约束：不得让角色提前知道尚未揭示的信息。</li><li>灵气、誓言、时序三类规则的边界不得随意放宽。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

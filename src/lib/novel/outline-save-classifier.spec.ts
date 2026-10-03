@@ -72,6 +72,21 @@ describe("outline-save-classifier", () => {
     })
   })
 
+  it("标题的设定语义优先于正文里的「第N章」，不再误判成章纲", () => {
+    // 例：一份力量体系总纲，正文提到「第12章解锁」——过去会被推断成章纲
+    expect(classifyOutlineSaveTarget({
+      title: "《黑雨之下》全版本力量体系总纲",
+      content: "# 力量体系\n## 等级阶梯\n| 等级 | 说明 |\n| --- | --- |\n| 一转 | 第12章解锁 |",
+    })).toMatchObject({
+      fileType: "setting",
+      targetFolder: "设定",
+    })
+    expect(classifyOutlineSaveTarget({
+      title: "背景设定-大衍王朝",
+      content: "# 背景设定\n## 历史沿革\n| 时期 | 事件 |\n| --- | --- |\n| 开元 | 第3章提及立国 |",
+    })).toMatchObject({ fileType: "setting" })
+  })
+
   it("章纲标题优先于正文里引用的卷纲节拍", () => {
     expect(classifyOutlineSaveTarget({
       title: "章纲-第46章：第一次冷处理",

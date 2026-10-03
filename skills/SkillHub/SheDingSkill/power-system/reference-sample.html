@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>力量体系 · 体系卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#F59E42;--hero-a:#3A2410;--hero-b:#A85A16;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 体系头图 */
+.hero{background:radial-gradient(120% 160% at 90% -20%,#D98A2B 0%,var(--hero-b) 34%,var(--hero-a) 100%);color:#fff;padding:42px 0 34px}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#FBE3D2;font-weight:600;margin:0 0 12px}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#FBE3D2;font-size:14.5px}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid var(--he)}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 等级阶梯 */
+.pcard.ladder{border-top:3px solid var(--he)}
+.pcard.ladder .mxwrap{border:1px solid var(--border);background:linear-gradient(180deg,var(--brand-soft) 0%,#fff 42%)}
+.pcard.ladder table.mx tbody td:first-child{background:var(--brand-soft2);color:var(--brand-text);font-weight:700;text-align:center;white-space:nowrap;border-left:3px solid var(--brand)}
+.pcard.ladder table.mx tbody tr:nth-child(even) td:first-child{background:var(--brand-soft);border-left-color:var(--he)}
+.pcard.ladder table.mx thead th:first-child{text-align:center}
+
+/* 代价 / 矩阵 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 人物 / 关系名册 */
+.pcard.roster{border-top:3px solid var(--ok-border)}
+.pcard.roster table.mx thead th{background:var(--ok-soft);color:var(--ok)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">力量体系 · 体系卡</p>
+    <h1>九转玄功<span class="role">修真</span></h1>
+    <div><span class="chip"><b>修真</b></span><span class="chip"><b>13</b> 个分区</span><span class="chip"><b>39</b> 条表格记录</span></div>
+    <p class="tagline">以九转为阶、以心魔为价，一转一重天。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">13 个分区</span></h2><div class="kv"><span class="kk">力量本质</span><span class="vv">以自身为炉，炼化天地灵气为九转真元，一转一重境界。</span></div><div class="kv"><span class="kk">力量来源</span><span class="vv">灵脉灵气为主，时序残片可加速突破（极稀有）。</span></div><div class="kv"><span class="kk">世界定位</span><span class="vv">九霄大陆的主流修行法，十二宗门共尊，也是《问天约》的秩序根基。</span></div><div class="kv"><span class="kk">力量上限</span><span class="vv">九转对应化神；六转之上便是「缄默之墙」，三百年无人再进一步。</span></div><div class="tags" style="margin-top:10px"><span class="tag">体系概览</span><span class="tag">等级阶梯</span><span class="tag">晋升机制</span><span class="tag">能力分类</span><span class="tag">资源与消耗</span><span class="tag">代价与限制</span><span class="tag">克制与反制</span><span class="tag">禁忌与风险</span><span class="tag">流派与势力</span><span class="tag">体系漏洞</span><span class="tag">成长节奏</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard"><h3><span class="no">1</span>体系概览</h3><div class="kv"><span class="kk">力量本质</span><span class="vv">以自身为炉，炼化天地灵气为九转真元，一转一重境界。</span></div><div class="kv"><span class="kk">力量来源</span><span class="vv">灵脉灵气为主，时序残片可加速突破（极稀有）。</span></div><div class="kv"><span class="kk">世界定位</span><span class="vv">九霄大陆的主流修行法，十二宗门共尊，也是《问天约》的秩序根基。</span></div><div class="kv"><span class="kk">力量上限</span><span class="vv">九转对应化神；六转之上便是「缄默之墙」，三百年无人再进一步。</span></div></section><section class="pcard wide ladder"><h3><span class="no">2</span>等级阶梯</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">等级/境界</th><th class="mxh">名称</th><th class="mxh">核心特征</th><th class="mxh">战力区间</th><th class="mxh">突破条件</th></tr></thead><tbody><tr><td class="mxh">一转</td><td>淬体</td><td>洗髓伐毛，力可搏虎</td><td>凡人巅峰</td><td>灵气灌体不散</td></tr><tr><td class="mxh">二转</td><td>开脉</td><td>打通十二正经，真元自生</td><td>可御器短飞</td><td>三日行气不辍</td></tr><tr><td class="mxh">三转</td><td>筑基</td><td>真元离体，神识初生</td><td>御器百里</td><td>心无杂念，一念不散</td></tr><tr><td class="mxh">四转</td><td>金丹</td><td>真元凝丹，寿三百载</td><td>一人可镇一城</td><td>丹成无异象，异象即邪路</td></tr><tr><td class="mxh">五转</td><td>元婴</td><td>神识放牧，元婴不灭</td><td>千里之外索敌</td><td>渡心魔劫</td></tr><tr><td class="mxh">六转</td><td>化神</td><td>言出法随（受缄默所限）</td><td>移山填海</td><td>需天地认可，至今成谜</td></tr><tr><td class="mxh">七转</td><td>合道</td><td>只见于残卷记载</td><td>不详</td><td>需时序残片引路</td></tr><tr><td class="mxh">八转</td><td>问天</td><td>残卷缺失</td><td>不详</td><td>不详</td></tr><tr><td class="mxh">九转</td><td>缄默</td><td>传说中的尽头，或与天劫同源</td><td>不详</td><td>无人知晓</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">3</span>晋升机制</h3><div class="kv"><span class="kk">晋升方式</span><span class="vv">每转需一次「闭死关」，真元满溢后冲关，成败在一念之间。</span></div><div class="kv"><span class="kk">所需资源</span><span class="vv">大量灵石、护法丹药，五转以上另需时序残片稳固神魂。</span></div><div class="kv"><span class="kk">大致耗时</span><span class="vv">一至三转各需数年；四转之后以十年计。</span></div><div class="kv"><span class="kk">失败后果</span><span class="vv">轻则境界跌落，重则经脉寸断；五转渡劫失败者神魂俱灭。</span></div><div class="kv"><span class="kk">捷径与邪道</span><span class="vv">「煞道」以吞噬他人真元催关，快而必遭天弃（见禁忌）。</span></div></section><section class="pcard wide"><h3><span class="no">4</span>能力分类</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">系别/分支</th><th class="mxh">特点</th><th class="mxh">代表能力</th><th class="mxh">代表人物</th></tr></thead><tbody><tr><td class="mxh">剑修</td><td>攻伐最锐，一剑破万法</td><td>青冥一线</td><td>问天宗剑首裴聿</td></tr><tr><td class="mxh">体修</td><td>肉身成兵，近身无敌</td><td>不动明王身</td><td>截云州武痴石敢当</td></tr><tr><td class="mxh">丹修</td><td>以丹入道，善守善耗</td><td>九转还神丹</td><td>药王谷主姒</td></tr><tr><td class="mxh">魂修</td><td>神识攻击，诡异难防</td><td>摄魂一指</td><td>缄默会「听天人」</td></tr><tr><td class="mxh">阵修</td><td>借地利布阵，以弱困强</td><td>四象锁灵阵</td><td>玉虚真人</td></tr></tbody></table></div></section><section class="pcard wide matrix place"><h3><span class="no">5</span>资源与消耗</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">资源</th><th class="mxh">用途</th><th class="mxh">产地或来源</th><th class="mxh">稀缺度</th></tr></thead><tbody><tr><td class="mxh">灵石</td><td>日常修行与阵法驱动</td><td>截云州各灵脉</td><td>中（按宗门配额分发）</td></tr><tr><td class="mxh">时序残片</td><td>稳固神魂、加速突破</td><td>归墟秘境</td><td>极稀，块块血拼</td></tr><tr><td class="mxh">养魂草</td><td>温养神识</td><td>落霞海沿岸</td><td>稀，散修赖以为生</td></tr><tr><td class="mxh">真元</td><td>一切法术的燃料</td><td>自身炼化</td><td>过度透支会当场跌境</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">6</span>代价与限制</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">代价/限制</th><th class="mxh">触发条件</th><th class="mxh">后果</th></tr></thead><tbody><tr><td class="mxh">寿元折损</td><td>强行冲关</td><td>每强冲一次折寿十年</td></tr><tr><td class="mxh">神魂暗伤</td><td>推演与放牧过度</td><td>神识模糊，重则成第二个「无声之民」</td></tr><tr><td class="mxh">境界压制</td><td>越阶出手</td><td>低阶者胜高阶者需付双倍真元，战后虚弱三日</td></tr><tr><td class="mxh">缄默禁言</td><td>六转言出法随</td><td>言出必践，违诺即反噬</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">7</span>克制与反制</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">克制关系</th><th class="mxh">克制原理</th><th class="mxh">反制手段</th></tr></thead><tbody><tr><td class="mxh">魂修克体修</td><td>神识直伤无肉身可挡</td><td>体修佩「定神玉」护住识海</td></tr><tr><td class="mxh">剑修克阵修</td><td>以快打慢，阵未成剑已至</td><td>阵修预埋「迷踪阵」迟滞剑势</td></tr><tr><td class="mxh">丹修克魂修</td><td>丹香乱神，毒雾困魂</td><td>魂修闭识以念视物</td></tr><tr><td class="mxh">阵修克剑修</td><td>困阵消磨剑势</td><td>剑修以「破阵一线」直取阵眼</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">8</span>禁忌与风险</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">禁忌或风险</th><th class="mxh">后果</th><th class="mxh">规避方式</th></tr></thead><tbody><tr><td class="mxh">走煞入魔</td><td>真元暴走，沦为煞物</td><td>冲关必设护法，备「清心咒」</td></tr><tr><td class="mxh">偷窥天机</td><td>以时序残片窥探未来</td><td>每次窥探折寿一年，窥探大事即死</td></tr><tr><td class="mxh">契约违约</td><td>掌心结誓纹，反噬修行</td><td>立誓前想清楚，宁不立誓</td></tr><tr><td class="mxh">提及天意</td><td>《问天约》除籍封修</td><td>以「运气」「天数」等隐语代替</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">9</span>流派与势力</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">流派</th><th class="mxh">核心理念</th><th class="mxh">据点</th><th class="mxh">代表人物</th></tr></thead><tbody><tr><td class="mxh">问天正统</td><td>守《问天约》，循序渐进</td><td>问天宗</td><td>掌教玄诚子</td></tr><tr><td class="mxh">煞道</td><td>吞噬他人真元，速成</td><td>旧神疆域边缘</td><td>煞主（不明）</td></tr><tr><td class="mxh">缄默会</td><td>以魂修入道，追查天劫</td><td>落霞海</td><td>老哑</td></tr><tr><td class="mxh">散修盟</td><td>无宗无派，抱团取暖</td><td>落霞渡</td><td>渡七</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">10</span>体系漏洞</h3><ul class="clist"><li>等级阶梯的七转以上只见残卷，为后期揭露缄默真相留出解释空间。</li><li>「丹成无异象」的反面暗示异象即邪路，可用来做正邪反转。</li><li>时序残片能加速突破，但没人解释它为何存在——本身就是天劫的碎片。</li></ul></section><section class="pcard wide"><h3><span class="no">11</span>成长节奏</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">卷次/阶段</th><th class="mxh">对应等级</th><th class="mxh">关键成长事件</th></tr></thead><tbody><tr><td class="mxh">卷一 落崖求生</td><td>淬体 → 开脉</td><td>得识海洞天，开脉入门</td></tr><tr><td class="mxh">卷二 入门试炼</td><td>筑基</td><td>青云峰试炼，第一次加速闭关</td></tr><tr><td class="mxh">卷三 宗门倾轧</td><td>金丹</td><td>献祭伪功法，看破传承骗局</td></tr><tr><td class="mxh">卷四 秘境历劫</td><td>元婴</td><td>归墟秘境夺残片，神识放牧成</td></tr><tr><td class="mxh">卷五 天劫将至</td><td>化神</td><td>直面缄默之墙，窥见天劫一角</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">12</span>剧情作用</h3><ul class="clist"><li>九转阶梯是全书成长曲线的骨架，卷次与境界一一对应。</li><li>六转「言出法随」与缄默设定互相咬合，把力量体系变成主线谜题的一部分。</li><li>克制关系网保证战斗结果靠策略而非境界碾压。</li></ul></section><section class="pcard matrix"><h3><span class="no">13</span>写作约束</h3><ul class="clist"><li>等级必须逐级写全，每一级都要有突破条件与战力区间。</li><li>严禁出现无消耗、无限制、无弱点的万能能力。</li><li>克制必须成对出现，避免单向压制。</li><li>越级战斗必须付出真元与虚弱代价，不得白嫖。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

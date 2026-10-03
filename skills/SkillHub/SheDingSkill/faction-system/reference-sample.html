@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组织势力 · 势力卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --hero-a:#4A2A16;--hero-b:#8A3F13;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 势力头图 */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border:2px solid rgba(246,224,210,.28);border-radius:24px;transform:rotate(18deg)}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#F6E0D2;font-weight:600;margin:0 0 12px}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;position:relative}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#FBF0E9;font-size:14.5px;position:relative}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.34);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0;position:relative}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid var(--brand)}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed #F59E42;border-radius:8px;padding:8px 10px}
+
+/* 势力卡分区 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;border-top:3px solid var(--brand-soft2)}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 组织历史 / 沿革：时间线首列 */
+.pcard.lore{border-top-color:var(--brand)}
+.pcard.lore table.mx thead th{background:var(--brand-soft);color:var(--brand-text)}
+.pcard.lore table.mx tbody td:first-child{background:var(--brand-soft);color:var(--brand-text);font-weight:700;white-space:nowrap;border-left:3px solid var(--brand)}
+.pcard.lore table.mx tbody tr:nth-child(even) td:first-child{background:var(--brand-soft2)}
+
+/* 名册调：组织架构 / 人员构成 / 内部派系与矛盾 / 外部关系 */
+.pcard.roster{border-top-color:var(--ok-border)}
+.pcard.roster table.mx thead th{background:var(--ok-soft);color:var(--ok)}
+.pcard.roster table.mx tbody td:first-child{background:var(--ok-soft);color:var(--ok);font-weight:600;white-space:nowrap}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.role{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">组织势力 · 势力卡</p>
+    <h1>问天宗<span class="role">门派</span></h1>
+    <div><span class="chip"><b>门派</b></span><span class="chip"><b>11</b> 个分区</span><span class="chip"><b>29</b> 条表格记录</span></div>
+    <p class="tagline">九霄正道之首，也是《问天约》的执笔人与最大受益者。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">11 个分区</span></h2><div class="kv"><span class="kk">组织名称</span><span class="vv">问天宗</span></div><div class="kv"><span class="kk">别名/代号</span><span class="vv">正道魁首、高墙（散修黑话）</span></div><div class="kv"><span class="kk">势力类型</span><span class="vv">门派</span></div><div class="kv"><span class="kk">规模</span><span class="vv">内门三百、外门三千；辖九城十二山门</span></div><div class="kv"><span class="kk">总部或核心据点</span><span class="vv">问天域 · 截云州 · 青云峰（外门）、玉京台（内门）</span></div><div class="kv"><span class="kk">当前状态</span><span class="vv">掌教重伤，三派夺权，外强中干</span></div><div class="tags" style="margin-top:10px"><span class="tag">基本信息</span><span class="tag">组织使命</span><span class="tag">地理位置与作用</span><span class="tag">组织架构</span><span class="tag">人员构成</span><span class="tag">经济来源</span><span class="tag">组织历史</span><span class="tag">内部派系与矛盾</span><span class="tag">外部关系</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard"><h3><span class="no">1</span>基本信息</h3><div class="kv"><span class="kk">组织名称</span><span class="vv">问天宗</span></div><div class="kv"><span class="kk">别名/代号</span><span class="vv">正道魁首、高墙（散修黑话）</span></div><div class="kv"><span class="kk">势力类型</span><span class="vv">门派</span></div><div class="kv"><span class="kk">规模</span><span class="vv">内门三百、外门三千；辖九城十二山门</span></div><div class="kv"><span class="kk">总部或核心据点</span><span class="vv">问天域 · 截云州 · 青云峰（外门）、玉京台（内门）</span></div><div class="kv"><span class="kk">当前状态</span><span class="vv">掌教重伤，三派夺权，外强中干</span></div></section><section class="pcard"><h3><span class="no">2</span>组织使命</h3><div class="kv"><span class="kk">使命宣言</span><span class="vv">「代天立言，以人守世」——天不应人，则由人守人</span></div><div class="kv"><span class="kk">长期目标</span><span class="vv">维持《问天约》秩序，垄断灵脉与传承的解释权</span></div><div class="kv"><span class="kk">对外立场</span><span class="vv">正（表面）；实际以自身存续为第一优先</span></div></section><section class="pcard map"><h3><span class="no">3</span>地理位置与作用</h3><div class="kv"><span class="kk">所在区域</span><span class="vv">问天域腹地 · 截云州</span></div><div class="kv"><span class="kk">控制范围</span><span class="vv">问天域七成灵脉，含归墟秘境的外围封锁</span></div><div class="kv"><span class="kk">在该地的作用</span><span class="vv">秩序维护 + 资源垄断：既发灵石，也定配额；既护城，也禁言</span></div><div class="kv"><span class="kk">地缘价值</span><span class="vv">卡住通往归墟秘境的唯一稳定通道，谁掌宗门谁掌残片</span></div></section><section class="pcard wide roster"><h3><span class="no">4</span>组织架构</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">层级/部门</th><th class="mxh">职能与权限</th><th class="mxh">负责人</th></tr></thead><tbody><tr><td class="mxh">掌教</td><td>最高裁决，掌《问天约》解释权</td><td>玄诚子（重伤闭关）</td></tr><tr><td class="mxh">长老会</td><td>议政、任免执事、裁定除籍</td><td>玉虚真人等九人</td></tr><tr><td class="mxh">执事堂</td><td>外门日常管理、试炼与刑罚</td><td>郑屠（外门总执事）</td></tr><tr><td class="mxh">藏经阁</td><td>典籍保管与借阅审批</td><td>守阁长老（名讳不传）</td></tr><tr><td class="mxh">巡山卫</td><td>山门禁飞、云海巡守</td><td>校尉石敢当</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">5</span>人员构成</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">核心人物</th><th class="mxh">职位</th><th class="mxh">能力或作用</th><th class="mxh">立场</th></tr></thead><tbody><tr><td class="mxh">玄诚子</td><td>掌教</td><td>六转化神，宗门唯一威慑</td><td>维持秩序（重伤）</td></tr><tr><td class="mxh">玉虚真人</td><td>外门长老</td><td>阵修，掌玉璧与后山</td><td>别有用心（隐瞒玉璧来历）</td></tr><tr><td class="mxh">苏清月</td><td>内门弟子</td><td>剑修天才，情报灵通</td><td>偏护主角（身份另有隐情）</td></tr><tr><td class="mxh">郑屠</td><td>外门总执事</td><td>掌试炼与刑罚，贪财</td><td>压迫主角</td></tr><tr><td class="mxh">石敢当</td><td>巡山校尉</td><td>体修，守云海</td><td>中立，认死理</td></tr><tr><td class="mxh">老哑</td><td>杂役</td><td>无声之民，缄默会联络人</td><td>沉默的旁观者</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">6</span>经济来源</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">来源</th><th class="mxh">运作方式</th><th class="mxh">规模或依赖风险</th></tr></thead><tbody><tr><td class="mxh">灵脉开采</td><td>辖内七成灵脉按《问天约》配额开采</td><td>最大来源；灵脉衰退即命门</td></tr><tr><td class="mxh">外门供奉</td><td>外门弟子以贡献点换灵石与阵位</td><td>稳定但增长有限</td></tr><tr><td class="mxh">世家捐输</td><td>截云州世家以资助换子弟名额</td><td>受世家牵制，易被要挟</td></tr><tr><td class="mxh">秘境抽成</td><td>归墟秘境外围通行与残片抽成</td><td>极肥，但每次开启都引发血拼</td></tr><tr><td class="mxh">罚没</td><td>除籍、违禁者的财物充公</td><td>小额，且激化矛盾</td></tr></tbody></table></div></section><section class="pcard wide lore"><h3><span class="no">7</span>组织历史</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">时期</th><th class="mxh">关键事件</th><th class="mxh">造成的影响</th></tr></thead><tbody><tr><td class="mxh">天启末年</td><td>第一代掌教受神谕立宗</td><td>宗门与神权绑定，形成正统叙事</td></tr><tr><td class="mxh">缄默天劫</td><td>万祷无应，神谕断绝</td><td>失去合法性来源，被迫改写教义</td></tr><tr><td class="mxh">崩塌百年</td><td>联合十一宗门割据灵脉</td><td>奠定问天域霸主地位</td></tr><tr><td class="mxh">新律六十年</td><td>牵头订立《问天约》</td><td>把「禁言求天」制度化，垄断解释权</td></tr><tr><td class="mxh">当下</td><td>掌教重伤、三派夺权</td><td>秩序出现裂缝，主角有机会撬动</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">8</span>内部派系与矛盾</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">派系</th><th class="mxh">核心诉求</th><th class="mxh">冲突点</th></tr></thead><tbody><tr><td class="mxh">守约派</td><td>严守《问天约》，维持现状</td><td>与改制派争夺长老会议席</td></tr><tr><td class="mxh">改制派</td><td>放宽禁令，重查天劫真相</td><td>被守约派视为异端</td></tr><tr><td class="mxh">实务派</td><td>只关心灵脉与配额</td><td>谁给利益就倒向谁，摇摆不定</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">9</span>外部关系</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">对象</th><th class="mxh">关系</th><th class="mxh">冲突/合作点</th></tr></thead><tbody><tr><td class="mxh">十二宗门</td><td>松散联盟</td><td>表面共奉《问天约》，暗中争灵脉配额</td></tr><tr><td class="mxh">世家联盟</td><td>互相利用</td><td>以资助换名额，同时互相监视</td></tr><tr><td class="mxh">缄默会</td><td>敌对（地下）</td><td>缄默会渗透宗门，主角是被争取的对象</td></tr><tr><td class="mxh">旧神余孽</td><td>死敌</td><td>旧神疆域接壤处常年摩擦</td></tr><tr><td class="mxh">散修</td><td>压制与收编</td><td>散修视其为「高墙」；宗门定期清剿</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">10</span>剧情作用</h3><ul class="clist"><li>提供资源：灵石、功法、阵法，是主角前期的成长依托。</li><li>制造压力：配额、除籍、执事压迫，构成前两卷的主要阻力。</li><li>提供试炼：开山试炼与内外之比，是能力兑现的舞台。</li><li>埋设伏笔：玉璧来历、藏经阁篡改、长老嫌疑，全部植根于此。</li><li>推动升级：掌控归墟秘境通道，主角必须撬动它才能进入中期。</li></ul></section><section class="pcard matrix"><h3><span class="no">11</span>写作约束</h3><ul class="clist"><li>登场必须推动：要么给资源，要么给压力，禁止纯背景板式出现。</li><li>代表人物必须有：玉虚真人（伪善的引路人）、郑屠（可见的小人）、苏清月（内在裂缝）。</li><li>禁止写成：铁板一块的邪恶组织——它内部有守约派/改制派之争，这才是可撬动的缝隙。</li><li>它与《问天约》绑定：任何放宽禁令的描写都必须付出宗门内斗代价。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

@@ -113,3 +113,32 @@ AI 回复中必须包含一个 `outlineSaveRequest` 代码块（必须含完整 
 - 是否没有生成正文。
 - 是否引用了题材、大纲/章纲、人物或设定 Skill。
 - 是否符合 `OUTLINE_FOLDER_STORAGE_STANDARD.md` 的目标文件夹规则。
+
+## 9. HTML 版本（系统自动渲染，AI 不要自己写 HTML）
+
+保存时每个 `.md` 都可以有一份同名 `.html` 伴生文件（自包含、无脚本）。**HTML 由系统套技能目录下的模板渲染，AI 禁止自己写 HTML/CSS/标签**，只需按类型附上结构化数据：
+
+| 类型 | 结构化数据（```json 围栏顶层字段） | 渲染模板 |
+|---|---|---|
+| 卷纲 | `volumeOutlineData` | `DagangSkill/juangangzhedieshu/template.html`（折叠树） |
+| 章纲 | `chapterOutlineData` / 分批用 `chapterOutlineBatch` | `ZhanggangSkill/zhanggangjiegouhua/template.html`（卡片流） |
+| 人物小传 | `characterProfileData`（多角色用 `characterProfiles`） | `JueseSkill/character-design/profile.html`（角色卡） |
+| 组织势力 | `factionProfileData`（多势力用 `factionProfiles`） | `SheDingSkill/faction-system/profile.html`（势力卡） |
+| 力量体系 | `powerProfileData`（多体系用 `powerProfiles`） | `SheDingSkill/power-system/profile.html`（体系卡：等级阶梯 / 代价矩阵） |
+| 伏笔计划 | `foreshadowingProfileData`（多台账用 `foreshadowingProfiles`） | `SheDingSkill/foreshadowing-suspense/profile.html`（伏笔台账：伏笔线 / 状态徽章） |
+| 金手指 | `goldenFingerProfileData`（多能力用 `goldenFingerProfiles`） | `SheDingSkill/power-system/golden-finger.html`（能力卡：系统面板） |
+| 地理设定 | `geographyProfileData`（多区域用 `geographyProfiles`） | `SheDingSkill/map-progression/profile.html`（地理卡：区域块） |
+| 地点设定 | `locationProfileData`（多地点用 `locationProfiles`） | `SheDingSkill/map-progression/location.html`（地点卡：空间规则 / 触发事件） |
+| 背景设定 | `backgroundProfileData`（多设定用 `backgroundProfiles`） | `SheDingSkill/world-rules/background.html`（背景卡：历史时间线 / 规则块） |
+| 其它未列类型（兜底） | `settingOutlineData` | `SheDingSkill/setting-cards/template.html`（卡片流） |
+
+`characterProfileData` / `factionProfileData` / `powerProfileData` / `foreshadowingProfileData` / `goldenFingerProfileData` / `geographyProfileData` / `locationProfileData` / `backgroundProfileData` 结构相同：`{ name, tag, tagline, sections[] }`；每个 section 为 `{ kind: "kv"|"list"|"table", heading, items?/head?+rows? }`（关系网络/出场记录/外部关系/等级阶梯/代价/伏笔状态/已解锁能力/区域划分/重要地点/势力分布/空间规则/可触发事件/历史沿革/核心设定规则用 table）。
+
+> 表格单元格若为常见状态枚举（未埋/已埋/推进中/已回收/已过期、高/中/低、已完成/进行中等），软件会渲染成彩色徽章——请严格使用这些取值。
+
+⚠️ 力量体系 / 金手指 / 地理设定 / 地点设定 / 背景设定 共用 `fileType=setting`，软件按 `title → 正文标题 → 文件名 → sourceIntent` 判定子类型后再选模板。
+
+`settingOutlineData` 结构：`{ title, intro, chips[], cards:[{ badge, title, subtitle, tags[], sections:[{ heading, items:[{ label, text }] }] }] }`；每个对象一张 card，写满该分项的分区。若系统未解析到结构化数据，会退回从 `content`（MD 正文）自动解析，因此 `content` 的标题/列表结构要规范。
+
+保存确认对话框中，勾选「HTML 形式」才会写入 `.html`；未生成 HTML 时该选项不可用。
+

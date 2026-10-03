@@ -34,6 +34,7 @@ import {
   setLastChapterDeAiSkill,
 } from "@/lib/novel/de-ai-skill-library"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
+import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import { getOutlineIngestIdentity, getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { streamChat } from "@/lib/llm-client"
 import {
@@ -365,6 +366,19 @@ export function PreviewPanel() {
       }
     })()
   }, [selectedFile, diskSyncEpoch])
+
+  /**
+   * 实际用于渲染的 HTML：
+   * 1) 磁盘上有同名 `.html` 伴生文件 → 用它（新保存的文件都是这种情况）；
+   * 2) 磁盘上没有（旧版本生成 / 外部写入 / 示例或导入的文件）→ 用内置模板按正文即时渲染，
+   *    这样历史大纲也能看到 HTML 视图，而不是只有 MD。
+   */
+  const effectiveCompanionHtml = useMemo(() => {
+    if (companionHtml) return companionHtml
+    if (!selectedFile || !fileContent.trim()) return null
+    if (!selectedFile.toLowerCase().endsWith(".md") || !isOutlinePath(selectedFile)) return null
+    return renderOutlineHtmlForPath(selectedFile, fileContent)
+  }, [companionHtml, selectedFile, fileContent])
 
   const syncDiskBeforeAction = useCallback(async () => {
     const path = selectedFileRef.current
@@ -1441,6 +1455,10 @@ export function PreviewPanel() {
 
   const category = getFileCategory(selectedFile)
   const isSelectedChapter = isChapterPath(selectedFile)
+  const outlineFolderLabel = (() => {
+    const match = (selectedFile ?? "").replace(/\\/g, "/").match(/\/wiki\/outlines\/([^/]+)/)
+    return match ? match[1] : ""
+  })()
   const activeHighlightRequest = pendingEditorHighlight?.path === selectedFile ? pendingEditorHighlight : null
   const hasChapterToolbarActions = Boolean(
     chapterHeader ||
@@ -1542,8 +1560,8 @@ export function PreviewPanel() {
   return (
     <div className="flex h-full flex-col">
       {uiTestEditorElement ? (
-        companionHtml ? (
-          <OutlineDualPreview htmlContent={companionHtml} mdEditor={uiTestEditorElement} />
+        effectiveCompanionHtml ? (
+          <OutlineDualPreview htmlContent={effectiveCompanionHtml} mdEditor={uiTestEditorElement} label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined} />
         ) : uiTestEditorElement
       ) : (
       <>
@@ -1836,9 +1854,10 @@ export function PreviewPanel() {
       </div>
       <div className={getPreviewContentContainerClass(isSelectedChapter)}>
         {category === "markdown" ? (
-          companionHtml ? (
+          effectiveCompanionHtml ? (
             <OutlineDualPreview
-              htmlContent={companionHtml}
+              htmlContent={effectiveCompanionHtml}
+              label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
               mdEditor={
                 <WikiEditor
                   ref={wikiEditorRef}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>地理设定 · 地理卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#F59E42;--hero-a:#16302E;--hero-b:#2F6B63;--grid:rgba(255,255,255,.12);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 地理头图（经纬网格感） */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:34px 34px;mask-image:radial-gradient(120% 100% at 80% 0%,#000 0%,transparent 78%)}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#CDE6E0;font-weight:600;margin:0 0 12px;position:relative}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;position:relative}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#CDE6E0;font-size:14.5px;position:relative}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0;position:relative}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid #2F6B63}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 区域 / 地理：方格底纹 + 首列区域块 */
+.pcard.map{border-top:3px solid #2F6B63}
+.pcard.map .mxwrap{border-color:#CFE3DE;background:
+  linear-gradient(180deg,rgba(47,107,99,.06),transparent 44%)}
+.pcard.map table.mx.lx{}
+.pcard.map table.mx thead th{background:#E8F1EE;color:#2F6B63}
+.pcard.map table.mx tbody td:first-child{background:#EFF6F4;color:#22544E;font-weight:700;white-space:nowrap;border-left:3px solid #2F6B63}
+.pcard.map table.mx tbody tr:nth-child(even) td:first-child{background:#E3EFEB;border-left-color:var(--he)}
+
+/* 势力分布等：绿色名册调 */
+.pcard.roster{border-top:3px solid var(--ok-border)}
+.pcard.roster table.mx thead th{background:var(--ok-soft);color:var(--ok)}
+
+/* 约束 / 危险 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">地理设定 · 地理卡</p>
+    <h1>九霄大陆<span class="role">大陆</span></h1>
+    <div><span class="chip"><b>大陆</b></span><span class="chip"><b>12</b> 个分区</span><span class="chip"><b>27</b> 条表格记录</span></div>
+    <p class="tagline">以问天域为心、以九霄为尺，灵气自内而外层层衰减。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">12 个分区</span></h2><div class="kv"><span class="kk">世界格局</span><span class="vv">九霄大陆居中央，四周环落霞海，海之外便是旧神疆域。</span></div><div class="kv"><span class="kk">核心舞台</span><span class="vv">问天域——缄默天劫落点的正上方，灵脉最盛也最异常。</span></div><div class="kv"><span class="kk">地理尺度</span><span class="vv">东西三万里，自问天域向外灵气逐层衰减。</span></div><div class="kv"><span class="kk">整体气候</span><span class="vv">以内陆高原为核心，向四方由寒趋暖。</span></div><div class="tags" style="margin-top:10px"><span class="tag">地理概览</span><span class="tag">区域格局</span><span class="tag">区域划分</span><span class="tag">重要地点</span><span class="tag">地形与气候环境</span><span class="tag">资源与物产</span><span class="tag">势力分布</span><span class="tag">交通与通行</span><span class="tag">危险区域与风险</span><span class="tag">地域特色</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard map"><h3><span class="no">1</span>地理概览</h3><div class="kv"><span class="kk">世界格局</span><span class="vv">九霄大陆居中央，四周环落霞海，海之外便是旧神疆域。</span></div><div class="kv"><span class="kk">核心舞台</span><span class="vv">问天域——缄默天劫落点的正上方，灵脉最盛也最异常。</span></div><div class="kv"><span class="kk">地理尺度</span><span class="vv">东西三万里，自问天域向外灵气逐层衰减。</span></div><div class="kv"><span class="kk">整体气候</span><span class="vv">以内陆高原为核心，向四方由寒趋暖。</span></div></section><section class="pcard map"><h3><span class="no">2</span>区域格局</h3><div class="kv"><span class="kk">层级结构</span><span class="vv">大陆 → 域（如问天域）→ 州 → 城 → 山门。</span></div><div class="kv"><span class="kk">核心地带</span><span class="vv">问天域 · 截云州，灵脉最密、宗门最盛，也是竞争最烈之处。</span></div><div class="kv"><span class="kk">边缘地带</span><span class="vv">落霞海沿岸与旧神疆域接壤处，灵气最薄，最容易被忽视。</span></div></section><section class="pcard wide map"><h3><span class="no">3</span>区域划分</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">区域</th><th class="mxh">类型</th><th class="mxh">地域特征</th><th class="mxh">所属势力</th></tr></thead><tbody><tr><td class="mxh">问天域</td><td>内域高原</td><td>灵脉密布，天象异常</td><td>问天宗</td></tr><tr><td class="mxh">截云州</td><td>州</td><td>宗门林立，竞争最烈</td><td>十二宗门</td></tr><tr><td class="mxh">落霞海</td><td>海域</td><td>灵气稀薄，常年多雾</td><td>散修、无声之民</td></tr><tr><td class="mxh">旧神疆域</td><td>荒原</td><td>残存神性，规则扭曲</td><td>旧神余孽</td></tr></tbody></table></div></section><section class="pcard wide place"><h3><span class="no">4</span>重要地点</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">地点</th><th class="mxh">所属区域</th><th class="mxh">作用</th><th class="mxh">可触发事件</th></tr></thead><tbody><tr><td class="mxh">青云峰</td><td>截云州</td><td>问天宗外门所在，主角入门之地</td><td>入门试炼（第5章）</td></tr><tr><td class="mxh">归墟秘境</td><td>问天域深处</td><td>时序残片唯一产地</td><td>抢宝与同门反目（第34章）</td></tr><tr><td class="mxh">无字碑林</td><td>旧神疆域</td><td>缄默真相的刻写之处</td><td>真相揭示（第60章）</td></tr><tr><td class="mxh">落霞渡</td><td>落霞海</td><td>无声之民的聚居渡口</td><td>收容师姐（第70章）</td></tr></tbody></table></div></section><section class="pcard wide map"><h3><span class="no">5</span>地形与气候环境</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">地形/气候</th><th class="mxh">分布</th><th class="mxh">对行动的影响</th></tr></thead><tbody><tr><td class="mxh">高原罡风</td><td>问天域全域</td><td>御器飞行耗灵加倍，高空难以久留</td></tr><tr><td class="mxh">常年寒雾</td><td>落霞海沿岸</td><td>视野受限，极易迷航</td></tr><tr><td class="mxh">断崖裂谷</td><td>截云州西缘</td><td>隔绝宗门往来，是逃亡与伏击之地</td></tr><tr><td class="mxh">神性扭曲带</td><td>旧神疆域深处</td><td>法术等级随深入而逐层降阶</td></tr></tbody></table></div></section><section class="pcard wide place"><h3><span class="no">6</span>资源与物产</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">资源</th><th class="mxh">产出区域</th><th class="mxh">稀缺度</th><th class="mxh">争夺情况</th></tr></thead><tbody><tr><td class="mxh">灵石</td><td>截云州各灵脉</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td><td>十二宗门分食，按《问天约》配额</td></tr><tr><td class="mxh">时序残片</td><td>归墟秘境</td><td>极稀</td><td>高阶修士不惜血拼</td></tr><tr><td class="mxh">养魂草</td><td>落霞海沿岸</td><td>稀</td><td>散修赖以养神，黑市价高</td></tr><tr><td class="mxh">传音兽</td><td>问天域林间</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td><td>世家以之为礼，兼作监视</td></tr></tbody></table></div></section><section class="pcard wide map"><h3><span class="no">7</span>势力分布</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">势力</th><th class="mxh">控制区域</th><th class="mxh">影响力</th><th class="mxh">与主角关系</th></tr></thead><tbody><tr><td class="mxh">问天宗</td><td>问天域腹地</td><td>正道之首</td><td>初期庇护，后期对立</td></tr><tr><td class="mxh">缄默会</td><td>落霞海与旧神疆域边缘</td><td>地下，渗透各大宗门</td><td>暗中援手（伏笔F006）</td></tr><tr><td class="mxh">世家联盟</td><td>截云州诸城</td><td>财力雄厚</td><td>联姻与背叛并存</td></tr><tr><td class="mxh">旧神余孽</td><td>旧神疆域</td><td>隐而不发</td><td>主要反派</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">8</span>交通与通行</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">通道/方式</th><th class="mxh">连接</th><th class="mxh">耗时</th><th class="mxh">风险</th></tr></thead><tbody><tr><td class="mxh">御器飞行</td><td>各州之间</td><td>三日</td><td>罡风耗灵，低阶弟子难以支撑</td></tr><tr><td class="mxh">传送阵</td><td>大宗门之间</td><td>一炷香</td><td>收费昂贵，需宗门凭证</td></tr><tr><td class="mxh">落霞渡船</td><td>落霞海沿岸</td><td>七日</td><td>海雾与劫匪</td></tr><tr><td class="mxh">神性裂隙</td><td>通往旧神疆域</td><td>不定</td><td>有去无回</td></tr></tbody></table></div></section><section class="pcard wide matrix map"><h3><span class="no">9</span>危险区域与风险</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">危险区域</th><th class="mxh">危险类型</th><th class="mxh">规避方式</th></tr></thead><tbody><tr><td class="mxh">归墟秘境核心</td><td>时序逆流</td><td>不进核心，随身携带时光砂</td></tr><tr><td class="mxh">旧神疆域</td><td>规则扭曲、禁法</td><td>低阶修为者一律绕行</td></tr><tr><td class="mxh">落霞海 · 灰雾带</td><td>迷失、灵气耗尽</td><td>结伴而行，携带指星盘</td></tr></tbody></table></div></section><section class="pcard map"><h3><span class="no">10</span>地域特色</h3><ul class="clist"><li>问天域天象异常：每年春秋各有一次「无声之雨」，落雨时言语失效。</li><li>截云州以「宗门集市」闻名，一城一宗门，互不通行。</li><li>落霞海沿岸民风剽悍，多以「渡」为姓，以船为家。</li><li>旧神疆域的草木会「看人」，长期停留者会被记住。</li></ul></section><section class="pcard"><h3><span class="no">11</span>剧情作用</h3><ul class="clist"><li>灵气梯度天然构成难度曲线，主角向核心推进即等于变强的可视化。</li><li>无声之雨是全书最重要的时间节点标记，用于同步多条线路。</li><li>旧神疆域的规则扭曲为后期高阶战斗提供了全新的规则战场。</li></ul></section><section class="pcard matrix"><h3><span class="no">12</span>写作约束</h3><ul class="clist"><li>地理变化必须改变行动规则（通行、资源、危险），不能只是换地名。</li><li>各区域的灵气浓度不得随意升高，否则破坏难度梯度。</li><li>势力分布必须与势力卡设定一致，不得出现无主之地被随意占据。</li><li>地域特色一旦设定（如无声之雨），必须在后续章节持续兑现。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

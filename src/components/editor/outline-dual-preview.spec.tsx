@@ -33,10 +33,10 @@ describe("OutlineDualPreview", () => {
     delete document.documentElement.dataset.uiTestSkin
   })
 
-  const render = async (htmlContent: string, mdEditor: React.ReactNode) => {
+  const render = async (htmlContent: string, mdEditor: React.ReactNode, label?: string) => {
     await act(async () => {
       root.render(
-        <OutlineDualPreview htmlContent={htmlContent} mdEditor={mdEditor} />,
+        <OutlineDualPreview htmlContent={htmlContent} mdEditor={mdEditor} label={label} />,
       )
     })
   }
@@ -47,9 +47,18 @@ describe("OutlineDualPreview", () => {
 
     const iframe = host.querySelector("iframe") as HTMLIFrameElement
     expect(iframe).not.toBeNull()
-    expect(iframe.title).toBe("卷纲 HTML 预览")
+    expect(iframe.title).toBe("双格式 HTML 预览")
     expect(iframe.srcdoc).toContain("折叠树")
     expect(host.textContent).not.toContain("MD 编辑器")
+  })
+
+  it("支持自定义顶栏标签与 iframe 标题", async () => {
+    const html = "<!DOCTYPE html><html><body><h1>卡片流</h1></body></html>"
+    await render(html, <div data-testid="md-editor">MD 编辑器</div>, "人物小传双格式")
+
+    const iframe = host.querySelector("iframe") as HTMLIFrameElement
+    expect(iframe.title).toBe("人物小传双格式 HTML 预览")
+    expect(host.textContent).toContain("人物小传双格式")
   })
 
   it("点击 MD 切换到编辑模式，再切回 HTML", async () => {

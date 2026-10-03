@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>伏笔计划 · 伏笔台账</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#F59E42;--hero-a:#2B2A3A;--hero-b:#6A4A22;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 台账头图（线轴感） */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;left:0;right:0;bottom:18px;height:1px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 8px,transparent 8px 18px)}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#F6E0D2;font-weight:600;margin:0 0 12px}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0 0 24px;max-width:78ch;color:#F6E0D2;font-size:14.5px}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid var(--brand)}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 伏笔线：左侧贯穿竖线 + 首列 ID 印章 */
+.pcard.threads{border-left:3px solid var(--brand)}
+.pcard.threads .mxwrap{position:relative;padding-left:8px;border:none}
+.pcard.threads .mxwrap::before{content:"";position:absolute;left:2px;top:6px;bottom:6px;width:2px;border-radius:2px;background:linear-gradient(180deg,var(--he),var(--brand))}
+.pcard.threads table.mx{border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.pcard.threads table.mx tbody td:first-child{background:var(--surface);color:var(--brand-text);font-weight:700;text-align:center;white-space:nowrap}
+
+/* 回收兑现：绿色基调 */
+.pcard.payoff{border-top:3px solid var(--ok-border)}
+.pcard.payoff table.mx thead th{background:var(--ok-soft);color:var(--ok)}
+.pcard.payoff table.mx tbody td{background:#FCFEFC}
+
+/* 过期/风险 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">伏笔计划 · 伏笔台账</p>
+    <h1>《九霄》伏笔计划<span class="role">主线</span></h1>
+    <div><span class="chip"><b>主线</b></span><span class="chip"><b>12</b> 个分区</span><span class="chip"><b>34</b> 条表格记录</span></div>
+    <p class="tagline">以「缄默」为根，十二条线索织成一张跨三百年的网。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">12 个分区</span></h2><div class="kv"><span class="kk">伏笔总数</span><span class="vv">12 条（示例列出主线 7 条）</span></div><div class="kv"><span class="kk">主线/支线分布</span><span class="vv">主线 5 条，支线 7 条</span></div><div class="kv"><span class="kk">整体埋收节奏</span><span class="vv">卷一卷二埋多收少，卷三集中回收，卷四再埋新线</span></div><div class="kv"><span class="kk">核心悬念</span><span class="vv">缄默天劫究竟是谁发动的，以及它会不会重演</span></div><div class="tags" style="margin-top:10px"><span class="tag">伏笔总览</span><span class="tag">埋设与回收节奏</span><span class="tag">伏笔状态表</span><span class="tag">线索链</span><span class="tag">表层误导与真相</span><span class="tag">回收日志</span><span class="tag">过期与风险</span><span class="tag">关联人物</span><span class="tag">关联设定与主线</span><span class="tag">悬念分级</span><span class="tag">剧情作用</span><span class="tag warn">写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard threads"><h3><span class="no">1</span>伏笔总览</h3><div class="kv"><span class="kk">伏笔总数</span><span class="vv">12 条（示例列出主线 7 条）</span></div><div class="kv"><span class="kk">主线/支线分布</span><span class="vv">主线 5 条，支线 7 条</span></div><div class="kv"><span class="kk">整体埋收节奏</span><span class="vv">卷一卷二埋多收少，卷三集中回收，卷四再埋新线</span></div><div class="kv"><span class="kk">核心悬念</span><span class="vv">缄默天劫究竟是谁发动的，以及它会不会重演</span></div></section><section class="pcard wide threads payoff"><h3><span class="no">2</span>埋设与回收节奏</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">卷次/阶段</th><th class="mxh">埋设数</th><th class="mxh">回收数</th><th class="mxh">悬念压力</th></tr></thead><tbody><tr><td class="mxh">卷一 落崖求生</td><td>4</td><td>1</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#EEF7EE;color:#3C7A3C;border:1px solid #B7DFB7">低</span></td></tr><tr><td class="mxh">卷二 入门试炼</td><td>3</td><td>2</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td></tr><tr><td class="mxh">卷三 宗门倾轧</td><td>2</td><td>4</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr><tr><td class="mxh">卷四 秘境历劫</td><td>3</td><td>3</td><td>极高</td></tr></tbody></table></div></section><section class="pcard wide threads"><h3><span class="no">3</span>伏笔状态表</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">ID</th><th class="mxh">伏笔内容</th><th class="mxh">埋设章节</th><th class="mxh">预计回收</th><th class="mxh">状态</th><th class="mxh">重要度</th></tr></thead><tbody><tr><td class="mxh">F001</td><td>落崖时融入识海的灰色符种</td><td>第1章</td><td>第67章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">推进中</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr><tr><td class="mxh">F002</td><td>伪功法「九转」缺了最后一页</td><td>第18章</td><td>第41章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#EEF7EE;color:#3C7A3C;border:1px solid #B7DFB7">已回收</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td></tr><tr><td class="mxh">F003</td><td>玉璧在无声之雨夜自发发光</td><td>第12章</td><td>第34章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#EEF7EE;color:#3C7A3C;border:1px solid #B7DFB7">已回收</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr><tr><td class="mxh">F004</td><td>老哑手腕上的旧誓纹</td><td>第9章</td><td>第55章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">推进中</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr><tr><td class="mxh">F005</td><td>藏经阁「越层者封修」刻痕被改过</td><td>第22章</td><td>第48章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">推进中</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td></tr><tr><td class="mxh">F006</td><td>落霞渡那盏无人认领的灯</td><td>第30章</td><td>第70章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#EEF7EE;color:#3C7A3C;border:1px solid #B7DFB7">已埋</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr><tr><td class="mxh">F007</td><td>师姐从不提自己的师承</td><td>第26章</td><td>第62章</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">推进中</span></td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td></tr></tbody></table></div></section><section class="pcard wide threads"><h3><span class="no">4</span>线索链</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">线索</th><th class="mxh">关联伏笔</th><th class="mxh">出现章节</th><th class="mxh">指向</th></tr></thead><tbody><tr><td class="mxh">无声之雨</td><td>F003、F004</td><td>第12、30章</td><td>缄默天劫并未结束</td></tr><tr><td class="mxh">誓纹</td><td>F004、F007</td><td>第9、26章</td><td>缄默会的身份暗记</td></tr><tr><td class="mxh">缺页功法</td><td>F002、F005</td><td>第18、22章</td><td>藏经阁有人刻意删改传承</td></tr><tr><td class="mxh">灰色符种</td><td>F001</td><td>第1、67章</td><td>主角金手指的真正来历</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">5</span>表层误导与真相</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">伏笔</th><th class="mxh">表层误导（读者以为）</th><th class="mxh">真实指向</th><th class="mxh">揭穿节点</th></tr></thead><tbody><tr><td class="mxh">F001</td><td>符种是上天赐予的机缘</td><td>是缄默会百年前失落的信物</td><td>第67章</td></tr><tr><td class="mxh">F007</td><td>师姐只是性格孤傲</td><td>是缄默会安插在问天宗的联络人</td><td>第62章</td></tr><tr><td class="mxh">F004</td><td>老哑只是个可怜人</td><td>是缄默会最后一位「听天人」</td><td>第55章</td></tr></tbody></table></div></section><section class="pcard wide payoff"><h3><span class="no">6</span>回收日志</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">章节</th><th class="mxh">回收伏笔</th><th class="mxh">回收方式</th><th class="mxh">后果</th></tr></thead><tbody><tr><td class="mxh">第34章</td><td>F003</td><td>揭示</td><td>主角确认天劫未结束，主动追查归墟</td></tr><tr><td class="mxh">第41章</td><td>F002</td><td>呼应</td><td>主角以推演补全缺页，反而躲开假筑基</td></tr><tr><td class="mxh">第48章</td><td>F005</td><td>反转</td><td>确认藏经阁被篡改，长老成为第一嫌疑人</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">7</span>过期与风险</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">ID</th><th class="mxh">问题</th><th class="mxh">处理方式</th></tr></thead><tbody><tr><td class="mxh">F005</td><td>自第22章起四卷未推进，易被读者遗忘</td><td>转长线，并入卷四藏经阁线重新点明</td></tr><tr><td class="mxh">F006</td><td>与主线关联弱，有过期风险</td><td>在第60章借无字碑林补一次提示</td></tr></tbody></table></div></section><section class="pcard wide roster"><h3><span class="no">8</span>关联人物</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">人物</th><th class="mxh">关联伏笔</th><th class="mxh">承担作用</th></tr></thead><tbody><tr><td class="mxh">主角 · 林辰</td><td>F001、F002</td><td>承载体，全部伏笔最终汇聚于他</td></tr><tr><td class="mxh">苏清月</td><td>F007</td><td>揭示者，同时承担揭示后的代价</td></tr><tr><td class="mxh">老哑</td><td>F004、F006</td><td>引路人，真相的入口</td></tr><tr><td class="mxh">玉虚真人</td><td>F005</td><td>误导制造者</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">9</span>关联设定与主线</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">主线/设定</th><th class="mxh">关联伏笔</th><th class="mxh">如何呼应</th></tr></thead><tbody><tr><td class="mxh">缄默天劫</td><td>F003、F004</td><td>天劫未结束是全书总纲</td></tr><tr><td class="mxh">契约言</td><td>F004、F007</td><td>誓纹正是契约言的反噬痕迹</td></tr><tr><td class="mxh">金手指识海洞天</td><td>F001</td><td>符种即洞天之源</td></tr></tbody></table></div></section><section class="pcard wide threads"><h3><span class="no">10</span>悬念分级</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">悬念</th><th class="mxh">级别</th><th class="mxh">维持手法</th><th class="mxh">计划回收</th></tr></thead><tbody><tr><td class="mxh">符种来历</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td><td>每次使用都留一处不解</td><td>第67章</td></tr><tr><td class="mxh">师姐师承</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF1F0;color:#A8071A;border:1px solid #FFCCC7">高</span></td><td>数次欲言又止</td><td>第62章</td></tr><tr><td class="mxh">玉璧发光原因</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#FFF7E6;color:#96601A;border:1px solid #F59E42">中</span></td><td>反复点名，不解释</td><td>第34章</td></tr><tr><td class="mxh">缺页功法</td><td><span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:#EEF7EE;color:#3C7A3C;border:1px solid #B7DFB7">低</span></td><td>一句带过</td><td>第41章</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">11</span>剧情作用</h3><ul class="clist"><li>把「缄默」拆成多条可追踪的线，让宏大设定落到具体章节。</li><li>表层误导与真相分离，保证每次回收都有反转快感。</li><li>节奏表防止某卷全埋不收或全收无埋，维持长期追读。</li></ul></section><section class="pcard matrix"><h3><span class="no">12</span>写作约束</h3><ul class="clist"><li>埋设必须自然，不得为了埋而埋，也不得直白提示。</li><li>每条伏笔回收后必须改变人物关系、规则或主线，不能回收完就消失。</li><li>章节号必须具体，禁止写「后期」「某章」。</li><li>过期伏笔必须给处理方式，禁止放着不管。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

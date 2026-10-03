@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>金手指 · 能力卡</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --he:#F59E42;--sys:#1F2B22;--sys-soft:#F6FBF7;--sys-line:#DCEBE0;--hero-a:#12241C;--hero-b:#2F6B4A;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+
+/* 能力头图（系统启动感） */
+.hero{background:linear-gradient(135deg,var(--hero-a),var(--hero-b));color:#fff;padding:42px 0 34px;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.05) 0 1px,transparent 1px 4px);pointer-events:none}
+.hero .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#B7DFB7;font-weight:600;margin:0 0 12px;position:relative}
+.hero h1{margin:0 0 10px;font-size:30px;line-height:1.3;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;position:relative}
+.hero .role{font-size:13px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 12px}
+.hero .tagline{margin:0;max-width:78ch;color:#DCEBE0;font-size:14.5px;position:relative}
+.hero .chip{display:inline-flex;gap:6px;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.32);border-radius:999px;padding:4px 11px;font-size:12px;color:#fff;margin:12px 6px 0 0;position:relative}
+.chip b{font-weight:700}
+
+/* 概览面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px;border-left:3px solid var(--ok)}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:96px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+
+/* 分区卡片 */
+.profile{margin:14px 0 40px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+.pcard{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px}
+.pcard.wide{grid-column:1 / -1}
+.pcard h3{margin:0 0 10px;font-size:14px;color:var(--brand-text);display:flex;align-items:baseline;gap:8px}
+.pcard h3 .no{flex:none;font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 7px}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+
+/* 表格 */
+.mxwrap{overflow:auto;border:1px solid var(--border);border-radius:9px}
+table.mx{border-collapse:collapse;width:100%;font-size:12px}
+table.mx th,table.mx td{border-bottom:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top;line-height:1.55}
+table.mx thead th{background:var(--surface);color:var(--muted);font-weight:600;font-size:11px;white-space:nowrap;position:sticky;top:0}
+table.mx tbody tr:last-child td{border-bottom:none}
+table.mx td{color:var(--ink2)}
+table.mx td.mxh,table.mx th.mxh{font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface)}
+
+/* 系统面板：已解锁能力 / 技能 */
+.pcard.unlock{border-top:3px solid var(--ok)}
+.pcard.unlock table.mx{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;font-size:11.5px}
+.pcard.unlock table.mx thead th{background:var(--sys);color:#B7DFB7;letter-spacing:.05em}
+.pcard.unlock table.mx tbody td{background:var(--sys-soft);border-bottom-color:var(--sys-line)}
+.pcard.unlock table.mx tbody td:first-child{background:#EAF5EE;color:var(--ok);font-weight:700}
+
+/* 代价 / 边界 / 约束 */
+.pcard.matrix{border-top:3px solid var(--danger-border)}
+.pcard.matrix table.mx thead th{background:var(--danger-soft);color:var(--danger)}
+.pcard.matrix table.mx tbody td{background:#FFFCFA}
+.pcard.matrix table.mx tbody td:first-child{font-weight:600;color:var(--ink);background:var(--surface)}
+
+/* 标签 */
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--border);color:var(--ink2);background:var(--surface)}
+.tag.warn{background:var(--danger-soft);border-color:var(--danger-border);color:var(--danger)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">金手指 · 能力卡</p>
+    <h1>识海洞天<span class="role">系统</span></h1>
+    <div><span class="chip"><b>系统</b></span><span class="chip"><b>12</b> 个分区</span><span class="chip"><b>32</b> 条表格记录</span></div>
+    <p class="tagline">脑中自成一方洞天，能把散落的天材地宝「种」进去，把时间「种」出来。</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+<section class="panel"><h2>速览<span class="pn">12 个分区</span></h2><div class="kv"><span class="kk">是什么</span><span class="vv">一枚在濒死时融入识海的灰色符种，把主角的识海改造成可经营的内天地。</span></div><div class="kv"><span class="kk">给主角带来什么</span><span class="vv">可囤积资源、可加速修炼时间、可模拟推演功法，是全书成长节奏的发动机。</span></div><div class="kv"><span class="kk">世界定位</span><span class="vv">不属于九霄大陆任何已知体系，疑似上一个纪元（天启纪元）的遗留物。</span></div><div class="kv"><span class="kk">能力上限</span><span class="vv">只能加速与储存，不能凭空造物；上限受主角神魂强度约束，神魂越强洞天越大。</span></div><div class="tags" style="margin-top:10px"><span class="tag">能力概述</span><span class="tag">获取与绑定</span><span class="tag">机制与规则</span><span class="tag">已解锁能力</span><span class="tag">能力分支与升级树</span><span class="tag">系统任务与使用史</span><span class="tag">边界与代价</span><span class="tag">冷却与风险</span><span class="tag">反制与漏洞</span><span class="tag">成长节奏</span><span class="tag">剧情作用</span><span class="tag warn">防崩坏写作约束</span></div></section>
+  </section>
+  <main class="profile">
+<section class="pcard"><h3><span class="no">1</span>能力概述</h3><div class="kv"><span class="kk">是什么</span><span class="vv">一枚在濒死时融入识海的灰色符种，把主角的识海改造成可经营的内天地。</span></div><div class="kv"><span class="kk">给主角带来什么</span><span class="vv">可囤积资源、可加速修炼时间、可模拟推演功法，是全书成长节奏的发动机。</span></div><div class="kv"><span class="kk">世界定位</span><span class="vv">不属于九霄大陆任何已知体系，疑似上一个纪元（天启纪元）的遗留物。</span></div><div class="kv"><span class="kk">能力上限</span><span class="vv">只能加速与储存，不能凭空造物；上限受主角神魂强度约束，神魂越强洞天越大。</span></div></section><section class="pcard"><h3><span class="no">2</span>获取与绑定</h3><div class="kv"><span class="kk">绑定/获取方式</span><span class="vv">十三岁落崖濒死时，符种自眉心渗入识海，与神魂相融。</span></div><div class="kv"><span class="kk">触发条件</span><span class="vv">神魂清醒且主动召唤内视；昏迷或神魂受创时无法开启。</span></div><div class="kv"><span class="kk">激活代价</span><span class="vv">每次开启消耗神魂之力，过度使用将造成神魂损伤。</span></div><div class="kv"><span class="kk">初始状态</span><span class="vv">一片灰雾，仅能容纳三尺见方的灵草，无任何额外能力。</span></div></section><section class="pcard wide lore"><h3><span class="no">3</span>机制与规则</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">机制</th><th class="mxh">说明</th><th class="mxh">数值或条件</th></tr></thead><tbody><tr><td class="mxh">时间加速</td><td>洞天内时间流速快于外界</td><td>初期 1:3，每升一层 +1，上限 1:10</td></tr><tr><td class="mxh">灵田滋养</td><td>栽种灵植自动汲取洞天灵气</td><td>消耗洞天灵气，灵气耗尽则灵植枯萎</td></tr><tr><td class="mxh">功法推演</td><td>可模拟推演功法路线与战前走势</td><td>每条路线限 3 次，用尽需献祭同阶功法</td></tr><tr><td class="mxh">神识放牧</td><td>可收容活物与伤者</td><td>上限随神魂境界提升，只收容不高于自身境界者</td></tr></tbody></table></div></section><section class="pcard wide unlock"><h3><span class="no">4</span>已解锁能力</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">解锁章节</th><th class="mxh">能力</th><th class="mxh">来源</th><th class="mxh">限制</th><th class="mxh">代价</th></tr></thead><tbody><tr><td class="mxh">第1章</td><td>内视</td><td>符种自带</td><td>只能看自己的识海</td><td>无</td></tr><tr><td class="mxh">第3章</td><td>灵田</td><td>首次吸纳灵草</td><td>三尺见方，无时间加速</td><td>消耗神魂之力</td></tr><tr><td class="mxh">第12章</td><td>时间加速 1:3</td><td>突破筑基</td><td>仅在洞天内生效</td><td>神魂负荷，久则头痛</td></tr><tr><td class="mxh">第34章</td><td>功法推演</td><td>献祭伪功法「九转」</td><td>每条路线限 3 次</td><td>献祭品不可回收</td></tr><tr><td class="mxh">第67章</td><td>神识放牧</td><td>神魂化形</td><td>只收容不高于自身境界者</td><td>有被反噬风险</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">5</span>能力分支与升级树</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">分支</th><th class="mxh">前置条件</th><th class="mxh">解锁方式</th><th class="mxh">代表能力</th></tr></thead><tbody><tr><td class="mxh">灵田分支</td><td>内视</td><td>持续栽种灵植</td><td>灵田 → 灵泉 → 药园</td></tr><tr><td class="mxh">时间分支</td><td>筑基</td><td>吞纳时序残片</td><td>1:3 → 1:5 → 1:10</td></tr><tr><td class="mxh">推演分支</td><td>藏经阁残卷</td><td>献祭同阶功法</td><td>功法推演 → 战前模拟</td></tr><tr><td class="mxh">神魂分支</td><td>神魂化形</td><td>神识放牧成习</td><td>神识放牧 → 代身</td></tr></tbody></table></div></section><section class="pcard wide unlock"><h3><span class="no">6</span>系统任务与使用史</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">章节</th><th class="mxh">任务/使用</th><th class="mxh">要求</th><th class="mxh">奖励/结果</th><th class="mxh">后续影响</th></tr></thead><tbody><tr><td class="mxh">第5章</td><td>栽种第一株灵草</td><td>三日内养活</td><td>灵田正式解锁</td><td>主角获得第一批药材，得以入门</td></tr><tr><td class="mxh">第18章</td><td>内景推演筑基之路</td><td>献祭一部伪功法</td><td>得到可行路线</td><td>避开假筑基（回收伏笔 F002）</td></tr><tr><td class="mxh">第41章</td><td>加速三月苦修</td><td>神魂承受 1:5 流速</td><td>修为追上同辈</td><td>神魂留下暗伤，为后文埋隐患</td></tr><tr><td class="mxh">第70章</td><td>收容受伤师姐</td><td>神魂高出对方一阶</td><td>收容成功</td><td>师姐得知洞天秘密（埋设伏笔 F007）</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">7</span>边界与代价</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">边界/代价</th><th class="mxh">触发条件</th><th class="mxh">后果</th></tr></thead><tbody><tr><td class="mxh">不能凭空造物</td><td>任何情况</td><td>只能种、收、演，无法无中生有</td></tr><tr><td class="mxh">不能救死</td><td>收容重伤者</td><td>只能延缓伤势，不能逆转生死</td></tr><tr><td class="mxh">神魂反噬</td><td>单次开启超过一炷香</td><td>头痛欲裂，神识模糊三日</td></tr><tr><td class="mxh">洞天暴露</td><td>被高阶修士神识探查</td><td>被盯上甚至被强行夺取</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">8</span>冷却与风险</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">风险</th><th class="mxh">触发条件</th><th class="mxh">后果</th><th class="mxh">规避方式</th></tr></thead><tbody><tr><td class="mxh">神魂枯竭</td><td>连续三日开启</td><td>当场昏厥，神魂受创</td><td>间隔开启，服养神丹</td></tr><tr><td class="mxh">灵田荒芜</td><td>灵气耗尽未补</td><td>灵植尽数枯死</td><td>定期投放灵脉碎屑</td></tr><tr><td class="mxh">时间错位</td><td>长期滞留洞天</td><td>身体与神魂脱节</td><td>单次不超过一炷香</td></tr></tbody></table></div></section><section class="pcard wide matrix"><h3><span class="no">9</span>反制与漏洞</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">反制/漏洞</th><th class="mxh">原理</th><th class="mxh">对手如何利用</th></tr></thead><tbody><tr><td class="mxh">神识封锁</td><td>高阶封印遮断识海</td><td>强制封锁使洞天无法开启</td></tr><tr><td class="mxh">时间锚定</td><td>时序系法术锚定洞天内部</td><td>使加速失效甚至倒流</td></tr><tr><td class="mxh">献祭反噬</td><td>献祭品若含怨念则污染推演</td><td>反派以伪功法引诱主角献祭</td></tr></tbody></table></div></section><section class="pcard wide"><h3><span class="no">10</span>成长节奏</h3><div class="mxwrap"><table class="mx"><thead><tr><th class="mxh">卷次/阶段</th><th class="mxh">对应能力</th><th class="mxh">关键解锁事件</th></tr></thead><tbody><tr><td class="mxh">卷一 落崖求生</td><td>内视 · 灵田</td><td>得符种，种下第一株灵草</td></tr><tr><td class="mxh">卷二 入门试炼</td><td>时间加速 1:3</td><td>筑基，第一次加速闭关</td></tr><tr><td class="mxh">卷三 宗门倾轧</td><td>功法推演</td><td>献祭伪功法，看破传承骗局</td></tr><tr><td class="mxh">卷四 秘境历劫</td><td>1:5 与神识放牧</td><td>化神，收容师姐</td></tr><tr><td class="mxh">卷五 天劫将至</td><td>1:10 与代身</td><td>直面缄默天劫</td></tr></tbody></table></div></section><section class="pcard"><h3><span class="no">11</span>剧情作用</h3><ul class="clist"><li>把「修炼慢」变成可量化的资源问题，让成长节奏可控可解释。</li><li>制造独有的悬念：符种来历本身就是全书最大的伏笔之一。</li><li>推演能力天然适合制造「提前知道却无法阻止」的悲剧张力。</li></ul></section><section class="pcard matrix"><h3><span class="no">12</span>防崩坏写作约束</h3><ul class="clist"><li>洞天只提供「时间与空间」，不提供「结果」，主角仍需亲自修炼。</li><li>每次加速必须写明神魂代价，且代价要累积。</li><li>严禁用推演直接得出战斗结果，只能得出「路线」与「可能性」。</li><li>洞天绝不能被写成可以逃避一切的万能避难所。</li></ul></section>
+  </main>
+</div>
+
+</body>
+</html>

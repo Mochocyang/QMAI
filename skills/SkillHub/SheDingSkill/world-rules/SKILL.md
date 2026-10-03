@@ -32,4 +32,50 @@ description: Use when designing world rules, taboos, social systems, supernatura
 - 规则体系默认输出到 `设定/世界观/规则体系.md`。
 - 影响多章的规则必须写更新记录。
 
+## 结构化输出契约（背景设定，必须遵守）
+
+生成**背景设定**时，除 MD 正文外**必须额外输出一个 ```json 围栏**，顶层字段为 `backgroundProfileData`
+（多套设定用 `backgroundProfiles` 数组）。软件用它渲染专属「背景卡」HTML（模板：本目录 `background.html`）。
+
+**sections 必须按下面顺序写满 12 项，一个都不能少**（每张 table 至少 3 行）：
+
+```json
+{
+  "backgroundProfileData": {
+    "name": "背景名或世界名",
+    "tag": "世界观/时代/文明",
+    "tagline": "一句话定位",
+    "sections": [
+      { "kind": "kv", "heading": "世界观背景", "items": [{ "label": "世界前提", "text": "…" }, { "label": "世界格局", "text": "…" }, { "label": "核心舞台", "text": "…" }, { "label": "核心矛盾", "text": "…" }] },
+      { "kind": "kv", "heading": "世界前提与差异", "items": [{ "label": "与现实/常规世界的差异", "text": "…" }, { "label": "核心资源", "text": "…" }, { "label": "特殊生态或存在", "text": "…" }, { "label": "常识与本世界的冲突", "text": "…" }] },
+      { "kind": "kv", "heading": "时代风貌", "items": [{ "label": "时代特征", "text": "…" }, { "label": "技术水平", "text": "…" }, { "label": "社会氛围", "text": "…" }] },
+      { "kind": "table", "heading": "社会结构", "head": ["阶层/群体", "地位与权力", "生存状态", "与主线关系"], "rows": [["", "", "", ""]] },
+      { "kind": "list", "heading": "文化习俗", "items": ["…"] },
+      { "kind": "table", "heading": "语言与称谓", "head": ["类别", "用法或规则", "示例"], "rows": [["", "", ""]] },
+      { "kind": "table", "heading": "历史沿革", "head": ["时期", "关键事件", "造成的影响"], "rows": [["", "", ""]] },
+      { "kind": "table", "heading": "核心设定规则", "head": ["规则", "边界（能做/不能做）", "违反代价"], "rows": [["", "", ""]] },
+      { "kind": "table", "heading": "信息公开度", "head": ["信息", "读者", "主角", "配角", "反派"], "rows": [["", "", "", "", ""]] },
+      { "kind": "table", "heading": "势力格局", "head": ["势力/阵营", "立场", "核心诉求", "当前态势"], "rows": [["", "", "", ""]] },
+      { "kind": "list", "heading": "剧情作用", "items": ["…"] },
+      { "kind": "list", "heading": "写作约束", "items": ["…"] }
+    ]
+  }
+}
+```
+
+- 必须用 `table`：社会结构、语言与称谓、历史沿革、核心设定规则、信息公开度、势力格局；
+  必须用 `kv`：世界观背景、世界前提与差异、时代风貌；必须用 `list`：文化习俗、剧情作用、写作约束。
+- 内容要求：
+  - **历史沿革**：至少 3 个时期，关键事件 + 影响，必须能解释当下格局；
+  - **核心设定规则**：写清**边界**（能做/不能做）与**违反代价**，禁止只给一句原则；
+  - **信息公开度**：读者 / 主角 / 配角 / 反派 分别知道到什么程度，逐条列出；
+  - **写作约束**：禁止临时新增「万能规则」解决剧情，世界观设定一旦成立必须自洽。
+- **不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。
+
+## HTML 背景卡
+
+保存时软件会把 `backgroundProfileData` 套 `background.html` 渲染为同名 `.html` 背景卡
+（典籍 / 年轮纹理头图 + 历史时间线 / 规则块）。用户可在 `.qmai/背景设定模板.html` 覆盖样式。
+本目录另有 `reference-sample.html`（**详细参考样本**，可直接对照 12 分区与表格列设计）。
+
 

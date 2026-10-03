@@ -123,6 +123,8 @@ export function classifyOutlineSaveTarget(input: OutlineSaveClassificationInput)
     inferOutlineFileTypeFromSkills(input.referencedSkills) ??
     resolveChapterOrVolumeType(extractDocumentSubject(input.title, input.content)) ??
     inferFileTypeFromHint(input.sourceHint ?? "") ??
+    // 标题语义优先于正文推断：避免「《XX》全版本力量体系总纲」因正文提到「第N章」被误判为章纲
+    inferFileTypeFromHint(input.title.replace(/^#+\s*/, "")) ??
     inferFileTypeFromContent(input.title, input.content)
 
   return {

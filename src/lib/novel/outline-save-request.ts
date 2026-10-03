@@ -6,6 +6,20 @@ import { stripOutlineFrontmatter } from "./outline-markdown"
 import { stripThoughtDumpFromText } from "@/lib/thought-dump"
 import { attachVolumeOutlineHtml } from "./volume-outline-template"
 import { attachChapterOutlineHtml } from "./chapter-outline-template"
+import { attachCharacterProfileHtml, renderCharacterProfileForContent } from "./character-profile-template"
+import { attachFactionProfileHtml } from "./faction-profile-template"
+import { attachPowerSystemHtml } from "./power-system-template"
+import { attachGoldenFingerHtml } from "./golden-finger-template"
+import { attachGeographyProfileHtml } from "./geography-setting-template"
+import { attachLocationProfileHtml } from "./location-setting-template"
+import { attachBackgroundProfileHtml } from "./background-setting-template"
+import { attachForeshadowingProfileHtml } from "./foreshadowing-plan-template"
+import {
+  attachSettingOutlineHtml,
+  extractSettingOutlineData,
+  isSettingOutlineFileType,
+  resolveSettingSpecForRequest,
+} from "./setting-outline-template"
 
 export type OutlineSaveRequestFileType =
   | "outline"
@@ -134,13 +148,162 @@ export function extractHtmlBlocks(text: string): string[] {
   return blocks
 }
 
-/** 按 fileType 分派：卷纲 / 章纲各自补 htmlContent（非真正 HTML 时用结构化数据套模板渲染）。 */
+/** 按 fileType 分派补 htmlContent（非真正 HTML 时用结构化数据套模板渲染）：
+ * - 独立类型直接分派：卷纲 → 折叠树；章纲 → 卡片流；人物小传 → 角色卡；
+ *   组织势力 → 势力卡；伏笔计划 → 伏笔台账；
+ * - setting / outline：先判定子类型（`attachSettingFamilyHtml`），命中专属模板的走专属渲染
+ *   （角色卡 / 势力卡 / 体系卡 / 能力卡 / 背景卡 / 地理卡 / 地点卡 / 伏笔台账）；
+ * - 其余 → 通用「设定卡片流」。 */
 export function attachOutlineHtml<
-  T extends { fileType: string; htmlContent?: string; content: string },
+  T extends {
+    fileType: string
+    htmlContent?: string
+    content: string
+    fileName?: string
+    targetFolder?: string
+    sourceIntent?: string
+  },
 >(request: T, text: string): T {
-  if (request.fileType === "volume-outline") return attachVolumeOutlineHtml(request, text)
-  if (request.fileType === "chapter-outline") return attachChapterOutlineHtml(request, text)
-  return request
+  // 章纲 / 卷纲需要结构化 JSON 才能渲染。若渲染不出，且正文本身并不像章纲/卷纲，
+  // 说明是**分类错误**（例如「全版本力量体系总纲」因正文提到「第N章」被误判为章纲）。
+  // 此时借用设定家族的渲染结果补上 HTML，避免保存框出现「本轮未生成 HTML 版本，无法保存 HTML」。
+  // 注意：只借用 htmlContent，**不改动原 fileType**。
+  if (request.fileType === "volume-outline") {
+    const rendered = attachVolumeOutlineHtml(request, text)
+    if (rendered.htmlContent) return rendered
+    const subject = `${request.fileName ?? ""}\n${request.content}`
+    if (VOLUME_OUTLINE_MARK.test(subject)) return rendered
+    return borrowSettingFamilyHtml(request, text) ?? rendered
+  }
+  if (request.fileType === "chapter-outline") {
+    const rendered = attachChapterOutlineHtml(request, text)
+    if (rendered.htmlContent) return rendered
+    if (isLikelyChapterOutline(request.content, request.fileName ?? "")) return rendered
+    return borrowSettingFamilyHtml(request, text) ?? rendered
+  }
+  if (request.fileType === "character") return attachCharacterProfileHtml(request, text)
+  if (request.fileType === "organization") return attachFactionProfileHtml(request, text)
+  if (request.fileType === "foreshadowing") return attachForeshadowingProfileHtml(request, text)
+  return attachSettingFamilyHtml(request, text)
+}
+
+/** 正文看起来像「卷纲」的标记（用于判断是否需要兜底渲染）。 */
+const VOLUME_OUTLINE_MARK = /卷纲|分卷大纲/
+
+/** 借用设定家族渲染出一份 HTML，但不改动原请求的 fileType。 */
+function borrowSettingFamilyHtml<
+  T extends {
+    fileType: string
+    htmlContent?: string
+    content: string
+    fileName?: string
+    targetFolder?: string
+    sourceIntent?: string
+  },
+>(request: T, text: string): T | null {
+  const chained = attachSettingFamilyHtml({ ...request, fileType: "setting" }, text)
+  return chained.htmlContent ? ({ ...request, htmlContent: chained.htmlContent } as T) : null
+}
+
+/**
+ * setting / outline 家族分派：多种类型共用 fileType=`setting`，
+ * 必须先按「JSON 标题 → 正文标题 → 文件名 → sourceIntent → 文件夹」判定子类型，
+ * 命中专属模板的走专属渲染，其余走通用「设定卡片流」。
+ *
+ * 规格 id → 渲染器。**数据驱动**，避免新增分项时忘记在此加分支而悄悄退化成通用卡片流。
+ */
+const SETTING_FAMILY_RENDERERS: Record<
+  string,
+  <T extends { fileType: string; htmlContent?: string; content: string }>(request: T, text: string) => T
+> = {
+  characterBriefs: attachCharacterProfileHtml,
+  organizationsOutline: attachFactionProfileHtml,
+  powerSystem: attachPowerSystemHtml,
+  goldenFinger: attachGoldenFingerHtml,
+  backgroundSetting: attachBackgroundProfileHtml,
+  geographySetting: attachGeographyProfileHtml,
+  foreshadowingPlan: attachForeshadowingProfileHtml,
+  locationsOutline: attachLocationProfileHtml,
+}
+
+function attachSettingFamilyHtml<
+  T extends {
+    fileType: string
+    htmlContent?: string
+    content: string
+    fileName?: string
+    targetFolder?: string
+    sourceIntent?: string
+  },
+>(request: T, text: string): T {
+  if (!isSettingOutlineFileType(request.fileType)) return request
+  const existing = request.htmlContent?.trim() ?? ""
+  if (!/<html[\s>]/i.test(existing)) {
+    const spec = resolveSettingSpecForRequest({
+      fileType: request.fileType,
+      fileName: request.fileName,
+      targetFolder: request.targetFolder,
+      sourceIntent: request.sourceIntent,
+      content: request.content,
+      dataTitle: extractSettingOutlineData(text)?.title,
+    })
+    const renderer = SETTING_FAMILY_RENDERERS[spec.id]
+    if (renderer) return renderer(request, text)
+  }
+  return attachSettingOutlineHtml(request, text)
+}
+
+/** 由「文件夹 + 文件名」推断大纲类型（用于给历史 / 外部写入的 .md 补渲染）。 */
+function inferOutlineFileTypeFromPath(folder: string, fileName: string): OutlineSaveRequestFileType {
+  const hint = `${folder} ${fileName.replace(/\.md$/i, "")}`
+  if (/卷纲|分卷/.test(hint)) return "volume-outline"
+  if (/章纲|细纲/.test(hint)) return "chapter-outline"
+  if (/人物|角色/.test(hint)) return "character"
+  if (/组织|势力|阵营|门派|家族/.test(hint)) return "organization"
+  if (/伏笔/.test(hint)) return "foreshadowing"
+  if (/质量|检查/.test(hint)) return "quality-report"
+  // 其余交给 setting 家族按「标题 → 文件名 → 文件夹」细分
+  return "setting"
+}
+
+/**
+ * 按路径与正文即时渲染大纲 HTML。
+ *
+ * 用于**磁盘上还没有伴生 `.html`** 的大纲文件（旧版本生成的、外部写入的、或示例/导入的文件），
+ * 让预览也能提供 HTML 视图（新保存的文件仍以落盘的 `.html` 为准）。
+ *
+ * 只对**能明确归入某个专属卡片类型**的文件渲染（组织势力 / 人物小传 / 力量体系 / 金手指 /
+ * 地理 / 地点 / 背景 / 伏笔），避免给「总纲」「写作通则」这类普通大纲套上不相干的卡片。
+ * 卷纲/章纲依赖结构化 JSON，缺 JSON 时也返回 null（调用方回退为纯 MD 视图）。
+ */
+export function renderOutlineHtmlForPath(path: string, content: string): string | null {
+  const text = content?.trim()
+  if (!text) return null
+  const segments = normalizePath(path).split("/").filter(Boolean)
+  const fileName = segments[segments.length - 1] ?? ""
+  if (!/\.md$/i.test(fileName)) return null
+  const folder = segments.length >= 2 ? segments[segments.length - 2] : ""
+  const fileType = inferOutlineFileTypeFromPath(folder, fileName)
+  if (!isSettingOutlineFileType(fileType)) return null
+  const spec = resolveSettingSpecForRequest({
+    fileType,
+    fileName,
+    targetFolder: folder,
+    sourceIntent: folder,
+    content: text,
+  })
+  // 未能归入专属分项（generic-*）时不渲染，保留纯 MD 体验
+  if (!SETTING_FAMILY_RENDERERS[spec.id]) return null
+  const request: OutlineSaveRequest = {
+    targetFolder: folder,
+    fileName,
+    fileType,
+    writeMode: "create",
+    referencedSkills: [],
+    sourceIntent: folder,
+    content: text,
+  }
+  return attachOutlineHtml(request, text).htmlContent ?? null
 }
 
 function extractBalancedJsonObject(text: string): string | null {
@@ -437,15 +600,20 @@ export function characterDraftsToSaveRequests(
 ): OutlineSaveRequest[] {
   return drafts
     .filter((draft) => draft.selected)
-    .map((draft) => ({
-      targetFolder: "人物小传",
-      fileName: draft.fileName,
-      fileType: "character",
-      writeMode: "create",
-      referencedSkills: ["JueseSkill/character-design"],
-      sourceIntent,
-      content: draft.content,
-    }))
+    .map((draft) => {
+      // 优先用草稿上已挂好的角色卡 HTML（来自 characterProfileData）；否则从该草稿 MD 兜底渲染
+      const htmlContent = draft.htmlContent?.trim() || renderCharacterProfileForContent(draft.content)
+      return {
+        targetFolder: "人物小传",
+        fileName: draft.fileName,
+        fileType: "character" as const,
+        writeMode: "create" as const,
+        referencedSkills: ["JueseSkill/character-design"],
+        sourceIntent,
+        content: draft.content,
+        ...(htmlContent ? { htmlContent } : {}),
+      }
+    })
 }
 
 export function splitConfirmRequiredSaveRequests(requests: OutlineSaveRequest[]): {

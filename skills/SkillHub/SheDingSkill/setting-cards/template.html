@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设定卡片流</title>
+<style>
+:root{
+  --bg:#FFFFFF;--surface:#FBF8F5;--surface2:#F4EEE8;--ink:#241E1A;--ink2:#4A3F38;--muted:#7A6C63;
+  --border:#E2D8CF;--brand:#B8551D;--brand-soft:#FBF0E9;--brand-soft2:#F6E0D2;--brand-text:#8A3F13;--on-brand:#FFFFFF;
+  --qi:#8E6E63;--cheng:#D97757;--zhuan:#B8551D;--he:#F59E42;
+  --ok:#3C7A3C;--ok-soft:#EEF7EE;--ok-border:#B7DFB7;--warn:#96601A;--warn-soft:#FFF7E6;--danger:#A8071A;--danger-soft:#FFF1F0;--danger-border:#FFCCC7;
+  --day:#7FB07F;
+  --k-qi-bg:#F1EDE9;--k-qi-ink:#5F4A3E;--k-cheng-bg:#FBEDE6;--k-cheng-ink:#A8451C;--k-he-bg:#FEF3E2;--k-he-ink:#96601A;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+.intro{background:var(--brand-soft);border-bottom:1px solid var(--border);padding:40px 0 32px}
+.intro .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand-text);font-weight:600;margin:0 0 12px}
+.intro h1{margin:0 0 12px;font-size:26px;line-height:1.35}
+.intro p{margin:0;max-width:74ch;color:var(--ink2)}
+.chip{display:inline-flex;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--ink2);margin:10px 6px 0 0}
+.chip b{color:var(--brand-text)}
+
+/* 面板 */
+.panels{margin:14px 0 0}
+.panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px 16px;margin-bottom:12px}
+.panel h2{margin:0 0 10px;font-size:14.5px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.panel h2 .pn{font-size:11.5px;font-weight:400;color:var(--muted)}
+.panel .empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+.panel .hint{margin:0;font-size:12px;color:var(--muted)}
+/* 通用（卡片内也会用到） */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.empty{margin:0;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--he);border-radius:8px;padding:8px 10px}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+
+/* 键值行 */
+.kv{display:flex;gap:10px;align-items:baseline;padding:5px 9px;border-bottom:1px dashed var(--border);font-size:12.5px;line-height:1.6}
+.kv:last-child{border-bottom:none}
+.kv .kk{flex:none;width:86px;color:var(--muted);font-size:11.5px}
+.kv .vv{flex:1;min-width:0;color:var(--ink2)}
+
+/* 锚点导航 */
+.nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin:14px 0 0}
+.nav .navt{font-size:11.5px;color:var(--muted);margin-right:4px}
+.navlink{display:inline-flex;gap:6px;align-items:baseline;font-size:12px;color:var(--ink2);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:2px 10px;background:var(--surface);max-width:260px;overflow:hidden;white-space:nowrap}
+.navlink b{font-size:10.5px;color:var(--on-brand);background:var(--brand);border-radius:4px;padding:0 5px;flex:none}
+.navlink:hover{border-color:var(--brand);color:var(--brand-text)}
+
+/* 卡片流 */
+.cards{margin:14px 0 40px;display:flex;flex-direction:column;gap:10px}
+details.cc{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+details.cc[open]{border-color:var(--brand)}
+details.cc>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:11px 14px;background:var(--surface)}
+details.cc>summary::-webkit-details-marker{display:none}
+details.cc>summary::marker{content:""}
+details.cc>summary::before{content:"▸";color:var(--muted);font-size:11px}
+details.cc[open]>summary::before{content:"▾"}
+details.cc>summary:hover{background:var(--surface2)}
+.cno{font-size:11px;font-weight:700;color:var(--on-brand);background:var(--brand);border-radius:5px;padding:1px 8px;flex:none}
+.ct{font-weight:600;font-size:14px}
+.cgoal{font-size:12px;color:var(--muted);flex:1;min-width:200px}
+.cbody{padding:6px 14px 14px}
+.csec{padding:8px 0;border-bottom:1px dashed var(--border)}
+.csec:last-child{border-bottom:none}
+.csec h4{margin:0 0 6px;font-size:12.5px;color:var(--brand-text)}
+.clist{margin:0;padding-left:20px;font-size:12.5px;color:var(--ink2);line-height:1.65}
+.clist li{margin:2px 0}
+details.cc:target{outline:2px solid var(--brand);outline-offset:2px}
+
+/* 标签 */
+.tag{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--border);color:var(--muted);background:var(--surface);flex:none}
+.tag.attr{background:var(--brand-soft2);border-color:var(--brand);color:var(--brand-text);font-weight:600}
+.tag.mood{background:var(--k-qi-bg);border-color:var(--border);color:var(--k-qi-ink)}
+.tag.chap{background:var(--surface2);color:var(--ink2);font-weight:600}
+.tag.exp{background:var(--warn-soft);border-color:var(--he);color:var(--warn);font-weight:600}
+.tag.gift{background:var(--ok-soft);border-color:var(--ok-border);color:var(--ok);font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="intro">
+  <div class="wrap">
+    <p class="eyebrow">__SETTING_EYEBROW__</p>
+    <h1>__SETTING_TITLE__</h1>
+    <p>__SETTING_INTRO__</p>
+    <div>__SETTING_CHIPS__</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="panels">
+__SETTING_OVERVIEW__
+  </section>
+  __SETTING_NAV__
+  <main class="cards">
+__SETTING_CARDS__
+  </main>
+</div>
+
+</body>
+</html>
