@@ -348,7 +348,7 @@ describe("编辑器异常与原业务回归", () => {
   it("章节提取记忆入口位于去AI味和查看记忆之间", async () => {
     await mount()
     const toolbar = container.querySelector(".ui-test-editor-toolbar")!
-    const labels = [...toolbar.querySelectorAll("button.ui-test-editor-action")].map((item) => item.textContent?.trim())
+    const labels = [...toolbar.querySelectorAll("button.ui-test-editor-action")].map((item) => item.getAttribute("aria-label"))
     expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "一键排版"])
   })
 
@@ -357,7 +357,7 @@ describe("编辑器异常与原业务回归", () => {
     const hint = container.querySelector(".ui-test-editor-draft-hint")
     expect(hint?.textContent).toContain("这一章还是草稿")
     expect(hint?.textContent).toContain("点击「提取记忆」会先保存为正式章节")
-    expect(container.querySelector(".ui-test-editor-action.is-hint-target")?.textContent).toContain("提取记忆")
+    expect(container.querySelector(".ui-test-editor-action.is-hint-target")?.getAttribute("aria-label")).toBe("提取记忆")
     const actions = container.querySelector(".ui-test-editor-draft-hint-actions")
     expect(actions?.textContent).toContain("知道了")
     expect(actions?.textContent).toContain("不再提醒")

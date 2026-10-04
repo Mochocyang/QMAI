@@ -29,3 +29,29 @@ export function writeUiTestSkin(skin: UiTestSkin): void {
   if (typeof localStorage === "undefined") return
   localStorage.setItem(UI_TEST_SKIN_KEY, skin)
 }
+
+/** 目录开关搬到左上角后的一次性引导气泡：点过「知道了」就永久关闭。 */
+export const UI_TEST_DIRECTORY_HINT_KEY = `${UI_TEST_STORAGE_PREFIX}directory-hint-v1`
+
+export function readUiTestDirectoryHintDismissed(): boolean {
+  if (typeof localStorage === "undefined") return false
+  return localStorage.getItem(UI_TEST_DIRECTORY_HINT_KEY) === "1"
+}
+
+export function writeUiTestDirectoryHintDismissed(): void {
+  if (typeof localStorage === "undefined") return
+  localStorage.setItem(UI_TEST_DIRECTORY_HINT_KEY, "1")
+}
+
+/** 顶栏「AI 对话」改为纯图标后的一次性引导气泡：点过「知道了」就永久关闭。 */
+export const UI_TEST_AI_HINT_KEY = `${UI_TEST_STORAGE_PREFIX}ai-chat-hint-v1`
+
+export function readUiTestAiHintDismissed(): boolean {
+  if (typeof localStorage === "undefined") return false
+  return localStorage.getItem(UI_TEST_AI_HINT_KEY) === "1"
+}
+
+export function writeUiTestAiHintDismissed(): void {
+  if (typeof localStorage === "undefined") return
+  localStorage.setItem(UI_TEST_AI_HINT_KEY, "1")
+}

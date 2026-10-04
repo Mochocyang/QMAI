@@ -196,23 +196,12 @@ pub fn run() {
                 #[cfg(not(target_os = "macos"))]
                 {
                     use tauri::Manager;
-                    api.prevent_close();
-                    let win = window.clone();
-                    let app = window.app_handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        use tauri_plugin_dialog::DialogExt;
-                        let confirmed = app
-                            .dialog()
-                            .message("确定要退出小说写作助手吗？")
-                            .title("确认退出")
-                            .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-                            .blocking_show();
-
-                        if confirmed {
-                            app_state::persist_app_state_before_exit(&app);
-                            let _ = win.destroy();
-                        }
-                    });
+                    // 退出确认与保存统一由前端 onCloseRequested 负责：Tauri 检测到前端注册了
+                    // close-requested 监听后会自行 prevent_close，前端确认通过后销毁窗口。
+                    // 这里不能再 prevent_close / 弹原生确认框 / destroy，
+                    // 否则同一次关闭会先后弹出两个确认框（前端手动 close() 会再次触发本回调）。
+                    let _ = api;
+                    app_state::persist_app_state_before_exit(window.app_handle());
                 }
             }
         })

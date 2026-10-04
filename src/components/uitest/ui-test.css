@@ -67,6 +67,18 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-header { height: 68px; min-height: 68px; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 18px; padding: 0 28px; position: relative; z-index: 25; background: var(--ui-paper); }
 .ui-test-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ui-test-brand-logo { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; display: block; }
+.ui-test-brand-logo-btn { position: relative; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; background: none; display: grid; place-items: center; flex-shrink: 0; cursor: pointer; }
+.ui-test-brand-logo-btn > * { grid-area: 1 / 1; }
+.ui-test-brand-logo-btn:hover { background: var(--ui-panel); }
+.ui-test-brand-logo-btn .ui-test-brand-logo-icon { width: 20px; height: 20px; color: var(--ui-muted); display: none; }
+.ui-test-brand-logo-btn:hover .ui-test-brand-logo { display: none; }
+.ui-test-brand-logo-btn:hover .ui-test-brand-logo-icon { display: block; }
+.ui-test-header-hint-anchor { position: relative; display: inline-flex; flex-shrink: 0; }
+.ui-test-header-hint { position: absolute; top: calc(100% + 10px); left: 0; z-index: 30; width: min(280px, calc(100vw - 40px)); padding: 12px 14px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-paper); color: var(--ui-ink); font: 400 13px/1.6 var(--ui); box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent); }
+.ui-test-header-hint.is-right { left: auto; right: 0; }
+.ui-test-header-hint p { margin: 0; }
+.ui-test-header-hint-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.ui-test-header-hint-dismiss { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--ui-accent); font: 500 13px/1.5 var(--ui); cursor: pointer; }
 .ui-test-brand-name { font: 500 18px/1.3 var(--serif); letter-spacing: 1px; white-space: nowrap; }
 .ui-test-crumb { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; padding: 6px 0; font-size: 12px; color: var(--ui-muted); white-space: nowrap; margin-left: 8px; }
 .ui-test-crumb svg { width: 15px; height: 15px; }
@@ -83,13 +95,10 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-nav-item.is-active { background: var(--ui-paper); color: var(--ui-accent); box-shadow: 0 2px 9px #203b2b08; }
 .ui-test-nav-item:disabled { opacity: .8 !important; }
 .ui-test-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
-.ui-test-icon-btn, .ui-test-header-action { border: 0; background: none; border-radius: 8px; color: var(--ui-muted); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-height: 36px; }
-.ui-test-icon-btn { width: 36px; }
-.ui-test-icon-btn > svg, .ui-test-header-action > svg { width: 18px; height: 18px; flex-shrink: 0; }
-.ui-test-icon-btn:hover, .ui-test-header-action:hover { background: var(--ui-panel); }
+.ui-test-icon-btn { border: 0; background: none; border-radius: 8px; color: var(--ui-muted); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-height: 36px; width: 36px; }
+.ui-test-icon-btn > svg { width: 18px; height: 18px; flex-shrink: 0; }
+.ui-test-icon-btn:hover { background: var(--ui-panel); }
 .ui-test-activity-entry { width: 36px; overflow: hidden; }
-.ui-test-header-action { padding: 8px 13px; gap: 7px; font-size: 13px; background: var(--ui-panel); white-space: nowrap; }
-.ui-test-header-action.is-active { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-win-actions { display: flex; align-items: center; margin-left: 12px; gap: 2px; }
 .ui-test-win-btn { padding: 0; display: grid; place-items: center; border: 0; background: none; color: var(--ui-muted); opacity: .6; width: 22px; height: 32px; border-radius: 5px; }
 .ui-test-win-btn > svg { width: 12px; height: 12px; }
@@ -125,8 +134,6 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-directory-content > div { min-height: 0; }
 .ui-test-directory-content .border-b, .ui-test-directory-content .border-t { border-width: 0; }
 .ui-test-directory-content [data-slot="scroll-area"] { min-height: 0; }
-.ui-test-sidebar.is-drawer { position: absolute; top: 0; bottom: 0; left: 0; z-index: 21; box-shadow: 10px 0 36px #15251b18; width: min(280px, calc(100% - 48px)); }
-.ui-test-directory-scrim { position: absolute; inset: 0; z-index: 20; background: #14201a33; border: 0; }
 .ui-test-directory-head { display: flex; align-items: center; justify-content: space-between; padding: var(--ui-heading-top) 20px 10px; gap: 8px; min-height: 60px; }
 .ui-test-directory-head h2 { line-height: var(--ui-heading-line); font-size: 14px; font-weight: 500; white-space: nowrap; }
 .ui-test-root [data-ui-panel-heading] { min-height: 60px; padding: var(--ui-heading-top) 20px 10px; line-height: var(--ui-heading-line); }
@@ -142,6 +149,7 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-directory-tools { display: flex; align-items: center; gap: 4px; margin: 0 16px 10px; position: relative; flex-wrap: wrap; }
 .ui-test-directory-tools > button, .ui-test-directory-tools > div > button { border: 0; border-radius: 7px; background: var(--ui-paper); color: var(--ui-muted); font-size: 12px; padding: 6px 7px; min-height: 30px; display: inline-flex; align-items: center; gap: 4px; }
 .ui-test-directory-tools svg { width: 14px; height: 14px; }
+.ui-test-directory-total { margin-left: auto; padding: 0 2px; color: var(--ui-muted); font-size: 12px; line-height: 1.5; white-space: nowrap; }
 .ui-test-directory-tools .ui-test-menu-pop { top: 38px; left: 0; right: auto; width: 190px; padding: 7px; }
 .ui-test-directory-note { padding: 20px 25px 26px; color: var(--ui-muted); font-size: 12px; line-height: 1.9; }
 .ui-test-directory-note button { text-align: left; background: none; border: 0; color: inherit; }
@@ -188,9 +196,9 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 .ui-test-activity-body > div { border: 0; background: var(--ui-panel); border-radius: 12px; }
 .ui-test-activity-body .max-h-64 { max-height: none; }
 @media (max-width: 1279px) { .ui-test-current-book { max-width: 110px; } .ui-test-nav-item { padding-inline: 22px; } .ui-test-header { gap: 12px; padding-inline: 22px; } .ui-test-win-actions { margin-left: 4px; } }
-@media (max-width: 1179px) { .ui-test-current-book { display: none; } .ui-test-header-action { padding-inline: 9px; } .ui-test-brand { gap: 8px; } .ui-test-crumb { margin-left: 0; } .ui-test-header { padding-inline: 18px; } .ui-test-nav-item { padding-inline: 18px; } }
-@media (max-width: 959px) { .ui-test-brand-name { font-size: 19px; } .ui-test-header { gap: 8px; padding-inline: 16px; } .ui-test-nav-item { padding-inline: 14px; } .ui-test-header-action span { display: none; } .ui-test-header-action { width: 34px; padding: 8px; } .ui-test-actions { gap: 3px; } .ui-test-win-btn { width: 19px; } }
-@media (max-width: 767px) { .ui-test-app { border-radius: 8px; clip-path: inset(0 round 8px); } .ui-test-root[data-platform="macos"] .ui-test-brand { padding-left: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-header-action { width: 32px; min-height: 32px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 68px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-sidebar { min-width: 0; } .ui-test-tree-more { opacity: 1; } }
+@media (max-width: 1179px) { .ui-test-current-book { display: none; } .ui-test-brand { gap: 8px; } .ui-test-crumb { margin-left: 0; } .ui-test-header { padding-inline: 18px; } .ui-test-nav-item { padding-inline: 18px; } }
+@media (max-width: 959px) { .ui-test-brand-name { font-size: 19px; } .ui-test-header { gap: 8px; padding-inline: 16px; } .ui-test-nav-item { padding-inline: 14px; } .ui-test-actions { gap: 3px; } .ui-test-win-btn { width: 19px; } }
+@media (max-width: 767px) { .ui-test-app { border-radius: 8px; clip-path: inset(0 round 8px); } .ui-test-root[data-platform="macos"] .ui-test-brand { padding-left: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 110px; min-height: 110px; padding: 9px 14px; row-gap: 6px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item { flex: 1; padding: 8px; } .ui-test-crumb { font-size: 12px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 7px; } .ui-test-brand > svg { width: 19px; height: 19px; } .ui-test-icon-btn { width: 32px; min-height: 32px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 68px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-tree-more { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] { transition: none !important; animation: none !important; } }
 
 /* 文档行把完整标题留给用户，低频动作在悬停/键盘焦点时原位出现。 */

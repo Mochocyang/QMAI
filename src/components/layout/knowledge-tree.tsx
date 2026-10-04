@@ -1,10 +1,11 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Sparkles, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Search, Sparkles, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createDirectory, deleteFile, fileExists, listDirectory, readFile, writeFile, openFileLocation, copyFile } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
@@ -67,6 +68,9 @@ export interface KnowledgeCreateRequest {
 
 interface KnowledgeTreeProps {
   searchQuery?: string
+  onSearchQueryChange?: (query: string) => void
+  /** 章节视图下把当前书籍所有章节的字数合计回传给目录头部。 */
+  onChapterTotalWordsChange?: (total: number) => void
   filterType: "chapter" | "outline"
   refreshKey?: number
   pendingPages?: WikiPageInfo[]
@@ -338,6 +342,8 @@ function countMarkdownDescendants(node: FileNode): number {
 
 export function KnowledgeTree({
   searchQuery = "",
+  onSearchQueryChange,
+  onChapterTotalWordsChange,
   filterType,
   refreshKey,
   pendingPages = EMPTY_PENDING_PAGES,
@@ -363,6 +369,8 @@ export function KnowledgeTree({
   const [armedPath, setArmedPath] = useState<string | null>(null)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
   const [createMenu, setCreateMenu] = useState<CreateMenuState | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findDraft, setFindDraft] = useState("")
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
@@ -549,6 +557,15 @@ export function KnowledgeTree({
   }, [effectivePages])
 
   const selectableChapterPaths = useMemo(() => sortedChapterPages.map((page) => page.path), [sortedChapterPages])
+  const totalChapterWords = useMemo(
+    () => sortedChapterPages.reduce((sum, page) => sum + (page.wordCount ?? 0), 0),
+    [sortedChapterPages],
+  )
+
+  useEffect(() => {
+    if (filterType !== "chapter") return
+    onChapterTotalWordsChange?.(totalChapterWords)
+  }, [filterType, onChapterTotalWordsChange, totalChapterWords])
   const selectedChapterCount = selectedChapterPaths.size
   const allChaptersSelected = selectableChapterPaths.length > 0
     && selectableChapterPaths.every((path) => selectedChapterPaths.has(path))
@@ -1461,6 +1478,11 @@ export function KnowledgeTree({
   const emptyLabel = filterType === "chapter"
     ? t("knowledgeTree.emptyFiltered", { label: t("trash.kindChapter") })
     : t("knowledgeTree.emptyFiltered", { label: t("trash.kindOutline") })
+  const findLabel = t("knowledgeTree.find", { defaultValue: filterType === "chapter" ? "查找章节" : "查找大纲" })
+  const applyFind = (query: string) => {
+    onSearchQueryChange?.(query)
+    setFindOpen(false)
+  }
 
   const renderNodes = useCallback((nodes: FileNode[], depth = 0) => {
     const chapterIndexMap = new Map<string, number>()
@@ -1590,7 +1612,7 @@ export function KnowledgeTree({
             }`}
             title={page.title}
           >
-            {page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+            {filterType === "outline" ? (page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : null}
             {renamingPath === normalizedPath ? (
               <input
                 type="text"
@@ -1619,7 +1641,7 @@ export function KnowledgeTree({
                 <span className="min-w-0 flex-1 truncate">{page.title.replace(/^第(\d+)章\s*/, "$1 ")}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
                   <span className={`shrink-0 text-right text-[11px] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
-                    {page.wordCountLabel.replace(/\s*字$/, "")}
+                    {page.wordCountLabel}
                   </span>
                 )}
               </>
@@ -1806,6 +1828,18 @@ export function KnowledgeTree({
             >
               <Folder className="h-3.5 w-3.5" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+              onClick={() => {
+                setCreateMenu(null)
+                setFindDraft(searchQuery)
+                setFindOpen(true)
+              }}
+            >
+              <Search className="h-3.5 w-3.5" />
+              {findLabel}
             </button>
             {createMenu.targetFolderPath ? (
               <>
@@ -2057,6 +2091,39 @@ export function KnowledgeTree({
             )}
           </div>
         )}
+
+        <Dialog open={findOpen} onOpenChange={setFindOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader><DialogTitle>{findLabel}</DialogTitle></DialogHeader>
+            <input
+              type="text"
+              autoFocus
+              aria-label={findLabel}
+              placeholder={t("knowledgeTree.findPlaceholder", { defaultValue: "输入关键词" })}
+              value={findDraft}
+              onChange={(event) => setFindDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                applyFind(findDraft.trim())
+              }}
+              className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+            />
+            <DialogFooter>
+              {searchQuery ? (
+                <Button type="button" variant="secondary" onClick={() => { setFindDraft(""); applyFind("") }}>
+                  {t("knowledgeTree.findClear", { defaultValue: "清除筛选" })}
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" onClick={() => setFindOpen(false)}>
+                {t("knowledgeTree.findCancel", { defaultValue: "取消" })}
+              </Button>
+              <Button type="button" onClick={() => applyFind(findDraft.trim())}>
+                {t("knowledgeTree.findConfirm", { defaultValue: "查找" })}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ScrollArea>
   )

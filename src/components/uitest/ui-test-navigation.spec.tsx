@@ -32,7 +32,7 @@ describe("测试版统一灵魂目录",()=>{
 describe("测试版目录操作",()=>{
   it("导入与更多菜单执行真实回调，收起不销毁业务",async()=>{
     const onImportFiles=vi.fn(),onCreateContainer=vi.fn(),onClose=vi.fn()
-    await act(async()=>root.render(<UiTestDirectoryHeader kind="outline" query="" onQueryChange={()=>{}} busy={false} onCreate={()=>{}} onCreateContainer={onCreateContainer} onImportFiles={onImportFiles} onImportFolder={()=>{}} onOpenAssistant={()=>{}} onClose={onClose} onHelp={()=>{}} />))
+    await act(async()=>root.render(<UiTestDirectoryHeader kind="outline" busy={false} onCreate={()=>{}} onCreateContainer={onCreateContainer} onImportFiles={onImportFiles} onImportFolder={()=>{}} onOpenAssistant={()=>{}} onClose={onClose} onHelp={()=>{}} />))
     await click("导入");await click("导入文件");expect(onImportFiles).toHaveBeenCalledTimes(1)
     await click("新建");await click("新建文件夹");expect(onCreateContainer).toHaveBeenCalledTimes(1)
     expect(host.textContent).not.toContain("更多")
@@ -42,7 +42,7 @@ describe("测试版目录操作",()=>{
 
   it("章节新建包含章节和卷，并提供与大纲相同的一键提取入口", async () => {
     const onCreate = vi.fn(), onCreateContainer = vi.fn(), onOpenAssistant = vi.fn()
-    await act(async () => root.render(<UiTestDirectoryHeader kind="chapter" query="" onQueryChange={() => {}} busy={false} onCreate={onCreate} onCreateContainer={onCreateContainer} onImportFiles={() => {}} onImportFolder={() => {}} onOpenAssistant={onOpenAssistant} onClose={() => {}} onHelp={() => {}} />))
+    await act(async () => root.render(<UiTestDirectoryHeader kind="chapter" busy={false} onCreate={onCreate} onCreateContainer={onCreateContainer} onImportFiles={() => {}} onImportFolder={() => {}} onOpenAssistant={onOpenAssistant} onClose={() => {}} onHelp={() => {}} />))
     await click("新建")
     expect(host.textContent).toContain("新建章节")
     expect(host.textContent).toContain("新建卷")

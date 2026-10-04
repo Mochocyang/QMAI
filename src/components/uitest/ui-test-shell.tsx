@@ -15,7 +15,7 @@ import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { applyTheme } from "@/lib/theme-utils"
 import { saveTheme } from "@/lib/project-store"
-import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
+import { UI_TEST_SKINS, readUiTestAiHintDismissed, readUiTestDirectoryHintDismissed, readUiTestSkin, writeUiTestAiHintDismissed, writeUiTestDirectoryHintDismissed, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as preferenceKey } from "@/lib/ui-test-workspace-preferences"
 import { availablePrimaryNav, movePrimaryNav, normalizePrimaryNav, PRIMARY_NAV_LONG_PRESS_MS, readPrimaryNav, writePrimaryNav, type PrimaryNavItem, type PrimaryNavView } from "@/lib/ui-test-primary-nav"
 import { normalizePath } from "@/lib/path-utils"
@@ -23,7 +23,6 @@ import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-l
 import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
 import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
-import { useUiTestWidth } from "./use-ui-test-width"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
 import "./ui-test.css"
@@ -52,6 +51,21 @@ function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
   items[next]?.focus()
 }
 
+/**
+ * 顶栏「AI 对话」专用图标：圆角对话气泡内嵌 AI 字样。
+ * 全部笔画使用 currentColor，跟随按钮文字色，因此会自动适配静水/纸间/星夜三种皮肤。
+ */
+function AiChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M7 4.4H17A3.6 3.6 0 0 1 20.6 8v6A3.6 3.6 0 0 1 17 17.6h-3.4l-2.2 3.6-2-3.6H7A3.6 3.6 0 0 1 3.4 14V8A3.6 3.6 0 0 1 7 4.4Z" />
+      <path d="M9 13.3 11 8.9l2 4.4" />
+      <path d="M9.9 11.6h2.2" />
+      <path d="M15.1 8.9v4.4" />
+    </svg>
+  )
+}
+
 export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchProject, onProjectOpened }: UiTestShellProps) {
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -62,6 +76,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const outlineExpanded = useOutlineGenerationStore((s) => s.panelOpen)
   const setOutlineExpanded = useOutlineGenerationStore((s) => s.setPanelOpen)
   const [skin, setSkin] = useState<UiTestSkin>(() => readUiTestSkin())
+  const [directoryHintDismissed, setDirectoryHintDismissed] = useState(() => readUiTestDirectoryHintDismissed())
+  const [aiHintDismissed, setAiHintDismissed] = useState(() => readUiTestAiHintDismissed())
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
@@ -76,28 +92,24 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const navMenuRef = useRef<HTMLDivElement | null>(null)
   const [navMenuAlign, setNavMenuAlign] = useState<"left" | "right">("left")
   const navPressRef = useRef<{ view: PrimaryNavView; x: number; y: number; timer: number } | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [windowFilled, setWindowFilled] = useState(false)
   const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
   const macOS = isMacOS()
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth)
   const [preference, setPreference] = useState(() => readPreference(project?.id))
   const preferenceProject = useRef(project?.id)
-  const appRef = useRef<HTMLDivElement>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
   const skinsRef = useRef<HTMLDivElement>(null)
   const toolRef = useRef<HTMLButtonElement>(null)
   const skinRef = useRef<HTMLButtonElement>(null)
   const directoryRef = useRef<HTMLButtonElement>(null)
   const cancelImportRef = useRef<(() => void) | null>(null)
-  const appWidth = useUiTestWidth(appRef, window.innerWidth - 48)
   const writing = Boolean(project && (activeView === "wiki" || activeView === "sources"))
   const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
   const hasDirectory = Boolean(project && activeView !== "settings")
-  const overlayDirectory = viewportWidth < 1180 || (writing && assistantOpen && appWidth < requestedWidth + 480 + 220 + 12)
   const sidebarPreference = preference.directory?.[activeView] ?? activeView !== "graph"
-  const sidebarVisible = hasDirectory && (overlayDirectory ? drawerOpen : sidebarPreference)
+  const sidebarVisible = hasDirectory && sidebarPreference
   const showShelf = !project && !showGlobalSettings
 
   useEffect(() => {
@@ -156,7 +168,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   useEffect(() => {
     if (preferenceProject.current !== project?.id) {
       preferenceProject.current = project?.id
-      setPreference(readPreference(project?.id)); setDrawerOpen(false); setShowGlobalSettings(false)
+      setPreference(readPreference(project?.id)); setShowGlobalSettings(false)
     }
     if (!project) return
     try { registerUiTestProject(project); setLibraryError("") } catch (error) { setLibraryError(error instanceof Error ? error.message : "书架索引保存失败，小说仍可正常打开。") }
@@ -183,7 +195,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       return { ...previous, lastView: view, ...(view === "soul" ? {} : { assistant: { ...previous.assistant, [view]: assistant } }) }
     })
   }, [activeView, chatExpanded, outlineExpanded, project?.id])
-  useEffect(() => { setDrawerOpen(false) }, [selectedFile, activeView])
   useEffect(() => {
     if (!toolOpen && !skinOpen) return
     const menu = toolOpen ? toolsRef.current : skinsRef.current
@@ -216,21 +227,12 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     document.addEventListener("keydown", escape)
     return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
   }, [navMenu, navMenuSection])
-  useEffect(() => {
-    if (!drawerOpen) return
-    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { setDrawerOpen(false); directoryRef.current?.focus() } }
-    document.addEventListener("keydown", escape)
-    return () => document.removeEventListener("keydown", escape)
-  }, [drawerOpen])
 
   const minimizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().minimize()).catch(() => undefined) }
   const toggleMaximizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize()).catch(() => undefined) }
   const closeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close()).catch(() => undefined) }
   const chooseSkin = (next: UiTestSkin) => { setSkin(next); setSkinOpen(false); skinRef.current?.focus() }
-  const toggleDirectory = () => {
-    if (overlayDirectory) setDrawerOpen((open) => !open)
-    else setPreference((previous) => ({ ...previous, directory: { ...previous.directory, [activeView]: !sidebarVisible } }))
-  }
+  const toggleDirectory = () => setPreference((previous) => ({ ...previous, directory: { ...previous.directory, [activeView]: !sidebarVisible } }))
   const updatePrimaryNav = (items: PrimaryNavItem[]) => {
     const next = normalizePrimaryNav(items.map((item) => item.view))
     setPrimaryNav(next)
@@ -315,10 +317,10 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         const direction = ({ top: "North", right: "East", bottom: "South", left: "West", nw: "NorthWest", ne: "NorthEast", sw: "SouthWest", se: "SouthEast" } as const)[edge]
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startResizeDragging(direction))
       }} />)}
-      <div ref={appRef} className="ui-test-app">
+      <div className="ui-test-app">
         <header className="ui-test-header" data-tauri-drag-region="deep">
           {macOS && <MacTrafficLights onClose={closeWindow} onMinimize={minimizeWindow} onZoom={toggleMaximizeWindow} />}
-          <div className="ui-test-brand"><img className="ui-test-brand-logo" src={logoImg} alt="" /><span className="ui-test-brand-name">青幕AI写作</span>
+          <div className="ui-test-brand"><div className="ui-test-header-hint-anchor">{hasDirectory ? <button ref={directoryRef} type="button" className="ui-test-brand-logo-btn" aria-label={sidebarVisible ? "收起目录" : "展开目录"} aria-expanded={sidebarVisible} aria-controls="ui-test-directory" title={sidebarVisible ? "收起目录" : "展开目录"} onClick={toggleDirectory}><img className="ui-test-brand-logo" src={logoImg} alt="" /><PanelLeft className="ui-test-brand-logo-icon" aria-hidden="true" /></button> : <img className="ui-test-brand-logo" src={logoImg} alt="" />}{hasDirectory && !directoryHintDismissed && <div className="ui-test-header-hint" role="status"><p>目录已移到左上角：点击这个图标即可显示或隐藏目录。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestDirectoryHintDismissed(); setDirectoryHintDismissed(true) }}>知道了</button></div></div>}</div><span className="ui-test-brand-name">青幕AI写作</span>
             <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
             {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
           </div>
@@ -342,13 +344,15 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </div>)}
           </nav>
           <div className="ui-test-actions">
-            {hasDirectory && <button ref={directoryRef} type="button" className={`ui-test-header-action${sidebarVisible ? " is-active" : ""}`} aria-label={sidebarVisible ? "收起目录" : "展开目录"} aria-expanded={sidebarVisible} aria-controls="ui-test-directory" title={sidebarVisible ? "收起目录" : "展开目录"} onClick={toggleDirectory}><PanelLeft /><span>目录</span></button>}
-            {writing ? <button type="button" className={`ui-test-header-action${assistantOpen ? " is-active" : ""}`} aria-label="AI 对话" aria-expanded={assistantOpen} title="AI 对话" onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><Sparkles /><span>AI 对话</span></button> : <>
+            {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
               <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
               <button type="button" className="ui-test-icon-btn" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
             </>}
             <div ref={toolsRef} className="ui-test-menu-anchor">
-              <button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" title="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => { setToolOpen(!toolOpen); setSkinOpen(false) }}><Grid2X2 /></button>
+              <Tooltip>
+                <TooltipTrigger render={<button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => { setToolOpen(!toolOpen); setSkinOpen(false) }}><Grid2X2 /></button>} />
+                <TooltipContent>创作工具</TooltipContent>
+              </Tooltip>
               {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" data-tauri-drag-region="false" onKeyDown={menuKeyboard}>
                 <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
                 {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
@@ -357,7 +361,10 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               </div>}
             </div>
             <div ref={skinsRef} className="ui-test-menu-anchor">
-              <button ref={skinRef} type="button" className="ui-test-icon-btn" aria-label="外观" title="外观" aria-haspopup="menu" aria-expanded={skinOpen} onClick={() => { setSkinOpen(!skinOpen); setToolOpen(false) }}><Moon /></button>
+              <Tooltip>
+                <TooltipTrigger render={<button ref={skinRef} type="button" className="ui-test-icon-btn" aria-label="外观" aria-haspopup="menu" aria-expanded={skinOpen} onClick={() => { setSkinOpen(!skinOpen); setToolOpen(false) }}><Moon /></button>} />
+                <TooltipContent>外观</TooltipContent>
+              </Tooltip>
               {skinOpen && <div className="ui-test-menu-pop ui-test-skin-menu" role="menu" aria-label="外观" data-tauri-drag-region="false" onKeyDown={menuKeyboard}><div className="ui-test-menu-title">外观</div>
                 {UI_TEST_SKINS.map(item => <button type="button" role="menuitemradio" aria-checked={skin === item.id} className="ui-test-menu-item" key={item.id} onClick={() => chooseSkin(item.id)}><span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} /><span className="ui-test-skin-copy"><span>{item.name}</span><small>{item.hint}</small></span>{skin === item.id && <Check />}</button>)}
               </div>}
@@ -380,8 +387,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         {libraryError && <p className="ui-test-local-warning" role="alert">{libraryError}</p>}
         <div className="ui-test-workspace">
           {showShelf ? <UiTestShelf onCreateProject={() => setShowCreateDialog(true)} onOpenProject={onOpenProject} onSelectProject={onSelectProject} /> : <>
-            {sidebarVisible && overlayDirectory && <button type="button" className="ui-test-directory-scrim" aria-label="关闭目录遮罩" onClick={() => setDrawerOpen(false)} />}
-            {hasDirectory && <aside hidden={!sidebarVisible} id="ui-test-directory" className={`ui-test-sidebar${overlayDirectory ? " is-drawer" : ""}`} aria-label="工作区目录">
+            {hasDirectory && <aside hidden={!sidebarVisible} id="ui-test-directory" className="ui-test-sidebar" aria-label="工作区目录">
               <div className="ui-test-directory-content"><SidebarPanel onUiTestCloseDirectory={toggleDirectory} onUiTestRegisterCancel={(cancel) => { cancelImportRef.current = cancel }} /></div>
             </aside>}
             <main className="ui-test-main"><ErrorBoundary>

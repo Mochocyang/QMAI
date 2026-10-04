@@ -3,13 +3,13 @@ import { toast } from "@/lib/toast"
 
 let confirming = false
 /** 桌面注入的window.confirm并非同步布尔值，使用受支持的message封装并等待用户选择。 */
-export async function confirmModelAction(message: string): Promise<boolean> {
+export async function confirmModelAction(message: string, title = "模型配置确认"): Promise<boolean> {
   if (confirming) return false
   confirming = true
   try {
     if (isTauri()) {
       const { confirm } = await import("@tauri-apps/plugin-dialog")
-      return await confirm(message, { title: "模型配置确认", kind: "warning", okLabel: "继续", cancelLabel: "取消" })
+      return await confirm(message, { title, kind: "warning", okLabel: "继续", cancelLabel: "取消" })
     }
     return (await window.confirm(message)) === true
   } catch {

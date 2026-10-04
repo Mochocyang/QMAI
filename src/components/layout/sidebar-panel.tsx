@@ -458,6 +458,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const [mode, setMode] = useState<"knowledge" | "files">("knowledge")
   const [refreshKey, setRefreshKey] = useState(0)
   const [uiTestQuery, setUiTestQuery] = useState("")
+  const [chapterTotalWords, setChapterTotalWords] = useState<number | null>(null)
   useEffect(() => setUiTestQuery(""), [activeView])
   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
   const [inputTitle, setInputTitle] = useState("")
@@ -1123,8 +1124,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     <div className="flex h-full flex-col">
       <UiTestDirectoryHeader
         kind={isChapter ? "chapter" : "outline"}
-        query={uiTestQuery}
-        onQueryChange={setUiTestQuery}
+        totalWordCount={isChapter ? chapterTotalWords : null}
         busy={creating || outlineImporting || chapterImporting}
         onCreate={() => { setUiTestQuery(""); if (isChapter) void handleCreateNextChapter(); else beginCreate({ kind: "outline" }) }}
         onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
@@ -1181,6 +1181,8 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
       <div className="flex-1 overflow-hidden">
         <KnowledgeTree
           searchQuery={uiTestQuery}
+          onSearchQueryChange={setUiTestQuery}
+          onChapterTotalWordsChange={isChapter ? setChapterTotalWords : undefined}
           filterType={isChapter ? "chapter" : "outline"}
           refreshKey={refreshKey}
           pendingPages={pendingPages.filter((page) => page.type === (isChapter ? "chapter" : "outline"))}

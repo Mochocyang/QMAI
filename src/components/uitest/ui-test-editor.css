@@ -156,6 +156,7 @@
 
 .ui-test-root .ui-test-editor-action svg,
 .ui-test-root .ui-test-editor-menu-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.ui-test-root .ui-test-editor-action.is-icon-only { width: 36px; padding: 7px; }
 .ui-test-root .ui-test-editor-action:hover { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-root .ui-test-editor-action.is-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
 .ui-test-root .ui-test-editor-action:disabled { cursor: not-allowed; opacity: .6; }

@@ -11,7 +11,7 @@ import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } fr
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
-import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
+import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
 import { formatAppTitle } from "@/lib/app-title"
@@ -155,15 +155,14 @@ function App() {
 
     // 注册 Tauri 窗口关闭前保存
     let unlisten: (() => void) | undefined
-    let isClosing = false // 防止递归关闭
+    let isClosing = false // 确认通过后的保存期间，挡住重复的关闭请求
     if (isTauri()) {
       import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
         getCurrentWindow().onCloseRequested(async (event) => {
-          // 防止递归：close() 会再次触发 onCloseRequested
-          if (isClosing) return
-          // 原生关闭必须先同步阻止，再异步等待用户确认，否则窗口会先于确认销毁。
+          // 先同步阻止本次关闭：确认与保存都是异步的，不先阻止窗口会先被销毁。
           event.preventDefault()
-          if (!(await confirmModelDraftLeave())) return
+          if (isClosing) return
+          if (!(await confirmAppQuit())) return
           isClosing = true
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
@@ -189,8 +188,9 @@ function App() {
             }
           }
 
-          // 保存完成后手动关闭窗口
-          await getCurrentWindow().close()
+          // 保存完成后强制销毁窗口。不能改用 close()：它会再触发一次 close-requested，
+          // 而这里已阻止关闭，会变成「永远关不掉」。
+          await getCurrentWindow().destroy().catch((err) => console.error("关闭窗口失败:", err))
         }).then((fn) => { unlisten = fn })
       })
     }

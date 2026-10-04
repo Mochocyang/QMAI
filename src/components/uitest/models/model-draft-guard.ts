@@ -23,3 +23,19 @@ export async function confirmModelDraftLeave(): Promise<boolean> {
   if (!pending.length) return true
   return confirmModelAction("模型配置还有未保存的修改。离开会放弃这些修改，已保存的配置不受影响。\n\n确定离开？")
 }
+
+/**
+ * 退出软件时的唯一确认框。
+ * 有未保存的模型配置时把提示合并进同一句，避免退出时先后弹出两个确认框。
+ */
+export async function confirmAppQuit(): Promise<boolean> {
+  const values = [...drafts.values()]
+  if (values.some(item => item.saving)) {
+    window.alert("模型配置正在保存，请稍候再退出。")
+    return false
+  }
+  const message = values.some(item => item.dirty)
+    ? "模型配置还有未保存的修改。退出会放弃这些修改，已保存的配置不受影响。\n\n确定退出？"
+    : "确定要退出小说写作助手吗？"
+  return confirmModelAction(message, "确认退出")
+}

@@ -1506,26 +1506,26 @@ export function PreviewPanel() {
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (
         <>
-          <button type="button" className="ui-test-editor-action" onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()} title={chapterDeAiButtonTitle}>
-            <Eraser aria-hidden="true" />去AI味
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
+            <Eraser aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action" data-draft-memory-target="" onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
-            <Brain aria-hidden="true" />{isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"}
+          <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+            <Brain aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
-            <Brain aria-hidden="true" />查看记忆
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
+            <BookOpen aria-hidden="true" />
           </button>
-          {canFormatWriting ? <button type="button" className="ui-test-editor-action" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" />一键排版</button> : null}
+          {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" /></button> : null}
         </>
       ) : (
         <>
-          <button type="button" className="ui-test-editor-action" onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
-            <Brain aria-hidden="true" />{isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
+            <Brain aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action" onClick={() => {
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => {
             if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
             else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
-          }}><BookOpen aria-hidden="true" />查看记忆</button>
+          }}><BookOpen aria-hidden="true" /></button>
         </>
       )}
       moreActions={[]}
