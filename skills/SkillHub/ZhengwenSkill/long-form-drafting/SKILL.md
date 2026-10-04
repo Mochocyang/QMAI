@@ -1,5 +1,6 @@
 ﻿---
-name: long-form-drafting
+name: long-form-drafting
+title: 长篇正文写作
 description: Use when writing long-form serial-fiction chapters from confirmed outlines, chapter outlines, previous chapter endings, or serial continuity constraints.
 ---
 

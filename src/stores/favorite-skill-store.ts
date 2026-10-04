@@ -126,13 +126,14 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
 
     let nextFavorites: FavoriteSkillEntry[]
     let toastMessage: string
+    const favLabel = entry.snapshot.displayName?.trim() || entry.snapshot.name
     if (existingIndex >= 0) {
       nextFavorites = [...get().favorites]
       nextFavorites.splice(existingIndex, 1)
-      toastMessage = `已取消收藏「${entry.snapshot.name}」`
+      toastMessage = `已取消收藏「${favLabel}」`
     } else {
       nextFavorites = [...get().favorites, entry]
-      toastMessage = `已收藏「${entry.snapshot.name}」`
+      toastMessage = `已收藏「${favLabel}」`
     }
 
     // 5. 乐观更新 + 异步写 web-store（串行化）
@@ -191,12 +192,14 @@ export const useFavoriteSkillStore = create<FavoriteSkillState>((set, get) => ({
     try {
       if (entry.library === "writing") {
         const config = await loadUserSkillConfig(currentProjectPath)
-        if (config.skills.some((s) => s.name === entry.snapshot.name)) {
+        const copiedName = entry.snapshot.displayName?.trim() || entry.snapshot.name
+        if (config.skills.some((s) => s.name === copiedName)) {
           return { ok: false, reason: "duplicate-name" }
         }
         const newSkill: UserSkill = {
           id: `skill:${now}`,
-          name: entry.snapshot.name,
+          name: copiedName,
+          displayName: "",
           description: entry.snapshot.description,
           content: entry.snapshot.content,
           kind: entry.snapshot.kind,

@@ -1,5 +1,6 @@
 ---
-name: chapter-outline-assembler
+name: chapter-outline-assembler
+title: 章纲汇总
 description: 当章节定位、浓缩剧情关键词、四段式、情绪曲线、画面细节、伏笔钩子需要合并成一个可写作章纲时使用；适用于汇总章纲、完整章纲、合并章纲、可写作章纲等请求；应在主要组件存在后使用。
 ---
 

@@ -12,6 +12,8 @@ export type FavoriteSkillSource = "built-in" | "project" | "uploaded" | "linked"
  */
 export interface FavoriteSkillSnapshot {
   name: string
+  /** 界面展示名（中文）。旧收藏数据可能没有该字段，回退到 name。 */
+  displayName?: string
   description: string
   content: string
   kind: SkillKind[]
@@ -60,6 +62,7 @@ export function buildWritingSnapshot(
   const category = categories.find((c) => c.id === skill.categoryId)
   return {
     name: skill.name,
+    displayName: skill.displayName || "",
     description: skill.description,
     content,
     kind: skill.kind,

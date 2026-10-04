@@ -1,5 +1,6 @@
 ﻿---
-name: outline-master-builder
+name: outline-master-builder
+title: 小说大纲总控
 description: Use when the user wants to write genre fiction, serial fiction, or a novel outline and needs AI to guide them from a rough idea to a usable complete outline. Also use when the user says 大纲, 小说大纲, 网文大纲, 开书, 设定太乱, 不知道怎么写大纲. Do not use for pure summary, literary critique, or editing finished prose.
 ---
 

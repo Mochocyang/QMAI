@@ -1,5 +1,6 @@
 ﻿---
-name: outline-supporting-cast
+name: outline-supporting-cast
+title: 配角阵容
 description: Use when a novel outline needs supporting characters that serve the protagonist and mainline, including mentor, love interest, benefactor, loyal subordinate, rival, antagonist, or partner. Trigger on 配角, 角色关系, 师傅, 女主, 贵人, 下属, 反派, supporting cast. Do not use before protagonist design exists.
 ---
 

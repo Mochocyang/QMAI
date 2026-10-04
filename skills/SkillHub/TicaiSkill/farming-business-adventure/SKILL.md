@@ -1,5 +1,6 @@
 ﻿---
-name: farming-business-adventure
+name: farming-business-adventure
+title: 种田经营冒险
 description: Use when generating or analyzing farming, business, management, trade, merchant, settlement, or adventure-economy outlines.
 ---
 

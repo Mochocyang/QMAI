@@ -1,5 +1,6 @@
 ﻿---
-name: female-rich-family-ceo
+name: female-rich-family-ceo
+title: 女频豪门总裁
 description: Use when generating or analyzing female-oriented rich-family, CEO, elite romance, arranged marriage, or sweet-pet power romance outlines.
 ---
 

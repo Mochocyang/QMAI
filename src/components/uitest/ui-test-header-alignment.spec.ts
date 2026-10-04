@@ -35,8 +35,9 @@ describe("工作区顶部标题对齐", () => {
     expect(declaration("ui-test-tools.css", ".ui-test-root .ui-test-page-title", "line-height")).toBe("var(--ui-heading-line)")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="settings-section"] h2', "font-size")).toBeUndefined()
   })
-  it("灵魂顶部取消重复留白，并保留其内容卡片标题", () => {
-    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui-page="soul"]', "padding")).toBe("var(--ui-heading-top) clamp(20px, 3vw, 38px) 32px")
+  it("灵魂顶部改为页签容器统一留白，并保留其内容卡片标题", () => {
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-tabs"]', "padding")).toBe("var(--ui-heading-top) clamp(20px, 3vw, 38px) 22px")
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-content"]', "padding")).toBe("26px clamp(20px, 3vw, 38px) 0")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-project-editor"] > div', "padding")).toBe("0")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-role-content"] .mb-4 > h2', "font")).toBe("500 20px/28px var(--serif)")
   })
@@ -47,7 +48,7 @@ describe("工作区顶部标题对齐", () => {
     expect(css("ui-test.css")).not.toContain("ui-test-brand-copy")
   })
   it("其他目录首行使用显式标记，不批量修改内容区", () => {
-    for (const file of ["../layout/sidebar-panel.tsx", "../layout/graph-sidebar-panel.tsx", "../layout/review-center-sidebar-panel.tsx", "../layout/book-analysis-sidebar-panel.tsx", "../skill-library/unified-skill-library-view.tsx"]) {
+    for (const file of ["../layout/sidebar-panel.tsx", "../layout/graph-sidebar-panel.tsx", "../layout/review-center-sidebar-panel.tsx", "../layout/book-analysis-sidebar-panel.tsx"]) {
       expect(readFileSync(resolve(__dirname, file), "utf8")).toContain('data-ui-panel-heading')
     }
     expect(declaration("ui-test.css", ".ui-test-root [data-ui-panel-heading] button", "height")).toBe("var(--ui-heading-line)")

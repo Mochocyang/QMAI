@@ -1,5 +1,6 @@
 ---
 name: power-system
+title: 力量体系与金手指
 description: Use when designing power systems, golden fingers, abilities, cultivation levels, systems, upgrades, costs, or countermeasures.
 ---
 

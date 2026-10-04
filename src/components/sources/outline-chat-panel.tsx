@@ -2083,6 +2083,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const writingSkillList = outlineWritingSkills.map((skill) => ({
           id: skill.id,
           name: skill.name,
+          displayName: skill.displayName,
           subtype: "writing" as const,
           kind: skill.kind,
           stages: skill.stages,

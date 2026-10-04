@@ -35,6 +35,7 @@ export interface TraceContextBudget {
 export interface TraceSelectedSkill {
   id: string
   name: string
+  displayName?: string
   description: string
   kind: SkillKind[]
   stages: SkillStage[]

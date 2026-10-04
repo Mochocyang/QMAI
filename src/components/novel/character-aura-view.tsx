@@ -201,7 +201,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     setBindings(loadedBindings)
     setSelectedId((current) => {
       const currentSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : current
-      if (currentSelectedId !== "new-custom-soul" && loaded.some((aura) => aura.id === currentSelectedId)) {
+      // 正在新建自定义灵魂时保留哨兵选中值，否则会被回退值覆盖，导致新建表单被立即关闭。
+      if (currentSelectedId === "new-custom-soul") return current
+      if (loaded.some((aura) => aura.id === currentSelectedId)) {
         return currentSelectedId
       }
       const fallback = effectiveSection === "custom"
@@ -352,7 +354,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div data-ui="soul-role-content" className="flex flex-col h-full">
       {!hideSidebar && (
       <div className="flex border-b shrink-0">
         <button

@@ -17,6 +17,8 @@ export interface ReferenceProvider {
 interface SkillSummary {
   id: string
   name: string
+  /** 界面展示名（中文）；title 仍是路由用的机器名。 */
+  displayName?: string
   subtype: SkillSubtype
   kind?: SkillKind[]
   stages?: SkillStage[]
@@ -272,17 +274,20 @@ export function createSkillProvider(getSkills: () => SkillSummary[]): ReferenceP
   return {
     category: "skill",
     fetchItems: async () =>
-      getSkills().map((skill) => ({
-        id: simpleId(),
-        category: "skill" as const,
-        title: skill.name,
-        skillId: skill.id,
-        skillSubtype: skill.subtype,
-        skillKinds: skill.kind,
-        skillStages: skill.stages,
-        skillModes: skill.modes,
-        displayTitle: truncateTitle(skill.name),
-      })),
+      getSkills().map((skill) => {
+        const label = skill.displayName?.trim() || skill.name
+        return {
+          id: simpleId(),
+          category: "skill" as const,
+          title: skill.name,
+          skillId: skill.id,
+          skillSubtype: skill.subtype,
+          skillKinds: skill.kind,
+          skillStages: skill.stages,
+          skillModes: skill.modes,
+          displayTitle: truncateTitle(label),
+        }
+      }),
   }
 }
 

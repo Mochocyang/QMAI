@@ -1,5 +1,6 @@
 ﻿---
-name: combat-action
+name: combat-action
+title: 战斗与动作
 description: Use when writing combat, action scenes, duels, power display, tactical fights, or high-martial battle chapters.
 ---
 

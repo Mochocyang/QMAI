@@ -1,5 +1,6 @@
 ﻿---
-name: story-goal-ladder
+name: story-goal-ladder
+title: 阶段目标阶梯
 description: Use when a novel outline needs staged goals, mainline progression, arc milestones, long-form serial structure, or a way to keep the protagonist moving. Trigger on 阶段目标, 主线推进, 十万字目标, 篇章目标, 长篇结构, goal ladder. Do not use for isolated scene polishing.
 ---
 

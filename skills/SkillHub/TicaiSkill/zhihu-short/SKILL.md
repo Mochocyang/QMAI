@@ -1,5 +1,6 @@
 ﻿---
-name: zhihu-short
+name: zhihu-short
+title: 知乎短篇
 description: Use when generating or analyzing Zhihu-style short fiction, high-hook short stories, emotional judgment, reversal, or first-person confession outlines.
 ---
 

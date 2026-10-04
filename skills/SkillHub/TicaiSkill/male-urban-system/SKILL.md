@@ -1,5 +1,6 @@
 ﻿---
-name: male-urban-system
+name: male-urban-system
+title: 男频都市脑洞系统流
 description: Use when generating or analyzing male-oriented urban imagination, system-flow, cheat, golden-finger, or concept-driven serial-fiction outlines.
 ---
 

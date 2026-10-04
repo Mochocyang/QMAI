@@ -1,5 +1,6 @@
 ﻿---
-name: relationship-emotion
+name: relationship-emotion
+title: 关系与情绪线
 description: Use when designing romance lines, relationship tension, CP progression, emotional beats, trust, betrayal, or push-pull dynamics.
 ---
 

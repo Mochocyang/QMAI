@@ -1,5 +1,6 @@
 ﻿---
-name: short-form-drafting
+name: short-form-drafting
+title: 短篇正文写作
 description: Use when writing short fiction, Zhihu-style stories, emotional reversal shorts, or compact three-act story drafts.
 ---
 

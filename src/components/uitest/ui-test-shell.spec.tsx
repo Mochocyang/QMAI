@@ -135,6 +135,7 @@ describe("独立UI测试版外壳", () => {
     expect(host.querySelectorAll(".ui-test-win-actions")).toHaveLength(1)
   })
   it("没有固定活动栏；目录与窗口操作有中文可访问名称", async () => {
+    useWikiStore.setState({ activeView: "wiki" })
     await render()
     expect(host.textContent).not.toContain("活动记录")
     expect(host.querySelector('[aria-label="收起目录"]')).not.toBeNull()

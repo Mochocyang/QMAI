@@ -1,5 +1,6 @@
 ﻿---
-name: idea-market-positioning
+name: idea-market-positioning
+title: 灵感与市场定位
 description: Use when turning a raw story idea into genre positioning, audience promise, selling points, emotional direction, or project-start evaluation.
 ---
 

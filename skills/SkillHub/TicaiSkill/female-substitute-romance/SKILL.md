@@ -1,5 +1,6 @@
 ﻿---
-name: female-substitute-romance
+name: female-substitute-romance
+title: 女频替身文
 description: Use when generating or analyzing substitute romance, white-moonlight, mistaken identity, identity reversal, or self-worth awakening outlines.
 ---
 

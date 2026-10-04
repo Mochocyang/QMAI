@@ -1,5 +1,6 @@
 ﻿---
-name: story-plot-seed
+name: story-plot-seed
+title: 剧情种子
 description: Use when the user has a novel or webnovel idea but lacks a clear plot skeleton, story premise, or 500-word outline seed. Trigger on 剧情骨架, 故事梗概, 小说创意, 不知道主线, 开头想法, premise. Do not use for detailed chapter outlines or worldbuilding-first requests.
 ---
 

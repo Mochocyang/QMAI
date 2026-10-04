@@ -1,5 +1,6 @@
 ---
-name: short-death-regret
+name: short-death-regret
+title: 短篇死人文学
 description: Use when generating or analyzing short death-regret, after-death remorse, soul witness, irreversible loss, or late-truth emotional outlines and chapter outlines.
 ---
 

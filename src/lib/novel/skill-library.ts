@@ -28,6 +28,8 @@ export interface SkillCategory {
 export interface UserSkill {
   id: string
   name: string
+  /** 界面展示名（中文）。为空时回退到 name；name/id 仍是路由与持久化的机器键，不可改。 */
+  displayName: string
   description: string
   kind: SkillKind[]
   stages: SkillStage[]
@@ -40,6 +42,16 @@ export interface UserSkill {
   categoryId: string
   createdAt?: number
   updatedAt?: number
+}
+
+/** 取展示名：优先 displayName，回退到 name。 */
+export function skillDisplayName(skill: { name: string; displayName?: string }): string {
+  return skill.displayName?.trim() || skill.name
+}
+
+/** 按机器名取展示名（用于注册表里只有 name 的场景）。 */
+export function skillDisplayNameByName(name: string, skills: readonly { name: string; displayName?: string }[]): string {
+  return skills.find((skill) => skill.name === name)?.displayName?.trim() || name
 }
 
 export const DEFAULT_SKILL_PRIORITY = 50
@@ -120,6 +132,7 @@ export function normalizeUserSkill(value: Partial<UserSkill>): UserSkill {
   return {
     id: typeof value.id === "string" && value.id.trim() ? value.id.trim() : `project:${Date.now()}`,
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : "未命名 Skill",
+    displayName: typeof value.displayName === "string" ? value.displayName.trim() : "",
     description: typeof value.description === "string" ? value.description.trim() : "",
     kind: uniqueValid(value.kind, VALID_KINDS, ["style"]),
     stages: uniqueValid(value.stages, VALID_STAGES, ["rewrite", "output"]),

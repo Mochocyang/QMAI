@@ -1,5 +1,6 @@
 ---
-name: chapter-four-beat-flow
+name: chapter-four-beat-flow
+title: 四段式章纲
 description: 当单章需要可执行的四段式结构、场景推进或节奏规划时使用；适用于四段式、开篇入戏、中段冲突、核心爆点、结尾钩子、章节节奏等请求；应在章节定位和浓缩剧情关键词明确后使用。
 ---
 

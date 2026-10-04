@@ -107,7 +107,9 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const writing = Boolean(project && (activeView === "wiki" || activeView === "sources"))
   const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
-  const hasDirectory = Boolean(project && activeView !== "settings")
+  // 技能库、灵魂改为整窗卡片画廊，不再占用左侧目录栏。
+  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites" || activeView === "soul"
+  const hasDirectory = Boolean(project && activeView !== "settings" && !fullWindowViews)
   const sidebarPreference = preference.directory?.[activeView] ?? activeView !== "graph"
   const sidebarVisible = hasDirectory && sidebarPreference
   const showShelf = !project && !showGlobalSettings

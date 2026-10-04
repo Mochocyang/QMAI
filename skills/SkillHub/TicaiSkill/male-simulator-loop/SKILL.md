@@ -1,5 +1,6 @@
 ---
-name: male-simulator-loop
+name: male-simulator-loop
+title: 男频模拟器
 description: Use when generating or analyzing male-oriented simulator, life simulation, repeated deduction, future preview, save-load, or loop-based outlines and chapter outlines.
 ---
 

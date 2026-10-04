@@ -1,5 +1,6 @@
 ---
-name: short-soul-perspective
+name: short-soul-perspective
+title: 短篇灵魂视角
 description: Use when generating or analyzing short soul-perspective, ghost witness, powerless observer, posthumous truth, or supernatural emotional outlines and chapter outlines.
 ---
 

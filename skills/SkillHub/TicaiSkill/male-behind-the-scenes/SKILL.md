@@ -1,5 +1,6 @@
 ---
-name: male-behind-the-scenes
+name: male-behind-the-scenes
+title: 男频幕后流
 description: Use when generating or analyzing male-oriented behind-the-scenes, mastermind, hidden controller, organization puppet, or secret-layout outlines and chapter outlines.
 ---
 

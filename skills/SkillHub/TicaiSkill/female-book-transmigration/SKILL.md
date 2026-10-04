@@ -1,5 +1,6 @@
 ---
-name: female-book-transmigration
+name: female-book-transmigration
+title: 女频穿书
 description: Use when generating or analyzing female-oriented book transmigration, cannon-fodder awakening, plot correction, villain rescue, or original-story reversal outlines and chapter outlines.
 ---
 

@@ -1,5 +1,6 @@
 ---
-name: chapter-foreshadow-hook
+name: chapter-foreshadow-hook
+title: 伏笔与钩子
 description: 当单章需要设计伏笔、线索回收、下一章钩子、悬念结尾或追读理由时使用；适用于伏笔、钩子、结尾、追读、下一章、回收旧坑、挖新坑等请求；不用于不需要延续钩子的封闭独立场景。
 ---
 

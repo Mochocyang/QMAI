@@ -57,7 +57,7 @@ import {
 } from "@/lib/novel/chapter-plan-self-check"
 import type { AgentMessage, AgentRunRecord } from "@/lib/agent/types"
 import type { AgentToolEvent } from "@/lib/agent/types"
-import type { UserSkill } from "@/lib/novel/skill-library"
+import { skillDisplayName, skillDisplayNameByName, type UserSkill } from "@/lib/novel/skill-library"
 import type { ContextPack } from "@/lib/novel/context-engine"
 import type { PrePluginChainResult } from "@/lib/agent/pipeline"
 import { applyAgentToolActivityEvent, applyAgentToolEvent } from "@/lib/agent/tool-events"
@@ -310,9 +310,10 @@ function buildWorkflowRouteActivityContent(
 function buildSelectedSkillsActivityContent(
   skills: UserSkill[] | undefined,
   missingSkillNames: string[] = [],
+  availableSkills: readonly UserSkill[] = [],
 ): string {
   const missingText = missingSkillNames.length > 0
-    ? `\n缺失或已禁用：${missingSkillNames.join("、")}。未强制启用。`
+    ? `\n缺失或已禁用：${missingSkillNames.map((name) => skillDisplayNameByName(name, availableSkills)).join("、")}。未强制启用。`
     : ""
   if (!skills || skills.length === 0) {
     return `本次未启用 Skill：当前任务、模式或阶段没有匹配到可用技能。${missingText}`
@@ -321,7 +322,7 @@ function buildSelectedSkillsActivityContent(
     .map((skill, index) => {
       const stageText = skill.stages.length > 0 ? skill.stages.join("、") : "未标注阶段"
       const kindText = skill.kind.length > 0 ? skill.kind.join("、") : "未标注类型"
-      return `${index + 1}. ${skill.name}｜阶段：${stageText}｜类型：${kindText}｜优先级：${skill.priority ?? 50}`
+      return `${index + 1}. ${skillDisplayName(skill)}｜阶段：${stageText}｜类型：${kindText}｜优先级：${skill.priority ?? 50}`
     })
     .join("\n") + missingText
 }
@@ -1181,6 +1182,7 @@ export function ChatPanel() {
         const writingSkills = agentUserWritingSkills.map((skill) => ({
           id: skill.id,
           name: skill.name,
+          displayName: skill.displayName,
           subtype: "writing" as const,
           kind: skill.kind,
           stages: skill.stages,
@@ -1866,6 +1868,7 @@ export function ChatPanel() {
           content: buildSelectedSkillsActivityContent(
             sessionSelectedSkills,
             (prePluginResult?.missingSkillNames as string[] | undefined) ?? [],
+            availableAgentSkills,
           ),
           timestamp: now + 1,
         })

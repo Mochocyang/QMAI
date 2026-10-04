@@ -259,14 +259,6 @@
 }
 
 /* 项目灵魂：风格选项在上，长规则编辑在下，不再额外开一列。 */
-.ui-test-root [data-ui-page="soul"] {
-  height: 100%;
-  overflow-y: auto;
-  padding: var(--ui-heading-top) clamp(20px, 3vw, 38px) 32px;
-  scrollbar-gutter: stable;
-  overscroll-behavior: contain;
-}
-
 .ui-test-root [data-ui="soul-heading"],
 .ui-test-root [data-ui="soul-project-editor"],
 .ui-test-root [data-ui="soul-role-content"] {
@@ -438,6 +430,348 @@
   min-width: min(260px, 100%);
   text-overflow: ellipsis;
 }
+
+/* 灵魂：整窗单列画廊 → 详情/编辑，不再占用目录栏，也不再开左右两栏。 */
+.ui-test-root [data-ui-page="soul"].ui-test-soul-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ui-test-root [data-ui="soul-tabs"] {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: var(--ui-heading-top) clamp(20px, 3vw, 38px) 22px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-soul-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ui-test-root .ui-test-soul-heading-copy h1 {
+  margin: 0;
+  color: var(--ui-ink);
+  font: 500 20px/28px var(--serif);
+}
+
+.ui-test-root .ui-test-soul-heading-copy p {
+  margin: 6px 0 0;
+  color: var(--ui-muted);
+  font: 13px/1.8 var(--ui);
+}
+
+.ui-test-root .ui-test-soul-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 24px;
+}
+
+.ui-test-root .ui-test-soul-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font: 13px/1.4 var(--ui);
+}
+
+.ui-test-root .ui-test-soul-tab svg { width: 15px; height: 15px; }
+
+.ui-test-root .ui-test-soul-tab:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-soul-tab.is-active {
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-soul-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font-size: 13px;
+}
+
+.ui-test-root .ui-test-soul-action:hover { background: var(--ui-soft); }
+.ui-test-root .ui-test-soul-action svg { width: 15px; height: 15px; }
+
+.ui-test-root [data-ui="soul-content"] {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 26px clamp(20px, 3vw, 38px) 0;
+}
+
+.ui-test-root [data-ui="soul-content"] > [data-ui="soul-project-editor"] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 28px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-soul-gallery {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 20px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-soul-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.ui-test-root .ui-test-soul-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ui-test-root .ui-test-soul-chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+}
+
+.ui-test-root .ui-test-soul-chip:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-soul-chip.is-active {
+  border-color: transparent;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+}
+
+/* 内置灵魂分类标签：更轻量，作为胶囊分组下的二级筛选。 */
+.ui-test-root .ui-test-soul-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ui-test-root .ui-test-soul-tag {
+  min-height: 28px;
+  padding: 4px 11px;
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+.ui-test-root .ui-test-soul-tag:hover {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-soul-tag.is-active {
+  border-color: transparent;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-soul-foot-tag {
+  padding: 2px 8px;
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+.ui-test-root .ui-test-soul-foot-tag.is-bound {
+  border-color: transparent;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-soul-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.ui-test-root .ui-test-soul-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--ui-panel);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+
+.ui-test-root .ui-test-soul-card:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  background: var(--ui-paper);
+  box-shadow: 0 6px 18px rgba(23, 35, 29, .06);
+  transform: translateY(-2px);
+}
+
+.ui-test-root .ui-test-soul-card-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-soul-card-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-soul-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ui-accent);
+  background: var(--ui-soft);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-soul-card-misc {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-soul-card-desc {
+  display: -webkit-box;
+  min-height: 44px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+  line-height: 1.75;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ui-test-root .ui-test-soul-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--ui-ink) 8%, transparent);
+}
+
+.ui-test-root .ui-test-soul-card-open {
+  color: var(--ui-accent);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.ui-test-root .ui-test-soul-card:hover .ui-test-soul-card-open,
+.ui-test-root .ui-test-soul-card:focus-visible .ui-test-soul-card-open {
+  opacity: 1;
+}
+
+.ui-test-root .ui-test-soul-empty {
+  padding: 48px 20px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.ui-test-root .ui-test-soul-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 20px;
+}
+
+.ui-test-root .ui-test-soul-editor > [data-ui="soul-role-content"] {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.ui-test-root [data-ui="soul-role-content"] .flex.flex-col.h-full {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ui-test-root [data-ui="soul-role-content"] main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ui-test-root .ui-test-soul-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.ui-test-root .ui-test-soul-back:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-soul-back svg { width: 15px; height: 15px; }
 
 /* 记忆：保留实际条目与快照动作，章节筛选变成内容区的工具行。 */
 .ui-test-root [data-ui-page="memory"] {
@@ -689,6 +1023,409 @@
   min-height: 300px;
   padding: 18px;
   resize: vertical;
+}
+
+/* 技能库：整窗卡片画廊；点开卡片在同一片区域进入编辑，不再开左右两栏。 */
+.ui-test-root [data-ui-page="skills"].ui-test-skills-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ui-test-root [data-ui="skills-tabs"] {
+  flex: 0 0 auto;
+  margin: 0;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-skills-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ui-test-root .ui-test-skills-heading-copy h1 {
+  margin: 0;
+  color: var(--ui-ink);
+  font: 500 20px/28px var(--serif);
+}
+
+.ui-test-root .ui-test-skills-heading-copy p {
+  margin: 6px 0 0;
+  color: var(--ui-muted);
+  font: 13px/1.8 var(--ui);
+}
+
+.ui-test-root .ui-test-skills-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.ui-test-root .ui-test-skills-tab {
+  min-height: 32px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font: 13px/1.4 var(--ui);
+}
+
+.ui-test-root .ui-test-skills-tab:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-skills-tab.is-active {
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-skills-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-test-root .ui-test-skills-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font-size: 13px;
+}
+
+.ui-test-root .ui-test-skills-action:hover {
+  background: var(--ui-soft);
+}
+
+.ui-test-root .ui-test-skills-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ui-test-root .ui-test-skills-message {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+.ui-test-root [data-ui="skills-content"] {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-skills-gallery {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-skills-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ui-test-root .ui-test-skills-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 260px;
+  max-width: 420px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--ui-panel);
+}
+
+.ui-test-root .ui-test-skills-search svg {
+  width: 15px;
+  height: 15px;
+  color: var(--ui-muted);
+  flex-shrink: 0;
+}
+
+.ui-test-root .ui-test-skills-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 13px;
+  outline: none;
+}
+
+.ui-test-root .ui-test-skills-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-test-root .ui-test-skills-chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+}
+
+.ui-test-root .ui-test-skills-chip:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-skills-chip.is-active {
+  border-color: transparent;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+}
+
+.ui-test-root .ui-test-skills-chip.is-add {
+  border-style: dashed;
+}
+
+.ui-test-root .ui-test-skills-chip.is-ghost {
+  border-color: transparent;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ui-test-root .ui-test-skills-chip.is-ghost:hover {
+  background: var(--ui-soft);
+}
+
+.ui-test-root .ui-test-skills-chip.is-danger {
+  color: var(--ui-danger);
+}
+
+.ui-test-root .ui-test-skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 14px;
+}
+
+.ui-test-root .ui-test-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--ui-panel);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+
+.ui-test-root .ui-test-skill-card:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent);
+  background: var(--ui-paper);
+  box-shadow: 0 6px 18px rgba(23, 35, 29, .06);
+  transform: translateY(-2px);
+}
+
+.ui-test-root .ui-test-skill-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ui-test-root .ui-test-skill-card-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-skill-card-star {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-skill-card-star svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ui-test-root .ui-test-skill-card-star:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-skill-card-star.is-on {
+  color: #d9a441;
+}
+
+.ui-test-root .ui-test-skill-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-test-root .ui-test-skill-badge {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+  color: var(--ui-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.ui-test-root .ui-test-skill-badge.is-type {
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-skill-card-desc {
+  display: -webkit-box;
+  min-height: 44px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 12.5px;
+  line-height: 1.75;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ui-test-root .ui-test-skill-card-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-test-root .ui-test-skill-kind {
+  padding: 2px 7px;
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+.ui-test-root .ui-test-skill-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--ui-ink) 8%, transparent);
+}
+
+.ui-test-root .ui-test-skill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-skill-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-skill-card-open {
+  color: var(--ui-accent);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+
+.ui-test-root .ui-test-skill-card:hover .ui-test-skill-card-open,
+.ui-test-root .ui-test-skill-card:focus-visible .ui-test-skill-card-open {
+  opacity: 1;
+}
+
+.ui-test-root .ui-test-skills-empty {
+  padding: 48px 20px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.ui-test-root .ui-test-skills-error {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ui-danger) 10%, transparent);
+  color: var(--ui-danger);
+  font-size: 13px;
+}
+
+.ui-test-root .ui-test-skills-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ui-test-root .ui-test-skills-editor > :is([data-testid="skill-library-view"], [data-testid="writing-skill-library-view"]) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.ui-test-root .ui-test-skills-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.ui-test-root .ui-test-skills-back:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-skills-back svg {
+  width: 15px;
+  height: 15px;
 }
 
 /* 图谱：整块画布；筛选 / 洞察是画布内浮层，不再挤出固定第四列。 */

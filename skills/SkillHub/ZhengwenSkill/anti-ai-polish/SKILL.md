@@ -1,5 +1,6 @@
 ﻿---
-name: anti-ai-polish
+name: anti-ai-polish
+title: 去AI味精修
 description: Use when revising fiction to reduce AI-like prose, template phrasing, explanatory narration, generic summaries, or mechanical emotional writing.
 ---
 

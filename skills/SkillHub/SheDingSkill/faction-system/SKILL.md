@@ -1,5 +1,6 @@
 ---
 name: faction-system
+title: 势力系统
 description: Use when designing factions, sects, families, companies, agencies, organizations, camps, rivals, or political power structures.
 ---
 

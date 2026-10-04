@@ -1,5 +1,6 @@
 ﻿---
-name: male-xuanhuan-xianxia
+name: male-xuanhuan-xianxia
+title: 男频玄幻仙侠
 description: Use when generating or analyzing male-oriented xuanhuan, xianxia, cultivation, high-martial, or upgrade fantasy outlines and chapter outlines.
 ---
 

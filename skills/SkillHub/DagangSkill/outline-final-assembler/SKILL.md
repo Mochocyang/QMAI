@@ -1,5 +1,6 @@
 ﻿---
-name: outline-final-assembler
+name: outline-final-assembler
+title: 大纲汇总装配
 description: Use when all major novel outline components exist and need to be merged into a complete usable outline, or when checking whether the outline is ready for the opening three chapters. Trigger on 合并大纲, 完整大纲, 黄金三章, 开篇检查, outline assembly. Do not use before plot, hook, goals, character, cast, and worldbuilding are present.
 ---
 

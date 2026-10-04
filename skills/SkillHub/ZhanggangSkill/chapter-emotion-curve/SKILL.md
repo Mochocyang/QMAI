@@ -1,5 +1,6 @@
 ---
-name: chapter-emotion-curve
+name: chapter-emotion-curve
+title: 情绪曲线
 description: 当单章需要设计情绪节奏、情绪起伏、读者感受控制，或需要修复章节太平、太炸、憋屈无释放等问题时使用；适用于情绪线、情绪曲线、情绪节奏、爽点释放等请求；不用于全书情绪规划。
 ---
 

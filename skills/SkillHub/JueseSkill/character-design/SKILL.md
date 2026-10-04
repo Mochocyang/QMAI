@@ -1,5 +1,6 @@
 ---
 name: character-design
+title: 角色设计
 description: Use when designing protagonists, heroines, villains, supporting roles, motivations, fears, beliefs, flaws, or character arcs.
 ---
 

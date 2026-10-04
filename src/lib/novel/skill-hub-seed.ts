@@ -11,14 +11,16 @@ const skillHubModules = import.meta.glob("../../../skills/SkillHub/**/SKILL.md",
 function parseSkillFrontmatter(content: string): {
   name: string
   description: string
+  title: string
 } | null {
   const match = content.match(/^\uFEFF?---\s*\n([\s\S]*?)\n---\s*\n?/)
   if (!match) return null
   const yaml = match[1]
   const name = yaml.match(/^name:\s*(.+?)\s*$/m)?.[1]?.trim()
   const description = yaml.match(/^description:\s*(.+?)\s*$/m)?.[1]?.trim()
+  const title = yaml.match(/^title:\s*(.+?)\s*$/m)?.[1]?.trim()
   if (!name || !description) return null
-  return { name, description }
+  return { name, description, title: title ?? "" }
 }
 
 function getSkillHubFolder(path: string): string {
@@ -75,6 +77,7 @@ export const DEFAULT_SKILL_HUB_SKILLS: UserSkill[] = Object.entries(skillHubModu
     return normalizeUserSkill({
       id: `skillhub:${parsed.name}`,
       name: parsed.name,
+      displayName: parsed.title,
       description: parsed.description,
       kind: shape.kind,
       stages: shape.stages,

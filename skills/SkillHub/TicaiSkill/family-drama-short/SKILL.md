@@ -1,5 +1,6 @@
 ﻿---
-name: family-drama-short
+name: family-drama-short
+title: 世情短篇
 description: Use when generating or analyzing short family-drama, social reality, revenge-face-slap, ordinary-person counterattack, or世情 short outlines.
 ---
 

@@ -1,5 +1,6 @@
 ---
-name: short-public-trial-face-slap
+name: short-public-trial-face-slap
+title: 短篇公开审判式打脸
 description: Use when generating or analyzing short public trial, public face-slap, evidence reveal, reputation reversal, judgment scene, or staged confrontation outlines and chapter outlines.
 ---
 

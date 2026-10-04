@@ -1,5 +1,6 @@
 ---
-name: female-rebirth-revenge
+name: female-rebirth-revenge
+title: 女频重生复仇
 description: Use when generating or analyzing female-oriented rebirth revenge, information-gap counterattack, family betrayal, marriage reversal, or layered revenge outlines and chapter outlines.
 ---
 

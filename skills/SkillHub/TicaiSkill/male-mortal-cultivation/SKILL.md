@@ -1,5 +1,6 @@
 ---
-name: male-mortal-cultivation
+name: male-mortal-cultivation
+title: 男频凡人流
 description: Use when generating or analyzing male-oriented mortal cultivation, cautious survival, low-talent progression, resource calculation, or凡人流 outlines and chapter outlines.
 ---
 

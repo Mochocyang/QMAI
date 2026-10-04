@@ -1,5 +1,6 @@
 ---
-name: female-farming-business
+name: female-farming-business
+title: 女频种田经商
 description: Use when generating or analyzing female-oriented farming, business building, household management, countryside entrepreneurship, or ancient/period commerce outlines and chapter outlines.
 ---
 

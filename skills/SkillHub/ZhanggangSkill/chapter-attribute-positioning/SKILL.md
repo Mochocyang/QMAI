@@ -1,5 +1,6 @@
 ---
-name: chapter-attribute-positioning
+name: chapter-attribute-positioning
+title: 章节定位
 description: 当单章缺少清晰的情绪标签、章节属性、章节功能、读者期待或存在理由时使用；适用于章节定位、情绪标签、章节属性、这一章该写什么、过渡章、高潮章、反转章等请求；不用于正文润色。
 ---
 

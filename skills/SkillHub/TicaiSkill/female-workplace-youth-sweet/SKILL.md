@@ -1,5 +1,6 @@
 ﻿---
-name: female-workplace-youth-sweet
+name: female-workplace-youth-sweet
+title: 女频职场青春甜宠
 description: Use when generating or analyzing workplace romance, youth sweet romance, campus romance, healing romance, or soft emotional growth outlines.
 ---
 

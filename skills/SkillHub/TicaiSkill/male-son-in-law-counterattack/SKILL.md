@@ -1,5 +1,6 @@
 ---
-name: male-son-in-law-counterattack
+name: male-son-in-law-counterattack
+title: 男频赘婿反击
 description: Use when generating or analyzing male-oriented son-in-law, hidden identity, family humiliation, counterattack, or social face-slap outlines and chapter outlines.
 ---
 

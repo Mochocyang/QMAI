@@ -54,20 +54,9 @@ import { buildPureOutlineMarkdown } from "@/lib/novel/outline-markdown"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { openExternalUrl } from "@/lib/open-external-url"
 import type { ReferenceToken } from "@/lib/reference/types"
-
-const SoulSidebarPanel = lazy(async () => {
-  const mod = await import("./soul-sidebar-panel")
-  return { default: mod.SoulSidebarPanel }
-})
-
 const BookAnalysisSidebarPanel = lazy(async () => {
   const mod = await import("./book-analysis-sidebar-panel")
   return { default: mod.BookAnalysisSidebarPanel }
-})
-
-const UnifiedSkillLibrarySidebarPanel = lazy(async () => {
-  const mod = await import("@/components/skill-library/unified-skill-library-view")
-  return { default: mod.UnifiedSkillLibrarySidebarPanel }
 })
 
 const USAGE_GUIDE_URL = "https://tcnk9ik08e1c.feishu.cn/wiki/FWiSwYQKoifpwBk6mSRcSlB8nrh?from=from_copylink"
@@ -997,22 +986,6 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
   if (activeView === "graph") {
     return <GraphSidebarPanel />
-  }
-
-  if (activeView === "soul") {
-    return (
-      <Suspense fallback={<SidebarPanelLoading />}>
-        <SoulSidebarPanel />
-      </Suspense>
-    )
-  }
-
-  if (activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites") {
-    return (
-      <Suspense fallback={<SidebarPanelLoading />}>
-        <UnifiedSkillLibrarySidebarPanel />
-      </Suspense>
-    )
   }
 
   if (activeView === "reviewCenter") {

@@ -1,5 +1,6 @@
 ﻿---
-name: female-mystery-republic
+name: female-mystery-republic
+title: 女频悬疑民国
 description: Use when generating or analyzing female-oriented suspense, mystery romance, Republican-era romance, investigation romance, or emotional mystery outlines.
 ---
 

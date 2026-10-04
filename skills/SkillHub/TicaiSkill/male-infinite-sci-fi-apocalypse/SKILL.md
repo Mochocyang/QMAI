@@ -1,5 +1,6 @@
 ﻿---
-name: male-infinite-sci-fi-apocalypse
+name: male-infinite-sci-fi-apocalypse
+title: 无限科幻末世
 description: Use when generating or analyzing infinite-flow, sci-fi, apocalypse, survival, game-instance, or mission-based speculative outlines.
 ---
 

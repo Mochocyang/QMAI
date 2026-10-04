@@ -1,5 +1,6 @@
 ---
-name: male-villain-protagonist
+name: male-villain-protagonist
+title: 男频反派流
 description: Use when generating or analyzing male-oriented villain protagonist, counter-fate, anti-hero, fate stealing, or original-protagonist opposition outlines and chapter outlines.
 ---
 

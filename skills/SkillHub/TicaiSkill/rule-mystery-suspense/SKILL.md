@@ -1,5 +1,6 @@
 ﻿---
-name: rule-mystery-suspense
+name: rule-mystery-suspense
+title: 规则怪谈悬疑
 description: Use when generating or analyzing rule mystery, strange rules, suspense, supernatural suspense, investigation, or puzzle-solving outlines.
 ---
 

@@ -1,5 +1,6 @@
 ﻿---
-name: supporting-cast
+name: supporting-cast
+title: 配角配置
 description: Use when designing supporting cast, allies, rivals, mentors, villains, group dynamics, or role functions around the protagonist.
 ---
 

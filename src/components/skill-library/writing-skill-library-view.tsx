@@ -30,6 +30,7 @@ import {
   SKILL_KIND_LABELS,
   SKILL_MODE_LABELS,
   SKILL_STAGE_LABELS,
+  skillDisplayName,
   type SkillCategory,
   type SkillKind,
   type SkillMode,
@@ -70,7 +71,7 @@ function hasDraftChanged(
   tags: string[],
   categoryId: string,
 ): boolean {
-  return name.trim() !== skill.name
+  return name.trim() !== skillDisplayName(skill)
     || description.trim() !== skill.description
     || content.trim() !== skill.content
     || kind.join("|") !== skill.kind.join("|")
@@ -704,7 +705,7 @@ export function WritingSkillLibraryView() {
   const isLinkedSkill = selectedSkill?.source === "linked"
   const draftChanged = Boolean(
     selectedSkill && (isLinkedSkill
-      ? (draftName.trim() !== selectedSkill.name
+      ? (draftName.trim() !== skillDisplayName(selectedSkill)
         || draftDescription.trim() !== selectedSkill.description
         || draftKind.join("|") !== selectedSkill.kind.join("|")
         || draftStages.join("|") !== selectedSkill.stages.join("|")
@@ -741,7 +742,7 @@ export function WritingSkillLibraryView() {
       setDraftDirty(false)
       return
     }
-    setDraftName(selectedSkill.name)
+    setDraftName(skillDisplayName(selectedSkill))
     setDraftDescription(selectedSkill.description)
     setDraftContent(selectedSkill.content)
     setDraftKind(selectedSkill.kind)
@@ -804,8 +805,7 @@ export function WritingSkillLibraryView() {
         return
       }
     }
-    const patch: Partial<Pick<UserSkill, "name" | "description" | "kind" | "stages" | "modes" | "content" | "priority" | "tags" | "categoryId">> = {
-      name,
+    const patch: Partial<Pick<UserSkill, "name" | "displayName" | "description" | "kind" | "stages" | "modes" | "content" | "priority" | "tags" | "categoryId">> = {
       description: draftDescription.trim(),
       kind: draftKind,
       stages: draftStages,
@@ -813,6 +813,12 @@ export function WritingSkillLibraryView() {
       priority: draftPriority,
       tags: draftTags,
       categoryId: draftCategoryId,
+    }
+    if (selectedSkill.source === "built-in") {
+      // 内置技能的 name 是路由机器键，改名只落在展示名上。
+      patch.displayName = name === selectedSkill.name ? "" : name
+    } else {
+      patch.name = name
     }
     if (!isLinkedSkill) {
       patch.content = draftContent.trim()
@@ -831,7 +837,7 @@ export function WritingSkillLibraryView() {
     if (!config || !selectedSkill || !project || saving) return
     if (draftDirty && !confirmDiscardSkillLibraryDraft()) return
     if (draftDirty) setDraftDirty(false)
-    const confirmed = window.confirm(`确定删除「${selectedSkill.name}」吗？删除后无法恢复。`)
+    const confirmed = window.confirm(`确定删除「${skillDisplayName(selectedSkill)}」吗？删除后无法恢复。`)
     if (!confirmed) return
     const next = deleteWritingSkill(config, selectedSkill.id)
     await persist(next, next.selectedSkillId)
@@ -842,7 +848,7 @@ export function WritingSkillLibraryView() {
     try {
       const jsonStr = exportSkillToJson(selectedSkill)
       const filePath = await save({
-        defaultPath: `${selectedSkill.name}.json`,
+        defaultPath: `${skillDisplayName(selectedSkill)}.json`,
         filters: [
           {
             name: "JSON 文件",
@@ -922,7 +928,7 @@ export function WritingSkillLibraryView() {
               <div className="flex items-center gap-2">
                 <div>
                   <div className="text-sm text-muted-foreground">项目写作 Skill</div>
-                  <h2 className="text-xl font-semibold">{selectedSkill.name}</h2>
+                  <h2 className="text-xl font-semibold">{skillDisplayName(selectedSkill)}</h2>
                 </div>
                 {isLinkedSkill ? (
                   <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">引用</span>
@@ -960,7 +966,9 @@ export function WritingSkillLibraryView() {
             </div>
 
             <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">Skill 名称</span>
+              <span className="font-medium">
+                {selectedSkill.source === "built-in" ? "显示名称（内置技能内部标识保持不变）" : "Skill 名称"}
+              </span>
               <input
                 data-testid="writing-skill-name-input"
                 value={draftName}

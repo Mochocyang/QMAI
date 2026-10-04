@@ -1,5 +1,6 @@
 ---
-name: outline-quality-check
+name: outline-quality-check
+title: 大纲质量检查
 description: Use when AI outline, chapter outline, character, setting, foreshadowing, or outline save requests need quality review before storage or follow-up generation.
 ---
 

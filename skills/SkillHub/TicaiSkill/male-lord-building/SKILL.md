@@ -1,5 +1,6 @@
 ---
-name: male-lord-building
+name: male-lord-building
+title: 男频领主基建
 description: Use when generating or analyzing male-oriented lord, territory building, kingdom management, base construction, farming-war, or infrastructure expansion outlines and chapter outlines.
 ---
 

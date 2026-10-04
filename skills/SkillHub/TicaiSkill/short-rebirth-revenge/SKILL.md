@@ -1,5 +1,6 @@
 ---
-name: short-rebirth-revenge
+name: short-rebirth-revenge
+title: 短篇重生复仇
 description: Use when generating or analyzing short rebirth revenge, first-choice reversal, information-gap counterattack, quick face-slap, or regret correction outlines and chapter outlines.
 ---
 

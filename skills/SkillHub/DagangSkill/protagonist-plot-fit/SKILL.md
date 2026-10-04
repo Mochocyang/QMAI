@@ -1,5 +1,6 @@
 ﻿---
-name: protagonist-plot-fit
+name: protagonist-plot-fit
+title: 主角剧情契合
 description: Use when a novel protagonist or main character needs to be designed from the plot, hook, and power system rather than from generic traits. Trigger on 主角人设, 角色设定, 人设服务剧情, 主角性格, character fit. Do not use for full cast planning; use supporting-cast for配角.
 ---
 

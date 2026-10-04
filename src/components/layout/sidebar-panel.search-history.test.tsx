@@ -10,16 +10,4 @@ describe("sidebar-panel search history", () => {
     expect(source).toContain("searchHistory")
     expect(source).toContain("setSearchTrigger")
   })
-
-  it("shows the skill list in the second column when skill library view is active", () => {
-    expect(source).toContain('activeView === "skillLibrary"')
-    expect(source).toContain("<UnifiedSkillLibrarySidebarPanel")
-    expect(source).not.toContain("<SkillLibraryView />")
-  })
-
-  it("shows writing skills through the unified skill library second column", () => {
-    expect(source).toContain('activeView === "writingSkillLibrary"')
-    expect(source).toContain("<UnifiedSkillLibrarySidebarPanel")
-    expect(source).not.toContain("<WritingSkillLibraryView />")
-  })
 })

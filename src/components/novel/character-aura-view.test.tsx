@@ -255,6 +255,26 @@ describe("CharacterAuraView hideSidebar selection", () => {
     expect(host.querySelector("h2")?.textContent).toBe(customAura.name)
   })
 
+  it("keeps the new-custom-soul selection so the create form survives refresh", async () => {
+    // 回归：新建时列表里还没有自定义灵魂，刷新不能被回退值覆盖，否则新建表单会被立即关闭。
+    auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
+    useWikiStore.setState({
+      project: { id: "proj-1", name: "proj", path: "/proj" },
+      selectedSoulId: "new-custom-soul",
+      selectedSoulSection: "custom",
+      selectedSoulTab: "character",
+    })
+
+    await act(async () => {
+      root.render(<CharacterAuraView hideSidebar />)
+    })
+    await flush()
+
+    expect(useWikiStore.getState().selectedSoulId).toBe("new-custom-soul")
+    expect(host.textContent).toContain("新建角色灵魂")
+    expect(host.textContent).toContain("从资料生成角色灵魂")
+  })
+
   it("binds a character and bumps the shared data version for the project sidebar", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)

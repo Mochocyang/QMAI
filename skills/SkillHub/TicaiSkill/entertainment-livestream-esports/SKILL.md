@@ -1,5 +1,6 @@
 ﻿---
-name: entertainment-livestream-esports
+name: entertainment-livestream-esports
+title: 文娱直播电竞
 description: Use when generating or analyzing entertainment industry, livestream, account operation, esports, performance, or public-feedback outlines.
 ---
 

@@ -5,6 +5,10 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { toast } from "@/lib/toast"
 import type { FavoriteSkillEntry } from "@/lib/novel/skill-favorite"
 
+function favoriteLabel(entry: FavoriteSkillEntry): string {
+  return entry.snapshot.displayName?.trim() || entry.snapshot.name
+}
+
 export function FavoriteListView() {
   const favorites = useFavoriteSkillStore((s) => s.favorites)
   const loaded = useFavoriteSkillStore((s) => s.loaded)
@@ -21,7 +25,7 @@ export function FavoriteListView() {
   const filteredFavorites = searchQuery.trim()
     ? sortedFavorites.filter(
         (f) =>
-          f.snapshot.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          favoriteLabel(f).toLowerCase().includes(searchQuery.toLowerCase()) ||
           f.snapshot.description.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : sortedFavorites
@@ -90,7 +94,7 @@ export function FavoriteListView() {
               hasCurrentProject={!!project}
               copying={copyingId === entry.favoriteId}
               onCopy={() => handleCopy(entry.favoriteId)}
-              onRemove={() => handleRemove(entry.favoriteId, entry.snapshot.name)}
+              onRemove={() => handleRemove(entry.favoriteId, favoriteLabel(entry))}
             />
           ))}
         </div>
@@ -136,7 +140,7 @@ function FavoriteCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate font-medium">{entry.snapshot.name}</h3>
+            <h3 className="truncate font-medium">{favoriteLabel(entry)}</h3>
             <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
               {libraryLabel}
             </span>

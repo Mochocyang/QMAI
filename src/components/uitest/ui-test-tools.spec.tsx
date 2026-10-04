@@ -329,11 +329,10 @@ describe("真实模型列表的测试版分组", () => {
 })
 
 describe("测试版灵魂单列与旧编辑能力", () => {
-  it("项目灵魂不显示顶部标题与面包屑，保留已有长规则和全部风格动作", async () => {
+  it("项目灵魂单列展示页签与长规则，无面包屑，保留全部风格动作", async () => {
     await render(<SoulView />)
     expect(container.querySelector('[data-ui-page="soul"][data-ui-soul="project"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
-    expect(container.querySelector('h1')).toBeNull()
     expect(container.querySelector('[data-ui="soul-project-editor"] textarea')?.textContent).toBe("既有长规则。".repeat(1000))
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2)
     expect(container.querySelectorAll('input[type="checkbox"]:checked')).toHaveLength(1)
@@ -344,12 +343,22 @@ describe("测试版灵魂单列与旧编辑能力", () => {
     expect(persistence.saveSoul).toHaveBeenCalledWith("/ui-test/project", expect.objectContaining({ enabledStyleId: "style-a", styles: expect.arrayContaining([expect.objectContaining({ content: "既有长规则。".repeat(1000) })]) }))
   })
 
-  it.each(["builtIn", "custom"] as const)("%s 复用原角色组件，不增加内层侧栏", async (section) => {
+  it.each(["builtIn", "custom"] as const)("%s 先展示单列画廊，点开再复用原角色组件，不增加内层侧栏", async (section) => {
     useWikiStore.setState({ selectedSoulTab: "character", selectedSoulId: section === "custom" ? "new-custom-soul" : "existing-aura", selectedSoulSection: section })
     await render(<SoulView />)
     expect(container.querySelector(`[data-ui-soul="${section === "custom" ? "custom" : "role"}"]`)).not.toBeNull()
-    expect(container.querySelector('[data-existing-aura-view][data-hide-sidebar="true"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="面包屑"]')).toBeNull()
+    // 画廊优先：初始不直接挂载编辑组件，也不渲染任何内侧栏。
+    expect(container.querySelector('[data-existing-aura-view]')).toBeNull()
+    expect(container.querySelector('[aria-label="灵魂分组"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="灵魂分类"]')).not.toBeNull()
+    // 自定义灵魂有新建入口，进入后复用原角色组件（hideSidebar）。
+    if (section === "custom") {
+      const createBtn = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("新建角色灵魂"))
+      expect(createBtn).not.toBeUndefined()
+      await act(async () => { createBtn!.click() })
+      expect(container.querySelector('[data-existing-aura-view][data-hide-sidebar="true"]')).not.toBeNull()
+    }
   })
 
 

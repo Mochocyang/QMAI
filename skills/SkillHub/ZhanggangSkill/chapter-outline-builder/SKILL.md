@@ -1,5 +1,6 @@
 ---
-name: chapter-outline-builder
+name: chapter-outline-builder
+title: 章纲总控
 description: 当用户需要把小说大纲、分卷大纲、上一章状态或一个章节灵感整理成可写作的单章章纲时使用；适用于章纲、单章细纲、章节推进、下一章怎么写、这一章怎么写等请求；不用于全书大纲或正文润色。
 ---
 

@@ -262,7 +262,7 @@ export async function loadAllLinkedSkillsContent(config: UserSkillConfig): Promi
 export function updateWritingSkill(
   config: UserSkillConfig,
   skillId: string,
-  patch: Partial<Pick<UserSkill, "name" | "description" | "kind" | "stages" | "modes" | "content" | "priority" | "tags" | "categoryId">>,
+  patch: Partial<Pick<UserSkill, "name" | "displayName" | "description" | "kind" | "stages" | "modes" | "content" | "priority" | "tags" | "categoryId">>,
   now = Date.now(),
 ): UserSkillConfig {
   return normalizeUserSkillConfig({

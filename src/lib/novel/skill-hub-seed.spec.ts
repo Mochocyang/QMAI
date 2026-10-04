@@ -20,6 +20,14 @@ describe("SkillHub seed", () => {
       .toBe(SKILL_ROUTE_CATEGORY_IDS.faction)
   })
 
+  it("keeps English machine names while exposing Chinese display names", () => {
+    expect(DEFAULT_SKILL_HUB_SKILLS.every((skill) => skill.displayName.trim().length > 0)).toBe(true)
+    expect(DEFAULT_SKILL_HUB_SKILLS.every((skill) => /[\u4e00-\u9fa5]/.test(skill.displayName))).toBe(true)
+    expect(DEFAULT_SKILL_HUB_SKILLS.every((skill) => skill.id === `skillhub:${skill.name}`)).toBe(true)
+    expect(DEFAULT_SKILL_HUB_SKILLS.find((skill) => skill.name === "chapter-emotion-curve")?.displayName)
+      .toBe("情绪曲线")
+  })
+
   it("loads newly added topic, chapter-outline and quality skills for AI outline routing", () => {
     expect(DEFAULT_SKILL_HUB_SKILLS.find((skill) => skill.name === "male-beast-taming")?.categoryId)
       .toBe(SKILL_ROUTE_CATEGORY_IDS.topic)

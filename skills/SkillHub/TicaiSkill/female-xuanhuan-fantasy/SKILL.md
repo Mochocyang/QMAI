@@ -1,5 +1,6 @@
 ﻿---
-name: female-xuanhuan-fantasy
+name: female-xuanhuan-fantasy
+title: 女频玄幻幻想言情
 description: Use when generating or analyzing female-oriented fantasy, xianxia romance, fantasy romance, or cultivation romance outlines and chapter outlines.
 ---
 

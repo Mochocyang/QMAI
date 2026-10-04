@@ -1,5 +1,6 @@
 ---
-name: male-longevity-flow
+name: male-longevity-flow
+title: 男频长生流
 description: Use when generating or analyzing male-oriented longevity, immortal watcher, time-span, generation change, or long-life cultivation outlines and chapter outlines.
 ---
 

@@ -1,5 +1,6 @@
 ---
-name: short-marriage-betrayal
+name: short-marriage-betrayal
+title: 短篇婚恋背叛
 description: Use when generating or analyzing short marriage betrayal, affair, property transfer, spouse counterattack, divorce revenge, or emotional evidence-chain outlines and chapter outlines.
 ---
 

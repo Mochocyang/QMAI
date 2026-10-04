@@ -1,5 +1,6 @@
 ---
 name: map-progression
+title: 地图推进
 description: Use when designing maps, location changes, new stages, city-to-world expansion, dungeon progression, or environment upgrades.
 ---
 

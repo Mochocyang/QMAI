@@ -1,5 +1,6 @@
 ﻿---
-name: female-house-palace
+name: female-house-palace
+title: 女频宅斗宫斗古言
 description: Use when generating or analyzing female-oriented ancient romance, house fighting, palace fighting, rebirth revenge, or power-in-family outlines.
 ---
 

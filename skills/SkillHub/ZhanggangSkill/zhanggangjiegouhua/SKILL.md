@@ -1,5 +1,6 @@
 ---
-name: zhanggangjiegouhua
+name: zhanggangjiegouhua
+title: 章纲结构化
 description: 当用户需要生成章纲、细纲、章节细纲，或要求把某个故事（10–12 章）拆成逐章执行单元时使用。触发词：章纲、细纲、章节细纲、逐章拆解、把第X–Y章拆成章纲。不用于卷纲、总纲、人物小传或正文。
 ---
 

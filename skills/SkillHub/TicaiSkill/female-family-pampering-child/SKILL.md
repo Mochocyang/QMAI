@@ -1,5 +1,6 @@
 ---
-name: female-family-pampering-child
+name: female-family-pampering-child
+title: 女频团宠萌宝
 description: Use when generating or analyzing female-oriented family pampering,团宠, cute child, found family, mistaken identity, or healing family outlines and chapter outlines.
 ---
 

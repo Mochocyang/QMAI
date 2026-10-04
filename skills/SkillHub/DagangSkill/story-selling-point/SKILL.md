@@ -1,5 +1,6 @@
 ﻿---
-name: story-selling-point
+name: story-selling-point
+title: 卖点定位
 description: Use when a novel idea has a basic plot but lacks a clear hook, differentiator, commercial selling point, or answer to 为什么读者要看这本. Trigger on 卖点, 爽点, 亮点, 差异化, 凭什么看, hook. Do not use before there is at least a rough plot seed.
 ---
 

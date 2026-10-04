@@ -1,5 +1,6 @@
 ---
-name: chapter-keyword-conditions
+name: chapter-keyword-conditions
+title: 浓缩剧情与关键词
 description: 当单章已有大概目的，但缺少可落地的浓缩剧情、关键词、必要条件、相遇逻辑、意外原因、关键道具或场景材料时使用；适用于关键词、必要条件、浓缩剧情、场景条件、相遇设计、意外原因等请求；应在章节定位明确后使用。
 ---
 

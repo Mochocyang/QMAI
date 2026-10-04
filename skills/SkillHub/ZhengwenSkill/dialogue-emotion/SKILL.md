@@ -1,5 +1,6 @@
 ﻿---
-name: dialogue-emotion
+name: dialogue-emotion
+title: 对话与情绪
 description: Use when writing or revising dialogue, emotional beats, subtext, relationship tension, or character voice in fiction.
 ---
 

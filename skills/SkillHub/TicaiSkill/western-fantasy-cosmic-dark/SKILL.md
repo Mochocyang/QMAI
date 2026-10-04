@@ -1,5 +1,6 @@
 ﻿---
-name: western-fantasy-cosmic-dark
+name: western-fantasy-cosmic-dark
+title: 西幻克苏鲁黑暗题材
 description: Use when generating or analyzing western fantasy, knight fantasy, cosmic horror, Cthulhu-like, dark, conquest, or domination-oriented outlines.
 ---
 

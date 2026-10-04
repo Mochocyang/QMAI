@@ -1,5 +1,6 @@
 ---
 name: foreshadowing-suspense
+title: 伏笔与悬念
 description: Use when designing foreshadowing, clues, suspense, reveals, mystery payoff, hidden identity, or information-release rhythm.
 ---
 

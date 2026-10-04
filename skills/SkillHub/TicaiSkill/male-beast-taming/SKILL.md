@@ -1,5 +1,6 @@
 ---
-name: male-beast-taming
+name: male-beast-taming
+title: 男频御兽
 description: Use when generating or analyzing male-oriented beast taming, pet evolution, monster partner, creature collection, or battle companion outlines and chapter outlines.
 ---
 

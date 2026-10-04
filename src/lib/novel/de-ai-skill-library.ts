@@ -631,6 +631,7 @@ export function deAiSkillToUserSkill(skill: DeAiSkill): UserSkill {
   return {
     id: skill.id,
     name: skill.name,
+    displayName: "",
     description: skill.description,
     kind: ["style"],
     stages: ["rewrite", "output"],

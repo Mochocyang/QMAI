@@ -1,5 +1,6 @@
 ﻿---
-name: male-urban-highmartial
+name: male-urban-highmartial
+title: 男频都市高武
 description: Use when generating or analyzing male-oriented urban, urban ability, urban high-martial, spiritual-revival, or modern power fantasy outlines.
 ---
 

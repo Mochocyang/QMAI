@@ -1,5 +1,6 @@
 ---
-name: chapter-visual-detail
+name: chapter-visual-detail
+title: 画面细节
 description: 当章纲或场景缺少画面感、具体细节、动作微细节、环境情绪或信息暗线时使用；适用于画面感、细节、动作细节、环境细节、暗线细节、写得空等请求；不单独用于抽象剧情规划。
 ---
 

@@ -1,5 +1,6 @@
 ﻿---
-name: worldbuilding-outline-last
+name: worldbuilding-outline-last
+title: 世界观后置
 description: Use when a novel outline needs worldbuilding after plot, hook, goals, and characters are known, or when the user is overbuilding lore before the story works. Trigger on 世界观, 设定太多, 境界, 等级, 宗门, 背景故事, worldbuilding. Do not use to create lore before the story premise exists.
 ---
 

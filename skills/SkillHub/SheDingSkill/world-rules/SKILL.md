@@ -1,5 +1,6 @@
 ---
 name: world-rules
+title: 世界规则
 description: Use when designing world rules, taboos, social systems, supernatural laws, setting consistency, or rule constraints for outlines.
 ---
 

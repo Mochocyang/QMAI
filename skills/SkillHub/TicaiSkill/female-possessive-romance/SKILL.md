@@ -1,5 +1,6 @@
 ---
-name: female-possessive-romance
+name: female-possessive-romance
+title: 女频强取豪夺
 description: Use when generating or analyzing female-oriented possessive romance, forced love, power-difference romance, emotional control, or strong push-pull outlines and chapter outlines.
 ---
 

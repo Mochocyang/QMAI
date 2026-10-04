@@ -1,5 +1,6 @@
 ﻿---
-name: female-chasing-wife
+name: female-chasing-wife
+title: 女频追妻火葬场
 description: Use when generating or analyzing female-oriented chasing-wife, regret, crematorium romance, dog-blood romance, or hurt-comfort reversal outlines.
 ---
 

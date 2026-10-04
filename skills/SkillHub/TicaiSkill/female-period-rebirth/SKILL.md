@@ -1,5 +1,6 @@
 ---
-name: female-period-rebirth
+name: female-period-rebirth
+title: 女频年代重生
 description: Use when generating or analyzing female-oriented period,年代, rebirth, family counterattack, marriage choice, or era-specific romance outlines and chapter outlines.
 ---
 

@@ -563,7 +563,7 @@ function OverviewTab({
             <div className="ml-9 space-y-1.5">
               {contextInfo.selectedSkills.map((skill) => (
                 <div key={skill.id} className="rounded-md border bg-background px-2 py-1.5">
-                  <div className="mb-1 text-xs font-medium text-foreground">{skill.name}</div>
+                  <div className="mb-1 text-xs font-medium text-foreground">{skill.displayName?.trim() || skill.name}</div>
                   <div className="flex flex-wrap gap-1">
                     {[...skill.kind, ...skill.stages, skill.source].map((tag, index) => (
                       <span

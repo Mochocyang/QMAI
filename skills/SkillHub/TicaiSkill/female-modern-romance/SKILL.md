@@ -1,5 +1,6 @@
 ﻿---
-name: female-modern-romance
+name: female-modern-romance
+title: 女频现言
 description: Use when generating or analyzing female-oriented modern romance, modern imagination, relationship, marriage, or contemporary emotional outlines.
 ---
 

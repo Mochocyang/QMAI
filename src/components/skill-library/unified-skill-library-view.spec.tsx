@@ -4,7 +4,8 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
-import { UnifiedSkillLibrarySidebarPanel, UnifiedSkillLibraryView } from "./unified-skill-library-view"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
+import { UnifiedSkillLibraryView } from "./unified-skill-library-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -28,6 +29,15 @@ vi.mock("@tauri-apps/api/path", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: openDialogMock,
   save: saveDialogMock,
+}))
+
+vi.mock("@/lib/web-store", () => ({
+  getStore: vi.fn(async () => ({
+    get: vi.fn(async () => ({ version: 1, favorites: [] })),
+    set: vi.fn(async () => undefined),
+    save: vi.fn(async () => undefined),
+  })),
+  flushAppState: vi.fn(),
 }))
 
 const deAiConfig = {
@@ -64,6 +74,7 @@ const writingConfig = {
     createdAt: 100,
     updatedAt: 100,
   }],
+  categories: [],
 }
 
 async function renderLibrary() {
@@ -71,12 +82,7 @@ async function renderLibrary() {
   document.body.appendChild(container)
   const root = createRoot(container)
   await act(async () => {
-    root.render(
-      <>
-        <UnifiedSkillLibrarySidebarPanel />
-        <UnifiedSkillLibraryView />
-      </>,
-    )
+    root.render(<UnifiedSkillLibraryView />)
   })
   await flushEffects()
   return { container, root }
@@ -131,48 +137,71 @@ describe("UnifiedSkillLibraryView", () => {
     useWikiStore.getState().setSelectedWritingSkillLibrarySkillId(null)
     useWikiStore.getState().setSkillLibraryDraftDirty(false)
     useWikiStore.getState().setWritingSkillLibraryDraftDirty(false)
+    useFavoriteSkillStore.setState({ favorites: [], loaded: true, currentProjectPath: "C:/project" })
   })
 
-  it("renders one unified sidebar with category filter chips", async () => {
+  it("renders a card gallery with the page title and de-AI cards on the de-AI tab", async () => {
     const { container, root } = await renderLibrary()
 
-    expect(container.querySelector('[data-testid="unified-skill-library-sidebar"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="unified-skill-library-view"]')).not.toBeNull()
     expect(container.querySelector("h1")?.textContent).toBe("技能库")
-    for (const label of ["全部", "写作", "去AI味", "审稿", "输出", "知识"]) {
-      expect(getButton(container, label)).not.toBeUndefined()
-    }
+    expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="unified-skill-entry-writing:skill:three"]')).toBeNull()
+    expect(container.querySelector('[data-testid="unified-skill-search-input"]')).not.toBeNull()
 
     cleanup(root, container)
   })
 
-  it("keeps creation, import, and export actions out of the unified sidebar", async () => {
+  it("shows de-AI actions on the de-AI tab and writing actions on the writing tab", async () => {
     const { container, root } = await renderLibrary()
-    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')
 
-    for (const label of ["新建去AI技能", "新建 Skill", "导入文件", "导入文件夹", "导出当前"]) {
-      expect(sidebar?.textContent).not.toContain(label)
-    }
-
-    cleanup(root, container)
-  })
-
-  it("shows de-AI actions in the right header when de-AI skill tab is active", async () => {
-    const { container, root } = await renderLibrary()
-    const actions = container.querySelector<HTMLElement>('[data-testid="skill-library-header-actions"]')
-    const actionLabels = Array.from(actions?.querySelectorAll("button") ?? [])
-      .map((button) => button.textContent?.trim())
-
+    let actionLabels = Array.from(
+      container.querySelectorAll('[data-testid="skill-library-header-actions"] button'),
+    ).map((button) => button.textContent?.trim())
     expect(actionLabels).toEqual(["新建技能", "导入"])
-    expect(actions?.textContent).not.toContain("导入技能")
-    expect(actions?.textContent).not.toContain("导入文件")
-    expect(actions?.textContent).not.toContain("导入文件夹")
-    expect(actions?.textContent).not.toContain("新建 Skill")
-    expect(actions?.textContent).not.toContain("导出当前")
+
+    await act(async () => {
+      getButton(container, "写作 Skill")?.click()
+    })
+    await flushEffects()
+
+    actionLabels = Array.from(
+      container.querySelectorAll('[data-testid="skill-library-header-actions"] button'),
+    ).map((button) => button.textContent?.trim())
+    expect(actionLabels).toEqual(["新建 Skill", "导入"])
 
     cleanup(root, container)
   })
 
-  it("shows writing Skill actions in the right header when writing tab is active", async () => {
+  it("filters the current tab's cards with the search input", async () => {
+    const { container, root } = await renderLibrary()
+    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')
+
+    await setInputValue(searchInput!, "解释腔")
+    expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).not.toBeNull()
+
+    await setInputValue(searchInput!, "没有这个技能")
+    expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("lights up the favorite star immediately after clicking it", async () => {
+    const { container, root } = await renderLibrary()
+    const cardSelector = '[data-testid="unified-skill-entry-de-ai:project:quiet"]'
+
+    expect(container.querySelector(`${cardSelector} button[aria-label="收藏"]`)).not.toBeNull()
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(`${cardSelector} button[aria-label="收藏"]`)?.click()
+    })
+
+    expect(container.querySelector(`${cardSelector} button[aria-label="取消收藏"]`)).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("switches the gallery content when another tab is selected", async () => {
     const { container, root } = await renderLibrary()
 
     await act(async () => {
@@ -180,21 +209,36 @@ describe("UnifiedSkillLibraryView", () => {
     })
     await flushEffects()
 
-    const actions = container.querySelector<HTMLElement>('[data-testid="skill-library-header-actions"]')
-    const actionLabels = Array.from(actions?.querySelectorAll("button") ?? [])
-      .map((button) => button.textContent?.trim())
-
-    expect(actionLabels).toEqual(["新建 Skill", "导入"])
-    expect(actions?.textContent).not.toContain("导入 Skill")
-    expect(actions?.textContent).not.toContain("导入文件")
-    expect(actions?.textContent).not.toContain("导入文件夹")
-    expect(actions?.textContent).not.toContain("导出当前")
-    expect(actions?.textContent).not.toContain("新建技能")
+    expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
+    expect(container.querySelector('[data-testid="unified-skill-entry-writing:skill:three"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).toBeNull()
 
     cleanup(root, container)
   })
 
-  it("creates a writing Skill directly from the right header", async () => {
+  it("opens a card into the detail editor and returns with the back button", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')?.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe("project:quiet")
+    expect(container.querySelector('[data-testid="skill-library-view"]')).not.toBeNull()
+
+    await act(async () => {
+      getButton(container, "返回技能库")?.click()
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="skill-library-view"]')).toBeNull()
+    expect(container.querySelector('[data-testid="unified-skill-search-input"]')).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("creates a writing Skill from the header and drills into the editor", async () => {
     const { container, root } = await renderLibrary()
 
     await act(async () => {
@@ -213,11 +257,12 @@ describe("UnifiedSkillLibraryView", () => {
       "C:/project/writing-skills.json",
       expect.stringContaining("新建写作 Skill"),
     )
+    expect(container.querySelector('[data-testid="writing-skill-library-view"]')).not.toBeNull()
 
     cleanup(root, container)
   })
 
-  it("imports a de-AI skill file from the right header", async () => {
+  it("imports a de-AI skill file from the header", async () => {
     openDialogMock.mockResolvedValue("C:/skills/冷硬叙事.md")
     readFileMock.mockImplementation(async (path: string) => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
@@ -241,77 +286,7 @@ describe("UnifiedSkillLibraryView", () => {
       expect.stringContaining("删掉解释，保留动作。"),
     )
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-
-    cleanup(root, container)
-  })
-
-  it("filters writing and de-AI skills from one search input", async () => {
-    const { container, root } = await renderLibrary()
-    const sidebar = container.querySelector<HTMLElement>('[data-testid="unified-skill-library-sidebar"]')
-    const searchInput = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')
-    expect(sidebar).not.toBeNull()
-    expect(searchInput).not.toBeNull()
-
-    expect(sidebar?.textContent).toContain("三翻四抖")
-    expect(sidebar?.textContent).toContain("沉浸式去AI味")
-
-    await setInputValue(searchInput!, "三翻")
-    expect(sidebar?.textContent).toContain("三翻四抖")
-    expect(sidebar?.textContent).not.toContain("沉浸式去AI味")
-
-    await setInputValue(searchInput!, "解释腔")
-    expect(sidebar?.textContent).not.toContain("三翻四抖")
-    expect(sidebar?.textContent).toContain("沉浸式去AI味")
-
-    cleanup(root, container)
-  })
-
-  it("routes selected unified entries to their existing detail views", async () => {
-    const { container, root } = await renderLibrary()
-
-    await act(async () => {
-      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')?.click()
-    })
-    await flushEffects()
-
-    expect(useWikiStore.getState().activeView).toBe("writingSkillLibrary")
-    expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBe("skill:three")
-    expect(container.querySelector('[data-testid="writing-skill-library-view"]')).not.toBeNull()
-
-    await act(async () => {
-      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')?.click()
-    })
-    await flushEffects()
-
-    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe("project:quiet")
     expect(container.querySelector('[data-testid="skill-library-view"]')).not.toBeNull()
-
-    cleanup(root, container)
-  })
-
-  it("marks a de-AI entry as current after switching from a writing entry", async () => {
-    const { container, root } = await renderLibrary()
-    const writingEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')
-    const deAiEntry = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-de-ai:project:quiet"]')
-
-    await act(async () => {
-      writingEntry?.click()
-    })
-    await flushEffects()
-
-    expect(writingEntry?.getAttribute("aria-current")).toBe("true")
-
-    await act(async () => {
-      deAiEntry?.click()
-    })
-    await flushEffects()
-
-    expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBe("project:quiet")
-    expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBeNull()
-    expect(deAiEntry?.getAttribute("aria-current")).toBe("true")
-    expect(writingEntry?.getAttribute("aria-current")).toBeNull()
 
     cleanup(root, container)
   })

@@ -1,5 +1,6 @@
 ﻿---
-name: male-history-alt-history
+name: male-history-alt-history
+title: 历史架空年代
 description: Use when generating or analyzing history, alternate history, war spy, period, or knowledge-gap driven outlines.
 ---
 
