@@ -1,7 +1,8 @@
+import { ScrollToLatestButton } from "./scroll-to-latest-button"
 import { useRef, useEffect, useCallback, useState, useMemo, useDeferredValue, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Plus, Trash2, ListChecks, ChevronDown, Check, History, ArrowDown, X } from "lucide-react"
+import { BookOpen, Plus, Trash2, ListChecks, ChevronDown, Check, History, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTestAiMenuStyle, useUiTestAiMenuFocus } from "@/components/uitest/ui-test-ai-parts"
 import "@/components/uitest/ui-test-ai.css"
@@ -1368,7 +1369,7 @@ export function ChatPanel() {
     setShowScrollToBottom(false)
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: "smooth",
+      behavior: "auto",
     })
   }, [])
 
@@ -1381,23 +1382,22 @@ export function ChatPanel() {
       const threshold = 50
       const currentScrollTop = container.scrollTop
       const atBottom = container.scrollHeight - currentScrollTop - container.clientHeight < threshold
-      if (currentScrollTop < lastScrollTopRef.current - 1) {
-        userScrolledUpRef.current = true
-      } else if (atBottom) {
+      if (atBottom) {
         userScrolledUpRef.current = false
+      } else if (currentScrollTop < lastScrollTopRef.current - 1) {
+        userScrolledUpRef.current = true
       }
-      setShowScrollToBottom(userScrolledUpRef.current && isStreaming)
+      setShowScrollToBottom(userScrolledUpRef.current && !atBottom)
       lastScrollTopRef.current = currentScrollTop
     }
     container.addEventListener("scroll", handleScroll)
     return () => container.removeEventListener("scroll", handleScroll)
   }, [activeConversationId, isStreaming])
 
-  // Reset scroll lock when streaming ends or conversation changes
+  // 结束生成仍尊重用户正在查看历史的位置，只切换回底部按钮的状态。
   useEffect(() => {
-    if (!isStreaming) {
-      userScrolledUpRef.current = false
-    }
+    const container = scrollContainerRef.current
+    if (container) setShowScrollToBottom(userScrolledUpRef.current && container.scrollHeight - container.scrollTop - container.clientHeight >= 50)
   }, [isStreaming])
 
   useEffect(() => {
@@ -2677,9 +2677,11 @@ export function ChatPanel() {
           <UiTestAiEmpty kind="chapter" />
         ) : (
           <>
+            <div className="relative min-h-0 flex-1" data-chat-message-region>
             <div
+              data-chat-scroll
               ref={scrollContainerRef}
-              className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2"
+              className="h-full min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-3 py-2"
             >
               <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
                 {activeMessages.length === 0 && !isStreaming && <UiTestAiEmpty kind="chapter" />}
@@ -2717,16 +2719,8 @@ export function ChatPanel() {
               </div>
             </div>
 
-            {showScrollToBottom && (
-              <button
-                type="button"
-                onClick={handleScrollToBottom}
-                className="absolute bottom-20 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/90 shadow-md backdrop-blur-sm transition-all hover:bg-accent"
-                title="回到最新"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </button>
-            )}
+            {showScrollToBottom && <ScrollToLatestButton isStreaming={isStreaming} onClick={handleScrollToBottom} />}
+            </div>
 
             {showWriteButton && (
               <div className="border-t px-3 py-2">
@@ -2859,6 +2853,8 @@ export function ChatPanel() {
               </TooltipProvider>
             </div>
             <ReferenceInput
+              enableClipboardMenu
+              clipboardScope={activeConversationId}
               value={referenceText}
               tokens={currentTokens}
               disabled={isStreaming || Boolean(pendingChapterPlan)}

@@ -1,6 +1,7 @@
 /* 独立 UI 测试版。视觉基准：20260907-003151 图稿；正式版无匹配选择器。 */
 .ui-test-root, .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] * { box-sizing: border-box; }
 .ui-test-root, html[data-ui-test-skin] {
+  --ui-heading-top: 22px; --ui-heading-line: 28px;
   --ui: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
   --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
   --ui-canvas: #edf1ec; --ui-paper: #fcfdfb; --ui-panel: #f2f5ef; --ui-soft: #e4ece3;
@@ -126,8 +127,12 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-directory-content [data-slot="scroll-area"] { min-height: 0; }
 .ui-test-sidebar.is-drawer { position: absolute; top: 0; bottom: 0; left: 0; z-index: 21; box-shadow: 10px 0 36px #15251b18; width: min(280px, calc(100% - 48px)); }
 .ui-test-directory-scrim { position: absolute; inset: 0; z-index: 20; background: #14201a33; border: 0; }
-.ui-test-directory-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 20px 10px; gap: 8px; min-height: 60px; }
-.ui-test-directory-head h2 { font-size: 14px; font-weight: 500; white-space: nowrap; }
+.ui-test-directory-head { display: flex; align-items: center; justify-content: space-between; padding: var(--ui-heading-top) 20px 10px; gap: 8px; min-height: 60px; }
+.ui-test-directory-head h2 { line-height: var(--ui-heading-line); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.ui-test-root [data-ui-panel-heading] { min-height: 60px; padding: var(--ui-heading-top) 20px 10px; line-height: var(--ui-heading-line); }
+.ui-test-root [data-ui-panel-heading] > :is(h1, h2) { margin: 0; line-height: var(--ui-heading-line); }
+.ui-test-root [data-ui-panel-heading] > .flex { min-height: var(--ui-heading-line); }
+.ui-test-root [data-ui-panel-heading] button { min-height: var(--ui-heading-line); height: var(--ui-heading-line); }
 .ui-test-directory-head-actions { display: flex; }
 .ui-test-directory-head .ui-test-icon-btn { width: 28px; min-height: 28px; }
 .ui-test-directory-head .ui-test-icon-btn svg { width: 16px; height: 16px; }

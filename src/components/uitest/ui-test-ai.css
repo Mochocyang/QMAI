@@ -3,7 +3,7 @@
   min-width: 0;
   min-height: 0;
   gap: 12px;
-  padding: 12px 18px 6px;
+  padding: var(--ui-heading-top) 18px 6px;
   border: 0;
   background: var(--ui-panel);
   color: var(--ui-ink);
@@ -11,6 +11,7 @@
 }
 
 [data-ui-ai-header] {
+  min-height: var(--ui-heading-line);
   height: auto;
   min-width: 0;
   gap: 6px;
@@ -24,15 +25,15 @@
 [data-ui-ai-panel] .ui-test-ai-mark svg { width: 13px; height: 13px; }
 [data-ui-ai-panel] .ui-test-ai-heading { min-width: 0; flex: 1; }
 [data-ui-ai-panel] .ui-test-ai-title { display: flex; align-items: center; gap: 6px; }
-[data-ui-ai-panel] .ui-test-ai-title strong { font-size: 14px; font-weight: 500; line-height: 1.5; }
+[data-ui-ai-panel] .ui-test-ai-title strong { font-size: 14px; font-weight: 500; line-height: var(--ui-heading-line); }
 [data-ui-ai-panel] .ui-test-ai-session { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; font-size: 12px; line-height: 1.5; color: var(--ui-muted); }
 [data-ui-ai-header] > .qmai-header-actions { order: 0; margin-left: auto; }
 [data-ui-ai-header] > .relative { margin-left: 0; }
 [data-ui-ai-header] > .flex.min-w-0 { display: none; }
-[data-ui-ai-header] .qmai-new-conversation-button { width: 30px; height: 30px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+[data-ui-ai-header] .qmai-new-conversation-button { width: 28px; height: var(--ui-heading-line); border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 [data-ui-ai-header] .qmai-new-conversation-button svg, [data-ui-ai-header] [aria-label^="关闭"] svg { width: 16px; height: 16px; }
 [data-ui-ai-header] .qmai-history-button, [data-ui-ai-header] .qmai-outline-history-button { width: auto; min-width: 0; padding: 5px 8px; }
-[data-ui-ai-header] button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; padding: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-muted); box-shadow: none; }
+[data-ui-ai-header] button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: var(--ui-heading-line); flex-shrink: 0; padding: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-muted); box-shadow: none; }
 [data-ui-ai-header] button:hover:not(:disabled) { background: var(--ui-soft); color: var(--ui-accent); }
 [data-ui-ai-header] button:disabled { opacity: .45; }
 /* 图标入口保留中文 aria-label；只收起重复文字及数量，不隐藏操作。 */
@@ -93,6 +94,8 @@
 [data-ui-ai-panel] .ui-test-ai-empty h3 { margin: 0; font: 500 20px/1.6 var(--serif); color: var(--ui-ink); }
 [data-ui-ai-panel] .ui-test-ai-empty p { max-width: 260px; margin: 0; font-size: 13px; line-height: 1.85; }
 [data-ui-ai-panel] .ui-test-ai-empty button { padding: 7px 12px; border-radius: 8px; background: var(--ui-soft); color: var(--ui-accent); font-size: 13px; }
+
+[data-ui-ai-panel="outline"] > [data-ui-ai-input-area] { min-width: 0; padding-inline: 0; }
 
 [data-ui-ai-composer] { min-width: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
 /* 写作区输入框包在 .shrink-0.bg-background 里，不是面板的直接子节点。这层直角白底会从圆角外露出来。 */
@@ -196,3 +199,24 @@
 
 [data-ui-ai-panel] .ui-test-ai-stage { flex-shrink: 0; margin: 0; color: var(--ui-muted); font-size: 12px; }
 [data-ui-ai-panel] .ui-test-ai-empty button:disabled { cursor: not-allowed; opacity: .5; }
+
+/* 用户消息时间和复制位于气泡外，不沿用助手用量行或气泡背景。 */
+[data-ui-ai-panel] .ui-test-user-message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; margin-top: 5px; color: var(--ui-muted); font: 12px/1.5 var(--ui); }
+[data-ui-ai-panel] .ui-test-user-message-meta time { font-variant-numeric: tabular-nums; }
+[data-ui-ai-panel] .ui-test-user-message-meta button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; padding: 5px; background: transparent; border-radius: 6px; color: inherit; }
+[data-ui-ai-panel] .ui-test-user-message-meta button:hover { background: var(--ui-soft); color: var(--ui-accent); }
+[data-ui-ai-panel] .ui-test-user-message-meta svg { width: 14px; height: 14px; }
+[data-ui-ai-panel] .ui-test-user-message-meta [role="status"] { flex-basis: 100%; text-align: right; color: var(--ui-danger); }
+[data-ui-ai-panel] .ui-test-scroll-latest { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--ui-line); border-radius: 50%; background: var(--ui-paper); color: var(--ui-muted); box-shadow: 0 2px 8px #203b2b12; cursor: pointer; }
+[data-ui-ai-panel] .ui-test-scroll-arrow { width: 17px; height: 17px; }
+[data-ui-ai-panel] .ui-test-stream-dots { display: flex; align-items: center; justify-content: center; gap: 3px; }
+[data-ui-ai-panel] [data-stream-dot] { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: ui-test-stream-dot 1.2s ease-in-out infinite; }
+[data-ui-ai-panel] [data-stream-dot]:nth-child(2) { animation-delay: .15s; }
+[data-ui-ai-panel] [data-stream-dot]:nth-child(3) { animation-delay: .3s; }
+[data-ui-ai-panel] .ui-test-scroll-latest.is-streaming .ui-test-scroll-arrow { display: none; }
+[data-ui-ai-panel] .ui-test-scroll-latest.is-streaming:is(:hover, :focus-visible) .ui-test-scroll-arrow { display: block; }
+[data-ui-ai-panel] .ui-test-scroll-latest.is-streaming:is(:hover, :focus-visible) .ui-test-stream-dots { display: none; }
+[data-ui-ai-panel] .ui-test-scroll-tooltip { position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 5px; white-space: nowrap; font-size: 12px; color: var(--ui-ink); background: var(--ui-paper); border: 1px solid var(--ui-line); visibility: hidden; pointer-events: none; }
+[data-ui-ai-panel] .ui-test-scroll-latest:is(:hover, :focus-visible) .ui-test-scroll-tooltip { visibility: visible; }
+@keyframes ui-test-stream-dot { 0%, 60%, 100% { transform: translateY(0); opacity: .55; } 30% { transform: translateY(-3px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { [data-ui-ai-panel] [data-stream-dot] { animation: none; } }

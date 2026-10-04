@@ -96,6 +96,8 @@ export interface OutlineMultiAgentRunState {
 }
 
 export interface OutlineChatMessage {
+  /** 实际发送时间；旧消息缺失时不补造时间。 */
+  timestamp?: number
   id: string
   role: "user" | "assistant"
   content: string
@@ -284,7 +286,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
     const now = Date.now()
     set((s) => ({
       conversations: s.conversations.map((c) =>
-        c.id === convId ? { ...c, messages: [...c.messages, msg], updatedAt: now } : c
+        c.id === convId ? { ...c, messages: [...c.messages, { ...msg, timestamp: msg.timestamp ?? now }], updatedAt: now } : c
       ),
     }))
     scheduleSave()

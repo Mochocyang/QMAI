@@ -126,6 +126,49 @@ afterEach(async () => {
 })
 
 describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (kind) => {
+  it("用户消息有发送时间与复制，输入框右键只含三个剪贴板动作", async () => {
+    seed(kind)
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText, readText: vi.fn().mockResolvedValue("粘贴") } })
+    const container = await mount(kind)
+    const meta = container.querySelector('[data-ui-ai-message="user"] [data-user-message-meta]')!
+    expect(meta).not.toBeNull()
+    expect(meta.querySelector("time")?.getAttribute("datetime")).toBe(new Date(now).toISOString())
+    await act(async () => { meta.querySelector<HTMLButtonElement>("button")!.click() })
+    expect(writeText).toHaveBeenCalledWith(userText)
+    const input = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="引用输入框"]')!
+    await act(async () => { input.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 180, clientY: 180 })) })
+    expect([...document.querySelectorAll('[data-editor-context-menu] [role="menuitem"]')].map(n => n.textContent)).toEqual(["复制", "剪切", "粘贴"])
+  })
+
+  it("生成上滑显示三点、停止不跳走、点击到底并恢复跟随", async () => {
+    seed(kind)
+    const id = `${kind}-active`
+    const store = kind === "chapter" ? useChatStore : useOutlineChatStore
+    store.setState({ streamingContents: { [id]: "" }, runStates: { [id]: { status: "running", runId: "scroll-run", updatedAt: now } } })
+    const container = await mount(kind)
+    const scroll = container.querySelector<HTMLDivElement>('[data-chat-scroll]')!
+    expect(scroll).not.toBeNull()
+    Object.defineProperties(scroll, { scrollHeight: { configurable: true, value: 1200 }, clientHeight: { configurable: true, value: 300 } })
+    const scrollTo = vi.fn(({ top }: { top: number }) => { scroll.scrollTop = Math.min(top, 900); scroll.dispatchEvent(new Event("scroll")) })
+    Object.defineProperty(scroll, "scrollTo", { configurable: true, value: scrollTo })
+    await act(async () => { scroll.scrollTop = 900; scroll.dispatchEvent(new Event("scroll")) })
+    await act(async () => { scroll.scrollTop = 200; scroll.dispatchEvent(new Event("scroll")) })
+    expect(container.querySelectorAll('[data-stream-dot]')).toHaveLength(3)
+    await act(async () => { store.setState({ streamingContents: {}, runStates: { [id]: { status: "idle" } } }) })
+    expect(scroll.scrollTop).toBe(200)
+    expect(container.querySelectorAll('[data-stream-dot]')).toHaveLength(0)
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="下滑"]')!
+    expect(button).not.toBeNull()
+    await act(async () => { button.click() })
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "auto" })
+    expect(container.querySelector('[aria-label="下滑"]')).toBeNull()
+    await act(async () => { scroll.scrollTop = 300; scroll.dispatchEvent(new Event("scroll")) })
+    expect(container.querySelector('[aria-label="下滑"]')).not.toBeNull()
+    await act(async () => { store.setState({ activeConversationId: `${kind}-old` }) })
+    expect(container.querySelector('[aria-label="下滑"]')).toBeNull()
+  })
+
   it("仅测试构建出现专用面板；正式版仍保留原消息与输入 DOM", async () => {
     build.enabled = false
     seed(kind)

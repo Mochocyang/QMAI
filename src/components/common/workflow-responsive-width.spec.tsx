@@ -17,7 +17,8 @@ describe("普通 AI 会话与 AI 大纲思考流程框宽度", () => {
 
   it("普通 AI 消息列全宽且不会被长内容撑开", () => {
     const panel = source("../chat/chat-panel.tsx")
-    expect(panel).toContain("min-w-0 flex-1 overflow-y-auto overflow-x-hidden")
+    expect(panel).toContain('className="relative min-h-0 flex-1" data-chat-message-region')
+    expect(panel).toContain("h-full min-h-0 min-w-0 overflow-y-auto overflow-x-hidden")
     expect(panel).toContain("flex w-full min-w-0 max-w-full flex-col")
   })
 

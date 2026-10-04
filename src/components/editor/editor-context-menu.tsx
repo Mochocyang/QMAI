@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 
 export type EditorContextAction = "undo" | "redo" | "copy" | "cut" | "paste" | "selectAll" | "find" | "replace"
 
@@ -13,12 +13,15 @@ const ITEMS: Array<{ action: EditorContextAction; label: string }> = [
   { action: "replace", label: "替换" },
 ]
 
-export function EditorContextMenu({ position, disabled, onAction, onClose }: {
+export function EditorContextMenu({ position, disabled, onAction, onClose, actions }: {
   position: { x: number; y: number } | null
+  actions?: readonly EditorContextAction[]
   disabled?: Partial<Record<EditorContextAction, boolean>>
   onAction: (action: EditorContextAction) => void
   onClose: () => void
 }) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const items = actions ? actions.map(action => ITEMS.find(item => item.action === action)!) : ITEMS
   useEffect(() => {
     if (!position) return
     const close = (event: PointerEvent) => {
@@ -26,18 +29,28 @@ export function EditorContextMenu({ position, disabled, onAction, onClose }: {
       if (target instanceof Element && target.closest("[data-editor-context-menu]")) return
       onClose()
     }
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); return }
+      if (!actions || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
+      event.preventDefault()
+      const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])]
+      if (!buttons.length) return
+      const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length
+      buttons[next].focus()
+    }
+    if (actions) menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus()
     document.addEventListener("pointerdown", close)
     document.addEventListener("keydown", onKey)
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", onKey) }
-  }, [position, onClose])
+  }, [position, onClose, actions])
   if (!position) return null
-  const left = Math.min(position.x, window.innerWidth - 148)
-  const top = Math.min(position.y, window.innerHeight - 280)
+  const left = Math.max(8, Math.min(position.x, window.innerWidth - 148))
+  const top = Math.max(8, Math.min(position.y, window.innerHeight - (actions ? items.length * 32 + 16 : 280)))
   return (
-    <div data-editor-context-menu="true" role="menu" className="fixed z-50 grid w-32 rounded-md border bg-background p-1 shadow-lg" style={{ left, top }}>
-      {ITEMS.map((item) => (
-        <button key={item.action} type="button" role="menuitem" disabled={disabled?.[item.action]} className="rounded px-2 py-1 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40" onClick={() => { onAction(item.action); onClose() }}>
+    <div ref={menuRef} data-editor-context-menu="true" role="menu" className="fixed z-50 grid w-32 rounded-md border bg-background p-1 shadow-lg" style={{ left, top }}>
+      {items.map((item) => (
+        <button key={item.action} type="button" role="menuitem" disabled={disabled?.[item.action]} className="rounded px-2 py-1 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={actions ? event => event.preventDefault() : undefined} onClick={() => { onAction(item.action); onClose() }}>
           {item.label}
         </button>
       ))}

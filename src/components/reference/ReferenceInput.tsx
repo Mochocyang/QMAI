@@ -7,6 +7,8 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react"
+import { createPortal } from "react-dom"
+import { EditorContextMenu, type EditorContextAction } from "@/components/editor/editor-context-menu"
 import { ArrowUp, AtSign, Square } from "lucide-react"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import { UI_TEST_STORAGE_PREFIX } from "@/lib/ui-test"
@@ -21,7 +23,11 @@ const DEFAULT_REFERENCE_INPUT_HEIGHT = 128
 const MIN_REFERENCE_INPUT_HEIGHT = 112
 const MAX_REFERENCE_INPUT_HEIGHT = 300
 
+const CLIPBOARD_ACTIONS = ["copy", "cut", "paste"] as const
+
 interface ReferenceInputProps {
+  enableClipboardMenu?: boolean
+  clipboardScope?: string | null
   value?: string
   tokens: ReferenceToken[]
   placeholder?: string
@@ -59,6 +65,8 @@ function saveInputHeight(height: number) {
 
 export function ReferenceInput({
   value,
+  enableClipboardMenu = false,
+  clipboardScope,
   tokens,
   placeholder = "输入提示词，或 @ 引用内容...",
   disabled = false,
@@ -76,6 +84,8 @@ export function ReferenceInput({
   renderTextOverlay,
 }: ReferenceInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [clipboardMenu, setClipboardMenu] = useState<{ x: number; y: number; start: number; end: number; value: string; scope?: string | null; input: HTMLTextAreaElement } | null>(null)
+  const [clipboardError, setClipboardError] = useState("")
   const isControlled = value !== undefined
   const [draft, setDraft] = useState("")
   const [inputHeight, setInputHeight] = useState(loadSavedInputHeight)
@@ -90,6 +100,55 @@ export function ReferenceInput({
     },
     [isControlled, onChange],
   )
+
+  const clipboardContextRef = useRef({ scope: clipboardScope, tokens, notifyChange })
+  clipboardContextRef.current = { scope: clipboardScope, tokens, notifyChange }
+  useEffect(() => { setClipboardMenu(null); setClipboardError("") }, [clipboardScope, inputDisabled])
+
+  const closeClipboardMenu = useCallback(() => {
+    setClipboardMenu(null)
+    textareaRef.current?.focus()
+  }, [])
+
+  const openClipboardMenu = (input: HTMLTextAreaElement, x: number, y: number) => {
+    if (!enableClipboardMenu || inputDisabled) return
+    const rect = input.getBoundingClientRect()
+    setClipboardError("")
+    setClipboardMenu({ x: x || rect.left + 12, y: y || rect.top + 12, start: input.selectionStart, end: input.selectionEnd, value: input.value, scope: clipboardScope, input })
+  }
+
+  const runClipboardAction = async (action: EditorContextAction) => {
+    if (!clipboardMenu || !CLIPBOARD_ACTIONS.some(item => item === action)) return
+    const snapshot = clipboardMenu
+    const selected = snapshot.value.slice(snapshot.start, snapshot.end)
+    const label = action === "copy" ? "复制" : action === "cut" ? "剪切" : "粘贴"
+    try {
+      if (action !== "paste") {
+        if (!selected) return
+        await navigator.clipboard.writeText(selected)
+        if (action === "copy") return
+      }
+      const inserted = action === "paste" ? await navigator.clipboard.readText() : ""
+      const input = textareaRef.current
+      if (!input || input !== snapshot.input || !input.isConnected || input.disabled || clipboardContextRef.current.scope !== snapshot.scope) return
+      if (input.value !== snapshot.value) {
+        setClipboardError("输入内容已变化，本次操作已取消，请重新选择文字。")
+        return
+      }
+      input.focus()
+      input.setSelectionRange(snapshot.start, snapshot.end)
+      // 原生插入保留桌面WebView撤销栈；不支持时仍通过原onChange链路更新。
+      let insertedNatively = false
+      try { insertedNatively = typeof document.execCommand === "function" && document.execCommand("insertText", false, inserted) } catch { /* 使用原输入更新链路 */ }
+      if (!insertedNatively) {
+        input.setRangeText(inserted, snapshot.start, snapshot.end, "end")
+        clipboardContextRef.current.notifyChange(input.value, clipboardContextRef.current.tokens)
+      }
+      input.setSelectionRange(snapshot.start + inserted.length, snapshot.start + inserted.length)
+    } catch {
+      if (textareaRef.current === snapshot.input) setClipboardError(`${label}失败，请检查剪贴板权限后重试。`)
+    }
+  }
 
   const updateTokens = useCallback(
     (nextTokens: ReferenceToken[]) => {
@@ -134,6 +193,11 @@ export function ReferenceInput({
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (isImeComposing(event)) return
+      if (enableClipboardMenu && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+        event.preventDefault()
+        openClipboardMenu(event.currentTarget, 0, 0)
+        return
+      }
 
       if (event.key === "@" && !event.ctrlKey && !event.metaKey) {
         event.preventDefault()
@@ -146,7 +210,7 @@ export function ReferenceInput({
         handleSubmit()
       }
     },
-    [handleSubmit, onAtTrigger],
+    [handleSubmit, onAtTrigger, enableClipboardMenu, inputDisabled, clipboardScope],
   )
 
   const handleResizePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -238,12 +302,22 @@ export function ReferenceInput({
           spellCheck={false}
           disabled={inputDisabled}
           rows={1}
+          onContextMenu={enableClipboardMenu ? (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            openClipboardMenu(event.currentTarget, event.clientX, event.clientY)
+          } : undefined}
           onChange={handleTextareaChange}
           onKeyDown={handleKeyDown}
           aria-label="引用输入框"
         />
       </div>
 
+      {clipboardError ? <p role="status" className="px-3 py-1 text-xs text-destructive">{clipboardError}</p> : null}
+      {enableClipboardMenu && clipboardMenu && !inputDisabled ? createPortal(
+        <EditorContextMenu position={clipboardMenu} actions={CLIPBOARD_ACTIONS} disabled={{ copy: clipboardMenu.start === clipboardMenu.end, cut: clipboardMenu.start === clipboardMenu.end }} onAction={action => void runClipboardAction(action)} onClose={closeClipboardMenu} />,
+        document.body,
+      ) : null}
       <div
         data-reference-input-footer
         className="flex items-center justify-between gap-2 border-t px-2 py-1.5"

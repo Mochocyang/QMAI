@@ -1,3 +1,4 @@
+import { UserMessageMeta } from "./user-message-meta";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -207,6 +208,7 @@ export function ChatMessage({
             </>
           )}
         </div>
+        {isUser && !message.discarded ? <UserMessageMeta content={message.content} timestamp={message.timestamp} /> : null}
         {isAssistant && !message.discarded && (
           <CitedReferencesPanel
             content={message.content}

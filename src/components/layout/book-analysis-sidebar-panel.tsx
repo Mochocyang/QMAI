@@ -217,7 +217,7 @@ export function BookAnalysisSidebarPanel() {
   return (
     <div className="flex h-full flex-col">
       {/* 标题栏 */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+      <div data-ui-panel-heading className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
         <div className="min-w-0">
           <PanelHeaderWithHelp title="作品库" helpKey="bookAnalysis" />
           <div className="mt-0.5 text-xs text-muted-foreground">

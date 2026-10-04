@@ -1374,6 +1374,38 @@ describe("OutlineChatPanel controls", () => {
     expect(calls[0].user).toContain("把236章大纲补充详细")
   })
 
+  it("网络断流后显示并保留已接收设定，已有保存协议也不自动弹出确认", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "fast" })
+    const body = "# 金手指设定：回响\n\n## 能力概述\n已收到的触发条件：接触旧物。"
+    const text = body + '\n\n```json\n' + JSON.stringify({outlineSaveRequest:{targetFolder:"金手指设定",fileName:"回响.md",fileType:"setting",writeMode:"create",referencedSkills:[],sourceIntent:"金手指设定",content:""}}) + '\n```'
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(text)
+      callbacks.onError(new Error("error decoding response body"))
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input).toBeInstanceOf(HTMLTextAreaElement)
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setValue?.call(input, "随便写点设定")
+      input?.dispatchEvent(new Event("input", { bubbles: true }))
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      for (let attempt = 0; attempt < 200; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        if (runSpy.mock.calls.length && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+      }
+    })
+    expect(runSpy).toHaveBeenCalledTimes(1)
+    const assistant = useOutlineChatStore.getState().conversations.find(item => item.id === "outline-active")?.messages.filter(item => item.role === "assistant").at(-1)
+    expect(assistant?.content).toContain("已收到的触发条件")
+    expect(assistant?.content).toContain("生成中断")
+    expect(assistant?.content).not.toContain("生成失败：")
+    expect(assistant?.isAgentRunning).toBe(false)
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
+  })
+
   it("单 Agent 输出被截断时不自动弹出保存确认", async () => {
     useWikiStore.setState({ outlineWorkflowMode: "fast" })
     const body = "# 总纲\n\n## 核心设定\n残稿"

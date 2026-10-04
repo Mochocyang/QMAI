@@ -129,3 +129,13 @@ describe("正式版引用输入框不回退", () => {
     expect(localStorage.getItem(testKey)).toBeNull()
   })
 })
+// 两种助手共用面板留白，大纲不能再叠加第二层横向内边距。
+describe("写作布局间距契约", () => {
+  it("大纲输入区去除额外横向内边距，需求行允许换行", () => {
+    const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
+    const panel = readFileSync(resolve(__dirname, "../sources/outline-chat-panel.tsx"), "utf8")
+    expect(panel).toContain("data-ui-ai-input-area")
+    expect(panel).toContain('className="mb-2 flex flex-wrap items-center justify-between gap-2"')
+    expect(css).toMatch(/\[data-ui-ai-panel="outline"\] > \[data-ui-ai-input-area\]\s*\{[^}]*padding-inline:\s*0/)
+  })
+})

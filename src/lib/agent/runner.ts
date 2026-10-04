@@ -1,4 +1,4 @@
-import { isOutputTruncatedError, streamChat } from "../llm-client"
+import { streamChat } from "../llm-client"
 import type { StreamCallbacks } from "../llm-client"
 import { isFunctionCallingEnabled } from "./config"
 import { accumulateToolCalls } from "./tool-call-parser"
@@ -346,31 +346,33 @@ export class AgentRunner {
       try {
         await streamRound()
       } catch (err) {
-        if (openaiTools && isToolUnsupportedError(err)) {
+        if (!signal?.aborted && openaiTools && isToolUnsupportedError(err)) {
           try {
             await retryWithoutTools()
-          } catch {
-            return failToolsUnsupported()
+          } catch (retryError) {
+            streamError = retryError instanceof Error ? retryError : new Error(String(retryError))
           }
         } else {
-          callbacks.onError(err instanceof Error ? err : new Error(String(err)))
-          return record
+          // 与 onError 回调统一收尾，直接抛出的读取错误也不能丢掉 roundText。
+          streamError = err instanceof Error ? err : new Error(String(err))
         }
       }
 
       if (
+        !signal?.aborted &&
         streamError &&
         openaiTools &&
         isToolUnsupportedError(streamError)
       ) {
         try {
           await retryWithoutTools()
-        } catch {
-          return failToolsUnsupported()
+        } catch (retryError) {
+          streamError = retryError instanceof Error ? retryError : new Error(String(retryError))
         }
       }
 
       if (
+        !signal?.aborted &&
         streamError &&
         isReasoningOnlyResponseError(streamError) &&
         !isReasoningDisabled(config.llmConfig, requestOverrides)
@@ -384,10 +386,12 @@ export class AgentRunner {
         try {
           await streamRound()
         } catch (err) {
-          callbacks.onError(err instanceof Error ? err : new Error(String(err)))
-          return record
+          streamError = err instanceof Error ? err : new Error(String(err))
         }
       }
+
+      // 部分传输实现将主动取消回调为 onDone，仍必须按取消而非生成成功处理。
+      if (signal?.aborted) streamError = new Error("操作已取消")
 
       if (roundUsage) {
         record.lastRequestUsage = { ...roundUsage }
@@ -395,16 +399,16 @@ export class AgentRunner {
       }
 
       if (streamError) {
-        if (attemptedToolsFallback) {
+        if (attemptedToolsFallback && isToolUnsupportedError(streamError)) {
           return failToolsUnsupported()
         }
-        // Token-limit truncation: keep the partial round text so callers
-        // can show it and offer continuation, instead of dropping the
-        // whole round on the floor.
+        // 正文只在本轮没有工具调用时交给上层；网络断流/抛错/取消与长度截断
+        // 一样需要保留已收到的文本。仍调用 onError，绝不变成成功或执行半截工具。
         if (
-          isOutputTruncatedError(streamError) &&
           toolCallDeltas.length === 0 &&
-          roundText.trim()
+          roundText.trim() &&
+          !isReasoningOnlyResponseError(streamError) &&
+          !isToolUnsupportedError(streamError)
         ) {
           finalText = roundText
           record.finalText = finalText

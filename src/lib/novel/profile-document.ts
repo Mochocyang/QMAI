@@ -14,6 +14,7 @@
 
 import { fileExists, getExecutableDir, getResourceDir, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { normalizeProfileDiagram, renderProfileDiagram, type ProfileDiagram } from "./profile-diagram"
 
 export interface ProfileKvItem {
   label?: string
@@ -24,6 +25,8 @@ export type ProfileSection =
   | { kind: "kv"; heading: string; items: ProfileKvItem[] }
   | { kind: "list"; heading: string; items: string[] }
   | { kind: "table"; heading: string; head: string[]; rows: string[][] }
+  /** Markdown 分区内的正文、列表与多张表，按原始顺序保留。 */
+  | { kind: "mixed"; heading: string; blocks: ProfileSection[] }
 
 export interface ProfileDocument {
   name: string
@@ -32,6 +35,8 @@ export interface ProfileDocument {
   /** 一句话定位 */
   tagline?: string
   sections: ProfileSection[]
+  /** 地理/地点的结构化关系示意，缺失时不伪造地图。 */
+  diagram?: ProfileDiagram
 }
 
 /** JSON 顶层字段：单个对象字段 + 可选数组字段。 */
@@ -125,11 +130,13 @@ export function normalizeProfileDocument(raw: unknown, fallbackName = "未命名
   const sections = (Array.isArray(payload.sections) ? payload.sections : [])
     .map(normalizeProfileSection)
     .filter((section): section is ProfileSection => Boolean(section))
+  const diagram = normalizeProfileDiagram(payload.diagram)
   if (!name && sections.length === 0) return null
   return {
     name: name || fallbackName,
     ...(hasVisibleText(tag) ? { tag } : {}),
     ...(tagline ? { tagline } : {}),
+    ...(diagram ? { diagram } : {}),
     sections,
   }
 }
@@ -338,7 +345,7 @@ function isTableRow(line: string): boolean {
 }
 
 function splitCells(line: string): string[] {
-  return line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cleanInline(cell).trim())
+  return line.replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cleanInline(cell.replace(/\\\|/g, "|")).trim())
 }
 
 function isTableSeparator(cells: string[]): boolean {
@@ -346,64 +353,67 @@ function isTableSeparator(cells: string[]): boolean {
 }
 
 function parseKvOrList(block: string): ProfileSection | null {
-  const lines = block.split(/\r?\n/)
-  const kv: ProfileKvItem[] = []
-  const list: string[] = []
+  const items: ProfileKvItem[] = []
   let buffer: string[] = []
-
   const flush = () => {
     const text = cleanInline(buffer.join(" ")).trim()
     buffer = []
     if (!text) return
-    const fieldMatch = text.match(/^([^：:]{1,16})[：:]\s*(.+)$/)
-    if (fieldMatch && fieldMatch[2].trim()) kv.push({ label: fieldMatch[1].trim(), text: fieldMatch[2].trim() })
-    else list.push(text)
+    const field = text.match(/^([^：:]{1,32})[：:]\s*(.+)$/)
+    items.push(field ? { label: cleanInline(field[1]), text: cleanInline(field[2]) } : { text })
   }
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) { flush(); continue }
-    const listMatch = trimmed.match(/^(?:[-*+]|\d+[.)])\s+(.*)$/)
-    if (listMatch) {
+  for (const line of block.split(/\r?\n/)) {
+    const text = line.trim()
+    if (!text) { flush(); continue }
+    const item = text.match(/^(?:[-*+]|\d+[.)])\s+(.*)$/)
+    if (item) {
       flush()
-      const raw = listMatch[1]
-      const fieldMatch = raw.match(/^([^：:]{1,16})[：:]\s*(.+)$/)
-      if (fieldMatch && fieldMatch[2].trim()) {
-        kv.push({ label: cleanInline(fieldMatch[1]).trim(), text: cleanInline(fieldMatch[2]).trim() })
-      } else {
-        const text = cleanInline(raw).trim()
-        if (text) list.push(text)
-      }
-      continue
-    }
-    const fieldMatch = trimmed.match(/^([^：:]{1,16})[：:]\s*(.+)$/)
-    if (fieldMatch && fieldMatch[2].trim()) {
+      buffer.push(item[1])
+    } else if (/^[^：:]{1,32}[：:]\s*.+$/.test(text)) {
       flush()
-      kv.push({ label: cleanInline(fieldMatch[1]).trim(), text: cleanInline(fieldMatch[2]).trim() })
-      continue
+      buffer.push(text)
+    } else {
+      buffer.push(text)
     }
-    buffer.push(trimmed)
   }
   flush()
-
-  if (kv.length > 0) return { kind: "kv", heading: "", items: kv }
-  if (list.length > 0) return { kind: "list", heading: "", items: list }
-  return null
+  if (!items.length) return null
+  return items.some(item => item.label)
+    ? { kind: "kv", heading: "", items }
+    : { kind: "list", heading: "", items: items.map(item => item.text) }
 }
 
-/** 把一个区块解析成分区（优先识别 Markdown 表格）。 */
+/** 保留分区内所有正文和表格，不能识别到一张表就丢掉其余文字。 */
 function parseSection(heading: string, block: string): ProfileSection | null {
   const lines = block.split(/\r?\n/)
-  const tableLines = lines.map((line) => line.trim()).filter((line) => isTableRow(line))
-  if (tableLines.length >= 2) {
-    const rows = tableLines.map(splitCells)
-    const head = isTableSeparator(rows[0]) ? [] : rows[0]
-    const body = (head.length ? rows.slice(1) : rows).filter((cells) => !isTableSeparator(cells))
-    if (body.length > 0) return { kind: "table", heading, head, rows: body }
+  const blocks: ProfileSection[] = []
+  let prose: string[] = []
+  const flush = () => {
+    const parsed = parseKvOrList(prose.join("\n"))
+    if (parsed) blocks.push(parsed)
+    prose = []
   }
-  const parsed = parseKvOrList(block)
-  if (!parsed) return null
-  return { ...parsed, heading }
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim()
+    const next = lines[index + 1]?.trim() ?? ""
+    if (isTableRow(line) && isTableRow(next) && isTableSeparator(splitCells(next))) {
+      flush()
+      const head = splitCells(line)
+      const rows: string[][] = []
+      index += 2
+      while (index < lines.length && isTableRow(lines[index].trim())) {
+        rows.push(splitCells(lines[index].trim()))
+        index++
+      }
+      index--
+      blocks.push({ kind: "table", heading: "", head, rows })
+    } else {
+      prose.push(lines[index])
+    }
+  }
+  flush()
+  if (!blocks.length) return null
+  return blocks.length === 1 ? { ...blocks[0], heading } : { kind: "mixed", heading, blocks }
 }
 
 /** 常见「设定名：」前缀（势力：青云门 / 力量体系：九转玄功 / 角色：林辰 …）。 */
@@ -467,6 +477,11 @@ export function profileDocumentFromMarkdown(md: string, fallbackName = "未命�
 
   const sectionHeadings = headings.filter((heading) => heading.level >= sectionLevelMin)
   const sections: ProfileSection[] = []
+  // 页首只展示短摘要，完整导语另存为正文分区，不能因 120 字摘要上限丢失。
+  if (firstSection && leading && cleanInline(leading) !== tagline) {
+    const introduction = parseSection("设定导语", leading)
+    if (introduction) sections.push(introduction)
+  }
   sectionHeadings.forEach((heading, i) => {
     const end = i + 1 < sectionHeadings.length ? sectionHeadings[i + 1].index : lines.length
     const section = parseSection(stripNumbering(heading.text), lines.slice(heading.index + 1, end).join("\n"))
@@ -510,9 +525,11 @@ export const PROFILE_PLACEHOLDERS = {
   tagline: "__PROFILE_TAGLINE__",
   overview: "__PROFILE_OVERVIEW__",
   sections: "__PROFILE_SECTIONS__",
+  diagram: "__PROFILE_DIAGRAM__",
+  title: "__PROFILE_TITLE__",
 } as const
 
-const REQUIRED_PLACEHOLDERS = Object.values(PROFILE_PLACEHOLDERS)
+const REQUIRED_PLACEHOLDERS = Object.values(PROFILE_PLACEHOLDERS).filter(value => value !== PROFILE_PLACEHOLDERS.diagram && value !== PROFILE_PLACEHOLDERS.title)
 
 function escapeHtml(value: unknown): string {
   return String(value == null ? "" : value)
@@ -552,12 +569,12 @@ function entryBlock(item: ProfileKvItem): string {
 /**
  * kv 条目渲染：按「连续短值 / 连续长值」分组——
  * 短值组包进 .kgrid 迷你信息卡双列排布（信息密度），
- * 长值组包进 .entrylist 双栏流式排版（编辑部式条目，消除「右侧大片留白」）。
+ * 长值组包进 .entrylist 正文条目，保持顺序与可读行宽。
  */
 function renderKvItems(items: ProfileKvItem[]): string {
   const groups: Array<{ long: boolean; items: ProfileKvItem[] }> = []
   for (const item of items) {
-    const long = item.text.length > SHORT_VALUE_LIMIT
+    const long = !item.label?.trim() || item.text.length > SHORT_VALUE_LIMIT
     const last = groups[groups.length - 1]
     if (last && last.long === long) last.items.push(item)
     else groups.push({ long, items: [item] })
@@ -582,21 +599,43 @@ function tableBlock(head: string[], rows: string[][]): string {
 
   const headHtml = headCells.length
     ? `<thead><tr>${pad(headCells)
-        .map((cell) => `<th class="mxh">${escapeHtml(cell)}</th>`)
+        .map((cell) => `<th class="mxh" scope="col">${escapeHtml(cell)}</th>`)
         .join("")}</tr></thead>`
     : ""
   const bodyHtml = rows
     .map(
       (row) =>
         `<tr>${pad(row)
-          .map((cell, index) => `<td${index === 0 ? ' class="mxh"' : ""}>${renderCell(cell)}</td>`)
+          .map((cell, index) => `<td${index === 0 ? ' class="mxh"' : ""} data-label="${escapeHtml(headCells[index] || `第${index + 1}项`)}">${renderCell(cell)}</td>`)
           .join("")}</tr>`,
     )
     .join("")
   return `<div class="mxwrap"><table class="mx">${headHtml}<tbody>${bodyHtml}</tbody></table></div>`
 }
 
-function sectionBody(section: ProfileSection): string {
+/** 第二版按信息语义组织视觉，所有单元格原文仍在卡片和可展开源表中保留。 */
+function semanticTable(section: Extract<ProfileSection, { kind: "table" }>): string | null {
+  const heading = section.heading
+  const style = /等级|阶梯|升级树/.test(heading) ? "ranks"
+    : /历史|沿革|出场记录|成长节奏|使用史/.test(heading) ? "timeline"
+    : /伏笔状态|线索链|埋设与回收|表层误导|回收日志/.test(heading) ? "threads"
+    : /区域划分|重要地点|交通与通行|空间规则|可触发事件/.test(heading) ? "regions"
+    : /经济来源|资源与消耗|资源与限制/.test(heading) ? "resources"
+    : /关系网络|外部关系|组织架构|人员构成|派系/.test(heading) ? "roster" : null
+  if (!style || !section.rows.length) return null
+  const cards = section.rows.map((row, index) => {
+    const fields = row.slice(1).map((cell, i) => `<div class="semantic-field"><dt>${escapeHtml(section.head?.[i + 1] || `第${i + 2}项`)}</dt><dd>${renderCell(cell)}</dd></div>`).join("")
+    return `<article class="semantic-card"><header><span class="semantic-number">${String(index + 1).padStart(2, "0")}</span><h4>${escapeHtml(row[0] || "未命名条目")}</h4></header><dl>${fields}</dl></article>`
+  }).join("")
+  return `<div class="profile-${style} semantic-grid">${cards}</div><details class="profile-source-table"><summary>查看完整对照表（${section.rows.length} 条）</summary>${tableBlock(section.head, section.rows)}</details>`
+}
+
+function sectionBody(section: ProfileSection, editorial = false): string {
+  if (section.kind === "mixed") return section.blocks.map(block => sectionBody({ ...block, heading: section.heading }, editorial)).join("\n")
+  if (editorial && section.kind === "table") {
+    const visual = semanticTable(section)
+    if (visual) return visual
+  }
   if (section.kind === "table") return section.rows.length ? tableBlock(section.head, section.rows) : `<p class="hint">未填</p>`
   if (section.kind === "list") return section.items.length ? listBlock(section.items) : `<p class="hint">未填</p>`
   if (section.items.length === 0) return `<p class="hint">未填</p>`
@@ -605,6 +644,7 @@ function sectionBody(section: ProfileSection): string {
 
 /** 分区规模标注（导航与卡片标题共用）。 */
 function sectionCount(section: ProfileSection): string {
+  if (section.kind === "mixed") return `${section.blocks.length} 组内容`
   return section.kind === "table" ? `${section.rows.length} 行` : `${section.items.length} 条`
 }
 
@@ -638,9 +678,9 @@ const STATUS_BADGES: Array<{ pattern: RegExp; tone: "ok" | "warn" | "danger" }> 
 ]
 
 const BADGE_TONES = {
-  ok: { bg: "#EEF7EE", fg: "#3C7A3C", bd: "#B7DFB7" },
-  warn: { bg: "#FFF7E6", fg: "#96601A", bd: "#F59E42" },
-  danger: { bg: "#FFF1F0", fg: "#A8071A", bd: "#FFCCC7" },
+  ok: { bg: "var(--ok-soft)", fg: "var(--ok)", bd: "var(--ok-border)" },
+  warn: { bg: "var(--warn-soft)", fg: "var(--warn)", bd: "var(--he)" },
+  danger: { bg: "var(--danger-soft)", fg: "var(--danger)", bd: "var(--danger-border)" },
 } as const
 
 /** 单元格渲染：命中状态枚举时套一个带内联样式的徽章，否则普通转义。 */
@@ -652,22 +692,20 @@ function renderCell(cell: string): string {
   return `<span style="display:inline-block;font-size:11px;line-height:1.5;border-radius:999px;padding:1px 9px;background:${tone.bg};color:${tone.fg};border:1px solid ${tone.bd}">${escapeHtml(text)}</span>`
 }
 
-function buildSectionsHtml(doc: ProfileDocument): string {
+function buildSectionsHtml(doc: ProfileDocument, editorial = false): string {
   if (doc.sections.length === 0) return `<p class="empty">未包含档案数据（sections 为空），请重新生成。</p>`
   return doc.sections.map((section, index) => {
-    const wide = section.kind === "table" ? " wide" : ""
+    const wide = section.kind === "table" || section.kind === "mixed" ? " wide" : ""
     const extra = profileSectionExtraClass(section.heading)
     const anchor = `psec-${index + 1}`
-    return `<section class="pcard${wide}${extra}" id="${anchor}"><h3><span class="no">${index + 1}</span>${escapeHtml(section.heading || `分区 ${index + 1}`)}<span class="pn">${sectionCount(section)}</span></h3>${sectionBody(section)}</section>`
+    return `<section class="pcard${wide}${extra}" id="${anchor}"><details open><summary><h3><span class="no">${index + 1}</span>${escapeHtml(section.heading || `分区 ${index + 1}`)}<span class="pn">${sectionCount(section)}</span></h3></summary><div class="section-body">${sectionBody(section, editorial)}</div></details></section>`
   }).join("")
 }
 
 function buildChipsHtml(doc: ProfileDocument): string {
   const chips: string[] = []
   if (hasVisibleText(doc.tag)) chips.push(`<span class="chip"><b>${escapeHtml(doc.tag ?? "")}</b></span>`)
-  chips.push(`<span class="chip"><b>${doc.sections.length}</b> 个分区</span>`)
-  const tableRows = doc.sections.reduce((sum, section) => sum + (section.kind === "table" ? section.rows.length : 0), 0)
-  if (tableRows > 0) chips.push(`<span class="chip"><b>${tableRows}</b> 条表格记录</span>`)
+  chips.push(`<span class="chip"><b>${doc.sections.length}</b> 个分区 · 正文写作参考</span>`)
   return chips.join("")
 }
 
@@ -675,7 +713,7 @@ function buildChipsHtml(doc: ProfileDocument): string {
  * 总览区：分区锚点导航（对齐卷纲/章纲的 .nav 设计）——一眼看清整卡结构，点击直达。
  * 链接里不再塞计数（卡片标题右侧已有计数徽章），避免「1 分区 1 15 条」式的噪音。
  */
-function buildOverviewHtml(doc: ProfileDocument): string {
+function buildOverviewHtml(doc: ProfileDocument, editorial = false): string {
   if (doc.sections.length === 0) return ""
   const links = doc.sections
     .map(
@@ -683,7 +721,8 @@ function buildOverviewHtml(doc: ProfileDocument): string {
         `<a class="navlink" href="#psec-${index + 1}"><b>${index + 1}</b>${escapeHtml(section.heading || `分区 ${index + 1}`)}</a>`,
     )
     .join("")
-  return `<nav class="pnav"><span class="navt">分区导航</span><span class="pn">${doc.sections.length} 个分区</span>${links}</nav>`
+  const diagramLink = editorial && doc.diagram && normalizeProfileDiagram(doc.diagram) ? `<a class="navlink" href="#profile-diagram"><b>图</b>空间总览</a>` : ""
+  return `<nav class="pnav"><span class="navt">分区导航</span><span class="pn">${doc.sections.length} 个分区</span>${diagramLink}${links}</nav>`
 }
 
 /** 用模板渲染档案 HTML（纯静态，0 脚本）。 */
@@ -692,6 +731,7 @@ export function renderProfileDocumentHtml(
   template: string,
   eyebrow: string,
 ): string {
+  const editorial = template.includes('data-qmai-layout="editorial-v2"')
   // 徽章只在有可见文字时渲染：避免 tag 里是零宽字符 / 只有 `**` 时出现「空白胶囊」
   const tagHtml = hasVisibleText(doc.tag) ? `<span class="role">${escapeHtml(doc.tag ?? "")}</span>` : ""
   const placeholders: Record<string, string> = {
@@ -700,8 +740,10 @@ export function renderProfileDocumentHtml(
     [PROFILE_PLACEHOLDERS.tag]: tagHtml,
     [PROFILE_PLACEHOLDERS.chips]: buildChipsHtml(doc),
     [PROFILE_PLACEHOLDERS.tagline]: hasVisibleText(doc.tagline) ? escapeHtml(doc.tagline ?? "") : "",
-    [PROFILE_PLACEHOLDERS.overview]: buildOverviewHtml(doc),
-    [PROFILE_PLACEHOLDERS.sections]: buildSectionsHtml(doc),
+    [PROFILE_PLACEHOLDERS.overview]: buildOverviewHtml(doc, editorial),
+    [PROFILE_PLACEHOLDERS.sections]: buildSectionsHtml(doc, editorial),
+    [PROFILE_PLACEHOLDERS.diagram]: doc.diagram ? renderProfileDiagram(doc.diagram) : "",
+    [PROFILE_PLACEHOLDERS.title]: escapeHtml(`${doc.name || "未命名"} · ${eyebrow}`),
   }
   return Object.entries(placeholders).reduce(
     (html, [placeholder, value]) => html.replace(placeholder, () => value),

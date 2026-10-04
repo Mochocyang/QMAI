@@ -419,7 +419,7 @@ export function UnifiedSkillLibrarySidebarPanel() {
 
   return (
     <div data-testid="unified-skill-library-sidebar" className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b px-3 py-2">
+      <div data-ui-panel-heading className="shrink-0 border-b px-3 py-2">
         <h1 className="text-sm font-semibold">技能库</h1>
         <p className="mt-0.5 text-xs text-muted-foreground">统一检索写作 Skill 和去AI味技能。</p>
       </div>

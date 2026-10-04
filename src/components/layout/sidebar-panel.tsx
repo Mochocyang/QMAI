@@ -80,7 +80,7 @@ function SearchHistoryPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+      <div data-ui-panel-heading className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <div className="text-sm font-semibold text-foreground">
           {t("novel.nav.search")}
         </div>
@@ -240,7 +240,7 @@ function StorySimulationSidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+      <div data-ui-panel-heading className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <PanelHeaderWithHelp
           title="故事框架"
           helpKey="storySimulation"
@@ -1059,7 +1059,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
     return (
       <div className="flex h-full flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
+        <div data-ui-panel-heading className="flex shrink-0 items-center justify-between border-b px-3 py-2">
           <div className="flex items-center gap-1.5 text-sm font-semibold">
           <PanelHeaderWithHelp title={t("novel.memoryCenter.title")} helpKey="memory" />
         </div>

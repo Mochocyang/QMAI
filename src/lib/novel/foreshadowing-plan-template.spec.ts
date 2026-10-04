@@ -105,10 +105,10 @@ describe("foreshadowing-plan-template", () => {
     expect(html).toContain("伏笔计划 · 伏笔台账")
     expect(html).toContain("pcard wide threads")
     expect(html).toContain("pcard wide payoff")
-    // 状态 / 重要度 徽章（内联配色）
+    // 状态 / 重要度徽章使用主题变量，深色下不能残留浅色底。
     expect(html).toContain("已回收")
-    expect(html).toContain("background:#EEF7EE")
-    expect(html).toContain("background:#FFF1F0")
+    expect(html).toContain("background:var(--ok-soft)")
+    expect(html).toContain("background:var(--danger-soft)")
   })
 
   it("attachForeshadowingProfileHtml：fileType 由调用方判定（不再自查）；真 HTML 保留；无数据原样返回", () => {

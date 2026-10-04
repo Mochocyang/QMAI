@@ -102,17 +102,63 @@ afterEach(async () => {
 })
 
 describe("测试版正文编辑器", () => {
+  it.each([chapterPath, outlinePath])("标题和操作区位于独立正文滚动区之外：%s", async (path) => {
+    await mount(path)
+    const scroll = container.querySelector(".ui-test-editor-scroll")!
+    const header = container.querySelector(".ui-test-editor-header")!
+    expect(scroll).not.toBeNull()
+    expect(header).not.toBeNull()
+    expect(scroll.contains(header)).toBe(false)
+    expect(header.querySelector("h1")).not.toBeNull()
+    expect(header.querySelector('[aria-label="文档操作"]')).not.toBeNull()
+    expect(scroll.querySelector(".ui-test-editor-body")).not.toBeNull()
+    expect(container.querySelector('[aria-label="文档位置"]')).toBeNull()
+    expect(fixture.write).not.toHaveBeenCalled()
+  })
+
+  it("滚动引用绑定正文滚动区，保存状态变化不重建滚动容器", async () => {
+    const scrollRef = createRef<HTMLDivElement>()
+    const props = { kind: "chapter" as const, path: chapterPath, title: "第16章 实际章名", onTitleCommit: vi.fn(), statusLabel: "草稿", wordCount: 10, actions: <button>提取记忆</button>, moreActions: [], taskStatus: "", onRetrySave: vi.fn(), onClose: vi.fn(), scrollRef }
+    const render = async (phase: "pending" | "saving") => {
+      await act(async () => { root.render(<div className="ui-test-root"><UiTestEditor {...props} saveState={{ path: chapterPath, phase }}>{() => <p>正文</p>}</UiTestEditor></div>) })
+    }
+    await render("pending")
+    const scroll = container.querySelector<HTMLDivElement>(".ui-test-editor-scroll")!
+    expect(scroll).not.toBeNull()
+    expect(scrollRef.current).toBe(scroll)
+    scroll.scrollTop = 240
+    await render("saving")
+    expect(scrollRef.current).toBe(scroll)
+    expect(scroll.scrollTop).toBe(240)
+    expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("正在保存")
+  })
+
+  it("外部文件刷新后更新正文并恢复新的正文滚动区位置", async () => {
+    await mount()
+    const scroll = container.querySelector<HTMLDivElement>(".ui-test-editor-scroll")!
+    const previousEditor = container.querySelector('[data-writing-editor] textarea')
+    scroll.scrollTop = 360
+    fixture.files.set(chapterPath, chapter + "\n\n外部更新后的段落。")
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))) })
+    const nextEditor = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    expect(nextEditor.value).toContain("外部更新后的段落")
+    expect(nextEditor).not.toBe(previousEditor)
+    expect(container.querySelector(".ui-test-editor-scroll")).toBe(scroll)
+    expect(scroll.scrollTop).toBe(360)
+    expect(fixture.write).not.toHaveBeenCalled()
+  })
+
   it("章节使用新版编辑器，不渲染旧版满宽标题条", async () => {
     await mount()
     expect(container.querySelector(".ui-test-editor")).not.toBeNull()
     expect(container.querySelector(".h-12")).toBeNull()
   })
 
-  it("面包屑、标题、状态和字数全部来自当前真实文件", async () => {
+  it("删除冗余面包屑但保留真实标题、状态和字数", async () => {
     await mount()
     const breadcrumb = container.querySelector('[aria-label="文档位置"]')
-    expect(breadcrumb?.textContent ?? "").toContain(project.name)
-    expect(breadcrumb?.textContent ?? "").toContain("第一卷")
+    expect(breadcrumb).toBeNull()
     expect(container.querySelector("h1")?.textContent ?? "").toContain("第16章 实际章名")
     const metadata = container.querySelector(".ui-test-editor-meta")
     expect(metadata?.textContent ?? "").toContain("草稿")
@@ -451,7 +497,7 @@ describe("图稿复核修正", () => {
     }
     const scrollRef = createRef<HTMLDivElement>()
     const props = {
-      kind: "outline" as const, path: outlinePath, breadcrumbs: ["实际书名"], title: "实际大纲", onTitleCommit: () => {},
+      kind: "outline" as const, path: outlinePath, title: "实际大纲", onTitleCommit: () => {},
       statusLabel: "待提取记忆", wordCount: 10, actions: null, moreActions: [], saveState: null, taskStatus: "", onRetrySave: () => {}, onClose: () => {}, scrollRef,
       auxiliaryPanel: <AuxiliaryProbe />,
     }
@@ -468,9 +514,22 @@ describe("测试版正文样式边界", () => {
   const cssPath = resolve(__dirname, "ui-test-editor.css")
   const css = existsSync(cssPath) ? readFileSync(cssPath, "utf8") : ""
 
-  it("单独提供最大800正文容器，28px标题与18px/1.95衬线正文", () => {
+  it("固定外壳不滚动，只有正文区域滚动且头部不裁切提示", () => {
+    expect(css).toMatch(/\.ui-test-editor\s*\{[^}]*overflow:\s*hidden/)
+    expect(css).toMatch(/\.ui-test-editor-scroll\s*\{[^}]*overflow-y:\s*auto/)
+    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*flex-shrink:\s*0/)
+    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
+  })
+
+  it("草稿提示按工具栏宽度定位，不能在窄编辑区被裁掉", () => {
+    expect(css).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
+    expect(css).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
+    expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+  })
+
+  it("单独提供最大800正文容器，20px标题与18px/1.95衬线正文", () => {
     expect(css).toMatch(/max-width:\s*800px/)
-    expect(css).toMatch(/28px\/1\.45\s+var\(--serif\)/)
+    expect(css).toMatch(/20px\/28px\s+var\(--serif\)/)
     expect(css).toMatch(/18px\/1\.95\s+var\(--serif\)/)
     expect(css).toContain("text-indent: 2em")
     expect(css).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)

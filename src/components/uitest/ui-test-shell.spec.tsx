@@ -58,6 +58,28 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks() })
 
 describe("独立UI测试版外壳", () => {
+  it("书名保留在书架右侧原位置，切换小说同步", async () => {
+    await render()
+    const brand = host.querySelector(".ui-test-brand")!
+    const book = host.querySelector(".ui-test-current-book")!
+    const shelf = host.querySelector('[aria-label="返回书架"]')!
+    expect(host.querySelector(".ui-test-brand-copy")).toBeNull()
+    expect(book.parentElement).toBe(brand)
+    expect(book.previousElementSibling).toBe(shelf)
+    expect(book.textContent).toBe(project.name)
+    expect(host.querySelectorAll(".ui-test-current-book")).toHaveLength(1)
+    const next = { ...project, id: "next", name: "很长的小说名称用于验证省略及悬停完整名称" }
+    await act(async () => { root.render(<UiTestShell project={next} {...callbacks} />) })
+    expect(host.querySelector(".ui-test-current-book")?.getAttribute("title")).toBe(next.name)
+    expect(host.querySelector(".ui-test-current-book")?.textContent).toBe(next.name)
+    await click("返回书架")
+    expect(callbacks.onSwitchProject).toHaveBeenCalled()
+  })
+  it("未打开小说时不创建空书名行", async () => {
+    await render(false)
+    expect(host.querySelector(".ui-test-brand > .ui-test-brand-name")).not.toBeNull()
+    expect(host.querySelector(".ui-test-current-book")).toBeNull()
+  })
   it("没有打开小说也可以进入全局设置，再返回书架", async () => {
     await render(false)
     await click("设置")

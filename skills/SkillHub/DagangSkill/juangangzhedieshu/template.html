@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-qmai-layout="editorial-v2">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -174,6 +174,12 @@ details.nd>.kids{padding-left:24px;position:relative}
 details.nd>.kids::before{content:"";position:absolute;left:11px;top:0;bottom:8px;width:1px;background:var(--border)}
 .leafrow{display:flex;gap:8px;align-items:flex-start;padding:5px 8px}
 .leafrow>.sp{width:18px;flex:none}
+
+/* 第二版批准方案：保留原有结构化面板、曲线与折叠树，只对齐阅读语言。 */
+:root{--font-heading:"Noto Serif CJK SC","Source Han Serif SC","Songti SC","SimSun",serif;--bg:#fffefa;--surface:#f5f3ed;--surface2:#e7ebdf;--ink:#253a42;--ink2:#435852;--muted:#596863;--border:#d9d9ce;--brand:#876533;--brand-text:#765929;--brand-soft:#ede8da;--brand-soft2:#dfd4bd;--on-brand:#fffefa}
+body{background:var(--surface);line-height:1.9}.wrap{max-width:1280px;padding:0 30px}.intro{background:var(--surface);padding:38px 0 28px}.intro h1{font:600 36px/1.5 var(--font-heading);letter-spacing:.05em}.intro .eyebrow{font-size:11px;letter-spacing:.16em}.intro p{max-width:80ch;line-height:1.95}.panel{padding:22px 24px;border-radius:3px;box-shadow:none;margin-bottom:20px}.panel h2{font-family:var(--font-heading);font-size:21px}.tree,details.cc{border-radius:3px;box-shadow:none}.nav{padding:16px 20px;border-radius:3px}.navlink{line-height:1.9}.navlink:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.kv{font-size:13px;line-height:1.9;padding-top:7px;padding-bottom:7px}table.mx th,table.mx td{padding:10px 12px;line-height:1.9;overflow-wrap:anywhere}.mxwrap{max-width:100%;overflow:auto}.cards{margin-bottom:45px}
+@media (max-width: 760px){.wrap{padding:0 17px}.intro{padding:26px 0}.intro h1{font-size:28px}.panel{padding:17px}.mxwrap table{min-width:540px}.kv .kk{max-width:35%}}
+@media print{.wrap{max-width:none;padding:0}.panel,.tree,details.cc{box-shadow:none}.mxwrap{overflow:visible}.mxwrap table{min-width:0}.intro{padding:12px 0}details::details-content{content-visibility:visible!important;block-size:auto!important;height:auto!important}}
 </style>
 </head>
 <body>

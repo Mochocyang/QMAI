@@ -1479,16 +1479,12 @@ export function PreviewPanel() {
   const useUiTestEditor = category === "markdown" && (isSelectedChapter || isOutlinePath(selectedFile))
   const uiTestParsed = useUiTestEditor ? parseFrontmatter(fileContent) : null
   const uiTestHeading = uiTestParsed ? splitChapterHeading(uiTestParsed.body) : null
-  const uiTestFolders = useUiTestEditor
-    ? (getDirName(selectedFile).split(isSelectedChapter ? "/wiki/chapters" : "/wiki/outlines")[1] ?? "").split("/").filter(Boolean)
-    : []
 
   const uiTestEditorElement = useUiTestEditor ? (
     <UiTestEditor
       key={selectedFile}
       kind={isSelectedChapter ? "chapter" : "outline"}
       path={selectedFile}
-      breadcrumbs={[...(project ? [project.name] : []), ...(uiTestFolders.length ? uiTestFolders : [isSelectedChapter ? "章节" : "大纲"])]}
       title={isSelectedChapter ? chapterDisplayTitle : uiTestHeading?.heading || getOutlineFileName(selectedFile)}
       onTitleCommit={isSelectedChapter ? commitChapterTitleDraft : (title) => {
         if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body))

@@ -3,49 +3,46 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: 28px clamp(20px, 4vw, 48px) 36px;
+  overflow: hidden;
+  padding: 0 clamp(20px, 4vw, 48px);
   background: var(--ui-paper);
   color: var(--ui-ink);
   font-family: var(--ui);
-  scrollbar-width: thin;
-  scrollbar-color: var(--ui-soft) transparent;
 }
 
 .ui-test-root .ui-test-editor-document {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   max-width: 800px;
   min-width: 0;
   margin: 0 auto;
 }
 
-.ui-test-root .ui-test-editor-breadcrumbs {
-  margin-bottom: 16px;
-  color: var(--ui-muted);
-  font: 400 13px/1.6 var(--ui);
+.ui-test-root .ui-test-editor-header {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  padding-top: var(--ui-heading-top);
+  background: var(--ui-paper);
 }
 
-.ui-test-root .ui-test-editor-breadcrumbs ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.ui-test-root .ui-test-editor-breadcrumbs li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.ui-test-root .ui-test-editor-scroll {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 36px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-soft) transparent;
 }
-
-.ui-test-root .ui-test-editor-breadcrumbs svg { width: 12px; height: 12px; flex-shrink: 0; }
 
 .ui-test-root .ui-test-editor-title-row {
+  min-height: var(--ui-heading-line);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -55,7 +52,7 @@
 
 .ui-test-root .ui-test-editor-title,
 .ui-test-root .ui-test-editor-title-input {
-  flex: 1 1 18rem;
+  flex: 1 1 12rem;
   min-width: 0;
   max-width: 100%;
   margin: 0;
@@ -63,7 +60,7 @@
   border: 0;
   background: transparent;
   color: var(--ui-ink);
-  font: 500 28px/1.45 var(--serif);
+  font: 500 20px/28px var(--serif);
   overflow-wrap: anywhere;
 }
 
@@ -80,7 +77,7 @@
   cursor: text;
 }
 
-.ui-test-root .ui-test-editor-title-input { min-height: 41px; resize: none; overflow: hidden; field-sizing: content; }
+.ui-test-root .ui-test-editor-title-input { min-height: var(--ui-heading-line); resize: none; overflow: hidden; field-sizing: content; }
 
 .ui-test-root .ui-test-editor-meta {
   display: flex;
@@ -89,22 +86,22 @@
   gap: 10px;
   margin-left: auto;
   color: var(--ui-muted);
-  font: 400 14px/1.6 var(--ui);
+  font: 400 14px/22px var(--ui);
   font-variant-numeric: tabular-nums;
 }
 
 .ui-test-root .ui-test-editor-status { padding: 3px 8px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-root .ui-test-editor-status.is-final { padding: 0; border-radius: 0; background: transparent; color: #2f9e62; font-weight: 500; }
 
-.ui-test-root .ui-test-editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
-.ui-test-root .ui-test-editor-hint-anchor { position: relative; display: inline-flex; max-width: 100%; }
+.ui-test-root .ui-test-editor-toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
+.ui-test-root .ui-test-editor-hint-anchor { position: static; display: inline-flex; max-width: 100%; }
 .ui-test-root .ui-test-editor-action.is-hint-target { color: var(--ui-accent); box-shadow: 0 0 0 2px var(--ui-accent); }
 .ui-test-root .ui-test-editor-draft-hint {
   position: absolute;
   z-index: 2;
   top: calc(100% + 10px);
   left: 0;
-  width: min(280px, calc(100vw - 48px));
+  width: min(280px, 100%);
   padding: 12px 14px;
   border: 1px solid var(--ui-line);
   border-radius: 12px;
@@ -115,7 +112,7 @@
   box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent);
 }
 .ui-test-root .ui-test-editor-draft-hint::before {
-  content: "";
+  content: none;
   position: absolute;
   top: -6px;
   left: 36px;
@@ -270,7 +267,9 @@
 .ui-test-root .ui-test-editor-empty h2 { margin: 0; color: var(--ui-ink); font: 500 22px/1.5 var(--serif); }
 
 @media (max-width: 640px) {
-  .ui-test-root .ui-test-editor { padding: 22px 20px 28px; }
+  .ui-test-root .ui-test-editor { padding: 0 20px; }
+  .ui-test-root .ui-test-editor-header { padding-top: var(--ui-heading-top); }
+  .ui-test-root .ui-test-editor-scroll { padding-bottom: 28px; }
   .ui-test-root .ui-test-editor-title-row { gap: 10px; }
   .ui-test-root .ui-test-editor-meta { margin-left: 0; }
   .ui-test-root .ui-test-editor-toolbar { gap: 6px; margin-bottom: 24px; }

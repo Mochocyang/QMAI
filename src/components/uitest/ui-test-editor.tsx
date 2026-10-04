@@ -1,6 +1,6 @@
 import { Children, Fragment, cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react"
 import { Menu } from "@base-ui/react/menu"
-import { ChevronRight, Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
+import { Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
 import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
 import "./ui-test-editor.css"
 
@@ -20,7 +20,6 @@ interface EditorAction {
 interface UiTestEditorProps {
   kind: "chapter" | "outline"
   path: string
-  breadcrumbs: string[]
   title: string
   onTitleCommit: (title: string) => void | Promise<void>
   statusLabel: string
@@ -76,7 +75,7 @@ const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
 
 /** 只承载测试版展示和交互；读写、生成、快照仍由 PreviewPanel 原处理器负责。 */
 export function UiTestEditor({
-  kind, path, breadcrumbs, title, onTitleCommit, statusLabel, wordCount,
+  kind, path, title, onTitleCommit, statusLabel, wordCount,
   actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, draftMemoryHint, children,
 }: UiTestEditorProps) {
   const [mode, setMode] = useState<"read" | "edit">("edit")
@@ -117,19 +116,9 @@ export function UiTestEditor({
   }
 
   return (
-    <div className="ui-test-editor" data-kind={kind} ref={scrollRef}>
+    <div className="ui-test-editor" data-kind={kind}>
       <article className="ui-test-editor-document" aria-label={kind === "chapter" ? "章节编辑器" : "大纲编辑器"}>
         <header className="ui-test-editor-header">
-          <nav className="ui-test-editor-breadcrumbs" aria-label="文档位置">
-            <ol>
-              {breadcrumbs.map((item, index) => (
-                <li key={`${index}:${item}`}>
-                  {index > 0 ? <ChevronRight aria-hidden="true" /> : null}
-                  <span title={item}>{item}</span>
-                </li>
-              ))}
-            </ol>
-          </nav>
           <div className="ui-test-editor-title-row">
             {editingTitle ? (
               <textarea
@@ -216,22 +205,24 @@ export function UiTestEditor({
             </section>
           ) : null}
         </header>
-        <div className="ui-test-editor-body" data-mode={mode}>
-          {children(mode)}
+        <div className="ui-test-editor-scroll" ref={scrollRef}>
+          <div className="ui-test-editor-body" data-mode={mode}>
+            {children(mode)}
+          </div>
+          {showFooter ? (
+            <footer className="ui-test-editor-footer">
+              <div className="ui-test-editor-save">
+                {saveLabel ? (
+                  <span role="status" aria-live="polite" aria-atomic="true" data-ui-test-save-state={currentSaveState?.phase}>
+                    {saveLabel}
+                  </span>
+                ) : null}
+                {currentSaveState?.phase === "error" ? <button className="ui-test-editor-action" type="button" onClick={onRetrySave}>重试保存</button> : null}
+                {taskStatus ? <p className="ui-test-editor-task-status" role="status" aria-live="polite">{taskStatus}</p> : null}
+              </div>
+            </footer>
+          ) : null}
         </div>
-        {showFooter ? (
-          <footer className="ui-test-editor-footer">
-            <div className="ui-test-editor-save">
-              {saveLabel ? (
-                <span role="status" aria-live="polite" aria-atomic="true" data-ui-test-save-state={currentSaveState?.phase}>
-                  {saveLabel}
-                </span>
-              ) : null}
-              {currentSaveState?.phase === "error" ? <button className="ui-test-editor-action" type="button" onClick={onRetrySave}>重试保存</button> : null}
-              {taskStatus ? <p className="ui-test-editor-task-status" role="status" aria-live="polite">{taskStatus}</p> : null}
-            </div>
-          </footer>
-        ) : null}
       </article>
     </div>
   )

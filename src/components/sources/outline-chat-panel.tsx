@@ -1,3 +1,6 @@
+import { ScrollToLatestButton } from "@/components/chat/scroll-to-latest-button"
+import { UserMessageMeta } from "@/components/chat/user-message-meta"
+import { buildSettingProfileOutputRules } from "@/lib/novel/setting-profile-contracts";
 import {
   type CSSProperties,
   type ReactNode,
@@ -22,7 +25,6 @@ import {
   Trash2,
   ListPlus,
   History,
-  ArrowDown,
 } from "lucide-react";
 import { useWikiStore } from "@/stores/wiki-store";
 import {
@@ -856,288 +858,42 @@ function getOutlineSectionOutputRules(title: string): string {
 
 /** 人物小传专属输出规则：角色卡结构化数据 characterProfileData。 */
 function buildCharacterProfileOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按「人物角色信息标准」的分段写（基本信息 / 角色定位 / 外在表现 / 内在分析 / 语言风格 / 关系网络 / 出场记录 / 状态追踪 / 写作使用规则 / 别名）；",
-    "(2) 一个 ```json 围栏，顶层字段为 characterProfileData，结构如下：",
-    '{"name":"角色名","roleType":"男主/女主/反派/导师/盟友/配角","tagline":"一句话定位","sections":[{"kind":"kv","heading":"基本信息","items":[{"label":"身份","text":"…"}]},{"kind":"table","heading":"关系网络","head":["角色","当前关系","关系阶段","最近变化","后续可能"],"rows":[["","","","",""]]},{"kind":"list","heading":"写作使用规则","items":["…"]}]}',
-    "    —— sections[].kind 三选一：kv（字段:值）／list（纯条目）／table（head + rows 二维数组）；关系网络、出场记录、说话差异必须用 table，基本信息/外在表现/内在分析/状态追踪/别名用 kv；至少覆盖 基本信息、角色定位、内在分析、语言风格、关系网络、写作使用规则。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=character，文件名形如「角色-男主-角色名.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 character-design/profile.html 渲染角色卡。",
-    "",
-    "【完整性硬要求】",
-    "1. 每个角色一张卡；一次生成多个角色时用 characterProfiles 数组（顶层），每个元素结构同 characterProfileData；",
-    "2. 必须写清「故事功能」与「情绪功能」，禁止只堆年龄 / 外貌 / 家世；",
-    "3. 必须有「语言风格」，含面对不同对象的说话差异（table）；",
-    "4. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」，不得编造成事实。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 characterProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("characterBriefs");
 }
 
 /** 组织势力专属输出规则：势力卡结构化数据 factionProfileData。 */
 function buildFactionProfileOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按「设定信息标准」的 势力/组织模板 分段，必须包含下列全部 11 个分区；",
-    "(2) 一个 ```json 围栏，顶层字段为 factionProfileData，结构如下（sections 必须按此顺序写满 11 项）：",
-    '{"name":"势力名","tag":"势力类型（门派/家族/公司/官方机构/地下组织/宫廷…）","tagline":"一句话定位","sections":[{"kind":"kv","heading":"基本信息","items":[{"label":"组织名称","text":"…"},{"label":"规模","text":"…"}]},{"kind":"kv","heading":"组织使命","items":[{"label":"使命","text":"…"},{"label":"长期目标","text":"…"}]},{"kind":"kv","heading":"地理位置与作用","items":[{"label":"所在区域","text":"…"},{"label":"在该地的作用","text":"…"}]},{"kind":"table","heading":"组织架构","head":["层级/部门","职能与权限","负责人"],"rows":[["","",""]]},{"kind":"table","heading":"人员构成","head":["核心人物","职位","能力或作用","立场"],"rows":[["","","",""]]},{"kind":"table","heading":"经济来源","head":["来源","运作方式","规模或依赖风险"],"rows":[["","",""]]},{"kind":"table","heading":"组织历史","head":["时期","关键事件","造成的影响"],"rows":[["","",""]]},{"kind":"table","heading":"内部派系与矛盾","head":["派系","核心诉求","冲突点"],"rows":[["","",""]]},{"kind":"table","heading":"外部关系","head":["对象","关系","冲突/合作点"],"rows":[["","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— sections[].kind 三选一：kv（字段:值）／list（纯条目）／table（head + rows 二维数组）。",
-    "    —— 必须用 table：组织架构、人员构成、经济来源、组织历史、内部派系与矛盾、外部关系；",
-    "       必须用 kv：基本信息、组织使命、地理位置与作用；必须用 list：剧情作用、写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=organization，文件名形如「势力-青云门.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 faction-system/profile.html 渲染势力卡。",
-    "",
-    "【必须写满的 11 个分区（一个都不能少，顺序一致）】",
-    "1. 基本信息：组织名称、别名/代号、势力类型、规模、总部或核心据点、当前状态；",
-    "2. 组织使命：使命宣言、长期目标、对外立场（正/邪/中立/灰色）；",
-    "3. 地理位置与作用：这个组织在**哪一个地方**、控制范围多大、**它在这个地方的作用是什么**（秩序维护？资源垄断？庇护？压迫？）；",
-    "4. 组织架构：权力层级、下设部门或堂口、各层级职能与权限、负责人；",
-    "5. 人员构成：核心人物（职位 · 能力或作用 · 立场），并写清**人员都是哪一些**——骨干、中坚、外围，以及成员的主要来源；",
-    "6. 经济来源：**它的经济来源是什么**（来源 · 运作方式 · 规模或依赖风险），如产业、税收、掠夺、资助、技术提成；",
-    "7. 组织历史：至少 3 个时期（时期 · 关键事件 · 造成的影响），必须能解释它现在的立场与矛盾；",
-    "8. 内部派系与矛盾：派系 · 核心诉求 · 冲突点，必须写清内部权力斗争；",
-    "9. 外部关系：对象 · 关系 · 冲突/合作点，覆盖盟友、对手、中立势力，以及与主角的关系走向；",
-    "10. 剧情作用：提供资源、制造压力、提供试炼、埋设伏笔、推动升级；",
-    "11. 写作约束：登场必须推动什么、代表人物必须有什么、禁止写成什么样。",
-    "",
-    "【完整性硬要求】",
-    "1. 每个势力一张卡；一次生成多个势力时用 factionProfiles 数组（顶层），每个元素结构同 factionProfileData；",
-    "2. **上面 11 个分区必须全部出现且顺序一致**，禁止只写 3、4 个分区就结束；每张 table 至少 3 行；",
-    "3. 人员构成与经济来源必须**具体**（写清名字/职位/来源渠道），禁止「一些成员」「多种收入」这类空话；",
-    "4. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 factionProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("organizationsOutline");
 }
 
 /** 力量体系专属输出规则：体系卡结构化数据 powerProfileData（等级阶梯 + 代价矩阵）。 */
 function buildPowerSystemOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 13 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 powerProfileData，结构如下（sections 必须按此顺序写满 13 项）：",
-    '{"name":"体系名","tag":"类型（修真/异能/科技/武道/魔法…）","tagline":"一句话定位","sections":[{"kind":"kv","heading":"体系概览","items":[{"label":"力量本质","text":"…"},{"label":"力量来源","text":"…"},{"label":"世界定位","text":"…"},{"label":"力量上限","text":"…"}]},{"kind":"table","heading":"等级阶梯","head":["等级/境界","名称","核心特征","战力区间","突破条件"],"rows":[["","","","",""]]},{"kind":"kv","heading":"晋升机制","items":[{"label":"晋升方式","text":"…"},{"label":"所需资源","text":"…"},{"label":"耗时","text":"…"},{"label":"失败后果","text":"…"}]},{"kind":"table","heading":"能力分类","head":["系别/分支","特点","代表能力","代表人物"],"rows":[["","","",""]]},{"kind":"table","heading":"资源与消耗","head":["资源","用途","产地或来源","稀缺度"],"rows":[["","","",""]]},{"kind":"table","heading":"代价与限制","head":["代价/限制","触发条件","后果"],"rows":[["","",""]]},{"kind":"table","heading":"克制与反制","head":["克制关系","克制原理","反制手段"],"rows":[["","",""]]},{"kind":"table","heading":"禁忌与风险","head":["禁忌或风险","后果","规避方式"],"rows":[["","",""]]},{"kind":"table","heading":"流派与势力","head":["流派","核心理念","据点","代表人物"],"rows":[["","","",""]]},{"kind":"list","heading":"体系漏洞","items":["…"]},{"kind":"table","heading":"成长节奏","head":["卷次/阶段","对应等级","关键成长事件"],"rows":[["","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— 必须用 table：等级阶梯、能力分类、资源与消耗、代价与限制、克制与反制、禁忌与风险、流派与势力、成长节奏；",
-    "       必须用 kv：体系概览、晋升机制；必须用 list：体系漏洞、剧情作用、写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=setting，文件名形如「力量体系-修真.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 power-system/profile.html 渲染体系卡。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 13 个分区（一个都不能少，顺序一致）】",
-    "1. 体系概览：力量本质、力量来源、在世界中的定位、力量上限（谁能用、用到什么程度）；",
-    "2. 等级阶梯：**从最低到最高逐级写全**（等级/境界 · 名称 · 核心特征 · 战力区间 · 突破条件），禁止只写首尾；",
-    "3. 晋升机制：晋升方式、所需资源、大致耗时、失败后果、是否存在捷径或邪道；",
-    "4. 能力分类：力量有哪些系别或分支（元素/念力/体术/契约/科技改造…），各自特点与代表人物；",
-    "5. 资源与消耗：修炼或施放需要消耗什么（灵石/灵力/体力/精神力/燃料），产地与稀缺度；",
-    "6. 代价与限制：使用或晋升要付出什么代价（寿元/神智/身体/社会身份），触发条件与后果；",
-    "7. 克制与反制：谁克谁、克制原理、被克制方如何反制；",
-    "8. 禁忌与风险：体系中的禁忌行为与失控风险（走火入魔/污染/暴走），后果与规避方式；",
-    "9. 流派与势力：围绕这套力量形成的流派、理念、据点与代表人物；",
-    "10. 体系漏洞：这套力量在设定上可被利用、钻空子或误读的地方（供剧情制造反转）；",
-    "11. 成长节奏：各卷次/阶段主角与主要人物对应的等级与关键成长事件；",
-    "12. 剧情作用：如何服务冲突、爽点与成长曲线；",
-    "13. 写作约束：登场必须体现什么、禁止出现的写法、**严禁万能化**。",
-    "",
-    "【完整性硬要求】",
-    "1. 等级阶梯必须逐级写全，每一级都要有突破条件与战力区间；",
-    "2. 代价与限制、禁忌与风险必须写实，**严禁出现无消耗、无限制、无弱点的万能能力**；",
-    "3. 克制与反制必须成对出现（有克制方也要有反制方），避免单向压制；",
-    "4. 成长节奏必须与卷次/故事阶段对应，能直接指导后续章纲；",
-    "5. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 powerProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("powerSystem");
 }
 
 /** 伏笔计划专属输出规则：伏笔台账结构化数据 foreshadowingProfileData（伏笔线 + 状态徽章）。 */
 function buildForeshadowingOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 12 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 foreshadowingProfileData，结构如下（sections 必须按此顺序写满 12 项）：",
-    '{"name":"伏笔计划","tag":"主线/支线","tagline":"一句话定位","sections":[{"kind":"kv","heading":"伏笔总览","items":[{"label":"伏笔总数","text":"…"},{"label":"主线/支线分布","text":"…"},{"label":"整体埋收节奏","text":"…"},{"label":"核心悬念","text":"…"}]},{"kind":"table","heading":"埋设与回收节奏","head":["卷次/阶段","埋设数","回收数","悬念压力"],"rows":[["","","",""]]},{"kind":"table","heading":"伏笔状态表","head":["ID","伏笔内容","埋设章节","预计回收","状态","重要度"],"rows":[["","","","","",""]]},{"kind":"table","heading":"线索链","head":["线索","关联伏笔","出现章节","指向"],"rows":[["","","",""]]},{"kind":"table","heading":"表层误导与真相","head":["伏笔","表层误导（读者以为）","真实指向","揭穿节点"],"rows":[["","","",""]]},{"kind":"table","heading":"回收日志","head":["章节","回收伏笔","回收方式","后果"],"rows":[["","","",""]]},{"kind":"table","heading":"过期与风险","head":["ID","问题","处理方式"],"rows":[["","",""]]},{"kind":"table","heading":"关联人物","head":["人物","关联伏笔","承担作用"],"rows":[["","",""]]},{"kind":"table","heading":"关联设定与主线","head":["主线/设定","关联伏笔","如何呼应"],"rows":[["","",""]]},{"kind":"table","heading":"悬念分级","head":["悬念","级别","维持手法","计划回收"],"rows":[["","","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— 必须用 table：埋设与回收节奏、伏笔状态表、线索链、表层误导与真相、回收日志、过期与风险、关联人物、关联设定与主线、悬念分级；",
-    "       必须用 kv：伏笔总览；必须用 list：剧情作用、写作约束。",
-    "    —— 「状态」列取值只能用 **未埋 / 已埋 / 推进中 / 已回收 / 已过期**，「重要度」与「级别」列只能用 **高 / 中 / 低**（软件会渲染成彩色状态徽章）。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=foreshadowing，文件名形如「伏笔计划.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 foreshadowing-suspense/profile.html 渲染伏笔台账。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 12 个分区（一个都不能少，顺序一致）】",
-    "1. 伏笔总览：伏笔总数、主线/支线分布、整体埋收节奏、核心悬念；",
-    "2. 埋设与回收节奏：卷次/阶段 · 埋设数 · 回收数 · 悬念压力（防止某卷全埋不收或全收无埋）；",
-    "3. 伏笔状态表：**核心台账**，ID · 伏笔内容 · 埋设章节 · 预计回收 · 状态 · 重要度，逐条写全；",
-    "4. 线索链：线索 · 关联伏笔 · 出现章节 · 指向（说明线索如何汇聚到回收）；",
-    "5. 表层误导与真相：伏笔 · 表层误导（读者以为）· 真实指向 · 揭穿节点；",
-    "6. 回收日志：章节 · 回收伏笔 · 回收方式（揭示/反转/呼应/代价兑现）· 后果；",
-    "7. 过期与风险：ID · 问题 · 处理方式（补回收/延后/转长线/放弃并说明）；",
-    "8. 关联人物：人物 · 关联伏笔 · 承担作用；",
-    "9. 关联设定与主线：主线/设定 · 关联伏笔 · 如何呼应；",
-    "10. 悬念分级：悬念 · 级别 · 维持手法 · 计划回收；",
-    "11. 剧情作用：伏笔如何制造悬念、反转与情绪回报；",
-    "12. 写作约束：埋设必须自然、回收必须影响后续剧情、禁止回收完就消失。",
-    "",
-    "【完整性硬要求】",
-    "1. 上面 12 个分区必须全部出现且顺序一致，每张 table 至少 3 行；",
-    "2. 每条伏笔必须有完整生命周期：埋设章节 → 推进节点 → 预计回收章节 → 状态；禁止只写「埋了个伏笔」；",
-    "3. 埋设章节与预计回收章节必须具体到章号，不得写「后期」「某章」；",
-    "4. 「回收日志」必须记录回收方式与后果，「过期与风险」必须为高风险伏笔给出处理方式；",
-    "5. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 foreshadowingProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("foreshadowingPlan");
 }
 
 /** 金手指专属输出规则：能力卡结构化数据 goldenFingerProfileData（系统面板 + 边界代价）。 */
 function buildGoldenFingerOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 12 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 goldenFingerProfileData，结构如下（sections 必须按此顺序写满 12 项）：",
-    '{"name":"金手指名","tag":"类型（系统/传承/血脉/科技/契约…）","tagline":"一句话定位","sections":[{"kind":"kv","heading":"能力概述","items":[{"label":"是什么","text":"…"},{"label":"给主角带来什么","text":"…"},{"label":"世界定位","text":"…"},{"label":"能力上限","text":"…"}]},{"kind":"kv","heading":"获取与绑定","items":[{"label":"绑定/获取方式","text":"…"},{"label":"触发条件","text":"…"},{"label":"激活代价","text":"…"},{"label":"初始状态","text":"…"}]},{"kind":"table","heading":"机制与规则","head":["机制","说明","数值或条件"],"rows":[["","",""]]},{"kind":"table","heading":"已解锁能力","head":["解锁章节","能力","来源","限制","代价"],"rows":[["","","","",""]]},{"kind":"table","heading":"能力分支与升级树","head":["分支","前置条件","解锁方式","代表能力"],"rows":[["","","",""]]},{"kind":"table","heading":"系统任务与使用史","head":["章节","任务/使用","要求","奖励/结果","后续影响"],"rows":[["","","","",""]]},{"kind":"table","heading":"边界与代价","head":["边界/代价","触发条件","后果"],"rows":[["","",""]]},{"kind":"table","heading":"冷却与风险","head":["风险","触发条件","后果","规避方式"],"rows":[["","","",""]]},{"kind":"table","heading":"反制与漏洞","head":["反制/漏洞","原理","对手如何利用"],"rows":[["","",""]]},{"kind":"table","heading":"成长节奏","head":["卷次/阶段","对应能力","关键解锁事件"],"rows": [["","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"防崩坏写作约束","items":["…"]}]}',
-    "    —— 必须用 table：机制与规则、已解锁能力、能力分支与升级树、系统任务与使用史、边界与代价、冷却与风险、反制与漏洞、成长节奏；",
-    "       必须用 kv：能力概述、获取与绑定；必须用 list：剧情作用、防崩坏写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=setting，文件名形如「金手指-系统面板.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 power-system/golden-finger.html 渲染能力卡。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 12 个分区（一个都不能少，顺序一致）】",
-    "1. 能力概述：金手指**是什么**、给主角带来什么、在世界中的定位、能力上限；",
-    "2. 获取与绑定：绑定/获取方式、触发条件、激活代价、初始状态；",
-    "3. 机制与规则：使用方式、任务/成长机制、奖励类型、提示或 UI 形式、数值与冷却；",
-    "4. 已解锁能力：**逐条写全**（解锁章节 · 能力 · 来源 · 限制 · 代价），禁止只写第一个和最后一个；",
-    "5. 能力分支与升级树：有哪些分支、前置条件、解锁方式、代表能力（让升级路径可预期）；",
-    "6. 系统任务与使用史：章节 · 任务/使用 · 要求 · 奖励/结果 · 后续影响，必须可追踪；",
-    "7. 边界与代价：金手指**只提供什么**、主角必须亲自完成什么、不能跳过的过程、使用代价；",
-    "8. 冷却与风险：冷却、反噬、暴走等风险，触发条件、后果与规避方式；",
-    "9. 反制与漏洞：敌人如何针对、可被误读或钻空子的地方（供剧情制造反转）；",
-    "10. 成长节奏：卷次/阶段对应的能力层级与关键解锁事件；",
-    "11. 剧情作用：如何服务冲突、爽点与成长曲线；",
-    "12. 防崩坏写作约束：**严禁万能化**，不得出现无消耗、无限制、可解决一切问题的能力。",
-    "",
-    "【完整性硬要求】",
-    "1. 上面 12 个分区必须全部出现且顺序一致，每张 table 至少 3 行；",
-    "2. 「已解锁能力」必须逐条给出限制与代价；「系统任务与使用史」必须写明奖励/结果与后续影响；",
-    "3. 「边界与代价」必须写实，**严禁出现无消耗、无限制、可解决一切问题的万能能力**；",
-    "4. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 goldenFingerProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("goldenFinger");
 }
 
 /** 地理设定专属输出规则：地理卡结构化数据 geographyProfileData（区域块 + 资源/危险）。 */
 function buildGeographyOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 12 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 geographyProfileData，结构如下（sections 必须按此顺序写满 12 项）：",
-    '{"name":"世界名或区域名","tag":"大陆/国度/城邦/秘境","tagline":"一句话定位","sections":[{"kind":"kv","heading":"地理概览","items":[{"label":"世界格局","text":"…"},{"label":"核心舞台","text":"…"},{"label":"地理尺度","text":"…"},{"label":"整体气候","text":"…"}]},{"kind":"kv","heading":"区域格局","items":[{"label":"层级结构","text":"…"},{"label":"核心地带","text":"…"},{"label":"边缘地带","text":"…"}]},{"kind":"table","heading":"区域划分","head":["区域","类型","地域特征","所属势力"],"rows":[["","","",""]]},{"kind":"table","heading":"重要地点","head":["地点","所属区域","作用","可触发事件"],"rows":[["","","",""]]},{"kind":"table","heading":"地形与气候环境","head":["地形/气候","分布","对行动的影响"],"rows":[["","",""]]},{"kind":"table","heading":"资源与物产","head":["资源","产出区域","稀缺度","争夺情况"],"rows":[["","","",""]]},{"kind":"table","heading":"势力分布","head":["势力","控制区域","影响力","与主角关系"],"rows":[["","","",""]]},{"kind":"table","heading":"交通与通行","head":["通道/方式","连接","耗时","风险"],"rows":[["","","",""]]},{"kind":"table","heading":"危险区域与风险","head":["危险区域","危险类型","规避方式"],"rows":[["","",""]]},{"kind":"list","heading":"地域特色","items":["…"]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— 必须用 table：区域划分、重要地点、地形与气候环境、资源与物产、势力分布、交通与通行、危险区域与风险；",
-    "       必须用 kv：地理概览、区域格局；必须用 list：地域特色、剧情作用、写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=setting，文件名形如「地理设定.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 map-progression/profile.html 渲染地理卡。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 12 个分区（一个都不能少，顺序一致）】",
-    "1. 地理概览：世界格局、核心舞台、地理尺度、整体气候；",
-    "2. 区域格局：层级结构（如 大陆 → 国度 → 城市）、核心地带、边缘地带；",
-    "3. 区域划分：**可区分的空间层级**，每区写清类型、地域特征、所属势力；",
-    "4. 重要地点：所属区域、作用、可触发事件，不能只是地名；",
-    "5. 地形与气候环境：地形/气候的分布，以及**对行动的影响**（通行、视野、体力）；",
-    "6. 资源与物产：资源 · 产出区域 · 稀缺度 · 争夺情况；",
-    "7. 势力分布：势力 · 控制区域 · 影响力 · 与主角关系，须与已有势力设定一致；",
-    "8. 交通与通行：通道或方式 · 连接 · 耗时 · 风险（决定人物如何移动）；",
-    "9. 危险区域与风险：危险区域 · 危险类型 · 规避方式；",
-    "10. 地域特色：风土人情、物产、传说、与其它区域的差异；",
-    "11. 剧情作用：地理如何驱动冲突、冒险与阶段推进；",
-    "12. 写作约束：**地理变化必须改变行动规则**（资源、危险、通行限制），不能只是换地名。",
-    "",
-    "【完整性硬要求】",
-    "1. 上面 12 个分区必须全部出现且顺序一致，每张 table 至少 3 行；",
-    "2. 区域划分必须给出可区分的空间层级，重要地点必须写清剧情作用与可触发事件；",
-    "3. 势力分布必须与已有势力设定一致，不得与势力卡冲突；",
-    "4. **地理变化必须改变行动规则**（资源、危险、通行限制），不能只是换地名；",
-    "5. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 geographyProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("geographySetting");
 }
 
 /** 地点设定专属输出规则：地点卡结构化数据 locationProfileData（空间规则 + 触发事件）。 */
 function buildLocationOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 12 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 locationProfileData，结构如下（sections 必须按此顺序写满 12 项）：",
-    '{"name":"地点名","tag":"城池/秘境/宗门驻地/遗迹/副本","tagline":"一句话定位","sections":[{"kind":"kv","heading":"地点定位","items":[{"label":"所处区域","text":"…"},{"label":"地点类型","text":"…"},{"label":"在世界中的位置与意义","text":"…"}]},{"kind":"kv","heading":"所属势力","items":[{"label":"控制方","text":"…"},{"label":"势力态度","text":"…"},{"label":"与主角关系","text":"…"}]},{"kind":"table","heading":"空间规则","head":["规则","说明","违反后果"],"rows":[["","",""]]},{"kind":"table","heading":"出入条件与限制","head":["条件","说明","限制"],"rows":[["","",""]]},{"kind":"table","heading":"资源与限制","head":["资源/限制","获取或使用条件","危险"],"rows":[["","",""]]},{"kind":"table","heading":"可触发事件","head":["事件","触发条件","影响"],"rows":[["","",""]]},{"kind":"table","heading":"常驻人物","head":["人物","身份","立场","可提供的信息或冲突"],"rows":[["","","",""]]},{"kind":"list","heading":"氛围与感官","items":["…"]},{"kind":"table","heading":"隐藏信息","head":["信息","谁知道","揭示条件"],"rows":[["","",""]]},{"kind":"table","heading":"危险与禁忌","head":["危险/禁忌","后果","规避方式"],"rows":[["","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— 必须用 table：空间规则、出入条件与限制、资源与限制、可触发事件、常驻人物、隐藏信息、危险与禁忌；",
-    "       必须用 kv：地点定位、所属势力；必须用 list：氛围与感官、剧情作用、写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=setting，文件名形如「地点-青云峰.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 map-progression/location.html 渲染地点卡。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 12 个分区（一个都不能少，顺序一致）】",
-    "1. 地点定位：所处区域、地点类型、在世界中的位置与意义；",
-    "2. 所属势力：控制方、势力态度、与主角关系；",
-    "3. 空间规则：地点内独有的规则（哪些事能做、哪些不能做）· 说明 · 违反后果；",
-    "4. 出入条件与限制：**进入条件与离开条件**、需要满足的资格或物品、限制；",
-    "5. 资源与限制：可获得之物 · 获取或使用条件 · 危险；",
-    "6. 可触发事件：事件 · 触发条件 · 影响，不能只列事件名；",
-    "7. 常驻人物：人物 · 身份 · 立场 · 可提供的信息或冲突；",
-    "8. 氛围与感官：视觉、声音、气味/触感、整体情绪基调（供正文描写直接取用）；",
-    "9. 隐藏信息：信息 · 谁知道 · 揭示条件（供伏笔与反转使用）；",
-    "10. 危险与禁忌：危险/禁忌 · 后果 · 规避方式；",
-    "11. 剧情作用：如何推动主线与人物弧线；",
-    "12. 写作约束：**地点必须改变行动规则**（通行、资源、危险、时间流速等），不能只是换地名。",
-    "",
-    "【完整性硬要求】",
-    "1. 上面 12 个分区必须全部出现且顺序一致，每张 table 至少 3 行；",
-    "2. 必须写清**进入条件与离开条件**，以及地点内独有的规则；",
-    "3. 「可触发事件」必须写明触发条件与影响，「隐藏信息」必须写明揭示条件；",
-    "4. 地点必须改变行动规则（通行、资源、危险、时间流速等），不能只是换一个地名；与所属区域/势力设定保持一致；",
-    "5. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 locationProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("locationsOutline");
 }
 
 /** 背景设定专属输出规则：背景卡结构化数据 backgroundProfileData（时间线 + 规则块）。 */
 function buildBackgroundOutputRules(): string {
-  return [
-    "【载体】必须同时产出三部分，缺一不可：",
-    "(1) MD 正文：按下列 12 个分区写全；",
-    "(2) 一个 ```json 围栏，顶层字段为 backgroundProfileData，结构如下（sections 必须按此顺序写满 12 项）：",
-    '{"name":"背景名或世界名","tag":"世界观/时代/文明","tagline":"一句话定位","sections":[{"kind":"kv","heading":"世界观背景","items":[{"label":"世界前提","text":"…"},{"label":"世界格局","text":"…"},{"label":"核心舞台","text":"…"},{"label":"核心矛盾","text":"…"}]},{"kind":"kv","heading":"世界前提与差异","items":[{"label":"与现实/常规世界的差异","text":"…"},{"label":"核心资源","text":"…"},{"label":"特殊生态或存在","text":"…"},{"label":"常识与本世界的冲突","text":"…"}]},{"kind":"kv","heading":"时代风貌","items":[{"label":"时代特征","text":"…"},{"label":"技术水平","text":"…"},{"label":"社会氛围","text":"…"}]},{"kind":"table","heading":"社会结构","head":["阶层/群体","地位与权力","生存状态","与主线关系"],"rows":[["","","",""]]},{"kind":"list","heading":"文化习俗","items":["…"]},{"kind":"table","heading":"语言与称谓","head":["类别","用法或规则","示例"],"rows":[["","",""]]},{"kind":"table","heading":"历史沿革","head":["时期","关键事件","造成的影响"],"rows":[["","",""]]},{"kind":"table","heading":"核心设定规则","head":["规则","边界（能做/不能做）","违反代价"],"rows":[["","",""]]},{"kind":"table","heading":"信息公开度","head":["信息","读者","主角","配角","反派"],"rows":[["","","","",""]]},{"kind":"table","heading":"势力格局","head":["势力/阵营","立场","核心诉求","当前态势"],"rows":[["","","",""]]},{"kind":"list","heading":"剧情作用","items":["…"]},{"kind":"list","heading":"写作约束","items":["…"]}]}',
-    "    —— 必须用 table：社会结构、语言与称谓、历史沿革、核心设定规则、信息公开度、势力格局；",
-    "       必须用 kv：世界观背景、世界前提与差异、时代风貌；必须用 list：文化习俗、剧情作用、写作约束。",
-    "(3) outlineSaveRequest（content 为 MD 正文即可，fileType=setting，文件名形如「背景设定.md」）。",
-    "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 world-rules/background.html 渲染背景卡。",
-    "**不要**把 `**加粗**` 之类 Markdown 标记写进 JSON 的 label/text —— 卡片按纯文本渲染，标记会原样显示。",
-    "",
-    "【必须写满的 12 个分区（一个都不能少，顺序一致）】",
-    "1. 世界观背景：世界前提、世界格局、核心舞台、核心矛盾；",
-    "2. 世界前提与差异：与现实或常规世界的差异、核心资源、特殊生态或存在、本世界常识与现实常识的冲突；",
-    "3. 时代风貌：时代特征、技术水平、社会氛围；",
-    "4. 社会结构：阶层/群体 · 地位与权力 · 生存状态 · 与主线关系；",
-    "5. 文化习俗：风俗、信仰、禁忌、节日、礼仪；",
-    "6. 语言与称谓：专有名词、称谓规则、行业黑话与示例；",
-    "7. 历史沿革：关键事件与影响，**至少 3 个时期**，必须能解释当下格局；",
-    "8. 核心设定规则：规则 · 边界（能做/不能做）· 违反代价，禁止只给一句原则；",
-    "9. 信息公开度：读者 / 主角 / 配角 / 反派 分别知道到什么程度（**逐条列出**）；",
-    "10. 势力格局：势力 · 立场 · 核心诉求 · 当前态势；",
-    "11. 剧情作用：这套背景如何驱动冲突、悬念与人物动机；",
-    "12. 写作约束：必须保持一致的设定、禁止临时新增的万能规则、不能用来解决的问题。",
-    "",
-    "【完整性硬要求】",
-    "1. 上面 12 个分区必须全部出现且顺序一致，每张 table 至少 3 行；",
-    "2. 「核心设定规则」必须写清**边界**与**违反代价**，禁止只给一句原则；",
-    "3. 必须写清**信息公开度**：读者 / 主角 / 配角 / 反派 分别知道到什么程度；",
-    "4. 禁止临时新增「万能规则」来解决剧情，世界观设定一旦成立必须自洽；",
-    "5. 禁止出现「…」「等等」「略」「参考上文」「其余同理」等缩写写法；信息缺失写「原文未明确」或「待后续补充」。",
-    "",
-    "【输出顺序】先写 MD 正文，再写 ```json 的 backgroundProfileData，最后写 outlineSaveRequest。",
-  ].join("\n");
+  return buildSettingProfileOutputRules("backgroundSetting");
 }
 
 /** 通用兜底输出规则（当分项未能匹配到专属模板时使用）。 */
@@ -1195,7 +951,7 @@ function buildGenerationPrompt(
     : outputMode === "per_chapter"
     ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
     : outputMode === "per_item"
-    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。\n【单次体量硬限制】本次回复最多完整生成 2 个对象（各自的 MD 正文 + JSON + outlineSaveRequest 都必须完整，禁止为省篇幅缩水）。若待生成对象超过 2 个，只输出前 2 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
+    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。\n【单次体量硬限制】本次回复最多完整生成 1 个对象（各自的 MD 正文 + JSON + outlineSaveRequest 都必须完整，禁止为省篇幅缩水）。若待生成对象超过 1 个，只输出第 1 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
     : "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。该分项会由软件套其专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。";
 
   return [
@@ -2586,7 +2342,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     setShowScrollToBottom(false);
     container.scrollTo({
       top: container.scrollHeight,
-      behavior: "smooth",
+      behavior: "auto",
     });
   }, []);
 
@@ -2598,17 +2354,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       const currentScrollTop = container.scrollTop;
       const atBottom =
         container.scrollHeight - currentScrollTop - container.clientHeight < 50;
-      if (currentScrollTop < lastScrollTopRef.current - 1) {
-        userScrolledUpRef.current = true;
-      } else if (atBottom) {
+      if (atBottom) {
         userScrolledUpRef.current = false;
+      } else if (currentScrollTop < lastScrollTopRef.current - 1) {
+        userScrolledUpRef.current = true;
       }
-      setShowScrollToBottom(userScrolledUpRef.current && isStreaming);
+      setShowScrollToBottom(userScrolledUpRef.current && !atBottom);
       lastScrollTopRef.current = currentScrollTop;
     };
     container.addEventListener("scroll", handleScroll);
     return () => container.removeEventListener("scroll", handleScroll);
-  }, [isStreaming]);
+  }, [isStreaming, activeConversationId]);
+
+  useEffect(() => {
+    userScrolledUpRef.current = false;
+    lastScrollTopRef.current = 0;
+    setShowScrollToBottom(false);
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+    }
+  }, [activeConversationId]);
 
   const executeConfirmedOutlineSave = useCallback(
     async (payload: OutlineSaveConfirmPayload) => {
@@ -6295,8 +6062,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Messages */}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden" data-chat-message-region>
         <div
+          data-chat-scroll
           ref={scrollRef}
           className="h-full w-full min-w-0 max-w-full space-y-3 overflow-x-hidden overflow-y-auto px-3 py-2"
         >
@@ -6306,7 +6074,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         {activeMessages.map((msg, i) => isInternalOutlineMessage(msg) ? null : (
           <div
             key={msg.id}
-            className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "flex-col items-end" : "justify-start"}`}
             data-ui-ai-message={msg.role}
           >
             <div
@@ -6367,25 +6135,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 </>
               )}
             </div>
+            {msg.role === "user" ? <UserMessageMeta content={msg.content} timestamp={msg.timestamp} /> : null}
           </div>
         ))}
         </div>
 
-        {showScrollToBottom && (
-          <button
-            type="button"
-            onClick={handleScrollToBottom}
-            className="absolute bottom-3 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/90 shadow-md backdrop-blur-sm transition-all hover:bg-accent"
-            title="回到最新"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </button>
-        )}
+        {showScrollToBottom && <ScrollToLatestButton isStreaming={isStreaming} onClick={handleScrollToBottom} />}
       </div>
 
       {/* Input */}
-      <div className="shrink-0 border-t px-3 py-2">
-        <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="shrink-0 border-t px-3 py-2" data-ui-ai-input-area>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <>
             <div className="relative hidden">
                 <Button ref={workflowModeTriggerRef} type="button" variant="outline" size="sm" aria-haspopup="listbox" aria-expanded={workflowModeDropdownOpen} aria-label="AI 大纲执行模式" className="h-8 shrink-0 rounded-full border px-2.5 text-xs" onClick={() => setWorkflowModeDropdownOpen((open) => !open)}>
@@ -6425,6 +6185,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         <UiTestAiComposer enabled={false}>
         <div data-ui-ai-composer>
         <ReferenceInput
+          enableClipboardMenu
+          clipboardScope={activeConversationId}
           renderTextOverlay={undefined}
           value={inputValue}
           tokens={outlineReferenceTokens}

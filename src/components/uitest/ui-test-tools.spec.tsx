@@ -376,9 +376,9 @@ describe("工具页样式规格及作用域", () => {
     expect(source).toContain('uitest/ui-test-tools.css')
   })
 
-  it("设置正文 930px、28px 衬线标题、灵魂风格和编辑器单列", () => {
+  it("设置正文 930px、20px 顶部衬线标题、灵魂风格和编辑器单列", () => {
     expect(hasDeclaration('.ui-test-root [data-ui="settings-section"]', "max-width", "930px")).toBe(true)
-    expect(hasDeclaration('.ui-test-root .ui-test-page-title', "font-size", "28px")).toBe(true)
+    expect(hasDeclaration('.ui-test-root .ui-test-page-title', "font-size", "20px")).toBe(true)
     expect(hasDeclaration('.ui-test-root .ui-test-page-title', "font-family", "var(--serif)")).toBe(true)
     expect(hasDeclaration('.ui-test-root [data-ui="soul-project-editor"] > div > .grid', "grid-template-columns", "minmax(0, 1fr)")).toBe(true)
     expect(hasDeclaration('.ui-test-root [data-ui="soul-role-content"] main > div', "flex-direction", "column")).toBe(true)

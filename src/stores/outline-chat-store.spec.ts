@@ -415,3 +415,33 @@ describe("outline-chat-store", () => {
   })
 
 })
+
+ describe("大纲消息发送时间", () => {
+  it("新消息记录真实发送时间，正文更新不刷新时间", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1791018480000)
+    useOutlineChatStore.setState({ conversations: [conversation("time")] })
+    useOutlineChatStore.getState().addMessage("time", { id: "u", role: "user", content: "正文" })
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].timestamp).toBe(1791018480000)
+    useOutlineChatStore.getState().addMessage("time", { id: "a", role: "assistant", content: "回答" })
+    useOutlineChatStore.getState().replaceLastAssistant("time", "修订回答")
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].timestamp).toBe(1791018480000)
+    vi.restoreAllMocks()
+  })
+  it("发送时间保存并重新加载后不变化，旧消息继续缺省", async () => {
+    useWikiStore.setState({ project: { id: "time-project", name: "测试项目", path: "C:/TimeBook" } })
+    const sentAt = new Date(2026, 9, 3, 17, 8).getTime()
+    useOutlineChatStore.setState({ conversations: [{ ...conversation("time"), messages: [{ id: "old", role: "user", content: "旧内容" }, { id: "sent", role: "user", content: "新内容", timestamp: sentAt }] }] })
+    await useOutlineChatStore.getState().saveToDisk()
+    const saved = fsMocks.writeFile.mock.calls.at(-1)?.[1]
+    expect(saved).toBeTruthy()
+    fsMocks.readFile.mockResolvedValue(saved)
+    await useOutlineChatStore.getState().loadFromDisk()
+    expect(useOutlineChatStore.getState().conversations[0].messages.map(m => m.timestamp)).toEqual([undefined, sentAt])
+  })
+
+  it("显式时间原样保留，旧消息不以会话时间冒充发送时间", () => {
+    useOutlineChatStore.setState({ conversations: [{ ...conversation("time"), messages: [{ id:"old",role:"user",content:"旧消息" }] }] })
+    useOutlineChatStore.getState().addMessage("time", { id: "u", role: "user", content: "正文", timestamp: 123456789 })
+    expect(useOutlineChatStore.getState().conversations[0].messages.map(m=>m.timestamp)).toEqual([undefined,123456789])
+  })
+})

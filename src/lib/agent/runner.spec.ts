@@ -1674,7 +1674,7 @@ describe("AgentRunner", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
-  it("emits ModelDoesNotSupportToolsError when tool-less retry still fails", async () => {
+  it("preserves the real upstream error when tool-less retry fails for a different reason", async () => {
     const tool: Tool = {
       name: "read_chapter",
       description: "read",
@@ -1715,7 +1715,7 @@ describe("AgentRunner", () => {
     )
 
     expect(mockStreamChat).toHaveBeenCalledTimes(2)
-    expect(callbacks.onError).toHaveBeenCalledWith(expect.any(ModelDoesNotSupportToolsError))
+    expect(callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: "upstream 500" }))
   })
 
   it("does not treat unrelated unsupported errors as missing function calling", async () => {

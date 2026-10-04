@@ -99,7 +99,7 @@ export function ReviewCenterSidebarPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center border-b px-3 py-2">
+      <div data-ui-panel-heading className="flex shrink-0 items-center border-b px-3 py-2">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <ClipboardCheck className="h-4 w-4 text-primary" />
           <PanelHeaderWithHelp title={t("reviewCenter.title")} helpKey="review" />
