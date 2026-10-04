@@ -6,7 +6,12 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 4)).toEqual(["4.0.4", "4.0.3", "4.0.2", "4.0.1"])
+    expect(versions.slice(0, 4)).toEqual(["4.1.0", "4.0.4", "4.0.3", "4.0.2"])
+    const release410 = currentVersionChangelog("4.1.0")[0]
+    expect(release410.version).toBe("4.1.0")
+    expect(release410.date).toBe("2026-10-04")
+    expect(release410.highlights.zh.join("\n")).toContain("顶栏重构")
+    expect(release410.highlights.zh.join("\n")).toContain("修复关闭流程")
     const release404 = currentVersionChangelog("4.0.4")[0]
     expect(release404.version).toBe("4.0.4")
     expect(release404.date).toBe("2026-09-29")

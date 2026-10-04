@@ -7,6 +7,27 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ONE_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "4.1.0",
+  date: "2026-10-04",
+  highlights: {
+    en: [
+      "[Top Bar Reorganized] The AI Chat entry in the top bar is now a pure custom icon that adapts to every color theme; its size, hover highlight and tooltip are consistent with the other toolbar icons. The directory toggle moved to the top-left brand icon (hover to reveal, click to show/hide), with a one-time bubble guide.",
+      "[Toolbar Icons Only] Editor actions (De-AI, extract memory, view memory, one-click formatting) are now icon-only with hover text; view-memory uses a distinct book icon so it can't be confused with extract-memory.",
+      "[Chapter List Word Count] Each chapter row now shows its full word count (e.g. 12345字) without the leading document icon; the total word count of all chapters is shown after the New/Import buttons in the chapter list header.",
+      "[Search Moved to Context Menu] The header search box was removed; Find-Chapter / Find-Outline now lives in the right-click menu and opens a small dialog to filter the list.",
+      "[Fixed Close Flow] Quitting now asks only once (no double dialog) and closing the window always works after confirming: removed the duplicated Rust-side close interception and granted the required destroy / confirm permissions.",
+    ],
+    zh: [
+      "【顶栏重构】右上角「AI 对话」改为纯自定义图标，随三套主题自动配色，尺寸、悬停高亮与气泡说明和其它顶栏图标一致；目录开关移到左上角品牌图标（悬停切换图标、点击显隐），并新增一次性引导气泡",
+      "【工具栏纯图标】编辑器动作（去AI味、提取记忆、查看记忆、一键排版）改为纯图标并带悬停说明；「查看记忆」改用书本图标，避免与「提取记忆」混淆",
+      "【章节字数】章节列表每章显示完整字数（如 12345字）并去掉行首文档图标；章节列表「新建/导入」右侧新增全书章节总字数显示",
+      "【查找移入右键菜单】移除头部搜索框，「查找章节/查找大纲」改为右键菜单项并弹出小对话框过滤列表",
+      "【修复关闭流程】退出现在只弹一次确认框（不再弹两次），点关闭确认后必定能退出：移除 Rust 侧重复的关闭拦截，并补齐销毁窗口与确认框所需权限",
+    ],
+  },
+};
+
 const FOUR_POINT_ZERO_FOUR_CHANGELOG: ChangelogEntry = {
   version: "4.0.4",
   date: "2026-09-29",
@@ -1692,6 +1713,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ONE_ZERO_CHANGELOG.version)
+    return [FOUR_POINT_ONE_ZERO_CHANGELOG];
   if (version === FOUR_POINT_ZERO_FOUR_CHANGELOG.version)
     return [FOUR_POINT_ZERO_FOUR_CHANGELOG];
   if (version === FOUR_POINT_ZERO_THREE_CHANGELOG.version)
@@ -1845,6 +1868,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ONE_ZERO_CHANGELOG,
     FOUR_POINT_ZERO_FOUR_CHANGELOG,
     FOUR_POINT_ZERO_THREE_CHANGELOG,
     FOUR_POINT_ZERO_TWO_CHANGELOG,
