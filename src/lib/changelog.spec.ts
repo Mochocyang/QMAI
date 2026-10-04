@@ -10,8 +10,14 @@ describe("changelog", () => {
     const release410 = currentVersionChangelog("4.1.0")[0]
     expect(release410.version).toBe("4.1.0")
     expect(release410.date).toBe("2026-10-04")
-    expect(release410.highlights.zh.join("\n")).toContain("顶栏重构")
+    expect(release410.highlights.zh.join("\n")).toContain("八类设定专属模板")
+    expect(release410.highlights.zh.join("\n")).toContain("设定卡片流")
+    expect(release410.highlights.zh.join("\n")).toContain("双格式查看器通用化")
+    expect(release410.highlights.zh.join("\n")).toContain("流式生成容错")
+    expect(release410.highlights.zh.join("\n")).toContain("顶栏图标重构")
     expect(release410.highlights.zh.join("\n")).toContain("修复关闭流程")
+    expect(release410.highlights.en.join("\n")).toContain("Eight Setting Templates")
+    expect(release410.highlights.en.join("\n")).toContain("Streaming Resilience")
     const release404 = currentVersionChangelog("4.0.4")[0]
     expect(release404.version).toBe("4.0.4")
     expect(release404.date).toBe("2026-09-29")
