@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Plus, RefreshCw, Trash2, X } from "lucide-react"
 import { CustomModelMark, ModelConfigTitle, modelEnableLabel, modelSaveLabel } from "@/components/settings/provider-brand-icon"
 import { useWikiStore, type ProviderOverride } from "@/stores/wiki-store"
+import { ContextSizeSelector } from "@/components/settings/context-size-selector"
+import { OutputTokensSelector } from "@/components/settings/output-tokens-selector"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { testLlmConnection, testLlmFunction } from "@/lib/connection-tests"
@@ -128,7 +130,23 @@ export function UiTestProviderCard({ id, expanded, isNew, onToggle, onRemoved }:
         <div className="model-actions"><button type="button" className="model-button" disabled={action?.running} onClick={() => void execute("fetch")}><RefreshCw />拉取模型</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("connection")}>测试连接</button><button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("function")}>测试功能</button>{failed.length > 0 && <button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void execute("retry")}>重试失败模型</button>}</div>
         {action && <p className={`model-feedback${action.error ? " error" : ""}`} role="status" aria-live="polite">{action.text}</p>}
         {!!options.length && <div className="model-catalog"><div className="model-section-heading"><p>已拉取 {options.length} 个模型 · 已选择 {savedModels.length} 个</p><div className="model-actions"><button type="button" className="model-button ghost" onClick={() => chooseModels(options)}>全选</button><button type="button" className="model-button ghost" onClick={() => change({ savedModels: [], model: "" })}>清空</button></div></div><p className="model-note">点击模型加入上方输入框，再次点击可取消。</p><div className="model-catalog-list">{options.map(model => <button type="button" key={model} aria-pressed={savedModels.some(item => item.model === model)} className={failed.includes(model) ? "is-failed" : ""} onClick={() => savedModels.some(item => item.model === model) ? change(removeProviderModel(draft, model)) : chooseFetchedModel(model)}>{model}</button>)}</div></div>}
-        <div className="model-inline-fields"><label className="model-inline-field"><span>上下文窗口（tokens）</span><input type="number" aria-label="上下文窗口" min={204800} step={1} value={draft.maxContextSize ?? ""} onChange={event => change({ maxContextSize: Number(event.target.value) })} /></label><label className="model-inline-field"><span>输出上限（tokens）</span><input type="number" aria-label="输出上限" min={512} step={1} value={draft.maxOutputTokens ?? ""} onChange={event => change({ maxOutputTokens: Number(event.target.value) })} /></label></div><p className="model-note">上下文窗口最低 200K。请按服务商实际能力填写；数值只限制本次请求，不会提高模型能力。</p>
+        <div className="space-y-4 mt-5">
+          <div className="space-y-2">
+            <span className="text-sm font-medium">上下文窗口</span>
+            <ContextSizeSelector
+              value={config.maxContextSize}
+              onChange={maxContextSize => change({ maxContextSize })}
+            />
+          </div>
+          <div className="space-y-2">
+            <span className="text-sm font-medium">输出上限</span>
+            <OutputTokensSelector
+              value={config.maxOutputTokens}
+              contextWindow={config.maxContextSize}
+              onChange={maxOutputTokens => change({ maxOutputTokens })}
+            />
+          </div>
+        </div>
         <details className="model-advanced"><summary>高级选项 · 工具调用与推理</summary><FunctionCallingControls enabled={draft.functionCallingEnabled !== false} onChange={functionCallingEnabled => change({ functionCallingEnabled })} /><ReasoningControls value={draft.reasoning ?? { mode: "auto" }} onChange={reasoning => change(withOutputRoomForReasoning(reasoning, draft.maxOutputTokens))} /></details>
       </fieldset>
       <footer className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”，再保存配置。" : status?.text ?? (dirty ? "有未保存修改，保存后才会进入模型选择器。" : "当前配置已保存。")}</p><small>测试和保存是两种独立操作。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{(dirty || manual.trim()) && saved && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if ((await confirmModelAction("放弃本项未保存的修改，恢复已保存配置？"))) { reset(); setManual(""); retainFailed(useWikiStore.getState().providerConfigs[id]?.savedModels) } }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!canSave} onClick={() => void save(!draft.label?.trim() ? "请填写配置名称。" : validateProviderDraft(draft))}>{saving ? "正在保存…" : "保存配置"}</button></div></footer>
