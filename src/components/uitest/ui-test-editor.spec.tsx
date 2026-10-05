@@ -521,10 +521,11 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
   })
 
-  it("草稿提示按工具栏宽度定位，不能在窄编辑区被裁掉", () => {
+  it("草稿提示按工具栏宽度定位，盖住正文，且不能在窄编辑区被裁掉", () => {
     expect(css).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
     expect(css).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
     expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
   })
 
   it("单独提供最大800正文容器，20px标题与18px/1.95衬线正文", () => {
