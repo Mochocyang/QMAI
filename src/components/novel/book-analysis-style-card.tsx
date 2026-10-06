@@ -13,7 +13,7 @@ import type { LegacyPanelVariant } from "./legacy-panel-variant"
 interface BookAnalysisStyleCardProps {
   book: BookAnalysisLibraryBook
   /**
-   * embedded：嵌进新版页签时使用，去掉卡片自身的边框与内边距（页签已提供留白）。
+   * embedded：嵌进新版页签时使用，去掉卡片自身的边框、背景与内边距（页签已提供留白）。
    * 管理类按钮是否出现由各自回调是否存在决定，与 variant 无关。
    */
   variant?: LegacyPanelVariant

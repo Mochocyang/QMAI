@@ -44,6 +44,10 @@ const book: BookAnalysisLibraryBook = {
   evidence: [],
 }
 
+/**
+ * props 最后展开：测试可以用 `book` 覆盖默认 fixture（例如把 styleStatus 改成 "enabled"），
+ * 也可以用 undefined 关掉单个回调来模拟真实嵌入用法。
+ */
 function renderCard(
   props: Partial<Parameters<typeof BookAnalysisStyleCard>[0]> = {},
 ) {
@@ -77,10 +81,12 @@ function buttonLabels(container: HTMLElement): string[] {
 }
 
 describe("BookAnalysisStyleCard", () => {
-  it("embedded 模式隐藏管理工具条，但保留标题、六层蒸馏与统计指标", () => {
+  it("embedded 模式隐藏管理工具条，但保留标题、四层蒸馏网格（L1/L2/L3-L5/L6）与统计指标", () => {
     // 真实嵌入用法不传任何管理类回调（与 Task 1 的角色面板一致），这里必须一致
     const { container, cleanup } = renderCard({
       variant: "embedded",
+      // 「已启用」是状态标记不是操作，embedded 下必须保留——故意用 enabled 的书把它逼出来
+      book: { ...book, styleStatus: "enabled" },
       onExtractStyle: undefined,
       onToggleStyle: undefined,
       onDeleteStyle: undefined,
@@ -92,9 +98,15 @@ describe("BookAnalysisStyleCard", () => {
     expect(labels.some((l) => l.includes("提取文风"))).toBe(false)
     // 结果本身必须还在
     expect(container.textContent).toContain("作品文风 · Writing DNA")
+    // 状态标记不能跟着管理工具条一起被裁掉
+    expect(container.textContent).toContain("已启用")
+    // 四层全部钉住：整块网格消失（而不是某一层）必须能被发现
     expect(container.textContent).toContain("L1 语言 DNA")
+    expect(container.textContent).toContain("L2 章节结构模板")
+    expect(container.textContent).toContain("L3-L5 叙事视角与认知框架")
+    expect(container.textContent).toContain("L6 排版与节奏指南")
     expect(container.textContent).toContain("脚本统计（L1 / L6 确定性指标）")
-    expect(container.querySelector("section")?.className ?? "").not.toContain("border")
+    expect(container.querySelector("section")?.className ?? "").toBe("")
     cleanup()
   })
 
@@ -104,7 +116,9 @@ describe("BookAnalysisStyleCard", () => {
     expect(labels.some((l) => l.includes("提取文风"))).toBe(true)
     expect(labels).toContain("启用此文风")
     expect(labels).toContain("删除文风")
-    expect(container.querySelector("section")?.className ?? "").toContain("border")
+    expect(container.querySelector("section")?.className ?? "").toBe(
+      "rounded-lg border bg-background p-4",
+    )
     cleanup()
   })
 
@@ -121,7 +135,7 @@ describe("BookAnalysisStyleCard", () => {
     const labels = buttonLabels(container)
     expect(labels.some((l) => l.includes("提取文风"))).toBe(true)
     expect(labels).toContain("删除文风")
-    expect(container.querySelector("section")?.className ?? "").not.toContain("border")
+    expect(container.querySelector("section")?.className ?? "").toBe("")
     cleanup()
   })
 })
