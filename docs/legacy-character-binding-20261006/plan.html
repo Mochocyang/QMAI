@@ -507,6 +507,10 @@ function findPersonality(skills: CharacterSkill[], character: ExtractedCharacter
     <div class="note">
       已核实 <code>readPersonalitySkill</code>（<code>portable-personality.ts:97</code>）的返回类型就是 <code>PortablePersonality | undefined</code>，所以 <code>findPersonality</code> 不要显式标注返回类型，<b>也不需要</b>从 <code>./types</code> 导入 <code>PersonalityProfile</code>（<code>noUnusedLocals</code> 会让未使用的导入编译失败）。
     </div>
+    <div class="danger">
+      <b>v3 校正（实施时发现，本节上面的测试 fixture 原稿有错）：</b>原稿把 <code>persona.evidence</code> 与 <code>rules[0].evidenceIds</code> 都写成 <code>[]</code>，这是<b>不可能往返</b>的。<code>parsePortablePersonality</code>（<code>portable-personality.ts:42-43</code>）要求 <code>evidence.length</code> 在 <b>1–16</b>、<code>rules.length</code> 在 <b>1–8</b>；<code>:55-56</code> 还要求每条规则至少引用一个<b>已存在</b>的 evidence id。所以 <code>renderPersonalitySkill</code> 生成的内容再被 <code>readPersonalitySkill</code> 读回时会<b>抛错</b>，被 <code>findPersonality</code> 的 catch 吞掉后返回 <code>undefined</code>——情况 X 会退化成 <code>rules: []</code>，测试<b>因为错误的原因通过</b>（正是本计划反复强调要避免的那类假绿）。修正只需两个 token：<code>rules[0].evidenceIds: ["E1"]</code>、<code>evidence: [{ id: "E1", chapterId: "1", quote: "账目不会说谎。" }]</code>。
+      <p>推论（Task 4 同样适用）：<b>只有同时带 rules 与 evidence 的人格块才能被解析</b>；任何只造 rules 不造 evidence 的测试 fixture 都会静默退化成「无人格块」路径。另外迁移时 <code>evidenceIds</code> 被写成 <code>[]</code>（<code>legacy-character-revision.ts:36</code>）是<b>有意为之</b>——迁移版本本身 <code>evidence: []</code>，不能引用不存在的证据 id；这些规则不会再被 <code>readPersonalitySkill</code> 解析，只用于显示。</p>
+    </div>
   </li>
   <li><b>Step 5：跑测试确认通过</b>
     <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/legacy-character-revision.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
@@ -780,19 +784,21 @@ git commit -m "feat(拆书库): 角色加入灵魂库与绑定动作（绑定自
 
 <hr>
 
-<h2>Task 5：放宽两处「没有规则就不给加入」的门槛（迁移版本例外）</h2>
+<h2>Task 5：放宽后端「没有规则就不给加入」的门槛（迁移版本例外）</h2>
 <div class="files">
   <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.ts:37</code> 与 characters 分支的过滤条件</div>
-  <div>Modify: <code>src/components/novel/book-analysis-workbench.tsx:452-453</code>（<b>第二处门槛，容易漏</b>）</div>
   <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.spec.ts</code></div>
 </div>
+<div class="note">
+  <b>v3 调整：前端那一半挪到了 Task 6。</b>原稿把 <code>book-analysis-workbench.tsx</code> 的两处前端改动放在本任务，但它的验证用例（「情况 Z 下『确认并加入』仍可点」）属于 Task 6——于是本任务改的代码要等下一个任务才能被自己的变异验证覆盖。把前端改动整体并入 Task 6 后，每个任务都能被自己的用例守住，也少一遍对同一文件的来回改。<b>本任务只改后端。</b>
+</div>
 <div class="danger">
-  <b>这里有<b>两</b>处独立门槛，只改后端会得到一个点不动的前端按钮。</b>
+  <b>注意：门槛有<b>两</b>处，本任务只改其中一处。</b>
   <ul>
-    <li>后端：<code>workbench-publish.ts:37</code> 抛「没有有依据的规则可加入」。</li>
-    <li>前端：<code>book-analysis-workbench.tsx:453</code> 的「确认并加入」按钮被 <code>!revision.items.some((i) =&gt; i.rules.length)</code> <b>禁用</b>。</li>
+    <li>后端（本任务）：<code>workbench-publish.ts:37</code> 抛「没有有依据的规则可加入」；以及 characters 分支的 <code>filter((item) =&gt; item.rules.length)</code>。</li>
+    <li>前端（<b>Task 6</b>）：<code>book-analysis-workbench.tsx:453</code> 的「确认并加入」按钮被 <code>!revision.items.some((i) =&gt; i.rules.length)</code> 禁用，以及 <code>:452</code> 的摘要行文案。</li>
   </ul>
-  旧版迁移版本在情况 Y/Z/W 下 <code>rules</code> 全空，两处都会挡住它。两处都已在代码中核实存在。
+  旧版迁移版本在情况 Y/Z/W 下 <code>rules</code> 全空，两处都会挡住它。只改后端会得到一个点不动的前端按钮。两处都已在代码中核实存在。
 </div>
 
 <ul class="steps">
@@ -821,7 +827,7 @@ git commit -m "feat(拆书库): 角色加入灵魂库与绑定动作（绑定自
     <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts -t "旧版迁移版本即使没有规则也能加入" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
     <p>期望：FAIL，报 <code>没有有依据的规则可加入</code>（第二个用例此刻应已 PASS）。</p>
   </li>
-  <li><b>Step 3：实现</b>
+  <li><b>Step 3：实现（只改后端）</b>
 <pre><code>-    if (!revision.items.some((item) =&gt; item.rules.length)) throw new Error("没有有依据的规则可加入")
 +    // 旧版迁移版本可能没有任何结构化规则（六维路径的 Skill 不含便携人格块），
 +    // 但它仍有可发布内容——发布时走 buildGeneratedAuraInputFromBookCharacter 的
@@ -833,28 +839,73 @@ git commit -m "feat(拆书库): 角色加入灵魂库与绑定动作（绑定自
 <pre><code>-      for (const item of revision.items.filter((item) =&gt; item.rules.length)) {
 +      // 迁移条目即使没有规则也要发布（靠兜底链）；新版条目仍只发布有规则的
 +      for (const item of revision.items.filter((item) =&gt; item.rules.length || revision.origin === "legacy")) {</code></pre>
-    <p><b>再改前端那两处。</b>先在文件里加一个共用判据：</p>
-<pre><code>/** 整个版本有没有可发布内容。旧版迁移版本靠兜底链发布，即使没有结构化规则也算数。 */
-function canPublishRevision(revision: WorkbenchRevision): boolean {
-  return revision.origin === "legacy" || revision.items.some((item) =&gt; item.rules.length)
+  </li>
+  <li><b>Step 3b（v3 必做）：修 <code>publishWorkbenchCharacter</code>，否则迁移版本一确认就抛错</b>
+    <div class="danger">
+      <b>独立审查发现的真缺陷，不修则本任务是坏的。</b>放宽门槛后迁移版本会进入 characters 分支，而该分支调 <code>publishWorkbenchCharacter</code>，后者走 <code>workbenchPersonality</code> → <code>parsePortablePersonality</code>。已核实：
+      <ul>
+        <li><code>workbench-core.ts:146-151</code>：<code>used = new Set(rules.flatMap(r =&gt; r.evidenceIds))</code>，再 <code>evidence.filter((e) =&gt; used.has(e.id))</code>。迁移把 <code>evidenceIds</code> 与 <code>evidence</code> 都置空，于是人格块恒为 <code>rules: [] / evidence: []</code>。</li>
+        <li><code>portable-personality.ts:42-45</code> 要求 <code>rules.length</code> 在 1–8、<code>evidence.length</code> 在 1–16，否则<b>抛</b>「人格规则需要1至8条有证据的条件化规则」。</li>
+      </ul>
+      因此<b>情况 X/Y/Z/W 全都抛</b>（情况 X 也抛：规则还在，但 <code>evidenceIds</code> 被清空 ⇒ 证据为 0）。按钮点下去直接报错，比禁用更糟。修法：拿不到可用证据时就<b>不要走人格块</b>，让 <code>buildGeneratedAuraInputFromBookCharacter</code> 的散文兜底接手（<code>aura-adapter.ts:61</code> 起，已核实 <code>skillContent</code> 为空时它用 <code>personalityProfile</code>／散文字段拼 aura）。
+    </div>
+    <p>在 <code>workbench-publish.ts</code> 中新增一个判据，并改用它构造 <code>skillContent</code>：</p>
+<pre><code>/**
+ * 迁移版本的 evidence 是空的（旧版人格来自 LLM 摘要，本就没有正文偏移），
+ * 而 parsePortablePersonality 要求每条规则都引用一条**已存在**的证据。
+ * 所以先判断「有没有可用的证据引用」：有才生成人格块，
+ * 没有就返回空串，交给 buildGeneratedAuraInputFromBookCharacter 的
+ * personalityProfile／散文字段兜底（aura-adapter.ts:61 起），条目摘要仍作为性格写入，不丢数据。
+ */
+function workbenchSkillContent(item: WorkbenchItem, revision: WorkbenchRevision): string {
+  const evidenceIds = new Set(revision.evidence.map((e) =&gt; e.id))
+  const usable = item.rules.length &gt;= 1 &amp;&amp; item.rules.length &lt;= 8
+    &amp;&amp; item.rules.every((rule) =&gt; rule.evidenceIds.length &gt; 0 &amp;&amp; rule.evidenceIds.every((id) =&gt; evidenceIds.has(id)))
+  if (!usable) return ""
+  return renderPersonalitySkill(item.subject, revision.bookTitle,
+    parsePortablePersonality(workbenchPersonality(item, revision.evidence)))
 }</code></pre>
-    <p>然后用它替换 <code>:453</code> 的按钮禁用条件，并改 <code>:452</code> 的摘要行文案（别对旧版迁移数据声称「自动核验通过」）：</p>
-<pre><code>-      &lt;button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !revision.items.some((i) =&gt; i.rules.length)} onClick={() =&gt; void confirm()}&gt;
-+      {/* 旧版迁移版本可能没有结构化规则却仍有可发布内容，别把按钮禁掉 */}
-+      &lt;button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !canPublishRevision(revision)} onClick={() =&gt; void confirm()}&gt;</code></pre>
-<pre><code>-    &lt;div className="wb-row wb-summary"&gt;&lt;span className="wb-status"&gt;{revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}&lt;/span&gt;
-+    &lt;div className="wb-row wb-summary"&gt;&lt;span className="wb-status"&gt;{revision.origin === "legacy" ? "旧版导入 · 未经新版核验" : revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}&lt;/span&gt;</code></pre>
+    <p>函数体里 <code>const profile = parsePortablePersonality(...)</code> 换成 <code>const skillContent = workbenchSkillContent(item, revision)</code>，并把 <code>skillContent</code> 用在 <code>buildGeneratedAuraInputFromBookCharacter</code> 的第二个参数上；同时把 <code>personality: profile.summary</code> 改为 <code>personality: item.summary</code>（两者相等——<code>workbenchPersonality</code> 的 <code>summary</code> 就是 <code>item.summary</code>，已核实，所以没有行为变化）。</p>
+    <div class="danger">
+      <b>同时必须修掉 <code>coverage: []</code> 的 Infinity。</b>独立审查指出 <code>Math.min(...[])</code> 得 <code>Infinity</code>、<code>Math.max(...[])</code> 得 <code>-Infinity</code>，此前<b>恰好不可达</b>（人格块路径只读 <code>character.name</code>）。但 Step 3b 让迁移版本开始走散文兜底，而该路径会读 <code>firstAppearance</code>／<code>lastAppearance</code>（<code>aura-adapter.ts:63</code>），迁移版本的 <code>coverage</code> 正是空数组 ⇒ 灵魂里会出现「第 Infinity 章 - 第 -Infinity 章」。所以本步要一并夹住：
+    </div>
+<pre><code>-    firstAppearance: Math.min(...revision.coverage.map((c) =&gt; c.order)), lastAppearance: Math.max(...revision.coverage.map((c) =&gt; c.order)),
++    // 迁移版本的 coverage 是空的：Math.min()/Math.max() 空参会得到 ±Infinity，
++    // 而散文兜底链会把它读成「第 Infinity 章」。夹到 1。
++    firstAppearance: orders.length ? Math.min(...orders) : 1, lastAppearance: orders.length ? Math.max(...orders) : 1,</code></pre>
+<pre><code>  const orders = revision.coverage.map((c) =&gt; c.order).filter((order) =&gt; Number.isFinite(order))</code></pre>
+  </li>
+  <li><b>Step 3c（v3 必做）：补上独立审查点出的三处零覆盖</b>
+    <p>审查用变异证明 <code>workbench-publish.spec.ts</code> 有三处「改了没人管」：把 <code>existing</code> 查找改成 <code>undefined</code>（强制走创建）、删掉循环里的 <code>store.customAuras = [...]</code> 去重行、把 <code>loadCharacterAuraStore</code> 提前——三者跑完都是 26/26 全绿。逐条补：</p>
+    <ul>
+      <li><b>update 分支没覆盖</b>：先塞一条同名 aura 再确认，断言走的是更新而不是再建一条。</li>
+      <li><b>单条发布路径（抽出它的唯一理由）没人执行</b>：直接调 <code>publishWorkbenchCharacter(projectPath, revision, item)</code>（不传 <code>store</code>），断言返回的 aura 名字正确。</li>
+      <li><b>去重行不可测是因为 mock 别名</b>：<code>vi.mock("../character-aura")</code> 返回的就是 <code>io.auras</code> <b>同一个数组</b>，而被 mock 的 create 也往它里面 push，于是去重行在测试里成了冗余。把 mock 改成返回副本 <code>customAuras: [...io.auras]</code>，再加一个「两个 item 共用同一 subject」的用例，断言 <code>createAura</code> 一次、<code>updateAura</code> 一次。</li>
+    </ul>
+    <p>这三条都要做，否则 Task 8 的变异表第 ②③ 条是假验证——它们证明不了任何东西。</p>
+    <div class="ok">
+      <b>已实现并逐条独立核对（我读代码确认，不是采信子代理的自述）：</b>
+      <ul>
+        <li>update 分支 → 用例「库中已有同源角色时走更新分支，不重复创建」，断言 <code>createAura</code> 没被调用、<code>updateAura("aura-existing", …)</code> 被调一次。</li>
+        <li>单条路径 → 用例「不传使用库时也能直接发布单个条目」，直接 <code>await publishWorkbenchCharacter("/project", revision, revision.items[0])</code>（<b>不传第 4 个参数</b>）。</li>
+        <li>去重行 → mock 已改为返回副本，且新增「同一批次里同源角色只创建一次，后续条目走更新」。<b>我手工推演过它现在真的守得住</b>：循环外只 load 一次 store，改副本后第 1 次迭代 create 并把 aura 塞回 <code>store.customAuras</code>，第 2 次迭代才能 <code>find</code> 到它去 update；删掉去重行则第 2 次迭代 find 不到 → 又 create 一次 → 断言失败。</li>
+      </ul>
+    </div>
+  </li>
+  <li><b>Step 3d（v3 补充）：核对「给新版条目加兜底」没有偷偷放宽新版</b>
+    <p>Step 3b 的 <code>usable</code> 判据在新版条目上恒为真，所以<b>不会</b>把新版条目静默降级成散文兜底。依据是 <code>parseWorkbenchItem</code>（<code>workbench-core.ts:113,117-121</code>）：<code>rules.length &gt; 8</code> 直接抛、每条规则必须有 <code>evidenceIds</code>、且清洗后只剩<b>确实存在于该版本 evidence 里</b>的 id，否则抛。所以新版条目的规则数恒在 1–8、每条都有可用证据引用 → <code>usable</code> 恒真。</p>
+    <p>顺带推出：每条规则至多 2 个 id（<code>:120</code> 的 <code>slice(0,2)</code>）× 至多 8 条规则 ⇒ 人格块的 evidence 至多 16 条，正好不越 <code>parsePortablePersonality</code> 的 1–16 上限。也就是说 <code>parsePortablePersonality</code> 对**结构良好的新版版本**本来就永不抛错，Step 3b 对它们是零行为变化——这不是猜测，是上面两条约束推出来的。</p>
   </li>
   <li><b>Step 4：跑到全绿</b>
     <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts src/lib/novel/book-analysis/workbench-style-flow.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
     <p>期望：全 PASS。</p>
   </li>
   <li><b>Step 5：变异验证</b>
-    <p>两处门槛<b>分别</b>变异：①去掉 <code>&amp;&amp; revision.origin !== "legacy"</code>；②把按钮改回 <code>!revision.items.some((i) =&gt; i.rules.length)</code>。各跑 Step 4，期望 ① 让「旧版迁移版本即使没有规则也能加入」<b>FAIL</b>；② 由 Task 6 的按钮用例抓住；随后还原。</p>
+    <p>去掉 <code>&amp;&amp; revision.origin !== "legacy"</code>，跑 Step 4，期望「旧版迁移版本即使没有规则也能加入」<b>FAIL</b>；还原后重跑确认 PASS。另可单独去掉 filter 里的 <code>|| revision.origin === "legacy"</code>，确认同一用例同样失败。</p>
   </li>
   <li><b>Step 6：提交</b>
-    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-publish.ts src/lib/novel/book-analysis/workbench-publish.spec.ts src/components/novel/book-analysis-workbench.tsx
-git commit -m "fix(拆书库): 旧版迁移版本无规则时也允许加入（含前端按钮门槛）"</code></div>
+    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-publish.ts src/lib/novel/book-analysis/workbench-publish.spec.ts
+git commit -m "fix(拆书库): 旧版迁移版本无规则时也允许加入"</code></div>
   </li>
 </ul>
 
@@ -865,6 +916,16 @@ git commit -m "fix(拆书库): 旧版迁移版本无规则时也允许加入（�
   <div>Modify: <code>src/components/novel/book-analysis-workbench.tsx</code>（状态/加载 <code>:188-245</code>，结果区 <code>:343-355</code>，卡片 <code>:460-478</code>，<code>WorkbenchResult</code> props <code>:381-383</code>，<code>confirm()</code> <code>:413-426</code>）</div>
   <div>Modify: <code>src/components/novel/book-analysis-workbench.css</code>（仅按钮行样式）</div>
   <div>Modify: <code>src/components/novel/book-analysis-workbench.spec.tsx</code></div>
+</div>
+
+<div class="note">
+  <b>v3：前端那处门槛也在这里。</b>本任务还负责 Task 5 挪过来的两个前端改动：
+  <ul>
+    <li>加文件级判据 <code>canPublishRevision(revision)</code>（<code>revision.origin === "legacy" || revision.items.some((i) =&gt; i.rules.length)</code>），并用它替换 <code>:453</code> 的按钮禁用条件——否则迁移版本在情况 Z/W 下按钮点不动。</li>
+    <li>改 <code>:452</code> 摘要行文案：<code>revision.origin === "legacy" ? "旧版导入 · 未经新版核验" : …</code>，别对未核验数据声称「自动核验通过」。</li>
+    <li>顺带改 <code>:348</code> 版本下拉的选项文案，给迁移版本加「旧版导入 · 」前缀（原稿漏了，见 Step 3 的 v3 校正）。</li>
+  </ul>
+  本任务的按钮用例（「情况 Z 下『确认并加入』仍可点」）正好是这处改动的守卫，所以放在同一任务里改、同一任务里验证。
 </div>
 
 <ul class="steps">
@@ -906,14 +967,26 @@ git commit -m "fix(拆书库): 旧版迁移版本无规则时也允许加入（�
    * 磁盘上的版本 + 内存里的旧版迁移条目。
    * 迁移条目不落盘（懒落盘）：只有点「确认并加入」才写进 revisions 目录，
    * 因此这里按 id 去重，避免落盘后出现两份。
+   *
+   * 追加在**末尾**，不要放开头——见下面 v3 校正。
    */
   const reloadRevisions = useCallback(async () =&gt; {
     const stored = await loadWorkbenchRevisions(book.path)
     const legacyRevision = buildLegacyCharacterRevision(book)
     setRevisions(legacyRevision &amp;&amp; !stored.some((r) =&gt; r.id === legacyRevision.id)
-      ? [legacyRevision, ...stored]
+      ? [...stored, legacyRevision]
       : stored)
   }, [book.path, book])</code></pre>
+    <div class="danger">
+      <b>v3 校正：必须追加在末尾，原稿写成前置是错的。</b>已核实 <code>book-analysis-workbench.tsx:284-285</code>：
+<pre><code>const selectedRevisions = revisions.filter((r) =&gt; r.skill === activeSkill)
+const result = selectedRevisions.find((r) =&gt; r.id === selectedRevision) ?? selectedRevisions[0]</code></pre>
+      并且 <code>:346</code> 切换页签时会 <code>setSelectedRevision("")</code>，于是显示的就是 <code>selectedRevisions[0]</code>。若把迁移条目前置，它就会<b>成为默认显示的结果并盖住用户最新生成的版本</b>——用户打开「角色 Skill」只看到旧版角色，看不到自己刚生成的新版结果，恰好与「整合进新版」的意图相反。<code>loadWorkbenchRevisions</code> 本身按 <code>createdAt</code> 降序（<code>workbench-storage.ts:39</code>），而迁移条目用的是 <code>metadata.updatedAt</code>（通常是旧时间），所以追加既符合排序语义，也保住「最新真实版本仍是默认」。
+      <p><b>代价与补偿：</b>两个按钮只渲染在当前选中的那个版本上，因此有旧版角色时用户需要从「结果版本」下拉里切到旧版条目。为让它可被发现，同一步里给下拉标签加前缀（原稿漏了这点，只加了摘要行文案）：</p>
+<pre><code>-&lt;option key={r.id} value={r.id}&gt;{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.confirmedAt ? "已确认" : "待确认"}&lt;/option&gt;
++&lt;option key={r.id} value={r.id}&gt;{r.origin === "legacy" ? "旧版导入 · " : ""}{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.confirmedAt ? "已确认" : "待确认"}&lt;/option&gt;</code></pre>
+      <p>这样「角色 Skill」页签里：没有新版结果的书 → 迁移条目是唯一一项、直接显示旧版角色（旧版用户终于看到自己的角色，且带两个按钮）；有新版结果的书 → 默认仍是最新新版结果，旧版条目在下拉里以「旧版导入」标注，切过去即可绑定。</p>
+    </div>
     <p>并把 <code>:241-245</code> 那个直接调 <code>loadWorkbenchRevisions</code> 的 effect 改为调用它，避免两处逻辑漂移：</p>
 <pre><code>  useEffect(() =&gt; {
     let current = true
@@ -1020,12 +1093,23 @@ function hasPublishableData(revision: WorkbenchRevision, item: WorkbenchItem, bo
   return Boolean(character.personalityProfile) || Boolean(character.personality) || Boolean(character.description)
 }
 
-/** 三态徽标文案，与设计 5.4 的表格一一对应。 */
-function soulStatusLabel(status: CharacterSoulStatus | undefined): string {
+/**
+ * 三态徽标文案，与设计 5.4 的表格一一对应。
+ *
+ * 「无可用资料」优先于灵魂状态（v3 修正）：设计 5.4 的三态讲的是灵魂状态，
+ * 而设计的失败模式表又要求「既无人格块也无任何资料」的条目显示「无可用资料」。
+ * 两者冲突时取后者——按钮都置灰了，徽标还写「未加入灵魂库」就是骗用户去点
+ * 一个点不动的按钮。所以可发布性作为第一判据。
+ */
+function soulStatusLabel(status: CharacterSoulStatus | undefined, publishable: boolean): string {
+  if (!publishable) return "无可用资料"
   if (!status || status === "none") return "未加入灵魂库"
   if (status === "added") return "已在灵魂库"
   return `已绑定「${status.bound.join("、")}」`
 }</code></pre>
+    <div class="warn">
+      <code>publishable</code> 要在徽标与按钮之间<b>只算一次</b>（提出来共用），别在按钮的 IIFE 里再算一遍——两处一旦漂移，就会出现「徽标说无可用资料、按钮却可点」这种自相矛盾的渲染。
+    </div>
     <p>给 <code>WorkbenchResult</code> 增加 props——把 <code>:381-383</code> 的签名改为：</p>
 <pre><code>  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string
   onConfirmed: () =&gt; void; onRevise: (requirements: string) =&gt; Promise&lt;void&gt; | null; revising: boolean
@@ -1159,6 +1243,30 @@ git commit -m "feat(拆书库): 角色条目可加入灵魂库与绑定，旧版
 <div class="files">
   <div>Modify: <code>src/components/novel/legacy-skill-results.tsx</code></div>
   <div>Modify: <code>src/components/novel/legacy-skill-results.spec.tsx</code></div>
+  <div>Modify: <code>docs/book-analysis-legacy-merge-20261006/dump-legacy-markup.spec.tsx</code>（v3 补充）</div>
+  <div>Modify: <code>docs/book-analysis-legacy-merge-20261006/dump.html</code>（重新生成）</div>
+  <div>Modify: <code>docs/book-analysis-legacy-merge-20261006/check.mjs</code>（v3 补充）</div>
+  <div>Modify: <code>src/components/novel/book-analysis-workbench.spec.tsx</code>（v3 补充，仅「旧版结果并入页签」那组）</div>
+</div>
+
+<div class="danger">
+  <b>v3 补充之二：<code>book-analysis-workbench.spec.tsx</code> 也会被本任务打破。</b>它的 <code>describe("旧版结果并入页签")</code>（约 <code>:284-345</code>）默认停在角色页签，其中：
+  <ul>
+    <li><code>:285</code>「旧版结果出现在结果区内部」取 <code>[data-testid="legacy-skill-results"]</code> 并断言非空 —— 角色页签下将恒为 <code>null</code>。</li>
+    <li><code>:296</code>「默认停留在角色页签时渲染角色类旧版结果」断言角色页签渲染出「旧版资料」且含「林烬」——其<b>前提已被本任务按设计推翻</b>，必须改成断言新契约（角色页签不再有旧版分区）。</li>
+    <li><code>:313</code>「作品没有旧版资料时整块不渲染」仍然成立，但对角色页签变成恒真；能换到否定有意义的页签就换，否则加一句说明。</li>
+    <li><code>:320</code>（故事页签）与 <code>:340</code>（不再接受 legacy prop）应继续通过，别动。</li>
+  </ul>
+  <b>因此 Task 7 必须同时改这一个文件，而且只改这组断言</b>——不能为了「让 novel 目录全绿」而削弱别的用例。<code>:285</code> 的<b>意图</b>（旧版区在新版结果区内部、不是页面底部独立区块）仍然有价值，应改挂到故事页签而不是删除。Task 6 之后会往同一个文件追加新用例，所以这里务必最小改动、便于复核。
+</div>
+
+<div class="danger">
+  <b>v3 补充：本轮实测发现的计划缺口。</b>上一版的 Task 7 只列了两个文件，<b>漏掉了上一轮特性留下的验证工具</b>。已核实 <code>vite.config.ts</code> 的 <code>test</code> 块<b>没有配置 <code>include</code></b>，因此 vitest 用默认 glob <code>**/*.{test,spec}.?(c|m)[jt]s?(x)</code>，<b>会把 <code>docs/**/*.spec.tsx</code> 一并跑掉</b>。于是：
+  <ul>
+    <li><code>docs/book-analysis-legacy-merge-20261006/dump-legacy-markup.spec.tsx</code> 对 <code>["characters","story","style"]</code> 逐个断言 <code>expect(inner).toContain('data-testid="legacy-skill-results"')</code>。角色分支一旦返回 <code>null</code>，这条<b>必然失败</b>。</li>
+    <li><code>docs/book-analysis-legacy-merge-20261006/check.mjs</code> 断言 <code>groups.length === 3</code>（约 <code>:72</code>）、并查找 characters 组做两栏网格断言（约 <code>:126-131</code>）、还要遍历每组找 <code>.wb-legacy-results</code>。这些前提同样失效。</li>
+  </ul>
+  处理方式是<b>如实更新验证工具去断言新现实</b>（角色不再有旧版分区，故事与文风仍有），而不是删掉或放宽其余断言，也不能让 <code>check.mjs</code> 失去「失败即非 0 退出」的能力。
 </div>
 
 <ul class="steps">
@@ -1229,16 +1337,32 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
       <li>宽容器（1200px）：徽标与两个按钮在<b>同一行</b>；按钮行右边界不超出卡片右边界。</li>
       <li>窄容器（420px）：按钮行换行而不是溢出（<code>scrollWidth &lt;= clientWidth + 1</code>）。</li>
       <li>徽标与按钮矩形<b>不相交</b>。</li>
-      <li>情况 Z 的条目两个按钮都可点；情况 W（无任何资料）两个按钮都 <code>disabled</code>。</li>
+      <li>情况 Z（只有散文字段、<code>rules</code> 为空）的条目两个按钮都<b>可点</b>——这正是「可用性不能看 <code>rules.length</code>」的回归位；情况 W（毫无资料）两个按钮都 <code>disabled</code>。</li>
       <li>对话框宽度 <code>&lt;= 视口宽 - 32</code>；内容超高时内部滚动而非撑破视口。</li>
     </ul>
+  </li>
+  <li><b>Step 2b：三态契约要逐按钮断言，且三个用例缺一不可（v3 补充）</b>
+    <div class="danger">
+      <b>我第一版 <code>check.mjs</code> 写错了，已修。</b>它用一个布尔值套在两个按钮上（<code>buttons.every((b) =&gt; b.disabled === expectedDisabled)</code>），而设计 §5.4 的三态里两个按钮的可用性<b>并不一样</b>：<code>in-library</code>（已在库未绑定）时「加入」禁用但「绑定」<b>仍必须可用</b>——用户原话是「有些可能第一时间并没有绑定」。单布尔值表达不了这一态，会把它误判成失败或漏判。
+      <p>改成逐按钮判定，并新增 <code>in-library</code> 用例：</p>
+      <ul>
+        <li><code>publishable</code> / <code>legacy</code>（尚未入库）→ 两个都可用</li>
+        <li><code>in-library</code>（已在库未绑定）→ 「加入」禁用，「绑定」可用</li>
+        <li><code>unpublishable</code>（情况 W）→ 两个都禁用</li>
+      </ul>
+      <p>同时把「三态用例缺一不可」写成断言：少了 <code>in-library</code> 用例，那几条断言根本不会执行，脚本照样报 <code>失败项：0</code>——<b>又一个假通过</b>。徽标文案也逐用例断言（<code>in-library</code> 必须含「已在灵魂库」），否则徽标写成死值也查不出来。</p>
+    </div>
   </li>
   <li><b>Step 3：跑几何检查</b>
     <div class="cmd"><code>node docs/legacy-character-binding-20261006/check.mjs; Write-Host "exit=$LASTEXITCODE"</code></div>
     <p>期望：<code>失败项：0</code>，退出码 0。</p>
   </li>
   <li><b>Step 4：变异验证全表</b>
-    <p>逐条破坏、跑对应用例、确认 <b>FAIL</b>，再用 <code>git checkout -- &lt;文件&gt;</code> 还原并确认 <code>git diff --exit-code -- &lt;文件&gt;</code> 干净：</p>
+    <div class="danger">
+      <b>绝对不要用 <code>git checkout -- &lt;文件&gt;</code> 还原变异。</b>本任务的改动<b>全部未提交</b>，<code>git diff --cached</code> 是空的（索引 == HEAD），所以 <code>git checkout -- &lt;文件&gt;</code> 恢复的是 HEAD，会<b>直接毁掉被测代码本身</b>。同理 <code>git diff --exit-code -- &lt;文件&gt;</code> 在这里返回 <b>1</b> 表示「改动还在」（返回 0 才说明被清空了）。上一轮独立审查就因为这个陷阱差点毁掉两个文件。
+      <p>正确做法：变异前先把原文件复制到 <code>%TEMP%</code> 留一份，变异后用<b>复制回写</b>还原，再比对 SHA-256 确认与变异前一致。下面的表格按此执行。</p>
+    </div>
+    <p>逐条破坏、跑对应用例、确认 <b>FAIL</b>，再按上面的方式还原并确认 SHA-256 一致：</p>
     <table>
       <tr><th>#</th><th>变异</th><th>必须失败的用例</th></tr>
       <tr><td>①</td><td><code>importanceFromScore</code> 改回 <code>return score</code></td><td>分数换算</td></tr>
@@ -1249,12 +1373,29 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
       <tr><td>⑥</td><td>旧版发布改走合成角色路径（用 <code>publishWorkbenchCharacter</code>）</td><td>情况 Z 仍能产出 aura</td></tr>
       <tr><td>⑦</td><td>去掉批量门槛的 legacy 例外</td><td>迁移版本无规则也能加入</td></tr>
       <tr><td>⑧</td><td>前端按钮改回 <code>!rules.length</code></td><td>「确认并加入」在情况 Z 可点</td></tr>
+      <tr><td>⑨</td><td>把 <code>materializeLegacyCharacterRevision</code> 挪回 <code>window.confirm</code> <b>之前</b>（v3 补充）</td><td>取消确认时不落盘——<b>这条必须失败</b>，它守住的是「取消后不留磁盘痕迹」</td></tr>
     </table>
+    <div class="danger">
+      <b>⑨ 是我在实现完成后复查源码时发现的真缺陷。</b><code>confirm()</code> 原本先 <code>materializeLegacyCharacterRevision</code> 落盘，之后才弹 <code>window.confirm</code> 问「确认替换…」。用户点「确认并加入」再在原生确认框里点<b>取消</b>时，迁移版本<b>已经被写进磁盘</b>了——违背本任务批准的「懒落盘」约定（只有真正确认才落盘），也与那段代码自己的注释「列表保持原状」矛盾。
+    <p>修法：把落盘挪到 <code>window.confirm</code> <b>之后</b>、<code>confirmWorkbenchRevision</code> 之前。指纹不受影响——<code>materializeLegacyCharacterRevision</code> 只写版本 json，不碰 <code>inspectWorkbenchPublication</code> 读的 aura／文风／框架三个库。</p>
+    </div>
   </li>
   <li><b>Step 5：全量回归并核对基线</b>
     <div class="cmd"><code>npx vitest run --exclude '**/.codex-temp/**' --exclude '**/.claude/**' --exclude '**/.worktrees/**' --reporter=json --outputFile=.vitest-after.json</code></div>
     <p>用 <code>ConvertFrom-Json</code> 取 <code>testResults</code> 里 <code>status -eq 'failed'</code> 的文件名，与 <code>51fe007</code> 的失败文件列表 <code>Compare-Object</code>。</p>
     <p class="ok">已确认基线：200 failed / 33 files / 5617 passed。</p>
+    <div class="ok">
+      <b>v3 实测（更精确，已执行）：</b>上面的基线是 <code>51fe007</code> 时期的旧数字。为了做真正的 A/B，我建了一个 <code>d66bf83</code>（本功能前最后一个提交）的独立工作树，把 <code>main\node_modules</code> 以 junction 接进去，在同一套依赖下各跑一次全量：
+      <table>
+        <tr><th></th><th>passed</th><th>failed</th><th>失败文件</th><th>总文件</th></tr>
+        <tr><td>基线 <code>d66bf83</code></td><td>5626</td><td>197</td><td>35</td><td>667</td></tr>
+        <tr><td>现在 <code>3b619d1</code></td><td>5700</td><td>196</td><td>34</td><td>669</td></tr>
+        <tr><td><b>差</b></td><td><b>+74</b></td><td><b>−1</b></td><td colspan="2">—</td></tr>
+      </table>
+      <p><b>新增失败文件：0 个。</b>唯一变化是 <code>src/components/uitest/ui-test-shell.spec.tsx</code> 不再失败——那是与拆书库无关的 UI 测试，本就是偶发。本功能相关的 8 个文件（迁移、动作层、发布、工作台、旧版分区、重要度、dump 快照）在两次清单里<b>都没有出现</b>。</p>
+      <p>+74 是新增用例数（重要度 10 条、发布 7 条、动作层 10 条、迁移 9 条、工作台 9 条、旧版分区若干）。与旧基线的差额由 <code>51fe007..d66bf83</code> 之间那两个截图修复提交解释，不是我引入的。</p>
+      <p>拆除工作树时先 <code>rmdir</code> 掉 junction 再 <code>git worktree remove</code>：<b>顺序不能反</b>，否则 git 递归删除会顺着 junction 把 <code>main\node_modules</code> 一起删掉。拆除后已核对 <code>main\node_modules</code> 条目数不变（587）。</p>
+    </div>
     <div class="warn">不要用 <code>grep</code>／<code>Select-String</code> 抓 FAIL 行——vitest 失败行带 ANSI 且走 stderr，会漏。必须用 JSON reporter。核对完删掉临时 json。</div>
   </li>
   <li><b>Step 6：派独立审查子代理</b>
@@ -1269,6 +1410,53 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
 
 <hr>
 
+<h2>Task 9：独立审查发现的三处问题与复审修复 <span class="tag">审查后新增</span></h2>
+<p>Task 8 Step 6 的只读审查子代理在 6 个提交（<code>d66bf83..3b619d1</code>）跑出 6 条规定变异全部被抓住，同时报回<b>三处真实问题</b>。逐条核实后：两处是产品缺陷、一处是我自己检查脚本的 bug。全部修复并各自用变异复验。</p>
+
+<h3>9.1 <code>check.mjs</code> 的对齐断言恒假（我的 bug）</h3>
+<div class="warn">
+  <p>原断言比较徽标与两个按钮 <code>rect.top</code> 的极差 <code>&lt;= 2</code>，但在真实 CSS 下<b>这条断言对任何正确的实现都必然失败</b>：<code>.wb-soul-actions</code> 是 <code>align-items:center</code>，徽标盒高 12px×1.5 = <b>18px</b>，按钮 <code>min-height:34px</code>，同一行上居中对齐的盒子顶边差恒为 (34−18)/2 = <b>8px</b>。实测 6 个卡片全部报 <code>top 差 8.0px</code>。</p>
+  <p><b>根因是把「在同一行」和「顶边相同」混为一谈。</b>正确判据是中线的极差。另外 1200px 下也不能假定不换行：默认三栏网格里卡片只有约 356px，而标签+徽标+两个按钮要 ~500px，<code>flex-wrap:wrap</code> 折行是设计预期（CSS 里就写了 <code>flex-wrap:wrap</code>），不是缺陷。</p>
+  <p>修法：按<b>垂直重叠分组</b>成行，逐行校验中线对齐 <code>&lt;= 2px</code>。这样换行时每行内部仍被校验——既不假失败，也不放过真正的错位。修复后 1200px 三行一组、420px 折成 1 项 + 2 项，全部 <code>中线差 0.0px</code>，<code>失败项：0</code> exit 0。</p>
+  <p><b>非空洞证明（我自己跑的）：</b>把徽标文案「已在灵魂库」改成 <code>XXBADGEXX</code> → exit 1，恰好只报 <code>[in-library]</code> 两个视口各一条；给徽标加 <code>top:6px</code> → exit 1，报 <code>中线差 6.0px</code>。两次都从 <code>%TEMP%</code> 字节还原，<code>dump.html</code> SHA-256 恒为 <code>304A0A6C…</code>、75529 字节。</p>
+</div>
+
+<h3>9.2 旧版批量「确认并加入」走错发布路径（产品缺陷）</h3>
+<p>设计 §5.2 写得很明确：新版条目走 <code>publishWorkbenchCharacter</code>，<b>旧版条目「不复用上面这条」</b>，必须复用 <code>importBookAnalysisSkillsAsAuras</code>。但 <code>confirmWorkbenchRevision</code> 的角色分支用 <code>item.rules.length || revision.origin === "legacy"</code> 把旧版条目<b>放进了新版那条路</b>。</p>
+<p>后果是用户可见的：<code>publishWorkbenchCharacter</code> 合成的 <code>ExtractedCharacter</code> 从不设置 <code>personalityProfile</code>，且迁移条目的 <code>evidence</code> 为空使 <code>workbenchSkillContent</code> 返回 <code>""</code>，而 <code>createCustomCharacterAuraFromGeneratedSkill</code> 会把这个空串<b>原样写成 SKILL.md</b>（<code>character-aura.ts:454</code>）。于是：</p>
+<ul>
+  <li><b>同一个角色，先按哪个按钮得到两个不同的灵魂。</b>先点「加入自定义灵魂库」→ 走适配器，写入六维 markdown 或 <code>generateSimpleSkillMarkdown(profile)</code>；先点「确认并加入」→ 得到一个 <b>SKILL.md 正文为空的灵魂</b>，而 <code>loadCharacterAuraSkillDocument</code> 会把 SKILL.md 读回来供生成使用。</li>
+  <li><b>更新场景会把已建好的灵魂改坏：</b><code>updateCustomCharacterAura</code> 的展开会保留 <code>portablePersonality</code>，却把 <code>sourceNote/corpus/styleDescription/behaviorRules/expressionDna/mentalModel/decisionHeuristics/valueAntiPatterns/honestyBoundaries</code> 全部覆盖成通用散文默认值，灵魂内部自相矛盾。</li>
+</ul>
+<p><b>修复：</b>把旧版分支抽成 <code>workbench-publish.ts</code> 里新的导出函数 <code>ensureLegacyCharacterAura(projectPath, book, subject)</code>（放这里是因为 <code>workbench-soul-actions.ts</code> 已经 import 本模块，反向 import 会形成循环依赖），角色分支按 <code>origin</code> 分流，<code>confirmWorkbenchRevision</code> 增加第 5 个参数 <code>book?</code> 并在旧版缺作品资料时明确报错 <code>旧版迁移版本发布需要作品资料</code>。动作层 <code>ensureAura</code> 的旧版分支随之变成一行调用，两处按钮与批量「确认并加入」<b>从此共用同一条路径</b>。</p>
+<div class="ok">
+  <p><b>红-绿顺序：</b>先加测试，对着未修复代码跑出 <code>AssertionError: expected '' not to be ''</code>（正是那个空 SKILL.md，8 failed | 12 passed），再实施修复。</p>
+  <p><b>我的独立变异：</b>把分支改回 <code>if (false &amp;&amp; revision.origin === "legacy")</code>（等价修复前行为）→ <b>4 条失败</b>，含「批量…SKILL.md 非空（情况 Y）」与「旧版迁移版本没有结构化规则也能确认入库」；把 <code>syntheticLegacySkill.skillContent</code> 清空 → <b>2 条失败</b>。两次都字节还原，SHA 恒为 <code>90B53A38…</code>。</p>
+</div>
+
+<h3>9.3 缺 design §8.1 情况 Y 发布测试（变异盲区）</h3>
+<p>设计 §8.1 强制要求用例 Y 断言「交给 <code>createCustomCharacterAuraFromGeneratedSkill</code> 的 <code>skillContent</code> <b>非空</b>」，§8.3 把对应变异标为<b>「这条最关键」</b>——而这条测试当时根本不存在。审查者做了一条计划表外的变异（清空 <code>syntheticSkill</code> 的 <code>skillContent</code>）跑遍 247 文件 / 2467 测试，<b>没有任何测试失败</b>。</p>
+<p>现已补齐完整的 §8.1 用例 X／Y／Z 与批量路径回归网（<code>workbench-publish.spec.ts</code> 新增 8 条）：情况 Y 断言 <code>skillContent</code> 非空且含角色名与人格原句；情况 Z 断言 <code>skillContent</code> 为空但 <code>styleDescription</code>／<code>corpus</code> 由散文字段兜底；情况 X 断言人格块内容进入 aura；另含批量走适配器、缺作品资料报错、已存在不重复创建、同批次同角色只建一次、角色不在资料里报错。上面 9.2 的两条变异即为这些新测试的非空洞证明——<b>盲区已封闭</b>。</p>
+
+<h3>9.4 顺手修掉：灵魂按钮出现在文风／故事页签</h3>
+<p><code>WorkbenchResult</code> 是三个页签共用的组件（内部已按 <code>revision.skill</code> 分支处理启用文风、导出文件名等），但 <code>.wb-soul-actions</code> 整块没有页签限定。文风条目<b>必然带规则</b>（<code>style-fingerprint.ts:105</code> 强制 <code>rules.length ≥ 1</code>），于是 <code>hasPublishableData</code> 为真、按钮可点：点「加入自定义灵魂库」会创建一个名为文风的「拆书角色」灵魂。已整块收进 <code>{revision.skill === "characters" &amp;&amp; …}</code>。变异（去掉该限定）→ 1 条失败，还原一致。</p>
+
+<h3>9.5 核实后<b>不改</b>的项（记录理由）</h3>
+<table>
+  <tr><th>发现</th><th>处置与理由</th></tr>
+  <tr><td><b>MINOR-5</b>：<code>library-state.ts:136</code> <code>importanceScore: character.importance</code> 把 1–10 写进 0–100 字段，再经 <code>character-candidate-selection.ts:60</code> 的 <code>ceil(/10)</code> 会把重要度压成 1</td><td><b>核实为潜伏，不在本次改动范围。</b>我逐环追了调用链：<code>recognizedCharacterToExtracted</code> 的消费点 <code>book-analysis-character-skill-dialog.tsx</code> 只被渲染于 <code>book-analysis-view.tsx:925</code>，而全库唯一挂载的 <code>BookAnalysisView</code> 就是 <code>return &lt;BookAnalysisWorkbench /&gt;</code>（<code>:95-97</code>）；<code>CharacterSelectionPanel</code>（显示「重要度」）也只出现在 <code>:940</code> 与 <code>chapter-selection-panel.tsx:440</code>，两者都在从 <code>:99</code> 开始的<b>未挂载</b> <code>LegacyBookAnalysisView</code> 内。属于既有的整类 1–10 / 0–100 混用问题（另有 <code>use-character-extraction.ts:501</code> 重试路径同源），Task 1 只是减少了其中一个坏写入点。留待旧版视图清理时一并处理，本次不动。</td></tr>
+  <tr><td><b>MINOR-2</b>：UI 判定（<code>isSameBookAnalysisCharacterAura</code>）比写入时判定弱，理论上可能留下一个永远置灰的条目</td><td>潜伏：构造不出来。两条分支都设 <code>category: "拆书角色"</code> 且书名在 <code>sourceNote</code> 里，用当前常量无法触发。且 9.2 的修复让旧版只走适配器一条路，两条路产生不同 <code>sourceNote</code> 的前提进一步消失。</td></tr>
+  <tr><td><b>MINOR-3</b>：<code>bound</code> 在循环外读一次且循环内不更新，重名会写两次</td><td>UI 不可达：对话框是复选框列表（<code>workbench.tsx:658-664</code>），只能产出唯一人名。</td></tr>
+  <tr><td><b>MINOR-4</b>（既有）：<code>bindCharacterAura</code> 按 <code>characterName</code> 覆盖（<code>:507-510</code>），把已绑人物改绑到另一灵魂时无提示；<code>isSameBookAnalysisCharacterAura</code> 用<b>子串</b>匹配书名（<code>aura-match.ts:18-23</code>），《长夜》与《长夜书》会互相命中</td><td>既有行为，与「灵魂」原有入口共用同一函数，本次只是多了一个入口。改它属于改变既有绑定语义（同一人物是否能绑多个灵魂），需要产品决策，不在本任务范围内。<code>aura-match.ts</code> 不在本次 diff 中。</td></tr>
+  <tr><td>文档引用 <code>story-extractor.ts:528</code> 读回 SKILL.md</td><td>该文件在 <code>src/lib/novel/book-analysis</code> 下不存在，引用已过期；真实读回点是 <code>loadCharacterAuraSkillDocument</code>（<code>character-aura.ts:548-551</code>）。结论不变。</td></tr>
+</table>
+
+<h3>9.6 复审后的测试计数</h3>
+<p>聚焦 6 文件：<b>101 passed</b>（修复前 90）。<code>npx tsc -p tsconfig.app.json --noEmit</code> exit 0 无输出。<code>src/components/novel</code> 31 文件 / 211 测试全绿。</p>
+<div class="warn">vitest <b>不会</b>因为路径不存在而报错——它会静默地少跑文件。我第一次复审时把 <code>legacy-skill-results.spec.tsx</code> 误写成 <code>src/lib/novel/book-analysis/legacy-skill-results.spec.ts</code>，结果只跑出 5 文件 / 95 测试且仍然<b>全绿通过</b>。核对文件数／用例数，别只看「有没有红」。</div>
+
+<hr>
+
 <h2>验收清单（全部满足才算完成）</h2>
 <ol>
   <li>「角色 Skill」页签里旧版角色以「旧版导入 / 旧版资料导入」条目出现，与新版条目同列表；无独立旧版角色分区。</li>
@@ -1278,10 +1466,15 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
   <li>无大纲人物时给出明确提示且不写数据；已绑过的人物再绑不重复写入。</li>
   <li>角色重要度显示在 1–10（不再出现 <code>100/10</code>）。</li>
   <li>两个按钮不落盘；「确认并加入」落盘失败时如实报错且不进入发布。</li>
-  <li>8 条变异全部被预期用例抓住。</li>
+  <li><b>9 条变异</b>全部被预期用例抓住（含 v3 新增的第 ⑨ 条：把落盘挪回 <code>window.confirm</code> 之前必须被「取消时不落盘」抓住）。</li>
   <li><code>--dir src/components/novel</code> 全绿；<code>tsc</code> 退出码 0；全量失败集合与基线逐文件一致。</li>
   <li>真实浏览器几何检查 0 失败。</li>
   <li>独立审查子代理无 Critical / Important 问题。</li>
+  <li><b>（复审新增）旧版角色无论走哪个按钮都得到同一个灵魂</b>：批量「确认并加入」与两个卡片按钮共用 <code>ensureLegacyCharacterAura</code>，且情况 Y 的 <code>SKILL.md</code> 正文非空——不再出现「先按哪个按钮决定灵魂内容」。</li>
+  <li><b>（复审新增）情况 Y／Z／X 三条发布路径各有断言</b>，闭合审查者指出的变异盲区：清空 <code>syntheticLegacySkill.skillContent</code> 必须被抓住（复审实测 2 条失败）。</li>
+  <li><b>（复审新增）灵魂按钮只属于角色页签</b>：文风／故事卡片即使带规则也不渲染「加入自定义灵魂库」「绑定…」。</li>
+  <li><b>（复审新增）几何检查断言本身非空洞</b>：改徽标文案 → exit 1；给徽标加 6px 偏移 → exit 1 报 <code>中线差 6.0px</code>；两者都能字节还原到 <code>304A0A6C…</code>。</li>
+  <li><b>（复审新增）复审变异总数 12 条</b>（原 9 条 + 审查者的 1 条盲区 + 我方复验的 2 条：回退发布分支、清空合成 Skill）。</li>
 </ol>
 
 <h2>已知取舍（来自设计 9，实施时不必“修正”）</h2>
@@ -1294,6 +1487,6 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
 </ul>
 
 </main>
-<footer>青幕AI写作 · 拆书库旧版角色整合与绑定 · 实施计划 v3</footer>
+<footer>青幕AI写作 · 拆书库旧版角色整合与绑定 · 实施计划 v4（含独立审查复审修复）</footer>
 </body>
 </html>
