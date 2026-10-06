@@ -45,7 +45,16 @@
 
 <p><strong>Goal:</strong> 把旧版拆书结果按技能并入新版三个页签，去掉页面底部的独立旧版块，并迁移旧版挂载时承担的副作用。</p>
 
-<p><strong>Architecture:</strong> 给三个既有旧版展示组件加 <code>variant="embedded"</code>（隐藏管理类控件与重复标题），由新的薄封装 <code>LegacySkillResults</code> 按 <code>activeSkill</code> 渲染在新版结果下方；<code>LegacyBookAnalysisView</code> 停止挂载，它原先承担的 3 个副作用迁进工作台。</p>
+<p><strong>Architecture:</strong> 给<strong>两个</strong>有外壳可剥离的旧版展示组件（<code>BookAnalysisCharacterPanel</code>、<code>BookAnalysisStyleCard</code>）加 <code>variant="embedded"</code>，并按「控件只看自己的回调」门控管理类按钮；<code>StoryMapContent</code> 没有外壳可剥离，因此不需要 variant（见 Task 3）。由新的薄封装 <code>LegacySkillResults</code> 按 <code>activeSkill</code> 渲染在新版结果下方；<code>LegacyBookAnalysisView</code> 停止挂载，它原先承担的 3 个副作用迁进工作台。</p>
+
+<div class="note">
+  <strong>贯穿全程的约定（Task 1 评审时定下，后续所有面板沿用）：</strong>
+  <ul style="margin:8px 0 0">
+    <li><code>variant</code> 只描述<strong>外壳</strong>：重复的标题、卡片自身的内边距/边框/背景。</li>
+    <li>某个管理类控件是否渲染，只由<strong>它自己的回调是否存在</strong>决定（<code>{onX &amp;&amp; &lt;Button/&gt;}</code>），与 variant 无关。漏传回调只会少一个按钮，不会留下点了没反应的死按钮。</li>
+    <li>该约定写在 <code>src/components/novel/legacy-panel-variant.ts</code> 的注释里，改这三个组件前先读它。</li>
+  </ul>
+</div>
 
 <p><strong>Tech Stack:</strong> React 19 + TypeScript + zustand + vitest + Playwright（仅用于真实浏览器几何检查）。</p>
 
@@ -67,7 +76,7 @@
   <tbody>
     <tr><td><code>src/components/novel/book-analysis-character-panel.tsx</code></td><td>改</td><td>加 <code>variant</code>；管理类回调转可选</td></tr>
     <tr><td><code>src/components/novel/book-analysis-style-card.tsx</code></td><td>改</td><td>加 <code>variant</code>；管理类回调转可选</td></tr>
-    <tr><td><code>src/components/novel/book-analysis-library-layout.tsx</code></td><td>改</td><td><code>StoryMapContent</code> 加 <code>variant</code></td></tr>
+    <tr><td><code>src/components/novel/book-analysis-library-layout.tsx</code></td><td>改</td><td><code>StoryMapContent</code> 删除按钮改为按回调渲染（<strong>不加 variant</strong>）</td></tr>
     <tr><td><code>src/components/novel/legacy-skill-results.tsx</code></td><td>新增</td><td>按技能选择渲染哪一个旧版面板，持有角色选中状态</td></tr>
     <tr><td><code>src/components/novel/book-analysis-workbench.tsx</code></td><td>改</td><td>删 <code>legacy</code> prop 与旧版区块；嵌入 <code>LegacySkillResults</code>；迁移副作用</td></tr>
     <tr><td><code>src/components/novel/book-analysis-view.tsx</code></td><td>改</td><td><code>BookAnalysisView</code> 不再传 <code>legacy</code></td></tr>
@@ -221,60 +230,74 @@ git commit -m "feat(拆书库): 文风卡片支持 embedded 模式"</code></pre>
 </div>
 
 <div class="task">
-<h3>Task 3: 故事导图支持 embedded</h3>
+<h3>Task 3: 故事导图删除按钮改为按回调渲染（<strong>不加 variant</strong>）</h3>
+<div class="note warn">
+  <strong>已按实施中的评审结论修订。</strong>本节原方案是给 <code>StoryMapContent</code> 也加
+  <code>variant="embedded"</code>。评审后否决，理由：它没有需要剥离的外壳——根节点是
+  <code>space-y-4</code>，而每张卡片自己的边框与标题属于<strong>内容</strong>，不是外壳；唯一的删除按钮
+  直接由 <code>onDeleteStoryMap</code> 门控即可。再加一个只能切换单个按钮的 variant，等于给同一件事
+  造第二套机制，且与 <code>LegacyPanelVariant</code>「只描述外壳」的定义矛盾。
+  附带修掉一个既有缺陷：删除按钮原本无条件渲染，而 <code>handleDeleteMap</code> 在回调缺失时
+  弹完确认框就静默 return。
+</div>
 <div class="files"><strong>Files:</strong>
 <ul>
-  <li>Modify: <code>src/components/novel/book-analysis-library-layout.tsx:52-61</code>（props）、<code>:176-189</code>（按钮组）</li>
+  <li>Modify: <code>src/components/novel/book-analysis-library-layout.tsx</code> — 只改 <code>StoryMapContent</code>（props 约 <code>:52-61</code>、删除按钮约 <code>:180-188</code>）</li>
   <li>Test: <code>src/components/novel/story-map-content.spec.tsx</code></li>
 </ul></div>
 
-<div class="step"><span class="box">☐ Step 1</span> 写失败测试：</div>
-<pre><code>it("embedded 模式只隐藏删除，保留「查看全部」这个查看开关", async () =&gt; {
-  await act(async () =&gt; root.render(&lt;StoryMapContent bookPath="E:/book" variant="embedded" /&gt;))
-  const buttons = Array.from(host.querySelectorAll("button")).map((b) =&gt; b.textContent?.trim())
-  expect(buttons).not.toContain("删除")
-  expect(buttons).toContain("查看全部")
+<div class="step"><span class="box">☐ Step 1</span> 写失败测试。既有 <code>renderContent(bookPath)</code> 扩一个可选 props 参数并<strong>最后展开</strong>，保持既有调用点不变：</div>
+<pre><code>describe("按回调决定是否渲染删除按钮", () =&gt; {
+  it("未提供删除回调时隐藏「删除」，但保留「查看全部」预览开关", async () =&gt; {
+    const { container, cleanup } = renderContent("E:/book")
+    const labels = Array.from(container.querySelectorAll("button")).map((b) =&gt; b.textContent?.trim() ?? "")
+    expect(labels).not.toContain("删除")
+    expect(labels).toContain("查看全部")
+    cleanup()
+  })
+
+  it("提供删除回调时渲染「删除」，点击后传入该导图的 id", async () =&gt; {
+    const onDeleteStoryMap = vi.fn(async () =&gt; {})
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, cleanup } = renderContent("E:/book", { onDeleteStoryMap })
+    const del = Array.from(container.querySelectorAll("button")).find((b) =&gt; b.textContent?.trim() === "删除")!
+    await act(async () =&gt; { del.click() })
+    expect(onDeleteStoryMap).toHaveBeenCalledWith("story-map-100")  // 用 fixture 里真实的 dirName
+    cleanup()
+  })
 })</code></pre>
 
 <div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
 <pre><code>npx vitest run src/components/novel/story-map-content.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
-<div class="exp">Expected: FAIL —— 「删除」仍然存在。</div>
+<div class="exp">Expected: FAIL —— 没传回调时「删除」仍然存在。</div>
 
-<div class="step"><span class="box">☐ Step 3</span> 实现。props 增加 <code>variant</code>：</div>
-<pre><code>export function StoryMapContent({
-  bookPath,
-  refreshKey = 0,
-  onDeleteStoryMap,
-  variant = "full",
-}: {
-  bookPath: string
-  refreshKey?: number
-  /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除 */
-  onDeleteStoryMap?: (id: string) =&gt; Promise&lt;void&gt; | void
-  /** embedded：嵌进新版页签时使用，只隐藏管理操作，保留预览开关。 */
-  variant?: "full" | "embedded"
-}) {
-  const embedded = variant === "embedded"</code></pre>
-<p>只给删除按钮加条件（<code>:180-188</code>），「查看全部／收起」保持不动：</p>
-<pre><code>{embedded ? null : (
-  &lt;Button
-    size="sm"
-    variant="ghost"
-    className="text-destructive hover:bg-destructive/10"
-    onClick={() =&gt; void handleDeleteMap(card)}
-  &gt;
-    &lt;Trash2 className="mr-1.5 h-3.5 w-3.5" /&gt;
-    删除
+<div class="step"><span class="box">☐ Step 3</span> 实现。只给删除按钮加回调门控，「查看全部／收起」保持不动，<code>handleDeleteMap</code> 与其 narrowing 守卫都不动：</div>
+<pre><code>&lt;div className="flex shrink-0 items-center gap-2"&gt;
+  &lt;Button size="sm" variant="outline" onClick={() =&gt; toggleExpand(card.id)}&gt;
+    {expanded ? "收起" : "查看全部"}
   &lt;/Button&gt;
-)}</code></pre>
+  {onDeleteStoryMap &amp;&amp; (
+    &lt;Button
+      size="sm"
+      variant="ghost"
+      className="text-destructive hover:bg-destructive/10"
+      onClick={() =&gt; void handleDeleteMap(card)}
+    &gt;
+      &lt;Trash2 className="mr-1.5 h-3.5 w-3.5" /&gt;
+      删除
+    &lt;/Button&gt;
+  )}
+&lt;/div&gt;</code></pre>
+<p><code>handleDeleteMap</code> 里的 <code>if (!onDeleteStoryMap) return</code> 必须保留：JSX 里的门控不会收窄异步闭包里的可选 prop，那一行是让 <code>onDeleteStoryMap(card.id)</code> 通过类型检查的守卫，不是死代码。</p>
+<p>同时更新 <code>onDeleteStoryMap</code> 的 JSDoc，写明「未提供时不渲染删除按钮」。</p>
 
 <div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
 <pre><code>npx vitest run src/components/novel/story-map-content.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
-<div class="exp">Expected: PASS。</div>
+<div class="exp">Expected: PASS（含既有 5 个用例）。</div>
 
 <div class="step"><span class="box">☐ Step 5</span> 提交</div>
 <pre><code>git add src/components/novel/book-analysis-library-layout.tsx src/components/novel/story-map-content.spec.tsx
-git commit -m "feat(拆书库): 故事导图支持 embedded 模式"</code></pre>
+git commit -m "fix(拆书库): 故事导图删除按钮改为按回调渲染"</code></pre>
 </div>
 
 <div class="task">
@@ -334,7 +357,9 @@ export function LegacySkillResults({ book, skill, storyMapRefreshKey = 0 }: {
       /&gt;
     )}
     {skill === "story" &amp;&amp; (
-      &lt;StoryMapContent variant="embedded" bookPath={book.path} refreshKey={storyMapRefreshKey} /&gt;
+      &lt;!-- 刻意不传 onDeleteStoryMap：删除按钮随回调消失，而「查看全部」预览保留。
+           StoryMapContent 没有 variant，别为了对齐兄弟组件给它补一个。 --&gt;
+      &lt;StoryMapContent bookPath={book.path} refreshKey={storyMapRefreshKey} /&gt;
     )}
     {skill === "style" &amp;&amp; &lt;BookAnalysisStyleCard variant="embedded" book={book} /&gt;}
   &lt;/div&gt;
@@ -632,6 +657,12 @@ Select-String -Path dist\assets\*.css -Pattern 'wb-legacy-results' -List</code><
   <li>旧版任务完成时的 toast（「角色信息已提取完成，可选择角色生成 Skill」）不迁移——它指向的旧版面板已不存在，而页签会直接刷新出新结果。</li>
   <li>故事页签里新版当前导图与旧版历史列表并存：维度不同（当前一份 vs 历史多份），标题写「历史导图」以区分。</li>
   <li><code>LegacyBookAnalysisView</code> 及其测试本次保留但不再挂载；确认效果后再单独清理。</li>
+  <li><strong>旧版页面里 <code>?? (() =&gt; undefined)</code> 的调用点问题暂不修</strong>：<code>book-analysis-module-view.tsx:473,474,484</code> 把三个回调写成
+    <code>props.onX ?? (() =&gt; undefined)</code>。在「控件只看回调」的约定下，这等于<strong>凭空提供了回调</strong>，
+    于是面板会渲染出点了没反应的按钮。但这是<strong>旧版本次就存在</strong>的行为（不是本次改动引入），
+    而 Task 8 会直接停止挂载整个旧版页面，随后旧版代码会整体删除。为一段立刻变成死代码的路径改动
+    共享 props 的可选性，收益低而回归面不为零，因此<strong>记录在此、暂不处理</strong>。
+    若将来旧版页面要保留，则应去掉这些 <code>??</code> 兜底，让它自然落到「未传回调就不渲染控件」。</li>
 </ul>
 
 <footer>计划与 <code>spec.html</code> 配套。每个任务都能独立编译、独立测试、独立提交。</footer>

@@ -82,9 +82,13 @@
     <tbody>
       <tr><td><code>BookAnalysisCharacterPanel</code></td><td><code>variant?: "full" | "embedded"</code></td><td>隐藏标题与说明（<code>:64-68</code>）、两个操作按钮（<code>:69-80</code>）、每个角色的删除按钮（<code>:111-120</code>）；保留角色列表的选中按钮、已生成／未生成标记、右侧详情。外层去掉边框与圆角。</td></tr>
       <tr><td><code>BookAnalysisStyleCard</code></td><td>同上</td><td>隐藏「启用此文风／重新提取文风／删除文风」工具条（<code>:88-104</code>）；保留六层蒸馏、指标面板与可展开详情。</td></tr>
-      <tr><td><code>StoryMapContent</code></td><td>同上</td><td>只隐藏「删除」（<code>:180-188</code>）；<strong>保留「查看全部／收起」</strong>——它是查看预览的开关，不是管理操作。</td></tr>
+      <tr><td><code>StoryMapContent</code></td><td><strong>不加 <code>variant</code></strong></td><td>只隐藏「删除」（<code>:180-188</code>），做法是把删除按钮门控在 <code>onDeleteStoryMap</code> 上（未传则不渲染）；<strong>保留「查看全部／收起」</strong>——它是查看预览的开关，不是管理操作。它没有需要剥离的外壳（根节点是 <code>space-y-4</code>，每张卡片自己的边框属于内容），所以不需要 variant，见 <code>legacy-panel-variant.ts</code> 的注释。</td></tr>
     </tbody>
   </table>
+
+  <h3>控件是否渲染只看回调</h3>
+  <p>实施中由评审定下、并已写进 <code>legacy-panel-variant.ts</code> 注释的约定：<code>variant</code> 只描述<strong>外壳</strong>（重复标题、卡片自身的内边距/边框/背景）；某个管理类控件是否渲染，只由<strong>它自己的回调是否存在</strong>决定（<code>{onX &amp;&amp; &lt;Button/&gt;}</code>）。</p>
+  <p>这样漏传回调只会<strong>少一个按钮</strong>，而不会留下点了没反应的死按钮——原来的写法（回调可选、控件无条件渲染）正是这个坑，<code>StoryMapContent</code> 的删除按钮在本次修改前就处于这个状态。</p>
 
   <h3>嵌入模式下的 props 契约</h3>
   <p>被隐藏的控件对应的回调（<code>onOpenSkillSelection</code>、<code>onAddSelectedSkillsToSoul</code>、<code>onDeleteCharacter</code>、<code>addingToSoul</code>、<code>onExtractStyle</code>、<code>onToggleStyle</code>、<code>onDeleteStyle</code>、<code>onDeleteStoryMap</code>）在 <code>embedded</code> 下变为可选，无回调时对应控件直接不渲染。</p>
