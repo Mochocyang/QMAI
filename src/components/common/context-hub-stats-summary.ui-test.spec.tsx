@@ -87,3 +87,39 @@ describe("新版上下文中控数字摘要", () => {
     expect(host.textContent).not.toContain("缓存命中未提供")
   })
 })
+
+describe("结束时间的日期显示", () => {
+  it("当天只显示时刻，不加日期", async () => {
+    const { formatFinishTime } = await import("./context-hub-stats-summary")
+    const now = new Date(2026, 9, 6, 14, 32).getTime()
+    expect(formatFinishTime(now, now)).toBe("14:32")
+  })
+
+  it("当年的更早记录补上月日", async () => {
+    const { formatFinishTime } = await import("./context-hub-stats-summary")
+    const now = new Date(2026, 9, 6, 14, 32).getTime()
+    expect(formatFinishTime(new Date(2026, 8, 28, 9, 5).getTime(), now)).toBe("09-28 09:05")
+  })
+
+  it("跨年的记录补上完整年月日", async () => {
+    const { formatFinishTime } = await import("./context-hub-stats-summary")
+    const now = new Date(2026, 9, 6, 14, 32).getTime()
+    expect(formatFinishTime(new Date(2025, 11, 31, 23, 7).getTime(), now)).toBe("2025-12-31 23:07")
+  })
+
+  it("回复的结束时间当天不带日期、更早的带日期", async () => {
+    const { UiTestGenerationStats } = await import("./context-hub-stats-summary")
+
+    const now = Date.now()
+    await act(async () => root.render(
+      <UiTestGenerationStats stats={stats} timing={{ startedAt: now - 1000, finishedAt: now }} />,
+    ))
+    expect(host.querySelector("time")?.textContent).toMatch(/^\d{2}:\d{2}$/)
+
+    const old = new Date(2020, 2, 5, 8, 9).getTime()
+    await act(async () => root.render(
+      <UiTestGenerationStats stats={stats} timing={{ startedAt: old - 1000, finishedAt: old }} />,
+    ))
+    expect(host.querySelector("time")?.textContent).toBe("2020-03-05 08:09")
+  })
+})

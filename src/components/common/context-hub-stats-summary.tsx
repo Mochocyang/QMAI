@@ -20,8 +20,27 @@ function formatDuration(milliseconds: number): string {
   return `${Math.floor(seconds / 60)}分${seconds % 60}秒`
 }
 
-function formatFinishTime(time: number): string {
-  return new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+/**
+ * 结束时刻：当天只给时刻，更早的记录补上日期。
+ *
+ * 只显示「14:32」时，一段跨天的对话里分不清回复是哪天产生的；
+ * 但当天回复再加日期只是噪音，所以当天保持纯时刻。
+ * 跨年时补到完整年月日，避免去年的「09-28」被误读成今年。
+ *
+ * @param now 参照时刻，仅测试注入；默认取当前时间。
+ */
+export function formatFinishTime(time: number, now: number = Date.now()): string {
+  const date = new Date(time)
+  const clock = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+  const reference = new Date(now)
+  if (date.toDateString() === reference.toDateString()) return clock
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const stamp =
+    date.getFullYear() === reference.getFullYear()
+      ? `${month}-${day}`
+      : `${date.getFullYear()}-${month}-${day}`
+  return `${stamp} ${clock}`
 }
 
 /** 本地资料复用与供应商输入缓存分开呈现，缺失统计不视为零。 */
