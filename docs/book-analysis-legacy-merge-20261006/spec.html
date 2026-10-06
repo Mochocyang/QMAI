@@ -80,8 +80,8 @@
   <table>
     <thead><tr><th>组件</th><th>新增</th><th><code>embedded</code> 模式下的行为</th></tr></thead>
     <tbody>
-      <tr><td><code>BookAnalysisCharacterPanel</code></td><td><code>variant?: "full" | "embedded"</code></td><td>隐藏标题与说明（<code>:64-68</code>）、两个操作按钮（<code>:69-80</code>）、每个角色的删除按钮（<code>:111-120</code>）；保留角色列表的选中按钮、已生成／未生成标记、右侧详情。外层去掉边框与圆角。</td></tr>
-      <tr><td><code>BookAnalysisStyleCard</code></td><td>同上</td><td>隐藏「启用此文风／重新提取文风／删除文风」工具条（<code>:88-104</code>）；保留六层蒸馏、指标面板与可展开详情。</td></tr>
+      <tr><td><code>BookAnalysisCharacterPanel</code></td><td><code>variant?: "full" | "embedded"</code></td><td>隐藏标题与说明（<code>:72-97</code>，其中包含两个操作按钮，它们属于这个重复标题块）；保留角色列表的选中按钮、已生成／未生成标记、右侧详情。外层去掉边框与圆角。逐角色的删除按钮<strong>不</strong>由 variant 控制，而是由 <code>onDeleteCharacter</code> 是否存在决定（详见下面「控件是否渲染只看回调」）。</td></tr>
+      <tr><td><code>BookAnalysisStyleCard</code></td><td>同上</td><td>只去掉卡片自身的边框、背景与内边距（<code>:84</code>）；标题「作品文风 · Writing DNA」与「已启用」标记<strong>保留</strong>、六层蒸馏、指标面板与可展开详情<strong>保留</strong>。三个工具条按钮（启用此文风／提取文风／删除文风，<code>:103-119</code>）<strong>不</strong>由 variant 控制，而是各自由对应回调是否存在决定。</td></tr>
       <tr><td><code>StoryMapContent</code></td><td><strong>不加 <code>variant</code></strong></td><td>只隐藏「删除」（<code>:180-188</code>），做法是把删除按钮门控在 <code>onDeleteStoryMap</code> 上（未传则不渲染）；<strong>保留「查看全部／收起」</strong>——它是查看预览的开关，不是管理操作。它没有需要剥离的外壳（根节点是 <code>space-y-4</code>，每张卡片自己的边框属于内容），所以不需要 variant，见 <code>legacy-panel-variant.ts</code> 的注释。</td></tr>
     </tbody>
   </table>
@@ -94,7 +94,11 @@
   <p>被隐藏的控件对应的回调（<code>onOpenSkillSelection</code>、<code>onAddSelectedSkillsToSoul</code>、<code>onDeleteCharacter</code>、<code>addingToSoul</code>、<code>onExtractStyle</code>、<code>onToggleStyle</code>、<code>onDeleteStyle</code>、<code>onDeleteStoryMap</code>）在 <code>embedded</code> 下变为可选，无回调时对应控件直接不渲染。</p>
   <p><code>BookAnalysisCharacterPanel</code> 的 <code>selectedCharacterId</code>／<code>onSelectCharacter</code> 仍保持受控：由新增的 <code>LegacySkillResults</code> 持有选中状态并向下传递。组件内部不引入隐式自管状态，避免同一个组件出现两种行为模式。选中 id 为空或已失效时组件本就会回退到第一个角色，因此初始值传 <code>null</code> 即可。</p>
   <p>原因：页签本身已经叫「角色 Skill」，面板内部再出现一次同名标题会重复；旧版面板自带卡片边框，嵌进页签后会出现「框里套框」。<code>embedded</code> 同时解决这两点。<code>full</code>（默认值）保持旧版页面原有行为，因此既有测试不受影响。</p>
-  <p>新增一个薄封装组件 <code>LegacySkillResults</code>，按 <code>activeSkill</code> 选择渲染哪一个，统一负责「旧版资料」小标题与空状态。</p>
+  <p>新增一个薄封装组件 <code>LegacySkillResults</code>，按 <code>activeSkill</code> 选择渲染哪一个，负责「旧版资料」小标题；<strong>空状态由各面板自己负责</strong>（<code>暂无角色数据。</code>／<code>尚未提取故事导图。…</code>／<code>尚未蒸馏 Writing DNA…</code>），封装层不重复这套判断。</p>
+<div class="note">
+  <strong>实施中修订：空状态归属。</strong>本节原先写封装层「统一负责空状态」，实现时改为由面板各自负责，原因：三个面板本来就有各自的空状态文案，而故事页签的空状态只能靠 <code>listStoryMapHistory</code> 的结果判断，封装层要自己判断就得把这次读取<strong>重复一遍</strong>。
+  因此封装层对当前技能<strong>无条件</strong>渲染容器与「旧版资料」标签，空状态由面板给出——已被 <code>legacy-skill-results.spec.tsx</code> 的空作品用例钉住。
+</div>
 
   <h3>改动文件</h3>
   <ul>
