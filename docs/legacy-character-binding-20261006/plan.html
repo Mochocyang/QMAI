@@ -1,0 +1,1299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实施计划：拆书库旧版角色整合与绑定</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5f6b66; --line:#dfe5e1; --panel:#f6f8f6; --accent:#2f6f52;
+          --danger:#b42318; --warn:#8a5a00; --code:#eef2ef; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 24px 80px; background:#eef1ee; color:var(--ink);
+         font:15px/1.85 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:1000px; margin:0 auto; background:#fff; border-radius:14px; padding:44px 48px 56px;
+         box-shadow:0 1px 3px #17231d14, 0 12px 40px #17231d0f; }
+  h1 { font-size:26px; line-height:1.5; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 24px; }
+  h2 { font-size:20px; margin:46px 0 14px; padding:8px 0 8px 12px; border-left:4px solid var(--accent);
+       background:var(--panel); border-radius:0 8px 8px 0; }
+  h3 { font-size:16px; margin:28px 0 10px; }
+  p, li { margin:8px 0; }
+  ul, ol { padding-left:24px; }
+  code { background:var(--code); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+         font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:9px; padding:14px 16px;
+        overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre code { background:none; border:0; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note, .warn, .danger { border-radius:9px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  .note { background:#eef5f1; border-left:4px solid var(--accent); }
+  .warn { background:#fdf6e6; border-left:4px solid var(--warn); }
+  .danger { background:#fdeceb; border-left:4px solid var(--danger); }
+  .steps { list-style:none; padding-left:0; }
+  .steps li { margin:14px 0; padding-left:30px; position:relative; }
+  .steps li::before { content:"\2610"; position:absolute; left:4px; top:0; font-size:16px; color:var(--muted); }
+  .cmd { background:#1d2321; color:#e8efe9; border-radius:8px; padding:12px 14px; margin:8px 0;
+         overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,monospace; }
+  .cmd code { background:none; border:0; color:inherit; padding:0; }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+         padding:1px 9px; font-size:12px; color:var(--muted); margin-left:6px; }
+  .ok { color:var(--accent); font-weight:600; }
+  .files { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 16px; margin:12px 0; font-size:13.5px; }
+  .files div { margin:3px 0; }
+  footer { max-width:1000px; margin:22px auto 0; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>实施计划：拆书库旧版角色整合与绑定</h1>
+<p class="sub">配套设计文档：<code>docs/legacy-character-binding-20261006/design.html</code> · 2026-10-06 · v3（已按仓库实际代码与设计文档逐条校正）</p>
+
+<blockquote>
+  <p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL — 用 <code>subagent-driven-development</code>（推荐）或 <code>executing-plans</code> 逐任务实施本计划。步骤为复选框式跟踪，请逐步勾选。</p>
+</blockquote>
+
+<p><strong>Goal：</strong>把旧版拆书库角色数据级升级为新版 <code>WorkbenchRevision</code> 条目，合并进「角色 Skill」页签，并让新旧每个角色条目都具备「加入自定义灵魂库」与「绑定…（自动入库）」两个按钮；顺带修复 <code>importance</code> 换算。</p>
+
+<p><strong>Architecture：</strong>旧版与新版数据在 <code>PortablePersonality</code> 汇合，故迁移只做字段映射。发布分两条路：新版条目走新抽出的 <code>publishWorkbenchCharacter</code>（支持单条发布），旧版条目复用已存在且已被 3 个测试文件覆盖的 <code>importBookAnalysisSkillsAsAuras</code>（它天然使用真实角色，因而自带兜底链）。迁移采用<b>懒落盘</b>：列表里先显示内存中的「旧版导入」条目，只有点「确认并加入」时才写盘；两个按钮不落盘。</p>
+
+<p><strong>Tech Stack：</strong>Tauri v2 + React 19 + TypeScript + zustand + vitest（jsdom）+ Playwright（全局安装，用于真实浏览器几何验证）+ <code>@base-ui/react</code> Dialog（<code>@/components/ui/dialog</code>）。</p>
+
+<hr>
+
+<h2>通用约定（每个任务都适用）</h2>
+
+<p><strong>测试命令必须带排除参数</strong>，否则会扫到 <code>.claude/worktrees</code> 等目录里另一份副本：</p>
+<div class="cmd"><code>npx vitest run &lt;路径&gt; --exclude '**/.codex-temp/**' --exclude '**/.claude/**' --exclude '**/.worktrees/**'</code></div>
+<p><strong>绝不</strong>在跑 vitest 的同时跑 <code>npm run build:portable</code>（两者都吃满 CPU 且争用 <code>dist</code>）。</p>
+<p><strong>类型检查：</strong><code>npx tsc -p tsconfig.app.json --noEmit</code>，期望退出码 0。注意 <code>tsconfig.app.json</code> <b>排除 <code>*.spec.tsx</code></b> 且开启 <code>noUnusedLocals</code>——未使用的导入会让构建失败。</p>
+<p><strong>提交纪律：</strong>只 <code>git add</code> 明确路径，<strong>绝不</strong> <code>git add -A</code>（工作区有大量有意未提交的产物：<code>.claude/worktrees/</code>、<code>.workbuddy/</code>、7 个 <code>release-*</code>、14 个历史 <code>docs/*.html</code>）。</p>
+<p><strong>改文件用编辑器工具，不要用 PowerShell 回写：</strong>本目录文档是带中文的 UTF-8。用 <code>Get-Content -Raw</code> + <code>Set-Content</code> 往返会把 UTF-8 当 GBK 读、再写成 UTF-8，<b>造成不可逆的乱码</b>（本计划第一版就这样毁过一次）。要改就用编辑工具；PowerShell 只用来读（带 <code>-Encoding utf8</code>）或跑命令。</p>
+<p><strong>已知基线：</strong>全量测试有 <b>33 个文件 / 200 个用例</b>失败，这是开工前就存在的（已在 <code>51fe007</code> 逐文件核对一致）。判断回归的标准是<b>失败文件集合与基线逐文件一致</b>，而不是「全绿」。<code>--dir src/components/novel</code> 的基线是 <b>31 文件 / 192 用例全绿</b>，任何新失败都算自伤。</p>
+
+<div class="warn">
+  <b>关键前提（设计 3.6）：</b>旧版 Skill 有两条生成路径，<code>readPersonalitySkill</code> 对六维路径返回 <code>undefined</code>。因此<b>按钮可用性由「有无可发布数据」决定，绝不能用 <code>rules.length</code> 判断</b>——否则多数旧版角色会失去绑定能力，直接违背需求。
+</div>
+<div class="warn">
+  <b>不要把 <code>buildLegacyCharacterRevision</code> 写成 async。</b><code>sha256Text</code>（<code>fingerprint.ts:1</code>）用的是 WebCrypto <code>crypto.subtle.digest</code>，<b>只有异步版本</b>；而 <code>node:crypto</code> 在前端 bundle 里不可用。该 <code>id</code> 只是去重键、不是安全令牌，故用同步 FNV-1a。
+</div>
+
+<h2>文件结构</h2>
+<div class="files">
+  <div><b>新建</b> <code>src/lib/novel/book-analysis/legacy-character-revision.ts</code> — 旧版角色 → <code>WorkbenchRevision</code> 纯映射 + 落盘</div>
+  <div><b>新建</b> <code>src/lib/novel/book-analysis/legacy-character-revision.spec.ts</code></div>
+  <div><b>新建</b> <code>src/lib/novel/book-analysis/workbench-soul-actions.ts</code> — 两个动作 + 徽标状态查询</div>
+  <div><b>新建</b> <code>src/lib/novel/book-analysis/workbench-soul-actions.spec.ts</code></div>
+  <div><b>新建</b> <code>docs/legacy-character-binding-20261006/check.mjs</code> — 真实浏览器几何检查</div>
+  <div><b>新建</b> <code>docs/legacy-character-binding-20261006/dump-actions.spec.tsx</code> — 用真实组件生成静态页</div>
+  <div><b>修改</b> <code>src/components/novel/hooks/use-character-extraction.ts</code> — importance 换算</div>
+  <div><b>修改</b> <code>src/components/novel/hooks/use-character-extraction.spec.tsx</code> — 追加换算用例</div>
+  <div><b>修改</b> <code>src/lib/novel/book-analysis/workbench-publish.ts</code> — 抽出 <code>publishWorkbenchCharacter</code>；放宽批量门槛</div>
+  <div><b>修改</b> <code>src/lib/novel/book-analysis/workbench-publish.spec.ts</code> — 补 aura 内容断言 + 门槛用例</div>
+  <div><b>修改</b> <code>src/lib/novel/book-analysis/workbench-core.ts:29-33</code> — 加 <code>origin?</code></div>
+  <div><b>修改</b> <code>src/components/novel/book-analysis-workbench.tsx</code> — 合并条目、懒落盘、两个按钮、对话框、徽标、两处门槛</div>
+  <div><b>修改</b> <code>src/components/novel/book-analysis-workbench.css</code> — 按钮行样式</div>
+  <div><b>修改</b> <code>src/components/novel/legacy-skill-results.tsx</code> 及其 <code>.spec.tsx</code> — 去掉 characters 分支</div>
+</div>
+
+<hr>
+
+<h2>Task 1：修复 importance 换算 <span class="tag">独立、先落地</span></h2>
+<div class="files">
+  <div>Modify: <code>src/components/novel/hooks/use-character-extraction.ts:338</code>（并新增导出函数）</div>
+  <div>Modify: <code>src/components/novel/hooks/use-character-extraction.spec.tsx</code>（<b>已存在</b>，有 3 个用例与整套 mock，末尾追加即可）</div>
+</div>
+<p>0–100 的 <code>importanceScore</code> 被直接写进 1–10 的 <code>importance</code>，界面才会显示「重要度 100/10」。正确换算项目里已有两处先例：<code>character-candidate-selection.ts:60</code>、<code>character-extraction-engine.ts:395</code>。</p>
+
+<ul class="steps">
+  <li><b>Step 1：在既有 spec 末尾追加失败测试</b>
+    <p>该文件第 5 行已有 <code>import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"</code>，<b>不要</b>重复导入。文件末尾追加：</p>
+<pre><code>describe("importanceFromScore", () =&gt; {
+  // importance 的契约是 1–10（types.ts:212 注释写明 importanceScore 才是 0–100）。
+  // 旧代码把 0–100 直接写进 1–10 字段，界面才会出现「重要度 100/10」。
+  it.each([
+    [100, 10], [95, 10], [90, 9], [55, 6], [50, 5], [10, 1], [7, 1], [1, 1], [0, 1],
+  ])("分数 %i 换算为 %i", (score, expected) =&gt; {
+    expect(importanceFromScore(score)).toBe(expected)
+  })
+
+  it("负数、小数与非法值不会越界", () =&gt; {
+    expect(importanceFromScore(-5)).toBe(1)
+    expect(importanceFromScore(100.4)).toBe(10)
+    expect(importanceFromScore(Number.NaN)).toBe(1)
+  })
+})</code></pre>
+    <p>顶部导入区加入：<code>import { importanceFromScore } from "./use-character-extraction"</code>。</p>
+  </li>
+  <li><b>Step 2：跑测试确认失败</b>
+    <div class="cmd"><code>npx vitest run src/components/novel/hooks/use-character-extraction.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：FAIL，报 <code>importanceFromScore is not a function</code>。</p>
+  </li>
+  <li><b>Step 3：实现</b>
+    <p>在 <code>use-character-extraction.ts</code> 中、hook 之外新增导出函数，并把 <code>:338</code> 改为调用它：</p>
+<pre><code>/**
+ * importanceScore 是 0–100 的 LLM 评分，importance 字段只装 1–10。
+ * 换算与 character-candidate-selection.ts:60 / character-extraction-engine.ts:395 保持一致，
+ * 否则界面会显示「重要度 100/10」。
+ */
+export function importanceFromScore(score: number): number {
+  if (!Number.isFinite(score)) return 1
+  return Math.max(1, Math.min(10, Math.ceil(score / 10)))
+}</code></pre>
+<pre><code>-          importance: picked.importanceScore,
++          importance: importanceFromScore(picked.importanceScore),</code></pre>
+  </li>
+  <li><b>Step 4：跑测试确认通过</b>
+    <div class="cmd"><code>npx vitest run src/components/novel/hooks/use-character-extraction.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：PASS（原 3 个 + 新增 10 个 = 13）。</p>
+  </li>
+  <li><b>Step 5：变异验证</b>
+    <p>把实现临时改为 <code>return score</code>，跑 Step 4 命令，期望 <b>FAIL</b>；改回后重跑确认 PASS。<code>git diff -- src/components/novel/hooks/use-character-extraction.ts</code> 应只剩你有意改的两处。</p>
+  </li>
+  <li><b>Step 6：提交</b>
+    <div class="cmd"><code>git add src/components/novel/hooks/use-character-extraction.ts src/components/novel/hooks/use-character-extraction.spec.tsx
+git commit -m "fix(拆书库): 重要度按 1-10 换算，修掉 100/10 的显示"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 2：抽出 <code>publishWorkbenchCharacter</code> <span class="tag">纯重构</span></h2>
+<div class="files">
+  <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.ts:50-70</code></div>
+  <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.spec.ts</code></div>
+</div>
+<p>动机：两个新按钮需要发布<b>单条</b>而不确认整个版本。该逻辑现在内联在批量循环里，无法单条调用。此任务<b>不改变行为</b>。</p>
+<p>已核实：<code>workbench-publish.spec.ts:72-79</code> 用默认的 <code>skill:"characters"</code> 版本断言了 <code>io.createAura</code> 调用次数与幂等性，但<b>没有断言 aura 内容</b>。</p>
+
+<ul class="steps">
+  <li><b>Step 1：先补内容断言（重构的安全网）</b>
+    <p>追加到 <code>describe("版本确认入库")</code> 内：</p>
+<pre><code>  it("角色条目发布时把条目内容送进 aura", async () =&gt; {
+    const preview = await inspectWorkbenchPublication("/project", revision)
+    await confirmWorkbenchRevision("/project", bookPath, revision.id, preview.fingerprint)
+    // 只断言「创建了一次」不足以守住重构：item → aura 的映射才是要钉住的东西。
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    expect(io.createAura).toHaveBeenCalledWith(expect.objectContaining({
+      name: "甲", category: "拆书角色", sourceBook: "测试作品",
+    }))
+    const input = io.createAura.mock.calls[0][0] as { portablePersonality?: { rules?: Array&lt;Record&lt;string, string&gt;&gt; } }
+    expect(input.portablePersonality?.rules?.[0]).toMatchObject({
+      condition: "信息不足", tendency: "先核对再判断", boundary: "例外未知",
+    })
+  })</code></pre>
+    <p>若 <code>category</code>／<code>sourceBook</code> 的实际取值与上面的断言不符，<b>以实际为准</b>——先跑一次看真实入参，再改断言。这一步的目的是钉住现状，不是规定现状。</p>
+  </li>
+  <li><b>Step 2：跑测试</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：<b>PASS</b>（描述的是既有行为，现在就该过）。若失败说明我对现状理解有误，<b>停下核对</b>再继续。</p>
+  </li>
+  <li><b>Step 3：抽取函数</b>
+    <p>在 <code>workbench-publish.ts</code> 中新增导出函数。<code>store</code> 参数用<b>结构化类型</b>（<code>CharacterAuraStore</code> 在 <code>character-aura.ts:76</code> <b>未导出</b>；<code>CharacterAura</code> 已导出，故这样写无需改动该文件）：</p>
+<pre><code>/**
+ * 发布单个角色条目为自定义灵魂库的 aura。
+ *
+ * 批量确认与工作台卡片上的「加入自定义灵魂库／绑定」按钮共用它——按钮需要发布单条
+ * 而不确认整个版本，这正是抽出来的原因。合成 ExtractedCharacter 的做法对**新版**条目
+ * 是正确的（条目全部信息都在 item 里）；旧版条目不走这里，见 workbench-soul-actions.ts。
+ */
+export async function publishWorkbenchCharacter(
+  projectPath: string,
+  revision: WorkbenchRevision,
+  item: WorkbenchItem,
+  store?: { customAuras: CharacterAura[] },
+): Promise&lt;CharacterAura&gt; {
+  const auraStore = store ?? await loadCharacterAuraStore(projectPath)
+  const profile = parsePortablePersonality(workbenchPersonality(item, revision.evidence))
+  const character: ExtractedCharacter = {
+    id: `wb-${(await sha256Text(item.subject)).slice(0, 16)}`, name: item.subject, aliases: [], importance: 0, category: "supporting",
+    firstAppearance: Math.min(...revision.coverage.map((c) =&gt; c.order)), lastAppearance: Math.max(...revision.coverage.map((c) =&gt; c.order)),
+    appearanceCount: 0, description: "", personality: profile.summary, speechStyle: "", relationships: [], keyEvents: [],
+  }
+  const metadata: BookAnalysisMetadata = { title: revision.bookTitle, totalChapters: revision.selectedChapterIds.length, totalWords: 0, sourceType: "file", createdAt: revision.createdAt, updatedAt: Date.now() }
+  const input = buildGeneratedAuraInputFromBookCharacter(character, {
+    id: `skill-${character.id}`, characterId: character.id, characterName: character.name, skillContent: renderPersonalitySkill(item.subject, revision.bookTitle, profile),
+    sourceBook: revision.bookTitle, chapterRange: revision.selectedChapterIds, createdAt: revision.createdAt,
+  }, metadata)
+  const existing = auraStore.customAuras.find((a) =&gt; isSameBookAnalysisCharacterAura(a, revision.bookTitle, item.subject))
+  return existing ? updateCustomCharacterAura(projectPath, existing.id, input)
+    : createCustomCharacterAuraFromGeneratedSkill(projectPath, input)
+}</code></pre>
+    <div class="danger">
+      <b>先照抄原代码再抽。</b>上面是按设计 5.2 重写的版本；抽取时请以 <code>workbench-publish.ts:51-70</code> 的<b>现有实现为准</b>逐字搬运（字段名、类别取值等都以现存代码为真），只做「循环体外提」这一个动作。若现存实现的字段与上面不同，改上面这段、不要改现存行为。
+    </div>
+    <p>循环改为（保留 <code>store.customAuras</code> 就地维护语义，供同批次内去重）：</p>
+<pre><code>    if (revision.skill === "characters") {
+      const store = await loadCharacterAuraStore(projectPath)
+      for (const item of revision.items.filter((item) =&gt; item.rules.length)) {
+        const aura = await publishWorkbenchCharacter(projectPath, revision, item, store)
+        store.customAuras = [...store.customAuras.filter((a) =&gt; a.id !== aura.id), aura]
+        publishedIds.push(aura.id)
+      }
+    } else if (revision.skill === "style") {</code></pre>
+    <p>类型导入补充：<code>WorkbenchItem</code> 加进已有的 <code>./workbench-core</code> 那行（<code>:10</code>）；<code>CharacterAura</code> 加进已有的 <code>../character-aura</code> 那行（<code>:4</code>）。<b>其余符号（<code>parsePortablePersonality</code>、<code>renderPersonalitySkill</code>、<code>buildGeneratedAuraInputFromBookCharacter</code>、<code>isSameBookAnalysisCharacterAura</code>、<code>sha256Text</code>、<code>loadCharacterAuraStore</code>、<code>updateCustomCharacterAura</code>、<code>createCustomCharacterAuraFromGeneratedSkill</code>）文件顶部已导入，不要重复导入。</b></p>
+  </li>
+  <li><b>Step 4：跑测试确认行为未变</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts src/lib/novel/book-analysis/workbench-style-flow.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：全 PASS。</p>
+  </li>
+  <li><b>Step 5：类型检查</b>
+    <div class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit; Write-Host "exit=$LASTEXITCODE"</code></div>
+    <p>期望：<code>exit=0</code>。</p>
+  </li>
+  <li><b>Step 6：提交</b>
+    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-publish.ts src/lib/novel/book-analysis/workbench-publish.spec.ts
+git commit -m "refactor(拆书库): 抽出 publishWorkbenchCharacter 以便单条发布"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 3：<code>origin</code> 字段与迁移模块</h2>
+<div class="files">
+  <div>Modify: <code>src/lib/novel/book-analysis/workbench-core.ts:29-33</code></div>
+  <div>Create: <code>src/lib/novel/book-analysis/legacy-character-revision.ts</code></div>
+  <div>Create: <code>src/lib/novel/book-analysis/legacy-character-revision.spec.ts</code></div>
+</div>
+
+<ul class="steps">
+  <li><b>Step 1：给 <code>WorkbenchRevision</code> 加可选字段</b>
+<pre><code>export interface WorkbenchRevision extends WorkbenchOutput {
+  id: string; taskId: string; bookId: string; bookTitle: string; skill: AnalysisSkill; requirements: string
+  selectedChapterIds: string[]; parentRevisionId?: string; createdAt: number
+  confirmedAt?: number; publishedIds?: string[]
+  /**
+   * 由旧版作品资料迁移而来。可选、向后兼容——loadWorkbenchRevisions 只校验
+   * workbenchVersion/items/evidence，不涉及此字段。
+   * 用途：摘要行显示「旧版导入」而非「自动核验通过」（不对未核验数据作声明），
+   * 并决定发布走哪条路径（见 workbench-publish.ts 的 publishWorkbenchCharacter）。
+   */
+  origin?: "legacy"
+}</code></pre>
+  </li>
+  <li><b>Step 2：写失败测试</b>
+    <p>新建 <code>legacy-character-revision.spec.ts</code>，覆盖设计 5.1 的 X/Y/Z/W 四种情况：</p>
+<pre><code>import { describe, expect, it } from "vitest"
+import { buildLegacyCharacterRevision } from "./legacy-character-revision"
+import { renderPersonalitySkill } from "../portable-personality"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { CharacterSkill, ExtractedCharacter, PersonalityProfile } from "./types"
+
+const profile: PersonalityProfile = {
+  personality: "克制、先核对再判断。", motivation: "查清账目。", speechStyle: "短句。",
+  behaviorPatterns: "先取证。", quotes: ["账目不会说谎。"],
+}
+const persona = { version: 1 as const, summary: "先核对再判断", scope: "只覆盖前两章", rules: [{
+  id: "P1", field: "mentalModel" as const, condition: "信息不足", tendency: "先核对", boundary: "例外未知", evidenceIds: [],
+}], evidence: [] }
+
+function character(over: Partial&lt;ExtractedCharacter&gt; = {}): ExtractedCharacter {
+  return {
+    id: "char-1", name: "林烬", aliases: [], importance: 9, category: "protagonist",
+    firstAppearance: 1, lastAppearance: 3, appearanceCount: 3, description: "巡夜人。",
+    personality: "散文字段：沉默。", speechStyle: "散文字段：短句。", relationships: [], keyEvents: [], corpus: "",
+    ...over,
+  }
+}
+function skill(over: Partial&lt;CharacterSkill&gt; = {}): CharacterSkill {
+  return {
+    id: "skill-char-1", characterId: "char-1", characterName: "林烬",
+    skillContent: renderPersonalitySkill("林烬", "测试作品", persona),
+    sourceBook: "测试作品", chapterRange: ["1", "3"], createdAt: 1, ...over,
+  }
+}
+function book(characters: ExtractedCharacter[], skills: CharacterSkill[]): BookAnalysisLibraryBook {
+  return {
+    id: "book-1", path: "/project/book-analysis/book-1",
+    metadata: { title: "测试作品", totalChapters: 3, totalWords: 3000, sourceType: "file", createdAt: 1, updatedAt: 2 },
+    recognizedCharacters: [], characters, skills, styleStatus: "disabled",
+    boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [],
+  }
+}
+
+describe("buildLegacyCharacterRevision", () =&gt; {
+  it("情况 X：有人格块时规则按字段直映射", () =&gt; {
+    const r = buildLegacyCharacterRevision(book([character()], [skill()]))!
+    expect(r.skill).toBe("characters")
+    expect(r.workbenchVersion).toBe(2)
+    expect(r.origin).toBe("legacy")
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0].subject).toBe("林烬")
+    expect(r.items[0].summary).toBe("先核对再判断")
+    expect(r.items[0].limitations).toBe("只覆盖前两章")
+    // dimension 存人格字段名；WORKBENCH_DIMENSIONS 已有对应中文标签
+    expect(r.items[0].rules[0]).toMatchObject({ id: "P1", dimension: "mentalModel", condition: "信息不足", action: "先核对", boundary: "例外未知" })
+    // 旧版人格摘要没有逐条观察文本，不编造
+    expect(r.items[0].rules[0].observation).toBe("")
+    expect(r.items[0].rules[0].evidenceIds).toEqual([])
+  })
+
+  it("情况 Y：无人格块但有 personalityProfile 时保留条目、规则为空、摘要退回角色资料", () =&gt; {
+    // 六维路径的 Skill 没有 portablePersonality 块（设计 3.6）
+    const r = buildLegacyCharacterRevision(book(
+      [character({ personalityProfile: profile })],
+      [skill({ skillContent: "# 角色 Skill - 林烬\n\n手工写的六维内容，没有 frontmatter。" })],
+    ))!
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0].rules).toEqual([])
+    expect(r.items[0].summary).toBe("克制、先核对再判断。")
+  })
+
+  it("情况 Z：只有散文字段时也保留条目并退回散文字段", () =&gt; {
+    const r = buildLegacyCharacterRevision(book([character()], []))!
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0].rules).toEqual([])
+    expect(r.items[0].summary).toBe("散文字段：沉默。")
+  })
+
+  it("情况 W：完全没有资料时仍保留条目（按钮可用性由调用方按有无内容判断）", () =&gt; {
+    const r = buildLegacyCharacterRevision(book([character({ personality: "" })], []))!
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0].summary).toBe("")
+  })
+
+  it("没有旧版角色时返回 null（空则不显示）", () =&gt; {
+    expect(buildLegacyCharacterRevision(book([], []))).toBeNull()
+  })
+
+  it("evidence/coverage/selectedChapterIds 全为空，避免触发证据偏移校验", () =&gt; {
+    const r = buildLegacyCharacterRevision(book([character()], [skill()]))!
+    // confirmWorkbenchRevision 会拿 evidence 逐条比对正文偏移；
+    // 旧版人格来自 LLM 摘要、没有偏移，故留空数组（空数组时循环不执行，合法）。
+    expect(r.evidence).toEqual([])
+    expect(r.coverage).toEqual([])
+    expect(r.selectedChapterIds).toEqual([])
+  })
+
+  it("id 确定性：同输入同 id；角色集合变化则 id 变化", () =&gt; {
+    const a = buildLegacyCharacterRevision(book([character()], [skill()]))!
+    const b = buildLegacyCharacterRevision(book([character()], [skill()]))!
+    expect(a.id).toBe(b.id)
+    const c = buildLegacyCharacterRevision(book(
+      [character(), character({ id: "char-2", name: "许新年" })], [skill()],
+    ))!
+    expect(c.id).not.toBe(a.id)
+  })
+
+  it("Skill 按 characterId 或 characterName 匹配到对应角色", () =&gt; {
+    const r = buildLegacyCharacterRevision(book(
+      [character(), character({ id: "char-2", name: "许新年" })],
+      [skill(), skill({ id: "skill-char-2", characterId: "char-2", characterName: "许新年",
+        skillContent: renderPersonalitySkill("许新年", "测试作品", { ...persona, summary: "谨慎" }) })],
+    ))!
+    expect(r.items.map((i) =&gt; i.summary)).toEqual(["先核对再判断", "谨慎"])
+  })
+
+  it("人格块损坏时不抛错，按「没有」处理", () =&gt; {
+    // readPersonalitySkill 在元数据损坏时会抛（portable-personality.ts:102/106）
+    const r = buildLegacyCharacterRevision(book(
+      [character({ personality: "散文字段：沉默。" })],
+      [skill({ skillContent: "---\nportablePersonality: [坏掉的\n---\n" })],
+    ))!
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0].rules).toEqual([])
+  })
+})</code></pre>
+  </li>
+  <li><b>Step 3：跑测试确认失败</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/legacy-character-revision.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：FAIL（模块不存在）。</p>
+  </li>
+  <li><b>Step 4：实现 <code>legacy-character-revision.ts</code></b>
+<pre><code>import { readPersonalitySkill } from "../portable-personality"
+import { saveWorkbenchRevision } from "./workbench-storage"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { WorkbenchItem, WorkbenchRevision } from "./workbench-core"
+import type { CharacterSkill, ExtractedCharacter } from "./types"
+
+/**
+ * 把旧版作品资料里的角色迁移成新版工作台条目。
+ *
+ * 两代数据在 PortablePersonality 汇合，所以这里只做字段映射，不新造发布逻辑。
+ * 三条硬约束：
+ *  1) evidence/coverage/selectedChapterIds 必须为空——confirmWorkbenchRevision 会拿 evidence
+ *     逐条比对正文偏移，而旧版人格是 LLM 摘要、根本没有偏移（设计 3.2）。
+ *  2) 不能假定「有 Skill 就有人格块」——六维路径的 Skill 没有便携人格块（设计 3.6）。
+ *     拿不到就退回 personalityProfile，再退回散文字段。摘要可以是空串，但条目必须保留，
+ *     否则会静默丢角色。
+ *  3) id 必须确定性，用于「已落过盘就不再重复加入」的去重。
+ */
+export function buildLegacyCharacterRevision(book: BookAnalysisLibraryBook): WorkbenchRevision | null {
+  if (book.characters.length === 0) return null
+  const id = legacyRevisionId(book)
+  const items: WorkbenchItem[] = book.characters.map((character) =&gt; {
+    const persona = findPersonality(book.skills, character)
+    return {
+      subject: character.name,
+      summary: persona?.summary ?? character.personalityProfile?.personality ?? character.personality ?? "",
+      limitations: persona?.scope ?? "",
+      rules: (persona?.rules ?? []).map((rule) =&gt; ({
+        id: rule.id,
+        // 存人格字段名；WORKBENCH_DIMENSIONS 已把五个字段映射成中文标签
+        dimension: rule.field,
+        observation: "",
+        condition: rule.condition,
+        action: rule.tendency,
+        boundary: rule.boundary,
+        evidenceIds: [],
+      })),
+    }
+  })
+  return {
+    workbenchVersion: 2,
+    id,
+    taskId: id,
+    bookId: book.id,
+    bookTitle: book.metadata.title,
+    skill: "characters",
+    requirements: "旧版角色导入",
+    origin: "legacy",
+    selectedChapterIds: [],
+    evidence: [],
+    coverage: [],
+    // 用元数据 updatedAt 而不是 Date.now()：同一份旧数据每次构建要得到同一个版本，
+    // 否则「已存在同 id 就不再加入」的去重会与内容对不上。
+    createdAt: book.metadata.updatedAt,
+    items,
+  }
+}
+
+/** 懒落盘：只有用户点了「确认并加入」，才把迁移版本写进 revisions 目录。 */
+export async function materializeLegacyCharacterRevision(
+  bookPath: string,
+  book: BookAnalysisLibraryBook,
+): Promise&lt;WorkbenchRevision&gt; {
+  const revision = buildLegacyCharacterRevision(book)
+  if (!revision) throw new Error("没有可导入的旧版角色")
+  await saveWorkbenchRevision(bookPath, revision)
+  return revision
+}
+
+/**
+ * 同步的短哈希。不用 sha256Text 是因为它基于 WebCrypto、只有异步版本，
+ * 而 node:crypto 在前端 bundle 里不可用；此 id 只是去重键、不是安全令牌，
+ * FNV-1a 足够（确定性 + 同书同角色集合稳定 + 不同集合几乎不碰撞）。
+ */
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i &lt; value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) &gt;&gt;&gt; 0
+  }
+  return hash.toString(16).padStart(8, "0")
+}
+
+function legacyRevisionId(book: BookAnalysisLibraryBook): string {
+  const names = book.characters.map((c) =&gt; c.name).sort().join("\u0000")
+  return `legacy-chars-${shortHash(`${book.path}\u0000${names}`)}`
+}
+
+/**
+ * 人格块可能损坏（readPersonalitySkill 会抛），损坏时按「没有」处理，不阻断迁移。
+ * 返回 PortablePersonality | undefined，不是 PersonalityProfile——两者不可互换（设计 3.5）。
+ */
+function findPersonality(skills: CharacterSkill[], character: ExtractedCharacter) {
+  const skill = skills.find((s) =&gt; s.characterId === character.id || s.characterName === character.name)
+  if (!skill) return undefined
+  try {
+    return readPersonalitySkill(skill.skillContent)
+  } catch {
+    return undefined
+  }
+}
+</code></pre>
+    <div class="note">
+      已核实 <code>readPersonalitySkill</code>（<code>portable-personality.ts:97</code>）的返回类型就是 <code>PortablePersonality | undefined</code>，所以 <code>findPersonality</code> 不要显式标注返回类型，<b>也不需要</b>从 <code>./types</code> 导入 <code>PersonalityProfile</code>（<code>noUnusedLocals</code> 会让未使用的导入编译失败）。
+    </div>
+  </li>
+  <li><b>Step 5：跑测试确认通过</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/legacy-character-revision.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：PASS，9 个用例。</p>
+  </li>
+  <li><b>Step 6：类型检查</b>
+    <div class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit; Write-Host "exit=$LASTEXITCODE"</code></div>
+    <p>期望：<code>exit=0</code>。</p>
+  </li>
+  <li><b>Step 7：提交</b>
+    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-core.ts src/lib/novel/book-analysis/legacy-character-revision.ts src/lib/novel/book-analysis/legacy-character-revision.spec.ts
+git commit -m "feat(拆书库): 旧版角色迁移为新版条目（含懒落盘）"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 4：动作层 <code>workbench-soul-actions.ts</code></h2>
+<div class="files">
+  <div>Create: <code>src/lib/novel/book-analysis/workbench-soul-actions.ts</code></div>
+  <div>Create: <code>src/lib/novel/book-analysis/workbench-soul-actions.spec.ts</code></div>
+</div>
+<p>两条发布路径在此分流，并在此实现需求 2(c)「绑定时自动进入自定义灵魂库」。</p>
+
+<ul class="steps">
+  <li><b>Step 1：写失败测试</b>
+<pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const io = vi.hoisted(() =&gt; ({
+  auras: [] as any[], bindings: [] as any[],
+  imported: vi.fn(), published: vi.fn(), bind: vi.fn(),
+}))
+vi.mock("./aura-adapter", () =&gt; ({ importBookAnalysisSkillsAsAuras: (...a: any[]) =&gt; io.imported(...a) }))
+vi.mock("./workbench-publish", () =&gt; ({ publishWorkbenchCharacter: (...a: any[]) =&gt; io.published(...a) }))
+vi.mock("../character-aura", () =&gt; ({
+  loadCharacterAuraStore: async () =&gt; ({ customAuras: io.auras, bindings: io.bindings }),
+  bindCharacterAura: (...a: any[]) =&gt; io.bind(...a),
+}))
+vi.mock("./aura-match", () =&gt; ({
+  isSameBookAnalysisCharacterAura: (aura: any, bookTitle: string, subject: string) =&gt;
+    aura.name === subject &amp;&amp; aura.sourceBook === bookTitle,
+}))
+
+import { addCharacterToSoulLibrary, bindCharacterToNovelCharacters, loadCharacterSoulStatus } from "./workbench-soul-actions"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { WorkbenchRevision } from "./workbench-core"
+
+const book = {
+  id: "book-1", path: "/project/book-analysis/book-1",
+  metadata: { title: "测试作品", totalChapters: 3, totalWords: 3000, sourceType: "file", createdAt: 1, updatedAt: 2 },
+  recognizedCharacters: [], styleStatus: "disabled", boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [],
+  characters: [{ id: "char-1", name: "林烬", aliases: [], importance: 9, category: "protagonist",
+    firstAppearance: 1, lastAppearance: 3, appearanceCount: 3, description: "", personality: "沉默。",
+    speechStyle: "", relationships: [], keyEvents: [], corpus: "" }],
+  skills: [{ id: "skill-char-1", characterId: "char-1", characterName: "林烬",
+    skillContent: "---\nportablePersonality: {}\n---\n", sourceBook: "测试作品", chapterRange: ["1", "3"], createdAt: 1 }],
+} as unknown as BookAnalysisLibraryBook
+
+const legacyBase = {
+  id: "legacy-chars-x", origin: "legacy" as const, skill: "characters" as const, bookTitle: "测试作品",
+  items: [{ subject: "林烬", summary: "s", limitations: "", rules: [] }], evidence: [], coverage: [],
+  selectedChapterIds: [], workbenchVersion: 2 as const, taskId: "t", bookId: "book-1", requirements: "", createdAt: 1,
+}
+const legacy = legacyBase as WorkbenchRevision
+const modern = { ...legacyBase, id: "r2", origin: undefined } as unknown as WorkbenchRevision
+
+beforeEach(() =&gt; { io.auras = []; io.bindings = []; vi.clearAllMocks() })
+
+describe("loadCharacterSoulStatus", () =&gt; {
+  it("没有 aura 时是 none", async () =&gt; {
+    expect(await loadCharacterSoulStatus("/project", "测试作品", "林烬")).toBe("none")
+  })
+  it("有 aura 未绑定时是 added", async () =&gt; {
+    io.auras = [{ id: "aura-1", name: "林烬", sourceBook: "测试作品" }]
+    expect(await loadCharacterSoulStatus("/project", "测试作品", "林烬")).toBe("added")
+  })
+  it("有绑定时返回被绑定的人物名", async () =&gt; {
+    io.auras = [{ id: "aura-1", name: "林烬", sourceBook: "测试作品" }]
+    io.bindings = [{ auraId: "aura-1", characterName: "沈微" }]
+    expect(await loadCharacterSoulStatus("/project", "测试作品", "林烬")).toEqual({ bound: ["沈微"] })
+  })
+})
+
+describe("addCharacterToSoulLibrary", () =&gt; {
+  it("旧版条目走 importBookAnalysisSkillsAsAuras，且不绑定任何人", async () =&gt; {
+    io.imported.mockResolvedValue([{ auraId: "aura-1", auraName: "林烬" }])
+    const r = await addCharacterToSoulLibrary("/project", book, legacy, "林烬")
+    expect(io.imported).toHaveBeenCalled()
+    expect(io.published).not.toHaveBeenCalled()
+    expect(io.bind).not.toHaveBeenCalled()
+    expect(r.auraId).toBe("aura-1")
+  })
+  it("新版条目走 publishWorkbenchCharacter", async () =&gt; {
+    io.published.mockResolvedValue({ id: "aura-2", name: "林烬", sourceBook: "测试作品" })
+    const r = await addCharacterToSoulLibrary("/project", book, modern, "林烬")
+    expect(io.published).toHaveBeenCalled()
+    expect(io.imported).not.toHaveBeenCalled()
+    expect(r.auraId).toBe("aura-2")
+  })
+  it("旧版角色已在灵魂库时不重复创建，改用状态查询取回 auraId", async () =&gt; {
+    // importBookAnalysisSkillsAsAuras 对已存在的 aura 会跳过并返回空数组
+    io.imported.mockResolvedValue([])
+    io.auras = [{ id: "aura-1", name: "林烬", sourceBook: "测试作品" }]
+    const r = await addCharacterToSoulLibrary("/project", book, legacy, "林烬")
+    expect(r.auraId).toBe("aura-1")
+  })
+})
+
+describe("bindCharacterToNovelCharacters", () =&gt; {
+  it("先入库再绑定（顺序即需求 2c）", async () =&gt; {
+    io.imported.mockResolvedValue([{ auraId: "aura-1", auraName: "林烬" }])
+    io.bind.mockResolvedValue(undefined)
+    await bindCharacterToNovelCharacters("/project", book, legacy, "林烬", ["沈微", "裴探"])
+    expect(io.imported.mock.invocationCallOrder[0]).toBeLessThan(io.bind.mock.invocationCallOrder[0])
+    expect(io.bind).toHaveBeenCalledWith("/project", { characterName: "沈微", auraId: "aura-1" })
+    expect(io.bind).toHaveBeenCalledWith("/project", { characterName: "裴探", auraId: "aura-1" })
+  })
+  it("没有目标人物时不写任何数据", async () =&gt; {
+    await bindCharacterToNovelCharacters("/project", book, legacy, "林烬", [])
+    expect(io.imported).not.toHaveBeenCalled()
+    expect(io.published).not.toHaveBeenCalled()
+    expect(io.bind).not.toHaveBeenCalled()
+  })
+  it("个别绑定失败不中断其余，并如实报数", async () =&gt; {
+    io.imported.mockResolvedValue([{ auraId: "aura-1", auraName: "林烬" }])
+    io.bind.mockImplementation(async (_p: string, b: any) =&gt; { if (b.characterName === "裴探") throw new Error("失败") })
+    const r = await bindCharacterToNovelCharacters("/project", book, legacy, "林烬", ["沈微", "裴探"])
+    expect(r).toEqual({ succeeded: 1, alreadyBound: [], failed: ["裴探"] })
+  })
+  it("已绑过同一人物时视为幂等，不重复写入且计入 alreadyBound", async () =&gt; {
+    // 设计 7：已绑定同一人物再绑 视为幂等，不重复写入；汇总里计为已有
+    io.imported.mockResolvedValue([{ auraId: "aura-1", auraName: "林烬" }])
+    io.bindings = [{ auraId: "aura-1", characterName: "沈微" }]
+    const r = await bindCharacterToNovelCharacters("/project", book, legacy, "林烬", ["沈微", "裴探"])
+    expect(io.bind).toHaveBeenCalledTimes(1)
+    expect(io.bind).toHaveBeenCalledWith("/project", { characterName: "裴探", auraId: "aura-1" })
+    expect(r).toEqual({ succeeded: 1, alreadyBound: ["沈微"], failed: [] })
+  })
+})</code></pre>
+  </li>
+  <li><b>Step 2：跑测试确认失败</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-soul-actions.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：FAIL（模块不存在）。</p>
+  </li>
+  <li><b>Step 3：实现（完整版，一次写全）</b>
+<pre><code>import { bindCharacterAura, loadCharacterAuraStore } from "../character-aura"
+import { isSameBookAnalysisCharacterAura } from "./aura-match"
+import { importBookAnalysisSkillsAsAuras } from "./aura-adapter"
+import { publishWorkbenchCharacter } from "./workbench-publish"
+import { generateSimpleSkillMarkdown } from "./skill-generator"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { WorkbenchRevision } from "./workbench-core"
+import type { CharacterSkill, ExtractedCharacter } from "./types"
+
+export type CharacterSoulStatus = "none" | "added" | { bound: string[] }
+
+/** 徽标数据源：这个角色在自定义灵魂库里吗？绑给了哪些小说人物？ */
+export async function loadCharacterSoulStatus(
+  projectPath: string, bookTitle: string, subject: string,
+): Promise&lt;CharacterSoulStatus&gt; {
+  const store = await loadCharacterAuraStore(projectPath)
+  const aura = store.customAuras.find((a) =&gt; isSameBookAnalysisCharacterAura(a, bookTitle, subject))
+  if (!aura) return "none"
+  const bound = store.bindings.filter((b) =&gt; b.auraId === aura.id).map((b) =&gt; b.characterName)
+  return bound.length ? { bound } : "added"
+}
+
+/**
+ * 确保这个角色在自定义灵魂库里，返回 auraId。
+ *
+ * 旧版条目复用 importBookAnalysisSkillsAsAuras：它内部就用真实角色构建 aura
+ * （aura-adapter.ts:230），因此旧版本来那条「无人格块就退回 personalityProfile、再退回
+ * 散文字段」的兜底链会自然生效——六维路径的旧版角色因此也能发布（设计 3.6）。
+ */
+async function ensureAura(
+  projectPath: string, book: BookAnalysisLibraryBook, revision: WorkbenchRevision, subject: string,
+): Promise&lt;{ auraId: string; auraName: string }&gt; {
+  if (revision.origin === "legacy") {
+    const character = book.characters.find((c) =&gt; c.name === subject)
+    if (!character) throw new Error(`找不到旧版角色「${subject}」`)
+    const skill = book.skills.find((s) =&gt; s.characterId === character.id || s.characterName === character.name)
+      ?? syntheticSkill(book, character)
+    const imported = await importBookAnalysisSkillsAsAuras(projectPath, book.metadata, book.characters, [skill], [skill.id])
+    if (imported.length) return { auraId: imported[0].auraId, auraName: imported[0].auraName }
+    // 已存在时该函数会跳过并返回空数组；必须查回既有 aura，
+    // 否则「已入库但未绑定」的角色永远绑不上。
+    const store = await loadCharacterAuraStore(projectPath)
+    const aura = store.customAuras.find((a) =&gt; isSameBookAnalysisCharacterAura(a, book.metadata.title, subject))
+    if (!aura) throw new Error(`加入灵魂库失败：${subject}`)
+    return { auraId: aura.id, auraName: aura.name }
+  }
+  const item = revision.items.find((i) =&gt; i.subject === subject)
+  if (!item) throw new Error(`该版本里没有「${subject}」`)
+  const aura = await publishWorkbenchCharacter(projectPath, revision, item)
+  return { auraId: aura.id, auraName: aura.name }
+}
+
+/** 只入库、不绑定。用于「生成了但暂时不想绑定小说人物」的角色。 */
+export async function addCharacterToSoulLibrary(
+  projectPath: string, book: BookAnalysisLibraryBook, revision: WorkbenchRevision, subject: string,
+): Promise&lt;{ auraId: string; auraName: string }&gt; {
+  return ensureAura(projectPath, book, revision, subject)
+}
+
+/** 绑定到小说人物。**先入库再绑定**——这就是需求 2(c)「绑定时自动进入自定义灵魂库」。 */
+export async function bindCharacterToNovelCharacters(
+  projectPath: string, book: BookAnalysisLibraryBook, revision: WorkbenchRevision,
+  subject: string, characterNames: string[],
+): Promise&lt;{ succeeded: number; alreadyBound: string[]; failed: string[] }&gt; {
+  if (characterNames.length === 0) return { succeeded: 0, alreadyBound: [], failed: [] }
+  const { auraId } = await ensureAura(projectPath, book, revision, subject)
+  // 设计 7：已绑定同一人物再绑视为幂等，不重复写入；汇总里计为已有。
+  const store = await loadCharacterAuraStore(projectPath)
+  const bound = new Set(store.bindings.filter((b) =&gt; b.auraId === auraId).map((b) =&gt; b.characterName))
+  const alreadyBound = characterNames.filter((name) =&gt; bound.has(name))
+  let succeeded = 0
+  const failed: string[] = []
+  for (const characterName of characterNames) {
+    if (bound.has(characterName)) continue
+    try {
+      await bindCharacterAura(projectPath, { characterName, auraId })
+      succeeded++
+    } catch (error) {
+      console.error(`[绑定角色灵魂] 失败：${characterName}`, error)
+      failed.push(characterName)
+    }
+  }
+  return { succeeded, alreadyBound, failed }
+}
+
+/**
+ * 旧版角色没有可用 Skill 时就地合成一个、仅作为 aura 输入载体的 CharacterSkill。
+ * 不写进 skills 目录、不进入作品库。
+ *
+ * 有 personalityProfile 时用 generateSimpleSkillMarkdown 生成真实内容而非留空：
+ * character-aura.ts:454 会把 skillContent 写成 SKILL.md，story-extractor.ts:528 会读回它。
+ */
+function syntheticSkill(book: BookAnalysisLibraryBook, character: ExtractedCharacter): CharacterSkill {
+  const profile = character.personalityProfile
+  return {
+    id: `legacy-skill-${character.id}`,
+    characterId: character.id,
+    characterName: character.name,
+    // 有富详情就用真实内容生成；没有就留空——留空时 aura 的字段仍由
+    // buildGeneratedAuraInputFromBookCharacter 的散文字段兜底取到（设计 3.6）。
+    skillContent: profile
+      ? generateSimpleSkillMarkdown({ characterName: character.name, profile, sourceBook: book.metadata.title })
+      : "",
+    sourceBook: book.metadata.title,
+    chapterRange: [`${character.firstAppearance}`, `${character.lastAppearance}`],
+    createdAt: book.metadata.updatedAt,
+  }
+}</code></pre>
+  </li>
+  <li><b>Step 4：跑到全绿</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-soul-actions.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：PASS，8 个用例。</p>
+  </li>
+  <li><b>Step 5：类型检查</b>
+    <div class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit; Write-Host "exit=$LASTEXITCODE"</code></div>
+    <p>期望：<code>exit=0</code>。</p>
+  </li>
+  <li><b>Step 6：变异验证</b>
+    <p>把 <code>bindCharacterToNovelCharacters</code> 的 <code>ensureAura</code> 调用换成直接返回假 id（跳过入库），跑 Step 4，期望「先入库再绑定」<b>FAIL</b>；还原后重跑确认 PASS。</p>
+  </li>
+  <li><b>Step 7：提交</b>
+    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-soul-actions.ts src/lib/novel/book-analysis/workbench-soul-actions.spec.ts
+git commit -m "feat(拆书库): 角色加入灵魂库与绑定动作（绑定自动入库）"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 5：放宽两处「没有规则就不给加入」的门槛（迁移版本例外）</h2>
+<div class="files">
+  <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.ts:37</code> 与 characters 分支的过滤条件</div>
+  <div>Modify: <code>src/components/novel/book-analysis-workbench.tsx:452-453</code>（<b>第二处门槛，容易漏</b>）</div>
+  <div>Modify: <code>src/lib/novel/book-analysis/workbench-publish.spec.ts</code></div>
+</div>
+<div class="danger">
+  <b>这里有<b>两</b>处独立门槛，只改后端会得到一个点不动的前端按钮。</b>
+  <ul>
+    <li>后端：<code>workbench-publish.ts:37</code> 抛「没有有依据的规则可加入」。</li>
+    <li>前端：<code>book-analysis-workbench.tsx:453</code> 的「确认并加入」按钮被 <code>!revision.items.some((i) =&gt; i.rules.length)</code> <b>禁用</b>。</li>
+  </ul>
+  旧版迁移版本在情况 Y/Z/W 下 <code>rules</code> 全空，两处都会挡住它。两处都已在代码中核实存在。
+</div>
+
+<ul class="steps">
+  <li><b>Step 1：写失败测试</b>
+<pre><code>  it("旧版迁移版本即使没有规则也能加入（走兜底链）", async () =&gt; {
+    const legacyRevision: WorkbenchRevision = {
+      ...revision, id: "r-legacy", origin: "legacy",
+      // 情况 Y：无人格块 → 迁移后 rules 为空
+      items: [{ subject: "甲", summary: "先核对", limitations: "", rules: [] }],
+    }
+    await saveWorkbenchRevision(bookPath, legacyRevision)
+    const preview = await inspectWorkbenchPublication("/project", legacyRevision)
+    await expect(confirmWorkbenchRevision("/project", bookPath, "r-legacy", preview.fingerprint)).resolves.toBeTruthy()
+  })
+
+  it("非旧版版本没有规则时仍然拒绝", async () =&gt; {
+    const empty: WorkbenchRevision = { ...revision, id: "r-empty", origin: undefined,
+      items: [{ subject: "甲", summary: "s", limitations: "", rules: [] }] }
+    await saveWorkbenchRevision(bookPath, empty)
+    const preview = await inspectWorkbenchPublication("/project", empty)
+    await expect(confirmWorkbenchRevision("/project", bookPath, "r-empty", preview.fingerprint))
+      .rejects.toThrow("没有有依据的规则可加入")
+  })</code></pre>
+  </li>
+  <li><b>Step 2：跑测试确认第一个失败</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts -t "旧版迁移版本即使没有规则也能加入" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：FAIL，报 <code>没有有依据的规则可加入</code>（第二个用例此刻应已 PASS）。</p>
+  </li>
+  <li><b>Step 3：实现</b>
+<pre><code>-    if (!revision.items.some((item) =&gt; item.rules.length)) throw new Error("没有有依据的规则可加入")
++    // 旧版迁移版本可能没有任何结构化规则（六维路径的 Skill 不含便携人格块），
++    // 但它仍有可发布内容——发布时走 buildGeneratedAuraInputFromBookCharacter 的
++    // personalityProfile／散文字段兜底。因此只对有规则的新版版本保留这道门槛。
++    if (!revision.items.some((item) =&gt; item.rules.length) &amp;&amp; revision.origin !== "legacy") {
++      throw new Error("没有有依据的规则可加入")
++    }</code></pre>
+    <p>同时放宽 characters 分支的过滤，否则迁移版本会被过滤成什么都不做：</p>
+<pre><code>-      for (const item of revision.items.filter((item) =&gt; item.rules.length)) {
++      // 迁移条目即使没有规则也要发布（靠兜底链）；新版条目仍只发布有规则的
++      for (const item of revision.items.filter((item) =&gt; item.rules.length || revision.origin === "legacy")) {</code></pre>
+    <p><b>再改前端那两处。</b>先在文件里加一个共用判据：</p>
+<pre><code>/** 整个版本有没有可发布内容。旧版迁移版本靠兜底链发布，即使没有结构化规则也算数。 */
+function canPublishRevision(revision: WorkbenchRevision): boolean {
+  return revision.origin === "legacy" || revision.items.some((item) =&gt; item.rules.length)
+}</code></pre>
+    <p>然后用它替换 <code>:453</code> 的按钮禁用条件，并改 <code>:452</code> 的摘要行文案（别对旧版迁移数据声称「自动核验通过」）：</p>
+<pre><code>-      &lt;button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !revision.items.some((i) =&gt; i.rules.length)} onClick={() =&gt; void confirm()}&gt;
++      {/* 旧版迁移版本可能没有结构化规则却仍有可发布内容，别把按钮禁掉 */}
++      &lt;button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !canPublishRevision(revision)} onClick={() =&gt; void confirm()}&gt;</code></pre>
+<pre><code>-    &lt;div className="wb-row wb-summary"&gt;&lt;span className="wb-status"&gt;{revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}&lt;/span&gt;
++    &lt;div className="wb-row wb-summary"&gt;&lt;span className="wb-status"&gt;{revision.origin === "legacy" ? "旧版导入 · 未经新版核验" : revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}&lt;/span&gt;</code></pre>
+  </li>
+  <li><b>Step 4：跑到全绿</b>
+    <div class="cmd"><code>npx vitest run src/lib/novel/book-analysis/workbench-publish.spec.ts src/lib/novel/book-analysis/workbench-style-flow.spec.ts --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：全 PASS。</p>
+  </li>
+  <li><b>Step 5：变异验证</b>
+    <p>两处门槛<b>分别</b>变异：①去掉 <code>&amp;&amp; revision.origin !== "legacy"</code>；②把按钮改回 <code>!revision.items.some((i) =&gt; i.rules.length)</code>。各跑 Step 4，期望 ① 让「旧版迁移版本即使没有规则也能加入」<b>FAIL</b>；② 由 Task 6 的按钮用例抓住；随后还原。</p>
+  </li>
+  <li><b>Step 6：提交</b>
+    <div class="cmd"><code>git add src/lib/novel/book-analysis/workbench-publish.ts src/lib/novel/book-analysis/workbench-publish.spec.ts src/components/novel/book-analysis-workbench.tsx
+git commit -m "fix(拆书库): 旧版迁移版本无规则时也允许加入（含前端按钮门槛）"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 6：工作台界面——条目合并、懒落盘、徽标与两个按钮</h2>
+<div class="files">
+  <div>Modify: <code>src/components/novel/book-analysis-workbench.tsx</code>（状态/加载 <code>:188-245</code>，结果区 <code>:343-355</code>，卡片 <code>:460-478</code>，<code>WorkbenchResult</code> props <code>:381-383</code>，<code>confirm()</code> <code>:413-426</code>）</div>
+  <div>Modify: <code>src/components/novel/book-analysis-workbench.css</code>（仅按钮行样式）</div>
+  <div>Modify: <code>src/components/novel/book-analysis-workbench.spec.tsx</code></div>
+</div>
+
+<ul class="steps">
+  <li><b>Step 1：写失败测试</b>
+    <p>沿用该文件既有的 <code>mocks</code> 与 <code>legacyBook</code> fixture（<code>:56-69</code> 已含 <code>characters: [{ name: "林烬", ... }]</code>、<code>skills: []</code>）：</p>
+<pre><code>  it("旧版角色以「旧版资料导入」条目合并进角色页签", async () =&gt; {
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    expect(host.textContent).toContain("林烬")
+    // legacyBook.skills 为空、但角色有 personality 散文 → 走情况 Z：无结构化规则
+    expect(host.textContent).toContain("旧版资料导入 · 无结构化规则")
+  })
+
+  it("角色条目都带「加入自定义灵魂库」与「绑定」两个按钮", async () =&gt; {
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    const buttons = Array.from(host.querySelectorAll("button"))
+    const labels = buttons.map((b) =&gt; b.textContent?.trim())
+    expect(labels).toContain("加入自定义灵魂库")
+    expect(labels.some((l) =&gt; l?.startsWith("绑定"))).toBe(true)
+    // 情况 Z 仍有可发布数据，按钮必须可用（不能用 rules.length 判断）
+    expect(buttons.find((b) =&gt; b.textContent?.includes("加入自定义灵魂库"))!.disabled).toBe(false)
+    // 「确认并加入」也不能因为没有规则就被禁掉（Task 5 的第二处门槛）
+    expect(buttons.find((b) =&gt; b.textContent?.includes("确认并加入"))!.disabled).toBe(false)
+  })</code></pre>
+    <p><b>先确认</b>本文件既有的渲染方式（<code>root</code>／<code>host</code> 变量名、<code>mocks.load</code> 的形状）与上面一致——该文件已有多个用 <code>mocks.load.mockResolvedValue({ books: [legacyBook] })</code> 的用例（<code>:287</code>、<code>:298</code>），照它们的写法来。</p>
+  </li>
+  <li><b>Step 2：跑测试确认失败</b>
+    <div class="cmd"><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：FAIL（找不到「旧版资料导入 · 无结构化规则」与两个按钮）。</p>
+  </li>
+  <li><b>Step 3：状态与加载合并</b>
+    <p>新增三个状态，并把 <code>:218</code> 的 <code>reloadRevisions</code> 换成下面这版：</p>
+<pre><code>  const [soulStatus, setSoulStatus] = useState&lt;Record&lt;string, CharacterSoulStatus&gt;&gt;({})
+  const [bindingSubject, setBindingSubject] = useState&lt;string | null&gt;(null)
+  const [bindableNames, setBindableNames] = useState&lt;string[] | null&gt;(null)
+
+  /**
+   * 磁盘上的版本 + 内存里的旧版迁移条目。
+   * 迁移条目不落盘（懒落盘）：只有点「确认并加入」才写进 revisions 目录，
+   * 因此这里按 id 去重，避免落盘后出现两份。
+   */
+  const reloadRevisions = useCallback(async () =&gt; {
+    const stored = await loadWorkbenchRevisions(book.path)
+    const legacyRevision = buildLegacyCharacterRevision(book)
+    setRevisions(legacyRevision &amp;&amp; !stored.some((r) =&gt; r.id === legacyRevision.id)
+      ? [legacyRevision, ...stored]
+      : stored)
+  }, [book.path, book])</code></pre>
+    <p>并把 <code>:241-245</code> 那个直接调 <code>loadWorkbenchRevisions</code> 的 effect 改为调用它，避免两处逻辑漂移：</p>
+<pre><code>  useEffect(() =&gt; {
+    let current = true
+    void reloadRevisions().catch((e) =&gt; { if (current) setError(String(e)) })
+    return () =&gt; { current = false }
+  }, [reloadRevisions, signature])</code></pre>
+  </li>
+  <li><b>Step 4：徽标状态加载 effect + 单条刷新</b>
+<pre><code>  // 徽标要反映「在不在自定义灵魂库／绑给了谁」，从盘上读。
+  // 依赖含 signature：落盘/确认后任务状态变化会带动它，徽标随之刷新。
+  useEffect(() =&gt; {
+    if (activeSkill !== "characters") return
+    let current = true
+    const subjects = [...new Set(revisions.flatMap((r) =&gt; r.items.map((i) =&gt; i.subject)))]
+    void Promise.all(subjects.map(async (subject) =&gt;
+      [subject, await loadCharacterSoulStatus(projectPath, book.metadata.title, subject)] as const,
+    )).then((entries) =&gt; {
+      if (current) setSoulStatus(Object.fromEntries(entries))
+    }).catch((e) =&gt; { if (current) setError(String(e)) })
+    return () =&gt; { current = false }
+  }, [activeSkill, revisions, projectPath, book.metadata.title, signature])
+
+  /** 只重读一个角色：不要靠整表重算，否则每次点按钮都触发一次全量 IO。 */
+  const refreshSoulStatus = async (subject: string) =&gt; {
+    const status = await loadCharacterSoulStatus(projectPath, book.metadata.title, subject)
+    setSoulStatus((prev) =&gt; ({ ...prev, [subject]: status }))
+  }</code></pre>
+  </li>
+  <li><b>Step 5：两个按钮的处理函数（<b>不落盘</b>）</b>
+    <div class="danger">
+      <b>设计 5.4 明确：这两个按钮不需要落盘。</b>「动作层只依赖 <code>projectPath</code> 与条目本身，因此可以先行使用」。落盘只发生在「确认并加入」（Step 5b），因为只有 <code>confirmWorkbenchRevision</code> 需要按住 id 从磁盘重读。<b>不要</b>在这两个处理函数里调 <code>materializeLegacyCharacterRevision</code>。
+    </div>
+<pre><code>  const handleAddToSoul = async (revision: WorkbenchRevision, subject: string) =&gt; {
+    try {
+      const r = await addCharacterToSoulLibrary(projectPath, book, revision, subject)
+      await refreshProjectState(projectPath)
+      toast.success(`已将「${r.auraName}」加入自定义灵魂库。`)
+      await refreshSoulStatus(subject)
+    } catch (error) { reportError(error) }
+  }
+
+  const openBindingDialog = async (subject: string) =&gt; {
+    setBindingSubject(subject)
+    setBindableNames(null)
+    try {
+      setBindableNames(await listBindableNovelCharacters(projectPath))
+    } catch (error) { reportError(error); setBindableNames([]) }
+  }
+
+  const confirmBinding = async (revision: WorkbenchRevision, names: string[]) =&gt; {
+    const subject = bindingSubject
+    if (!subject) return
+    try {
+      const r = await bindCharacterToNovelCharacters(projectPath, book, revision, subject, names)
+      await refreshProjectState(projectPath)
+      // 设计 5.4：部分失败时如实报「成功 N，失败 M」；幂等命中的计为已有
+      if (r.failed.length === 0 &amp;&amp; r.alreadyBound.length === 0) {
+        toast.success(`已将「${subject}」绑定到 ${r.succeeded} 个小说人物`)
+      } else {
+        toast.info(`绑定完成：成功 ${r.succeeded}，已是现绑定 ${r.alreadyBound.length}，失败 ${r.failed.length}`)
+      }
+      await refreshSoulStatus(subject)
+      setBindingSubject(null)
+    } catch (error) { reportError(error) }
+  }</code></pre>
+  </li>
+  <li><b>Step 5b：给「确认并加入」补上懒落盘</b>
+    <p>改 <code>WorkbenchResult</code> 的 <code>confirm()</code>（<code>:413-426</code>），在 <code>inspectWorkbenchPublication</code> 之前先落盘：</p>
+<pre><code>  const confirm = async () =&gt; {
+    setSaving(true)
+    try {
+      // 旧版迁移条目只存在于内存里，而 confirmWorkbenchRevision 是按住 id 从磁盘重读的，
+      // 所以必须先落盘。落盘失败按设计 7 处理：报错、不进入发布、列表保持原状。
+      if (revision.origin === "legacy") {
+        await materializeLegacyCharacterRevision(bookPath, book)
+        await onConfirmed() // 重新加载列表，让条目变成磁盘上的普通条目
+      }
+      const inspect = await inspectWorkbenchPublication(projectPath, revision)
+      const destination = revision.skill === "characters" ? "角色灵魂库" : revision.skill === "story" ? "故事框架库" : "文风库"
+      const message = inspect.targets.length
+        ? `确认替换${destination}中的 ${inspect.targets.length} 个已有条目？\n影响：${inspect.impacts.join("、") || "无当前启用或绑定"}。\n旧版本会保留。`
+        : `确认将本版本全部 ${revision.items.length} 个对象加入${destination}？不会自动绑定人物或启用文风。`
+      if (!window.confirm(message + (omittedCount ? `\n有${omittedCount}项候选未采纳，仅加入保留的通过项；未采纳记录留在来源版本中。` : ""))) return
+      await confirmWorkbenchRevision(projectPath, bookPath, revision.id, inspect.fingerprint)
+      onConfirmed()
+      toast.success("已确认并加入使用库")
+    } catch (error) { reportError(error) } finally { setSaving(false) }
+  }</code></pre>
+    <div class="note">
+      <code>reportError</code> 会把落盘失败如实弹给用户，<b>不吞错</b>（设计 7：toast 报错、不进入发布、列表保持原状）。落盘后 <code>onConfirmed()</code> 触发 <code>reloadRevisions</code>，此时磁盘已有同 id 版本，按 id 去重后不会再叠一份（Step 3 已保证）。
+    </div>
+  </li>
+  <li><b>Step 6：把徽标与两个按钮加到卡片上</b>
+    <p>可用性判据放在文件级的独立函数（<b>不能用 <code>rules.length</code></b>）：</p>
+<pre><code>/**
+ * 按钮能不能用取决于「有没有可发布的数据」，不是规则条数：
+ * 六维路径生成的旧版 Skill 不含便携人格块，规则为空但资料齐全，必须仍能加入灵魂库。
+ */
+function hasPublishableData(revision: WorkbenchRevision, item: WorkbenchItem, book: BookAnalysisLibraryBook): boolean {
+  if (revision.origin !== "legacy") return item.rules.length &gt; 0
+  const character = book.characters.find((c) =&gt; c.name === item.subject)
+  if (!character) return false
+  if (book.skills.some((s) =&gt; s.characterId === character.id || s.characterName === character.name)) return true
+  return Boolean(character.personalityProfile) || Boolean(character.personality) || Boolean(character.description)
+}
+
+/** 三态徽标文案，与设计 5.4 的表格一一对应。 */
+function soulStatusLabel(status: CharacterSoulStatus | undefined): string {
+  if (!status || status === "none") return "未加入灵魂库"
+  if (status === "added") return "已在灵魂库"
+  return `已绑定「${status.bound.join("、")}」`
+}</code></pre>
+    <p>给 <code>WorkbenchResult</code> 增加 props——把 <code>:381-383</code> 的签名改为：</p>
+<pre><code>  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string
+  onConfirmed: () =&gt; void; onRevise: (requirements: string) =&gt; Promise&lt;void&gt; | null; revising: boolean
+  book: BookAnalysisLibraryBook
+  soulStatus: Record&lt;string, CharacterSoulStatus&gt;
+  busy: boolean
+  onAddToSoul: (subject: string) =&gt; void
+  onBind: (subject: string) =&gt; void
+}) {</code></pre>
+    <p>并在 <code>:349-352</code> 的调用处传入：</p>
+<pre><code>      {result ? &lt;WorkbenchResult key={result.id} revision={result} previous={revisions.find((r) =&gt; r.id === result.parentRevisionId)} bookPath={book.path} projectPath={projectPath}
+        book={book} soulStatus={soulStatus} busy={starting || hasActiveTask}
+        onAddToSoul={(subject) =&gt; void handleAddToSoul(result, subject)}
+        onBind={(subject) =&gt; void openBindingDialog(subject)}
+        onConfirmed={() =&gt; { void reloadRevisions().catch(reportError); onRefresh() }}
+        revising={starting || hasActiveTask}
+        onRevise={(requirements) =&gt; draft &amp;&amp; launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} /&gt;
+        : &lt;p className="wb-muted"&gt;暂无新版本结果。&lt;/p&gt;}</code></pre>
+    <p>在卡片 <code>&lt;footer className="wb-card-footer"&gt;</code>（<code>:472-475</code>）之后插入：</p>
+<pre><code>        &lt;div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}&gt;
+          {revision.origin === "legacy" &amp;&amp; &lt;span className="wb-origin-tag"&gt;{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}&lt;/span&gt;}
+          &lt;span className="wb-soul-status"&gt;{soulStatusLabel(soulStatus[item.subject])}&lt;/span&gt;
+          {(() =&gt; {
+            const publishable = hasPublishableData(revision, item, book)
+            const status = soulStatus[item.subject] ?? "none"
+            return &lt;&gt;
+              &lt;button
+                type="button"
+                disabled={!publishable || status !== "none" || busy}
+                title={!publishable ? "这个角色没有可加入灵魂库的资料"
+                  : status !== "none" ? "已在自定义灵魂库中"
+                  : "只加入自定义灵魂库，不绑定小说人物"}
+                onClick={() =&gt; onAddToSoul(item.subject)}
+              &gt;&lt;Plus /&gt;加入自定义灵魂库&lt;/button&gt;
+              &lt;button
+                type="button"
+                disabled={!publishable || busy}
+                title={publishable ? "绑定到小说人物（会自动加入自定义灵魂库）" : "这个角色没有可加入灵魂库的资料"}
+                onClick={() =&gt; onBind(item.subject)}
+              &gt;&lt;Link2 /&gt;绑定…&lt;/button&gt;
+            &lt;/&gt;
+          })()}
+        &lt;/div&gt;</code></pre>
+    <div class="note">
+      三态对应关系（设计 5.4）：尚未入库 → 两个都可点；已在库未绑定 → 「加入」置灰、「绑定」可点；已绑定 → 「加入」置灰、「绑定」<b>仍可点</b>（继续绑到更多人物）。上面的 <code>disabled</code> 条件正好落在这三态上。
+    </div>
+  </li>
+  <li><b>Step 7：绑定目标对话框（用仓库既有的 Dialog 组件）</b>
+    <div class="note">
+      不要手写 overlay。仓库统一用 <code>@base-ui/react</code> 的 Dialog（<code>@/components/ui/dialog</code>），它自带 <code>role="dialog"</code>、<code>aria-modal</code>、焦点陷阱与 Esc 关闭。<code>book-analysis-input-dialog.tsx:5</code> 就是这么用的，宽度用 Tailwind（<code>:215</code> 的 <code>sm:max-w-[640px]</code>）。
+    </div>
+<pre><code>function BindingTargetDialog({ subject, names, onOpenChange, onConfirm }: {
+  subject: string | null
+  names: string[] | null
+  onOpenChange: (open: boolean) =&gt; void
+  onConfirm: (names: string[]) =&gt; void
+}) {
+  const [picked, setPicked] = useState&lt;string[]&gt;([])
+  useEffect(() =&gt; { setPicked([]) }, [subject])
+  const empty = names !== null &amp;&amp; names.length === 0
+  return (
+    &lt;Dialog open={Boolean(subject)} onOpenChange={onOpenChange}&gt;
+      &lt;DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[560px]"&gt;
+        &lt;DialogHeader&gt;&lt;DialogTitle&gt;绑定「{subject}」&lt;/DialogTitle&gt;&lt;/DialogHeader&gt;
+        &lt;p className="text-sm text-muted-foreground"&gt;绑定后会自动把该角色灵魂加入自定义灵魂库。&lt;/p&gt;
+        {names === null &amp;&amp; &lt;p className="text-sm text-muted-foreground"&gt;正在读取小说人物…&lt;/p&gt;}
+        {/* 文案与设计 5.4 / character-aura.ts:222 一致 */}
+        {empty &amp;&amp; &lt;p role="alert" className="text-sm"&gt;请先在大纲中添加人物小传或人物设定，再绑定角色灵魂&lt;/p&gt;}
+        &lt;div className="min-h-0 overflow-y-auto"&gt;
+          {names?.map((name) =&gt; (
+            &lt;label key={name} className="flex items-center gap-2 py-1.5 text-sm"&gt;
+              &lt;input type="checkbox" checked={picked.includes(name)}
+                onChange={(e) =&gt; setPicked((ids) =&gt; e.target.checked ? [...ids, name] : ids.filter((id) =&gt; id !== name))} /&gt;
+              {name}
+            &lt;/label&gt;
+          ))}
+        &lt;/div&gt;
+        &lt;DialogFooter&gt;
+          &lt;Button variant="outline" onClick={() =&gt; onOpenChange(false)}&gt;取消&lt;/Button&gt;
+          &lt;Button disabled={picked.length === 0} onClick={() =&gt; onConfirm(picked)}&gt;
+            绑定所选 {picked.length} 个人物
+          &lt;/Button&gt;
+        &lt;/DialogFooter&gt;
+      &lt;/DialogContent&gt;
+    &lt;/Dialog&gt;
+  )
+}</code></pre>
+    <p>在结果区渲染（紧邻 <code>&lt;LegacySkillResults … /&gt;</code> 之前）：</p>
+<pre><code>      &lt;BindingTargetDialog
+        subject={bindingSubject}
+        names={bindableNames}
+        onOpenChange={(open) =&gt; { if (!open) { setBindingSubject(null); setBindableNames(null) } }}
+        onConfirm={(names) =&gt; { if (result) void confirmBinding(result, names) }}
+      /&gt;</code></pre>
+    <p>需要补充的导入（<b>路径已逐个核实</b>，直接照抄）：</p>
+<pre><code>import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { refreshProjectState } from "@/lib/project-refresh"
+import { listBindableNovelCharacters } from "@/lib/novel/character-aura"
+import { buildLegacyCharacterRevision, materializeLegacyCharacterRevision } from "@/lib/novel/book-analysis/legacy-character-revision"
+import {
+  addCharacterToSoulLibrary, bindCharacterToNovelCharacters, loadCharacterSoulStatus, type CharacterSoulStatus,
+} from "@/lib/novel/book-analysis/workbench-soul-actions"</code></pre>
+    <p>并把这几个符号加进<b>已有</b>的导入行（不要新增重复行）：<code>WorkbenchItem</code> 加进 <code>@/lib/novel/book-analysis/workbench-core</code> 那行（<code>:11</code>）；<code>Link2</code> 加进 <code>lucide-react</code> 那行（<code>:2</code>，<code>Plus</code> 已有）。</p>
+  </li>
+  <li><b>Step 8：样式</b>
+    <p>追加到 <code>book-analysis-workbench.css</code>。<b>只用该文件已有的变量</b>（已核实实际使用：<code>--ui-line</code>、<code>--ui-muted</code>、<code>--ui-panel</code>、<code>--ui-ink</code>、<code>--ui-accent</code>、<code>--background</code>、<code>--muted</code>、<code>--foreground</code>）：</p>
+<pre><code>.wb-soul-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.wb-origin-tag{border:1px dashed var(--ui-line);border-radius:999px;padding:1px 8px;font-size:12px;color:var(--ui-muted)}
+.wb-soul-status{font-size:12px;color:var(--ui-muted)}
+.wb-soul-actions button{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.wb-soul-actions button svg{width:14px;height:14px}</code></pre>
+  </li>
+  <li><b>Step 9：跑工作台测试</b>
+    <div class="cmd"><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：Step 1 两个新用例 PASS，既有用例不回归。若有既有用例因「合并了迁移条目」而失败，先判断新行为是否正确，再决定改测试还是改实现。</p>
+  </li>
+  <li><b>Step 10：类型检查</b>
+    <div class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit; Write-Host "exit=$LASTEXITCODE"</code></div>
+    <p>期望：<code>exit=0</code>（注意 <code>noUnusedLocals</code>，删掉未用的导入）。</p>
+  </li>
+  <li><b>Step 11：提交</b>
+    <div class="cmd"><code>git add src/components/novel/book-analysis-workbench.tsx src/components/novel/book-analysis-workbench.css src/components/novel/book-analysis-workbench.spec.tsx
+git commit -m "feat(拆书库): 角色条目可加入灵魂库与绑定，旧版角色并入列表"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 7：收口旧版角色分区</h2>
+<div class="files">
+  <div>Modify: <code>src/components/novel/legacy-skill-results.tsx</code></div>
+  <div>Modify: <code>src/components/novel/legacy-skill-results.spec.tsx</code></div>
+</div>
+
+<ul class="steps">
+  <li><b>Step 1：改实现</b>
+    <p>删除 <code>BookAnalysisCharacterPanel</code> 导入、<code>selectedCharacterId</code> 状态、<code>hasLegacy</code> 的 characters 分支，以及 <code>:63-70</code> 的渲染块。在 <code>storyCount</code> 计算之后插入：</p>
+<pre><code>  // 角色已由工作台合并进新版条目（含旧版迁移条目），
+  // 这里再渲染一次就是同一页签里的第三份列表。
+  if (skill === "characters") return null
+
+  const hasLegacy = skill === "style" ? Boolean(book.styleProfile) : storyCount !== 0
+  if (!hasLegacy) return null
+</code></pre>
+    <p>并改写文件顶部注释：删掉「角色面板里两种机制并存…」那段（已不适用），改为一句「角色分支已移出到新版条目」。<code>role="region"</code> + <code>aria-label</code> 保持在剩下两个分支上。</p>
+  </li>
+  <li><b>Step 2：同步测试</b>
+    <p>删除 <code>legacy-skill-results.spec.tsx</code> 里 characters 相关用例，<b>保留</b>故事与文风用例以及 <code>role="region"</code> + <code>aria-label</code> 的无障碍断言。追加：</p>
+<pre><code>  it("角色页签不再渲染旧版分区（已并入新版条目）", () =&gt; {
+    // 复用该文件既有的 renderResults helper 与带角色 fixture
+    const { container, cleanup } = renderResults({ skill: "characters" })
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    cleanup()
+  })</code></pre>
+    <p><b>先确认</b>该 spec 里 <code>renderResults</code> 的真实签名与测试标记的实际取值（用编辑器打开看），再照它写。</p>
+  </li>
+  <li><b>Step 3：跑测试</b>
+    <div class="cmd"><code>npx vitest run src/components/novel/legacy-skill-results.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：PASS。</p>
+  </li>
+  <li><b>Step 4：跑整个 novel 目录</b>
+    <div class="cmd"><code>npx vitest run --dir src/components/novel --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></div>
+    <p>期望：全绿（基线 31 文件 / 192 用例，本次新增用例后总数会增加，但不应有失败）。</p>
+  </li>
+  <li><b>Step 5：确认没有删掉仍在被引用的组件</b>
+    <p>用搜索工具确认 <code>BookAnalysisCharacterPanel</code> 仍被 <code>src/components/novel/book-analysis-view.tsx</code> 引用（未挂载的 <code>LegacyBookAnalysisView</code>），因此<b>保留该文件</b>。此步只确认编译不破。</p>
+  </li>
+  <li><b>Step 6：提交</b>
+    <div class="cmd"><code>git add src/components/novel/legacy-skill-results.tsx src/components/novel/legacy-skill-results.spec.tsx
+git commit -m "refactor(拆书库): 旧版角色分区收口，避免同一页签重复列表"</code></div>
+  </li>
+</ul>
+
+<hr>
+
+<h2>Task 8：几何检查 + 变异验证 + 独立审查</h2>
+<div class="files">
+  <div>Create: <code>docs/legacy-character-binding-20261006/dump-actions.spec.tsx</code></div>
+  <div>Create: <code>docs/legacy-character-binding-20261006/check.mjs</code></div>
+</div>
+
+<ul class="steps">
+  <li><b>Step 1：用真实组件生成静态页</b>
+    <p>写一个 vitest spec 渲染工作台结果区（含一个情况 X 条目、一个情况 Z 条目），把 <code>document.body.innerHTML</code> 与 <code>src/components/novel/book-analysis-workbench.css</code> 的内容写进同目录的 <code>dump.html</code>。<b>照抄</b> <code>docs/book-analysis-legacy-merge-20261006/dump-legacy-markup.spec.tsx</code> 的做法（它就是用真实组件生成，取代手写快照）。</p>
+    <div class="warn">
+      静态页必须补 Tailwind 工具类，否则几何量不准——<code>docs/book-analysis-legacy-merge-20261006/check.mjs</code> 的 <code>themeVars</code> 已为此补了 <code>.grid{display:grid}</code>、<code>.flex-1</code> 等，照抄。上一轮我就因为漏了这条出现过 1 个假失败。
+    </div>
+  </li>
+  <li><b>Step 2：写 <code>check.mjs</code></b>
+    <p>Playwright 是全局安装，ESM 下 <code>NODE_PATH</code> 无效，必须绝对路径动态导入；<code>file://</code> 下 <code>fetch()</code> 被禁，故用 <code>page.setContent</code>：</p>
+<pre><code>import { readFileSync } from "node:fs"
+import { pathToFileURL } from "node:url"
+const mod = await import(pathToFileURL(`${process.env.APPDATA}/npm/node_modules/playwright/index.js`).href)
+const chromium = mod.chromium ?? mod.default?.chromium
+const browser = await chromium.launch()
+const page = await browser.newPage()
+await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.html", "utf8"))</code></pre>
+    <p>断言（每条失败都记录名称并让脚本以非 0 退出；成功打印 <code>失败项：0</code>）：</p>
+    <ul>
+      <li>宽容器（1200px）：徽标与两个按钮在<b>同一行</b>；按钮行右边界不超出卡片右边界。</li>
+      <li>窄容器（420px）：按钮行换行而不是溢出（<code>scrollWidth &lt;= clientWidth + 1</code>）。</li>
+      <li>徽标与按钮矩形<b>不相交</b>。</li>
+      <li>情况 Z 的条目两个按钮都可点；情况 W（无任何资料）两个按钮都 <code>disabled</code>。</li>
+      <li>对话框宽度 <code>&lt;= 视口宽 - 32</code>；内容超高时内部滚动而非撑破视口。</li>
+    </ul>
+  </li>
+  <li><b>Step 3：跑几何检查</b>
+    <div class="cmd"><code>node docs/legacy-character-binding-20261006/check.mjs; Write-Host "exit=$LASTEXITCODE"</code></div>
+    <p>期望：<code>失败项：0</code>，退出码 0。</p>
+  </li>
+  <li><b>Step 4：变异验证全表</b>
+    <p>逐条破坏、跑对应用例、确认 <b>FAIL</b>，再用 <code>git checkout -- &lt;文件&gt;</code> 还原并确认 <code>git diff --exit-code -- &lt;文件&gt;</code> 干净：</p>
+    <table>
+      <tr><th>#</th><th>变异</th><th>必须失败的用例</th></tr>
+      <tr><td>①</td><td><code>importanceFromScore</code> 改回 <code>return score</code></td><td>分数换算</td></tr>
+      <tr><td>②</td><td><code>confirm()</code> 里去掉 <code>materializeLegacyCharacterRevision</code></td><td>旧版条目落盘后能被 <code>confirmWorkbenchRevision</code> 按 id 重读到</td></tr>
+      <tr><td>③</td><td><code>bindCharacterToNovelCharacters</code> 跳过 <code>ensureAura</code></td><td>先入库再绑定</td></tr>
+      <tr><td>④</td><td>迁移时丢弃无人格块的角色</td><td>情况 Y/Z/W 保留</td></tr>
+      <tr><td>⑤</td><td><code>hasPublishableData</code> 改用 <code>item.rules.length &gt; 0</code></td><td>情况 Z 按钮仍可点</td></tr>
+      <tr><td>⑥</td><td>旧版发布改走合成角色路径（用 <code>publishWorkbenchCharacter</code>）</td><td>情况 Z 仍能产出 aura</td></tr>
+      <tr><td>⑦</td><td>去掉批量门槛的 legacy 例外</td><td>迁移版本无规则也能加入</td></tr>
+      <tr><td>⑧</td><td>前端按钮改回 <code>!rules.length</code></td><td>「确认并加入」在情况 Z 可点</td></tr>
+    </table>
+  </li>
+  <li><b>Step 5：全量回归并核对基线</b>
+    <div class="cmd"><code>npx vitest run --exclude '**/.codex-temp/**' --exclude '**/.claude/**' --exclude '**/.worktrees/**' --reporter=json --outputFile=.vitest-after.json</code></div>
+    <p>用 <code>ConvertFrom-Json</code> 取 <code>testResults</code> 里 <code>status -eq 'failed'</code> 的文件名，与 <code>51fe007</code> 的失败文件列表 <code>Compare-Object</code>。</p>
+    <p class="ok">已确认基线：200 failed / 33 files / 5617 passed。</p>
+    <div class="warn">不要用 <code>grep</code>／<code>Select-String</code> 抓 FAIL 行——vitest 失败行带 ANSI 且走 stderr，会漏。必须用 JSON reporter。核对完删掉临时 json。</div>
+  </li>
+  <li><b>Step 6：派独立审查子代理</b>
+    <p>派一个<b>只读</b>子代理审查本次全部提交，要求它自己重跑变异，并重点核对：迁移映射、两条发布路径、<b>按钮可用性不能用 <code>rules.length</code></b>、绑定先入库的顺序、幂等绑定、两个按钮不落盘而「确认并加入」落盘、Dialog 无障碍、<code>id</code> 的同步哈希是否真的确定。</p>
+  </li>
+  <li><b>Step 7：重建便携版（需先问用户）</b>
+    <p>确认 vitest 已全部跑完再执行：</p>
+    <div class="cmd"><code>npm run build:portable</code></div>
+    <p>构建后校验产物：<code>Select-String -Path dist\**\*.css -Pattern 'wb-soul-actions'</code> 应有命中。</p>
+  </li>
+</ul>
+
+<hr>
+
+<h2>验收清单（全部满足才算完成）</h2>
+<ol>
+  <li>「角色 Skill」页签里旧版角色以「旧版导入 / 旧版资料导入」条目出现，与新版条目同列表；无独立旧版角色分区。</li>
+  <li>新版与旧版生成的每个角色条目都同时有「加入自定义灵魂库」与「绑定…」两个按钮。</li>
+  <li><b>六维路径生成的旧版角色（无人格块）也能加入灵魂库并绑定</b>——绑定能力不依赖 <code>portablePersonality</code> 是否存在。</li>
+  <li>「加入自定义灵魂库」只入库不绑定；「绑定…」完成后灵魂已在库中且已绑到所选人物。</li>
+  <li>无大纲人物时给出明确提示且不写数据；已绑过的人物再绑不重复写入。</li>
+  <li>角色重要度显示在 1–10（不再出现 <code>100/10</code>）。</li>
+  <li>两个按钮不落盘；「确认并加入」落盘失败时如实报错且不进入发布。</li>
+  <li>8 条变异全部被预期用例抓住。</li>
+  <li><code>--dir src/components/novel</code> 全绿；<code>tsc</code> 退出码 0；全量失败集合与基线逐文件一致。</li>
+  <li>真实浏览器几何检查 0 失败。</li>
+  <li>独立审查子代理无 Critical / Important 问题。</li>
+</ol>
+
+<h2>已知取舍（来自设计 9，实施时不必“修正”）</h2>
+<ul>
+  <li><b>迁移条目没有原文证据</b>：旧版人格是 LLM 摘要，本就没有可回溯的正文偏移，故卡片「依据」为 0 条。如实呈现，不伪造。</li>
+  <li><b>同页签内新旧条目规则数不一致</b>：简单提取的旧版角色有规则，六维路径的没有——这是如实反映两种旧数据的差别，不是遗漏。</li>
+  <li><b>旧版富详情不再可见</b>：四栏详情与代表台词不再显示（已确认接受）。</li>
+  <li><b>落盘后删除会重现</b>：下次进入仍会以「旧版导入」出现（旧版数据仍在磁盘、尚未整合）。有意行为。</li>
+  <li><b>条目与源角色靠名字关联</b>：<code>item.subject === character.name</code>，与 <code>aura-adapter.ts:205</code> 一致；作品库里若有同名角色可能取错。沿用既有假设，不额外引入 ID 回链。</li>
+</ul>
+
+</main>
+<footer>青幕AI写作 · 拆书库旧版角色整合与绑定 · 实施计划 v3</footer>
+</body>
+</html>

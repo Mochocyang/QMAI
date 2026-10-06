@@ -368,7 +368,7 @@ loadCharacterSoulStatus(projectPath, bookTitle, subject)               → "none
 <ul>
   <li><code>legacy-character-revision.spec.ts</code>：映射正确（subject/summary/limitations/rules 字段对应）；情况 X/Y/Z/W 各自保留且 <code>rules</code> 符合预期（Y/Z 为 <code>[]</code>）；Y/Z 的 <code>summary</code> 退回角色资料而非空；<code>evidence/coverage/selectedChapterIds</code> 为空；id 确定性（同输入同 id、不同角色集合不同 id）；无角色时返回 <code>null</code>；<code>workbenchVersion === 2</code>；<code>origin === "legacy"</code>。</li>
   <li><b>旧版发布路径（本次修正的核心，必须有测试）</b>：构造情况 Y（<b>无人格块</b>但有 <code>personalityProfile</code>）→ 断言仍能产出 aura，内容来自 <code>personalityProfile</code>（不是空的），且 <code>createCustomCharacterAuraFromGeneratedSkill</code> 收到的 <code>skillContent</code> 非空（由 <code>generateSimpleSkillMarkdown</code> 合成）；再构造情况 Z（连 <code>personalityProfile</code> 都没有）→ 断言仍能产出 aura（散文字段兜底）。</li>
-  <li><b>既有测试缺口</b>：<code>workbench-publish.spec.ts</code> 现有 4 个用例全是文风/故事，<b>角色发布分支目前没有直接测试</b>。抽取 <code>publishWorkbenchCharacter</code> 时补一个：新版条目发布 → 断言 aura 被创建、<code>item.subject</code> 与规则进入 aura、重复发布走更新而非新建。</li>
+  <li><b>角色发布分支的测试现状（已核实）</b>：<code>workbench-publish.spec.ts</code> 的 4 个用例中，<code>:72-79</code>「草稿保存不入库，重复确认只创建一次」用的正是 <code>skill:"characters"</code> 的默认版本，断言了 <code>io.createAura</code> <b>调用次数</b>与幂等性——所以该分支<b>被执行</b>，但<b>没有断言 aura 的内容</b>（<code>item.subject</code>、规则、<code>skillContent</code> 是否正确进入 aura）。抽取 <code>publishWorkbenchCharacter</code> 时补一个内容断言用例：发布后 <code>io.createAura</code> 收到的 input 里 <code>name === item.subject</code> 且规则/摘要按预期映射。</li>
   <li><b>批量门槛例外</b>：<code>rules</code> 全空但为 legacy 且有源数据时，<code>confirmWorkbenchRevision</code> 不再抛「没有有依据的规则可加入」；非 legacy 版本仍照旧抛错。</li>
   <li><code>workbench-soul-actions</code>：「加入自定义灵魂库」只入库不绑定；「绑定」先入库再绑定（断言调用顺序）；aura 已存在时不重复创建。</li>
   <li>工作台：每个角色条目都有两个按钮；<b>无人格块但有 <code>personalityProfile</code> 时按钮仍可点</b>；确实无资料时 <code>disabled</code>；徽标三态；无大纲人物时对话框提示且确认禁用；<code>origin === "legacy"</code> 时摘要显示「旧版导入」。</li>
@@ -407,7 +407,7 @@ loadCharacterSoulStatus(projectPath, bookTitle, subject)               → "none
 <h2>11. 实施顺序（供实施计划使用）</h2>
 <ol>
   <li>修 <code>importance</code> 换算（独立、最小、可先落地）。</li>
-  <li>抽 <code>publishWorkbenchCharacter</code>，并<b>补上角色发布分支的第一个测试</b>（现有 4 个用例都不覆盖它）——纯重构，行为不变。</li>
+  <li>抽 <code>publishWorkbenchCharacter</code>，并<b>补上 aura 内容断言</b>（现有 <code>:72-79</code> 只断言了创建次数与幂等性，没断言内容）——纯重构，行为不变。</li>
   <li>写 <code>legacy-character-revision.ts</code> + 单测（含情况 X/Y/Z/W）。</li>
   <li>写 <code>workbench-soul-actions.ts</code> + 单测（两条发布路径、已入库时取回 auraId 继续绑定、绑定先入库的顺序断言）。</li>
   <li>工作台接入：合并条目 + 懒落盘 + 两个按钮 + 对话框 + 徽标（含 <code>origin</code> 文案）。</li>
