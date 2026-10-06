@@ -357,4 +357,48 @@ describe("绑定对话框：名单来源与后台精修", () => {
     expect(dialogEl()).not.toBeNull()
     expect(shownNames()).toEqual(["甲"])
   })
+
+  it("重新打开同一角色后，上一次会话迟到的精修结果不会并进新名单", async () => {
+    // 第一次会话的精修永远挂着，直到第二次打开已经把新名单渲染出来之后才返回。
+    const firstRefine = deferred<string[]>()
+    // 两次打开读到的是不同名单：迟到的名字与第二次的新名单没有任何交集，
+    // 所以只要它出现就一定来自第一次会话，不可能是重新拉取带回来的。
+    mocks.listBindable.mockReset()
+    mocks.listBindable.mockResolvedValueOnce(["甲"]).mockResolvedValue(["乙"])
+    mocks.refine.mockReturnValueOnce(firstRefine.promise).mockResolvedValue([])
+    await openDialog()
+    expect(shownNames()).toEqual(["甲"])
+    await click(buttonWith("取消"))
+    expect(dialogEl()).toBeNull()
+    // 同一个角色重新打开：新会话已经落地了它自己的名单。
+    await act(async () => bindButton().click())
+    expect(dialogEl()).not.toBeNull()
+    expect(shownNames()).toEqual(["乙"])
+    // 第一次会话的精修这时才回来，它属于那个已经关掉的对话框，绝不能并进新名单。
+    await act(async () => { firstRefine.resolve(["陈旧甲", "陈旧乙"]) })
+    await act(async () => {})
+    expect(shownNames()).not.toContain("陈旧甲")
+    expect(shownNames()).not.toContain("陈旧乙")
+    expect(shownNames()).toEqual(["乙"])
+  })
+
+  it("后台精修落地后已勾选的人物仍然勾着，确认提交的正是这些人物", async () => {
+    const refined = deferred<string[]>()
+    mocks.listBindable.mockResolvedValue(["甲", "乙"])
+    mocks.refine.mockReturnValue(refined.promise)
+    await openDialog()
+    await click(checkboxFor("甲"))
+    await click(checkboxFor("乙"))
+    expect(checkboxFor("甲")!.checked).toBe(true)
+    expect(checkboxFor("乙")!.checked).toBe(true)
+    // 精修补进新名字：names 换成一个新数组，勾选不能被顺带清空。
+    await act(async () => { refined.resolve(["丙"]) })
+    await act(async () => {})
+    expect(shownNames()).toEqual(["甲", "乙", "丙"])
+    expect(checkboxFor("甲")!.checked).toBe(true)
+    expect(checkboxFor("乙")!.checked).toBe(true)
+    expect(confirmButton()!.textContent).toContain("绑定所选 2 个人物")
+    await click(confirmButton())
+    expect(mocks.bindCharacters).toHaveBeenCalledWith("/project", legacyBook, expect.anything(), "林烬", ["甲", "乙"])
+  })
 })

@@ -106,6 +106,11 @@ function optionValues(): string[] {
   return Array.from(select?.querySelectorAll("option") ?? []).map((option) => option.getAttribute("value") ?? "")
 }
 
+/** 去掉占位选项（value=""）后的真实人物名单，用来断言顺序与增删。 */
+function listedCharacterOptions(): string[] {
+  return optionValues().filter((value) => value !== "")
+}
+
 function selectBindCharacter(name: string) {
   const select = host.querySelector('select[aria-label="绑定小说人物"]')
   if (!(select instanceof HTMLSelectElement)) throw new Error("绑定小说人物下拉框不存在")
@@ -358,5 +363,79 @@ describe("角色灵魂页绑定人物名单的后台精修与过滤", () => {
 
     expect(auraMocks.listBindableNovelCharacters).toHaveBeenCalledTimes(2)
     expect(auraMocks.refineBindableCharactersWithLlm).toHaveBeenCalledTimes(1)
+  })
+
+  // 保序合并的定向回归：本地/缓存名字必须留在原来的位置上，
+  // 精修发现的新名字只能追加在它们后面，绝不能把本地顺序带走。
+  it("精修并入时本地名字保持原有顺序，精修新增的名字一律追加在后面", async () => {
+    auraMocks.listBindableNovelCharacters.mockResolvedValue(["杨墨", "李四"])
+    const refinement = deferred<string[]>()
+    auraMocks.refineBindableCharactersWithLlm.mockImplementation(() => refinement.promise)
+
+    await act(async () => {
+      root.render(<CharacterAuraView hideSidebar />)
+    })
+    await flush()
+    expect(listedCharacterOptions()).toEqual(["杨墨", "李四"])
+
+    // 精修把本地已有的「李四」排在了自己的第一位：本地顺序不能被它带走。
+    await act(async () => {
+      refinement.resolve(["李四", "林小满"])
+    })
+    await flush()
+
+    expect(listedCharacterOptions()).toEqual(["杨墨", "李四", "林小满"])
+  })
+
+  // 精修只补名字，绝不允许整表替换：落地前已经显示的每一个名字都必须还在。
+  it("精修只报告新名字时，精修落地前已经显示过的名字一个都不能少", async () => {
+    auraMocks.listBindableNovelCharacters.mockResolvedValue(["杨墨", "李四"])
+    const refinement = deferred<string[]>()
+    auraMocks.refineBindableCharactersWithLlm.mockImplementation(() => refinement.promise)
+
+    await act(async () => {
+      root.render(<CharacterAuraView hideSidebar />)
+    })
+    await flush()
+    const beforeRefinement = listedCharacterOptions()
+    expect(beforeRefinement).toEqual(["杨墨", "李四"])
+
+    // 精修结果里没有任何本地名字：整表替换会让本地名单整体消失。
+    await act(async () => {
+      refinement.resolve(["林小满"])
+    })
+    await flush()
+
+    const afterRefinement = listedCharacterOptions()
+    for (const name of beforeRefinement) {
+      expect(afterRefinement, `精修落地后本地名字「${name}」不能消失`).toContain(name)
+    }
+    expect(afterRefinement).toEqual(["杨墨", "李四", "林小满"])
+  })
+
+  // 迟到的精修结果只能补名字：哪怕它自己没提到某个已经显示的名字，
+  // 也不能用精修结果直接覆盖当前列表。
+  it("迟到的精修结果不会覆盖已经显示出来的名字", async () => {
+    auraMocks.listBindableNovelCharacters.mockResolvedValue(["杨墨", "李四"])
+    const refinement = deferred<string[]>()
+    auraMocks.refineBindableCharactersWithLlm.mockImplementation(() => refinement.promise)
+
+    await act(async () => {
+      root.render(<CharacterAuraView hideSidebar />)
+    })
+    await flush()
+    expect(listedCharacterOptions()).toEqual(["杨墨", "李四"])
+
+    // 精修自己也发现了「杨墨」并带来新名字「林小满」，但它没有提到「李四」。
+    await act(async () => {
+      refinement.resolve(["杨墨", "林小满"])
+    })
+    await flush()
+
+    const afterRefinement = listedCharacterOptions()
+    expect(afterRefinement).toContain("杨墨")
+    expect(afterRefinement, "迟到精修覆盖列表后已经显示的「李四」不能消失").toContain("李四")
+    expect(afterRefinement).toContain("林小满")
+    expect(afterRefinement).toEqual(["杨墨", "李四", "林小满"])
   })
 })
