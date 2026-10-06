@@ -56,6 +56,31 @@ const listWrapClass = grab(workbench, /className="([^"]+)" data-testid="bindable
 const dialogBaseClass = grab(dialogFile, /"(fixed top-1\/2[^"]*)"/, "DialogContent 基础 class")
 const dialogOverride = grab(workbench, /<DialogContent className="([^"]+)">/, "DialogContent 覆盖 class")
 
+// 对话框实际生效的 class：DialogContent 用 cn()（clsx + tailwind-merge）合并基础样式与覆盖样式，
+// 早期版本直接字符串拼接，于是 `grid` 和 `sm:max-w-sm` 都没被顶掉，量出来的宽度是 384px
+// 而不是真实的 640px —— 量到的是假象。这里补一个「同类后者胜」的合并，
+// 只覆盖本页会冲突的几组工具类（display / width / max-width），够用且诚实。
+const DIALOG_GROUP_PATTERNS = [
+  /^(?:(?:sm|md|lg|xl|2xl):)?(?:block|inline-block|inline|flex|inline-flex|grid|inline-grid|contents|hidden|flow-root)$/,
+  /^(?:(?:sm|md|lg|xl|2xl):)?w-/,
+  /^(?:(?:sm|md|lg|xl|2xl):)?max-w-/,
+]
+function mergeTailwind(...classLists) {
+  const tokens = classLists.filter(Boolean).join(" ").split(/\s+/).filter(Boolean)
+  const groupOf = (token) => DIALOG_GROUP_PATTERNS.findIndex((re) => re.test(token))
+  const survivors = []
+  for (let i = 0; i < tokens.length; i++) {
+    const group = groupOf(tokens[i])
+    if (group < 0) { survivors.push(tokens[i]); continue }
+    // 同组里若后面还有，则本条被后面的顶掉（tailwind-merge 的后者胜）
+    const overridden = tokens.slice(i + 1).some((later) => groupOf(later) === group)
+    if (!overridden) survivors.push(tokens[i])
+  }
+  return survivors.join(" ")
+}
+const dialogClass = mergeTailwind(dialogBaseClass, dialogOverride)
+const ignoreButtonClass = grab(region, /className="([^"]*)"[\s\S]{0,120}?>忽略<\/button>/, "忽略按钮 class")
+
 // 栅格必须真的声明了 5 列，否则后面全是自欺欺人
 check(/grid-cols-5/.test(gridClass ?? ""), "源码栅格声明了 grid-cols-5", gridClass ?? "")
 if (failures.length) { console.log(failures.join("\n")); process.exit(1) }
@@ -63,6 +88,7 @@ notes.push(`  栅格 class：${gridClass}`)
 notes.push(`  单元格 class：${cellClass}`)
 notes.push(`  label class：${labelClass}`)
 notes.push(`  名字 class：${nameSpanClass}`)
+notes.push(`  对话框合并后 class：${dialogClass}`)
 
 // --------------------------------------------------- 全部真实 CSS（贴近 app）
 const assetDir = join(repo, "dist/assets")
@@ -84,10 +110,10 @@ const NAMES = [
 ]
 
 function cellMarkup(name) {
-  return `<div class="${cellClass}"><label class="${labelClass}"><input type="checkbox" /><span class="${nameSpanClass}" title="${name}">${name}</span></label><button type="button" title="忽略「${name}」">忽略</button></div>`
+  return `<div class="${cellClass}"><label class="${labelClass}"><input type="checkbox" /><span class="${nameSpanClass}" title="${name}">${name}</span></label><button type="button" class="${ignoreButtonClass}" title="忽略「${name}」">忽略</button></div>`
 }
 function pageMarkup(names, opts = {}) {
-  return `<div class="${dialogBaseClass} ${dialogOverride}" data-testid="dialog">
+  return `<div class="${dialogClass}" data-testid="dialog">
     <div class="${listWrapClass}"><div class="${opts.gridClass ?? gridClass}" ${opts.testId ?? 'data-testid="bindable-name-grid"'} data-mut="${opts.mutId ?? ""}">${names.map(cellMarkup).join("")}</div></div>
   </div>`
 }
@@ -158,6 +184,12 @@ async function runAt(width, height, expectedPerRow, label) {
   check(perRow.slice(0, -1).every((c) => c === expectedPerRow), `${label}：除末行外每行都排满`, `[${perRow.join(", ")}]`)
 
   const geo = await geometry(page, "bindable-name-grid")
+  // 保真自检：对话框最大宽是 sm:max-w-[640px]，窗口够宽时容器就该是 640px。
+  // 早期版本因为拼接没做冲突合并，这里只有 384px —— 那样量出来的一切都不可信。
+  const dialogWidth = await page.$eval('[data-testid="dialog"]', (el) => Math.round(el.getBoundingClientRect().width))
+  if (width >= 768) {
+    check(dialogWidth === 640, `${label}：对话框宽度就是 sm:max-w-[640px] 的 640px（合并后样式保真）`, `实测 ${dialogWidth}px`)
+  }
   check(geo.pageOverflow <= 0, `${label}：页面无横向溢出`, `溢出 ${geo.pageOverflow}px`)
   check(geo.gridOverflow <= 0, `${label}：栅格无横向溢出`, `溢出 ${geo.gridOverflow}px`)
   check(geo.cellOverflow === null, `${label}：没有单元格越出栅格`,
@@ -206,7 +238,7 @@ await runAt(600, 800, 2, "600px（窄屏，2 列）")
   const brokenCell = cellMarkup(LONG).replace(`class="${nameSpanClass}"`, `class="${broken}"`)
   const brokenLabel = labelClass.replace(/\bmin-w-0\b/g, "").replace(/\bflex-1\b/g, "")
   await page.setContent(`<!doctype html><html><head><style>${allCss}</style></head><body style="margin:0">
-    <div class="${dialogBaseClass} ${dialogOverride}"><div class="${listWrapClass}">
+    <div class="${dialogClass}"><div class="${listWrapClass}">
       <div class="${gridClass}" data-testid="g-mut2">${brokenCell.replace(`class="${labelClass}"`, `class="${brokenLabel}"`)}</div>
     </div></div></body></html>`)
   await page.waitForTimeout(60)

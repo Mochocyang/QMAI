@@ -190,6 +190,48 @@ Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
   <p><b>坑 3（非空洞证明自身的假证明）：</b>最初把 <code>md:grid-cols-5</code> 改成 <code>md:grid-cols-1</code> 来证明列数断言有效，但 Tailwind 按需生成，产物里<b>根本没有</b> <code>md:grid-cols-1</code>，于是退回到 <code>sm:grid-cols-3</code> 的 3 列，量到「首行 3 个」——变异没真正生效，属于假证明。改成<b>删掉</b> <code>md:grid-cols-5</code> 这一条规则，断言列数确实不再是 5。</p>
 </div>
 
+<h3>对抗性终审发现的 CRITICAL 及其修复</h3>
+<div class="warn">
+  <p><b>F1（CRITICAL，已修 <code>a3c1185</code>）：精修失败被永久误标成「已精修」。</b>
+  <code>requestCharacterNamesWithLLM</code> 原本写的是 <code>onError: () =&gt; {}</code>、<code>onDone: () =&gt; {}</code>，
+  两个回调都不看，直接返回累积到的 result。但 <code>streamChat</code> 的真实失败形态是<b>回调 onError</b>
+  （<code>llm-client.ts</code> 里 onError 有二十多处调用，只有少数分支才 throw）；超时更隐蔽 ——
+  signal 一 aborted，<code>isUserAbortError</code> 就返回 true（<code>user-abort.ts:10</code>），
+  于是走 <code>onDone()</code> 分支，看起来跟成功一模一样。</p>
+  <p>后果：任何真实失败都会「正常返回」→ 写下 <code>llmRefinedFingerprint</code> → 缓存短路永久生效。
+  <b>LLM 才能发现的人物永远不出现，且没有任何报错、重试或日志。</b>
+  这正好把「慢但终会正确」换成了「快而永远错」。</p>
+  <p>换句话说：<b>拦截重复精修的哨兵必须可信</b>，否则「第二次打开要快」这件事本身就是假的。
+  修复：改成显式记录 onDone / onError / 自建计时器超时三个信号，返回 <code>{ ok, names }</code>；
+  只有每一批都 ok 才写标记。超时改为自己起 AbortController + setTimeout，
+  「是不是被超时掐掉的」由自己说了算，不再依赖 <code>signal.aborted</code> 去猜。</p>
+  <p>为什么 207 条测试全绿却没抓到：唯一那条失败用例用的是 <code>mockRejectedValue</code>，
+  而 <b>reject 根本不是线上失败的主要路径</b>。新增 5 条按真实形态（onError / onDone 伪装 / 混合）写的用例，
+  先红后绿；其中「onError 失败后修好模型，同一指纹仍然会重新精修」直接钉住了这个 CRITICAL 的用户可见后果。</p>
+</div>
+
+<h3>测试网漏洞（审查者的变异测试发现 5 处，已全部补上）</h3>
+<table>
+  <tr><th>漏洞</th><th>变异</th><th>补齐的用例</th></tr>
+  <tr><td>M5 精修并入顺序无人钉</td><td><code>mergeCharacterOptions(refined, current)</code></td><td>本地名字保持原顺序，精修新增一律追加在后</td></tr>
+  <tr><td>M5B 精修<b>替换</b>整个列表无人钉</td><td><code>mergeCharacterOptions([], refined)</code></td><td>精修落地前已显示的名字一个都不能少</td></tr>
+  <tr><td>M8 精修<b>覆盖</b>已显示名字无人钉</td><td><code>setRawCharacterOptions(refined)</code></td><td>迟到的精修结果不会覆盖已显示的名字</td></tr>
+  <tr><td>ML 会话守卫无人钉</td><td>删掉 <code>bindingSessionRef.current !== session</code></td><td>重开同一角色后，上次会话的迟到结果不并进新名单（原有用例确实抓不到，已复现确认）</td></tr>
+  <tr><td>MW7 勾选被精修清空无人钉</td><td>reset 依赖加 <code>names</code></td><td>精修落地后已勾选仍勾着，确认提交的正是这些人物</td></tr>
+</table>
+<p class="muted">M5B/M8 最危险：精修一落地，本地已找到的人物会当场消失。这五条都做了变异验证（每个变异都有具名用例失败，且还原后 SHA-256 与改前一致）。</p>
+
+<h3>几何检查脚本的保真缺陷（已修）</h3>
+<div class="warn">
+  <p>审查者指出 <code>check.mjs</code> 直接字符串拼接 <code>DialogContent</code> 的基础 class 与覆盖 class，
+  绕过了生产代码的 <code>cn()</code>（clsx + tailwind-merge）。于是 <code>grid</code> 与 <code>sm:max-w-sm</code> 都没被顶掉，
+  悬空对话框只有 <b>384px</b>（真实是 <b>640px</b>），单元格 60.8px，所有真实人名都被压成 8px 宽的省略号 ——
+  <b>量到的是假象</b>。已补上「同类后者胜」的合并，并加了一条保真自检：
+  宽度 ≥768px 时断言对话框实测就是 640px，否则整个脚本的数字都不算数。</p>
+  <p>修正后实测：对话框 640px，超长名字 clientWidth 55px（此前是 8px 的假象），三个宽度全部通过。
+  这个缺陷方向上是「比真实更严」，不会造成假通过，但会让数字误导后来人。</p>
+</div>
+
 <hr>
 
 <h2>验收清单（全部满足才算完成）</h2>
