@@ -30,6 +30,13 @@ export interface WorkbenchRevision extends WorkbenchOutput {
   id: string; taskId: string; bookId: string; bookTitle: string; skill: AnalysisSkill; requirements: string
   selectedChapterIds: string[]; parentRevisionId?: string; createdAt: number
   confirmedAt?: number; publishedIds?: string[]
+  /**
+   * 由旧版作品资料迁移而来。可选、向后兼容——loadWorkbenchRevisions 只校验
+   * workbenchVersion/items/evidence，不涉及此字段。
+   * 用途：摘要行显示「旧版导入」而非「自动核验通过」（不对未核验数据作声明），
+   * 并决定发布走哪条路径。
+   */
+  origin?: "legacy"
 }
 export interface WorkbenchRequest {
   styleProfileVersion?: 1
