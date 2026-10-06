@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拆书库：旧版角色整合与绑定 · 设计文档</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5f6b66; --line:#dfe5e1; --panel:#f6f8f6; --accent:#2f6f52; --danger:#b42318; --warn:#8a5a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 24px 80px; background:#eef1ee; color:var(--ink);
+         font:15px/1.85 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:960px; margin:0 auto; background:#fff; border-radius:14px; padding:44px 48px 56px;
+         box-shadow:0 1px 3px #17231d14, 0 12px 40px #17231d0f; }
+  h1 { font-size:26px; line-height:1.5; margin:0 0 6px; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 28px; }
+  h2 { font-size:19px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+  h3 { font-size:16px; margin:28px 0 10px; }
+  h4 { font-size:14px; margin:20px 0 8px; color:var(--accent); }
+  p, li { margin:8px 0; }
+  ul, ol { padding-left:24px; }
+  code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+         font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:14px 16px;
+        overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre code { background:none; border:0; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note, .warn, .danger { border-radius:9px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  .note { background:#eef5f1; border-left:4px solid var(--accent); }
+  .warn { background:#fdf6e6; border-left:4px solid var(--warn); }
+  .danger { background:#fdeceb; border-left:4px solid var(--danger); }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+         padding:1px 9px; font-size:12px; color:var(--muted); margin-left:6px; }
+  .ok { color:var(--accent); font-weight:600; }
+  .no { color:var(--danger); font-weight:600; }
+  footer { max-width:960px; margin:22px auto 0; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>拆书库：旧版角色整合与绑定</h1>
+<p class="sub">设计文档 · 2026-10-06 · 状态：待用户确认 · 关联分支 <code>main</code></p>
+
+<h2>1. 背景与问题</h2>
+
+<p>拆书库目前存在两代结果，它们是两套互不相通的数据：</p>
+<ul>
+  <li><b>新版工作台</b> <code>BookAnalysisWorkbench</code>：三个页签（角色 Skill／故事 Skill／文风 Skill），结果以 <code>WorkbenchRevision</code> 落盘在 <code>&lt;书目录&gt;/analysis/revisions/&lt;id&gt;.json</code>。</li>
+  <li><b>旧版面板</b> <code>BookAnalysisCharacterPanel</code>：读 <code>book.characters</code> + <code>book.skills</code>，由 <code>LegacySkillResults</code> 嵌进新版页签里展示。</li>
+</ul>
+
+<h3>问题 1：同一个页签里有两份角色列表</h3>
+<p>旧版角色与新版条目彼此独立，既不合并也不互认，用户看到两份「角色」。</p>
+
+<h3>问题 2：绑定能力事实上<b>不可达</b>（本次的核心诉求）</h3>
+<p>经全项目调用点排查，绑定链路的三条实现路径全部不可达：</p>
+<table>
+  <tr><th>路径</th><th>位置</th><th>为什么点不到</th></tr>
+  <tr>
+    <td>完整绑定 UI（「添加所选角色到自定义灵魂」＋「绑定 N 并加入灵魂」）</td>
+    <td><code>book-analysis-result-viewer.tsx:187-216</code></td>
+    <td>该组件只在 <code>LegacyBookAnalysisView</code> 内渲染（<code>book-analysis-view.tsx:1078</code> / <code>:1266</code>），而 <code>LegacyBookAnalysisView</code> <b>未挂载</b>。</td>
+  </tr>
+  <tr>
+    <td><code>handleLibraryBindCharacter</code></td>
+    <td><code>use-library-operations.ts:151</code></td>
+    <td><b>全项目零调用点</b>，死代码。</td>
+  </tr>
+  <tr>
+    <td>「加入自定义灵魂库」按钮</td>
+    <td><code>book-analysis-character-panel.tsx:84-94</code></td>
+    <td>按钮由回调门控（<code>{onAddSelectedSkillsToSoul &amp;&amp; …}</code>）。<code>LegacySkillResults</code> 只传了 <code>onSelectCharacter</code>，回调缺失 → 按钮整体不渲染。</td>
+  </tr>
+</table>
+<p>今天唯一可达的绑定入口是<b>「灵魂」页</b>（<code>character-aura-view.tsx:303</code>、<code>soul-sidebar-panel.tsx:59</code>），但它只能绑<b>已经在自定义灵魂库里</b>的 aura。而旧版角色连「进灵魂库」这一步的入口都没有。</p>
+
+<div class="note">
+  <b>补充事实：</b>新版角色在「确认并加入」时会<b>自动创建</b> aura 进自定义灵魂库（<code>workbench-publish.ts:51-70</code>），但该路径明确<b>不自动绑定</b>人物（<code>book-analysis-workbench.tsx:420</code> 的文案即「不会自动绑定人物或启用文风」）。
+</div>
+
+<h3>问题 3：重要度显示 <code>100/10</code>（顺带修复）</h3>
+<p><code>use-character-extraction.ts:338</code> 把 0–100 的 <code>importanceScore</code> 直接写进只该装 1–10 的 <code>importance</code> 字段。项目内正确的换算已存在于 <code>character-candidate-selection.ts:60</code> 与 <code>character-extraction-engine.ts:395</code>。这正是截图里「重要度 100/10」「重要度 55/10」的成因。</p>
+
+<h2>2. 目标与非目标</h2>
+
+<h3>目标</h3>
+<ol>
+  <li>把旧版角色<b>数据级升级</b>为新版条目（<code>WorkbenchRevision</code>），沉入「角色 Skill」页签，不再有第二份列表。</li>
+  <li>新版与旧版生成的角色，<b>都</b>具备两个按钮：「加入自定义灵魂库」与「绑定…」。</li>
+  <li>「绑定」在完成绑定的同时<b>自动</b>把角色灵魂放入「自定义灵魂库」。</li>
+  <li>修复 <code>importance</code> 换算。</li>
+</ol>
+
+<h3>非目标</h3>
+<ul>
+  <li><span class="no">不做</span>「从拆书库新建大纲人物」。绑定的候选目标只限项目里已有的人物。</li>
+  <li><span class="no">不保留</span>旧版那套四栏富详情（性格／说话风格／动机／行为模式／代表台词）。它来自 <code>PersonalityProfile</code>，与新版人格规则不是同一个类型；迁移后由新版卡片呈现人格规则。</li>
+  <li><span class="no">不清理</span>未挂载的 <code>LegacyBookAnalysisView</code> 与 <code>BookAnalysisResultViewer</code>（含其中的旧绑定 UI）。属于既有历史包袱，本次仅不再依赖它。<code>BookAnalysisCharacterPanel</code> 因该路径仍在引用而保留文件，只是工作台不再使用。</li>
+</ul>
+
+<h2>3. 关键事实（勘察结论）</h2>
+
+<h3>3.1 两代数据在同一个中间类型汇合</h3>
+<p>这是方案可行的根本原因——<b>不需要新造发布逻辑</b>：</p>
+<pre><code>旧版可发布数据：book.skills[].skillContent ──readPersonalitySkill()──┐
+新版可发布数据：revision.items ──workbenchPersonality()──────────────┴─→ PortablePersonality
+                                                                          │ renderPersonalitySkill
+                                                                          ▼
+                        buildGeneratedAuraInputFromBookCharacter() ─→ 自定义灵魂库 aura
+                                                                          │
+                                                          bindCharacterAura() ─→ 绑定小说人物</code></pre>
+
+<h3>3.2 迁移必须落盘，且 evidence 必须为空</h3>
+<p><code>confirmWorkbenchRevision</code>（<code>workbench-publish.ts:31</code>）按 id <b>从磁盘重读</b> revision（<code>:35</code>），并逐条校验 evidence 的正文偏移（<code>:41-45</code>：<code>chapter.sourceHash !== e.sourceHash || chapter.content.slice(e.start, e.end) !== e.text</code> → 抛「原文证据已变化」）。因此：</p>
+<ul>
+  <li>纯内存的虚拟条目<b>走不通</b>「确认并加入」，必须落盘。</li>
+  <li>旧版人格来自 LLM 摘要，<b>没有</b>正文偏移，故迁移条目的 <code>evidence</code> 必须留空数组——空数组既合法（<code>:41</code> 循环不执行），又被 <code>loadWorkbenchRevisions</code> 的 <code>Array.isArray(value.evidence)</code> 校验接受。</li>
+</ul>
+
+<h3>3.3 维度标签无需新增映射</h3>
+<p><code>WORKBENCH_DIMENSIONS</code>（<code>workbench-core.ts:9-12</code>）已经把 <code>PortablePersonality</code> 的五个字段映射为中文：<code>expressionDna</code>→表达方式、<code>mentalModel</code>→思考方式、<code>decisionHeuristics</code>→决策倾向、<code>valueAntiPatterns</code>→价值底线、<code>honestyBoundaries</code>→信息与诚实边界。因此迁移条目把 <code>rule.dimension</code> 设为人格字段名即可正确显示。</p>
+
+<h3>3.4 绑定目标的范围与限制</h3>
+<p><code>listBindableNovelCharacters(projectPath)</code>（<code>character-aura.ts:759</code>）扫描 <code>wiki/entities</code> 与 <code>wiki/outlines</code>，返回已有小说人物的名字集合；<code>bindCharacterAura({ characterName, auraId })</code>（<code>:499</code>）<b>按名字</b>绑定。所以绑定前提是大纲里已有人物，否则只能提示用户先去补小传。</p>
+
+<h3>3.5 相关类型</h3>
+<pre><code>WorkbenchRule   { id; dimension; observation; condition; action; boundary; evidenceIds[] }
+WorkbenchItem   { subject; summary; limitations; rules[]; styleFingerprint? }
+WorkbenchRevision { workbenchVersion:2; items[]; evidence[]; coverage[]; metrics?; storyMap?;
+                    id; taskId; bookId; bookTitle; skill; requirements; selectedChapterIds[];
+                    parentRevisionId?; createdAt; confirmedAt?; publishedIds? }
+PersonalityRule { id; field; condition; tendency; boundary; evidenceIds[] }
+PortablePersonality { version:1; editedByUser?; summary; scope; rules[]; evidence[] }</code></pre>
+<div class="warn">
+  <b>注意类型区分：</b><code>ExtractedCharacter.personalityProfile</code>（<code>types.ts:145</code>）是 <code>PersonalityProfile</code>（含 <code>personality</code>／<code>speechStyle</code>／<code>motivation</code>／<code>behaviorPatterns</code>／<code>quotes</code>），<b>不是</b> <code>PortablePersonality</code>。迁移的规则来源应当用 <code>book.skills[].skillContent</code>（内含 <code>PortablePersonality</code>），而不是这个富详情类型。
+</div>
+
+<h2>4. 方案选择：迁移什么时候落盘</h2>
+<table>
+  <tr><th>方案</th><th>做法</th><th>取舍</th></tr>
+  <tr>
+    <td>A. 加载即落盘</td>
+    <td>打开拆书库时就把旧版角色写成 revision 文件</td>
+    <td><span class="no">较差</span>：<b>静默写用户数据</b>；用户删除后下次打开又回来</td>
+  </tr>
+  <tr>
+    <td><b>B. 懒落盘（采用）</b></td>
+    <td>列表里先显示「旧版导入」条目；用户点「确认并加入／加入灵魂库／绑定」时才 <code>saveWorkbenchRevision</code> 落盘，再走原有发布</td>
+    <td><span class="ok">采用</span>：无静默写入；用户动作即授权；代价是多一步「落盘后再发布」</td>
+  </tr>
+  <tr>
+    <td>C. 只补按钮不迁移</td>
+    <td>在旧版面板上补两个按钮</td>
+    <td><span class="no">否决</span>：不满足「放入新版角色 Skill 当中」，同一页签仍有两份列表</td>
+  </tr>
+</table>
+
+<h2>5. 详细设计</h2>
+
+<h3>5.1 迁移模块 <code>legacy-character-revision.ts</code><span class="tag">新增</span></h3>
+<p>导出两个函数：</p>
+<pre><code>buildLegacyCharacterRevision(book: BookAnalysisLibraryBook): WorkbenchRevision | null
+materializeLegacyCharacterRevision(bookPath, book): Promise&lt;WorkbenchRevision&gt;</code></pre>
+<p><code>buildLegacyCharacterRevision</code> 为纯函数（可单测）；<code>materializeLegacyCharacterRevision</code> 负责 <code>saveWorkbenchRevision</code> 落盘。字段映射：</p>
+<table>
+  <tr><th>目标</th><th>来源</th></tr>
+  <tr><td><code>items[].subject</code></td><td><code>character.name</code></td></tr>
+  <tr><td><code>items[].summary</code></td><td><code>portablePersonality.summary</code></td></tr>
+  <tr><td><code>items[].limitations</code></td><td><code>portablePersonality.scope</code></td></tr>
+  <tr><td><code>items[].rules[].id / dimension / condition / action / boundary</code></td><td>人格规则 <code>id / field / condition / tendency / boundary</code></td></tr>
+  <tr><td><code>items[].rules[].observation</code></td><td>空字符串（旧版人格摘要没有对应的逐条观察文本，不编造）</td></tr>
+  <tr><td><code>items[].rules[].evidenceIds</code></td><td><code>[]</code></td></tr>
+  <tr><td><code>evidence</code> / <code>coverage</code> / <code>selectedChapterIds</code></td><td>全部空数组（理由见 3.2）</td></tr>
+  <tr><td><code>skill</code> / <code>workbenchVersion</code></td><td><code>"characters"</code> / <code>2</code></td></tr>
+  <tr><td><code>bookId</code> / <code>bookTitle</code></td><td><code>book.id</code> / <code>book.metadata.title</code></td></tr>
+  <tr><td><code>id</code></td><td><code>legacy-chars-&lt;sha256(book.path + 排序后的角色名)[0:16]&gt;</code>，<b>确定性</b>，用于去重</td></tr>
+  <tr><td><code>createdAt</code></td><td><code>book.metadata.updatedAt</code>（稳定值，避免每次构建产生不同文件内容）</td></tr>
+  <tr><td><code>requirements</code></td><td><code>"旧版角色导入"</code></td></tr>
+  <tr><td><code>origin</code></td><td><code>"legacy"</code>（见下）</td></tr>
+</table>
+
+<h4>规则来源与「没有 Skill 的角色」</h4>
+<ul>
+  <li>按 <code>skill.characterId === character.id || skill.characterName === character.name</code> 找到该角色的 <code>CharacterSkill</code>，用 <code>readPersonalitySkill(skill.skillContent)</code> 取出 <code>PortablePersonality</code>。</li>
+  <li><b>取不到人格</b>（角色尚未生成 Skill，或 Skill 内容不含人格块）的角色<b>仍然保留为条目</b>，<code>rules: []</code>：界面上显示「未生成 Skill」徽标、两个按钮置灰。这样<b>不会静默丢角色</b>。</li>
+  <li>若一个条目都没有，<code>buildLegacyCharacterRevision</code> 返回 <code>null</code>（没有旧版角色就什么都不显示，与既有的「空则不渲染」约定一致）。</li>
+</ul>
+
+<h4>类型新增字段</h4>
+<pre><code>// workbench-core.ts · WorkbenchRevision
+origin?: "legacy"   // 可选，向后兼容；loadWorkbenchRevisions 不校验该字段</code></pre>
+<p>用途：条目摘要行显示「旧版导入」而不是「自动核验通过 · 待用户确认」，避免对迁移数据做出未经核验的声明；落盘后仍能识别来源。</p>
+
+<h3>5.2 抽出单一发布函数<span class="tag">重构</span></h3>
+<p>把 <code>workbench-publish.ts:51-70</code> 的角色发布分支抽成：</p>
+<pre><code>publishWorkbenchCharacter(projectPath, revision, item): Promise&lt;{ auraId, auraName }&gt;</code></pre>
+<p>批量「确认并加入」与该条目的两个按钮<b>共用</b>它。这样「一个新版条目怎么变成一个 aura」只有一个真相来源，不会出现两套发布逻辑各自演化。<code>confirmWorkbenchRevision</code> 的 <code>characters</code> 分支改为调用它，行为保持不变（仍然走 <code>isSameBookAnalysisCharacterAura</code> 判断是新建还是更新）。</p>
+
+<h3>5.3 动作层 <code>workbench-soul-actions.ts</code><span class="tag">新增</span></h3>
+<pre><code>addItemToSoulLibrary(projectPath, revision, item)                → 只入库，不绑定
+bindItemToNovelCharacters(projectPath, revision, item, names[])  → 先入库（幂等），再逐个绑定
+loadItemSoulStatus(projectPath, bookTitle, subject)              → "none" | "added" | { bound: string[] }</code></pre>
+<ul>
+  <li><code>addItemToSoulLibrary</code> 直接调 <code>publishWorkbenchCharacter</code>。</li>
+  <li><code>bindItemToNovelCharacters</code> 先调 <code>publishWorkbenchCharacter</code>（得到 <code>auraId</code>；已存在则更新而不会重复建），再对每个名字调 <code>bindCharacterAura({ characterName, auraId })</code>。这一步就是「绑定时自动进入自定义灵魂库」的落点。</li>
+  <li><code>loadItemSoulStatus</code> 读 <code>loadCharacterAuraStore</code>，用 <code>isSameBookAnalysisCharacterAura(aura, bookTitle, subject)</code> 找 aura，再用 <code>store.bindings</code> 反查该 auraId 绑定了哪些人物名——这是徽标的数据源。</li>
+</ul>
+
+<h3>5.4 界面：条目尾部的两个按钮<span class="tag">修改</span></h3>
+<p>改 <code>book-analysis-workbench.tsx</code>。角色卡片的 <code>.wb-card-footer</code>（现为 <code>:472-475</code>）增加一条操作行，<b>对每个角色条目都渲染</b>（因此新版、旧版生成的角色自动都具备）：</p>
+<ul>
+  <li><b>状态徽标</b>与按钮状态一一对应，共三态：
+    <table>
+      <tr><th>状态</th><th>徽标</th><th>「加入自定义灵魂库」</th><th>「绑定…」</th></tr>
+      <tr><td>尚未入库</td><td>未加入灵魂库</td><td>可点</td><td>可点</td></tr>
+      <tr><td>已在库、未绑定</td><td>已在灵魂库</td><td><b>置灰</b>（重复加入无意义，与既有 <code>book-analysis-character-panel.tsx:89</code> 的 <code>disabled={addingToSoul || !selectedSkill || selectedAuraAdded}</code> 一致）</td><td>可点</td></tr>
+      <tr><td>已绑定</td><td>已绑定「某某、某某」</td><td><b>置灰</b></td><td><b>仍可点</b>（继续绑到更多人物）</td></tr>
+    </table>
+  </li>
+  <li><b>「加入自定义灵魂库」</b>：只入库，不绑任何人。<b>用于「生成了但暂时不想绑定」的角色</b>。</li>
+  <li><b>「绑定…」</b>：打开绑定目标对话框（见下）。绑定成功后自动入库。</li>
+  <li><b>无可用规则</b>的条目：两个按钮置灰，徽标显示「未生成 Skill」，<code>title</code> 说明原因。</li>
+</ul>
+
+<h4>绑定目标对话框</h4>
+<ul>
+  <li>打开时调 <code>listBindableNovelCharacters(projectPath)</code>。</li>
+  <li>列表为空 → 显示提示「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」（沿用 <code>character-aura.ts:222</code> / <code>use-library-operations.ts:157</code> 的既有文案），确认按钮禁用。</li>
+  <li>否则显示可勾选的人物清单（<b>多选</b>）＋ 该角色灵魂名，确认后逐一绑定，汇总 toast「已将「X」绑定到 N 个小说人物」；部分失败时如实报「成功 N，失败 M」。</li>
+  <li>无障碍：<code>role="dialog"</code> + <code>aria-label</code>，焦点进入对话框。</li>
+</ul>
+
+<h4>合并与懒落盘</h4>
+<ul>
+  <li>加载时若非空，把 <code>buildLegacyCharacterRevision(book)</code> 的结果并入内存中的 <code>revisions</code>；已存在同 id（此前落过盘）则<b>不重复添加</b>。</li>
+  <li>该条目的「确认并加入」：先 <code>materializeLegacyCharacterRevision</code> 落盘，再调原有 <code>confirmWorkbenchRevision</code>。落盘后重新加载列表，条目即成为普通条目。</li>
+  <li>「加入自定义灵魂库」与「绑定」<b>不需要</b>落盘（动作层只依赖 projectPath 与条目本身），因此可以先行使用。</li>
+</ul>
+
+<h3>5.5 旧版分区收口<span class="tag">修改</span></h3>
+<p><code>legacy-skill-results.tsx</code> 去掉 <code>characters</code> 分支：<code>skill === "characters"</code> 时组件<b>直接返回 <code>null</code></b>，只保留 <code>style</code> 与 <code>story</code> 两条分支。理由：旧版角色已作为新版条目出现在同一页签，保留旧版角色分区就是第三份列表。对应地，删除该文件对 <code>BookAnalysisCharacterPanel</code> 的引用与 characters 相关判定，其测试用例随之移除；<code>style</code>／<code>story</code> 的既有用例保持通过。</p>
+
+<h3>5.6 重要度换算修复<span class="tag">修改</span></h3>
+<pre><code>// use-character-extraction.ts:338
+- importance: picked.importanceScore,
++ importance: Math.max(1, Math.min(10, Math.ceil(picked.importanceScore / 10))),</code></pre>
+
+<h2>6. 数据流</h2>
+<pre><code>【加入自定义灵魂库】
+点按钮 → publishWorkbenchCharacter(projectPath, revision, item)
+        → buildGeneratedAuraInputFromBookCharacter(character, skill, metadata)
+        → createCustomCharacterAuraFromGeneratedSkill / updateCustomCharacterAura
+        → refreshProjectState → 刷新徽标 → toast
+
+【绑定】
+点「绑定…」→ listBindableNovelCharacters(projectPath) → 勾选 → 确认
+        → publishWorkbenchCharacter（自动入库，已存在则更新）  ← 需求 2(c)
+        → 对每个目标名 bindCharacterAura({ characterName, auraId })
+        → refreshProjectState → 刷新徽标 → toast
+
+【旧版条目落盘】
+点「确认并加入」→ materializeLegacyCharacterRevision → saveWorkbenchRevision
+        → confirmWorkbenchRevision（原有路径，evidence 为空故校验通过）
+        → 重新加载列表</code></pre>
+
+<h2>7. 错误处理与边界</h2>
+<table>
+  <tr><th>情形</th><th>预期行为</th></tr>
+  <tr><td>角色没有 Skill／人格块</td><td>条目保留，<code>rules: []</code>，按钮置灰，徽标「未生成 Skill」</td></tr>
+  <tr><td>项目里没有可绑人物</td><td>对话框给出补小传提示，确认按钮禁用；不写任何数据</td></tr>
+  <tr><td>aura 已存在</td><td><code>isSameBookAnalysisCharacterAura</code> 命中 → 更新而非新建；<code>addItemToSoulLibrary</code> 重复点击提示「已加入，无需重复加入」</td></tr>
+  <tr><td>已绑定同一人物再绑</td><td>视为幂等，不重复写入；汇总里计为已有</td></tr>
+  <tr><td>落盘失败（权限/磁盘）</td><td><code>materializeLegacyCharacterRevision</code> 抛错 → toast 报错，不进入发布，列表保持原状</td></tr>
+  <tr><td>用户删掉了落盘后的旧版条目</td><td>下次进入会以「旧版导入」再次出现（旧版数据仍在磁盘、尚未整合）。这是<b>有意</b>行为。</td></tr>
+  <tr><td>无旧版角色</td><td><code>buildLegacyCharacterRevision</code> 返回 <code>null</code>，列表无变化</td></tr>
+</table>
+
+<h2>8. 测试策略</h2>
+<h3>8.1 组件／单元测试（先写失败测试）</h3>
+<ul>
+  <li><code>legacy-character-revision.spec.ts</code>：映射正确（subject/summary/limitations/rules 字段对应）；无 Skill 的角色保留且 <code>rules: []</code>；<code>evidence/coverage/selectedChapterIds</code> 为空；id 确定性（同输入同 id、不同角色集合不同 id）；无角色时返回 <code>null</code>；<code>workbenchVersion === 2</code>。</li>
+  <li>发布函数抽取后：<code>confirmWorkbenchRevision</code> 角色分支行为不变（既有测试保持绿）。</li>
+  <li><code>workbench-soul-actions</code>：「加入自定义灵魂库」只入库不绑定；「绑定」先入库再绑定（断言调用顺序）；aura 已存在时不重复创建。</li>
+  <li>工作台：每个角色条目都有两个按钮；无规则时按钮 <code>disabled</code>；徽标三态；无大纲人物时对话框提示且确认禁用；<code>origin === "legacy"</code> 时摘要显示「旧版导入」。</li>
+  <li><code>legacy-skill-results.spec.tsx</code>：角色分支相关用例移除；文风／故事用例保持绿。</li>
+  <li><code>use-character-extraction</code>：<code>importanceScore</code> 100/55/7/0 → 10/6/1/1。</li>
+</ul>
+
+<h3>8.2 真实浏览器几何检查</h3>
+<p>jsdom 算不出布局，故新增 <code>docs/legacy-character-binding-20261006/check.mjs</code>（Playwright，沿用既有脚本模式）：按钮行在宽容器与窄容器下不溢出、不换行错位；对话框 <code>maxWidth</code> 与滚动正常；徽标与按钮不重叠。</p>
+
+<h3>8.3 变异验证</h3>
+<p>逐条破坏并确认有用例抓住：① <code>importance</code> 换算去掉 → 换算用例红；② 去掉懒落盘（直接不落盘就发布）→ 落盘用例红；③ 「绑定」里去掉自动入库 → 顺序断言红；④ 无规则条目改为丢弃 → 保留用例红；⑤ 徽标三态判断改错 → 徽标用例红。</p>
+
+<h2>9. 风险与取舍</h2>
+<ul>
+  <li><b>迁移条目没有原文证据</b>：旧版人格是 LLM 摘要，本就没有可回溯的正文偏移。因此迁移条目卡片上的「依据」为 0 条、覆盖为 0 章。这是如实呈现，不伪造证据。</li>
+  <li><b>旧版富详情不再可见</b>：四栏详情（性格/说话风格/动机/行为模式/台词）与代表台词不再显示。已确认接受。</li>
+  <li><b>落盘后删除会重现</b>：见 7 节，有意行为。</li>
+  <li><b>旧版条目与新版条目在同一列表</b>：靠 <code>origin</code> 标记区分，摘要行文案不同，不会混淆「已核验」与「旧版导入」。</li>
+</ul>
+
+<h2>10. 验收标准</h2>
+<ol>
+  <li>「角色 Skill」页签里，旧版角色以「旧版导入」条目出现，与新版条目同列表；不再有独立的旧版角色分区。</li>
+  <li>新版与旧版生成的每个角色条目都同时有「加入自定义灵魂库」与「绑定…」两个按钮。</li>
+  <li>「加入自定义灵魂库」只入库、不绑定；「绑定…」完成后该角色灵魂已在自定义灵魂库中且已绑到所选人物。</li>
+  <li>无大纲人物时给出明确提示且不写数据。</li>
+  <li>角色「重要度」显示在 1–10 范围内（不再出现 <code>100/10</code>）。</li>
+  <li><code>npx vitest run --dir src/components/novel</code> 全绿；<code>tsc -p tsconfig.app.json --noEmit</code> 退出码 0；全量回归失败集合与基线<b>逐文件一致</b>。</li>
+  <li>真实浏览器几何检查 0 失败。</li>
+</ol>
+
+<h2>11. 实施顺序（供实施计划使用）</h2>
+<ol>
+  <li>修 <code>importance</code> 换算（独立、最小、可先落地）。</li>
+  <li>抽 <code>publishWorkbenchCharacter</code>，确认既有测试仍绿（纯重构，先不加功能）。</li>
+  <li>写 <code>legacy-character-revision.ts</code> + 单测。</li>
+  <li>写 <code>workbench-soul-actions.ts</code> + 单测。</li>
+  <li>工作台接入：合并条目 + 懒落盘 + 两个按钮 + 对话框 + 徽标（含 <code>origin</code> 文案）。</li>
+  <li>收口 <code>legacy-skill-results.tsx</code>（去角色分支）并同步其测试。</li>
+  <li>真实浏览器几何检查 + 变异验证 + 子代理审查。</li>
+</ol>
+
+</main>
+<footer>青幕AI写作 · 拆书库旧版角色整合与绑定 · 设计文档 v1</footer>
+</body>
+</html>
