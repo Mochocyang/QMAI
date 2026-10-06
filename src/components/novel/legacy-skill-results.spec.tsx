@@ -141,12 +141,32 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     // 结果本身在
     expect(container.textContent).toContain("林烬")
     expect(container.textContent).toContain("旧版资料")
-    // 管理类控件必须全部消失（本组件刻意不传任何管理回调）
+    // 管理类控件必须全部消失：顶层两个按钮靠 variant="embedded" 隐藏（属于被剥离的重复标题块），
+    // 逐角色的删除按钮才是靠回调缺失不渲染的。
     const labels = buttonLabels()
     expect(labels).not.toContain("选择角色生成 Skill")
     expect(labels).not.toContain("加入自定义灵魂库")
     expect(container.querySelector('[aria-label="删除角色林烬"]')).toBeNull()
     expect(container.textContent).not.toContain("选择角色 Skill 加入自定义灵魂库")
+    cleanup()
+  })
+
+  it("作品没有该技能的旧版资料时，仍然保留「旧版资料」标签并显示面板自己的空状态", () => {
+    // 空状态由面板自己负责：wrapper 不做「有没有旧版资料」的判断，
+    // 那种判断会逼它为了故事页签重复一遍 listStoryMapHistory。
+    const { container, cleanup } = renderResults({
+      skill: "characters",
+      book: { ...book, characters: [], skills: [], styleProfile: undefined },
+    })
+
+    const region = container.querySelector('[data-testid="legacy-skill-results"]')
+    expect(region).not.toBeNull()
+    // 标签是无条件渲染的：即使没有资料，它仍是新旧结果的边界说明。
+    expect(region?.textContent).toContain("旧版资料")
+    // 无障碍：区域要有自己的名字，否则读屏用户分不清新旧两块结果。
+    expect(region?.getAttribute("aria-label")).toBe("旧版资料")
+    // 空状态文案必须与 book-analysis-character-panel.tsx:101 完全一致。
+    expect(region?.textContent).toContain("暂无角色数据。")
     cleanup()
   })
 
@@ -158,6 +178,9 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     expect(container.textContent).toContain("L1 语言 DNA")
     // 管理类控件必须全部消失
     const labels = buttonLabels()
+    // 正向控制：按钮列表本身非空，否则上面的 not.toContain 全都可以被空列表满足。
+    // 这是作品已有 styleProfile 时展开按钮的默认（收起）文案。
+    expect(labels).toContain("查看分层产物、整合文档与代表样本")
     expect(labels.some((label) => label.includes("提取文风"))).toBe(false)
     expect(labels).not.toContain("启用此文风")
     expect(labels).not.toContain("取消启用")
@@ -190,7 +213,7 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     expect(container.querySelector("h4")?.textContent).toBe("林烬")
 
     const suwanButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.querySelector(".truncate")?.textContent === "苏晚")
+      .find((button) => button.textContent?.includes("苏晚"))
     expect(suwanButton).toBeTruthy()
 
     act(() => suwanButton!.click())
