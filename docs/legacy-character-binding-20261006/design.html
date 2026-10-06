@@ -132,9 +132,33 @@ WorkbenchRevision { workbenchVersion:2; items[]; evidence[]; coverage[]; metrics
                     id; taskId; bookId; bookTitle; skill; requirements; selectedChapterIds[];
                     parentRevisionId?; createdAt; confirmedAt?; publishedIds? }
 PersonalityRule { id; field; condition; tendency; boundary; evidenceIds[] }
-PortablePersonality { version:1; editedByUser?; summary; scope; rules[]; evidence[] }</code></pre>
+PortablePersonality { version:1; editedByUser?; summary; scope; rules[]; evidence[] }
+PersonalityProfile { personality; motivation; speechStyle; behaviorPatterns; quotes[] }</code></pre>
 <div class="warn">
-  <b>注意类型区分：</b><code>ExtractedCharacter.personalityProfile</code>（<code>types.ts:145</code>）是 <code>PersonalityProfile</code>（含 <code>personality</code>／<code>speechStyle</code>／<code>motivation</code>／<code>behaviorPatterns</code>／<code>quotes</code>），<b>不是</b> <code>PortablePersonality</code>。迁移的规则来源应当用 <code>book.skills[].skillContent</code>（内含 <code>PortablePersonality</code>），而不是这个富详情类型。
+  <b>注意类型区分：</b><code>ExtractedCharacter.personalityProfile</code>（<code>types.ts:145</code>）是 <code>PersonalityProfile</code>（散文式富详情，含 <code>personality</code>／<code>speechStyle</code>／<code>motivation</code>／<code>behaviorPatterns</code>／<code>quotes</code>），<b>不是</b> <code>PortablePersonality</code>（结构化规则）。两者不可互换，各自的用途见 3.6。
+</div>
+
+<h3>3.6 两套 Skill 生成器：人格块并非必然存在 <span class="tag">重要修正</span></h3>
+<p>旧版角色 Skill 有<b>两条</b>生成路径，产出<b>格式不同</b>：</p>
+<table>
+  <tr><th>生成器</th><th>触发</th><th>产出</th><th>含 <code>portablePersonality</code>？</th></tr>
+  <tr>
+    <td><code>generateSkillsForCharacters</code>（<code>skill-generator.ts:254</code>）</td>
+    <td>简单提取路径；<code>use-character-extraction.ts:376</code> 调用</td>
+    <td><code>:322</code> <code>renderPersonalitySkill(...)</code></td>
+    <td><span class="ok">是</span></td>
+  </tr>
+  <tr>
+    <td><code>generateCharacterSkill</code>（<code>skill-generator.ts:95</code>）</td>
+    <td><code>isSixDimensionSkill(character)</code> 为真，即角色带 <code>sixDimensionResearch</code> + <code>sixDimensionMeta</code>（<code>:30-31</code>；由 <code>character-extraction-engine.ts:467</code>／<code>:634</code> 的 <code>analyzeSixDimensions</code> 产生）</td>
+    <td><code>:162-185</code> 累积 LLM 原始 token，只在缺少 frontmatter 时补 <code>name/description/sourceBook/category</code></td>
+    <td><span class="no">否</span></td>
+  </tr>
+</table>
+<p>因此 <code>readPersonalitySkill(skill.skillContent)</code> 对六维路径的角色<b>返回 <code>undefined</code></b>。不能假定「有 Skill 就有人格块」。</p>
+
+<div class="note">
+  <b>但绑定并不因此受阻</b>——<code>buildGeneratedAuraInputFromBookCharacter</code>（<code>aura-adapter.ts:34</code>）本身就有兜底：人格块取不到时（<code>:60</code> 起）改用 <code>character.personalityProfile</code> 的完整数据，取不到再退回 <code>character</code> 上的散文字段（<code>:69-95</code>）。<b>结论：只要角色本身有资料，就能生成 aura、就能绑定</b>，与是否存在人格块无关。这条结论直接决定了 5.2 与 5.4 的设计。
 </div>
 
 <h2>4. 方案选择：迁移什么时候落盘</h2>
@@ -183,20 +207,49 @@ materializeLegacyCharacterRevision(bookPath, book): Promise&lt;WorkbenchRevision
 
 <h4>规则来源与「没有 Skill 的角色」</h4>
 <ul>
-  <li>按 <code>skill.characterId === character.id || skill.characterName === character.name</code> 找到该角色的 <code>CharacterSkill</code>，用 <code>readPersonalitySkill(skill.skillContent)</code> 取出 <code>PortablePersonality</code>。</li>
-  <li><b>取不到人格</b>（角色尚未生成 Skill，或 Skill 内容不含人格块）的角色<b>仍然保留为条目</b>，<code>rules: []</code>：界面上显示「未生成 Skill」徽标、两个按钮置灰。这样<b>不会静默丢角色</b>。</li>
+  <li>按 <code>skill.characterId === character.id || skill.characterName === character.name</code> 找到该角色的 <code>CharacterSkill</code>，用 <code>readPersonalitySkill(skill.skillContent)</code> 取出 <code>PortablePersonality</code> 作为规则来源。</li>
+  <li><b>取不到人格块</b>（六维路径生成的 Skill，见 3.6；或角色尚未生成 Skill）的角色<b>仍然保留为条目</b>，此时分三种情况：
+    <table>
+      <tr><th>可用数据</th><th><code>rules</code></th><th>两个按钮</th></tr>
+      <tr><td>有人格块</td><td>完整规则（字段直映射）</td><td><span class="ok">可用</span></td></tr>
+      <tr><td>无人格块，但有 <code>personalityProfile</code>（六维角色通常有）</td><td><code>[]</code>，卡片显示「旧版资料导入 · 无结构化规则」</td><td><span class="ok">可用</span>（发布走 5.2 的真实角色路径）</td></tr>
+      <tr><td>无人格块，也无 <code>personalityProfile</code> 与散文字段</td><td><code>[]</code>，徽标「无可用资料」</td><td><span class="no">置灰</span>（确实没有可发布内容）</td></tr>
+    </table>
+  </li>
+  <li><b>关键点：按钮是否可用，取决于「有没有可发布的数据」，而不是 <code>rules.length</code>。</b>否则六维路径的旧版角色会全部失去绑定能力，违背需求 2。</li>
   <li>若一个条目都没有，<code>buildLegacyCharacterRevision</code> 返回 <code>null</code>（没有旧版角色就什么都不显示，与既有的「空则不渲染」约定一致）。</li>
 </ul>
 
+<h4>条目到源角色的回链</h4>
+<p>迁移条目需要能被还原成「是哪个旧版角色」，以便发布时取用其<b>真实</b> <code>ExtractedCharacter</code> 与 <code>CharacterSkill</code>（理由见 5.2）。因此在 revision 上记录：</p>
+<pre><code>origin?: "legacy"
+legacyCharacterIds?: string[]   // 与 items[] 同序，指向 book.characters[].id</code></pre>
+<p>两者都是可选字段，向后兼容；<code>loadWorkbenchRevisions</code> 的校验（<code>workbenchVersion === 2</code>、<code>items</code>/<code>evidence</code> 为数组）不受影响。</p>
+
 <h4>类型新增字段</h4>
 <pre><code>// workbench-core.ts · WorkbenchRevision
-origin?: "legacy"   // 可选，向后兼容；loadWorkbenchRevisions 不校验该字段</code></pre>
-<p>用途：条目摘要行显示「旧版导入」而不是「自动核验通过 · 待用户确认」，避免对迁移数据做出未经核验的声明；落盘后仍能识别来源。</p>
+origin?: "legacy"              // 可选，向后兼容；loadWorkbenchRevisions 不校验
+legacyCharacterIds?: string[]  // 与 items[] 同序，指向 book.characters[].id（回链，用途见 5.2）</code></pre>
+<p>用途：<code>origin</code> 让条目摘要行显示「旧版导入」而不是「自动核验通过 · 待用户确认」，避免对迁移数据做出未经核验的声明，落盘后仍能识别来源；<code>legacyCharacterIds</code> 让发布时能取回真实的源角色（5.2）。</p>
 
-<h3>5.2 抽出单一发布函数<span class="tag">重构</span></h3>
+<h3>5.2 抽出并扩展发布函数<span class="tag">重构</span></h3>
 <p>把 <code>workbench-publish.ts:51-70</code> 的角色发布分支抽成：</p>
-<pre><code>publishWorkbenchCharacter(projectPath, revision, item): Promise&lt;{ auraId, auraName }&gt;</code></pre>
-<p>批量「确认并加入」与该条目的两个按钮<b>共用</b>它。这样「一个新版条目怎么变成一个 aura」只有一个真相来源，不会出现两套发布逻辑各自演化。<code>confirmWorkbenchRevision</code> 的 <code>characters</code> 分支改为调用它，行为保持不变（仍然走 <code>isSameBookAnalysisCharacterAura</code> 判断是新建还是更新）。</p>
+<pre><code>publishWorkbenchCharacter(projectPath, revision, itemIndex): Promise&lt;{ auraId, auraName }&gt;</code></pre>
+<p>批量「确认并加入」与该条目的两个按钮<b>共用</b>它。这样「一个条目怎么变成一个 aura」只有一个真相来源，不会出现两套发布逻辑各自演化。</p>
+
+<h4>迁移条目必须走「真实角色」路径</h4>
+<p>现有实现（<code>:55-64</code>）是<b>先合成</b>一个丢掉了源数据的 <code>ExtractedCharacter</code>（<code>importance: 0</code>、<code>category: "supporting"</code>、只有 <code>personality: profile.summary</code>），再交给 aura 构建器。对迁移条目这样做有两个问题：</p>
+<ol>
+  <li>会把旧版角色已有的 <code>personalityProfile</code>（性格／动机／行为模式／台词）<b>丢掉</b>，生成一个明显更贫瘠的 aura。</li>
+  <li>当<code>rules</code> 为空（无人格块）时，<code>parsePortablePersonality(workbenchPersonality(...))</code> 会退化，而 3.6 的兜底路径<b>根本不会被触发</b>——因为合成角色的 <code>personalityProfile</code> 是空的。→ 六维角色将绑不了。</li>
+</ol>
+<p>因此扩展为：<code>publishWorkbenchCharacter</code> 在 <code>revision.origin === "legacy"</code> 时，用 <code>legacyCharacterIds[itemIndex]</code> 从作品库取回<b>真实</b>的 <code>ExtractedCharacter</code> 与对应 <code>CharacterSkill</code>，直接调 <code>buildGeneratedAuraInputFromBookCharacter(realCharacter, realSkill, metadata)</code>——即走 3.6 已证实的完整兜底链，<b>无论有没有人格块都能产出 aura</b>，且保留富详情。非 legacy 条目行为完全不变。</p>
+<div class="note">
+  这样，「旧版角色 → aura」复用的正是旧版本来就有的（但当前不可达的）那条构建逻辑，而不是新造一条。
+</div>
+
+<h4>批量确认对迁移版本的例外</h4>
+<p><code>confirmWorkbenchRevision:37</code> 有一道门槛：<code>if (!revision.items.some((item) =&gt; item.rules.length)) throw new Error("没有有依据的规则可加入")</code>。迁移版本可能在 <code>rules</code> 全空时仍然<b>可以</b>加入灵魂库（靠 3.6 兜底）。因此把该门槛改为：<b>存在任一条目有规则，或该版本是 legacy 且其源角色有可发布数据</b>时放行。非 legacy 版本行为不变。</p>
 
 <h3>5.3 动作层 <code>workbench-soul-actions.ts</code><span class="tag">新增</span></h3>
 <pre><code>addItemToSoulLibrary(projectPath, revision, item)                → 只入库，不绑定
@@ -221,7 +274,7 @@ loadItemSoulStatus(projectPath, bookTitle, subject)              → "none" | "a
   </li>
   <li><b>「加入自定义灵魂库」</b>：只入库，不绑任何人。<b>用于「生成了但暂时不想绑定」的角色</b>。</li>
   <li><b>「绑定…」</b>：打开绑定目标对话框（见下）。绑定成功后自动入库。</li>
-  <li><b>无可用规则</b>的条目：两个按钮置灰，徽标显示「未生成 Skill」，<code>title</code> 说明原因。</li>
+  <li><b>按钮可用性由「有无可发布数据」决定，而不是 <code>rules.length</code></b>（见 5.1 表格）：无人格块但有 <code>personalityProfile</code> 的旧版角色（六维路径）<b>照常可用</b>；只有确实没有任何资料时才置灰，并在 <code>title</code> 里说明原因。</li>
 </ul>
 
 <h4>绑定目标对话框</h4>
@@ -268,7 +321,9 @@ loadItemSoulStatus(projectPath, bookTitle, subject)              → "none" | "a
 <h2>7. 错误处理与边界</h2>
 <table>
   <tr><th>情形</th><th>预期行为</th></tr>
-  <tr><td>角色没有 Skill／人格块</td><td>条目保留，<code>rules: []</code>，按钮置灰，徽标「未生成 Skill」</td></tr>
+  <tr><td>角色无人格块，但有 <code>personalityProfile</code>（六维路径）</td><td>条目保留，<code>rules: []</code>，卡片显示「旧版资料导入 · 无结构化规则」；<b>按钮照常可用</b>（走 5.2 真实角色兜底）</td></tr>
+  <tr><td>角色既无人格块也无任何资料</td><td>条目保留，<code>rules: []</code>，徽标「无可用资料」，两个按钮置灰并在 <code>title</code> 说明</td></tr>
+  <tr><td>落盘后源角色档案被删除（回链失效）</td><td>同上按「无可用资料」处理，<b>不抛错</b></td></tr>
   <tr><td>项目里没有可绑人物</td><td>对话框给出补小传提示，确认按钮禁用；不写任何数据</td></tr>
   <tr><td>aura 已存在</td><td><code>isSameBookAnalysisCharacterAura</code> 命中 → 更新而非新建；<code>addItemToSoulLibrary</code> 重复点击提示「已加入，无需重复加入」</td></tr>
   <tr><td>已绑定同一人物再绑</td><td>视为幂等，不重复写入；汇总里计为已有</td></tr>
@@ -280,10 +335,12 @@ loadItemSoulStatus(projectPath, bookTitle, subject)              → "none" | "a
 <h2>8. 测试策略</h2>
 <h3>8.1 组件／单元测试（先写失败测试）</h3>
 <ul>
-  <li><code>legacy-character-revision.spec.ts</code>：映射正确（subject/summary/limitations/rules 字段对应）；无 Skill 的角色保留且 <code>rules: []</code>；<code>evidence/coverage/selectedChapterIds</code> 为空；id 确定性（同输入同 id、不同角色集合不同 id）；无角色时返回 <code>null</code>；<code>workbenchVersion === 2</code>。</li>
+  <li><code>legacy-character-revision.spec.ts</code>：映射正确（subject/summary/limitations/rules 字段对应）；无人格块的角色保留且 <code>rules: []</code>；<code>legacyCharacterIds</code> 与 <code>items</code> 同序且指向正确角色；<code>evidence/coverage/selectedChapterIds</code> 为空；id 确定性（同输入同 id、不同角色集合不同 id）；无角色时返回 <code>null</code>；<code>workbenchVersion === 2</code>。</li>
   <li>发布函数抽取后：<code>confirmWorkbenchRevision</code> 角色分支行为不变（既有测试保持绿）。</li>
+  <li><b>3.6 兜底链</b>（本次修正的核心，必须有测试）：构造一个<b>无人格块</b>但带 <code>personalityProfile</code> 的 legacy 角色 → 断言仍能产出 aura，且 aura 内容来自 <code>personalityProfile</code>（不是空的）；断言走的是真实角色路径（<code>buildGeneratedAuraInputFromBookCharacter</code> 收到的是源角色，而非 <code>importance: 0</code> 的合成角色）。</li>
+  <li><b>批量门槛例外</b>：<code>rules</code> 全空但为 legacy 且有源数据时，<code>confirmWorkbenchRevision</code> 不再抛「没有有依据的规则可加入」；非 legacy 版本仍照旧抛错。</li>
   <li><code>workbench-soul-actions</code>：「加入自定义灵魂库」只入库不绑定；「绑定」先入库再绑定（断言调用顺序）；aura 已存在时不重复创建。</li>
-  <li>工作台：每个角色条目都有两个按钮；无规则时按钮 <code>disabled</code>；徽标三态；无大纲人物时对话框提示且确认禁用；<code>origin === "legacy"</code> 时摘要显示「旧版导入」。</li>
+  <li>工作台：每个角色条目都有两个按钮；<b>无人格块但有 <code>personalityProfile</code> 时按钮仍可点</b>；确实无资料时 <code>disabled</code>；徽标三态；无大纲人物时对话框提示且确认禁用；<code>origin === "legacy"</code> 时摘要显示「旧版导入」。</li>
   <li><code>legacy-skill-results.spec.tsx</code>：角色分支相关用例移除；文风／故事用例保持绿。</li>
   <li><code>use-character-extraction</code>：<code>importanceScore</code> 100/55/7/0 → 10/6/1/1。</li>
 </ul>
@@ -292,20 +349,23 @@ loadItemSoulStatus(projectPath, bookTitle, subject)              → "none" | "a
 <p>jsdom 算不出布局，故新增 <code>docs/legacy-character-binding-20261006/check.mjs</code>（Playwright，沿用既有脚本模式）：按钮行在宽容器与窄容器下不溢出、不换行错位；对话框 <code>maxWidth</code> 与滚动正常；徽标与按钮不重叠。</p>
 
 <h3>8.3 变异验证</h3>
-<p>逐条破坏并确认有用例抓住：① <code>importance</code> 换算去掉 → 换算用例红；② 去掉懒落盘（直接不落盘就发布）→ 落盘用例红；③ 「绑定」里去掉自动入库 → 顺序断言红；④ 无规则条目改为丢弃 → 保留用例红；⑤ 徽标三态判断改错 → 徽标用例红。</p>
+<p>逐条破坏并确认有用例抓住：① <code>importance</code> 换算去掉 → 换算用例红；② 去掉懒落盘（直接不落盘就发布）→ 落盘用例红；③ 「绑定」里去掉自动入库 → 顺序断言红；④ 无资料条目改为丢弃 → 保留用例红；⑤ 徽标三态判断改错 → 徽标用例红；⑥ <b>把 legacy 发布改回「合成角色」路径 → 3.6 兜底用例红</b>（这条最关键：它守住「六维角色也能绑定」）；⑦ 批量门槛例外去掉 → 该用例红。</p>
 
 <h2>9. 风险与取舍</h2>
 <ul>
   <li><b>迁移条目没有原文证据</b>：旧版人格是 LLM 摘要，本就没有可回溯的正文偏移。因此迁移条目卡片上的「依据」为 0 条、覆盖为 0 章。这是如实呈现，不伪造证据。</li>
+  <li><b>六维路径生成的 Skill 不含人格块</b>（3.6）：迁移后这些条目的<b>规则区是空的</b>，卡片上不会有「N 条规则」。但绑定不受影响（走真实角色兜底）。代价是：同一页签里，简单提取的旧版角色有规则、六维的没有，看起来不一致——这是如实反映两种旧数据的差别，而不是遗漏。</li>
   <li><b>旧版富详情不再可见</b>：四栏详情（性格/说话风格/动机/行为模式/台词）与代表台词不再显示。已确认接受。</li>
   <li><b>落盘后删除会重现</b>：见 7 节，有意行为。</li>
   <li><b>旧版条目与新版条目在同一列表</b>：靠 <code>origin</code> 标记区分，摘要行文案不同，不会混淆「已核验」与「旧版导入」。</li>
+  <li><b>迁移版本落盘后再改由真实角色发布</b>：需要 <code>legacyCharacterIds</code> 在落盘后依然有效。若用户此后删除了该旧版角色档案，回链会失效——此时按「无可发布数据」处理（按钮置灰），不抛错。</li>
 </ul>
 
 <h2>10. 验收标准</h2>
 <ol>
   <li>「角色 Skill」页签里，旧版角色以「旧版导入」条目出现，与新版条目同列表；不再有独立的旧版角色分区。</li>
   <li>新版与旧版生成的每个角色条目都同时有「加入自定义灵魂库」与「绑定…」两个按钮。</li>
+  <li><b>六维路径生成的旧版角色（无人格块）也能正常加入灵魂库并绑定</b>——即绑定能力不依赖于 <code>portablePersonality</code> 是否存在。</li>
   <li>「加入自定义灵魂库」只入库、不绑定；「绑定…」完成后该角色灵魂已在自定义灵魂库中且已绑到所选人物。</li>
   <li>无大纲人物时给出明确提示且不写数据。</li>
   <li>角色「重要度」显示在 1–10 范围内（不再出现 <code>100/10</code>）。</li>
