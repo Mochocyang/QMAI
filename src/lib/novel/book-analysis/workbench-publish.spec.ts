@@ -298,6 +298,26 @@ describe("旧版角色发布走 aura-adapter 路径（设计 §5.2／§8.1）", 
     await expect(confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint))
       .rejects.toThrow("旧版迁移版本发布需要作品资料")
     expect(io.createAura).not.toHaveBeenCalled()
+    // 校验必须在任何磁盘写入之前：抛错时连发布历史备份都不该留下。
+    expect(io.writes.mock.calls.map((c) => String(c[0])).filter((p) => p.includes("publication-history"))).toEqual([])
+  })
+
+  it("整批角色有一个查不到时，先校验后发布：不产生半个批次，也不留备份", async () => {
+    // 甲能查到、乙查不到。若在发布循环里逐个查，甲会先被写进灵魂库再抛错——
+    // 版本仍是「待确认」而甲已经进库，这种半成品状态必须避免。
+    const legacy = legacyRevision({
+      items: [
+        { subject: "甲", summary: "先核对再判断", limitations: "", rules: [] },
+        { subject: "乙", summary: "查无此人", limitations: "", rules: [] },
+      ],
+    })
+    const book = legacyBook()
+    await saveWorkbenchRevision(bookPath, legacy)
+    const preview = await inspectWorkbenchPublication("/project", legacy)
+    await expect(confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint, book))
+      .rejects.toThrow("找不到旧版角色「乙」")
+    expect(io.createAura).not.toHaveBeenCalled()
+    expect(io.writes.mock.calls.map((c) => String(c[0])).filter((p) => p.includes("publication-history"))).toEqual([])
   })
 
   it("旧版角色已在灵魂库时返回既有 auraId，不重复创建", async () => {

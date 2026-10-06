@@ -138,6 +138,20 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
     if (!revision.items.some((item) => item.rules.length) && revision.origin !== "legacy") {
       throw new Error("没有有依据的规则可加入")
     }
+    /*
+     * 旧版发布前先把整批校验做完，避免留下半成品状态：若在发布循环里逐个查角色，
+     * [甲, 乙] 中乙缺失时会先写好甲的 aura 才抛错——版本仍是「待确认」而甲已经进库，
+     * 连发布历史备份也已经在抛错前落盘。校验落在任何磁盘写入之前，
+     * 才能保证要么整批成功、要么什么都没发生。
+     */
+    if (revision.skill === "characters" && revision.origin === "legacy") {
+      if (!book) throw new Error("旧版迁移版本发布需要作品资料")
+      for (const subject of new Set(revision.items.map((item) => item.subject))) {
+        if (!book.characters.some((character) => character.name === subject)) {
+          throw new Error(`找不到旧版角色「${subject}」`)
+        }
+      }
+    }
     const inspection = await inspectWorkbenchPublication(projectPath, revision)
     if (inspection.fingerprint !== expectedFingerprint) throw new Error("使用库或绑定已变化，请重新确认替换范围")
     const chapters = await readWorkbenchChapters(bookPath, revision.selectedChapterIds)

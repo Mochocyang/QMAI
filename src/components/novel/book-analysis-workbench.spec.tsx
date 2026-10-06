@@ -548,6 +548,29 @@ describe("灵魂操作区只属于角色页签", () => {
     expect(host.textContent).not.toContain("绑定…")
   })
 
+  it("故事卡片即使带规则也不渲染灵魂按钮（两个按钮都不出现）", async () => {
+    // 两个非角色页签都要各自钉住：只钉文风时，把守卫放宽成「非文风即可」
+    // 会让故事页签重新露出灵魂按钮而测试依旧全绿（审查者实测 6 文件 101 条全过）。
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([{
+      workbenchVersion: 2, id: "rev-story", skill: "story", bookTitle: "测试作品",
+      selectedChapterIds: ["c1"], createdAt: 1, requirements: "", coverage: [], evidence: [],
+      items: [{
+        subject: "故事机制", summary: "先压后放。", limitations: "只覆盖本章",
+        rules: [{ id: "T1", dimension: "conflict", condition: "冲突升级时", action: "先压后放", boundary: "不适用于支线", observation: "原文先抑后扬", evidenceIds: [] }],
+      }],
+    }])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (skillTab("故事 Skill") as HTMLButtonElement).click())
+    // 先证明卡片真的渲染了、而且带着规则：否则「没有灵魂按钮」可能只是因为整页是空的。
+    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("1条规则")
+    expect(host.querySelector(".wb-soul-actions")).toBeNull()
+    expect(soulActions("故事机制")).toBeNull()
+    expect(host.textContent).not.toContain("加入自定义灵魂库")
+    expect(host.textContent).not.toContain("绑定…")
+  })
+
   it("角色页签的新版条目与旧版条目都仍渲染两个按钮", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
