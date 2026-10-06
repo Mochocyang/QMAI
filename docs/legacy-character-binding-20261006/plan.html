@@ -1455,6 +1455,18 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
 <p>聚焦 6 文件：<b>101 passed</b>（修复前 90）。<code>npx tsc -p tsconfig.app.json --noEmit</code> exit 0 无输出。<code>src/components/novel</code> 31 文件 / 211 测试全绿。</p>
 <div class="warn">vitest <b>不会</b>因为路径不存在而报错——它会静默地少跑文件。我第一次复审时把 <code>legacy-skill-results.spec.tsx</code> 误写成 <code>src/lib/novel/book-analysis/legacy-skill-results.spec.ts</code>，结果只跑出 5 文件 / 95 测试且仍然<b>全绿通过</b>。核对文件数／用例数，别只看「有没有红」。</div>
 
+<h3>9.7 第二轮复审（对 <code>b06c103</code> 的对抗性审查）与修复</h3>
+<p>修复提交本身又过了一次独立对抗性审查：8 项主张 7 项 APPROVED、无 Critical，但报回 1 条 Important 与 1 条 Minor（其余 MINOR 记录在 9.5）。</p>
+<div class="warn">
+  <p><b>Important：守卫的测试网只覆盖文风，漏了故事页签。</b>b06c103 的提交说明同时点名「文风／故事两个页签」，但新增测试只钉了文风。审查者把守卫放宽成 <code>revision.skill !== "style"</code>（故事页签重新露出灵魂按钮）后，<b>6 文件 101 条测试依旧全绿</b>——非角色页签的缺陷类别完全相同：故事条目同样带规则，<code>hasPublishableData</code> 为真，点下去会创建一个以故事机制主题命名的「拆书角色」灵魂。</p>
+  <p>现补一条与文风完全对称的故事页签测试（同样先用「1条规则」证明卡片真的渲染了，再断言两个按钮都不出现）。用审查者的原变异复验：<b>现在该变异会让故事那条失败，而文风那条仍通过</b>——两条互补，不再有「只钉一个页签」的漏洞。</p>
+</div>
+<div class="ok">
+  <p><b>Minor：旧版发布的半成品状态。</b>原实现在发布循环里逐个查角色，而发布历史备份写在更前面，于是缺作品资料时备份已落盘；<code>[甲, 乙]</code> 中乙查不到时，甲已经写好 aura 才抛错（版本仍是「待确认」而甲已进灵魂库）。</p>
+  <p>现把整批校验提到<b>任何磁盘写入之前</b>，保证要么整批成功、要么什么都没发生。变异复验：删掉这段前置校验后，两条新测试分别以「expected [ Array(1) ] to deeply equal []」（备份被写了）与「to not be called at all, but actually been called 1 times」（甲被发布了）失败。</p>
+</div>
+<p>复审后聚焦 6 文件由 101 条增至 <b>103 条</b>全绿，<code>tsc</code> 退出码 0。残留项（<code>check.mjs</code> 对「徽标脱离 flex 流」仍有盲区、文档 spec 会写工作树、adapter 去重键的 trim 不对称）已记在 9.5，均属既有或理论性，未在本任务扩大。</p>
+
 <hr>
 
 <h2>验收清单（全部满足才算完成）</h2>
@@ -1475,6 +1487,8 @@ await page.setContent(readFileSync("docs/legacy-character-binding-20261006/dump.
   <li><b>（复审新增）灵魂按钮只属于角色页签</b>：文风／故事卡片即使带规则也不渲染「加入自定义灵魂库」「绑定…」。</li>
   <li><b>（复审新增）几何检查断言本身非空洞</b>：改徽标文案 → exit 1；给徽标加 6px 偏移 → exit 1 报 <code>中线差 6.0px</code>；两者都能字节还原到 <code>304A0A6C…</code>。</li>
   <li><b>（复审新增）复审变异总数 12 条</b>（原 9 条 + 审查者的 1 条盲区 + 我方复验的 2 条：回退发布分支、清空合成 Skill）。</li>
+  <li><b>（第二轮复审新增）两个非角色页签各自被钉住</b>：把守卫放宽成「非文风即可」必须被故事页签那条测试抓住（复审实测：修复前 101 条全绿，修复后必失败）。</li>
+  <li><b>（第二轮复审新增）旧版发布要么整批成功、要么什么都没发生</b>：缺作品资料或整批中有角色查不到时，不创建任何 aura、也不写发布历史备份（前置校验变异实测 2 条失败）。</li>
 </ol>
 
 <h2>已知取舍（来自设计 9，实施时不必“修正”）</h2>
