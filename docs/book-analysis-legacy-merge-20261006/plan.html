@@ -582,18 +582,28 @@ git commit -m "fix(拆书库): 工作台接管旧版的刷新副作用"</code></
 <pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "现在处理" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
 <div class="exp">Expected: FAIL —— 没有 <code>#wb-character-picker</code> 锚点，也没人消费请求。</div>
 
-<div class="step"><span class="box">☐ Step 3</span> 实现。给选择目标角色区加锚点：</div>
+<div class="step"><span class="box">☐ Step 3</span> 实现。给选择目标角色区加锚点（<code>:293</code>，那个 <code>{pickerTask &amp;&amp; &lt;section className="wb-section"&gt;</code>）：</div>
 <pre><code>&lt;section className="wb-section" id="wb-character-picker"&gt;</code></pre>
-<p>再加消费 effect：</p>
-<pre><code>useEffect(() =&gt; {
+<div class="note warn">
+  <strong>这个 effect 也必须写在 <code>BookWorkspace</code> 内</strong>（选角色区在 <code>:293</code>，属于 <code>BookWorkspace</code> 的 JSX）。
+  同理别再引用顶层的 <code>taskSignature</code>（<code>:67</code>）——它在上一层，<code>BookWorkspace</code> 里取不到。
+  用 <code>BookWorkspace</code> 自己的 <code>signature</code>（<code>:196</code>），<code>progressSignature</code> 也在组件内就地派生。
+</div>
+<p>再加消费 effect（放在 <code>BookWorkspace</code> 内）：</p>
+<pre><code>// 「识别刚结束」那一次不会改变任务状态，只有 progresses 会变，所以还需要它参与依赖。
+const progressSignature = Object.keys(pipeline.progresses).join()
+useEffect(() =&gt; {
   const requested = useBookAnalysisStore.getState().pendingRecognitionTaskId
   if (!requested) return
   // 旧版卸载后没人处理这个请求：新版自己把选角色区滚进视野。
   if (!tasks.some((t) =&gt; t.id === requested)) return
   useBookAnalysisStore.getState().consumeReopenRequest()
   document.getElementById("wb-character-picker")?.scrollIntoView({ block: "start" })
-}, [taskSignature, progressSignature])</code></pre>
-<div class="exp">需要一个 <code>progressSignature</code>（形如 <code>Object.keys(pipeline.progresses).join()</code>），否则「识别刚结束」这一次不会重跑。</div>
+}, [signature, progressSignature])</code></pre>
+<div class="exp">说明一：需要 <code>progressSignature</code>，否则「识别刚结束」这一次不会重跑。<br>
+说明二：依赖用 <code>BookWorkspace</code> 自己的 <code>signature</code>，不是顶层的 <code>taskSignature</code>（作用域拿不到）。<br>
+说明三：<code>consumeReopenRequest()</code> 会清空 <code>pendingRecognitionTaskId</code>，所以<strong>必须先判断任务存在再消费</strong>——
+顺序反了会把一个还没到的请求吃掉。<code>getState()</code> 读一次、校验通过后再 <code>consumeReopenRequest()</code>，正是为了这一点。</div>
 
 <div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
 <pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "现在处理" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
