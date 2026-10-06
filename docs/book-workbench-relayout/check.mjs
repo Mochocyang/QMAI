@@ -1,4 +1,13 @@
-// 用真实 Chromium 检查拆书库顶部改版后的布局。
+// ⚠️ 已被取代，不要再用它验证当前新版界面。
+//
+// 本脚本的 dump.html 是手写快照，且 :107-112 仍然断言页面里存在 .wb-legacy（旧版整页区块）、
+// 并位于 .wb-results-section 下方——那是「旧版结果常显在页面底部」时代的布局。
+// 旧版区块在「旧版结果并入新版页签」后已不再挂载，这个 DOM 不复存在；
+// 但它读的是**当前**的 book-analysis-workbench.css，所以它会继续报 0 失败，
+// 从而被误当成"验证过"的证据。当前版本的检查请用：
+//   docs/book-analysis-legacy-merge-20261006/check.mjs
+//
+// 历史用途：检查拆书库顶部改版后的布局（刷新/导入/删除按钮位置、模型选择框归位）。
 // 结果只来自 getBoundingClientRect，不看截图印象。
 // playwright 是全局安装的，ESM 不认 NODE_PATH，所以按绝对路径引入。
 import { pathToFileURL } from "node:url"
