@@ -207,4 +207,32 @@ describe("按回调决定是否渲染删除按钮", () => {
     confirmSpy.mockRestore()
     cleanup()
   })
+
+  it("删掉最后一张导图时把数量回传 0（外层据此收起空区块）", async () => {
+    // 外层（LegacySkillResults）靠这个数量决定「一张旧导图都没有」时整块不显示。
+    // 删除走的是另一条代码路径，如果它不一起回传，外层会留下过期的 1，空区块又冒出来。
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-100",
+      map: makeMap(100, "主线A", [1]),
+      jsonPath: "E:/book/story-maps/story-map-100/story-map.json",
+      htmlPath: "E:/book/story-maps/story-map-100/story-map.html",
+    }])
+    readFile.mockResolvedValue("<html>map</html>")
+    const onDeleteStoryMap = vi.fn(async () => {})
+    const onCardCountChange = vi.fn()
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, cleanup } = renderContent("E:/book", { onDeleteStoryMap, onCardCountChange })
+    await act(async () => {})
+    expect(onCardCountChange).toHaveBeenLastCalledWith(1)
+
+    const del = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "删除") as HTMLButtonElement
+    await act(async () => {
+      del.click()
+    })
+    expect(onCardCountChange).toHaveBeenLastCalledWith(0)
+
+    confirmSpy.mockRestore()
+    cleanup()
+  })
 })

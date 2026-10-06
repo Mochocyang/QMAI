@@ -147,7 +147,9 @@ export function StoryMapContent({
     if (!onDeleteStoryMap) return
     try {
       await onDeleteStoryMap(card.id)
-      setCards((prev) => (prev ? prev.filter((item) => item.id !== card.id) : prev))
+      // 走 applyCards 而不是裸 setCards：删掉最后一张时数量要跟着回传 0，
+      // 否则外层会留下过期的 count，空区块又冒出来。
+      applyCards(cards ? cards.filter((item) => item.id !== card.id) : cards)
     } catch (error) {
       console.error("[story-map] 删除故事导图失败", error)
     }
