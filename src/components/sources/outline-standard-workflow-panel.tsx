@@ -24,6 +24,19 @@ export function shouldUseOutlineStandardWorkflowCard(input: {
   return input.intentPhase === "intent_analysis" || input.intentPhase === "generation"
 }
 
+/**
+ * 意图分析阶段不展示任何工具调用明细。
+ *
+ * 该阶段只负责判断范围，界面上要留给用户的是「提问 + 选项」；
+ * 「读了哪些文件」属于过程噪音，用户明确要求一眼都看不到。
+ * 正文生成阶段保留，因为「保存大纲」的确认/拒绝按钮挂在工具卡片里。
+ */
+export function shouldShowOutlineToolCalls(
+  intentPhase?: OutlineWorkflowIntentPhase,
+): boolean {
+  return intentPhase !== "intent_analysis"
+}
+
 function workflowTitle(intentPhase?: OutlineWorkflowIntentPhase): string {
   if (intentPhase === "intent_analysis") return "意图分析工作流"
   return "大纲生成工作流"

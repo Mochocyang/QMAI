@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import {
   OutlineStandardWorkflowPanel,
+  shouldShowOutlineToolCalls,
   shouldUseOutlineStandardWorkflowCard,
 } from "./outline-standard-workflow-panel"
 
@@ -80,6 +81,21 @@ describe("shouldUseOutlineStandardWorkflowCard", () => {
       fastMode: false,
       hasMultiAgentRun: false,
     })).toBe(false)
+  })
+})
+
+describe("shouldShowOutlineToolCalls", () => {
+  it("意图分析阶段完全不显示工具调用明细", () => {
+    expect(shouldShowOutlineToolCalls("intent_analysis")).toBe(false)
+  })
+
+  it("正文生成阶段保留工具卡片，保存确认按钮仍可用", () => {
+    expect(shouldShowOutlineToolCalls("generation")).toBe(true)
+  })
+
+  it("未标记阶段时按旧行为显示", () => {
+    expect(shouldShowOutlineToolCalls(undefined)).toBe(true)
+    expect(shouldShowOutlineToolCalls("waiting_user_input")).toBe(true)
   })
 })
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildIntentAnalysisPrompt,
   buildIntentPhaseSystemRules,
   classifyDirectOutlineGenerationRequest,
   parseIntentClarity,
@@ -7,6 +8,41 @@ import {
   shouldAutoFollowUpGeneration,
   stripStructuredMarkers,
 } from "./outline-intent-clarity"
+
+describe("意图分析提示词的选项要求", () => {
+  const prompt = buildIntentAnalysisPrompt("卷纲", "把十卷拆成折叠树卷纲")
+
+  it("要求 options 直接列出具体候选对象，而不是抽象生成策略", () => {
+    expect(prompt).toContain("具体的")
+    expect(prompt).toContain("options")
+    // 旧模板只给「全部缺失项生成 / 基于已有内容推断」这类抽象策略，
+    // 模型因此把真实卷次全塞进 missingItems、options 留空。
+    expect(prompt).not.toContain("A. 全部缺失项生成")
+    expect(prompt).not.toContain("B. 基于已有内容推断")
+    expect(prompt).not.toContain("C. 最近范围生成")
+  })
+
+  it("明确把 options 为空视为格式错误", () => {
+    expect(prompt).toMatch(/options\s*为空.*(?:格式错误|错误)/)
+  })
+
+  it("说明自定义由系统追加，模型不要再输出", () => {
+    expect(prompt).toContain("自定义")
+    expect(prompt).toMatch(/系统.*追加|不要.*输出.*自定义/)
+  })
+
+  it("要求选项说明引用已读到的资料与现状", () => {
+    expect(prompt).toMatch(/description/)
+  })
+})
+
+describe("意图分析阶段的阶段规则", () => {
+  it("intent_analysis 阶段同样要求给出具体可选项", () => {
+    const rules = buildIntentPhaseSystemRules("intent_analysis")
+    expect(rules).toContain("options")
+    expect(rules).not.toContain('"options":[]')
+  })
+})
 
 describe("parseIntentClarity", () => {
   it("解析 clear 意图", () => {

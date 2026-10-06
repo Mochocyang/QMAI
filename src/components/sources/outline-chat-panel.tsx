@@ -76,6 +76,7 @@ import { NovelGenerationRequestMessage } from "@/components/sources/novel-genera
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
 import {
   OutlineStandardWorkflowPanel,
+  shouldShowOutlineToolCalls,
   shouldUseOutlineStandardWorkflowCard,
 } from "@/components/sources/outline-standard-workflow-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -329,7 +330,8 @@ import {
   type OutlinePlanProtocol,
 } from "@/lib/novel/outline-plan-protocol";
 import { getOutlinePlanRequiredElements } from "@/lib/novel/outline-plan-elements";
-import { IntentOptionsCard } from "@/components/sources/outline-intent-options-card";
+import { OutlineIntentDialog } from "@/components/sources/outline-intent-dialog";
+import { listOutlineEntries, type OutlineListEntry } from "@/lib/agent/tools/outline-list-helpers";
 import { OutlineClarifyCard } from "@/components/sources/outline-clarify-card";
 import { OutlineDiscussCard } from "@/components/sources/outline-discuss-card";
 import { OutlinePlanCard } from "@/components/sources/outline-plan-card";
@@ -685,12 +687,14 @@ export function buildOutlineAgentSystemPrompt(options: {
       "2. 判断用户意图是否清晰（能否确定具体生成范围）",
       "3. 严格输出以下完整协议块：",
       "<!-- intent_clarity -->",
-      '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[],"question":""}',
+      '{"clarity":"clear|needs_input","module":"模块名","analysis":"判断依据","detectedScope":"明确范围","missingItems":[],"options":[{"id":"A","label":"具体范围","description":"现状与依据"}],"question":""}',
       "<!-- /intent_clarity -->",
       "开闭标记必须成对出现；字段名必须使用 clarity，禁止使用 status。JSON 必须完整且可解析。",
       "4. clear 时：只输出 JSON，不生成正文，等待系统自动注入生成指令",
-      "5. needs_input 时：只输出 JSON，在 question 和 options 中提供澄清问题与4个推荐选项",
-      "推荐选项必须包含：A.全部缺失项 B.基于已有内容推断 C.最近范围 D.自定义",
+      "5. needs_input 时：只输出 JSON，question 问清楚要哪一个，options 列出具体的候选范围",
+      "options 必须是能直接执行的具体对象（如具体卷次、具体章节区间），取自刚读到的资料，最多 6 个",
+      "严禁把候选塞进 missingItems 而让 options 为空：options 为空视为格式错误",
+      "严禁输出「全部缺失项生成」「基于已有内容推断」「最近范围生成」这类抽象策略；「自定义」由系统自动追加，不要自己输出",
       "用户选择或回复后，直接进入生成流程，不再二次分析。",
     ];
   const appliedWorkflowRules = mode !== "fast" && !discussTurn
@@ -1576,7 +1580,7 @@ function OutlineAssistantMessage({
         onResume={() => { void onResumeMultiAgent(msg.id) }}
         resumeDisabled={resumeMultiAgentDisabled}
       />
-      {msg.multiAgentRun ? null : useStandardWorkflowCard ? (
+      {msg.multiAgentRun || !shouldShowOutlineToolCalls(msg.intentPhase) ? null : useStandardWorkflowCard ? (
         <OutlineStandardWorkflowPanel
           intentPhase={msg.intentPhase}
           isRunning={Boolean(msg.isAgentRunning)}
@@ -1706,20 +1710,6 @@ function OutlineAssistantMessage({
           disabledReason={discussDecided
             ? "该轮讨论已处理过，请在最新消息里继续。"
             : nextStepDisabledReason}
-        />
-      ) : null}
-      {/* 意图不清晰时的推荐选项 */}
-      {msg.intentClarityResult?.clarity === "needs_input" && !isStreaming ? (
-        <IntentOptionsCard
-          result={msg.intentClarityResult}
-          onSelectOption={(optionId, label, description) => {
-            if (optionId === "D") {
-              onFocusInput();
-            } else {
-              const scope = label + (description ? `：${description}` : "");
-              onSendMessage(scope, { intentPhase: "generation", scope });
-            }
-          }}
         />
       ) : null}
       {/* 下一步推荐 */}
@@ -5891,8 +5881,39 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     ? "大纲 AI 会话最多同时运行 3 个任务，请等待任一任务结束后再发送。"
     : undefined;
 
+  // 需求分析浮层：只认最新一条「需要用户定范围」的助手消息。
+  // 用户选中后会追加新消息，最新一条随之改变，浮层自然收起。
+  const latestMessage = activeMessages[activeMessages.length - 1];
+  const pendingIntentPrompt = !isStreaming
+    && latestMessage?.role === "assistant"
+    && latestMessage.intentClarityResult?.clarity === "needs_input"
+    ? { id: latestMessage.id, result: latestMessage.intentClarityResult }
+    : null;
+  // 关闭状态按消息 ID 记录，避免关掉后又被无关的状态更新重新弹出来。
+  const [dismissedIntentMessageId, setDismissedIntentMessageId] = useState<string | null>(null);
+  const [intentOptionEntries, setIntentOptionEntries] = useState<OutlineListEntry[]>([]);
+  const pendingIntentMessageId = pendingIntentPrompt?.id ?? null;
+  // 兜底候选取自磁盘上真实存在的大纲文档；读盘失败就退回缺失项候选，不阻塞浮层。
+  useEffect(() => {
+    if (!pendingIntentMessageId || !project?.path) return;
+    let cancelled = false;
+    void listOutlineEntries(`${normalizePath(project.path)}/wiki/outlines`)
+      .then((entries) => {
+        if (!cancelled) setIntentOptionEntries(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setIntentOptionEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingIntentMessageId, project?.path]);
+
   return (
-    <div className="flex h-full flex-col overflow-hidden border-border bg-background" data-ui-ai-panel="outline">
+    <div
+      className="relative flex h-full flex-col overflow-hidden border-border bg-background"
+      data-ui-ai-panel="outline"
+    >
       {/* Header with conversation tabs */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header>
         {<UiTestAiIdentity conversationTitle={activeConv?.title || "大纲对话"} status={<ConversationRunStatusIcon state={runStates[activeConversationId ?? ""]} />} />}
@@ -6370,6 +6391,26 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           />
         ) : null}
       </div>
+
+      {/* 需求分析浮层：锚定在面板底部、盖在输入区上层，宽度跟随本面板 */}
+      {pendingIntentPrompt ? (
+        <OutlineIntentDialog
+          open={dismissedIntentMessageId !== pendingIntentPrompt.id}
+          result={pendingIntentPrompt.result}
+          entries={intentOptionEntries}
+          onOpenChange={(next) => {
+            if (!next) setDismissedIntentMessageId(pendingIntentPrompt.id);
+          }}
+          onSelect={(_optionId, scope) => {
+            setDismissedIntentMessageId(pendingIntentPrompt.id);
+            if (!scope) {
+              handleFocusInput();
+              return;
+            }
+            void handleSendMessage(scope, { intentPhase: "generation", scope });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

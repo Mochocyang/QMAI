@@ -517,7 +517,8 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("OutlineStandardWorkflowPanel")
     expect(source).toContain("shouldUseOutlineStandardWorkflowCard")
     expect(source).toContain("useStandardWorkflowCard")
-    expect(source).toContain("msg.multiAgentRun ? null")
+    // 意图分析阶段连工具明细一起隐藏，所以这里多了一道 shouldShowOutlineToolCalls 闸门。
+    expect(source).toContain("shouldShowOutlineToolCalls(msg.intentPhase)")
     expect(source).toContain("isRunning={Boolean(msg.isAgentRunning)}")
     expect(source).not.toContain("enableMultiAgent: true")
     expect(source).toContain("enableMultiAgent: !fastMode")
@@ -933,8 +934,9 @@ describe("OutlineChatPanel controls", () => {
     })
 
     expect(runSpy).toHaveBeenCalledTimes(1)
-    expect(container.textContent).toContain("请确认章节范围")
-    expect(container.textContent).toContain("生成最近章节")
+    // 需求分析现在是居中弹窗，经 Portal 挂到 body，不在会话容器里。
+    expect(document.body.textContent).toContain("请确认章节范围")
+    expect(document.body.textContent).toContain("生成最近章节")
     expect(useOutlineChatStore.getState().conversations[0].messages.findLast((message) => message.role === "assistant")?.intentClarityResult?.clarity).toBe("needs_input")
   })
 
