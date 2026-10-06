@@ -47,6 +47,26 @@ const book = {
   id: "book-1", path: "/project/book-analysis/book-1", metadata: { title: "测试作品", totalChapters: 123, totalWords: 123000 },
   characters: [], skills: [],
 }
+/**
+ * 带旧版资料的作品。旧版区块现在只在真的有资料时才渲染，
+ * 所以「旧版结果并进页签」那组正例必须给它数据，否则量到的是一个空壳。
+ * 字段要按 BookAnalysisLibraryBook 给全：角色面板会无条件读 addedAuraCharacterIds
+ * （book-analysis-character-panel.tsx:61），缺了它会直接抛 undefined.includes。
+ */
+const legacyBook = {
+  ...book,
+  recognizedCharacters: [],
+  characters: [{
+    id: "char-1", name: "林烬", aliases: [], importance: 9, category: "protagonist" as const,
+    firstAppearance: 1, lastAppearance: 3, appearanceCount: 3, description: "旧城巡夜人。",
+    personality: "克制。", speechStyle: "短句。", relationships: [], keyEvents: [], corpus: "",
+  }],
+  skills: [],
+  styleStatus: "disabled" as const,
+  boundAurasCount: 0,
+  addedAuraCharacterIds: [],
+  evidence: [],
+}
 /** 角色识别失败时，任务会留在 awaiting-character-selection 并把原因写进 error。 */
 function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -264,6 +284,7 @@ describe("分析模型贴近开始分析", () => {
 describe("旧版结果并入页签", () => {
   it("旧版结果出现在结果区内部，不再是页面底部独立区块", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
     await act(async () => root.render(<BookAnalysisWorkbench />))
     const results = host.querySelector(".wb-results-section")!
     const legacy = host.querySelector('[data-testid="legacy-skill-results"]')!
@@ -274,14 +295,26 @@ describe("旧版结果并入页签", () => {
 
   it("默认停留在角色页签时渲染角色类旧版结果", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(host.textContent).toContain("旧版资料")
     // 只查整页文案太弱：页面里任意一处「旧版资料」都能满足它。必须把「谁在渲染、渲染了什么」钉死——
-    // 「旧版资料」得是并入区域自己的标签，区域里得真的挂着旧版角色面板（本 fixture 没有角色，走它的空状态）。
+    // 「旧版资料」得是并入区域自己的标签，区域里得真的挂着旧版角色面板。
     const legacy = host.querySelector('[data-testid="legacy-skill-results"]')!
     expect(legacy).not.toBeNull()
     expect(legacy.textContent).toContain("旧版资料")
-    expect(legacy.textContent).toContain("暂无角色数据。")
+    expect(legacy.textContent).toContain("林烬")
+    // 无障碍：区域要有自己的名字。role="region" 必须一起断言——aria-label 落在隐式
+    // role=generic 的裸 div 上是禁止的命名来源，少了 role 读屏就忽略它，只查 aria-label 会放过这个退化。
+    expect(legacy.getAttribute("role")).toBe("region")
+    expect(legacy.getAttribute("aria-label")).toBe("旧版资料")
+  })
+
+  it("作品没有旧版资料时，旧版区块整块不渲染", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    // 默认 fixture 的 characters/skills 都是空的，也没有文风画像
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
   })
 
   it("切到故事页签会换成故事类旧版结果", async () => {
@@ -308,6 +341,24 @@ describe("旧版结果并入页签", () => {
     mocks.old.selectedLibraryBookId = "book-1"
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(host.querySelector(".wb-legacy")).toBeNull()
+  })
+})
+
+describe("选角色列表的角色行", () => {
+  it("没有别名的角色不会留下悬空的间隔号", async () => {
+    mocks.pipeline.tasks = [stuckTask({
+      error: null,
+      recognizedCharacters: [
+        { id: "c1", name: "许七安", category: "主角", aliases: ["宁宴"], chapterIndices: [0], importanceScore: 90, appearances: 5 },
+        { id: "c2", name: "许玲月", category: "配角", aliases: [], chapterIndices: [0], importanceScore: 40, appearances: 2 },
+      ],
+    })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 只取行里那半个 span（分类 · 别名）。整行 textContent 会把姓名和它粘在一起，
+    // 断言起来看不出到底是哪里多了字符。
+    const metas = [...host.querySelectorAll(".wb-character-pick label > span")].map((s) => s.textContent)
+    // 「配角」后面那个「 · 」没有任何内容跟着，是别名 join 出来的悬空分隔符。
+    expect(metas).toEqual(["主角 · 宁宴", "配角"])
   })
 })
 

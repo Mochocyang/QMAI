@@ -329,7 +329,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
           <button onClick={() => setCharacterIds([])}>清空</button></div>
         <div className="wb-character-pick">{pickerTask.recognizedCharacters.filter((c) => `${c.name} ${c.aliases.join(" ")}`.includes(characterSearch)).map((c) => <label key={c.id}>
           <input type="checkbox" checked={characterIds.includes(c.id)} onChange={(e) => setCharacterIds((ids) => e.target.checked ? [...ids, c.id] : ids.filter((id) => id !== c.id))} />
-          <strong>{c.name}</strong><span className="wb-muted">{c.category} · {c.aliases.join("、")}</span>
+          {/* 别名可能为空，直接 `{category} · {aliases.join()}` 会渲染出悬空的「配角 · 」。 */}
+          <strong>{c.name}</strong><span className="wb-muted">{c.category}{c.aliases.length > 0 ? ` · ${c.aliases.join("、")}` : ""}</span>
         </label>)}</div>
         <button className="wb-primary" disabled={!characterIds.length} onClick={() => void pipeline.confirmCharacterSelection(pickerTask.id, characterIds).then(() => pipeline.startTask(pickerTask.id)).catch(reportError)}><Play />生成选中角色（{characterIds.length}）</button>
       </> : <div className="wb-row"><span className="wb-muted">{pipeline.progresses[`${pickerTask.id}:characters:recognition`]?.stageLabel

@@ -18,8 +18,9 @@ import { StoryMapContent } from "./book-analysis-library-layout"
  *
  * StoryMapContent 没有 variant：它没有需要剥离的外壳，删除按钮由 onDeleteStoryMap 门控。
  *
- * 空状态由各面板自己负责，这里不判断「有没有旧版资料」：
- * 那样做会逼 wrapper 为了故事页签重复一遍 listStoryMapHistory。
+ * 没有旧版资料时整块不渲染：把这些结果并进新版页签之后，空区块只会把各面板自己的
+ * 空状态摆在新版结果下面（故事页签尤其别扭——「旧版历史导图」标题下写着「请先分析
+ * 「故事」技能生成导图」，而那句话说的是新版流程）。
  */
 export function LegacySkillResults({
   book,
@@ -32,6 +33,20 @@ export function LegacySkillResults({
 }) {
   // 角色选中状态放在这里持有，让 BookAnalysisCharacterPanel 保持受控。
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null)
+  // 故事页签空不空只能从盘上读出来，由 StoryMapContent 读完后回传。
+  // 回传结果连同「哪本书 + 哪个刷新键」一起记：判定为空时整块（含 StoryMapContent）会卸载，
+  // 不再重新判断的话，之后生成的导图就永远显示不出来。键一变，下面就算回「未知」并重新挂载去读。
+  const storyKey = `${book.path}:${storyMapRefreshKey}`
+  const [storyReport, setStoryReport] = useState<{ key: string; count: number | null }>({ key: "", count: null })
+  const storyCount = storyReport.key === storyKey ? storyReport.count : null
+
+  const hasLegacy =
+    skill === "characters" ? book.characters.length > 0
+      : skill === "style" ? Boolean(book.styleProfile)
+        // 未知（还没读完）时先照常渲染，只有确知是 0 才当作没有。
+        : storyCount !== 0
+  if (!hasLegacy) return null
+
   // 故事页签要写明是「历史导图」：新版结果区展示的是当前那一份导图，
   // 这里列的是历次生成的旧版导图，只写「旧版资料」分不清两者维度不同。
   const hint = skill === "story" ? "旧版历史导图" : "旧版资料"
@@ -54,7 +69,13 @@ export function LegacySkillResults({
         />
       )}
       {/* 刻意不传 onDeleteStoryMap：删除按钮随回调消失，「查看全部」预览保留。 */}
-      {skill === "story" && <StoryMapContent bookPath={book.path} refreshKey={storyMapRefreshKey} />}
+      {skill === "story" && (
+        <StoryMapContent
+          bookPath={book.path}
+          refreshKey={storyMapRefreshKey}
+          onCardCountChange={(count) => setStoryReport({ key: storyKey, count })}
+        />
+      )}
       {skill === "style" && <BookAnalysisStyleCard variant="embedded" book={book} />}
     </div>
   )

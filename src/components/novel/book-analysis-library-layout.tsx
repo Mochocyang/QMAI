@@ -53,18 +53,31 @@ export function StoryMapContent({
   bookPath,
   refreshKey = 0,
   onDeleteStoryMap,
+  onCardCountChange,
 }: {
   bookPath: string
   refreshKey?: number
   /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除。未提供时不渲染删除按钮。 */
   onDeleteStoryMap?: (id: string) => Promise<void> | void
+  /**
+   * 读取结束后回传卡片数量（null＝读取中）。外层据此决定「一张旧导图都没有」时整块不显示。
+   * 由这里回传而不是让外层自己读一遍：空不空要同时看历史目录与根目录旧格式两处，
+   * 只有这个组件知道完整规则，外层再读一遍会重复一次 listStoryMapHistory。
+   */
+  onCardCountChange?: (count: number | null) => void
 }) {
   const [cards, setCards] = useState<StoryMapCardData[] | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
+  /** 落卡片与回传数量必须成对，抽出来免得漏掉某个分支（含 catch）。 */
+  const applyCards = (next: StoryMapCardData[] | null) => {
+    setCards(next)
+    onCardCountChange?.(next === null ? null : next.length)
+  }
+
   useEffect(() => {
     let cancelled = false
-    setCards(null)
+    applyCards(null)
     setExpandedIds(new Set())
     void (async () => {
       try {
@@ -90,14 +103,14 @@ export function StoryMapContent({
         if (cancelled) return
         if (loaded.length > 0) {
           // 新的在前
-          setCards(loaded.reverse())
+          applyCards(loaded.reverse())
           return
         }
         // 旧格式兼容：仅根目录 story-map.html（未走历史目录生成的老数据）
         const legacyHtml = await readFile(joinPath(bookPath, "story-map.html")).catch(() => null)
         if (cancelled) return
         if (legacyHtml) {
-          setCards([{
+          applyCards([{
             id: "legacy",
             title: "",
             mainline: "",
@@ -110,10 +123,10 @@ export function StoryMapContent({
             html: legacyHtml,
           }])
         } else {
-          setCards([])
+          applyCards([])
         }
       } catch {
-        if (!cancelled) setCards([])
+        if (!cancelled) applyCards([])
       }
     })()
     return () => { cancelled = true }

@@ -126,6 +126,11 @@ function renderResults(
     /** 只取按钮文案：说明段落里也有「提取文风」这类字样，不能拿 textContent 当按钮断言。 */
     buttonLabels: () =>
       Array.from(container.querySelectorAll("button")).map((button) => button.textContent?.trim() ?? ""),
+    /** 再渲染一次并换掉部分 props（改刷新键等）。 */
+    rerender: (next: Partial<Parameters<typeof LegacySkillResults>[0]>) =>
+      act(() => {
+        root.render(<LegacySkillResults book={book} skill="characters" {...props} {...next} />)
+      }),
     cleanup: () => {
       act(() => root.unmount())
       document.body.removeChild(container)
@@ -141,6 +146,12 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     // 结果本身在
     expect(container.textContent).toContain("林烬")
     expect(container.textContent).toContain("旧版资料")
+    // 无障碍：区域要有自己的名字。role="region" 必须一起断言——aria-label 落在隐式
+    // role=generic 的裸 div 上是禁止的命名来源（ARIA 1.2），少了 role 读屏就忽略它，
+    // 只查 aria-label 会放过这个退化。
+    const region = container.querySelector('[data-testid="legacy-skill-results"]')
+    expect(region?.getAttribute("role")).toBe("region")
+    expect(region?.getAttribute("aria-label")).toBe("旧版资料")
     // 管理类控件必须全部消失：顶层两个按钮靠 variant="embedded" 隐藏（属于被剥离的重复标题块），
     // 逐角色的删除按钮才是靠回调缺失不渲染的。
     const labels = buttonLabels()
@@ -151,25 +162,61 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     cleanup()
   })
 
-  it("作品没有该技能的旧版资料时，仍然保留「旧版资料」标签并显示面板自己的空状态", () => {
-    // 空状态由面板自己负责：wrapper 不做「有没有旧版资料」的判断，
-    // 那种判断会逼它为了故事页签重复一遍 listStoryMapHistory。
+  it("角色页签：作品没有旧版角色数据时，整块不渲染", () => {
+    // 并入页签之后，空区块只是噪音：它会把面板自己的空状态摆在新版结果下面，
+    // 让用户以为旧版还有东西要看。
     const { container, cleanup } = renderResults({
       skill: "characters",
       book: { ...book, characters: [], skills: [], styleProfile: undefined },
     })
 
-    const region = container.querySelector('[data-testid="legacy-skill-results"]')
-    expect(region).not.toBeNull()
-    // 标签是无条件渲染的：即使没有资料，它仍是新旧结果的边界说明。
-    expect(region?.textContent).toContain("旧版资料")
-    // 无障碍：区域要有自己的名字，否则读屏用户分不清新旧两块结果。
-    // role="region" 必须一起断言——aria-label 落在隐式 role=generic 的裸 div 上是禁止的命名来源，
-    // 少了 role 读屏就忽略这个名字，只查 aria-label 会放过这个退化。
-    expect(region?.getAttribute("role")).toBe("region")
-    expect(region?.getAttribute("aria-label")).toBe("旧版资料")
-    // 空状态文案必须与 book-analysis-character-panel.tsx:101 完全一致。
-    expect(region?.textContent).toContain("暂无角色数据。")
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    cleanup()
+  })
+
+  it("文风页签：作品没有旧版文风画像时，整块不渲染", () => {
+    const { container, cleanup } = renderResults({
+      skill: "style",
+      book: { ...book, characters: [], skills: [], styleProfile: undefined },
+    })
+
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    cleanup()
+  })
+
+  it("故事页签：没有历史导图时，整块不渲染", async () => {
+    // 故事页签的空要从盘上读出来，不是看 book 上的字段。
+    listStoryMapHistory.mockResolvedValue([])
+    readFile.mockResolvedValue(null)
+    const { container, cleanup } = renderResults({ skill: "story" })
+    await act(async () => {})
+
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    cleanup()
+  })
+
+  it("故事页签：判定为空后刷新键变化会重新判断，新导图仍然能出现", async () => {
+    // 空的时候整块不渲染，故事内容组件就跟着卸载了——如果不再判断一次，
+    // 「先判空、后生成导图」就会永远看不到那张导图。
+    listStoryMapHistory.mockResolvedValue([])
+    readFile.mockResolvedValue(null)
+    const { container, rerender, cleanup } = renderResults({ skill: "story", storyMapRefreshKey: 0 })
+    await act(async () => {})
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-1",
+      map: makeMap(1, "主线A", [1]),
+      jsonPath: "E:/book/story-maps/story-map-1/story-map.json",
+      htmlPath: "E:/book/story-maps/story-map-1/story-map.html",
+    }])
+    readFile.mockResolvedValue("<html>map</html>")
+    // 工作台在故事任务完成后递增刷新键
+    rerender({ storyMapRefreshKey: 1 })
+    await act(async () => {})
+
+    expect(container.querySelector('[data-testid="legacy-skill-results"]')).not.toBeNull()
+    expect(container.textContent).toContain("《测试作品》故事导图")
     cleanup()
   })
 
