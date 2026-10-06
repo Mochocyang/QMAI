@@ -807,8 +807,22 @@ async function readBindableOutlineSources(pp: string): Promise<BindableOutlineSo
 
 /** 只做本地解析（实体页 + 大纲标题），绝不发起网络/LLM 请求。毫秒级。 */
 export async function listBindableNovelCharactersLocal(projectPath: string): Promise<string[]> {
+  const { names } = await listBindableNovelCharactersLocalDetailed(projectPath)
+  return names
+}
+
+/**
+ * 本地解析，并额外报告「是否有文件读不出来」。
+ * hadReadError 为真时名单是残缺的：指纹只看文件清单的路径/大小/修改时间，
+ * 单个文件读失败并不会改变指纹，所以这种残缺名单一旦落盘就会被当成有效命中
+ * 一直用下去（某个角色从此在绑定列表里消失）。调用方据此放弃缓存。
+ */
+async function listBindableNovelCharactersLocalDetailed(
+  projectPath: string,
+): Promise<{ names: string[]; hadReadError: boolean }> {
   const pp = normalizePath(projectPath)
   const names = new Set<string>()
+  let hadReadError = false
 
   try {
     const entityTree = await listDirectory(`${pp}/wiki/entities`)
@@ -818,7 +832,8 @@ export async function listBindableNovelCharactersLocal(projectPath: string): Pro
         if (!isCharacterEntityContent(content)) continue
         addBindableCharacterName(names, extractPrimaryTitle(content, file.name))
       } catch {
-        // Skip entities that can't be read.
+        // 这个文件这次读不出来：名单会缺它，但先让界面有内容可用。
+        hadReadError = true
       }
     }
   } catch {
@@ -836,7 +851,7 @@ export async function listBindableNovelCharactersLocal(projectPath: string): Pro
     }
   }
 
-  return sortBindableCharacterNames(names)
+  return { names: sortBindableCharacterNames(names), hadReadError }
 }
 
 /**
@@ -844,9 +859,17 @@ export async function listBindableNovelCharactersLocal(projectPath: string): Pro
  * 绝不等待 LLM —— LLM 精修由 refineBindableCharactersWithLlm 在后台补上。
  */
 export async function listBindableNovelCharacters(projectPath: string): Promise<string[]> {
+  // 有实体页这次读不出来时，名单是残缺的 —— 立刻返回让界面先有内容，
+  // 但不落盘，免得这份残缺名单被当成有效缓存一直用下去。
+  let hadReadError = false
   const { names } = await loadBindableCharactersWithCache(
     projectPath,
-    () => listBindableNovelCharactersLocal(projectPath),
+    async () => {
+      const scan = await listBindableNovelCharactersLocalDetailed(projectPath)
+      hadReadError = scan.hadReadError
+      return scan.names
+    },
+    { persist: () => !hadReadError },
   )
   return names
 }

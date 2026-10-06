@@ -218,6 +218,52 @@ describe("character-aura 可绑定人物名单（本地/缓存/精修拆分）",
     expect(cacheDisk.has(CACHE_PATH)).toBe(false)
   })
 
+  /**
+   * 缓存引入的新黏性问题：指纹只看文件清单的「路径/大小/修改时间」，
+   * 单个实体页读不出来并不会改变指纹。若把这次残缺的名单落盘，
+   * 它就会被当成有效命中一直用下去 —— 那个角色从此在绑定列表里消失，
+   * 直到别的文件改了大小或修改时间。所以残缺名单可以立即返回，但不许缓存。
+   */
+  it("实体页读取失败时，残缺名单不落盘，下次调用会重新扫描", async () => {
+    setupProject({ entities: [entityPage("甲"), entityPage("乙")], outlines: [] })
+    // 第一次读「甲」正常、「乙」失败
+    mockReadFile.mockImplementation(async (path: string) => {
+      const file = entityFiles.find((item) => item.path === path)
+      if (file?.name === "乙.md") throw new Error("EACCES 乙.md")
+      if (file) return file.content
+      throw new Error(`unexpected read: ${path}`)
+    })
+
+    const first = await listBindableNovelCharacters(PROJECT_PATH)
+
+    expect(first, "读失败的那个名字确实拿不到，但其它名字要能立刻用").toEqual(["甲"])
+    expect(cacheDisk.has(CACHE_PATH), "残缺名单被落盘了，会被当成有效缓存一直用下去").toBe(false)
+
+    // 第二次读取恢复正常：必须能补齐「乙」，而不是命中上次的残缺缓存
+    const readsBefore = mockListDirectory.mock.calls.length
+    mockReadFile.mockImplementation(async (path: string) => {
+      const file = entityFiles.find((item) => item.path === path)
+      if (file) return file.content
+      throw new Error(`unexpected read: ${path}`)
+    })
+    const second = await listBindableNovelCharacters(PROJECT_PATH)
+
+    expect(second, "残缺缓存粘住了，第二次也补不回「乙」").toEqual(["甲", "乙"])
+    expect(mockListDirectory.mock.calls.length, "没有重新扫描清单，说明命中了残缺缓存")
+      .toBeGreaterThan(readsBefore)
+    // 这次扫描是完整的，应当正常落盘
+    expect(cacheDisk.has(CACHE_PATH)).toBe(true)
+  })
+
+  it("实体页都能读时照常落盘（避免上面的守卫把正常缓存也禁掉）", async () => {
+    setupProject({ entities: [entityPage("甲")], outlines: [] })
+
+    const names = await listBindableNovelCharacters(PROJECT_PATH)
+
+    expect(names).toEqual(["甲"])
+    expect(cacheDisk.has(CACHE_PATH)).toBe(true)
+  })
+
   it("listBindableNovelCharacters 在 LLM 永不返回时也必须立即返回本地名单", async () => {
     setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
     mockHasUsableLlm.mockReturnValue(true)

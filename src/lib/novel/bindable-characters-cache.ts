@@ -123,11 +123,15 @@ export async function writeBindableCharactersCache(
 /**
  * 指纹未变则直接命中缓存；否则调用 compute 重算并落盘。
  * 一次调用只扫描一次清单。compute 抛错时不写缓存，错误向上抛。
+ *
+ * `persist` 在 compute() 之后才求值：调用方可以据此放弃落盘 —— 名单是残缺的
+ * 时候不能缓存，否则残缺名单会被当成有效命中一直用下去（指纹只看文件清单的
+ * 路径/大小/修改时间，单个文件读不出来并不会改变指纹）。
  */
 export async function loadBindableCharactersWithCache(
   projectPath: string,
   compute: () => Promise<string[]>,
-  options?: { force?: boolean },
+  options?: { force?: boolean; persist?: () => boolean },
 ): Promise<{ names: string[]; cacheHit: boolean; fingerprint: string }> {
   const fingerprint = await computeBindableFingerprint(projectPath)
 
@@ -144,6 +148,9 @@ export async function loadBindableCharactersWithCache(
   const landed = await readBindableCharactersCache(projectPath)
   if (landed && landed.fingerprint === fingerprint && landed.llmRefinedFingerprint === fingerprint) {
     return { names: landed.names, cacheHit: true, fingerprint }
+  }
+  if (options?.persist && !options.persist()) {
+    return { names, cacheHit: false, fingerprint }
   }
   await writeBindableCharactersCache(projectPath, { fingerprint, names, updatedAt: Date.now() })
   return { names, cacheHit: false, fingerprint }
