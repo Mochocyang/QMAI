@@ -11,6 +11,12 @@ import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parsePortablePersonality, personalityFields, renderPersonalitySkill, renderBoundPersonalities, PersonalityConstraintError, type BoundPersonality, type PortablePersonality } from "./portable-personality"
+import {
+  computeBindableFingerprint,
+  loadBindableCharactersWithCache,
+  readBindableCharactersCache,
+  writeBindableCharactersCache,
+} from "./bindable-characters-cache"
 import { pinyin } from "pinyin-pro"
 import * as OpenCC from "opencc-js/t2cn"
 
@@ -756,16 +762,53 @@ function isCharacterEntityContent(content: string): boolean {
   return tags.includes("character")
 }
 
-export async function listBindableNovelCharacters(projectPath: string): Promise<string[]> {
+/**
+ * 后台精修单个大纲页的 LLM 超时。旧的 30s 超时 × 串行多份大纲，是
+ * 灵魂页「加完人物后要等 3 分钟」的直接原因。
+ */
+export const BINDABLE_CHARACTERS_LLM_TIMEOUT_MS = 8000
+
+type BindableOutlineSource = {
+  pageTitle: string
+  content: string
+}
+
+function addBindableCharacterName(names: Set<string>, value: string | null | undefined): void {
+  const trimmed = value?.trim()
+  if (!trimmed || trimmed.length > 40) return
+  if (IGNORE_BINDABLE_CHARACTER_NAMES.has(trimmed)) return
+  names.add(trimmed)
+}
+
+function sortBindableCharacterNames(names: Iterable<string>): string[] {
+  return [...names].sort((left, right) => left.localeCompare(right, "zh-CN"))
+}
+
+/** 读出所有符合条件的人设大纲页，本地解析与后台精修共用同一套筛选规则。 */
+async function readBindableOutlineSources(pp: string): Promise<BindableOutlineSource[]> {
+  const sources: BindableOutlineSource[] = []
+  try {
+    const outlineTree = await listDirectory(`${pp}/wiki/outlines`)
+    for (const file of flattenMarkdownNodes(outlineTree)) {
+      try {
+        const content = await readFile(file.path)
+        const pageTitle = extractPrimaryTitle(content, file.name)
+        if (!isCharacterOutlineFile(file.path, pageTitle, content)) continue
+        sources.push({ pageTitle, content })
+      } catch {
+        // Keep the dropdown resilient when a single outline page is broken.
+      }
+    }
+  } catch {
+    // Projects may not have outline pages yet.
+  }
+  return sources
+}
+
+/** 只做本地解析（实体页 + 大纲标题），绝不发起网络/LLM 请求。毫秒级。 */
+export async function listBindableNovelCharactersLocal(projectPath: string): Promise<string[]> {
   const pp = normalizePath(projectPath)
   const names = new Set<string>()
-
-  const addName = (value: string | null | undefined) => {
-    const trimmed = value?.trim()
-    if (!trimmed || trimmed.length > 40) return
-    if (IGNORE_BINDABLE_CHARACTER_NAMES.has(trimmed)) return
-    names.add(trimmed)
-  }
 
   try {
     const entityTree = await listDirectory(`${pp}/wiki/entities`)
@@ -773,7 +816,7 @@ export async function listBindableNovelCharacters(projectPath: string): Promise<
       try {
         const content = await readFile(file.path)
         if (!isCharacterEntityContent(content)) continue
-        addName(extractPrimaryTitle(content, file.name))
+        addBindableCharacterName(names, extractPrimaryTitle(content, file.name))
       } catch {
         // Skip entities that can't be read.
       }
@@ -782,30 +825,88 @@ export async function listBindableNovelCharacters(projectPath: string): Promise<
     // Projects may not have entity pages yet.
   }
 
-  try {
-    const outlineTree = await listDirectory(`${pp}/wiki/outlines`)
-    for (const file of flattenMarkdownNodes(outlineTree)) {
-      try {
-        const content = await readFile(file.path)
-        const pageTitle = extractPrimaryTitle(content, file.name)
-        if (!isCharacterOutlineFile(file.path, pageTitle, content)) continue
-        const extractedNames = await extractCharacterNamesFromOutlineEnhanced(content)
-        if (extractedNames.length === 0) {
-          addName(pageTitle)
-          continue
-        }
-        for (const characterName of extractedNames) {
-          addName(characterName)
-        }
-      } catch {
-        // Keep the dropdown resilient when a single outline page is broken.
-      }
+  for (const source of await readBindableOutlineSources(pp)) {
+    const extractedNames = extractCharacterNamesFromOutline(source.content)
+    if (extractedNames.length === 0) {
+      addBindableCharacterName(names, source.pageTitle)
+      continue
     }
-  } catch {
-    // Projects may not have outline pages yet.
+    for (const characterName of extractedNames) {
+      addBindableCharacterName(names, characterName)
+    }
   }
 
-  return [...names].sort((left, right) => left.localeCompare(right, "zh-CN"))
+  return sortBindableCharacterNames(names)
+}
+
+/**
+ * 可绑定人物名单（缓存感知）：命中缓存立即返回，未命中只做本地解析。
+ * 绝不等待 LLM —— LLM 精修由 refineBindableCharactersWithLlm 在后台补上。
+ */
+export async function listBindableNovelCharacters(projectPath: string): Promise<string[]> {
+  const { names } = await loadBindableCharactersWithCache(
+    projectPath,
+    () => listBindableNovelCharactersLocal(projectPath),
+  )
+  return names
+}
+
+/** 本地/缓存名单兜底读取：任何异常都不能往外抛。 */
+async function readBindableNamesFallback(projectPath: string): Promise<string[]> {
+  try {
+    const cached = await readBindableCharactersCache(projectPath)
+    if (cached) return cached.names
+  } catch {}
+  try {
+    return await listBindableNovelCharactersLocal(projectPath)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 后台用 LLM 精修人物名单并写回缓存。失败时静默降级，绝不抛错。
+ * 同一指纹只精修一次，指纹变化（wiki 有改动）才会重新请求模型。
+ */
+export async function refineBindableCharactersWithLlm(projectPath: string): Promise<string[]> {
+  const pp = normalizePath(projectPath)
+
+  try {
+    const fingerprint = await computeBindableFingerprint(pp)
+    const cached = await readBindableCharactersCache(pp)
+    // 当前 wiki 状态已经精修过：这是「每次打开对话框都重新问模型」的拦截点。
+    if (cached?.llmRefinedFingerprint === fingerprint) return cached.names
+
+    const state = useWikiStore.getState()
+    const llmConfig = resolveDefaultModel(state.llmConfig)
+    if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+      // 模型还没配好：返回本地名单，且不标记已精修，等用户配置后还能精修。
+      return await readBindableNamesFallback(pp)
+    }
+
+    const localNames = await listBindableNovelCharactersLocal(pp)
+    const sources = await readBindableOutlineSources(pp)
+    const llmBatches = await Promise.all(
+      sources.map((source) => requestCharacterNamesWithLLM(source.content, BINDABLE_CHARACTERS_LLM_TIMEOUT_MS)),
+    )
+
+    // 本地顺序优先，其后按 LLM 发现顺序追加本地没有的名字。
+    const merged = new Set<string>()
+    for (const name of localNames) addBindableCharacterName(merged, name)
+    for (const name of llmBatches.flat()) addBindableCharacterName(merged, name)
+    const names = [...merged]
+
+    await writeBindableCharactersCache(pp, {
+      fingerprint,
+      names,
+      llmRefinedFingerprint: fingerprint,
+      updatedAt: Date.now(),
+    })
+    return names
+  } catch {
+    // LLM 报错/超时/文件读不动：保持本地名单可用，也不写入假的「已精修」标记。
+    return await readBindableNamesFallback(pp)
+  }
 }
 
 async function readSkillFileWithFallback(filePath: string, projectPath?: string): Promise<string> {
@@ -2144,10 +2245,11 @@ function extractCharacterNamesFromOutline(content: string): string[] {
 }
 
 /**
- * 使用 LLM 从大纲文本中提取真实人物名称。
- * 当标题解析结果不足或质量可疑时调用，作为增强提取手段。
+ * 用 LLM 从大纲文本中提取真实人物名称。
+ * 失败如实抛出，让精修流程知道「这次没成功」，从而不把当前指纹标记成已精修；
+ * 降级由调用方（refineBindableCharactersWithLlm）负责。
  */
-async function extractCharacterNamesWithLLM(content: string): Promise<string[]> {
+async function requestCharacterNamesWithLLM(content: string, timeoutMs: number): Promise<string[]> {
   const state = useWikiStore.getState()
   const llmConfig = resolveDefaultModel(state.llmConfig)
   if (!hasUsableLlm(llmConfig, state.providerConfigs)) return []
@@ -2163,41 +2265,25 @@ async function extractCharacterNamesWithLLM(content: string): Promise<string[]> 
 文本内容：
 ${content.slice(0, 6000)}`
 
-  try {
-    const messages: ChatMessage[] = [
-      { role: "system", content: "你是一个专业的小说人物名称提取助手。只输出人物姓名，每行一个。" },
-      { role: "user", content: prompt },
-    ]
+  const messages: ChatMessage[] = [
+    { role: "system", content: "你是一个专业的小说人物名称提取助手。只输出人物姓名，每行一个。" },
+    { role: "user", content: prompt },
+  ]
 
-    let result = ""
-    await streamChat(
-      llmConfig,
-      messages,
-      {
-        onToken: (token: string) => { result += token },
-        onDone: () => {},
-        onError: () => {},
-      },
-      AbortSignal.timeout(30000),
-    )
+  let result = ""
+  await streamChat(
+    llmConfig,
+    messages,
+    {
+      onToken: (token: string) => { result += token },
+      onDone: () => {},
+      onError: () => {},
+    },
+    AbortSignal.timeout(timeoutMs),
+  )
 
-    return result
-      .split("\n")
-      .map((line) => line.replace(/^[\d\.\、\s\-]+/, "").trim())
-      .filter((name) => name.length > 0 && name.length <= 20 && name !== "无")
-  } catch {
-    return []
-  }
-}
-
-/**
- * 从大纲内容中提取人物名称，优先使用 LLM 提取，回退到标题解析。
- */
-async function extractCharacterNamesFromOutlineEnhanced(content: string): Promise<string[]> {
-  // 先尝试 LLM 提取
-  const llmNames = await extractCharacterNamesWithLLM(content)
-  if (llmNames.length > 0) return llmNames
-
-  // 回退到标题解析
-  return extractCharacterNamesFromOutline(content)
+  return result
+    .split("\n")
+    .map((line) => line.replace(/^[\d\.\、\s\-]+/, "").trim())
+    .filter((name) => name.length > 0 && name.length <= 20 && name !== "无")
 }
