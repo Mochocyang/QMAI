@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => {
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
     old: { selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn() },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
-    pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init },
+    pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
   }
 })
 vi.mock("@/stores/wiki-store", () => ({ useWikiStore: Object.assign((s: any) => s(mocks.wiki), { getState: () => mocks.wiki }) }))
@@ -225,12 +225,67 @@ describe("分析模型贴近开始分析", () => {
   })
 })
 
-describe("旧版结果常显", () => {  it("旧版结果直接显示在新版结果区下方，不需要先点开入口", async () => {
+describe("旧版结果常显", () => {
+  it("旧版结果直接显示在新版结果区下方，不需要先点开入口", async () => {
     await act(async () => root.render(<BookAnalysisWorkbench legacy={<div data-testid="legacy-body">旧版角色卡</div>} />))
     expect(host.querySelector('[data-testid="legacy-body"]')).not.toBeNull()
     const results = host.querySelector(".wb-results-section")!
     const legacySection = host.querySelector(".wb-legacy")!
     expect(legacySection).not.toBeNull()
     expect(results.compareDocumentPosition(legacySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe("识别角色失败后不被锁死", () => {
+  /** 角色识别失败时，任务会留在 awaiting-character-selection 并把原因写进 error。 */
+  function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: "t-1", bookId: "book-1", bookTitle: "测试作品", bookPath: book.path, projectPath: "/project",
+      status: "awaiting-character-selection", selectedSkills: ["characters"], workbenchVersion: 2,
+      recognizedCharacters: [] as unknown[], error: "HTTP 429: Too Many Requests", createdAt: 1, updatedAt: 1,
+      ...overrides,
+    }
+  }
+  const startButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
+    .find((b) => b.textContent?.includes("开始分析"))!
+
+  beforeEach(() => { mocks.pipeline.progresses = {} })
+
+  it("识别失败后「开始分析」重新可点（卡住的任务不能一直锁死按钮）", async () => {
+    mocks.pipeline.tasks = [stuckTask()]
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    expect(startButton().disabled).toBe(false)
+  })
+
+  it("识别失败时在角色选择处给出「重试」按钮，点击重新识别", async () => {
+    mocks.pipeline.tasks = [stuckTask()]
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    const retry = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.trim() === "重试")
+    expect(retry).not.toBeNull()
+    await act(async () => retry!.click())
+    expect(mocks.pipeline.recognizeWorkbenchCharacters).toHaveBeenCalledWith("t-1")
+  })
+
+  it("回归保护：已有待选角色时仍不重复开始分析", async () => {
+    mocks.pipeline.tasks = [stuckTask({
+      error: null,
+      recognizedCharacters: [{ id: "c1", name: "许七安", category: "主角", aliases: [], chapterIndices: [0], importanceScore: 1, appearances: 1 }],
+    })]
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    expect(startButton().disabled).toBe(true)
+  })
+
+  it("回归保护：正在识别角色时也不重复开始分析", async () => {
+    mocks.pipeline.tasks = [stuckTask({ error: null })]
+    mocks.pipeline.progresses = { "t-1:characters:recognition": { stageLabel: "识别角色 1/2", percentage: 50 } }
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    expect(startButton().disabled).toBe(true)
+  })
+
+  it("回归保护：真正的排队与运行中仍然锁住按钮", async () => {
+    mocks.pipeline.tasks = [stuckTask({ status: "running", error: null })]
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    expect(startButton().disabled).toBe(true)
   })
 })

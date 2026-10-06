@@ -252,7 +252,12 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   }
   const selectedRevisions = revisions.filter((r) => r.skill === activeSkill)
   const result = selectedRevisions.find((r) => r.id === selectedRevision) ?? selectedRevisions[0]
-  const hasActiveTask = tasks.some((t) => ["running", "queued", "awaiting-character-selection"].includes(t.status))
+  // 卡在「待选择角色」不等于还在干活：识别失败时任务会停在这个状态并把原因写进 error，
+  // 若照旧算作活动任务，「开始分析」会被永久锁死（用户反馈的正是这一点）。
+  // 只有真的在跑/排队，或者确实有待选角色、或正在识别，才算占用。
+  const hasActiveTask = tasks.some((t) => ["running", "queued"].includes(t.status)
+    || (t.status === "awaiting-character-selection"
+      && ((t.recognizedCharacters?.length ?? 0) > 0 || Boolean(pipeline.progresses[`${t.id}:characters:recognition`]))))
   return <>
     <section className="wb-section wb-analysis-settings" id="wb-analysis-settings">
       <div className="wb-section-heading"><h2><span className="wb-step-number">01</span>分析设置</h2><span className="wb-muted">TXT · {book.metadata.totalChapters}章</span></div>
@@ -296,8 +301,9 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
           <strong>{c.name}</strong><span className="wb-muted">{c.category} · {c.aliases.join("、")}</span>
         </label>)}</div>
         <button className="wb-primary" disabled={!characterIds.length} onClick={() => void pipeline.confirmCharacterSelection(pickerTask.id, characterIds).then(() => pipeline.startTask(pickerTask.id)).catch(reportError)}><Play />生成选中角色（{characterIds.length}）</button>
-      </> : <div className="wb-row"><span className="wb-muted">{pipeline.progresses[`${pickerTask.id}:characters:recognition`]?.stageLabel ?? "等待角色识别"}</span>
-        <button disabled={Boolean(pipeline.progresses[`${pickerTask.id}:characters:recognition`])} onClick={() => void pipeline.recognizeWorkbenchCharacters(pickerTask.id).catch(reportError)}>识别角色</button></div>}
+      </> : <div className="wb-row"><span className="wb-muted">{pipeline.progresses[`${pickerTask.id}:characters:recognition`]?.stageLabel
+        ?? (pickerTask.error ? "识别失败，可重试" : "等待角色识别")}</span>
+        <button disabled={Boolean(pipeline.progresses[`${pickerTask.id}:characters:recognition`])} onClick={() => void pipeline.recognizeWorkbenchCharacters(pickerTask.id).catch(reportError)}>{pickerTask.error ? <><RefreshCw />重试</> : "识别角色"}</button></div>}
     </section>}
     {task && <section className="wb-section wb-task-section"><h2 className="sr-only">任务进度</h2><TaskProgress task={task} />
       <details><summary><History size={14} className="inline" /> 历史任务（{tasks.length}）</summary>{tasks.filter((t) => t.id !== task.id).map((t) => <TaskProgress key={t.id} task={t} />)}</details>
