@@ -33,12 +33,12 @@ function makeMap(createdAt: number, mainLineLabel: string, orders: number[]): St
   }
 }
 
-function renderContent(bookPath: string) {
+function renderContent(bookPath: string, props: Partial<Parameters<typeof StoryMapContent>[0]> = {}) {
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root = createRoot(container)
   act(() => {
-    root.render(<StoryMapContent bookPath={bookPath} />)
+    root.render(<StoryMapContent bookPath={bookPath} {...props} />)
   })
   return {
     container,
@@ -162,5 +162,49 @@ describe("StoryMapContent 历史导图展示", () => {
 
     act(() => root.unmount())
     document.body.removeChild(container)
+  })
+})
+
+describe("按回调决定是否渲染删除按钮", () => {
+  it("未提供删除回调时隐藏「删除」，但保留「查看全部」预览开关", async () => {
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-100",
+      map: makeMap(100, "主线A", [1]),
+      jsonPath: "E:/book/story-maps/story-map-100/story-map.json",
+      htmlPath: "E:/book/story-maps/story-map-100/story-map.html",
+    }])
+    readFile.mockResolvedValue("<html>map</html>")
+    const { container, cleanup } = renderContent("E:/book")
+    await act(async () => {})
+
+    const labels = Array.from(container.querySelectorAll("button")).map((b) => b.textContent?.trim() ?? "")
+    expect(labels).not.toContain("删除")
+    expect(labels).toContain("查看全部")
+    cleanup()
+  })
+
+  it("提供删除回调时渲染「删除」，点击后调用回调并传入该导图的 id", async () => {
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-100",
+      map: makeMap(100, "主线A", [1]),
+      jsonPath: "E:/book/story-maps/story-map-100/story-map.json",
+      htmlPath: "E:/book/story-maps/story-map-100/story-map.html",
+    }])
+    readFile.mockResolvedValue("<html>map</html>")
+    const onDeleteStoryMap = vi.fn(async () => {})
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, cleanup } = renderContent("E:/book", { onDeleteStoryMap })
+    await act(async () => {})
+
+    const del = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "删除") as HTMLButtonElement
+    expect(del).toBeTruthy()
+    await act(async () => {
+      del.click()
+    })
+    expect(onDeleteStoryMap).toHaveBeenCalledWith("story-map-100")
+
+    confirmSpy.mockRestore()
+    cleanup()
   })
 })

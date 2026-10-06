@@ -56,7 +56,7 @@ export function StoryMapContent({
 }: {
   bookPath: string
   refreshKey?: number
-  /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除 */
+  /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除。未提供时不渲染删除按钮。 */
   onDeleteStoryMap?: (id: string) => Promise<void> | void
 }) {
   const [cards, setCards] = useState<StoryMapCardData[] | null>(null)
@@ -177,15 +177,17 @@ export function StoryMapContent({
                 <Button size="sm" variant="outline" onClick={() => toggleExpand(card.id)}>
                   {expanded ? "收起" : "查看全部"}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:bg-destructive/10"
-                  onClick={() => void handleDeleteMap(card)}
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  删除
-                </Button>
+                {onDeleteStoryMap && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:bg-destructive/10"
+                    onClick={() => void handleDeleteMap(card)}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    删除
+                  </Button>
+                )}
               </div>
             </div>
             {card.html ? (
