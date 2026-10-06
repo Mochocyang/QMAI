@@ -23,7 +23,8 @@
 
 .ui-test-root .ui-test-editor-header {
   position: relative;
-  z-index: 1;
+  /* 正文 textarea 是 z-index:1，和头部同级时会盖住向下溢出的草稿提示。抬到 2，选区条（30）和查找条（40）仍在其上。 */
+  z-index: 2;
   flex-shrink: 0;
   padding-top: var(--ui-heading-top);
   background: var(--ui-paper);

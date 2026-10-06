@@ -39,13 +39,13 @@ async function renderProvider(custom: boolean) {
 it.each([false, true])("思考开启与必要输出预算一起保存，不提交也不丢失密钥和输出草稿，自定义=%s", async custom => {
   const card = await renderProvider(custom), id = custom ? "custom-test" : "openai"
   await changeInput(card, "API 密钥", "draft-key")
-  if (custom) await changeInput(card, "输出上限", "49152")
-  else await click(card, "48K")
+  // 输出上限已由数字输入框改为预设选择器，两种卡片都通过同一个 48K 预设写入草稿。
+  await click(card, "48K")
   await click(card, "高")
   expect(saveProviderConfigs).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ [id]: { ...original, reasoning: { mode: "high" }, maxOutputTokens: 16384 } }))
   expect(useWikiStore.getState().providerConfigs[id]).toEqual({ ...original, reasoning: { mode: "high" }, maxOutputTokens: 16384 })
   expect(card.querySelector<HTMLInputElement>('[aria-label="API 密钥"]')!.value).toBe("draft-key")
-  if (custom) expect(card.querySelector<HTMLInputElement>('[aria-label="输出上限"]')!.value).toBe("49152")
+  if (custom) expect(card.textContent).toContain("48K tokens")
   await click(card, "保存配置")
   expect(useWikiStore.getState().providerConfigs[id]).toMatchObject({ apiKey: "draft-key", maxOutputTokens: 49152, reasoning: { mode: "high" } })
 })
