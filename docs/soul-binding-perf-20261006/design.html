@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>灵魂库加载与绑定体验优化 · 设计文档</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5f6b66; --line:#dfe5e1; --panel:#f6f8f6; --accent:#2f6f52; --danger:#b42318; --warn:#8a5a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 24px 80px; background:#eef1ee; color:var(--ink);
+         font:15px/1.85 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:960px; margin:0 auto; background:#fff; border-radius:14px; padding:44px 48px 56px;
+         box-shadow:0 1px 3px #17231d14, 0 12px 40px #17231d0f; }
+  h1 { font-size:26px; line-height:1.5; margin:0 0 6px; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 28px; }
+  h2 { font-size:19px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+  h3 { font-size:16px; margin:28px 0 10px; }
+  h4 { font-size:14px; margin:20px 0 8px; color:var(--accent); }
+  p, li { margin:8px 0; }
+  ul, ol { padding-left:24px; }
+  code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+         font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:14px 16px;
+        overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre code { background:none; border:0; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note, .warn, .danger { border-radius:9px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  .note { background:#eef5f1; border-left:4px solid var(--accent); }
+  .warn { background:#fdf6e6; border-left:4px solid var(--warn); }
+  .danger { background:#fdeceb; border-left:4px solid var(--danger); }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+         padding:1px 9px; font-size:12px; color:var(--muted); margin-left:6px; }
+  .ok { color:var(--accent); font-weight:600; }
+  .no { color:var(--danger); font-weight:600; }
+  footer { max-width:960px; margin:22px auto 0; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>灵魂库加载与绑定体验优化</h1>
+<p class="sub">设计文档 · 2026-10-06 · 状态：待用户确认 · 关联分支 <code>main</code></p>
+
+<h2>1. 你报告的问题</h2>
+<table>
+  <tr><th style="width:64px">编号</th><th>问题</th><th>你的描述</th></tr>
+  <tr>
+    <td>P1</td>
+    <td>自定义灵魂显示异常 + 极慢</td>
+    <td>角色从「拆书库」加入「自定义灵魂」后，页面先显示「还没有自定义灵魂」；等约 <b>3 分钟</b>这些信息才出现。</td>
+  </tr>
+  <tr>
+    <td>P2a</td>
+    <td>绑定对话框每次都「正在读取小说人物」</td>
+    <td>第一次打开要读，第二次打开还要读；第一次已经读过大量角色，应该已经存下来了。</td>
+  </tr>
+  <tr>
+    <td>P2b</td>
+    <td>缺搜索</td>
+    <td>小说人物很多，绑定时要能快速查找。</td>
+  </tr>
+  <tr>
+    <td>P2c</td>
+    <td>布局</td>
+    <td>当前单列上下排列，改成横向排列（例如每行 5 个名字）。</td>
+  </tr>
+</table>
+
+<h2>2. 根因定位</h2>
+<p>P1 与 P2a <b>是同一个根因</b>，不是两个 bug。定位过程只读代码与磁盘文件，未做任何猜测性改动。</p>
+
+<h3>2.1 灵魂列表被「扫人物」拖住</h3>
+<p><code>src/components/novel/character-aura-view.tsx:196</code> 的 <code>refresh()</code>：</p>
+<pre><code>const [loaded, loadedCharacters, loadedBindings] = await Promise.all([
+  listCharacterAuras(project.path),          // 快：只读一个 json
+  listBindableNovelCharacters(project.path), // 慢：逐文件扫描（可能调 LLM）
+  getCharacterAuraBindings(project.path),    // 快：同一个 json
+])
+setAuras(loaded)   // ← 被最慢的那个 Promise 卡住</code></pre>
+<div class="danger">
+  <p><b>灵魂列表的渲染被「读取小说人物」阻塞了。</b><code>setAuras</code> 必须等 <code>Promise.all</code> 全部结束才执行，所以只要人物扫描没完，右侧就一直是 <code>character-aura-view.tsx:498</code> 的空状态文案——正是你看到的那句「还没有自定义灵魂。点击左侧上方&ldquo;新建角色灵魂&rdquo;后，就可以生成并保存到当前小说项目。」</p>
+</div>
+<p>这也解释了截图里的矛盾现象：<b>灵魂库画廊页是快的</b>（它只调 <code>listCharacterAuras</code>），<b>点进详情的 <code>CharacterAuraView</code> 是慢的</b>（它多调了人物扫描）。</p>
+
+<h3>2.2 「扫人物」为什么能花掉几分钟</h3>
+<p><code>src/lib/novel/character-aura.ts:759</code> 的 <code>listBindableNovelCharacters</code>：</p>
+<ol>
+  <li><b>没有任何缓存。</b>每次调用都从头扫盘 → 这就是 P2a「第二次打开还是正在读取」。</li>
+  <li><code>wiki/entities</code> 下<b>串行</b>逐个 <code>await readFile</code>（实测某项目 260 个实体页）。</li>
+  <li><code>wiki/outlines</code> 下每个通过 <code>isCharacterOutlineFile</code> 的文件，都会走 <code>extractCharacterNamesFromOutlineEnhanced</code> → <code>extractCharacterNamesWithLLM</code>（<code>character-aura.ts:2150</code>）。这是<b>串行</b>的，且每次带 <code>AbortSignal.timeout(30000)</code>。</li>
+</ol>
+<div class="warn">
+  <p><b>3 分钟就是对上了：</b>6 个大纲文件各等一次 30 秒超时 ≈ 180 秒。LLM 不可用或超时后才会回退到本地的标题解析。也就是说，为了拿到一份人物名单，程序可能连续发起多次注定要等满 30 秒的请求，而且每次都重来。</p>
+</div>
+<p>对照数据：<code>readFile</code> 只是 <code>src/commands/fs.ts:34</code> 的一次 <code>invoke</code>（毫秒级），所以 260 次实体读盘本身只有一两秒——<b>几分钟全部来自 LLM 超时，不是读盘</b>。</p>
+
+<h3>2.3 结论</h3>
+<table>
+  <tr><th>症状</th><th>根因</th></tr>
+  <tr><td>P1 先显示空、约 3 分钟后才出现</td><td>灵魂列表 <code>setAuras</code> 被人物扫描阻塞；扫描因逐文件 LLM 超时而耗时数分钟</td></tr>
+  <tr><td>P2a 每次打开都要重新读取</td><td><code>listBindableNovelCharacters</code> 无缓存，且每次重跑 LLM 路径</td></tr>
+  <tr><td>P2b / P2c</td><td>纯 UI 缺失，与上面无关</td></tr>
+</table>
+
+<h2>3. 修复设计</h2>
+
+<h3>3.1 解耦：灵魂列表永不等人物扫描 <span class="tag">修 P1</span></h3>
+<p>把一次性的 <code>Promise.all</code> 拆成三条互不阻塞的加载线：</p>
+<table>
+  <tr><th>数据</th><th>用途</th><th>加载策略</th></tr>
+  <tr><td><code>listCharacterAuras</code></td><td>灵魂列表本体</td><td><b>立即</b> <code>setAuras</code>，不受其他任何请求影响</td></tr>
+  <tr><td><code>getCharacterAuraBindings</code></td><td>「已绑定 N 人」角标</td><td><b>立即</b> <code>setBindings</code></td></tr>
+  <tr><td><code>listBindableNovelCharacters</code></td><td>仅绑定下拉框 / 绑定对话框</td><td>独立加载，<b>只在该 UI 内部显示局部 loading</b></td></tr>
+</table>
+<div class="note">
+  <p>验收要点：<b>灵魂列表的渲染路径里不得出现任何人物扫描的 await</b>。这条会写成测试钉死——把人物扫描换成永不 resolve 的 Promise，灵魂列表仍必须正常渲染。</p>
+</div>
+
+<h3>3.2 缓存 + 秒显：人物名单不再反复扫 <span class="tag">修 P2a</span></h3>
+<h4>分两层</h4>
+<ol>
+  <li><b>本地解析先行（毫秒级）</b>：实体页标题 + 大纲标题解析是纯本地的，先立刻出一版名单并渲染，用户不再看到空白等待。</li>
+  <li><b>LLM 识别按策略处理</b>：见第 4 节的选项。</li>
+</ol>
+<h4>持久化缓存</h4>
+<ul>
+  <li>落盘到 <code>&lt;项目&gt;/.qmai/bindable-characters.json</code>，与灵魂库同目录（该目录已存在且已有 <code>character-aura.json</code>）。</li>
+  <li>带<b>指纹</b>：<code>wiki/entities</code> 与 <code>wiki/outlines</code> 下的文件清单 + 大小 + mtime 的哈希。指纹未变时直接复用，<b>既不扫盘也不调 LLM</b>。</li>
+  <li>内存层缓存：同一会话内切换页面不重复读盘。</li>
+  <li>失效时机：指纹变化、项目数据版本 bump（<code>refreshProjectState</code>）、用户点「重新扫描」。</li>
+  <li>缓存文件只存名字数组与指纹，损坏或格式不符时静默重建，不阻塞 UI。</li>
+</ul>
+<p>你期望的「第一次读过就该存下来」由此满足：第二次打开是<b>一次 json 读盘</b>。</p>
+
+<h3>3.3 绑定对话框加搜索框 <span class="tag">修 P2b</span></h3>
+<ul>
+  <li>对话框顶部加输入框，<b>自动聚焦</b>，按子串过滤（不区分大小写、忽略首尾空格）。</li>
+  <li>命中数量实时显示：「已选 N 个 · 匹配 M / 共 K」。</li>
+  <li><b>已勾选的项目在过滤后仍然保留</b>——搜索不能悄悄丢掉已经选好的人。</li>
+  <li>无命中时给出「没有匹配「xxx」」而不是空白。</li>
+  <li>Esc 清空搜索 vs 关闭对话框：Esc 先清空搜索（有内容时），空时再关闭。</li>
+</ul>
+
+<h3>3.4 人物列表横向排列 <span class="tag">修 P2c</span></h3>
+<ul>
+  <li>改为 CSS Grid：每行 5 个（<code>repeat(5, minmax(0, 1fr))</code>）。</li>
+  <li>窄窗口逐级降级（5 → 3 → 2 列），名字过长时省略号 + <code>title</code> 悬浮显示全名。</li>
+  <li>点击<b>整格</b>都能勾选（不只点复选框）。</li>
+</ul>
+
+<h2>4. 需要你决策的点</h2>
+
+<h3>4.1 LLM 识别人物，怎么处理？</h3>
+<table>
+  <tr><th style="width:40px"></th><th>方案</th><th>效果</th><th>代价</th></tr>
+  <tr>
+    <td><b>A</b></td>
+    <td>只做本地解析，彻底不调 LLM</td>
+    <td>名单<b>永远瞬时</b>（毫秒级），行为完全可预期</td>
+    <td>复杂大纲里「人名写在正文而不是标题」的条目会漏，需要用户自己在大纲里补人物小传</td>
+  </tr>
+  <tr>
+    <td><b>B</b><br><span class="ok">推荐</span></td>
+    <td>本地解析秒显 + LLM 在<b>后台</b>精修，结果并入缓存</td>
+    <td>任何时刻打开都是瞬时的；LLM 回来后名单自动补全，且只算一次</td>
+    <td>实现最复杂；需要一个「正在精修…」的弱提示</td>
+  </tr>
+  <tr>
+    <td><b>C</b></td>
+    <td>默认只用本地解析；LLM 仅在用户点「AI 精确识别」时调用</td>
+    <td>最省算力，用户完全掌控何时花时间</td>
+    <td>想用 AI 时要手动点一次</td>
+  </tr>
+</table>
+<div class="note">
+  <p>被缓存覆盖的前提下，三者的<b>日常体验都是瞬时的</b>。差别只在「第一次遇到新项目」和「复杂大纲的召回率」。</p>
+</div>
+
+<h3>4.2 明显不是人名的条目要不要过滤？</h3>
+<p>你发来的截图里有「编号派通用手段」「编号体执行群」「成长或崩坏路径」「冲突点」「当前状态」「城中百姓」这类条目——它们来自实体页/大纲小标题，不是人名。</p>
+<table>
+  <tr><th style="width:40px"></th><th>方案</th><th>说明</th></tr>
+  <tr><td><b>A</b><br><span class="ok">推荐</span></td><td>本轮不过滤，靠搜索框解决</td><td>人名启发式很容易误杀真名（如「城中百姓」确实是某些作品里的角色称呼）。搜索框已经能解决「找不到」。<b>风险最低。</b></td></tr>
+  <tr><td><b>B</b></td><td>加一份可编辑的忽略词表 + 明显的非人名后缀规则</td><td>更干净，但需要长期维护，且一定会有误杀。可以后续单独做。</td></tr>
+</table>
+
+<h2>5. 验收标准</h2>
+<ol>
+  <li>从拆书库「加入自定义灵魂库」后切到角色灵魂页，<b>灵魂立即出现</b>，不再出现先空后有的停顿。</li>
+  <li>把人物扫描替换成永不 resolve 的 Promise 时，灵魂列表依旧正常渲染（阻断回归）。</li>
+  <li>第二次打开绑定对话框（同一会话）<b>不再显示「正在读取小说人物」</b>，直接出名单。</li>
+  <li>应用重启后再次打开（项目未变）同样秒开——缓存已落盘并命中指纹。</li>
+  <li>项目 wiki 变化后缓存自动失效并重新扫描。</li>
+  <li>搜索框能按子串实时过滤；已勾选项在过滤后不丢失。</li>
+  <li>人物列表每行 5 个；窄窗口降级不溢出、不重叠。</li>
+  <li>原有绑定行为不变：绑定仍会自动把灵魂加入自定义灵魂库，幂等不重复建。</li>
+</ol>
+
+<h2>6. 测试计划</h2>
+<ul>
+  <li><b>TDD</b>：每条验收标准先写失败测试再实现，逐条留下「红→绿」证据。</li>
+  <li><b>变异测试</b>：对缓存命中判定、解耦、搜索过滤、已选保留各做一次变异，确认测试真的抓得住。</li>
+  <li><b>缓存指纹</b>：覆盖「未变命中」「新增文件失效」「改动文件失效」三种情况。</li>
+  <li><b>真实浏览器几何验证</b>：用 Playwright 量绑定对话框，确认每行 5 个、窄屏降级无溢出、搜索过滤后行数正确。</li>
+  <li><b>全量回归对比</b>：与基线跑同一份测试，要求失败数不增加（已知基线存在与本次无关的既有失败）。</li>
+</ul>
+
+<h2>7. 不做的事</h2>
+<ul>
+  <li>不动内置灵魂（<code>BUILT_IN_CHARACTER_AURAS</code>）与灵魂生成工作流。</li>
+  <li>不改绑定语义（仍用 <code>bindCharacterAura</code>、仍按人物名绑定、仍自动入库）。</li>
+  <li>不重构灵魂库画廊页（它本来就快）。</li>
+  <li>不顺手做 4.2 的忽略词表（若你选 A）。</li>
+</ul>
+
+</main>
+<footer>青幕AI写作 · 灵魂库加载与绑定体验优化 · 设计文档 v1</footer>
+</body>
+</html>
