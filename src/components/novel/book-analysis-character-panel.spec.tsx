@@ -153,3 +153,25 @@ describe("BookAnalysisCharacterPanel", () => {
     cleanup()
   })
 })
+
+describe("embedded 模式", () => {
+  it("隐藏管理类控件与重复标题，但保留角色列表和详情", () => {
+    const { container, cleanup } = renderPanel({ variant: "embedded" })
+    // 页签本身已经叫「角色 Skill」，面板内不该再出现一次标题
+    expect(container.textContent).not.toContain("选择角色 Skill 加入自定义灵魂库")
+    expect(container.textContent).not.toContain("选择角色生成 Skill")
+    expect(container.textContent).not.toContain("自定义灵魂库")
+    expect(container.querySelector('[aria-label="删除角色林烬"]')).toBeNull()
+    // 结果本身必须还在
+    expect(container.textContent).toContain("林烬")
+    expect(container.textContent).toContain("已生成")
+    expect(container.textContent).toContain("旧城巡夜人")
+    cleanup()
+  })
+
+  it("默认 full 模式仍然显示管理类控件（旧版页面不受影响）", () => {
+    const { addButton, cleanup } = renderPanel()
+    expect(addButton).toBeTruthy()
+    cleanup()
+  })
+})
