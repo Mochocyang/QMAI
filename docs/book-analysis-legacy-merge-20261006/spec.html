@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>拆书库：旧版结果并入新版页签 — 设计说明</title>
+<style>
+  :root{--paper:#fdfdfb;--panel:#f4f6f4;--line:#c6d1cb;--accent:#496b59;--ink:#24332e;--muted:#687871;--danger:#a83e3e}
+  *{box-sizing:border-box}
+  body{margin:0;padding:40px 24px;background:#eef1ef;color:var(--ink);
+       font:15px/1.75 system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+  main{max-width:960px;margin:0 auto;background:var(--paper);border:1px solid var(--line);
+       border-radius:12px;padding:40px 44px}
+  h1{margin:0 0 6px;font-size:26px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:32px}
+  h2{margin:38px 0 12px;font-size:19px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{margin:24px 0 8px;font-size:15px}
+  p,li{color:var(--ink)}
+  code{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+       font:13px/1.5 ui-monospace,Consolas,monospace}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600;white-space:nowrap}
+  .badge{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;border:1px solid}
+  .keep{color:var(--accent);border-color:var(--accent);background:#eef3f0}
+  .drop{color:var(--danger);border-color:var(--danger);background:#fbf0f0}
+  .must{color:var(--danger);font-weight:600}
+  .note{background:var(--panel);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;
+        padding:12px 16px;margin:16px 0}
+  .note.warn{border-left-color:var(--danger)}
+  ul{padding-left:22px}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>拆书库：旧版结果并入新版页签</h1>
+  <div class="sub">设计说明 · 2026-10-06 · 青幕AI写作 v4.1.0</div>
+
+  <h2>1. 背景与目标</h2>
+  <p>拆书库目前有两代界面共存：新版单页工作台 <code>book-analysis-workbench.tsx</code>，以及被当作一个整体块挂在页面最下方的旧版页面 <code>LegacyBookAnalysisView</code>。</p>
+  <p>现状有两个问题：</p>
+  <ul>
+    <li>旧版块把「用量分析／正在识别角色／待分析／区块进度」这类过程性脚手架也一并露出，这些内容不该出现在结果区。</li>
+    <li>旧版结果被堆在底部，与新版三个页签（角色 Skill／故事 Skill／文风 Skill）割裂；同一个技能的结果分散在两处。</li>
+  </ul>
+  <p><strong>目标</strong>：旧版结果按技能并入对应新版页签，去掉底部独立旧版块；页签内只呈现<strong>结果</strong>，不出现旧版的操作按钮与过程脚手架。</p>
+
+  <div class="note">
+    <strong>已确认的决策</strong>（用户逐项确认）：
+    <ul style="margin:8px 0 0">
+      <li>用户口语里的「决策 skill」= 新版「角色 Skill」页签（新版只有 角色／故事／文风 三个页签）。</li>
+      <li>只搬结果，<strong>不搬</strong>旧版操作按钮（重新提取／启用文风／删除／生成角色 Skill／选择角色生成）。</li>
+      <li>导入作品时即使勾了分析项，也<strong>不</strong>自动建任务；保持新版行为（选中作品＋滚到分析设置，由用户点「开始分析」）。</li>
+      <li>实施走「就地内嵌＋迁移副作用」；旧版组件本次只停止挂载，暂不删除。</li>
+    </ul>
+  </div>
+
+  <h2>2. 目标映射</h2>
+  <table>
+    <thead><tr><th>页签</th><th>新版结果（保留）</th><th>并入的旧版结果（只读）</th><th>旧版数据来源</th></tr></thead>
+    <tbody>
+      <tr><td>角色 Skill</td><td><code>WorkbenchResult</code></td><td>角色列表＋角色详情（性格／说话风格／动机／行为模式／代表性台词／Skill 预览）</td><td><code>book.characters</code> + <code>book.skills</code></td></tr>
+      <tr><td>故事 Skill</td><td><code>WorkbenchResult</code>（含当前故事导图）</td><td>历史故事导图列表</td><td><code>listStoryMapHistory(book.path)</code></td></tr>
+      <tr><td>文风 Skill</td><td><code>WorkbenchResult</code></td><td>六层蒸馏＋统计指标</td><td><code>book.styleProfile</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>丢弃的内容</h3>
+  <p><span class="badge drop">丢弃</span> 用量分析、正在识别角色、待分析、区块进度、旧版全部操作按钮，以及旧版「证据」页签（新版 <code>WorkbenchResult</code> 内部已渲染 <code>revision.evidence</code>）。</p>
+
+  <h3>为什么不需要数据迁移</h3>
+  <p>三个旧版面板都是纯 props 展示组件；<code>BookWorkspace</code> 已经持有 <code>book</code>（含全部旧版数据）和 <code>activeSkill</code>，插入点就在新版结果区渲染 <code>WorkbenchResult</code> 之后。旧版数据形状（<code>personalityProfile</code>、<code>styleProfile.layers</code>、故事导图 HTML）与 <code>WorkbenchRevision</code> 差异较大，<strong>不做结构转换</strong>，直接并排渲染两套结果。</p>
+  <div class="note">
+    <strong>故事页签的重叠是刻意的</strong>：新版结果只渲染<em>当前这一份</em>故事导图，旧版块提供的是<em>历史列表</em>（多份、可逐个展开预览）。两者维度不同，因此都保留；旧版块标题明确写「历史导图」，避免看起来像重复渲染。
+  </div>
+
+  <h2>3. 组件设计</h2>
+  <p>给三个既有组件增加一个 <code>variant</code> 模式，避免复制展示逻辑（复制会让两处慢慢不一致）：</p>
+  <table>
+    <thead><tr><th>组件</th><th>新增</th><th><code>embedded</code> 模式下的行为</th></tr></thead>
+    <tbody>
+      <tr><td><code>BookAnalysisCharacterPanel</code></td><td><code>variant?: "full" | "embedded"</code></td><td>隐藏标题与说明（<code>:64-68</code>）、两个操作按钮（<code>:69-80</code>）、每个角色的删除按钮（<code>:111-120</code>）；保留角色列表的选中按钮、已生成／未生成标记、右侧详情。外层去掉边框与圆角。</td></tr>
+      <tr><td><code>BookAnalysisStyleCard</code></td><td>同上</td><td>隐藏「启用此文风／重新提取文风／删除文风」工具条（<code>:88-104</code>）；保留六层蒸馏、指标面板与可展开详情。</td></tr>
+      <tr><td><code>StoryMapContent</code></td><td>同上</td><td>只隐藏「删除」（<code>:180-188</code>）；<strong>保留「查看全部／收起」</strong>——它是查看预览的开关，不是管理操作。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>嵌入模式下的 props 契约</h3>
+  <p>被隐藏的控件对应的回调（<code>onOpenSkillSelection</code>、<code>onAddSelectedSkillsToSoul</code>、<code>onDeleteCharacter</code>、<code>addingToSoul</code>、<code>onExtractStyle</code>、<code>onToggleStyle</code>、<code>onDeleteStyle</code>、<code>onDeleteStoryMap</code>）在 <code>embedded</code> 下变为可选，无回调时对应控件直接不渲染。</p>
+  <p><code>BookAnalysisCharacterPanel</code> 的 <code>selectedCharacterId</code>／<code>onSelectCharacter</code> 仍保持受控：由新增的 <code>LegacySkillResults</code> 持有选中状态并向下传递。组件内部不引入隐式自管状态，避免同一个组件出现两种行为模式。选中 id 为空或已失效时组件本就会回退到第一个角色，因此初始值传 <code>null</code> 即可。</p>
+  <p>原因：页签本身已经叫「角色 Skill」，面板内部再出现一次同名标题会重复；旧版面板自带卡片边框，嵌进页签后会出现「框里套框」。<code>embedded</code> 同时解决这两点。<code>full</code>（默认值）保持旧版页面原有行为，因此既有测试不受影响。</p>
+  <p>新增一个薄封装组件 <code>LegacySkillResults</code>，按 <code>activeSkill</code> 选择渲染哪一个，统一负责「旧版资料」小标题与空状态。</p>
+
+  <h3>改动文件</h3>
+  <ul>
+    <li><code>book-analysis-workbench.tsx</code>：<code>legacy</code> prop 与 <code>.wb-legacy</code> 区块删除；在结果区按 <code>activeSkill</code> 渲染 <code>LegacySkillResults</code>；迁移下列副作用。</li>
+    <li><code>book-analysis-view.tsx</code>：<code>BookAnalysisView</code> 改为 <code>&lt;BookAnalysisWorkbench /&gt;</code>。</li>
+    <li><code>book-analysis-character-panel.tsx</code> / <code>book-analysis-style-card.tsx</code> / <code>book-analysis-library-layout.tsx</code>：各加 <code>variant</code>。</li>
+    <li><code>book-analysis-workbench.css</code>：删除 <code>.wb-legacy</code> 相关规则，替换为页签内旧版结果区的样式。</li>
+    <li>新增 <code>legacy-skill-results.tsx</code> 与其测试。</li>
+  </ul>
+
+  <h2>4. 副作用迁移（本设计的真正工作量）</h2>
+  <p>旧版页面不只是一堆展示，停止挂载它会同时带走 4 个看不见的副作用。逐条核实结果：</p>
+  <table>
+    <thead><tr><th>#</th><th>副作用</th><th>位置</th><th>处置</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>导入完成 → 自动建分析任务</td><td><code>book-analysis-view.tsx:360-373</code></td><td>按已确认决策<strong>不迁移</strong>：保持新版「选中作品＋滚到分析设置」行为。这是一处有意的行为变化。</td></tr>
+      <tr><td>2</td><td>任务完成 → 重载作品库、刷新故事导图</td><td><code>:375-429</code></td><td class="must">必须迁移。并入的角色／文风结果来自作品库，不刷新会一直显示旧数据。</td></tr>
+      <tr><td>3</td><td>侧边栏「刷新」→ 重载作品库</td><td><code>:446-448</code></td><td class="must">必须迁移，理由同上。</td></tr>
+      <tr><td>4</td><td>侧边栏「现在处理」→ 重建旧版选角色面板</td><td><code>:470-492</code></td><td>旧版面板随卸载消失，改为滚到并高亮新版内联的「选择目标角色」区（新版已有该 UI）。</td></tr>
+    </tbody>
+  </table>
+  <div class="note warn">
+    <strong>风险</strong>：第 2、3 项若遗漏，症状是「分析跑完了但页签里还是旧结果」，不容易第一时间联想到副作用迁移，因此这两项必须有测试覆盖。
+  </div>
+  <p>另外，旧版「角色识别 → 生成 Skill」弹窗随卸载消失；新版有自己的「识别角色／生成选中角色」（<code>workbench.tsx</code>，<code>workbenchVersion === 2</code> 的任务），功能不丢，但入口与旧版不同。这是本次接受的取舍。</p>
+
+  <h2>5. 明确不做的事</h2>
+  <ul>
+    <li>不删除 <code>LegacyBookAnalysisView</code> 及其 277 行测试。本次只停止挂载，让回归面最小；确认新版外观没问题后再单独一次删干净。</li>
+    <li>不把旧版数据迁移进 <code>WorkbenchRevision</code>（会丢失 <code>personalityProfile</code>、<code>styleProfile.layers</code>、<code>samples</code>）。</li>
+    <li>不改动新版分析流水线、不改数据结构、不动旧版页签内部的既有逻辑。</li>
+  </ul>
+
+  <h2>6. 验证策略</h2>
+  <ul>
+    <li><strong>TDD</strong>：每项行为先写失败测试再实现。<code>variant="embedded"</code> 的断言点在不出现操作按钮与重复标题；副作用迁移的断言点在依赖变化后确实重新读取了作品库。</li>
+    <li><strong>真实浏览器几何检查</strong>：沿用 <code>docs/book-workbench-relayout/check.mjs</code> 的方式（真实 Chromium + 真实 CSS），确认三个页签各自的旧版结果区确实出现在页签内容内、操作按钮不存在。jsdom 无法计算布局。</li>
+    <li><strong>全量回归</strong>：基线为 195 项既有失败；本仓库的基线由 <code>git stash</code> 对照确认过。新增失败即视为自伤。</li>
+    <li><strong>打包验证</strong>：<code>npm run build:portable</code> 后确认产物中包含新组件、不含已删除的 <code>.wb-legacy</code> 标记。</li>
+  </ul>
+
+  <footer>本设计说明与用户逐项确认后定稿。实施顺序见后续实施计划。</footer>
+</main>
+</body>
+</html>
