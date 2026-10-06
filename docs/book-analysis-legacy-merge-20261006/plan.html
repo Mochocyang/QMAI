@@ -500,14 +500,16 @@ git commit -m "feat(拆书库): 旧版结果并入新版页签"</code></pre>
 <pre><code>const sidebarRefreshCounter = useBookAnalysisStore((s) =&gt; s.sidebarRefreshCounter)</code></pre>
 <pre><code>}, [project?.path, imports.revision, importSignature, taskSignature, refresh, sidebarRefreshCounter])</code></pre>
 <p>再加故事导图刷新键的递增 effect。<strong>它和状态一样放在 <code>BookWorkspace</code> 内</strong>，依赖直接写 <code>[tasks]</code>（<code>tasks</code> 由父级传入 store 里的数组，引用稳定，任务状态一变就换新引用，正好触发）：</p>
-<pre><code>// 每个任务只递增一次：旧版当年用 ref 守住，否则每次任务列表变化都会再读一遍历史导图。
+<pre><code>// 每个任务只递增一次：旧版当年用 ref 守住（book-analysis-view.tsx:171 的
+// notifiedPipelineTaskIdsRef，键为 `${task.id}:completed`），否则每次任务列表变化都会再读一遍历史导图。
 const storyRefreshedRef = useRef&lt;Set&lt;string&gt;&gt;(new Set())
 useEffect(() =&gt; {
   // 旧版在故事任务完成时递增刷新键，让历史导图重新读取；迁移到工作台。
   for (const task of tasks) {
     if (task.status !== "completed" || !task.selectedSkills.includes("story")) continue
-    if (storyRefreshedRef.current.has(task.id)) continue
-    storyRefreshedRef.current.add(task.id)
+    const refKey = `${task.id}:completed`
+    if (storyRefreshedRef.current.has(refKey)) continue
+    storyRefreshedRef.current.add(refKey)
     setStoryMapRefreshKey((key) =&gt; key + 1)
   }
 }, [tasks])</code></pre>
