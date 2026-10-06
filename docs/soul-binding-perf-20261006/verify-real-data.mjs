@@ -15,15 +15,15 @@ import { fileURLToPath } from "node:url"
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 
+// Windows 上 .cmd 必须走 shell 才能被 spawn（否则 EINVAL 且静默无输出）。
 const result = spawnSync(
-  process.platform === "win32" ? "npx.cmd" : "npx",
-  [
-    "vitest", "run", "src/lib/novel/bindable-characters-real-data.spec.ts",
-    "--exclude", "**/.codex-temp/**",
-    "--exclude", "**/.claude/**",
-    "--exclude", "**/.worktrees/**",
-  ],
-  { cwd: repo, stdio: "inherit" },
+  "npx vitest run src/lib/novel/bindable-characters-real-data.spec.ts "
+    + '--exclude "**/.codex-temp/**" --exclude "**/.claude/**" --exclude "**/.worktrees/**"',
+  { cwd: repo, stdio: "inherit", shell: true },
 )
 
+if (result.error) {
+  console.error("运行失败：", result.error.message)
+  process.exit(1)
+}
 process.exit(result.status ?? 1)
