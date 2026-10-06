@@ -34,7 +34,11 @@ vi.mock("@/lib/toast", () => ({ toast: { success: mocks.toastSuccess, error: moc
 
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { buildSimpleExtractionPrompt } from "@/lib/novel/book-analysis/simple-extraction-prompts"
-import { useCharacterExtraction, type ChapterSelectionData } from "./use-character-extraction"
+import {
+  useCharacterExtraction,
+  importanceFromScore,
+  type ChapterSelectionData,
+} from "./use-character-extraction"
 
 const llmConfig: LlmConfig = {
   provider: "openai", apiKey: "测试占位值", model: "测试模型",
@@ -231,4 +235,20 @@ describe("useCharacterExtraction 简单提取缓存请求", () => {
     expect(mocks.readFile).toHaveBeenCalledTimes(1)
   })
 
+})
+
+describe("importanceFromScore", () => {
+  // importance 的契约是 1–10（types.ts:212 注释写明 importanceScore 才是 0–100）。
+  // 旧代码把 0–100 直接写进 1–10 字段，界面才会出现「重要度 100/10」。
+  it.each([
+    [100, 10], [95, 10], [90, 9], [55, 6], [50, 5], [10, 1], [7, 1], [1, 1], [0, 1],
+  ])("分数 %i 换算为 %i", (score, expected) => {
+    expect(importanceFromScore(score)).toBe(expected)
+  })
+
+  it("负数、小数与非法值不会越界", () => {
+    expect(importanceFromScore(-5)).toBe(1)
+    expect(importanceFromScore(100.4)).toBe(10)
+    expect(importanceFromScore(Number.NaN)).toBe(1)
+  })
 })

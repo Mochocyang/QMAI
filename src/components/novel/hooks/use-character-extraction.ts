@@ -52,6 +52,16 @@ async function readSimpleExtractionSamples(bookPath: string, chapterIds: string[
 }
 
 /**
+ * importanceScore 是 0–100 的 LLM 评分，importance 字段只装 1–10。
+ * 换算与 character-candidate-selection.ts:60 / character-extraction-engine.ts:395 保持一致，
+ * 否则界面会显示「重要度 100/10」。
+ */
+export function importanceFromScore(score: number): number {
+  if (!Number.isFinite(score)) return 1
+  return Math.max(1, Math.min(10, Math.ceil(score / 10)))
+}
+
+/**
  * 角色特征提取钩子
  *
  * 从 BookAnalysisView 中提取的角色深度提取、简单提取和失败重试逻辑。
@@ -335,7 +345,7 @@ export function useCharacterExtraction({
           id: picked.id,
           name: picked.name,
           aliases: picked.aliases,
-          importance: picked.importanceScore,
+          importance: importanceFromScore(picked.importanceScore),
           category:
             picked.category === "主角"
               ? "protagonist"
