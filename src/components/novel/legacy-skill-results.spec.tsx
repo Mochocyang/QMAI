@@ -164,6 +164,9 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     // 标签是无条件渲染的：即使没有资料，它仍是新旧结果的边界说明。
     expect(region?.textContent).toContain("旧版资料")
     // 无障碍：区域要有自己的名字，否则读屏用户分不清新旧两块结果。
+    // role="region" 必须一起断言——aria-label 落在隐式 role=generic 的裸 div 上是禁止的命名来源，
+    // 少了 role 读屏就忽略这个名字，只查 aria-label 会放过这个退化。
+    expect(region?.getAttribute("role")).toBe("region")
     expect(region?.getAttribute("aria-label")).toBe("旧版资料")
     // 空状态文案必须与 book-analysis-character-panel.tsx:101 完全一致。
     expect(region?.textContent).toContain("暂无角色数据。")
