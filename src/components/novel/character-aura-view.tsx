@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import {
   listCharacterAuras,
   loadCharacterAuraResearchDocument,
   loadCharacterAuraSkillDocument,
+  refineBindableCharactersWithLlm,
   unbindCharacterAura,
   updateCustomCharacterAura,
   type CharacterAura,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/novel/character-aura"
 import { SoulDocEditor } from "./soul-doc-editor"
 import { refreshProjectState } from "@/lib/project-refresh"
+import { filterBindableCharacters, readBindableIgnoreList } from "@/lib/novel/bindable-characters-filter"
 import type { PortablePersonality } from "@/lib/novel/portable-personality"
 
 type AuraFormState = {
@@ -118,6 +120,19 @@ function buildUpdatePayload(form: AuraFormState) {
   }
 }
 
+/** 本地/缓存名单在前、后台精修发现的新名字在后，trim 后保序去重。 */
+function mergeCharacterOptions(current: readonly string[], incoming: readonly string[]): string[] {
+  const merged: string[] = []
+  const seen = new Set<string>()
+  for (const raw of [...current, ...incoming]) {
+    const name = raw.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    merged.push(name)
+  }
+  return merged
+}
+
 export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boolean }) {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -132,12 +147,19 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [auras, setAuras] = useState<CharacterAura[]>(BUILT_IN_CHARACTER_AURAS)
   const [selectedId, setSelectedId] = useState(BUILT_IN_CHARACTER_AURAS[0]?.id ?? "")
   const [form, setForm] = useState<AuraFormState>(EMPTY_FORM)
-  const [characterOptions, setCharacterOptions] = useState<string[]>([])
+  // 原始名单（本地/缓存 + 后台精修并集），展示前再过一遍忽略规则。
+  const [rawCharacterOptions, setRawCharacterOptions] = useState<string[]>([])
+  const [characterIgnoreList, setCharacterIgnoreList] = useState<string[]>([])
+  const [characterOptionsLoading, setCharacterOptionsLoading] = useState(false)
   const [bindings, setBindings] = useState<CharacterAuraBinding[]>([])
   const [isGeneratingCustomAura, setIsGeneratingCustomAura] = useState(false)
   const [generationProgress, setGenerationProgress] = useState<CharacterAuraGenerationProgress | null>(null)
   const [message, setMessage] = useState("")
   const [soulTab, setSoulTab] = useState<"project" | "character">("project")
+  // 同一项目同一时间只允许一条后台精修在飞，避免重复请求模型。
+  const refiningProjectsRef = useRef<Set<string>>(new Set())
+  // 加载提示只跟「最新一次快线请求」对齐：旧项目的迟到请求不许提前关掉它。
+  const characterOptionsRequestRef = useRef(0)
   const effectiveSection = hideSidebar ? storedSelectedSoulSection : section
   const effectiveSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : selectedId
 
@@ -154,6 +176,15 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const selectedBindings = useMemo(
     () => bindings.filter((binding) => binding.auraId === selected?.id),
     [bindings, selected?.id],
+  )
+  // 已经绑定过灵魂的名字是安全阀：命中忽略表或内置噪声规则也绝不能从下拉框消失。
+  const boundCharacterNames = useMemo(
+    () => bindings.map((binding) => binding.characterName),
+    [bindings],
+  )
+  const characterOptions = useMemo(
+    () => filterBindableCharacters(rawCharacterOptions, characterIgnoreList, boundCharacterNames),
+    [rawCharacterOptions, characterIgnoreList, boundCharacterNames],
   )
 
   function updateSelectedId(nextId: string) {
@@ -174,7 +205,12 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
 
   useEffect(() => {
     if (!project) return
-    void runAction(refresh, "角色灵魂加载失败，请稍后重试")
+    // 与详情页文档加载同一套约定：卸载或切换项目后，迟到的本地/精修结果一律丢弃。
+    const cancellation = { cancelled: false }
+    void runAction(() => refresh(() => cancellation.cancelled), "角色灵魂加载失败，请稍后重试")
+    return () => {
+      cancellation.cancelled = true
+    }
   }, [project?.path])
 
   useEffect(() => {
@@ -193,32 +229,82 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     setShowCustomEditor(false)
   }, [hideSidebar, storedSelectedSoulId, storedSelectedSoulSection])
 
-  async function refresh() {
+  // 三条互不依赖的加载线：人物列表需要扫描小说资料，可能非常慢，
+  // 绝不能把灵魂列表和绑定关系的渲染挂在同一次 await 上。
+  async function refreshAuras(path: string) {
+    await runAction(async () => {
+      const loaded = await listCharacterAuras(path)
+      setAuras(loaded)
+      setSelectedId((current) => {
+        const currentSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : current
+        // 正在新建自定义灵魂时保留哨兵选中值，否则会被回退值覆盖，导致新建表单被立即关闭。
+        if (currentSelectedId === "new-custom-soul") return current
+        if (loaded.some((aura) => aura.id === currentSelectedId)) {
+          return currentSelectedId
+        }
+        const fallback = effectiveSection === "custom"
+          ? loaded.find((aura) => !aura.builtIn)?.id
+          : loaded.find((aura) => aura.builtIn)?.id
+        const nextId = fallback ?? loaded[0]?.id ?? ""
+        if (hideSidebar) {
+          setStoredSelectedSoulId(nextId)
+        }
+        return nextId
+      })
+    }, "角色灵魂加载失败，请稍后重试")
+  }
+
+  async function refreshBindings(path: string) {
+    await runAction(async () => {
+      setBindings(await getCharacterAuraBindings(path))
+    }, "角色灵魂绑定关系读取失败，请稍后重试")
+  }
+
+  async function refreshCharacterOptions(path: string, isCancelled: () => boolean) {
+    const requestId = characterOptionsRequestRef.current + 1
+    characterOptionsRequestRef.current = requestId
+    setCharacterOptionsLoading(true)
+    let localListLoaded = false
+    try {
+      await runAction(async () => {
+        const [names, ignoreList] = await Promise.all([
+          listBindableNovelCharacters(path),
+          readBindableIgnoreList(path),
+        ])
+        if (isCancelled()) return
+        setRawCharacterOptions(names)
+        setCharacterIgnoreList(ignoreList)
+        localListLoaded = true
+      }, "小说人物列表读取失败，请稍后重试")
+    } finally {
+      if (characterOptionsRequestRef.current === requestId) setCharacterOptionsLoading(false)
+    }
+    // 本地名单已经可用；精修只在后台补名字，绝不 await，也绝不拖住加载提示。
+    if (localListLoaded && !isCancelled()) {
+      void refineCharacterOptions(path, isCancelled)
+    }
+  }
+
+  async function refineCharacterOptions(path: string, isCancelled: () => boolean) {
+    if (refiningProjectsRef.current.has(path)) return
+    refiningProjectsRef.current.add(path)
+    try {
+      const refined = await refineBindableCharactersWithLlm(path)
+      if (isCancelled() || refined.length === 0) return
+      setRawCharacterOptions((current) => mergeCharacterOptions(current, refined))
+    } catch {
+      // refineBindableCharactersWithLlm 约定不抛错；这里兜底，失败一律静默。
+    } finally {
+      refiningProjectsRef.current.delete(path)
+    }
+  }
+
+  async function refresh(isCancelled: () => boolean = () => false) {
     if (!project) return
-    const [loaded, loadedCharacters, loadedBindings] = await Promise.all([
-      listCharacterAuras(project.path),
-      listBindableNovelCharacters(project.path),
-      getCharacterAuraBindings(project.path),
-    ])
-    setAuras(loaded)
-    setCharacterOptions(loadedCharacters)
-    setBindings(loadedBindings)
-    setSelectedId((current) => {
-      const currentSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : current
-      // 正在新建自定义灵魂时保留哨兵选中值，否则会被回退值覆盖，导致新建表单被立即关闭。
-      if (currentSelectedId === "new-custom-soul") return current
-      if (loaded.some((aura) => aura.id === currentSelectedId)) {
-        return currentSelectedId
-      }
-      const fallback = effectiveSection === "custom"
-        ? loaded.find((aura) => !aura.builtIn)?.id
-        : loaded.find((aura) => aura.builtIn)?.id
-      const nextId = fallback ?? loaded[0]?.id ?? ""
-      if (hideSidebar) {
-        setStoredSelectedSoulId(nextId)
-      }
-      return nextId
-    })
+    const path = project.path
+    // 人物列表只服务“绑定小说人物”控件，故意不参与下面的 await：扫描再慢，灵魂列表也会先渲染出来。
+    void refreshCharacterOptions(path, isCancelled)
+    await Promise.all([refreshAuras(path), refreshBindings(path)])
   }
 
   async function runAction(action: () => Promise<void>, fallbackMessage: string) {
@@ -489,6 +575,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
                 onDelete={!selected.builtIn ? () => void handleDelete(selected) : undefined}
                 actionsDisabled={isGeneratingCustomAura}
                 characterOptions={characterOptions}
+                characterOptionsLoading={characterOptionsLoading}
                 bindings={selectedBindings}
                 onBind={handleBindCharacter}
                 onUnbind={handleUnbind}
@@ -504,6 +591,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               badgeLabel="内置灵魂"
               actionsDisabled={isGeneratingCustomAura}
               characterOptions={characterOptions}
+              characterOptionsLoading={characterOptionsLoading}
               bindings={selectedBindings}
               onBind={handleBindCharacter}
               onUnbind={handleUnbind}
@@ -524,6 +612,7 @@ function AuraDetails({
   onDelete,
   actionsDisabled = false,
   characterOptions,
+  characterOptionsLoading = false,
   bindings,
   onBind,
   onUnbind,
@@ -534,6 +623,7 @@ function AuraDetails({
   onDelete?: () => void
   actionsDisabled?: boolean
   characterOptions: string[]
+  characterOptionsLoading?: boolean
   bindings: CharacterAuraBinding[]
   onBind: (characterName: string) => void
   onUnbind: (characterName: string) => void
@@ -615,6 +705,7 @@ function AuraDetails({
           <CharacterBindingControl
             badgeLabel={badgeLabel}
             options={characterOptions}
+            optionsLoading={characterOptionsLoading}
             bindings={bindings}
             disabled={actionsDisabled}
             onBind={onBind}
@@ -850,6 +941,7 @@ function CustomAuraForm({
 function CharacterBindingControl({
   badgeLabel,
   options,
+  optionsLoading = false,
   bindings,
   disabled,
   onBind,
@@ -857,6 +949,7 @@ function CharacterBindingControl({
 }: {
   badgeLabel: string
   options: string[]
+  optionsLoading?: boolean
   bindings: CharacterAuraBinding[]
   disabled: boolean
   onBind: (characterName: string) => void
@@ -875,7 +968,9 @@ function CharacterBindingControl({
         className="min-w-40 max-w-64 rounded-md border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
       >
         <option value="">
-          {options.length === 0 ? "请先添加小说人物" : "选择小说人物"}
+          {options.length === 0
+            ? (optionsLoading ? "正在读取小说人物…" : "请先添加小说人物")
+            : "选择小说人物"}
         </option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
