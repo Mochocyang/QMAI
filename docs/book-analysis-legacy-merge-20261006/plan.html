@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>拆书库：旧版结果并入新版页签 — 实施计划</title>
+<style>
+  :root{--paper:#fdfdfb;--panel:#f4f6f4;--line:#c6d1cb;--accent:#496b59;--ink:#24332e;--muted:#687871;--danger:#a83e3e;--ok:#3f7a5e}
+  *{box-sizing:border-box}
+  body{margin:0;padding:40px 24px;background:#eef1ef;color:var(--ink);
+       font:15px/1.75 system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+  main{max-width:1000px;margin:0 auto;background:var(--paper);border:1px solid var(--line);
+       border-radius:12px;padding:40px 44px}
+  h1{margin:0 0 6px;font-size:25px}
+  h2{margin:40px 0 12px;font-size:20px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  h3{margin:20px 0 6px;font-size:16px}
+  p,li{color:var(--ink)}
+  code{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+       font:13px/1.5 ui-monospace,Consolas,monospace}
+  pre{background:#1f2b26;color:#e6ede9;border-radius:8px;padding:14px 16px;overflow-x:auto;
+      font:12.5px/1.65 ui-monospace,Consolas,monospace}
+  pre code{background:none;border:0;padding:0;color:inherit;font-size:inherit}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel);font-weight:600}
+  .task{border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:20px 0;background:#fff}
+  .task>h3{margin-top:0}
+  .files{background:var(--panel);border-radius:6px;padding:10px 14px;margin:10px 0;font-size:13.5px}
+  .files ul{margin:4px 0;padding-left:20px}
+  .step{margin:12px 0;padding-left:4px}
+  .box{font-family:ui-monospace,Consolas,monospace;color:var(--accent);font-weight:700}
+  .exp{color:var(--muted);font-size:13.5px}
+  .must{color:var(--danger);font-weight:600}
+  blockquote{margin:18px 0;background:var(--panel);border-left:3px solid var(--accent);
+             border-radius:0 6px 6px 0;padding:12px 16px}
+  blockquote p{margin:0}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>拆书库：旧版结果并入新版页签 — 实施计划</h1>
+
+<blockquote><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox-style tracking.</blockquote>
+
+<p><strong>Goal:</strong> 把旧版拆书结果按技能并入新版三个页签，去掉页面底部的独立旧版块，并迁移旧版挂载时承担的副作用。</p>
+
+<p><strong>Architecture:</strong> 给三个既有旧版展示组件加 <code>variant="embedded"</code>（隐藏管理类控件与重复标题），由新的薄封装 <code>LegacySkillResults</code> 按 <code>activeSkill</code> 渲染在新版结果下方；<code>LegacyBookAnalysisView</code> 停止挂载，它原先承担的 3 个副作用迁进工作台。</p>
+
+<p><strong>Tech Stack:</strong> React 19 + TypeScript + zustand + vitest + Playwright（仅用于真实浏览器几何检查）。</p>
+
+<p><strong>设计依据:</strong> <code>docs/book-analysis-legacy-merge-20261006/spec.html</code></p>
+
+<hr>
+
+<h2>约定</h2>
+<ul>
+  <li>每次跑测试都带 <code>--exclude '**/.codex-temp/**' --exclude '**/.claude/**' --exclude '**/.worktrees/**'</code>，否则会误扫临时目录。</li>
+  <li>不要与 <code>npm run build:portable</code> 并发跑 vitest。</li>
+  <li>全量回归基线是 <strong>195 项既有失败</strong>（已用 <code>git stash</code> 对照确认）。多出来的失败一律视为自伤。</li>
+  <li><code>variant</code> 默认值是 <code>"full"</code>，因此旧版页面行为与既有测试不变。</li>
+</ul>
+
+<h2>文件结构</h2>
+<table>
+  <thead><tr><th>文件</th><th>动作</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><code>src/components/novel/book-analysis-character-panel.tsx</code></td><td>改</td><td>加 <code>variant</code>；管理类回调转可选</td></tr>
+    <tr><td><code>src/components/novel/book-analysis-style-card.tsx</code></td><td>改</td><td>加 <code>variant</code>；管理类回调转可选</td></tr>
+    <tr><td><code>src/components/novel/book-analysis-library-layout.tsx</code></td><td>改</td><td><code>StoryMapContent</code> 加 <code>variant</code></td></tr>
+    <tr><td><code>src/components/novel/legacy-skill-results.tsx</code></td><td>新增</td><td>按技能选择渲染哪一个旧版面板，持有角色选中状态</td></tr>
+    <tr><td><code>src/components/novel/book-analysis-workbench.tsx</code></td><td>改</td><td>删 <code>legacy</code> prop 与旧版区块；嵌入 <code>LegacySkillResults</code>；迁移副作用</td></tr>
+    <tr><td><code>src/components/novel/book-analysis-view.tsx</code></td><td>改</td><td><code>BookAnalysisView</code> 不再传 <code>legacy</code></td></tr>
+    <tr><td><code>src/components/novel/book-analysis-workbench.css</code></td><td>改</td><td>删 <code>.wb-legacy</code> 规则，加旧版结果区样式</td></tr>
+    <tr><td><code>docs/book-analysis-legacy-merge-20261006/check.mjs</code></td><td>新增</td><td>真实浏览器几何检查</td></tr>
+  </tbody>
+</table>
+
+<h2>任务</h2>
+
+<div class="task">
+<h3>Task 1: 角色面板支持 embedded</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-character-panel.tsx:6-14</code>（接口）、<code>:62-81</code>（外壳与标题）、<code>:111-120</code>（删除按钮）</li>
+  <li>Test: <code>src/components/novel/book-analysis-character-panel.spec.tsx</code></li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 写失败测试。在现有 <code>describe</code> 之后追加：</div>
+<pre><code>describe("embedded 模式", () =&gt; {
+  it("隐藏管理类控件与重复标题，但保留角色列表和详情", () =&gt; {
+    const { container, cleanup } = renderPanel({ variant: "embedded" })
+    // 页签本身已经叫「角色 Skill」，面板内不该再出现一次标题
+    expect(container.textContent).not.toContain("选择角色 Skill 加入自定义灵魂库")
+    expect(container.textContent).not.toContain("选择角色生成 Skill")
+    expect(container.textContent).not.toContain("自定义灵魂库")
+    expect(container.querySelector('[aria-label="删除角色林烬"]')).toBeNull()
+    // 结果本身必须还在
+    expect(container.textContent).toContain("林烬")
+    expect(container.textContent).toContain("已生成")
+    expect(container.textContent).toContain("旧城巡夜人")
+    cleanup()
+  })
+
+  it("默认 full 模式仍然显示管理类控件（旧版页面不受影响）", () =&gt; {
+    const { addButton, cleanup } = renderPanel()
+    expect(addButton).toBeTruthy()
+    cleanup()
+  })
+})</code></pre>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-character-panel.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— embedded 断言失败（标题与删除按钮仍在）。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现。接口改为：</div>
+<pre><code>interface BookAnalysisCharacterPanelProps {
+  book: BookAnalysisLibraryBook
+  selectedCharacterId: string | null
+  onSelectCharacter: (characterId: string) =&gt; void
+  /** embedded：嵌进新版页签时使用，隐藏管理类控件与重复标题（页签本身已叫「角色 Skill」）。 */
+  variant?: "full" | "embedded"
+  addingToSoul?: boolean
+  onOpenSkillSelection?: () =&gt; void
+  onAddSelectedSkillsToSoul?: (skillId: string) =&gt; void
+  onDeleteCharacter?: (characterId: string) =&gt; void
+}</code></pre>
+<p>函数签名解构加默认值，并算出 <code>embedded</code>：</p>
+<pre><code>export function BookAnalysisCharacterPanel({
+  book,
+  selectedCharacterId,
+  onSelectCharacter,
+  variant = "full",
+  addingToSoul = false,
+  onOpenSkillSelection,
+  onAddSelectedSkillsToSoul,
+  onDeleteCharacter,
+}: BookAnalysisCharacterPanelProps) {
+  const embedded = variant === "embedded"</code></pre>
+<p>外壳不再套第二层边框：</p>
+<pre><code>&lt;section className={embedded ? "min-h-0 flex-1" : "min-h-0 flex-1 rounded-lg border bg-background"}&gt;</code></pre>
+<p>标题整块在 embedded 下不渲染（即 <code>:64-81</code> 的整个 <code>div</code>）：</p>
+<pre><code>{embedded ? null : (
+  &lt;div className="flex items-center justify-between border-b px-4 py-3"&gt;
+    {/* …原有标题与两个按钮保持不动… */}
+  &lt;/div&gt;
+)}</code></pre>
+<p>删除按钮加条件并改用可选回调（即 <code>:111-120</code>）：</p>
+<pre><code>{embedded ? null : (
+  &lt;Button
+    size="sm"
+    variant="ghost"
+    className="h-7 shrink-0 px-2 text-destructive hover:bg-destructive/10"
+    aria-label={`删除角色${character.name}`}
+    title="删除角色（含角色档案与 Skill）"
+    onClick={() =&gt; onDeleteCharacter?.(character.id)}
+  &gt;
+    &lt;Trash2 className="h-3.5 w-3.5" /&gt;
+  &lt;/Button&gt;
+)}</code></pre>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过（含该文件原有用例，必须一起绿）</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-character-panel.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS，全部用例通过。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-character-panel.tsx src/components/novel/book-analysis-character-panel.spec.tsx
+git commit -m "feat(拆书库): 角色面板支持 embedded 模式"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 2: 文风卡片支持 embedded</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-style-card.tsx:12-18</code>（接口）、<code>:62-70</code>（外壳与解构）、<code>:88-104</code>（工具条）</li>
+  <li>Test: <code>src/components/novel/book-analysis-style-card.spec.tsx</code>（不存在则新建）</li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 写失败测试：</div>
+<pre><code>it("embedded 模式隐藏工具条，但保留六层蒸馏与统计指标", () =&gt; {
+  const { container, cleanup } = renderStyleCard({ variant: "embedded" })
+  expect(container.textContent).not.toContain("重新提取文风")
+  expect(container.textContent).not.toContain("启用此文风")
+  expect(container.textContent).not.toContain("删除文风")
+  // 状态标记与结果必须还在
+  expect(container.textContent).toContain("作品文风 · Writing DNA")
+  cleanup()
+})</code></pre>
+<div class="exp">注意：<code>已启用</code> 是状态标记不是操作，embedded 下必须保留——不要把它一起删掉。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-style-card.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 工具条仍然渲染。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现。接口与管理类回调转可选：</div>
+<pre><code>interface BookAnalysisStyleCardProps {
+  book: BookAnalysisLibraryBook
+  variant?: "full" | "embedded"
+  extracting?: boolean
+  onExtractStyle?: () =&gt; void
+  onToggleStyle?: () =&gt; void
+  onDeleteStyle?: () =&gt; void
+}</code></pre>
+<pre><code>export function BookAnalysisStyleCard({ book, variant = "full", extracting = false, onExtractStyle, onToggleStyle, onDeleteStyle }: BookAnalysisStyleCardProps) {
+  const embedded = variant === "embedded"</code></pre>
+<pre><code>&lt;section className={embedded ? "" : "rounded-lg border bg-background p-4"}&gt;</code></pre>
+<p>工具条整块在 embedded 下不渲染（即 <code>:88-104</code> 的 <code>div</code>）：</p>
+<pre><code>{embedded ? null : (
+  &lt;div className="flex shrink-0 gap-2"&gt;
+    {/* …原有三个按钮保持不动… */}
+  &lt;/div&gt;
+)}</code></pre>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-style-card.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-style-card.tsx src/components/novel/book-analysis-style-card.spec.tsx
+git commit -m "feat(拆书库): 文风卡片支持 embedded 模式"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 3: 故事导图支持 embedded</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-library-layout.tsx:52-61</code>（props）、<code>:176-189</code>（按钮组）</li>
+  <li>Test: <code>src/components/novel/story-map-content.spec.tsx</code></li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 写失败测试：</div>
+<pre><code>it("embedded 模式只隐藏删除，保留「查看全部」这个查看开关", async () =&gt; {
+  await act(async () =&gt; root.render(&lt;StoryMapContent bookPath="E:/book" variant="embedded" /&gt;))
+  const buttons = Array.from(host.querySelectorAll("button")).map((b) =&gt; b.textContent?.trim())
+  expect(buttons).not.toContain("删除")
+  expect(buttons).toContain("查看全部")
+})</code></pre>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/story-map-content.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 「删除」仍然存在。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现。props 增加 <code>variant</code>：</div>
+<pre><code>export function StoryMapContent({
+  bookPath,
+  refreshKey = 0,
+  onDeleteStoryMap,
+  variant = "full",
+}: {
+  bookPath: string
+  refreshKey?: number
+  /** 删除某张历史导图（id 为历史目录名或 legacy）；由父级实际执行磁盘删除 */
+  onDeleteStoryMap?: (id: string) =&gt; Promise&lt;void&gt; | void
+  /** embedded：嵌进新版页签时使用，只隐藏管理操作，保留预览开关。 */
+  variant?: "full" | "embedded"
+}) {
+  const embedded = variant === "embedded"</code></pre>
+<p>只给删除按钮加条件（<code>:180-188</code>），「查看全部／收起」保持不动：</p>
+<pre><code>{embedded ? null : (
+  &lt;Button
+    size="sm"
+    variant="ghost"
+    className="text-destructive hover:bg-destructive/10"
+    onClick={() =&gt; void handleDeleteMap(card)}
+  &gt;
+    &lt;Trash2 className="mr-1.5 h-3.5 w-3.5" /&gt;
+    删除
+  &lt;/Button&gt;
+)}</code></pre>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/story-map-content.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-library-layout.tsx src/components/novel/story-map-content.spec.tsx
+git commit -m "feat(拆书库): 故事导图支持 embedded 模式"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 4: 新增 LegacySkillResults 封装</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Create: <code>src/components/novel/legacy-skill-results.tsx</code></li>
+  <li>Test: <code>src/components/novel/legacy-skill-results.spec.tsx</code></li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 写失败测试：</div>
+<pre><code>it("按技能只渲染对应的旧版结果", async () =&gt; {
+  await act(async () =&gt; root.render(&lt;LegacySkillResults book={book} skill="characters" /&gt;))
+  expect(host.textContent).toContain("旧版资料")
+  expect(host.textContent).toContain("林烬")
+  expect(host.querySelector('[data-testid="legacy-skill-results"]')).not.toBeNull()
+})
+
+it("角色列表点击后切换选中角色（选中状态由本组件持有）", async () =&gt; {
+  await act(async () =&gt; root.render(&lt;LegacySkillResults book={twoCharacterBook} skill="characters" /&gt;))
+  const other = Array.from(host.querySelectorAll("button")).find((b) =&gt; b.textContent?.includes("许新年"))!
+  await act(async () =&gt; other.click())
+  expect(host.textContent).toContain("许新年")
+})</code></pre>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/legacy-skill-results.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 模块不存在。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现整个文件：</div>
+<pre><code>import { useState } from "react"
+import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-types"
+import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
+import { BookAnalysisStyleCard } from "./book-analysis-style-card"
+import { StoryMapContent } from "./book-analysis-library-layout"
+
+/**
+ * 把旧版各技能的结果并进新版页签：只呈现结果，
+ * 重新提取／启用／删除等管理操作不在这里出现。
+ */
+export function LegacySkillResults({ book, skill, storyMapRefreshKey = 0 }: {
+  book: BookAnalysisLibraryBook
+  skill: AnalysisSkill
+  storyMapRefreshKey?: number
+}) {
+  // 角色选中状态放在这里持有，让 BookAnalysisCharacterPanel 保持受控。
+  const [selectedCharacterId, setSelectedCharacterId] = useState&lt;string | null&gt;(null)
+  return &lt;div className="wb-legacy-results" data-testid="legacy-skill-results"&gt;
+    &lt;p className="wb-legacy-hint"&gt;旧版资料&lt;/p&gt;
+    {skill === "characters" &amp;&amp; (
+      &lt;BookAnalysisCharacterPanel
+        variant="embedded"
+        book={book}
+        selectedCharacterId={selectedCharacterId}
+        onSelectCharacter={setSelectedCharacterId}
+      /&gt;
+    )}
+    {skill === "story" &amp;&amp; (
+      &lt;StoryMapContent variant="embedded" bookPath={book.path} refreshKey={storyMapRefreshKey} /&gt;
+    )}
+    {skill === "style" &amp;&amp; &lt;BookAnalysisStyleCard variant="embedded" book={book} /&gt;}
+  &lt;/div&gt;
+}</code></pre>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/legacy-skill-results.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/legacy-skill-results.tsx src/components/novel/legacy-skill-results.spec.tsx
+git commit -m "feat(拆书库): 新增按页签展示旧版结果的封装"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 5: 接进工作台页签，去掉旧版区块</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.tsx</code>（<code>:50</code> props、<code>:171-172</code> 旧版区块、<code>:305-316</code> 结果区）</li>
+  <li>Test: <code>src/components/novel/book-analysis-workbench.spec.tsx</code></li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 把现有「旧版结果常显」用例改成新语义的失败测试：</div>
+<pre><code>describe("旧版结果并入页签", () =&gt; {
+  it("旧版结果出现在结果区内部，不再是页面底部独立区块", async () =&gt; {
+    mocks.old.selectedLibraryBookId = "book-1"
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    const results = host.querySelector(".wb-results-section")!
+    const legacy = host.querySelector('[data-testid="legacy-skill-results"]')!
+    expect(legacy).not.toBeNull()
+    // 必须在结果区内部
+    expect(results.contains(legacy)).toBe(true)
+  })
+
+  it("默认停留在角色页签时渲染角色类旧版结果", async () =&gt; {
+    mocks.old.selectedLibraryBookId = "book-1"
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    expect(host.textContent).toContain("旧版资料")
+  })
+
+  it("切到故事页签会换成故事类旧版结果", async () =&gt; {
+    mocks.old.selectedLibraryBookId = "book-1"
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    const storyTab = Array.from(host.querySelectorAll('[role="tab"]'))
+      .find((t) =&gt; t.textContent?.includes("故事 Skill"))!
+    await act(async () =&gt; (storyTab as HTMLButtonElement).click())
+    expect(host.querySelector('[aria-label="故事导图历史列表"]')).not.toBeNull()
+  })
+
+  it("不再接受 legacy prop，也不再渲染「旧版结果」区块标题", async () =&gt; {
+    mocks.old.selectedLibraryBookId = "book-1"
+    await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+    expect(host.querySelector(".wb-legacy")).toBeNull()
+  })
+})</code></pre>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "旧版结果并入页签" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 旧版仍在 <code>.wb-legacy</code> 区块里，且不在结果区内部。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现 —— 删除 prop 与旧区块：</div>
+<pre><code>// :50
+export function BookAnalysisWorkbench() {</code></pre>
+<pre><code>// 删除 :171-172 整个「旧版结果常显」区块（含 legacy prop 的使用）</code></pre>
+<p>在结果区把旧版结果接在新版结果之后（<code>:311-315</code>）：</p>
+<pre><code>{result ? &lt;WorkbenchResult key={result.id} revision={result} previous={revisions.find((r) =&gt; r.id === result.parentRevisionId)} bookPath={book.path} projectPath={projectPath}
+  onConfirmed={() =&gt; { void reloadRevisions().catch(reportError); onRefresh() }}
+  revising={starting || hasActiveTask}
+  onRevise={(requirements) =&gt; draft &amp;&amp; launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} /&gt;
+  : &lt;p className="wb-muted"&gt;暂无新版本结果。&lt;/p&gt;}
+&lt;LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} /&gt;</code></pre>
+<p>顶部 import 加上 <code>LegacySkillResults</code>，并删除不再使用的 <code>ReactNode</code>／<code>legacy</code> 相关导入。同时把 <code>:315</code> 那句写死「旧版资料见下方“旧版结果”」的文案删掉（旧版块已不存在）。</p>
+<p>故事导图刷新键的状态也在本任务声明（不要留到 Task 6，否则 Task 5 编不过）：</p>
+<pre><code>const [storyMapRefreshKey, setStoryMapRefreshKey] = useState(0)</code></pre>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-workbench.tsx src/components/novel/book-analysis-workbench.spec.tsx
+git commit -m "feat(拆书库): 旧版结果并入新版页签"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 6: 迁移副作用（作品库刷新与故事导图刷新键）</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.tsx</code>（<code>:92</code> 依赖数组、<code>:60-63</code> 状态）</li>
+  <li>Test: <code>src/components/novel/book-analysis-workbench.spec.tsx</code></li>
+</ul></div>
+<div class="exp">这是本次最容易漏、漏了最难排查的一项：并入的角色／文风结果来自作品库，作品库不重载就会一直显示旧数据。</div>
+
+<div class="step"><span class="box">☐ Step 1</span> 先扩展 store mock。<code>mocks.old</code>（<code>:14</code>）目前只有两个字段，需要补上计数器：</div>
+<pre><code>old: { selectedLibraryBookId: null as string | null, setSelectedLibraryBookId: vi.fn(), sidebarRefreshCounter: 0 },</code></pre>
+<p>并在 <code>beforeEach</code>（<code>:37-44</code>）里复位：<code>mocks.old.sidebarRefreshCounter = 0</code>。</p>
+<p>写失败测试。注意 <code>loadBookAnalysisLibraryState</code> 的 mock 名叫 <code>mocks.load</code>（<code>:23</code>）：</p>
+<pre><code>it("侧边栏刷新会重新读取作品库（旧版卸载后这个副作用需要由工作台承担）", async () =&gt; {
+  await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+  const before = mocks.load.mock.calls.length
+  // mock 的 store 不会自己通知订阅者，所以改完计数器要再渲染一次，才能观察到依赖变化
+  mocks.old.sidebarRefreshCounter = 1
+  await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+  expect(mocks.load.mock.calls.length).toBeGreaterThan(before)
+})</code></pre>
+<div class="exp">关键点：这个 <code>useBookAnalysisStore</code> mock 没有实现订阅，直接改字段不会触发重渲染。必须显式再 <code>render</code> 一次——否则测试会假绿或假红。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "侧边栏刷新" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 依赖数组没有 sidebarRefreshCounter，不会重新加载。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现。引入计数器并加进依赖：</div>
+<pre><code>const sidebarRefreshCounter = useBookAnalysisStore((s) =&gt; s.sidebarRefreshCounter)</code></pre>
+<pre><code>}, [project?.path, imports.revision, importSignature, taskSignature, refresh, sidebarRefreshCounter])</code></pre>
+<p>再加故事导图刷新键的递增 effect（状态已在 Task 5 声明）：</p>
+<pre><code>useEffect(() =&gt; {
+  // 旧版在故事任务完成时递增刷新键，让历史导图重新读取；迁移到工作台。
+  if (tasks.some((t) =&gt; t.status === "completed" &amp;&amp; t.selectedSkills.includes("story"))) {
+    setStoryMapRefreshKey((key) =&gt; key + 1)
+  }
+}, [taskSignature])</code></pre>
+<div class="exp">说明：作品库本身已经由依赖数组里的 <code>taskSignature</code> 覆盖（任务状态一变就重载），旧版当年需要单独写 effect 是因为它没有这个依赖。这里只补故事导图刷新键。</div>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "侧边栏刷新" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-workbench.tsx src/components/novel/book-analysis-workbench.spec.tsx
+git commit -m "fix(拆书库): 工作台接管旧版的刷新副作用"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 7: 侧边栏「现在处理」指向新版内联选角色区</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.tsx</code>（选择目标角色区加锚点 + 新 effect）</li>
+  <li>Test: <code>src/components/novel/book-analysis-workbench.spec.tsx</code></li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 先扩展 store mock。<code>mocks.old</code> 需要真实可用的两个 action（注意 <code>vi.hoisted</code> 里拿不到 <code>mocks</code>，要用局部变量再返回）：</div>
+<pre><code>const mocks = vi.hoisted(() =&gt; {
+  const init = vi.fn(async () =&gt; {})
+  // 用一个局部对象承载，hoisted 阶段还不存在 mocks 这个标识符
+  const old: any = {
+    selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn(),
+    sidebarRefreshCounter: 0, pendingRecognitionTaskId: null,
+  }
+  old.requestReopenChapterSelection = vi.fn((taskId: string) =&gt; { old.pendingRecognitionTaskId = taskId })
+  old.consumeReopenRequest = vi.fn(() =&gt; {
+    const id = old.pendingRecognitionTaskId
+    old.pendingRecognitionTaskId = null
+    return id
+  })
+  return {
+    init,
+    old,
+    load: vi.fn(),
+    revisions: vi.fn(async (): Promise&lt;any[]&gt; =&gt; []),
+    loadStyles: vi.fn(async () =&gt; ({ enabledStyleId: null as string | null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })),
+    setStyle: vi.fn(async () =&gt; {}),
+    wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
+    imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () =&gt; {}) },
+    pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () =&gt; {}), confirmCharacterSelection: vi.fn(async () =&gt; {}), startTask: vi.fn(async () =&gt; {}) },
+  }
+})</code></pre>
+<p><code>beforeEach</code> 复位加上：<code>mocks.old.pendingRecognitionTaskId = null</code>。</p>
+<p>另外把 Request A 里写在 <code>describe("识别角色失败后不被锁死")</code> 内部的 <code>stuckTask</code> 帮助函数<strong>上提到模块作用域</strong>——跨 describe 用不到它。</p>
+<p>写失败测试：</p>
+<pre><code>it("侧边栏「现在处理」会把新版选角色区滚进视野并消费请求", async () =&gt; {
+  const scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
+  mocks.pipeline.tasks = [stuckTask({ error: null })]
+  await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+  await act(async () =&gt; { mocks.old.requestReopenChapterSelection("t-1") })
+  await act(async () =&gt; root.render(&lt;BookAnalysisWorkbench /&gt;))
+  expect(host.querySelector("#wb-character-picker")).not.toBeNull()
+  expect(scrollIntoView).toHaveBeenCalled()
+  expect(mocks.old.consumeReopenRequest).toHaveBeenCalled()
+})</code></pre>
+<div class="exp">同 Task 6：mock store 没有订阅机制，写请求之后必须再渲染一次，effect 才会跑。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 跑测试确认失败</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "现在处理" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: FAIL —— 没有 <code>#wb-character-picker</code> 锚点，也没人消费请求。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 实现。给选择目标角色区加锚点：</div>
+<pre><code>&lt;section className="wb-section" id="wb-character-picker"&gt;</code></pre>
+<p>再加消费 effect：</p>
+<pre><code>useEffect(() =&gt; {
+  const requested = useBookAnalysisStore.getState().pendingRecognitionTaskId
+  if (!requested) return
+  // 旧版卸载后没人处理这个请求：新版自己把选角色区滚进视野。
+  if (!tasks.some((t) =&gt; t.id === requested)) return
+  useBookAnalysisStore.getState().consumeReopenRequest()
+  document.getElementById("wb-character-picker")?.scrollIntoView({ block: "start" })
+}, [taskSignature, progressSignature])</code></pre>
+<div class="exp">需要一个 <code>progressSignature</code>（形如 <code>Object.keys(pipeline.progresses).join()</code>），否则「识别刚结束」这一次不会重跑。</div>
+
+<div class="step"><span class="box">☐ Step 4</span> 跑测试确认通过</div>
+<pre><code>npx vitest run src/components/novel/book-analysis-workbench.spec.tsx -t "现在处理" --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: PASS。</div>
+
+<div class="step"><span class="box">☐ Step 5</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-workbench.tsx src/components/novel/book-analysis-workbench.spec.tsx
+git commit -m "fix(拆书库): 现在处理改为定位新版选角色区"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 8: 视图入口与样式</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Modify: <code>src/components/novel/book-analysis-view.tsx:95-97</code></li>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.css:69-74</code>（<code>.wb-legacy</code> 规则）</li>
+</ul></div>
+
+<div class="step"><span class="box">☐ Step 1</span> 改视图入口（旧版组件保留但不再挂载）：</div>
+<pre><code>export function BookAnalysisView() {
+  return &lt;BookAnalysisWorkbench /&gt;
+}</code></pre>
+<div class="exp">不要删除 <code>LegacyBookAnalysisView</code> —— 它和 <code>book-analysis-view.spec.ts</code> 本次原样保留，等新版外观确认后再单独清理。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 换样式：删掉 <code>.wb-legacy</code> 那组规则（<code>:69-74</code>），换成页签内的旧版结果区：</div>
+<pre><code>.wb-legacy-results{margin-top:22px;padding-top:16px;border-top:1px dashed var(--ui-line,#c6d1cb);min-width:0;overflow-wrap:anywhere}
+.wb-legacy-hint{margin:0 0 12px;font-size:12px;color:var(--ui-muted,#687871)}
+/* 旧版面板内部的固定高度/栅格在新版页签里要能自然展开 */
+.wb-legacy-results [style*="grid-template-columns"]{grid-template-columns:minmax(220px,320px) 1fr!important}
+@container(max-width:900px){.wb-legacy-results [style*="grid-template-columns"]{grid-template-columns:1fr!important}}</code></pre>
+
+<div class="step"><span class="box">☐ Step 3</span> 跑相关测试与类型检查</div>
+<pre><code>npx tsc -p tsconfig.app.json --noEmit
+npx vitest run --dir src/components/novel --exclude '**/.codex-temp/**' --exclude '**/.claude/**'</code></pre>
+<div class="exp">Expected: tsc 无输出；用例全绿（含原有 163+ 项）。</div>
+
+<div class="step"><span class="box">☐ Step 4</span> 提交</div>
+<pre><code>git add src/components/novel/book-analysis-view.tsx src/components/novel/book-analysis-workbench.css
+git commit -m "refactor(拆书库): 视图入口不再挂载旧版页面"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 9: 真实浏览器几何检查</h3>
+<div class="files"><strong>Files:</strong>
+<ul>
+  <li>Create: <code>docs/book-analysis-legacy-merge-20261006/check.mjs</code>（照搬 <code>docs/book-workbench-relayout/check.mjs</code> 的结构）</li>
+</ul></div>
+<div class="exp">jsdom 不能计算布局，必须用真实 Chromium 复核。</div>
+
+<div class="step"><span class="box">☐ Step 1</span> 复用既有检查脚本骨架（真实 CSS + <code>page.setContent</code>，不要用 <code>fetch</code>，<code>file://</code> 下会被拦）。markup 用工作台渲染结果，断言：</div>
+<pre><code>// 1. 这三个页签各自的旧版结果区，都在 .wb-results-section 内部
+// 2. 旧版结果区里不存在这些管理按钮文案
+for (const text of ["重新提取文风", "启用此文风", "删除文风", "选择角色生成 Skill", "自定义灵魂库"]) {
+  assert(!legacyInner.includes(text), `旧版结果区不该出现「${text}」`)
+}
+// 3. 不再存在 .wb-legacy 区块与「旧版结果」标题
+// 4. 「查看全部」仍然存在（embedded 只该隐藏删除）
+// 5. 旧版结果区在新版结果下方（legacy.top &gt; newResults.bottom - 1）</code></pre>
+<div class="exp">Playwright 是全局安装：用 <code>pathToFileURL(APPDATA + "/npm/node_modules/playwright/index.js")</code> 动态导入，并取 <code>mod.chromium ?? mod.default?.chromium</code>。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 运行，必须 0 失败</div>
+<pre><code>node docs/book-analysis-legacy-merge-20261006/check.mjs</code></pre>
+<div class="exp">Expected: 全部 PASS，失败数 0，退出码 0，并生成改版后截图。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 提交检查脚本与输出</div>
+<pre><code>git add docs/book-analysis-legacy-merge-20261006
+git commit -m "test(拆书库): 旧版结果并入页签的几何检查"</code></pre>
+</div>
+
+<div class="task">
+<h3>Task 10: 全量回归与打包</h3>
+<div class="files"><strong>Files:</strong> 无源码改动，仅验证。</div>
+
+<div class="step"><span class="box">☐ Step 1</span> 全量回归</div>
+<pre><code>npx vitest run --dir src --exclude '**/.codex-temp/**' --exclude '**/.claude/**' --exclude '**/.worktrees/**' &gt; .full-run.log
+Select-String -Path .full-run.log -Pattern "^ Test Files|^      Tests"</code></pre>
+<div class="exp">Expected: 失败数仍为 <strong>195</strong>（基线），通过数比改前增加。用 <code>Select-String "^ FAIL "</code> 逐条比对，确认没有本次改动涉及的文件。</div>
+
+<div class="step"><span class="box">☐ Step 2</span> 打包便携版（不要与 vitest 并发）</div>
+<pre><code>npm run build:portable</code></pre>
+<div class="exp">Expected: 输出 <code>便携版已生成：…\release-portable\QMaiWrite.exe</code>。</div>
+
+<div class="step"><span class="box">☐ Step 3</span> 确认产物内容</div>
+<pre><code>Select-String -Path dist\assets\*.js -Pattern 'legacy-skill-results|旧版资料' -List
+Select-String -Path dist\assets\*.css -Pattern 'wb-legacy-results' -List</code></pre>
+<div class="exp">Expected: 都能命中；<code>wb-legacy</code>（旧区块）不再命中。</div>
+
+<div class="step"><span class="box">☐ Step 4</span> 提交与总结</div>
+<pre><code>git status --porcelain -- src</code></pre>
+<div class="exp">Expected: 干净（全部已提交）。然后向用户报告：改动清单、验证证据、以及本次接受的行为取舍。</div>
+</div>
+
+<h2>本次接受的行为取舍（需要告知用户）</h2>
+<ul>
+  <li>导入作品勾了分析项后<strong>不再自动建任务</strong>，改为选中作品并滚到分析设置（已确认）。</li>
+  <li>旧版「角色识别 → 生成 Skill」弹窗不再出现；新版有自己的「识别角色／生成选中角色」，功能不丢但入口不同。</li>
+  <li>旧版任务完成时的 toast（「角色信息已提取完成，可选择角色生成 Skill」）不迁移——它指向的旧版面板已不存在，而页签会直接刷新出新结果。</li>
+  <li>故事页签里新版当前导图与旧版历史列表并存：维度不同（当前一份 vs 历史多份），标题写「历史导图」以区分。</li>
+  <li><code>LegacyBookAnalysisView</code> 及其测试本次保留但不再挂载；确认效果后再单独清理。</li>
+</ul>
+
+<footer>计划与 <code>spec.html</code> 配套。每个任务都能独立编译、独立测试、独立提交。</footer>
+</main>
+</body>
+</html>
