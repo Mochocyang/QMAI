@@ -54,11 +54,11 @@
 .wb-book-menu>div{max-height:280px;overflow-y:auto;margin-top:6px}
 .wb-book-menu button{display:block;width:100%;text-align:left;border:0}
 .wb-book-menu small{display:block}
-.wb-management{position:relative}
-.book-workbench .wb-management>summary{display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--ui-line,#c6d1cb);border-radius:6px;list-style:none}
-.wb-management>summary::-webkit-details-marker{display:none}
-.wb-management>.wb-row{position:absolute;right:0;top:40px;z-index:30;width:210px;padding:10px;border:1px solid var(--ui-line,#c6d1cb);border-radius:6px;background:var(--ui-paper,var(--background));box-shadow:0 8px 24px #0002}
-.wb-management button{width:100%;justify-content:flex-start}
+/* 每个作品一行：左边选中，右边删除。删除按钮要压过上面「菜单内按钮占满整行」的规则。 */
+.wb-book-option{display:flex;align-items:center;gap:6px}
+.wb-book-option>button:first-child{flex:1;min-width:0}
+/* 必须同时压掉 min-height：通用按钮规则里的 min-height:34px 会盖过 height，把它撑成 28x34。 */
+.book-workbench .wb-book-option>button.wb-icon{flex:0 0 auto;width:28px;height:28px;min-height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .wb-progress{width:160px;max-width:100%;height:6px;accent-color:var(--ui-accent,#496b59)}
 .wb-status{font-size:12px;color:var(--ui-accent,#496b59)}
 .wb-character-pick{max-height:260px;overflow:auto;margin:10px 0}
@@ -88,7 +88,7 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-demand-editor .wb-request>span{display:flex;justify-content:space-between;gap:12px;padding:11px 13px 0;margin:0;font-weight:600;font-size:12px}
 .wb-demand-editor .wb-request small{font-size:11px;font-weight:400}
 .wb-demand-editor textarea{display:block;height:80px;border:0;border-radius:0;outline:none!important;box-shadow:none}
-.wb-demand-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--ui-panel,var(--muted));border-top:1px solid var(--ui-line,#d4ddda)}
+.wb-demand-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--ui-panel,var(--muted));border-top:1px solid var(--ui-line,#d4ddda)}
 .wb-model{font-size:12px;min-width:0;overflow-wrap:anywhere}
 .wb-model>span:nth-child(2){max-width:300px;overflow-wrap:anywhere}
 .book-workbench .wb-estimate{margin:10px 0 0;font-size:12px}

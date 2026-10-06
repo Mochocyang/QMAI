@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { BookOpen, Check, ChevronDown, Download, Feather, FileText, GitBranch, History, LayoutGrid, List, MoreHorizontal, Pause, PencilLine, Play, Plus, RefreshCw, Search, Square, Trash2, Upload, UserRound, X } from "lucide-react"
+import { BookOpen, Check, ChevronDown, Download, Feather, FileText, GitBranch, History, LayoutGrid, List, Pause, PencilLine, Play, Plus, RefreshCw, Search, Square, Trash2, Upload, UserRound, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useBookAnalysisPipelineStore } from "@/stores/book-analysis-pipeline-store"
@@ -54,12 +54,10 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [bookSearch, setBookSearch] = useState("")
   const [inputOpen, setInputOpen] = useState(false)
-  const [legacyOpen, setLegacyOpen] = useState(false)
   const [error, setError] = useState("")
   const imports = useBookAnalysisImportStore()
   const pipeline = useBookAnalysisPipelineStore()
   const pickerRef = useRef<HTMLDivElement>(null)
-  const menuRef = useRef<HTMLDetailsElement>(null)
   const openedAt = useRef(Date.now())
   const handledImports = useRef(new Set<string>())
   const [refresh, setRefresh] = useState(0)
@@ -95,7 +93,6 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false)
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) menuRef.current.open = false
     }
     document.addEventListener("pointerdown", close, true)
     return () => document.removeEventListener("pointerdown", close, true)
@@ -104,11 +101,17 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
   const projectPath = project?.path ?? ""
   const choose = (id: string) => {
     useBookAnalysisStore.getState().setSelectedLibraryBookId(id)
-    setPickerOpen(false); setLegacyOpen(false)
+    setPickerOpen(false)
   }
-  const removeBook = async () => {
-    if (!book || !window.confirm(`确认删除《${book.metadata.title}》及其拆书资料、分析结果吗？此操作不可撤销。已加入使用库的资源保留。`)) return
-    await imports.deletePublishedBook(book.id)
+  /** 传 target 删除指定作品（下拉列表项），不传则删当前选中的作品。 */
+  const removeBook = async (target?: BookAnalysisLibraryBook) => {
+    const victim = target ?? book
+    if (!victim) return
+    if (!window.confirm(`确认删除《${victim.metadata.title}》及其拆书资料、分析结果吗？此操作不可撤销。已加入使用库的资源保留。`)) return
+    await imports.deletePublishedBook(victim.id)
+    // 删掉的若是当前选中项，清空选中态：否则界面会继续指向一本已经不存在的作品。
+    const selectedId = useBookAnalysisStore.getState().selectedLibraryBookId
+    if (selectedId === victim.id) useBookAnalysisStore.getState().setSelectedLibraryBookId(null)
     setRefresh((v) => v + 1)
   }
   const tasks = pipeline.tasks.filter((task) => task.bookId === book?.id)
@@ -128,21 +131,24 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
           </button>
           {pickerOpen && <div className="wb-book-menu">
             <input autoFocus aria-label="搜索作品" placeholder="搜索作品" value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} />
-            <div>{books.filter((b) => b.metadata.title.includes(bookSearch)).map((b) => <button key={b.id} onClick={() => choose(b.id)}>
-              {b.metadata.title}<small>{b.metadata.totalChapters}章 · {b.characters.length}角色 · {b.skills.length}旧版Skill</small>
-            </button>)}</div>
+            <div>{books.filter((b) => b.metadata.title.includes(bookSearch)).map((b) => <div key={b.id} className="wb-book-option">
+              <button onClick={() => choose(b.id)}>
+                {b.metadata.title}<small>{b.metadata.totalChapters}章 · {b.characters.length}角色 · {b.skills.length}旧版Skill</small>
+              </button>
+              <button className="wb-icon" aria-label={`删除作品《${b.metadata.title}》`} title="删除作品"
+                onClick={() => void removeBook(b).catch(reportError)}><Trash2 /></button>
+            </div>)}</div>
           </div>}
         </div>
-        {book && <span className="wb-muted">{book.metadata.totalChapters}章 · {book.metadata.totalWords.toLocaleString()}字</span>}
+        {book && <>
+          <span className="wb-muted">{book.metadata.totalChapters}章 · {book.metadata.totalWords.toLocaleString()}字</span>
+          <button className="wb-icon" aria-label="删除当前作品" title="删除当前作品"
+            onClick={() => void removeBook(book).catch(reportError)}><Trash2 /></button>
+        </>}
       </div>
       <div className="wb-actions">
-        <button className="wb-icon" aria-label="旧版任务与结果" title="旧版任务与结果" disabled={!book} onClick={() => setLegacyOpen(!legacyOpen)}><History /></button>
+        <button className="wb-icon" aria-label="刷新作品" title="刷新作品" onClick={() => setRefresh((v) => v + 1)}><RefreshCw /></button>
         <button onClick={() => setInputOpen(true)} disabled={!project}><Upload />导入作品</button>
-        <details ref={menuRef} className="wb-management"><summary aria-label="作品管理" title="作品管理"><MoreHorizontal size={18} /></summary>
-          <div className="wb-row"><button onClick={() => setRefresh((v) => v + 1)}><RefreshCw />刷新作品</button>
-            <button disabled={!book} onClick={() => void removeBook().catch(reportError)}><Trash2 />删除作品</button>
-            <button disabled={!book} onClick={() => setLegacyOpen(!legacyOpen)}><History />旧版任务与结果</button></div>
-        </details>
       </div>
     </header>
     {error && <p role="alert">{error}</p>}
@@ -162,7 +168,8 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
     </details>}
     {book ? <BookWorkspace key={`${projectPath}:${book.id}`} book={book} projectPath={projectPath} tasks={tasks} onRefresh={() => setRefresh((v) => v + 1)} />
       : <section className="wb-empty"><BookOpen size={32} className="mx-auto" /><h2>暂无作品</h2><button className="wb-primary" onClick={() => setInputOpen(true)} disabled={!project}><Plus />导入作品</button></section>}
-    {legacyOpen && <section className="wb-section wb-legacy"><div className="wb-row"><h2>旧版任务与结果</h2><button onClick={() => setLegacyOpen(false)}>收起</button></div>{legacy}</section>}
+    {/* 旧版结果常显在新版结果区下方：不再需要单独的入口，也不再收进弹层。 */}
+    {book && <section className="wb-section wb-legacy" data-testid="legacy-results"><div className="wb-row"><h2>旧版结果</h2></div>{legacy}</section>}
     <BookAnalysisInputDialog open={inputOpen} onOpenChange={setInputOpen} workbenchMode onSubmit={async (files, analysisSkills) => {
       await imports.createBatch(files, analysisSkills)
       setInputOpen(false)
@@ -268,7 +275,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
               onChange={(e) => setDraft({ ...draft, requirements: { ...draft.requirements, [skill]: e.target.value } })} maxLength={4000} />
           </label>)}
           <div className="wb-demand-toolbar">
-            <div className="wb-row wb-model"><span className="wb-muted">分析模型</span><ChatModelSelector value={draft.modelKey} onChange={(modelKey) => setDraft({ ...draft, modelKey })} disabled={starting} /></div>
+            {/* 不再显示「分析模型」字样，选择框直接贴住「开始分析」。 */}
+            <div className="wb-row wb-model"><ChatModelSelector value={draft.modelKey} onChange={(modelKey) => setDraft({ ...draft, modelKey })} disabled={starting} /></div>
             <button className="wb-primary" disabled={starting || !estimate || !draft.skills.length || hasActiveTask} onClick={() => void launch(draft)}><Play />{starting ? "正在准备" : `开始分析${draft.skills.length > 1 ? ` · ${draft.skills.length}项` : ""}`}</button>
           </div>
         </div>
@@ -304,7 +312,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         onConfirmed={() => { void reloadRevisions().catch(reportError); onRefresh() }}
         revising={starting || hasActiveTask}
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} />
-        : <p className="wb-muted">暂无新版本结果。旧版资料保留在作品管理的“旧版任务与结果”中。</p>}
+        : <p className="wb-muted">暂无新版本结果。旧版资料见下方“旧版结果”。</p>}
     </section>
   </>
 }

@@ -891,6 +891,7 @@ export function LegacyBookAnalysisView() {
         })
       } : undefined}
       onDeleteBook={(bookId) => handleLibraryDeleteBook(bookId, selectedBookId)}
+      hideBookHeader
     />
     {pipelineDialog && (
       <BookAnalysisRunDialog

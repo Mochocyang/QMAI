@@ -252,6 +252,11 @@ interface BookAnalysisLibraryLayoutProps {
   onAnalysisActiveTabChange?: (tab: BookAnalysisModuleTab) => void
   /** 故事导图刷新键：故事任务完成后递增，触发 StoryMapContent 重新读取历史导图 */
   storyMapRefreshKey?: number
+  /**
+   * 嵌在新版拆书页里时置真：新版顶部已经显示书名与章数字，
+   * 这里不再重复一套「拆书库／书名／章数字」，只保留右侧的「打开故事导图」。
+   */
+  hideBookHeader?: boolean
 }
 
 export function BookAnalysisLibraryLayout({
@@ -286,6 +291,7 @@ export function BookAnalysisLibraryLayout({
   analysisActiveTab,
   onAnalysisActiveTabChange,
   storyMapRefreshKey,
+  hideBookHeader = false,
 }: BookAnalysisLibraryLayoutProps) {
   const selectedBook = state.books.find((book) => book.id === selectedBookId) ?? state.books[0] ?? null
 
@@ -305,12 +311,14 @@ export function BookAnalysisLibraryLayout({
     <div className="flex h-full min-h-0 bg-muted/20">
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="shrink-0 border-b bg-background px-5 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium text-muted-foreground">拆书库</div>
-              <h2 className="text-lg font-semibold">{selectedBook.metadata.title}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{selectedBook.metadata.totalChapters} 章 · {selectedBook.metadata.totalWords.toLocaleString()} 字</p>
-            </div>
+          <div className="flex items-start gap-3" style={{ justifyContent: hideBookHeader ? "flex-end" : "space-between" }}>
+            {hideBookHeader ? null : (
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">拆书库</div>
+                <h2 className="text-lg font-semibold">{selectedBook.metadata.title}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">{selectedBook.metadata.totalChapters} 章 · {selectedBook.metadata.totalWords.toLocaleString()} 字</p>
+              </div>
+            )}
             {onOpenStoryMap ? (
               <Button variant="outline" size="sm" onClick={() => onOpenStoryMap(selectedBook.path)}>
                 打开故事导图

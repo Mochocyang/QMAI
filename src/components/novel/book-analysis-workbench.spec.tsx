@@ -140,7 +140,8 @@ describe("单页拆书工作台", () => {
     expect(host.querySelector("aside")).toBeNull()
     expect(host.textContent).toContain("123章")
     expect(host.textContent).toContain("分析设置")
-    expect(host.textContent).not.toContain("旧版结果")
+    // 旧版结果区改为常显在新版结果区下方，不再藏在「旧版任务与结果」入口里。
+    expect(host.textContent).toContain("旧版结果")
     expect(host.querySelector('[aria-label="角色 Skill需求"]')).not.toBeNull()
     expect(mocks.init).toHaveBeenCalledWith("/project")
     const checkboxes = host.querySelectorAll<HTMLInputElement>(".wb-skill-options input")
@@ -157,5 +158,79 @@ describe("单页拆书工作台", () => {
     await act(async () => button.click())
     expect(host.querySelector('[role="dialog"]')?.textContent).toBe("单页导入")
     expect(mocks.imports.createBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe("拆书库顶部操作区", () => {
+  beforeEach(() => {
+    mocks.imports.deletePublishedBook = vi.fn(async () => {})
+    mocks.old.selectedLibraryBookId = null
+  })
+
+  it("刷新作品放在「导入作品」左侧，不再有「更多」菜单和「旧版任务与结果」入口", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    const refresh = host.querySelector<HTMLButtonElement>('[aria-label="刷新作品"]')
+    expect(refresh).not.toBeNull()
+    expect(host.querySelector(".wb-management")).toBeNull()
+    expect(host.querySelector('[aria-label="旧版任务与结果"]')).toBeNull()
+    const importButton = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent === "导入作品")!
+    // 刷新必须排在「导入作品」之前，即占据它左侧那个位置。
+    expect(refresh!.compareDocumentPosition(importButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("点击刷新作品会重新读取作品库", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    const before = mocks.load.mock.calls.length
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="刷新作品"]')!.click())
+    expect(mocks.load.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it("作品下拉框每一项都能删除该项作品", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="选择作品"]')!.click())
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="删除作品《测试作品》"]')
+    expect(remove).not.toBeNull()
+    await act(async () => remove!.click())
+    expect(mocks.imports.deletePublishedBook).toHaveBeenCalledWith("book-1")
+  })
+
+  it("顶部已选作品处能删除当前作品，取消确认则不删", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="删除当前作品"]')!.click())
+    expect(mocks.imports.deletePublishedBook).not.toHaveBeenCalled()
+    confirm.mockReturnValue(true)
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="删除当前作品"]')!.click())
+    expect(mocks.imports.deletePublishedBook).toHaveBeenCalledWith("book-1")
+  })
+
+  it("删除当前选中作品后清空选中态，避免界面仍指向已删除作品", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    mocks.old.selectedLibraryBookId = "book-1"
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="删除当前作品"]')!.click())
+    expect(mocks.old.setSelectedLibraryBookId).toHaveBeenCalledWith(null)
+  })
+})
+
+describe("分析模型贴近开始分析", () => {
+  it("不再显示「分析模型」字样，选择框紧邻「开始分析」", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={null} />))
+    const toolbar = host.querySelector(".wb-demand-toolbar")!
+    expect(toolbar.textContent).not.toContain("分析模型")
+    const model = toolbar.querySelector(".wb-model")!
+    expect(model.nextElementSibling).toBe(toolbar.querySelector(".wb-primary"))
+  })
+})
+
+describe("旧版结果常显", () => {  it("旧版结果直接显示在新版结果区下方，不需要先点开入口", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench legacy={<div data-testid="legacy-body">旧版角色卡</div>} />))
+    expect(host.querySelector('[data-testid="legacy-body"]')).not.toBeNull()
+    const results = host.querySelector(".wb-results-section")!
+    const legacySection = host.querySelector(".wb-legacy")!
+    expect(legacySection).not.toBeNull()
+    expect(results.compareDocumentPosition(legacySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
