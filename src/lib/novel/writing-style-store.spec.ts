@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BookStyleProfile } from "./book-analysis/types"
+import { STYLE_FACETS, parseStyleFingerprintItem } from "./book-analysis/style-fingerprint"
+import { buildEvidenceCandidates } from "./book-analysis/workbench-core"
 
 const mem = new Map<string, string>()
 
@@ -72,6 +74,29 @@ beforeEach(() => {
 })
 
 describe("writing-style-store", () => {
+  it("结构化文风启用后保留所有维度、词项和场景，不被旧字数预算截断", async () => {
+    const evidence = await buildEvidenceCandidates([{ chapterId: "c1", order: 1, start: 0, sourceHash: "a".repeat(64), text: "他略一沉吟，继而抬起头。她反问了一句。场景随后转到庭院。" }])
+    const rules = Object.keys(STYLE_FACETS).map((dimension) => ({
+      dimension, observation: "语言观察", condition: "场景需要时", action: `具体${dimension}写法。` + "有条件地调整叙述。".repeat(20),
+      boundary: "不机械套用", evidenceIds: [evidence[0].id],
+    }))
+    const item = parseStyleFingerprintItem({
+      subject: "文风", positioning: "克制白话叙事", limitations: "范围有限",
+      coverage: Object.keys(STYLE_FACETS).map((dimension) => ({ dimension, status: "observed", reason: "用于注入测试" })),
+      rules, lexicon: [{ word: "略一沉吟", kind: "expression", usage: "短暂停顿", evidenceIds: [evidence[0].id] }],
+      scenes: [{ scene: "场景转换", guidance: "通过新的观察对象切换场景", evidenceIds: [evidence[0].id] }],
+    }, evidence)
+    const preset = await upsertWritingStylePreset(PROJECT, { name: "画像", sourceBook: "测试作品", profile: makeDnaProfile({ workbenchStyle: item }) })
+    expect(await buildWritingStyleContext(PROJECT)).toBe("")
+    await setEnabledWritingStyle(PROJECT, preset.id)
+    const context = await buildWritingStyleContext(PROJECT, { constitutionCharLimit: 50 })
+    expect(context).toContain("【已启用文风画像】")
+    for (const rule of item.rules) expect(context).toContain(rule.action)
+    expect(context).toContain("略一沉吟")
+    expect(context).toContain("通过新的观察对象切换场景")
+    await setEnabledWritingStyle(PROJECT, null)
+    expect(await buildWritingStyleContext(PROJECT)).toBe("")
+  })
   it("dedupes presets by sourceBook and overwrites the profile", async () => {
     const a = await upsertWritingStylePreset(PROJECT, { name: "凡人·文风", sourceBook: "凡人", profile: makeProfile() })
     const b = await upsertWritingStylePreset(PROJECT, {

@@ -274,7 +274,7 @@ vi.mock("@/lib/toast", () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }))
 
-import { BookAnalysisView } from "./book-analysis-view"
+import { LegacyBookAnalysisView as BookAnalysisView } from "./book-analysis-view"
 
 type ActGlobal = typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 const actGlobal = globalThis as ActGlobal

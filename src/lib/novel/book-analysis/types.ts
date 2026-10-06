@@ -253,6 +253,8 @@ export interface WritingDnaLayers {
  * v1 的 9 个维度字段全部保留为可选，既能读旧数据，也让旧 UI 与校验引擎继续工作。
  */
 export interface BookStyleProfile {
+  /** 已验证的工作台文风画像；旧数据没有此字段，保留原注入路径。 */
+  workbenchStyle?: import("./workbench-core").WorkbenchItem
   schemaVersion: 1 | 2
   generatedAt: number
   sampledChapterIds: string[]

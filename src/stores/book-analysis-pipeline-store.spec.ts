@@ -47,6 +47,11 @@ vi.mock("@/lib/novel/book-analysis/analysis-engine", () => ({
   loadChapterList: vi.fn(async () => []),
   loadMetadata: vi.fn(async () => null),
 }))
+vi.mock("@/lib/novel/book-analysis/workbench-storage", () => ({
+  readWorkbenchChapters: vi.fn(async (_path: string, ids: string[]) => ids.map((id) => ({
+    id, order: Number(id.replace(/\D/g, "")), content: "正文内容", sourceHash: "a".repeat(64),
+  }))),
+}))
 
 describe("book-analysis-pipeline-store 初始化竞态", () => {
   it("恢复任务完成时不会覆盖初始化期间刚创建的角色分析任务", async () => {
@@ -87,6 +92,21 @@ async function refreshStore() {
 }
 
 describe("book-analysis-pipeline-store 显式重生成语义", () => {
+  it("新任务持久化不连续ID和独立需求，选完角色才可开始", async () => {
+    const store = await refreshStore()
+    const value = await store.getState().createAwaitingRangeTask({
+      bookId: "book-new", bookPath: "E:/Novel-cache/book-analysis/book-new", selectedSkills: ["characters", "style"], forceNew: true,
+    })
+    const request = { selectedChapterIds: ["c101", "c103"], requirements: { characters: "只研究处事", style: "只研究对白" } }
+    await store.getState().configureTaskRange(value!.id, { startOrder: 101, endOrder: 103 }, ["characters", "style"], { workbenchRequest: request })
+    request.requirements.characters = "被外部更改"
+    const configured = store.getState().tasks.find((t) => t.id === value!.id)!
+    expect(configured.workbenchRequest?.requirements.characters).toBe("只研究处事")
+    expect(configured.workbenchVersion).toBe(2)
+    expect(configured.status).toBe("awaiting-character-selection")
+    expect(store.getState().chunks.filter((c) => c.skill === "characters").flatMap((c) => c.chapterIds)).toEqual(["c101", "c103"])
+    await expect(store.getState().startTask(value!.id)).rejects.toThrow("选择")
+  })
   it("forceNew 只创建独立任务，普通任务仍允许复用", async () => {
     const store = await refreshStore()
     const input = {

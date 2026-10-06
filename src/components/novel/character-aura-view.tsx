@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -25,8 +25,10 @@ import {
 } from "@/lib/novel/character-aura"
 import { SoulDocEditor } from "./soul-doc-editor"
 import { refreshProjectState } from "@/lib/project-refresh"
+import type { PortablePersonality } from "@/lib/novel/portable-personality"
 
 type AuraFormState = {
+  portablePersonality?: PortablePersonality
   name: string
   category: string
   sourceNote: string
@@ -68,6 +70,7 @@ const EMPTY_FORM: AuraFormState = {
 
 function formFromAura(aura: CharacterAura) {
   return {
+    portablePersonality: aura.portablePersonality,
     name: aura.name,
     category: aura.category ?? "",
     sourceNote: aura.sourceNote,
@@ -94,6 +97,7 @@ function buildUpdatePayload(form: AuraFormState) {
   const honestyBoundaries = form.honestyBoundaries.trim()
 
   return {
+    ...(form.portablePersonality ? { portablePersonality: form.portablePersonality } : {}),
     name: form.name.trim(),
     category: form.category.trim(),
     sourceNote: form.sourceNote.trim(),
@@ -690,30 +694,27 @@ function CustomAuraForm({
   isGenerating: boolean
   generationProgress: CharacterAuraGenerationProgress | null
 }) {
-  const setField = (key: Exclude<keyof AuraFormState, "enableWebSearch">, value: string) => setForm({ ...form, [key]: value })
+  const setField = (key: Exclude<keyof AuraFormState, "enableWebSearch" | "portablePersonality">, value: string) => setForm({ ...form, [key]: value })
   const setBooleanField = (key: "enableWebSearch", value: boolean) => setForm({ ...form, [key]: value })
 
   return (
-    <div className="rounded-lg border bg-card p-5">
+    <div data-ui="soul-custom-form" className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">{mode === "edit" ? "编辑角色灵魂" : "新建角色灵魂"}</h2>
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={isGenerating}>返回预览</Button>
       </div>
 
-      <div className="space-y-5">
-        <section className="rounded-md border bg-muted/10 p-4">
+      <div data-ui="soul-form-body" className="space-y-5">
+        <section>
           <h3 className="mb-3 text-sm font-medium">基础设置</h3>
-          <div className="grid gap-4">
+          <div data-ui="soul-form-basics" className="grid gap-4">
             <Field label="名称" value={form.name} onChange={(value) => setField("name", value)} />
             <Field label="人物分类" value={form.category} onChange={(value) => setField("category", value)} />
           </div>
         </section>
 
-        <section className="rounded-md border bg-muted/10 p-4">
+        {!form.portablePersonality && <section>
           <h3 className="mb-2 text-sm font-medium">生成设置</h3>
-          <p className="mb-3 text-xs text-muted-foreground">
-            提示词会参与 6 步研究工作流；开启 AI 搜索后，会基于名称、分类和提示词联网补充资料。未配置 Web Search 时会自动降级为只使用你提供的资料。
-          </p>
           <div className="grid gap-4">
             <TextField
               label="生成提示词"
@@ -721,7 +722,7 @@ function CustomAuraForm({
               value={form.generationPrompt}
               onChange={(value) => setField("generationPrompt", value)}
             />
-            <label className="flex items-start gap-3 rounded-md border bg-background/70 px-3 py-3 text-sm">
+            <label data-ui="soul-form-search" className="flex items-start gap-3 text-sm">
               <input
                 type="checkbox"
                 className="mt-1 h-4 w-4 rounded border"
@@ -731,42 +732,39 @@ function CustomAuraForm({
               <span className="space-y-1">
                 <span className="block font-medium">开启 AI 搜索</span>
                 <span className="block text-xs leading-5 text-muted-foreground">
-                  开启后会先联网搜索公开资料，再把搜索结果连同你的资料一起导入 6 份研究文件；关闭时只依据你手动提供的资料生成。
+                  未配置搜索服务时，仅使用已提供的资料。
                 </span>
               </span>
             </label>
           </div>
-        </section>
+        </section>}
 
-        {mode === "create" && (
-          <section className="rounded-md border bg-muted/10 p-4">
-            <h3 className="mb-2 text-sm font-medium">生成流程预览</h3>
-            <p className="mb-3 text-xs leading-5 text-muted-foreground">
-              点击“从资料生成角色灵魂”后，会先整理资料，再依次生成 6 份研究文件，最后汇总成角色灵魂。生成中会锁定切换，避免导出半成品。
-            </p>
-            {generationProgress ? (
-              <div className="rounded-md border bg-background/80 p-3">
-                <div className="text-sm font-medium">
-                  {generationProgress.stage}（{generationProgress.step}/{generationProgress.total}）
+        {form.portablePersonality ? (
+          <section>
+            <h3 className="mb-2 text-sm font-medium">可迁移人格规则</h3>
+            <div className="grid gap-4">
+              <TextField label="人格摘要" value={form.portablePersonality.summary} onChange={(summary) =>
+                setForm({ ...form, portablePersonality: { ...form.portablePersonality!, summary } })} />
+              {form.portablePersonality.rules.map((rule, index) => (
+                <div key={rule.id} className="grid gap-4 border-t pt-4">
+                  <h4 className="text-sm font-medium">{rule.id} · 人格规则</h4>
+                  {(["condition", "tendency", "boundary"] as const).map((field) => (
+                    <TextField key={field}
+                      label={`${rule.id} · ${field === "condition" ? "触发条件" : field === "tendency" ? "行为倾向" : "例外与边界"}`}
+                      value={rule[field]} onChange={(value) => setForm({
+                        ...form, portablePersonality: {
+                          ...form.portablePersonality!,
+                          rules: form.portablePersonality!.rules.map((item, i) => i === index ? { ...item, [field]: value } : item),
+                        },
+                      })} />
+                  ))}
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground">{generationProgress.detail}</div>
-                {generationProgress.researchFileName && (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    当前研究文件：{generationProgress.researchFileName}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed bg-background/50 px-3 py-3 text-sm text-muted-foreground">
-                角色灵魂会按“公开资料 → 对话方式 → 表达特征 → 外部评价 → 决策记录 → 时间线”的顺序生成，再汇总成最终灵魂信息。
-              </div>
-            )}
+              ))}
+            </div>
           </section>
-        )}
-
-        {mode === "edit" ? (
+        ) : mode === "edit" ? (
           <>
-            <section className="rounded-md border bg-muted/10 p-4">
+            <section>
               <h3 className="mb-2 text-sm font-medium">当前灵魂信息</h3>
               <p className="mb-3 text-xs text-muted-foreground">这里编辑当前自定义灵魂已经生成的人物信息，保存后会同步更新预览内容。</p>
               <div className="grid gap-4">
@@ -781,29 +779,52 @@ function CustomAuraForm({
               </div>
             </section>
 
-            <section className="rounded-md border bg-muted/10 p-4">
+            <section>
               <h3 className="mb-2 text-sm font-medium">资料来源索引</h3>
               <p className="mb-3 text-xs text-muted-foreground">如果你要补充或修正网页资料、本地文档来源，也可以在这里一起维护。</p>
-              <div className="grid gap-4">
+              <div data-ui="soul-form-sources" className="grid gap-4">
                 <TextField label="网页资料地址" helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
                 <TextField label="本地文档路径" helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
               </div>
             </section>
           </>
         ) : (
-          <section className="rounded-md border bg-muted/10 p-4">
+          <section>
             <h3 className="mb-2 text-sm font-medium">资料导入设置</h3>
-            <p className="mb-3 text-xs text-muted-foreground">只需要提供资料，系统会自动读取本地文档、抓取网页正文，并尝试用当前模型蒸馏表达特征、心智模型、决策启发式和边界说明；读取或模型失败时会记录降级说明，不阻断生成。</p>
             <div className="grid gap-4">
               <TextField label="资料文本" value={form.corpus} onChange={(value) => setField("corpus", value)} />
-              <TextField label="网页资料地址" helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
-              <TextField label="本地文档路径" helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
+              <div data-ui="soul-form-sources" className="grid gap-4">
+                <TextField label="网页资料地址" helper="一行一个网页地址" value={form.sourceUrls} onChange={(value) => setField("sourceUrls", value)} />
+                <TextField label="本地文档路径" helper="一行一个本地文档路径" value={form.localDocumentPaths} onChange={(value) => setField("localDocumentPaths", value)} />
+              </div>
             </div>
+          </section>
+        )}
+        {mode === "create" && (
+          <section data-ui="soul-form-progress" aria-live="polite">
+            <h3 className="mb-2 text-sm font-medium">生成流程预览</h3>
+            {generationProgress ? (
+              <div>
+                <div className="text-sm font-medium">
+                  {generationProgress.stage}（{generationProgress.step}/{generationProgress.total}）
+                </div>
+                <div className="mt-2 text-sm text-muted-foreground">{generationProgress.detail}</div>
+                {generationProgress.researchFileName && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    当前研究文件：{generationProgress.researchFileName}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs leading-5 text-muted-foreground">
+                公开资料 → 对话方式 → 表达特征 → 外部评价 → 决策记录 → 时间线
+              </div>
+            )}
           </section>
         )}
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div data-ui="soul-form-actions" className="mt-4 flex gap-2">
         <Button
           onClick={mode === "edit" ? onUpdate : onCreate}
           disabled={!form.name.trim() || (mode === "edit" && !editing) || isGenerating}
@@ -889,10 +910,11 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const id = useId()
   return (
     <div>
-      <Label>{label}</Label>
-      <Input className="mt-1" value={value} onChange={(event) => onChange(event.target.value)} />
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} className="mt-1" value={value} onChange={(event) => onChange(event.target.value)} />
     </div>
   )
 }
@@ -908,11 +930,14 @@ function TextField({
   value: string
   onChange: (value: string) => void
 }) {
+  const id = useId()
   return (
     <div>
-      <Label>{label}</Label>
-      {helper && <div className="mt-1 text-xs text-muted-foreground">{helper}</div>}
+      <Label htmlFor={id}>{label}</Label>
+      {helper && <div id={`${id}-hint`} className="mt-1 text-xs text-muted-foreground">{helper}</div>}
       <textarea
+        id={id}
+        aria-describedby={helper ? `${id}-hint` : undefined}
         className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -39,7 +39,30 @@ vi.mock("@/lib/has-usable-llm", () => ({
   hasUsableLlm: vi.fn(() => true),
 }))
 
+vi.mock("@/lib/novel/book-analysis/workbench-storage", () => ({
+  readWorkbenchChapters: vi.fn(async () => [{ id: "ch-0001", order: 1, content: "测试正文", sourceHash: "hash" }]),
+}))
+vi.mock("@/lib/novel/book-analysis/character-llm-recognizer", () => ({
+  llmRecognizeCharacters: vi.fn(async () => { throw new Error("识别未返回结果") }),
+}))
+
 describe("book-analysis-pipeline-store 角色选型门闩", () => {
+  it("重新识别会先清除旧错误，重复失败形成新的终态转换", async () => {
+    const { createBookAnalysisPipelineStore } = await import("./book-analysis-pipeline-store")
+    const { analysisOutcomeChanges } = await import("@/lib/novel/book-analysis/analysis-activity")
+    const store = createBookAnalysisPipelineStore()
+    await store.getState().initializeProject("E:/Novel-character-retry")
+    const task = await store.getState().createAwaitingRangeTask({ bookId: "book", bookPath: "E:/Novel-character-retry/book-analysis/book", selectedSkills: ["characters"] })
+    await store.getState().configureTaskRange(task!.id, { startOrder: 1, endOrder: 1 }, ["characters"], { workbenchRequest: { selectedChapterIds: ["ch-0001"], requirements: {} } })
+    store.setState({ tasks: store.getState().tasks.map(t => ({ ...t, error: "识别未返回结果" })) })
+    const states: Array<string | null> = []
+    const events: unknown[] = []
+    const unsubscribe = store.subscribe((next, before) => { states.push(next.tasks[0].error); events.push(...analysisOutcomeChanges(next.tasks, before.tasks)) })
+    await store.getState().recognizeWorkbenchCharacters(task!.id)
+    unsubscribe()
+    expect(states).toContain(null)
+    expect(events).toHaveLength(1)
+  })
   beforeEach(() => {
     vi.clearAllMocks()
   })

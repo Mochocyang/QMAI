@@ -136,32 +136,29 @@ export function SoulView() {
     <section data-ui-page="soul" data-ui-soul={section} className="ui-test-soul-page">
       <header data-ui="soul-tabs" className="ui-test-soul-heading">
         <div className="ui-test-soul-heading-row">
-          <div className="ui-test-soul-heading-copy">
-            <h1>灵魂</h1>
-            <p>定义本项目与每个人物的声音，写正文时自动注入。</p>
-          </div>
+          <h1>灵魂</h1>
+          <nav className="ui-test-soul-tab-row" aria-label="灵魂分类">
+            <button
+              type="button"
+              className={`ui-test-soul-tab${isProjectSoul ? " is-active" : ""}`}
+              onClick={() => selectTab("project")}
+            >
+              <BookOpen /> 项目灵魂
+            </button>
+            <button
+              type="button"
+              className={`ui-test-soul-tab${!isProjectSoul ? " is-active" : ""}`}
+              onClick={() => selectTab("character")}
+            >
+              <Users /> 角色灵魂
+            </button>
+          </nav>
           {!isProjectSoul && view === "gallery" && gallerySection === "custom" ? (
             <button type="button" className="ui-test-soul-action" onClick={startNewCustom}>
               <Plus /> 新建角色灵魂
             </button>
           ) : null}
         </div>
-        <nav className="ui-test-soul-tab-row" aria-label="灵魂分类">
-          <button
-            type="button"
-            className={`ui-test-soul-tab${isProjectSoul ? " is-active" : ""}`}
-            onClick={() => selectTab("project")}
-          >
-            <BookOpen /> 项目灵魂
-          </button>
-          <button
-            type="button"
-            className={`ui-test-soul-tab${!isProjectSoul ? " is-active" : ""}`}
-            onClick={() => selectTab("character")}
-          >
-            <Users /> 角色灵魂
-          </button>
-        </nav>
       </header>
 
       <div data-ui="soul-content" className="ui-test-soul-content">

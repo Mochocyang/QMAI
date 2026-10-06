@@ -164,6 +164,27 @@ beforeEach(() => {
 })
 
 describe("拆书成功结果按内容复用", () => {
+  it("新工作台的需求、实际章节选择、目标与分段位置参与缓存键", async () => {
+    const value = task("workbench", "characters")
+    value.workbenchVersion = 2
+    value.workbenchRequest = { selectedChapterIds: ["ch-0001"], requirements: { characters: "处事方式" } }
+    const record = chunk(value)
+    record.segments = [{ chapterId: "ch-0001", order: 1, start: 0, end: 100, sourceHash: "a".repeat(64) }]
+    const input: AnalysisResultCacheInput = { task: value, chunk: record, skill: "characters", bookPath, projectPath, llmConfig: config() }
+    const cache = createAnalysisResultCache()
+    const original = await cache.createKey(input)
+    expect(original).not.toBeNull()
+    for (const change of [
+      (next: AnalysisResultCacheInput) => { next.task.workbenchRequest!.requirements.characters = "只研究关心亲友" },
+      (next: AnalysisResultCacheInput) => { next.task.workbenchRequest!.selectedChapterIds.push("ch-0002") },
+      (next: AnalysisResultCacheInput) => { next.task.targetCharacters![0].name = "另一人物" },
+      (next: AnalysisResultCacheInput) => { next.chunk.segments![0].start = 20 },
+    ]) {
+      const next = structuredClone(input)
+      change(next)
+      expect(await cache.createKey(next)).not.toBe(original)
+    }
+  })
   it.each(["characters", "story", "style"] as const)("%s 同内容跨任务复用区块与汇总，仍持久化当前区块并发布", async (skill) => {
     const cold = harness()
     await cold.run(task("task-old", skill))

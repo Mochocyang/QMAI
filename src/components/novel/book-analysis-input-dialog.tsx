@@ -8,6 +8,7 @@ import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-
 import { normalizePath } from "@/lib/path-utils"
 
 interface BookAnalysisInputDialogProps {
+  workbenchMode?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (files: BatchImportCandidate[], analysisSkills?: AnalysisSkill[]) => Promise<void> | void
@@ -31,6 +32,7 @@ function formatFileSize(bytes: number) {
 }
 
 export function BookAnalysisInputDialog({
+  workbenchMode = false,
   open,
   onOpenChange,
   onSubmit,
@@ -210,7 +212,7 @@ export function BookAnalysisInputDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col sm:max-w-[640px]"
+        className={`flex max-h-[85vh] flex-col sm:max-w-[640px]${workbenchMode ? " wb-import-dialog" : ""}`}
         showCloseButton={!isBusy}
       >
         <DialogHeader>
@@ -264,7 +266,10 @@ export function BookAnalysisInputDialog({
             )}
           </div>
 
-          <fieldset className="shrink-0 border-t pt-3" disabled={isBusy}>
+          {workbenchMode ? <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={analysisSkills.length > 0} onChange={(e) => setAnalysisSkills(e.target.checked ? ["characters"] : [])} disabled={isBusy} />
+            导入后设置分析
+          </label> : <fieldset className="shrink-0 border-t pt-3" disabled={isBusy}>
             <legend className="text-sm font-medium">导入后提取项目</legend>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm">
               {skillOptions.map(({ skill, label }) => (
@@ -290,7 +295,7 @@ export function BookAnalysisInputDialog({
                 全部提取
               </label>
             </div>
-          </fieldset>
+          </fieldset>}
 
           {error && (
             <div

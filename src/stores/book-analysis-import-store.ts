@@ -9,6 +9,7 @@ import { deleteBookAnalysisBook } from "@/lib/novel/book-analysis/book-deletion"
 import {
   cacheTaskSource,
   deleteFailedBatchImportTask,
+  deleteBatchImportRecord,
   loadBatchImportBatches,
   loadBatchImportTasks,
   pruneMissingCompletedBookHistory,
@@ -90,6 +91,7 @@ interface BookAnalysisImportState {
   cancelTask(taskId: string): Promise<void>
   cancelAllQueued(batchId: string): Promise<void>
   deleteFailedTask(taskId: string): Promise<void>
+  deleteRecord(taskId: string): Promise<void>
   renameCompletedTask(taskId: string, title: string): Promise<void>
   setPanelCollapsed(collapsed: boolean): void
   dispose(): Promise<void>
@@ -104,6 +106,7 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
   let createBatchChain: Promise<void> = Promise.resolve()
   let schedulerLifecycleChain: Promise<void> = Promise.resolve()
   const cancellingTaskIds = new Set<string>()
+  const deletingTaskIds = new Set<string>()
 
   function detachScheduler(): BatchImportScheduler | null {
     unsubscribeScheduler?.()
@@ -442,6 +445,7 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
       },
 
       continueTask: async (taskId) => {
+        if (deletingTaskIds.has(taskId)) throw new Error("记录正在删除，请稍后再试")
         const current = scheduler
         if (!current) throw new Error("请先初始化拆书项目")
         if (cancellingTaskIds.has(taskId)) throw new Error("任务正在取消，请稍后重试")
@@ -454,6 +458,7 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
       },
 
       regenerateTask: async (taskId) => {
+        if (deletingTaskIds.has(taskId)) throw new Error("记录正在删除，请稍后再试")
         const current = scheduler
         if (!current) throw new Error("请先初始化拆书项目")
         if (cancellingTaskIds.has(taskId)) throw new Error("任务正在取消，请稍后重试")
@@ -513,7 +518,32 @@ export function createBookAnalysisImportStore(options: { onRevision?: () => void
         }
       },
 
+      deleteRecord: async (taskId) => {
+        const current = scheduler
+        const projectPath = get().projectPath
+        const token = generation
+        if (!current || !projectPath) throw new Error("请先初始化拆书项目")
+        if (deletingTaskIds.has(taskId)) return
+        const task = get().tasks.find((item) => item.id === taskId)
+        if (!task) throw new Error("找不到导入记录")
+        if (!["failed", "cancelled", "completed", "skipped"].includes(task.status)) throw new Error("请先取消任务，再删除导入记录")
+        deletingTaskIds.add(taskId)
+        try {
+          await deleteBatchImportRecord(projectPath, taskId)
+          if (!isCurrent(token, projectPath, current)) return
+          schedulerTaskIds.delete(taskId)
+          completedTaskIds.delete(taskId)
+          current.forgetTerminalTask(taskId)
+          set((state) => ({
+            tasks: state.tasks.filter((item) => item.id !== taskId),
+            batches: state.batches.map((batch) => ({ ...batch, taskIds: batch.taskIds.filter((id) => id !== taskId) }))
+              .filter((batch) => batch.taskIds.length > 0),
+          }))
+        } finally { deletingTaskIds.delete(taskId) }
+      },
+
       deleteFailedTask: async (taskId) => {
+        if (deletingTaskIds.has(taskId)) throw new Error("记录正在删除，请稍后再试")
         const current = scheduler
         const projectPath = get().projectPath
         const token = generation

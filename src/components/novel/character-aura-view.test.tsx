@@ -9,6 +9,8 @@ import "@/i18n"
 import { BUILT_IN_CHARACTER_AURAS } from "@/lib/novel/character-aura"
 import { useWikiStore } from "@/stores/wiki-store"
 import { CharacterAuraView } from "./character-aura-view"
+import { personality } from "@/test-helpers/portable-personality-fixture"
+import { parsePortablePersonality } from "@/lib/novel/portable-personality"
 
 const auraMocks = vi.hoisted(() => ({
   bindCharacterAura: vi.fn(),
@@ -255,6 +257,35 @@ describe("CharacterAuraView hideSidebar selection", () => {
     expect(host.querySelector("h2")?.textContent).toBe(customAura.name)
   })
 
+  it("新人格灵魂按规则编辑，不与旧五层文本形成两份不同的性格", async () => {
+    auraMocks.listCharacterAuras.mockResolvedValue([{
+      ...customAura, portablePersonality: parsePortablePersonality(personality),
+    }])
+    useWikiStore.setState({
+      project: { id: "proj-1", name: "proj", path: "/proj" },
+      selectedSoulId: customAura.id, selectedSoulSection: "custom", selectedSoulTab: "character",
+    })
+    await act(async () => { root.render(<CharacterAuraView hideSidebar />) })
+    await flush()
+    await act(async () => {
+      Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.trim() === "编辑灵魂")?.click()
+    })
+    await flush()
+    expect(host.textContent).toContain("可迁移人格规则")
+    expect(host.textContent).not.toContain("当前灵魂信息")
+    const label = Array.from(host.querySelectorAll("label")).find((node) => node.textContent === "R1 · 行为倾向")
+    const input = label?.control as HTMLTextAreaElement
+    expect(input.value).toContain("不能直接定罪")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "核验后再决定")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => {
+      Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.trim() === "保存修改")?.click()
+    })
+    expect(auraMocks.updateCustomCharacterAura.mock.calls[0][2].portablePersonality.rules[0].tendency).toBe("核验后再决定")
+  })
+
   it("keeps the new-custom-soul selection so the create form survives refresh", async () => {
     // 回归：新建时列表里还没有自定义灵魂，刷新不能被回退值覆盖，否则新建表单会被立即关闭。
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
@@ -273,6 +304,30 @@ describe("CharacterAuraView hideSidebar selection", () => {
     expect(useWikiStore.getState().selectedSoulId).toBe("new-custom-soul")
     expect(host.textContent).toContain("新建角色灵魂")
     expect(host.textContent).toContain("从资料生成角色灵魂")
+  })
+
+  it("新建表单字段有可关联标签，资料排在进度之前且操作区独立", async () => {
+    auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
+    useWikiStore.setState({
+      project: { id: "proj-1", name: "proj", path: "/proj" },
+      selectedSoulId: "new-custom-soul",
+      selectedSoulSection: "custom",
+      selectedSoulTab: "character",
+    })
+    await act(async () => {
+      root.render(<CharacterAuraView hideSidebar />)
+    })
+    await flush()
+
+    const labels = Array.from(host.querySelectorAll("label"))
+    for (const text of ["名称", "人物分类", "生成提示词", "资料文本", "网页资料地址", "本地文档路径"]) {
+      const label = labels.find((node) => node.textContent === text)
+      expect(label?.control, `${text}需要关联输入控件`).toBeTruthy()
+    }
+    const sections = Array.from(host.querySelectorAll("h3")).map((node) => node.textContent)
+    expect(sections.indexOf("资料导入设置")).toBeLessThan(sections.indexOf("生成流程预览"))
+    expect(host.querySelector('[data-ui="soul-form-actions"]')?.textContent).toContain("从资料生成角色灵魂")
+    expect(host.querySelector('[data-ui="soul-form-basics"]')?.querySelectorAll("input").length).toBe(2)
   })
 
   it("binds a character and bumps the shared data version for the project sidebar", async () => {

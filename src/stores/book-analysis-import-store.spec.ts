@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     saveBatchImportTask: vi.fn(),
     saveBatchImportBatch: vi.fn(),
     deleteFailedBatchImportTask: vi.fn(),
+    deleteBatchImportRecord: vi.fn(),
     cacheTaskSource: vi.fn(),
     loadBookLibrary: vi.fn(),
     reconcileBookLibrary: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("@/lib/novel/book-analysis/batch-import-storage", () => ({
   saveBatchImportTask: mocks.saveBatchImportTask,
   saveBatchImportBatch: mocks.saveBatchImportBatch,
   deleteFailedBatchImportTask: mocks.deleteFailedBatchImportTask,
+  deleteBatchImportRecord: mocks.deleteBatchImportRecord,
   cacheTaskSource: mocks.cacheTaskSource,
 }))
 
@@ -143,6 +145,32 @@ function persistedBatch(projectPath: string): BatchImportBatch {
 }
 
 describe("book analysis import store", () => {
+  it("删除已取消记录后清理内存和批次，不删除作品", async () => {
+    const store = createBookAnalysisImportStore()
+    await store.getState().initializeProject(PROJECT_A)
+    store.setState({ tasks: [makeTask("cancelled", { status: "cancelled" })], batches: [{ ...persistedBatch(PROJECT_A), taskIds: ["cancelled"] }] })
+    await store.getState().deleteRecord("cancelled")
+    expect(mocks.deleteBatchImportRecord).toHaveBeenCalledWith(PROJECT_A, "cancelled")
+    expect(store.getState().tasks).toHaveLength(0)
+    expect(store.getState().batches).toHaveLength(0)
+    expect(mocks.schedulers[0].forgetTerminalTask).toHaveBeenCalledWith("cancelled")
+    expect(mocks.deleteBookAnalysisBook).not.toHaveBeenCalled()
+  })
+  it("删除期间禁止重新生成，磁盘失败则保留记录", async () => {
+    const store = createBookAnalysisImportStore()
+    await store.getState().initializeProject(PROJECT_A)
+    store.setState({ tasks: [makeTask("cancelled", { status: "cancelled" })] })
+    const gate = deferred<void>()
+    mocks.deleteBatchImportRecord.mockReturnValueOnce(gate.promise)
+    const deletion = store.getState().deleteRecord("cancelled")
+    await expect(store.getState().regenerateTask("cancelled")).rejects.toThrow("正在删除")
+    gate.resolve()
+    await deletion
+    store.setState({ tasks: [makeTask("failed", { status: "failed" })] })
+    mocks.deleteBatchImportRecord.mockRejectedValueOnce(new Error("磁盘被占用"))
+    await expect(store.getState().deleteRecord("failed")).rejects.toThrow("磁盘被占用")
+    expect(store.getState().tasks).toHaveLength(1)
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.schedulers.length = 0
@@ -156,6 +184,7 @@ describe("book analysis import store", () => {
     mocks.saveBatchImportTask.mockResolvedValue(undefined)
     mocks.saveBatchImportBatch.mockResolvedValue(undefined)
     mocks.deleteFailedBatchImportTask.mockResolvedValue(undefined)
+    mocks.deleteBatchImportRecord.mockResolvedValue(undefined)
     mocks.loadBookLibrary.mockResolvedValue({ version: 1, entries: [] })
     mocks.reconcileBookLibrary.mockResolvedValue({ version: 1, entries: [] })
     mocks.findBookLibraryEntryBySha256.mockResolvedValue(undefined)

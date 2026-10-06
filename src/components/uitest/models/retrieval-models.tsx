@@ -32,6 +32,13 @@ export function UiTestEmbeddingModels() {
   const [indexAction, setIndexAction] = useState<Message>(null)
   const [indexStale, setIndexStale] = useState(false)
   const indexBusy = useRef(false), actionId = useRef(0)
+  const persist = async (snapshot: EmbeddingConfig) => {
+    await persistModelChange(() => saveEmbeddingConfig(snapshot), () => saveEmbeddingConfig(saved))
+    useWikiStore.getState().setEmbeddingConfig(snapshot)
+    if (["endpoint", "model", "outputDimensionality", "maxChunkChars", "overlapChunkChars"].some(key => snapshot[key as keyof EmbeddingConfig] !== saved[key as keyof EmbeddingConfig])) setIndexStale(true)
+  }
+  const saveConfig = () => save(validateEmbeddingDraft(draft), persist)
+  useModelDraftGuard("embedding-model", "向量模型配置", dirty, saving, saveConfig, reset)
   useModelDraftGuard("embedding-index", "向量索引任务", false, !!indexAction?.running)
   const scope = project?.path ?? ""
   const scopeRef = useRef(scope); scopeRef.current = scope
@@ -72,7 +79,7 @@ export function UiTestEmbeddingModels() {
   return <section className="model-retrieval" aria-label="向量模型配置">
     <header>
       <div><h2>启用向量检索</h2><p className="model-note">全局模型配置 · 关闭后仍可使用关键词搜索，不会删除小说或索引。</p></div>
-      <button type="button" className="model-switch" role="switch" aria-label="启用向量检索" aria-checked={draft.enabled} disabled={saving || indexAction?.running} onClick={() => change({ enabled: !draft.enabled })}><span /></button>
+      <button type="button" className="model-switch" role="switch" aria-label="启用向量检索" aria-checked={draft.enabled} disabled={saving || indexAction?.running} onClick={() => void save(null, persist, { enabled: !draft.enabled })}><span /></button>
     </header>
     <fieldset className="model-form" disabled={saving || indexAction?.running}>
       <div className="model-fields">
@@ -102,7 +109,7 @@ export function UiTestEmbeddingModels() {
       {dirty && <p>先保存配置，再执行索引维护。</p>}
       {indexAction && <p role="status" className={indexAction.error ? "model-feedback error" : "model-feedback"}>{indexAction.text}</p>}
     </section>
-    <SaveFooter dirty={dirty} saving={saving} status={status} onReset={reset} onSave={() => void save(validateEmbeddingDraft(draft), async snapshot => { await persistModelChange(() => saveEmbeddingConfig(snapshot), () => saveEmbeddingConfig(saved)); useWikiStore.getState().setEmbeddingConfig(snapshot); setIndexStale(true) })} />
+    <SaveFooter dirty={dirty} saving={saving} status={status} onReset={reset} onSave={() => void saveConfig()} />
   </section>
 }
 
@@ -112,6 +119,13 @@ export function UiTestRerankModels() {
   const { draft, dirty, saving, status, update, reset, save, revision, alive } = form
   const [options, setOptions] = useState<string[]>([]), [action, setAction] = useState<Message>(null)
   const request = useRef(0)
+  const persist = async (snapshot: RerankConfig) => {
+    const target = project
+    await persistModelChange(() => saveRerankConfig(snapshot, target?.id, target?.path), () => saveRerankConfig(saved, target?.id, target?.path))
+    if ((useWikiStore.getState().project?.id ?? "global") === (target?.id ?? "global")) useWikiStore.getState().setRerankConfig(snapshot)
+  }
+  const saveConfig = () => save(validateRerankDraft(draft, llm.model), persist)
+  useModelDraftGuard("rerank-model", "重排模型配置", dirty, saving, saveConfig, reset)
   useEffect(() => { request.current++; setOptions([]); setAction(null) }, [draft.provider, draft.apiKey, draft.customEndpoint, draft.ollamaUrl, draft.apiMode, draft.useMainLlm])
   useEffect(() => { if (draft.useMainLlm) { request.current++; setAction(null) } }, [llm])
   useEffect(() => { request.current++; setAction(null) }, [draft])
@@ -133,12 +147,12 @@ export function UiTestRerankModels() {
   return <section className="model-retrieval" aria-label="重排模型配置">
     <header>
       <div><h2>启用检索重排</h2><p className="model-note">{project ? `当前小说：${project.name}，同时更新全局默认配置。` : "全局重排配置。"} 关闭后保留基础检索。</p></div>
-      <button type="button" className="model-switch" role="switch" aria-label="启用检索重排" aria-checked={draft.enabled} disabled={saving} onClick={() => change({ enabled: !draft.enabled })}><span /></button>
+      <button type="button" className="model-switch" role="switch" aria-label="启用检索重排" aria-checked={draft.enabled} disabled={saving} onClick={() => void save(null, persist, { enabled: !draft.enabled })}><span /></button>
     </header>
     <fieldset className="model-form" disabled={saving}>
       <div className="model-source-row">
         <div><h3>复用主模型</h3><p className="model-note">关闭后可单独配置重排模型，不改变聊天框的模型选择。</p></div>
-        <button type="button" className="model-switch" role="switch" aria-label="复用主模型" aria-checked={draft.useMainLlm} onClick={() => change({ useMainLlm: !draft.useMainLlm })}><span /></button>
+        <button type="button" className="model-switch" role="switch" aria-label="复用主模型" aria-checked={draft.useMainLlm} onClick={() => void save(null, persist, { useMainLlm: !draft.useMainLlm })}><span /></button>
       </div>
       {draft.useMainLlm ? <><p className="model-section-note">当前主模型：{llm.model || "尚未配置"}。只用于重排，不改变聊天模型选择。</p><div className="model-fields">{candidatesField}</div></> : <>
         <div className="model-fields">
@@ -158,6 +172,6 @@ export function UiTestRerankModels() {
       </div>
       {action && <p role="status" className={action.error ? "model-feedback error" : "model-feedback"}>{action.text}</p>}
     </fieldset>
-    <SaveFooter dirty={dirty} saving={saving} status={status} onReset={reset} onSave={() => void save(validateRerankDraft(draft, llm.model), async snapshot => { const target = project; await persistModelChange(() => saveRerankConfig(snapshot, target?.id, target?.path), () => saveRerankConfig(saved, target?.id, target?.path)); if ((useWikiStore.getState().project?.id ?? "global") === (target?.id ?? "global")) useWikiStore.getState().setRerankConfig(snapshot) })} />
+    <SaveFooter dirty={dirty} saving={saving} status={status} onReset={reset} onSave={() => void saveConfig()} />
   </section>
 }

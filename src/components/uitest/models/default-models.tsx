@@ -34,7 +34,7 @@ export function UiTestDefaultModels() {
   const scope = `${project?.id ?? "global"}:${project?.path ?? ""}`
   const scopeRef = useRef(scope); scopeRef.current = scope
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
-  useModelDraftGuard("default-models", "默认模型", dirty, saving)
+  useModelDraftGuard("default-models", "默认模型", dirty, saving, save, () => { setDraft(pick(useWikiStore.getState().novelConfig)); setBaseline(pick(useWikiStore.getState().novelConfig)); setStatus(null) })
   const options = useMemo(() => listDefaultModelOptions(providers), [providers])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; revision.current++ } }, [])
   useEffect(() => { if (!dirty) { setDraft(pick(novel)); setBaseline(pick(novel)) } }, [novel])
@@ -53,7 +53,7 @@ export function UiTestDefaultModels() {
     } catch (error) { if (mounted.current && revision.current === generation && scopeRef.current === requestScope) setTests(previous => ({ ...previous, [field]: { error: true, text: safeModelError(error, [actual.config!.apiKey]) } })) }
   }
   async function save() {
-    if (savingRef.current) return
+    if (savingRef.current) return false
     savingRef.current = true; setSaving(true); setStatus(null)
     const current = useWikiStore.getState(), requestScope = scope
     const selected = { ...draft }, config = { ...current.novelConfig, ...selected }
@@ -70,8 +70,10 @@ export function UiTestDefaultModels() {
         useWikiStore.getState().setNovelConfig(selected)
         useWikiStore.getState().setDefaultLlmModel(selected.defaultLlmModel)
         setBaseline(selected); setStatus({ text: "模型选择已保存，将用于下一次请求。" })
+        return true
       }
-    } catch (error) { if (mounted.current && scopeRef.current === requestScope) setStatus({ error: true, text: `保存失败：${safeModelError(error)}；当前选择已保留。` }) }
+      return false
+    } catch (error) { if (mounted.current && scopeRef.current === requestScope) setStatus({ error: true, text: `保存失败：${safeModelError(error)}；当前选择已保留。` }); return false }
     finally { savingRef.current = false; if (mounted.current) setSaving(false) }
   }
   return <section className="model-defaults" aria-label="默认模型设置">

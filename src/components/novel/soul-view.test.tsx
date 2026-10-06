@@ -166,4 +166,17 @@ describe("SoulView 单列画廊", () => {
 
     expect(useWikiStore.getState().selectedSoulId).toBe("new-custom-soul")
   })
+
+  it("标题和页签共用紧凑头部，不再单独显示说明段落", async () => {
+    await act(async () => {
+      root.render(<SoulView />)
+    })
+    await flush()
+
+    const heading = host.querySelector('[data-ui="soul-tabs"]')
+    expect(heading?.querySelector("h1")?.textContent).toBe("灵魂")
+    expect(heading?.querySelector("p")).toBeNull()
+    expect(heading?.querySelector('nav[aria-label="灵魂分类"]')?.parentElement)
+      .toBe(heading?.querySelector("h1")?.parentElement)
+  })
 })

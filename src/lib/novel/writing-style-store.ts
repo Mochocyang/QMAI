@@ -16,6 +16,7 @@ import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
 import { migrateStyleProfile } from "./book-analysis/style-profile-schema"
 import type { BookStyleProfile } from "./book-analysis/types"
+import { compileStyleFingerprint } from "./book-analysis/style-fingerprint"
 
 export interface WritingStylePreset {
   id: string
@@ -213,11 +214,18 @@ export async function buildWritingStyleContext(
     "",
   ]
 
-  // 硬约束永远排在最前：它是最可执行的部分，不能因为整合文档太长而被挤掉
-  lines.push("风格硬约束：", clip(preset.profile.constitution, constitutionCharLimit))
+  const structuredStyle = preset.profile.workbenchStyle?.styleFingerprint ? preset.profile.workbenchStyle : undefined
+  if (structuredStyle) {
+    lines[1] = "依据已核验的语言习惯写作，保持目标故事事实，不扮演或冒充原作者。参考片段只校准语言，不借用人物、地名、设定和情节，不照抄句子。"
+    lines.unshift("【已启用文风画像】")
+    lines.push(compileStyleFingerprint(structuredStyle))
+  } else {
+    // 旧画像仍按原预算处理；结构化画像不按字数切掉后面的维度。
+    lines.push("风格硬约束：", clip(preset.profile.constitution, constitutionCharLimit))
+  }
 
   const integratedDna = preset.profile.integratedDna?.trim()
-  if (integratedDna) {
+  if (integratedDna && !structuredStyle) {
     const { stripConstitutionSection } = await import("./book-analysis/writing-dna-prompts")
     const body = stripConstitutionSection(integratedDna)
     if (body) {
