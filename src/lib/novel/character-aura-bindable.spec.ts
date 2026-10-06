@@ -310,6 +310,115 @@ describe("character-aura 可绑定人物名单（本地/缓存/精修拆分）",
     expect(cacheEntryOnDisk()?.llmRefinedFingerprint).toBeUndefined()
   })
 
+  /**
+   * streamChat 的真实失败形态是「回调 onError」，而不是 reject：
+   * llm-client.ts 里 onError 有二十多处调用，只有少数分支才 throw。
+   * 所以「reject 不标记」这条并不能覆盖线上真正的失败，
+   * 一旦按 onError 算成功，标记会被写死，该指纹下再也不会重新精修 —— 精修永久静默失效。
+   */
+  it("LLM 通过 onError 回调报错（真实形态）时不得标记为已精修", async () => {
+    setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
+    mockHasUsableLlm.mockReturnValue(true)
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("HTTP 500"))
+    })
+
+    const names = await refineBindableCharactersWithLlm(PROJECT_PATH)
+
+    expect(names).toEqual(["甲"])
+    expect(cacheEntryOnDisk()?.llmRefinedFingerprint, "按 onError 失败却写了已精修标记，精修会永久失效")
+      .toBeUndefined()
+  })
+
+  it("LLM 只报错不产出内容时不得标记为已精修", async () => {
+    setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
+    mockHasUsableLlm.mockReturnValue(true)
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken("")
+      callbacks.onError(new Error("network reset"))
+    })
+
+    await refineBindableCharactersWithLlm(PROJECT_PATH)
+
+    expect(cacheEntryOnDisk()?.llmRefinedFingerprint).toBeUndefined()
+  })
+
+  it("多个大纲页中只要有一页 onError 失败，就不得标记为已精修", async () => {
+    setupProject({
+      entities: [entityPage("甲")],
+      outlines: [characterOutline("甲篇", "甲"), characterOutline("乙篇", "乙")],
+    })
+    mockHasUsableLlm.mockReturnValue(true)
+    let call = 0
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      call += 1
+      if (call === 1) {
+        callbacks.onToken("\n丙")
+        callbacks.onDone()
+        return
+      }
+      callbacks.onError(new Error("HTTP 500"))
+    })
+
+    const names = await refineBindableCharactersWithLlm(PROJECT_PATH)
+
+    // 部分成功可以并入名单供本次显示，但绝不能说「这个指纹已经精修完了」
+    expect(names).toContain("甲")
+    expect(cacheEntryOnDisk()?.llmRefinedFingerprint).toBeUndefined()
+  })
+
+  it("onError 失败后修好模型，同一指纹仍然会重新精修", async () => {
+    setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
+    mockHasUsableLlm.mockReturnValue(true)
+    mockStreamChat.mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("HTTP 500"))
+    })
+    await refineBindableCharactersWithLlm(PROJECT_PATH)
+
+    mockStreamChat.mockClear()
+    mockLlmReturning("乙")
+    const names = await refineBindableCharactersWithLlm(PROJECT_PATH)
+
+    expect(mockStreamChat, "上一次失败被误标为已精修，导致此后再也不问模型").toHaveBeenCalled()
+    expect(names).toEqual(["甲", "乙"])
+  })
+
+  /**
+   * 超时这条更隐蔽：signal 一 aborted，isUserAbortError 就返回 true（user-abort.ts:10），
+   * llm-client 于是走 onDone() 分支 —— 表面上跟成功完全一样。
+   * 所以「有没有超时」只能由我们自己起的计时器说了算。
+   */
+  it("LLM 超时被中止（onDone 伪装成成功）时不得标记为已精修", async () => {
+    setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
+    mockHasUsableLlm.mockReturnValue(true)
+    mockStreamChat.mockImplementation((_config, _messages, callbacks, signal) =>
+      new Promise<void>((resolve) => {
+        signal?.addEventListener("abort", () => {
+          callbacks.onDone()
+          resolve()
+        })
+      }))
+
+    vi.useFakeTimers()
+    try {
+      const pending = refineBindableCharactersWithLlm(PROJECT_PATH)
+      // 不能一次性 advance：计时器要等前面的异步链（指纹/缓存/本地解析）走完才注册，
+      // 而那些环节里混着真实宏任务，所以要「推进一点、让出一点」交替进行。
+      for (let i = 0; i < 200 && mockStreamChat.mock.calls.length === 0; i++) {
+        await vi.advanceTimersByTimeAsync(50)
+      }
+      expect(mockStreamChat, "前置异步链没走完，测试前提不成立").toHaveBeenCalled()
+      // 现在再推过超时点，触发 controller.abort()
+      await vi.advanceTimersByTimeAsync(BINDABLE_CHARACTERS_LLM_TIMEOUT_MS + 100)
+      const names = await pending
+
+      expect(names).toEqual(["甲"])
+      expect(cacheEntryOnDisk()?.llmRefinedFingerprint, "超时被当成成功，精修会永久失效").toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("模型不可用时 refineBindableCharactersWithLlm 不调用 LLM，也不算已精修", async () => {
     setupProject({ entities: [entityPage("甲")], outlines: [characterOutline("甲篇", "甲")] })
     mockHasUsableLlm.mockReturnValue(false)

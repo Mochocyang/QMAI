@@ -893,13 +893,19 @@ export async function refineBindableCharactersWithLlm(projectPath: string): Prom
     // 本地顺序优先，其后按 LLM 发现顺序追加本地没有的名字。
     const merged = new Set<string>()
     for (const name of localNames) addBindableCharacterName(merged, name)
-    for (const name of llmBatches.flat()) addBindableCharacterName(merged, name)
+    for (const batch of llmBatches) {
+      for (const name of batch.names) addBindableCharacterName(merged, name)
+    }
     const names = [...merged]
+
+    // 只有每一批都真正成功才算「这个指纹已精修」。否则模型一挂就被误标，
+    // 之后同一指纹永远走缓存短路，精修静默失效、再也不问模型。
+    const refined = llmBatches.length > 0 && llmBatches.every((batch) => batch.ok)
 
     await writeBindableCharactersCache(pp, {
       fingerprint,
       names,
-      llmRefinedFingerprint: fingerprint,
+      ...(refined ? { llmRefinedFingerprint: fingerprint } : {}),
       updatedAt: Date.now(),
     })
     return names
@@ -2246,13 +2252,21 @@ function extractCharacterNamesFromOutline(content: string): string[] {
 
 /**
  * 用 LLM 从大纲文本中提取真实人物名称。
- * 失败如实抛出，让精修流程知道「这次没成功」，从而不把当前指纹标记成已精修；
- * 降级由调用方（refineBindableCharactersWithLlm）负责。
+ *
+ * 返回 { ok, names } 而不是裸数组：streamChat 把真实的 HTTP/网络失败通过
+ * onError 回调上报（llm-client.ts 里二十多处），只有少数分支才 throw；
+ * 超时中止更隐蔽 —— AbortSignal 一 aborted，isUserAbortError 就返回 true，
+ * 于是走 onDone() 分支，看起来跟成功一模一样。这两条路若被当成成功，
+ * 会把当前指纹永久标记为「已精修」，精修从此静默失效。
+ * 所以这里显式记录 onError / onDone / 自建超时三个信号，任何一个不成立都算失败。
  */
-async function requestCharacterNamesWithLLM(content: string, timeoutMs: number): Promise<string[]> {
+async function requestCharacterNamesWithLLM(
+  content: string,
+  timeoutMs: number,
+): Promise<{ ok: boolean; names: string[] }> {
   const state = useWikiStore.getState()
   const llmConfig = resolveDefaultModel(state.llmConfig)
-  if (!hasUsableLlm(llmConfig, state.providerConfigs)) return []
+  if (!hasUsableLlm(llmConfig, state.providerConfigs)) return { ok: false, names: [] }
 
   const prompt = `请从以下小说大纲/人物设定文本中，提取所有真实的小说人物姓名。
 
@@ -2271,19 +2285,35 @@ ${content.slice(0, 6000)}`
   ]
 
   let result = ""
-  await streamChat(
-    llmConfig,
-    messages,
-    {
-      onToken: (token: string) => { result += token },
-      onDone: () => {},
-      onError: () => {},
-    },
-    AbortSignal.timeout(timeoutMs),
-  )
+  let failed = false
+  let completed = false
+  // 自己起超时：这样能确切知道「是被超时掐掉的」，而不是靠 signal.aborted 猜。
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  try {
+    await streamChat(
+      llmConfig,
+      messages,
+      {
+        onToken: (token: string) => { result += token },
+        onDone: () => { completed = true },
+        onError: () => { failed = true },
+      },
+      controller.signal,
+    )
+  } finally {
+    clearTimeout(timer)
+  }
 
-  return result
+  const names = result
     .split("\n")
     .map((line) => line.replace(/^[\d\.\、\s\-]+/, "").trim())
     .filter((name) => name.length > 0 && name.length <= 20 && name !== "无")
+
+  // 成功 = 明确走完 onDone、没有 onError、也没有被超时中止。
+  return { ok: completed && !failed && !timedOut, names }
 }
