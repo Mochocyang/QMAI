@@ -4,6 +4,29 @@ import { readUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 /** 预览注入样式的唯一标记。重复套用时替换这一段，不叠样式。 */
 export const DOCUMENT_APPEARANCE_STYLE_ID = "qmai-document-appearance"
 
+/**
+ * 应用自生成版式（editorial-v2）的标记：只有这些文档需要补 srcdoc 基址。
+ * 用户自己的 HTML 文件可能引用相对图片，不能动它们的基址。
+ */
+const EDITORIAL_LAYOUT_MARKER = 'data-qmai-layout="editorial-v2"'
+
+/**
+ * srcdoc iframe 的文档地址是 `about:srcdoc`，但相对地址默认仍按父页面的地址解析。
+ * 于是 `<a href="#psec-2">` 会被当成「跳到父级地址的 #psec-2」，把整个 iframe 换成空白页
+ * ——分区导航点一下就白屏就是这么来的。显式声明基址后，锚点留在本文档内。
+ */
+const SRCDOC_BASE_TAG = '<base href="about:srcdoc">'
+
+function injectSrcdocBase(html: string): string {
+  if (!html.includes(EDITORIAL_LAYOUT_MARKER)) return html
+  if (/<base[\s>]/i.test(html)) return html
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (open) => `${open}${SRCDOC_BASE_TAG}`)
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (open) => `${open}<head>${SRCDOC_BASE_TAG}</head>`)
+  }
+  return `<head>${SRCDOC_BASE_TAG}</head>${html}`
+}
+
 function appearanceStylePattern(): RegExp {
   return new RegExp(
     `<style id="${DOCUMENT_APPEARANCE_STYLE_ID}">[\\s\\S]*?<\\/style>`,
@@ -58,6 +81,18 @@ interface DocumentPalette {
   beatFallInk: string
   beatHangBg: string
   beatHangInk: string
+  /** 档案文档配色体系：卡片底、斑马底、侧栏底与四个强调浅底。 */
+  card: string
+  cardHead: string
+  zebra: string
+  railBg: string
+  lineStrong: string
+  tintGold: string
+  tintJade: string
+  tintRose: string
+  tintSand: string
+  shadow1: string
+  shadow2: string
 }
 
 /** 与外观皮肤的纸底、墨色、强调色对齐。节拍色单独给星夜压暗，避免奶油色块贴在夜色页面上。 */
@@ -109,6 +144,17 @@ const PALETTES: Record<UiTestSkin, DocumentPalette> = {
     beatFallInk: "#5d6e64",
     beatHangBg: "#f3ebdf",
     beatHangInk: "#655a42",
+    card: "#ffffff",
+    cardHead: "#f4f8f2",
+    zebra: "#f6faf5",
+    railBg: "#f4f7f2",
+    lineStrong: "#c8d6c6",
+    tintGold: "#eaf2ea",
+    tintJade: "#e6f0ea",
+    tintRose: "#f2ece8",
+    tintSand: "#eef3e4",
+    shadow1: "0 1px 2px rgba(39,60,53,.06),0 1px 3px rgba(39,60,53,.05)",
+    shadow2: "0 8px 24px rgba(39,60,53,.10)",
   },
   zhi: {
     scheme: "light",
@@ -157,6 +203,17 @@ const PALETTES: Record<UiTestSkin, DocumentPalette> = {
     beatFallInk: "#6b5548",
     beatHangBg: "#fff7e6",
     beatHangInk: "#96601a",
+    card: "#fffdf8",
+    cardHead: "#faf5ea",
+    zebra: "#fbf7ee",
+    railBg: "#f9f4e9",
+    lineStrong: "#d8cdb4",
+    tintGold: "#faf3e4",
+    tintJade: "#eff3e8",
+    tintRose: "#f8ede7",
+    tintSand: "#f5f1e2",
+    shadow1: "0 1px 2px rgba(66,61,49,.06),0 1px 3px rgba(66,61,49,.05)",
+    shadow2: "0 8px 24px rgba(66,61,49,.10)",
   },
   xing: {
     scheme: "dark",
@@ -205,6 +262,17 @@ const PALETTES: Record<UiTestSkin, DocumentPalette> = {
     beatFallInk: "#adbcb2",
     beatHangBg: "#3b362c",
     beatHangInk: "#e2c48a",
+    card: "#26332e",
+    cardHead: "#2b3a33",
+    zebra: "#243029",
+    railBg: "#1f2b26",
+    lineStrong: "#42574e",
+    tintGold: "#2a3830",
+    tintJade: "#24382c",
+    tintRose: "#3a2a28",
+    tintSand: "#3b362c",
+    shadow1: "0 1px 2px rgba(0,0,0,.32),0 1px 3px rgba(0,0,0,.26)",
+    shadow2: "0 8px 24px rgba(0,0,0,.42)",
   },
 }
 
@@ -212,27 +280,74 @@ function isSkin(value: unknown): value is UiTestSkin {
   return value === "jing" || value === "zhi" || value === "xing"
 }
 
+/**
+ * 整份皮肤令牌写成**一个** `:root` 规则。
+ * ⚠️ 不要用 `join(";")` 把多个 `:root{…}` 拼起来：那会得到 `};:root{`，
+ * 浏览器认为 `;:root` 是非法选择器而把整条规则丢掉，令牌静默失效
+ * （星夜皮肤会因此退回模板的浅色纸底，变成白底浅字）。
+ */
 function paletteBlock(palette: DocumentPalette): string {
-  return [
-    `:root{color-scheme:${palette.scheme}`,
-    `--bg:${palette.bg};--surface:${palette.surface};--surface2:${palette.surface2}`,
-    `--ink:${palette.ink};--ink2:${palette.ink2};--muted:${palette.muted};--border:${palette.border}`,
-    `--brand:${palette.brand};--brand-soft:${palette.brandSoft};--brand-soft2:${palette.brandSoft2}`,
-    `--brand-text:${palette.brandText};--on-brand:${palette.onBrand}`,
-    `--qi:${palette.qi};--cheng:${palette.cheng};--zhuan:${palette.zhuan};--he:${palette.he}`,
-    `--ok:${palette.ok};--ok-soft:${palette.okSoft};--ok-border:${palette.okBorder}`,
-    `--warn:${palette.warn};--warn-soft:${palette.warnSoft}`,
-    `--danger:${palette.danger};--danger-soft:${palette.dangerSoft};--danger-border:${palette.dangerBorder}`,
+  const tokens = [
+    `color-scheme:${palette.scheme}`,
+    `--bg:${palette.bg}`,
+    `--surface:${palette.surface}`,
+    `--surface2:${palette.surface2}`,
+    `--ink:${palette.ink}`,
+    `--ink2:${palette.ink2}`,
+    `--muted:${palette.muted}`,
+    `--border:${palette.border}`,
+    `--brand:${palette.brand}`,
+    `--brand-soft:${palette.brandSoft}`,
+    `--brand-soft2:${palette.brandSoft2}`,
+    `--brand-text:${palette.brandText}`,
+    `--on-brand:${palette.onBrand}`,
+    `--qi:${palette.qi}`,
+    `--cheng:${palette.cheng}`,
+    `--zhuan:${palette.zhuan}`,
+    `--he:${palette.he}`,
+    `--ok:${palette.ok}`,
+    `--ok-soft:${palette.okSoft}`,
+    `--ok-border:${palette.okBorder}`,
+    `--warn:${palette.warn}`,
+    `--warn-soft:${palette.warnSoft}`,
+    `--danger:${palette.danger}`,
+    `--danger-soft:${palette.dangerSoft}`,
+    `--danger-border:${palette.dangerBorder}`,
     `--day:${palette.day}`,
-    `--k-qi-bg:${palette.kQiBg};--k-qi-ink:${palette.kQiInk}`,
-    `--k-cheng-bg:${palette.kChengBg};--k-cheng-ink:${palette.kChengInk}`,
-    `--k-he-bg:${palette.kHeBg};--k-he-ink:${palette.kHeInk}`,
-    `--beat-flat-bg:${palette.beatFlatBg};--beat-flat-border:${palette.beatFlatBorder};--beat-flat-ink:${palette.beatFlatInk}`,
-    `--beat-rise-bg:${palette.beatRiseBg};--beat-rise-border:${palette.beatRiseBorder};--beat-rise-ink:${palette.beatRiseInk}`,
-    `--beat-tight-bg:${palette.beatTightBg};--beat-tight-border:${palette.beatTightBorder};--beat-tight-ink:${palette.beatTightInk}`,
-    `--beat-fall-bg:${palette.beatFallBg};--beat-fall-border:${palette.beatFallBorder};--beat-fall-ink:${palette.beatFallInk}`,
-    `--beat-hang-bg:${palette.beatHangBg};--beat-hang-ink:${palette.beatHangInk}}`,
-  ].join(";")
+    `--k-qi-bg:${palette.kQiBg}`,
+    `--k-qi-ink:${palette.kQiInk}`,
+    `--k-cheng-bg:${palette.kChengBg}`,
+    `--k-cheng-ink:${palette.kChengInk}`,
+    `--k-he-bg:${palette.kHeBg}`,
+    `--k-he-ink:${palette.kHeInk}`,
+    `--beat-flat-bg:${palette.beatFlatBg}`,
+    `--beat-flat-border:${palette.beatFlatBorder}`,
+    `--beat-flat-ink:${palette.beatFlatInk}`,
+    `--beat-rise-bg:${palette.beatRiseBg}`,
+    `--beat-rise-border:${palette.beatRiseBorder}`,
+    `--beat-rise-ink:${palette.beatRiseInk}`,
+    `--beat-tight-bg:${palette.beatTightBg}`,
+    `--beat-tight-border:${palette.beatTightBorder}`,
+    `--beat-tight-ink:${palette.beatTightInk}`,
+    `--beat-fall-bg:${palette.beatFallBg}`,
+    `--beat-fall-border:${palette.beatFallBorder}`,
+    `--beat-fall-ink:${palette.beatFallInk}`,
+    `--beat-hang-bg:${palette.beatHangBg}`,
+    `--beat-hang-ink:${palette.beatHangInk}`,
+    // 档案文档（分区卡片流）配色体系：与模板 :root 里的同名令牌一一对应。
+    `--card:${palette.card}`,
+    `--card-head:${palette.cardHead}`,
+    `--zebra:${palette.zebra}`,
+    `--rail-bg:${palette.railBg}`,
+    `--line-strong:${palette.lineStrong}`,
+    `--tint-gold:${palette.tintGold}`,
+    `--tint-jade:${palette.tintJade}`,
+    `--tint-rose:${palette.tintRose}`,
+    `--tint-sand:${palette.tintSand}`,
+    `--shadow-1:${palette.shadow1}`,
+    `--shadow-2:${palette.shadow2}`,
+  ]
+  return `:root{${tokens.join(";")}}`
 }
 
 /** 盖住旧文档里写死的白底和浅色正文。节拍选择器比 .bt 更具体，放在后面。 */
@@ -305,17 +420,18 @@ export function subscribeDocumentAppearance(onChange: (skin: UiTestSkin) => void
  */
 export function applyDocumentAppearance(html: string, skin: UiTestSkin): string {
   const stripped = html.replace(appearanceStylePattern(), "")
+  const withBase = injectSrcdocBase(stripped)
   const block = `<style id="${DOCUMENT_APPEARANCE_STYLE_ID}">${appearanceCss(skin)}</style>`
-  if (/<\/head>/i.test(stripped)) {
-    return stripped.replace(/<\/head>/i, `${block}</head>`)
+  if (/<\/head>/i.test(withBase)) {
+    return withBase.replace(/<\/head>/i, `${block}</head>`)
   }
-  if (/<head[^>]*>/i.test(stripped)) {
-    return stripped.replace(/<head[^>]*>/i, (open) => `${open}${block}`)
+  if (/<head[^>]*>/i.test(withBase)) {
+    return withBase.replace(/<head[^>]*>/i, (open) => `${open}${block}`)
   }
-  if (/<html[^>]*>/i.test(stripped)) {
-    return stripped.replace(/<html[^>]*>/i, (open) => `${open}<head>${block}</head>`)
+  if (/<html[^>]*>/i.test(withBase)) {
+    return withBase.replace(/<html[^>]*>/i, (open) => `${open}<head>${block}</head>`)
   }
-  return `<head>${block}</head>${stripped}`
+  return `<head>${block}</head>${withBase}`
 }
 
 export function useDocumentAppearance(): UiTestSkin {

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { JSDOM } from "jsdom"
 import { readFileSync } from "node:fs"
 import { normalizeProfileDocument, renderProfileDocumentHtml, type ProfileDocument } from "./profile-document"
@@ -18,6 +18,78 @@ const data = () => ({name: "星陨盆地", tag: "科幻 / 设计提案", tagline
   routes: [{from: "north", to: "south", label: "冻土驮道", mode: "land", detail: "步行两日；冰暴时关闭"}],
 }})
 function normalized() { return normalizeProfileDocument(data())! }
+
+// ---------------------------------------------------------------------------
+// 配色体系：模板自带色彩令牌，预览注入按皮肤重写同一批令牌
+// ---------------------------------------------------------------------------
+
+/** 模板样式表原文。 */
+function styleOf(path: string): string {
+  const html = readFileSync("skills/SkillHub/" + path, "utf8")
+  return html.match(/<style>([\s\S]*?)<\/style>/)![1]
+}
+
+/** 合并某个选择器的全部声明（模板里同一选择器可能出现在基础层与配色层）。 */
+function declarationsOf(css: string, selector: string): string {
+  const wanted = selector.trim()
+  const found: string[] = []
+  for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = match[1].split(",").map((item) => item.trim())
+    if (selectors.includes(wanted)) found.push(match[2])
+  }
+  return found.join(";")
+}
+
+/** 某个选择器上某条属性的最终取值（取最后一条声明，贴近层叠结果）。 */
+function propertyValue(css: string, selector: string, property: string): string | null {
+  const declarations = declarationsOf(css, selector)
+  const pattern = new RegExp(`(?:^|;)\\s*${property}\\s*:([^;]*)`, "g")
+  let value: string | null = null
+  for (const match of declarations.matchAll(pattern)) value = match[1]
+  return value
+}
+
+function rulesAfterTokens(css: string): string {
+  return css.replace(/:root\s*\{[^}]*\}/g, "")
+}
+
+function definedTokens(css: string): string[] {
+  return [...css.matchAll(/:root\s*\{([^}]*)\}/g)].flatMap((match) =>
+    [...match[1].matchAll(/(--[a-z0-9-]+)\s*:/g)].map((token) => token[1]),
+  )
+}
+
+/** 分区卡片必须带底色的元素。 */
+const TINTED_ELEMENTS: Array<[string, string]> = [
+  [".document-top", "background"],
+  [".profile-rail", "background"],
+  [".pnav .navlink", "background"],
+  [".hero", "background"],
+  [".hero .chip", "background"],
+  [".pcard", "background"],
+  [".pcard h3 .no", "background"],
+  [".kv", "background"],
+  [".entry", "background"],
+  [".clist li", "background"],
+  [".semantic-card", "background"],
+  [".mxwrap", "background"],
+  ["table.mx thead th", "background"],
+  [".tag", "background"],
+]
+
+const EXTRA_TOKENS = [
+  "--card",
+  "--card-head",
+  "--zebra",
+  "--rail-bg",
+  "--line-strong",
+  "--tint-gold",
+  "--tint-jade",
+  "--tint-rose",
+  "--tint-sand",
+  "--shadow-1",
+  "--shadow-2",
+]
 
 describe("第二版批准方案：运行时渲染而不是硬编码样稿", () => {
   for (const path of paths) it(`${path} 提供常驻目录、纸面版式与窄屏阅读`, () => {
@@ -103,6 +175,48 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
       expect(html).toContain('data-qmai-layout="editorial-v2"')
       expect(html).toContain("--font-heading:")
       expect(html).toMatch(/__VOLUME_TREE__|__CHAPTER_CARDS__/)
+    })
+  }
+})
+
+describe("档案模板的配色体系", () => {
+  for (const path of paths) {
+    it(`${path} 定义色彩令牌，且每个令牌都真的用上`, () => {
+      const css = styleOf(path)
+      const defined = definedTokens(css)
+      const used = rulesAfterTokens(css)
+      for (const token of EXTRA_TOKENS) {
+        expect(defined, `${token} 未在 :root 定义`).toContain(token)
+        expect(used.includes(`var(${token})`), `${token} 定义了却没有规则使用`).toBe(true)
+      }
+      // 与预览皮肤同名的语义色也要有模板默认值，单独打开文件时不会失效
+      for (const token of ["--qi", "--cheng", "--zhuan", "--day"]) {
+        expect(defined, `${token} 未在 :root 定义`).toContain(token)
+      }
+    })
+
+    it(`${path} 的颜色一律走令牌，深色皮肤不会失效`, () => {
+      const rules = rulesAfterTokens(styleOf(path))
+      expect(rules).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+      expect(rules).not.toMatch(/\b(?:rgba?|hsla?)\(/)
+    })
+
+    it(`${path} 的分区、字段与表格都有底色`, () => {
+      const css = styleOf(path)
+      for (const [selector, property] of TINTED_ELEMENTS) {
+        const value = propertyValue(css, selector, property)
+        expect(value, `${selector} 没有声明 ${property}`).not.toBeNull()
+        expect(value, `${selector} 的 ${property} 没有走色令牌`).toContain("var(--")
+      }
+    })
+
+    it(`${path} 的分区序号轮转强调色，不再从头到尾一个色`, () => {
+      const css = styleOf(path)
+      const rotation = [...css.matchAll(/\.profile \.pcard:nth-child\(6n\+\d\)\{/g)]
+      expect(rotation.length).toBeGreaterThanOrEqual(4)
+      for (let index = 2; index <= rotation.length; index += 1) {
+        expect(declarationsOf(css, `.profile .pcard:nth-child(6n+${index})`)).toContain("--sec:")
+      }
     })
   }
 })

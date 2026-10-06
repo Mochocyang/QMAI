@@ -6,8 +6,19 @@ import {
 
 const SOURCE = "<!DOCTYPE html><html><head><style>.chip{background:#fff}</style></head><body>折叠树</body></html>"
 
+/** 带分区锚点导航的档案文档（Preview iframe 用 srcdoc 渲染的那一类）。 */
+const EDITORIAL =
+  '<!DOCTYPE html><html lang="zh-CN" data-qmai-layout="editorial-v2"><head><style>.profile-rail{position:sticky}</style></head>' +
+  '<body><nav class="pnav"><a class="navlink" href="#psec-1"><b>1</b>体系概览</a><a class="navlink" href="#psec-2"><b>2</b>等级阶梯</a></nav></body></html>'
+
+const SRCDOC_BASE = '<base href="about:srcdoc">'
+
 function styleCount(html: string): number {
   return html.match(new RegExp(`id="${DOCUMENT_APPEARANCE_STYLE_ID}"`, "g"))?.length ?? 0
+}
+
+function baseCount(html: string): number {
+  return html.match(new RegExp(SRCDOC_BASE, "g"))?.length ?? 0
 }
 
 describe("applyDocumentAppearance", () => {
@@ -58,5 +69,88 @@ describe("applyDocumentAppearance", () => {
     expect(bare).toContain("#fcfdfb")
     expect(bare).toContain("<p>正文</p>")
     expect(styleCount(bare)).toBe(1)
+  })
+})
+
+describe("srcdoc iframe 里的分区锚点", () => {
+  it("给 editorial-v2 文档补 about:srcdoc 基址，点击导航不再跳到空白页", () => {
+    const out = applyDocumentAppearance(EDITORIAL, "zhi")
+    expect(baseCount(out)).toBe(1)
+    // 必须落在 head 内，且在任何相对地址解析之前
+    expect(out.indexOf(SRCDOC_BASE)).toBeGreaterThan(out.indexOf("<head>"))
+    expect(out.indexOf(SRCDOC_BASE)).toBeLessThan(out.indexOf("</head>"))
+    expect(out).toContain('href="#psec-2"')
+  })
+
+  it("换肤重复套用不会叠加基址", () => {
+    const once = applyDocumentAppearance(EDITORIAL, "zhi")
+    const twice = applyDocumentAppearance(once, "xing")
+    expect(baseCount(twice)).toBe(1)
+    expect(styleCount(twice)).toBe(1)
+    expect(twice).toContain("#222f2a")
+  })
+
+  it("文档自带 base 时尊重原值，不覆盖", () => {
+    const withBase = EDITORIAL.replace("<head>", '<head><base href="about:blank">')
+    const out = applyDocumentAppearance(withBase, "jing")
+    expect(out).toContain('<base href="about:blank">')
+    expect(out).not.toContain("about:srcdoc")
+  })
+
+  it("普通 HTML 文件不注入基址，相对图片照旧解析", () => {
+    const plain = '<html><head></head><body><img src="pic.png"><a href="#x">x</a></body></html>'
+    const out = applyDocumentAppearance(plain, "jing")
+    expect(out).not.toContain("<base")
+    expect(out).toContain('src="pic.png"')
+  })
+
+  it("没有 head 的 editorial 文档也能补上基址", () => {
+    const bare = '<p data-qmai-layout="editorial-v2">正文</p>'
+    const out = applyDocumentAppearance(bare, "jing")
+    expect(baseCount(out)).toBe(1)
+    expect(styleCount(out)).toBe(1)
+    expect(out).toContain("正文")
+  })
+})
+
+describe("注入样式表的合法性", () => {
+  const TOKENS = [
+    "--card", "--card-head", "--zebra", "--rail-bg", "--line-strong",
+    "--tint-gold", "--tint-jade", "--tint-rose", "--tint-sand", "--shadow-1", "--shadow-2",
+  ]
+
+  function injectedCss(skin: "jing" | "zhi" | "xing"): string {
+    const out = applyDocumentAppearance(EDITORIAL, skin)
+    return out.match(new RegExp(`<style id="${DOCUMENT_APPEARANCE_STYLE_ID}">([\\s\\S]*?)</style>`))![1]
+  }
+
+  it("两条规则之间不夹分号，否则后一条会被浏览器整条丢弃", () => {
+    for (const skin of ["jing", "zhi", "xing"] as const) {
+      const css = injectedCss(skin)
+      for (const match of css.matchAll(/\}([^{}]*)\{/g)) {
+        expect(match[1], `${skin} 的规则之间多了一个分隔符`).not.toContain(";")
+      }
+    }
+  })
+
+  it("档案配色令牌在三个皮肤里都被声明", () => {
+    for (const skin of ["jing", "zhi", "xing"] as const) {
+      const css = injectedCss(skin)
+      const declared = [...css.matchAll(/:root\{([^}]*)\}/g)].flatMap((match) =>
+        [...match[1].matchAll(/(--[a-z0-9-]+)\s*:/g)].map((token) => token[1]),
+      )
+      for (const token of TOKENS) {
+        expect(declared, `${skin} 皮肤缺少 ${token}`).toContain(token)
+      }
+    }
+  })
+
+  it("星夜皮肤是深色纸面，卡片底不能漏成浅色", () => {
+    const read = (skin: "jing" | "zhi" | "xing", token: string) =>
+      injectedCss(skin).match(new RegExp(`${token}:([^;}]+)`))?.[1] ?? ""
+    expect(read("xing", "--card")).toMatch(/^#2/i)
+    expect(read("xing", "--tint-gold")).toMatch(/^#2/i)
+    expect(read("zhi", "--card")).toMatch(/^#f/i)
+    expect(read("xing", "--card")).not.toBe(read("zhi", "--card"))
   })
 })
