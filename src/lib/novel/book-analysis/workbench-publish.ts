@@ -5,11 +5,13 @@ import { createCustomCharacterAuraFromGeneratedSkill, loadCharacterAuraStore, up
 import { loadWritingStyleStore, upsertWritingStylePreset } from "../writing-style-store"
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "../plot-framework-library"
 import { renderPersonalitySkill, parsePortablePersonality } from "../portable-personality"
-import { buildGeneratedAuraInputFromBookCharacter } from "./aura-adapter"
+import { buildGeneratedAuraInputFromBookCharacter, importBookAnalysisSkillsAsAuras } from "./aura-adapter"
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
+import { generateSimpleSkillMarkdown } from "./skill-generator"
 import { workbenchPersonality, workbenchRulesMarkdown, type WorkbenchItem, type WorkbenchRevision } from "./workbench-core"
 import { readWorkbenchChapters, saveWorkbenchRevision, workbenchRevisionPath } from "./workbench-storage"
-import type { ExtractedCharacter, BookAnalysisMetadata } from "./types"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { ExtractedCharacter, BookAnalysisMetadata, CharacterSkill } from "./types"
 import type { PlotFramework } from "../plot-framework"
 import { styleItemEvidenceIds } from "./style-fingerprint"
 
@@ -44,6 +46,60 @@ function workbenchSkillContent(item: WorkbenchItem, revision: WorkbenchRevision)
     parsePortablePersonality(workbenchPersonality(item, revision.evidence)))
 }
 
+/**
+ * 旧版（迁移）条目没有可用 Skill 时就地合成一个、仅作为 aura 输入载体的 CharacterSkill。
+ * 不写进 skills 目录、不进入作品库。
+ *
+ * 有 personalityProfile 时用 generateSimpleSkillMarkdown 生成真实内容而非留空：
+ * character-aura.ts 会把 skillContent 写成 SKILL.md，故事提取会读回它。
+ */
+function syntheticLegacySkill(book: BookAnalysisLibraryBook, character: ExtractedCharacter): CharacterSkill {
+  const profile = character.personalityProfile
+  return {
+    id: `legacy-skill-${character.id}`,
+    characterId: character.id,
+    characterName: character.name,
+    // 有富详情就用真实内容生成；没有就留空——留空时 aura 的字段仍由
+    // buildGeneratedAuraInputFromBookCharacter 的散文字段兜底取到。
+    skillContent: profile
+      ? generateSimpleSkillMarkdown({ characterName: character.name, profile, sourceBook: book.metadata.title })
+      : "",
+    sourceBook: book.metadata.title,
+    chapterRange: [`${character.firstAppearance}`, `${character.lastAppearance}`],
+    createdAt: book.metadata.updatedAt,
+  }
+}
+
+/**
+ * 确保旧版（迁移）角色在自定义灵魂库里，返回它的 auraId／auraName。
+ *
+ * 为什么单独有这个函数（设计 §5.2「两条发布路径」）：旧版条目**不复用**
+ * publishWorkbenchCharacter。那条路用的是就地合成的 ExtractedCharacter（没有
+ * personalityProfile），且迁移条目的 evidence／coverage 是空的，workbenchSkillContent
+ * 因此返回 ""，最终 createCustomCharacterAuraFromGeneratedSkill 会把空串写成 SKILL.md。
+ * 只有 importBookAnalysisSkillsAsAuras 握有作品库里的真实角色，aura-adapter.ts:61 起
+ * 「无人格块 → personalityProfile → 散文字段」的兜底链才会生效（情况 X/Y/Z 全覆盖）。
+ *
+ * 放在 workbench-publish.ts 而不是动作层，是因为 workbench-soul-actions.ts 已经
+ * import 本模块——反向 import 会形成循环依赖。
+ */
+export async function ensureLegacyCharacterAura(
+  projectPath: string, book: BookAnalysisLibraryBook, subject: string,
+): Promise<{ auraId: string; auraName: string }> {
+  const character = book.characters.find((c) => c.name === subject)
+  if (!character) throw new Error(`找不到旧版角色「${subject}」`)
+  const skill = book.skills.find((s) => s.characterId === character.id || s.characterName === character.name)
+    ?? syntheticLegacySkill(book, character)
+  const imported = await importBookAnalysisSkillsAsAuras(projectPath, book.metadata, book.characters, [skill], [skill.id])
+  if (imported.length) return { auraId: imported[0].auraId, auraName: imported[0].auraName }
+  // 已存在时该函数会跳过并返回空数组；必须查回既有 aura，
+  // 否则「已入库但未绑定」的角色永远绑不上（设计 §5.1）。
+  const store = await loadCharacterAuraStore(projectPath)
+  const aura = store.customAuras.find((a) => isSameBookAnalysisCharacterAura(a, book.metadata.title, subject))
+  if (!aura) throw new Error(`加入灵魂库失败：${subject}`)
+  return { auraId: aura.id, auraName: aura.name }
+}
+
 export async function publishWorkbenchCharacter(
   projectPath: string,
   revision: WorkbenchRevision,
@@ -70,7 +126,7 @@ export async function publishWorkbenchCharacter(
     : await createCustomCharacterAuraFromGeneratedSkill(projectPath, input)
 }
 
-export async function confirmWorkbenchRevision(projectPath: string, bookPath: string, revisionId: string, expectedFingerprint: string): Promise<WorkbenchRevision> {
+export async function confirmWorkbenchRevision(projectPath: string, bookPath: string, revisionId: string, expectedFingerprint: string, book?: BookAnalysisLibraryBook): Promise<WorkbenchRevision> {
   const key = `${projectPath}:${revisionId}`
   if (pending.has(key)) return pending.get(key)!
   const operation = (async () => {
@@ -96,12 +152,20 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
     await writeFileAtomic(joinPath(backup, `${revision.id}-${Date.now()}.json`), JSON.stringify(inspection.targets, null, 2))
     const publishedIds: string[] = []
     if (revision.skill === "characters") {
-      const store = await loadCharacterAuraStore(projectPath)
-      // 迁移条目即使没有规则也要发布（靠兜底链）；新版条目仍只发布有规则的
-      for (const item of revision.items.filter((item) => item.rules.length || revision.origin === "legacy")) {
-        const aura = await publishWorkbenchCharacter(projectPath, revision, item, store)
-        store.customAuras = [...store.customAuras.filter((a) => a.id !== aura.id), aura]
-        publishedIds.push(aura.id)
+      if (revision.origin === "legacy") {
+        // 设计 §5.2：旧版条目「不复用上面这条」，必须走 importBookAnalysisSkillsAsAuras，
+        // 否则旧版角色会拿到一个 SKILL.md 为空的灵魂。
+        if (!book) throw new Error("旧版迁移版本发布需要作品资料")
+        for (const subject of new Set(revision.items.map((item) => item.subject))) {
+          publishedIds.push((await ensureLegacyCharacterAura(projectPath, book, subject)).auraId)
+        }
+      } else {
+        const store = await loadCharacterAuraStore(projectPath)
+        for (const item of revision.items.filter((item) => item.rules.length)) {
+          const aura = await publishWorkbenchCharacter(projectPath, revision, item, store)
+          store.customAuras = [...store.customAuras.filter((a) => a.id !== aura.id), aura]
+          publishedIds.push(aura.id)
+        }
       }
     } else if (revision.skill === "style") {
       const markdown = revision.items.map(workbenchRulesMarkdown).join("\n\n")

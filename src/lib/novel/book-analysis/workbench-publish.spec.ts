@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sha256Text } from "@/lib/context-hub/fingerprint"
-import { inspectWorkbenchPublication, confirmWorkbenchRevision, publishWorkbenchCharacter } from "./workbench-publish"
+import { inspectWorkbenchPublication, confirmWorkbenchRevision, publishWorkbenchCharacter, ensureLegacyCharacterAura } from "./workbench-publish"
 import { saveWorkbenchRevision, workbenchRevisionPath } from "./workbench-storage"
 import { buildEvidenceCandidates, type WorkbenchRevision } from "./workbench-core"
 import { upsertWritingStylePreset } from "../writing-style-store"
+import { renderPersonalitySkill } from "../portable-personality"
+import type { BookAnalysisLibraryBook } from "./library-state"
+import type { CharacterSkill, ExtractedCharacter, PersonalityProfile } from "./types"
 
 const io = vi.hoisted(() => ({
   files: new Map<string, string>(), auras: [] as any[], writes: vi.fn(), createAura: vi.fn(), updateAura: vi.fn(),
@@ -151,7 +154,7 @@ describe("旧版迁移版本发布", () => {
     const legacy = legacyRevision()
     await saveWorkbenchRevision(bookPath, legacy)
     const preview = await inspectWorkbenchPublication("/project", legacy)
-    await confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint)
+    await confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint, legacyBook())
     expect(io.createAura).toHaveBeenCalledTimes(1)
     expect(io.createAura).toHaveBeenCalledWith(expect.objectContaining({ name: "甲", category: "拆书角色" }))
   })
@@ -184,5 +187,146 @@ describe("旧版迁移版本发布", () => {
     const aura = await publishWorkbenchCharacter("/project", legacy, legacy.items[0])
     expect(aura.name).toBe("甲")
     expect(JSON.stringify(io.createAura.mock.calls[0][0])).not.toContain("Infinity")
+  })
+})
+
+const legacyProfile: PersonalityProfile = {
+  personality: "沉得住气，先核实再下结论。", motivation: "查清账目。", speechStyle: "短句，少形容词。",
+  behaviorPatterns: "信息不足时先核对。", quotes: ["账目不会说谎。"],
+}
+const legacyPersona = { version: 1 as const, summary: "先核对再判断", scope: "只覆盖前两章", rules: [{
+  id: "P1", field: "mentalModel" as const, condition: "信息不足", tendency: "先核对再判断", boundary: "例外未知",
+  evidenceIds: ["E1"],
+}], evidence: [{ id: "E1", chapterId: "1", quote: "他没有立刻下结论，而是先核对账簿。" }] }
+
+function legacyCharacter(over: Partial<ExtractedCharacter> = {}): ExtractedCharacter {
+  return {
+    id: "char-1", name: "甲", aliases: [], importance: 9, category: "protagonist",
+    firstAppearance: 1, lastAppearance: 3, appearanceCount: 3, description: "旧城巡夜人。",
+    personality: "散文字段：克制。", speechStyle: "散文字段：短句。", relationships: [], keyEvents: [],
+    corpus: "旧城巡夜，夜里巡街。", ...over,
+  }
+}
+function legacySkill(over: Partial<CharacterSkill> = {}): CharacterSkill {
+  return {
+    id: "skill-char-1", characterId: "char-1", characterName: "甲",
+    skillContent: renderPersonalitySkill("甲", "测试作品", legacyPersona),
+    sourceBook: "测试作品", chapterRange: ["1", "3"], createdAt: 1, ...over,
+  }
+}
+/**
+ * 旧版（迁移）作品的库对象。默认给「甲」一个 personalityProfile（情况 Y）：
+ * 旧版六维路径的角色没有便携人格块，但人格资料在 personalityProfile 里，
+ * 只有 aura-adapter 会读它——这正是缺陷 1 的关键。
+ */
+function legacyBook(over: Partial<BookAnalysisLibraryBook> = {}): BookAnalysisLibraryBook {
+  return {
+    id: "book-1", path: bookPath,
+    metadata: { title: "测试作品", totalChapters: 3, totalWords: 3000, sourceType: "file", createdAt: 1, updatedAt: 2 },
+    recognizedCharacters: [], characters: [legacyCharacter({ personalityProfile: legacyProfile })], skills: [],
+    styleStatus: "disabled", boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [], ...over,
+  }
+}
+
+/**
+ * 缺陷 1 的回归网：旧版条目必须复用 importBookAnalysisSkillsAsAuras（设计 §5.2），
+ * 因为它拿的是真实 ExtractedCharacter，personalityProfile／散文字段的小兜底链才会生效。
+ * 若走 publishWorkbenchCharacter 的合成角色路径，skillContent 恒为 ""，
+ * 「确认并加入」得到的灵魂没有 SKILL.md 正文（而「加入自定义灵魂库」有）——同一个人两个结果。
+ */
+describe("旧版角色发布走 aura-adapter 路径（设计 §5.2／§8.1）", () => {
+  it("设计 §8.1 情况 Y：只有 personalityProfile、没有 Skill 时 SKILL.md 非空且内容来自人格资料", async () => {
+    const book = legacyBook()
+    const r = await ensureLegacyCharacterAura("/project", book, "甲")
+    expect(r).toEqual({ auraId: "aura-1", auraName: "甲" })
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    const input = io.createAura.mock.calls[0][0] as { skillContent: string; name: string; category: string }
+    expect(input.name).toBe("甲")
+    expect(input.category).toBe("拆书角色")
+    // 核心断言：对照「加入自定义灵魂库」，SKILL.md 不能是空串。
+    expect(input.skillContent).not.toBe("")
+    expect(input.skillContent).toContain("# 角色 Skill - 甲")
+    expect(input.skillContent).toContain("沉得住气，先核实再下结论。")
+    expect(input.skillContent).toContain("账目不会说谎。")
+  })
+
+  it("设计 §8.1 情况 Z：只有散文字段时仍能入库，SKILL.md 为空但字段由散文字段兜底", async () => {
+    const book = legacyBook({ characters: [legacyCharacter()] })
+    const r = await ensureLegacyCharacterAura("/project", book, "甲")
+    expect(r.auraName).toBe("甲")
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    const input = io.createAura.mock.calls[0][0] as { skillContent: string; styleDescription: string; corpus: string }
+    expect(input.skillContent).toBe("")
+    expect(input.styleDescription).toContain("旧城巡夜人。")
+    expect(input.corpus).toContain("旧城巡夜，夜里巡街。")
+  })
+
+  it("设计 §8.1 情况 X：带便携人格 Skill 时人格内容进入 aura", async () => {
+    const book = legacyBook({ skills: [legacySkill()] })
+    await ensureLegacyCharacterAura("/project", book, "甲")
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    const input = io.createAura.mock.calls[0][0] as {
+      portablePersonality?: { summary: string; rules: Array<{ tendency: string }> }
+      corpus: string; mentalModel: string
+    }
+    expect(input.portablePersonality?.summary).toBe("先核对再判断")
+    expect(input.portablePersonality?.rules[0].tendency).toBe("先核对再判断")
+    expect(input.mentalModel).toContain("先核对再判断")
+    expect(input.corpus).toContain("他没有立刻下结论，而是先核对账簿。")
+  })
+
+  it("批量「确认并加入」旧版迁移版本时也走 aura-adapter，SKILL.md 非空（情况 Y）", async () => {
+    const legacy = legacyRevision()
+    const book = legacyBook()
+    await saveWorkbenchRevision(bookPath, legacy)
+    const preview = await inspectWorkbenchPublication("/project", legacy)
+    const confirmed = await confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint, book)
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    expect(confirmed.publishedIds).toEqual(["aura-1"])
+    // 旧版条目没有结构化规则，若复用 publishWorkbenchCharacter 的合成角色，
+    // 这里的 skillContent 会是 ""——「确认并加入」也就得到一个没有正文的灵魂。
+    const input = io.createAura.mock.calls[0][0] as { skillContent: string; name: string }
+    expect(input.name).toBe("甲")
+    expect(input.skillContent).not.toBe("")
+    expect(input.skillContent).toContain("沉得住气，先核实再下结论。")
+  })
+
+  it("批量确认旧版迁移版本时缺少作品资料就拒绝，不创建 aura", async () => {
+    const legacy = legacyRevision()
+    await saveWorkbenchRevision(bookPath, legacy)
+    const preview = await inspectWorkbenchPublication("/project", legacy)
+    await expect(confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint))
+      .rejects.toThrow("旧版迁移版本发布需要作品资料")
+    expect(io.createAura).not.toHaveBeenCalled()
+  })
+
+  it("旧版角色已在灵魂库时返回既有 auraId，不重复创建", async () => {
+    const book = legacyBook()
+    const first = await ensureLegacyCharacterAura("/project", book, "甲")
+    const second = await ensureLegacyCharacterAura("/project", book, "甲")
+    // adapter 对已存在的 aura 会跳过并返回空数组，此时必须查回既有 aura，
+    // 否则「已入库但未绑定」的角色永远绑不上（设计 §5.1）。
+    expect(second).toEqual(first)
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+  })
+
+  it("同一批次里同一旧版角色只创建一次 aura", async () => {
+    const legacy = legacyRevision({
+      items: [
+        { subject: "甲", summary: "先核对再判断", limitations: "", rules: [] },
+        { subject: "甲", summary: "先核对再判断", limitations: "", rules: [] },
+      ],
+    })
+    const book = legacyBook()
+    await saveWorkbenchRevision(bookPath, legacy)
+    const preview = await inspectWorkbenchPublication("/project", legacy)
+    const confirmed = await confirmWorkbenchRevision("/project", bookPath, legacy.id, preview.fingerprint, book)
+    expect(io.createAura).toHaveBeenCalledTimes(1)
+    expect(confirmed.publishedIds).toEqual(["aura-1"])
+  })
+
+  it("旧版角色不在作品资料里时明确报错", async () => {
+    const book = legacyBook({ characters: [legacyCharacter({ name: "乙" })] })
+    await expect(ensureLegacyCharacterAura("/project", book, "甲")).rejects.toThrow("找不到旧版角色「甲」")
   })
 })

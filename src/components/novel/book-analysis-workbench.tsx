@@ -532,7 +532,7 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
       // 放在 window.confirm 之后，取消时就不留下任何磁盘痕迹。
       // 落盘失败按设计处理：报错、不进入发布、列表保持原状。
       if (revision.origin === "legacy") await materializeLegacyCharacterRevision(bookPath, book)
-      await confirmWorkbenchRevision(projectPath, bookPath, revision.id, inspect.fingerprint)
+      await confirmWorkbenchRevision(projectPath, bookPath, revision.id, inspect.fingerprint, book)
       onConfirmed()
       toast.success("已确认并加入使用库")
     } catch (error) { reportError(error) } finally { setSaving(false) }
@@ -586,7 +586,7 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
           <button aria-label={`查看${item.subject}规则`} aria-expanded={expandedSubject === item.subject} onClick={() => setExpandedSubject(expandedSubject === item.subject ? null : item.subject)}><FileText />{expandedSubject === item.subject ? "收起规则" : "查看规则"}</button>
           <button className="wb-icon" aria-label={`补充${item.subject}修订要求`} title="补充本版本修订要求" onClick={openRevision}><PencilLine /></button>
         </footer>
-        <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
+        {revision.skill === "characters" && <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
           {revision.origin === "legacy" && <span className="wb-origin-tag">{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}</span>}
           {/* publishable 只算一次：徽标与两个按钮必须用同一个判定，否则文案会和可点性互相矛盾。 */}
           {(() => {
@@ -602,7 +602,7 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
                 onClick={() => onBind(item.subject)}><Link2 />绑定…</button>
             </>
           })()}
-        </div>
+        </div>}
       </article>)}
       {!filteredItems.length && <p className="wb-muted wb-no-results">没有符合条件的成果</p>}
     </div>

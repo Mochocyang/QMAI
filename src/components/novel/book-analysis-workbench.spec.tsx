@@ -472,7 +472,7 @@ describe("旧版条目落盘时机与绑定对话框", () => {
     expect(mocks.materialize).toHaveBeenCalledWith(legacyBook.path, legacyBook)
     expect(mocks.materialize.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.confirmRevision.mock.invocationCallOrder[0])
-    expect(mocks.confirmRevision).toHaveBeenCalledWith("/project", legacyBook.path, expect.any(String), "fp-1")
+    expect(mocks.confirmRevision).toHaveBeenCalledWith("/project", legacyBook.path, expect.any(String), "fp-1", legacyBook)
     confirm.mockRestore()
   })
 
@@ -516,6 +516,64 @@ describe("旧版条目落盘时机与绑定对话框", () => {
     expect(dialog()!.textContent).toContain("请先在大纲中添加人物小传或人物设定，再绑定角色灵魂")
     expect(dialogButton("绑定所选").disabled).toBe(true)
     expect(mocks.bindCharacters).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 缺陷 2 的回归网：`.wb-soul-actions` 曾无条件渲染，而卡片组件被三个页签共用。
+ * 文风条目必然带规则（style-fingerprint.ts:105 要求至少一条），所以
+ * hasPublishableData 会算出 true，点「加入自定义灵魂库」就会把一篇文风建成拆书角色灵魂。
+ */
+describe("灵魂操作区只属于角色页签", () => {
+  const soulActions = (subject: string) => host.querySelector(`[data-testid="wb-soul-actions-${subject}"]`)
+
+  it("文风卡片即使带规则也不渲染灵魂按钮（两个按钮都不出现）", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([{
+      workbenchVersion: 2, id: "rev-style", skill: "style", bookTitle: "测试作品",
+      selectedChapterIds: ["c1"], createdAt: 1, requirements: "", coverage: [], evidence: [],
+      items: [{
+        subject: "文风", summary: "短段落，少形容词。", limitations: "只覆盖本章",
+        rules: [{ id: "S1", dimension: "sentence", condition: "写景时", action: "用短句", boundary: "对话不适用", observation: "原文多为短句", evidenceIds: [] }],
+      }],
+    }])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => skillTab("文风 Skill").click())
+    // 先证明卡片真的渲染了、而且带着规则：否则「没有灵魂按钮」可能只是因为整页是空的。
+    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("1条规则")
+    expect(host.querySelector(".wb-soul-actions")).toBeNull()
+    expect(soulActions("文风")).toBeNull()
+    expect(host.textContent).not.toContain("加入自定义灵魂库")
+    expect(host.textContent).not.toContain("绑定…")
+  })
+
+  it("角色页签的新版条目与旧版条目都仍渲染两个按钮", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([{
+      workbenchVersion: 2, id: "rev-characters-new", skill: "characters", bookTitle: "测试作品",
+      selectedChapterIds: ["c1"], createdAt: 9, requirements: "", coverage: [], evidence: [],
+      items: [{
+        subject: "许七安", summary: "新的判断倾向", limitations: "不迁移身份",
+        rules: [{ id: "R1", dimension: "judgment", condition: "信息不足时", action: "先核对再判断",
+          boundary: "不附带职业知识", observation: "先检查材料", evidenceIds: [] }],
+      }],
+    }])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 默认结果是排在磁盘版本之后才追加的旧版迁移条目之前那一条（新版）。
+    expect(soulActions("许七安")!.textContent).toContain("加入自定义灵魂库")
+    expect(soulActions("许七安")!.textContent).toContain("绑定…")
+    // 切到「旧版导入」那条，收口不能把迁移条目一起误伤。
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="结果版本"]')!
+    const legacyOption = [...select.options].find((o) => o.textContent?.includes("旧版导入"))!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, legacyOption.value)
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(soulActions("林烬")).not.toBeNull()
+    expect(soulActions("林烬")!.textContent).toContain("加入自定义灵魂库")
+    expect(soulActions("林烬")!.textContent).toContain("绑定…")
   })
 })
 
