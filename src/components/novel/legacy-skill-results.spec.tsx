@@ -203,6 +203,8 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     await act(async () => {})
 
     expect(container.textContent).toContain("《测试作品》故事导图")
+    // 故事页签必须写「历史导图」：新版结果区展示的是当前那一份，维度不同，标题不能含糊。
+    expect(container.querySelector(".wb-legacy-hint")?.textContent).toBe("旧版历史导图")
     const labels = buttonLabels()
     expect(labels).toContain("查看全部")
     expect(labels).not.toContain("删除")

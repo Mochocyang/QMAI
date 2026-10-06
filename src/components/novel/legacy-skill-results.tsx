@@ -32,6 +32,9 @@ export function LegacySkillResults({
 }) {
   // 角色选中状态放在这里持有，让 BookAnalysisCharacterPanel 保持受控。
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null)
+  // 故事页签要写明是「历史导图」：新版结果区展示的是当前那一份导图，
+  // 这里列的是历次生成的旧版导图，只写「旧版资料」分不清两者维度不同。
+  const hint = skill === "story" ? "旧版历史导图" : "旧版资料"
   return (
     // role="region" 不能省：aria-label 在隐式 role=generic 的裸 div 上是「禁止的命名来源」
     // （ARIA 1.2），读屏会直接忽略它，等于没写。加了 role 才是真正可命名的区域。
@@ -39,9 +42,9 @@ export function LegacySkillResults({
       className="wb-legacy-results"
       data-testid="legacy-skill-results"
       role="region"
-      aria-label="旧版资料"
+      aria-label={hint}
     >
-      <p className="wb-legacy-hint">旧版资料</p>
+      <p className="wb-legacy-hint">{hint}</p>
       {skill === "characters" && (
         <BookAnalysisCharacterPanel
           variant="embedded"

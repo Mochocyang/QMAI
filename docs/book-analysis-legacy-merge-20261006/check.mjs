@@ -81,8 +81,11 @@ const { lines, failed } = await page.evaluate(() => {
     const hint = group.querySelector(".wb-legacy-hint")
 
     log(`[${skill}] 旧版结果区在结果区内部`, !!(results && legacy) && results.contains(legacy))
+    // 故事页签写「旧版历史导图」，和新版结果区那份「当前导图」区分开；其余页签「旧版资料」。
+    const expectedHint = skill === "story" ? "旧版历史导图" : "旧版资料"
     log(`[${skill}] 旧版结果区带 role=region 与可访问名`,
-      legacy?.getAttribute("role") === "region" && legacy?.getAttribute("aria-label") === "旧版资料")
+      legacy?.getAttribute("role") === "region" && legacy?.getAttribute("aria-label") === expectedHint,
+      legacy ? `aria-label=${legacy.getAttribute("aria-label")}` : "")
 
     // 管理类控件必须全部消失（本组件刻意不传任何管理回调）
     const labels = legacy ? [...legacy.querySelectorAll("button")].map((b) => b.textContent?.trim() ?? "") : []
@@ -115,6 +118,10 @@ const { lines, failed } = await page.evaluate(() => {
     : []
   log("故事页签保留「查看全部」预览开关", storyLabels.includes("查看全部"), storyLabels.join(" | "))
   log("故事页签渲染出历史导图列表", !!storyGroup?.querySelector('[aria-label="故事导图历史列表"]'))
+  // 新版结果区那那份是「当前导图」，这里列的是历次旧版导图：标题必须能区分，否则用户以为是同一份。
+  log("故事页签标题写明是「历史导图」以区别于新版当前导图",
+    storyGroup?.querySelector(".wb-legacy-hint")?.textContent?.trim() === "旧版历史导图",
+    storyGroup?.querySelector(".wb-legacy-hint")?.textContent?.trim() ?? "缺少提示")
 
   // —— 角色页签仍是两栏（内联值就是两栏，不该被旧版的单列规则压掉）——
   const charGroup = groups.find((g) => g.dataset.skill === "characters")
