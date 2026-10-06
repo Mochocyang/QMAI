@@ -54,8 +54,14 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   localStorage.clear(); vi.clearAllMocks()
   // clearAllMocks 不还原实现，导图列表要显式复位，否则上个用例的桩会漏进下一个。
+  // 复位后必须给一个空数组而不是留 undefined：StoryMapContent 会 for…of 遍历返回值，
+  // 返回 undefined 会抛错、被它自己的 catch 吞掉，于是「忘了打桩」会伪装成正常的空状态而不是失败。
   listStoryMapHistory.mockReset()
+  listStoryMapHistory.mockResolvedValue([])
   mocks.old.sidebarRefreshCounter = 0
+  // 选中作品也要复位：打桩的作品库固定返回一本，所以漏复位不会立刻暴露，
+  // 但下一个用例若断言"当前选中"就会变成顺序依赖。
+  mocks.old.selectedLibraryBookId = null
   mocks.imports.tasks = []
   mocks.revisions.mockResolvedValue([])
   mocks.load.mockResolvedValue({ books: [book] })
@@ -375,12 +381,19 @@ describe("旧版刷新副作用由工作台接管", () => {
   })
 
   it("任务不变时反复渲染不再重复读取历史导图（每个任务只刷新一次）", async () => {
-    mocks.pipeline.tasks = [stuckTask({ status: "completed", selectedSkills: ["story"] })]
+    const storyDone = stuckTask({ id: "s-1", status: "completed", selectedSkills: ["story"] })
+    const otherRunning = stuckTask({ id: "c-1", status: "running", selectedSkills: ["characters"] })
+    mocks.pipeline.tasks = [storyDone, otherRunning]
     await act(async () => root.render(<BookAnalysisWorkbench />))
     await act(async () => skillTab("故事 Skill").click())
     const before = listStoryMapHistory.mock.calls.length
     expect(before).toBeGreaterThan(0)
     await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(listStoryMapHistory.mock.calls.length).toBe(before)
+    // 关键一步：让「另一个」任务的状态变化把 signature 改掉，effect 因此会重跑。
+    // 已完成的故事任务此时不能再刷新一次——去掉去重守卫这段就会失败，这正是守卫存在的意义。
+    mocks.pipeline.tasks = [storyDone, stuckTask({ id: "c-1", status: "completed", selectedSkills: ["characters"] })]
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(listStoryMapHistory.mock.calls.length).toBe(before)
   })

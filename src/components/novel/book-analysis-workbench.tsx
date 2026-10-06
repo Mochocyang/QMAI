@@ -212,7 +212,9 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
       storyRefreshedRef.current.add(refKey)
       setStoryMapRefreshKey((key) => key + 1)
     }
-  }, [tasks])
+    // 依赖用 signature（稳定字符串）而不是 tasks：父级传下来的 tasks 是 pipeline.tasks.filter(…)，
+    // 每次父组件渲染都是新数组，用它会让本 effect 在每个 store tick 都重跑一遍。
+  }, [signature])
   useEffect(() => {
     let current = true
     void loadChapterList(book.path).then((value) => {

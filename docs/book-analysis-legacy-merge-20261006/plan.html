@@ -499,7 +499,9 @@ git commit -m "feat(拆书库): 旧版结果并入新版页签"</code></pre>
 <div class="step"><span class="box">☐ Step 3</span> 实现。引入计数器并加进依赖：</div>
 <pre><code>const sidebarRefreshCounter = useBookAnalysisStore((s) =&gt; s.sidebarRefreshCounter)</code></pre>
 <pre><code>}, [project?.path, imports.revision, importSignature, taskSignature, refresh, sidebarRefreshCounter])</code></pre>
-<p>再加故事导图刷新键的递增 effect。<strong>它和状态一样放在 <code>BookWorkspace</code> 内</strong>，依赖直接写 <code>[tasks]</code>（<code>tasks</code> 由父级传入 store 里的数组，引用稳定，任务状态一变就换新引用，正好触发）：</p>
+<p>再加故事导图刷新键的递增 effect。<strong>它和状态一样放在 <code>BookWorkspace</code> 内</strong>，依赖用 <code>[signature]</code>（<code>:196</code> 那个 <code>${t.id}:${t.status}</code> 的 join）：
+<strong>不要用 <code>[tasks]</code></strong>——父级传下来的 <code>tasks</code> 是 <code>pipeline.tasks.filter(…)</code>（<code>:118</code>），<strong>每次父组件渲染都是新数组</strong>，
+用它会每次 store 变动都重跑 effect。</p>
 <pre><code>// 每个任务只递增一次：旧版当年用 ref 守住（book-analysis-view.tsx:171 的
 // notifiedPipelineTaskIdsRef，键为 `${task.id}:completed`），否则每次任务列表变化都会再读一遍历史导图。
 const storyRefreshedRef = useRef&lt;Set&lt;string&gt;&gt;(new Set())
@@ -512,7 +514,15 @@ useEffect(() =&gt; {
     storyRefreshedRef.current.add(refKey)
     setStoryMapRefreshKey((key) =&gt; key + 1)
   }
-}, [tasks])</code></pre>
+}, [signature])</code></pre>
+<div class="exp">
+  说明一：<strong>去重守卫与依赖数组是配套的，缺一不可。</strong>依赖写 <code>[signature]</code> 让它每次任务状态变化只跑一遍；
+  守卫再保证同一个任务的完成只递增一次。若有人把依赖改成 <code>[tasks]</code> 又<strong>删掉守卫</strong>（以为数组引用稳定），
+  就会变成每个 store tick 都递增一次、每次重读 <code>listStoryMapHistory</code> 加每张导图一个 <code>readFile</code>——
+  正是旧版当年用 ref 防住的 N+1（<code>book-analysis-view.tsx:171</code>、<code>:378-379</code>）。<br>
+  说明二：<code>signature</code> 是 <code>BookWorkspace</code> 自己的（<code>:196</code>），不是顶层的 <code>taskSignature</code>（作用域拿不到）。<br>
+  说明三：<code>signature</code> 用 <code>join()</code> 得到的是字符串，是稳定原始值，正合适做依赖。
+</div>
 <div class="exp">
   说明一：作品库本身已经由依赖数组里的 <code>signature</code>／<code>taskSignature</code> 覆盖（任务状态一变就重载），
   旧版当年需要单独写 effect 是因为它没有这个依赖。这里只补故事导图刷新键。<br>
@@ -627,7 +637,7 @@ git commit -m "fix(拆书库): 现在处理改为定位新版选角色区"</code
 </div>
 <div class="files"><strong>Files:</strong>
 <ul>
-  <li>Modify: <code>src/components/novel/book-analysis-workbench.css</code>（删 <code>:70-74</code> 的 <code>.wb-legacy</code> 规则，加 <code>.wb-legacy-results</code>／<code>.wb-legacy-hint</code>）</li>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.css</code>（删 <code>:70-74</code> 那五条 <code>.wb-legacy</code> 规则，加 <code>.wb-legacy-results</code>／<code>.wb-legacy-hint</code>；<strong>不要碰 <code>:69</code></strong>）</li>
   <li>（已提前完成，无需再动）<code>src/components/novel/book-analysis-view.tsx:95-97</code></li>
 </ul></div>
 
@@ -635,7 +645,20 @@ git commit -m "fix(拆书库): 现在处理改为定位新版选角色区"</code
 <pre><code># 只是核对，预期能看到 BookAnalysisView 直接返回 &lt;BookAnalysisWorkbench /&gt;，且 LegacyBookAnalysisView 仍在文件里
 Select-String -Path src\components\novel\book-analysis-view.tsx -Pattern 'BookAnalysisWorkbench />|export function LegacyBookAnalysisView'</code></pre>
 
-<div class="step"><span class="box">☐ Step 2</span> 换样式：删掉 <code>.wb-legacy</code> 那组规则（<code>:69-74</code>），换成页签内的旧版结果区：</div>
+<div class="step"><span class="box">☐ Step 2</span> 换样式：删掉 <code>.wb-legacy</code> 那组规则，换成页签内的旧版结果区。
+<strong>按选择器文本删，不要按行号删</strong>——行号会漂，而且紧邻的 <code>:69</code> 不是本任务的东西：</div>
+<div class="note warn">
+  <strong>不要删 <code>:69</code>。</strong><code>:69</code> 是导入弹窗的宽度规则：
+  <code>html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(640px,…)}</code>，
+  消费者是 <code>book-analysis-input-dialog.tsx:215</code>。它<strong>紧贴在 <code>.wb-legacy</code> 上面</strong>，
+  所以「<code>:69-74</code>」这种写法会把它一起删掉，而<strong>没有任何用例断言这个宽度，CI 会静默通过</strong>。
+  本任务要删的<strong>只有</strong> <code>:70-74</code> 那五条 <code>.wb-legacy</code> 规则。
+</div>
+<pre><code># 删除后必须为 0 命中（按选择器文本核对，而不是靠行号）
+Select-String -Path src\components\novel\book-analysis-workbench.css -Pattern '\.wb-legacy\{|\.wb-legacy |\[data-ui-page=analysis\]'
+# 反向确认导入弹窗那条还在
+Select-String -Path src\components\novel\book-analysis-workbench.css -Pattern 'wb-import-dialog'</code></pre>
+<p>要加的规则：</p>
 <pre><code>.wb-legacy-results{margin-top:22px;padding-top:16px;border-top:1px dashed var(--ui-line,#c6d1cb);min-width:0;overflow-wrap:anywhere}
 /* 必须写成 .book-workbench .wb-legacy-hint（或 p.wb-legacy-hint）：
    既有 .book-workbench p{margin:8px 0}（:7）特异性是 0,1,1，单写 .wb-legacy-hint 只有 0,1,0，margin-top 压不下去。 */
@@ -690,15 +713,27 @@ for (const text of ["重新提取文风", "启用此文风", "删除文风", "�
 // 6. 「旧版资料」提示的 margin-top 必须是 0（而不是 8px）：
 //    .book-workbench p{margin:8px 0} 特异性 0,1,1 会压过单独的 .wb-legacy-hint（0,1,0），
 //    这条只有真实浏览器算得出计算值，jsdom 查不出来。
-assert(getComputedStyle(hint).marginTop === "0px", "「旧版资料」应当写 .book-workbench .wb-legacy-hint 压掉 p 的 8px 上边距")</code></pre>
+assert(getComputedStyle(hint).marginTop === "0px", "「旧版资料」应当写 .book-workbench .wb-legacy-hint 压掉 p 的 8px 上边距")
+// 7. 导入弹窗那条规则不能被误删（Task 8 的行号陷阱）：
+//    改版后 .wb-import-dialog 仍应在 css 里，且弹窗宽度仍是 640px 上限。
+assert(getComputedStyle(importDialog).maxWidth === "640px", "导入弹窗宽度规则被误删了")</code></pre>
 <div class="exp">Playwright 是全局安装：用 <code>pathToFileURL(APPDATA + "/npm/node_modules/playwright/index.js")</code> 动态导入，并取 <code>mod.chromium ?? mod.default?.chromium</code>。</div>
 
 <div class="step"><span class="box">☐ Step 2</span> 运行，必须 0 失败</div>
 <pre><code>node docs/book-analysis-legacy-merge-20261006/check.mjs</code></pre>
 <div class="exp">Expected: 全部 PASS，失败数 0，退出码 0，并生成改版后截图。</div>
 
-<div class="step"><span class="box">☐ Step 3</span> 提交检查脚本与输出</div>
-<pre><code>git add docs/book-analysis-legacy-merge-20261006
+<div class="step"><span class="box">☐ Step 3</span> 提交检查脚本与输出。
+<strong>同时给旧脚本打上「已被取代」的标注</strong>，否则它会变成假证据：</div>
+<div class="note warn">
+  <code>docs/book-workbench-relayout/check.mjs:107-112</code> 仍然断言 <code>.wb-legacy</code> 存在、
+  且位于 <code>.wb-results-section</code> 下方，但它读的是<strong>当前</strong>的 css（<code>check.mjs:17-21</code>）。
+  Task 8 之后那个 DOM 已经不存在了，脚本却可能<strong>照样 0 失败通过</strong>——于是它会继续被当成"验证过"的证据引用。
+  本步骤顺带在旧脚本顶部（或那几行旁）加一句注释，写明它已被
+  <code>docs/book-analysis-legacy-merge-20261006/check.mjs</code> 取代，不要用来验证当前新版界面。
+  <code>docs/book-workbench-relayout/dump.html</code> 是同一份旧快照，也一并标注或删除。
+</div>
+<pre><code>git add docs/book-analysis-legacy-merge-20261006 docs/book-workbench-relayout
 git commit -m "test(拆书库): 旧版结果并入页签的几何检查"</code></pre>
 </div>
 
