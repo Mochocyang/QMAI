@@ -605,18 +605,23 @@ git commit -m "fix(拆书库): 现在处理改为定位新版选角色区"</code
 </div>
 
 <div class="task">
-<h3>Task 8: 视图入口与样式</h3>
+<h3>Task 8: 清理旧版样式（视图入口已在 Task 5 顺手完成）</h3>
+<div class="note">
+  <strong>本任务的 Step 1 已经提前做掉了。</strong>Task 5 删掉 <code>legacy</code> prop 后，
+  <code>book-analysis-view.tsx:96</code> 传 <code>legacy={&lt;LegacyBookAnalysisView /&gt;}</code> 会让 <code>tsc</code> 报
+  <code>TS2322: Property 'legacy' does not exist</code>，所以那一行在 Task 5 的提交（<code>5b486c1</code>）里已经按本任务的写法改完，
+  并已核对 <code>LegacyBookAnalysisView</code> 仍定义并导出、<code>book-analysis-view.spec.ts</code> 8/8 通过。
+  <strong>所以本任务现在只剩样式，别再把那一行改一遍。</strong>
+</div>
 <div class="files"><strong>Files:</strong>
 <ul>
-  <li>Modify: <code>src/components/novel/book-analysis-view.tsx:95-97</code></li>
-  <li>Modify: <code>src/components/novel/book-analysis-workbench.css:69-74</code>（<code>.wb-legacy</code> 规则）</li>
+  <li>Modify: <code>src/components/novel/book-analysis-workbench.css</code>（删 <code>:70-74</code> 的 <code>.wb-legacy</code> 规则，加 <code>.wb-legacy-results</code>／<code>.wb-legacy-hint</code>）</li>
+  <li>（已提前完成，无需再动）<code>src/components/novel/book-analysis-view.tsx:95-97</code></li>
 </ul></div>
 
-<div class="step"><span class="box">☐ Step 1</span> 改视图入口（旧版组件保留但不再挂载）：</div>
-<pre><code>export function BookAnalysisView() {
-  return &lt;BookAnalysisWorkbench /&gt;
-}</code></pre>
-<div class="exp">不要删除 <code>LegacyBookAnalysisView</code> —— 它和 <code>book-analysis-view.spec.ts</code> 本次原样保留，等新版外观确认后再单独清理。</div>
+<div class="step"><span class="box">☐ Step 1</span> ~~改视图入口~~ <strong>已由 Task 5 的 <code>5b486c1</code> 完成</strong>，核对即可，不要重复修改：</div>
+<pre><code># 只是核对，预期能看到 BookAnalysisView 直接返回 &lt;BookAnalysisWorkbench /&gt;，且 LegacyBookAnalysisView 仍在文件里
+Select-String -Path src\components\novel\book-analysis-view.tsx -Pattern 'BookAnalysisWorkbench />|export function LegacyBookAnalysisView'</code></pre>
 
 <div class="step"><span class="box">☐ Step 2</span> 换样式：删掉 <code>.wb-legacy</code> 那组规则（<code>:69-74</code>），换成页签内的旧版结果区：</div>
 <pre><code>.wb-legacy-results{margin-top:22px;padding-top:16px;border-top:1px dashed var(--ui-line,#c6d1cb);min-width:0;overflow-wrap:anywhere}
@@ -641,8 +646,9 @@ npx vitest run --dir src/components/novel --exclude '**/.codex-temp/**' --exclud
 <div class="exp">Expected: tsc 无输出；用例全绿（含原有 163+ 项）。</div>
 
 <div class="step"><span class="box">☐ Step 4</span> 提交</div>
-<pre><code>git add src/components/novel/book-analysis-view.tsx src/components/novel/book-analysis-workbench.css
-git commit -m "refactor(拆书库): 视图入口不再挂载旧版页面"</code></pre>
+<pre><code>git add src/components/novel/book-analysis-workbench.css
+git commit -m "style(拆书库): 页签内旧版结果区样式，清掉旧区块规则"</code></pre>
+<div class="exp">注意 <code>book-analysis-view.tsx</code> 不在这里：它在 Task 5 已提交，重复 add 会是空改动。</div>
 </div>
 
 <div class="task">
