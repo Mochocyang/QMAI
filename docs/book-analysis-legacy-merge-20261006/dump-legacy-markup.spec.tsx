@@ -118,7 +118,7 @@ const TAB_LABEL: Record<(typeof SKILLS)[number], string> = {
 }
 
 describe("生成几何检查用的 markup 快照", () => {
-  it("把三个页签下真实渲染的旧版结果区写成 dump.html", async () => {
+  it("把三个页签下真实渲染的 markup 写成 dump.html（角色页签已无旧版结果区）", async () => {
     listStoryMapHistory.mockResolvedValue([
       {
         dirName: "story-map-100",
@@ -140,7 +140,14 @@ describe("生成几何检查用的 markup 快照", () => {
       // 故事页签要等读盘那次 effect 落地，否则快照里只有一句"尚未提取故事导图"。
       await act(async () => {})
       const inner = container.innerHTML
-      expect(inner).toContain('data-testid="legacy-skill-results"')
+      // 角色页签的新契约：旧版角色数据已由工作台并入新版条目（含旧版迁移条目），
+      // 本组件在这里不再渲染任何东西——所以断言是「空」，不再是「含旧版结果区」。
+      // 这个页签仍然写进快照：check.mjs 正要靠它断言「同一页签里没有第三份角色列表」。
+      if (skill === "characters") {
+        expect(inner).toBe("")
+      } else {
+        expect(inner).toContain('data-testid="legacy-skill-results"')
+      }
       parts.push(`<div data-skill="${skill}">${shell(TAB_LABEL[skill], inner)}</div>`)
       act(() => root.unmount())
       document.body.removeChild(container)

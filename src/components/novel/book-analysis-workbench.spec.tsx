@@ -285,7 +285,20 @@ describe("旧版结果并入页签", () => {
   it("旧版结果出现在结果区内部，不再是页面底部独立区块", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
+    // 角色页签已不再渲染旧版结果区（旧版角色由工作台并入新版条目），
+    // 所以这条改在**仍会渲染**旧版结果区的故事页签上验证。
+    // legacyBook 上没有 styleProfile，文风页签同样是空的，只有故事页签挂上导图才有东西可量。
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-100",
+      map: {
+        schemaVersion: 1, bookId: "book-1", bookTitle: "测试作品", mainLineLabel: "主线A", mainSummary: "", createdAt: 100,
+        chapters: [{ id: "ch-1", order: 1, title: "第1章", summary: "摘要", mainEvents: [], branches: [] }],
+      },
+      jsonPath: "/project/book-analysis/book-1/story-maps/story-map-100/story-map.json",
+      htmlPath: "/project/book-analysis/book-1/story-maps/story-map-100/story-map.html",
+    }])
     await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => skillTab("故事 Skill").click())
     const results = host.querySelector(".wb-results-section")!
     const legacy = host.querySelector('[data-testid="legacy-skill-results"]')!
     expect(legacy).not.toBeNull()
@@ -293,27 +306,25 @@ describe("旧版结果并入页签", () => {
     expect(results.contains(legacy)).toBe(true)
   })
 
-  it("默认停留在角色页签时渲染角色类旧版结果", async () => {
+  it("默认停留在角色页签时不再渲染旧版结果区（角色已并入新版条目）", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    expect(host.textContent).toContain("旧版资料")
-    // 只查整页文案太弱：页面里任意一处「旧版资料」都能满足它。必须把「谁在渲染、渲染了什么」钉死——
-    // 「旧版资料」得是并入区域自己的标签，区域里得真的挂着旧版角色面板。
-    const legacy = host.querySelector('[data-testid="legacy-skill-results"]')!
-    expect(legacy).not.toBeNull()
-    expect(legacy.textContent).toContain("旧版资料")
-    expect(legacy.textContent).toContain("林烬")
-    // 无障碍：区域要有自己的名字。role="region" 必须一起断言——aria-label 落在隐式
-    // role=generic 的裸 div 上是禁止的命名来源，少了 role 读屏就忽略它，只查 aria-label 会放过这个退化。
-    expect(legacy.getAttribute("role")).toBe("region")
-    expect(legacy.getAttribute("aria-label")).toBe("旧版资料")
+    // 旧版角色数据已由工作台合并进新版条目（含旧版迁移条目）。
+    // LegacySkillResults 若在这里再渲染一遍旧版角色面板，同一个页签里就会出现第三份角色列表，
+    // 所以 characters 这一支整块返回 null——即使 legacyBook 上确实有旧版角色。
+    expect(legacyBook.characters.length).toBeGreaterThan(0)
+    expect(host.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
   })
 
   it("作品没有旧版资料时，旧版区块整块不渲染", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     // 默认 fixture 的 characters/skills 都是空的，也没有文风画像
     await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 角色页签这条现在是「无条件成立」的（characters 直接返回 null），信息量有限，保留做回归。
+    expect(host.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    // 真正有信息量的是文风页签：那里的 null 来自「确实没有 styleProfile」，不是 characters 的短路。
+    await act(async () => (skillTab("文风 Skill") as HTMLButtonElement).click())
     expect(host.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
   })
 

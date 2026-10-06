@@ -74,8 +74,17 @@ const { lines, failed } = await page.evaluate(() => {
   const MANAGEMENT = ["重新提取文风", "启用此文风", "取消启用", "删除文风", "选择角色生成 Skill", "自定义灵魂库"]
 
   // —— 每个页签各自的旧版结果区 ——
+  // 角色页签已经**没有**旧版结果区：旧版角色数据由工作台并入新版条目（含旧版迁移条目），
+  // LegacySkillResults 在 characters 上整块返回 null，否则同一页签里会出现第三份角色列表。
+  const charactersGroup = groups.find((g) => g.dataset.skill === "characters")
+  const charactersLegacy = charactersGroup?.querySelector(".wb-legacy-results") ?? null
+  log("[characters] 不再渲染旧版结果区（角色已并入新版条目）",
+    !!charactersGroup && charactersLegacy === null,
+    charactersGroup ? (charactersLegacy ? "仍然存在 .wb-legacy-results" : "") : "快照里缺少角色页签")
+
   for (const group of groups) {
     const skill = group.dataset.skill
+    if (skill === "characters") continue // 上面已单独断言：这个页签不该有旧版结果区
     const results = group.querySelector(".wb-results-section")
     const legacy = group.querySelector(".wb-legacy-results")
     const hint = group.querySelector(".wb-legacy-hint")
@@ -123,12 +132,11 @@ const { lines, failed } = await page.evaluate(() => {
     storyGroup?.querySelector(".wb-legacy-hint")?.textContent?.trim() === "旧版历史导图",
     storyGroup?.querySelector(".wb-legacy-hint")?.textContent?.trim() ?? "缺少提示")
 
-  // —— 角色页签仍是两栏（内联值就是两栏，不该被旧版的单列规则压掉）——
-  const charGroup = groups.find((g) => g.dataset.skill === "characters")
-  const grid = charGroup?.querySelector('[style*="grid-template-columns"]')
-  log("角色页签在宽容器下保持两栏",
-    !!grid && getComputedStyle(grid).gridTemplateColumns.split(" ").length === 2,
-    grid ? `columns=${getComputedStyle(grid).gridTemplateColumns}` : "缺少网格容器")
+  // —— 角色页签的两栏网格断言已随 characters 分支一起作废 ——
+  // 原先这里量的是旧版角色面板的内联网格（.wb-legacy-results [style*="grid-template-columns"]，
+  // 由 book-analysis-workbench.css 的 container query 在窄容器下压成单列）。
+  // 该面板已由工作台并入新版条目，不再出现在 LegacySkillResults 里，
+  // 快照中已不存在任何属于旧版结果区的内联网格，这条断言没有可量的对象，故删除。
 
   // —— 导入弹窗宽度规则不能被样式清理误删 ——
   const dialog = document.querySelector(".wb-import-dialog")
@@ -144,26 +152,41 @@ console.log(`\n失败项：${failed}`)
 if (pageErrors.length) console.log(`页面异常：${pageErrors.join(" | ")}`)
 await page.screenshot({ path: path.join(here, "after-旧版并入页签.png"), fullPage: true })
 
-// 窄容器下角色页签应收成单列：换个视口再量一次。
+// 窄容器下再量一次：剩下的旧版结果区（故事／文风）提示上边距仍须被压成 0，
+// 角色页签在窄容器下也仍然不该出现旧版结果区。
+//
+// 原先这里还断言「角色页签在窄容器下收成单列」——那条量的同样是角色面板的内联网格，
+// 面板已随 characters 分支搬进新版条目，快照里再没有可量的网格，该断言一并作废
+// （它测的 CSS 规则 .wb-legacy-results [style*="grid-template-columns"] 是否还有消费者，
+//  超出本快照的验证范围）。
 const narrow = await (async () => {
   const p = await browser.newPage({ viewport: { width: 620, height: 1000 } })
   await p.setContent(html, { waitUntil: "load" })
   const result = await p.evaluate(() => {
-    const group = [...document.querySelectorAll("[data-skill]")].find((g) => g.dataset.skill === "characters")
-    const grid = group?.querySelector('[style*="grid-template-columns"]')
+    const groups = [...document.querySelectorAll("[data-skill]")]
+    const charGroup = groups.find((g) => g.dataset.skill === "characters")
+    const hintMargins = groups
+      .filter((g) => g.dataset.skill !== "characters")
+      .map((g) => {
+        const hint = g.querySelector(".wb-legacy-hint")
+        return { skill: g.dataset.skill, margin: hint ? getComputedStyle(hint).marginTop : "缺少提示元素" }
+      })
     return {
-      columns: grid ? getComputedStyle(grid).gridTemplateColumns : "",
-      hintMargin: group ? getComputedStyle(group.querySelector(".wb-legacy-hint")).marginTop : "",
+      charactersHasLegacy: !!charGroup?.querySelector(".wb-legacy-results"),
+      hintMargins,
     }
   })
   await p.close()
   return result
 })()
-const narrowColumns = narrow.columns.trim().split(/\s+/).filter(Boolean).length
-console.log(`\n窄容器（620px）角色页签列数：${narrowColumns}  — ${narrow.columns}`)
-console.log(`窄容器「旧版资料」上边距：${narrow.hintMargin}`)
+const narrowMarginsOk = narrow.hintMargins.length > 0
+  && narrow.hintMargins.every((entry) => entry.margin === "0px")
+const narrowOk = narrowMarginsOk && !narrow.charactersHasLegacy
+console.log(`\n窄容器（620px）角色页签出现旧版结果区：${narrow.charactersHasLegacy ? "是（不该）" : "否"}`)
+for (const entry of narrow.hintMargins) {
+  console.log(`窄容器 [${entry.skill}] 旧版提示上边距：${entry.margin}`)
+}
+console.log(`窄容器断言：${narrowOk ? "PASS" : "FAIL"}`)
 
 await browser.close()
-const narrowOk = narrowColumns === 1 && narrow.hintMargin === "0px"
-console.log(`窄容器断言：${narrowOk ? "PASS" : "FAIL"}`)
 process.exit(failed === 0 && pageErrors.length === 0 && narrowOk ? 0 : 1)

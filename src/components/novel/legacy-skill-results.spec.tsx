@@ -139,38 +139,16 @@ function renderResults(
 }
 
 describe("LegacySkillResults 按页签呈现旧版结果", () => {
-  it("角色页签：渲染旧版角色结果，且不出现任何管理类控件", async () => {
-    const { container, buttonLabels, cleanup } = renderResults({ skill: "characters" })
-
-    expect(container.querySelector('[data-testid="legacy-skill-results"]')).not.toBeNull()
-    // 结果本身在
-    expect(container.textContent).toContain("林烬")
-    expect(container.textContent).toContain("旧版资料")
-    // 无障碍：区域要有自己的名字。role="region" 必须一起断言——aria-label 落在隐式
-    // role=generic 的裸 div 上是禁止的命名来源（ARIA 1.2），少了 role 读屏就忽略它，
-    // 只查 aria-label 会放过这个退化。
-    const region = container.querySelector('[data-testid="legacy-skill-results"]')
-    expect(region?.getAttribute("role")).toBe("region")
-    expect(region?.getAttribute("aria-label")).toBe("旧版资料")
-    // 管理类控件必须全部消失：顶层两个按钮靠 variant="embedded" 隐藏（属于被剥离的重复标题块），
-    // 逐角色的删除按钮才是靠回调缺失不渲染的。
-    const labels = buttonLabels()
-    expect(labels).not.toContain("选择角色生成 Skill")
-    expect(labels).not.toContain("加入自定义灵魂库")
-    expect(container.querySelector('[aria-label="删除角色林烬"]')).toBeNull()
-    expect(container.textContent).not.toContain("选择角色 Skill 加入自定义灵魂库")
-    cleanup()
-  })
-
-  it("角色页签：作品没有旧版角色数据时，整块不渲染", () => {
-    // 并入页签之后，空区块只是噪音：它会把面板自己的空状态摆在新版结果下面，
-    // 让用户以为旧版还有东西要看。
-    const { container, cleanup } = renderResults({
-      skill: "characters",
-      book: { ...book, characters: [], skills: [], styleProfile: undefined },
-    })
+  it("角色页签：整块不再渲染——角色已由工作台并入新版条目", () => {
+    // fixture 里仍然有旧版角色数据（book.characters / book.skills），
+    // 但工作台已经把它们合并进新版条目，本组件再渲染一遍就是同一页签里的第三份列表。
+    const { container, cleanup } = renderResults({ skill: "characters" })
 
     expect(container.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
+    // 不是「区域还在但空了」：这一支直接返回 null，容器里应当什么都没有。
+    expect(container.innerHTML).toBe("")
+    // 旧版角色面板自己的内容（含曾经靠 variant="embedded" 隐藏的两个顶层按钮）也不该出现。
+    expect(container.textContent).not.toContain("林烬")
     cleanup()
   })
 
@@ -226,6 +204,12 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     // 结果本身在
     expect(container.textContent).toContain("作品文风 · Writing DNA")
     expect(container.textContent).toContain("L1 语言 DNA")
+    // 无障碍：区域要有自己的名字。role="region" 必须一起断言——aria-label 落在隐式
+    // role=generic 的裸 div 上是禁止的命名来源（ARIA 1.2），少了 role 读屏就忽略它，
+    // 只查 aria-label 会放过这个退化。
+    const region = container.querySelector('[data-testid="legacy-skill-results"]')
+    expect(region?.getAttribute("role")).toBe("region")
+    expect(region?.getAttribute("aria-label")).toBe("旧版资料")
     // 管理类控件必须全部消失
     const labels = buttonLabels()
     // 正向控制：按钮列表本身非空，否则上面的 not.toContain 全都可以被空列表满足。
@@ -252,26 +236,13 @@ describe("LegacySkillResults 按页签呈现旧版结果", () => {
     expect(container.textContent).toContain("《测试作品》故事导图")
     // 故事页签必须写「历史导图」：新版结果区展示的是当前那一份，维度不同，标题不能含糊。
     expect(container.querySelector(".wb-legacy-hint")?.textContent).toBe("旧版历史导图")
+    // 无障碍名跟着提示走：区域必须能被读屏命名（role=region + aria-label，理由见文风页签那条）。
+    const region = container.querySelector('[data-testid="legacy-skill-results"]')
+    expect(region?.getAttribute("role")).toBe("region")
+    expect(region?.getAttribute("aria-label")).toBe("旧版历史导图")
     const labels = buttonLabels()
     expect(labels).toContain("查看全部")
     expect(labels).not.toContain("删除")
-    cleanup()
-  })
-
-  it("角色选中状态由本组件持有：点击另一个角色会切换右侧详情", async () => {
-    const { container, cleanup } = renderResults({ skill: "characters" })
-
-    // 初始没有外部选中态，面板回退到重要度最高的角色
-    expect(container.querySelector("h4")?.textContent).toBe("林烬")
-
-    const suwanButton = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("苏晚"))
-    expect(suwanButton).toBeTruthy()
-
-    act(() => suwanButton!.click())
-
-    // 右侧详情跟着切换，说明选中态确实由本组件持有并回传给了面板
-    expect(container.querySelector("h4")?.textContent).toBe("苏晚")
     cleanup()
   })
 })

@@ -1,7 +1,6 @@
 import { useState } from "react"
 import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
-import { BookAnalysisCharacterPanel } from "./book-analysis-character-panel"
 import { BookAnalysisStyleCard } from "./book-analysis-style-card"
 import { StoryMapContent } from "./book-analysis-library-layout"
 
@@ -12,9 +11,8 @@ import { StoryMapContent } from "./book-analysis-library-layout"
  * 按 legacy-panel-variant.ts 的约定，管理控件会随回调缺失而消失，
  * 因此页签里不会出现点了没反应的按钮。
  *
- * 角色面板里两种机制并存：顶层那两个按钮（选择角色生成 Skill／加入自定义灵魂库）
- * 是靠 variant="embedded" 隐藏的（它们是被剥离的重复标题块的一部分），
- * 只有逐角色的删除按钮是靠回调缺失消失的。
+ * 角色那一支已经搬走：旧版角色数据现在由工作台合并进新版条目（含旧版迁移条目），
+ * 本组件再渲染一遍，同一个页签里就会出现第三份角色列表，所以 characters 直接不渲染。
  *
  * StoryMapContent 没有 variant：它没有需要剥离的外壳，删除按钮由 onDeleteStoryMap 门控。
  *
@@ -31,8 +29,6 @@ export function LegacySkillResults({
   skill: AnalysisSkill
   storyMapRefreshKey?: number
 }) {
-  // 角色选中状态放在这里持有，让 BookAnalysisCharacterPanel 保持受控。
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null)
   // 故事页签空不空只能从盘上读出来，由 StoryMapContent 读完后回传。
   // 回传结果连同「哪本书 + 哪个刷新键」一起记：判定为空时整块（含 StoryMapContent）会卸载，
   // 不再重新判断的话，之后生成的导图就永远显示不出来。键一变，下面就算回「未知」并重新挂载去读。
@@ -40,11 +36,12 @@ export function LegacySkillResults({
   const [storyReport, setStoryReport] = useState<{ key: string; count: number | null }>({ key: "", count: null })
   const storyCount = storyReport.key === storyKey ? storyReport.count : null
 
-  const hasLegacy =
-    skill === "characters" ? book.characters.length > 0
-      : skill === "style" ? Boolean(book.styleProfile)
-        // 未知（还没读完）时先照常渲染，只有确知是 0 才当作没有。
-        : storyCount !== 0
+  // 角色已由工作台合并进新版条目（含旧版迁移条目），
+  // 这里再渲染一次就是同一页签里的第三份列表。
+  if (skill === "characters") return null
+
+  // 故事页签未知（还没读完）时先照常渲染，只有确知是 0 才当作没有。
+  const hasLegacy = skill === "style" ? Boolean(book.styleProfile) : storyCount !== 0
   if (!hasLegacy) return null
 
   // 故事页签要写明是「历史导图」：新版结果区展示的是当前那一份导图，
@@ -60,14 +57,6 @@ export function LegacySkillResults({
       aria-label={hint}
     >
       <p className="wb-legacy-hint">{hint}</p>
-      {skill === "characters" && (
-        <BookAnalysisCharacterPanel
-          variant="embedded"
-          book={book}
-          selectedCharacterId={selectedCharacterId}
-          onSelectCharacter={setSelectedCharacterId}
-        />
-      )}
       {/* 刻意不传 onDeleteStoryMap：删除按钮随回调消失，「查看全部」预览保留。 */}
       {skill === "story" && (
         <StoryMapContent
