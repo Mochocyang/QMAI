@@ -2,13 +2,17 @@ import { useMemo } from "react"
 import { Plus, Trash2, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { LegacyPanelVariant } from "./legacy-panel-variant"
 
 interface BookAnalysisCharacterPanelProps {
   book: BookAnalysisLibraryBook
   selectedCharacterId: string | null
   onSelectCharacter: (characterId: string) => void
-  /** embedded：嵌进新版页签时使用，隐藏管理类控件与重复标题（页签本身已叫「角色 Skill」）。 */
-  variant?: "full" | "embedded"
+  /**
+   * embedded：嵌进新版页签时使用。隐藏重复标题与重复边框（页签本身已叫「角色 Skill」）。
+   * 管理类按钮是否出现由各自回调是否存在决定，与 variant 无关。
+   */
+  variant?: LegacyPanelVariant
   addingToSoul?: boolean
   onOpenSkillSelection?: () => void
   onAddSelectedSkillsToSoul?: (skillId: string) => void
@@ -72,16 +76,22 @@ export function BookAnalysisCharacterPanel({
             <p className="mt-1 text-xs text-muted-foreground">选择角色 Skill 加入自定义灵魂库。</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={onOpenSkillSelection}>选择角色生成 Skill</Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul?.(selectedSkill.id)}
-              disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              {addButtonLabel}
-            </Button>
+            {onOpenSkillSelection && (
+              <Button size="sm" variant="outline" onClick={onOpenSkillSelection}>
+                选择角色生成 Skill
+              </Button>
+            )}
+            {onAddSelectedSkillsToSoul && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => selectedSkill && !selectedAuraAdded && onAddSelectedSkillsToSoul(selectedSkill.id)}
+                disabled={addingToSoul || !selectedSkill || selectedAuraAdded}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {addButtonLabel}
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -114,14 +124,14 @@ export function BookAnalysisCharacterPanel({
                     <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs">
                       {hasSkill ? "已生成" : "未生成"}
                     </span>
-                    {embedded ? null : (
+                    {onDeleteCharacter && (
                       <Button
                         size="sm"
                         variant="ghost"
                         className="h-7 shrink-0 px-2 text-destructive hover:bg-destructive/10"
                         aria-label={`删除角色${character.name}`}
                         title="删除角色（含角色档案与 Skill）"
-                        onClick={() => onDeleteCharacter?.(character.id)}
+                        onClick={() => onDeleteCharacter(character.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

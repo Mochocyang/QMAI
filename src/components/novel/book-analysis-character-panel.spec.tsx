@@ -156,12 +156,20 @@ describe("BookAnalysisCharacterPanel", () => {
 
 describe("embedded 模式", () => {
   it("隐藏管理类控件与重复标题，但保留角色列表和详情", () => {
-    const { container, cleanup } = renderPanel({ variant: "embedded" })
+    // 真实嵌入用法不传任何管理类回调，这里必须一致
+    const { container, cleanup } = renderPanel({
+      variant: "embedded",
+      onOpenSkillSelection: undefined,
+      onAddSelectedSkillsToSoul: undefined,
+      onDeleteCharacter: undefined,
+    })
     // 页签本身已经叫「角色 Skill」，面板内不该再出现一次标题
     expect(container.textContent).not.toContain("选择角色 Skill 加入自定义灵魂库")
     expect(container.textContent).not.toContain("选择角色生成 Skill")
     expect(container.textContent).not.toContain("自定义灵魂库")
     expect(container.querySelector('[aria-label="删除角色林烬"]')).toBeNull()
+    // 不再套第二层边框
+    expect(container.querySelector("section")?.className).not.toContain("border")
     // 结果本身必须还在
     expect(container.textContent).toContain("林烬")
     expect(container.textContent).toContain("已生成")
@@ -170,8 +178,24 @@ describe("embedded 模式", () => {
   })
 
   it("默认 full 模式仍然显示管理类控件（旧版页面不受影响）", () => {
-    const { addButton, cleanup } = renderPanel()
+    const { addButton, cleanup } = renderPanel({ onDeleteCharacter: vi.fn() })
     expect(addButton).toBeTruthy()
+    cleanup()
+  })
+
+  it("缺少删除回调时不渲染删除按钮（避免点了没反应的死按钮）", () => {
+    const { container, cleanup } = renderPanel()
+    expect(container.querySelector('[aria-label^="删除角色"]')).toBeNull()
+    cleanup()
+  })
+
+  it("提供删除回调时才渲染删除按钮，且点击会带上角色 id", () => {
+    const onDeleteCharacter = vi.fn()
+    const { container, cleanup } = renderPanel({ onDeleteCharacter })
+    const del = container.querySelector<HTMLButtonElement>('[aria-label="删除角色林烬"]')!
+    expect(del).not.toBeNull()
+    del.click()
+    expect(onDeleteCharacter).toHaveBeenCalledWith("char-linjing")
     cleanup()
   })
 })
