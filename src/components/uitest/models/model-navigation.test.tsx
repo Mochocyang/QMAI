@@ -5,6 +5,8 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
 import { SettingsView } from "@/components/settings/settings-view"
 import { useModelDraftGuard } from "./model-draft-guard"
+import { answerModelDraft, deferred } from "./model-test-utils"
+const saveDraft = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
 
 vi.mock("@/lib/ui-test", () => ({ IS_UI_TEST_BUILD: true }))
 vi.mock("@/i18n", () => ({ default: { language: "zh-CN" } }))
@@ -14,7 +16,7 @@ vi.mock("@/lib/project-store", () => ({ loadNovelConfig: vi.fn().mockResolvedVal
 vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
 vi.mock("@/components/settings/sections/llm-provider-section", () => ({ LlmProviderSection: function ModelDraft() {
   const [value, setValue] = useState("")
-  useModelDraftGuard("navigation-test", "模拟提供方", Boolean(value))
+  useModelDraftGuard("navigation-test", "模拟提供方", Boolean(value), false, saveDraft)
   return <div><output data-testid="model-draft">{value}</output><button type="button" onClick={() => setValue("待保存的模型")}>修改模拟配置</button></div>
 } }))
 vi.mock("./retrieval-models", () => ({ UiTestRerankModels: () => <div data-testid="independent-rerank" />, UiTestEmbeddingModels: () => <div data-testid="independent-embedding" /> }))
@@ -38,6 +40,7 @@ vi.mock("@/components/settings/sections/user-memory-section", () => ({ UserMemor
 
 let host: HTMLDivElement, root: Root
 beforeEach(async () => {
+  saveDraft.mockReset().mockResolvedValue(true)
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   useWikiStore.setState({ activeSettingsCategory: null, activeModelSettingsTab: null, project: null })
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
@@ -71,20 +74,31 @@ it("模型页不出现会保存无关配置的全局页脚，其他分类保留"
   expect(host.querySelector('[data-ui="settings-footer"]')).not.toBeNull()
 })
 it("取消离开模型分类时，不丢草稿；确认才离开", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
   await edit(); await click('[data-ui-settings-category-button="network"]')
-  expect(confirm).toHaveBeenCalledOnce()
+  await answerModelDraft("关闭")
   expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("model")
   expect(host.querySelector('[data-testid="model-draft"]')?.textContent).toBe("待保存的模型")
-  confirm.mockReturnValue(true)
   await click('[data-ui-settings-category-button="network"]')
+  await answerModelDraft("离开")
   expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("network")
 })
 it("外部分类跳转同样遵守未保存确认", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
   await edit()
   await act(async () => useWikiStore.getState().setActiveSettingsCategory("interface"))
-  expect(confirm).toHaveBeenCalledOnce()
+  await answerModelDraft("关闭")
   expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("model")
   expect(useWikiStore.getState().activeSettingsCategory).toBeNull()
+})
+it("保存成功才前往原分类，保存失败继续停留并保留输入", async () => {
+  await edit()
+  saveDraft.mockResolvedValueOnce(false)
+  await click('[data-ui-settings-category-button="network"]'); await answerModelDraft("保存配置")
+  expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("model")
+  expect(host.querySelector('[data-testid="model-draft"]')?.textContent).toBe("待保存的模型")
+  const saving = deferred<boolean>()
+  saveDraft.mockReturnValueOnce(saving.promise)
+  await click('[data-ui-settings-category-button="network"]'); await answerModelDraft("保存配置")
+  expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("model")
+  await act(async () => saving.resolve(true))
+  expect(host.querySelector('[data-ui-page="settings"]')?.getAttribute("data-ui-settings-category")).toBe("network")
 })

@@ -26,4 +26,9 @@ export function button(host: HTMLElement, label: string) {
   return element
 }
 export async function click(host: HTMLElement, label: string) { await act(async () => button(host, label).click()) }
+export async function answerModelDraft(label: "离开" | "保存配置" | "关闭") {
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+  if (!dialog) throw new Error("没有找到模型草稿确认框")
+  await click(dialog, label)
+}
 export function deferred<T>() { let resolve!: (value: T) => void, reject!: (reason: unknown) => void; const promise = new Promise<T>((a,b) => { resolve = a; reject = b }); return { promise, resolve, reject } }

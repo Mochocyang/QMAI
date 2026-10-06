@@ -72,6 +72,7 @@ function chunkKey(chunk: Pick<AnalysisChunkRecord, "taskId" | "skill" | "id">): 
 function copyTask(task: BookAnalysisPipelineTask): BookAnalysisPipelineTask {
   return {
     ...task,
+    ...(task.workbenchRequest ? { workbenchRequest: structuredClone(task.workbenchRequest) } : {}),
     selectedSkills: [...task.selectedSkills],
     requestTraces: task.requestTraces?.map(copyLlmRequestCacheTrace),
     requestTraceIds: task.requestTraceIds ? [...task.requestTraceIds] : undefined,
@@ -98,7 +99,7 @@ function copyTask(task: BookAnalysisPipelineTask): BookAnalysisPipelineTask {
 }
 
 function copyChunk(chunk: AnalysisChunkRecord): AnalysisChunkRecord {
-  return { ...chunk, chapterIds: [...chunk.chapterIds] }
+  return { ...chunk, chapterIds: [...chunk.chapterIds], ...(chunk.segments ? { segments: chunk.segments.map((s) => ({ ...s })) } : {}) }
 }
 
 function clampProgress(progress: AnalysisRuntimeProgress): AnalysisRuntimeProgress {
@@ -486,6 +487,9 @@ export function createAnalysisScheduler(options: AnalysisSchedulerOptions): Anal
         )
         if (completedChunks.length === 0) {
           throw new Error(failedChunks[0]?.error || "章节区块尚未全部完成，无法汇总")
+        }
+        if (task.workbenchVersion === 2 && completedChunks.length !== expectedIds.size) {
+          throw new Error(`所选区块尚未全部成功（${completedChunks.length}/${expectedIds.size}），请重试失败区块后汇总`)
         }
 
         const outputs: AnalysisChunkOutput[] = []

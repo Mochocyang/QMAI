@@ -405,6 +405,16 @@ export async function deleteFailedBatchImportTask(
   projectPath: string,
   taskId: string,
 ): Promise<void> {
+  return deleteImportTaskForStatuses(projectPath, taskId, ["failed"], "只能删除导入失败的任务")
+}
+
+export async function deleteBatchImportRecord(projectPath: string, taskId: string): Promise<void> {
+  return deleteImportTaskForStatuses(projectPath, taskId, ["failed", "cancelled", "completed", "skipped"], "只能删除已结束的导入记录，请先取消运行中的任务")
+}
+
+async function deleteImportTaskForStatuses(
+  projectPath: string, taskId: string, statuses: BatchImportTaskStatus[], statusError: string,
+): Promise<void> {
   assertValidTaskId(taskId)
   const projectKey = normalizeProjectKey(projectPath)
   await withBatchImportTaskLock(projectKey, taskId, async () => {
@@ -413,8 +423,8 @@ export async function deleteFailedBatchImportTask(
     const parsed = JSON.parse(await readFile(taskPath)) as unknown
     const validationError = validatePersistedTask(parsed, projectKey, taskId)
     if (validationError) throw new Error(validationError)
-    if ((parsed as BatchImportTask).status !== "failed") {
-      throw new Error("只能删除导入失败的任务")
+    if (!statuses.includes((parsed as BatchImportTask).status)) {
+      throw new Error(statusError)
     }
 
     await withProjectLock(projectKey, async () => {

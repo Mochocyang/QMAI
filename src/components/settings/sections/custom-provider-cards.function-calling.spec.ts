@@ -13,6 +13,6 @@ describe("custom provider Function Calling toggle", () => {
   it("wires FunctionCallingControls into custom provider cards", () => {
     expect(source).toContain("FunctionCallingControls")
     expect(source).toContain("functionCallingEnabled: true")
-    expect(source).toContain("onChange={functionCallingEnabled => change({ functionCallingEnabled })}")
+    expect(source).toContain("onChange={functionCallingEnabled => void saveSwitch({ functionCallingEnabled })}")
   })
 })

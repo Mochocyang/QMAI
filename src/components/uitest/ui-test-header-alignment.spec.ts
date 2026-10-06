@@ -35,11 +35,19 @@ describe("工作区顶部标题对齐", () => {
     expect(declaration("ui-test-tools.css", ".ui-test-root .ui-test-page-title", "line-height")).toBe("var(--ui-heading-line)")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="settings-section"] h2', "font-size")).toBeUndefined()
   })
-  it("灵魂顶部改为页签容器统一留白，并保留其内容卡片标题", () => {
-    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-tabs"]', "padding")).toBe("var(--ui-heading-top) clamp(20px, 3vw, 38px) 22px")
-    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-content"]', "padding")).toBe("26px clamp(20px, 3vw, 38px) 0")
+  it("灵魂标题和页签紧凑排列，减少留白且不改变详情标题", () => {
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-tabs"]', "padding")).toBe("10px 24px")
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-content"]', "padding")).toBe("16px 24px 0")
+    expect(declaration("ui-test-tools.css", ".ui-test-root .ui-test-soul-tab-row", "margin")).toBe("0")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-project-editor"] > div', "padding")).toBe("0")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-role-content"] .mb-4 > h2', "font")).toBe("500 20px/28px var(--serif)")
+  })
+  it("灵魂表单保持有边框输入区、双列基础字段和独立滚动区", () => {
+    const field = '.ui-test-root [data-ui-page="soul"] [data-ui="soul-custom-form"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea):not([aria-invalid="true"])'
+    expect(declaration("ui-test-tools.css", field, "border")).toBe("1px solid color-mix(in srgb, var(--ui-muted) 65%, var(--ui-paper))")
+    expect(declaration("ui-test-tools.css", field, "background")).toBe("var(--ui-paper)")
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-form-basics"]', "grid-template-columns")).toBe("repeat(2, minmax(0, 1fr))")
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-form-body"]', "overflow-y")).toBe("auto")
   })
   it("技能页签和设置首行对齐，不恢复已隐藏的重复标题", () => {
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="skills-tabs"]', "padding")).toBe("var(--ui-heading-top) clamp(20px, 3vw, 38px) 18px")

@@ -13,7 +13,7 @@ import { normalizeSelectedSkills, type AnalysisChunkRecord } from "./analysis-pi
 import type { AnalysisChunkOutput, AnalysisSkillContext } from "./analysis-skill-adapter"
 
 // 修改提取提示、采样策略、解析规则或用户偏好注入语义时，必须递增此版本。
-export const ANALYSIS_RESULT_ALGORITHM_VERSION = "book-analysis-chunks-v2"
+export const ANALYSIS_RESULT_ALGORITHM_VERSION = "book-analysis-chunks-v10-verified-style-items"
 const CACHE_VERSION = 1
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
 
@@ -141,6 +141,12 @@ function isCompleteOutput(value: unknown, input: AnalysisResultCacheInput): valu
   if (!isRecord(value) || !isRecord(value.result) || !Array.isArray(value.evidence)) return false
   const result = value.result
   if (value.error || result.error || value.success === false || result.success === false || result.cacheable === false) return false
+  if (input.task.workbenchVersion === 2) {
+    return result.workbenchVersion === 2 && Array.isArray(result.items) && Array.isArray(result.evidence)
+      && (input.skill !== "style" || input.task.workbenchRequest?.styleProfileVersion !== 1
+        || result.items.every((item) => isRecord(item) && isRecord(item.styleFingerprint) && item.styleFingerprint.version === 1))
+      && JSON.stringify(result.coverage) === JSON.stringify(input.chunk.segments)
+  }
   const ids = new Set<string>()
   for (const snippet of value.evidence) {
     if (!isRecord(snippet) || snippet.version !== 1 || typeof snippet.id !== "string" || !snippet.id
@@ -185,6 +191,8 @@ function isCompleteOutput(value: unknown, input: AnalysisResultCacheInput): valu
 }
 
 function rebindOutput(input: AnalysisResultCacheInput, output: AnalysisChunkOutput, now: number): AnalysisChunkOutput {
+  // 新证据使用正文位置与内容指纹作ID，与任务ID无关。
+  if (input.task.workbenchVersion === 2) return structuredClone(output)
   const evidenceIds = new Map(output.evidence.map((snippet, index) => [
     snippet.id, `evidence-${input.task.id}-${input.skill}-${input.chunk.id}-${index}`,
   ]))
@@ -259,6 +267,10 @@ export function createAnalysisResultCache(options: {
           range: { startOrder: input.chunk.startOrder, endOrder: input.chunk.endOrder },
           chapters,
           task: {
+            workbenchVersion: input.task.workbenchVersion,
+            workbenchRequest: input.task.workbenchRequest,
+            segments: input.chunk.segments,
+            styleDepth: input.task.styleDepth,
             range: input.task.range,
             moduleRange: input.task.modules[input.skill].range,
             selectedSkills: normalizeSelectedSkills(input.task.selectedSkills),

@@ -10,6 +10,7 @@ import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearch, type WebSearchResult } from "@/lib/web-search"
 import { isTauri } from "@/lib/platform"
 import { useWikiStore } from "@/stores/wiki-store"
+import { parsePortablePersonality, personalityFields, renderPersonalitySkill, renderBoundPersonalities, PersonalityConstraintError, type BoundPersonality, type PortablePersonality } from "./portable-personality"
 import { pinyin } from "pinyin-pro"
 import * as OpenCC from "opencc-js/t2cn"
 
@@ -33,6 +34,8 @@ function toSimplified(text: string): string {
 }
 
 export interface CharacterAura {
+  portablePersonality?: PortablePersonality
+  sourceBook?: string
   id: string
   builtIn: boolean
   name: string
@@ -92,6 +95,7 @@ interface CustomCharacterAuraSkillInput {
  * 适用于：6 维度分析已经在外部跑完，只需要把结果保存为角色灵魂
  */
 export interface GeneratedCharacterAuraSkillInput {
+  portablePersonality?: PortablePersonality
   name: string
   category?: string
   sourceBook?: string
@@ -426,6 +430,8 @@ export async function createCustomCharacterAuraFromGeneratedSkill(
     builtIn: false,
     name: input.name,
     category: input.category || "拆书角色",
+    sourceBook: input.sourceBook,
+    ...(input.portablePersonality ? { portablePersonality: parsePortablePersonality(input.portablePersonality) } : {}),
     sourceNote: input.sourceNote,
     corpus: input.corpus,
     styleDescription: input.styleDescription,
@@ -465,6 +471,15 @@ export async function updateCustomCharacterAura(projectPath: string, auraId: str
   const index = store.customAuras.findIndex((aura) => aura.id === auraId)
   if (index < 0) throw new Error("未找到自定义灵魂")
   const updated = { ...store.customAuras[index], ...patch, builtIn: false, updatedAt: Date.now() }
+  if (updated.portablePersonality) {
+    updated.portablePersonality = parsePortablePersonality(updated.portablePersonality)
+    if (JSON.stringify(updated.portablePersonality) !== JSON.stringify(store.customAuras[index].portablePersonality)) {
+      updated.portablePersonality.editedByUser = true
+    }
+    Object.assign(updated, personalityFields(updated.portablePersonality))
+    updated.styleDescription = updated.portablePersonality.summary
+    updated.behaviorRules = updated.decisionHeuristics ?? ""
+  }
   store.customAuras[index] = updated
   await saveCharacterAuraStore(projectPath, store)
   await syncStoredCustomAuraFiles(updated)
@@ -583,8 +598,17 @@ export async function buildCharacterAuraContext(
   task: string,
   options: BuildCharacterAuraContextOptions = {},
 ): Promise<string> {
+  return (await buildCharacterSoulContext(projectPath, task, options)).text
+}
+
+export async function buildCharacterSoulContext(
+  projectPath: string,
+  task: string,
+  options: BuildCharacterAuraContextOptions = {},
+): Promise<{ text: string; portablePersonalities: BoundPersonality[] }> {
+  const empty = { text: "", portablePersonalities: [] }
   const store = await loadCharacterAuraStore(projectPath)
-  if (store.bindings.length === 0) return ""
+  if (store.bindings.length === 0) return empty
   const allAuras = [...BUILT_IN_CHARACTER_AURAS, ...store.customAuras]
   const matchingText = [task, options.matchingText ?? ""].filter(Boolean).join("\n")
   const normalizedTask = normalizeCharacterText(matchingText)
@@ -618,14 +642,25 @@ export async function buildCharacterAuraContext(
   const effectiveMatched = matched.length > 0 || !options.fallbackAuraId
     ? matched
     : store.bindings.filter((binding) => binding.auraId === options.fallbackAuraId)
-  if (effectiveMatched.length === 0) return ""
+  if (effectiveMatched.length === 0) return empty
   if (options.previewMode === "writing") {
-    return buildCharacterAuraWritingPreview(task, effectiveMatched, allAuras)
+    return { text: buildCharacterAuraWritingPreview(task, effectiveMatched, allAuras), portablePersonalities: [] }
   }
   const lines: string[] = []
+  const portablePersonalities: BoundPersonality[] = []
   for (const binding of effectiveMatched) {
     const aura = allAuras.find((item) => item.id === binding.auraId)
     if (!aura) continue
+    if (aura.portablePersonality !== undefined) {
+      let personality: PortablePersonality
+      try { personality = parsePortablePersonality(aura.portablePersonality) } catch {
+        throw new PersonalityConstraintError(`「${binding.characterName}」绑定的人格规则损坏，请重新生成或修复后再写作`)
+      }
+      const bound = { characterName: binding.characterName, personality }
+      portablePersonalities.push(bound)
+      lines.push(renderBoundPersonalities([bound]))
+      continue
+    }
     lines.push(
       `- ${binding.characterName}：${aura.name}`,
       `  - 人物分类：${aura.category ?? "自定义灵魂"}`,
@@ -638,9 +673,9 @@ export async function buildCharacterAuraContext(
       ...(await buildCompressedSkillSummary(aura)),
     )
   }
-  if (lines.length === 0) return ""
+  if (lines.length === 0) return empty
   lines.push("- 角色灵魂必须服从大纲、人物小传、角色认知和正史规则，不得覆盖或改写硬性设定。")
-  return lines.join("\n")
+  return { text: lines.join("\n"), portablePersonalities }
 }
 
 function buildCharacterAuraWritingPreview(
@@ -1748,6 +1783,23 @@ async function syncStoredCustomAuraFiles(aura: CharacterAura): Promise<void> {
   if (!aura.skillFolder) return
   await createDirectory(aura.skillFolder)
   await createDirectory(joinPath(aura.skillFolder, "references", "research"))
+  if (aura.portablePersonality) {
+    const profile = parsePortablePersonality(aura.portablePersonality)
+    await writeFileAtomic(joinPath(aura.skillFolder, "SKILL.md"), renderPersonalitySkill(aura.name, aura.sourceBook ?? "", profile))
+    const fields = personalityFields(profile)
+    const documents: Record<CharacterAuraResearchFileName, string> = {
+      "01-writings.md": profile.scope,
+      "02-conversations.md": fields.expressionDna,
+      "03-expression-dna.md": fields.mentalModel,
+      "04-external-views.md": profile.evidence.map((item) => `${item.id} [${item.chapterId}] ${item.quote}`).join("\n"),
+      "05-decisions.md": fields.decisionHeuristics,
+      "06-timeline.md": `${profile.scope}\n仅为原作研究范围，不成为目标人物经历。`,
+    }
+    for (const file of CHARACTER_AURA_RESEARCH_FILES) {
+      await writeFileAtomic(joinPath(aura.skillFolder, "references", "research", file.fileName), documents[file.fileName])
+    }
+    return
+  }
   const existingResearchFiles = await loadExistingResearchFiles(aura.skillFolder)
   await writeFileAtomic(joinPath(aura.skillFolder, "SKILL.md"), storedCustomSkillMarkdown(aura, existingResearchFiles))
   for (const file of CHARACTER_AURA_RESEARCH_FILES) {

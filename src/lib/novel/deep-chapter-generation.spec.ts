@@ -20,6 +20,8 @@ import {
   DEEP_CHAPTER_MIN_CHARS,
 } from "./deep-chapter-prompts"
 import { contractToTaskBriefText, createEmptyContract, type ChapterExecutionContract } from "./chapter-execution-contract"
+import { parsePortablePersonality, renderBoundPersonalities } from "./portable-personality"
+import { personality } from "@/test-helpers/portable-personality-fixture"
 
 const llmConfig = {
   provider: "custom",
@@ -180,6 +182,55 @@ function createLegacyPlanComplianceDeps(reviewResults: NovelReviewResult[] = [])
 }
 
 describe("runDeepChapterGeneration", () => {
+  it.each(["fast", "standard", "strict"] as const)("绑定新人格时，%s模式不能跳过生成前的冲突", async (aiWorkflowMode) => {
+    const deps = createDeps()
+    const bindings = [{ characterName: "陆衡", personality: parsePortablePersonality(personality) }]
+    vi.mocked(deps.buildContextPack).mockResolvedValue({
+      ...contextPack, portablePersonalities: bindings, characterAuras: renderBoundPersonalities(bindings),
+    })
+    vi.mocked(deps.contextPackToPrompt).mockReturnValue(renderBoundPersonalities(bindings))
+    vi.mocked(deps.streamChat).mockImplementation(async (_config, _messages, callbacks) => {
+      callbacks.onToken(JSON.stringify({ checks: ["R1", "R2", "boundary"].map((ruleId) => ({
+        characterName: "陆衡", ruleId, status: ruleId === "R1" ? "conflict" : "pass", reason: "小传要求直接定罪",
+      })) }))
+      callbacks.onDone()
+    })
+    const onFinalContent = vi.fn()
+    await expect(runDeepChapterGeneration({
+      projectPath: "E:/Novel", userRequest: "陆衡查账", llmConfig, aiWorkflowMode,
+    }, { onFinalContent }, deps)).rejects.toThrow("确认取舍")
+    expect(onFinalContent).not.toHaveBeenCalled()
+  })
+
+  it.each(["fast", "standard", "strict"] as const)("绑定新人格时，%s模式返修仍失败不能发出最终正文", async (aiWorkflowMode) => {
+    const deps = createDeps()
+    const bindings = [{ characterName: "陆衡", personality: parsePortablePersonality(personality) }]
+    vi.mocked(deps.buildContextPack).mockResolvedValue({
+      ...contextPack, portablePersonalities: bindings, characterAuras: renderBoundPersonalities(bindings),
+    })
+    vi.mocked(deps.contextPackToPrompt).mockReturnValue(renderBoundPersonalities(bindings))
+    let checks = 0
+    vi.mocked(deps.streamChat).mockImplementation(async (_config, messages, callbacks) => {
+      const prompt = messagesPromptText(messages)
+      if (prompt.includes("人格约束核验员")) {
+        callbacks.onToken(JSON.stringify({ checks: ["R1", "R2", "boundary"].map((ruleId) => ({
+          characterName: "陆衡", ruleId, status: checks === 0 ? "pass" : "fail", reason: "新增了凶手证据",
+        })) }))
+        checks++
+      } else callbacks.onToken(prompt.includes("只输出任务书") ? taskBriefText() : chapterText("陆衡检查账目"))
+      callbacks.onDone()
+    })
+    const onFinalContent = vi.fn()
+    const onCheckpoint = vi.fn()
+    const onActivityEvent = vi.fn()
+    await expect(runDeepChapterGeneration({
+      projectPath: "E:/Novel", userRequest: "陆衡查账", llmConfig, aiWorkflowMode,
+    }, { onFinalContent, onCheckpoint, onActivityEvent }, deps)).rejects.toThrow("未通过")
+    expect(checks).toBe(3)
+    expect(onFinalContent).not.toHaveBeenCalled()
+    expect(onActivityEvent.mock.calls.some(([event]) => event.kind === "final_output")).toBe(false)
+    expect(onCheckpoint.mock.calls.some(([checkpoint]) => checkpoint.stage === "after_draft")).toBe(true)
+  })
   it("forwards every internal model request trace to one workflow collector", async () => {
     const deps = createDeps()
     const onRequestTrace = vi.fn()

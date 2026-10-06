@@ -45,6 +45,8 @@ export type StyleAnalysisDepth = "fast" | "full"
 export const DEFAULT_STYLE_ANALYSIS_DEPTH: StyleAnalysisDepth = "full"
 
 export interface AnalysisChunkPlan {
+  batch?: number
+  segments?: import("./workbench-core").SourceSegment[]
   id: string
   chapterIds: string[]
   startOrder: number
@@ -79,11 +81,14 @@ export interface AnalysisModuleState {
 }
 
 export interface BookAnalysisPipelineTask {
+  workbenchVersion?: 2
+  workbenchRequest?: import("./workbench-core").WorkbenchRequest
   version: 1
   id: string
   batchId: string | null
   projectPath: string
   bookId: string
+  bookTitle?: string
   bookPath: string
   selectedSkills: AnalysisSkill[]
   range: AnalysisChapterRange | null

@@ -32,6 +32,7 @@ import {
   cacheTaskSource,
   cleanupCompletedTaskWorkspaceUnlocked,
   deleteFailedBatchImportTask,
+  deleteBatchImportRecord,
   importTaskDir,
   importTasksRoot,
   loadBatchImportBatches,
@@ -80,6 +81,24 @@ function seedTask(task: BatchImportTask): void {
   fsMocks.directories.add(dir)
   fsMocks.files.set(`${dir}/task.json`, JSON.stringify(task))
 }
+
+describe("删除导入记录", () => {
+  it.each(["cancelled", "completed", "skipped", "failed"] as const)("%s记录可删除，作品和原始TXT保持不变", async (status) => {
+    const task = makeTask({ status })
+    seedTask(task)
+    fsMocks.files.set(task.originalPath, "原始小说")
+    fsMocks.files.set(`${task.projectPath}/book-analysis/book-1/metadata.json`, "作品元数据")
+    await deleteBatchImportRecord(task.projectPath, task.id)
+    expect(fsMocks.files.has(`${importTaskDir(task.projectPath, task.id)}/task.json`)).toBe(false)
+    expect(fsMocks.files.get(task.originalPath)).toBe("原始小说")
+    expect(fsMocks.files.get(`${task.projectPath}/book-analysis/book-1/metadata.json`)).toBe("作品元数据")
+  })
+  it.each(["queued", "copying", "splitting", "interrupted"] as const)("不删除%s记录", async (status) => {
+    const task = makeTask({ status }); seedTask(task)
+    await expect(deleteBatchImportRecord(task.projectPath, task.id)).rejects.toThrow()
+    expect(fsMocks.deleteFile).not.toHaveBeenCalled()
+  })
+})
 
 afterEach(() => {
   vi.restoreAllMocks()

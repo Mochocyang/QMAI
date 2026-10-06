@@ -125,6 +125,15 @@ function createHarness(options: {
 }
 
 describe("analysis scheduler", () => {
+  it("新流程不把部分成功区块发布成完整结果，旧流程不受影响", async () => {
+    const harness = createHarness({ onRun: async (_skill, id) => { if (id === "chunk-2") throw new Error("分段失败") } })
+    const input = { ...task(["story"]), workbenchVersion: 2 as const }
+    harness.scheduler.initialize([input], chunks(["story"]))
+    await harness.scheduler.continueTask(input.id)
+    expect(harness.scheduler.getSnapshot().tasks[0].status).toBe("failed")
+    expect(harness.calls).not.toContain("story:aggregate")
+    expect(harness.calls).not.toContain("story:publish")
+  })
   it("只执行所选 Skill 并按角色、故事、文风串行", async () => {
     const harness = createHarness()
     harness.scheduler.initialize([task(["style", "characters"])], chunks(["characters", "style"]))

@@ -73,6 +73,7 @@ export interface TrimResult {
 }
 
 export interface ContextPack {
+  portablePersonalities?: import("./portable-personality").BoundPersonality[]
   task: string
   chapterGoal: string
   outline: string
@@ -291,8 +292,8 @@ async function buildContextPackFromRawData(
   const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback)
   
   // 构建角色氛围上下文（依赖其他数据）
-  const { buildCharacterAuraContext } = await import("./character-aura")
-  const characterAuras = await buildCharacterAuraContext(context.projectPath, context.task, {
+  const { buildCharacterSoulContext } = await import("./character-aura")
+  const soulContext = await buildCharacterSoulContext(context.projectPath, context.task, {
     matchingText: joinNonEmpty([
       chapterGoal,
       rawData.chapterOutline,
@@ -321,7 +322,8 @@ async function buildContextPackFromRawData(
     characterStates,
     soulDoc: rawData.soulDoc,
     sectionBriefing: rawData.sectionBriefing || "",
-    characterAuras,
+    characterAuras: soulContext.text,
+    ...(soulContext.portablePersonalities.length ? { portablePersonalities: soulContext.portablePersonalities } : {}),
     storyFrameworkBinding: typeof rawData.storyFrameworkBinding === "string"
       ? rawData.storyFrameworkBinding
       : "",
@@ -1073,6 +1075,12 @@ export function contextPackToPrompt(
   options?: { excludeOutline?: boolean; maxContextSize?: number },
 ): string {
   const result = trimContextPack(pack, tokenBudget, options)
+  if (pack.portablePersonalities?.length && (!pack.characterAuras || !result.prompt.includes(pack.characterAuras))) {
+    throw new Error("上下文预算不足，角色人格规则未完整保留。请缩小本次章节范围或选择更大上下文模型，已停止生成。")
+  }
+  if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prompt.includes(pack.writingStyle)) {
+    throw new Error("上下文预算不足，已启用的文风画像未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。")
+  }
   return result.prompt
 }
 

@@ -7,7 +7,7 @@ import { saveProviderConfigs } from "@/lib/project-store"
 import { flushAppState } from "@/lib/web-store"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
 import { testLlmConnection, testLlmFunction } from "@/lib/connection-tests"
-import { mountModel, changeInput, click, button, deferred } from "./model-test-utils"
+import { mountModel, changeInput, click, button, deferred, answerModelDraft } from "./model-test-utils"
 import { confirmModelDraftLeave } from "./model-draft-guard"
 vi.mock("@/lib/project-store", () => ({ saveProviderConfigs: vi.fn(), saveLlmConfig: vi.fn(), saveActivePresetId: vi.fn() }))
 vi.mock("@/lib/web-store", () => ({ flushAppState: vi.fn() }))
@@ -98,7 +98,10 @@ it("连接抛异常后提供失败重试，而不是丢失失败模型", async (
 it("手输但尚未加入列表的模型同样受草稿保护", async () => {
   vi.mocked(window.confirm).mockReturnValue(false)
   await changeInput(host, "模型", "pending-model")
-  expect(await confirmModelDraftLeave()).toBe(false)
+  let result!: Promise<boolean>
+  await act(async () => { result = confirmModelDraftLeave() })
+  await answerModelDraft("关闭")
+  expect(await result).toBe(false)
   expect(host.textContent).toContain("先点击“添加”")
 })
 it("功能测试的失败重试不能退化成仅连接测试", async () => {

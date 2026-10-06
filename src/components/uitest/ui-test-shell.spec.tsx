@@ -6,10 +6,12 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { PRIMARY_NAV_LONG_PRESS_MS } from "@/lib/ui-test-primary-nav"
 import { UiTestShell } from "./ui-test-shell"
 import { useModelDraftGuard } from "./models/model-draft-guard"
+import { answerModelDraft, deferred } from "./models/model-test-utils"
 const draftState = vi.hoisted(() => ({ dirty: false, saving: false }))
+const saveDraft = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
 const platformState = vi.hoisted(() => ({ macOS: false }))
 
-vi.mock("@/components/layout/content-area", () => ({ ContentArea: () => { useModelDraftGuard("shell-model-test", "模型配置", draftState.dirty, draftState.saving); return <div data-testid="business-view">实际功能页面</div> } }))
+vi.mock("@/components/layout/content-area", () => ({ ContentArea: () => { useModelDraftGuard("shell-model-test", "模型配置", draftState.dirty, draftState.saving, saveDraft); return <div data-testid="business-view">实际功能页面</div> } }))
 vi.mock("@/components/layout/knowledge-tree", () => ({ RawSourcesSection: () => null }))
 vi.mock("@/lib/ui-test-library", () => ({ registerUiTestProject: vi.fn() }))
 vi.mock("@/components/layout/sidebar-panel", () => ({ SidebarPanel: () => <div>测试目录</div> }))
@@ -36,11 +38,17 @@ async function hover(label: string) {
 async function click(label: string) {
   const button = [...host.querySelectorAll("button")].find((item) => item.getAttribute("aria-label") === label || item.textContent?.trim() === label)
   expect(button, label).toBeTruthy()
+  await leftClick(button!)
+}
+async function leftClick(element: HTMLElement) {
   await act(async () => {
-    button!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }))
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))
   })
   await act(async () => {
-    button!.click()
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "mouse" }))
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }))
+    element.click()
   })
 }
 async function render(withProject = true) {
@@ -51,6 +59,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   Object.defineProperty(window, "innerWidth", { value: 1440, writable: true, configurable: true })
   draftState.dirty = false; draftState.saving = false
+  saveDraft.mockReset().mockResolvedValue(true)
   localStorage.clear()
   useWikiStore.setState({ project, activeView: "soul", selectedFile: null, fileTree: [], chatExpanded: false })
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
@@ -93,6 +102,46 @@ describe("独立UI测试版外壳", () => {
     await click("创作工具")
     await click("记忆中心")
     expect(useWikiStore.getState().activeView).toBe("lint")
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+  })
+  it.each(["大纲", "章节", "灵魂", "创作工具"])("%s菜单点击工作区时关闭，即使工作区阻止事件冒泡", async (label) => {
+    await render()
+    if (label === "创作工具") await click(label)
+    else {
+      const slot = [...host.querySelectorAll(".ui-test-nav-slot")].find((item) => item.querySelector("button")?.textContent === label)!
+      await act(async () => { slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
+      await hover("替换为")
+    }
+    expect(host.querySelector('[role="menu"]')).not.toBeNull()
+    const workspace = host.querySelector<HTMLElement>('[data-testid="business-view"]')!
+    workspace.addEventListener("pointerdown", (event) => event.stopPropagation())
+    workspace.addEventListener("mousedown", (event) => event.stopPropagation())
+    workspace.addEventListener("click", (event) => event.stopPropagation())
+    await leftClick(workspace)
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+  })
+  it.each(["大纲", "章节", "灵魂", "创作工具"])("%s菜单点击主导航按钮时关闭，包括当前菜单的触发按钮", async (label) => {
+    await render()
+    if (label === "创作工具") await click(label)
+    else {
+      const slot = [...host.querySelectorAll(".ui-test-nav-slot")].find((item) => item.querySelector("button")?.textContent === label)!
+      await act(async () => { slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
+    }
+    expect(host.querySelector('[role="menu"]')).not.toBeNull()
+    await click("灵魂")
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+    expect(useWikiStore.getState().activeView).toBe("soul")
+  })
+  it("菜单外只移动鼠标不关闭，点击空白处才关闭", async () => {
+    await render()
+    await click("创作工具")
+    const workspace = host.querySelector<HTMLElement>(".ui-test-main")!
+    await act(async () => { workspace.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" })) })
+    expect(host.querySelector('[role="menu"]')).not.toBeNull()
+    await leftClick(workspace)
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+    await click("创作工具")
+    await click("创作工具")
     expect(host.querySelector('[role="menu"]')).toBeNull()
   })
   it("后台活动右侧的联系图标打开联系与支持弹窗，一屏容纳三张二维码且不显示联系作者", async () => {
@@ -232,13 +281,15 @@ describe("独立UI测试版外壳", () => {
   })
   it("取消离开确认时不替换当前功能", async () => {
     draftState.dirty = true
-    vi.spyOn(window, "confirm").mockReturnValue(false)
     useWikiStore.setState({ activeView: "soul" })
     await render()
     const soul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.textContent?.includes("灵魂")) as HTMLElement
     await act(async () => { soul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 20 })) })
     await hover("替换为")
+    // 浏览器鼠标点击会聚焦菜单项；让弹窗关闭后的焦点恢复与实际操作一致。
+    await act(async () => { [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.trim() === "技能库")!.focus() })
     await click("技能库")
+    await answerModelDraft("关闭")
     expect(useWikiStore.getState().activeView).toBe("soul")
     expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "灵魂"])
     const menu = host.querySelector('[aria-label="灵魂功能菜单"]')!
@@ -267,19 +318,18 @@ describe("独立UI测试版外壳", () => {
 
 it("有模型草稿时取消切换主导航，当前页与文件保持不变", async () => {
   draftState.dirty = true
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
   useWikiStore.setState({ activeView: "settings" })
   await render()
   await click("设置")
-  expect(confirm).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
   await click("灵魂")
-  expect(confirm).toHaveBeenCalledOnce()
+  await answerModelDraft("关闭")
   expect(useWikiStore.getState().activeView).toBe("settings")
 })
 it("无小说全局模型设置返回书架也需要确认，保存中禁止离开", async () => {
   draftState.dirty = true
-  vi.spyOn(window, "confirm").mockReturnValue(false)
   await render(false); await click("设置"); await click("返回书架")
+  await answerModelDraft("关闭")
   expect(host.querySelector('[data-testid="business-view"]')).not.toBeNull()
   draftState.saving = true
   await render(false)
@@ -287,4 +337,19 @@ it("无小说全局模型设置返回书架也需要确认，保存中禁止离�
   await click("返回书架")
   expect(alert).toHaveBeenCalledOnce()
   expect(host.querySelector('[data-testid="shelf"]')).toBeNull()
+})
+it("主导航等待保存结果，失败留在设置，成功继续进入原目标", async () => {
+  draftState.dirty = true
+  useWikiStore.setState({ activeView: "settings", selectedFile: "/mock/chapter.md" })
+  await render()
+  saveDraft.mockResolvedValueOnce(false)
+  await click("灵魂"); await answerModelDraft("保存配置")
+  expect(useWikiStore.getState().activeView).toBe("settings")
+  expect(useWikiStore.getState().selectedFile).toBe("/mock/chapter.md")
+  const pending = deferred<boolean>()
+  saveDraft.mockReturnValueOnce(pending.promise)
+  await click("灵魂"); await answerModelDraft("保存配置")
+  expect(useWikiStore.getState().activeView).toBe("settings")
+  await act(async () => pending.resolve(true))
+  expect(useWikiStore.getState().activeView).toBe("soul")
 })

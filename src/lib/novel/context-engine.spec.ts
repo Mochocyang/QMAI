@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import i18n from "@/i18n"
+import { parsePortablePersonality, renderBoundPersonalities } from "./portable-personality"
+import { personality } from "@/test-helpers/portable-personality-fixture"
 import { charsPerTokenForLanguage } from "@/lib/context-budget"
 import {
   annotateChapterOutlineStatus,
@@ -36,6 +38,22 @@ const basePack: ContextPack = {
 }
 
 describe("contextPackToPrompt", () => {
+  it("显式文风画像不能因预算不足被静默裁掉", () => {
+    const writingStyle = "【已启用文风画像】\n" + "具体句法和词汇习惯。".repeat(180)
+    const pack = { ...basePack, task: "写作", writingStyle }
+    expect(() => contextPackToPrompt(pack, 200)).toThrow("文风")
+    expect(contextPackToPrompt(pack, 12000)).toContain(writingStyle)
+  })
+  it("新人格规则不允许被预算静默裁剪", () => {
+    const bindings = [{ characterName: "陆衡", personality: parsePortablePersonality(personality) }]
+    const pack = {
+      ...basePack, portablePersonalities: bindings,
+      characterAuras: renderBoundPersonalities(bindings),
+      outline: "大纲内容".repeat(1000),
+    }
+    expect(() => contextPackToPrompt(pack, 200)).toThrow("人格")
+    expect(contextPackToPrompt(pack, 12000)).toContain("不能直接定罪")
+  })
   it("将最近章节正文片段写入小说上下文包", () => {
     const prompt = contextPackToPrompt({
       ...basePack,

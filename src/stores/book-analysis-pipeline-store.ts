@@ -30,6 +30,12 @@ import { styleAnalysisAdapter } from "@/lib/novel/book-analysis/style-analysis-a
 import { clearActiveAnalysisSnapshot, setActiveAnalysisSnapshot } from "@/lib/novel/book-analysis/analysis-active-registry"
 import { resolveTaskLlmConfig } from "@/lib/novel/book-analysis/analysis-model-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { withWorkbenchAdapter } from "@/lib/novel/book-analysis/workbench-adapter"
+import { buildWorkbenchPlan, type WorkbenchRequest } from "@/lib/novel/book-analysis/workbench-core"
+import { readWorkbenchChapters } from "@/lib/novel/book-analysis/workbench-storage"
+import { llmRecognizeCharacters } from "@/lib/novel/book-analysis/character-llm-recognizer"
+import { loadMetadata } from "@/lib/novel/book-analysis/analysis-engine"
+import { syncBookAnalysisActivities } from "./book-analysis-activity-store"
 
 let taskCounter = 0
 
@@ -43,6 +49,7 @@ function safeTaskId(batchId: string | null, bookId: string, forceNew: boolean): 
 function initialTask(input: {
   projectPath: string
   bookId: string
+  bookTitle?: string
   bookPath: string
   batchId: string | null
   selectedSkills: AnalysisSkill[]
@@ -58,6 +65,7 @@ function initialTask(input: {
     batchId: input.batchId,
     projectPath: input.projectPath,
     bookId: input.bookId,
+    bookTitle: input.bookTitle,
     bookPath: input.bookPath,
     selectedSkills,
     forceRefresh: input.forceRefresh,
@@ -93,6 +101,7 @@ interface BookAnalysisPipelineState {
   createAwaitingRangeTask(input: {
     batchId?: string | null
     bookId: string
+    bookTitle?: string
     bookPath: string
     selectedSkills: AnalysisSkill[]
     forceNew?: boolean
@@ -102,8 +111,9 @@ interface BookAnalysisPipelineState {
     taskId: string,
     range: AnalysisChapterRange,
     selectedSkills?: AnalysisSkill[],
-    options?: { modelKey?: string; styleDepth?: StyleAnalysisDepth },
+    options?: { modelKey?: string; styleDepth?: StyleAnalysisDepth; workbenchRequest?: WorkbenchRequest },
   ): Promise<void>
+  recognizeWorkbenchCharacters(taskId: string): Promise<void>
   setTaskRecognizedCharacters(taskId: string, characters: RecognizedCharacter[]): Promise<void>
   failTask(taskId: string, error: string): Promise<void>
   confirmCharacterSelection(taskId: string, selectedIds: string[]): Promise<void>
@@ -128,6 +138,7 @@ export function createBookAnalysisPipelineStore() {
   let unsubscribe: (() => void) | null = null
   let generation = 0
   const traceWrites = new Map<string, Promise<void>>()
+  const recognitionControllers = new Map<string, AbortController>()
 
   return create<BookAnalysisPipelineState>((set, get) => ({
     projectPath: null,
@@ -142,6 +153,7 @@ export function createBookAnalysisPipelineStore() {
       // 避免组件卸载-重挂时清空进度、停止正在运行的分析任务
       if (get().projectPath === projectPath && scheduler) return
       generation += 1
+      recognitionControllers.forEach((controller) => controller.abort())
       const token = generation
       unsubscribe?.()
       unsubscribe = null
@@ -162,9 +174,9 @@ export function createBookAnalysisPipelineStore() {
       ).values()]
       const nextScheduler = createAnalysisScheduler({
         adapters: {
-          characters: characterAnalysisAdapter,
-          story: storyAnalysisAdapter,
-          style: styleAnalysisAdapter,
+          characters: withWorkbenchAdapter(characterAnalysisAdapter),
+          story: withWorkbenchAdapter(storyAnalysisAdapter),
+          style: withWorkbenchAdapter(styleAnalysisAdapter),
         },
         llmConfig: (task) => resolveTaskLlmConfig(task),
       })
@@ -223,6 +235,7 @@ export function createBookAnalysisPipelineStore() {
       const task = initialTask({
         projectPath,
         bookId: input.bookId,
+        bookTitle: input.bookTitle,
         bookPath: normalizePath(input.bookPath),
         batchId: input.batchId ?? null,
         selectedSkills,
@@ -245,7 +258,12 @@ export function createBookAnalysisPipelineStore() {
       const chapters = await loadChapterList(task.bookPath)
       // 仍按任务模型解析 maxContextSize，但 computeAnalysisChunkCharLimit 当前对所有已配置模型都返回 40000
       const llmConfig = resolveTaskLlmConfig({ modelKey })
-      const plan = buildAnalysisChunkPlan(
+      const workbenchRequest = options?.workbenchRequest
+        ? { ...options.workbenchRequest, ...(selectedSkills.includes("style") ? { styleProfileVersion: 1 as const } : {}) }
+        : undefined
+      const plan = workbenchRequest ? buildWorkbenchPlan(
+        await readWorkbenchChapters(task.bookPath, workbenchRequest.selectedChapterIds), workbenchRequest.selectedChapterIds,
+      ) : buildAnalysisChunkPlan(
         chapters.map((chapter) => ({ id: chapter.chapterId, order: chapter.order, wordCount: chapter.wordCount })),
         range,
         { maxChunkChars: computeAnalysisChunkCharLimit(llmConfig.maxContextSize) },
@@ -254,6 +272,7 @@ export function createBookAnalysisPipelineStore() {
       const needsCharacterSelection = selectedSkills.includes("characters")
       const configured: BookAnalysisPipelineTask = {
         ...task,
+        ...(workbenchRequest ? { workbenchVersion: 2 as const, workbenchRequest: structuredClone(workbenchRequest) } : {}),
         selectedSkills,
         range,
         modelKey: modelKey || undefined,
@@ -297,6 +316,62 @@ export function createBookAnalysisPipelineStore() {
       }))
       await scheduler?.registerTask(configured, chunks)
       setActiveAnalysisSnapshot(task.projectPath, get().tasks)
+    },
+    async recognizeWorkbenchCharacters(taskId) {
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (!task?.workbenchRequest || task.status !== "awaiting-character-selection" || recognitionControllers.has(taskId)) return
+      const controller = new AbortController()
+      recognitionControllers.set(taskId, controller)
+      const progressKey = `${taskId}:characters:recognition`
+      try {
+        if (task.error) {
+          const retrying = { ...task, error: null, updatedAt: Date.now() }
+          await saveAnalysisTask(retrying)
+          if (controller.signal.aborted) return
+          set((state) => ({ tasks: state.tasks.map((item) => item.id === taskId ? retrying : item) }))
+          await scheduler?.registerTask(retrying)
+        }
+        const chapters = await readWorkbenchChapters(task.bookPath, task.workbenchRequest.selectedChapterIds)
+        const plan = buildWorkbenchPlan(chapters, task.workbenchRequest.selectedChapterIds)
+        const metadata = await loadMetadata(task.bookPath)
+        const characters = new Map<string, RecognizedCharacter>()
+        for (const [index, chunk] of plan.entries()) {
+          if (controller.signal.aborted) throw new Error("用户取消识别")
+          get().setRuntimeProgress(progressKey, { stageLabel: `识别角色 ${index + 1}/${plan.length}`, percentage: index / plan.length * 100 })
+          const found = await llmRecognizeCharacters({
+            chapters: chunk.segments.map((s) => ({ index: s.order - 1, content: chapters.find((c) => c.id === s.chapterId)!.content.slice(s.start, s.end) })),
+            llmConfig: resolveTaskLlmConfig(task), sourceBook: metadata?.title ?? task.bookId, bookPath: task.bookPath,
+            signal: controller.signal, onRequestTrace: (trace) => { void get().recordTaskRequestTrace(taskId, trace) },
+          })
+          for (const character of found) {
+            const previous = characters.get(character.name)
+            characters.set(character.name, previous ? {
+              ...previous, aliases: [...new Set([...previous.aliases, ...character.aliases])],
+              chapterIndices: [...new Set([...previous.chapterIndices, ...character.chapterIndices])].sort((a, b) => a - b),
+              importanceScore: Math.max(previous.importanceScore, character.importanceScore),
+              appearances: previous.appearances + character.appearances,
+              category: previous.category === "主角" || character.category === "主角" ? "主角" : previous.category,
+            } : character)
+          }
+        }
+        if (controller.signal.aborted) return
+        if (!characters.size) throw new Error("所选章节未识别到角色，请调整范围")
+        await get().setTaskRecognizedCharacters(taskId, [...characters.values()].sort((a, b) => b.importanceScore - a.importanceScore))
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          // 留在选择阶段，允许重试识别，不让恢复按钮绕过目标选择。
+          const current = get().tasks.find((item) => item.id === taskId)
+          if (current) {
+            const next = { ...current, error: error instanceof Error ? error.message : "识别失败", updatedAt: Date.now() }
+            await saveAnalysisTask(next)
+            set((state) => ({ tasks: state.tasks.map((item) => item.id === taskId ? next : item) }))
+            await scheduler?.registerTask(next)
+          }
+        }
+      } finally {
+        recognitionControllers.delete(taskId)
+        get().setRuntimeProgress(progressKey, null)
+      }
     },
     async setTaskRecognizedCharacters(taskId, characters) {
       const task = get().tasks.find((item) => item.id === taskId)
@@ -400,6 +475,14 @@ export function createBookAnalysisPipelineStore() {
     },
     async continueTask(taskId) {
       if (!scheduler) throw new Error("分析任务尚未初始化")
+      const task = get().tasks.find((item) => item.id === taskId)
+      if (task?.workbenchVersion === 2 && task.selectedSkills.includes("characters") && !task.targetCharacters?.length) {
+        const next = { ...task, status: "awaiting-character-selection" as const, error: null, updatedAt: Date.now() }
+        await saveAnalysisTask(next)
+        set((state) => ({ tasks: state.tasks.map((item) => item.id === taskId ? next : item) }))
+        await scheduler.registerTask(next)
+        return
+      }
       await scheduler.continueTask(taskId)
     },
     async retryFailedChunk(taskId, skill, chunkId) {
@@ -407,6 +490,7 @@ export function createBookAnalysisPipelineStore() {
       await scheduler.retryFailedChunk(taskId, skill, chunkId)
     },
     async cancelTask(taskId) {
+      recognitionControllers.get(taskId)?.abort()
       const task = get().tasks.find((item) => item.id === taskId)
       if (!task) throw new Error("未找到分析任务")
       if (task.status === "awaiting-range" || task.status === "awaiting-character-selection") {
@@ -431,6 +515,7 @@ export function createBookAnalysisPipelineStore() {
       set((state) => ({ dismissedBatchIds: [...new Set([...state.dismissedBatchIds, batchId])] }))
     },
     async dispose() {
+      recognitionControllers.forEach((controller) => controller.abort())
       generation += 1
       const projectPath = get().projectPath
       unsubscribe?.()
@@ -444,3 +529,4 @@ export function createBookAnalysisPipelineStore() {
 }
 
 export const useBookAnalysisPipelineStore = createBookAnalysisPipelineStore()
+useBookAnalysisPipelineStore.subscribe(syncBookAnalysisActivities)

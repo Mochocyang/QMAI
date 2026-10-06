@@ -7,6 +7,7 @@ import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { ContentArea } from "@/components/layout/content-area"
 import { SidebarPanel } from "@/components/layout/sidebar-panel"
 import { RawSourcesSection } from "@/components/layout/knowledge-tree"
+import { BookAnalysisActivitySection } from "@/components/novel/book-analysis-activity-section"
 import { registerUiTestProject } from "@/lib/ui-test-library"
 import { ErrorBoundary } from "@/components/error-boundary"
 import { refreshProjectFileTree } from "@/lib/project-file-tree-refresh"
@@ -108,7 +109,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
   // 技能库、灵魂改为整窗卡片画廊，不再占用左侧目录栏。
-  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites" || activeView === "soul"
+  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites" || activeView === "soul" || activeView === "bookAnalysis"
   const hasDirectory = Boolean(project && activeView !== "settings" && !fullWindowViews)
   const sidebarPreference = preference.directory?.[activeView] ?? activeView !== "graph"
   const sidebarVisible = hasDirectory && sidebarPreference
@@ -201,8 +202,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     if (!toolOpen && !skinOpen) return
     const menu = toolOpen ? toolsRef.current : skinsRef.current
     menu?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
-    const outside = (event: MouseEvent) => {
-      if (toolsRef.current?.contains(event.target as Node) || skinsRef.current?.contains(event.target as Node) || (event.target as HTMLElement).closest(".ui-test-nav-slot")) return
+    const outside = (event: PointerEvent) => {
+      if (menu?.contains(event.target as Node)) return
       setToolOpen(false); setSkinOpen(false); setNavMenu(null)
     }
     const escape = (event: globalThis.KeyboardEvent) => {
@@ -210,14 +211,15 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       event.preventDefault(); setToolOpen(false); setSkinOpen(false); setNavMenu(null)
       ;(toolOpen ? toolRef : skinRef).current?.focus()
     }
-    document.addEventListener("mousedown", outside); document.addEventListener("keydown", escape)
-    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
+    // 捕获阶段接收外部点击，避免编辑器等子区域阻止冒泡后菜单无法关闭。
+    document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape)
+    return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape) }
   }, [toolOpen, skinOpen])
   useEffect(() => {
     if (!navMenu) return
     if (!navMenuSection) navMenuRef.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
-    const outside = (event: MouseEvent) => {
-      if ((event.target as HTMLElement).closest(".ui-test-nav-slot")) return
+    const outside = (event: PointerEvent) => {
+      if (navMenuRef.current?.contains(event.target as Node)) return
       setNavMenu(null)
     }
     const escape = (event: globalThis.KeyboardEvent) => {
@@ -225,9 +227,9 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       event.preventDefault()
       setNavMenu(null)
     }
-    document.addEventListener("mousedown", outside)
+    document.addEventListener("pointerdown", outside, true)
     document.addEventListener("keydown", escape)
-    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape) }
+    return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape) }
   }, [navMenu, navMenuSection])
 
   const minimizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().minimize()).catch(() => undefined) }
@@ -399,7 +401,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         </div>
       </div>
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
-      <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
     </div>
   )

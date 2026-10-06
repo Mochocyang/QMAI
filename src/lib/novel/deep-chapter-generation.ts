@@ -1,4 +1,6 @@
 import type { LlmConfig } from "@/stores/wiki-store";
+import { checkPersonality, enforcePersonality } from "./personality-guard";
+import { renderBoundPersonalities, PersonalityConstraintError } from "./portable-personality";
 import {
   streamChat,
   type ChatMessage,
@@ -789,6 +791,61 @@ export async function runDeepChapterGeneration(
   // 作为显式 prompt 缓存断点传入（Anthropic/MiniMax 走 cache_control；
   // OpenAI/DeepSeek 该断点被折叠回字符串、由其自动前缀缓存命中）。
   const cachePrefix = buildStableContextPrefix(outlinePrompt, contextPrompt);
+  const personalityBindings = contextPack.portablePersonalities ?? [];
+  const checkPersonalityModel = (prompt: string) => collectModelText(
+    workflowConfig, [{ role: "user", content: prompt }], deps, signal, undefined,
+    { max_tokens: 5000 }, undefined, callbacks.onRequestTrace,
+  );
+  if (personalityBindings.length) {
+    for (const binding of personalityBindings) {
+      if (!contextPrompt.includes(renderBoundPersonalities([binding]))) {
+        throw new PersonalityConstraintError("角色人格规则没有完整进入写作请求，已停止生成，请扩大上下文预算");
+      }
+    }
+    callbacks.onThinking?.("正在核对角色人格与目标小传；职业、经历不同不会被当作性格冲突。");
+    const conflicts = await checkPersonality(personalityBindings, cachePrefix, "", checkPersonalityModel);
+    if (conflicts.length) throw new PersonalityConstraintError(`角色人格与当前任务需要确认取舍，未生成正文：\n${conflicts.join("\n")}`);
+  }
+  const originalFinalCallback = callbacks.onFinalContent;
+  const originalActivityCallback = callbacks.onActivityEvent;
+  if (personalityBindings.length) {
+    const originalActivity = callbacks.onActivityEvent;
+    callbacks = {
+      ...callbacks, onFinalContent: undefined,
+      onActivityEvent: (event) => { if (event.kind !== "final_output") originalActivity?.(event); },
+    };
+  }
+  const finishPersonality = async (content: string, brief: string): Promise<string> => {
+    if (!personalityBindings.length) return content;
+    callbacks.onThinking?.("正在逐条核对角色人格、知识边界与原型身份迁移；未通过的正文不会自动完成。");
+    const checked = await enforcePersonality(personalityBindings, cachePrefix, content, checkPersonalityModel,
+      async (draft, issues) => {
+        const repaired = await collectModelText(writingConfig, [{
+          role: "user",
+          content: buildDeepChapterRevisionPrompt(outlinePrompt, contextPrompt, brief, draft,
+            issues.map((issue) => ({
+              severity: "error" as const, type: "角色人格规则", message: issue,
+              evidence: "", relatedMemory: renderBoundPersonalities(personalityBindings),
+              suggestion: "只修复规则偏离，不修改人物小传，不移植原作职业、能力或经历。",
+            })), input.userRequest, input.chapterNumber, input.goldenThreeChapter, input.skillsPrompt),
+        }], deps, signal, undefined, generationRequestOverrides, cachePrefix, callbacks.onRequestTrace);
+        callbacks.onCheckpoint?.(createCheckpoint("after_revision", {
+          taskBrief: brief, draftContent: content, currentContent: repaired, reviewResults: [],
+        }));
+        if (countChapterChars(repaired) < lengthSpec.minChars) {
+          throw new PersonalityConstraintError("人格返修正文不完整，已保留草稿，未自动完成");
+        }
+        return repaired;
+      });
+    assertNotAborted(signal);
+    callbacks.onThinking?.("角色人格逐条核验通过。");
+    emitDeepChapterActivity({ onActivityEvent: originalActivityCallback }, {
+      id: `deep_chapter:personality_final:${Date.now()}`, stageId: "final_output",
+      kind: "final_output", title: "最终正文", content: `角色人格核验通过，正文约 ${countChapterChars(checked)} 字。`,
+    });
+    originalFinalCallback?.(checked);
+    return checked;
+  };
 
   if (!resumeCheckpoint) {
     callbacks.onThinking?.(formatContextThinking(input, contextPack));
@@ -1066,7 +1123,7 @@ export async function runDeepChapterGeneration(
   }
 
   if (!workflowProfile.runPostDraftPlanAudits) {
-    const finalContent = draftContent;
+    const finalContent = await finishPersonality(draftContent, taskBrief);
     const isFastMode = workflowProfile.mode === "fast";
     callbacks.onThinking?.(
       formatStageThinking(
@@ -1095,7 +1152,7 @@ export async function runDeepChapterGeneration(
       `${workflowProfile.completionResultPrefix}，最终正文约 ${countChapterChars(finalContent)} 字。`,
       {
         chars: countChapterChars(finalContent),
-        revised: false,
+        revised: finalContent !== draftContent,
       },
     );
     return {
@@ -1103,7 +1160,7 @@ export async function runDeepChapterGeneration(
       taskBrief,
       draftContent,
       reviewResults: [],
-      revised: false,
+      revised: finalContent !== draftContent,
       planCompliance: "",
       executionReport: "",
     };
@@ -1540,8 +1597,10 @@ export async function runDeepChapterGeneration(
   }
   callbacks.onThinking?.(
     formatStageThinking(
-      "阶段7：完成",
-      polishFailureMessage
+      personalityBindings.length ? "阶段7：等待人格核验" : "阶段7：完成",
+      personalityBindings.length
+        ? "当前正文仍为待验收草稿，角色人格核验通过后才会完成。"
+        : polishFailureMessage
         ? "简单审查与修改失败，已保留修改前的正文作为最终正文。"
         : reviewFailureMessage
           ? "AI 审稿失败；已保留正文作为最终正文，请在保存前手动复核。"
@@ -1870,6 +1929,9 @@ export async function runDeepChapterGeneration(
       }
     }
   }
+  const personalityCheckedContent = await finishPersonality(finalContent, taskBrief);
+  revised = revised || personalityCheckedContent !== finalContent;
+  finalContent = personalityCheckedContent;
   completeChapterWorkflowStep(
     callbacks,
     {
@@ -2575,6 +2637,7 @@ async function safeBuildChapterContextPack(
     );
   } catch (error) {
     rethrowIfUserAbort(error, signal);
+    if (error instanceof PersonalityConstraintError) throw error;
     return {
       task: userRequest,
       chapterGoal: "",

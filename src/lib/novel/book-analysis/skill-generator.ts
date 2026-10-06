@@ -16,10 +16,13 @@ import type {
   BookAnalysisMetadata,
   PersonalityProfile,
 } from "./types"
-import { writeFile } from "@/commands/fs"
+import { writeFileAtomic, readFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { ALL_DIMENSIONS, DIMENSION_LABELS } from "./six-dimension-prompts"
+import { parseFrontmatter } from "@/lib/frontmatter"
+import { distillPersonality, selectPersonalityPassages } from "./personality-distiller"
+import { renderPersonalitySkill } from "../portable-personality"
 
 /**
  * 是否有 6 维度研究内容
@@ -265,6 +268,23 @@ export async function generateSkillsForCharacters(
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<CharacterSkill[]> {
   const skills: CharacterSkill[] = []
+  if (!characters.length) return skills
+  const chapterFiles = await listDirectory(joinPath(bookPath, "chapters"))
+  const chapters = []
+  for (const file of chapterFiles) {
+    if (signal?.aborted) throw new Error("用户取消生成")
+    if (file.is_dir || !file.name.endsWith(".md")) continue
+    const document = parseFrontmatter(await readFile(file.path))
+    const order = Number(document.frontmatter?.order)
+    if (!Number.isFinite(order)) continue
+    chapters.push({
+      id: String(document.frontmatter?.id || file.name.replace(/\.md$/, "")),
+      order, content: document.body,
+    })
+  }
+  // 与章节选择器相同，兼容旧作品的0起始或断号顺序。
+  chapters.sort((a, b) => a.order - b.order)
+  chapters.forEach((chapter, index) => { chapter.order = index + 1 })
 
   for (let i = 0; i < characters.length; i++) {
     if (signal?.aborted) {
@@ -282,20 +302,38 @@ export async function generateSkillsForCharacters(
       currentItem: character.name,
     })
 
-    const skillContent = await generateCharacterSkill(
-      character,
-      bookMetadata,
-      llmConfig,
-      signal,
-      onRequestTrace,
+    const passages = selectPersonalityPassages(
+      chapters.filter((chapter) => chapter.order >= character.firstAppearance && chapter.order <= character.lastAppearance),
+      [character.name, ...character.aliases],
     )
+    const personality = await distillPersonality(character.name, passages, async (prompt) => {
+      let content = ""
+      let failure: Error | undefined
+      await streamChat(llmConfig, [{ role: "user", content: prompt }], {
+        onToken: (token) => { content += token },
+        onDone: () => {},
+        onError: (error) => { failure = error },
+        onRequestTrace,
+      }, signal)
+      if (signal?.aborted) throw new Error("用户取消生成")
+      if (failure) throw failure
+      return content
+    })
+    const skillContent = renderPersonalitySkill(character.name, bookMetadata.title, personality)
 
     // 生成安全的文件名
     const safeFileName = character.name.replace(/[^一-龥a-zA-Z0-9]/g, "_")
     const skillFileName = `${safeFileName}-skill.md`
     const skillPath = joinPath(bookPath, "skills", skillFileName)
 
-    await writeFile(skillPath, skillContent)
+    await createDirectory(joinPath(bookPath, "skills"))
+    if (await fileExists(skillPath)) {
+      const history = joinPath(bookPath, "skills", "history")
+      await createDirectory(history)
+      await writeFileAtomic(joinPath(history, `${safeFileName}-${Date.now()}-${crypto.randomUUID()}.md`), await readFile(skillPath))
+    }
+    if (signal?.aborted) throw new Error("用户取消生成")
+    await writeFileAtomic(skillPath, skillContent)
 
     const skill: CharacterSkill = {
       id: `skill-${character.id}`,

@@ -3,6 +3,7 @@ import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
+import { BookAnalysisWorkbench } from "./book-analysis-workbench"
 import { BookAnalysisLibraryLayout } from "./book-analysis-library-layout"
 import { BookAnalysisResultViewer } from "./book-analysis-result-viewer"
 import { ChapterSelectionPanel } from "./chapter-selection-panel"
@@ -92,6 +93,10 @@ function dimensionTextClass(
 }
 
 export function BookAnalysisView() {
+  return <BookAnalysisWorkbench legacy={<LegacyBookAnalysisView />} />
+}
+
+export function LegacyBookAnalysisView() {
   const [inputDialogOpen, setInputDialogOpen] = useState(false)
   const [viewingResultPath, setViewingResultPath] = useState<string | null>(null)
   const [chapterSelectionData, setChapterSelectionData] = useState<ChapterSelectionData | null>(null)

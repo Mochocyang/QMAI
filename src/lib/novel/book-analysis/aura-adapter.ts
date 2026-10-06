@@ -2,6 +2,7 @@ import type { CharacterAura, GeneratedCharacterAuraSkillInput } from "@/lib/nove
 import { createCustomCharacterAuraFromGeneratedSkill, loadCharacterAuraStore } from "@/lib/novel/character-aura"
 import { bookAnalysisAuraKey, isSameBookAnalysisCharacterAura } from "./aura-match"
 import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter } from "./types"
+import { PERSONALITY_BOUNDARY, personalityFields, readPersonalitySkill } from "../portable-personality"
 
 export interface ImportedBookAnalysisAura {
   skillId: string
@@ -35,6 +36,28 @@ export function buildGeneratedAuraInputFromBookCharacter(
   skill: CharacterSkill,
   metadata: BookAnalysisMetadata,
 ): GeneratedCharacterAuraSkillInput {
+  const portablePersonality = readPersonalitySkill(skill.skillContent)
+  if (portablePersonality) {
+    const fields = personalityFields(portablePersonality)
+    return {
+      name: character.name, category: "拆书角色", sourceBook: metadata.title,
+      sourceNote: `来自拆书作品《${metadata.title}》的可迁移人格。${portablePersonality.scope}`,
+      portablePersonality,
+      corpus: portablePersonality.evidence.map((item) => `${item.id} [${item.chapterId}] ${item.quote}`).join("\n"),
+      styleDescription: portablePersonality.summary, ...fields,
+      behaviorRules: fields.decisionHeuristics, boundaries: PERSONALITY_BOUNDARY,
+      notes: portablePersonality.scope, skillContent: skill.skillContent,
+      generationPrompt: "只提炼性格明显的行动、取舍和表达，不迁移职业、经历与能力。",
+      researchFiles: {
+        "01-writings.md": portablePersonality.scope,
+        "02-conversations.md": fields.expressionDna,
+        "03-expression-dna.md": fields.mentalModel,
+        "04-external-views.md": portablePersonality.evidence.map((item) => `${item.id} [${item.chapterId}] ${item.quote}`).join("\n"),
+        "05-decisions.md": fields.decisionHeuristics,
+        "06-timeline.md": `${portablePersonality.scope}\n仅为原作研究范围，不成为目标人物经历。`,
+      },
+    }
+  }
   const chapterRange = skill.chapterRange.length >= 2
     ? `第 ${skill.chapterRange[0]} 章 - 第 ${skill.chapterRange[skill.chapterRange.length - 1]} 章`
     : `第 ${character.firstAppearance} 章 - 第 ${character.lastAppearance} 章`
@@ -45,9 +68,9 @@ export function buildGeneratedAuraInputFromBookCharacter(
   // 优先使用 personalityProfile 的完整数据（简单提取模式），否则回退到 character 字段
   const profile = character.personalityProfile
   const personality = profile?.personality || character.personality || "暂未提取到性格特征。"
-  const motivation = profile?.motivation || "暂未提取到动机。"
+  const motivation = profile?.motivation || character.motivation || "暂未提取到动机。"
   const speechStyle = profile?.speechStyle || character.speechStyle || "暂未提取到说话风格。"
-  const behaviorPatterns = profile?.behaviorPatterns || "暂未提取到行为模式。"
+  const behaviorPatterns = profile?.behaviorPatterns || character.behaviorPatterns || "暂未提取到行为模式。"
   const quotes = profile?.quotes?.length ? profile.quotes : []
   const description = character.description || [personality, motivation].filter((s) => s && !s.startsWith("暂未")).join("；") || "暂未提取到角色描述。"
 

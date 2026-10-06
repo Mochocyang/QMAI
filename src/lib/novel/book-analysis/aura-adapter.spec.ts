@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { buildGeneratedAuraInputFromBookCharacter } from "./aura-adapter"
 import type { BookAnalysisMetadata, CharacterSkill, ExtractedCharacter } from "./types"
+import { personality } from "@/test-helpers/portable-personality-fixture"
+import { parsePortablePersonality, renderPersonalitySkill } from "../portable-personality"
 
 describe("buildGeneratedAuraInputFromBookCharacter", () => {
   it("maps extracted character data into custom soul fields", () => {
@@ -50,5 +52,14 @@ describe("buildGeneratedAuraInputFromBookCharacter", () => {
     expect(input.decisionHeuristics).toContain("救下沈微")
     expect(input.researchFiles?.["02-conversations.md"]).toContain("压力越大越慢")
     expect(input.researchFiles?.["06-timeline.md"]).toContain("第 1 章")
+
+    const portable = buildGeneratedAuraInputFromBookCharacter(character, {
+      ...skill, skillContent: renderPersonalitySkill(character.name, metadata.title, parsePortablePersonality(personality)),
+    }, metadata)
+    expect(portable.portablePersonality?.rules).toHaveLength(2)
+    expect(portable.mentalModel).toContain("不能直接定罪")
+    expect(portable.mentalModel).not.toContain("警察")
+    expect(portable.decisionHeuristics).not.toContain("沈微")
+    expect(portable.styleDescription).not.toContain("巡夜人")
   })
 })
