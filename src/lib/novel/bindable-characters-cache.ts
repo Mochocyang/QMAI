@@ -104,6 +104,13 @@ export async function writeBindableCharactersCache(
   projectPath: string,
   entry: BindableCharactersCache,
 ): Promise<void> {
+  // 读-改-写：同一指纹下「已精修」的结果永远优于「仅本地」的写入。
+  // 否则「load 判未命中 → 本地解析 → 写回」与「精修跑完 → 写回」交叉时，
+  // 后者的名单和 llmRefinedFingerprint 会被前者整份覆盖，下次打开又得问模型。
+  if (!entry.llmRefinedFingerprint) {
+    const existing = await readBindableCharactersCache(projectPath)
+    if (existing?.llmRefinedFingerprint === entry.fingerprint) return
+  }
   const payload: BindableCharactersCache = {
     fingerprint: entry.fingerprint,
     names: sanitizeNames(entry.names),
@@ -132,6 +139,12 @@ export async function loadBindableCharactersWithCache(
   }
 
   const names = sanitizeNames(await compute())
+  // compute() 期间可能有精修落盘：同指纹的已精修结果比刚算出的本地名单更全，
+  // 直接采用它并视为命中（写回也会被下面的守卫拒掉）。
+  const landed = await readBindableCharactersCache(projectPath)
+  if (landed && landed.fingerprint === fingerprint && landed.llmRefinedFingerprint === fingerprint) {
+    return { names: landed.names, cacheHit: true, fingerprint }
+  }
   await writeBindableCharactersCache(projectPath, { fingerprint, names, updatedAt: Date.now() })
   return { names, cacheHit: false, fingerprint }
 }
