@@ -159,12 +159,17 @@ Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
 
 <h2>执行结果（已完成）</h2>
 <div class="note">
-  <p>四个实施提交，全部 TDD（先红后绿）+ 子代理独立审查 + 变异验证：</p>
+  <p>提交链（<code>684bde7</code> → <code>28fc3a1</code>），全部 TDD（先红后绿）+ 子代理驱动 + 独立对抗性终审 + 变异验证：</p>
   <ul>
     <li><code>96bfff0</code> 人物名单缓存与指纹 + 非人名过滤（两个纯 lib 模块，94 条测试）</li>
-    <li><code>c5fb2ec</code> 名单拆成「本地秒回」+「后台精修」（15 条测试）</li>
-    <li><code>7e908c5</code> 灵魂列表与人物扫描解耦 + 接入精修与过滤（14 条测试）</li>
-    <li><code>4169b3a</code> 绑定对话框搜索 / 每行 5 个 / 忽略与恢复（15 条测试）</li>
+    <li><code>c5fb2ec</code> 名单拆成「本地秒回」+「后台精修」</li>
+    <li><code>7e908c5</code> 灵魂列表与人物扫描解耦 + 接入精修与过滤</li>
+    <li><code>4169b3a</code> 绑定对话框搜索 / 每行 5 个 / 忽略与恢复</li>
+    <li><code>c0aa65a</code> 缓存写回改读-改-写（自查发现）</li>
+    <li><code>a3c1185</code> <b>精修按真实失败形态判定成功（终审 CRITICAL）</b></li>
+    <li><code>977491e</code> 补 5 处测试网漏洞</li>
+    <li><code>b9ced1c</code> 实体页读取失败不留残缺缓存（终审 IMPORTANT）</li>
+    <li><code>c90731d</code> 真实数据校验改为直接调用发布谓词</li>
   </ul>
 </div>
 
@@ -172,16 +177,29 @@ Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
 <p>关键的一条回归测试把 <code>listBindableNovelCharacters</code> 打成<b>永不 resolve</b> 的 Promise，修复前的失败信息正是用户看到的那句空状态文案：</p>
 <pre><code>AssertionError: expected '还没有自定义灵魂。点击左侧上方"新建角色灵魂"后，就可以生成并保存到当前小…'
                 to contain '拆书库导入的自定义灵魂'</code></pre>
+<p>根因是 <code>CharacterAuraView.refresh()</code> 把快的 <code>listCharacterAuras</code> 与慢的
+<code>listBindableNovelCharacters</code> 放进了同一个 <code>Promise.all</code>，于是 <code>setAuras</code> 必须等最慢的那个；
+而那个慢的每次都要对每个大纲文件串行发一次 30 秒超时的 LLM 请求（6 个文件 ≈ 180 秒，正好是用户说的 3 分钟）。
+<code>readFile</code> 只是一次 invoke（毫秒级）—— 那 3 分钟全是等模型超时，不是读盘。</p>
 
 <h3>验证证据</h3>
 <table>
   <tr><th>项目</th><th>结果</th></tr>
-  <tr><td>聚焦 9 个 spec</td><td><b>202 条全绿</b>（Test Files 9 passed）</td></tr>
+  <tr><td>聚焦 11 个 spec</td><td><b>219 条全绿</b></td></tr>
   <tr><td><code>tsc -p tsconfig.app.json --noEmit</code></td><td>退出码 0</td></tr>
-  <tr><td>全量 A/B（基线 <code>684bde7</code> 对修复后）</td><td>基线 失败 <b>199</b> / 修复后 失败 <b>195</b>；<b>新增失败文件 0</b>；通过数 +171</td></tr>
-  <tr><td>真实浏览器几何（<code>check.mjs</code>）</td><td><b>失败项 0</b>；1200px 每行 5 个、700px 3 个、600px 2 个，三个宽度都无溢出、超长名字真的出现省略号</td></tr>
-  <tr><td>变异测试</td><td>16 处，每处都有具名测试失败（详见各提交说明）</td></tr>
+  <tr><td>全量 A/B（基线 <code>684bde7</code> 对当前 HEAD）</td><td>基线 失败 199 / 失败文件 33；当前 失败 199 / 失败文件 32；<b>新增失败文件 0</b>；<code>ui-test-shell.spec.tsx</code> 转为通过</td></tr>
+  <tr><td>真实浏览器几何（<code>check.mjs</code>）</td><td><b>失败项 0</b>；1200px 每行 5 个、700px 3 个、600px 2 个；对话框实测 640px；三个宽度无溢出、超长名字真的出现省略号</td></tr>
+  <tr><td>真实项目数据（<code>bindable-characters-real-data.spec.ts</code>）</td><td>6 条全绿：截图里的垃圾名全拦下，39 个真实实体页 + 5 个大纲标题 + 10 个角色称呼<b>零误杀</b></td></tr>
+  <tr><td>变异测试</td><td>约 30 处，每处都有具名测试失败（各提交说明有明细）</td></tr>
+  <tr><td>便携版</td><td><code>release-portable\QMaiWrite.exe</code> 203.66 MB，SHA256 <code>B1BC9905…</code>，243 个前端产物全部嵌入，<code>--version</code> 退出码 0</td></tr>
 </table>
+
+<h3>为什么「先红后绿」在这里特别关键</h3>
+<div class="warn">
+  <p>本次有两处修复是<b>在写完修复之后才补测试</b>的（残缺缓存、超时判定）。
+  那两条都补做了变异验证：把守卫删掉，对应用例必须失败，并各附一条正向对照
+  （防止「一律不缓存 / 一律不标记」这种蒙过去的假修复）。没有变异验证的自测等于没测。</p>
+</div>
 
 <h3>几何检查脚本自身踩的两个坑（已堵上，记下来免得再犯）</h3>
 <div class="warn">
