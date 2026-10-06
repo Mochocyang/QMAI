@@ -431,7 +431,17 @@ export function BookAnalysisWorkbench() {</code></pre>
   onRevise={(requirements) =&gt; draft &amp;&amp; launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} /&gt;
   : &lt;p className="wb-muted"&gt;暂无新版本结果。&lt;/p&gt;}
 &lt;LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} /&gt;</code></pre>
-<p>顶部 import 加上 <code>LegacySkillResults</code>，并删除不再使用的 <code>ReactNode</code>／<code>legacy</code> 相关导入。同时把 <code>:315</code> 那句写死「旧版资料见下方“旧版结果”」的文案删掉（旧版块已不存在）。</p>
+<p>顶部 import 加上 <code>LegacySkillResults</code>，并删除不再使用的 <code>ReactNode</code>／<code>legacy</code> 相关导入。同时把 <code>:321</code> 那句写死「旧版资料见下方“旧版结果”」的文案删掉（旧版块已不存在）。</p>
+<div class="note warn">
+  <strong>别忘了清洗测试里的 <code>legacy</code> prop（共 19 处）。</strong><code>book-analysis-workbench.spec.tsx</code> 里目前有
+  17 处 <code>&lt;BookAnalysisWorkbench legacy={null} /&gt;</code> 和 2 处传具体元素的（<code>:138</code>、<code>:230</code>）。
+  删掉 props 里的 <code>legacy</code> 后它们<strong>不会报错</strong>——React 对函数组件忽略多余 prop，
+  而 <code>tsconfig.app.json</code> 又<strong>排除 <code>*.spec.tsx</code></strong>，<code>tsc</code> 也照样过。
+  所以只能靠人工清：把 17 处 <code>legacy={null}</code> 统一改成 <code>&lt;BookAnalysisWorkbench /&gt;</code>，
+  并处理 <code>:138</code>／<code>:230</code> 那两个真正测旧版块的用例（<code>:228-233</code> 的 <code>旧版结果常显</code> 就是 Step 1 要改写的那个）。
+  建议用 <code>Select-String -Path src\components\novel\book-analysis-workbench.spec.tsx -Pattern 'BookAnalysisWorkbench legacy='</code>
+  核对改完为 0 处。
+</div>
 <p>故事导图刷新键的状态也在本任务声明（不要留到 Task 6，否则 Task 5 编不过）。<strong>关键：状态必须声明在 <code>BookWorkspace</code> 内部</strong>（<code>:180</code> 那个组件，结果区就在它里面），<strong>不是</strong>顶层的 <code>BookAnalysisWorkbench</code>：</p>
 <pre><code>// 在 BookWorkspace 内，紧挨着 results/revisions 那几个状态
 const [storyMapRefreshKey, setStoryMapRefreshKey] = useState(0)</code></pre>
@@ -489,8 +499,8 @@ git commit -m "feat(拆书库): 旧版结果并入新版页签"</code></pre>
 <div class="step"><span class="box">☐ Step 3</span> 实现。引入计数器并加进依赖：</div>
 <pre><code>const sidebarRefreshCounter = useBookAnalysisStore((s) =&gt; s.sidebarRefreshCounter)</code></pre>
 <pre><code>}, [project?.path, imports.revision, importSignature, taskSignature, refresh, sidebarRefreshCounter])</code></pre>
-<p>再加故事导图刷新键的递增 effect。<strong>它和状态一样放在 <code>BookWorkspace</code> 内</strong>，用组件自己的 <code>signature</code>（<code>:195</code>），不要用顶层的 <code>taskSignature</code>：</p>
-<pre><code>// 每个任务只递增一次：旧版当年用 ref 守住，否则每次 signature 变化都会再读一遍历史导图。
+<p>再加故事导图刷新键的递增 effect。<strong>它和状态一样放在 <code>BookWorkspace</code> 内</strong>，依赖直接写 <code>[tasks]</code>（<code>tasks</code> 由父级传入 store 里的数组，引用稳定，任务状态一变就换新引用，正好触发）：</p>
+<pre><code>// 每个任务只递增一次：旧版当年用 ref 守住，否则每次任务列表变化都会再读一遍历史导图。
 const storyRefreshedRef = useRef&lt;Set&lt;string&gt;&gt;(new Set())
 useEffect(() =&gt; {
   // 旧版在故事任务完成时递增刷新键，让历史导图重新读取；迁移到工作台。
@@ -500,7 +510,7 @@ useEffect(() =&gt; {
     storyRefreshedRef.current.add(task.id)
     setStoryMapRefreshKey((key) =&gt; key + 1)
   }
-}, [tasks, signature])</code></pre>
+}, [tasks])</code></pre>
 <div class="exp">
   说明一：作品库本身已经由依赖数组里的 <code>signature</code>／<code>taskSignature</code> 覆盖（任务状态一变就重载），
   旧版当年需要单独写 effect 是因为它没有这个依赖。这里只补故事导图刷新键。<br>
