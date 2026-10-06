@@ -22,6 +22,18 @@ const mocks = vi.hoisted(() => {
     init, old, load: vi.fn(), revisions: vi.fn(async (): Promise<any[]> => []),
     loadStyles: vi.fn(async () => ({ enabledStyleId: null as string | null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })),
     setStyle: vi.fn(async () => {}),
+    // 工作台现在会读「在不在自定义灵魂库／绑给了谁」并支持两个按钮：
+    // 不打桩就会走到真实的 loadCharacterAuraStore（读盘）与 listBindableNovelCharacters。
+    loadSoulStatus: vi.fn(async () => "none" as const),
+    addToSoul: vi.fn(async () => ({ auraId: "aura-1", auraName: "林烬" })),
+    bindCharacters: vi.fn(async () => ({ succeeded: 1, alreadyBound: [] as string[], failed: [] as string[] })),
+    listBindable: vi.fn(async () => ["沈微", "裴探"]),
+    refreshProject: vi.fn(async () => {}),
+    // inspectWorkbenchPublication 会读 aura/文风/框架三个 store（真实 IO），
+    // confirmWorkbenchRevision 会按 id 从盘上重读版本：两个都必须打桩。
+    inspect: vi.fn(async () => ({ targets: [], impacts: [], fingerprint: "fp-1" })),
+    confirmRevision: vi.fn(async () => ({})),
+    materialize: vi.fn(async () => ({})),
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
     pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
@@ -43,6 +55,21 @@ vi.mock("./book-analysis-usage-summary", () => ({ BookAnalysisUsageSummary: () =
 // 它内部对每张导图的 readFile 有自己的 .catch(() => null)，jsdom 下失败只会让 html 为空，不影响列表渲染。
 const listStoryMapHistory = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/novel/book-analysis/story-map-history", () => ({ listStoryMapHistory }))
+vi.mock("@/lib/novel/book-analysis/workbench-soul-actions", () => ({
+  loadCharacterSoulStatus: mocks.loadSoulStatus, addCharacterToSoulLibrary: mocks.addToSoul,
+  bindCharacterToNovelCharacters: mocks.bindCharacters,
+}))
+vi.mock("@/lib/novel/character-aura", () => ({ listBindableNovelCharacters: mocks.listBindable }))
+vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProject }))
+vi.mock("@/lib/novel/book-analysis/workbench-publish", () => ({
+  inspectWorkbenchPublication: mocks.inspect, confirmWorkbenchRevision: mocks.confirmRevision,
+}))
+// 只替换落盘那一个函数：buildLegacyCharacterRevision 必须是真的，
+// 「旧版条目并入」这组用例全部依赖它的真实字段映射。
+vi.mock("@/lib/novel/book-analysis/legacy-character-revision", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/novel/book-analysis/legacy-character-revision")>()),
+  materializeLegacyCharacterRevision: mocks.materialize,
+}))
 const book = {
   id: "book-1", path: "/project/book-analysis/book-1", metadata: { title: "测试作品", totalChapters: 123, totalWords: 123000 },
   characters: [], skills: [],
@@ -98,6 +125,8 @@ beforeEach(() => {
   mocks.imports.tasks = []
   mocks.revisions.mockResolvedValue([])
   mocks.load.mockResolvedValue({ books: [book] })
+  // 绑定候选列表会被单个用例改成空数组，复位免得漏进下一个用例。
+  mocks.listBindable.mockResolvedValue(["沈微", "裴探"])
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
@@ -352,6 +381,141 @@ describe("旧版结果并入页签", () => {
     mocks.old.selectedLibraryBookId = "book-1"
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(host.querySelector(".wb-legacy")).toBeNull()
+  })
+
+  it("旧版角色以「旧版资料导入」条目合并进角色页签", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.textContent).toContain("林烬")
+    // legacyBook.skills 为空、但角色有 personality 散文 → 无结构化规则
+    expect(host.textContent).toContain("旧版资料导入 · 无结构化规则")
+  })
+
+  it("角色条目都带「加入自定义灵魂库」与「绑定」两个按钮", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const buttons = Array.from(host.querySelectorAll("button"))
+    const labels = buttons.map((b) => b.textContent?.trim())
+    expect(labels).toContain("加入自定义灵魂库")
+    expect(labels.some((l) => l?.startsWith("绑定"))).toBe(true)
+    // 情况 Z 仍有可发布数据，按钮必须可用（绝不能按 rules.length 判断）
+    expect(buttons.find((b) => b.textContent?.includes("加入自定义灵魂库"))!.disabled).toBe(false)
+    // 「确认并加入」也不能因为没有规则就被禁掉
+    expect(buttons.find((b) => b.textContent?.includes("确认并加入"))!.disabled).toBe(false)
+  })
+
+  it("旧版迁移条目排在磁盘版本之后，不顶掉用户最新生成的结果", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([{
+      workbenchVersion: 2, id: "rev-characters-new", skill: "characters", bookTitle: "测试作品",
+      selectedChapterIds: ["c1"], createdAt: 9, requirements: "", coverage: [], evidence: [],
+      items: [{
+        subject: "许七安", summary: "新的判断倾向", limitations: "不迁移身份",
+        rules: [{ id: "R1", dimension: "judgment", condition: "信息不足时", action: "先核对再判断",
+          boundary: "不附带职业知识", observation: "先检查材料", evidenceIds: [] }],
+      }],
+    }])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // result 取的是 selectedRevisions[0]（见 :285）：迁移条目一旦被前置就会盖住刚生成的版本，
+    // 用户会以为自己最新的分析结果丢了。这条就是用顺序把那个回归钉死。
+    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("许七安")
+    expect(host.textContent).not.toContain("林烬")
+  })
+
+  it("既无人格块也无散文字段的角色显示「无可用资料」而不是「未加入灵魂库」", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    // 徽标与按钮必须用同一个 publishable 判定：按钮已经点不动了，
+    // 还写「未加入灵魂库」等于叫用户去点一个永远点不动的按钮。
+    const bare = {
+      ...legacyBook,
+      characters: [{ ...legacyBook.characters[0], name: "无名氏", description: "", personality: "", speechStyle: "" }],
+    }
+    mocks.load.mockResolvedValue({ books: [bare] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const badge = host.querySelector('[data-testid="wb-soul-actions-无名氏"] .wb-soul-status')!
+    expect(badge.textContent).toBe("无可用资料")
+    expect(host.textContent).not.toContain("未加入灵魂库")
+    // 徽标说没资料，两个按钮就必须都不可点——文案与可点性不能互相矛盾。
+    const actions = host.querySelector('[data-testid="wb-soul-actions-无名氏"]')!
+    expect([...actions.querySelectorAll<HTMLButtonElement>("button")].map((b) => b.disabled)).toEqual([true, true])
+  })
+})
+
+describe("旧版条目落盘时机与绑定对话框", () => {
+  /** 卡片上的两个按钮；绑定那个的文案以「绑定」开头，须限定在灵魂操作区内取。 */
+  const cardButton = (subject: string, label: string) => {
+    const actions = host.querySelector(`[data-testid="wb-soul-actions-${subject}"]`)
+    return [...(actions?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((b) => b.textContent?.includes(label))!
+  }
+  /** 「确认并加入」在汇总行里，不在角色卡片内。 */
+  const publishButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
+    .find((b) => b.textContent?.includes("确认并加入"))!
+  /** 对话框走 portal 渲染到 document.body，不在 host 里。 */
+  const dialog = () => document.body.querySelector('[role="dialog"]')
+  const dialogButton = (label: string) =>
+    [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.includes(label))!
+
+  beforeEach(() => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+  })
+
+  it("确认并加入时先落盘旧版条目，再按 id 确认发布（顺序不能反）", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => publishButton().click())
+    // materializeLegacyCharacterRevision 只写版本 json，confirmWorkbenchRevision 是    // 按住 id 从磁盘重读的：先确认后落盘会读不到条目，这一条钉的就是顺序。
+    expect(mocks.materialize).toHaveBeenCalledWith(legacyBook.path, legacyBook)
+    expect(mocks.materialize.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.confirmRevision.mock.invocationCallOrder[0])
+    expect(mocks.confirmRevision).toHaveBeenCalledWith("/project", legacyBook.path, expect.any(String), "fp-1")
+    confirm.mockRestore()
+  })
+
+  it("用户在最后一步取消确认时不落盘（懒落盘契约）", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => publishButton().click())
+    // 取消 = 没有确认过 = 磁盘上不该留下任何痕迹。
+    expect(mocks.materialize).not.toHaveBeenCalled()
+    expect(mocks.confirmRevision).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it("点「绑定…」读取可绑定小说人物并打开对话框", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => cardButton("林烬", "绑定…").click())
+    expect(mocks.listBindable).toHaveBeenCalledWith("/project")
+    expect(dialog()).not.toBeNull()
+    expect(dialog()!.textContent).toContain("绑定「林烬」")
+    expect(dialog()!.textContent).toContain("沈微")
+    expect(dialog()!.textContent).toContain("裴探")
+    // 没勾任何人时不能提交。
+    expect(dialogButton("绑定所选").disabled).toBe(true)
+  })
+
+  it("勾选小说人物后确认，用所选名单调用绑定", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => cardButton("林烬", "绑定…").click())
+    const box = [...dialog()!.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find((input) => input.closest("label")!.textContent?.includes("沈微"))!
+    await act(async () => box.click())
+    await act(async () => dialogButton("绑定所选").click())
+    // 只带上勾中的那一个，没勾的裴探不能混进去。
+    expect(mocks.bindCharacters).toHaveBeenCalledWith("/project", legacyBook, expect.anything(), "林烬", ["沈微"])
+  })
+
+  it("没有可绑定的小说人物时给出提示，且无法提交", async () => {
+    mocks.listBindable.mockResolvedValue([])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => cardButton("林烬", "绑定…").click())
+    expect(dialog()!.textContent).toContain("请先在大纲中添加人物小传或人物设定，再绑定角色灵魂")
+    expect(dialogButton("绑定所选").disabled).toBe(true)
+    expect(mocks.bindCharacters).not.toHaveBeenCalled()
   })
 })
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, Check, ChevronDown, Download, Feather, FileText, GitBranch, History, LayoutGrid, List, Pause, PencilLine, Play, Plus, RefreshCw, Search, Square, Trash2, Upload, UserRound, X } from "lucide-react"
+import { BookOpen, Check, ChevronDown, Download, Feather, FileText, GitBranch, History, LayoutGrid, Link2, List, Pause, PencilLine, Play, Plus, RefreshCw, Search, Square, Trash2, Upload, UserRound, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useBookAnalysisPipelineStore } from "@/stores/book-analysis-pipeline-store"
@@ -8,8 +8,12 @@ import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { loadBookAnalysisLibraryState, type BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
 import { loadChapterList } from "@/lib/novel/book-analysis/analysis-engine"
 import { loadWorkbenchRevisions } from "@/lib/novel/book-analysis/workbench-storage"
-import { buildWorkbenchPlan, WORKBENCH_DEFAULTS, WORKBENCH_LABELS, WORKBENCH_DIMENSIONS, workbenchRulesMarkdown, type WorkbenchRevision } from "@/lib/novel/book-analysis/workbench-core"
+import { buildWorkbenchPlan, WORKBENCH_DEFAULTS, WORKBENCH_LABELS, WORKBENCH_DIMENSIONS, workbenchRulesMarkdown, type WorkbenchItem, type WorkbenchRevision } from "@/lib/novel/book-analysis/workbench-core"
 import { inspectWorkbenchPublication, confirmWorkbenchRevision } from "@/lib/novel/book-analysis/workbench-publish"
+import { buildLegacyCharacterRevision, materializeLegacyCharacterRevision } from "@/lib/novel/book-analysis/legacy-character-revision"
+import { loadCharacterSoulStatus, addCharacterToSoulLibrary, bindCharacterToNovelCharacters, type CharacterSoulStatus } from "@/lib/novel/book-analysis/workbench-soul-actions"
+import { listBindableNovelCharacters } from "@/lib/novel/character-aura"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { ANALYSIS_SKILL_ORDER, type AnalysisSkill, type BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import type { ChapterSelectionState } from "@/lib/novel/book-analysis/types"
 import { resolveTaskLlmConfig } from "@/lib/novel/book-analysis/analysis-model-resolver"
@@ -22,6 +26,8 @@ import { WorkbenchStyleDetails } from "./workbench-style-details"
 import { styleItemEvidenceIds } from "@/lib/novel/book-analysis/style-fingerprint"
 import { BookAnalysisUsageSummary } from "./book-analysis-usage-summary"
 import { LegacySkillResults } from "./legacy-skill-results"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { renderStoryMapHtml } from "@/lib/novel/book-analysis/story-map-renderer"
 import { loadWritingStyleStore, setEnabledWritingStyle } from "@/lib/novel/writing-style-store"
 import "./book-analysis-workbench.css"
@@ -46,6 +52,31 @@ function initialDraft(bookPath: string, chapters: ChapterSelectionState[]): Draf
     }
   } catch { /* 损坏的本地偏好不影响作品。 */ }
   return { selectedIds: chapters.slice(0, 20).map((c) => c.chapterId), skills: ["characters"], requirements: {}, modelKey: "" }
+}
+
+/** 整个版本有没有可发布内容。旧版迁移版本靠散文字段兜底发布，即使没有结构化规则也算数。 */
+function canPublishRevision(revision: WorkbenchRevision): boolean {
+  return revision.origin === "legacy" || revision.items.some((item) => item.rules.length)
+}
+
+/**
+ * 按钮能不能用取决于「有没有可发布的数据」，不是规则条数：
+ * 六维路径生成的旧版 Skill 不含便携人格块，规则为空但资料齐全，必须仍能加入灵魂库。
+ */
+function hasPublishableData(revision: WorkbenchRevision, item: WorkbenchItem, book: BookAnalysisLibraryBook): boolean {
+  if (revision.origin !== "legacy") return item.rules.length > 0
+  const character = book.characters.find((c) => c.name === item.subject)
+  if (!character) return false
+  if (book.skills.some((s) => s.characterId === character.id || s.characterName === character.name)) return true
+  return Boolean(character.personalityProfile) || Boolean(character.personality) || Boolean(character.description)
+}
+
+/** 三态徽标文案；「无可用资料」优先——按钮都点不动了，再写「未加入灵魂库」就是骗人去点。 */
+function soulStatusLabel(status: CharacterSoulStatus | undefined, publishable: boolean): string {
+  if (!publishable) return "无可用资料"
+  if (!status || status === "none") return "未加入灵魂库"
+  if (status === "added") return "已在灵魂库"
+  return `已绑定「${status.bound.join("、")}」`
 }
 
 export function BookAnalysisWorkbench() {
@@ -186,6 +217,9 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [error, setError] = useState("")
   const [starting, setStarting] = useState(false)
   const [revisions, setRevisions] = useState<WorkbenchRevision[]>([])
+  const [soulStatus, setSoulStatus] = useState<Record<string, CharacterSoulStatus>>({})
+  const [bindingSubject, setBindingSubject] = useState<string | null>(null)
+  const [bindableNames, setBindableNames] = useState<string[] | null>(null)
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   const [selectedRevision, setSelectedRevision] = useState("")
@@ -215,7 +249,21 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const task = [...tasks].sort((a, b) => b.createdAt - a.createdAt)[0]
   const pickerTask = tasks.find((t) => t.workbenchVersion === 2 && t.status === "awaiting-character-selection")
   const recognizedKey = `${pickerTask?.id}:${pickerTask?.recognizedCharacters?.map((c) => c.id).join()}`
-  const reloadRevisions = useCallback(async () => { setRevisions(await loadWorkbenchRevisions(book.path)) }, [book.path])
+  /**
+   * 磁盘上的版本 + 内存里的旧版迁移条目。
+   * 迁移条目不落盘（懒落盘）：只有点「确认并加入」才写进 revisions 目录，
+   * 因此这里按 id 去重，避免落盘后出现两份。
+   *
+   * 追加在**末尾**，不要放开头：下面的 selectedRevisions[0] 会让前置的旧版条目
+   * 盖住用户最新生成的结果。
+   */
+  const reloadRevisions = useCallback(async () => {
+    const stored = await loadWorkbenchRevisions(book.path)
+    const legacyRevision = buildLegacyCharacterRevision(book)
+    setRevisions(legacyRevision && !stored.some((r) => r.id === legacyRevision.id)
+      ? [...stored, legacyRevision]
+      : stored)
+  }, [book.path, book])
   useEffect(() => {
     // 旧版在故事任务完成时递增刷新键，让历史导图重新读取；迁移到工作台。
     for (const item of tasks) {
@@ -240,9 +288,9 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   }, [book.path])
   useEffect(() => {
     let current = true
-    void loadWorkbenchRevisions(book.path).then((value) => { if (current) setRevisions(value) }).catch((e) => { if (current) setError(String(e)) })
+    void reloadRevisions().catch((e) => { if (current) setError(String(e)) })
     return () => { current = false }
-  }, [book.path, signature])
+  }, [reloadRevisions, signature])
   useEffect(() => {
     if (!draft) return
     try { localStorage.setItem(draftKey(book.path), JSON.stringify(draft)) } catch { setError("分析设置无法保存到本地，切换页面前请留意") }
@@ -280,6 +328,58 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
       setActiveSkill(requestDraft.skills[0]); setSelectedRevision("")
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setStarting(false) }
+  }
+  // 徽标要反映「在不在自定义灵魂库／绑给了谁」，从盘上读。
+  useEffect(() => {
+    if (activeSkill !== "characters") return
+    let current = true
+    const subjects = [...new Set(revisions.flatMap((r) => r.items.map((i) => i.subject)))]
+    void Promise.all(subjects.map(async (subject) =>
+      [subject, await loadCharacterSoulStatus(projectPath, book.metadata.title, subject)] as const,
+    )).then((entries) => {
+      if (current) setSoulStatus(Object.fromEntries(entries))
+    }).catch((e) => { if (current) setError(String(e)) })
+    return () => { current = false }
+  }, [activeSkill, revisions, projectPath, book.metadata.title, signature])
+
+  /** 只重读一个角色：不要靠整表重算，否则每次点按钮都触发一次全量 IO。 */
+  const refreshSoulStatus = async (subject: string) => {
+    const status = await loadCharacterSoulStatus(projectPath, book.metadata.title, subject)
+    setSoulStatus((prev) => ({ ...prev, [subject]: status }))
+  }
+
+  const handleAddToSoul = async (revision: WorkbenchRevision, subject: string) => {
+    try {
+      const r = await addCharacterToSoulLibrary(projectPath, book, revision, subject)
+      await refreshProjectState(projectPath)
+      toast.success(`已将「${r.auraName}」加入自定义灵魂库。`)
+      await refreshSoulStatus(subject)
+    } catch (error) { reportError(error) }
+  }
+
+  const openBindingDialog = async (subject: string) => {
+    setBindingSubject(subject)
+    setBindableNames(null)
+    try {
+      setBindableNames(await listBindableNovelCharacters(projectPath))
+    } catch (error) { reportError(error); setBindableNames([]) }
+  }
+
+  const confirmBinding = async (revision: WorkbenchRevision, names: string[]) => {
+    const subject = bindingSubject
+    if (!subject) return
+    try {
+      const r = await bindCharacterToNovelCharacters(projectPath, book, revision, subject, names)
+      await refreshProjectState(projectPath)
+      // 部分失败时如实报数；幂等命中的计为已有
+      if (r.failed.length === 0 && r.alreadyBound.length === 0) {
+        toast.success(`已将「${subject}」绑定到 ${r.succeeded} 个小说人物`)
+      } else {
+        toast.info(`绑定完成：成功 ${r.succeeded}，已是现绑定 ${r.alreadyBound.length}，失败 ${r.failed.length}`)
+      }
+      await refreshSoulStatus(subject)
+      setBindingSubject(null)
+    } catch (error) { reportError(error) }
   }
   const selectedRevisions = revisions.filter((r) => r.skill === activeSkill)
   const result = selectedRevisions.find((r) => r.id === selectedRevision) ?? selectedRevisions[0]
@@ -345,13 +445,19 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         const Icon = skillIcons[skill]
         return <button key={skill} role="tab" aria-selected={activeSkill === skill} onClick={() => { setActiveSkill(skill); setSelectedRevision("") }}><Icon />{WORKBENCH_LABELS[skill]}</button>
       })}</div>
-      {selectedRevisions.length > 0 && <div className="wb-row"><label>结果版本 <select aria-label="结果版本" value={result?.id} onChange={(e) => setSelectedRevision(e.target.value)}>{selectedRevisions.map((r) => <option key={r.id} value={r.id}>{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.confirmedAt ? "已确认" : "待确认"}</option>)}</select></label></div>}
+      {selectedRevisions.length > 0 && <div className="wb-row"><label>结果版本 <select aria-label="结果版本" value={result?.id} onChange={(e) => setSelectedRevision(e.target.value)}>{selectedRevisions.map((r) => <option key={r.id} value={r.id}>{r.origin === "legacy" ? "旧版导入 · " : ""}{new Date(r.createdAt).toLocaleString("zh-CN")} · {r.confirmedAt ? "已确认" : "待确认"}</option>)}</select></label></div>}
       {result ? <WorkbenchResult key={result.id} revision={result} previous={revisions.find((r) => r.id === result.parentRevisionId)} bookPath={book.path} projectPath={projectPath}
+        book={book} soulStatus={soulStatus} busy={starting || hasActiveTask}
+        onAddToSoul={(subject) => void handleAddToSoul(result, subject)}
+        onBind={(subject) => void openBindingDialog(subject)}
         onConfirmed={() => { void reloadRevisions().catch(reportError); onRefresh() }}
         revising={starting || hasActiveTask}
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} />
         : <p className="wb-muted">暂无新版本结果。</p>}
       <LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} />
+      <BindingTargetDialog subject={bindingSubject} names={bindableNames}
+        onOpenChange={(open) => { if (!open) { setBindingSubject(null); setBindableNames(null) } }}
+        onConfirm={(names) => { if (result) void confirmBinding(result, names) }} />
     </section>
   </>
 }
@@ -377,8 +483,10 @@ function TaskProgress({ task }: { task: BookAnalysisPipelineTask }) {
   </div>
 }
 
-function WorkbenchResult({ revision, previous, projectPath, bookPath, onConfirmed, onRevise, revising }: {
-  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string
+function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soulStatus, busy, onAddToSoul, onBind, onConfirmed, onRevise, revising }: {
+  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string; book: BookAnalysisLibraryBook
+  soulStatus: Record<string, CharacterSoulStatus>; busy: boolean
+  onAddToSoul: (subject: string) => void; onBind: (subject: string) => void
   onConfirmed: () => void; onRevise: (requirements: string) => Promise<void> | null; revising: boolean
 }) {
   const [requirements, setRequirements] = useState("")
@@ -419,6 +527,11 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, onConfirme
         ? `确认替换${destination}中的 ${inspect.targets.length} 个已有条目？\n影响：${inspect.impacts.join("、") || "无当前启用或绑定"}。\n旧版本会保留。`
         : `确认将本版本全部 ${revision.items.length} 个对象加入${destination}？不会自动绑定人物或启用文风。`
       if (!window.confirm(message + (omittedCount ? `\n有${omittedCount}项候选未采纳，仅加入保留的通过项；未采纳记录留在来源版本中。` : ""))) return
+      // 到这里用户已经最终确认了，才落盘：旧版迁移条目只存在于内存里，而
+      // confirmWorkbenchRevision 是按住 id 从磁盘重读的，所以必须在它之前写。
+      // 放在 window.confirm 之后，取消时就不留下任何磁盘痕迹。
+      // 落盘失败按设计处理：报错、不进入发布、列表保持原状。
+      if (revision.origin === "legacy") await materializeLegacyCharacterRevision(bookPath, book)
       await confirmWorkbenchRevision(projectPath, bookPath, revision.id, inspect.fingerprint)
       onConfirmed()
       toast.success("已确认并加入使用库")
@@ -449,8 +562,8 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, onConfirme
         <button className="wb-icon" title="列表视图" aria-label="列表视图" aria-pressed={view === "list"} onClick={() => setView("list")}><List /></button>
       </div>
     </div>
-    <div className="wb-row wb-summary"><span className="wb-status">{revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}</span><span className="wb-muted">{revision.selectedChapterIds.length}章 · {revision.items.length}个对象</span>
-      <button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !revision.items.some((i) => i.rules.length)} onClick={() => void confirm()}><Check />{saving ? "正在加入" : revision.confirmedAt ? "已加入使用库" : "确认并加入"}</button>
+    <div className="wb-row wb-summary"><span className="wb-status">{revision.origin === "legacy" ? "旧版导入 · 未经新版核验" : revision.confirmedAt ? "用户已确认" : omittedCount ? `已保留通过项 · ${omittedCount}项未采纳 · 待用户确认` : "自动核验通过 · 待用户确认"}</span><span className="wb-muted">{revision.selectedChapterIds.length}章 · {revision.items.length}个对象</span>
+      <button className="wb-primary" title={`确认本版本全部${revision.items.length}个对象`} disabled={saving || Boolean(revision.confirmedAt) || !canPublishRevision(revision)} onClick={() => void confirm()}><Check />{saving ? "正在加入" : revision.confirmedAt ? "已加入使用库" : "确认并加入"}</button>
       <button className="wb-icon" title="导出结果" aria-label="导出结果" onClick={() => void exportResult().catch(reportError)}><Download /></button>
       {styleState?.current && <button onClick={() => void toggleStyle().catch(reportError)}><Play />{styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
       {styleState && !styleState.current && <span className="wb-muted">此历史版本已被替换</span>}
@@ -473,6 +586,23 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, onConfirme
           <button aria-label={`查看${item.subject}规则`} aria-expanded={expandedSubject === item.subject} onClick={() => setExpandedSubject(expandedSubject === item.subject ? null : item.subject)}><FileText />{expandedSubject === item.subject ? "收起规则" : "查看规则"}</button>
           <button className="wb-icon" aria-label={`补充${item.subject}修订要求`} title="补充本版本修订要求" onClick={openRevision}><PencilLine /></button>
         </footer>
+        <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
+          {revision.origin === "legacy" && <span className="wb-origin-tag">{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}</span>}
+          {/* publishable 只算一次：徽标与两个按钮必须用同一个判定，否则文案会和可点性互相矛盾。 */}
+          {(() => {
+            const publishable = hasPublishableData(revision, item, book)
+            const status = soulStatus[item.subject] ?? "none"
+            return <>
+              <span className="wb-soul-status">{soulStatusLabel(soulStatus[item.subject], publishable)}</span>
+              <button type="button" disabled={!publishable || status !== "none" || busy}
+                title={!publishable ? "这个角色没有可加入灵魂库的资料" : status !== "none" ? "已在自定义灵魂库中" : "只加入自定义灵魂库，不绑定小说人物"}
+                onClick={() => onAddToSoul(item.subject)}><Plus />加入自定义灵魂库</button>
+              <button type="button" disabled={!publishable || busy}
+                title={publishable ? "绑定到小说人物（会自动加入自定义灵魂库）" : "这个角色没有可加入灵魂库的资料"}
+                onClick={() => onBind(item.subject)}><Link2 />绑定…</button>
+            </>
+          })()}
+        </div>
       </article>)}
       {!filteredItems.length && <p className="wb-muted wb-no-results">没有符合条件的成果</p>}
     </div>
@@ -501,4 +631,43 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, onConfirme
         <button disabled={!requirements.trim() || revising} onClick={() => void onRevise(requirements.trim())?.catch(reportError)}><RefreshCw />生成修订版本</button></>}
     </div>
   </div>
+}
+
+/**
+ * 绑定对话框。用仓库的 base-ui Dialog，不自己搭遮罩：
+ * DialogContent 已经带了 role="dialog"、焦点圈、Esc 关闭与宽度约束。
+ */
+function BindingTargetDialog({ subject, names, onOpenChange, onConfirm }: {
+  subject: string | null
+  names: string[] | null
+  onOpenChange: (open: boolean) => void
+  onConfirm: (names: string[]) => void
+}) {
+  const [picked, setPicked] = useState<string[]>([])
+  useEffect(() => { setPicked([]) }, [subject])
+  const empty = names !== null && names.length === 0
+  return (
+    <Dialog open={Boolean(subject)} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[560px]">
+        <DialogHeader><DialogTitle>绑定「{subject}」</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">绑定后会自动把该角色灵魂加入自定义灵魂库。</p>
+        {names === null && <p className="text-sm text-muted-foreground">正在读取小说人物…</p>}
+        {/* 文案与 character-aura.ts 的常量一致 */}
+        {empty && <p role="alert" className="text-sm">请先在大纲中添加人物小传或人物设定，再绑定角色灵魂</p>}
+        <div className="min-h-0 overflow-y-auto">
+          {names?.map((name) => (
+            <label key={name} className="flex items-center gap-2 py-1.5 text-sm">
+              <input type="checkbox" checked={picked.includes(name)}
+                onChange={(e) => setPicked((ids) => e.target.checked ? [...ids, name] : ids.filter((id) => id !== name))} />
+              {name}
+            </label>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button disabled={picked.length === 0} onClick={() => onConfirm(picked)}>绑定所选 {picked.length} 个人物</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
