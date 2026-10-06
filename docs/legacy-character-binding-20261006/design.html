@@ -321,21 +321,32 @@ loadCharacterSoulStatus(projectPath, bookTitle, subject)               → "none
 + importance: Math.max(1, Math.min(10, Math.ceil(picked.importanceScore / 10))),</code></pre>
 
 <h2>6. 数据流</h2>
-<pre><code>【加入自定义灵魂库】
-点按钮 → publishWorkbenchCharacter(projectPath, revision, item)
-        → buildGeneratedAuraInputFromBookCharacter(character, skill, metadata)
-        → createCustomCharacterAuraFromGeneratedSkill / updateCustomCharacterAura
+<pre><code>【加入自定义灵魂库】——两个按钮共用的第一步都是「确保 aura 存在」
+点按钮 → addCharacterToSoulLibrary(projectPath, book, subject)
+        │
+        ├─ 新版条目（origin 非 legacy）
+        │    publishWorkbenchCharacter(projectPath, revision, item)
+        │      → buildGeneratedAuraInputFromBookCharacter(合成角色, skill, metadata)
+        │      → createCustomCharacterAuraFromGeneratedSkill / updateCustomCharacterAura
+        │
+        └─ 旧版条目（origin === "legacy"）
+             importBookAnalysisSkillsAsAuras(projectPath, metadata, book.characters, [skill], [skill.id])
+               → buildGeneratedAuraInputFromBookCharacter(真实角色, skill, metadata)   ← 3.6 兜底链在此生效
+               → createCustomCharacterAuraFromGeneratedSkill
+             · 无可用 Skill 时先就地合成（personalityProfile → generateSimpleSkillMarkdown）
+             · 已存在 aura 时该函数跳过 → 改用 loadCharacterSoulStatus 取回既有 auraId
         → refreshProjectState → 刷新徽标 → toast
 
 【绑定】
 点「绑定…」→ listBindableNovelCharacters(projectPath) → 勾选 → 确认
-        → publishWorkbenchCharacter（自动入库，已存在则更新）  ← 需求 2(c)
+        → 先「确保 aura 存在」（同上，任一路径）      ← 需求 2(c)：绑定时自动进入自定义灵魂库
         → 对每个目标名 bindCharacterAura({ characterName, auraId })
         → refreshProjectState → 刷新徽标 → toast
+        （无可用人物时不写任何数据，只提示去大纲补小传）
 
-【旧版条目落盘】
+【旧版条目落盘（仅「确认并加入」需要）】
 点「确认并加入」→ materializeLegacyCharacterRevision → saveWorkbenchRevision
-        → confirmWorkbenchRevision（原有路径，evidence 为空故校验通过）
+        → confirmWorkbenchRevision（原有路径；evidence 为空故偏移校验通过；门槛已按 5.2 放宽）
         → 重新加载列表</code></pre>
 
 <h2>7. 错误处理与边界</h2>
@@ -396,9 +407,9 @@ loadCharacterSoulStatus(projectPath, bookTitle, subject)               → "none
 <h2>11. 实施顺序（供实施计划使用）</h2>
 <ol>
   <li>修 <code>importance</code> 换算（独立、最小、可先落地）。</li>
-  <li>抽 <code>publishWorkbenchCharacter</code>，确认既有测试仍绿（纯重构，先不加功能）。</li>
-  <li>写 <code>legacy-character-revision.ts</code> + 单测。</li>
-  <li>写 <code>workbench-soul-actions.ts</code> + 单测。</li>
+  <li>抽 <code>publishWorkbenchCharacter</code>，并<b>补上角色发布分支的第一个测试</b>（现有 4 个用例都不覆盖它）——纯重构，行为不变。</li>
+  <li>写 <code>legacy-character-revision.ts</code> + 单测（含情况 X/Y/Z/W）。</li>
+  <li>写 <code>workbench-soul-actions.ts</code> + 单测（两条发布路径、已入库时取回 auraId 继续绑定、绑定先入库的顺序断言）。</li>
   <li>工作台接入：合并条目 + 懒落盘 + 两个按钮 + 对话框 + 徽标（含 <code>origin</code> 文案）。</li>
   <li>收口 <code>legacy-skill-results.tsx</code>（去角色分支）并同步其测试。</li>
   <li>真实浏览器几何检查 + 变异验证 + 子代理审查。</li>
