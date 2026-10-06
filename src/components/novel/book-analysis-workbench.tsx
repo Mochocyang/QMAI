@@ -12,7 +12,8 @@ import { buildWorkbenchPlan, WORKBENCH_DEFAULTS, WORKBENCH_LABELS, WORKBENCH_DIM
 import { inspectWorkbenchPublication, confirmWorkbenchRevision } from "@/lib/novel/book-analysis/workbench-publish"
 import { buildLegacyCharacterRevision, materializeLegacyCharacterRevision } from "@/lib/novel/book-analysis/legacy-character-revision"
 import { loadCharacterSoulStatus, addCharacterToSoulLibrary, bindCharacterToNovelCharacters, type CharacterSoulStatus } from "@/lib/novel/book-analysis/workbench-soul-actions"
-import { listBindableNovelCharacters } from "@/lib/novel/character-aura"
+import { listBindableNovelCharacters, refineBindableCharactersWithLlm } from "@/lib/novel/character-aura"
+import { addBindableIgnore, filterBindableCharacters, readBindableIgnoreList, removeBindableIgnore } from "@/lib/novel/bindable-characters-filter"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { ANALYSIS_SKILL_ORDER, type AnalysisSkill, type BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import type { ChapterSelectionState } from "@/lib/novel/book-analysis/types"
@@ -77,6 +78,36 @@ function soulStatusLabel(status: CharacterSoulStatus | undefined, publishable: b
   if (!status || status === "none") return "未加入灵魂库"
   if (status === "added") return "已在灵魂库"
   return `已绑定「${status.bound.join("、")}」`
+}
+
+/** 该角色灵魂已经绑定的小说人物名。过滤名单时当安全阀用：已绑定的角色绝不能从候选里消失。 */
+function boundCharacterNames(status: CharacterSoulStatus | undefined): string[] {
+  return status && typeof status === "object" ? status.bound : []
+}
+
+/** 合并后台精修结果：已显示的名字保持原顺序，只把新发现的名字追加进来。 */
+function mergeBindableNames(shown: readonly string[], refined: readonly string[]): string[] {
+  const merged = new Set(shown)
+  for (const name of refined) {
+    if (typeof name !== "string") continue
+    const trimmed = name.trim()
+    if (trimmed) merged.add(trimmed)
+  }
+  return [...merged]
+}
+
+/**
+ * 取后台精修的名单。名单本身是缓存/本地的，精修只是可选增强，
+ * 所以这里把「导出不存在」和「精修抛错」一并兜住，保证永不 reject：
+ * 打开对话框不该因为一个可选增强而失败。
+ */
+async function refineBindableNames(projectPath: string): Promise<string[]> {
+  try {
+    if (typeof refineBindableCharactersWithLlm !== "function") return []
+    return await refineBindableCharactersWithLlm(projectPath)
+  } catch {
+    return []
+  }
 }
 
 export function BookAnalysisWorkbench() {
@@ -220,6 +251,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [soulStatus, setSoulStatus] = useState<Record<string, CharacterSoulStatus>>({})
   const [bindingSubject, setBindingSubject] = useState<string | null>(null)
   const [bindableNames, setBindableNames] = useState<string[] | null>(null)
+  // 精修结果回来时用来判断对话框是否已经换人／关掉，避免迟到的结果污染下一次打开。
+  const bindingSessionRef = useRef(0)
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   const [selectedRevision, setSelectedRevision] = useState("")
@@ -360,9 +393,28 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const openBindingDialog = async (subject: string) => {
     setBindingSubject(subject)
     setBindableNames(null)
+    // 每次打开/关闭都自增：后台精修是异步回来的，用它判断「还是同一个对话框」。
+    const session = ++bindingSessionRef.current
     try {
-      setBindableNames(await listBindableNovelCharacters(projectPath))
-    } catch (error) { reportError(error); setBindableNames([]) }
+      const names = await listBindableNovelCharacters(projectPath)
+      if (bindingSessionRef.current !== session) return
+      setBindableNames(names)
+    } catch (error) {
+      if (bindingSessionRef.current !== session) return
+      reportError(error); setBindableNames([])
+    }
+    // 精修只负责补新名字，绝不 await：名单已经是缓存/本地的，模型慢也不能卡住对话框。
+    void refineBindableNames(projectPath).then((refined) => {
+      if (bindingSessionRef.current !== session || refined.length === 0) return
+      setBindableNames((shown) => mergeBindableNames(shown ?? [], refined))
+    })
+  }
+
+  /** 关对话框时同时作废还在飞的精修结果：它不能再往列表里塞东西。 */
+  const closeBindingDialog = () => {
+    bindingSessionRef.current += 1
+    setBindingSubject(null)
+    setBindableNames(null)
   }
 
   const confirmBinding = async (revision: WorkbenchRevision, names: string[]) => {
@@ -378,7 +430,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         toast.info(`绑定完成：成功 ${r.succeeded}，已是现绑定 ${r.alreadyBound.length}，失败 ${r.failed.length}`)
       }
       await refreshSoulStatus(subject)
-      setBindingSubject(null)
+      closeBindingDialog()
     } catch (error) { reportError(error) }
   }
   const selectedRevisions = revisions.filter((r) => r.skill === activeSkill)
@@ -455,8 +507,9 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} />
         : <p className="wb-muted">暂无新版本结果。</p>}
       <LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} />
-      <BindingTargetDialog subject={bindingSubject} names={bindableNames}
-        onOpenChange={(open) => { if (!open) { setBindingSubject(null); setBindableNames(null) } }}
+      <BindingTargetDialog subject={bindingSubject} names={bindableNames} projectPath={projectPath}
+        alwaysKeep={boundCharacterNames(bindingSubject ? soulStatus[bindingSubject] : undefined)}
+        onOpenChange={(open) => { if (!open) closeBindingDialog() }}
         onConfirm={(names) => { if (result) void confirmBinding(result, names) }} />
     </section>
   </>
@@ -636,34 +689,96 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
 /**
  * 绑定对话框。用仓库的 base-ui Dialog，不自己搭遮罩：
  * DialogContent 已经带了 role="dialog"、焦点圈、Esc 关闭与宽度约束。
+ *
+ * 名单由调用方读（缓存感知、绝不等 LLM）；本组件只负责筛选、勾选与忽略表。
+ * 导出是为了让「搜索/栅格/忽略」这些自身契约能脱离整页工作台直接测。
  */
-function BindingTargetDialog({ subject, names, onOpenChange, onConfirm }: {
+export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = [], onOpenChange, onConfirm }: {
   subject: string | null
   names: string[] | null
+  projectPath: string
+  alwaysKeep?: string[]
   onOpenChange: (open: boolean) => void
   onConfirm: (names: string[]) => void
 }) {
   const [picked, setPicked] = useState<string[]>([])
-  useEffect(() => { setPicked([]) }, [subject])
+  const [query, setQuery] = useState("")
+  const [ignored, setIgnored] = useState<string[]>([])
+  const [ignoredOpen, setIgnoredOpen] = useState(false)
+  // 换目标就重置：勾选、搜索词、忽略展开都只属于当前这个角色。
+  useEffect(() => {
+    if (!subject) return
+    setPicked([]); setQuery(""); setIgnored([]); setIgnoredOpen(false)
+    let current = true
+    // 打开时读忽略表；读不到就当没有忽略项，绝不能因此挡住名单。
+    void readBindableIgnoreList(projectPath).then((list) => { if (current) setIgnored(list) }).catch(() => {})
+    return () => { current = false }
+  }, [subject, projectPath])
+  const ignoreName = async (name: string) => {
+    try {
+      setIgnored(await addBindableIgnore(projectPath, name))
+    } catch (error) { reportError(error) }
+  }
+  const restoreName = async (name: string) => {
+    try {
+      setIgnored(await removeBindableIgnore(projectPath, name))
+    } catch (error) { reportError(error) }
+  }
+  // 内置规则与忽略表一起过滤；alwaysKeep 是安全阀，已绑定的人物永不出局。
+  const candidates = filterBindableCharacters(names ?? [], ignored, alwaysKeep)
+  const keyword = query.trim().toLowerCase()
+  const visible = keyword ? candidates.filter((name) => name.toLowerCase().includes(keyword)) : candidates
+  const loading = names === null
   const empty = names !== null && names.length === 0
   return (
     <Dialog open={Boolean(subject)} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[560px]">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[640px]">
         <DialogHeader><DialogTitle>绑定「{subject}」</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">绑定后会自动把该角色灵魂加入自定义灵魂库。</p>
-        {names === null && <p className="text-sm text-muted-foreground">正在读取小说人物…</p>}
+        <label className="flex items-center gap-2 rounded-md border px-2">
+          <Search className="size-4 shrink-0 opacity-60" />
+          {/* Dialog 的初始焦点落在第一个可聚焦控件上，也就是这里，所以打开即输入。 */}
+          <input aria-label="搜索小说人物" placeholder="搜索小说人物" value={query}
+            className="h-9 w-full bg-transparent text-sm outline-none"
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              // 搜索框有内容时，用户想退出的是「筛选」而不是对话框：Esc 先清空搜索。
+              if (event.key !== "Escape" || !query.trim()) return
+              event.preventDefault(); event.stopPropagation(); setQuery("")
+            }} />
+        </label>
+        {!loading && <p className="text-xs text-muted-foreground">已选 {picked.length} 个 · 匹配 {visible.length} / 共 {candidates.length}</p>}
         {/* 文案与 character-aura.ts 的常量一致 */}
         {empty && <p role="alert" className="text-sm">请先在大纲中添加人物小传或人物设定，再绑定角色灵魂</p>}
-        <div className="min-h-0 overflow-y-auto">
-          {names?.map((name) => (
-            <label key={name} className="flex items-center gap-2 py-1.5 text-sm">
-              <input type="checkbox" checked={picked.includes(name)}
-                onChange={(e) => setPicked((ids) => e.target.checked ? [...ids, name] : ids.filter((id) => id !== name))} />
-              {name}
-            </label>
-          ))}
+        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="bindable-name-list">
+          {/* 加载提示只占列表区：标题、搜索框和底部按钮立刻可用。 */}
+          {loading && <p className="text-sm text-muted-foreground">正在读取小说人物…</p>}
+          {!loading && !empty && (visible.length > 0
+            ? <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 md:grid-cols-5" data-testid="bindable-name-grid">
+                {visible.map((name) => (
+                  <div key={name} className="flex min-w-0 items-center gap-1">
+                    <label className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-sm">
+                      <input type="checkbox" checked={picked.includes(name)}
+                        onChange={(event) => setPicked((ids) => event.target.checked ? [...ids, name] : ids.filter((id) => id !== name))} />
+                      {/* 名字可能很长：截断显示，全名留在 title 里。 */}
+                      <span className="truncate" title={name}>{name}</span>
+                    </label>
+                    <button type="button" title={`忽略「${name}」`} aria-label={`忽略${name}`}
+                      className="shrink-0 rounded px-1 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => void ignoreName(name)}>忽略</button>
+                  </div>
+                ))}
+              </div>
+            : <p className="text-sm text-muted-foreground">{keyword ? `没有匹配「${query.trim()}」` : "没有可绑定的小说人物"}</p>)}
         </div>
-        <DialogFooter>
+        <DialogFooter className="items-center">
+          {ignored.length > 0 && <div className="mr-auto text-xs text-muted-foreground">
+            <button type="button" aria-expanded={ignoredOpen} className="underline" onClick={() => setIgnoredOpen(!ignoredOpen)}>已忽略 {ignored.length} 项</button>
+            {ignoredOpen && <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{ignored.map((name) => <li key={name} className="flex items-center gap-1">
+              <span className="truncate" title={name}>{name}</span>
+              <button type="button" aria-label={`恢复${name}`} className="underline" onClick={() => void restoreName(name)}>恢复</button>
+            </li>)}</ul>}
+          </div>}
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
           <Button disabled={picked.length === 0} onClick={() => onConfirm(picked)}>绑定所选 {picked.length} 个人物</Button>
         </DialogFooter>
