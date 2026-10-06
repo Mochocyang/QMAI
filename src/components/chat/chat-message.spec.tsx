@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { ChatMessage, StreamingMessage } from "./chat-message"
 import { getWorkflowModeButtonClass } from "./chat-panel"
+import { WAITING_HINTS } from "@/lib/novel/waiting-hints"
 import type { DisplayMessage } from "@/stores/chat-store"
 
 vi.mock("@/lib/novel/agent-parser", () => ({
@@ -307,5 +308,56 @@ describe("deep chapter unfinished continuation action", () => {
     expect(source).toContain("严格")
     expect(source).toContain("编辑章节")
     expect(source).toContain("继续未完成")
+  })
+})
+
+describe("生成期间始终显示等待文案", () => {
+  const runningMessage = (content: string, isAgentRunning: boolean): DisplayMessage => ({
+    id: "assistant-hint",
+    role: "assistant",
+    content,
+    timestamp: 1,
+    conversationId: "conv-1",
+    isAgentRunning,
+  })
+
+  const hasWaitingHint = (html: string) => WAITING_HINTS.some((hint) => html.includes(hint))
+
+  it("正文已经在生成时，等待文案仍然显示在正文下面", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={runningMessage("这是最终正文。", true)} />,
+    )
+
+    expect(html).toContain("这是最终正文。")
+    expect(hasWaitingHint(html)).toBe(true)
+  })
+
+  it("还没有正文时同样显示等待文案", () => {
+    const html = renderToStaticMarkup(<ChatMessage message={runningMessage("", true)} />)
+
+    expect(hasWaitingHint(html)).toBe(true)
+  })
+
+  it("生成完全结束后不再显示等待文案", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={runningMessage("这是最终正文。", false)} />,
+    )
+
+    expect(html).toContain("这是最终正文。")
+    expect(hasWaitingHint(html)).toBe(false)
+  })
+
+  it("等待文案渲染在正文之后，确保始终在最下面", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={runningMessage("这是最终正文。", true)} />,
+    )
+
+    const contentIndex = html.indexOf("这是最终正文。")
+    const hintIndex = WAITING_HINTS.reduce((found, hint) => {
+      const index = html.indexOf(hint)
+      return index >= 0 && (found < 0 || index < found) ? index : found
+    }, -1)
+    expect(contentIndex).toBeGreaterThanOrEqual(0)
+    expect(hintIndex).toBeGreaterThan(contentIndex)
   })
 })

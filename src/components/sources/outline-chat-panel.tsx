@@ -208,7 +208,7 @@ import { ContextUsageRing } from "@/components/chat/context-usage-ring";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
-import { useWaitingHint } from "@/hooks/use-waiting-hint";
+import { useWaitingHint, composeWaitingText } from "@/hooks/use-waiting-hint";
 import { ContextHubDetails } from "@/components/common/context-hub-details";
 import { parseContextHubSnapshotRef } from "@/lib/context-hub/types";
 import {
@@ -1473,15 +1473,15 @@ function OutlineAssistantMessage({
   );
   const actionContent = answer || displayContent;
   const messageIsStreaming = isStreaming && index === activeMessagesLength - 1;
-  // 等待首个 token 期间显示轮播俏皮文案，消解等待的枯燥感。
-  const waitingHint = useWaitingHint(messageIsStreaming && !msg.content);
+  // 轮播俏皮文案：整段生成期间始终显示，消解等待的枯燥感。
+  const waitingHint = useWaitingHint(messageIsStreaming);
   // 文案并到闪烁光标那一行显示，不单独占一行。
-  const waitingText =
-    messageIsStreaming && !msg.content
-      ? runStatusText && waitingHint
-        ? `${runStatusText} · ${waitingHint}`
-        : runStatusText || waitingHint || ""
-      : "";
+  const waitingText = composeWaitingText({
+    isStreaming: messageIsStreaming,
+    hasContent: Boolean(msg.content),
+    statusText: runStatusText,
+    hint: waitingHint,
+  });
   const intentProtocol = useMemo(
     () => parseIntentClarityProtocol(answer || displayContent),
     [answer, displayContent],

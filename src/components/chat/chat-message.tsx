@@ -197,14 +197,15 @@ export function ChatMessage({
                   onReject={onRejectTool}
                 />
               ) : null}
-              {message.isAgentRunning && !message.content ? (
-                <AgentThinkingIndicator />
-              ) : (
+              {!message.isAgentRunning || message.content ? (
                 <AgentAwareContent
                   content={message.content}
                   projectPath={projectPath}
                 />
-              )}
+              ) : null}
+              {/* 等待文案挂在正文之后：整段生成期间始终显示在最下面，
+                  生成结束（isAgentRunning 转假）时随指示器一起消失。 */}
+              {message.isAgentRunning ? <AgentThinkingIndicator /> : null}
             </>
           )}
         </div>

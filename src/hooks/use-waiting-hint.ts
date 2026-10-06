@@ -46,3 +46,26 @@ export function useWaitingHint(active: boolean): string | null {
   if (!active) return null
   return WAITING_HINTS[index] ?? null
 }
+
+/**
+ * 生成期间挂在正文末尾（闪烁光标那一行）的等待文案。
+ *
+ * `statusText` 是运行时状态提示，只在还没有正文时占位，避免正文开始后与正文重复；
+ * 轮播文案则整段生成期间始终存在，生成结束才清空。
+ */
+export function composeWaitingText({
+  isStreaming,
+  hasContent,
+  statusText,
+  hint,
+}: {
+  isStreaming: boolean
+  hasContent: boolean
+  statusText?: string | null
+  hint?: string | null
+}): string {
+  // 生成期间文案始终显示；正文开始后不再重复状态提示。
+  if (!isStreaming) return ""
+  const status = hasContent ? "" : statusText ?? ""
+  return status && hint ? `${status} · ${hint}` : status || hint || ""
+}
