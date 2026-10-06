@@ -651,6 +651,13 @@ Select-String -Path src\components\novel\book-analysis-view.tsx -Pattern 'BookAn
   而新版页签<strong>刻意保留两栏</strong>（见上面 <code>minmax(220px,320px) 1fr</code>），此时 <code>book-analysis-character-panel.tsx:99</code> 的 <code>border-r</code> 正是列表与详情之间的分隔，<strong>要保留</strong>。
   所以不是"漏搬"，是布局决策变了，别把 <code>border-right:0</code> 带回来。
 </div>
+<div class="note">
+  <strong>写完样式请先自检特异性，别等 Task 9。</strong>在真实浏览器里查一次
+  <code>getComputedStyle(document.querySelector(".wb-legacy-hint")).marginTop</code>：
+  写对了是 <code>0px</code>，写错（只写 <code>.wb-legacy-hint</code>）会是 <code>8px</code>，
+  因为 <code>.book-workbench p{margin:8px 0}</code> 的特异性更高。Task 9 的几何断言只查盒子位置，
+  <strong>查不出这个 8px</strong>——所以本任务的自检不能省。
+</div>
 
 <div class="step"><span class="box">☐ Step 3</span> 跑相关测试与类型检查</div>
 <pre><code>npx tsc -p tsconfig.app.json --noEmit
@@ -679,7 +686,11 @@ for (const text of ["重新提取文风", "启用此文风", "删除文风", "�
 }
 // 3. 不再存在 .wb-legacy 区块与「旧版结果」标题
 // 4. 「查看全部」仍然存在（embedded 只该隐藏删除）
-// 5. 旧版结果区在新版结果下方（legacy.top &gt; newResults.bottom - 1）</code></pre>
+// 5. 旧版结果区在新版结果下方（legacy.top &gt; newResults.bottom - 1）
+// 6. 「旧版资料」提示的 margin-top 必须是 0（而不是 8px）：
+//    .book-workbench p{margin:8px 0} 特异性 0,1,1 会压过单独的 .wb-legacy-hint（0,1,0），
+//    这条只有真实浏览器算得出计算值，jsdom 查不出来。
+assert(getComputedStyle(hint).marginTop === "0px", "「旧版资料」应当写 .book-workbench .wb-legacy-hint 压掉 p 的 8px 上边距")</code></pre>
 <div class="exp">Playwright 是全局安装：用 <code>pathToFileURL(APPDATA + "/npm/node_modules/playwright/index.js")</code> 动态导入，并取 <code>mod.chromium ?? mod.default?.chromium</code>。</div>
 
 <div class="step"><span class="box">☐ Step 2</span> 运行，必须 0 失败</div>
