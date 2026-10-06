@@ -60,7 +60,18 @@ ${metrics ? `程序统计：${JSON.stringify(metrics)}` : ""}`
         seen.add(c.id)
         if (c.supported !== true || c.portable !== true || c.relevant !== true) issues.push(`${c.id}：${c.reason}`)
       }
-      if (issues.length) throw new Error(`依据、迁移或需求核验未通过：${issues.join("；")}`)
+      if (issues.length) {
+        // 末轮不再整体作废：只删除未通过核验的规则，保住已核验通过的部分。
+        // 侦探/推理类原文曾让核验稳定否掉全部规则，导致整个区块反复失败（1/2区块）。
+        if (attempt === 1) {
+          const failedIds = new Set(issues.map((issue) => issue.split("：")[0]))
+          const keptRules = item.rules.filter((rule) => !failedIds.has(rule.id))
+          if (keptRules.length < item.rules.length) {
+            return { ...item, rules: keptRules }
+          }
+        }
+        throw new Error(`依据、迁移或需求核验未通过：${issues.join("；")}`)
+      }
       return item
     } catch (error) {
       const reason = error instanceof Error ? error.message : "结果无效"

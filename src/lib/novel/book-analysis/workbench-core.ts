@@ -107,15 +107,17 @@ export function parseWorkbenchItem(raw: unknown, evidence: WorkbenchEvidence[], 
   const ids = new Set(evidence.map((e) => e.id))
   const rules = value.rules.map((rawRule, index): WorkbenchRule => {
     const r = rawRule as Record<string, unknown>
-    if (!r || !Array.isArray(r.evidenceIds) || !r.evidenceIds.length || r.evidenceIds.length > 2) throw new Error("每条规则必须选择1至2个有效证据ID")
-    const missing = r.evidenceIds.filter((id) => typeof id !== "string" || !ids.has(id))
-    if (missing.length) throw new Error(`证据ID不存在或被改写：${missing.join("、")}；请逐字选择提供的完整编号`)
+    if (!r || !Array.isArray(r.evidenceIds) || !r.evidenceIds.length) throw new Error("每条规则必须选择1至2个有效证据ID")
+    // 模型常见失误是选错/编造编号或一次给太多编号：逐条清洗并截断到前2个，
+    // 而不是让单条规则把整个区块结果作废（grok 等模型实测高频触发）。
+    const valid = [...new Set(r.evidenceIds.filter((id): id is string => typeof id === "string" && ids.has(id)))].slice(0, 2)
+    if (!valid.length) throw new Error(`证据ID不存在或被改写：${r.evidenceIds.join("、")}；请逐字选择提供的完整编号`)
     const dimension = text(r.dimension, 60)
     if (skill === "characters" && !PERSONALITY_FIELDS.includes(dimension as PersonalityField)) throw new Error("人格维度无效")
     return {
       id: `R${index + 1}`, dimension, observation: text(r.observation, 400),
       condition: text(r.condition, 200), action: text(r.action, 400), boundary: text(r.boundary, 240),
-      evidenceIds: [...new Set(r.evidenceIds as string[])],
+      evidenceIds: valid,
     }
   })
   const normalize = (value: string) => skill === "characters" && subject.length > 1 ? value.split(subject).join("该人物") : value

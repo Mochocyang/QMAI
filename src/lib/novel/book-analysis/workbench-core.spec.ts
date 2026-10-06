@@ -41,4 +41,23 @@ describe("单页拆书的选择、覆盖与证据", () => {
     expect(candidates[0]).toMatchObject({ start: 10, end: 28, sourceHash: "a".repeat(64) })
     expect(() => parseWorkbenchItem({ ...raw, rules: [{ ...raw.rules[0], evidenceIds: ["fake"] }] }, candidates, "甲", "characters")).toThrow("证据")
   })
+  it("模型多选证据时保留前两个有效编号，而不是丢弃整个区块结果", async () => {
+    const candidates = await buildEvidenceCandidates([{ chapterId: "c1", order: 1, start: 0, sourceHash: "a".repeat(64), text: "第一句原文。\n第二句原文。\n第三句原文。\n第四句原文。" }])
+    expect(candidates.length).toBeGreaterThanOrEqual(4)
+    const raw = { subject: "甲", summary: "先核对再判断", limitations: "只分析本次范围", rules: [{
+      id: "R1", dimension: "mentalModel", observation: "观察", condition: "条件", action: "行动", boundary: "边界",
+      evidenceIds: [candidates[0].id, candidates[1].id, candidates[2].id, candidates[3].id],
+    }] }
+    const item = parseWorkbenchItem(raw, candidates, "甲", "characters")
+    expect(item.rules[0].evidenceIds).toEqual([candidates[0].id, candidates[1].id])
+  })
+  it("混杂有效与伪造编号时保留有效编号；全部无效才拒绝", async () => {
+    const candidates = await buildEvidenceCandidates([{ chapterId: "c1", order: 1, start: 0, sourceHash: "a".repeat(64), text: "第一句原文。\n第二句原文。" }])
+    const raw = { subject: "甲", summary: "先核对再判断", limitations: "只分析本次范围", rules: [{
+      id: "R1", dimension: "mentalModel", observation: "观察", condition: "条件", action: "行动", boundary: "边界",
+      evidenceIds: [candidates[0].id, "伪造E999", candidates[1].id],
+    }] }
+    expect(parseWorkbenchItem(raw, candidates, "甲", "characters").rules[0].evidenceIds).toEqual([candidates[0].id, candidates[1].id])
+    expect(() => parseWorkbenchItem({ ...raw, rules: [{ ...raw.rules[0], evidenceIds: ["伪造A", "伪造B"] }] }, candidates, "甲", "characters")).toThrow("证据")
+  })
 })
