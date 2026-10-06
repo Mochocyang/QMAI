@@ -199,6 +199,19 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const activityNavigation = useBookAnalysisActivityStore((s) => s.navigation)
   const pipeline = useBookAnalysisPipelineStore()
   const signature = tasks.map((task) => `${task.id}:${task.status}`).join()
+  // 侧边栏/toast 的「现在处理」写的是这个字段。旧版是订阅它才重开面板的（book-analysis-view.tsx:141）：
+  // 只靠 getState() 读、不订阅，store 变化时本组件不会重渲染，下面的 effect 就永远等不到请求。
+  const pendingRecognitionTaskId = useBookAnalysisStore((s) => s.pendingRecognitionTaskId)
+  // 「识别刚结束」那一次不会改变任务状态，只有 progresses 会变，所以还需要它参与依赖。
+  const progressSignature = Object.keys(pipeline.progresses).join()
+  useEffect(() => {
+    const requested = useBookAnalysisStore.getState().pendingRecognitionTaskId
+    if (!requested) return
+    // 旧版卸载后没人处理这个请求：新版自己把选角色区滚进视野。
+    if (!tasks.some((t) => t.id === requested)) return
+    useBookAnalysisStore.getState().consumeReopenRequest()
+    document.getElementById("wb-character-picker")?.scrollIntoView({ block: "start" })
+  }, [signature, progressSignature, pendingRecognitionTaskId])
   const task = [...tasks].sort((a, b) => b.createdAt - a.createdAt)[0]
   const pickerTask = tasks.find((t) => t.workbenchVersion === 2 && t.status === "awaiting-character-selection")
   const recognizedKey = `${pickerTask?.id}:${pickerTask?.recognizedCharacters?.map((c) => c.id).join()}`
@@ -307,7 +320,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
       </> : <p className="wb-muted">正在读取章节…</p>}
       {error && <p role="alert">{error}</p>}
     </section>
-    {pickerTask && <section className="wb-section">
+    {pickerTask && <section className="wb-section" id="wb-character-picker">
       <h2>选择目标角色</h2>
       {pickerTask.error && <p role="alert">{pickerTask.error}</p>}
       {pickerTask.recognizedCharacters?.length ? <>

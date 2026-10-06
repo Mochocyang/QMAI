@@ -6,12 +6,23 @@ import { BookAnalysisWorkbench } from "./book-analysis-workbench"
 import type { BatchImportTask } from "@/lib/novel/book-analysis/batch-import-types"
 const mocks = vi.hoisted(() => {
   const init = vi.fn(async () => {})
+  // 「现在处理」的两个 action 必须真的联动：consumeReopenRequest 要清掉 requestReopenChapterSelection
+  // 写下的任务号，否则测试断言不了「请求被消费」。hoisted 阶段还没有 mocks 这个标识符，先用局部对象承载。
+  const old: any = {
+    selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn(),
+    sidebarRefreshCounter: 0, pendingRecognitionTaskId: null,
+  }
+  old.requestReopenChapterSelection = vi.fn((taskId: string) => { old.pendingRecognitionTaskId = taskId })
+  old.consumeReopenRequest = vi.fn(() => {
+    const id = old.pendingRecognitionTaskId
+    old.pendingRecognitionTaskId = null
+    return id
+  })
   return {
-    init, load: vi.fn(), revisions: vi.fn(async (): Promise<any[]> => []),
+    init, old, load: vi.fn(), revisions: vi.fn(async (): Promise<any[]> => []),
     loadStyles: vi.fn(async () => ({ enabledStyleId: null as string | null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })),
     setStyle: vi.fn(async () => {}),
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
-    old: { selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn(), sidebarRefreshCounter: 0 },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
     pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
   }
@@ -62,6 +73,8 @@ beforeEach(() => {
   // 选中作品也要复位：打桩的作品库固定返回一本，所以漏复位不会立刻暴露，
   // 但下一个用例若断言"当前选中"就会变成顺序依赖。
   mocks.old.selectedLibraryBookId = null
+  // 未消费的「现在处理」请求也要复位：留着会让下一个用例在挂载时就滚动/消费。
+  mocks.old.pendingRecognitionTaskId = null
   mocks.imports.tasks = []
   mocks.revisions.mockResolvedValue([])
   mocks.load.mockResolvedValue({ books: [book] })
@@ -396,5 +409,49 @@ describe("旧版刷新副作用由工作台接管", () => {
     mocks.pipeline.tasks = [storyDone, stuckTask({ id: "c-1", status: "completed", selectedSkills: ["characters"] })]
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(listStoryMapHistory.mock.calls.length).toBe(before)
+  })
+})
+
+describe("侧边栏「现在处理」定位新版选角色区", () => {
+  let scrollIntoView: ReturnType<typeof vi.fn>
+  let originalScrollIntoView: typeof Element.prototype.scrollIntoView | undefined
+
+  beforeEach(() => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    // 上一组用例会留下任务与识别进度，这里自己复位，避免顺序依赖。
+    mocks.pipeline.tasks = []
+    mocks.pipeline.progresses = {}
+    // jsdom 没实现 scrollIntoView，不打桩的话组件调用时会直接抛 TypeError。
+    originalScrollIntoView = Element.prototype.scrollIntoView
+    scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView
+  })
+  afterEach(() => {
+    // 不能把桩留给后面的用例：jsdom 原本没有这个方法，就还原成「不存在」。
+    if (originalScrollIntoView) Element.prototype.scrollIntoView = originalScrollIntoView
+    else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+
+  it("侧边栏「现在处理」会把新版选角色区滚进视野并消费请求", async () => {
+    mocks.pipeline.tasks = [stuckTask({ error: null })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => { mocks.old.requestReopenChapterSelection("t-1") })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelector("#wb-character-picker")).not.toBeNull()
+    expect(scrollIntoView).toHaveBeenCalled()
+    // 不只是「有人调用过 scrollIntoView」：确认滚的就是选角色区，别的锚点被滚过不算数。
+    expect(scrollIntoView.mock.contexts).toContain(host.querySelector("#wb-character-picker"))
+    expect(mocks.old.consumeReopenRequest).toHaveBeenCalled()
+  })
+
+  it("「现在处理」请求指向还不存在的任务时不吃掉请求（留给任务到达后的那次渲染）", async () => {
+    mocks.pipeline.tasks = [stuckTask({ error: null })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => { mocks.old.requestReopenChapterSelection("t-missing") })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 证明「先判断任务存在、再消费」：顺序反了请求会被吞掉，任务稍后到达也再没人滚动。
+    expect(mocks.old.consumeReopenRequest).not.toHaveBeenCalled()
+    expect(mocks.old.pendingRecognitionTaskId).toBe("t-missing")
+    expect(scrollIntoView).not.toHaveBeenCalled()
   })
 })
