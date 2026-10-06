@@ -8,13 +8,19 @@ import {
   needsReextraction,
 } from "@/lib/novel/book-analysis/style-profile-schema"
 import type { StyleMetrics } from "@/lib/novel/book-analysis/style-metrics"
+import type { LegacyPanelVariant } from "./legacy-panel-variant"
 
 interface BookAnalysisStyleCardProps {
   book: BookAnalysisLibraryBook
-  extracting: boolean
-  onExtractStyle: () => void
-  onToggleStyle: () => void
-  onDeleteStyle: () => void
+  /**
+   * embedded：嵌进新版页签时使用，去掉卡片自身的边框与内边距（页签已提供留白）。
+   * 管理类按钮是否出现由各自回调是否存在决定，与 variant 无关。
+   */
+  variant?: LegacyPanelVariant
+  extracting?: boolean
+  onExtractStyle?: () => void
+  onToggleStyle?: () => void
+  onDeleteStyle?: () => void
 }
 
 const percent = (value: number): string => `${(value * 100).toFixed(1)}%`
@@ -59,7 +65,15 @@ function MetricsPanel({ metrics }: { metrics: StyleMetrics }) {
   )
 }
 
-export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onToggleStyle, onDeleteStyle }: BookAnalysisStyleCardProps) {
+export function BookAnalysisStyleCard({
+  book,
+  variant = "full",
+  extracting = false,
+  onExtractStyle,
+  onToggleStyle,
+  onDeleteStyle,
+}: BookAnalysisStyleCardProps) {
+  const embedded = variant === "embedded"
   const profile = book.styleProfile
   const enabled = book.styleStatus === "enabled"
   const [expanded, setExpanded] = useState(false)
@@ -67,7 +81,7 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
   const integratedLength = profile?.integratedDna?.trim().length ?? 0
 
   return (
-    <section className="rounded-lg border bg-background p-4">
+    <section className={embedded ? undefined : "rounded-lg border bg-background p-4"}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -86,16 +100,18 @@ export function BookAnalysisStyleCard({ book, extracting, onExtractStyle, onTogg
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          {profile && (
+          {onToggleStyle && profile && (
             <Button size="sm" variant={enabled ? "outline" : "default"} onClick={onToggleStyle}>
               {enabled ? "取消启用" : "启用此文风"}
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={onExtractStyle} disabled={extracting}>
-            {extracting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {extracting ? "提取中..." : profile ? "重新提取文风" : "提取文风"}
-          </Button>
-          {profile && (
+          {onExtractStyle && (
+            <Button size="sm" variant="outline" onClick={onExtractStyle} disabled={extracting}>
+              {extracting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {extracting ? "提取中..." : profile ? "重新提取文风" : "提取文风"}
+            </Button>
+          )}
+          {onDeleteStyle && profile && (
             <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onDeleteStyle}>
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
               删除文风
