@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>灵魂库加载与绑定体验优化 · 实施计划</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5f6b66; --line:#dfe5e1; --panel:#f6f8f6; --accent:#2f6f52; --danger:#b42318; --warn:#8a5a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 24px 80px; background:#eef1ee; color:var(--ink);
+         font:15px/1.85 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:1000px; margin:0 auto; background:#fff; border-radius:14px; padding:44px 48px 56px;
+         box-shadow:0 1px 3px #17231d14, 0 12px 40px #17231d0f; }
+  h1 { font-size:25px; line-height:1.5; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 26px; }
+  h2 { font-size:19px; margin:42px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+  h3 { font-size:16px; margin:26px 0 10px; }
+  p, li { margin:8px 0; }
+  ul, ol { padding-left:24px; }
+  code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+         font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:14px 16px;
+        overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre code { background:none; border:0; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note, .warn, .danger { border-radius:9px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  .note { background:#eef5f1; border-left:4px solid var(--accent); }
+  .warn { background:#fdf6e6; border-left:4px solid var(--warn); }
+  .danger { background:#fdeceb; border-left:4px solid var(--danger); }
+  .task { border:1px solid var(--line); border-radius:11px; padding:18px 20px; margin:20px 0; }
+  .task h3 { margin-top:0; }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+         padding:1px 9px; font-size:12px; color:var(--muted); margin-left:6px; }
+  .ok { color:var(--accent); font-weight:600; }
+  footer { max-width:1000px; margin:22px auto 0; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>灵魂库加载与绑定体验优化 · 实施计划</h1>
+<p class="sub">实施计划 v1 · 2026-10-06 · 分支 <code>main</code> · 设计见 <code>design.html</code>（4.1 选 B / 4.2 选 B）</p>
+
+<div class="note">
+  <p><b>总原则：</b>先写失败测试再实现（TDD）；每个任务由子代理实施 + 独立子代理审查；关键任务做变异测试；最后做真实浏览器几何验证与全量回归对比。</p>
+</div>
+
+<h2>任务依赖图</h2>
+<pre><code>Task 1 缓存与指纹（纯 lib，无 UI 依赖）
+   |
+   +--> Task 2 本地解析 / LLM 后台精修 分层 API
+   |       |
+   |       +--> Task 3 解耦 CharacterAuraView.refresh（修 P1 + P2a）
+   |       +--> Task 4 绑定对话框：搜索 + 每行 5 个 + 已选保留（P2b/P2c）
+   |
+   +--> Task 5 忽略词表 + 非人名规则（独立，依赖 Task 1 的落盘工具）
+             |
+             +--> Task 4 的对话框需要消费「过滤后名单」
+
+Task 6 真实浏览器几何验证（依赖 Task 4）
+Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
+
+<div class="task">
+<h3>Task 1 · 人物名单缓存与指纹 <span class="tag">纯 lib</span></h3>
+<p><b>新增</b> <code>src/lib/novel/bindable-characters-cache.ts</code></p>
+<ul>
+  <li><code>computeBindableFingerprint(projectPath)</code>：对 <code>wiki/entities</code> 与 <code>wiki/outlines</code> 下的文件（路径 + 字节数 + mtime）排序后做哈希。</li>
+  <li><code>readBindableCharactersCache(projectPath)</code>：读 <code>&lt;项目&gt;/.qmai/bindable-characters.json</code>；文件缺失、JSON 损坏、字段类型不符一律返回 <code>null</code>（不抛异常）。</li>
+  <li><code>writeBindableCharactersCache(projectPath, entry)</code>：<code>writeFileAtomic</code> 落盘。</li>
+  <li><code>loadBindableCharactersWithCache(projectPath, compute)</code>：指纹命中 → 直接返回缓存；未命中 → 调 <code>compute</code> 并写入。</li>
+</ul>
+<p><b>数据结构</b></p>
+<pre><code>type BindableCharactersCache = {
+  fingerprint: string
+  names: string[]        // 已合并「本地 + LLM 精修」的最终名单
+  llmRefinedFingerprint?: string  // 该指纹下是否已做过 LLM 精修
+  updatedAt: number
+}</code></pre>
+<p><b>测试（先红）</b>：未变命中 / 新增文件失效 / 改内容失效 / 删文件失效 / 损坏 JSON 重建 / 目录不存在不抛。</p>
+<p><b>变异</b>：把指纹里的 mtime 去掉，必须让「改内容失效」这条失败。</p>
+</div>
+
+<div class="task">
+<h3>Task 2 · 本地解析与 LLM 后台精修分层 <span class="tag">修 P2a 核心</span></h3>
+<p><b>改</b> <code>src/lib/novel/character-aura.ts</code></p>
+<ul>
+  <li>新增 <code>listBindableNovelCharactersLocal(projectPath)</code>：只做实体页 + 大纲标题的本地解析，<b>同步毫秒级、绝无网络</b>。</li>
+  <li>保留 <code>listBindableNovelCharacters(projectPath)</code> 签名不变，内部改为：<b>先返回本地结果</b>；LLM 精修作为独立导出 <code>refineBindableCharactersWithLlm(projectPath)</code>，由调用方在后台触发。</li>
+  <li>LLM 精修完成后把合并结果写回缓存（Task 1），并标记 <code>llmRefinedFingerprint</code>，<b>同一指纹下不再重复精修</b>。</li>
+  <li>LLM 超时下调（30s → 可配置且更短），且<b>并发</b>而非串行；超时或失败静默保留本地结果。</li>
+</ul>
+<div class="danger">
+  <p><b>绝不能出现的形态：</b>任何「等 LLM 回来才返回」的路径。首次调用必须在毫秒级返回本地名单。</p>
+</div>
+<p><b>测试（先红）</b>：本地路径在 mock 掉 <code>streamChat</code> 为「永不 resolve」时仍立即返回；第二次调用命中缓存不重复精修；精修结果并入本地结果并去重；LLM 抛错不影响本地名单。</p>
+</div>
+
+<div class="task">
+<h3>Task 3 · 解耦灵魂列表与人物扫描 <span class="tag">修 P1</span></h3>
+<p><b>改</b> <code>src/components/novel/character-aura-view.tsx</code>（<code>refresh()</code> 在 <code>:196</code>）</p>
+<ul>
+  <li>拆成三条独立加载线，各自 <code>setState</code>；<code>setAuras</code> 不得出现在任何与人物扫描同一个 <code>await</code> 链上。</li>
+  <li>新增 <code>characterOptionsLoading</code> 局部状态，只在「绑定人物」这一小块显示 loading。</li>
+  <li>人物刷新失败不得影响灵魂列表渲染（各自 catch）。</li>
+</ul>
+<p><b>测试（先红，最关键的一条）</b>：把 <code>listBindableNovelCharacters</code> mock 成永不 resolve 的 Promise，渲染 <code>CharacterAuraView</code> 后灵魂列表<b>必须</b>已经渲染出自定义灵魂的名字。修复前这条必然失败（正是 P1 的机理）。</p>
+<p><b>变异</b>：把人物扫描重新塞回 <code>Promise.all</code>，上述测试必须失败。</p>
+</div>
+
+<div class="task">
+<h3>Task 5 · 忽略词表与非人名规则 <span class="tag">修 4.2-B</span></h3>
+<p><b>新增</b> <code>src/lib/novel/bindable-characters-filter.ts</code></p>
+<ul>
+  <li><code>NON_CHARACTER_NAME_RULES</code>：强特征规则数组（如 <code>/通用手段$/</code>、<code>/执行群$/</code>、<code>/坏路径$/</code>、<code>/总览$/</code>、<code>/当前状态$/</code>、<code>/^(冲突点|当前状态)$/</code> 等）。</li>
+  <li><code>isLikelyNonCharacterName(name)</code>：纯函数，可测。</li>
+  <li><code>readBindableIgnoreList(projectPath)</code> / <code>addBindableIgnore(projectPath, name)</code> / <code>removeBindableIgnore(projectPath, name)</code>，落盘 <code>&lt;项目&gt;/.qmai/bindable-characters-ignore.json</code>。</li>
+  <li><code>filterBindableCharacters(names, ignoreList, boundNames)</code>：<b>已绑定的名字永远保留</b>（安全阀）。</li>
+</ul>
+<p><b>测试（先红）</b>：规则命中/不命中各若干例；忽略表增删落盘与读回；<b>已绑定的名字命中规则时仍被保留</b>。</p>
+<p><b>变异</b>：去掉「已绑定保留」安全阀，必须让对应测试失败。</p>
+</div>
+
+<div class="task">
+<h3>Task 4 · 绑定对话框：搜索 + 每行 5 个 + 已选保留 <span class="tag">修 P2b/P2c</span></h3>
+<p><b>改</b> <code>src/components/novel/book-analysis-workbench.tsx</code>（<code>BindingTargetDialog</code> 在 <code>:640</code>）</p>
+<ul>
+  <li>对话框顶部搜索输入框，自动聚焦，子串过滤（不区分大小写、忽略首尾空格）。</li>
+  <li>列表改为栅格每行 5 个，窄屏降级 5 → 3 → 2；整格可点。</li>
+  <li><b>已勾选项在过滤后不丢失</b>（<code>picked</code> 与 <code>filtered</code> 解耦）。</li>
+  <li>条目「忽略」动作 → Task 5 的忽略表；底部「已忽略 N 项」可恢复。</li>
+  <li>计数文案：「已选 N 个 · 匹配 M / 共 K」；无命中给出提示。</li>
+  <li>人物名单加载期间只在这块显示局部 loading，<b>不再阻塞对话框内容</b>。</li>
+</ul>
+<p><b>测试（先红）</b>：搜索过滤、已选保留、忽略与恢复、每行 5 个（断言 CSS 类或栅格列数）、空结果提示、加载中不阻塞。</p>
+<p><b>几何验证</b>：Task 6 用 Playwright 实测。</p>
+</div>
+
+<div class="task">
+<h3>Task 6 · 真实浏览器几何验证</h3>
+<p><b>新增</b> <code>docs/soul-binding-perf-20261006/check.mjs</code>（沿用上一特性的几何检查套路：Playwright 全局安装 + <code>page.setContent</code> 注入真实 CSS + 量 <code>getBoundingClientRect</code>）</p>
+<ul>
+  <li>断言绑定对话框人物列表<b>每行 5 个</b>（按 <code>rect.top</code> 分行，计数每行项数）。</li>
+  <li>断言窄屏（如 480px）降级后<b>无横向溢出、无重叠</b>。</li>
+  <li>断言搜索过滤后可见项数与预期一致，且<b>已勾选项仍在</b>。</li>
+  <li>脚本自身做<b>非空洞证明</b>：故意把栅格改成 4 列 / 制造溢出，必须失败。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 7 · 全量回归 + 独立终审</h3>
+<ul>
+  <li>聚焦套件 + <code>tsc -p tsconfig.app.json --noEmit</code>。</li>
+  <li>全量 A/B：与基线同一份测试对比，要求<b>失败数不增加</b>、本次涉及文件全部通过。</li>
+  <li>独立子代理终审：对抗性审查根因结论、缓存正确性、安全阀、无回归；并自行造变异尝试证伪。</li>
+</ul>
+</div>
+
+<h2>验收清单</h2>
+<ol>
+  <li>灵魂列表渲染路径中不存在人物扫描的 <code>await</code>（用永不 resolve 的 mock 钉死）。</li>
+  <li>人物名单首次返回为毫秒级本地结果；LLM 仅在后台精修且同一指纹只做一次。</li>
+  <li>第二次打开绑定对话框不再出现「正在读取小说人物」；重启后仍命中磁盘缓存。</li>
+  <li>wiki 变化后缓存失效并重算（新增/改内容/删文件三种都覆盖）。</li>
+  <li>搜索实时过滤；已勾选项不因过滤丢失。</li>
+  <li>人物列表每行 5 个；窄屏降级无溢出、无重叠（浏览器实测）。</li>
+  <li>忽略规则 + 用户忽略表生效，且<b>已绑定的名字永不被过滤掉</b>。</li>
+  <li>绑定语义不变：仍自动入库、仍幂等。</li>
+  <li>全量回归失败数不增加；<code>tsc</code> 退出码 0。</li>
+</ol>
+
+<h2>风险</h2>
+<table>
+  <tr><th>风险</th><th>应对</th></tr>
+  <tr><td>后台 LLM 精修结果回来时 UI 已卸载</td><td>用取消标志（现有 <code>cancelled</code> 模式），回调不得 setState 到已卸载组件</td></tr>
+  <tr><td>缓存文件与 wiki 不同步（外部改了文件但 mtime 未变）</td><td>提供显式「重新扫描」；<code>refreshProjectState</code> 的 dataVersion bump 也失效缓存</td></tr>
+  <tr><td>忽略规则误杀真名</td><td>规则只收强特征；已绑定的名字强制保留；忽略表可一键恢复</td></tr>
+  <tr><td>栅格每行 5 个在窄屏挤出滚动条</td><td>Task 6 真实浏览器实测溢出</td></tr>
+</table>
+
+</main>
+<footer>青幕AI写作 · 灵魂库加载与绑定体验优化 · 实施计划 v1</footer>
+</body>
+</html>
