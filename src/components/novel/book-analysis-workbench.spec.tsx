@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => {
     loadStyles: vi.fn(async () => ({ enabledStyleId: null as string | null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })),
     setStyle: vi.fn(async () => {}),
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
-    old: { selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn() },
+    old: { selectedLibraryBookId: null, setSelectedLibraryBookId: vi.fn(), sidebarRefreshCounter: 0 },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
     pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
   }
@@ -36,6 +36,18 @@ const book = {
   id: "book-1", path: "/project/book-analysis/book-1", metadata: { title: "测试作品", totalChapters: 123, totalWords: 123000 },
   characters: [], skills: [],
 }
+/** 角色识别失败时，任务会留在 awaiting-character-selection 并把原因写进 error。 */
+function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "t-1", bookId: "book-1", bookTitle: "测试作品", bookPath: book.path, projectPath: "/project",
+    status: "awaiting-character-selection", selectedSkills: ["characters"], workbenchVersion: 2,
+    recognizedCharacters: [] as unknown[], error: "HTTP 429: Too Many Requests", createdAt: 1, updatedAt: 1,
+    ...overrides,
+  }
+}
+/** 结果区页签，故事导图只在「故事 Skill」页签下渲染。 */
+const skillTab = (label: string) => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+  .find((t) => t.textContent?.includes(label))!
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 beforeEach(() => {
@@ -43,6 +55,7 @@ beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks()
   // clearAllMocks 不还原实现，导图列表要显式复位，否则上个用例的桩会漏进下一个。
   listStoryMapHistory.mockReset()
+  mocks.old.sidebarRefreshCounter = 0
   mocks.imports.tasks = []
   mocks.revisions.mockResolvedValue([])
   mocks.load.mockResolvedValue({ books: [book] })
@@ -280,15 +293,6 @@ describe("旧版结果并入页签", () => {
 })
 
 describe("识别角色失败后不被锁死", () => {
-  /** 角色识别失败时，任务会留在 awaiting-character-selection 并把原因写进 error。 */
-  function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
-    return {
-      id: "t-1", bookId: "book-1", bookTitle: "测试作品", bookPath: book.path, projectPath: "/project",
-      status: "awaiting-character-selection", selectedSkills: ["characters"], workbenchVersion: 2,
-      recognizedCharacters: [] as unknown[], error: "HTTP 429: Too Many Requests", createdAt: 1, updatedAt: 1,
-      ...overrides,
-    }
-  }
   const startButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
     .find((b) => b.textContent?.includes("开始分析"))!
 
@@ -330,5 +334,54 @@ describe("识别角色失败后不被锁死", () => {
     mocks.pipeline.tasks = [stuckTask({ status: "running", error: null })]
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(startButton().disabled).toBe(true)
+  })
+})
+
+describe("旧版刷新副作用由工作台接管", () => {
+  beforeEach(() => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    // 上一组用例会留下任务与识别进度，这里必须自己复位：任务列表直接决定刷新键。
+    mocks.pipeline.tasks = []
+    mocks.pipeline.progresses = {}
+    listStoryMapHistory.mockResolvedValue([{
+      dirName: "story-map-100",
+      map: {
+        schemaVersion: 1, bookId: "book-1", bookTitle: "测试作品", mainLineLabel: "主线A", mainSummary: "", createdAt: 100,
+        chapters: [{ id: "ch-1", order: 1, title: "第1章", summary: "摘要", mainEvents: [], branches: [] }],
+      },
+      jsonPath: "/project/book-analysis/book-1/story-maps/story-map-100/story-map.json",
+      htmlPath: "/project/book-analysis/book-1/story-maps/story-map-100/story-map.html",
+    }])
+  })
+
+  it("侧边栏刷新会重新读取作品库（旧版卸载后这个副作用需要由工作台承担）", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const before = mocks.load.mock.calls.length
+    // mock 的 store 不会自己通知订阅者，所以改完计数器要再渲染一次，才能观察到依赖变化
+    mocks.old.sidebarRefreshCounter = 1
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.load.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it("故事任务完成后重新读取历史导图（旧版刷新键的副作用迁移到工作台）", async () => {
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => skillTab("故事 Skill").click())
+    const before = listStoryMapHistory.mock.calls.length
+    // 防止用例假绿：先证明故事页签确实在读历史导图。
+    expect(before).toBeGreaterThan(0)
+    mocks.pipeline.tasks = [stuckTask({ status: "completed", selectedSkills: ["story"] })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(listStoryMapHistory.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it("任务不变时反复渲染不再重复读取历史导图（每个任务只刷新一次）", async () => {
+    mocks.pipeline.tasks = [stuckTask({ status: "completed", selectedSkills: ["story"] })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => skillTab("故事 Skill").click())
+    const before = listStoryMapHistory.mock.calls.length
+    expect(before).toBeGreaterThan(0)
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(listStoryMapHistory.mock.calls.length).toBe(before)
   })
 })

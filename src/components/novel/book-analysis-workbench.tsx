@@ -51,6 +51,8 @@ function initialDraft(bookPath: string, chapters: ChapterSelectionState[]): Draf
 export function BookAnalysisWorkbench() {
   const project = useWikiStore((s) => s.project)
   const selectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
+  // 侧边栏刷新旧版由 LegacyBookAnalysisView 承担，它不再挂载后必须由工作台接管：计数器一变就重读作品库。
+  const sidebarRefreshCounter = useBookAnalysisStore((s) => s.sidebarRefreshCounter)
   const [books, setBooks] = useState<BookAnalysisLibraryBook[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [bookSearch, setBookSearch] = useState("")
@@ -90,7 +92,7 @@ export function BookAnalysisWorkbench() {
       setBooks(state.books); setError("")
     }).catch((e) => { if (current) setError(String(e)) })
     return () => { current = false }
-  }, [project?.path, imports.revision, importSignature, taskSignature, refresh])
+  }, [project?.path, imports.revision, importSignature, taskSignature, refresh, sidebarRefreshCounter])
   useEffect(() => {
     const close = (event: PointerEvent) => {
       if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false)
@@ -187,8 +189,11 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   const [selectedRevision, setSelectedRevision] = useState("")
-  // 故事任务完成后靠它让并入的故事页签重读历史导图；Task 6 接上递增 effect 时把 setter 一并解构出来。
-  const [storyMapRefreshKey] = useState(0)
+  // 故事任务完成后靠它让并入的故事页签重读历史导图。
+  const [storyMapRefreshKey, setStoryMapRefreshKey] = useState(0)
+  // 每个任务只递增一次：旧版当年用 ref 守住（book-analysis-view.tsx:171 的
+  // notifiedPipelineTaskIdsRef，键为 `${task.id}:completed`），否则每次任务列表变化都会再读一遍历史导图。
+  const storyRefreshedRef = useRef<Set<string>>(new Set())
   const [characterIds, setCharacterIds] = useState<string[]>([])
   const [characterSearch, setCharacterSearch] = useState("")
   const activityNavigation = useBookAnalysisActivityStore((s) => s.navigation)
@@ -198,6 +203,16 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const pickerTask = tasks.find((t) => t.workbenchVersion === 2 && t.status === "awaiting-character-selection")
   const recognizedKey = `${pickerTask?.id}:${pickerTask?.recognizedCharacters?.map((c) => c.id).join()}`
   const reloadRevisions = useCallback(async () => { setRevisions(await loadWorkbenchRevisions(book.path)) }, [book.path])
+  useEffect(() => {
+    // 旧版在故事任务完成时递增刷新键，让历史导图重新读取；迁移到工作台。
+    for (const item of tasks) {
+      if (item.status !== "completed" || !item.selectedSkills.includes("story")) continue
+      const refKey = `${item.id}:completed`
+      if (storyRefreshedRef.current.has(refKey)) continue
+      storyRefreshedRef.current.add(refKey)
+      setStoryMapRefreshKey((key) => key + 1)
+    }
+  }, [tasks])
   useEffect(() => {
     let current = true
     void loadChapterList(book.path).then((value) => {
