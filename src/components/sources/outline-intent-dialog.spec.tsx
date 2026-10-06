@@ -207,7 +207,46 @@ describe("大纲需求分析弹窗", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it("点击浮层外部关闭，点击浮层内部不关闭", async () => {
+  it("点浮层外部不再关闭：拖动窗口或点其他功能都不算取消", async () => {
+    const onOpenChange = vi.fn()
+    await act(async () => {
+      root.render(
+        <OutlineIntentDialog
+          open
+          result={result()}
+          onSelect={() => {}}
+          onOpenChange={onOpenChange}
+        />,
+      )
+    })
+
+    // 顶栏窗口拖动区（Tauri 用 data-tauri-drag-region 声明），拖动窗口不该关掉浮层。
+    const dragRegion = document.createElement("header")
+    dragRegion.setAttribute("data-tauri-drag-region", "deep")
+    document.body.appendChild(dragRegion)
+    await act(async () => {
+      dragRegion.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    })
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    // 点其他功能按钮同样不该关掉浮层。
+    const otherFeature = document.createElement("button")
+    otherFeature.textContent = "其他功能"
+    document.body.appendChild(otherFeature)
+    await act(async () => {
+      otherFeature.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+      otherFeature.dispatchEvent(new Event("click", { bubbles: true }))
+    })
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    // 浮层仍然在，只有显式出口（✕ / Esc / 选选项）才关闭。
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+
+    dragRegion.remove()
+    otherFeature.remove()
+  })
+
+  it("点浮层内部不关闭", async () => {
     const onOpenChange = vi.fn()
     await act(async () => {
       root.render(
@@ -224,11 +263,27 @@ describe("大纲需求分析弹窗", () => {
       document.querySelector('[data-testid="outline-intent-dialog"]')
         ?.dispatchEvent(new Event("pointerdown", { bubbles: true }))
     })
+
     expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it("右上角 ✕ 仍然是显式关闭出口", async () => {
+    const onOpenChange = vi.fn()
+    await act(async () => {
+      root.render(
+        <OutlineIntentDialog
+          open
+          result={result()}
+          onSelect={() => {}}
+          onOpenChange={onOpenChange}
+        />,
+      )
+    })
 
     await act(async () => {
-      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+      document.querySelector<HTMLButtonElement>('button[aria-label="关闭需求分析"]')?.click()
     })
+
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

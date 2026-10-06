@@ -156,6 +156,14 @@ interface OutlineChatState {
   runStates: ConversationRunStates
   loaded: boolean
   pendingReferenceTokens: ReferenceToken[]
+  /**
+   * 用户显式关掉过需求分析浮层的消息 ID。
+   *
+   * 放在 store（模块级单例）而不是面板组件里：面板会随功能切换卸载重建，
+   * 组件内 state 会丢，导致「关过了又弹」或「误关后彻底不再出现」。
+   * 只存内存，不写入 outline-chats.json。
+   */
+  dismissedIntentPromptIds: Record<string, true>
 
   createConversation: () => string
   setActiveConversation: (id: string | null) => void
@@ -176,6 +184,8 @@ interface OutlineChatState {
   canStartConversationRun: (id: string) => boolean
   enqueueReferenceTokens: (tokens: ReferenceToken[]) => void
   consumePendingReferenceTokens: () => ReferenceToken[]
+  /** 记录「用户显式关掉了这条消息的需求分析浮层」，跨面板卸载保留。 */
+  dismissIntentPrompt: (messageId: string) => void
   loadFromDisk: () => Promise<void>
   saveToDisk: () => Promise<void>
 }
@@ -250,6 +260,15 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
   runStates: {},
   loaded: false,
   pendingReferenceTokens: [],
+  dismissedIntentPromptIds: {},
+
+  dismissIntentPrompt: (messageId) => {
+    set((state) => (
+      state.dismissedIntentPromptIds[messageId]
+        ? state
+        : { dismissedIntentPromptIds: { ...state.dismissedIntentPromptIds, [messageId]: true } }
+    ))
+  },
 
   createConversation: () => {
     const id = crypto.randomUUID()
@@ -426,7 +445,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
     if (!path) {
       set({
         conversations: [], activeConversationId: null, runStates: {}, streamingContents: {},
-        pendingReferenceTokens: [], loaded: true,
+        pendingReferenceTokens: [], dismissedIntentPromptIds: {}, loaded: true,
       })
       return
     }
@@ -495,7 +514,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
       if (generation !== loadGeneration || getStoragePath() !== path) return
       set({
         conversations: [], activeConversationId: null, runStates: {}, streamingContents: {},
-        pendingReferenceTokens: [], loaded: true,
+        pendingReferenceTokens: [], dismissedIntentPromptIds: {}, loaded: true,
       })
     }
   },

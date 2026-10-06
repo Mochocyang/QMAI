@@ -9,9 +9,13 @@
  *
  * 布局约定：本组件是 absolute 定位，宿主必须是一个 relative 的容器
  * （大纲面板根节点已声明 relative），否则会以整页为参照跑偏。
+ *
+ * 关闭约定：浮层不带遮罩，但也不做「点击外部关闭」——拖动窗口和点击
+ * 其他功能区都会冒泡出 pointerdown，容易被误判成取消。关闭只认 ✕、Esc、
+ * 选中选项这三种显式操作，是否关闭由上层按消息 ID 持久化。
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { OutlineListEntry } from "@/lib/agent/tools/outline-list-helpers"
@@ -44,7 +48,6 @@ export function OutlineIntentDialog({
 }: OutlineIntentDialogProps) {
   const [customOpen, setCustomOpen] = useState(false)
   const [customText, setCustomText] = useState("")
-  const panelRef = useRef<HTMLDivElement>(null)
 
   // 换了一条消息就重置自定义输入，避免把上一轮的文字带过来。
   useEffect(() => {
@@ -52,22 +55,17 @@ export function OutlineIntentDialog({
     setCustomText("")
   }, [result])
 
-  // 没有遮罩，所以关闭的出口要自己给全：Esc + 点击浮层外部。
+  // 关闭出口只有显式的三种：✕、Esc、选中某个选项。
+  // 刻意不做「点击浮层外部关闭」：浮层不带遮罩，而拖动窗口（顶栏
+  // data-tauri-drag-region）、点击其他功能都会在文档上冒泡出 pointerdown，
+  // 一旦把它们当成取消，浮层会被误关且不再出现。
   useEffect(() => {
     if (!open || decided) return
-    const onPointerDown = (event: Event) => {
-      const panel = panelRef.current
-      if (!panel) return
-      if (event.target instanceof Node && panel.contains(event.target)) return
-      onOpenChange?.(false)
-    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onOpenChange?.(false)
     }
-    document.addEventListener("pointerdown", onPointerDown)
     document.addEventListener("keydown", onKeyDown)
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown)
       document.removeEventListener("keydown", onKeyDown)
     }
   }, [open, decided, onOpenChange])
@@ -81,7 +79,6 @@ export function OutlineIntentDialog({
 
   return (
     <div
-      ref={panelRef}
       role="dialog"
       aria-modal="false"
       aria-label="需求分析"

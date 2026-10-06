@@ -81,6 +81,7 @@ function setOutlineConversations(
     runStates: options.runStates ?? {},
     loaded: true,
     pendingReferenceTokens: options.pendingReferenceTokens ?? [],
+    dismissedIntentPromptIds: {},
   })
 }
 
@@ -934,7 +935,7 @@ describe("OutlineChatPanel controls", () => {
     })
 
     expect(runSpy).toHaveBeenCalledTimes(1)
-    // 需求分析现在是居中弹窗，经 Portal 挂到 body，不在会话容器里。
+    // 需求分析浮层挂在面板根节点内（不是 Portal），用 body 文本兜住两种挂载方式。
     expect(document.body.textContent).toContain("请确认章节范围")
     expect(document.body.textContent).toContain("生成最近章节")
     expect(useOutlineChatStore.getState().conversations[0].messages.findLast((message) => message.role === "assistant")?.intentClarityResult?.clarity).toBe("needs_input")
@@ -2302,4 +2303,124 @@ describe("OutlineChatPanel controls", () => {
     expect(container.querySelector("[aria-label=\"\u79fb\u9664\u5f15\u7528\u0020\u4e16\u754c\u89c2\"]")).not.toBeNull()
   })
 
+})
+
+describe("需求分析浮层不被无关操作弄丢", () => {
+  /** 直接造一条「需要用户定范围」的助手消息，不经模型，避免依赖输入框先挂载。 */
+  function needsInputMessage(): OutlineChatMessage {
+    return {
+      id: "a-needs-input",
+      role: "assistant",
+      content: "已读取总纲，范围不足。",
+      intentClarityResult: {
+        clarity: "needs_input",
+        module: "卷纲",
+        analysis: "已读取总纲，范围不足。",
+        detectedScope: "",
+        missingItems: ["未明确要生成哪一卷的折叠树卷纲"],
+        options: [{ id: "A", label: "第二卷归墟寄魂", description: "已有设定" }],
+        question: "请选择本次要生成哪一卷的折叠树卷纲",
+      },
+    }
+  }
+
+  function intentDialog(container: HTMLElement) {
+    return container.querySelector('[data-testid="outline-intent-dialog"]')
+  }
+
+  /**
+   * 条件轮询：整套测试并行、CPU 紧张时，面板可能要先跑完一段异步副作用才把浮层提交出来。
+   * 每次轮询都单独走一次 act 再退出，让 React 有机会提交；若把整个循环塞进一个 act，
+   * 提交会被推迟到 act 退出之后，轮询永远看不到浮层（曾在整套运行里假失败）。
+   */
+  async function waitFor<T>(probe: () => T | null | undefined, label: string): Promise<T> {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const found = probe()
+      if (found) return found
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    }
+    const found = probe()
+    if (found) return found
+    throw new Error(`等待超时：${label}`)
+  }
+
+  /** 渲染面板并等到需求分析浮层出现。 */
+  async function renderPanelWithNeedsInput() {
+    setOutlineConversations([conversation([needsInputMessage()])], "outline-active")
+    const container = await renderOutlineChatPanel()
+    await waitFor(() => intentDialog(container), "需求分析浮层")
+    return container
+  }
+
+  /** 模拟切换到其他功能：卸载当前面板（store 是模块级单例，状态照旧保留）。 */
+  async function unmountLatestPanel() {
+    const mounted = mountedRoots.pop()
+    if (!mounted) return
+    await act(async () => {
+      mounted.root.unmount()
+    })
+    mounted.container.remove()
+  }
+
+  it("拖动窗口不再关掉浮层（回归：点外部曾把它永久关掉）", async () => {
+    const container = await renderPanelWithNeedsInput()
+
+    const dragRegion = document.createElement("header")
+    dragRegion.setAttribute("data-tauri-drag-region", "deep")
+    document.body.appendChild(dragRegion)
+    // 用同步 act 包住派发：修复后这里不该产生 React 更新，
+    // 一旦回归成旧的「点外部就关闭」，下面的断言立刻失败。
+    act(() => {
+      dragRegion.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    })
+    dragRegion.remove()
+
+    expect(intentDialog(container)).not.toBeNull()
+  })
+
+  it("点其他功能不再关掉浮层", async () => {
+    const container = await renderPanelWithNeedsInput()
+
+    const otherFeature = document.createElement("button")
+    otherFeature.textContent = "其他功能"
+    document.body.appendChild(otherFeature)
+    act(() => {
+      otherFeature.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+      otherFeature.dispatchEvent(new Event("click", { bubbles: true }))
+    })
+    otherFeature.remove()
+
+    expect(intentDialog(container)).not.toBeNull()
+  })
+
+  it("没关闭时，切到其他功能再回来浮层依然存在", async () => {
+    const first = await renderPanelWithNeedsInput()
+    expect(intentDialog(first)).not.toBeNull()
+
+    await unmountLatestPanel()
+    const second = await renderOutlineChatPanel()
+
+    await waitFor(() => intentDialog(second), "重挂后的需求分析浮层")
+    expect(second.textContent).toContain("请选择本次要生成哪一卷的折叠树卷纲")
+  })
+
+  it("显式关闭后，切到其他功能再回来也不重复弹出", async () => {
+    const first = await renderPanelWithNeedsInput()
+    await act(async () => {
+      first.querySelector<HTMLButtonElement>('button[aria-label="关闭需求分析"]')?.click()
+    })
+    expect(intentDialog(first)).toBeNull()
+
+    await unmountLatestPanel()
+    const second = await renderOutlineChatPanel()
+    // 先确认面板确实重新渲染了内容，再断言浮层没有跟着回来
+    // （避免把「还没渲染」误判成「没弹出」）。
+    await waitFor(
+      () => (second.textContent?.includes("已读取总纲") ? true : null),
+      "重挂后的会话内容",
+    )
+    expect(intentDialog(second)).toBeNull()
+  })
 })

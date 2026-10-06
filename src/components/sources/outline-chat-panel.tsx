@@ -5889,8 +5889,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     && latestMessage.intentClarityResult?.clarity === "needs_input"
     ? { id: latestMessage.id, result: latestMessage.intentClarityResult }
     : null;
-  // 关闭状态按消息 ID 记录，避免关掉后又被无关的状态更新重新弹出来。
-  const [dismissedIntentMessageId, setDismissedIntentMessageId] = useState<string | null>(null);
+  // 关闭状态记在 store 里（按消息 ID）：面板会随功能切换卸载重建，
+  // 组件内 state 会丢，导致「关过了又弹回来」或「误关后彻底不再出现」。
+  const dismissedIntentPromptIds = useOutlineChatStore((s) => s.dismissedIntentPromptIds);
+  const dismissIntentPrompt = useOutlineChatStore((s) => s.dismissIntentPrompt);
   const [intentOptionEntries, setIntentOptionEntries] = useState<OutlineListEntry[]>([]);
   const pendingIntentMessageId = pendingIntentPrompt?.id ?? null;
   // 兜底候选取自磁盘上真实存在的大纲文档；读盘失败就退回缺失项候选，不阻塞浮层。
@@ -6395,14 +6397,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       {/* 需求分析浮层：锚定在面板底部、盖在输入区上层，宽度跟随本面板 */}
       {pendingIntentPrompt ? (
         <OutlineIntentDialog
-          open={dismissedIntentMessageId !== pendingIntentPrompt.id}
+          open={!dismissedIntentPromptIds[pendingIntentPrompt.id]}
           result={pendingIntentPrompt.result}
           entries={intentOptionEntries}
           onOpenChange={(next) => {
-            if (!next) setDismissedIntentMessageId(pendingIntentPrompt.id);
+            if (!next) dismissIntentPrompt(pendingIntentPrompt.id);
           }}
           onSelect={(_optionId, scope) => {
-            setDismissedIntentMessageId(pendingIntentPrompt.id);
+            dismissIntentPrompt(pendingIntentPrompt.id);
             if (!scope) {
               handleFocusInput();
               return;
