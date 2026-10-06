@@ -157,7 +157,42 @@ Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
 </ul>
 </div>
 
-<h2>验收清单</h2>
+<h2>执行结果（已完成）</h2>
+<div class="note">
+  <p>四个实施提交，全部 TDD（先红后绿）+ 子代理独立审查 + 变异验证：</p>
+  <ul>
+    <li><code>96bfff0</code> 人物名单缓存与指纹 + 非人名过滤（两个纯 lib 模块，94 条测试）</li>
+    <li><code>c5fb2ec</code> 名单拆成「本地秒回」+「后台精修」（15 条测试）</li>
+    <li><code>7e908c5</code> 灵魂列表与人物扫描解耦 + 接入精修与过滤（14 条测试）</li>
+    <li><code>4169b3a</code> 绑定对话框搜索 / 每行 5 个 / 忽略与恢复（15 条测试）</li>
+  </ul>
+</div>
+
+<h3>根因确认（实测，不是推测）</h3>
+<p>关键的一条回归测试把 <code>listBindableNovelCharacters</code> 打成<b>永不 resolve</b> 的 Promise，修复前的失败信息正是用户看到的那句空状态文案：</p>
+<pre><code>AssertionError: expected '还没有自定义灵魂。点击左侧上方"新建角色灵魂"后，就可以生成并保存到当前小…'
+                to contain '拆书库导入的自定义灵魂'</code></pre>
+
+<h3>验证证据</h3>
+<table>
+  <tr><th>项目</th><th>结果</th></tr>
+  <tr><td>聚焦 9 个 spec</td><td><b>202 条全绿</b>（Test Files 9 passed）</td></tr>
+  <tr><td><code>tsc -p tsconfig.app.json --noEmit</code></td><td>退出码 0</td></tr>
+  <tr><td>全量 A/B（基线 <code>684bde7</code> 对修复后）</td><td>基线 失败 <b>199</b> / 修复后 失败 <b>195</b>；<b>新增失败文件 0</b>；通过数 +171</td></tr>
+  <tr><td>真实浏览器几何（<code>check.mjs</code>）</td><td><b>失败项 0</b>；1200px 每行 5 个、700px 3 个、600px 2 个，三个宽度都无溢出、超长名字真的出现省略号</td></tr>
+  <tr><td>变异测试</td><td>16 处，每处都有具名测试失败（详见各提交说明）</td></tr>
+</table>
+
+<h3>几何检查脚本自身踩的两个坑（已堵上，记下来免得再犯）</h3>
+<div class="warn">
+  <p><b>坑 1：只注入单个 CSS 包会把布局量错。</b>第一版只注入含 <code>grid-cols-5</code> 的那个包，结果 <code>.flex</code> 没被注入，label 退化成 <code>display:block</code>，于是一个<b>并不存在</b>的「超长名字撑破单元格」被报了出来。改成注入 <code>dist/assets</code> 下全部 CSS 包后，实测 <code>truncate</code> 正常工作（<code>scrollWidth 322 &gt; clientWidth</code>）。<b>教训：几何检查必须注入完整样式，否则量到的是假象。</b></p>
+  <p><b>坑 2：class 不能全文取第一个匹配。</b>第一版用 <code>/&lt;label className="([^"]+)"&gt;/</code> 取 label class，抓到了别处的 <code>wb-pending-filter</code>，量出来的结构完全不是绑定列表。改成把范围锚定在 <code>bindable-name-grid</code> 区块内。</p>
+  <p><b>坑 3（非空洞证明自身的假证明）：</b>最初把 <code>md:grid-cols-5</code> 改成 <code>md:grid-cols-1</code> 来证明列数断言有效，但 Tailwind 按需生成，产物里<b>根本没有</b> <code>md:grid-cols-1</code>，于是退回到 <code>sm:grid-cols-3</code> 的 3 列，量到「首行 3 个」——变异没真正生效，属于假证明。改成<b>删掉</b> <code>md:grid-cols-5</code> 这一条规则，断言列数确实不再是 5。</p>
+</div>
+
+<hr>
+
+<h2>验收清单（全部满足才算完成）</h2>
 <ol>
   <li>灵魂列表渲染路径中不存在人物扫描的 <code>await</code>（用永不 resolve 的 mock 钉死）。</li>
   <li>人物名单首次返回为毫秒级本地结果；LLM 仅在后台精修且同一指纹只做一次。</li>
