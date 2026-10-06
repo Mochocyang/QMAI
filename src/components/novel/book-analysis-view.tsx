@@ -93,7 +93,7 @@ function dimensionTextClass(
 }
 
 export function BookAnalysisView() {
-  return <BookAnalysisWorkbench legacy={<LegacyBookAnalysisView />} />
+  return <BookAnalysisWorkbench />
 }
 
 export function LegacyBookAnalysisView() {

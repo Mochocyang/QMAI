@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, Check, ChevronDown, Download, Feather, FileText, GitBranch, History, LayoutGrid, List, Pause, PencilLine, Play, Plus, RefreshCw, Search, Square, Trash2, Upload, UserRound, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
@@ -21,6 +21,7 @@ import { WorkbenchChapterSelector } from "./workbench-chapter-selector"
 import { WorkbenchStyleDetails } from "./workbench-style-details"
 import { styleItemEvidenceIds } from "@/lib/novel/book-analysis/style-fingerprint"
 import { BookAnalysisUsageSummary } from "./book-analysis-usage-summary"
+import { LegacySkillResults } from "./legacy-skill-results"
 import { renderStoryMapHtml } from "@/lib/novel/book-analysis/story-map-renderer"
 import { loadWritingStyleStore, setEnabledWritingStyle } from "@/lib/novel/writing-style-store"
 import "./book-analysis-workbench.css"
@@ -47,7 +48,7 @@ function initialDraft(bookPath: string, chapters: ChapterSelectionState[]): Draf
   return { selectedIds: chapters.slice(0, 20).map((c) => c.chapterId), skills: ["characters"], requirements: {}, modelKey: "" }
 }
 
-export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
+export function BookAnalysisWorkbench() {
   const project = useWikiStore((s) => s.project)
   const selectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
   const [books, setBooks] = useState<BookAnalysisLibraryBook[]>([])
@@ -168,8 +169,6 @@ export function BookAnalysisWorkbench({ legacy }: { legacy: ReactNode }) {
     </details>}
     {book ? <BookWorkspace key={`${projectPath}:${book.id}`} book={book} projectPath={projectPath} tasks={tasks} onRefresh={() => setRefresh((v) => v + 1)} />
       : <section className="wb-empty"><BookOpen size={32} className="mx-auto" /><h2>暂无作品</h2><button className="wb-primary" onClick={() => setInputOpen(true)} disabled={!project}><Plus />导入作品</button></section>}
-    {/* 旧版结果常显在新版结果区下方：不再需要单独的入口，也不再收进弹层。 */}
-    {book && <section className="wb-section wb-legacy" data-testid="legacy-results"><div className="wb-row"><h2>旧版结果</h2></div>{legacy}</section>}
     <BookAnalysisInputDialog open={inputOpen} onOpenChange={setInputOpen} workbenchMode onSubmit={async (files, analysisSkills) => {
       await imports.createBatch(files, analysisSkills)
       setInputOpen(false)
@@ -188,6 +187,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   const [selectedRevision, setSelectedRevision] = useState("")
+  // 故事任务完成后靠它让并入的故事页签重读历史导图；Task 6 接上递增 effect 时把 setter 一并解构出来。
+  const [storyMapRefreshKey] = useState(0)
   const [characterIds, setCharacterIds] = useState<string[]>([])
   const [characterSearch, setCharacterSearch] = useState("")
   const activityNavigation = useBookAnalysisActivityStore((s) => s.navigation)
@@ -318,7 +319,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         onConfirmed={() => { void reloadRevisions().catch(reportError); onRefresh() }}
         revising={starting || hasActiveTask}
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: result.selectedChapterIds, skills: [result.skill], requirements: { [result.skill]: `${result.requirements}\n补充要求：${requirements}` } }, result.id)} />
-        : <p className="wb-muted">暂无新版本结果。旧版资料见下方“旧版结果”。</p>}
+        : <p className="wb-muted">暂无新版本结果。</p>}
+      <LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} />
     </section>
   </>
 }
