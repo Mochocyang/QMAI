@@ -13,8 +13,38 @@
  *   2. 生效性：根字号 150% 时，**所有**文本元素的计算 fontSize 必须等于
  *      100% 时数值的 1.5 倍（允许浮点误差）。若有元素未变 → 该处仍有绝对单位漏网。
  *
- * 元素标识：用 DOM 路径（标签 + 同级索引）而非 class，
- * 因为改动只涉及 CSS 值、不改 DOM 结构，路径稳定可比对。
+ * ─────────────────────────────────────────────────────────────────────────
+ * 键的构成规则（**契约**，后续任务依赖它；改动此处等于让基线失效）
+ * ─────────────────────────────────────────────────────────────────────────
+ *   键 = `<分区id>::<DOM 路径>`；`::marker` 条目再追加 `::marker` 后缀。
+ *
+ *   - DOM 路径 = 标签名 + `:` + 同级索引，用 `>` 连接
+ *     （例：`body:1>div:0>div:0>header:0>span:1`）。用路径而非 class，
+ *     因为改动只涉及 CSS 值、不改 DOM 结构，路径稳定可比对。
+ *   - 分区id = 采集该元素时**实际处于激活状态**的设置页分区
+ *     （`[data-ui-page="settings"]` 上 `data-ui-settings-category` 的取值），
+ *     而不是"请求点击"的分区：没点到就按实际到达的分区记账，不伪造。
+ *
+ *   为什么必须带分区前缀：11 个分区各有自己的 DOM 状态，**不同分区既可能在
+ *   不同路径上放不同元素，也可能在同一路径上放不同元素**。若只以 DOM 路径为键
+ *   再跨分区 `Object.assign` 合并，后访问的分区会覆盖先访问分区的元素，该元素
+ *   对判据 1/2 **完全不可见**——历史上由此静默遮蔽过 6 个元素，其中一个
+ *   （「重排模型」13px）恰恰是未缩放的 px 元素，即缺陷本身藏在盲区里。
+ *   加分区前缀后"同路径、不同分区"永不碰撞，任何元素都不可能被静默覆盖。
+ *
+ * 合并语义（两种情况分别怎么处理）
+ *   1. **同一元素在多个分区重复出现**（公共外框、侧栏导航等）：那是同一元素被
+ *      观察多次，在不同分区前缀下各记一份，值必然一致（同一元素的计算样式）。
+ *      条目数因此大于"纯元素个数"（实测：每档 12 次快照 1140 条 → 1113 个键，
+ *      见 `README.md`），但对"未解释必须为 0"的判据没有影响。
+ *   2. **不同元素撞同一 DOM 路径**（跨分区）：键不同，二者都被保留、都被判据
+ *      覆盖，不存在谁覆盖谁。
+ *   唯一会重写同一个键的情形是"固定起始分区 + 该分区又在分区列表里"导致的
+ *   重复访问（`model` 采集两遍）：两次采的是同一元素、值一致，属幂等重写。
+ *   为杜绝残余的静默遮蔽，合并时会校验"同键重写是否换了元素身份"
+ *   （cls/text 不同即视为换了元素）并打印警告，采集日志里也会给出每次
+ *   「采集 N 条 / 新增 M 条」计数。
+ * ─────────────────────────────────────────────────────────────────────────
  *
  * 已登记例外（**允许不缩放**，不算漏项）：
  *   SVG 内联 `fontSize="N"` 属性 —— 无单位等同 px，画在固定 viewBox 的图标里
@@ -22,13 +52,13 @@
  *   采集时以 `inSvg: true` 标记，判据 2 归入独立的"SVG 例外"组。
  *   ⚠️ `::marker` 采集条目（`isMarker: true`）**必须**缩放，不得算作例外。
  *
- * 覆盖面：进入设置页后依次点击**全部**子分区并在每个分区各采集一次，
- *   同键以最后一次为准（Object.assign 合并）。子分区按钮用
- *   `data-ui-settings-category-button="<id>"` 定位 —— 与界面语言无关。
+ * 覆盖面：进入设置页后依次点击**全部 11 个**子分区，并在每个分区各采集一次；
+ *   每个分区的快照以 `<分区id>::` 前缀并入累积对象（见上"键的构成规则"）。
+ *   子分区按钮用 `data-ui-settings-category-button="<id>"` 定位 —— 与界面语言无关。
  *
  * 伪元素：普通遍历读不到 `::marker` 的字号，故单独遍历
  *   `.ui-test-editor-body li, .ui-test-root li` 采集 `getComputedStyle(li, "::marker")`，
- *   键为 DOM 路径 + `"::marker"`。用 `--marker-selftest` 可单独验证该采集确实有效。
+ *   键为 `分区id + "::" + DOM 路径 + "::marker"`。用 `--marker-selftest` 可单独验证该采集确实有效。
  *
  * 用法：
  *   node census-computed-font.mjs --out before.json         # 改动前采集
@@ -126,13 +156,14 @@ if (argv.includes("--compare")) {
   let scaled = 0
   let sample = null
   let markerCount = 0
+  let noPair = 0
   for (const k of keysA) {
     const at100 = a100[k], at150 = a150[k]
-    if (!at100 || !at150) continue
+    if (!at100 || !at150) { noPair++; continue }
     if (at100.isMarker === true) markerCount++
     const base = parseFloat(at100.fontSize)
     const big = parseFloat(at150.fontSize)
-    if (!Number.isFinite(base) || base === 0) continue
+    if (!Number.isFinite(base) || base === 0) { noPair++; continue }
     const ratio = big / base
     // 允许 1.5% 误差（浏览器亚像素取整）
     if (Math.abs(ratio - 1.5) < 0.015) { scaled++; continue }
@@ -154,12 +185,19 @@ if (argv.includes("--compare")) {
   }
   console.log(`    未解释（真正漏项）: ${unexplained.length}`)
   if (unexplained.length) {
-    console.log(`      前 15 条：`)
-    for (const d of unexplained.slice(0, 15)) {
-      console.log(`        ${d.at100} → ${d.at150} (×${d.ratio})  .${(d.cls || "").slice(0, 50)}`)
+    console.log(`      前 20 条（键=分区id::DOM路径）:`)
+    for (const d of unexplained.slice(0, 20)) {
+      console.log(`        ${d.at100} → ${d.at150} (×${d.ratio})  text=${JSON.stringify(d.text || "")}  .${(d.cls || "").slice(0, 40)}`)
+      console.log(`            ${d.key}`)
     }
+    if (unexplained.length > 20) console.log(`        …（其余 ${unexplained.length - 20} 条见 JSON 中的 100%/150% 档对比）`)
   }
   console.log(`    （其中 ::marker 条目: ${markerCount}${markerCount === 0 ? " ← 本页未采集到 marker，采集能力见 --marker-selftest" : ""}）`)
+  const triageSum = scaled + svgException.length + unexplained.length
+  console.log(`    三组之和 = ${triageSum}；键总数 = ${keysA.length}；缺 100%/150% 任一档未参与 = ${noPair}`)
+  if (triageSum !== keysA.length - noPair) {
+    console.log(`    ⚠️ 计数不一致（应等于键总数 − 未参与数 = ${keysA.length - noPair}），有元素被算丢或算重`)
+  }
   const judge2 = unexplained.length === 0
 
   console.log(`\n  ══ 结论 ══`)
@@ -271,18 +309,48 @@ if (argv.includes("--compare")) {
     return { requested: id, clicked, landed: landed.id, label: landed.label }
   }
 
-  /** 一个 scale 档位的完整采集：先回固定分区，再逐个分区采集并合并（同键以最后一次为准）。 */
+  /**
+   * 一个 scale 档位的完整采集：先回固定分区，再逐个分区采集。
+   *
+   * 每个分区的快照以 `<分区id>::` 前缀并入累积对象（见文件头"键的构成规则"）。
+   * 分区前缀用的是**实际到达**的分区（landed），不是请求点击的分区。
+   *
+   * 合并时若同一个键被重写，会校验两次记录是否同一元素（cls/text 一致）。
+   * 正常只应发生一次（起始分区 model 与列表首项 model 重复访问，同一元素、
+   * 值一致的幂等重写）；一旦出现"同键不同元素"，即说明有元素可能被遮蔽，
+   * 必须当作错误上报而不是沉默通过。
+   */
   const censusAllSections = async () => {
     const merged = {}
-    await openSection(SETTINGS_HOME_SECTION)
-    Object.assign(merged, await censusOnce())
     const reached = []
+    const passes = []
+    const shadowed = []
+    const mergeSnapshot = (sectionId, snap) => {
+      const entries = Object.entries(snap)
+      let added = 0
+      for (const [path, rec] of entries) {
+        const key = `${sectionId}::${path}`
+        const prev = merged[key]
+        if (prev === undefined) {
+          added++
+        } else if (prev.cls !== rec.cls || prev.text !== rec.text) {
+          // 同键重写且元素身份不同 —— 理论上不该发生（同分区同一路径即同一元素），
+          // 出现即意味着状态在两次采集之间变了，如实记录并报警。
+          shadowed.push({ key, prev: { cls: prev.cls, text: prev.text }, next: { cls: rec.cls, text: rec.text } })
+        }
+        merged[key] = rec
+      }
+      passes.push({ sectionId, captured: entries.length, added })
+    }
+    const home = await openSection(SETTINGS_HOME_SECTION)
+    mergeSnapshot(home.landed ?? home.requested, await censusOnce())
+    reached.push(home)
     for (const id of SETTINGS_SECTIONS) {
       const r = await openSection(id)
-      Object.assign(merged, await censusOnce())
+      mergeSnapshot(r.landed ?? r.requested, await censusOnce())
       reached.push(r)
     }
-    return { merged, reached }
+    return { merged, reached, passes, shadowed }
   }
 
   /* ── ::marker 采集能力自检：临时插入 li 与规则，确认读数确实随之变化 ── */
@@ -336,13 +404,23 @@ if (argv.includes("--compare")) {
     for (const s of CENSUS_SCALES) {
       await page.evaluate((p) => { document.documentElement.style.fontSize = p + "%" }, s)
       await page.waitForTimeout(600)
-      const { merged, reached } = await censusAllSections()
+      const { merged, reached, passes, shadowed } = await censusAllSections()
       census[String(s)] = merged
       const keys = Object.keys(merged)
       const markerKeys = keys.filter((k) => k.endsWith("::marker"))
       const okReached = reached.filter((r) => r.landed === r.requested)
       const missed = reached.filter((r) => r.landed !== r.requested)
-      console.log(`  采集 ${s}%: ${keys.length} 个文本元素（其中 ::marker ${markerKeys.length} 条）`)
+      const capturedTotal = passes.reduce((n, p) => n + p.captured, 0)
+      console.log(`  采集 ${s}%: ${keys.length} 个键（其中 ::marker ${markerKeys.length} 条）`)
+      console.log(`    快照合计 ${capturedTotal} 条 → 去重后 ${keys.length} 个键`
+        + `（重复=${capturedTotal - keys.length}：同一元素被多个分区/重复访问各记一份，键不冲突）`)
+      console.log(`    分区前缀: ${passes.map((p) => `${p.sectionId}[${p.captured}→+${p.added}]`).join(" ")}`)
+      if (shadowed.length) {
+        console.log(`    ⚠️ 同键换成不同元素 ${shadowed.length} 处 —— 有元素可能被遮蔽，需排查:`)
+        for (const d of shadowed.slice(0, 10)) console.log(`        ${d.key}  前=${JSON.stringify(d.prev)}  后=${JSON.stringify(d.next)}`)
+      } else {
+        console.log(`    同键重写且元素身份不同: 0（无静默遮蔽）`)
+      }
       console.log(`    实际到达分区（${okReached.length}/${SETTINGS_SECTIONS.length}）: ${okReached.map((r) => `${r.requested}${r.label ? `(${r.label})` : ""}`).join(", ")}`)
       if (missed.length) {
         console.log(`    ⚠️ 未到达: ${missed.map((r) => `${r.requested}(clicked=${r.clicked}, landed=${r.landed})`).join(", ")}`)
