@@ -63,11 +63,79 @@ const FONT_AVAILABILITY = JSON.parse(
     role: string
     sampleKind: "cjk" | "latin"
     usable: boolean
-    evidence: { baseline: string; withFont: string | null; baseFont: string | null }
+    evidence: { baseline: string; withFont: string | null; baseFont: string | null; differs: boolean }
+    perBaseline: Array<{ baseline: string; withFont: string | null; baseFont: string | null; differs: boolean }>
   }>
 }
 
 const AVAILABILITY_ENTRIES = FONT_AVAILABILITY.entries
+
+/** 事实文件里声明过的基准名（serif / sans-serif / monospace）。 */
+const AVAILABILITY_BASELINES = new Set(FONT_AVAILABILITY.baselines ?? [])
+
+/**
+ * 每条 entry 的"出处"是否成立：`usable` 必须能从它自己记录的证据推出来。
+ *
+ * ── 为什么需要这条：一格编辑就能伪造可用性 ──
+ * 复审实测：把 `Source Han Sans SC` 的 `usable` 从 false 改成 true（`ruler.ok`、
+ * 正/负对照、`baselinesSane` 全都不动），spec **34 passed / 34 全绿**。
+ * 原因是"事实文件出自一次尺子有效的实跑"这条断言只锚定 Arial 正对照、
+ * `__QMaiNoSuchFont__` 负对照与 `baselinesSane`，**不锚定任何单条 entry 的出处**。
+ *
+ * 现在逐条断言（任一不成立即红）：
+ *   ① 证据字段必须齐备：`evidence.baseline` 非空、`withFont`/`baseFont` 非 null
+ *      （"该条目的实验组实际渲染族"取不到，就说明这次读数不可用）；
+ *   ② 基准名必须属于文件自己声明的 `baselines` 列表（不许凭一个没跑过的基准下结论）；
+ *   ③ **双向往返**：`usable === true` ⟺ `perBaseline` 里至少有一条 `differs === true`，
+ *      且 `evidence.differs` 与 `withFont !== baseFont` 一致 —— 这正是 probe 的判定规则，
+ *      单改 `usable` 一格必然把它破坏（Source Han Sans SC 的 perBaseline 全是
+ *      differs:false，改成 true 立刻自相矛盾）。
+ *   ④ 条目数下界：文件被截断/删条目时也要红（一次只跑三五个名字的"实跑"不足以支撑
+ *      下面"两个选项表里每个字体名都被实测过"的断言）。
+ */
+function availabilityProvenanceIssues(entries: typeof AVAILABILITY_ENTRIES): string[] {
+  const issues: string[] = []
+  for (const e of entries) {
+    const where = `条目「${e.name}」`
+    const ev = e.evidence
+    if (!ev || typeof ev.baseline !== "string" || ev.baseline.length === 0) {
+      issues.push(`${where} 的证据缺少基准名`)
+      continue
+    }
+    if (!AVAILABILITY_BASELINES.has(ev.baseline)) {
+      issues.push(`${where} 的证据基准「${ev.baseline}」不在文件声明的 baselines 里`)
+    }
+    if (typeof ev.withFont !== "string" || ev.withFont.length === 0) {
+      issues.push(`${where} 的证据里没有实验组实际渲染族（withFont 为空）——该条目的可用性无出处`)
+    }
+    if (typeof ev.baseFont !== "string" || ev.baseFont.length === 0) {
+      issues.push(`${where} 的证据里没有基准组实际渲染族（baseFont 为空）——该条目的可用性无出处`)
+    }
+    if (ev.differs !== (ev.withFont !== ev.baseFont)) {
+      issues.push(`${where} 的 evidence.differs=${String(ev.differs)} 与 withFont/baseFont 不一致（证据自相矛盾）`)
+    }
+    const per = Array.isArray(e.perBaseline) ? e.perBaseline : []
+    if (!per.length) {
+      issues.push(`${where} 没有 perBaseline 明细，无法核对"每个基准下都测过"`)
+    }
+    const anyDiffers = per.some((p) => p?.differs === true)
+    if (e.usable !== anyDiffers) {
+      issues.push(
+        `${where} 的 usable=${String(e.usable)} 与 perBaseline 实测不符` +
+        `（perBaseline 里${anyDiffers ? "有" : "没有任何"} differs:true）—— ` +
+        `"一格编辑就能伪造可用性"必须在这里被拦住`,
+      )
+    }
+    // 可用的条目其首个可用基准的基准名也必须是自己声明过的基准之一
+    if (e.usable === true && e.sampleKind === "cjk") {
+      const usableBaselines = per.filter((p) => p?.differs === true).map((p) => p.baseline)
+      if (!usableBaselines.some((b) => AVAILABILITY_BASELINES.has(b))) {
+        issues.push(`${where} 被判可用，但没有任何 diff 出现在声明的基准上：${usableBaselines.join("、") || "（无）"}`)
+      }
+    }
+  }
+  return issues
+}
 
 /** 被实测过的所有名字（不论判定）。 */
 const PROBED_NAMES = new Set(AVAILABILITY_ENTRIES.map((e) => e.name))
@@ -405,6 +473,44 @@ describe("界面字体选项（只列中文字体）", () => {
     // 抽取函数本身必须是有产出的，否则下面那条"差集为空"会空洞通过
     expect(fontNamesIn('SimSun, "Songti SC", serif')).toEqual(["SimSun", "Songti SC"])
     expect(fontNamesIn("var(--qmai-ui-font-family)")).toEqual([])
+  })
+
+  it("事实文件里每条 entry 都有逐条出处（堵住一格编辑就能伪造可用性的路径）", () => {
+    /*
+     * ── 这条守的是什么 ──
+     * 上一条只锚定"这份文件出自一次尺子有效的实跑"（正/负对照 + baselinesSane），
+     * **不锚定任何单条 entry 的出处**。复审实测：把 `Source Han Sans SC` 的
+     * `usable` 从 false 改成 true（ruler.ok 与正/负对照全都不动），
+     * spec 34 passed / 34 全绿 —— 一次方格编辑就把"本机没有这个字体"伪造成"有"，
+     * 而下面的"栈首必须实测可用"断言完全依赖这个字段。
+     * 所以这里逐条要求：usable 必须能从该条目**自己记录的证据**推出来
+     *（基准名在声明列表里、withFont/baseFont 非空、usable ⟺ perBaseline 里有 differs）。
+     */
+    expect(AVAILABILITY_ENTRIES.length).toBeGreaterThanOrEqual(30)
+    expect(availabilityProvenanceIssues(AVAILABILITY_ENTRIES)).toEqual([])
+
+    // ── 负向对照：证明上面那条会失败（否则它只是装饰）──
+    // 复现复审那一次"一格编辑"：只把 Source Han Sans SC 的 usable 翻成 true。
+    const shsBefore = AVAILABILITY_ENTRIES.find((e) => e.name === "Source Han Sans SC")!
+    expect(shsBefore.usable).toBe(false) // 现状确实是 false —— 变异的前提成立
+    const mutated = AVAILABILITY_ENTRIES.map((e) =>
+      e.name === "Source Han Sans SC" ? { ...e, usable: true } : e)
+    const mutatedIssues = availabilityProvenanceIssues(mutated)
+    expect(mutated.find((e) => e.name === "Source Han Sans SC")!.usable).toBe(true)
+    expect(mutatedIssues.some((s) => s.includes("Source Han Sans SC"))).toBe(true)
+    // 该条目正是"noto-sans 栈的次选"，也正是复审用来当变异靶子的那一个：
+    // 它必须被判不可用，否则把栈首换成它会静默回退到 Noto Sans SC。
+    expect(USABLE_CJK_NAMES.has("Source Han Sans SC")).toBe(false)
+
+    // 另一种伪造：usable 不动，但把证据里的实验组渲染族抹掉
+    const emptied = AVAILABILITY_ENTRIES.map((e) =>
+      e.name === "Noto Sans SC" ? { ...e, evidence: { ...e.evidence, withFont: null } } : e)
+    expect(availabilityProvenanceIssues(emptied).some((s) => s.includes("Noto Sans SC"))).toBe(true)
+
+    // 第三种伪造：把基准名换成文件里没声明过的名字
+    const bogusBaseline = AVAILABILITY_ENTRIES.map((e) =>
+      e.name === "SimHei" ? { ...e, evidence: { ...e.evidence, baseline: "some-unlisted-baseline" } } : e)
+    expect(availabilityProvenanceIssues(bogusBaseline).some((s) => s.includes("SimHei"))).toBe(true)
   })
 
   it("两个选项表里出现的每个字体名都被 probe 实测过（差集必须为空）", () => {
