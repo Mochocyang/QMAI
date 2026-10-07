@@ -245,9 +245,47 @@ Task 7 全量回归 + 独立终审（依赖全部）</code></pre>
   绕过了生产代码的 <code>cn()</code>（clsx + tailwind-merge）。于是 <code>grid</code> 与 <code>sm:max-w-sm</code> 都没被顶掉，
   悬空对话框只有 <b>384px</b>（真实是 <b>640px</b>），单元格 60.8px，所有真实人名都被压成 8px 宽的省略号 ——
   <b>量到的是假象</b>。已补上「同类后者胜」的合并，并加了一条保真自检：
-  宽度 ≥768px 时断言对话框实测就是 640px，否则整个脚本的数字都不算数。</p>
-  <p>修正后实测：对话框 640px，超长名字 clientWidth 55px（此前是 8px 的假象），三个宽度全部通过。
+  宽度 ≥768px 时断言对话框实测就是 760px，否则整个脚本的数字都不算数。</p>
+  <p>修正后实测：对话框 760px，超长名字 clientWidth 87px（此前是 8px 的假象），三个宽度全部通过。
   这个缺陷方向上是「比真实更严」，不会造成假通过，但会让数字误导后来人。</p>
+</div>
+
+<hr>
+
+<h2>第二轮：用户截图反馈「内容显示不完全 + 多余滚动条」（已修）</h2>
+<div class="note">
+  <p>两个问题分别在两个维度上，各自都先做出了可复现的证据再改代码：</p>
+  <table>
+    <tr><th>问题</th><th>根因</th><th>修法</th></tr>
+    <tr>
+      <td>窄窗口下标题/搜索框/计数/按钮被裁一半</td>
+      <td>对话框是 flex 列，但那几行都没写 <code>shrink-0</code>，纵向压力全被它们和名单区一起分摊；名单区还被压到 0px，页脚被挤出视口</td>
+      <td>几行全部 <code>shrink-0</code>、名单区 <code>min-h-0</code> 当唯一压力出口、对话框再兜一层 <code>overflow-y-auto</code> 保证页脚永远可达</td>
+    </tr>
+    <tr>
+      <td>名字只显示开头一两个字（「许…」「楚…」「怀…」）</td>
+      <td>640px 对话框 5 列时每格仅约 112px，减去复选 13px 与「忽略」按钮 32px，名字只剩 55px，4 个字要 56px —— 差 1px 就被 truncate</td>
+      <td>对话框加宽到 760px（每格约 136px）、按钮改 <code>px-0.5 text-[11px]</code>、label 间距收紧到 <code>gap-1.5</code></td>
+    </tr>
+  </table>
+  <p>新证据：<code>check-layout.mjs</code>（纵向不裁切，5 个视口高）、<code>check.mjs</code> 新增
+  「2–6 字常见角色名全部完整显示」断言 + 非空洞证明③、<code>shots-layout.mjs</code> 生成修复前后对照截图
+  （<code>docs/soul-binding-perf-20261006/shots/</code>）。</p>
+</div>
+
+<div class="warn">
+  <p><b>这轮我在自己的检查工具上连踩三次同样的坑</b>，记下来：</p>
+  <ol>
+    <li><b>取 class 没锚定区域</b>：全文第一个 <code>&lt;label className="..."&gt;</code> 抓到的是拆书库残留的
+    <code>.wb-pending-filter</code>（没有 <code>flex-1 min-w-0</code>），于是截图里「忽略」按钮被挤出单元格 ——
+    纯属夹具假象。必须锚定到 <code>bindable-name-grid</code> 那一段。</li>
+    <li><b>忘了做 tailwind-merge</b>：直接拼 class 导致基础类的 <code>grid</code>/<code>sm:max-w-sm</code> 没被顶掉，
+    量到的对话框是 384px 而不是真实的 640px，所有数字都不可信。</li>
+    <li><b>给夹具加了全局 <code>button{padding:6px 14px}</code></b>：把每行那个小小的「忽略」按钮也撑大了，
+    于是「修复后」截图里名字又被挤掉 —— 又一次自己骗自己。改成只给页脚按钮加类。</li>
+  </ol>
+  <p>三次都是「检查工具失真」而不是应用有问题。教训：<b>几何检查的每一处失真都会伪装成应用缺陷</b>，
+  所以每次看到失败，先问「这是应用错了还是我量错了」。</p>
 </div>
 
 <hr>
