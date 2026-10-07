@@ -59,6 +59,34 @@ const mustExistStructural = [
 const mustBeGoneStructural = [
   { needle: ".wb-card-evidence>summary", why: "旧版 <details> 的 summary 样式选择器" },
   { needle: "wb-card-evidence summary", why: "旧版 <details> 的 summary 样式选择器（紧凑写法）" },
+  { needle: "min-width:min(100%,max-content)", why: "右组旧的不可压缩写法（换行的直接根因）" },
+]
+/**
+ * 第三轮（AI 输入框底栏）标记。
+ *
+ * 这里**不能**用「选择器 + 紧跟某个属性」的子串匹配：lightningcss 会重排属性，
+ * 实测产物里是 `…{border:0;flex-wrap:nowrap;justify-content:flex-start;…}` ——
+ * `border:0` 被提到最前，把 `{flex-wrap:nowrap` 这个子串打断了（这条断言第一版就因此误报）。
+ * 正确做法是先按选择器取出整条规则块，再在块内查属性 ——
+ * 与「不要按属性顺序断言产物 CSS」这条既有教训一致。
+ *
+ * 存在与消失**两边都要**用块内判定：消失那边用子串更危险 ——
+ * 旧规则若带着重排后的属性顺序存在，子串匹配不到，就会**假通过**。
+ */
+const composerFooterRule = "[data-ui-ai-composer] [data-reference-input-footer]"
+const composerLeftRule = "[data-ui-ai-panel] [data-reference-input-footer]>div:first-child"
+const composerRightRule = "[data-ui-ai-composer] [data-reference-input-footer]>div:last-child"
+
+const mustExistComposer = [
+  { selector: composerFooterRule, decls: ["flex-wrap:nowrap"], why: "底栏不换行" },
+  { selector: composerLeftRule, decls: ["flex-wrap:nowrap"], why: "左组不换行" },
+  { selector: composerRightRule, decls: ["flex:0 1000 auto"], why: "右组在底栏这一层优先让位" },
+  { selector: "text-overflow:ellipsis", decls: [], why: "模型名的省略号（收窄的证据）" },
+]
+/** 底栏这些规则块内**不得**再出现旧写法。 */
+const mustNotContainComposer = [
+  { selector: composerFooterRule, decls: ["flex-wrap:wrap"], why: "底栏旧的换行写法" },
+  { selector: composerRightRule, decls: ["flex:1 0 auto"], why: "右组旧的只长不缩写法" },
 ]
 
 /**
@@ -102,12 +130,48 @@ for (const f of workbenchChunks) {
   }
 }
 
-// 4) 第二轮改动的结构标记：文案没变但结构可能悄悄回退，所以这里直接钉结构。
-// CSS 也要一起查 —— 旧选择器只会留在 CSS 里，JS 里搜不到。
+// 4) 结构与样式标记：文案/行为没变但 CSS 可能悄悄回退，所以这里直接钉选择器与取值。
+// CSS 也要一起查 —— 这些选择器只会留在 CSS 里，JS 里搜不到。
 const allText = [...assets, ...cssAssets].map((f) => readFileSync(join(repo, "dist/assets", f), "utf8"))
 for (const { needle, why } of mustExistStructural) {
   const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
   check(hits.length > 0, `结构标记存在: ${needle}（${why}）`, hits.length ? hits.join(", ") : "任何资源里都没有")
+}
+/**
+ * 取出一条 CSS 规则块的声明文本（顺序无关）。
+ * 选择器里的 `[`、`]`、`(`、`)` 都要转义；块内容不含 `}`（压缩后是扁平的）。
+ */
+function cssRuleDecls(text, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const re = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "g")
+  const blocks = []
+  let m
+  while ((m = re.exec(text)) !== null) blocks.push(m[1])
+  return blocks
+}
+
+for (const { selector, decls, why } of mustExistComposer) {
+  const hits = []
+  for (let i = 0; i < allText.length; i++) {
+    if (!selector.startsWith("[")) {
+      // 纯属性标记（如 text-overflow:ellipsis）按子串查即可。
+      if (allText[i].includes(selector)) hits.push([...assets, ...cssAssets][i])
+      continue
+    }
+    const blocks = cssRuleDecls(allText[i], selector)
+    if (blocks.some((b) => decls.every((d) => b.includes(d)))) hits.push([...assets, ...cssAssets][i])
+  }
+  check(hits.length > 0, `底栏新样式存在: ${selector} 含 ${decls.join("+")}（${why}）`,
+    hits.length ? hits.join(", ") : "任何资源里都没找到这条规则")
+}
+for (const { selector, decls, why } of mustNotContainComposer) {
+  const hits = []
+  for (let i = 0; i < allText.length; i++) {
+    const blocks = cssRuleDecls(allText[i], selector)
+    if (blocks.some((b) => decls.every((d) => b.includes(d)))) hits.push([...assets, ...cssAssets][i])
+  }
+  check(hits.length === 0, `底栏旧写法已清除: ${selector} 不含 ${decls.join("+")}（${why}）`,
+    hits.length ? `仍在 ${hits.join(", ")}` : "")
 }
 for (const { needle, why } of mustBeGoneStructural) {
   const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
