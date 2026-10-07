@@ -1,0 +1,16 @@
+chore(发版核验): 版本面检查的 changelog 常量名改为按版本推导
+
+check-version-surface.mjs 里写死了 FOUR_POINT_ONE_ONE_CHANGELOG（它是为
+4.1.1 发版写的），拿它检查 4.1.2 会报出两处假 FAIL：
+「currentVersionChangelog 缺少 4.1.1 分支」「allChangelog 首位不是 4.1.1」——
+实际 changelog.ts 是正确的，只是脚本认错了常量名。
+
+改为由目标版本推导常量名（4.1.2 → FOUR_POINT_ONE_TWO_CHANGELOG），
+拼法与本项目既有命名一致：4.1.0 → FOUR_POINT_ONE_ZERO_CHANGELOG，
+4.0.4 → FOUR_POINT_ZERO_FOUR_CHANGELOG。
+
+之所以必须改这里而不是绕过：检查脚本自己不能随版本前进时，每次发版都得改它，
+而"改检查脚本让它通过"恰恰是最危险的信号。让脚本按传入版本自适应，
+才能保持它作为独立判据的可信度。
+
+顺带清理了推导函数里一处写完即无用的 replace(FOUR_POINT_, FOUR_POINT_)。

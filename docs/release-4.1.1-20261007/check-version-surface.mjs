@@ -50,15 +50,31 @@ expectExact("tauri.conf.json version", JSON.parse(read("src-tauri/tauri.conf.jso
 
 // 6. changelog.ts —— 条目 version + 日期 + 三个接线点
 const changelog = read("src/lib/changelog.ts").replace(/\r\n/g, "\n")
+
+/**
+ * 由版本号推出 changelog.ts 里的常量名，例如 4.1.2 → FOUR_POINT_ONE_TWO_CHANGELOG。
+ *
+ * 原先这里写死了 FOUR_POINT_ONE_ONE_CHANGELOG（为 4.1.1 发版写的），
+ * 对 4.1.2 会给出假的 FAIL —— 检查脚本自己也必须能随版本前进，
+ * 否则每次发版都要改它，而"改检查脚本让它通过"是最危险的信号。
+ */
+const DIGITS = ["ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE"]
+function constNameFor(version) {
+  const [major, minor, patch] = version.split(".")
+  /** 逐位数字转单词：4 → FOUR，1 → ONE，12 → ONE_TWO（本项目的命名习惯如此）。 */
+  const word = (s) => s.split("").map((d) => DIGITS[Number(d)]).join("_")
+  return `${word(major)}_POINT_${word(minor)}_${word(patch)}_CHANGELOG`
+}
+const targetConst = constNameFor(target)
 if (!new RegExp(`version: "${target.replace(/\./g, "\\.")}"`).test(changelog)) {
   problems.push(`changelog.ts 里没有 version: "${target}" 的条目`)
 } else ok.push(`changelog.ts 条目 version = ${target}`)
-if (!/if \(version === FOUR_POINT_ONE_ONE_CHANGELOG\.version\)/.test(changelog)) {
-  problems.push("changelog.ts currentVersionChangelog 缺少 4.1.1 分支")
-} else ok.push("changelog.ts currentVersionChangelog 分支存在")
-if (!/return \[\s*\n\s*FOUR_POINT_ONE_ONE_CHANGELOG,/.test(changelog)) {
-  problems.push("changelog.ts allChangelog 首位不是 4.1.1")
-} else ok.push("changelog.ts allChangelog 首位是 4.1.1")
+if (!new RegExp(`if \\(version === ${targetConst}\\.version\\)`).test(changelog)) {
+  problems.push(`changelog.ts currentVersionChangelog 缺少 ${target} 分支（期望 ${targetConst}）`)
+} else ok.push(`changelog.ts currentVersionChangelog 分支存在（${targetConst}）`)
+if (!new RegExp(`return \\[\\s*\\n\\s*${targetConst},`).test(changelog)) {
+  problems.push(`changelog.ts allChangelog 首位不是 ${target}（期望 ${targetConst}）`)
+} else ok.push(`changelog.ts allChangelog 首位是 ${target}`)
 
 // 7. changelog.spec.ts —— 首位断言已更新
 const spec = read("src/lib/changelog.spec.ts")
