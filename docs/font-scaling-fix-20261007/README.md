@@ -29,12 +29,16 @@
 | 文件 | 用途 | 自检情况 |
 |---|---|---|
 | `census-computed-font.mjs` | **主验收工具**：计算样式普查，双判据（100% 等效 + 150% 全缩放：`font-size` **与** `line-height`） | 四项自检通过（见 `findings.md` §8 与 `design.md` §6.2）；**11 个设置分区全覆盖**，键 = `分区id::DOM路径`，跨分区遮蔽 = 0；**防虚假通过防线**（见下节）由 `census-guards.spec.mjs` 19 条用例钉住 |
-| `census-guards.spec.mjs` | **主验收工具的防线测试**（`vitest`，构造 fixtures + 真实调用 CLI + 断言退出码） | **23 条全绿**：**21 条负向**（每条对应一个曾经能骗过工具的虚假通过路径，断言必须非 0）\+ **2 条正向对照**（干净 fixtures 必须退出 0；真 SVG 例外在显式配额下仍被允许），另有其反面用例保证对照不是假绿 |
+| `census-guards.spec.mjs` | **主验收工具的防线测试**（`vitest`，构造 fixtures + 真实调用 CLI + 断言退出码，并**钉死预期守卫代号**） | **32 条全绿**：**29 条负向**（每条对应一个曾经能骗过工具的虚假通过路径，断言必须非 0）\+ **3 条正向对照**（干净 fixtures 必须退出 0；真 SVG 例外在显式配额下仍被允许；其反面保证对照不是假绿）。每条负向用例都显式声明**预期守卫代号** —— 只断言"含 GUARD-FAIL 字样"会让用例被**错误的守卫**满足 |
+| `verify-guard-coverage.mjs` | **守卫覆盖度验证**：把 17 个守卫代号逐条短路，跑上面的用例集，看是否变红 | **17/17 全部有覆盖**。改前只有 8/17 —— `D1 D2 E E2 E3 E4 F G J` 被整条删掉都无人察觉。脚本自身的负对照也验过（把 E3 断言放松回旧写法 → 它报"E3 无覆盖"）。会临时改写工具源码，`finally` 中无条件还原并校验残留为 0 |
 | `check-root-fontsize-authority.mjs` | 排除"根字号被 React 覆盖"这一会伪造结论的可能 | 已验证：rem 缩放、px 不缩放、根字号稳定 |
 | `prove-rem-scaling.mjs` | 证明 rem 会缩放、px 不会 | 3/3 vs 0/3，结论明确 |
 | `report-font-resolution.mjs` | **字体解析权威报告**（canvas 像素哈希） | 三项自检通过（通用族 4/5、拉丁 7/7、中文 10/10） |
-| `count-absolute-font-units.mjs` | 清点全部绝对单位字号（四类来源，557 处） | 与独立 grep 交叉核对一致 |
-| `measure-ui-overflow.mjs` | 界面溢出测量（验收用） | 基线已采集 |
+| `count-absolute-font-units.mjs` | 清点全部绝对单位字号（四类来源，557 处） | 与独立 grep 交叉核对一致。**已知工具局限**：`isCss = file.endsWith(".css")` 让 `.ts/.tsx` 模板字符串里的 CSS 不可见（17 处真实漏检，均为独立导出 HTML，按 design §4.4 属例外，但"绝对单位 0 处"的说法不够准确） |
+| `measure-ui-overflow.mjs` | 界面溢出测量（验收用）：**13 个界面**（落地页 + 创建项目对话框 + 设置页 11 分区）× 多档 | 80/85/100/150 四档均 0 裁切；阳性对照 4/4 检出、阴性对照 4/4 未误判、静默遮蔽 0。**修过两个盲区**：控件可用高度曾用 `clientHeight`（含内边距，偏大 20px，恰好盖住真实 12px 溢出），且从不打开「新建小说」对话框 —— 两处各自"有理由"，合起来让一个真实缺陷完全隐身 |
+| `verify-no-clipping.mjs` | 真实 Chromium 里测「固定 px 盒高 + rem 行高」会不会裁字；三个档位（80/100/150） | 6 个用例 + 已知值核对。**含一条我自己的错误修法**（只换算 height、内边距留 px）作为正式反例：它 150% 档正常、80% 档裁 4px。断言"半修法必须在 80% 档被检出" —— 若不报，说明脚本没覆盖缩小方向，直接判失败 |
+| `ui-test-clipping.spec.ts`（在 `src/components/uitest/`） | **仓库级回归守卫**：静态扫描测试版全部 `.css`，在 **0.8 与 1.5 两个档位**分别断言"不存在会裁掉文字的规则" | 4 条全绿。自带可信度自检：必须检出已知缺陷（@150% 溢出 12px）、必须检出**半修法 @80% 溢出 4px**、且不误报只有 `min-height` 的规则（实测 `min-height:40px` 在 150% 长到 51.5px，确实不裁） |
+| `census-after.json` | 改动后普查产物（704909 字节，**已入库**） | 与 `census-before.json` 一起使主验收**可复核复算**：`--compare census-before.json census-after.json --allow-new-elements 10` → 正确缩放 1117 / 未解释 0 / 退出 0。此前它不在 git 里（被 `.gitignore:56` 排除），命令行引用的是 `$env:TEMP` 路径 —— 那等于不可复核 |
 | `probe-font-scaling.mjs` | 完整应用界面上的字号缩放采样 | 12/12 未缩放，复现缺陷 |
 | `probe-navigable-pages.mjs` | 探明纯浏览器可覆盖哪些页面 | 结论：仅设置页可达 |
 | `verify-real-exe.mjs` | **真实 exe 验收**：CDP 附加到便携版，读真实 DOM 的 `li::marker` 各档像素值，并做**全界面**字号普查（100% vs 150% 逐元素比对） | 实跑通过；冷启动全流程（章节 → 切「大纲」→ 点开含列表文档）亦通过；**界面字号跟随率 100.0%**（2574/2574 文字元素，0 未变） |
@@ -140,13 +144,31 @@
 ## 复现方式
 
 ```bash
-# 主验收：采集 → 比较
-node docs/font-scaling-fix-20261007/census-computed-font.mjs --out after.json
+# 主验收：直接用入库的产物复算（不依赖本机环境，任何人都能复核）
 node docs/font-scaling-fix-20261007/census-computed-font.mjs \
-     --compare docs/font-scaling-fix-20261007/census-before.json after.json
+     --compare docs/font-scaling-fix-20261007/census-before.json \
+               docs/font-scaling-fix-20261007/census-after.json \
+     --allow-new-elements 10
+# 期望：正确缩放 1117 / SVG 例外 0 / 未解释 0 / 退出 0
+
+# 若要重新采集（需先 npm run build）：
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out after.json
 
 # 验收工具自身的防线测试（每条虚假通过路径一个用例，须全绿）
 npx vitest run docs/font-scaling-fix-20261007/census-guards.spec.mjs
+
+# 守卫覆盖度：逐条短路 17 个代号，证明每个都有用例钉住（禁用后套件必须变红）
+node docs/font-scaling-fix-20261007/verify-guard-coverage.mjs
+
+# 界面裁切测量（13 个界面；阳性/阴性对照与静默遮蔽自检）
+node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs \
+     --scales 80,85,100,150 --out docs/font-scaling-fix-20261007/overflow-80-85-100-150.json
+
+# 字号缩放方向的定点回归守卫（0.8 与 1.5 两档都要过）
+npx vitest run src/components/uitest/ui-test-clipping.spec.ts
+
+# 真实 Chromium 里测「固定 px 盒高 + rem 行高」会不会裁字（含"半修法"反例）
+node docs/font-scaling-fix-20261007/verify-no-clipping.mjs
 
 # 字号缩放方向验证
 node docs/font-scaling-fix-20261007/prove-rem-scaling.mjs

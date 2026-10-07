@@ -1,0 +1,62 @@
+{
+  "scales": [
+    80,
+    85,
+    100,
+    150
+  ],
+  "surfaces": [
+    "changelog",
+    "contact-support",
+    "create-project-dialog",
+    "data-management",
+    "feedback",
+    "interface",
+    "landing",
+    "maintenance",
+    "model",
+    "network",
+    "novel",
+    "user-memory",
+    "web-search"
+  ],
+  "appOverflow": {
+    "80": [],
+    "85": [],
+    "100": [],
+    "150": []
+  },
+  "measuredCount": {
+    "80": 852,
+    "85": 852,
+    "100": 852,
+    "150": 852
+  },
+  "probes": {
+    "positive": {
+      "80": true,
+      "85": true,
+      "100": true,
+      "150": true
+    },
+    "negative": {
+      "80": false,
+      "85": false,
+      "100": false,
+      "150": false
+    }
+  },
+  "medianRatio": 1.8750000000000002,
+  "guardFails": [],
+  "errors": [
+    "应用初始化失败: TypeError: Cannot read properties of undefined (reading 'invoke')\n    at f (http://127.0.0.1:52487/assets/core-DwCO7X_4.js:1:1817)\n    at r.load (http://127.0.0.1:52487/assets/dist-js-CX44J8H"
+  ],
+  "verdict": {
+    "pass": true,
+    "worstScale": 150,
+    "worstClipCount": 0,
+    "baseScale": 80,
+    "baseClipCount": 0,
+    "note": "appOverflow 为空数组表示该档位没有元素被裁切；guardFails 为空表示尺子的四项对照全部成立。"
+  }
+}

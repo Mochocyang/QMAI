@@ -2536,6 +2536,158 @@ git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" 
     </div>
   </section>
 
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <section>
+    <h2>收尾记录：一处真实回归，与三层让"0"不可信的盲区</h2>
+
+    <div class="callout danger">
+      <span class="h">本计划宣布"通过"之后，仍有一个用户可见的缺陷活着</span>
+      「新建小说」对话框里的名称输入框（<code>.ui-test-create-name</code>），
+      在界面字号 <b>150%</b> 档会裁掉文字 <b>12px</b>。这是任务 2 的
+      <b>回归</b>：换算前是 <code>font-size: 16px; line-height: 24px</code>，
+      两个都是绝对单位，任何档位都不裁（<code>git show 83ba882^:…</code> 可复核）。
+      任务 2 把字号换成 rem、布局高度保持 px（design §4.4 的边界），
+      单看各自都合规，<b>合在一起才出问题</b>。
+      <br><br>
+      这是 <code>ad94b79</code> 已经手工修过的同一类缺陷，那次提交信息写得很清楚：
+      「高度必须与 line-height 同为 rem，否则界面字号放大时行盒变大而容器不动，
+      文字被 input 裁掉」。它修了 <code>model-settings.css</code> 的 4 处，漏了这一处。
+      <br><br>
+      <b>六个验收工具、34 个守卫项全部报"通过"时，这个缺陷就在产品里。</b>
+      被抓到的唯一原因是对抗性审查之后我又手写了一次定点测量。
+    </div>
+
+    <div class="callout warn">
+      <span class="h">不变量：可用高度 = 行盒 × 倍率（不是"height 换成 rem 就行"）</span>
+      设倍率 <code>s</code>，第一次的修法（只把高度换成 <code>2.75rem</code>、
+      内边距留 <code>10px 14px</code>）算出：
+      <pre><code>可用高度 = 44s − 20     行盒 = 24s
+溢出 = 24s − (44s − 20) = 20(1 − s)</code></pre>
+      <code>s = 1</code> 时为 0 —— 所以 <b>100% 档永远看不出问题</b>；
+      但 <b>s &lt; 1 时同样为正</b>：80% 档可用 35.2 − 20 = 15.2px，行盒 19.2px，
+      <b>裁掉 4px</b>。而界面字号滑块最小值正是 80%（真实 exe 实测 <code>min=80</code>）。
+      <br>
+      正确修法必须让内边距一起换算，使 <code>可用高度 = 24s = 行盒</code>
+      在<b>所有</b>档位成立。100% 档逐位等于原值（零视觉回归）。
+      真实 Chromium 三档实测（见 <code>verify-no-clipping.mjs</code>）：
+      <table>
+        <thead><tr><th>写法</th><th>80%</th><th>100%</th><th>150%</th></tr></thead>
+        <tbody>
+          <tr><td>原始（<code>height: 44px</code>）</td><td>不裁</td><td>不裁</td><td><b>裁 12px</b></td></tr>
+          <tr><td>半修（内边距留 px）</td><td><b>裁 4px</b></td><td>不裁</td><td>不裁</td></tr>
+          <tr><td>完整修法</td><td>不裁</td><td>不裁</td><td>不裁</td></tr>
+        </tbody>
+      </table>
+      三种写法在 100% 档<b>完全一样</b>，差别只在两端 —— 这就是
+      「只看放大方向会漏掉一半」的直接证据。
+    </div>
+
+    <div class="callout danger">
+      <span class="h">三层盲区（为什么六个工具的"0"没有意义）</span>
+      <table>
+        <thead><tr><th>#</th><th>盲区</th><th>后果</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><code>measure-ui-overflow.mjs</code> <b>从不打开「新建小说」对话框</b>。
+                它只走落地页 + 设置页 11 分区，而这个输入框两处都不在</td>
+            <td>整轮报"0 裁切"。讽刺的是同文件守卫 E 的原文就写着
+                "这类控件正是静态预判发现风险的地方"</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>同一文件检测控件时用 <code>clientHeight</code> 当可用高度，
+                而 <b><code>clientHeight</code> 包含内边距</b></td>
+            <td>44px 的框被当成"可用 44px ≥ 行盒 36px"，12px 的溢出被吃掉</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>明细只打印<b>最高档</b>（<code>byScale[hi]</code>）</td>
+            <td>缩小方向的裁切会计入总数却永远看不到明细 —— 有 finding 查不到是什么</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>守卫①"倍率生效"用绝对容差，且只跟"另一个档位"比</td>
+            <td><code>--scales 100</code>、<code>--scales 100,104</code>、
+                乃至把倍率改成空操作后，都<b>退出 0 并报"✓ 通过"</b></td>
+          </tr>
+        </tbody>
+      </table>
+      盲区 1 与 2 是<b>乘积关系</b>：只有 <code>&lt;input&gt;</code> 的第二类检测能看到这个元素，
+      而它的尺子偏大 20px，刚好盖住 12px 的溢出。两个各自都"有理由"的近似，
+      合起来让一个真实可见的缺陷完全隐身。
+    </div>
+
+    <div class="callout">
+      <span class="h">本轮的修补（代码 + 每一条都做过反向验证）</span>
+      <table>
+        <thead><tr><th>动作</th><th>反向验证（证明它真的会红）</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>ui-test-shelf.css</code>：内边距也换算为 rem</td>
+            <td>退回 <code>44px</code> → 端到端重建 dist 后验收工具 exit 1
+                并指明 <code>[create-project-dialog] &lt;input&gt; fs=24px 行盒=36px/24px</code></td>
+          </tr>
+          <tr>
+            <td>检测器改用 <code>clientHeight − 上下内边距</code></td>
+            <td>用它去测缺陷原始状态 → 立即报出 1 处裁切（改前恒为 0）</td>
+          </tr>
+          <tr>
+            <td>新增 <code>ui-test-clipping.spec.ts</code>（4 条），
+                在 <b>0.8 与 1.5 两个档位</b>断言无裁切规则</td>
+            <td>内边距退回 px → 80% 档用例变红并报 <code>溢出 4.0px</code>；
+                150% 档仍绿（证明"只有缩小方向暴露"这个结论成立，不是靠别的原因红的）</td>
+          </tr>
+          <tr>
+            <td>溢出工具补「创建项目」对话框覆盖 + 守卫 F（必须到达）+ 档位跨度校验</td>
+            <td>13/13 界面；<code>--scales 100</code> 现在直接 <code>ARG-FAIL</code></td>
+          </tr>
+          <tr>
+            <td>守卫套件：用例显式声明<b>预期守卫代号</b></td>
+            <td>见下一条 —— 这才是真判据</td>
+          </tr>
+          <tr>
+            <td>新增 <code>verify-guard-coverage.mjs</code>：逐条短路 17 个代号，
+                看用例是否变红</td>
+            <td>改前只有 8/17 有覆盖（<code>D1 D2 E E2 E3 E4 F G J</code> 被整条删掉都无人察觉）；
+                补 9 条用例后 <b>17/17</b>。脚本自身的负对照也验过：
+                把 E3 断言放松回旧写法 → 它报"E3 无覆盖"</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout warn">
+      <span class="h">由此确立的两条通用规则（下次不要再犯）</span>
+      <ol>
+        <li><b>「输出里含某个关键词」不是断言。</b>
+            17 个守卫都印 <code>GUARD-FAIL</code>，于是一个用例可以被
+            <b>错误的守卫</b>满足。必须钉到具体代号，并且用"禁用该代号后用例会不会红"
+            来证明覆盖是真的 —— 断言写对了 ≠ 覆盖是全覆盖。</li>
+        <li><b>验收工具自己也要被验收。</b>
+            <code>clientHeight</code> 这个错误的尺子存在了很久，期间工具一直报 0；
+            它不是"漏了一个界面"，而是<b>在它覆盖的界面里也看不见</b>。
+            一个只会说"没问题"的检查器比没有检查器更危险。</li>
+      </ol>
+    </div>
+
+    <div class="callout">
+      <span class="h">本轮之后仍然存在的诚实缺口</span>
+      <ul>
+        <li>静态扫描判不了"这个 class 选择器背后是 <code>&lt;input&gt;</code> 还是会裁的容器"，
+            只能给<b>候选</b>；最终裁决靠真实浏览器/真实 exe 的
+            <code>scrollHeight &gt; clientHeight</code> 与行盒对比。</li>
+        <li><code>measure-ui-overflow.mjs</code> 仍只覆盖 13 个界面。模态对话框只补了
+            「新建小说」这一个；其余（模型编辑、灵魂编辑等）未逐一走查。</li>
+        <li>检测器改灵敏后只重跑了 80/85/100/150 组合，未回头穷举其它档位组合。</li>
+        <li><code>count-absolute-font-units.mjs</code> 的
+            <code>isCss = file.endsWith(".css")</code> 让 <code>.ts/.tsx</code>
+            里的模板字符串 CSS 不可见（17 处真实漏检，均为独立导出 HTML，
+            按 design §4.4 属例外，但"绝对单位 0 处"的说法不够准确）。</li>
+      </ul>
+    </div>
+  </section>
+
   <footer>
     证据与工具索引见 <code>docs/font-scaling-fix-20261007/README.md</code>
     （其中标注了哪些探测脚本已被推翻、不可再作为结论依据）。

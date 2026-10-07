@@ -142,13 +142,37 @@ function runCompare(before, after, extraArgs = []) {
   return runTool(["--compare", b, a, ...extraArgs])
 }
 
-function expectFailure(res, kind = "GUARD-FAIL") {
+/**
+ * 断言"受控失败"，并**钉死是哪一个守卫代号**在报警。
+ *
+ * ── 为什么必须钉代号（对抗性审查 P1-①②）──
+ * 原实现只要求输出里含 `GUARD-FAIL` 字样。可工具的 17 个代号都印
+ * `GUARD-FAIL`，于是一个具体用例可以被**错误的守卫**满足：
+ * 审查者实测把 `E/未参与` 整条禁用后，「缺陷3b（noPair 必须为 0）」
+ * 仍然通过 —— 因为 `D3/档位键集不一致` 也在那个夹具上报警。
+ * 更糟的是逐个禁用代号后实测：`D1 D2 E E2 E3 E4 F G J` 九个代号被禁用时，
+ * 23 条用例**全绿**。也就是说这九个守卫可以被整个删掉而无人察觉
+ * —— 其中 D1 是 `--allow-new-elements` 的唯一约束，J 能抓住 D 抓不到的
+ * "内容被顶替"回归（实测），F 防"什么都没比时恒成立"。
+ *
+ * 所以这里要求调用方声明**预期代号**，并逐条断言它出现在输出里。
+ * 不声明代号时退化为原来的宽松断言（仅用于 ARG-FAIL / 纯判据类用例）。
+ */
+function expectFailure(res, kind = "GUARD-FAIL", expectedCode = null) {
   const detail = `\n--- stdout ---\n${res.stdout}\n--- stderr ---\n${res.stderr}`
   expect(res.status, `必须非 0（受控失败）。${detail}`).not.toBe(0)
   expect(
     res.output.includes(kind),
     `失败必须来自工具的受控失败行（含 "${kind}"），否则可能是崩溃/环境问题导致的偶然非 0。${detail}`,
   ).toBe(true)
+  if (expectedCode) {
+    // 用 "代号/" 匹配，避免 D 误命中 D1/D2/D3
+    expect(
+      res.output.includes(`${expectedCode}/`),
+      `本用例必须由守卫 ${expectedCode} 报警，但输出里没有 "${expectedCode}/"。` +
+      `若该守卫被删除或短路，本断言会失败 —— 这正是它存在的意义（防止用例被别的守卫"顺带"满足）。${detail}`,
+    ).toBe(true)
+  }
 }
 
 function expectPass(res) {
@@ -194,7 +218,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       a100[k] = { ...a100[k], inSvg: true, svgFontSizeAttr: true }
       a150[k] = { ...a100[k] }
     }
-    expectFailure(runCompare(before, fileOf(a100, a150)))
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "I")
   })
 
   /* ── 缺陷 1：判据 2 无「参与元素下限」── */
@@ -202,7 +226,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
   guardIt("缺陷1：after 的 150% 档为 {} → 非 0（不得在 0 个元素上判通过）", () => {
     const { before, after } = cleanPair()
     after.census["150"] = {}
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "A")
   })
 
   guardIt("缺陷1b：after 的 150% 档键数低于下限（--min-elements）→ 非 0", () => {
@@ -212,13 +236,13 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
     const pick = (o) => Object.fromEntries(keep.filter((k) => k in o).map((k) => [k, o[k]]))
     after.census["100"] = pick(after.census["100"])
     after.census["150"] = pick(after.census["150"])
-    expectFailure(runCompare(before, after, ["--min-elements", "100"]))
+    expectFailure(runCompare(before, after, ["--min-elements", "100"]), "GUARD-FAIL", "E3")
   })
 
   guardIt("缺陷1c：before 的 150% 档为 {} → 非 0（两侧档位都必须是非空对象）", () => {
     const { before, after } = cleanPair()
     before.census["150"] = {}
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "A")
   })
 
   /* ── 缺陷 2/3：局部或整体丢采集 ── */
@@ -230,14 +254,14 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       fontSizeScale: 1.5,
       lineHeightScale: 1.5,
     })
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "D3")
   })
 
   guardIt("缺陷3b：after 的 150% 档只缺一个键 → 非 0（noPair 必须为 0）", () => {
     const { before, after } = cleanPair()
     const victim = Object.keys(after.census["150"])[0]
     delete after.census["150"][victim]
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "E")
   })
 
   guardIt("缺陷3c：after 的 150% 档多出一个键 → 非 0（两档键集必须一致）", () => {
@@ -245,7 +269,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
     after.census["150"]["changelog::body:1>div:0>div:99"] = {
       fontSize: "18px", lineHeight: "27px", cls: "x", text: "伪造", inSvg: false, svgFontSizeAttr: false,
     }
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "D3")
   })
 
   /* ── 缺陷 4：整分区覆盖缺失（两侧同时缺，键数与判据自洽）── */
@@ -260,7 +284,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       buildBucket({ sections: sectionIds }),
       buildBucket({ sections: sectionIds, fontSizeScale: 1.5, lineHeightScale: 1.5 }),
     )
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "B")
   })
 
   guardIt("缺陷4b：::marker 条数为 0（前后两档都没有）→ 非 0", () => {
@@ -272,7 +296,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       buildBucket({ markersPerSection: 0 }),
       buildBucket({ markersPerSection: 0, fontSizeScale: 1.5, lineHeightScale: 1.5 }),
     )
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "C")
   })
 
   /* ── 缺陷 5：判据 1 空转 ── */
@@ -280,13 +304,13 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
   guardIt("缺陷5：before 的 100% 档为 {} → 非 0（判据 1 不得在空集上通过）", () => {
     const { before, after } = cleanPair()
     before.census["100"] = {}
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "A")
   })
 
   guardIt("缺陷5b：after 的 100% 档为 {} → 非 0（四个档位都必须非空）", () => {
     const { before, after } = cleanPair()
     after.census["100"] = {}
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "A")
   })
 
   guardIt("缺陷6b：四个档位的 lineHeight 全为 normal → 非 0（行高断言不得静默空转）", () => {
@@ -298,7 +322,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
     // 若只是"跳过不可判定项"，这里会误报通过：字号 ×1.5、行高整类无人检查。
     const before = fileOf(normal(buildBucket()), normal(buildBucket({ fontSizeScale: 1.5 })))
     const after = fileOf(normal(buildBucket()), normal(buildBucket({ fontSizeScale: 1.5 })))
-    expectFailure(runCompare(before, after))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "H")
   })
 
   guardIt("额外：靠「全部豁免」制造通过（连 marker 也伪造成 SVG 例外）→ 非 0", () => {
@@ -315,7 +339,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       a100[k] = bare
       a150[k] = { ...bare }
     }
-    expectFailure(runCompare(before, fileOf(a100, a150)))
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "G")
   })
 
   guardIt("额外：豁免「几乎全部」元素、只缩放 1 个 → 非 0（例外必须有配额）", () => {
@@ -331,7 +355,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       a100[k] = { ...a100[k], inSvg: true, svgFontSizeAttr: true }
       a150[k] = { ...a100[k] }
     }
-    expectFailure(runCompare(before, fileOf(a100, a150)))
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "I")
   })
 
   guardIt("额外：把「未缩放的大多数」说成 SVG 例外并把配额抬到该数量 → 非 0（配额有上限）", () => {
@@ -348,7 +372,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
       a150[k] = { ...a100[k] }
       n++
     }
-    expectFailure(runCompare(before, fileOf(a100, a150), ["--max-svg-exceptions", String(n)]))
+    expectFailure(runCompare(before, fileOf(a100, a150), ["--max-svg-exceptions", String(n)]), "GUARD-FAIL", "I0")
   })
 
   /* ── 缺陷 6：判据 2 只看 fontSize，lineHeight 无覆盖 ── */
@@ -390,7 +414,7 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
     }
     a100["model::body:1>div:0>div:99"] = extra
     a150["model::body:1>div:0>div:99"] = { ...extra, fontSize: px(18), lineHeight: px(27) }
-    expectFailure(runCompare(before, fileOf(a100, a150)))
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "D")
   })
 
   /* ── 附带的参数解析缺陷 ── */
@@ -410,5 +434,142 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
   guardIt("参数：--scales 后面紧跟另一个 flag（--out）→ 非 0 且给出清晰错误", () => {
     const res = runTool(["--scales", "--out", join(TMP_ROOT, `nope-${seq++}.json`)])
     expectFailure(res, "ARG-FAIL")
+  })
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * 补齐「无覆盖守卫」的直接用例（对抗性审查 P1-①）
+   *
+   * 审查者逐个禁用 17 个守卫代号后实测：D1 D2 E E2 E3 E4 F G J 九个被禁用时，
+   * 上述 23 条用例**全绿** —— 也就是说这九个可以被整条删掉而无人察觉。
+   * 下面为其中没有专属用例的代号各补一条，夹具经实测确认**只由目标代号**（或至少
+   * 明确包含目标代号）触发，并逐条断言该代号真的出现在输出里。
+   * ───────────────────────────────────────────────────────────────────────── */
+
+  guardIt("守卫 D1：新增元素放行后仍未按 1.5 倍缩放 → 非 0（--allow-new-elements 的唯一约束）", () => {
+    const { before } = cleanPair()
+    const a100 = buildBucket()
+    const a150 = buildBucket({ fontSizeScale: 1.5, lineHeightScale: 1.5 })
+    // 新增一个 before 里没有的键，且它在 150% 档**没**缩放。
+    // 这是 `--allow-new-elements` 打开的唯一风险：有人用"放行额度"
+    // 把新增界面的未缩放问题一并放过去。D1 是这条路上唯一的闸门。
+    const ghost = "model::body:1>div:0>div:998"
+    a100[ghost] = { fontSize: px(14), lineHeight: px(21), cls: "new-row", text: "新增行", inSvg: false, svgFontSizeAttr: false }
+    a150[ghost] = { fontSize: px(14), lineHeight: px(21), cls: "new-row", text: "新增行", inSvg: false, svgFontSizeAttr: false }
+    expectFailure(runCompare(before, fileOf(a100, a150), ["--allow-new-elements", "1"]), "GUARD-FAIL", "D1")
+  })
+
+  guardIt("守卫 D2：after 每档键数低于基线 → 非 0（局部丢采集）", () => {
+    // before 每分区 4 个键、after 只有 3 个。丢的是"同一位置上少了一个元素"：
+    // after 内部两档键集自洽，故 D3 不响；只有 D2 单独看"键数是否低于基线"。
+    // 注意必须让 **before** 多一个键 —— 我第一版误把 after 建成 3 个而 before
+    // 也是默认的 3 个，两边相等，D2 根本不会响（是本用例的代号断言把它抓出来的）。
+    const before = fileOf(
+      buildBucket({ keysPerSection: 4 }),
+      buildBucket({ keysPerSection: 4, fontSizeScale: 1.5, lineHeightScale: 1.5 }),
+    )
+    const after = fileOf(
+      buildBucket({ keysPerSection: 3 }),
+      buildBucket({ keysPerSection: 3, fontSizeScale: 1.5, lineHeightScale: 1.5 }),
+    )
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "D2")
+  })
+
+  guardIt("守卫 E2：after 两档键集不相交（参与数 0）→ 非 0", () => {
+    /*
+     * ⚠️ 注意：**不能**用"after 的 150% 档为 {}"来触发 E2。
+     * 实测那样只会得到 `A/空档位` + 一句「档位不完整，无法比较」然后收尾，
+     * E2 根本走不到。必须让 150% 档**非空但与 100% 档完全不相交**，
+     * 才会得到 participating = 0 且不触发 A 的早退。
+     * 这个细节本身就是一次教训：守卫写在空档位检查之后时，
+     * 用"空对象"去测它会得到一个永远为假的结论。
+     */
+    const { before } = cleanPair()
+    const disjoint = {}
+    for (const sec of SECTIONS) {
+      disjoint[`${sec}::body:9>section:0`] = {
+        fontSize: px(21), lineHeight: px(31.5), cls: "elsewhere", text: "别处", inSvg: false, svgFontSizeAttr: false,
+      }
+    }
+    expectFailure(runCompare(before, fileOf(buildBucket(), disjoint)), "GUARD-FAIL", "E2")
+  })
+
+  guardIt("守卫 E4：fontSize 不是 <n>px 数值（不可判定）→ 非 0（不得静默跳过）", () => {
+    // 采集若因故把 fontSize 写成 "1rem" / "normal" / 空串，判据 2 的数值比较
+    // 会**无法判定**。若这种条目被静默跳过，一整类元素就此消失；
+    // E4 要求它们必须被显式报出来。
+    const weird = (b) => {
+      for (const k of Object.keys(b)) {
+        if (!k.startsWith("model::") || k.endsWith("::marker")) continue
+        b[k] = { ...b[k], fontSize: "1rem" }
+      }
+      return b
+    }
+    const before = fileOf(weird(buildBucket()), weird(buildBucket({ fontSizeScale: 1.5 })))
+    const after = fileOf(weird(buildBucket()), weird(buildBucket({ fontSizeScale: 1.5 })))
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "E4")
+  })
+
+  guardIt("守卫 J：内容指纹丢失（路径仍在但内容被顶替）→ 非 0", () => {
+    /*
+     * 这一条补的是守卫 D 的盲区：插入一行后，后面那行的 DOM 索引整体后移，
+     * 旧路径被新内容顶替 —— 既不新增也不消失，路径键看不出任何异常。
+     * 实测在真实项目里发生过（插入「正文字体」行顶掉了「界面字号」行的旧路径，
+     * 两行字号恰好都是 14px，判据 1 的数值比较完全看不出换了内容）。
+     * 这里把 after 某个键的**文字**改掉（字号行高都不变），模拟"内容被顶替"。
+     */
+    const { before } = cleanPair()
+    const a100 = buildBucket({ mutate: (o) => { o["model::body:1>div:0>div:0"].text = "被顶替的内容" } })
+    const a150 = buildBucket({ fontSizeScale: 1.5, lineHeightScale: 1.5, mutate: (o) => { o["model::body:1>div:0>div:0"].text = "被顶替的内容" } })
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "J")
+  })
+
+  guardIt("守卫 F：三组之和 ≠ 键总数（有元素被算丢/算重）→ 非 0", () => {
+    /*
+     * F 防的是"三分类自洽性"：正确缩放 + 例外 + 未解释 必须等于键总数。
+     * 若不等，说明有元素在分类时丢了或重了，此时"未解释 0"毫无意义。
+     *
+     * 触发方式：让 after 的 150% 档少一个键 → 该键 noPair，不参与三分类，
+     * 于是 triageSum (= scaled + 例外 + 未解释) 比 keysA 少 1。
+     * 我第一版用"150% 档多出一个键"去触发，结果只得到 D3 ——
+     * 因为多出来的键不在 keysA（keysA 取自 after 的 100% 档）里，
+     * 根本不影响三分类的和。方向搞反了，是代号断言抓出来的。
+     */
+    const { before, after } = cleanPair()
+    const victim = Object.keys(after.census["150"])[0]
+    delete after.census["150"][victim]
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "F")
+  })
+
+  guardIt("守卫 E：存在缺 100%/150% 配对（noPair > 0）→ 非 0", () => {
+    // 「缺陷3b」名义上测的就是这条，但它同时被 D3 满足（实测禁用 E 后仍通过）。
+    // 这里显式断言 E 出现，把它真正钉住。
+    const { before, after } = cleanPair()
+    const victim = Object.keys(after.census["150"])[0]
+    delete after.census["150"][victim]
+    expectFailure(runCompare(before, after), "GUARD-FAIL", "E")
+  })
+
+  guardIt("守卫 E3：参与数低于下限（--min-elements）→ 非 0", () => {
+    // 与「缺陷1b」同一个意图，但显式断言 E3，避免被 B/D2/J 顺带满足。
+    const { before, after } = cleanPair()
+    const keep = Object.keys(after.census["100"]).slice(0, 12)
+    const pick = (o) => Object.fromEntries(keep.filter((k) => k in o).map((k) => [k, o[k]]))
+    after.census["100"] = pick(after.census["100"])
+    after.census["150"] = pick(after.census["150"])
+    expectFailure(runCompare(before, after, ["--min-elements", "100"]), "GUARD-FAIL", "E3")
+  })
+
+  guardIt("守卫 G：SVG 例外覆盖全部参与元素（一个都没缩放）→ 非 0", () => {
+    // 与「额外：靠全部豁免制造通过」同一意图，显式断言 G（那条同时被 I 满足）。
+    const { before } = cleanPair()
+    const a100 = buildBucket()
+    const a150 = buildBucket({ fontSizeScale: 1.5, lineHeightScale: 1.5 })
+    for (const k of Object.keys(a100)) {
+      const bare = { ...a100[k], inSvg: true, svgFontSizeAttr: true }
+      delete bare.isMarker
+      a100[k] = bare
+      a150[k] = { ...bare }
+    }
+    expectFailure(runCompare(before, fileOf(a100, a150)), "GUARD-FAIL", "G")
   })
 })
