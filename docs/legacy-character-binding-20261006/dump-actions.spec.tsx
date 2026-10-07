@@ -13,8 +13,10 @@
 //
 //   publishable   沈微（只有散文字段 → rules 为空＝情况 Z，本任务最关键的一档）
 //                 裴探（只有 personalityProfile → rules 也为空）
-//                 柳青（带便携人格块 → rules 非空，tag 是短的那个「旧版导入」）
+//                 柳青（带便携人格块 → rules 非空）
 //                 ——三张卡片的按钮都必须可点：可用性绝不能看 rules.length
+//                 注意：卡片上原来那枚 .wb-origin-tag（「旧版导入」/「旧版资料导入 · 无结构化规则」）
+//                 已按用户要求整段删除，所以三张卡现在只有 subject 与日期不同。
 //   unpublishable 无名氏（既无人格块也无任何散文字段）→ 徽标「无可用资料」、两个按钮都禁用
 //   in-library    周砚（已在自定义灵魂库、未绑定）→「加入」禁用、「绑定」仍可用
 //   bound         陈渡（已绑定到「沈微」）→ 同上，且绑定对话框就在这一份渲染里打开
@@ -29,11 +31,14 @@
 // 视图选择（为什么落盘前点一下「列表视图」）：
 //   check.mjs 的几何断言分「宽容器 1200px / 窄容器 420px」两组量，宽容器那一组预设卡片是宽的
 //   （徽标与两个按钮能并排）。默认三列网格在 1200px 视口下每张卡只有约 356px，而
-//   「旧版资料导入 · 无结构化规则」tag + 徽标 + 两个按钮要约 500px，flex-wrap 必然换行
-//   （本文件生成过快照后实测：top 差 28px，带短 tag 的柳青那张 42px）。那是卡片宽度决定的，
-//   不是按钮行错位；列表视图是组件自己提供的视图（工具栏可切换），卡片占满一列
-//   （1200px 下 1096px），宽容器断言才落在它设计时要量的场景上。窄容器那一组不受影响，
-//   照旧是真实换行、不溢出。这里没有改任何 markup/CSS，只是点了组件自己的视图按钮。
+//   「未加入灵魂库」徽标 + 两个按钮在本文件生成快照时实测要换行（top 差 28px）。
+//   那是卡片宽度决定的，不是按钮行错位；列表视图是组件自己提供的视图（工具栏可切换），
+//   卡片占满一列（1200px 下 1096px），宽容器断言才落在它设计时要量的场景上。
+//   窄容器那一组不受影响，照旧是真实换行、不溢出。这里没有改任何 markup/CSS，
+//   只是点了组件自己的视图按钮。
+//   （历史上这段理由是「旧版资料导入 · 无结构化规则」那枚 tag 把行撑到约 500px；
+//   该 tag 已删除，换行压力小了一些，但「徽标 + 两个按钮」本身在 356px 下仍会换行，
+//   所以这个点击照旧保留。）
 //
 // 已知边界（写在这里免得后人把快照改成「迁就脚本」的样子）：
 //   check.mjs 的「宽屏下徽标与按钮在同一行」用 rect.top 差值 <= 2 判定，而真实 CSS 是
@@ -197,7 +202,7 @@ const FIXTURES: DumpFixture[] = [
       character("裴探", {
         personalityProfile: { personality: "遇事退半步再答。", motivation: "", speechStyle: "", behaviorPatterns: "", quotes: [] },
       }),
-      // 有便携人格块 → rules 非空，卡片上的 tag 换成短的「旧版导入」。
+      // 有便携人格块 → rules 非空（tag 已删除，卡片外观与另外两张一致，只有规则内容不同）。
       character("柳青", { personality: "账目上一分不让。" }),
     ], [{
       id: "skill-char-柳青", characterId: "char-柳青", characterName: "柳青",
@@ -327,7 +332,17 @@ describe("生成几何检查用的 markup 快照", () => {
     // 快照必须真的含有四种用例与对话框，否则 check.mjs 会在半份文档上「全部通过」。
     for (const fixture of FIXTURES) expect(html).toContain(`data-dump-case="${fixture.name}"`)
     expect(html).toContain("加入自定义灵魂库")
-    expect(html).toContain("旧版资料导入 · 无结构化规则")
+    /*
+     * 这里原来断言的是「旧版资料导入 · 无结构化规则」——那枚 .wb-origin-tag 已按用户要求
+     * 整段删除（连纯「旧版导入」也删，新旧版来源在卡片上不再可区分）。
+     * 换成两件仍在承重的事：
+     *   1) 卡片里新的「证据索引」确实渲染出来了（证明快照里有完整的卡片主体，不是半份文档）；
+     *   2) 被删掉的两个 class 与标签文案**没有**回来（回归护栏）。
+     */
+    expect(html).toContain("证据索引")
+    expect(html).not.toContain("旧版资料导入")
+    expect(html).not.toContain("wb-origin-tag")
+    expect(html).not.toContain("wb-card-status")
     expect(html).toContain('data-slot="dialog-content"')
     expect(html).toContain("绑定所选")
   })
