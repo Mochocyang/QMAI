@@ -1939,6 +1939,177 @@ it("含中文覆盖的常用选项齐备", () =&gt; {
 git add src/lib/font-settings.ts src/lib/font-settings.spec.ts
 git commit -m "feat(字体): 字体选项扩充为只列中文字体并移除 Arial" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录（两处刻意偏离计划，以及"验证层"才是本任务真正的工作量）</div>
+        <div class="callout danger">
+          <span class="h">一、计划给的 <code>system</code> 字体栈会让默认档字形静默改变，未采纳</span>
+          计划步骤 2 把 <code>system</code>（本机默认）写成
+          <code>system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", …</code> 打头，
+          而代码现状是 <code>"PingFang SC", "Microsoft YaHei UI", …</code> 打头。
+          <b>未采纳计划的写法</b>：<code>system</code> 是默认选中项，改顺序会让
+          「用户没做任何选择、界面字形却变了」—— 属视觉回归，且已被
+          <code>lib/font-settings.ts</code> 里既有的注释与冻结基线
+          <code>ui-font-before.json</code> + <code>verify-ui-font-applies.mjs --compare</code> 守住。
+          所以选项表里其余 10 项按计划落地，<b>只有 <code>system</code> 一项保持原样</b>。
+        </div>
+        <div class="callout danger">
+          <span class="h">二、<code>pingfang</code>（苹方）未加入，理由是一条可检验的界线</span>
+          计划列了它（label「苹方（macOS）」）。实测：<code>PingFang SC</code> 在本机
+          （Windows）<b>不可用</b>，选中后静默回退到 <code>Microsoft YaHei</code> ——
+          就是本任务要修的那个「选了没反应」病症。而 <code>noto-sans</code>/<code>noto-serif</code>
+          虽然在本机也是"碰巧装了才可用"，但它们属于<b>后续阶段要随安装包分发的开源字体</b>
+          （思源黑/宋 ⇄ Noto CJK，OFL 授权、可再分发），届时所有用户都会有。
+          界线的可检验表述：<b>「可预期的未来可用」可以现在就列，「永远不可能存在」不行</b>。
+          苹方是 Apple 专有字体，在 Windows 上永远不会存在，只能由后续
+          「读取本机已安装字体」的枚举功能在 macOS 上自动列出。
+        </div>
+        <div class="callout danger">
+          <span class="h">三、"选择一个本机没有的字体"必须靠实测而不是靠猜 —— 而我的第一把尺子是坏的</span>
+          新增的证据脚本 <code>probe-installed-fonts.mjs</code> 判定"本机某字体名是否真的可用"。
+          <b>第一版用了 <code>document.fonts.check('16px "名字"')</code>，实测证明它不可用</b>：
+          它对<b>编造的不存在字体名</b>也返回 <code>true</code> —— 该方法判断的是"该字体族能否用于渲染"，
+          而浏览器对不存在的族会回退到默认字体，于是<b>恒为真</b>。
+          一个永远为真的检查器 —— 是负向对照把它抓住的。
+          <br>
+          改用<b>对照法</b>（实验组 <code>"候选", 基准</code> vs 对照组 <code>基准</code>，
+          用 Chromium CDP <code>CSS.getPlatformFontsForNode</code> 报告的实际渲染族是否变化）
+          后又发现<b>单基准会假阴性</b>：只用 <code>monospace</code> 时 Windows 自带的
+          <code>NSimSun</code>（新宋体）被判不可用，因为本机 <code>monospace</code> 的默认回退
+          <b>恰好就是 NSimSun</b>、候选与基准撞在同一个字体上。改用三基准
+          （serif / sans-serif / monospace）任一变化即判可用后修正。
+          脚本自带 5 条尺子对照（正对照 Arial 可用、负对照编造名不可用、三基准都取到族、
+          单基准假阴性确实存在、多基准修正后 NSimSun 可用）。
+          <br>
+          实测得到 36 项事实，落盘为 <code>font-availability.json</code>，成为 spec 的事实来源。
+          关键发现：<b>「微软正黑体」这个中文名不可用，必须写英文名 <code>Microsoft JhengHei</code></b>；
+          <code>Source Han Sans SC</code> 不可用；一组 macOS 字体在本机全部不可用。
+        </div>
+        <div class="callout danger">
+          <span class="h">四、本任务真正的工作量在"验证层"：三个假验证被抓出来</span>
+          <b>① 端到端工具会打印与史实相反的结论，且退出码 0。</b>
+          <code>verify-ui-font-applies.mjs</code> 把 <code>cases</code> 写进了基线却<b>从未读过</b>，
+          <code>--compare</code> 用<b>当前</b> <code>CASES</code> 去查冻结基线：
+          任何"基线录制之后新增的用例"在基线里没有键 → <code>undefined !== defaultHash</code> 为真
+          → 被判定为<b>"修复前就已经生效"</b>。而守卫 <code>I</code> 只在"两边都无字体生效"时才失败，
+          于是<b>静默放过</b>。这个工具存在的唯一意义就是证明「改造前一个字体都不生效」——
+          它却会在加用例后说出反话。实测：11 个新增选项里有 <b>7 个</b>被这样误判
+          （另 3 个的 label 恰好与冻结用例同名，误打误撞查到了键）。
+          已修：<code>beforeDiffer</code> 只遍历 <code>before.cases</code>；新增用例显式打印为
+          「基线无对照、不参与"修复前"判定」；基线有/当前没有 → fail；<code>cases</code>
+          缺失<b>或为空数组</b> → fail（空数组曾让全部 16 个用例被塞进"新增"、
+          打印「修复前能生效:（无）」并 <b>EXIT=0 通过</b> —— 零记录的空洞真值被当成证明）。
+          <br>
+          <b>② 端到端工具从来没有测过产品。</b> 它的用例 <code>css</code> 是<b>手抄字面量</b>
+          （<code>"SimHei, sans-serif"</code>），而产品真实选项是
+          <code>'SimHei, "Heiti SC", "Microsoft YaHei", sans-serif'</code> ——
+          所以它证明的是"CSS 变量通路是活的"，不是"这条选项会渲染成那个字体"。
+          真正被覆盖的只有 4/11。已修：拆成 <code>FROZEN_CASES</code>（5 档一字不改，
+          继续与冻结基线逐字节可比）+ <code>OPTION_CASES</code>
+          （<b>直接从 <code>font-settings.ts</code> 派生</b>，<code>css: option.cssFamily</code>）；
+          import 失败即抛错退出，<b>明确拒绝退化成手抄</b>。覆盖 4/11 → 11/11。
+          <br>
+          <b>③ 我一度放宽了判据，被对抗性复审推翻。</b> 补齐 11 档后发现
+          <code>opt:microsoft-yahei</code> 的 canvas 指纹与默认档<b>完全相同</b>，
+          但 CDP 报真实族从 <code>Microsoft YaHei UI</code> 变成 <code>Microsoft YaHei</code>、
+          整页截图差 0.481%。我据此判定"工具假阴性"，把 <code>differ</code> 放宽为
+          <b>三通道任一变化</b>。复审用独立测量推翻了归因：
+          两个 face 是同一个 <code>msyh.ttc</code>，<b>canvas 像素哈希在 12/13/14/16/24/48/96px 全部相同</b>、
+          逐字符 advance 宽度全部相同、逐元素<b>墨迹像素数变化 0/31</b>、灰度质量变化 0.000%、
+          水平质心 Δx 全部 0.0000；固定裁剪框下 16px 差 1071 像素但最优偏移 (0,1) 后<b>残差 0</b>，
+          48px (0,2) 残差 0，96px (0,4) 残差 0 —— <b>纯垂直位移，不是字形变化</b>。
+          根因是 <code>line-height: normal</code> 下行盒高度<b>恰好差 1px</b>
+          （12px→16 vs 15、16px→21 vs 20、24px→31 vs 30），源于二者 <code>fontBoundingBox</code>
+          的 ascent 差 1px。<b>用户点「微软雅黑」看到的是同一套字形、只挪了不到 1px</b> ——
+          把它算作"生效"是实现层事实，不是感知层事实，正是本项目最忌讳的
+          「看起来过了但没验证用户看到的东西」。已改回<b>只看字形通道</b>，
+          并新增显式期望 <code>expect: "metric-only"</code>（仅 <code>opt:microsoft-yahei</code> 一档），
+          配四条<b>正向断言</b>（真实族确实变了；canvas 字形指纹与默认档相同；
+          墨迹像素数变化 0 且水平质心 Δx 0；行盒高度恰好差 1px），偏离任一条即红 ——
+          把"用户看不见字形变化"从<b>被放行</b>变成<b>被显式记录并钉死</b>。
+          报告改为四组分开计数，禁止把 <code>metric-only</code> 混进"生效"里含糊过去。
+        </div>
+        <div class="callout danger">
+          <span class="h">五、四条绕过路径已堵，且每条都有"改坏 → 变红"的演练证据</span>
+          <table>
+            <thead><tr><th>绕过路径</th><th>后果</th><th>修补</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>基线 <code>cases</code> 改成<b>空数组</b></td>
+                <td>全部 16 个用例被当成"新增"，打印「修复前能生效:（无）」并 <b>EXIT=0 通过</b></td>
+                <td>守卫 K 放宽到「不是数组<b>或为空</b>」；零记录时那行改印「（不可判定）」</td>
+              </tr>
+              <tr>
+                <td>基线缺 <code>defaultHash</code></td>
+                <td>重新打印「修复前能生效的字体: 黑体、楷体、仿宋」这条<b>不实陈述</b></td>
+                <td>新增守卫 L：立即 GUARD-FAIL 并<b>整段跳过对比输出</b>，假话不会先打出去</td>
+              </tr>
+              <tr>
+                <td>基线缺 <code>perCase</code></td>
+                <td>抛 <code>Cannot read properties of undefined</code> 崩溃，拿不到 GUARD-FAIL</td>
+                <td>兑现代码里原本没兑现的承诺：给明确的守卫 L</td>
+              </tr>
+              <tr>
+                <td>事实文件<b>改一格</b>（把 <code>usable</code> 改 true）</td>
+                <td>spec 34/34 全绿 —— "事实文件出自一次尺子有效的实跑"这条断言只锚定正/负对照，<b>不锚定单条 entry 的出处</b></td>
+                <td>逐条出处断言：基准名须在 <code>baselines</code> 里、<code>withFont</code> 非空、<b><code>usable</code> ⟺ <code>perBaseline</code> 至少一条 <code>differs</code></b>、条目数下界</td>
+              </tr>
+            </tbody>
+          </table>
+          另有两条守卫的<b>真实区分力</b>被单独证明（此前它们与产品表同源、
+          构造上恒真、注释里的宣称不成立）：新增冻结清单 <code>EXPECTED_OPTION_VALUES</code>，
+          断言产品表与用例表的 value 清单都等于它 —— 于是「悄悄加第 12 个选项」
+          在<b>静态 spec 与端到端工具两层都变红</b>；
+          端到端工具新增「栈首字体本机实测可用」守卫，与静态 spec 对齐。
+          <br>
+          <b>演练证据（每条都是改坏 → 跑 → 立刻还原 → SHA256 校验还原成功）</b>：
+          ① 加第 12 个选项 <code>kaiti-extra</code> → spec <b>1 failed / 34 passed</b>，
+          端到端 <code>GUARD-FAIL [R/选项清单与冻结期望不一致]</code>，<b>两层都红</b>；
+          ② <code>noto-sans</code> 栈首换 <code>Source Han Sans SC</code> → spec
+          <b>1 failed / 34 passed</b>，端到端 <code>GUARD-FAIL [T/栈首字体本机实测不可用]</code>，
+          <b>两层都红</b>（修复前是"spec 红、端到端绿"）；
+          ③ 基线 <code>cases: []</code> → <code>GUARD-FAIL [K/…清单为空]</code>，EXIT=1；
+          ④ 事实文件 <code>usable=true</code> → spec 红，端到端
+          <code>GUARD-FAIL [S/可用性事实文件不可用]</code>，<b>两层都红</b>。
+          <br>
+          <code>--selftest</code>：<b>49 通过 / 0 失败</b>（原 10 → 31 → 49，只增不减），
+          含浏览器内的「真换字体必须通过 / 假换字体必须失败」负向对照。
+          <code>--compare</code>：<b>真换字形 12 档、仅度量差 1 档、期望相同且成立 3 档、
+          不符期望 0 档</b>，退出码 0，且「修复前能生效的字体」一行现在<b>是真的</b>
+          （冻结 5 档在基线里本来就一个都没生效）。冻结基线三个 blob 全程未变
+          （<code>ui-font-before.json cd69d4fa…</code>、<code>census-before.json 863acf43…</code>、
+          <code>overflow-before.json cc8b71e7…</code>）。
+        </div>
+        <div class="callout">
+          <span class="h">六、顺带修掉的环境噪声，以及仍存在的诚实缺口</span>
+          <b>环境噪声</b>：<code>vite.config.ts</code> 的 <code>test.exclude</code> 里
+          <code>**/.{idea,git,cache,output,temp}/**</code> 匹配的是<b>恰好叫</b> <code>.temp</code>
+          的那一级，<b>匹配不到 <code>.codex-temp</code></b>（而列表里已为 <code>.claude</code>
+          记录过同一个病症）。后果：裸跑 <code>vitest</code> 会带出
+          <code>.codex-temp/**</code> 下 10 份旧副本，<code>font-settings.spec.ts</code>
+          从「1 文件 / 34 用例」变成「11 文件 / 64 用例」，<code>ui-test-tools.spec.tsx</code>
+          更是带出 109 条无关失败 —— "通过"必须靠人眼过滤才能确认，是可信度损耗。
+          已按既有写法加入 <code>"**/.codex-temp/**"</code>。对正式命令
+          <code>npm run test:mocks</code> 是 <b>no-op</b>（它的 CLI 排除里本来就带），
+          实测文件数 BEFORE 684 / AFTER 684（差 0），既有基线 <b>681 文件 / 6234 用例 / 192 失败</b>
+          仍可比。零误伤：被新增排除且不含 <code>.codex-temp</code> 的路径为空。
+          <br>
+          <b>仍存在的诚实缺口（未掩盖）</b>：
+          ① <b><code>opt:microsoft-yahei</code> 是 <code>metric-only</code>，
+          产品层事实就是"用户点它看不见字形变化"</b>。本次只做到"显式记录并钉死"，
+          <b>没有动产品字体栈</b>（改栈会改变跨机器行为，超出本任务范围）。
+          这是本次修复的边界，请知悉。
+          ② <code>BODY_FONT_OPTIONS</code> 的 <code>source-han-sans</code> 栈首
+          <code>"Source Han Sans SC"</code> 在本机实测不可用，但紧随其后的
+          <code>"Noto Sans SC"</code> 可用、且属阶段 4 要分发的开源字体，
+          故不存在"选了没反应"；已加「首个可用名不得晚于第 2 位」的守卫并注明。
+          ③ 端到端用例走的是「把产品真实 <code>cssFamily</code> 写进
+          <code>--qmai-ui-font-family</code>」（与 <code>applyUiFontFamily</code> 逐字一致）
+          + <code>--ui</code> 派生链，<b>没有</b>点击设置页下拉这条路径；
+          该段由 <code>font-settings.spec.ts</code> 与 <code>ui-font-derivation.spec.ts</code>
+          覆盖。真实 exe 里的点击验证属任务 10。
+        </div>
+      </div></div>
     </div>
 
     <!-- Task 9 -->
