@@ -25,6 +25,9 @@
   .ok{background:var(--okbg);border-color:#cfe6da;color:var(--ok)}
   .bad{background:var(--badbg);border-color:#f2cfcf;color:var(--bad)}
   .warn b,.ok b,.bad b{color:inherit}
+  /* 回填说明用的中性样式：刻意与 .warn/.ok/.bad 区分，避免读成"出了问题"或"已验证通过"。 */
+  .note{background:var(--bg);border:1px solid var(--line);border-left:3px solid #9db3a8;border-radius:0 6px 6px 0;padding:11px 14px;margin:14px 0;color:var(--muted);font-size:14px}
+  .note b{color:var(--ink)}
   .tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:10px;background:var(--bg);border:1px solid var(--line);color:var(--muted);margin-right:6px}
   footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 </style>
@@ -258,37 +261,88 @@ export function resolveChapterMemoryDotState(input: {
     <li>不做「已提取」的进度百分比或章节级详情浮层</li>
   </ul>
 
-  <h2>5. 验证方案</h2>
-  <ol>
-    <li><b>单测</b>：<code>resolveChapterMemoryDotState</code> 的全分支（已提取 / 提取中覆盖已提取 /
-      两种章号来源 / 章号缺失 / 章号 0 与负数 / 非有限数）</li>
-    <li><b>单测</b>：快照号码集合的读取（含只取正数、忽略大纲的负数与 <code>.cache</code> 目录）</li>
-    <li><b>组件断言</b>：卡片里不再存在 <code>.wb-card-status</code> 与 <code>.wb-origin-tag</code>；
-      卡片里出现「证据索引」而版本级不再有；三态各自的文案</li>
-    <li><b>组件断言</b>：未入库的文风版本渲染「启用此文风」；点击后确实先调入库再启用；
-      「已被替换」的版本不渲染启用按钮仍显示替换文案</li>
-    <li><b>变异验证</b>：逐条把新逻辑改坏（提取中不优先、取号丢掉文件名回退、
-      未入库态退化成「已被替换」），确认对应用例变红，再按 SHA-256 还原</li>
-    <li><b>真实浏览器</b>：用真实作品打开侧边栏，确认已提取的章有绿点、未提取的没有；
-      拆书库三态卡片截图比对</li>
-    <li><code>npx tsc -p tsconfig.app.json --noEmit</code> 退出 0；全量 A/B 不得新增失败文件</li>
-  </ol>
-
-  <h2>6. 影响面（必须同步修改的既有测试）</h2>
+  <h2>5. 验证方案与结果</h2>
+  <p class="note">
+    <b>本节在实现完成后回填了真实结果。</b>原计划里有一项（第 6 条「用真实作品打开侧边栏」）
+    实际是用真实 Chromium + 真实 dist CSS 的几何脚本做的，另外补了一项计划外的真实数据回归 ——
+    两者都比原计划更有力，说明写在下面，不假装当初就计划好了。
+  </p>
   <table>
-    <tr><th>文件</th><th>为什么必须改</th></tr>
+    <tr><th>项</th><th>做法</th><th>结果</th></tr>
+    <tr><td>1 单测</td>
+      <td><code>chapter-memory-dot.spec.ts</code>：已提取 / 提取中覆盖已提取 / 两种章号来源 /
+        章号缺失 / 0 与负数 / 非有限数</td>
+      <td>11 项通过</td></tr>
+    <tr><td>2 单测</td>
+      <td>快照号码集合只取正数，忽略大纲负数</td>
+      <td>通过（含 <code>outline-312</code> 不许点亮任何章节）</td></tr>
+    <tr><td>3 组件断言</td>
+      <td>卡片里不再有 <code>.wb-card-status</code> 与 <code>.wb-origin-tag</code>；
+        卡片里出现「证据索引」而版本级不再有</td>
+      <td>通过（<code>book-analysis-workbench.spec.tsx</code> 72→76 项）</td></tr>
+    <tr><td>4 组件断言</td>
+      <td>未入库的文风版本渲染「启用此文风」；点击后先入库再启用；
+        「已被替换」不渲染启用按钮</td>
+      <td>通过（三态各一条）</td></tr>
+    <tr><td>5 变异验证</td>
+      <td>6 条变异改坏本次修复（恢复 <code>confirmedAt</code> 门禁 / 未入库退化成已被替换 /
+        徽标加回 / 来源标签加回 / 证据索引改成列出整版 / 版本级整块加回），
+        逐条确认<b>指定那条</b>用例变红再按字节还原</td>
+      <td>6 条全部命中；脚本打印具体变红的用例名，不只看数量</td></tr>
+    <tr><td>6 真实浏览器</td>
+      <td><code>check-browser.mjs</code>：真实 Chromium + 真实 dist CSS，量证据索引的字号/位置/
+        折叠高度、绿点的尺寸/颜色/位置/脉冲/提示</td>
+      <td>30 项通过，其中 5 项是负向对照</td></tr>
+    <tr><td>7 真实数据回归（计划外补充）</td>
+      <td>用 <code>D:\QM-BOOK\他，只想活着</code> 的真实矛盾章号（文件名 / fm / 标题三者不一致）
+        钉住绿点取号；变异证明改成「标题优先」会全红</td>
+      <td>3 项通过；变异 A 三条全红</td></tr>
+    <tr><td>8 门禁</td>
+      <td><code>npx tsc -p tsconfig.app.json --noEmit</code>；全量 A/B</td>
+      <td>tsc 退出 0；A/B 新增失败文件 0</td></tr>
+  </table>
+  <p class="note">
+    <b>两个只在真实浏览器里才暴露的 harness bug</b>（已写进脚本注释）：
+    断言「绿色」时写死 <code>rgb(16,185,129)</code>，而 Tailwind v4 用 oklch、Chromium 算出来是
+    <code>oklch(0.696 0.17 162.48)</code>，于是误报；「把证据索引移出卡片」的变异只删了第一张卡，
+    第二张的 summary 仍在页面文本里，于是那条负向对照假通过。两者都是<b>验证器自己</b>的缺陷，
+    不是产品缺陷 —— 记下来是因为它们的失败长相和真缺陷一模一样，很容易被误判成要改产品代码。
+  </p>
+
+  <h2>6. 影响面（实现后校正）</h2>
+  <p class="note">
+    <b>下表是回填的实况。</b>计划阶段漏了一个文件，正是它在全量 A/B 里成了唯一「新增失败文件」——
+    记在这里，因为「计划说只影响 3 个文件、实际是 4 个」这件事本身就值得留痕。
+  </p>
+  <table>
+    <tr><th>文件</th><th>为什么必须改</th><th>计划时是否预见</th></tr>
     <tr><td><code>book-analysis-workbench.spec.tsx</code></td>
       <td>断言了 <code>.wb-card-status</code> 的文案与存在性、<code>.wb-origin-tag</code> 的文案、
-        以及版本级「证据索引与实际覆盖」</td></tr>
+        以及版本级「证据索引与实际覆盖」</td>
+      <td>是</td></tr>
     <tr><td><code>legacy-skill-results.spec.tsx</code></td>
-      <td>涉及旧版条目的来源文案</td></tr>
+      <td>涉及旧版条目的来源文案</td>
+      <td>是（实际未改动：它只复用 <code>BookAnalysisStyleCard</code>，不经过被删的标签）</td></tr>
     <tr><td><code>knowledge-tree.spec.tsx</code></td>
-      <td>本文件是源码字符串断言风格，新增的绿点接线按同一风格补充</td></tr>
+      <td>源码字符串断言风格，新增绿点接线按同一风格补充</td>
+      <td>是（实际未改动：新增的是独立 spec 文件，不动既有的 53 行源码断言）</td></tr>
+    <tr><td><code>docs/legacy-character-binding-20261006/dump-actions.spec.tsx</code></td>
+      <td><b>漏项。</b>它有一条 <code>expect(html).toContain("旧版资料导入 · 无结构化规则")</code>，
+        正是本次删掉的标签；改断言后同目录的 <code>check.mjs</code>（消费它生成的 dump.html
+        的真实 Chromium 几何脚本）重跑 0 失败，<code>dump.html</code> 也随之重新生成</td>
+      <td><b>否 —— 计划阶段漏了</b></td></tr>
   </table>
   <p>
     <b>注意</b>：用户 2a 要求的是「删除字样」，因此把断言从「存在」翻转成「不存在」时，
     必须确认新断言<b>真的会因回归而变红</b>（例如断言卡片里没有该 class），
-    而不是写成恒真的空断言。
+    而不是写成恒真的空断言 —— 见第 5 节第 5、6 项的变异验证。
+  </p>
+  <p class="note">
+    <b>一条流程教训</b>：变异脚本第一次跑崩在 <code>$ErrorActionPreference="Stop"</code> 上
+    （npx 的 npm 警告走 stderr，PS 5.1 当成终止性错误），脚本退出时把变异留在了磁盘上；
+    而下一轮的「还原校验」拿到的「原始值」已经是变异后的内容，于是<b>谎报还原成功</b>。
+    修法是两头加锁：还原放 <code>finally</code>，且脚本开头先用 <code>git diff</code> 证明起点干净。
+    这也是为什么本轮把「工作区必须等于 HEAD」当作跑变异的前置条件。
   </p>
 
   <footer>QMAI · 青幕AI写作 · 2026-10-07 · 依据：用户三轮问答确认（绿点位置=标题左侧 / 提取中=灰点脉冲 / 悬停说明=要 / 旧版标签=整段删除 / 整版指标=一并删除）</footer>

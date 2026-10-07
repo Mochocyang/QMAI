@@ -221,6 +221,49 @@ check(dots.titles.join(",") === "已提取记忆,正在提取记忆", "悬停 to
 
 await page.screenshot({ path: join(shots, "chapter-dots.png"), fullPage: true })
 
+// ---- 3b. 文风启用按钮：存在之外还要「真的看得见、点得到」 ----
+/*
+ * 用户的主诉是「文风生成完之后没有启用按钮」。jsdom 用例证明的是**组件渲染了**这个按钮；
+ * 这里补上另一半：按钮在真实 CSS 下可见、没被裁掉、尺寸够点。
+ * 两者合起来才等于「用户看得到并且点得动」—— 只有前者的话，
+ * 一个 height:0 或被 overflow 裁掉的按钮也能让 jsdom 全绿。
+ */
+const page3 = `<!doctype html><html><head><meta charset="utf-8"><style>${allCss}</style>
+<style>body{margin:0;background:#f4f6f4;font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif}
+.book-workbench{--ui-line:#c6d1cb;--ui-muted:#687871;--ui-accent:#496b59;--ui-paper:#fff;--ui-panel:#f2f5f3;--ui-ink:#1d2321;--ui-warning:#88641d;--ui-danger:#a83e3e;padding:18px;max-width:1180px;margin:0 auto}</style></head>
+<body><div class="book-workbench"><section class="wb-section wb-results-section">
+  <div class="wb-results-tools">
+    <button><svg></svg>启用此文风</button>
+  </div>
+  <div class="wb-results-tools"><span class="wb-muted">此历史版本已被替换</span></div>
+</section></div></body></html>`
+await page.setContent(page3)
+await page.waitForTimeout(120)
+const btn = await page.evaluate(() => {
+  const tools = document.querySelectorAll(".wb-results-tools")
+  const b = tools[0].querySelector("button")
+  const r = b.getBoundingClientRect()
+  const cs = getComputedStyle(b)
+  return {
+    text: b.textContent.trim(),
+    w: +r.width.toFixed(1), h: +r.height.toFixed(1),
+    visible: cs.visibility !== "hidden" && cs.display !== "none" && parseFloat(cs.opacity) > 0,
+    // 在视口内（没被推到屏幕外）
+    inViewport: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth,
+    // 工具条右对齐，按钮应该在容器右半边
+    rightAligned: r.left > tools[0].getBoundingClientRect().left + tools[0].getBoundingClientRect().width / 2,
+    replacedText: tools[1].textContent.trim(),
+    replacedHasButton: Boolean(tools[1].querySelector("button")),
+  }
+})
+check(btn.text === "启用此文风", "启用按钮文案正确", btn.text)
+check(btn.h >= 30 && btn.w >= 70, "启用按钮尺寸够点", `${btn.w}×${btn.h}`)
+check(btn.visible && btn.inViewport, "启用按钮可见且没被裁出视口",
+  `visible=${btn.visible} inViewport=${btn.inViewport}`)
+check(btn.rightAligned, "启用按钮在工具条里右对齐（与其它版本级动作一致）")
+check(btn.replacedText === "此历史版本已被替换" && !btn.replacedHasButton,
+  "「已被替换」只给文字、不给按钮（避免用旧内容覆盖新预设）")
+
 // ---- 4. 负向对照：把断言改坏一遍，确认它们真的会失败 ----
 await page.setContent(page1)
 await page.waitForTimeout(100)
