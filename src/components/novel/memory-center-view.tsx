@@ -79,6 +79,24 @@ function splitRenderableMarkdown(markdown: string): { rawBlock: string; body: st
   }
 }
 
+/**
+ * 把元素滚入视野。
+ *
+ * 为什么要特性检测：jsdom 不实现 Element.prototype.scrollIntoView，
+ * 直接调用会在 requestAnimationFrame 回调里抛出未处理异常 —— 测试仍然
+ * "通过"，但进程会报 Errors 并以非 0 退出，而且时序相关、时有时无。
+ * 浏览器（WebView2 / WKWebView）里有该方法，所以这不是用户可见缺陷，
+ * 但未处理异常会污染测试与 Sentry，故统一在这里挡掉。
+ */
+export function scrollIntoViewIfSupported(
+  element: HTMLElement | null | undefined,
+  options: ScrollIntoViewOptions,
+): void {
+  if (!element) return
+  if (typeof element.scrollIntoView !== "function") return
+  element.scrollIntoView(options)
+}
+
 function snapshotNumberFromMarkdownPath(path: string): number | null {
   const fileName = path.replace(/\\/g, "/").split("/").pop() ?? ""
   const outlineMatch = fileName.match(/^outline-(\d+)\.snapshot\.md$/i)
@@ -183,7 +201,7 @@ export function MemoryCenterView() {
       if (!restoreFocusId.current) return
       const target = document.getElementById(restoreFocusId.current)
       if (!(target instanceof HTMLElement)) return
-      target.scrollIntoView({ block: "center" })
+      scrollIntoViewIfSupported(target, { block: "center" })
       target.focus({ preventScroll: true })
     })
   }, [detailView])
@@ -199,7 +217,7 @@ export function MemoryCenterView() {
     setStatusMessage("")
     // 标签条是单排横向滚动，选中的标签若在视野外要滚进来。
     requestAnimationFrame(() => {
-      tabRefs.current.get(key)?.scrollIntoView({ block: "nearest", inline: "nearest" })
+      scrollIntoViewIfSupported(tabRefs.current.get(key), { block: "nearest", inline: "nearest" })
     })
   }, [])
 
