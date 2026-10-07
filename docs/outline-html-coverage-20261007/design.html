@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>大纲 HTML 全覆盖 · 设计文档</title>
+<style>
+  :root{--ink:#1c2321;--muted:#687871;--line:#dfe5e2;--bg:#f7f9f8;--warn:#8a4b12;--warnbg:#fdf4e7;--ok:#1f6b48;--okbg:#eef7f2;--bad:#8f2b2b;--badbg:#fdeeee}
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 28px 56px;background:#fff;color:var(--ink);font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  main{max-width:960px;margin:0 auto}
+  h1{margin:0 0 6px;font-size:25px;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:26px}
+  h2{margin:34px 0 12px;font-size:18px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  h3{margin:22px 0 8px;font-size:15px}
+  p,li{margin:8px 0}
+  ul,ol{padding-left:22px}
+  code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font:13px/1.5 Consolas,Menlo,monospace}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px 14px;overflow-x:auto;font:13px/1.6 Consolas,Menlo,monospace;margin:12px 0}
+  pre code{background:none;border:0;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--bg);font-weight:600}
+  .warn,.ok,.bad{border-radius:6px;padding:12px 15px;margin:14px 0;border:1px solid}
+  .warn{background:var(--warnbg);border-color:#f0d9b5;color:var(--warn)}
+  .ok{background:var(--okbg);border-color:#cfe6da;color:var(--ok)}
+  .bad{background:var(--badbg);border-color:#f2cfcf;color:var(--bad)}
+  .warn b,.ok b,.bad b{color:inherit}
+  .tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:10px;background:var(--bg);border:1px solid var(--line);color:var(--muted);margin-right:6px}
+  footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>大纲 HTML 全覆盖</h1>
+  <div class="sub">修复「保存框的 HTML 选项被置灰」与「从大纲继续生成的内容没有 HTML」；确立「任何大纲类型都必须能出 HTML」的保证</div>
+
+  <h2>1. 现象</h2>
+  <ul>
+    <li><b>保存确认框里「HTML 形式（.html）」是灰的</b>，下面写着「本轮未生成 HTML 版本，无法保存 HTML。」——
+        该提示由 <code>outline-save-confirm-dialog.tsx</code> 在
+        <code>requests.some(r =&gt; r.htmlContent?.trim())</code> 为假时显示。</li>
+    <li><b>从大纲继续生成的内容没有 HTML</b>：先生成大纲，界面推荐「接着生成章纲」，从这条路径生成出来的章纲保存时同样没有 HTML。</li>
+  </ul>
+
+  <h2>2. 根因</h2>
+  <div class="bad">
+    <b>根因（已用最小复现证实）</b>：<code>attachOutlineHtml</code>（<code>src/lib/novel/outline-save-request.ts</code>）
+    对 <code>chapter-outline</code> / <code>volume-outline</code> 存在**两条短路分支，方向恰好是反的**。
+  </div>
+  <pre><code>if (request.fileType === "chapter-outline") {
+  const rendered = attachChapterOutlineHtml(request, text)
+  if (rendered.htmlContent) return rendered
+  // 正文「确实像章纲」→ 直接返回，不带 HTML  ← 真正的章纲落到这里
+  if (isLikelyChapterOutline(request.content, request.fileName ?? "")) return rendered
+  // 只有正文「不像章纲」时才兜底渲染        ← 分类错误反而有 HTML
+  return borrowSettingFamilyHtml(request, text) ?? rendered
+}</code></pre>
+  <p>
+    <code>attachChapterOutlineHtml</code> / <code>attachVolumeOutlineHtml</code> 都**依赖可解析的结构化 JSON**
+    （<code>chapterOutlineData</code> / <code>volumeOutlineData</code>）。AI 只给 MD、或 JSON 缺字段解析失败时，
+    它们原样返回请求 —— 不带 <code>htmlContent</code>。
+  </p>
+  <p>
+    于是「像章纲但没有结构化数据」这一最常见的失败组合，得到的正是**空 HTML**；而
+    <code>borrowSettingFamilyHtml</code> 这个兜底只在「正文不像章纲」时才跑。
+  </p>
+  <h3>2.1 为什么「从大纲继续生成」这条路径必然撞上它</h3>
+  <p>
+    卷纲/章纲的结构化数据由专门的校验环节把关：解析不出数据、或数据不完整时，
+    面板会**自动补全一次**（<code>validateChapterOutlineData</code> → 重发提示词），
+    仍失败才放行保存。放行保存的那一刻，结构化数据就是缺的 —— 因此这一路径**必然**产出无 HTML 的请求。
+    这也解释了真实项目里的分布（黑雨之下）：只有结构化数据齐备的卷纲/章纲才留下了伴生 <code>.html</code>。
+  </p>
+  <h3>2.2 真实项目佐证</h3>
+  <table>
+    <tr><th>项目 / 目录</th><th>.md</th><th>.html</th><th>说明</th></tr>
+    <tr><td>黑雨之下 / 设定</td><td>6</td><td>6</td><td>设定类：渲染器齐备 → 每份都有 HTML</td></tr>
+    <tr><td>黑雨之下 / 人物小传</td><td>3</td><td>1</td><td>缺 <code>characterProfileData</code> 的那两份没有 HTML</td></tr>
+    <tr><td>黑雨之下 / 卷纲</td><td>1</td><td>3</td><td>有 HTML 的都是带结构化数据的</td></tr>
+    <tr><td>黑雨之下 / 章纲</td><td>1</td><td>1</td><td>同上</td></tr>
+    <tr><td>楚白 / 全部</td><td>4</td><td>0</td><td>一份 HTML 都没有</td></tr>
+    <tr><td>他，只想活着 / 全部</td><td>23</td><td>0</td><td>一份 HTML 都没有</td></tr>
+  </table>
+
+  <h2>3. 修法</h2>
+  <h3>3.1 单一出口保证（核心）</h3>
+  <p>
+    把「必须有 HTML」做成 <code>attachOutlineHtml</code> 的**唯一出口保证**，而不是散落在各分支里的条件判断。
+    分派逻辑保持原样，但只要分派后 <code>htmlContent</code> 仍为空，就用该请求的**自己的 MD** 兜底渲染一份卡片流：
+  </p>
+  <pre><code>const attached = dispatchOutlineHtml(request, text)
+if (attached.htmlContent?.trim()) return attached
+// 最终保证：任何大纲类型都不允许「有正文却没有 HTML」。
+const fallback = renderOutlineFallbackHtml({ content: attached.content, fileType: attached.fileType, ... })
+return fallback ? { ...attached, htmlContent: fallback } : attached</code></pre>
+  <div class="ok">
+    <b>为什么把保证放在出口而不是逐个补分支</b>：<code>ALLOWED_FILE_TYPES</code> 有 8 个成员，
+    逐个补分支意味着「以后新增类型时又要记得补一处」，漏一处就重新出现永久置灰的保存框。
+    出口保证让「新增类型忘记补渲染器」这个错误**不可能静默发生**，并由一条遍历全部 8 类的用例守住。
+  </div>
+
+  <h3>3.2 兜底用什么渲染</h3>
+  <p>新增 <code>renderOutlineFallbackHtml</code>（放在 <code>setting-outline-template.ts</code>，复用已验证的卡片流渲染器）：</p>
+  <ol>
+    <li><b>先按标题/文件名/文件夹嗅探专属分项</b>。若命中具体分项（力量体系 / 组织势力 / 背景设定 …）就用它 ——
+        这正是原 <code>borrowSettingFamilyHtml</code> 的意图：被判错类型的文档（例如「全版本力量体系总纲」因正文提到「第N章」被误判为章纲）
+        应当显示它**真正的样子**，而不是章纲的样子。此行为保持不变。</li>
+    <li><b>嗅不到具体分项时，用该大纲类型自己的中性规格</b>，而不是一律退化成「设定 · 卡片流」：
+        <code>章纲 · 卡片流</code> / <code>卷纲 · 卡片流</code> / <code>质量检查 · 卡片流</code>。</li>
+  </ol>
+  <div class="warn">
+    <b>这一步是必要的，不能省</b>：若兜底一律用「设定 · 卡片流」，一份章纲会被冠上「设定」的标题 —— 
+    等于用错误标签换取「有 HTML」，比没有更糟。
+  </div>
+
+  <h3>3.3 被一并覆盖的类型</h3>
+  <table>
+    <tr><th>fileType</th><th>改动前</th><th>改动后</th></tr>
+    <tr><td><code>chapter-outline</code></td><td>缺结构化数据 → <b>无 HTML</b></td><td>章纲卡片流</td></tr>
+    <tr><td><code>volume-outline</code></td><td>缺结构化数据 → <b>无 HTML</b></td><td>卷纲卡片流</td></tr>
+    <tr><td><code>quality-report</code></td><td><b>永远无 HTML</b>（没有渲染器，也不在设定家族里）</td><td>质量检查卡片流</td></tr>
+    <tr><td><code>character</code> / <code>organization</code> / <code>foreshadowing</code> / <code>setting</code> / <code>outline</code></td><td>已有渲染器</td><td>不变（出口保证只在其失败时接管）</td></tr>
+  </table>
+
+  <h3>3.4 顺带修掉的死分支</h3>
+  <p>
+    出口保证接管后，<code>borrowSettingFamilyHtml</code> 与 <code>VOLUME_OUTLINE_MARK</code> 失去调用方，随之删除；
+    <code>isLikelyChapterOutline</code> 仍被 <code>hasChapterOutlineStructure</code> 使用，保留。
+  </p>
+
+  <h2>4. 非目标</h2>
+  <ul>
+    <li><b>不动历史文件</b>。<code>renderOutlineHtmlForPath</code>（预览面板为「盘上已有 .md 但没有伴生 .html」即时渲染）
+        的放行范围保持不变，仍只覆盖能明确归入专属卡片类型者 —— 已确认这条路径在调用 <code>attachOutlineHtml</code> 之前
+        就会对中性兜底返回 null，因此出口保证不会波及它。</li>
+    <li><b>不改任何提示词</b>。卷纲/章纲的修复提示词里「不要写 HTML」是正确的（HTML 由软件渲染）；本次修的是软件侧漏渲染。</li>
+    <li><b>不动结构化渲染</b>。<code>chapterOutlineData</code> / <code>volumeOutlineData</code> 齐备时仍走专用折叠树/卡片流，
+        兜底版只是拿不到结构化数据时的降级，两者不会互相覆盖（已有 HTML 的请求一律原样保留）。</li>
+  </ul>
+
+  <h2>5. 验证方案</h2>
+  <ol>
+    <li><b>单元（新增）</b>：遍历 <code>ALLOWED_FILE_TYPES</code> 全部 8 个成员，在「只有 MD、没有任何结构化 JSON」下断言
+        <code>htmlContent</code> 非空 —— 这条用例就是「一个不留」的守卫，新增类型忘记补渲染器时会红。</li>
+    <li><b>意图保持</b>：把 <code>outline-save-request.spec.ts:849</code> 那条
+        <code>expect(realChapter.htmlContent).toBeUndefined()</code> 改为
+        「非空、且是 <code>章纲 · 卡片流</code>、且**不含** <code>设定 · 卡片流</code>」。
+        该用例的原始意图是「真正的章纲不该被套上设定卡」—— 意图正确，但旧实现是用「干脆不出 HTML」来满足的；
+        改后同一个意图由更准确的断言守住。</li>
+    <li><b>端到端</b>：<code>parseOutlineSaveRequests</code> 喂一份「AI 只给 MD + outlineSaveRequest」的回复（含章纲/卷纲），
+        断言解析出的请求带非空 HTML —— 直接对应「保存框不再置灰」。</li>
+    <li><b>变异验证</b>：移除出口保证 → 上述用例必须变红；把兜底规格换成通用设定 → 「不含『设定 · 卡片流』」必须变红。</li>
+    <li><b>全量回归</b>：全量 A/B（新增失败文件必须为 0）+ <code>tsc --noEmit</code>。</li>
+  </ol>
+
+  <footer>青幕AI写作 · 大纲 HTML 全覆盖设计文档 · 2026-10-07</footer>
+</main>
+</body>
+</html>

@@ -141,6 +141,45 @@ const GENERIC_OUTLINE_SPEC: SettingOutlineSpec = {
   sections: [],
 }
 
+/*
+ * 卷纲/章纲/质量检查的**中性兜底规格**。
+ *
+ * 这三种类型各有专用渲染器（折叠树 / 17 节卡片流），但都必须依赖可解析的结构化 JSON；
+ * 拿不到结构化数据时，旧行为是「干脆不出 HTML」——后果是保存框的「HTML 形式」永久置灰，
+ * 用户根本无法保存 HTML 版本，而「从大纲继续生成章纲」这条路径恰恰必然落在这种情况。
+ *
+ * 兜底时**必须**用该类型自己的标题：若一律退化成「设定 · 卡片流」，一份章纲会被冠上
+ * 「设定」的标题，等于用错误标签换取「有 HTML」，比没有更糟。
+ */
+const NEUTRAL_OUTLINE_SPECS: Record<string, SettingOutlineSpec> = {
+  "chapter-outline": {
+    id: "neutral-chapter-outline",
+    eyebrow: "章纲 · 卡片流",
+    title: "章纲",
+    titleMatches: [],
+    sections: [],
+  },
+  "volume-outline": {
+    id: "neutral-volume-outline",
+    eyebrow: "卷纲 · 卡片流",
+    title: "卷纲",
+    titleMatches: [],
+    sections: [],
+  },
+  "quality-report": {
+    id: "neutral-quality-report",
+    eyebrow: "质量检查 · 卡片流",
+    title: "质量检查",
+    titleMatches: [],
+    sections: [],
+  },
+}
+
+/** 该大纲类型的中性兜底规格（不在表内的类型回落到按 fileType 取的通用规格）。 */
+export function resolveNeutralOutlineSpec(fileType: string): SettingOutlineSpec {
+  return NEUTRAL_OUTLINE_SPECS[fileType] ?? resolveSettingSpecByFileType(fileType)
+}
+
 const SETTING_SPEC_BY_FILE_TYPE: Record<string, string> = {
   character: "characterBriefs",
   organization: "organizationsOutline",
@@ -759,6 +798,17 @@ function renderWithSpec(data: SettingOutlineData, spec: SettingOutlineSpec): str
     cards: data.cards,
   }
   return renderSettingOutlineHtml(withMeta)
+}
+
+/**
+ * 用**指定规格**把 MD 正文渲染成卡片流 HTML；解析不出任何卡片时返回 null。
+ *
+ * 与 `renderSettingOutlineForContent` 的区别：那个自己推断规格，这个由调用方指定 ——
+ * 兜底渲染需要「该大纲类型自己的标题」而不是推断出来的（推断结果可能是中性「设定」）。
+ */
+export function renderCardFlowForSpec(content: string, spec: SettingOutlineSpec): string | null {
+  const data = settingOutlineDataFromMarkdown(content, spec)
+  return data ? renderWithSpec(data, spec) : null
 }
 
 /**

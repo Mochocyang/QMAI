@@ -287,6 +287,26 @@ describe("outline-save-request", () => {
     expect(requests[0].htmlContent).toContain("CUSTOM-PROFILE")
   })
 
+  it("人物草稿解析不出结构化档案时也必须有 HTML（否则勾选框可用却拿不到 .html）", () => {
+    /*
+     * 人物确认框的 HTML 勾选框在 mode==="character" 时是无条件可用的
+     * ——它不检查 htmlContent。所以这里若留空，就是最坏的一种缺口：
+     * 用户能勾、也确实勾了，最后却没有 .html 文件，而界面不会说任何话。
+     */
+    const requests = characterDraftsToSaveRequests([{
+      id: "路人:甲",
+      characterName: "甲",
+      roleType: "路人",
+      fileName: "角色-路人-甲.md",
+      // 没有任何可解析的字段结构，角色卡解析器会返回 null
+      content: "甲。",
+      selected: true,
+      confidence: "low",
+    }], "保存人物小传")
+    expect(requests[0].htmlContent?.trim()).toBeTruthy()
+    expect(requests[0].htmlContent).toContain("<html")
+  })
+
   it("所有大纲类型均需用户确认，禁止静默自动保存", () => {
     const result = splitConfirmRequiredSaveRequests([
       {
@@ -841,12 +861,134 @@ describe("outline-save-request", () => {
     expect(attached.htmlContent).toContain("力量体系 · 体系卡")
     expect(attached.fileType).toBe("chapter-outline")
 
-    // 真正的章纲（不满足渲染条件时）不应被套上设定卡
+    /*
+     * 真正的章纲在拿不到结构化 JSON 时，必须补一份**章纲自己的**卡片流。
+     *
+     * 这条断言原本是 `toBeUndefined()`（「不应被套上设定卡」）。意图是对的，但旧实现是用
+     * 「干脆不出 HTML」来满足它的 —— 代价就是保存框的「HTML 形式」永久置灰，用户根本无法保存 HTML 版本。
+     * 正确做法是：不出设定卡，但要出章纲卡。所以这里保留原意图（不含「设定 · 卡片流」），
+     * 同时补上真正该有的结果。
+     */
     const realChapter = attachOutlineHtml(
       { fileType: "chapter-outline", content: "# 第001章章纲\n## 核心事件\n- 主角觉醒", fileName: "章纲-第001章.md" },
       "",
     )
-    expect(realChapter.htmlContent).toBeUndefined()
+    expect(realChapter.htmlContent).toBeTruthy()
+    expect(realChapter.htmlContent).toContain("章纲 · 卡片流")
+    expect(realChapter.htmlContent).not.toContain("设定 · 卡片流")
+    expect(realChapter.fileType).toBe("chapter-outline")
+  })
+
+  it("任何大纲类型在只有 MD、没有任何结构化 JSON 时都能出 HTML（一个不留）", () => {
+    /*
+     * 这是「大纲中生成的内容都必须包含 HTML」的总守卫。
+     * 遍历 ALLOWED_FILE_TYPES 全部成员：新增类型时若忘记补渲染器，这条会红，
+     * 而不是等到用户发现保存框的「HTML 形式」是灰的、且永远无法勾选。
+     */
+    const sources: Record<string, string> = {
+      "chapter-outline": "# 章纲-第001章\n## 本章目标\n- 主角找回记忆\n## 核心事件\n- 拾得残碑",
+      "volume-outline": "# 千碑城卷纲\n## 卷级定位\n- 建立契约关系\n## 故事线\n- 入城",
+      "outline": "# 世界观总纲\n## 时代\n- 灵气复苏后的第三十年\n## 主要冲突\n- 旧秩序与新势力的对立",
+      "setting": "# 力量体系\n## 境界\n- 炼气\n- 筑基",
+      "character": "# 角色-林烬\n## 身份\n- 沉默的剑客\n## 性格\n- 寡言，记性极好",
+      "organization": "# 青云门\n## 阵营目标\n- 维护正道秩序\n## 掌握资源\n- 玉虚真人",
+      "foreshadowing": "# 伏笔计划\n## 埋设\n- 第一卷埋下残碑\n## 回收\n- 第三卷回收",
+      "quality-report": "# 大纲质量检查\n## 结构\n- 分卷节奏偏快\n## 建议\n- 第二卷补一条支线",
+    }
+    const fileTypes = [
+      "outline", "volume-outline", "chapter-outline", "character",
+      "setting", "foreshadowing", "organization", "quality-report",
+    ]
+    for (const fileType of fileTypes) {
+      const content = sources[fileType]
+      const attached = attachOutlineHtml(
+        { fileType, fileName: `X.md`, targetFolder: fileType, content } as never,
+        // 关键：sourceText 与结构化 JSON 全部欠奉，只有正文本身
+        content,
+      )
+      expect(attached.htmlContent?.trim(), `${fileType} 应当能补出 HTML`).toBeTruthy()
+      expect(attached.htmlContent, `${fileType} 的兜底 HTML 必须是自包含文档`).toContain("<html")
+      expect(attached.fileType, `${fileType} 的 fileType 不能被兜底改写`).toBe(fileType)
+    }
+  })
+
+  it("卷纲/章纲缺结构化数据时的兜底 HTML 保留自己的标识，不退化成「设定」", () => {
+    const volume = attachOutlineHtml(
+      { fileType: "volume-outline", fileName: "千碑城卷纲.md", targetFolder: "卷纲", content: "# 千碑城卷纲\n## 卷级定位\n- 建立契约" },
+      "",
+    )
+    expect(volume.htmlContent).toContain("卷纲 · 卡片流")
+    expect(volume.htmlContent).not.toContain("设定 · 卡片流")
+
+    const report = attachOutlineHtml(
+      { fileType: "quality-report", fileName: "大纲质量检查.md", targetFolder: "质量检查", content: "# 大纲质量检查\n## 结构\n- 节奏偏快" },
+      "",
+    )
+    expect(report.htmlContent).toContain("质量检查 · 卡片流")
+    expect(report.htmlContent).not.toContain("设定 · 卡片流")
+  })
+
+  it("端到端：AI 只给 MD 的章纲/卷纲，解析后依然带 HTML（保存框不会置灰）", () => {
+    const reply = [
+      "```markdown",
+      "# 章纲-第001章",
+      "## 本章目标",
+      "- 主角找回记忆",
+      "## 核心事件",
+      "- 拾得残碑",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "章纲", fileName: "章纲-第001章.md", fileType: "chapter-outline",
+          writeMode: "create", referencedSkills: [], sourceIntent: "生成章纲", content: "",
+        },
+      }),
+      "```",
+    ].join("\n")
+    const parsed = parseOutlineSaveRequests(reply)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+    // 保存框的「HTML 形式」是否可勾选，完全取决于这一项是否为空。
+    expect(parsed.requests[0].htmlContent?.trim()).toBeTruthy()
+  })
+
+  it("端到端：勾选 HTML 后，缺结构化数据的章纲确实落盘了伴生 .html", async () => {
+    // 上一条只证明请求里有 HTML；这一条证明它真的写到了盘上（用户能看到的那一步）。
+    const reply = [
+      "```markdown",
+      "# 章纲-第001章",
+      "## 本章目标",
+      "- 主角找回记忆",
+      "## 核心事件",
+      "- 拾得残碑",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "章纲", fileName: "章纲-第001章.md", fileType: "chapter-outline",
+          writeMode: "create", referencedSkills: [], sourceIntent: "生成章纲", content: "",
+        },
+      }),
+      "```",
+    ].join("\n")
+    const written: Array<{ path: string; content: string }> = []
+    const result = await saveOutlineSaveRequests({
+      outlineRoot: "/root/wiki/outlines",
+      confirmed: true,
+      requests: parseOutlineSaveRequests(reply).requests,
+      formats: { md: true, html: true },
+      createDirectory: async () => {},
+      fileExists: async () => false,
+      writeFile: async (path, content) => { written.push({ path, content }) },
+    })
+    expect(result.errors).toEqual([])
+    const htmlFile = written.find((item) => item.path.endsWith(".html"))
+    expect(htmlFile, "必须写出伴生 .html").toBeTruthy()
+    expect(htmlFile!.path).toBe("/root/wiki/outlines/章纲/章纲-第001章.html")
+    expect(htmlFile!.content).toContain("章纲 · 卡片流")
   })
 
   it("renderOutlineHtmlForPath 为历史 / 外部写入的大纲 .md 即时渲染 HTML", () => {

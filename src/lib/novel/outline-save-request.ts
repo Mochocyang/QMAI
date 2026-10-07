@@ -18,6 +18,8 @@ import {
   attachSettingOutlineHtml,
   extractSettingOutlineData,
   isSettingOutlineFileType,
+  renderCardFlowForSpec,
+  resolveNeutralOutlineSpec,
   resolveSettingSpecForRequest,
 } from "./setting-outline-template"
 
@@ -148,12 +150,18 @@ export function extractHtmlBlocks(text: string): string[] {
   return blocks
 }
 
-/** 按 fileType 分派补 htmlContent（非真正 HTML 时用结构化数据套模板渲染）：
+/**
+ * 按 fileType 分派补 htmlContent（非真正 HTML 时用结构化数据套模板渲染）：
  * - 独立类型直接分派：卷纲 → 折叠树；章纲 → 卡片流；人物小传 → 角色卡；
  *   组织势力 → 势力卡；伏笔计划 → 伏笔台账；
  * - setting / outline：先判定子类型（`attachSettingFamilyHtml`），命中专属模板的走专属渲染
  *   （角色卡 / 势力卡 / 体系卡 / 能力卡 / 背景卡 / 地理卡 / 地点卡 / 伏笔台账）；
- * - 其余 → 通用「设定卡片流」。 */
+ * - 其余 → 通用「设定卡片流」。
+ *
+ * **出口保证**：分派之后若仍然没有 HTML，一律用请求自己的 MD 兜底渲染一份卡片流。
+ * 见下方 `renderOutlineFallbackHtml` 的说明 —— 这个保证是本文件的调用方（保存确认框）
+ * 能提供「HTML 形式」选项的前提。
+ */
 export function attachOutlineHtml<
   T extends {
     fileType: string
@@ -164,34 +172,32 @@ export function attachOutlineHtml<
     sourceIntent?: string
   },
 >(request: T, text: string): T {
-  // 章纲 / 卷纲需要结构化 JSON 才能渲染。若渲染不出，且正文本身并不像章纲/卷纲，
-  // 说明是**分类错误**（例如「全版本力量体系总纲」因正文提到「第N章」被误判为章纲）。
-  // 此时借用设定家族的渲染结果补上 HTML，避免保存框出现「本轮未生成 HTML 版本，无法保存 HTML」。
-  // 注意：只借用 htmlContent，**不改动原 fileType**。
-  if (request.fileType === "volume-outline") {
-    const rendered = attachVolumeOutlineHtml(request, text)
-    if (rendered.htmlContent) return rendered
-    const subject = `${request.fileName ?? ""}\n${request.content}`
-    if (VOLUME_OUTLINE_MARK.test(subject)) return rendered
-    return borrowSettingFamilyHtml(request, text) ?? rendered
-  }
-  if (request.fileType === "chapter-outline") {
-    const rendered = attachChapterOutlineHtml(request, text)
-    if (rendered.htmlContent) return rendered
-    if (isLikelyChapterOutline(request.content, request.fileName ?? "")) return rendered
-    return borrowSettingFamilyHtml(request, text) ?? rendered
-  }
-  if (request.fileType === "character") return attachCharacterProfileHtml(request, text)
-  if (request.fileType === "organization") return attachFactionProfileHtml(request, text)
-  if (request.fileType === "foreshadowing") return attachForeshadowingProfileHtml(request, text)
-  return attachSettingFamilyHtml(request, text)
+  const attached = dispatchOutlineHtml(request, text)
+  if (attached.htmlContent?.trim()) return attached
+  /*
+   * 最终保证：**任何**大纲类型都不允许「有正文却没有 HTML」。
+   *
+   * 保存确认框的「HTML 形式（.html）」是否可勾选，完全取决于请求里有没有 htmlContent
+   * （`outline-save-confirm-dialog.tsx` 的 hasHtmlContent）。缺了它，用户看到的是
+   * 一个永久置灰的勾选框 + 「本轮未生成 HTML 版本，无法保存 HTML。」——无处可点。
+   *
+   * 而卷纲/章纲的专用渲染器依赖可解析的结构化 JSON，拿不到时旧实现是「干脆不出 HTML」，
+   * 于是「AI 只给了 MD」「结构化数据不完整被放行保存」这些**常见**情况都会永久失去 HTML 选项。
+   * 把保证放在这个唯一出口，而不是给每种类型各补一条分支：ALLOWED_FILE_TYPES 有 8 个成员，
+   * 逐个补意味着「以后新增类型时又要记得补一处」，漏一处就重新出现置灰的保存框。
+   */
+  const fallback = renderOutlineFallbackHtml({
+    fileType: attached.fileType,
+    content: attached.content,
+    fileName: attached.fileName,
+    targetFolder: attached.targetFolder,
+    sourceIntent: attached.sourceIntent,
+  })
+  return fallback ? ({ ...attached, htmlContent: fallback } as T) : attached
 }
 
-/** 正文看起来像「卷纲」的标记（用于判断是否需要兜底渲染）。 */
-const VOLUME_OUTLINE_MARK = /卷纲|分卷大纲/
-
-/** 借用设定家族渲染出一份 HTML，但不改动原请求的 fileType。 */
-function borrowSettingFamilyHtml<
+/** 各类型自己的渲染器分派；返回的请求可能仍不带 HTML（由 attachOutlineHtml 兜底）。 */
+function dispatchOutlineHtml<
   T extends {
     fileType: string
     htmlContent?: string
@@ -200,9 +206,72 @@ function borrowSettingFamilyHtml<
     targetFolder?: string
     sourceIntent?: string
   },
->(request: T, text: string): T | null {
+>(request: T, text: string): T {
+  if (request.fileType === "volume-outline") return attachVolumeOutlineHtml(request, text)
+  if (request.fileType === "chapter-outline") return attachChapterOutlineHtml(request, text)
+  if (request.fileType === "character") return attachCharacterProfileHtml(request, text)
+  if (request.fileType === "organization") return attachFactionProfileHtml(request, text)
+  if (request.fileType === "foreshadowing") return attachForeshadowingProfileHtml(request, text)
+  return attachSettingFamilyHtml(request, text)
+}
+
+/**
+ * 兜底渲染：分派后仍没有 HTML 时，用请求**自己的 MD 正文**渲染一份卡片流。
+ *
+ * 两级选择：
+ * 1. 先按「正文标题 → 文件名 → sourceIntent → 文件夹」嗅探**专属分项**。命中就用它 ——
+ *    这正是原 `borrowSettingFamilyHtml` 的意图：被判错类型的文档（例如「全版本力量体系总纲」
+ *    因正文提到「第 N 章」被误判为章纲）应当显示它**真正的样子**，而不是章纲的样子。
+ * 2. 嗅不到具体分项时，用该大纲类型**自己的中性规格**（章纲 / 卷纲 / 质量检查），
+ *    而不是一律退化成「设定 · 卡片流」。
+ */
+function renderOutlineFallbackHtml(request: {
+  fileType: string
+  content: string
+  fileName?: string
+  targetFolder?: string
+  sourceIntent?: string
+}): string | null {
+  const text = request.content?.trim()
+  if (!text) return null
+  /*
+   * 注意这里用的是设定家族的**专用渲染器**（体系卡 / 势力卡 / 背景卡 …），
+   * 不是 `renderCardFlowForSpec` 的通用卡片流 —— 两者标题不同（「力量体系 · 体系卡」对「力量体系 · 卡片流」）。
+   * 走 attachSettingFamilyHtml 与旧实现完全一致，保证被判错类型的文档渲染结果不变。
+   */
+  const borrowed = borrowSpecificSettingHtml(request, text)
+  if (borrowed) return borrowed
+  return renderCardFlowForSpec(text, resolveNeutralOutlineSpec(request.fileType))
+}
+
+/**
+ * 只有当「标题 → 文件名 → sourceIntent → 文件夹」嗅探到**具体**设定分项时才借用设定家族的渲染结果；
+ * 嗅不到（落到中性 generic-setting）时返回 null，交给调用方用该大纲类型自己的规格兜底。
+ *
+ * 这个区分是必须的：若不加判断地借用，一份章纲会被 `attachSettingOutlineHtml` 渲染成
+ * 「设定 · 卡片流」——等于用错误标签换取「有 HTML」。
+ */
+function borrowSpecificSettingHtml(
+  request: {
+    fileType: string
+    htmlContent?: string
+    content: string
+    fileName?: string
+    targetFolder?: string
+    sourceIntent?: string
+  },
+  text: string,
+): string | null {
+  const spec = resolveSettingSpecForRequest({
+    fileType: "setting",
+    fileName: request.fileName,
+    targetFolder: request.targetFolder,
+    sourceIntent: request.sourceIntent,
+    content: text,
+  })
+  if (!SETTING_FAMILY_RENDERERS[spec.id]) return null
   const chained = attachSettingFamilyHtml({ ...request, fileType: "setting" }, text)
-  return chained.htmlContent ? ({ ...request, htmlContent: chained.htmlContent } as T) : null
+  return chained.htmlContent?.trim() ? chained.htmlContent : null
 }
 
 /**
@@ -603,16 +672,24 @@ export function characterDraftsToSaveRequests(
     .map((draft) => {
       // 优先用草稿上已挂好的角色卡 HTML（来自 characterProfileData）；否则从该草稿 MD 兜底渲染
       const htmlContent = draft.htmlContent?.trim() || renderCharacterProfileForContent(draft.content)
-      return {
-        targetFolder: "人物小传",
-        fileName: draft.fileName,
-        fileType: "character" as const,
-        writeMode: "create" as const,
-        referencedSkills: ["JueseSkill/character-design"],
-        sourceIntent,
-        content: draft.content,
-        ...(htmlContent ? { htmlContent } : {}),
-      }
+      /*
+       * 过一遍 attachOutlineHtml，让**同一个出口保证**也覆盖人物小传：
+       * 人物确认框的 HTML 勾选框在 mode==="character" 时是无条件可用的，
+       * 所以草稿解析不出结构化档案时若没有 HTML，用户会勾上「HTML 形式」却拿不到 .html —— 静默失败。
+       */
+      return attachOutlineHtml(
+        {
+          targetFolder: "人物小传",
+          fileName: draft.fileName,
+          fileType: "character" as const,
+          writeMode: "create" as const,
+          referencedSkills: ["JueseSkill/character-design"],
+          sourceIntent,
+          content: draft.content,
+          ...(htmlContent ? { htmlContent } : {}),
+        },
+        "",
+      )
     })
 }
 
