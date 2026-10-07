@@ -672,10 +672,26 @@ for (const m of line.matchAll(/fontSize=["']([\d.]+)["']/g)) {
           并把 <code>svg-fontSize-attribute</code> 归入"其他（需人工确认）"而非"需改"，
           并单独打印其数量与位置。
         </div>
-        <div class="note">
-          同时把统计口径分列成两栏（已用独立脚本对账确认）：
-          <b>557 = 声明处数</b>，<b>569 = 需换算的数值个数</b>，
-          差 12 来自 12 处 <code>font</code> 简写各含一个 px 行高。
+        <div class="callout danger">
+          <span class="h">已实测确认：该脚本现有两处缺陷，本步骤必须一并修掉</span>
+          <b>缺陷一（会误导换算值）</b>：px 取值分布用
+          <code>(v / 16).toFixed(4)</code> 显示，导致
+          <b><code>12.5px</code> 被显示成 <code>0.7813rem</code></b>
+          —— 截断了，正确值是 <code>0.78125rem</code>（实测输出确认）。
+          这个错值正好出现在"用来核对漏项"的输出里，容易被照抄进 CSS。
+          修法：改用精确换算（复用 codemod 的 <code>pxToRem</code>，
+          或至少用足够的有效位并去掉尾随零），并断言
+          <code>12.5px → 0.78125rem</code>。<br>
+          <b>缺陷二（登记缺失）</b>：脚本<b>完全看不见</b> SVG 的
+          <code>fontSize="N"</code> 属性（现有正则只匹配 <code>fontSize:</code> 冒号写法），
+          而实际有 <b>2 处</b>（<code>context-usage-ring.tsx:136</code> 的
+          <code>"7"</code>、<code>provider-brand-icon.tsx:59</code> 的 <code>"13.5"</code>）。
+          这正是本步骤要补的分类 —— 目的是让它们<b>被显式登记</b>
+          而不是"根本不存在于任何统计里"。<br>
+          <b>缺陷三（口径）</b>：脚本按<b>声明处数</b>统计（实测 557 / 67 文件），
+          而<b>需换算的数值个数是 569</b>（差 12 = 12 处 <code>font</code> 简写
+          各含一个 px 行高）。两个数字都对，但含义不同 ——
+          输出里要<b>分列两栏并标注口径</b>，避免后续把 569 当成"多了 12 处漏项"去排查。
         </div>
         <pre><code>node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs</code></pre>
         <div class="expect">
