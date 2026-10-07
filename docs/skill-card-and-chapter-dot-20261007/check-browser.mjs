@@ -219,6 +219,13 @@ check(dots.verticallyInsideRow.every(Boolean), "绿点垂直居中在行内", JS
 check(dots.labels.join(",") === "已提取记忆,正在提取记忆", "aria-label 说明状态", dots.labels.join(","))
 check(dots.titles.join(",") === "已提取记忆,正在提取记忆", "悬停 tooltip 说明状态", dots.titles.join(","))
 
+// 截图前把提取中那枚点的动画彻底去掉。
+// 为什么不是 animation-play-state:paused —— 那只是把动画冻结在**当前时刻**，
+// 而当前时刻每次跑都不同，相位不同 → 透明度不同 → PNG 每个字节都不同（实测：两次跑出
+// 两个不同哈希）。这会让一个受 git 跟踪的产物变成"每跑一次就脏"，正是 dump.html 那类噪声。
+// 上面已经用 computed animationName 断言过"脉冲确实存在"，所以这里删掉动画不削弱任何断言。
+await page.addStyleTag({ content: '[data-ui-tree-memory-dot]{animation:none !important}' })
+await page.waitForTimeout(60)
 await page.screenshot({ path: join(shots, "chapter-dots.png"), fullPage: true })
 
 // ---- 3b. 文风启用按钮：存在之外还要「真的看得见、点得到」 ----
