@@ -107,8 +107,11 @@
   min-width: 0;
   max-width: none;
   flex: 1 1 auto;
-  height: 28px;
-  min-height: 28px;
+  /* 行高 = 高度 的垂直居中写法：高度必须与 line-height 同为 rem，否则
+     界面字号放大时行盒变大而容器不动，文字被 input 裁掉
+     （150% 时行盒 42px > 内容高 28px）。1.75rem 在 100% 档等于 28px。 */
+  height: 1.75rem;
+  min-height: 1.75rem;
   margin: 0;
   padding: 0 4px;
   border: 0;
@@ -144,8 +147,8 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > span > button { display: inline-flex; width: 18px; height: 18px; flex: 0 0 18px; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: inherit; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-tag-input > span > button svg { width: 12px; height: 12px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-tag-compose { display: inline-flex; align-items: center; flex: 0 1 auto; gap: 6px; min-width: min(100%, 280px); max-width: 100%; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-compose > input { width: 12em; min-width: 0; flex: 1 1 12em; min-height: 28px; height: 28px; margin: 0; padding: 0 4px; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--ui-ink); font: 0.875rem/1.75rem var(--ui); box-shadow: none; }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-compose > .model-button { flex: 0 0 auto; align-self: center; min-height: 28px; height: 28px; padding: 0 10px; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-compose > input { width: 12em; min-width: 0; flex: 1 1 12em; min-height: 1.75rem; height: 1.75rem; margin: 0; padding: 0 4px; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--ui-ink); font: 0.875rem/1.75rem var(--ui); box-shadow: none; }
+:is(.ui-test-root,html[data-ui-test-skin]) .model-tag-compose > .model-button { flex: 0 0 auto; align-self: center; min-height: 1.75rem; height: 1.75rem; padding: 0 10px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog { margin: 8px 0 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-section-heading { align-items: center; gap: 8px 16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-catalog .model-field { min-width: 180px; margin: 0; }

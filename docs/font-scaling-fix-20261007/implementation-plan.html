@@ -966,24 +966,127 @@ git commit -m "fix(字号): 573 处相对单位换算为精确 rem，界面字�
           说明自检确实在起作用。步骤 3 修复后请重跑 <code>--selftest</code> 与正式分析，
           确认这 2 条已消失且自检仍全绿。
         </div>
+        <div class="callout danger">
+          <span class="h">实测补充：该工具会漏"不写行高、继承来的行高"的同排控件（已实证）</span>
+          规则 <code>.model-tag-compose &gt; .model-button</code>
+          （<code>model-settings.css:148</code>，<code>min-height:28px; height:28px</code>）
+          自己<b>不写 <code>font</code>/<code>line-height</code></b>，行高由
+          <code>.model-button</code> 与祖先继承而来，故静态工具<b>没有报它</b>。<br>
+          但实测它<b>确实会被裁</b>：浏览器内注入真实祖先结构后，
+          150% 档它的行盒 <b>31.2px</b> 而内容高 <b>28px</b> → 文字被切。
+          <b>所以"只有 2 条规则"这个数字只在"规则自己写了行高"的范围内成立</b>，
+          不能当作"全仓库没有别处会被裁"的证据。<br>
+          凡与已报控件<b>同排</b>的兄弟控件，必须逐个手查 —— 它们高度通常被写成同一个 px 值，
+          一旦只改其中一个，放大后同排高度不一致（视觉错位）。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1d：运行时溢出工具的两个"结构性看不见"（扩展时必须一并解决）</div>
+        <div class="callout danger">
+          <span class="h">其一：<code>&lt;input&gt;</code>/<code>&lt;textarea&gt;</code> 的值不是子文本节点</span>
+          旧口径只遍历"自身直接含文本节点"的元素，而输入框的文字在
+          <code>value</code> 属性里 —— <b>所以本工具此前对输入框的裁切永远报 0</b>，
+          这属于"检测器结构性看不见"，不是"布局没问题"。
+          而步骤 1c 发现的风险恰好全都在输入框上。<br>
+          <b>修法</b>：单列一类 <code>control-clip</code>，
+          判据为 <code>line-height &gt; clientHeight</code>（行盒被内容高裁掉）。
+        </div>
+        <div class="callout warn">
+          <span class="h">其二：加这一类时极易产生假阳性 —— 实测踩到过</span>
+          初版未过滤输入类型，于是 <code>checkbox</code>/<code>radio</code>
+          （<code>value</code> 恒为 <code>"on"</code>）与 <code>range</code>
+          （<code>value</code> 是档位数字，即界面字号滑块本身）都被算成"行盒大于内容高"，
+          <b>凭空报出 10 个假缺陷</b>。它们根本不渲染文本，行高对它们毫无意义。<br>
+          <b>修法</b>：只统计会渲染文字的类型
+          （<code>text/search/email/url/tel/password/number</code> 与 <code>textarea</code>）。<br>
+          教训：先量未修复状态的价值就在这里 —— 若先改代码再量，
+          这 10 个假缺陷会被当成"改动引入的回归"而去改根本不该动的 CSS。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1e：登记运行时工具的不可达盲区（与编辑器盲区同类）</div>
+        <div class="expect bad">
+          实测：<code>.model-tag-compose</code> 在<b>默认设置页根本不存在</b>
+          （<code>document.querySelectorAll(".model-tag-compose").length</code> 为
+          <code>0</code>，model 分区可见的 <code>input</code> 总数也是 <code>0</code>）——
+          它要展开某个模型配置卡片才会渲染。<br>
+          这意味着<b>浏览器工具永远测不到步骤 1c 那条风险</b>。
+          它与编辑器列表标记属同一类问题：<b>不是"测了没问题"，而是"测不到"</b>。
+          因此该处的验证手段只有两条，二者都不可省：
+          (a) 静态规则检查（<code>predict-clipping-risk.mjs</code>），
+          (b) <b>浏览器内注入真实祖先结构</b>让真实选择器生效，再做 A/B
+              （不要用内联样式"模拟"规则 —— 那测的不是 CSS 级联）。
+        </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 2：判定</div>
         <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,150</code></pre>
         <div class="expect">
-          期望：<b>150% 档下被裁切的文本元素数量为 0</b>（书架 + 设置页全部分区）。
-          同时 100% 档必须仍为 0（与 <code>overflow-before.json</code> 一致）。
+          期望（<b>以下是 2026-10-08 实测值</b>）：<b>150% 档下被裁切的元素为 0</b>
+          （落地页 + 设置页 11 个分区），100/115/130/150 <b>四档全为 0</b>，
+          且 100% 档与 <code>overflow-before.json</code> 一致。<br>
+          同时五项守卫必须全绿，缺一不可（否则"0"不成立）：<br>
+          ① 倍率生效 —— 正文字号中位数 <code>100%→14px，150%→21px，比值 1.500</code>；
+          ② 阳性对照 —— 注入"必定被裁切"探针，<b>四档都必须被检出</b>；
+          ③ 阴性对照 —— 注入 <code>min-height</code> 撑开的探针，<b>四档都不得误判</b>；
+          ④ 覆盖面 —— <code>12/12</code> 个界面；
+          ⑤ 控件已覆盖 —— 每档都要检查到至少 1 个文本控件
+          （实测每档 <code>8</code> 个），否则"控件未被裁"是空洞结论。
         </div>
         <div class="expect bad">
-          若有：输出会列出 tag / 字号 / 纵向偏差 / 横向偏差 / 选择器 / 所属分区，
-          按此定点修复。<b>100% 档若不为 0，说明是换算引入了回归</b>（因为基线为 0），
-          必须先查清而不是去调容器。
+          若有：输出会列出 <code>[分区]</code> / tag / 字号 / 纵向偏差 / 横向偏差 /
+          选择器 / 是否 <code>control-clip</code>，按此定点修复。<br>
+          <b>100% 档若不为 0，说明是换算引入了回归</b>（因为基线为 0），
+          必须先查清而不是去调容器。<br>
+          <b>若某项守卫不通过，则本次"0"无效</b>，不得当作通过 ——
+          尤其是守卫①（倍率没生效时"无裁切"毫无意义）
+          与守卫②（检测器失灵时"报 0"是假绿）。
         </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
-        <div class="title">步骤 3：修复并记录</div>
+        <div class="title">步骤 3：修复并记录（<b>已完成，附实证</b>）</div>
+        <div class="note">
+          修复 4 处（<code>src/components/uitest/models/model-settings.css</code>），
+          全部是"行高 = 高度"的垂直居中写法，把固定 px 高度改为与行高同源的 rem：
+        </div>
+        <table>
+          <tr><th>位置</th><th>选择器</th><th>改动</th><th>为何</th></tr>
+          <tr><td>:110-111</td><td><code>… .model-tag-compose &gt; input:not(…)</code></td>
+              <td><code>height/min-height: 28px → 1.75rem</code></td>
+              <td>行盒 <code>1.75rem</code> 会缩放，高度不缩放则 150% 时被裁 14px</td></tr>
+          <tr><td>:147</td><td><code>.model-tag-compose &gt; input</code></td>
+              <td><code>min-height/height: 28px → 1.75rem</code></td>
+              <td>同上（另一处同组件的重复规则）</td></tr>
+          <tr><td>:148</td><td><code>.model-tag-compose &gt; .model-button</code></td>
+              <td><code>min-height/height: 28px → 1.75rem</code></td>
+              <td>静态工具漏报（继承行高）；实测会被裁，且须与同排输入框保持等高</td></tr>
+          <tr><td>—</td><td><code>--ui-heading-line</code> / <code>--soul-field-height</code></td>
+              <td>见任务 2 步骤 3c</td>
+              <td>经 CSS 变量间接传递，属同一类（行高/文字容器）</td></tr>
+        </table>
+        <div class="expect">
+          <b>实证（浏览器内注入真实祖先结构，让真实 CSS 级联生效后做同页 A/B）</b><br>
+          150% 档：修复后 <code>&lt;input&gt;</code> 行盒 <code>42px</code>、内容高
+          <code>42px</code> → <b>不裁</b>；
+          同一次渲染中把高度内联改回 <code>28px</code>（模拟修复前）→ 内容高
+          <code>28px</code> → <b>★被裁</b>。<br>
+          150% 档：<code>&lt;button.model-button&gt;</code> 行盒 <code>31.2px</code>、
+          修复后内容高 <code>42px</code> → <b>不裁</b>；改回 <code>28px</code> →
+          <b>★被裁</b>。<br>
+          100% 档：两者修复前后<b>都是 28px、都不裁</b> —— 证明改动在默认档逐字等价，
+          不影响判据 1。
+        </div>
+        <div class="expect">
+          修复后重跑静态工具：命中数由 <code>10（表单控件 4 条 + 可能撑开 6 条）</code>
+          降为 <code>6（表单控件 0 条 + 可能撑开 6 条）</code>，
+          <code>--selftest</code> 仍 <b>11 例全过</b>。<br>
+          剩余 6 条全是 <code>min-height</code> 撑开型（置信度低）：容器会被内容撑高，
+          <b>不是裁切</b>；已由运行时测量（四档均为 0）证实无需改动。
+        </div>
         <div class="note">
           只调整确实裁切的容器：优先改成自适应（<code>min-height</code> 代替 <code>height</code>、
           或把固定高度换算为 rem），而不是把字号改回去。
@@ -998,9 +1101,20 @@ node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,115,130
 node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-after2.json"
 node docs/font-scaling-fix-20261007/census-computed-font.mjs `
   --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-after2.json"</code></pre>
-        <div class="expect">期望：溢出为 0，且判据 1、2 仍全部通过。</div>
+        <div class="expect">
+          期望（<b>2026-10-08 实测</b>）：溢出工具退出码 <b>0</b>（四档均 0 裁切、五项守卫全绿）；
+          判据 1 与判据 2 <b>仍全部通过</b>（<code>正确缩放 1113 / 未解释 0</code>、
+          <code>fontSize/lineHeight 不同 0</code>），退出码 <b>0</b>。
+        </div>
+        <div class="note">
+          <b>留意退出码，别被 PowerShell 骗了</b>：<code>… | Select-Object -First N</code>
+          会提前掐断管道，令 <code>$LASTEXITCODE</code> 变成 <code>-1</code>
+          （那是"提前终止"，不是"命令失败"）。要取真实退出码，
+          请把输出重定向到文件再看，例如
+          <code>node … &gt; "$env:TEMP\o.txt" 2&gt;&amp;1; $LASTEXITCODE</code>。
+        </div>
         <pre><code>git add -A src
-git commit -m "fix(字号): 修复字号放大后被裁切的容器（见提交正文实测数据）" --no-verify</code></pre>
+git commit -m "fix(字号): 修复字号放大后被裁切的标签行容器（含浏览器内 A/B 实证）" --no-verify</code></pre>
       </div></div>
     </div>
 
