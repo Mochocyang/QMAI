@@ -169,7 +169,11 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 /* 网格自带上下 16px 外边距，会与上面的版本间距叠加（外边距还会互相折叠，算出来是 16 而不是 14）；
    合并列表里清掉它，让「版本间距」与「卡片行间距」都由下面这一处决定。 */
 .wb-card-list .wb-skill-grid{margin-top:0;margin-bottom:0}
-.wb-revision-extras{min-width:0}
+/*
+ * 版本级内容：与合并列表、以及彼此之间都要有间距。否则两个版本的「证据索引/补充修订」
+ * 会直接贴在一起，看起来像同一个版本的两段，日期标签也就失去了「分组标题」的作用。
+ */
+.wb-revision-extras{min-width:0;margin-top:18px}
 .wb-revision-date{font-size:12px;color:var(--ui-muted,#687871);white-space:nowrap}
 @container(max-width:900px){.wb-header>.wb-row>.wb-muted{display:none}.wb-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-header .wb-book-picker>button{min-width:130px;max-width:250px}}
 @container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:12px}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}

@@ -300,7 +300,14 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [expandedCard, setExpandedCard] = useState<{ revisionId: string; subject: string } | null>(null)
   const [expandedOverviews, setExpandedOverviews] = useState<string[]>([])
   const [removing, setRemoving] = useState<{ revisionId: string; subject: string } | null>(null)
-  const [revisingFor, setRevisingFor] = useState<{ revisionId: string; requirements: string } | null>(null)
+  // 哪一版的补充修订编辑器是打开的（只可能有一个，因为同一时刻只有一个编辑框可见）。
+  const [revisingFor, setRevisingFor] = useState<string | null>(null)
+  /*
+   * 补充修订草稿按**版本**分别保存，不能用单一字段：合并列表里用户完全可能先在 A 版写一段、
+   * 又去点 B 版的笔，旧实现（每版本各持一个 state）不会丢，单一字段会把 A 的草稿清空。
+   * 这是合并后真实丢过数据的地方，故以版本 id 为键。
+   */
+  const [revisionDrafts, setRevisionDrafts] = useState<Record<string, string>>({})
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   // 全版本平铺后不再有「选中版本」：活动跳转改成「切到对应页签 + 等目标版本渲染出来后滚进视野」。
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(null)
@@ -512,7 +519,10 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
     const target = revisionId ? revisions.find((r) => r.id === revisionId) : undefined
     // 先关弹窗（无论能不能删成），避免留下一个「点了删除但什么都没发生」的悬空状态。
     setRemoving(null)
-    if (!subject || !target) return
+    if (!subject) return
+    // 版本查不到（弹窗打开期间版本被重读掉/作品库变化换了 legacy 的推导 id）时必须说出来：
+    // 静默 return 正是本函数上一版写注释说要避免的那种「点了删除却没反应」。
+    if (!target) { reportError(new Error("这个版本已不在当前列表里，请重新打开结果页后再删除。")); return }
     try {
       await removeWorkbenchRevisionItem({ projectPath, bookPath: book.path, revision: target, subject })
       void reloadRevisions().catch(reportError); onRefresh()
@@ -658,7 +668,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
                   const key = cardKey(revision.id, item.subject)
                   return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]
                 })}
-                onOpenRevise={() => setRevisingFor((current) => current?.revisionId === revision.id ? current : { revisionId: revision.id, requirements: "" })}
+                onOpenRevise={() => setRevisingFor(revision.id)}
                 onRequestRemove={() => setRemoving({ revisionId: revision.id, subject: item.subject })} />)}
               {!items.length && <p className="wb-muted wb-no-results">没有符合条件的成果</p>}
             </div>
@@ -670,11 +680,11 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         previous={revisions.find((r) => r.id === revision.parentRevisionId)}
         projectPath={projectPath}
         expandedSubject={expandedCard?.revisionId === revision.id ? expandedCard.subject : null}
-        openRevise={revisingFor?.revisionId === revision.id}
-        requirements={revisingFor?.revisionId === revision.id ? revisingFor.requirements : ""}
+        openRevise={revisingFor === revision.id}
+        requirements={revisionDrafts[revision.id] ?? ""}
         revising={starting || hasActiveTask}
-        onRequirements={(value) => setRevisingFor((current) => current?.revisionId === revision.id ? { revisionId: revision.id, requirements: value } : current)}
-        onToggleRevise={(open) => setRevisingFor((current) => open ? { revisionId: revision.id, requirements: current?.revisionId === revision.id ? current.requirements : "" } : (current?.revisionId === revision.id ? null : current))}
+        onRequirements={(value) => setRevisionDrafts((drafts) => ({ ...drafts, [revision.id]: value }))}
+        onToggleRevise={(open) => setRevisingFor((current) => open ? revision.id : (current === revision.id ? null : current))}
         onCloseRules={() => setExpandedCard(null)}
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: revision.selectedChapterIds, skills: [revision.skill], requirements: { [revision.skill]: `${revision.requirements}\n补充要求：${requirements}` } }, revision.id)} />)}
       {/* 删除确认框只留一份：一次只可能删一个对象，它需要知道「哪一版的哪个对象」。 */}
@@ -731,7 +741,13 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
       <div className="wb-card-heading"><span className="wb-avatar" data-tone={index % 3}>{item.subject.slice(0, 1)}</span>
         {/* 对象自己没有时间戳，取所属版本的 createdAt：同一对象在不同版本里日期不同是对的。 */}
         <h3>{item.subject}{itemDate && <small className="wb-card-date">{` · ${itemDate}`}</small>}</h3>
-        <span className="wb-card-status" data-confirmed={Boolean(revision.confirmedAt)}>{revision.confirmedAt ? "已入库" : "待确认"}</span></div>
+        {/*
+          * 旧版导入的版本**不显示状态徽标**：它永远不会拿到 confirmedAt
+          * （打开页面时的自动入库显式跳过 origin==="legacy"，工作台里也没有「确认并加入」入口——
+          * 整版确认按钮早先已删除），所以给它渲染「待确认」等于永久显示一个用户无法消除的待办。
+          * 来源由卡片下方的 .wb-origin-tag 说明，不必再重复一次。
+          */}
+        {revision.origin !== "legacy" && <span className="wb-card-status" data-confirmed={Boolean(revision.confirmedAt)}>{revision.confirmedAt ? "已入库" : "待确认"}</span>}</div>
       <p className="wb-card-description" data-expanded={item.summary.length <= 100 || overviewOpen}>{item.summary}</p>
       {item.summary.length > 100 && <button className="wb-overview-toggle" aria-label={`展开${item.subject}概述`} aria-expanded={overviewOpen}
         onClick={onToggleOverview}>
@@ -812,11 +828,14 @@ function RevisionExtras({ revision, previous, projectPath, expandedSubject, open
   const items = visibleItems(revision)
   const expandedItem = items.find((item) => item.subject === expandedSubject)
   const revisionDate = formatTimestamp(revision.createdAt, true)
-  // 草稿是每版本一份，随「哪一版在补充修订」一起处理：切版本时不应把上一版的要求带过去。
-  const openRevision = () => {
-    onToggleRevise(true)
-    requestAnimationFrame(() => revisionInput.current?.focus())
-  }
+  /*
+   * 聚焦与滚动只由「编辑器是否打开」这一个信号驱动，不跟着某个按钮走：
+   * 卡片上的笔（结果区）与版本级按钮（这里）都能打开它，而编辑框本身位于**所有**卡片之后，
+   * 若只有本地按钮聚焦，点卡片上的笔就没有任何可见反馈，用户会以为按钮坏了。
+   */
+  useEffect(() => {
+    if (openRevise) requestAnimationFrame(() => revisionInput.current?.focus())
+  }, [openRevise])
   return <section className="wb-revision-extras" data-revision-extras={revision.id}>
     {/* 工具栏只留本版本自己的动作（启用文风）；视图切换已提到结果区顶部统一一份。 */}
     {styleState && <div className="wb-results-tools">
@@ -849,7 +868,7 @@ function RevisionExtras({ revision, previous, projectPath, expandedSubject, open
       <div className="wb-revision-head">
         {/* 版本标题行删掉之后，这里就是唯一能标明「这一组版本级内容属于哪一版」的地方。 */}
         {revisionDate && <span className="wb-revision-date">{revisionDate}</span>}
-        <button aria-expanded={openRevise} onClick={() => openRevise ? onToggleRevise(false) : openRevision()}><PencilLine />补充修订</button>
+        <button aria-expanded={openRevise} onClick={() => onToggleRevise(!openRevise)}><PencilLine />补充修订</button>
       </div>
       {openRevise && <><label className="wb-request"><span>补充修订要求</span><textarea ref={revisionInput} rows={3} value={requirements} onChange={(e) => onRequirements(e.target.value)} maxLength={4000} aria-label="补充修订要求" /></label>
         <button disabled={!requirements.trim() || revising} onClick={() => void onRevise(requirements.trim())?.catch(reportError)}><RefreshCw />生成修订版本</button></>}

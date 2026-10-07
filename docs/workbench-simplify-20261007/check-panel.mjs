@@ -15,7 +15,7 @@
  *
  * 运行：node docs/workbench-simplify-20261007/check-panel.mjs
  */
-import { readFileSync, readdirSync } from "node:fs"
+import { readFileSync, readdirSync, statSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -29,6 +29,8 @@ const check = (ok, label, detail = "") => {
   if (ok) notes.push(`  OK   ${label}${detail ? `  — ${detail}` : ""}`)
   else failures.push(`  FAIL ${label}${detail ? `  — ${detail}` : ""}`)
 }
+/** 不适用（而不是通过）的检查：必须显式说出来，免得被当成已覆盖。 */
+const note = (label) => notes.push(`  ..   ${label}（本项不适用，未计入通过数）`)
 const grab = (src, re, label) => {
   const m = src.match(re)
   if (!m) { failures.push(`  FAIL 取不到「${label}」（源码结构变了，检查脚本要同步）`); return "" }
@@ -56,7 +58,30 @@ const cardActionsClass = grab(tsx, /<span className="(wb-card-actions)">/, "卡�
 const viewRulesBtn = grab(tsx, /<button aria-label=\{`查看\$\{item\.subject\}规则`\}[^>]*>/, "查看规则按钮")
 const reviseBtnClass = grab(tsx, /<button className="(wb-icon)" aria-label=\{`补充\$\{item\.subject\}修订要求`\}/, "补充修订按钮 class")
 
-// 注入 CSS：dist 全部 CSS + 源文件里的 workbench CSS（后者比 dist 新）
+/*
+ * 注入 CSS：dist 构建产物 + 源文件里的 workbench CSS。
+ *
+ * 为什么两包都要：dist 代表「真正发货的样式」，源文件代表「当前真相」。
+ * 但混注有一个真实的保真度陷阱（由独立审查实测指出，两个方向都发生了）：
+ *   - 源 CSS 里删掉某条规则、dist 不动 → dist 里那份仍然命中，「断言通过」是假的（漏报）；
+ *   - 源 CSS 正确、dist 里还留着旧写法 → 旧写法生效，报出根本不存在的 FAIL（误报）。
+ * 两个方向都是「dist 陈旧」造成的，所以这里在注入前先钉死新鲜度：源文件比 dist 新就直接失败。
+ * 只报错不自动构建：脚本应当说清「你测的不是你刚改的代码」，而不是悄悄替人做决定。
+ */
+let newestDistCss = null
+for (const f of readdirSync(join(repo, "dist/assets"))) {
+  if (!f.endsWith(".css")) continue
+  const full = join(repo, "dist/assets", f)
+  const m = statSync(full).mtimeMs
+  if (!newestDistCss || m > newestDistCss.mtime) newestDistCss = { f, mtime: m }
+}
+const sourceCssPath = join(repo, "src/components/novel/book-analysis-workbench.css")
+const sourceMtime = statSync(sourceCssPath).mtimeMs
+check(Boolean(newestDistCss), "dist 里有构建出的 CSS（没有就说明还没 build，几何检查无意义）")
+check(Boolean(newestDistCss) && newestDistCss.mtime >= sourceMtime,
+  "dist 构建产物不比源 CSS 旧（陈旧 dist 会掩盖源文件的 CSS 回归）",
+  newestDistCss ? `最新 dist ${newestDistCss.f} @ ${new Date(newestDistCss.mtime).toISOString()} vs 源 @ ${new Date(sourceMtime).toISOString()}` : "无 dist")
+
 let allCss = ""
 for (const f of readdirSync(join(repo, "dist/assets"))) {
   if (f.endsWith(".css")) allCss += readFileSync(join(repo, "dist/assets", f), "utf8") + "\n"
@@ -70,6 +95,19 @@ check(/\.wb-card-actions\s*\{/.test(allCss), "注入的 CSS 里确实有 .wb-car
 check(/\.wb-card-list\s*\{/.test(allCss), "注入的 CSS 里确实有 .wb-card-list（合并列表容器）")
 // 反向断言：版本标题行的规则必须已经消失，否则说明夹具还在测旧结构
 check(!/\.wb-revision-heading\s*\{/.test(allCss), "注入的 CSS 里已无 .wb-revision-heading（标题行确已删除）")
+/*
+ * 跳转锚点必须能真实参与布局。jsdom 量不到几何，但源 CSS 里有没有把它做成
+ * 「不占位」是可以静态判定的：绝对定位的网格子项不参与网格布局、零高度/display:none
+ * 同样不占位，scrollIntoView 就会落到错误的位置。
+ */
+{
+  const blockRule = panelCss.match(/\.wb-revision-block\{[^}]*\}/)?.[0] ?? ""
+  check(Boolean(blockRule), "源 CSS 里有 .wb-revision-block 规则")
+  check(!/position:\s*absolute|position:\s*fixed/.test(blockRule), "锚点 .wb-revision-block 不是绝对定位（否则不参与布局、滚动位置会错）", blockRule)
+  check(!/height:\s*0|max-height:\s*0|display:\s*none/.test(blockRule), "锚点 .wb-revision-block 没有被压成零高度/隐藏", blockRule)
+  // 锚点属性必须落在那个包住卡片网格的 <section> 上，而不是某个空占位元素上
+  check(/<section className="wb-revision-block" data-revision-id=/.test(tsx), "data-revision-id 挂在包住卡片网格的 <section> 上")
+}
 
 if (failures.length) { console.log(failures.join("\n")); process.exit(1) }
 
@@ -241,8 +279,15 @@ async function measure(w, view, cards) {
       out.actions.push({
         withinGroup: Math.round(b.left - a.right),
         viewToRevise: Math.round(a.left - view.getBoundingClientRect().right),
+        // 列表视图下页脚是 160px 的居中列，按钮会换行；换行时左右距离没有意义，得单独标出来
+        sameRow: Math.abs(a.top - view.getBoundingClientRect().top) < 2,
       })
     }
+    // 版本级内容区块之间的间距：两个版本的分组不能糊在一起
+    const extrasEls = [...document.querySelectorAll("[data-revision-extras]")].map((el) => el.getBoundingClientRect())
+    out.extrasGap = extrasEls.length >= 2 ? Math.round(extrasEls[1].top - extrasEls[0].bottom) : null
+    const listEl = list?.getBoundingClientRect()
+    out.listToExtras = listEl && extrasEls[0] ? Math.round(extrasEls[0].top - listEl.bottom) : null
     for (const f of document.querySelectorAll(".wb-card-footer")) {
       const r = f.getBoundingClientRect()
       // 页脚的直接子节点现在是「查看规则按钮 + 动作组容器」，所以按真正的 button 数（含组内）来数。
@@ -295,10 +340,23 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
   // ---- 修订与删除必须紧挨 ----
   check(r.actions.length > 0, `${label}：量到了卡片页脚的动作组`, `实得 ${r.actions.length}`)
   const worstGroup = Math.max(...r.actions.map((a) => a.withinGroup))
-  const minViewToRevise = Math.min(...r.actions.map((a) => a.viewToRevise))
   check(worstGroup <= 10, `${label}：修订与删除两个按钮紧挨（间距 ≤ 10px）`, `最宽 ${worstGroup}px`)
-  check(minViewToRevise > worstGroup, `${label}：动作组内部间距明显小于「查看规则→修订」的距离（真的是挨着，不是都挤在一起）`,
-    `组内 ${worstGroup}px vs 查看规则→修订 ${minViewToRevise}px`)
+  /*
+   * 「组内 < 查看规则→修订」只在两者同处一行时才是有效对比。
+   * 列表视图的页脚是 160px 居中列，三个按钮会换行，此时左右距离没有意义
+   * （实测 8px 只是换行后右边缘的巧合），所以那里不做这项比较。
+   */
+  const sameRow = r.actions.filter((a) => a.sameRow)
+  if (sameRow.length) {
+    const minViewToRevise = Math.min(...sameRow.map((a) => a.viewToRevise))
+    check(minViewToRevise > worstGroup, `${label}：动作组内部间距明显小于「查看规则→修订」的距离（真的是挨着，不是都挤在一起）`,
+      `组内 ${worstGroup}px vs 查看规则→修订 ${minViewToRevise}px（同排 ${sameRow.length}/${r.actions.length}）`)
+  } else {
+    note(`${label}：页脚按钮换行（${r.actions.length} 张卡都不同排），跳过「组内 < 查看规则→修订」的左右距离对比`)
+  }
+  // ---- 版本级内容的分组间距：两个版本不能糊在一起 ----
+  check(r.extrasGap !== null && r.extrasGap > 0, `${label}：两个版本的版本级内容之间有间距（不糊成一块）`, `实测 ${r.extrasGap}px`)
+  check(r.listToExtras !== null && r.listToExtras >= 0, `${label}：合并列表与版本级内容之间有间距`, `实测 ${r.listToExtras}px`)
 
   // ---- 展开的补充修订：输入框铺满整行（整段变 flex 会把它挤成内容宽）----
   check(r.requestWidth > 0 && r.textareaWidth > 0, `${label}：量到了展开的补充修订输入框`, `label ${r.requestWidth}px / textarea ${r.textareaWidth}px`)

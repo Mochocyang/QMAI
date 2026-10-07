@@ -469,6 +469,26 @@ describe("旧版结果并入页签", () => {
     expect(ids[1]).toBe("rev-characters-new")
   })
 
+  it("旧版导入的卡片不显示「待确认」徽标（它永远不会被自动入库，那是用户消不掉的假待办）", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const legacyCard = host.querySelector('[data-revision-id^="legacy-chars-"] .wb-skill-card')!
+    // 来源仍要看得见（由 .wb-origin-tag 说明）。这份 fixture 的角色没有结构化规则，
+    // 所以文案是「旧版资料导入 · 无结构化规则」而非「旧版导入」。
+    const originTag = legacyCard.querySelector(".wb-origin-tag")!
+    expect(originTag).not.toBeNull()
+    expect(originTag.textContent).toContain("旧版")
+    /*
+     * 关键：自动入库显式跳过 origin==="legacy"，工作台里也没有「确认并加入」入口，
+     * 所以 legacy 版本的 confirmedAt 永远是 undefined。给它渲染「待确认」＝
+     * 一个用户无论如何操作都无法消除的待办提示，还与同卡片的「旧版导入」自相矛盾。
+     */
+    expect(legacyCard.querySelector(".wb-card-status")).toBeNull()
+    expect(legacyCard.textContent).not.toContain("待确认")
+  })
+
   it("既无人格块也无散文字段的角色显示「无可用资料」而不是「未加入灵魂库」", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     // 徽标与按钮必须用同一个 publishable 判定：按钮已经点不动了，
@@ -979,6 +999,20 @@ describe("合并版本列表与卡片操作", () => {
     await act(async () => root.render(<BookAnalysisWorkbench />))
     const ids = [...host.querySelectorAll("[data-revision-id]")].map((el) => el.getAttribute("data-revision-id"))
     expect(ids).toEqual(["rev-old", "rev-new"])
+    /*
+     * 光有 id 不够：跳转靠 scrollIntoView，锚点必须是**真实占据布局**的容器。
+     * jsdom 没有排版，量不到几何，所以这里退一步钉住结构：
+     * 锚点必须就是那个包住本版卡片网格的 <section>，而不是 0 高度的空占位元素
+     * （空占位在真实浏览器里滚动位置会是错的；CSS 侧的绝对定位/零高度另由
+     * check-panel.mjs 对源 CSS 做反向断言）。
+     */
+    for (const id of ["rev-old", "rev-new"]) {
+      const anchor = host.querySelector(`[data-revision-id="${id}"]`)!
+      expect(anchor.tagName).toBe("SECTION")
+      expect(anchor.classList.contains("wb-revision-block")).toBe(true)
+      expect(anchor.querySelector(".wb-skill-grid")).not.toBeNull()
+      expect(anchor.querySelectorAll(".wb-skill-card").length).toBeGreaterThan(0)
+    }
   })
 
   it("版本级内容排在合并列表之后，且不在合并列表内部", async () => {
@@ -992,21 +1026,81 @@ describe("合并版本列表与卡片操作", () => {
   it("两个版本都有「许七安」时，点其中一张卡的「查看规则」只展开它自己那一版", async () => {
     mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    await act(async () => (inBlock("rev-old", '[aria-label="查看许七安规则"]') as HTMLButtonElement).click())
+    const ruleBtn = (id: string) => inBlock(id, '[aria-label="查看许七安规则"]') as HTMLButtonElement
+    // 先断言两张卡初始都没展开：否则「只有 A 展开」可能只是「谁都没展开」。
+    expect(ruleBtn("rev-old").getAttribute("aria-expanded")).toBe("false")
+    expect(ruleBtn("rev-new").getAttribute("aria-expanded")).toBe("false")
+    await act(async () => ruleBtn("rev-old").click())
     expect(extras("rev-old")!.querySelector(".wb-rule-detail")).not.toBeNull()
     // 关键：新版本里同名角色的规则详情**不能**跟着一起出现。
     expect(extras("rev-new")!.querySelector(".wb-rule-detail")).toBeNull()
+    /*
+     * 还必须断言**卡片自身**的展开态。只查 .wb-rule-detail 是不够的：
+     * 那一处用的是 extras 的 expandedSubject 判定（另一条路径），
+     * 把卡片的 expanded 判定退化成「只看对象名」时它照样通过，
+     * 而界面上 B 版会错误地显示「收起规则」——这正是复合键要消灭的状态串。
+     */
+    expect(ruleBtn("rev-old").getAttribute("aria-expanded")).toBe("true")
+    expect(ruleBtn("rev-old").textContent).toContain("收起规则")
+    expect(ruleBtn("rev-new").getAttribute("aria-expanded")).toBe("false")
+    expect(ruleBtn("rev-new").textContent).toContain("查看规则")
   })
 
-  it("两个版本都有「许七安」时，删除按钮作用于被点那一版", async () => {
+  it("删除按钮作用于被点那一版：点第二版（不是列表第一版）也必须删它", async () => {
     mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    await act(async () => (inBlock("rev-old", '[aria-label="删除许七安"]') as HTMLButtonElement).click())
+    /*
+     * 故意点 rev-new——它是合并列表里的**第二**版。曾经这里点的是 rev-old，
+     * 而 rev-old 恰好就是 orderedRevisions[0]，于是「永远删第一版」这种实现也能通过，
+     * 用例对它的命名是空洞的（不可撤销的删除必须真的钉住版本）。
+     */
+    await act(async () => (inBlock("rev-new", '[aria-label="删除许七安"]') as HTMLButtonElement).click())
     const del = [...document.body.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
       .find((b) => b.textContent?.trim() === "删除")!
     await act(async () => del.click())
     expect(mocks.removeRevisionItem).toHaveBeenCalledTimes(1)
-    expect(mocks.removeRevisionItem.mock.calls[0][0].revision.id).toBe("rev-old")
+    expect(mocks.removeRevisionItem.mock.calls[0][0].revision.id).toBe("rev-new")
+  })
+
+  it("两个版本的补充修订草稿互不覆盖（点另一版的笔不会清空已输入内容）", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const pencil = (id: string) => inBlock(id, '[aria-label="补充许七安修订要求"]') as HTMLButtonElement
+    const textarea = (id: string) =>
+      extras(id)!.querySelector<HTMLTextAreaElement>('textarea[aria-label="补充修订要求"]')
+    await act(async () => pencil("rev-new").click())
+    expect(textarea("rev-new")).not.toBeNull()
+    await act(async () => {
+      const el = textarea("rev-new")!
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!
+      setter.call(el, "给新版本的要求")
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(textarea("rev-new")!.value).toBe("给新版本的要求")
+    /*
+     * 同一时刻只开一个编辑器（切到另一版会收起这一版），但草稿必须留在状态里：
+     * 走开再回来还得是原来那段字。所以断言「回来之后仍在」，而不是「同时可见」。
+     */
+    await act(async () => pencil("rev-old").click())
+    expect(textarea("rev-old")).not.toBeNull()
+    expect(textarea("rev-old")!.value).toBe("")
+    expect(textarea("rev-new")).toBeNull()
+    await act(async () => pencil("rev-new").click())
+    expect(textarea("rev-new")!.value).toBe("给新版本的要求")
+    expect(textarea("rev-old")).toBeNull()
+  })
+
+  it("点卡片上的笔会把版本级编辑器打开并聚焦（否则在长列表里毫无反馈）", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(extras("rev-new")!.querySelector('textarea[aria-label="补充修订要求"]')).toBeNull()
+    await act(async () => (inBlock("rev-new", '[aria-label="补充许七安修订要求"]') as HTMLButtonElement).click())
+    const textarea = extras("rev-new")!.querySelector<HTMLTextAreaElement>('textarea[aria-label="补充修订要求"]')!
+    expect(textarea).not.toBeNull()
+    // 聚焦走 requestAnimationFrame，得让它先跑一拍。
+    await act(async () => { await new Promise((done) => requestAnimationFrame(() => done(null))) })
+    // 聚焦是承重的：编辑器位于所有卡片之后，不聚焦就没有任何可见反馈。
+    expect(document.activeElement).toBe(textarea)
   })
 
   it("展开概述的状态同样按版本隔离", async () => {
