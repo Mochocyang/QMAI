@@ -54,12 +54,27 @@ if (!ls.ok || !lsMain.ok) {
   const mainSha = lsMain.out.split(/\s+/)[0]
 
   const problems = []
-  if (mainSha !== RECORDED) problems.push(`远端 main = ${mainSha}，应为 ${RECORDED}`)
+  /*
+   * 两个不变量要分开看：
+   *  - 打标签那一刻：main 必须**恰好等于** release commit（脚本原本只查这个）。
+   *  - 发版之后：main 可以合法前进（后续修复提交），但 release commit
+   *    必须仍是 main 的祖先；标签永远不许移动。
+   * 只查"恰好等于"会在任何后续提交之后误报 —— 而它看起来跟真问题一模一样。
+   */
+  const mainIsRecorded = mainSha === RECORDED
+  let mainAhead = false
+  if (!mainIsRecorded) {
+    const anc = run("git", ["merge-base", "--is-ancestor", RECORDED, mainSha])
+    mainAhead = anc.ok
+  }
+  if (!mainIsRecorded && !mainAhead) {
+    problems.push(`远端 main = ${mainSha}，既不是 ${RECORDED} 也不是它的后继`)
+  }
   if (!direct) problems.push(`远端没有 ${TAG}`)
   if (!peeled) {
     problems.push(`远端 ${TAG} 没有剥离引用 —— 说明它是轻量标签而非 annotated tag`)
   } else if (peeledSha !== RECORDED) {
-    problems.push(`解引用标签 = ${peeledSha}，应为 ${RECORDED}`)
+    problems.push(`解引用标签 = ${peeledSha}，应为 ${RECORDED}（标签被移动了？）`)
   }
   // annotated tag：对象 SHA 与它指向的 commit SHA 必然不同
   if (direct && peeled && directSha === peeledSha) {
@@ -72,7 +87,12 @@ if (!ls.ok || !lsMain.ok) {
     process.exitCode = 1
   } else {
     console.log(`\n  OK annotated tag ${TAG}（对象 ${directSha.slice(0, 10)}）`)
-    console.log(`     解引用后指向 commit ${peeledSha}，与远端 main 一致`)
+    console.log(`     解引用后指向 commit ${peeledSha} —— 标签正确且未移动`)
+    console.log(
+      mainIsRecorded
+        ? `     远端 main 恰为 release commit`
+        : `     远端 main 已前进到 ${mainSha.slice(0, 10)}（release commit 仍是其祖先，属正常后续提交）`,
+    )
   }
 }
 
