@@ -100,6 +100,21 @@ export async function ensureLegacyCharacterAura(
   return { auraId: aura.id, auraName: aura.name }
 }
 
+/**
+ * 拆书角色灵魂的确定性 id。
+ *
+ * 发布与删除必须共用这一个推导：两处各写一遍 sha256 迟早会漂移，
+ * 结果是「删掉的」和「发布的」不是同一条（设计 §6.2）。
+ *
+ * 注意：这个 id 只是**推导值**，不是 aura 的主键——真正的 aura id 由
+ * createCustomCharacterAuraFromGeneratedSkill 生成的 `custom-...`（character-aura.ts:432）。
+ * 删除侧因此还要按同源判据 isSameBookAnalysisCharacterAura 解析真实 id，
+ * 见 workbench-remove.ts 的 removeCharacterAura。
+ */
+export async function workbenchAuraId(subject: string): Promise<string> {
+  return `wb-${(await sha256Text(subject)).slice(0, 16)}`
+}
+
 export async function publishWorkbenchCharacter(
   projectPath: string,
   revision: WorkbenchRevision,
@@ -109,7 +124,7 @@ export async function publishWorkbenchCharacter(
   const skillContent = workbenchSkillContent(item, revision)
   const orders = revision.coverage.map((c) => c.order).filter((order) => Number.isFinite(order))
   const character: ExtractedCharacter = {
-    id: `wb-${(await sha256Text(item.subject)).slice(0, 16)}`, name: item.subject, aliases: [], importance: 0, category: "supporting",
+    id: await workbenchAuraId(item.subject), name: item.subject, aliases: [], importance: 0, category: "supporting",
     // 迁移版本的 coverage 是空的：Math.min()/Math.max() 空参会得到 ±Infinity，
     // 而散文兜底链会把它读成「第 Infinity 章」。夹到 1。
     firstAppearance: orders.length ? Math.min(...orders) : 1, lastAppearance: orders.length ? Math.max(...orders) : 1,

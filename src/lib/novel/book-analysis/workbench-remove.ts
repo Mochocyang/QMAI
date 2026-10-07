@@ -1,0 +1,93 @@
+/**
+ * 从拆书结果中删除单个条目 —— 并「连使用库一起真删」。
+ *
+ * 用户诉求（docs/workbench-simplify-20261007/design.html §6）：分析结果自动入库后，
+ * 结果面板不再有整版「确认并加入」，改成每张卡片上一个删除按钮 + 确认弹窗；
+ * 删除要真删使用库里的对应条目，同时把 subject 记进版本的 removedSubjects，
+ * 这样重新打开页面不会又把已删卡片渲染回来。
+ *
+ * 三技能页的库条目粒度不同（这是本模块存在的理由，不是可以合并的分支）：
+ *  - characters：一个对象 = 一个角色灵魂，删谁删谁
+ *  - style     ：整版只生成 1 个文风预设，删任一对象 = 删整个预设
+ *  - story     ：整版只生成 1 个故事框架，删任一对象 = 删整个框架
+ */
+import { sanitizeRemovedSubjects, type WorkbenchRevision } from "./workbench-core"
+import { saveWorkbenchRevision } from "./workbench-storage"
+import { workbenchAuraId } from "./workbench-publish"
+import { deleteCustomCharacterAura, loadCharacterAuraStore } from "../character-aura"
+import { removePlotFramework } from "../plot-framework-library"
+import { removeWritingStylePresetBySourceBook } from "../writing-style-store"
+import { isSameBookAnalysisCharacterAura } from "./aura-match"
+
+/** 故事框架的 id 是确定性的（workbench-publish 发布时用同一表达式）。 */
+export function workbenchStoryFrameworkId(bookId: string): string {
+  return `wb-story-${bookId}`
+}
+
+export interface RemoveWorkbenchItemInput {
+  projectPath: string
+  bookPath: string
+  revision: WorkbenchRevision
+  subject: string
+}
+
+/**
+ * 删除某个拆书角色在灵魂库里的条目。
+ *
+ * 为什么不能只用 workbenchAuraId(subject)：该推导值**不是 aura 的主键**。
+ * aura 的 id 由 createCustomCharacterAuraFromGeneratedSkill 生成
+ * （character-aura.ts:432 `custom-${now}-${random}`），而 publishWorkbenchCharacter 里
+ * 那个 `wb-${sha256}` 只赋给一个从不外传的临时 ExtractedCharacter.id。
+ * deleteCustomCharacterAura 又是按 id 精确过滤、查不到也不抛错——
+ * 只按推导值删会「静默成功」：卡片消失、灵魂仍在库里。
+ *
+ * 所以这里先用与发布完全相同的同源判据 isSameBookAnalysisCharacterAura
+ * （workbench-publish.ts:139 找 existing 用的就是它）解析出真实条目。
+ * 而且**有名字就全删**：新版发布与 legacy 导入是两套 id 体系，同一本书同一个人
+ * 可能各留一条，只删 find 到的第一条会留下同名残留。
+ * 一条都匹配不上才退回推导值调一次，保持「删不存在的目标不抛错」。
+ */
+async function removeCharacterAura(projectPath: string, bookTitle: string, subject: string): Promise<void> {
+  const deterministicId = await workbenchAuraId(subject)
+  const store = await loadCharacterAuraStore(projectPath)
+  const targets = new Set(
+    store.customAuras
+      .filter((aura) => isSameBookAnalysisCharacterAura(aura, bookTitle, subject))
+      .map((aura) => aura.id),
+  )
+  if (store.customAuras.some((aura) => aura.id === deterministicId)) targets.add(deterministicId)
+  const auraIds = targets.size ? [...targets] : [deterministicId]
+  // deleteCustomCharacterAura 每次自行 load+save 并连带解除绑定，逐个调用是安全的。
+  for (const auraId of auraIds) await deleteCustomCharacterAura(projectPath, auraId)
+}
+
+export async function removeWorkbenchRevisionItem(
+  input: RemoveWorkbenchItemInput,
+): Promise<WorkbenchRevision> {
+  const { projectPath, bookPath, revision, subject } = input
+
+  let removedSubjects: string[]
+  if (revision.skill === "characters") {
+    await removeCharacterAura(projectPath, revision.bookTitle, subject)
+    removedSubjects = [subject]
+  } else if (revision.skill === "style") {
+    // 整版只有一个文风预设：删任一对象即删整版，并把该版本全部对象都记进 removedSubjects，
+    // 否则会出现「预设已删、同版另一个对象还显示着」的不一致状态。
+    await removeWritingStylePresetBySourceBook(projectPath, revision.bookTitle)
+    removedSubjects = revision.items.map((item) => item.subject)
+  } else if (revision.skill === "story") {
+    await removePlotFramework(projectPath, workbenchStoryFrameworkId(revision.bookId))
+    removedSubjects = revision.items.map((item) => item.subject)
+  } else {
+    // 静默什么都不做最危险：库没删、记录也没写，调用方却以为删成功。
+    throw new Error(`未知技能页「${revision.skill}」，无法删除条目`)
+  }
+
+  const next: WorkbenchRevision = {
+    ...revision,
+    // sanitizeRemovedSubjects 顺带完成去重，因此重复删除是幂等的。
+    removedSubjects: sanitizeRemovedSubjects([...(revision.removedSubjects ?? []), ...removedSubjects]),
+  }
+  await saveWorkbenchRevision(bookPath, next)
+  return next
+}

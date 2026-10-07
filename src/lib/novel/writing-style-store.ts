@@ -136,6 +136,47 @@ export async function setEnabledWritingStyle(projectPath: string, styleId: strin
   return next
 }
 
+/**
+ * 删除预设的公共实现（拆书库「删除条目」要连使用库一起真删）。
+ *
+ * 两个要点：
+ *  1. 删掉的正好是当前启用项时必须把 enabledStyleId 置 null——否则留下一个
+ *     指向不存在预设的悬空启用项，getEnabledWritingStyle 会静默返回 null，
+ *     而盘上的状态看起来「还在启用文风」。
+ *  2. 删不到目标时不抛错、store 内容不变（删除接口要可重入：重复点删除、
+ *     或删一个手动清理过的预设，都不该报错）。
+ */
+async function removeWritingStylePresets(
+  projectPath: string,
+  match: (preset: WritingStylePreset) => boolean,
+): Promise<WritingStyleStore> {
+  const store = await loadWritingStyleStore(projectPath)
+  const styles = store.styles.filter((preset) => !match(preset))
+  const enabledRemoved = store.enabledStyleId !== null
+    && !styles.some((preset) => preset.id === store.enabledStyleId)
+  const next: WritingStyleStore = {
+    ...store,
+    styles,
+    enabledStyleId: enabledRemoved ? null : store.enabledStyleId,
+  }
+  await saveWritingStyleStore(projectPath, next)
+  return next
+}
+
+/** 按 id 删除一个文风预设。 */
+export async function removeWritingStylePreset(projectPath: string, styleId: string): Promise<WritingStyleStore> {
+  return removeWritingStylePresets(projectPath, (preset) => preset.id === styleId)
+}
+
+/**
+ * 按来源作品删除文风预设。
+ * 一本书最多只有一个预设（upsertWritingStylePreset 按 sourceBook 去重），
+ * 拆书结果「删除某个文风对象」即删掉整版这一个预设。
+ */
+export async function removeWritingStylePresetBySourceBook(projectPath: string, sourceBook: string): Promise<WritingStyleStore> {
+  return removeWritingStylePresets(projectPath, (preset) => preset.sourceBook === sourceBook)
+}
+
 export async function getEnabledWritingStyle(projectPath: string): Promise<WritingStylePreset | null> {
   const store = await loadWritingStyleStore(projectPath)
   if (!store.enabledStyleId) return null

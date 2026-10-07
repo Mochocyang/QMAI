@@ -3,7 +3,7 @@ import { joinPath } from "@/lib/path-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { sha256Text } from "@/lib/context-hub/fingerprint"
 import { loadChapterList } from "./analysis-engine"
-import type { WorkbenchRevision } from "./workbench-core"
+import { sanitizeRemovedSubjects, type WorkbenchRevision } from "./workbench-core"
 
 export async function readWorkbenchChapters(bookPath: string, ids?: string[]) {
   const list = await loadChapterList(bookPath)
@@ -34,7 +34,8 @@ export async function loadWorkbenchRevisions(bookPath: string): Promise<Workbenc
     if (file.is_dir || !file.name.endsWith(".json")) continue
     const value = JSON.parse(await readFile(file.path)) as WorkbenchRevision
     if (value.workbenchVersion !== 2 || !Array.isArray(value.items) || !Array.isArray(value.evidence)) throw new Error("拆书结果版本损坏，请检查文件")
-    results.push(value)
+    // removedSubjects 只用于隐藏已删卡片：清洗而非抛错，缺字段的旧数据必须照常读出。
+    results.push({ ...value, removedSubjects: sanitizeRemovedSubjects(value.removedSubjects) })
   }
   return results.sort((a, b) => b.createdAt - a.createdAt)
 }

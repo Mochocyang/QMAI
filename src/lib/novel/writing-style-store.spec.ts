@@ -23,6 +23,8 @@ import {
   setEnabledWritingStyle,
   getEnabledWritingStyle,
   buildWritingStyleContext,
+  removeWritingStylePreset,
+  removeWritingStylePresetBySourceBook,
 } from "./writing-style-store"
 
 const PROJECT = "E:/Novel"
@@ -292,5 +294,68 @@ describe("writing-style-store · Writing DNA 注入", () => {
     expect(ctx).toContain("环境描写不超过 2 句")
     expect(ctx).toContain("…")
     expect(ctx.length).toBeLessThan(6000)
+  })
+})
+
+/**
+ * 文风预设删除（设计 §7：文风库原本没有任何删除接口）。
+ * 删除是「连使用库一起真删」，所以启用态必须跟着一起清，不能留下悬空启用项。
+ */
+describe("文风预设删除", () => {
+  it("按 id 删掉对应预设，其它预设保留", async () => {
+    const target = await upsertWritingStylePreset(PROJECT, { name: "甲书 · 文风", sourceBook: "甲书", profile: makeProfile() })
+    const keep = await upsertWritingStylePreset(PROJECT, { name: "乙书 · 文风", sourceBook: "乙书", profile: makeProfile() })
+
+    const next = await removeWritingStylePreset(PROJECT, target.id)
+
+    expect(next.styles.map((preset) => preset.id)).toEqual([keep.id])
+    expect((await loadWritingStyleStore(PROJECT)).styles.map((preset) => preset.id)).toEqual([keep.id])
+  })
+
+  it("按 sourceBook 删掉对应预设，其它来源的预设保留", async () => {
+    await upsertWritingStylePreset(PROJECT, { name: "甲书 · 文风", sourceBook: "甲书", profile: makeProfile() })
+    const keep = await upsertWritingStylePreset(PROJECT, { name: "乙书 · 文风", sourceBook: "乙书", profile: makeProfile({ narrativeDensity: "乙书的密度" }) })
+
+    const next = await removeWritingStylePresetBySourceBook(PROJECT, "甲书")
+
+    expect(next.styles.map((preset) => preset.id)).toEqual([keep.id])
+    expect(next.styles[0].profile.narrativeDensity).toBe("乙书的密度")
+    expect((await loadWritingStyleStore(PROJECT)).styles).toHaveLength(1)
+  })
+
+  it("删掉的正是当前启用项时必须清空 enabledStyleId，不留悬空的启用项", async () => {
+    const target = await upsertWritingStylePreset(PROJECT, { name: "甲书 · 文风", sourceBook: "甲书", profile: makeProfile() })
+    await setEnabledWritingStyle(PROJECT, target.id)
+
+    const next = await removeWritingStylePresetBySourceBook(PROJECT, "甲书")
+
+    expect(next.enabledStyleId).toBeNull()
+    expect((await loadWritingStyleStore(PROJECT)).enabledStyleId).toBeNull()
+    expect(await getEnabledWritingStyle(PROJECT)).toBeNull()
+    expect(await buildWritingStyleContext(PROJECT)).toBe("")
+  })
+
+  it("删的不是当前启用项时启用态原样保留", async () => {
+    const enabled = await upsertWritingStylePreset(PROJECT, { name: "乙书 · 文风", sourceBook: "乙书", profile: makeProfile() })
+    await upsertWritingStylePreset(PROJECT, { name: "甲书 · 文风", sourceBook: "甲书", profile: makeProfile() })
+    await setEnabledWritingStyle(PROJECT, enabled.id)
+
+    const next = await removeWritingStylePresetBySourceBook(PROJECT, "甲书")
+
+    expect(next.enabledStyleId).toBe(enabled.id)
+    expect((await getEnabledWritingStyle(PROJECT))?.id).toBe(enabled.id)
+  })
+
+  it("删不存在的目标不抛错，store 内容不变", async () => {
+    const keep = await upsertWritingStylePreset(PROJECT, { name: "甲书 · 文风", sourceBook: "甲书", profile: makeProfile() })
+    const before = await loadWritingStyleStore(PROJECT)
+
+    const byId = await removeWritingStylePreset(PROJECT, "style-does-not-exist")
+    expect(byId.styles.map((preset) => preset.id)).toEqual([keep.id])
+    expect(byId.enabledStyleId).toEqual(before.enabledStyleId)
+
+    const byBook = await removeWritingStylePresetBySourceBook(PROJECT, "没有这本书")
+    expect(byBook).toEqual(byId)
+    expect(await loadWritingStyleStore(PROJECT)).toEqual(byId)
   })
 })

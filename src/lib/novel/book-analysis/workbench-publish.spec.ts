@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { sha256Text } from "@/lib/context-hub/fingerprint"
-import { inspectWorkbenchPublication, confirmWorkbenchRevision, publishWorkbenchCharacter, ensureLegacyCharacterAura } from "./workbench-publish"
+import { inspectWorkbenchPublication, confirmWorkbenchRevision, publishWorkbenchCharacter, ensureLegacyCharacterAura, workbenchAuraId } from "./workbench-publish"
 import { saveWorkbenchRevision, workbenchRevisionPath } from "./workbench-storage"
 import { buildEvidenceCandidates, type WorkbenchRevision } from "./workbench-core"
 import { upsertWritingStylePreset } from "../writing-style-store"
@@ -50,6 +50,28 @@ beforeEach(async () => {
   }
   await saveWorkbenchRevision(bookPath, revision)
 })
+/**
+ * 灵魂 id 推导（设计 §6.2／plan §0 冻结接口）。
+ *
+ * 发布侧与删除侧必须用同一个推导函数，否则「删掉的」和「发布的」不是同一条。
+ * 这里钉住推导公式本身（含 sha256 前 16 位），删除侧另有真实场景守卫
+ * （workbench-remove.spec.ts「发布与删除同源守卫」）。
+ */
+describe("灵魂 id 推导（发布与删除同源）", () => {
+  it("形如 wb- 加 16 位十六进制，且与 sha256 推导一致", async () => {
+    for (const subject of ["许七安", "魏渊", "A B", "甲"]) {
+      const id = await workbenchAuraId(subject)
+      expect(id).toMatch(/^wb-[0-9a-f]{16}$/)
+      expect(id).toBe(`wb-${(await sha256Text(subject)).slice(0, 16)}`)
+    }
+  })
+
+  it("同一对象稳定，不同对象不同", async () => {
+    expect(await workbenchAuraId("许七安")).toBe(await workbenchAuraId("许七安"))
+    expect(await workbenchAuraId("许七安")).not.toBe(await workbenchAuraId("魏渊"))
+  })
+})
+
 describe("版本确认入库", () => {
   it("文风确认保留结构画像、代表片段与作品来源，不自动启用", async () => {
     revision.skill = "style"

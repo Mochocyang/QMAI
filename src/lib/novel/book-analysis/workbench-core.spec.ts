@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildWorkbenchPlan, buildEvidenceCandidates, parseWorkbenchItem, validateCoverage } from "./workbench-core"
+import { buildWorkbenchPlan, buildEvidenceCandidates, parseWorkbenchItem, sanitizeRemovedSubjects, validateCoverage } from "./workbench-core"
 
 describe("单页拆书的选择、覆盖与证据", () => {
   it("按真实ID拆分全书，不连续选择不补入中间章节", () => {
@@ -59,5 +59,32 @@ describe("单页拆书的选择、覆盖与证据", () => {
     }] }
     expect(parseWorkbenchItem(raw, candidates, "甲", "characters").rules[0].evidenceIds).toEqual([candidates[0].id, candidates[1].id])
     expect(() => parseWorkbenchItem({ ...raw, rules: [{ ...raw.rules[0], evidenceIds: ["伪造A", "伪造B"] }] }, candidates, "甲", "characters")).toThrow("证据")
+  })
+})
+
+/**
+ * removedSubjects 的来源是磁盘上的旧数据与用户点击，两者都不可信：
+ * 这个字段只用于「隐藏已删卡片」，非法值一律丢弃，绝不因为一个记录字段让整版结果读不出来。
+ */
+describe("已删除条目的清洗（sanitizeRemovedSubjects）", () => {
+  it("非数组输入一律得到空数组", () => {
+    expect(sanitizeRemovedSubjects(undefined)).toEqual([])
+    expect(sanitizeRemovedSubjects(null)).toEqual([])
+    expect(sanitizeRemovedSubjects("甲")).toEqual([])
+    expect(sanitizeRemovedSubjects({ subject: "甲" })).toEqual([])
+    expect(sanitizeRemovedSubjects(0)).toEqual([])
+  })
+
+  it("丢弃非字符串、空串与纯空白项", () => {
+    expect(sanitizeRemovedSubjects(["甲", 3, null, undefined, "", "   ", "　", {}, ["乙"], "乙"])).toEqual(["甲", "乙"])
+  })
+
+  it("去重并保留首次出现的顺序", () => {
+    expect(sanitizeRemovedSubjects(["乙", "甲", "乙", "甲", "丙"])).toEqual(["乙", "甲", "丙"])
+  })
+
+  it("合法输入原样返回", () => {
+    expect(sanitizeRemovedSubjects(["许七安", "魏渊"])).toEqual(["许七安", "魏渊"])
+    expect(sanitizeRemovedSubjects([])).toEqual([])
   })
 })

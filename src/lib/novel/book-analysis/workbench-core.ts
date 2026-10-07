@@ -31,6 +31,12 @@ export interface WorkbenchRevision extends WorkbenchOutput {
   selectedChapterIds: string[]; parentRevisionId?: string; createdAt: number
   confirmedAt?: number; publishedIds?: string[]
   /**
+   * 用户从结果面板主动删除掉的条目（subject）。可选、向后兼容。
+   * 用途：删除是「连使用库一起真删」，但拆书结果仍要记住删过谁，
+   * 否则重新打开页面会把已删卡片又渲染出来（库里查不到 ≠ 用户想删）。
+   */
+  removedSubjects?: string[]
+  /**
    * 由旧版作品资料迁移而来。可选、向后兼容——loadWorkbenchRevisions 只校验
    * workbenchVersion/items/evidence，不涉及此字段。
    * 用途：摘要行显示「旧版导入」而非「自动核验通过」（不对未核验数据作声明），
@@ -41,6 +47,30 @@ export interface WorkbenchRevision extends WorkbenchOutput {
 export interface WorkbenchRequest {
   styleProfileVersion?: 1
   selectedChapterIds: string[]; requirements: Partial<Record<AnalysisSkill, string>>; parentRevisionId?: string
+}
+
+/**
+ * 清洗「用户已删除条目」记录（removedSubjects）。
+ *
+ * 这个字段只用来隐藏用户主动删掉的卡片，不是数据主体：来源既有磁盘上的旧数据，
+ * 也有界面点击，两者都不可信。因此非法值一律丢弃成空数组，绝不因为一个记录字段
+ * 让整版结果读不出来（items/evidence 缺失仍抛错，性质不同）。
+ *
+ * 顺带补齐空数组也是刻意的：调用方按 `removedSubjects.includes(subject)` 过滤，
+ * 缺字段时留 undefined 会让渲染直接抛错。
+ */
+export function sanitizeRemovedSubjects(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const subjects: string[] = []
+  for (const raw of value) {
+    if (typeof raw !== "string") continue
+    const subject = raw.trim()
+    if (!subject || seen.has(subject)) continue
+    seen.add(subject)
+    subjects.push(subject)
+  }
+  return subjects
 }
 
 export function buildWorkbenchPlan(
