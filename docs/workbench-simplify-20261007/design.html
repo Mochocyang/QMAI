@@ -95,7 +95,18 @@ export interface WorkbenchItem {
   <ol>
     <li><b>对象没有独立时间戳</b>。所以「生成日期」只能取所属版本的 <code>createdAt</code>。一个对象在不同版本里会显示不同的日期，这是正确且有意义的。</li>
     <li><b>只有角色是「一个对象一个条目」</b>。文风是整版只生成 1 个预设（<code>${书名} · 文风</code>），故事也是整版 1 个框架（<code>${书名} · 故事机制</code>）。</li>
-    <li><b>角色灵魂 id 是确定性推导的</b>：<code>wb-${sha256(subject).slice(0,16)}</code>。发布与删除可以用同一个函数算出同一个 id，不依赖 <code>publishedIds</code> 的持久化。</li>
+    <li><b>角色灵魂的 id 不是确定性的 —— 这一条我一开始判错了，实施中发现并已修正。</b>
+    发布时确实会算 <code>wb-${sha256(subject)}</code>（<code>workbench-publish.ts:112</code>），但它只赋给一个<b>临时的</b>
+    <code>ExtractedCharacter.id</code>，而这个 id <b>传不进 aura</b>（<code>buildGeneratedAuraInputFromBookCharacter</code>
+    只读 name/importance/personalityProfile/corpus，<code>GeneratedCharacterAuraSkillInput</code> 没有 id 字段）。
+    真正落库的 id 由 <code>createCustomCharacterAuraFromGeneratedSkill</code> 生成：
+    <code>custom-${now}-${random}</code> —— <b>每次都不一样</b>。</li>
+    <li>因此删除<b>不能</b>只按 <code>workbenchAuraId</code> 查：<code>deleteCustomCharacterAura</code> 是按
+    <code>aura.id</code> 精确过滤的，查不到会<b>静默返回、不抛错</b> —— 结果是「卡片消失了但灵魂还在库里」，
+    这正是最糟的一类 bug（看起来成功了）。</li>
+    <li><b>正确的删除判据必须与发布时找已有条目的判据一致</b>：<code>isSameBookAnalysisCharacterAura(a, bookTitle, subject)</code>
+    （发布路径 <code>workbench-publish.ts:124</code> 就是用它决定「更新还是新建」的）。用同一个判据，才能保证
+    「删掉的」就是「发布时认得的」那一条。</li>
   </ol>
 </div>
 
@@ -185,7 +196,7 @@ export interface WorkbenchItem {
 <h3>6.2 各技能页删除语义</h3>
 <table>
   <tr><th>技能页</th><th>库中条目</th><th>使用的接口</th></tr>
-  <tr><td>characters</td><td>一个角色一个灵魂</td><td><code>deleteCustomCharacterAura(projectPath, wb-${sha256(subject)})</code> <span class="ok">已存在，且会自动解除绑定</span></td></tr>
+  <tr><td>characters</td><td>一个角色一个灵魂</td><td>先用 <code>isSameBookAnalysisCharacterAura(aura, bookTitle, subject)</code> 在 store 里解析出真实 aura id，再 <code>deleteCustomCharacterAura(projectPath, 真实id)</code> <span class="ok">delete 已存在且会自动解除绑定</span><br><span class="no">注意：不能直接用 <code>workbenchAuraId</code>，见 §3 第 3 条</span></td></tr>
   <tr><td>style</td><td>整版一个预设</td><td><code>removeWritingStylePreset</code> <span class="no">需新增</span>（文风库目前没有任何删除接口）</td></tr>
   <tr><td>story</td><td>整版一个框架</td><td><code>removePlotFramework(projectPath, frameworkId)</code> <span class="ok">已存在</span></td></tr>
 </table>
@@ -202,7 +213,7 @@ export interface WorkbenchItem {
 <table>
   <tr><th>文件</th><th>变更</th></tr>
   <tr><td><code>workbench-core.ts</code></td><td><code>WorkbenchRevision</code> 新增 <code>removedSubjects?: string[]</code>。<b>校验策略：清洗而非抛错</b> —— 非法值一律丢弃成空数组，绝不因为这一个字段让整个版本读不出来（现有的 <code>items</code>/<code>evidence</code> 缺失是抛错的，但那是数据主体，性质不同）</td></tr>
-  <tr><td><code>workbench-publish.ts</code></td><td>导出 <code>workbenchAuraId(subject)</code>，发布与删除共用同一推导（避免两处各写一遍 sha256 而漂移）</td></tr>
+  <tr><td><code>workbench-publish.ts</code></td><td>导出 <code>workbenchAuraId(subject)</code> 并在 <code>publishWorkbenchCharacter</code> 里改用它算那个<b>临时</b> <code>character.id</code>（让该表达式只有一个出处）。<b>它不是删除用的主判据</b>（见 §3）</td></tr>
   <tr><td><code>writing-style-store.ts</code></td><td>新增 <code>removeWritingStylePreset(projectPath, styleId)</code>；若删的正是当前启用项，需同时清空 <code>enabledStyleId</code></td></tr>
   <tr><td><code>workbench-publish.ts</code> 或新文件</td><td>新增 <code>removeWorkbenchRevisionItem(projectPath, bookPath, revision, subject)</code>：按技能页分派删除 + 记录 <code>removedSubjects</code></td></tr>
 </table>
