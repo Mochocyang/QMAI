@@ -1,0 +1,337 @@
+{
+ "capturedAt": "2026-10-07T15:25:25.584Z",
+ "scales": [
+  100,
+  150
+ ],
+ "census": {
+  "100": {
+   "body:1>div:0>div:0>div:8>header:0>div:0>span:1": {
+    "fontSize": "18px",
+    "lineHeight": "23.4px",
+    "cls": "ui-test-brand-name",
+    "text": "青幕AI写作"
+   },
+   "body:1>div:0>div:0>div:8>header:0>div:0>button:2": {
+    "fontSize": "12px",
+    "lineHeight": "19.2px",
+    "cls": "ui-test-crumb",
+    "text": "书架"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:0>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "大纲"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:1>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "章节"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:2>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "灵魂"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>div:0>div:0>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "28px",
+    "cls": "cursor-pointer cursor-pointer text-sidebar-foreground/65 transition-co",
+    "text": "设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:0>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "模型设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:1>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "写作设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:1>span:1>span:1": {
+    "fontSize": "10px",
+    "lineHeight": "12.5px",
+    "cls": "truncate text-[10px] leading-tight text-sidebar-foreground/55",
+    "text": "其他写作设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:2>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "网络"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:3>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "网页搜索"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:4>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "界面"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:5>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "全局用户记忆"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:6>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "维护"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:7>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "数据管理"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:8>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "反馈"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:9>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "联系与支持"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:10>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "更新日志"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:0": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "默认模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:1": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "大语言模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:2": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "重排模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:3": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "向量模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:0>h3:0": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "",
+    "text": "我的模型配置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:0>span:1": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "",
+    "text": "0个配置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:1>p:0": {
+    "fontSize": "13px",
+    "lineHeight": "23.4px",
+    "cls": "",
+    "text": "还没有模型配置。"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:2>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "model-add-card",
+    "text": "＋ 添加提供方"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:2>button:1": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "model-add-card",
+    "text": "＋ 添加自定义模型"
+   }
+  },
+  "150": {
+   "body:1>div:0>div:0>div:8>header:0>div:0>span:1": {
+    "fontSize": "18px",
+    "lineHeight": "23.4px",
+    "cls": "ui-test-brand-name",
+    "text": "青幕AI写作"
+   },
+   "body:1>div:0>div:0>div:8>header:0>div:0>button:2": {
+    "fontSize": "12px",
+    "lineHeight": "19.2px",
+    "cls": "ui-test-crumb",
+    "text": "书架"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:0>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "大纲"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:1>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "章节"
+   },
+   "body:1>div:0>div:0>div:8>header:0>nav:1>div:2>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "19.6px",
+    "cls": "ui-test-nav-item",
+    "text": "灵魂"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>div:0>div:0>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "28px",
+    "cls": "cursor-pointer cursor-pointer text-sidebar-foreground/65 transition-co",
+    "text": "设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:0>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "模型设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:1>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "写作设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:1>span:1>span:1": {
+    "fontSize": "10px",
+    "lineHeight": "12.5px",
+    "cls": "truncate text-[10px] leading-tight text-sidebar-foreground/55",
+    "text": "其他写作设置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:2>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "网络"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:3>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "网页搜索"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:4>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "界面"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:5>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "全局用户记忆"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:6>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "维护"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:7>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "数据管理"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:8>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "反馈"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:9>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "联系与支持"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>aside:0>nav:1>button:10>span:1>span:0": {
+    "fontSize": "13px",
+    "lineHeight": "19.5px",
+    "cls": "truncate",
+    "text": "更新日志"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:0": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "默认模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:1": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "大语言模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:2": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "重排模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:1>button:3": {
+    "fontSize": "13px",
+    "lineHeight": "20px",
+    "cls": "",
+    "text": "向量模型"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:0>h3:0": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "",
+    "text": "我的模型配置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:0>span:1": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "",
+    "text": "0个配置"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:1>p:0": {
+    "fontSize": "13px",
+    "lineHeight": "23.4px",
+    "cls": "",
+    "text": "还没有模型配置。"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:2>button:0": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "model-add-card",
+    "text": "＋ 添加提供方"
+   },
+   "body:1>div:0>div:0>div:8>div:1>main:0>div:0>div:0>div:1>div:1>div:0>div:0>div:3>div:0>div:2>button:1": {
+    "fontSize": "14px",
+    "lineHeight": "22.4px",
+    "cls": "model-add-card",
+    "text": "＋ 添加自定义模型"
+   }
+  }
+ }
+}
