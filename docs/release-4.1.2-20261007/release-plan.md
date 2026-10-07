@@ -65,6 +65,44 @@ f640d60 chore(发版核验): 交付核验区分"打标签时"与"发版后"两�
 在此之前，同一逻辑已用桩服务与临时降版本两种方式验证过（见
 `docs/app-update-wiring-fix-20261007/design.md` 第 6 节）。
 
+### 实际结果：首次失败，重试通过 —— 记录以免误判
+
+第一次运行该验证时 **90 秒内没有弹出提示**，且应用界面完整运行（不是崩溃）。
+当时有两种可能，只看"有没有弹窗"无法区分：
+
+1. 修复没生效 —— 压根没有发起请求
+2. 请求发出去了但失败（本机到 GitHub 的 TLS 不稳定）
+
+排查过程：
+- 连通性探针 `probe-connectivity.mjs`：node fetch 连测 4 次**全部成功**，
+  latest 已是 4.1.2 → 排除"发布没生效"
+- 同一时段 `curl` 与 `git` 走 schannel 的请求**连续失败**
+  （`schannel: failed to receive handshake`），而 `gh`（Go 自带 TLS）正常
+  → 本机网络对部分 TLS 栈不稳定，属环境问题
+- 改用 `watch-app-network.ps1` 重试，并同时观测**该进程的远端 TCP 连接**，
+  以便下一次能区分上述两种原因
+
+重试结果：**弹窗出现**（`20280|#32770|发现新版本`），截图见
+`shot-post-release-412-prompt.png`，正文为「检测到新版本 4.1.2」+ 两条说明
+（含手动更新指引）。
+
+**教训：单次失败不足以判定修复无效。** 这次若直接下结论，就会把一个
+环境性的网络抖动误报成"修复失败"，进而可能去改本来正确的代码。
+这也是我补上 `watch-app-network.ps1`（连接层观测）的原因：下次失败时
+能立刻看出是"没请求"还是"请求失败"。
+
+## 最终状态
+
+| 项目 | 值 |
+|---|---|
+| 发版提交 | `f08aaf304904787ca2fe3641636a879e36734fa3` |
+| annotated 标签 | `v4.1.2`（对象 `725066e4df`）→ 解引用指向上述提交 |
+| 工作流 | [run 37595851144](https://github.com/Mochocyang/QMAI/actions/runs/37595851144) **completed / success** |
+| 各平台 | Windows x64、macOS Apple Silicon、Linux x64 全部 success |
+| 资产 | 8 个：Windows 安装包 + .sig + 便携版；macOS .dmg + .app.tar.gz；Linux .deb + .AppImage；latest.json |
+| latest.json | version `4.1.2`，windows url + 签名齐全，notes 含手动更新指引 |
+| 发布后验证 | 本地 4.1.1 修复版对真实端点弹出「检测到新版本 4.1.2」 |
+
 ## 发布流程（qmai-release 不变量）
 
 1. 推送 `main`（**单独推**，不与标签合并为一次原子推送）
