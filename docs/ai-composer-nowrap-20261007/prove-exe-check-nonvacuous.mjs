@@ -22,8 +22,22 @@ import { execFileSync } from "node:child_process"
 const repo = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
 const file = "src/components/uitest/ui-test-ai.css"
 
-const before = execFileSync("git", ["show", `HEAD~1:${file}`], { cwd: repo, encoding: "utf8" })
-const after = execFileSync("git", ["show", `HEAD:${file}`], { cwd: repo, encoding: "utf8" })
+/*
+ * 不要写死 `HEAD~1`。第一版就是写死的，结果我在证明脚本之后又提交了一个
+ * 与 CSS 无关的 chore 提交，`HEAD~1` 就变成了"同样含新写法的那个提交"，
+ * before 与 after 一样，于是三条判据全部报"改动前命中=false"、
+ * 被误判成"判据是空话"。
+ * 正确做法：让 git 自己找出**最后一次改动这个文件的提交**，比它的父提交。
+ * 这样这个脚本在任何后续提交之后都仍然成立。
+ */
+const cssCommit = execFileSync("git", ["log", "-1", "--format=%H", "--", file],
+  { cwd: repo, encoding: "utf8" }).trim()
+const cssParent = execFileSync("git", ["rev-parse", `${cssCommit}^`],
+  { cwd: repo, encoding: "utf8" }).trim()
+console.log(`改动 CSS 的提交: ${cssCommit.slice(0, 7)}  其父提交: ${cssParent.slice(0, 7)}\n`)
+
+const before = execFileSync("git", ["show", `${cssParent}:${file}`], { cwd: repo, encoding: "utf8" })
+const after = execFileSync("git", ["show", `${cssCommit}:${file}`], { cwd: repo, encoding: "utf8" })
 
 /** 剥注释 + 压缩空白，逼近产物形态。 */
 const normalize = (css) => css
