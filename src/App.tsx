@@ -11,6 +11,7 @@ import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } fr
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
+import { checkForAppUpdate } from "@/lib/app-updater"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
@@ -304,6 +305,18 @@ function App() {
         console.error("应用初始化失败:", err)
       } finally {
         setLoading(false)
+        // 启动后检查更新：发现新版本会弹窗询问是否下载安装。
+        //
+        // 这一行在 26f80ee（"fix(ui): 调整对话输入框与界面资源"）里被误删，
+        // 之后 checkForAppUpdate 再无调用者，整个 app-updater 模块被
+        // tree-shake 掉 —— v4.0.0 到 v4.1.1 的 6 个版本，用户打开旧版本
+        // 都收不到更新提示。回归守卫见 app-updater-wiring.test.ts。
+        //
+        // 这里刻意不套 UI 测试版的编译期开关：src/lib/ui-test.ts 里那个常量
+        // 已硬编码为 true，且 vite.config.ts 没有对应的构建期替换，套上就是
+        // 恒假 —— 调用写了也等于没写，而 tsc 与测试都不会报错。
+        // 非 Tauri 环境与非 Windows 平台由 checkForAppUpdate 内部自行返回。
+        void checkForAppUpdate()
       }
     }
     init()

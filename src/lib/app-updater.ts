@@ -11,7 +11,15 @@ type UpdaterBindings = {
 
 let updateCheckStarted = false
 
-async function runAppUpdateFlow(bindings: UpdaterBindings) {
+/**
+ * 跑完一次完整的应用更新流程：检查 → 确认 → 下载 → 确认 → 安装。
+ *
+ * 导出是必需的：app-updater.test.ts 直接测这个函数。01aab5f 曾把它当成
+ * "未使用的导出"删掉 export（只看了 src 里的非测试引用），导致那 4 个用例
+ * 以 `runAppUpdateFlow is not a function` 全红，而真正的更新功能已经因此
+ * 死掉却无人察觉。
+ */
+export async function runAppUpdateFlow(bindings: UpdaterBindings) {
   if (!bindings.isTauri) return
 
   const update = await bindings.check()
