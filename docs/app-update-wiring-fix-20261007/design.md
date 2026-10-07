@@ -119,7 +119,48 @@ export const IS_UI_TEST_BUILD = true
 
 版本号 `9.9.9` 与更新说明文本只可能来自桩服务，构成不可预先伪造的证据。
 
-### 6.3 单元测试与变异证明
+### 6.3 真实端点验证（最强的一组证据）
+
+前两节用的是桩端点。最后再用**真实 GitHub 端点**做一次闭环：
+
+| 被测对象 | 自报版本 | 端点 | 结果 |
+|---|---|---|---|
+| 已发布的 v4.1.0 便携版（含 bug 的真实产物） | 4.1.0 | 真实 GitHub（最新 4.1.1） | **60 秒内无任何提示**（复现用户报告） |
+| 修复版（临时把版本面改成 4.1.0 以触发更新判定） | 4.1.0 | 同上 | **弹出「发现新版本」**，正文为 4.1.1 + 14 条真实更新说明 |
+
+- 复现截图：`e2e/shot-shipped-410-no-prompt.png`
+- 修复后截图：`e2e/shot-real-endpoint-prompt.png`
+
+两者端点、判定逻辑、界面完全相同，唯一差别是修复代码。这排除了"桩环境造成的
+假阳性"，证明修复在真实发布链路上有效。验证后临时改动的三个版本文件
+（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock`）已全部还原，git 层面零改动。
+
+### 6.4 受影响版本的用户如何恢复
+
+自动检查在 v4.0.0–v4.1.1 失效，但**每一版都有可用的手动入口**，因此用户
+升级一次即可恢复，不必手动下载安装包。逐版核实见
+`check-manual-update-path.mjs`：
+
+```
+v4.0.0    有（触发方式：@tauri-apps/plugin-updater / handleCheckUpdate）
+v4.0.1    有（触发方式：@tauri-apps/plugin-updater / handleCheckUpdate）
+v4.0.2    有（触发方式：checkForChangelogUpdate）
+v4.0.3    有（触发方式：checkForChangelogUpdate）
+v4.0.4    有（触发方式：checkForChangelogUpdate）
+v4.1.0    有（触发方式：checkForChangelogUpdate）
+v4.1.1    有（触发方式：checkForChangelogUpdate）
+```
+
+路径：设置 → 更新日志 → 「检查更新」。
+
+写入说明时的一处修正：该脚本第一版要求出现 `checkForChangelogUpdate`，
+把 v4.0.0/v4.0.1 误判为"没有手动入口" —— 实际那两版用的是文件内的
+`handleCheckUpdate()`，内部同样 `await check()`，入口完全可用（该函数在
+v4.0.2 才被抽到 `changelog-update-session.ts` 并改名）。判据必须锚定
+**能力**而非某个具体标识符，否则一次重构就会让检查给出反向结论。
+这与 6.1 节拆书库 chunk 的锚点问题是同一类错误。
+
+### 6.5 单元测试与变异证明
 
 13 条用例通过；`prove-update-tests.mjs` 施加 5 项变异，5/5 如期变红：
 
