@@ -767,22 +767,64 @@ git commit -m "fix(字号): 557 处绝对单位换算为精确 rem，界面字�
       <ul class="files"><li><span class="tag">改</span>按实测结果定点修改相关 CSS</li></ul>
 
       <div class="step"><div class="box"></div><div class="body">
-        <div class="title">步骤 1：采集改动前的溢出基线（若尚未采集）</div>
-        <div class="note">
-          溢出基线需在改动前采集才有对比意义。若已错过，则不比较绝对数量，
-          改为只判定"150% 档不存在被裁切的文本元素"这一绝对标准。
+        <div class="title">步骤 1：溢出基线（<b>已由控制方在改动前采集完毕</b>）</div>
+        <div class="expect">
+          基线已存于 <code>docs/font-scaling-fix-20261007/overflow-before.json</code>
+          （在源码换算**之前**采集，此时 <code>dist</code> 仍是未换算状态，故选它作基准）。
+          实测结果：<b>100% / 115% / 130% / 150% 四档的被裁切文本元素均为 0</b>。
         </div>
-        <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs `
-  --scales 100,115,130,150 --json &gt; "$env:TEMP\overflow-after.json"</code></pre>
+        <div class="callout warn">
+          <span class="h">这个基线为什么是 0，以及它意味着什么</span>
+          改动前文字**根本不缩放**（正是本次要修的缺陷），所以字号放大自然不产生裁切
+          —— 基线为 0 是必然的，不是"布局很健壮"的证据。<br>
+          它的真正价值：确立了 <b>100% 档今天不存在既有裁切</b>。
+          因此换算后若在任何档位出现裁切，都可**直接归因于本次改动**，不需要争论是不是老问题。
+          也正因如此，<b>操作性判据是绝对标准</b>（150% 档裁切必须为 0），
+          而不是"不超过基线"这种会自我安慰的相对比较。
+        </div>
+        <div class="callout danger">
+          <span class="h">当前工具的覆盖缺口（必须先补，否则判据名不副实）</span>
+          <code>measure-ui-overflow.mjs</code> 只在<strong>落地页（书架）</strong>测量，
+          <b>不进入设置页</b>。而设置页才是 CSS 规则最密集处 —— 普查恰在那里
+          发现 219 个未缩放元素。<br>
+          这意味着"150% 无裁切"目前<b>只对书架页成立</b>，设置页完全没测。
+          <b>步骤 1b 必须先扩展工具的覆盖面</b>，否则这条判据会给出一半的假安全感。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1b：扩展溢出工具到设置页各分区（必做）</div>
+        <div class="note">
+          参照 <code>census-computed-font.mjs</code> 的做法：点击
+          <code>aria-label="设置"</code> 进入设置页，再用与界面语言无关的
+          <code>data-ui-settings-category-button="&lt;id&gt;"</code> 依次点击 11 个分区
+          （<code>model, novel, network, web-search, interface, user-memory,
+          maintenance, data-management, feedback, contact-support, changelog</code>），
+          每个分区等待后测量并**合并结果**（每个条目带上分区标识，便于定位）。
+        </div>
+        <div class="note">
+          注意与普查工具同样的教训：合并时条目必须带分区标识，
+          否则不同分区同一 DOM 路径的条目会互相覆盖，被遮蔽的元素测不到
+          （普查工具正是在这里出现过 7 个元素被静默遮蔽的缺陷）。
+        </div>
+        <div class="expect">
+          期望：输出能报告"书架 + 设置页 11 个分区"各自的裁切元素数，
+          并且 100% 档仍为 0（与已采基线一致 → 证明扩展后的工具没有引入假阳性）。
+        </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 2：判定</div>
         <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,150</code></pre>
         <div class="expect">
-          期望：150% 档下被裁切的文本元素数量为 <code>0</code>。
+          期望：<b>150% 档下被裁切的文本元素数量为 0</b>（书架 + 设置页全部分区）。
+          同时 100% 档必须仍为 0（与 <code>overflow-before.json</code> 一致）。
         </div>
-        <div class="expect bad">若有：输出会列出 tag / 字号 / 纵向偏差 / 横向偏差 / 选择器，按此定点修复。</div>
+        <div class="expect bad">
+          若有：输出会列出 tag / 字号 / 纵向偏差 / 横向偏差 / 选择器 / 所属分区，
+          按此定点修复。<b>100% 档若不为 0，说明是换算引入了回归</b>（因为基线为 0），
+          必须先查清而不是去调容器。
+        </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
