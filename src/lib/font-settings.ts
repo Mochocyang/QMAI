@@ -4,8 +4,21 @@ export const UI_FONT_OPTIONS = [
   {
     value: "system",
     label: "本机默认",
+    /*
+     * 这个栈必须与改造前 `ui-test.css` 里 `--ui` 的取值**逐字一致**。
+     *
+     * 原因：`--ui` 现在派生自 `--qmai-ui-font-family`（见 ui-test.css），
+     * 而本项就是默认选中项。若这里换成另一套顺序（例如把 system-ui 提到
+     * "PingFang SC" 之前），默认档渲染出的字形就会改变 ——
+     * 用户没有做任何选择，界面却变了样，属视觉回归。
+     *
+     * 保留 "Microsoft YaHei UI"：它属于旧栈，在 Windows 上正是实际命中的
+     * 那一个（"PingFang SC" 是 macOS 字体，本机没有，会继续往下回退）。
+     * 去掉它会让默认档从「微软雅黑 UI」变成别的字形。
+     * 已由 verify-ui-font-applies.mjs --compare 守住"默认档指纹不变"。
+     */
     cssFamily:
-      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',
+      '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   {
     value: "microsoft-yahei",

@@ -8,7 +8,16 @@
      必须用 rem —— 否则界面字号放大时行高不动，实测会漏缩放 11 个元素
      （侧边栏各分区的「设置」项，13px→19.5px 生效但行高恒为 28px）。 */
   --ui-heading-top: 22px; --ui-heading-line: 1.75rem;
-  --ui: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  /* 界面字体**必须**派生自用户选择，不能硬编码字体栈。
+     此前这里写死了 "PingFang SC", "Microsoft YaHei UI", … 的栈，
+     于是 applyUiFontFamily 虽然把选择写进了 --qmai-ui-font-family，
+     界面元素却全部使用 var(--ui) —— 两者之间没有任何连接，
+     用户在「外观与界面」里换任何字体都毫无效果（已实测：改
+     --qmai-ui-font-family 后 32 个界面文字元素中有 0 个发生变化，
+     而直接改 --ui 有 32 个变化，证明通路本身是活的、只是没接上）。
+     --qmai-ui-font-family 由 index.css 的 :root 提供默认值，
+     并由 applyUiFontFamily 写到 documentElement 行内样式（可继承、优先级最高）。 */
+  --ui: var(--qmai-ui-font-family);
   --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
   --ui-canvas: #edf1ec; --ui-paper: #fcfdfb; --ui-panel: #f2f5ef; --ui-soft: #e4ece3;
   --ui-ink: #273c35; --ui-muted: #5d6e64; --ui-accent: #45624f; --ui-on-accent: #fff;

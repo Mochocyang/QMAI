@@ -1324,6 +1324,90 @@ node docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs</code></pre>
         docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs
 git commit -m "fix(字体): --ui 改为派生自用户选择，界面字体设置真正生效" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录（必读：本步骤实际做了三件原计划没有的事）</div>
+        <div class="callout danger">
+          <span class="h">一、默认字体栈必须一起对齐，否则默认观感会变</span>
+          <code>--ui</code> 原值是 <code>"PingFang SC", "Microsoft YaHei UI", …</code>（PingFang 优先），
+          而 <code>index.css</code> 里 <code>--qmai-ui-font-family</code> 的默认值原本是
+          <code>system-ui, …, "Microsoft YaHei", "PingFang SC"</code>（system-ui 优先）。
+          <b>两者顺序不同</b>。若只改 <code>--ui</code> 为派生，
+          默认档就会从「PingFang 优先」变成「system-ui 优先」——
+          用户什么都没选，界面字形却变了。<br>
+          故同时改 <code>font-settings.ts</code> 的 <code>"system"</code> 选项与
+          <code>index.css</code> 的 <code>:root</code> 默认值，都对齐为改造前
+          <code>--ui</code> 的栈顺序，并保留 <code>"Microsoft YaHei UI"</code>
+          （它在 Windows 上才是真正命中的那个）。<br>
+          由此带来一个必须说清的现象：<b><code>--qmai-ui-font-family</code> 的字符串必然改变</b>
+          （旧的两套栈要合并成一套）。判据因此以
+          <b>「用户看到的东西」</b>为准 —— 指纹（样本含中文与拉丁字母）
+          与 Chromium 报告的真实渲染字体，两者都相同才算"默认观感未变"；
+          字符串不同会<b>打印提示</b>而不是静默放过。
+          <b>这不等于放宽判据</b>：真正会在意的是字形变没变，而不是字面是否逐字相同。
+        </div>
+        <div class="callout danger">
+          <span class="h">二、证明脚本里"默认基准不能写死"（自己踩的坑）</span>
+          初版把"默认"写成一个常量，而那常量其实是
+          <code>index.css</code> 改造前的旧值，<b>并非产品实际默认栈</b>
+          （改造前界面元素用的是硬编码的 <code>--ui</code>）。
+          基准搞错了，后面所有对比都不可靠。<br>
+          更隐蔽的是：实测本机上这两套栈<b>渲染结果完全相同</b>
+          （哈希、宽度、非空像素数都一致 —— 中文都回退到 Microsoft YaHei UI），
+          所以<b>基准错了却仍然"通过"</b>：一个错的基准恰好与对的基准同形。<br>
+          现在默认档一律<b>从页面读</b>（移除行内属性后 <code>:root</code> 的计算值），
+          并加了自检「默认基准取自产品默认（不写死字体栈）」。
+          样本也强制同时含中文与拉丁字母 —— 纯中文样本在两套栈下渲染相同，
+          会让"默认档没变"空洞成立。
+        </div>
+        <div class="callout danger">
+          <span class="h">三、加了 CDP 权威证据：Chromium 实际用了哪些字体</span>
+          像素哈希与字体串都只是间接推断：<b>字体串写对了不代表真的换了字形</b>
+          （字体没装会静默回退，字串看着对、画面没变）。
+          <code>CSS.getPlatformFontsForNode</code> 由浏览器直接报告该节点
+          渲染时用到的真实字体家族名，是唯一能分辨这两者的手段。<br>
+          实测它正是解释了"两套默认栈哈希相同"的原因（该元素只有 2 个中文字形，
+          两条栈都回退到 <code>Microsoft YaHei UI</code>），
+          也给出了修复前最硬的缺陷证据：<b>五个用例的真实渲染字体完全相同</b>
+          （对应守卫 <code>[H/字体未真正改变]</code>，在修复前确实触发）。
+        </div>
+        <div class="callout warn">
+          <span class="h">修复前后的实测数字</span>
+          <b>修复前</b>：设黑体/楷体/仿宋，<b>32 个界面文字元素中 0 个变化</b>；
+          Chromium 报告五个用例的真实字体<b>全是</b> <code>Microsoft YaHei UI</code>。<br>
+          尺子对照同时成立，证明这不是"测不出来"：① 内联 <code>font-family</code>
+          改黑体 → 31 个元素变化；② 内联 <code>--ui</code> 改黑体 → 32 个元素变化
+          （即 <code>var(--ui)</code> 通路本身是活的，只是没接上用户选择）。<br>
+          <b>修复后</b>：黑体/楷体/仿宋各 <b>32 个元素全部变化</b>，
+          Chromium 报告的真实字体分别为 <code>SimHei</code> / <code>KaiTi</code> /
+          <code>FangSong</code>；负向对照（不存在的字体）与默认档完全一致；
+          默认档指纹与真实字体与基线<b>均一致</b>。退出码 0。
+        </div>
+        <div class="callout warn">
+          <span class="h">新增静态防线（因为浏览器脚本在 CI 里跑不起来）</span>
+          <code>verify-ui-font-applies.mjs</code> 需要真实浏览器，日常测试跑不到，
+          所以把链路钉进单元测试 <code>src/components/uitest/ui-font-derivation.spec.ts</code>：
+          <code>--ui</code> 必须是 <code>var(--qmai-ui-font-family)</code> 且不含任何硬编码字体名、
+          <code>--ui</code>/<code>--serif</code> 各只有一处定义、<code>--serif</code> 不跟随界面字体、
+          <code>index.css</code> 的 <code>:root</code> 默认值与 <code>font-settings</code>
+          的默认选项<b>逐字一致</b>、默认选项保留改造前的栈顺序。<br>
+          最后一条尤其重要：<b>本机上"PingFang 优先"与"system-ui 优先"渲染完全相同</b>，
+          所以这两处不一致既看不出、也测不出，只能靠静态比对拦住。<br>
+          <b>RED 证据</b>：在 HEAD 上跑该 spec 失败 2 条，其中一条为
+          <code>expected '"PingFang SC", "Microsoft YaHei UI", …' to be 'var(--qmai-ui-font-family)'</code>；
+          修复后 4 条全过 —— 证明这条防线确实能检出该缺陷，而不是一条永远为真的断言。
+        </div>
+        <div class="callout danger">
+          <span class="h">工具链教训：不要用 PowerShell 改含中文的源码文件</span>
+          本次用 <code>Get-Content -Raw</code> + <code>Set-Content -Encoding utf8</code>
+          批量替换脚本里的调用点时，<b>把整个文件的把中文全写成了乱码</b> ——
+          PowerShell 5.1 的 <code>Get-Content -Raw</code> 默认按系统 ANSI 代码页（本机 GBK）
+          解码 UTF-8 文件，再按 UTF-8 写回，中文即被彻底破坏且不可逆。<br>
+          <b>改用编辑工具逐处修改，或让脚本只输出到新文件。</b>
+          同类已知陷阱：<code>&gt;</code> 重定向写出 UTF-16（会让 <code>JSON.parse</code> 失败）、
+          <code>git show &lt;ref&gt;:&lt;path&gt; &gt; file</code> 同样得到 UTF-16。
+        </div>
+      </div></div>
     </div>
 
     <!-- Task 6 -->
