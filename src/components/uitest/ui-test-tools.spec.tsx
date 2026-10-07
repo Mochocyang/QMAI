@@ -247,9 +247,14 @@ describe("真实外观页的测试皮肤", () => {
     expect(container.querySelector('[aria-label="界面语言"]')).toBeNull()
     const scale = container.querySelector<HTMLSelectElement>('select[aria-label="字号预设"]')!
     expect(scale).not.toBeNull()
-    await act(async () => { scale.value = "1.15"; scale.dispatchEvent(new Event("change", { bubbles: true })) })
-    expect(setDraft).toHaveBeenLastCalledWith("uiFontSizeScale", 1.15)
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="界面字号"]')?.value).toBe("115")
+    await act(async () => { scale.value = "1.25"; scale.dispatchEvent(new Event("change", { bubbles: true })) })
+    expect(setDraft).toHaveBeenLastCalledWith("uiFontSizeScale", 1.25)
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="界面字号"]')?.value).toBe("125")
+    // 滑块边界必须真的放宽到 80%–150%（用户确认的范围），而不只是常量改了
+    const slider = container.querySelector<HTMLInputElement>('input[aria-label="界面字号"]')!
+    expect(slider.min).toBe("80")
+    expect(slider.max).toBe("150")
+    expect(Array.from(scale.options).map((option) => option.value)).toEqual(["0.85", "1", "1.25", "1.5"])
   })
 
   it("皮肤保存失败时保留原选择并提示中文错误，不发送虚假应用事件", async () => {

@@ -1137,6 +1137,29 @@ git commit -m "fix(字号): 修复字号放大后被裁切的标签行容器（�
           <b>两处都必须放宽到 0.8 / 1.5</b>。只改写入侧的话，用户设的 150%
           在下次启动读回时会被截成 130%（"保存后失效"这类难查的缺陷）。
         </div>
+        <div class="callout warn">
+          <span class="h">实施时的改进：不要把新的边界再写两遍</span>
+          原计划是把两处的字面量各自改成 <code>0.8</code>/<code>1.5</code>。
+          但"同一个边界写两遍"正是它当初会不一致的原因 ——
+          两遍就会再次漂移。因此改为在 <code>src/lib/font-settings.ts</code> 定义
+          <code>UI_FONT_SIZE_MIN</code>/<code>UI_FONT_SIZE_MAX</code> 与
+          <code>clampUiFontSizeScale()</code>，store 的两处都调用它，
+          滑块边界与预设也取自同一份常量。<br>
+          并加了会变红的断言：store 里 <code>clampUiFontSizeScale(</code> 必须恰好出现
+          <b>2 次</b>，且不得残留旧的 <code>Math.max(0.85, Math.min(1.3…)</code>。
+          <b>这样"边界只有一处定义"本身是被测试守住的，而不只是这次改对了。</b>
+        </div>
+        <div class="callout danger">
+          <span class="h">钳制的语义边界：无效输入退回 1，不是退回下限</span>
+          初版写成 <code>Number(value)</code> 后判 <code>isFinite</code>，
+          于是 <code>null</code> 被 <code>Number(null) === 0</code> 带到下限 <b>0.8</b> ——
+          但"没存过值"与"用户想要最小字号"是两件事。
+          已显式拦截 <code>null</code>/<code>undefined</code>/空串 → 返回默认档 <b>1</b>。<br>
+          （这条是写单元测试时被自己的期望抓出来的：<code>expect(clamp(null)).toBe(1)</code> 失败。）
+          另外 <code>1.005.toFixed(2)</code> 得到 <code>"1.00"</code> 而非 <code>1.01</code>
+          （二进制浮点表示所致）—— 已避开这类会随引擎实现漂移的断言，
+          并在测试里写明原因，免得后人以为函数有 bug 而去"修"它。
+        </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
@@ -1158,9 +1181,65 @@ git commit -m "fix(字号): 修复字号放大后被裁切的标签行容器（�
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 3：验证边界真能生效</div>
         <pre><code>npm run build
-node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-bound.json" --scales 100,150</code></pre>
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-bound.json" --scales 80,100,150
+node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 80,100,115,130,150</code></pre>
+        <div class="expect">
+          <b>实测（2026-10-08）</b>：判据 1/2 仍全部通过
+          （<code>正确缩放 1113 / 未解释 0 / 不同 0</code>），退出码 0；
+          溢出测量 <b>五档全为 0 裁切</b>（新增的 80% 下限档也是 0），守卫 0 项未通过。
+        </div>
         <div class="note">
+          <b>新下限 80% 必须单独测</b>，不能只测 100/150 ——
+          80% 是本任务新开的边界，此前从未有代码运行在它上面。<br>
+          另外 <code>--compare</code> <b>只接受含 100% 与 150% 两档且都非空</b>的数据；
+          只传 <code>--scales 80,100</code> 会被守卫
+          <code>[A/空档位]</code> 拒绝，这是设计如此（不许在空数据上"通过"）。
+        </div>
+        <div class="expect">
           再用浏览器度量校对：设根字号 150% 后，任一 <code>text-sm</code> 元素应为 21px。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3b：端到端验证，以及一个真实的覆盖空白</div>
+        <div class="expect">
+          <b>已实测通过的三项</b>（浏览器内，预置 localStorage 键
+          <code>qmai-ui-font-size-scale</code> 后加载）：
+        </div>
+        <table>
+          <tr><th>验证</th><th>做法</th><th>结果</th></tr>
+          <tr><td>150% 能读回并应用</td><td>预置 <code>1.5</code> → 启动</td>
+              <td>根字号 <code>150%</code>、计算值 <code>24px</code>（16×1.5）；滑块 value=150；预设显示"特大 · 150%"</td></tr>
+          <tr><td>越界值被钳制</td><td>预置 <code>1.9</code> → 启动</td>
+              <td>计算根字号 <code>24px</code> → 被钳到 150%（<b>读回侧的钳制真的生效</b>）</td></tr>
+          <tr><td>滑块边界与草稿联动</td><td>Playwright 原生 <code>fill()</code></td>
+              <td><code>min=80 max=150</code>；草稿文案随之为"当前 80%" / "当前 150%"</td></tr>
+        </table>
+        <div class="callout danger">
+          <span class="h">覆盖空白：普通浏览器里跑不通"改字号 → 保存 → 生效"</span>
+          点"保存"后根字号<b>没变</b>，并报
+          <code>TypeError: Cannot read properties of undefined (reading 'invoke')</code>。
+          <b>这不是本任务的缺陷</b> —— <code>handleSave</code> 要调用 Tauri 的 store 插件，
+          普通浏览器没有该环境。但它意味着：
+          <b>这条链路既没有单元测试覆盖，也无法在浏览器里验证</b>。<br>
+          已尝试桩掉 <code>window.__TAURI_INTERNALS__.invoke</code>：
+          命令确实被调到（<code>plugin:store|set</code> 等），
+          但其余 store 读取返回桩值后 <code>handleSave</code> 又在其后更早处中断，
+          在浏览器里复刻整套 Tauri 存储数据不现实 —— <b>到此为止是刻意的</b>，
+          真正的端到端验证放在<b>任务 10 的真实 exe</b> 里做。<br>
+          同时补了一条<b>源码接线断言</b>（<code>interface-sidebar-nav.spec.ts</code>）：
+          保存时必须同时调 <code>setUiFontSizeScale(draft.uiFontSizeScale)</code>
+          与 <code>saveUiFontSizeScale(draft.uiFontSizeScale…)</code>，且后者在后。
+          这只钉住接线，<b>不能替代真实 exe 的验证</b> —— 不要把两者混为一谈。
+        </div>
+        <div class="callout warn">
+          <span class="h">顺带记录一个既有脆弱点（本任务不修，避免扩大改动面）</span>
+          <code>handleSave</code> 中 <code>setUiFontSizeScale</code> 位于约十条
+          <code>await saveXxx(…)</code> <b>之后</b>。若其中任何一条抛错，
+          本次保存会中断，字号<b>静默地不生效</b>，用户看到的现象是
+          "我改了字号、点了保存，但没变" —— 与用户最初报告的症状同形，
+          容易误导排查方向。属既有行为、影响面超出本任务，此处只登记；
+          任务 10 在真实 exe 中若仍复现"保存后字号没变"，应先查这里。
         </div>
       </div></div>
 

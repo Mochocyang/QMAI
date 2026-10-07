@@ -17,6 +17,7 @@ import {
 } from "@/lib/sidebar-nav-preferences"
 import {
   DEFAULT_UI_FONT_FAMILY,
+  clampUiFontSizeScale,
   normalizeUiFontFamily,
   type UiFontFamily,
 } from "@/lib/font-settings"
@@ -72,7 +73,7 @@ export type ModelSettingsTabId = "default" | "llm" | "rerank" | "embedding"
 const readStoredUiFontSizeScale = (): number => {
   if (typeof localStorage === "undefined") return 1
   const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
-  return Number.isFinite(saved) ? Math.max(0.85, Math.min(1.3, Number(saved.toFixed(2)))) : 1
+  return Number.isFinite(saved) ? clampUiFontSizeScale(saved) : 1
 }
 
 const readStoredUiFontFamily = (): UiFontFamily => {
@@ -998,7 +999,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   clearTransientTaskState: () => set({ finalChapterSave: null, lintRun: null, reviewRun: null }),
   setTheme: (theme) => set({ theme }),
   setUiFontSizeScale: (scale) => {
-    const clamped = Math.max(0.85, Math.min(1.3, Number(scale.toFixed(2))))
+    const clamped = clampUiFontSizeScale(scale)
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(UI_FONT_SIZE_SCALE_KEY, String(clamped))
     }

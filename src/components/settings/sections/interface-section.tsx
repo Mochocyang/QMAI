@@ -2,26 +2,19 @@ import { useEffect, useId, useState } from "react"
 import { Check } from "lucide-react"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import { UI_FONT_OPTIONS } from "@/lib/font-settings"
+import { UI_FONT_OPTIONS, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, UI_FONT_SIZE_PRESETS } from "@/lib/font-settings"
 
 interface Props {
   draft: SettingsDraft
   setDraft: DraftSetter
 }
 
-const FONT_SIZE_PRESETS = [
-  { label: "小", value: 0.9 },
-  { label: "默认", value: 1 },
-  { label: "大", value: 1.15 },
-  { label: "特大", value: 1.3 },
-]
-
 function UiTestInterfaceSection({ draft, setDraft }: Props) {
   const id = useId()
   const [skin, setSkin] = useState<UiTestSkin>(readUiTestSkin)
   const [skinError, setSkinError] = useState("")
   const scalePercent = Math.round(draft.uiFontSizeScale * 100)
-  const sizePreset = FONT_SIZE_PRESETS.find((preset) => Math.abs(draft.uiFontSizeScale - preset.value) < 0.001)
+  const sizePreset = UI_FONT_SIZE_PRESETS.find((preset) => Math.abs(draft.uiFontSizeScale - preset.value) < 0.001)
 
   useEffect(() => {
     const root = document.documentElement
@@ -72,9 +65,9 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
           <div className="ui-test-interface-size">
             <select id={`${id}-size`} aria-label="字号预设" value={sizePreset?.value ?? "custom"} onChange={(event) => setDraft("uiFontSizeScale", Number(event.target.value))}>
               {!sizePreset && <option value="custom" disabled>自定义 · {scalePercent}%</option>}
-              {FONT_SIZE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label} · {Math.round(preset.value * 100)}%</option>)}
+              {UI_FONT_SIZE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label} · {Math.round(preset.value * 100)}%</option>)}
             </select>
-            <input type="range" min={85} max={130} step={5} value={scalePercent} aria-label="界面字号" onChange={(event) => setDraft("uiFontSizeScale", Number(event.target.value) / 100)} />
+            <input type="range" min={Math.round(UI_FONT_SIZE_MIN * 100)} max={Math.round(UI_FONT_SIZE_MAX * 100)} step={5} value={scalePercent} aria-label="界面字号" onChange={(event) => setDraft("uiFontSizeScale", Number(event.target.value) / 100)} />
           </div>
         </div>
       </div>
