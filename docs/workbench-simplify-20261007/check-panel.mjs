@@ -40,11 +40,17 @@ const grab = (src, re, label) => {
 const cardDateClass = grab(tsx, /<small className="(wb-card-date)">/, "对象日期 class")
 // 卡片页脚第三个按钮：删除
 const removeBtnClass = grab(tsx, /<button className="(wb-icon wb-card-remove)" aria-label=\{`删除\$\{item\.subject\}`\}/, "删除按钮 class")
-// 版本标题行
-const revisionHeadingClass = grab(tsx, /<div className="(wb-revision-heading)">/, "版本标题行 class")
-const revisionMetaClass = grab(tsx, /<span className="(wb-revision-meta)">\{revisionMeta\(revision\)\}<\/span>/, "版本标题文本 class")
-// 版本块容器
+// 合并列表容器 + 版本块容器（版本标题行已删除）
+const cardListClass = grab(tsx, /<div className="(wb-card-list)">/, "合并列表 class")
 const revisionBlockClass = grab(tsx, /<section className="(wb-revision-block)" data-revision-id/, "版本块 class")
+// 版本级内容容器与其中的日期标签（替代了原来的版本标题行）
+const revisionExtrasClass = grab(tsx, /<section className="(wb-revision-extras)" data-revision-extras/, "版本级内容 class")
+const revisionDateClass = grab(tsx, /<span className="(wb-revision-date)">\{revisionDate\}<\/span>/, "版本日期标签 class")
+// 补充修订那一行（日期 + 按钮），以及它外面的整段
+const revisionHeadClass = grab(tsx, /<div className="(wb-revision-head)">/, "补充修订行 class")
+const revisionSectionClass = grab(tsx, /<div className="(wb-revision-section)">/, "补充修订段 class")
+// 修订/删除的动作组容器：两个按钮靠它紧挨
+const cardActionsClass = grab(tsx, /<span className="(wb-card-actions)">/, "卡片动作组 class")
 
 // 卡片页脚的前两个按钮（查看规则 / 补充修订）
 const viewRulesBtn = grab(tsx, /<button aria-label=\{`查看\$\{item\.subject\}规则`\}[^>]*>/, "查看规则按钮")
@@ -58,9 +64,12 @@ for (const f of readdirSync(join(repo, "dist/assets"))) {
 allCss += "\n" + panelCss
 
 // 断言 workbench CSS 真的被注入（否则测的是无样式 DOM，几何无意义）
-check(/\.wb-revision-heading\s*\{/.test(allCss), "注入的 CSS 里确实有 .wb-revision-heading（不是无样式 DOM）")
 check(/\.wb-card-date/.test(allCss), "注入的 CSS 里确实有 .wb-card-date")
 check(/\.wb-card-remove/.test(allCss), "注入的 CSS 里确实有 .wb-card-remove")
+check(/\.wb-card-actions\s*\{/.test(allCss), "注入的 CSS 里确实有 .wb-card-actions（修订/删除动作组）")
+check(/\.wb-card-list\s*\{/.test(allCss), "注入的 CSS 里确实有 .wb-card-list（合并列表容器）")
+// 反向断言：版本标题行的规则必须已经消失，否则说明夹具还在测旧结构
+check(!/\.wb-revision-heading\s*\{/.test(allCss), "注入的 CSS 里已无 .wb-revision-heading（标题行确已删除）")
 
 if (failures.length) { console.log(failures.join("\n")); process.exit(1) }
 
@@ -92,23 +101,12 @@ const card = (subject, date) => `
   </div>
   <footer class="wb-card-footer">
     <button aria-label="查看${subject}规则">查看规则</button>
-    <button class="${reviseBtnClass}" aria-label="补充${subject}修订要求">改</button>
-    <button class="${removeBtnClass}" aria-label="删除${subject}">删</button>
+    <span class="${cardActionsClass}">
+      <button class="${reviseBtnClass}" aria-label="补充${subject}修订要求">改</button>
+      <button class="${removeBtnClass}" aria-label="删除${subject}">删</button>
+    </span>
   </footer>
 </article>`
-
-const revisionBlock = (meta, cards) => `
-<section class="${revisionBlockClass}" data-revision-id="rev-1">
-  <div class="${revisionHeadingClass}"><span class="${revisionMetaClass}">${meta}</span></div>
-  <div class="wb-skill-grid" data-view="grid">${cards}</div>
-</section>`
-
-// 真实的标题行文案（含最长的几种组合）
-const METAS = [
-  "2026/10/7 09:03 · 9章 · 1个对象",
-  "2026/10/7 09:03 · 120章 · 24个对象 · 6项未采纳 · 尚未入库",
-  "2026/12/31 23:59 · 1200章 · 240个对象 · 60项未采纳 · 旧版导入",
-]
 
 // 长名 + 各种日期：全部必须完整显示（不能靠裁切蒙过去）
 const CASES = [
@@ -124,20 +122,35 @@ await page.setContent(`<!doctype html><html><head><style>${allCss}</style>
   .book-workbench{--ui-line:#c6d1cb;--ui-muted:#687871;--ui-accent:#496b59;--ui-paper:#fff;--ui-panel:#f2f5f3;--ui-ink:#1d2321;--ui-warning:#88641d;--ui-danger:#a83e3e}
   </style></head><body><div class="book-workbench" id="host"></div></body></html>`)
 
-async function measure(w, view, metas, cards) {
+/**
+ * 用**合并布局**渲染：两个版本（旧在前、新在后）同处一个 .wb-card-list，
+ * 版本级内容排在列表之后。这样既能量卡内几何，也能量「两个版本是否连成一份列表」。
+ */
+async function measure(w, view, cards) {
   await page.setViewportSize({ width: w, height: 900 })
-  await page.evaluate(([v, ms, cs]) => {
-    const headingOnly = ms.map((m) =>
-      `<section class="wb-revision-block" data-revision-id="m">
-         <div class="wb-revision-heading"><span class="wb-revision-meta">${m}</span></div>
-       </section>`).join("")
-    // 卡片只放在一个块里，避免「卡片数 × 标题数」把计数断言搞错
-    document.getElementById("host").innerHTML = headingOnly +
-      `<section class="wb-revision-block" data-revision-id="r">
-         <div class="wb-revision-heading"><span class="wb-revision-meta">2026/10/7 09:03 · 9章 · 7个对象</span></div>
-         <div class="wb-skill-grid" data-view="${v}">${cs}</div>
-       </section>`
-  }, [view, metas, cards])
+  await page.evaluate(([v, cs, cls]) => {
+    document.getElementById("host").innerHTML = `<div class="${cls.list}">
+      <section class="${cls.block}" data-revision-id="rev-old">
+        <div class="wb-skill-grid" data-view="${v}">${cs}</div>
+      </section>
+      <section class="${cls.block}" data-revision-id="rev-new">
+        <div class="wb-skill-grid" data-view="${v}">${cs}</div>
+      </section>
+      <section class="${cls.block}" data-revision-id="rev-empty">
+        <div class="wb-skill-grid" data-view="${v}"><p class="wb-muted wb-no-results">没有符合条件的成果</p></div>
+      </section>
+    </div>
+    <section class="${cls.extras}" data-revision-extras="rev-old">
+      <div class="${cls.section}"><div class="${cls.head}"><span class="${cls.date}">2026/10/6 22:17</span><button>补充修订</button></div></div>
+    </section>
+    <section class="${cls.extras}" data-revision-extras="rev-new">
+      <div class="${cls.section}">
+        <div class="${cls.head}"><span class="${cls.date}">2026/10/7 09:03</span><button aria-expanded="true">补充修订</button></div>
+        <label class="wb-request"><span>补充修订要求</span><textarea rows="3"></textarea></label>
+        <button>生成修订版本</button>
+      </div>
+    </section>`
+  }, [view, cards, { list: cardListClass, block: revisionBlockClass, extras: revisionExtrasClass, date: revisionDateClass, head: revisionHeadClass, section: revisionSectionClass }])
   await page.waitForTimeout(60)
   return page.evaluate(() => {
     const out = { names: [], metas: [], footer: [], overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth }
@@ -165,13 +178,75 @@ async function measure(w, view, metas, cards) {
         statusSpill: status ? Math.round(status.getBoundingClientRect().right - innerRight) : 0,
       })
     }
-    for (const m of document.querySelectorAll(".wb-revision-meta")) {
-      const el = m
-      out.metas.push({ text: el.textContent, overflow: el.scrollWidth - el.clientWidth, h: Math.round(el.getBoundingClientRect().height) })
+    // 版本标题行已删除，页面里不该再有这两个 class。
+    out.legacyHeadingCount = document.querySelectorAll(".wb-revision-meta, .wb-revision-heading").length
+    out.dateLabels = [...document.querySelectorAll(".wb-revision-date")].map((el) => el.textContent)
+    // 合并列表的结构与对齐：两个版本块是否同处一个 .wb-card-list、列是否对齐、间距是否等距
+    const list = document.querySelector(".wb-card-list")
+    out.blocksInList = list ? list.querySelectorAll(".wb-revision-block").length : 0
+    out.blocksTotal = document.querySelectorAll(".wb-revision-block").length
+    out.extrasInList = list ? list.querySelectorAll("[data-revision-extras]").length : 0
+    out.extrasTotal = document.querySelectorAll("[data-revision-extras]").length
+    const grids = [...document.querySelectorAll(".wb-card-list .wb-skill-grid")]
+    out.gridCount = grids.length
+    if (grids.length >= 2) {
+      const g0 = grids[0].getBoundingClientRect(), g1 = grids[1].getBoundingClientRect()
+      // 版本间纵向间距：上一网格底 → 下一网格顶
+      out.blockGap = Math.round(g1.top - g0.bottom)
+      // 「卡片间纵向间距」的定义值：网格自己的 row-gap（卡片间距本来就是它给的）。
+      out.gridRowGap = Math.round(parseFloat(getComputedStyle(grids[0]).rowGap) || 0)
+      /*
+       * 非空洞校验：row-gap 是「算出来的定义值」，还得证明它真的作用在渲染上。
+       * 取第一个网格里第二行的顶 与 第一行的底 之间的实测距离 —— 只有当该版本确实
+       * 排了 ≥2 行时才存在（3 列 × 6 张 = 2 行；1 列的窄屏就没有）。
+       */
+      const rects = [...grids[0].querySelectorAll(".wb-skill-card")].map((c) => c.getBoundingClientRect())
+      const rows = []
+      for (const r of rects.slice().sort((a, b) => a.top - b.top)) {
+        const row = rows.find((x) => Math.abs(x.top - r.top) < 2)
+        if (row) row.bottom = Math.max(row.bottom, r.bottom); else rows.push({ top: r.top, bottom: r.bottom })
+      }
+      out.withinVersionRowGap = rows.length >= 2 ? Math.round(rows[1].top - rows[0].bottom) : null
+      // 列对齐：两个版本第一张卡的左边缘必须一致（同一列）
+      const c0 = grids[0].querySelector(".wb-skill-card")?.getBoundingClientRect()
+      const c1 = grids[1].querySelector(".wb-skill-card")?.getBoundingClientRect()
+      out.columnAligned = c0 && c1 ? Math.round(Math.abs(c0.left - c1.left)) : null
+    }
+    // 展开的补充修订：输入框必须铺满整行（整段变 flex 会把它挤成内容宽）
+    const req = document.querySelector('[data-revision-extras="rev-new"] .wb-request')
+    const ta = req?.querySelector("textarea")
+    if (req && ta) {
+      out.requestWidth = Math.round(req.getBoundingClientRect().width)
+      out.textareaWidth = Math.round(ta.getBoundingClientRect().width)
+      // 参照：该「版本级内容」段的可用宽度就是它自己的宽度
+      out.extrasWidth = Math.round(document.querySelector('[data-revision-extras="rev-new"]').getBoundingClientRect().width)
+    }
+    // 空版本块：空状态仍要占满整行（grid-column:1/-1）
+    const empty = document.querySelector('[data-revision-id="rev-empty"] .wb-no-results')
+    if (empty) {
+      const grid = empty.closest(".wb-skill-grid").getBoundingClientRect()
+      const r = empty.getBoundingClientRect()
+      out.emptyStateSpan = Math.round(grid.width - r.width)
+    }
+    // 修订与删除按钮必须紧挨：量动作组内部间距，并与「查看规则→修订」的距离对比
+    out.actions = []
+    for (const card of document.querySelectorAll(".wb-skill-card")) {
+      const footer = card.querySelector(".wb-card-footer")
+      if (!footer) continue
+      const view = footer.querySelector("button")
+      const group = footer.querySelector(".wb-card-actions")
+      const btns = group ? [...group.querySelectorAll("button")] : []
+      if (!view || btns.length < 2) continue
+      const a = btns[0].getBoundingClientRect(), b = btns[1].getBoundingClientRect()
+      out.actions.push({
+        withinGroup: Math.round(b.left - a.right),
+        viewToRevise: Math.round(a.left - view.getBoundingClientRect().right),
+      })
     }
     for (const f of document.querySelectorAll(".wb-card-footer")) {
       const r = f.getBoundingClientRect()
-      const btns = [...f.children].map((b) => b.getBoundingClientRect())
+      // 页脚的直接子节点现在是「查看规则按钮 + 动作组容器」，所以按真正的 button 数（含组内）来数。
+      const btns = [...f.querySelectorAll("button")].map((b) => b.getBoundingClientRect())
       const last = btns[btns.length - 1]
       out.footer.push({
         h: Math.round(r.height),
@@ -188,17 +263,53 @@ async function measure(w, view, metas, cards) {
 const AFTER_CARDS = CASES.map((c) => { const [s, d] = c.split("|"); return card(s, d) }).join("")
 
 for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "list", "1280px 列表视图"], [900, "grid", "900px 卡片视图"], [700, "grid", "700px 两列卡片（最紧断点）"], [620, "grid", "620px 窄屏卡片"], [600, "list", "600px 窄屏列表"]]) {
-  const r = await measure(w, view, METAS, AFTER_CARDS)
+  const r = await measure(w, view, AFTER_CARDS)
   const worst = r.names.reduce((a, b) => (b.clipped > a.clipped ? b : a), { clipped: -1 })
   const worstSpill = r.names.reduce((a, b) => (b.statusSpill > a.statusSpill ? b : a), { statusSpill: -1 })
-  check(r.names.length === CASES.length, `${label}：量到全部 ${CASES.length} 张卡`, `实得 ${r.names.length}`)
+  // 两个版本 × 每组卡 = 卡片数必须翻倍：数量对得上才说明两个版本都真的渲染了。
+  check(r.names.length === CASES.length * 2, `${label}：两个版本各渲染 ${CASES.length} 张卡`, `实得 ${r.names.length}`)
   check(worst.clipped <= 0, `${label}：对象名+日期都不被裁切`, worst.clipped > 0 ? `最差「${worst.subject}」超出 ${worst.clipped}px` : `最大余量 ${-worst.clipped}px`)
   check(worstSpill.statusSpill <= 0, `${label}：长名不会把「待确认」徽标顶出卡片`, `最差溢出 ${worstSpill.statusSpill}px`)
   check(r.names.every((n) => n.dateW > 0), `${label}：每张卡上的日期都真的渲染出来了`)
   // 日期必须单行：内联盒高度超过一个行高就说明 10/7 与 09:03 被折到了两行
   check(r.names.every((n) => n.dateH <= Math.ceil(n.dateLineH)), `${label}：日期保持单行未被折断`,
     r.names.map((n) => `${n.dateH}/${Math.ceil(n.dateLineH)}`).join(" "))
-  check(r.metas.every((m) => m.overflow <= 0), `${label}：版本标题行不溢出容器`, r.metas.map((m) => m.overflow).join("/"))
+  // 版本标题行已删除：这些元素一个都不该再出现
+  check(r.legacyHeadingCount === 0, `${label}：版本标题行（wb-revision-meta/heading）已彻底不渲染`, `实得 ${r.legacyHeadingCount} 个`)
+  check(r.dateLabels.length === 2, `${label}：每个版本的补充修订行各有一个日期标签`, `实得 ${r.dateLabels.length} 个：${r.dateLabels.join(" / ")}`)
+  check(r.dateLabels.every((t) => /^\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}$/.test(t)), `${label}：日期标签是带年份的格式`, r.dateLabels.join(" / "))
+
+  // ---- 合并列表：所有版本同处一个容器，且视觉上连成一份 ----
+  check(r.blocksInList === 3 && r.blocksTotal === 3, `${label}：三个版本块都在同一个 .wb-card-list 里`, `列表内 ${r.blocksInList} / 共 ${r.blocksTotal}`)
+  check(r.extrasInList === 0 && r.extrasTotal === 2, `${label}：版本级内容在合并列表之外`, `列表内 ${r.extrasInList} / 共 ${r.extrasTotal}`)
+  check(r.gridCount === 3, `${label}：每个版本各持一个卡片网格（含空版本）`, `实得 ${r.gridCount}`)
+  check(r.columnAligned !== null && r.columnAligned <= 1, `${label}：相邻版本的卡片列对齐（同一列）`, `左边缘相差 ${r.columnAligned}px`)
+  // 版本间距必须等于卡片行间距：否则一眼能看出「这是两块」而不是一份列表
+  check(r.blockGap !== null && r.blockGap === r.gridRowGap,
+    `${label}：版本间纵向间距 == 卡片行间距（连成一份列表）`, `版本间 ${r.blockGap}px vs 行间距 ${r.gridRowGap}px`)
+  // 非空洞：行间距是「算出来的定义值」，还要证明它真的作用在渲染上（该版本排了 ≥2 行时）
+  check(r.withinVersionRowGap === null || r.withinVersionRowGap === r.gridRowGap,
+    `${label}：同一版本内实测行间距也等于行间距定义值（证明上面那条不是空算）`,
+    r.withinVersionRowGap === null ? "单行，无从实测（跳过）" : `实测 ${r.withinVersionRowGap}px vs 定义值 ${r.gridRowGap}px`)
+
+  // ---- 修订与删除必须紧挨 ----
+  check(r.actions.length > 0, `${label}：量到了卡片页脚的动作组`, `实得 ${r.actions.length}`)
+  const worstGroup = Math.max(...r.actions.map((a) => a.withinGroup))
+  const minViewToRevise = Math.min(...r.actions.map((a) => a.viewToRevise))
+  check(worstGroup <= 10, `${label}：修订与删除两个按钮紧挨（间距 ≤ 10px）`, `最宽 ${worstGroup}px`)
+  check(minViewToRevise > worstGroup, `${label}：动作组内部间距明显小于「查看规则→修订」的距离（真的是挨着，不是都挤在一起）`,
+    `组内 ${worstGroup}px vs 查看规则→修订 ${minViewToRevise}px`)
+
+  // ---- 展开的补充修订：输入框铺满整行（整段变 flex 会把它挤成内容宽）----
+  check(r.requestWidth > 0 && r.textareaWidth > 0, `${label}：量到了展开的补充修订输入框`, `label ${r.requestWidth}px / textarea ${r.textareaWidth}px`)
+  check(r.requestWidth > 0 && Math.abs(r.requestWidth - r.extrasWidth) <= 2,
+    `${label}：补充修订的 label 铺满整段宽度（未被 flex 挤窄）`, `label ${r.requestWidth}px vs 段宽 ${r.extrasWidth}px`)
+  check(r.textareaWidth > 0 && r.textareaWidth >= r.requestWidth * 0.9,
+    `${label}：补充修订输入框接近整行宽`, `textarea ${r.textareaWidth}px vs label ${r.requestWidth}px`)
+  // ---- 空版本块的空状态仍占满整行 ----
+  check(r.emptyStateSpan !== undefined && Math.abs(r.emptyStateSpan) <= 2,
+    `${label}：空版本的空状态仍占满整行（grid-column:1/-1 未被破坏）`, `与网格宽相差 ${r.emptyStateSpan}px`)
+
   if (view === "grid") {
     check(r.footer.every((f) => f.count === 3 && !f.wrapped && f.spill <= 1), `${label}：页脚 3 个按钮同排且不溢出`, JSON.stringify(r.footer[0]))
   } else {
@@ -238,7 +349,7 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
     .book-workbench{--ui-line:#c6d1cb;--ui-muted:#687871;--ui-accent:#496b59;--ui-paper:#fff;--ui-panel:#f2f5f3;--ui-ink:#1d2321;--ui-warning:#88641d;--ui-danger:#a83e3e}
     </style></head><body><div class="book-workbench" id="host"></div></body></html>`)
   // 700px 是「2 列」断点：卡片最窄（315px），最能逼出折行
-  const rBefore = await measure(700, "grid", METAS, AFTER_CARDS)
+  const rBefore = await measure(700, "grid", AFTER_CARDS)
   const bad = rBefore.names.filter((n) => n.dateH > Math.ceil(n.dateLineH))
   check(bad.length > 0,
     "非空洞证明②：去掉 nowrap 后，日期确实会被折断（证明上面的通过不是蒙的）",
@@ -248,7 +359,7 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
     <style>body{margin:0;font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif}
     .book-workbench{--ui-line:#c6d1cb;--ui-muted:#687871;--ui-accent:#496b59;--ui-paper:#fff;--ui-panel:#f2f5f3;--ui-ink:#1d2321;--ui-warning:#88641d;--ui-danger:#a83e3e}
     </style></head><body><div class="book-workbench" id="host"></div></body></html>`)
-  const rAfter = await measure(700, "grid", METAS, AFTER_CARDS)
+  const rAfter = await measure(700, "grid", AFTER_CARDS)
   const stillBad = rAfter.names.filter((n) => n.dateH > Math.ceil(n.dateLineH))
   check(stillBad.length === 0,
     "非空洞证明③：同一 700px 视口下，带 nowrap 的版本日期全部单行（差别确实来自这一条规则）",

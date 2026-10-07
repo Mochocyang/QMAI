@@ -82,23 +82,15 @@ function visibleItems(revision: WorkbenchRevision): WorkbenchItem[] {
   return removed?.length ? revision.items.filter((item) => !removed.includes(item.subject)) : revision.items
 }
 
-/** 未采纳项数。原先是汇总行里唯一有信息量的部分，现在挪进版本标题行。 */
-function revisionOmittedCount(revision: WorkbenchRevision): number {
-  return revision.items.reduce((sum, item) => sum + (item.styleFingerprint?.omitted?.length ?? 0), 0)
-}
-
-/** 版本标题行：时间 · N章 · M个对象（· K项未采纳）（· 旧版导入 / 尚未入库）。 */
-function revisionMeta(revision: WorkbenchRevision): string {
-  const parts = [
-    formatTimestamp(revision.createdAt, true),
-    `${revision.selectedChapterIds.length}章`,
-    `${visibleItems(revision).length}个对象`,
-  ]
-  const omitted = revisionOmittedCount(revision)
-  if (omitted) parts.push(`${omitted}项未采纳`)
-  if (revision.origin === "legacy") parts.push("旧版导入")
-  else if (!revision.confirmedAt) parts.push("尚未入库")
-  return parts.filter(Boolean).join(" · ")
+/**
+ * 卡片级状态的复合键：版本 id + 对象名。
+ *
+ * 用 \u0000 连接而不是 ":" 之类可见字符：对象名完全可能出现冒号或空格
+ * （例如「代号：孤星」），那样 ("a:b", "c") 与 ("a", "b:c") 会撞成同一个键，
+ * 于是点一张卡的按钮会同时改动另一张卡。
+ */
+function cardKey(revisionId: string, subject: string): string {
+  return `${revisionId}\u0000${subject}`
 }
 
 /**
@@ -298,6 +290,17 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
   // 结果区的卡片/列表视图：全版本平铺后由结果区统一持有，所有版本块共用一份。
   const [view, setView] = useState<"grid" | "list">("grid")
+  /*
+   * 下面四组状态全部提到结果区，并且键都带**版本 id**。
+   *
+   * 合并版本之后同一个角色会出现在多个版本里（例如两个版本都有「许七安」），
+   * 只用对象名当键会让「点 A 版查看规则」同时点亮 B 版；删除更危险——可能删错版本。
+   * 因此展开规则、展开概述、待删除、正在补充修订都以「版本 id（+ 对象名）」为键。
+   */
+  const [expandedCard, setExpandedCard] = useState<{ revisionId: string; subject: string } | null>(null)
+  const [expandedOverviews, setExpandedOverviews] = useState<string[]>([])
+  const [removing, setRemoving] = useState<{ revisionId: string; subject: string } | null>(null)
+  const [revisingFor, setRevisingFor] = useState<{ revisionId: string; requirements: string } | null>(null)
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   // 全版本平铺后不再有「选中版本」：活动跳转改成「切到对应页签 + 等目标版本渲染出来后滚进视野」。
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(null)
@@ -492,6 +495,30 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
     } catch (error) { reportError(error) }
   }
 
+  /**
+   * 删除确认框要针对的那一版。合并列表之后「哪一版」不再由外层块决定，
+   * 所以由 removing 里的 revisionId 现查；查不到（版本刚被重读掉）就当作没打开。
+   */
+  const removingRevision = removing ? revisions.find((r) => r.id === removing.revisionId) : undefined
+  /**
+   * 删除一个对象：连使用库一起真删，成功后才重读版本列表。
+   * 取消（onOpenChange(false)）什么都不做——绝不能「先删了才问」。
+   *
+   * 传下去的是 removingRevision（**被点那一版**），不是「当前版本」之类的近似值：
+   * 两个版本都有同名角色时，删错版本就是不可撤销的数据丢失。
+   */
+  const confirmRemove = async () => {
+    const { subject, revisionId } = removing ?? {}
+    const target = revisionId ? revisions.find((r) => r.id === revisionId) : undefined
+    // 先关弹窗（无论能不能删成），避免留下一个「点了删除但什么都没发生」的悬空状态。
+    setRemoving(null)
+    if (!subject || !target) return
+    try {
+      await removeWorkbenchRevisionItem({ projectPath, bookPath: book.path, revision: target, subject })
+      void reloadRevisions().catch(reportError); onRefresh()
+    } catch (error) { reportError(error) }
+  }
+
   const openBindingDialog = async (revision: WorkbenchRevision, subject: string) => {
     setBindingTarget({ revision, subject })
     setBindableNames(null)
@@ -613,17 +640,47 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
           <button className="wb-icon" title="列表视图" aria-label="列表视图" aria-pressed={view === "list"} onClick={() => setView("list")}><List /></button>
         </div>
       </div>
-      {orderedRevisions.length > 0 ? orderedRevisions.map((revision) => <section className="wb-revision-block" data-revision-id={revision.id} key={revision.id}>
-        <div className="wb-revision-heading"><span className="wb-revision-meta">{revisionMeta(revision)}</span></div>
-        <WorkbenchResult revision={revision} previous={revisions.find((r) => r.id === revision.parentRevisionId)}
-          bookPath={book.path} projectPath={projectPath} book={book} soulStatus={soulStatus} view={view} busy={starting || hasActiveTask}
-          onAddToSoul={(subject) => void handleAddToSoul(revision, subject)}
-          onBind={(subject) => void openBindingDialog(revision, subject)}
-          onRevisionChanged={() => { void reloadRevisions().catch(reportError); onRefresh() }}
-          revising={starting || hasActiveTask}
-          onRevise={(requirements) => draft && launch({ ...draft, selectedIds: revision.selectedChapterIds, skills: [revision.skill], requirements: { [revision.skill]: `${revision.requirements}\n补充要求：${requirements}` } }, revision.id)} />
-      </section>
-      ) : <p className="wb-muted">暂无新版本结果。</p>}
+      <div className="wb-card-list">
+        {orderedRevisions.length > 0 ? orderedRevisions.map((revision) => {
+          const items = visibleItems(revision)
+          const itemDate = formatTimestamp(revision.createdAt)
+          return <section className="wb-revision-block" data-revision-id={revision.id} key={revision.id}>
+            <div className="wb-skill-grid" data-view={view}>
+              {items.map((item, index) => <SkillCard key={item.subject} revision={revision} item={item} index={index} itemDate={itemDate}
+                expanded={expandedCard?.revisionId === revision.id && expandedCard.subject === item.subject}
+                overviewOpen={expandedOverviews.includes(cardKey(revision.id, item.subject))}
+                book={book} soulStatus={soulStatus} busy={starting || hasActiveTask}
+                onAddToSoul={() => void handleAddToSoul(revision, item.subject)}
+                onBind={() => void openBindingDialog(revision, item.subject)}
+                onToggleRules={() => setExpandedCard((current) =>
+                  current?.revisionId === revision.id && current.subject === item.subject ? null : { revisionId: revision.id, subject: item.subject })}
+                onToggleOverview={() => setExpandedOverviews((keys) => {
+                  const key = cardKey(revision.id, item.subject)
+                  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]
+                })}
+                onOpenRevise={() => setRevisingFor((current) => current?.revisionId === revision.id ? current : { revisionId: revision.id, requirements: "" })}
+                onRequestRemove={() => setRemoving({ revisionId: revision.id, subject: item.subject })} />)}
+              {!items.length && <p className="wb-muted wb-no-results">没有符合条件的成果</p>}
+            </div>
+          </section>
+        }) : <p className="wb-muted">暂无新版本结果。</p>}
+      </div>
+      {/* 版本级内容统一排在合并列表之后，按版本顺序（导图/证据索引/与上一版本的变化/补充修订）。 */}
+      {orderedRevisions.map((revision) => <RevisionExtras key={revision.id} revision={revision}
+        previous={revisions.find((r) => r.id === revision.parentRevisionId)}
+        projectPath={projectPath}
+        expandedSubject={expandedCard?.revisionId === revision.id ? expandedCard.subject : null}
+        openRevise={revisingFor?.revisionId === revision.id}
+        requirements={revisingFor?.revisionId === revision.id ? revisingFor.requirements : ""}
+        revising={starting || hasActiveTask}
+        onRequirements={(value) => setRevisingFor((current) => current?.revisionId === revision.id ? { revisionId: revision.id, requirements: value } : current)}
+        onToggleRevise={(open) => setRevisingFor((current) => open ? { revisionId: revision.id, requirements: current?.revisionId === revision.id ? current.requirements : "" } : (current?.revisionId === revision.id ? null : current))}
+        onCloseRules={() => setExpandedCard(null)}
+        onRevise={(requirements) => draft && launch({ ...draft, selectedIds: revision.selectedChapterIds, skills: [revision.skill], requirements: { [revision.skill]: `${revision.requirements}\n补充要求：${requirements}` } }, revision.id)} />)}
+      {/* 删除确认框只留一份：一次只可能删一个对象，它需要知道「哪一版的哪个对象」。 */}
+      <RemoveItemDialog revision={removingRevision} subject={removing?.subject ?? null}
+        onOpenChange={(open) => { if (!open) setRemoving(null) }}
+        onConfirm={() => void confirmRemove()} />
       <LegacySkillResults book={book} skill={activeSkill} storyMapRefreshKey={storyMapRefreshKey} />
       <BindingTargetDialog subject={bindingTarget?.subject ?? null} names={bindableNames} projectPath={projectPath}
         alwaysKeep={boundCharacterNames(bindingTarget ? soulStatus[bindingTarget.subject] : undefined)}
@@ -654,22 +711,84 @@ function TaskProgress({ task }: { task: BookAnalysisPipelineTask }) {
   </div>
 }
 
-function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soulStatus, view, busy, onAddToSoul, onBind, onRevisionChanged, onRevise, revising }: {
-  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string; book: BookAnalysisLibraryBook
+/**
+ * 一张对象卡。**不持有任何 state**：展开规则、展开概述、待删除这三件事都由结果区按
+ * 「版本 id + 对象名」复合键统一持有。
+ *
+ * 为什么必须是复合键：合并列表之后，同一个角色（例如「许七安」）会出现在多个版本里，
+ * 只用对象名当键的话，点一个版本的「查看规则」会同时点亮另一个版本的同名卡片。
+ */
+function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, book, soulStatus, busy, onAddToSoul, onBind, onToggleRules, onToggleOverview, onOpenRevise, onRequestRemove }: {
+  revision: WorkbenchRevision; item: WorkbenchItem; index: number; itemDate: string
+  expanded: boolean; overviewOpen: boolean
+  book: BookAnalysisLibraryBook
   soulStatus: Record<string, CharacterSoulStatus>; busy: boolean
-  // view 由结果区统一持有：全版本平铺后每个版本块各自切换会变成 N 个互不相干的开关。
-  view: "grid" | "list"
-  onAddToSoul: (subject: string) => void; onBind: (subject: string) => void
-  onRevisionChanged: () => void; onRevise: (requirements: string) => Promise<void> | null; revising: boolean
+  onAddToSoul: () => void; onBind: () => void
+  onToggleRules: () => void; onToggleOverview: () => void; onOpenRevise: () => void; onRequestRemove: () => void
 }) {
-  const [requirements, setRequirements] = useState("")
-  const [expandedSubject, setExpandedSubject] = useState<string | null>(null)
-  const [expandedOverviews, setExpandedOverviews] = useState<string[]>([])
-  const [revisionOpen, setRevisionOpen] = useState(false)
+  return <article className="wb-skill-card">
+    <div className="wb-card-main">
+      <div className="wb-card-heading"><span className="wb-avatar" data-tone={index % 3}>{item.subject.slice(0, 1)}</span>
+        {/* 对象自己没有时间戳，取所属版本的 createdAt：同一对象在不同版本里日期不同是对的。 */}
+        <h3>{item.subject}{itemDate && <small className="wb-card-date">{` · ${itemDate}`}</small>}</h3>
+        <span className="wb-card-status" data-confirmed={Boolean(revision.confirmedAt)}>{revision.confirmedAt ? "已入库" : "待确认"}</span></div>
+      <p className="wb-card-description" data-expanded={item.summary.length <= 100 || overviewOpen}>{item.summary}</p>
+      {item.summary.length > 100 && <button className="wb-overview-toggle" aria-label={`展开${item.subject}概述`} aria-expanded={overviewOpen}
+        onClick={onToggleOverview}>
+        {overviewOpen ? "收起概述" : "展开完整概述"}<ChevronDown />
+      </button>}
+      <div className="wb-traits">{[...new Set(item.rules.map((rule) => WORKBENCH_DIMENSIONS[rule.dimension] ?? rule.dimension))].map((dimension) => <span key={dimension}>{dimension}</span>)}</div>
+      <small>{item.rules.length}条规则 · {new Set(item.rules.flatMap((rule) => rule.evidenceIds)).size}条依据</small>
+    </div>
+    <footer className="wb-card-footer">
+      <button aria-label={`查看${item.subject}规则`} aria-expanded={expanded} onClick={onToggleRules}><FileText />{expanded ? "收起规则" : "查看规则"}</button>
+      {/* 修订与删除是一个动作组：包在同一个容器里让它们紧挨，靠右与「查看规则」分开。 */}
+      <span className="wb-card-actions">
+        <button className="wb-icon" aria-label={`补充${item.subject}修订要求`} title="补充本版本修订要求" onClick={onOpenRevise}><PencilLine /></button>
+        {/* 删除是「连使用库一起真删」：先弹窗确认，取消则什么都不发生。 */}
+        <button className="wb-icon wb-card-remove" aria-label={`删除${item.subject}`} title="删除该对象（连使用库一起删）" onClick={onRequestRemove}><Trash2 /></button>
+      </span>
+    </footer>
+    {revision.skill === "characters" && <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
+      {revision.origin === "legacy" && <span className="wb-origin-tag">{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}</span>}
+      {/* publishable 只算一次：徽标与两个按钮必须用同一个判定，否则文案会和可点性互相矛盾。 */}
+      {(() => {
+        const publishable = hasPublishableData(revision, item, book)
+        const status = soulStatus[item.subject] ?? "none"
+        return <>
+          <span className="wb-soul-status">{soulStatusLabel(soulStatus[item.subject], publishable)}</span>
+          <button type="button" disabled={!publishable || status !== "none" || busy}
+            title={!publishable ? "这个角色没有可加入灵魂库的资料" : status !== "none" ? "已在自定义灵魂库中" : "只加入自定义灵魂库，不绑定小说人物"}
+            onClick={onAddToSoul}><Plus />加入自定义灵魂库</button>
+          <button type="button" disabled={!publishable || busy}
+            title={publishable ? "绑定到小说人物（会自动加入自定义灵魂库）" : "这个角色没有可加入灵魂库的资料"}
+            onClick={onBind}><Link2 />绑定…</button>
+        </>
+      })()}
+    </div>}
+  </article>
+}
+
+/**
+ * 一个版本的**版本级内容**：导图、展开的规则详情、证据索引、与上一版本的变化、补充修订。
+ *
+ * 合并列表只合并对象卡；这些内容按版本各留一份、统一排在合并列表之后。
+ * 因为多版本时会有 N 组长得一样的块，第一行放一个带年份的日期标签标明归属
+ * （卡片上的是不带年份的短格式）。
+ *
+ * styleState 必须留在这里：它是「这个版本对应的文风预设是否当前启用」的异步读取，
+ * 每版本一份，天然属于版本级内容。
+ */
+function RevisionExtras({ revision, previous, projectPath, expandedSubject, openRevise, requirements, revising, onRequirements, onToggleRevise, onCloseRules, onRevise }: {
+  revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string
+  expandedSubject: string | null
+  openRevise: boolean; requirements: string; revising: boolean
+  onRequirements: (value: string) => void; onToggleRevise: (open: boolean) => void
+  onCloseRules: () => void
+  onRevise: (requirements: string) => Promise<void> | null
+}) {
   const revisionInput = useRef<HTMLTextAreaElement>(null)
   const [styleState, setStyleState] = useState<{ current: boolean; enabled: boolean } | null>(null)
-  // 待删除的对象名（null = 没打开确认框）。删除不可撤销，所以必须先弹窗问一次。
-  const [removingSubject, setRemovingSubject] = useState<string | null>(null)
   const mapHtml = useMemo(() => revision.storyMap ? renderStoryMapHtml({ ...revision.storyMap, bookTitle: revision.bookTitle }) : "", [revision])
   useEffect(() => {
     let current = true
@@ -689,78 +808,24 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
     await setEnabledWritingStyle(projectPath, enabled ? null : preset.id)
     setStyleState({ current: true, enabled: !enabled })
   }
-  /**
-   * 删除一个对象：连使用库一起真删，成功后才重读版本列表。
-   * 取消（onOpenChange(false)）什么都不做——绝不能「先删了才问」。
-   */
-  const confirmRemove = async () => {
-    const subject = removingSubject
-    if (!subject) return
-    setRemovingSubject(null)
-    try {
-      await removeWorkbenchRevisionItem({ projectPath, bookPath, revision, subject })
-      onRevisionChanged()
-    } catch (error) { reportError(error) }
-  }
   const usedEvidence = new Set(revision.items.flatMap(styleItemEvidenceIds))
   const items = visibleItems(revision)
-  const itemDate = formatTimestamp(revision.createdAt)
   const expandedItem = items.find((item) => item.subject === expandedSubject)
+  const revisionDate = formatTimestamp(revision.createdAt, true)
+  // 草稿是每版本一份，随「哪一版在补充修订」一起处理：切版本时不应把上一版的要求带过去。
   const openRevision = () => {
-    setRevisionOpen(true)
+    onToggleRevise(true)
     requestAnimationFrame(() => revisionInput.current?.focus())
   }
-  return <div className="wb-results">
+  return <section className="wb-revision-extras" data-revision-extras={revision.id}>
     {/* 工具栏只留本版本自己的动作（启用文风）；视图切换已提到结果区顶部统一一份。 */}
     {styleState && <div className="wb-results-tools">
       {styleState.current && <button onClick={() => void toggleStyle().catch(reportError)}><Play />{styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
       {!styleState.current && <span className="wb-muted">此历史版本已被替换</span>}
     </div>}
-    {revision.requirements && <details><summary>本次需求</summary><p>{revision.requirements}</p></details>}
     {mapHtml && <details className="wb-result"><summary>原作结构观察导图</summary><iframe title="原作结构观察导图" srcDoc={mapHtml} sandbox="allow-same-origin" style={{ width: "100%", height: 480, border: 0 }} /></details>}
-    <div className="wb-skill-grid" data-view={view}>
-      {items.map((item, index) => <article className="wb-skill-card" key={item.subject}>
-        <div className="wb-card-main">
-          <div className="wb-card-heading"><span className="wb-avatar" data-tone={index % 3}>{item.subject.slice(0, 1)}</span>
-            {/* 对象自己没有时间戳，取所属版本的 createdAt：同一对象在不同版本里日期不同是对的。 */}
-            <h3>{item.subject}{itemDate && <small className="wb-card-date">{` · ${itemDate}`}</small>}</h3>
-            <span className="wb-card-status" data-confirmed={Boolean(revision.confirmedAt)}>{revision.confirmedAt ? "已入库" : "待确认"}</span></div>
-          <p className="wb-card-description" data-expanded={item.summary.length <= 100 || expandedOverviews.includes(item.subject)}>{item.summary}</p>
-          {item.summary.length > 100 && <button className="wb-overview-toggle" aria-label={`展开${item.subject}概述`} aria-expanded={expandedOverviews.includes(item.subject)}
-            onClick={() => setExpandedOverviews((subjects) => subjects.includes(item.subject) ? subjects.filter((s) => s !== item.subject) : [...subjects, item.subject])}>
-            {expandedOverviews.includes(item.subject) ? "收起概述" : "展开完整概述"}<ChevronDown />
-          </button>}
-          <div className="wb-traits">{[...new Set(item.rules.map((rule) => WORKBENCH_DIMENSIONS[rule.dimension] ?? rule.dimension))].map((dimension) => <span key={dimension}>{dimension}</span>)}</div>
-          <small>{item.rules.length}条规则 · {new Set(item.rules.flatMap((rule) => rule.evidenceIds)).size}条依据</small>
-        </div>
-        <footer className="wb-card-footer">
-          <button aria-label={`查看${item.subject}规则`} aria-expanded={expandedSubject === item.subject} onClick={() => setExpandedSubject(expandedSubject === item.subject ? null : item.subject)}><FileText />{expandedSubject === item.subject ? "收起规则" : "查看规则"}</button>
-          <button className="wb-icon" aria-label={`补充${item.subject}修订要求`} title="补充本版本修订要求" onClick={openRevision}><PencilLine /></button>
-          {/* 删除是「连使用库一起真删」：先弹窗确认，取消则什么都不发生。 */}
-          <button className="wb-icon wb-card-remove" aria-label={`删除${item.subject}`} title="删除该对象（连使用库一起删）" onClick={() => setRemovingSubject(item.subject)}><Trash2 /></button>
-        </footer>
-        {revision.skill === "characters" && <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
-          {revision.origin === "legacy" && <span className="wb-origin-tag">{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}</span>}
-          {/* publishable 只算一次：徽标与两个按钮必须用同一个判定，否则文案会和可点性互相矛盾。 */}
-          {(() => {
-            const publishable = hasPublishableData(revision, item, book)
-            const status = soulStatus[item.subject] ?? "none"
-            return <>
-              <span className="wb-soul-status">{soulStatusLabel(soulStatus[item.subject], publishable)}</span>
-              <button type="button" disabled={!publishable || status !== "none" || busy}
-                title={!publishable ? "这个角色没有可加入灵魂库的资料" : status !== "none" ? "已在自定义灵魂库中" : "只加入自定义灵魂库，不绑定小说人物"}
-                onClick={() => onAddToSoul(item.subject)}><Plus />加入自定义灵魂库</button>
-              <button type="button" disabled={!publishable || busy}
-                title={publishable ? "绑定到小说人物（会自动加入自定义灵魂库）" : "这个角色没有可加入灵魂库的资料"}
-                onClick={() => onBind(item.subject)}><Link2 />绑定…</button>
-            </>
-          })()}
-        </div>}
-      </article>)}
-      {!items.length && <p className="wb-muted wb-no-results">没有符合条件的成果</p>}
-    </div>
     {expandedItem && <section className="wb-rule-detail">
-      <div className="wb-section-heading"><h2>{expandedItem.subject} · 完整规则</h2><button className="wb-icon" aria-label="收起完整规则" title="收起完整规则" onClick={() => setExpandedSubject(null)}><X /></button></div>
+      <div className="wb-section-heading"><h2>{expandedItem.subject} · 完整规则</h2><button className="wb-icon" aria-label="收起完整规则" title="收起完整规则" onClick={onCloseRules}><X /></button></div>
       <p className="wb-muted">{expandedItem.limitations}</p>
       {expandedItem.styleFingerprint && <WorkbenchStyleDetails item={expandedItem} evidence={revision.evidence} metrics={revision.metrics} />}
       {expandedItem.rules.map((rule) => <div className="wb-rule" key={rule.id}><h3>{rule.id} · {WORKBENCH_DIMENSIONS[rule.dimension] ?? rule.dimension}</h3>
@@ -779,14 +844,17 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
       {revision.items.map((item) => <div key={item.subject}><h3>{item.subject}</h3><details><summary>上一版本</summary><pre>{previous.items.filter((i) => i.subject === item.subject).map(workbenchRulesMarkdown).join("\n") || "上一版本没有此对象"}</pre></details><pre>{workbenchRulesMarkdown(item)}</pre></div>)}
     </details>}
     <div className="wb-revision-section">
-      <button aria-expanded={revisionOpen} onClick={() => setRevisionOpen(!revisionOpen)}><PencilLine />补充修订</button>
-      {revisionOpen && <><label className="wb-request"><span>补充修订要求</span><textarea ref={revisionInput} rows={3} value={requirements} onChange={(e) => setRequirements(e.target.value)} maxLength={4000} aria-label="补充修订要求" /></label>
+      {/* 只有「日期标签 + 补充修订」这一行是 flex；整段不能变 flex，否则 .wb-request
+          （display:block，靠它铺满整行）会变成按内容收缩的 flex 项，补充修订的输入框会被挤窄。 */}
+      <div className="wb-revision-head">
+        {/* 版本标题行删掉之后，这里就是唯一能标明「这一组版本级内容属于哪一版」的地方。 */}
+        {revisionDate && <span className="wb-revision-date">{revisionDate}</span>}
+        <button aria-expanded={openRevise} onClick={() => openRevise ? onToggleRevise(false) : openRevision()}><PencilLine />补充修订</button>
+      </div>
+      {openRevise && <><label className="wb-request"><span>补充修订要求</span><textarea ref={revisionInput} rows={3} value={requirements} onChange={(e) => onRequirements(e.target.value)} maxLength={4000} aria-label="补充修订要求" /></label>
         <button disabled={!requirements.trim() || revising} onClick={() => void onRevise(requirements.trim())?.catch(reportError)}><RefreshCw />生成修订版本</button></>}
     </div>
-    <RemoveItemDialog revision={revision} subject={removingSubject}
-      onOpenChange={(open) => { if (!open) setRemovingSubject(null) }}
-      onConfirm={() => void confirmRemove()} />
-  </div>
+  </section>
 }
 
 /**
@@ -796,17 +864,18 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
  * 而不是某一个对象——否则用户以为只删一张卡，实际删掉的是整个预设/框架。
  */
 function RemoveItemDialog({ revision, subject, onOpenChange, onConfirm }: {
-  revision: WorkbenchRevision; subject: string | null
+  revision?: WorkbenchRevision; subject: string | null
   onOpenChange: (open: boolean) => void; onConfirm: () => void
 }) {
-  const single = revision.skill === "characters"
-  const target = single ? `「${subject}」` : `「${revision.bookTitle} · ${revision.skill === "style" ? "文风" : "故事机制"}」`
-  const title = single ? `从角色灵魂库删除${target}？` : revision.skill === "style" ? `删除文风预设${target}？` : `删除故事框架${target}？`
+  // 版本查不到时（重读期间）不给文案：绝不能拿别的版本的书名去拼一句「要删的是它」。
+  const single = revision?.skill === "characters"
+  const target = single ? `「${subject}」` : `「${revision?.bookTitle} · ${revision?.skill === "style" ? "文风" : "故事机制"}」`
+  const title = revision?.skill === "style" ? `删除文风预设${target}？` : revision?.skill === "story" ? `删除故事框架${target}？` : `从角色灵魂库删除${target}？`
   const description = single
     ? "将删除该角色的灵魂及其规则，并解除它已绑定的小说人物。此操作不可撤销。"
-    : revision.skill === "style" ? "将删除该文风预设。此操作不可撤销。" : "将删除该故事框架。此操作不可撤销。"
+    : revision?.skill === "style" ? "将删除该文风预设。此操作不可撤销。" : "将删除该故事框架。此操作不可撤销。"
   return (
-    <Dialog open={Boolean(subject)} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(revision) && Boolean(subject)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <DialogDescription>{description}</DialogDescription>

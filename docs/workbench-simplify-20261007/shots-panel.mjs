@@ -27,13 +27,20 @@ const card = (s, d) => `<article class="wb-skill-card"><div class="wb-card-main"
   <small>3条规则 · 5条依据</small></div>
   <footer class="wb-card-footer">
     <button aria-label="查看${s}规则">查看规则</button>
-    <button class="wb-icon" aria-label="补充${s}修订要求">改</button>
-    <button class="wb-icon wb-card-remove" aria-label="删除${s}">删</button>
+    <span class="wb-card-actions">
+      <button class="wb-icon" aria-label="补充${s}修订要求">改</button>
+      <button class="wb-icon wb-card-remove" aria-label="删除${s}">删</button>
+    </span>
   </footer></article>`
 
-const block = (meta, cards, view = "grid") => `<section class="wb-revision-block" data-revision-id="r">
-  <div class="wb-revision-heading"><span class="wb-revision-meta">${meta}</span></div>
+// 一个版本 = 一个带网格的版本块（标题行已删，只剩卡片网格）
+const block = (id, cards, view = "grid") => `<section class="wb-revision-block" data-revision-id="${id}">
   <div class="wb-skill-grid" data-view="${view}">${cards}</div></section>`
+
+// 版本级内容：导图/规则详情/证据索引/补充修订；带年份的日期标签标明归属
+const extras = (id, date) => `<section class="wb-revision-extras" data-revision-extras="${id}">
+  <details class="wb-result"><summary>证据索引与实际覆盖</summary><p class="wb-muted">已读取90章、31个正文分段；规则引用12条原文。自动核验仍需人工复核。</p></details>
+  <div class="wb-revision-section"><span class="wb-revision-date">${date}</span><button>补充修订</button></div></section>`
 
 const oldCards = ["许七安|10/4 08:12", "怀庆长公主|10/4 08:12", "城防统领|10/4 08:12"].map((c) => card(...c.split("|"))).join("")
 const newCards = ["许七安|10/7 09:03", "林烬|10/7 09:03", "一个非常非常长的角色名字用来试探溢出边界|10/7 09:03"].map((c) => card(...c.split("|"))).join("")
@@ -57,10 +64,13 @@ const bar = `<section class="wb-section wb-results-section"><div class="wb-resul
   </div>
 </div>`
 
-// 场景一：旧版在前、新版在后的平铺（含日期）
-const stacked = `<h4>同一技能页的全部版本平铺（旧版本在前、新版本在后，每个对象名后带生成日期）</h4>` + bar +
-  block("2026/10/4 08:12 · 60章 · 12个对象 · 4项未采纳 · 旧版导入", oldCards) +
-  block("2026/10/7 09:03 · 90章 · 18个对象 · 尚未入库", newCards) + `</section>`
+// 场景一：合并列表 —— 旧版在前、新版在后连成一份；版本级内容排在后面并带日期标签
+const stacked = `<h4>合并列表：旧版本在前、新版本在后连成一份（每个对象名后带生成日期）</h4>` + bar +
+  `<div class="wb-card-list">` +
+  block("rev-old", oldCards) + block("rev-new", newCards) +
+  `</div>` +
+  `<h4 style="margin-top:26px">版本级内容排在合并列表之后（日期标签标明属于哪一版）</h4>` +
+  extras("rev-old", "2026/10/4 08:12") + extras("rev-new", "2026/10/7 09:03") + `</section>`
 
 for (const [w, h, name] of [[1280, 980, "panel-stacked-1280.png"], [760, 1100, "panel-stacked-760.png"]]) {
   const page = await browser.newPage({ viewport: { width: w, height: h } })
@@ -77,7 +87,7 @@ for (const [label, title, body, name] of [
   ["文风", "删除文风预设《拆书库测试作品》 · 文风？", "将删除该文风预设。此操作不可撤销。", "panel-delete-style.png"],
 ]) {
   const page = await browser.newPage({ viewport: { width: 900, height: 620 } })
-  await page.setContent(HTML(`<h4>删除确认弹窗（${label}页文案）</h4>` + block("2026/10/7 09:03 · 90章 · 18个对象", newCards.slice(0, 900)) + `
+  await page.setContent(HTML(`<h4>删除确认弹窗（${label}页文案）</h4>` + block("rev-new", newCards.slice(0, 900)) + `
     <div style="position:fixed;inset:0;background:#0006;display:grid;place-items:center">
       <div style="background:#fff;border-radius:12px;padding:22px 24px;max-width:430px;box-shadow:0 12px 40px #0003">
         <div style="font-size:17px;font-weight:600;margin-bottom:8px">${title}</div>

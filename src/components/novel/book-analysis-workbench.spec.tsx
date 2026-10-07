@@ -843,7 +843,8 @@ describe("分析结果自动入库", () => {
     })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(mocks.confirmRevision).not.toHaveBeenCalled()
-    expect(host.querySelector('[data-revision-id="rev-empty"]')!.textContent).toContain("尚未入库")
+    // 版本标题行已删，「尚未入库」改由卡片状态徽标承载（等价信号）。
+    expect(host.querySelector('[data-revision-id="rev-empty"] .wb-card-status')!.textContent).toBe("待确认")
   })
 
   it("自动发布成功后重新读取版本列表（拿回落盘的 confirmedAt）", async () => {
@@ -874,7 +875,8 @@ describe("分析结果自动入库", () => {
     const badges = Array.from(block.querySelectorAll(".wb-card-status")).map((b) => b.textContent)
     expect(badges.length).toBeGreaterThan(0)
     expect(badges.every((t) => t === "已入库")).toBe(true)
-    expect(block.textContent).not.toContain("尚未入库")
+    // 不再断言「文本里没有『尚未入库』」：版本标题行已删除，那句话在页面上根本不出现，
+    // 断它就变成恒真的空洞断言。徽标本身（上一行）才是承重的判据。
   })
 
   it("自动发布失败只报错一次、不重试、不写确认标记", async () => {
@@ -919,36 +921,106 @@ describe("全版本平铺", () => {
     expect(host.querySelector('[aria-label="结果版本"]')).toBeNull()
   })
 
-  it("版本标题行给出时间、章数与对象数，未采纳项追加在标题里", async () => {
-    const createdAt = new Date(2026, 9, 6, 22, 17).getTime()
-    mocks.revisions.mockResolvedValue([revisionFixture({
-      id: "rev-meta", createdAt, confirmedAt: createdAt + 1, selectedChapterIds: ["c1", "c2", "c3"],
-      items: [{ ...itemFixture("许七安"), styleFingerprint: {
-        // 画像字段必须给全：styleItemEvidenceIds 会直接读 lexicon/scenes，缺了会抛错（不是渲染问题）。
-        version: 1, positioning: "", coverage: [], lexicon: [], scenes: [],
-        omitted: [
-          { kind: "rule", label: "R1 · judgment", reason: "依据不足" },
-          { kind: "rule", label: "R2 · judgment", reason: "依据不足" },
-        ],
-      } }],
-    })])
+  it("版本标题行与「本次需求」都不再渲染", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({ id: "rev-meta", confirmedAt: 2 })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    expect(block("rev-meta").textContent).toContain("2026/10/6 22:17 · 3章 · 1个对象 · 2项未采纳")
+    expect(host.querySelector(".wb-revision-heading")).toBeNull()
+    expect(host.querySelector(".wb-revision-meta")).toBeNull()
+    expect(host.textContent).not.toContain("本次需求")
   })
 
-  it("legacy 版本标「旧版导入」，未入库的新版标「尚未入库」", async () => {
-    mocks.old.selectedLibraryBookId = "book-1"
-    mocks.load.mockResolvedValue({ books: [legacyBook] })
-    mocks.revisions.mockResolvedValue([revisionFixture({
-      id: "rev-pending", createdAt: 9, items: [{ subject: "许七安", summary: "", limitations: "", rules: [] }],
-    })])
+  it("每个版本的「补充修订」行带一个带年份的日期标签，用来区分各版本级内容归属", async () => {
+    const oldAt = new Date(2026, 9, 6, 22, 17).getTime()
+    const newAt = new Date(2026, 9, 7, 9, 3).getTime()
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-new", createdAt: newAt, confirmedAt: newAt + 1 }),
+      revisionFixture({ id: "rev-old", createdAt: oldAt, confirmedAt: oldAt + 1 }),
+    ])
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    expect(block("rev-pending").querySelector(".wb-revision-heading")!.textContent)
-      .toContain("1章 · 1个对象 · 尚未入库")
-    const legacyHeading = host.querySelector('[data-revision-id^="legacy-chars-"] .wb-revision-heading')!
-    expect(legacyHeading.textContent).toContain("旧版导入")
-    // legacy 照旧平铺显示，但它不是「尚未入库的新版结果」。
-    expect(legacyHeading.textContent).not.toContain("尚未入库")
+    const date = (id: string) => host.querySelector(`[data-revision-extras="${id}"] .wb-revision-date`)
+    // 带年份：与卡片上的短格式（10/6 22:17）区分开，只有它能唯一标识一个版本。
+    expect(date("rev-old")!.textContent).toBe("2026/10/6 22:17")
+    expect(date("rev-new")!.textContent).toBe("2026/10/7 09:03")
+  })
+})
+
+describe("合并版本列表与卡片操作", () => {
+  /** 一个版本级内容块（导图/规则详情/证据索引/补充修订都挂在它下面）。 */
+  const extras = (id: string) => host.querySelector(`[data-revision-extras="${id}"]`)
+  const inBlock = (id: string, selector: string) => host.querySelector(`[data-revision-id="${id}"] ${selector}`)
+
+  const twoVersionsWithSameCharacter = () => {
+    const oldAt = new Date(2026, 9, 6, 22, 17).getTime()
+    const newAt = new Date(2026, 9, 7, 9, 3).getTime()
+    // 两版里都有「许七安」：这是「状态必须按版本隔离」的关键条件。
+    return [
+      revisionFixture({ id: "rev-new", createdAt: newAt, confirmedAt: newAt + 1, items: [itemFixture("许七安"), itemFixture("林烬")] }),
+      revisionFixture({ id: "rev-old", createdAt: oldAt, confirmedAt: oldAt + 1, items: [itemFixture("许七安")] }),
+    ]
+  }
+
+  it("所有版本的对象卡排进同一个合并列表，顺序是「版本从旧到新、版本内原顺序」", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const list = host.querySelector(".wb-card-list")!
+    expect(list).not.toBeNull()
+    // 三张卡全在合并容器里：不是「看起来挨着、其实还是分块」。
+    expect(list.querySelectorAll(".wb-skill-card")).toHaveLength(3)
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(3)
+    // 顺序：旧版本（许七安）在前，新版本（许七安、林烬）在后。
+    const names = [...list.querySelectorAll(".wb-card-heading h3")].map((h) => h.textContent)
+    expect(names[0]).toContain("许七安 · 10/6 22:17")
+    expect(names[1]).toContain("许七安 · 10/7 09:03")
+    expect(names[2]).toContain("林烬 · 10/7 09:03")
+  })
+
+  it("合并后每个版本仍恰好一个跳转锚点（活动跳转不能失效）", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const ids = [...host.querySelectorAll("[data-revision-id]")].map((el) => el.getAttribute("data-revision-id"))
+    expect(ids).toEqual(["rev-old", "rev-new"])
+  })
+
+  it("版本级内容排在合并列表之后，且不在合并列表内部", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelectorAll(".wb-card-list [data-revision-extras]")).toHaveLength(0)
+    const extrasIds = [...host.querySelectorAll("[data-revision-extras]")].map((el) => el.getAttribute("data-revision-extras"))
+    expect(extrasIds).toEqual(["rev-old", "rev-new"])
+  })
+
+  it("两个版本都有「许七安」时，点其中一张卡的「查看规则」只展开它自己那一版", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (inBlock("rev-old", '[aria-label="查看许七安规则"]') as HTMLButtonElement).click())
+    expect(extras("rev-old")!.querySelector(".wb-rule-detail")).not.toBeNull()
+    // 关键：新版本里同名角色的规则详情**不能**跟着一起出现。
+    expect(extras("rev-new")!.querySelector(".wb-rule-detail")).toBeNull()
+  })
+
+  it("两个版本都有「许七安」时，删除按钮作用于被点那一版", async () => {
+    mocks.revisions.mockResolvedValue(twoVersionsWithSameCharacter())
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (inBlock("rev-old", '[aria-label="删除许七安"]') as HTMLButtonElement).click())
+    const del = [...document.body.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      .find((b) => b.textContent?.trim() === "删除")!
+    await act(async () => del.click())
+    expect(mocks.removeRevisionItem).toHaveBeenCalledTimes(1)
+    expect(mocks.removeRevisionItem.mock.calls[0][0].revision.id).toBe("rev-old")
+  })
+
+  it("展开概述的状态同样按版本隔离", async () => {
+    const long = "很长的概述".repeat(40)
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-new", createdAt: 20, confirmedAt: 21, items: [{ ...itemFixture("许七安"), summary: long }] }),
+      revisionFixture({ id: "rev-old", createdAt: 10, confirmedAt: 11, items: [{ ...itemFixture("许七安"), summary: long }] }),
+    ])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (inBlock("rev-old", '[aria-label="展开许七安概述"]') as HTMLButtonElement).click())
+    const expanded = (id: string) =>
+      inBlock(id, ".wb-card-description")!.getAttribute("data-expanded")
+    expect(expanded("rev-old")).toBe("true")
+    expect(expanded("rev-new")).toBe("false")
   })
 })
 
@@ -1058,8 +1130,9 @@ describe("结果条目的删除", () => {
     expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
     expect(host.querySelector(".wb-skill-card")!.textContent).toContain("许七安")
     expect(host.textContent).not.toContain("魏渊")
-    // 标题行的对象数按实际渲染出来的条目算，删掉的不能再算进去。
-    expect(block("rev-characters").textContent).toContain("1个对象")
+    // 「N个对象」原本在版本标题行里；标题行已删，改成直接数渲染出来的卡片。
+    // （不再是断言某个字符串存在，而是断言 DOM 里真的只有一张卡 —— 更贴近用户看到的。）
+    expect(block("rev-characters").querySelectorAll(".wb-skill-card")).toHaveLength(1)
   })
 })
 

@@ -133,6 +133,8 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-traits span{font-size:11px;padding:4px 7px;border-radius:3px;background:var(--ui-panel,var(--muted));color:var(--ui-muted,#687871)}
 .wb-card-main>small{font-size:11px}
 .wb-card-footer{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--ui-line,#c6d1cb);background:var(--ui-panel,var(--muted))}
+/* 修订与删除是一个动作组：包在一起让它们紧挨，不再被 space-between 摊到两端。 */
+.wb-card-actions{display:flex;align-items:center;gap:6px;flex:none}
 .book-workbench .wb-card-footer>button:first-child{border:0;background:transparent;padding:0;color:var(--ui-accent,#496b59);font-size:12px}
 /* 删除是这个面板里唯一的破坏性操作：hover 才变色，平时和旁边两个按钮长得一样。 */
 .book-workbench .wb-card-footer .wb-card-remove:hover:not(:disabled){color:var(--ui-danger,#a83e3e);border-color:var(--ui-danger,#a83e3e)}
@@ -142,6 +144,8 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-rule-detail{padding:20px 0 0;border-top:1px solid var(--ui-line,#c6d1cb)}
 .wb-no-results{grid-column:1/-1;text-align:center;padding:20px}
 .wb-revision-section{padding-top:16px}
+/* 日期标签与「补充修订」同排；这一段刻意不做 flex，见组件里的注释。 */
+.wb-revision-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .wb-style-profile{padding:16px 0}
 .wb-style-coverage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px;margin:12px 0 22px}
 .wb-style-coverage>div,.wb-style-word{border-bottom:1px solid var(--ui-line,#c6d1cb);padding:12px 0;font-size:13px;overflow-wrap:anywhere}
@@ -150,10 +154,23 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 @container(max-width:620px){.wb-style-coverage{grid-template-columns:1fr}}
 .wb-results-section>div>.wb-row>label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
 .wb-results-section select{max-width:100%}
-/* 全版本平铺：一个版本一块，标题行写明时间/章数/对象数（未采纳、旧版导入、尚未入库都追在这里）。 */
-.wb-revision-block{margin-top:18px;min-width:0}
-.wb-revision-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--ui-line,#d4ddda)}
-.wb-revision-meta{font-size:12px;color:var(--ui-muted,#687871)}
+/*
+ * 合并版本列表：所有版本的对象卡连成一份。
+ *
+ * 不做嵌套网格（外层大网格里再套每个版本的小网格会要求两层列宽完全一致才对齐）。
+ * 改成：每个版本各自持有一个 .wb-skill-grid，外层只用普通流式容器竖向排列，
+ * 并把**版本之间的间距设成与卡片间距相同的 14px**。由于每个网格的列定义
+ * （repeat(3,…) / repeat(2,…) / 1fr）与列间距完全相同、容器查询的容器都是
+ * .book-workbench，相邻网格的列边界必然对齐 —— 视觉上就是一份连续列表。
+ */
+.wb-card-list{min-width:0}
+.wb-revision-block{margin-top:14px;min-width:0}
+.wb-revision-block:first-child{margin-top:0}
+/* 网格自带上下 16px 外边距，会与上面的版本间距叠加（外边距还会互相折叠，算出来是 16 而不是 14）；
+   合并列表里清掉它，让「版本间距」与「卡片行间距」都由下面这一处决定。 */
+.wb-card-list .wb-skill-grid{margin-top:0;margin-bottom:0}
+.wb-revision-extras{min-width:0}
+.wb-revision-date{font-size:12px;color:var(--ui-muted,#687871);white-space:nowrap}
 @container(max-width:900px){.wb-header>.wb-row>.wb-muted{display:none}.wb-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-header .wb-book-picker>button{min-width:130px;max-width:250px}}
 @container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:12px}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}
 @media(max-width:640px){.book-workbench{padding:0 16px 32px}.wb-header{padding:12px 0}.wb-header>div{max-width:100%}.wb-rule dl{grid-template-columns:54px minmax(0,1fr);gap:8px}.wb-tabs{gap:8px}.wb-chapter-row{grid-template-columns:18px 30px minmax(0,1fr) 64px}.wb-model>span:nth-child(2){max-width:190px}.wb-demand-editor textarea{height:100px}.wb-book-picker>button span{max-width:135px}}
