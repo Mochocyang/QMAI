@@ -146,9 +146,36 @@ for (const f of assets) {
 const uniqueCarriers = [...new Set(carriers)]
 check(uniqueCarriers.length > 0, "本次新增文案在某个 dist chunk 里", uniqueCarriers.join(", "))
 
-// 拆书库卡片所在的 chunk：以本次新文案「证据索引」为锚点定位。
-const workbenchChunks = assets.filter((f) => readFileSync(join(repo, "dist/assets", f), "utf8").includes("证据索引"))
+/*
+ * 拆书库卡片所在的 chunk：用**组件独有的结构类名**定位。
+ *
+ * 原来用的是业务词「证据索引」。4.1.1 的更新日志条目里写了
+ * 「证据索引下沉到每张卡片」，于是承载更新日志的 settings-view chunk
+ * 也被选中，紧接着「拆书库 chunk 内必须不含 待确认/已入库」的断言
+ * 被条目正文「「已入库/待确认」状态徽标」命中 —— 两项**假失败**。
+ * 锚点不能是可能出现在文案里的词，只能是组件自己产出的结构记号。
+ */
+const WORKBENCH_ANCHOR = "wb-skill-grid"
+const CHANGELOG_MARKER = "拆书结果面板精简"
+const workbenchChunks = assets.filter((f) =>
+  readFileSync(join(repo, "dist/assets", f), "utf8").includes(WORKBENCH_ANCHOR),
+)
 check(workbenchChunks.length > 0, "定位到承载拆书库卡片的 chunk", workbenchChunks.join(", "))
+
+/*
+ * 锚点自检：定位结果里不得混入承载更新日志的 chunk。
+ * 没有这一条，下次再有人把业务词当锚点、或往文案里写入被禁词，
+ * 就会重演同一次假失败 —— 而且这次是"看起来像真回归"的那种。
+ */
+const changelogChunks = assets.filter((f) =>
+  readFileSync(join(repo, "dist/assets", f), "utf8").includes(CHANGELOG_MARKER),
+)
+const leakedChunks = workbenchChunks.filter((f) => changelogChunks.includes(f))
+check(
+  leakedChunks.length === 0,
+  "拆书库 chunk 定位未混入更新日志 chunk",
+  leakedChunks.length ? `混入 ${leakedChunks.join(", ")}` : `锚点 ${WORKBENCH_ANCHOR} 唯一`,
+)
 
 // 打包后的 chunk 也必须是 exe 里那一个（用资源名证明同一份文件，不是"另有一份"）。
 for (const f of uniqueCarriers) check(ascii.includes(f), `承载改动的 chunk 已打进 exe: ${f}`)
