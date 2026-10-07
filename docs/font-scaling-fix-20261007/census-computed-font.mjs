@@ -10,8 +10,63 @@
  *      依据：557 处 px→rem 换算中，所有 px 值均为 0.5 的整数倍，
  *      除以 16 得精确有限小数，故 100% 下计算值应与现状完全一致。
  *      若有差异 → 换算有误或漏改，必须修正。
- *   2. 生效性：根字号 150% 时，**所有**文本元素的计算 fontSize 必须等于
- *      100% 时数值的 1.5 倍（允许浮点误差）。若有元素未变 → 该处仍有绝对单位漏网。
+ *   2. 生效性：根字号 150% 时，**所有**文本元素的计算 fontSize **与 lineHeight**
+ *      都必须等于 100% 时数值的 1.5 倍（同一容差 1.5%）。
+ *      - fontSize 未变 → 该处仍有绝对单位漏网；
+ *      - lineHeight 未变 → 该处 px 行高漏改（557 处清单里有 11 处 `line-height`
+ *        与 80 处 `font` 简写内嵌 px 行高，其中 12 处是 px/px 双值）。
+ *      - lineHeight 为 `normal` 时跳过该项（normal 不与字号线性对应）。
+ *      未达标者一律计入"未解释"并打印明细。**只看 fontSize 会放过整类行高漏改。**
+ *
+ * ⚠️ 已知覆盖盲区（如实登记，勿据此以为"已验证"）：
+ *   任务 7 要改的 `src/components/uitest/ui-test-editor.css:239-240`
+ *   （`li::marker{font-size:12px}` / `ol > li::marker{font-size:16px}`）
+ *   **在本工具的浏览器可达路径下从不挂载**：实测 11 个分区里
+ *   `.ui-test-editor-body` 命中数 = 0（点遍所有可达按钮后仍为 0；编辑器需要
+ *   真实 exe 才能到达，不是本工具能解决的）。基线里 300 条 `::marker`
+ *   **全部来自 changelog 的 li**（14px，rem，本来就会缩放），
+ *   0 条 12px/16px。
+ *   因此：**改那两行，本工具发现不了**。判据 2 全绿 ≠ 编辑器列表标记已验证。
+ *   替代验证（由后续任务执行）：(a) 静态 CSS 校验脚本 —— 检查那几处引用同一
+ *   字号变量、无残留 px 硬编码；(b) 真实 exe 中目视确认。
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * 虚假通过防线（防线的存在意义：**一个会错误报"通过"的验收工具比没有工具更危险**）
+ * ─────────────────────────────────────────────────────────────────────────
+ *   判据只在下列全部成立时才可能返回"通过"（任何一条不成立 → 退出码 1）：
+ *     A 四个档位（before/after × 100%/150%）都必须是非空对象 —— 空档会让判据
+ *       在 0 个元素上"通过"；
+ *     B 分区覆盖 11/11（before 与 after 各自检查）—— 两侧同时缺一个分区时，
+ *       键数与判据会完全自洽，只有这条能发现；
+ *     C 四个档位的 `::marker` 条数都 > 0（基线 300 条）—— 为 0 说明 marker
+ *       采集整体失效，全部 marker 条目会从判据 2 消失；
+ *     D before 与 after 的 100% 档键集**逐一对应**（仅前有 = 元素消失，
+ *       仅后有 = 判据看不见的新元素），且 after 的 100%/150% 档键集一致，
+ *       after 每档键数不低于基线；
+ *     E 缺 100%/150% 任一档配对的键数 `noPair` 必须为 0，参与比对元素数不得
+ *       低于下限（默认 11 = 每分区一个，`--min-elements` 可调）；
+ *     F 三组之和（正确缩放 + SVG 例外 + 未解释）必须等于 after 100% 档的
+ *       **键总数**（不是"键总数 − 未参与数"，那种比法在什么都没比时恒成立）；
+ *     G SVG 例外不得吞没全部参与元素，且**确有元素实现缩放**（scaled > 0）——
+ *       否则"一个都不缩放 + 全部被豁免"也能通过；
+ *     H 行高断言必须**真的运行过**（至少 1 个参与元素的 100% 档 lineHeight 是
+ *       `<n>px`）。若全部是 `normal`，行高断言整类空转，px 行高漏改将完全不可见；
+ *     I SVG 例外数不得超过配额 `--max-svg-exceptions`（**默认 0**，实测值：
+ *       本机可达页面里带 `font-size` 呈现属性的 svg 图元实测 0 个）。要用例外
+ *       必须在命令行上显式给配额 —— 一次可见的、刻意的声明；且配额本身有上限
+ *       （参与数的 3%，下限 5），免得"把未缩放的大多数说成在图标里"；
+ *     J 未解释 = 0。
+ *   失败行统一带前缀：守卫失败 `✗ GUARD-FAIL [代号]`，参数错误 `✗ ARG-FAIL`，
+ *   判据未通过 `✗ FAIL`。三种前缀都会被 `census-guards.spec.mjs` 断言，用来区分
+ *   "受控失败"与"崩溃/环境问题导致的偶然非 0"。
+ *   局限（不可回避）：census JSON 是**外部输入**，本工具无法鉴别其真伪。
+ *   一份被手工伪造得自洽的 JSON（例如把全部元素都写成 ×1.5）仍能骗过任何
+ *   比较器。防线针对的是"真实的采集缺口被静默原谅"，不是恶意伪造。
+ *   缓解：判据 1 把 after 的 **100% 档**逐键钉在已提交的基线上（`fontSize` 与
+ *   `lineHeight` 必须逐字相同），所以 100% 档不是自由数据；能自由伪造的只有
+ *   150% 档与 `inSvg`/`svgFontSizeAttr`/`isMarker` 这类标记字段 —— 后者正是
+ *   守卫 G/I 针对的对象。
+ * ─────────────────────────────────────────────────────────────────────────
  *
  * ─────────────────────────────────────────────────────────────────────────
  * 键的构成规则（**契约**，后续任务依赖它；改动此处等于让基线失效）
@@ -28,9 +83,18 @@
  *   为什么必须带分区前缀：11 个分区各有自己的 DOM 状态，**不同分区既可能在
  *   不同路径上放不同元素，也可能在同一路径上放不同元素**。若只以 DOM 路径为键
  *   再跨分区 `Object.assign` 合并，后访问的分区会覆盖先访问分区的元素，该元素
- *   对判据 1/2 **完全不可见**——历史上由此静默遮蔽过 6 个元素，其中一个
- *   （「重排模型」13px）恰恰是未缩放的 px 元素，即缺陷本身藏在盲区里。
+ *   对判据 1/2 **完全不可见**——历史上由此静默遮蔽记录（实测 **7 条记录**，
+ *   其中 1 条是同一导航项「其他写作设置」的选中/未选中两种状态，故对应
+ *   **至少 6 个不同元素**），其中包括一个未缩放的 px 元素（「重排模型」13px），
+ *   即缺陷本身藏在盲区里。
  *   加分区前缀后"同路径、不同分区"永不碰撞，任何元素都不可能被静默覆盖。
+ *
+ *   这 7 条怎么测出来的（可复算）：旧键方案（无分区前缀）的基线是 git 提交
+ *   `8724bef` 里的 `census-before.json`（923 键）。把当前基线 1113 个键按
+ *   `::` 剥掉分区前缀得到 923 个路径，与旧基线**逐路径比对元素身份**
+ *   （`cls`+`text`+`fontSize`）：其中 **7 条**在新基线里存在、而旧方案下该路径
+ *   "存活"的是另一个身份 —— 那 7 条当时对判据不可见。其余为同元素幂等重采
+ *   （含 300 条 `::marker`，旧方案未采集 marker）。
  *
  * 合并语义（两种情况分别怎么处理）
  *   1. **同一元素在多个分区重复出现**（公共外框、侧栏导航等）：那是同一元素被
@@ -47,10 +111,16 @@
  * ─────────────────────────────────────────────────────────────────────────
  *
  * 已登记例外（**允许不缩放**，不算漏项）：
- *   SVG 内联 `fontSize="N"` 属性 —— 无单位等同 px，画在固定 viewBox 的图标里
+ *   SVG 内联 `fontSize="N"` 呈现属性 —— 无单位等同 px，画在固定 viewBox 的图标里
  *   （环形图百分比、16×16 品牌单字）。改 rem 会让字形溢出图标框。
- *   采集时以 `inSvg: true` 标记，判据 2 归入独立的"SVG 例外"组。
+ *   例外判定收紧为 **`inSvg: true` 且 `svgFontSizeAttr: true`**
+ *   （采集时 `!!(el.closest("svg") && el.hasAttribute("font-size"))`）：
+ *   只看"有 svg 祖先"会把任何嵌在图标外的未缩放元素都错放行。
+ *   `inSvg` 保留供诊断显示，但**判定只用 `svgFontSizeAttr`**。
  *   ⚠️ `::marker` 采集条目（`isMarker: true`）**必须**缩放，不得算作例外。
+ *   ⚠️ 本机可达页面实测 `<svg><text>` = 0 个（`provider-brand-icon` 因无提供方
+ *   未渲染、`context-usage-ring` 在聊天页不可达），故"SVG 例外 = 0"是正常的；
+ *   出现非 0 时工具会打印警告要求人工确认，但不会因此判失败。
  *
  * 覆盖面：进入设置页后依次点击**全部 11 个**子分区，并在每个分区各采集一次；
  *   每个分区的快照以 `<分区id>::` 前缀并入累积对象（见上"键的构成规则"）。
@@ -65,7 +135,10 @@
  *   node census-computed-font.mjs --out after.json          # 改动后采集
  *   node census-computed-font.mjs --scales 100,130,150 --out x.json  # 自定义根字号档位
  *   node census-computed-font.mjs --compare before.json after.json
+ *   node census-computed-font.mjs --compare a.json b.json --min-elements 100
+ *   node census-computed-font.mjs --compare a.json b.json --max-svg-exceptions 3
  *   node census-computed-font.mjs --marker-selftest         # 只验证 ::marker 采集可用
+ *   防线测试：`npx vitest run docs/font-scaling-fix-20261007/census-guards.spec.mjs`
  */
 import { createServer } from "node:http"
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs"
@@ -76,12 +149,6 @@ const argv = process.argv.slice(2)
 const argOf = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined }
 
 const DIST = join(process.cwd(), "dist")
-
-/* ── 根字号档位：可用 --scales 覆盖（原先硬编码，传参被静默忽略） ── */
-const scalesArg = argOf("--scales")
-const CENSUS_SCALES = scalesArg === undefined
-  ? [100, 150]
-  : scalesArg.split(",").map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0)
 
 /**
  * 设置页真实子分区 id —— 取自 `src/components/settings/settings-view.tsx`
@@ -96,45 +163,220 @@ const SETTINGS_SECTIONS = [
 /** 每个 scale 轮开始时先固定停在这个分区，保证各档位采集状态对称。 */
 const SETTINGS_HOME_SECTION = "model"
 
-/* ─────────── 比较模式 ─────────── */
-if (argv.includes("--compare")) {
-  const i = argv.indexOf("--compare")
-  const before = JSON.parse(readFileSync(argv[i + 1], "utf8"))
-  const after = JSON.parse(readFileSync(argv[i + 2], "utf8"))
+/** 比较模式要求的两档（判据 1 锚定 100%、判据 2 锚定 150%）。 */
+const REQUIRED_SCALES = ["100", "150"]
+/** 参与元素下限：默认"每个分区至少一个"，可用 --min-elements 提高。 */
+const DEFAULT_MIN_ELEMENTS = SETTINGS_SECTIONS.length
+/**
+ * SVG 例外配额，默认 **0** —— 这是实测值，不是保守猜测：
+ * 本机可达页面里带 `font-size` 呈现属性的 svg 图元实测 0 个
+ * （绝大多数 svg 是纯 path/几何，`provider-brand-icon` 因无提供方未渲染、
+ * `context-usage-ring` 在聊天页不可达）。
+ * 默认 0 使"把元素说成在图标里"这条绕过路径失效：要用例外就必须在命令行上
+ * **显式**给出配额，那是一次可见的、刻意的声明，而不是数据里悄悄多出的字段。
+ */
+const DEFAULT_MAX_SVG_EXCEPTIONS = 0
+/**
+ * 配额上限：例外数不得超过参与元素的一个极小比例（且至少有 5 的绝对余量，
+ * 免得小样本 fixtures 被卡死）。理由：已登记例外只可能是**零星的图标文字**，
+ * 不可能占多数 —— 否则"把未缩放的大多数说成在图标里"就能绕过判据 2。
+ * 若将来界面真的出现大量 SVG 文字，应提高这个常量并写明理由，而不是随手抬配额。
+ */
+const svgExceptionCap = (participating) => Math.max(5, Math.floor(participating * 0.03))
+/** 允许 1.5% 误差（浏览器亚像素取整）。 */
+const RATIO_TARGET = 1.5
+const RATIO_TOLERANCE = 0.015
+const ratioOk = (r) => Number.isFinite(r) && Math.abs(r - RATIO_TARGET) < RATIO_TOLERANCE
 
-  // 防"静默通过"：两判据都锚定 100% / 150% 两档。若采集时用了别的 --scales，
-  // 缺档会让判据 2 无数据可比 → 0/0 "通过"，这是伪结论，必须直接报错。
-  for (const [name, file] of [["before", before], ["after", after]]) {
-    if (!file.census || !file.census["100"]) {
-      console.error(`  ${name} 缺少 100% 档基线（scales=${JSON.stringify(file.scales)}）；--compare 需要 100% 与 150% 两档，采集时不要改 --scales`)
-      process.exit(1)
-    }
+/**
+ * 解析 `<n>px` 形式的计算值；返回 null 表示"不可判定"（normal / auto / 空串），
+ * 与 0 严格区分 —— 把不可判定误当"未缩放"或"未参与"都是伪结论。
+ */
+const parsePx = (v) => {
+  if (typeof v !== "string") return null
+  const m = /^(-?\d+(?:\.\d+)?)px$/.exec(v.trim())
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+const isFilledObject = (v) =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0
+
+const sectionOfKey = (k) => String(k).split("::")[0]
+
+/**
+ * 根字号档位：可用 --scales 覆盖。
+ * ⚠️ 原先 `.map(Number).filter(非有限或 ≤0)` 会把 `--scales 100,abc` **静默变成 [100]**，
+ * 也会把 `--scales --out x.json`（flag 当值）变成空数组后含糊报"解析结果为空"。
+ * 现在：任何非法 token 都是明确的 ARG-FAIL。
+ */
+function parseScalesArg(raw) {
+  if (raw === undefined) return { scales: [100, 150] }
+  const trimmed = raw.trim()
+  if (trimmed === "") return { error: `--scales 取值为空（收到 ${JSON.stringify(raw)}），请提供如 --scales 100,150` }
+  if (trimmed.startsWith("--")) return { error: `--scales 后缺少取值：读到的是另一个 flag ${JSON.stringify(raw)}，请提供如 --scales 100,150` }
+  const tokens = trimmed.split(",").map((s) => s.trim())
+  const bad = tokens.filter((t) => t === "" || !Number.isFinite(Number(t)) || Number(t) <= 0)
+  if (bad.length) return { error: `--scales 含非法档位 ${JSON.stringify(bad)}（收到 ${JSON.stringify(raw)}）：每一项都必须是正数，如 --scales 100,150` }
+  const scales = tokens.map(Number)
+  if (new Set(scales.map(String)).size !== scales.length) {
+    return { error: `--scales 有重复档位（收到 ${JSON.stringify(raw)}）：重复档位会互相覆盖，请去掉重复` }
   }
-  if (!after.census["150"]) {
-    console.error(`  after 缺少 150% 档基线（scales=${JSON.stringify(after.scales)}）；--compare 需要 100% 与 150% 两档，采集时不要改 --scales`)
-    process.exit(1)
+  return { scales }
+}
+
+/** 参与元素下限（正整数）。默认 = 分区数（每分区至少一个元素参与判据 2）。 */
+function parseMinElementsArg(raw) {
+  if (raw === undefined) return { value: DEFAULT_MIN_ELEMENTS }
+  const trimmed = raw.trim()
+  if (trimmed.startsWith("--") || trimmed === "") return { error: `--min-elements 需要正整数取值，读到的却是 ${JSON.stringify(raw)}` }
+  const n = Number(trimmed)
+  if (!Number.isInteger(n) || n <= 0) return { error: `--min-elements 必须是正整数（收到 ${JSON.stringify(raw)}）` }
+  return { value: n }
+}
+
+/**
+ * `--out` 取值：必须是文件路径。`--out` 后面紧跟另一个 flag（例如
+ * `--out --scales 100`）原先会被当成文件名或默认值，属"flag 当值"的静默错误。
+ */
+function parseOutArg(raw) {
+  if (raw === undefined) return {}
+  const trimmed = raw.trim()
+  if (trimmed === "" || trimmed.startsWith("--")) {
+    return { error: `--out 需要文件路径取值，读到的却是 ${JSON.stringify(raw)}` }
   }
+  return { value: trimmed }
+}
+
+/** SVG 例外配额（非负整数）。默认 0，见 DEFAULT_MAX_SVG_EXCEPTIONS。 */
+function parseMaxSvgExceptionsArg(raw) {
+  if (raw === undefined) return { value: DEFAULT_MAX_SVG_EXCEPTIONS }
+  const trimmed = raw.trim()
+  if (trimmed.startsWith("--") || trimmed === "") return { error: `--max-svg-exceptions 需要非负整数取值，读到的却是 ${JSON.stringify(raw)}` }
+  const n = Number(trimmed)
+  if (!Number.isInteger(n) || n < 0) return { error: `--max-svg-exceptions 必须是非负整数（收到 ${JSON.stringify(raw)}）` }
+  return { value: n }
+}
+
+const scalesParsed = parseScalesArg(argOf("--scales"))
+const minElementsParsed = parseMinElementsArg(argOf("--min-elements"))
+const outParsed = parseOutArg(argOf("--out"))
+const maxSvgParsed = parseMaxSvgExceptionsArg(argOf("--max-svg-exceptions"))
+const CENSUS_SCALES = scalesParsed.scales ?? []
+const ARG_ERRORS = [scalesParsed.error, minElementsParsed.error, outParsed.error, maxSvgParsed.error].filter(Boolean)
+const MIN_ELEMENTS = minElementsParsed.value ?? DEFAULT_MIN_ELEMENTS
+const MAX_SVG_EXCEPTIONS = maxSvgParsed.value ?? DEFAULT_MAX_SVG_EXCEPTIONS
+const OUT_FILE = outParsed.value ?? "census.json"
+
+/* ─────────── 比较模式 ─────────── */
+
+/**
+ * 比较两个 census 文件，判定两条判据 + 全部虚假通过防线。
+ *
+ * @returns {number} 进程退出码（0 = 只有全部判据与防线都成立时才可能）
+ */
+function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions }) {
+  const failures = []
+  const fail = (code, msg) => {
+    failures.push(code)
+    console.error(`  ✗ GUARD-FAIL [${code}] ${msg}`)
+  }
+  const argFail = (msg) => {
+    failures.push("ARG")
+    console.error(`  ✗ ARG-FAIL ${msg}`)
+  }
+  const readCensus = (label, p) => {
+    let raw
+    try { raw = readFileSync(p, "utf8") } catch (e) { argFail(`无法读取 ${label} 文件 ${p}：${e.message}`); return null }
+    try { return JSON.parse(raw) } catch (e) { argFail(`${label} 文件不是合法 JSON（${p}）：${e.message}`); return null }
+  }
+
+  const before = readCensus("before", beforePath)
+  const after = readCensus("after", afterPath)
+  if (!before || !after) return 1
 
   console.log("  ══ 比较：改动前 vs 改动后 ══\n")
 
-  // 判据 1：100% 等效性
-  const b100 = before.census["100"] ?? {}
-  const a100 = after.census["100"] ?? {}
-  const keysB = Object.keys(b100)
-  const keysA = Object.keys(a100)
-  const missing = keysB.filter((k) => !(k in a100))
-  const added = keysA.filter((k) => !(k in b100))
+  /* ── 守卫 A：四个档位必须都是非空对象（空档 = 在 0 个元素上"通过"） ── */
+  const buckets = {}
+  for (const [side, file] of [["before", before], ["after", after]]) {
+    for (const scale of REQUIRED_SCALES) {
+      const val = file?.census?.[scale]
+      const n = isFilledObject(val) ? Object.keys(val).length : 0
+      if (n === 0) {
+        fail("A/空档位", `${side} 的 ${scale}% 档缺失或为空对象（scales=${JSON.stringify(file?.scales)}）：判据会在 0 个元素上"通过"，属伪结论；--compare 需要 100% 与 150% 两档且都非空`)
+      } else {
+        console.log(`  ${side} ${scale}% 档: ${n} 个键`)
+        buckets[`${side}${scale}`] = val
+      }
+    }
+  }
+  if (failures.length) {
+    console.error("  ✗ 档位不完整，无法比较（判据必须建立在非空数据上）")
+    return 1
+  }
 
-  let diff100 = []
+  const b100 = buckets.before100, b150 = buckets.before150
+  const a100 = buckets.after100, a150 = buckets.after150
+  const keysB = Object.keys(b100), keysB150 = Object.keys(b150)
+  const keysA = Object.keys(a100), keysA150 = Object.keys(a150)
+  const setA = new Set(keysA), setB = new Set(keysB), setA150 = new Set(keysA150)
+
+  /* ── 守卫 B：分区覆盖必须 11/11（before 与 after 各自） ── */
+  for (const [side, keys] of [["before", keysB], ["after", keysA]]) {
+    const have = new Set(keys.map(sectionOfKey))
+    const missed = SETTINGS_SECTIONS.filter((s) => !have.has(s))
+    if (missed.length) {
+      fail("B/分区覆盖", `${side} 的 100% 档只覆盖 ${SETTINGS_SECTIONS.length - missed.length}/${SETTINGS_SECTIONS.length} 个分区，缺: ${missed.join(", ")}（两侧同时缺一个分区时键数与判据完全自洽，只有这条能发现）`)
+    } else {
+      const unknown = [...have].filter((s) => !SETTINGS_SECTIONS.includes(s))
+      console.log(`  分区覆盖 ${side} 100%: 已到达 ${SETTINGS_SECTIONS.length}/${SETTINGS_SECTIONS.length} 个分区`
+        + (unknown.length ? `（另有未知前缀 ${unknown.length} 个: ${unknown.slice(0, 3).join(", ")}）` : ""))
+    }
+  }
+
+  /* ── 守卫 C：::marker 采集不得整体失效（基线 300 条） ── */
+  const markerCount = {}
+  for (const [side, scale, keys] of [
+    ["before", "100", keysB], ["before", "150", keysB150],
+    ["after", "100", keysA], ["after", "150", keysA150],
+  ]) {
+    const n = keys.filter((k) => k.endsWith("::marker")).length
+    markerCount[`${side}${scale}`] = n
+    if (n === 0) {
+      fail("C/marker缺失", `${side} 的 ${scale}% 档 ::marker 条数为 0（基线 300 条）：marker 采集整体失效，全部 ::marker 条目会从判据 2 消失`)
+    }
+  }
+  console.log(`  ::marker 条数: before 100%=${markerCount.before100} 150%=${markerCount.before150}`
+    + `；after 100%=${markerCount.after100} 150%=${markerCount.after150}`)
+
+  /* ── 守卫 D：键集必须逐一对应（新增/消失的键对判据不可见） ── */
+  const missing = keysB.filter((k) => !setA.has(k))
+  const added = keysA.filter((k) => !setB.has(k))
+  if (missing.length || added.length) {
+    fail("D/键集不一致", `改动前/后 100% 档键集必须逐一对应：仅改动前有 ${missing.length}（示例 ${missing.slice(0, 3).join(" | ") || "—"}），仅改动后有 ${added.length}（示例 ${added.slice(0, 3).join(" | ") || "—"}）。CSS 值改动不应改变 DOM 路径`)
+  }
+  if (keysA.length < keysB.length) {
+    fail("D2/键数不足", `after 100% 档键数 ${keysA.length} < 基线(before) ${keysB.length}：after 每档键数不低于基线，否则是局部丢采集`)
+  }
+  const onlyInA150 = keysA150.filter((k) => !setA.has(k))
+  const missingInA150 = keysA.filter((k) => !setA150.has(k))
+  if (onlyInA150.length || missingInA150.length) {
+    fail("D3/档位键集不一致", `after 的 100% 与 150% 档键集必须一致：150% 独有 ${onlyInA150.length}（示例 ${onlyInA150.slice(0, 3).join(" | ") || "—"}），150% 缺失 ${missingInA150.length}（示例 ${missingInA150.slice(0, 3).join(" | ") || "—"}）`)
+  }
+
+  /* ── 判据 1：100% 等效性 ── */
+  const diff100 = []
   for (const k of keysB) {
-    if (!(k in a100)) continue
+    if (!setA.has(k)) continue
     const x = b100[k], y = a100[k]
     if (x.fontSize !== y.fontSize || x.lineHeight !== y.lineHeight) {
       diff100.push({ key: k, before: x, after: y })
     }
   }
 
-  console.log(`  判据 1：100% 字号下计算样式等效性`)
+  console.log("\n  判据 1：100% 字号下计算样式等效性")
   console.log(`    元素数 改动前=${keysB.length} 改动后=${keysA.length}`)
   console.log(`    仅改动前有: ${missing.length}${missing.length ? "  ← 元素消失，需排查" : ""}`)
   console.log(`    仅改动后有: ${added.length}${added.length ? "  ← 新增元素" : ""}`)
@@ -147,64 +389,170 @@ if (argv.includes("--compare")) {
       console.log(`          后: ${d.after.fontSize} / lh ${d.after.lineHeight}`)
     }
   }
-  const judge1 = diff100.length === 0 && missing.length === 0
+  // 判据 1 只有在"两侧均为非空对象且键集逐一对应"的前提下才可能通过
+  const judge1 = diff100.length === 0
+    && missing.length === 0 && added.length === 0
+    && keysB.length > 0 && keysA.length > 0
 
-  // 判据 2：150% 生效性（三分类：正确缩放 / SVG 例外 / 未解释）
-  const a150 = after.census["150"] ?? {}
+  /* ── 判据 2：150% 生效性（fontSize 与 lineHeight 双断言，三分类） ── */
   const svgException = []
   const unexplained = []
+  const noPairKeys = []
+  const unjudgeable = []
   let scaled = 0
-  let sample = null
-  let markerCount = 0
   let noPair = 0
+  let markerPairs = 0
+  let lhJudged = 0
+  let lhSkipped = 0
   for (const k of keysA) {
     const at100 = a100[k], at150 = a150[k]
-    if (!at100 || !at150) { noPair++; continue }
-    if (at100.isMarker === true) markerCount++
-    const base = parseFloat(at100.fontSize)
-    const big = parseFloat(at150.fontSize)
-    if (!Number.isFinite(base) || base === 0) { noPair++; continue }
-    const ratio = big / base
-    // 允许 1.5% 误差（浏览器亚像素取整）
-    if (Math.abs(ratio - 1.5) < 0.015) { scaled++; continue }
-    const rec = { key: k, at100: at100.fontSize, at150: at150.fontSize, ratio: ratio.toFixed(3), cls: at100.cls, text: at100.text }
-    // SVG 图标几何是已登记例外；但 ::marker 条目必须缩放（isMarker 优先判定）
-    if (at100.inSvg === true && at100.isMarker !== true) svgException.push(rec)
+    if (at100 === undefined || at150 === undefined) { noPair++; noPairKeys.push(k); continue }
+    if (at100.isMarker === true) markerPairs++
+
+    const baseFs = parsePx(at100.fontSize)
+    const bigFs = parsePx(at150.fontSize)
+    if (baseFs === null || bigFs === null || baseFs === 0) {
+      // 计算出的 fontSize 不是 `<n>px`（或为 0）→ 这一项无法判定。
+      // 既不算"未参与"，也不算"通过"：单列出来，非空即失败。
+      unjudgeable.push({ key: k, at100: at100.fontSize, at150: at150.fontSize })
+      continue
+    }
+    const fsRatio = bigFs / baseFs
+    const fsOk = ratioOk(fsRatio)
+
+    // lineHeight 断言：仅当 100% 档是 px 数值时才要求线性（normal 等跳过）。
+    // 跳过项要计数：若"一个都没判"（全 normal），说明行高断言整类空转，必须失败。
+    const baseLh = parsePx(at100.lineHeight)
+    let lhRatio = null
+    let lhOk = true
+    if (baseLh !== null && baseLh !== 0) {
+      lhJudged++
+      const bigLh = parsePx(at150.lineHeight)
+      if (bigLh === null) lhOk = false
+      else { lhRatio = bigLh / baseLh; lhOk = ratioOk(lhRatio) }
+    } else {
+      lhSkipped++
+    }
+
+    if (fsOk && lhOk) { scaled++; continue }
+
+    const failed = !fsOk && !lhOk ? "fontSize+lineHeight" : !fsOk ? "fontSize" : "lineHeight"
+    const rec = {
+      key: k, failed,
+      at100: at100.fontSize, at150: at150.fontSize,
+      fsRatio: fsRatio.toFixed(3),
+      lh100: at100.lineHeight, lh150: at150.lineHeight,
+      lhRatio: lhRatio === null ? null : lhRatio.toFixed(3),
+      cls: at100.cls, text: at100.text,
+    }
+    // SVG 图标几何是已登记例外；例外判定收紧为"确实带 font-size 呈现属性且在 svg 内"；
+    // `::marker` 条目必须缩放，优先判定，不得算例外。
+    if (at100.inSvg === true && at100.svgFontSizeAttr === true && at100.isMarker !== true) svgException.push(rec)
     else unexplained.push(rec)
-    if (!sample) sample = { key: k, at100: at100.fontSize, at150: at150.fontSize, ratio: ratio.toFixed(3) }
   }
 
-  console.log(`\n  判据 2：150% 字号下缩放生效性（期望全部 = 1.5 倍）`)
+  console.log(`\n  判据 2：150% 字号下缩放生效性（期望 fontSize 与 lineHeight 全部 = 1.5 倍）`)
   console.log(`    正确缩放: ${scaled}`)
   console.log(`    SVG 例外（已登记，不要求缩放）: ${svgException.length}`)
   if (svgException.length) {
-    console.log(`      前 5 条：`)
+    console.log(`      ⚠️ 例外非 0，请人工确认确实都是带 font-size 呈现属性的 SVG 图元（判定条件: inSvg && svgFontSizeAttr）`)
     for (const d of svgException.slice(0, 5)) {
-      console.log(`        ${d.at100} → ${d.at150} (×${d.ratio})  ${JSON.stringify(d.text || "")}  .${(d.cls || "").slice(0, 50)}`)
+      console.log(`        ${d.at100} → ${d.at150} (×${d.fsRatio})  ${JSON.stringify(d.text || "")}  .${(d.cls || "").slice(0, 50)}`)
     }
   }
   console.log(`    未解释（真正漏项）: ${unexplained.length}`)
   if (unexplained.length) {
     console.log(`      前 20 条（键=分区id::DOM路径）:`)
     for (const d of unexplained.slice(0, 20)) {
-      console.log(`        ${d.at100} → ${d.at150} (×${d.ratio})  text=${JSON.stringify(d.text || "")}  .${(d.cls || "").slice(0, 40)}`)
+      console.log(`        [${d.failed}] ${d.at100} → ${d.at150} (fontSize ×${d.fsRatio})`
+        + ` / lineHeight ${d.lh100} → ${d.lh150}${d.lhRatio === null ? "" : ` (×${d.lhRatio})`}`
+        + `  text=${JSON.stringify(d.text || "")}  .${(d.cls || "").slice(0, 40)}`)
       console.log(`            ${d.key}`)
     }
     if (unexplained.length > 20) console.log(`        …（其余 ${unexplained.length - 20} 条见 JSON 中的 100%/150% 档对比）`)
   }
-  console.log(`    （其中 ::marker 条目: ${markerCount}${markerCount === 0 ? " ← 本页未采集到 marker，采集能力见 --marker-selftest" : ""}）`)
-  const triageSum = scaled + svgException.length + unexplained.length
-  console.log(`    三组之和 = ${triageSum}；键总数 = ${keysA.length}；缺 100%/150% 任一档未参与 = ${noPair}`)
-  if (triageSum !== keysA.length - noPair) {
-    console.log(`    ⚠️ 计数不一致（应等于键总数 − 未参与数 = ${keysA.length - noPair}），有元素被算丢或算重`)
+  console.log(`    （其中 ::marker 条目: ${markerPairs}${markerPairs === 0 ? " ← 本页未采集到 marker，采集能力见 --marker-selftest" : ""}）`)
+
+  /* ── 守卫 E：参与度（不能靠"跳过"来制造通过） ── */
+  const participating = keysA.length - noPair
+  console.log(`\n  参与度自检`)
+  console.log(`    参与比对元素 = ${participating}（= after 100% 档键数 ${keysA.length} − 缺 150% 档配对的 ${noPair}）`)
+  console.log(`    参与下限（--min-elements）= ${minElements}`)
+  if (noPair > 0) {
+    fail("E/未参与", `有 ${noPair} 个键缺少 100%/150% 任一档的配对，未参与判据 2（noPair 必须为 0）：示例 ${noPairKeys.slice(0, 5).join(" | ")}`)
   }
-  const judge2 = unexplained.length === 0
+  if (participating === 0) {
+    fail("E2/零参与", `参与比对元素为 0：判据 2 在 0 个元素上"通过"属伪结论`)
+  } else if (participating < minElements) {
+    fail("E3/参与下限", `参与比对元素 ${participating} < 下限 ${minElements}：采集明显不完整（可用 --min-elements 调整下限）`)
+  }
+  if (unjudgeable.length > 0) {
+    fail("E4/无法判定", `有 ${unjudgeable.length} 个键的 fontSize 不是 <n>px 数值（不可判定，不算通过）：示例 ${unjudgeable.slice(0, 3).map((u) => `${u.key}=${JSON.stringify(u.at100)}`).join(" | ")}`)
+  }
+
+  /* ── 守卫 F：三组之和必须等于 after 100% 档的真实键总数 ── */
+  const triageSum = scaled + svgException.length + unexplained.length
+  console.log(`    三组之和 = ${triageSum}；after 100% 档键总数 = ${keysA.length}；未参与 = ${noPair}`)
+  if (triageSum !== keysA.length) {
+    fail("F/计数自检", `三组之和 ${triageSum} ≠ 键总数 ${keysA.length}（差 ${keysA.length - triageSum}）：有元素被算丢或算重，判据 2 的三分类不可信`)
+  }
+  /* ── 守卫 G：不得靠"全部豁免"制造通过 ── */
+  if (svgException.length >= participating && participating > 0) {
+    fail("G/例外吞没", `SVG 例外 ${svgException.length} 已覆盖全部 ${participating} 个参与元素：一个都不缩放却零未解释，属伪结论。已登记例外只覆盖 SVG 内联 font-size 图元（实测本机可达页面为 0 个），不可能吞掉全部文本元素`)
+  }
+
+  /* ── 守卫 H：行高断言必须真的运行过 ── */
+  console.log(`    行高断言覆盖 = ${lhJudged}（100% 档为 px 数值）／跳过 ${lhSkipped}（normal 等不与字号线性对应）`)
+  if (lhJudged === 0 && participating > 0) {
+    fail("H/行高空转", `${participating} 个参与元素的 lineHeight 全部不可判定（非 <n>px）：行高断言一次都没运行，而 px 行高漏改（清单里 11 处 line-height + 80 处 font 简写）会因此完全不可见`)
+  }
+
+  /* ── 守卫 I：SVG 例外必须有配额（默认 0，实测值），且配额本身有上限 ── */
+  const cap = svgExceptionCap(participating)
+  console.log(`    SVG 例外配额（--max-svg-exceptions）= ${maxSvgExceptions}；上限 ${cap}（参与数的 3%，下限 5）`)
+  if (maxSvgExceptions > cap) {
+    fail("I0/配额越界", `--max-svg-exceptions ${maxSvgExceptions} 超过上限 ${cap}：已登记例外只可能是零星的图标文字，不可能占多数`)
+  }
+  if (svgException.length > maxSvgExceptions) {
+    fail("I/例外超额", `SVG 例外 ${svgException.length} 超过配额 ${maxSvgExceptions}：已登记例外在本机可达页面上实测为 0 个，任何例外都必须显式提高配额（--max-svg-exceptions N）才能成立`)
+  }
+  // 判据 2 还要求**确有元素实现了缩放**：否则"全部未缩放 + 全部被豁免"也能通过
+  const judge2 = unexplained.length === 0 && scaled > 0 && svgException.length < participating
 
   console.log(`\n  ══ 结论 ══`)
   console.log(`    判据 1（100% 等效，无视觉回归）: ${judge1 ? "通过" : "未通过"}`)
-  console.log(`    判据 2（150% 全部缩放，已排除登记例外）: ${judge2 ? "通过" : "未通过"}`)
-  console.log(`    → ${judge1 && judge2 ? "字号修复已达成：既无回归，又真实生效" : "尚未达成，需继续修"}`)
-  process.exitCode = judge1 && judge2 ? 0 : 1
+  console.log(`    判据 2（150% 全部缩放：fontSize 与 lineHeight，已排除登记例外）: ${judge2 ? "通过" : "未通过"}`)
+  if (failures.length) {
+    console.error(`  ✗ 防虚假通过防线未通过 ${failures.length} 项: ${failures.join(", ")}`)
+    console.error(`    任何一项失败都不得判"通过" —— 错误报"通过"比没有工具更危险`)
+  }
+  const ok = judge1 && judge2 && failures.length === 0
+  if (!ok) {
+    // 统一的受控失败行：既覆盖判据未通过，也覆盖防线未通过。
+    // 测试用它区分"受控失败"与"崩溃/环境问题导致的偶然非 0"。
+    const failedJudges = []
+    if (!judge1) failedJudges.push("判据1(100%等效)")
+    if (!judge2) failedJudges.push(`判据2(150%缩放,未解释${unexplained.length})`)
+    console.error(`  ✗ FAIL 未达成: ${[...failedJudges, ...failures].join(", ")}`)
+  }
+  console.log(`    → ${ok ? "字号修复已达成：既无回归，又真实生效" : "尚未达成，需继续修（含防虚假通过防线）"}`)
+  return ok ? 0 : 1
+}
+
+/* ─────────── 模式分派 ─────────── */
+if (ARG_ERRORS.length) {
+  for (const e of ARG_ERRORS) console.error(`  ✗ ARG-FAIL ${e}`)
+  process.exitCode = 1
+} else if (argv.includes("--compare")) {
+  const i = argv.indexOf("--compare")
+  const beforePath = argv[i + 1]
+  const afterPath = argv[i + 2]
+  if (!beforePath || !afterPath || beforePath.startsWith("--") || afterPath.startsWith("--")) {
+    console.error(`  ✗ ARG-FAIL 用法: --compare <before.json> <after.json>（收到 ${JSON.stringify(argv.slice(i))}）`)
+    process.exitCode = 1
+  } else {
+    process.exitCode = compareCensus(beforePath, afterPath, { minElements: MIN_ELEMENTS, maxSvgExceptions: MAX_SVG_EXCEPTIONS })
+  }
 } else {
   /* ─────────── 采集模式 ─────────── */
   if (!existsSync(join(DIST, "index.html"))) {
@@ -212,7 +560,7 @@ if (argv.includes("--compare")) {
     process.exit(1)
   }
   if (CENSUS_SCALES.length === 0) {
-    console.error(`  --scales 解析结果为空（收到: ${JSON.stringify(scalesArg)}），请提供如 --scales 100,150`)
+    console.error(`  --scales 解析结果为空（收到: ${JSON.stringify(argOf("--scales"))}），请提供如 --scales 100,150`)
     process.exit(1)
   }
 
@@ -267,12 +615,17 @@ if (argv.includes("--compare")) {
         lineHeight: cs.lineHeight,
         cls: (el.className || "").toString().slice(0, 70),
         text: ownText.slice(0, 20),
-        // SVG 内联 fontSize 属性 = 图标几何，不随 rem 缩放是正确行为（已登记例外）
+        // 诊断用：元素有 svg 祖先
         inSvg: !!(el.closest && el.closest("svg")),
+        // **例外判定的唯一依据**：确实带 `font-size` 呈现属性（SVG 的 fontSize="N"
+        // 在 DOM 里就是 `font-size` 属性）且在 svg 内。只标 inSvg 不足以算例外 ——
+        // 否则把任意未缩放元素说成"在图标里"就能绕过判据 2。
+        svgFontSizeAttr: !!(el.closest && el.closest("svg") && el.hasAttribute("font-size")),
       }
     }
     // 伪元素 ::marker：普通遍历读不到它的字号，单独采集
-    // （后续要改 ui-test-editor.css 的 li::marker 12px / ol>li::marker 16px）
+    // （后续要改 ui-test-editor.css 的 li::marker 12px / ol>li::marker 16px；
+    //   注意本工具浏览器可达路径下 .ui-test-editor-body 从不挂载，见文件头"已知覆盖盲区"）
     for (const li of document.querySelectorAll(".ui-test-editor-body li, .ui-test-root li")) {
       const marker = getComputedStyle(li, "::marker")
       if (!marker || marker.fontSize === "") continue
@@ -282,6 +635,7 @@ if (argv.includes("--compare")) {
         cls: (li.className || "").toString().slice(0, 70),
         text: (li.textContent || "").trim().slice(0, 20),
         inSvg: false,
+        svgFontSizeAttr: false,
         isMarker: true,
       }
     }
@@ -315,6 +669,10 @@ if (argv.includes("--compare")) {
    * 每个分区的快照以 `<分区id>::` 前缀并入累积对象（见文件头"键的构成规则"）。
    * 分区前缀用的是**实际到达**的分区（landed），不是请求点击的分区。
    *
+   * `reached` 只收 **11 个分区各一次**的结果；起始分区单独放在 `home` 里。
+   * （早先把 home 也塞进 reached，于是"到达分区数"打印成 `12/11`：分母是
+   * 11 个分区、分子却是 12 次访问，数字自相矛盾。）
+   *
    * 合并时若同一个键被重写，会校验两次记录是否同一元素（cls/text 一致）。
    * 正常只应发生一次（起始分区 model 与列表首项 model 重复访问，同一元素、
    * 值一致的幂等重写）；一旦出现"同键不同元素"，即说明有元素可能被遮蔽，
@@ -344,13 +702,12 @@ if (argv.includes("--compare")) {
     }
     const home = await openSection(SETTINGS_HOME_SECTION)
     mergeSnapshot(home.landed ?? home.requested, await censusOnce())
-    reached.push(home)
     for (const id of SETTINGS_SECTIONS) {
       const r = await openSection(id)
       mergeSnapshot(r.landed ?? r.requested, await censusOnce())
       reached.push(r)
     }
-    return { merged, reached, passes, shadowed }
+    return { merged, reached, home, passes, shadowed }
   }
 
   /* ── ::marker 采集能力自检：临时插入 li 与规则，确认读数确实随之变化 ── */
@@ -404,24 +761,26 @@ if (argv.includes("--compare")) {
     for (const s of CENSUS_SCALES) {
       await page.evaluate((p) => { document.documentElement.style.fontSize = p + "%" }, s)
       await page.waitForTimeout(600)
-      const { merged, reached, passes, shadowed } = await censusAllSections()
+      const { merged, reached, home, passes, shadowed } = await censusAllSections()
       census[String(s)] = merged
       const keys = Object.keys(merged)
       const markerKeys = keys.filter((k) => k.endsWith("::marker"))
+      // `reached` 恰好是 11 个分区各一次（起始分区另计），故分母分子一致
       const okReached = reached.filter((r) => r.landed === r.requested)
       const missed = reached.filter((r) => r.landed !== r.requested)
       const capturedTotal = passes.reduce((n, p) => n + p.captured, 0)
       console.log(`  采集 ${s}%: ${keys.length} 个键（其中 ::marker ${markerKeys.length} 条）`)
       console.log(`    快照合计 ${capturedTotal} 条 → 去重后 ${keys.length} 个键`
         + `（重复=${capturedTotal - keys.length}：同一元素被多个分区/重复访问各记一份，键不冲突）`)
-      console.log(`    分区前缀: ${passes.map((p) => `${p.sectionId}[${p.captured}→+${p.added}]`).join(" ")}`)
+      console.log(`    分区前缀（首个为起始分区 ${SETTINGS_HOME_SECTION}，与列表首项重复）: ${passes.map((p) => `${p.sectionId}[${p.captured}→+${p.added}]`).join(" ")}`)
       if (shadowed.length) {
         console.log(`    ⚠️ 同键换成不同元素 ${shadowed.length} 处 —— 有元素可能被遮蔽，需排查:`)
         for (const d of shadowed.slice(0, 10)) console.log(`        ${d.key}  前=${JSON.stringify(d.prev)}  后=${JSON.stringify(d.next)}`)
       } else {
         console.log(`    同键重写且元素身份不同: 0（无静默遮蔽）`)
       }
-      console.log(`    实际到达分区（${okReached.length}/${SETTINGS_SECTIONS.length}）: ${okReached.map((r) => `${r.requested}${r.label ? `(${r.label})` : ""}`).join(", ")}`)
+      console.log(`    起始分区: ${home.requested}→${home.landed}${home.label ? `(${home.label})` : ""}${home.landed === home.requested ? "" : " ⚠️ 起始分区未按请求到达"}`)
+      console.log(`    实际到达分区（已到达 ${okReached.length}/${SETTINGS_SECTIONS.length} 个分区）: ${okReached.map((r) => `${r.requested}${r.label ? `(${r.label})` : ""}`).join(", ")}`)
       if (missed.length) {
         console.log(`    ⚠️ 未到达: ${missed.map((r) => `${r.requested}(clicked=${r.clicked}, landed=${r.landed})`).join(", ")}`)
       }
@@ -435,7 +794,7 @@ if (argv.includes("--compare")) {
       scales: CENSUS_SCALES,
       census,
     }
-    const out = argOf("--out") ?? "census.json"
+    const out = OUT_FILE
     writeFileSync(out, JSON.stringify(payload, null, 1), "utf8")
     console.log(`\n  已写入 ${out}`)
   }
