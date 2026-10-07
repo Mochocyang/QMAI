@@ -10,9 +10,9 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm",
-    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/nul'",
+    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/.worktrees/**' --exclude='**/.claude/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/nul'",
     "lint:character-aura": "node scripts/lint-character-aura.mjs",
-    "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose",
+    "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose --exclude='**/.claude/**' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**'",
     "tauri": "tauri",
     "build:portable": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"npx.cmd tauri build --no-bundle; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/build-portable.mjs\"",
     "build:github-release": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) { $env:TAURI_SIGNING_PRIVATE_KEY_PATH = Join-Path $env:USERPROFILE '.tauri\\qmai-updater.key' }; if (-not (Test-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH)) { throw '缺少 TAURI_SIGNING_PRIVATE_KEY_PATH 对应的签名私钥文件' }; if ($null -eq $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '' }; npx tauri build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/build-portable.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/prepare-github-release.mjs\""

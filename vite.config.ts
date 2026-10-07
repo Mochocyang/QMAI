@@ -134,6 +134,13 @@ export default defineConfig({
       "**/.{idea,git,cache,output,temp}/**",
       "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*",
       "**/.worktrees/**",
+      // .claude/worktrees/ 下会有 agent 遗留的 worktree 副本（停在旧提交，
+      // 但 spec 里的 @/ 别名解析到主工程的新代码），一起跑会产生成百个与主工程
+      // 无关的错配失败：实测 638 个重复文件、255 个失败，把 test:mocks 从
+      // 689 文件 / 196 失败顶到 1317 文件 / 451 失败。
+      // 只写 .worktrees 那条匹配不到 .claude/worktrees/，因为路径段必须恰好
+      // 叫 .worktrees 的那一级。
+      "**/.claude/**",
     ],
   },
 })
