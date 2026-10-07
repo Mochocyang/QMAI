@@ -162,12 +162,29 @@ const geometry = (page, gridTestId) => page.evaluate((id) => {
     overflowsCell: longSpan.getBoundingClientRect().right > longSpan.closest("div").getBoundingClientRect().right + 0.5,
     minWidth: getComputedStyle(longSpan).minWidth,
   } : null
+  // 用户反馈「内容显示不完全」：真实小说里 2–6 字的角色名必须完整显示，
+  // 不能被「忽略」按钮挤到只剩开头一两个字。这里逐个量。
+  const common = spans
+    .filter((node) => {
+      const n = (node.textContent ?? "").length
+      return n >= 2 && n <= 6
+    })
+    .map((node) => ({
+      name: node.textContent ?? "",
+      chars: (node.textContent ?? "").length,
+      available: node.clientWidth,
+      needed: node.scrollWidth,
+      // truncate 是 overflow:hidden，哪怕只差 1px 也会显示省略号，
+      // 所以容差只能给到亚像素级，不能用 +1（那会把「采药老人」这种放过去）。
+      clipped: node.clientWidth > 0 && node.scrollWidth - node.clientWidth > 0.5,
+    }))
   return {
     gridOverflow: Math.round((grid.scrollWidth - grid.clientWidth) * 10) / 10,
     pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     cellOverflow,
     buttonOutside,
     long,
+    common,
   }
 }, gridTestId)
 
@@ -184,11 +201,12 @@ async function runAt(width, height, expectedPerRow, label) {
   check(perRow.slice(0, -1).every((c) => c === expectedPerRow), `${label}：除末行外每行都排满`, `[${perRow.join(", ")}]`)
 
   const geo = await geometry(page, "bindable-name-grid")
-  // 保真自检：对话框最大宽是 sm:max-w-[640px]，窗口够宽时容器就该是 640px。
+  // 保真自检：对话框最大宽是 sm:max-w-[760px]，窗口够宽时容器就该是 760px。
   // 早期版本因为拼接没做冲突合并，这里只有 384px —— 那样量出来的一切都不可信。
+  // 760px 也是为了让 5 列每格约 136px：名字 + 复选 + 「忽略」按钮都装得下。
   const dialogWidth = await page.$eval('[data-testid="dialog"]', (el) => Math.round(el.getBoundingClientRect().width))
   if (width >= 768) {
-    check(dialogWidth === 640, `${label}：对话框宽度就是 sm:max-w-[640px] 的 640px（合并后样式保真）`, `实测 ${dialogWidth}px`)
+    check(dialogWidth === 760, `${label}：对话框宽度就是 sm:max-w-[760px] 的 760px（合并后样式保真）`, `实测 ${dialogWidth}px`)
   }
   check(geo.pageOverflow <= 0, `${label}：页面无横向溢出`, `溢出 ${geo.pageOverflow}px`)
   check(geo.gridOverflow <= 0, `${label}：栅格无横向溢出`, `溢出 ${geo.gridOverflow}px`)
@@ -204,6 +222,13 @@ async function runAt(width, height, expectedPerRow, label) {
     check(!geo.long.overflowsCell, `${label}：超长名字不越出单元格`)
     check(geo.long.hasFullTitle, `${label}：截断后仍保留完整 title`)
   }
+  // 用户原话「内容显示得不完全」：常见长度的名字必须完整可见，一个都不许被挤掉
+  const clippedCommon = geo.common.filter((c) => c.clipped)
+  check(clippedCommon.length === 0, `${label}：2–6 字的常见角色名全部完整显示`,
+    clippedCommon.length
+      ? clippedCommon.map((c) => `「${c.name}」只剩 ${c.available}px/需 ${c.needed}px`).join("；")
+      : `${geo.common.length} 个常见名字都没被截断`)
+  check(geo.common.length >= 5, `${label}：常见名字样本足够多`, `${geo.common.length} 个`)
   await page.close()
   return perRow
 }
@@ -246,6 +271,36 @@ await runAt(600, 800, 2, "600px（窄屏，2 列）")
   const overflowed = geo2.long !== null && !geo2.long.truncated
   check(overflowed, "非空洞证明②：去掉可收缩约束后，超长名字不再截断（截断断言确实会失败）",
     geo2.long ? `clientWidth=${geo2.long.clientWidth} scrollWidth=${geo2.long.scrollWidth}` : "无样本")
+  await page.close()
+}
+
+{
+  // 证明 3：回到用户截图时的状态，「2–6 字常见名字完整显示」这条必须失败。
+  // 这里刻意用「历史快照」而不是对当前 class 做字符串替换：
+  // 三处都要回到修复前（对话框 640px、label gap-2、按钮 px-1 text-xs），
+  // 少还原一处就量不出问题 —— 我第一版只还原了两处，证明 ③ 假绿了。
+  const BEFORE = {
+    dialog: "flex max-h-[85vh] flex-col sm:max-w-[640px]",
+    label: "flex min-w-0 flex-1 items-center gap-2 py-1.5 text-sm",
+    button: "shrink-0 rounded px-1 text-xs text-muted-foreground hover:text-foreground",
+  }
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } })
+  const narrowDialog = mergeTailwind(dialogBaseClass, BEFORE.dialog)
+  const cells = NAMES.map((name) =>
+    `<div class="${cellClass}"><label class="${BEFORE.label}"><input type="checkbox" /><span class="${nameSpanClass}" title="${name}">${name}</span></label><button type="button" class="${BEFORE.button}">忽略</button></div>`).join("")
+  await page.setContent(`<!doctype html><html><head><style>${allCss}</style></head><body style="margin:0">
+    <div class="${narrowDialog}" data-testid="g-mut3-dialog"><div class="${listWrapClass}">
+      <div class="${gridClass}" data-testid="g-mut3">${cells}</div>
+    </div></div></body></html>`)
+  await page.waitForTimeout(60)
+  const w3 = await page.$eval('[data-testid="g-mut3-dialog"]', (el) => Math.round(el.getBoundingClientRect().width))
+  const geo3 = await geometry(page, "g-mut3")
+  const clipped3 = geo3.common.filter((c) => c.clipped)
+  check(clipped3.length > 0,
+    "非空洞证明③：回到修复前的 640px + gap-2 + 大按钮后，常见名字会被挤掉（「完整显示」断言确实会失败）",
+    clipped3.length
+      ? `对话框 ${w3}px，${clipped3.length} 个被截断，例：${clipped3.slice(0, 3).map((c) => `「${c.name}」只剩 ${c.available}px/需 ${c.needed}px`).join("；")}`
+      : `!!! 仍然全绿 —— 该断言无效（对话框实测 ${w3}px）`)
   await page.close()
 }
 

@@ -739,7 +739,7 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
         整个对话框再兜一层 overflow-y-auto：窗口真的极矮时宁可对话框自己滚，
         也不能让「绑定所选」按钮跑到看不见的地方。
       */}
-      <DialogContent className="flex max-h-[85vh] flex-col gap-3 overflow-y-auto sm:max-w-[640px]">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-3 overflow-y-auto sm:max-w-[760px]">
         <DialogHeader className="shrink-0"><DialogTitle>绑定「{subject}」</DialogTitle></DialogHeader>
         <p className="shrink-0 text-sm text-muted-foreground">绑定后会自动把该角色灵魂加入自定义灵魂库。</p>
         <label className="flex shrink-0 items-center gap-2 rounded-md border px-2">
@@ -766,14 +766,16 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
             ? <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 md:grid-cols-5" data-testid="bindable-name-grid">
                 {visible.map((name) => (
                   <div key={name} className="flex min-w-0 items-center gap-1">
-                    <label className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-sm">
+                    <label className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-sm">
                       <input type="checkbox" checked={picked.includes(name)}
                         onChange={(event) => setPicked((ids) => event.target.checked ? [...ids, name] : ids.filter((id) => id !== name))} />
                       {/* 名字可能很长：截断显示，全名留在 title 里。 */}
                       <span className="truncate" title={name}>{name}</span>
                     </label>
+                    {/* 「忽略」按最小宽度排版：5 列时每格只有约 145px，
+                        按钮多占 1px，名字就少显示一个字。 */}
                     <button type="button" title={`忽略「${name}」`} aria-label={`忽略${name}`}
-                      className="shrink-0 rounded px-1 text-xs text-muted-foreground hover:text-foreground"
+                      className="shrink-0 rounded px-0.5 text-[11px] leading-4 text-muted-foreground hover:text-foreground"
                       onClick={() => void ignoreName(name)}>忽略</button>
                   </div>
                 ))}
