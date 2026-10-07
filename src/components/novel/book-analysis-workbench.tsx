@@ -27,7 +27,6 @@ import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { WorkbenchChapterSelector } from "./workbench-chapter-selector"
 import { WorkbenchStyleDetails } from "./workbench-style-details"
-import { styleItemEvidenceIds } from "@/lib/novel/book-analysis/style-fingerprint"
 import { BookAnalysisUsageSummary } from "./book-analysis-usage-summary"
 import { LegacySkillResults } from "./legacy-skill-results"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -414,11 +413,29 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
           if (current) reportError(error)
         }
       }
-      // 发布成功后重读：把盘上的 confirmedAt 拿回来，卡片状态才会从「待确认」变成「已入库」。
+      /*
+       * 发布成功后重读：把盘上的 confirmedAt 与 publishedIds 拿回来。
+       * 卡片上的状态徽标已按需求删除，所以这次重读的可见后果是**文风启用按钮**
+       * 从「未入库（点了会先入库）」变成「当前版本（点了直接启停）」。
+       */
       if (published && current) await reloadRevisions().catch((error) => { if (current) reportError(error) })
     })()
     return () => { current = false }
   }, [revisions, projectPath, book, book.path, reloadRevisions])
+  /**
+   * 「按需入库」：文风版本的启用按钮在未入库时点下去，先走这一步。
+   *
+   * 与上面的自动入库用同一条路径（inspect → confirm），区别只在触发时机：
+   * 自动入库失败或没轮到这一版时，用户仍然要能自己把这一版发出去，
+   * 否则启用按钮点了也没东西可启用。
+   */
+  const ensureRevisionPublished = useCallback(async (target: WorkbenchRevision): Promise<WorkbenchRevision> => {
+    const inspect = await inspectWorkbenchPublication(projectPath, target)
+    const published = await confirmWorkbenchRevision(projectPath, book.path, target.id, inspect.fingerprint, book)
+    // 重读列表，让卡片/日期标签上的其它状态跟着更新；失败不影响本次启用。
+    await reloadRevisions().catch(reportError)
+    return published
+  }, [projectPath, book, book.path, reloadRevisions])
   useEffect(() => {
     if (!draft) return
     try { localStorage.setItem(draftKey(book.path), JSON.stringify(draft)) } catch { setError("分析设置无法保存到本地，切换页面前请留意") }
@@ -686,6 +703,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
         onRequirements={(value) => setRevisionDrafts((drafts) => ({ ...drafts, [revision.id]: value }))}
         onToggleRevise={(open) => setRevisingFor((current) => open ? revision.id : (current === revision.id ? null : current))}
         onCloseRules={() => setExpandedCard(null)}
+        onEnsurePublished={() => ensureRevisionPublished(revision)}
         onRevise={(requirements) => draft && launch({ ...draft, selectedIds: revision.selectedChapterIds, skills: [revision.skill], requirements: { [revision.skill]: `${revision.requirements}\n补充要求：${requirements}` } }, revision.id)} />)}
       {/* 删除确认框只留一份：一次只可能删一个对象，它需要知道「哪一版的哪个对象」。 */}
       <RemoveItemDialog revision={removingRevision} subject={removing?.subject ?? null}
@@ -736,18 +754,19 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
   onAddToSoul: () => void; onBind: () => void
   onToggleRules: () => void; onToggleOverview: () => void; onOpenRevise: () => void; onRequestRemove: () => void
 }) {
+  /*
+   * 这份成果引用的原文。与上面那行「M 条依据」用**同一个集合**，
+   * 所以「几条依据」和「这里列了几条」不可能互相矛盾。
+   */
+  const itemEvidence = [...new Set(item.rules.flatMap((rule) => rule.evidenceIds))]
+    .map((id) => revision.evidence.find((evidence) => evidence.id === id))
+    .filter((evidence) => !!evidence)
   return <article className="wb-skill-card">
     <div className="wb-card-main">
       <div className="wb-card-heading"><span className="wb-avatar" data-tone={index % 3}>{item.subject.slice(0, 1)}</span>
         {/* 对象自己没有时间戳，取所属版本的 createdAt：同一对象在不同版本里日期不同是对的。 */}
         <h3>{item.subject}{itemDate && <small className="wb-card-date">{` · ${itemDate}`}</small>}</h3>
-        {/*
-          * 旧版导入的版本**不显示状态徽标**：它永远不会拿到 confirmedAt
-          * （打开页面时的自动入库显式跳过 origin==="legacy"，工作台里也没有「确认并加入」入口——
-          * 整版确认按钮早先已删除），所以给它渲染「待确认」等于永久显示一个用户无法消除的待办。
-          * 来源由卡片下方的 .wb-origin-tag 说明，不必再重复一次。
-          */}
-        {revision.origin !== "legacy" && <span className="wb-card-status" data-confirmed={Boolean(revision.confirmedAt)}>{revision.confirmedAt ? "已入库" : "待确认"}</span>}</div>
+      </div>
       <p className="wb-card-description" data-expanded={item.summary.length <= 100 || overviewOpen}>{item.summary}</p>
       {item.summary.length > 100 && <button className="wb-overview-toggle" aria-label={`展开${item.subject}概述`} aria-expanded={overviewOpen}
         onClick={onToggleOverview}>
@@ -755,6 +774,18 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
       </button>}
       <div className="wb-traits">{[...new Set(item.rules.map((rule) => WORKBENCH_DIMENSIONS[rule.dimension] ?? rule.dimension))].map((dimension) => <span key={dimension}>{dimension}</span>)}</div>
       <small>{item.rules.length}条规则 · {new Set(item.rules.flatMap((rule) => rule.evidenceIds)).size}条依据</small>
+      {/*
+        * 证据索引原来挂在版本级、排在合并列表之后，点开一张卡看不到它引用的原文在哪。
+        * 下沉到卡片里紧跟上面那行小字，字号与它一致；折叠态平时不占位，所以不会变吵。
+        * 只列**这份成果自己**引用的原文 —— 整版覆盖统计已按需求移除。
+        */}
+      <details className="wb-card-evidence"><summary>证据索引</summary>
+        {itemEvidence.length
+          ? itemEvidence.map((evidence) => <blockquote className="wb-evidence" key={evidence.id}>
+            <small>第{evidence.order}章 · 正文位置{evidence.start}～{evidence.end}</small><p>{evidence.text}</p>
+          </blockquote>)
+          : <p className="wb-muted">这份成果没有引用原文。</p>}
+      </details>
     </div>
     <footer className="wb-card-footer">
       <button aria-label={`查看${item.subject}规则`} aria-expanded={expanded} onClick={onToggleRules}><FileText />{expanded ? "收起规则" : "查看规则"}</button>
@@ -766,7 +797,6 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
       </span>
     </footer>
     {revision.skill === "characters" && <div className="wb-soul-actions" data-testid={`wb-soul-actions-${item.subject}`}>
-      {revision.origin === "legacy" && <span className="wb-origin-tag">{item.rules.length ? "旧版导入" : "旧版资料导入 · 无结构化规则"}</span>}
       {/* publishable 只算一次：徽标与两个按钮必须用同一个判定，否则文案会和可点性互相矛盾。 */}
       {(() => {
         const publishable = hasPublishableData(revision, item, book)
@@ -795,36 +825,65 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
  * styleState 必须留在这里：它是「这个版本对应的文风预设是否当前启用」的异步读取，
  * 每版本一份，天然属于版本级内容。
  */
-function RevisionExtras({ revision, previous, projectPath, expandedSubject, openRevise, requirements, revising, onRequirements, onToggleRevise, onCloseRules, onRevise }: {
+/**
+ * 文风版本的启用状态。**必须是三态**：
+ *
+ * - `unpublished`：这个版本还没入库，所以磁盘上根本没有它的文风预设。
+ * - `replaced`：预设存在，但内容已被更新的一版顶掉（generatedAt 不匹配）。
+ * - `current`：预设就是这个版本的内容，可以启停。
+ *
+ * 把「没入库」和「已被替换」合成一态是不行的：前者可以补入库、后者补入库等于
+ * **用旧内容覆盖新预设**，是破坏性的。同一个文案会把用户引向危险操作。
+ */
+type StyleEnableState = { kind: "unpublished" } | { kind: "replaced" } | { kind: "current"; enabled: boolean }
+
+function RevisionExtras({ revision, previous, projectPath, expandedSubject, openRevise, requirements, revising, onRequirements, onToggleRevise, onCloseRules, onRevise, onEnsurePublished }: {
   revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string
   expandedSubject: string | null
   openRevise: boolean; requirements: string; revising: boolean
   onRequirements: (value: string) => void; onToggleRevise: (open: boolean) => void
   onCloseRules: () => void
   onRevise: (requirements: string) => Promise<void> | null
+  /** 未入库的文风版本要能「点一下启用就顺带入库」，入库动作在父组件里（它才持有 book）。 */
+  onEnsurePublished: () => Promise<WorkbenchRevision>
 }) {
   const revisionInput = useRef<HTMLTextAreaElement>(null)
-  const [styleState, setStyleState] = useState<{ current: boolean; enabled: boolean } | null>(null)
+  const [styleState, setStyleState] = useState<StyleEnableState | null>(null)
   const mapHtml = useMemo(() => revision.storyMap ? renderStoryMapHtml({ ...revision.storyMap, bookTitle: revision.bookTitle }) : "", [revision])
   useEffect(() => {
     let current = true
-    if (revision.skill !== "style" || !revision.confirmedAt) return
+    /*
+     * 这里**刻意不再**因 `!revision.confirmedAt` 提前返回。
+     * 原来这么做，导致停在「待确认」的版本连工具栏都不渲染，用户看到的是
+     * 「文风生成完却没有启用按钮」——而按钮缺失和未入库其实是同一件事。
+     */
+    if (revision.skill !== "style") return
     void loadWritingStyleStore(projectPath).then((store) => {
+      if (!current) return
       const preset = store.styles.find((s) => revision.publishedIds?.includes(s.id))
-      if (current) setStyleState({ current: preset?.profile.generatedAt === revision.createdAt, enabled: Boolean(preset && store.enabledStyleId === preset.id) })
+      if (!preset) { setStyleState({ kind: "unpublished" }); return }
+      if (preset.profile.generatedAt !== revision.createdAt) { setStyleState({ kind: "replaced" }); return }
+      setStyleState({ kind: "current", enabled: store.enabledStyleId === preset.id })
     }).catch(reportError)
     return () => { current = false }
-  }, [projectPath, revision.id, revision.confirmedAt])
+  }, [projectPath, revision.id, revision.confirmedAt, revision.publishedIds])
   const toggleStyle = async () => {
+    /*
+     * 未入库时先入库：启用需要「文风预设」存在，而预设是入库时才建的
+     * （confirmWorkbenchRevision → upsertWritingStylePreset → publishedIds）。
+     * 入库函数把带新 publishedIds 的版本对象还回来，所以紧接着就能找到预设并启用，
+     * 不必等父组件重载列表再让用户点第二次。
+     */
+    const ensured = styleState?.kind === "unpublished" ? await onEnsurePublished() : revision
     const store = await loadWritingStyleStore(projectPath)
-    const preset = store.styles.find((s) => revision.publishedIds?.includes(s.id))
-    if (!preset || preset.profile.generatedAt !== revision.createdAt) throw new Error("该版本已被替换，请选择当前入库版本")
+    const preset = store.styles.find((s) => ensured.publishedIds?.includes(s.id))
+    if (!preset) throw new Error("入库后仍未找到这篇文风预设，请重新生成文风")
+    if (preset.profile.generatedAt !== ensured.createdAt) throw new Error("该版本已被替换，请选择当前入库版本")
     const enabled = store.enabledStyleId === preset.id
     if (!enabled && store.enabledStyleId && !window.confirm("启用此文风会替换当前启用的文风，是否继续？")) return
     await setEnabledWritingStyle(projectPath, enabled ? null : preset.id)
-    setStyleState({ current: true, enabled: !enabled })
+    setStyleState({ kind: "current", enabled: !enabled })
   }
-  const usedEvidence = new Set(revision.items.flatMap(styleItemEvidenceIds))
   const items = visibleItems(revision)
   const expandedItem = items.find((item) => item.subject === expandedSubject)
   const revisionDate = formatTimestamp(revision.createdAt, true)
@@ -839,8 +898,15 @@ function RevisionExtras({ revision, previous, projectPath, expandedSubject, open
   return <section className="wb-revision-extras" data-revision-extras={revision.id}>
     {/* 工具栏只留本版本自己的动作（启用文风）；视图切换已提到结果区顶部统一一份。 */}
     {styleState && <div className="wb-results-tools">
-      {styleState.current && <button onClick={() => void toggleStyle().catch(reportError)}><Play />{styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
-      {!styleState.current && <span className="wb-muted">此历史版本已被替换</span>}
+      {/*
+        * 加载完成前（styleState 为 null）不渲染工具栏，避免按钮出现又消失；
+        * 但**只要加载完了就必须给出按钮**（未入库也是一种加载完的状态）——
+        * 这正是「文风生成完却没有启用按钮」的修复点。
+        */}
+      {styleState.kind === "replaced"
+        ? <span className="wb-muted">此历史版本已被替换</span>
+        : <button onClick={() => void toggleStyle().catch(reportError)}><Play />
+          {styleState.kind === "current" && styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
     </div>}
     {mapHtml && <details className="wb-result"><summary>原作结构观察导图</summary><iframe title="原作结构观察导图" srcDoc={mapHtml} sandbox="allow-same-origin" style={{ width: "100%", height: 480, border: 0 }} /></details>}
     {expandedItem && <section className="wb-rule-detail">
@@ -854,11 +920,6 @@ function RevisionExtras({ revision, previous, projectPath, expandedSubject, open
         </details>
       </div>)}
     </section>}
-    <details className="wb-result"><summary>证据索引与实际覆盖</summary>
-      <p className="wb-muted">已读取{revision.selectedChapterIds.length}章、{revision.coverage.length}个正文分段；规则引用{usedEvidence.size}条原文。自动核验仍需人工复核。</p>
-      {revision.metrics && <p className="wb-muted">样本 {revision.metrics.counts.chars.toLocaleString()}字 · 平均句长 {revision.metrics.derived.avgSentenceChars}字 · 平均段长 {revision.metrics.derived.avgParagraphChars}字</p>}
-      <div className="wb-chapter-list">{revision.coverage.map((c) => <p className="wb-muted" key={`${c.chapterId}:${c.start}`}>第{c.order}章 · {c.start}～{c.end}</p>)}</div>
-    </details>
     {previous && <details className="wb-result"><summary>与上一版本的变化</summary>
       {revision.items.map((item) => <div key={item.subject}><h3>{item.subject}</h3><details><summary>上一版本</summary><pre>{previous.items.filter((i) => i.subject === item.subject).map(workbenchRulesMarkdown).join("\n") || "上一版本没有此对象"}</pre></details><pre>{workbenchRulesMarkdown(item)}</pre></div>)}
     </details>}

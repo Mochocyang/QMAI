@@ -122,9 +122,6 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-avatar{display:grid;place-items:center;width:34px;height:37px;flex-shrink:0;border-radius:5px;background:#e6efe9;color:#476d59;font-weight:600;font-size:15px}
 .wb-avatar[data-tone="1"]{background:#e9eff7;color:#526993}
 .wb-avatar[data-tone="2"]{background:#f5eaf0;color:#925c75}
-.wb-card-status{font-size:11px;color:var(--ui-warning,#88641d);margin-left:auto;white-space:nowrap;display:flex;align-items:center;gap:5px}
-.wb-card-status:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
-.wb-card-status[data-confirmed=true]{color:var(--ui-accent,#496b59)}
 .wb-card-main>p{font-size:14px;line-height:1.8;margin:13px 0;overflow-wrap:anywhere}
 .wb-card-description:not([data-expanded=true]){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
 .book-workbench .wb-overview-toggle{border:0;background:transparent;min-height:26px;padding:0;font-size:11px;color:var(--ui-accent,#496b59)}
@@ -132,6 +129,14 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-traits{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 15px}
 .wb-traits span{font-size:11px;padding:4px 7px;border-radius:3px;background:var(--ui-panel,var(--muted));color:var(--ui-muted,#687871)}
 .wb-card-main>small{font-size:11px}
+/*
+ * 卡片内的证据索引：summary 与上面「N条规则 · M条依据」同字号（11px），
+ * 折叠态只占一行，展开后才是原文条目 —— 这样「移到卡片里」不会让卡片变高。
+ */
+.wb-card-main .wb-card-evidence{margin-top:7px}
+.book-workbench .wb-card-main .wb-card-evidence>summary{font-size:11px;padding:0;color:var(--ui-accent,#496b59)}
+.wb-card-evidence .wb-evidence{margin:8px 0 0}
+.wb-card-evidence>p{margin:7px 0 0;font-size:12px}
 .wb-card-footer{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--ui-line,#c6d1cb);background:var(--ui-panel,var(--muted))}
 /* 修订与删除是一个动作组：包在一起让它们紧挨，不再被 space-between 摊到两端。 */
 .wb-card-actions{display:flex;align-items:center;gap:6px;flex:none}
@@ -179,7 +184,6 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 @container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:12px}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}
 @media(max-width:640px){.book-workbench{padding:0 16px 32px}.wb-header{padding:12px 0}.wb-header>div{max-width:100%}.wb-rule dl{grid-template-columns:54px minmax(0,1fr);gap:8px}.wb-tabs{gap:8px}.wb-chapter-row{grid-template-columns:18px 30px minmax(0,1fr) 64px}.wb-model>span:nth-child(2){max-width:190px}.wb-demand-editor textarea{height:100px}.wb-book-picker>button span{max-width:135px}}
 .wb-soul-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:10px 14px;border-top:1px solid var(--ui-line,#c6d1cb)}
-.wb-origin-tag{border:1px dashed var(--ui-line,#c6d1cb);border-radius:999px;padding:1px 8px;font-size:12px;color:var(--ui-muted,#687871)}
 .wb-soul-status{font-size:12px;color:var(--ui-muted,#687871)}
 .book-workbench .wb-soul-actions button{display:inline-flex;align-items:center;gap:4px;font-size:12px}
 .wb-soul-actions button svg{width:14px;height:14px}

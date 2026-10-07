@@ -146,6 +146,12 @@ const revisionFixture = (overrides: Record<string, unknown> = {}): any => ({
 /** 结果区页签，故事导图只在「故事 Skill」页签下渲染。 */
 const skillTab = (label: string) => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
   .find((t) => t.textContent?.includes(label))!
+/** 一个文风版本。默认 createdAt=1，与 mocks.loadStyles 里 style-1 的 generatedAt 对齐。 */
+const styleRevisionFixture = (overrides: Record<string, unknown> = {}): any => revisionFixture({
+  skill: "style", id: "rev-style", taskId: "t-style",
+  items: [{ subject: "文风", summary: "短段落", limitations: "局限", rules: [{ ...ruleFixture }] }],
+  ...overrides,
+})
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 beforeEach(() => {
@@ -167,6 +173,13 @@ beforeEach(() => {
   mocks.load.mockResolvedValue({ books: [book] })
   // 绑定候选列表会被单个用例改成空数组，复位免得漏进下一个用例。
   mocks.listBindable.mockResolvedValue(["沈微", "裴探"])
+  /*
+   * 文风 store 的桩同样要复位：新增的「未入库 / 已被替换」用例会改它，
+   * 而 clearAllMocks 只清调用记录、不还原实现 —— 漏复位会让后面的启用用例
+   * 拿到别的预设（实测过：端到端那条会因此比对一个不存在的 style-new）。
+   */
+  mocks.loadStyles.mockReset()
+  mocks.loadStyles.mockResolvedValue({ enabledStyleId: null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })
   // 会抛错的桩（自动入库失败、删除失败）用 mockRejectedValueOnce，漏消费就会污染下一个用例。
   mocks.confirmRevision.mockReset()
   mocks.confirmRevision.mockResolvedValue({})
@@ -252,11 +265,9 @@ describe("单页拆书工作台", () => {
     // 整版「确认并加入」入口已删除（改为打开页面自动入库）。
     expect(host.textContent).not.toContain("确认并加入")
   })
+describe("文风启用入口", () => {
   it("文风入库不自动启用，提供显式启用入口", async () => {
-    mocks.revisions.mockResolvedValue([{
-      workbenchVersion: 2, id: "rev-style", skill: "style", bookTitle: "测试作品", selectedChapterIds: ["c1"], createdAt: 1,
-      confirmedAt: 2, publishedIds: ["style-1"], items: [{ subject: "文风", summary: "短段落", limitations: "局限", rules: [] }], evidence: [], coverage: [],
-    }])
+    mocks.revisions.mockResolvedValue([styleRevisionFixture({ confirmedAt: 2, publishedIds: ["style-1"] })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
     await act(async () => ([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "文风 Skill")!).click())
     expect(mocks.setStyle).not.toHaveBeenCalled()
@@ -265,6 +276,99 @@ describe("单页拆书工作台", () => {
     await act(async () => enable!.click())
     expect(mocks.setStyle).toHaveBeenCalledWith("/project", "style-1")
   })
+
+  /**
+   * 这是本次修复的主诉：「文风生成完之后需要点启用，但界面上没有这个按钮」。
+   * 旧实现因为 `!revision.confirmedAt` 提前返回，停在未入库的版本连工具栏都不渲染。
+   */
+  it("未入库的文风版本也必须有「启用此文风」，点一下先入库再启用", async () => {
+    // 无结构化规则 → 自动入库会跳过它（canPublishRevision 为假），稳定复现「未入库」。
+    const pending = styleRevisionFixture({
+      id: "rev-style-pending", taskId: "t-style-pending",
+      items: [{ subject: "文风", summary: "短段落", limitations: "局限", rules: [] }],
+    })
+    mocks.revisions.mockResolvedValue([pending])
+    // 挂载时还没入库（没有预设）；入库之后同样的读取必须能看到新预设。
+    mocks.loadStyles
+      .mockResolvedValueOnce({ enabledStyleId: null, styles: [] })
+      .mockResolvedValue({ enabledStyleId: null, styles: [{ id: "style-new", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })
+    mocks.confirmRevision.mockResolvedValueOnce({ ...pending, confirmedAt: 5, publishedIds: ["style-new"] })
+    mocks.confirmRevision.mockClear()
+
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => ([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "文风 Skill")!).click())
+
+    const enable = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("启用此文风"))
+    expect(enable, "未入库的文风版本没有渲染启用按钮").toBeTruthy()
+    // 未入库的版本不该被说成「已被替换」——那是另一种状态，会把人引向错误操作。
+    expect(host.textContent).not.toContain("此历史版本已被替换")
+
+    await act(async () => enable!.click())
+
+    // 先入库：用的是与自动入库同一条路径（inspect → confirm）。
+    expect(mocks.inspect).toHaveBeenCalled()
+    expect(mocks.confirmRevision).toHaveBeenCalledTimes(1)
+    expect(mocks.confirmRevision.mock.calls[0][2]).toBe("rev-style-pending")
+    // 再启用：拿到入库后的 publishedIds 直接启用，不需要用户点第二次。
+    expect(mocks.setStyle).toHaveBeenCalledWith("/project", "style-new")
+  })
+
+  it("已被替换的历史文风版本不提供启用按钮，避免用旧内容覆盖新预设", async () => {
+    // 有了已入库的版本，但盘上的预设内容属于更新的另一版（generatedAt 不匹配）。
+    mocks.revisions.mockResolvedValue([styleRevisionFixture({ confirmedAt: 2, publishedIds: ["style-1"] })])
+    mocks.loadStyles.mockResolvedValue({ enabledStyleId: null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 999 } }] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => ([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "文风 Skill")!).click())
+
+    expect(host.textContent).toContain("此历史版本已被替换")
+    expect([...host.querySelectorAll<HTMLButtonElement>("button")].some((b) => b.textContent?.includes("启用此文风"))).toBe(false)
+  })
+})
+describe("拆书库卡片精简", () => {
+  it("卡片上不再有「待确认／已入库」状态徽标，也不再区分新旧版来源", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([revisionFixture({ id: "rev-characters-new", createdAt: 9, confirmedAt: 10 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 正向控制：这一屏确实渲染了卡片，否则下面「找不到徽标」可以被一个空页面满足。
+    expect(host.querySelectorAll(".wb-skill-card").length).toBeGreaterThan(0)
+    expect(host.querySelector(".wb-card-status")).toBeNull()
+    expect(host.querySelector(".wb-origin-tag")).toBeNull()
+    expect(host.textContent).not.toContain("待确认")
+    expect(host.textContent).not.toContain("已入库")
+  })
+
+  it("证据索引下沉进卡片、只列该成果引用的原文，版本级那一块不再存在", async () => {
+    const evidence = [
+      { id: "e1", chapterId: "c1", order: 1, start: 10, end: 20, text: "他先核对了账册。", sourceHash: "h1" },
+      { id: "e2", chapterId: "c2", order: 2, start: 30, end: 40, text: "这一笔对不上。", sourceHash: "h2" },
+    ]
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-evidence", confirmedAt: 3,
+      items: [{ subject: "许七安", summary: "判断倾向", limitations: "", rules: [{ ...ruleFixture, evidenceIds: ["e1"] }] }],
+      evidence,
+    })])
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [book] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+
+    const card = host.querySelector('[data-revision-id="rev-evidence"] .wb-skill-card')!
+    const index = card.querySelector(".wb-card-evidence")!
+    expect(index, "卡片里没有证据索引").not.toBeNull()
+    // 标签只有「证据索引」四个字，不再带「与实际覆盖」。
+    expect(index.querySelector("summary")!.textContent).toBe("证据索引")
+    // 只列这张卡引用的 e1；e2 属于同一版本但没被这个对象引用，不能出现。
+    expect(index.textContent).toContain("他先核对了账册。")
+    expect(index.textContent).not.toContain("这一笔对不上。")
+    // 正向控制：证据索引确实在卡片里，且紧跟「N条规则 · M条依据」那一行。
+    const small = card.querySelector(".wb-card-main > small")!
+    expect(small.textContent).toContain("1条规则 · 1条依据")
+    expect(small.compareDocumentPosition(index) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 版本级整块已删除（连带整版 metrics 与覆盖分段）。
+    expect(host.textContent).not.toContain("证据索引与实际覆盖")
+    expect(host.textContent).not.toContain("自动核验仍需人工复核")
+  })
+})
   it("取消侧栏和重复标题，显示页内设置并初始化后台服务", async () => {
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(host.querySelectorAll("h1")).toHaveLength(1)
@@ -428,13 +532,15 @@ describe("旧版结果并入页签", () => {
     expect(host.querySelector(".wb-legacy")).toBeNull()
   })
 
-  it("旧版角色以「旧版资料导入」条目合并进角色页签", async () => {
+  it("旧版角色以条目形式合并进角色页签，且不再显示旧版来源标签", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(host.textContent).toContain("林烬")
-    // legacyBook.skills 为空、但角色有 personality 散文 → 无结构化规则
-    expect(host.textContent).toContain("旧版资料导入 · 无结构化规则")
+    // 需求：来源标签整段删除，连「旧版导入」四个字也不再出现（新旧版来源在卡片上不再可区分）。
+    expect(host.querySelector(".wb-origin-tag")).toBeNull()
+    expect(host.textContent).not.toContain("旧版资料导入")
+    expect(host.textContent).not.toContain("无结构化规则")
   })
 
   it("角色条目都带「加入自定义灵魂库」与「绑定」两个按钮，整版「确认并加入」入口已删除", async () => {
@@ -469,24 +575,19 @@ describe("旧版结果并入页签", () => {
     expect(ids[1]).toBe("rev-characters-new")
   })
 
-  it("旧版导入的卡片不显示「待确认」徽标（它永远不会被自动入库，那是用户消不掉的假待办）", async () => {
+  it("无论新旧版，卡片上都不再出现「待确认」或「已入库」徽标", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
-    mocks.revisions.mockResolvedValue([])
+    // 一份已入库的新版角色结果同时在场：旧实现会给它渲染「已入库」，
+    // 给旧版条目渲染「待确认」——两个文案现在都必须消失。
+    mocks.revisions.mockResolvedValue([revisionFixture({ id: "rev-characters-new", createdAt: 9, confirmedAt: 10 })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    const legacyCard = host.querySelector('[data-revision-id^="legacy-chars-"] .wb-skill-card')!
-    // 来源仍要看得见（由 .wb-origin-tag 说明）。这份 fixture 的角色没有结构化规则，
-    // 所以文案是「旧版资料导入 · 无结构化规则」而非「旧版导入」。
-    const originTag = legacyCard.querySelector(".wb-origin-tag")!
-    expect(originTag).not.toBeNull()
-    expect(originTag.textContent).toContain("旧版")
-    /*
-     * 关键：自动入库显式跳过 origin==="legacy"，工作台里也没有「确认并加入」入口，
-     * 所以 legacy 版本的 confirmedAt 永远是 undefined。给它渲染「待确认」＝
-     * 一个用户无论如何操作都无法消除的待办提示，还与同卡片的「旧版导入」自相矛盾。
-     */
-    expect(legacyCard.querySelector(".wb-card-status")).toBeNull()
-    expect(legacyCard.textContent).not.toContain("待确认")
+    // 正向控制：确实渲染了卡片，否则「找不到徽标」可以被一个空页面满足。
+    expect(host.querySelectorAll(".wb-skill-card").length).toBeGreaterThan(0)
+    expect(host.querySelector('[data-revision-id="rev-characters-new"]')).not.toBeNull()
+    expect(host.querySelector(".wb-card-status")).toBeNull()
+    expect(host.textContent).not.toContain("待确认")
+    expect(host.textContent).not.toContain("已入库")
   })
 
   it("既无人格块也无散文字段的角色显示「无可用资料」而不是「未加入灵魂库」", async () => {
@@ -863,8 +964,13 @@ describe("分析结果自动入库", () => {
     })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(mocks.confirmRevision).not.toHaveBeenCalled()
-    // 版本标题行已删，「尚未入库」改由卡片状态徽标承载（等价信号）。
-    expect(host.querySelector('[data-revision-id="rev-empty"] .wb-card-status')!.textContent).toBe("待确认")
+    // 正向控制：这一版确实在页面上，否则「没发布」可能只是因为它压根没渲染。
+    expect(host.querySelector('[data-revision-id="rev-empty"]')).not.toBeNull()
+    /*
+     * 这里原来还断言卡片徽标写着「待确认」作为用户可见的等价信号。
+     * 需求已把该徽标整段删除，工作台里不再有任何承载「尚未入库」的界面元素，
+     * 所以这条只剩数据层的断言（不能让一个恒真的界面断言留下来充数）。
+     */
   })
 
   it("自动发布成功后重新读取版本列表（拿回落盘的 confirmedAt）", async () => {
@@ -874,29 +980,34 @@ describe("分析结果自动入库", () => {
     expect(mocks.revisions.mock.calls.length).toBeGreaterThan(1)
   })
 
-  it("端到端：自动发布成功后，重读回来的 confirmedAt 让徽标从「尚未入库」变成「已入库」", async () => {
+  it("端到端：自动发布成功后重读回来的版本成为可直接启用的「当前版本」", async () => {
     /*
-     * 这是整个「分析完自动入库」功能的用户可见结果，必须端到端钉住：
-     * 只是断言「revisions 被重读过」或「存在某个徽标」都不够 —— 前者不保证界面跟着变，
-     * 后者不保证变的是对的那一版。这里让 mock 第一次返回未入库版本、之后返回已入库版本，
-     * 模拟真实落盘→重读的往返。
+     * 这是「分析完自动入库」在界面上的用户可见结果。
+     *
+     * 原来它断言的是「待确认 → 已入库」徽标切换，而该徽标已按需求删除，
+     * 所以改钉在**文风启用**上：未入库的版本点启用会先入库（多一次 confirm），
+     * 已入库的版本点启用应当直接启用、不再入库。这个区别正是重读 confirmedAt 的效果。
      */
-    const pending = revisionFixture({ id: "rev-auto", taskId: "t-auto" })
-    const stored = revisionFixture({ id: "rev-auto", taskId: "t-auto", confirmedAt: 99 })
+    const pending = styleRevisionFixture({ id: "rev-style-auto", taskId: "t-style-auto" })
+    const stored = styleRevisionFixture({ id: "rev-style-auto", taskId: "t-style-auto", confirmedAt: 99, publishedIds: ["style-1"] })
     let loads = 0
     mocks.revisions.mockImplementation(async () => { loads += 1; return [loads === 1 ? pending : stored] })
 
     await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => ([...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "文风 Skill")!).click())
     await act(async () => {})
 
-    const block = host.querySelector('[data-revision-id="rev-auto"]')!
-    // 重读确实发生过（否则下面的绿只是「本来就没渲染过待确认」）。
+    // 重读确实发生过（否则下面的「不再入库」只是「本来就没入库过」）。
     expect(loads).toBeGreaterThan(1)
-    const badges = Array.from(block.querySelectorAll(".wb-card-status")).map((b) => b.textContent)
-    expect(badges.length).toBeGreaterThan(0)
-    expect(badges.every((t) => t === "已入库")).toBe(true)
-    // 不再断言「文本里没有『尚未入库』」：版本标题行已删除，那句话在页面上根本不出现，
-    // 断它就变成恒真的空洞断言。徽标本身（上一行）才是承重的判据。
+    const confirmCallsAfterPublish = mocks.confirmRevision.mock.calls.length
+
+    const enable = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("启用此文风"))
+    expect(enable).toBeTruthy()
+    await act(async () => enable!.click())
+
+    expect(mocks.setStyle).toHaveBeenCalledWith("/project", "style-1")
+    // 关键：这一版已经入库过，启用不该再入库一次。
+    expect(mocks.confirmRevision.mock.calls.length).toBe(confirmCallsAfterPublish)
   })
 
   it("自动发布失败只报错一次、不重试、不写确认标记", async () => {
