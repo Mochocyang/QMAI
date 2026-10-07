@@ -12,7 +12,7 @@
  *  - story     ：整版只生成 1 个故事框架，删任一对象 = 删整个框架
  */
 import { sanitizeRemovedSubjects, type WorkbenchRevision } from "./workbench-core"
-import { saveWorkbenchRevision } from "./workbench-storage"
+import { loadWorkbenchRevisions, saveWorkbenchRevision, withWorkbenchRevisionLock } from "./workbench-storage"
 import { workbenchAuraId } from "./workbench-publish"
 import { deleteCustomCharacterAura, loadCharacterAuraStore } from "../character-aura"
 import { removePlotFramework } from "../plot-framework-library"
@@ -65,29 +65,42 @@ export async function removeWorkbenchRevisionItem(
   input: RemoveWorkbenchItemInput,
 ): Promise<WorkbenchRevision> {
   const { projectPath, bookPath, revision, subject } = input
+  /*
+   * 整段包在版本锁里，并且以**盘上最新内容**为基准。
+   *
+   * 调用方传来的是组件的 React 快照，随时可能已经过期（自动入库刚写回 confirmedAt、
+   * 上一次删除刚写进 removedSubjects）。用过快照整份写回会把这些更新抹掉，
+   * 而这里要改的正好是同一个 JSON —— 丢更新的症状就是「删了又回来」。
+   *
+   * 版本还没落盘的情况（旧版迁移条目是懒落盘的）读不到，此时才退回调用方的快照。
+   */
+  return withWorkbenchRevisionLock(bookPath, revision.id, async () => {
+    const stored = await loadWorkbenchRevisions(bookPath).catch(() => [] as WorkbenchRevision[])
+    const base = stored.find((item) => item.id === revision.id) ?? revision
 
-  let removedSubjects: string[]
-  if (revision.skill === "characters") {
-    await removeCharacterAura(projectPath, revision.bookTitle, subject)
-    removedSubjects = [subject]
-  } else if (revision.skill === "style") {
-    // 整版只有一个文风预设：删任一对象即删整版，并把该版本全部对象都记进 removedSubjects，
-    // 否则会出现「预设已删、同版另一个对象还显示着」的不一致状态。
-    await removeWritingStylePresetBySourceBook(projectPath, revision.bookTitle)
-    removedSubjects = revision.items.map((item) => item.subject)
-  } else if (revision.skill === "story") {
-    await removePlotFramework(projectPath, workbenchStoryFrameworkId(revision.bookId))
-    removedSubjects = revision.items.map((item) => item.subject)
-  } else {
-    // 静默什么都不做最危险：库没删、记录也没写，调用方却以为删成功。
-    throw new Error(`未知技能页「${revision.skill}」，无法删除条目`)
-  }
+    let removedSubjects: string[]
+    if (base.skill === "characters") {
+      await removeCharacterAura(projectPath, base.bookTitle, subject)
+      removedSubjects = [subject]
+    } else if (base.skill === "style") {
+      // 整版只有一个文风预设：删任一对象即删整版，并把该版本全部对象都记进 removedSubjects，
+      // 否则会出现「预设已删、同版另一个对象还显示着」的不一致状态。
+      await removeWritingStylePresetBySourceBook(projectPath, base.bookTitle)
+      removedSubjects = base.items.map((item) => item.subject)
+    } else if (base.skill === "story") {
+      await removePlotFramework(projectPath, workbenchStoryFrameworkId(base.bookId))
+      removedSubjects = base.items.map((item) => item.subject)
+    } else {
+      // 静默什么都不做最危险：库没删、记录也没写，调用方却以为删成功。
+      throw new Error(`未知技能页「${base.skill}」，无法删除条目`)
+    }
 
-  const next: WorkbenchRevision = {
-    ...revision,
-    // sanitizeRemovedSubjects 顺带完成去重，因此重复删除是幂等的。
-    removedSubjects: sanitizeRemovedSubjects([...(revision.removedSubjects ?? []), ...removedSubjects]),
-  }
-  await saveWorkbenchRevision(bookPath, next)
-  return next
+    const next: WorkbenchRevision = {
+      ...base,
+      // sanitizeRemovedSubjects 顺带完成去重，因此重复删除是幂等的。
+      removedSubjects: sanitizeRemovedSubjects([...(base.removedSubjects ?? []), ...removedSubjects]),
+    }
+    await saveWorkbenchRevision(bookPath, next)
+    return next
+  })
 }

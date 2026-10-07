@@ -26,6 +26,30 @@ export async function saveWorkbenchRevision(bookPath: string, revision: Workbenc
   await createDirectory(joinPath(bookPath, "analysis", "revisions"))
   await writeFileAtomic(workbenchRevisionPath(bookPath, revision.id), JSON.stringify(revision, null, 2))
 }
+/**
+ * 同一版本文件的串行锁。
+ *
+ * 「确认入库」（confirmWorkbenchRevision）与「删除条目」（removeWorkbenchRevisionItem）
+ * 都会对这个 JSON 做整份读-改-写，二者交错就会丢更新。真实症状（有回归测试钉住）：
+ *  - 用户在入库循环进行中点删除，刚写下的 removedSubjects 被入库的旧快照整份覆盖成
+ *    undefined —— 重新打开页面，已删的卡片又回来了；
+ *  - 入库用的是「读版本那一刻」的 items 快照，会为刚被用户删掉的对象继续创建灵魂。
+ * 按版本文件路径串行是消灭这类丢更新最省心的办法：删除要么整段发生在入库之前
+ * （入库读到的就是删过的内容），要么整段发生在入库之后（在已确认的版本上追加记录）。
+ */
+const revisionChains = new Map<string, Promise<unknown>>()
+export function withWorkbenchRevisionLock<T>(
+  bookPath: string, revisionId: string, task: () => Promise<T>,
+): Promise<T> {
+  const key = workbenchRevisionPath(bookPath, revisionId)
+  const previous = revisionChains.get(key) ?? Promise.resolve()
+  // 前一个失败也要接着跑下一个：否则一次失败会把这条链永久卡死。
+  const run = previous.then(task, task)
+  const settled = run.then(() => {}, () => {})
+  revisionChains.set(key, settled)
+  void settled.then(() => { if (revisionChains.get(key) === settled) revisionChains.delete(key) })
+  return run
+}
 export async function loadWorkbenchRevisions(bookPath: string): Promise<WorkbenchRevision[]> {
   const root = joinPath(bookPath, "analysis", "revisions")
   if (!await fileExists(root)) return []

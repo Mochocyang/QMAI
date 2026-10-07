@@ -9,13 +9,12 @@ import { buildGeneratedAuraInputFromBookCharacter, importBookAnalysisSkillsAsAur
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
 import { generateSimpleSkillMarkdown } from "./skill-generator"
 import { workbenchPersonality, workbenchRulesMarkdown, type WorkbenchItem, type WorkbenchRevision } from "./workbench-core"
-import { readWorkbenchChapters, saveWorkbenchRevision, workbenchRevisionPath } from "./workbench-storage"
+import { readWorkbenchChapters, saveWorkbenchRevision, withWorkbenchRevisionLock, workbenchRevisionPath } from "./workbench-storage"
 import type { BookAnalysisLibraryBook } from "./library-state"
 import type { ExtractedCharacter, BookAnalysisMetadata, CharacterSkill } from "./types"
 import type { PlotFramework } from "../plot-framework"
 import { styleItemEvidenceIds } from "./style-fingerprint"
 
-const pending = new Map<string, Promise<WorkbenchRevision>>()
 export async function inspectWorkbenchPublication(projectPath: string, revision: WorkbenchRevision) {
   const auras = await loadCharacterAuraStore(projectPath)
   const styles = await loadWritingStyleStore(projectPath)
@@ -142,15 +141,32 @@ export async function publishWorkbenchCharacter(
 }
 
 export async function confirmWorkbenchRevision(projectPath: string, bookPath: string, revisionId: string, expectedFingerprint: string, book?: BookAnalysisLibraryBook): Promise<WorkbenchRevision> {
-  const key = `${projectPath}:${revisionId}`
-  if (pending.has(key)) return pending.get(key)!
-  const operation = (async () => {
+  /*
+   * 与「删除条目」共用同一把版本锁。两者都会对这个 JSON 整份读-改-写，
+   * 交错时删除记录会被这里的 `{ ...旧快照, confirmedAt }` 覆盖掉，
+   * 症状就是「删掉的卡片重新出现」。锁让删除要么整段在入库前、要么整段在入库后。
+   */
+  return withWorkbenchRevisionLock(bookPath, revisionId, async () => {
     const revision = JSON.parse(await readFile(workbenchRevisionPath(bookPath, revisionId))) as WorkbenchRevision
     if (revision.confirmedAt) return revision
+    /*
+     * 用户主动删过的对象不再入库。characters 是逐条粒度；文风/故事是整版粒度
+     * （删除时把该版全部 subject 都记成已删），所以「全被删光」要单独短路：
+     * 否则重新打开页面会把用户刚删掉的文风预设／故事框架又造回来。
+     */
+    const removed = new Set(revision.removedSubjects ?? [])
+    const publishable = revision.items.filter((item) => !removed.has(item.subject))
+    if (!publishable.length) {
+      // 没有可发布内容就不写库，但仍要落 confirmedAt 让状态收敛，
+      // 否则每次打开结果页都会把这一版重试一遍。
+      const settled = { ...revision, confirmedAt: Date.now(), publishedIds: [] }
+      await saveWorkbenchRevision(bookPath, settled)
+      return settled
+    }
     // 旧版迁移版本可能没有任何结构化规则（六维路径的 Skill 不含便携人格块），
     // 但它仍有可发布内容——发布时走 buildGeneratedAuraInputFromBookCharacter 的
     // personalityProfile／散文字段兜底。因此只对有规则的新版版本保留这道门槛。
-    if (!revision.items.some((item) => item.rules.length) && revision.origin !== "legacy") {
+    if (!publishable.some((item) => item.rules.length) && revision.origin !== "legacy") {
       throw new Error("没有有依据的规则可加入")
     }
     /*
@@ -161,7 +177,7 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
      */
     if (revision.skill === "characters" && revision.origin === "legacy") {
       if (!book) throw new Error("旧版迁移版本发布需要作品资料")
-      for (const subject of new Set(revision.items.map((item) => item.subject))) {
+      for (const subject of new Set(publishable.map((item) => item.subject))) {
         if (!book.characters.some((character) => character.name === subject)) {
           throw new Error(`找不到旧版角色「${subject}」`)
         }
@@ -185,12 +201,12 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
         // 设计 §5.2：旧版条目「不复用上面这条」，必须走 importBookAnalysisSkillsAsAuras，
         // 否则旧版角色会拿到一个 SKILL.md 为空的灵魂。
         if (!book) throw new Error("旧版迁移版本发布需要作品资料")
-        for (const subject of new Set(revision.items.map((item) => item.subject))) {
+        for (const subject of new Set(publishable.map((item) => item.subject))) {
           publishedIds.push((await ensureLegacyCharacterAura(projectPath, book, subject)).auraId)
         }
       } else {
         const store = await loadCharacterAuraStore(projectPath)
-        for (const item of revision.items.filter((item) => item.rules.length)) {
+        for (const item of publishable.filter((item) => item.rules.length)) {
           const aura = await publishWorkbenchCharacter(projectPath, revision, item, store)
           store.customAuras = [...store.customAuras.filter((a) => a.id !== aura.id), aura]
           publishedIds.push(aura.id)
@@ -231,7 +247,5 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
     const confirmed = { ...revision, confirmedAt: Date.now(), publishedIds }
     await saveWorkbenchRevision(bookPath, confirmed)
     return confirmed
-  })().finally(() => pending.delete(key))
-  pending.set(key, operation)
-  return operation
+  })
 }
