@@ -7,6 +7,21 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
+  version: "4.1.2",
+  date: "2026-10-07",
+  highlights: {
+    en: [
+      "[Automatic Update Prompt Restored] Opening an older version previously showed no prompt at all even though a newer version was already published, so the only way to find an update was to check manually. The app now checks for updates on launch and asks whether to download and install when one is found. Six releases — v4.0.0 through v4.1.1 — were affected by this bug.",
+      "[Older Affected Versions: Update Once Manually] If you are on v4.0.0 through v4.1.1, automatic update checking is not working, so those versions will never show an update prompt no matter how many new releases come out. Please update once by hand via Settings → Changelog → Check for Updates; automatic updates work again from then on.",
+    ],
+    zh: [
+      "【自动更新提示恢复】修复「新版本已发布，但打开旧版本时没有任何提示」的问题：启动时会自动检查更新，发现新版本即弹窗询问是否下载安装。此前只能手动进设置页检查，无法感知新版本。v4.0.0 至 v4.1.1 共 6 个版本受此问题影响",
+      "【受影响的旧版本请手动更新一次】若你正在使用 v4.0.0 至 v4.1.1，自动检查处于失效状态，这些版本收不到任何更新提示——无论之后发布多少新版本都不会被感知。请在「设置 → 更新日志 → 检查更新」手动更新一次，此后自动更新即恢复正常",
+    ],
+  },
+};
+
 const FOUR_POINT_ONE_ONE_CHANGELOG: ChangelogEntry = {
   version: "4.1.1",
   date: "2026-10-07",
@@ -1784,6 +1799,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ONE_TWO_CHANGELOG.version)
+    return [FOUR_POINT_ONE_TWO_CHANGELOG];
   if (version === FOUR_POINT_ONE_ONE_CHANGELOG.version)
     return [FOUR_POINT_ONE_ONE_CHANGELOG];
   if (version === FOUR_POINT_ONE_ZERO_CHANGELOG.version)
@@ -1941,6 +1958,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ONE_TWO_CHANGELOG,
     FOUR_POINT_ONE_ONE_CHANGELOG,
     FOUR_POINT_ONE_ZERO_CHANGELOG,
     FOUR_POINT_ZERO_FOUR_CHANGELOG,

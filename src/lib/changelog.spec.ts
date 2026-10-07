@@ -6,7 +6,16 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 4)).toEqual(["4.1.1", "4.1.0", "4.0.4", "4.0.3"])
+    expect(versions.slice(0, 4)).toEqual(["4.1.2", "4.1.1", "4.1.0", "4.0.4"])
+    const release412 = currentVersionChangelog("4.1.2")[0]
+    expect(release412.version).toBe("4.1.2")
+    expect(release412.date).toBe("2026-10-07")
+    expect(release412.highlights.zh.join("\n")).toContain("自动更新提示恢复")
+    expect(release412.highlights.zh.join("\n")).toContain("手动更新一次")
+    expect(release412.highlights.zh.join("\n")).toContain("检查更新")
+    expect(release412.highlights.en.join("\n")).toContain("Automatic Update Prompt Restored")
+    expect(release412.highlights.en.join("\n")).toContain("Settings → Changelog → Check for Updates")
+    expect(release412.highlights.en).toHaveLength(release412.highlights.zh.length)
     const release411 = currentVersionChangelog("4.1.1")[0]
     expect(release411.version).toBe("4.1.1")
     expect(release411.date).toBe("2026-10-07")
