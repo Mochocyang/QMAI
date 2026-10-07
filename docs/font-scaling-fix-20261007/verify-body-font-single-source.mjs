@@ -8,7 +8,15 @@
  * 基线里 300 条 `::marker` **全部来自更新日志分区的 li**（14px，本来就是 rem），
  * **0 条**来自编辑器那两条规则。所以：改 `li::marker` / `ol > li::marker`
  * 与文档标题字号，**计算样式普查发现不了**。
- * 本校验与任务 10 的真实 exe 目视，是这些规则**唯一**的验证途径。
+ * 本校验与真实 exe 实测，是这些规则**唯一**的验证途径：
+ *   · 本脚本（静态：写法对不对）
+ *   · verify-real-exe.mjs（真实 exe 读 li::marker 的计算值）
+ *   · verify-real-exe-settings-save.mjs（真实 exe 走设置界面保存后，正文与标记的像素值）
+ *
+ * 任务 10 实测后补记的一条更精确的边界：这两条 `li::marker` 规则
+ * **小说章节根本走不到** —— 章节是 `immersiveWriting`，正文为 `<textarea>`，
+ * 不可能产生 `li`。唯一可达的消费者是**非章节文档**（大纲/设定页）走 Milkdown 的
+ * `.ProseMirror`。详见 ui-test-editor.css 正文注释块与 findings.md。
  *
  * 被检对象：正文四处的字号必须来自同一个变量。
  * 「单一来源」是正确性要求而非优化：[data-find-highlights] 是覆盖在
@@ -366,8 +374,9 @@ if (isMain) {
   const problems = verify(readFileSync(EDITOR_CSS, "utf8"), readFileSync(UITEST_CSS, "utf8"))
   if (problems.length === 0) {
     console.log("  ✓ 正文四处引用同一字号变量；从属尺寸为「精确 rem × 倍数」；六条规则齐备")
-    console.log("  提示：编辑器 DOM 在浏览器里不可达，本校验与真实 exe 目视（任务 10 步骤 2b）")
-    console.log("       是这些规则唯一的验证途径，两者都必须做。")
+    console.log("  提示：编辑器 DOM 在浏览器里不可达（章节正文是 textarea，li 只出现在")
+    console.log("       非章节文档的 Milkdown .ProseMirror 里）。本校验只管「写法对不对」，")
+    console.log("       还必须跑 verify-real-exe.mjs 与 verify-real-exe-settings-save.mjs 实测。")
     process.exit(0)
   }
   for (const p of problems) console.log(`  ✗ [${p.rule}] ${p.detail}`)

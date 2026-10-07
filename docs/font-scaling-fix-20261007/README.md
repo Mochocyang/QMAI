@@ -37,6 +37,12 @@
 | `measure-ui-overflow.mjs` | 界面溢出测量（验收用） | 基线已采集 |
 | `probe-font-scaling.mjs` | 完整应用界面上的字号缩放采样 | 12/12 未缩放，复现缺陷 |
 | `probe-navigable-pages.mjs` | 探明纯浏览器可覆盖哪些页面 | 结论：仅设置页可达 |
+| `verify-real-exe.mjs` | **真实 exe 验收**：CDP 附加到便携版，读真实 DOM 的 `li::marker` 各档像素值，并做**全界面**字号普查（100% vs 150% 逐元素比对） | 实跑通过；冷启动全流程（章节 → 切「大纲」→ 点开含列表文档）亦通过；**界面字号跟随率 100.0%**（2574/2574 文字元素，0 未变） |
+| `verify-real-exe-settings-save.mjs` | **真实 exe 端到端**：在设置界面拖滑块/选下拉 → **点保存** → 断言 DOM、localStorage 落盘、以及**真实渲染族**（CDP `CSS.getPlatformFontsForNode`） | 实跑通过；5 个用例 + 恢复初值。覆盖了「直接改 CSS 变量验不到」的保存链路（`setUiFontSizeScale` 排在约 10 个 `await` 之后） |
+| `verify-body-font-single-source.mjs` | 正文字号**静态**单一来源校验（编辑器 DOM 在浏览器里不可达，故必须与真实 exe 双管齐下） | `--selftest` 14/0；正例通过、13 类反例逐一检出 |
+| `verify-body-font-scale.mjs` | 注入式验证正文字号/行高（含查找高亮层对齐） | 实跑通过 |
+| `verify-ui-font-applies.mjs` | 界面字体 11 项逐个验证（用**真实产品 `cssFamily`**，CDP 判真实渲染族） | `--selftest` 49/0；12 档真换字形、1 档仅度量差、3 档期望相同且成立 |
+| `verify-body-font-applies.mjs` | 正文字体是否真的作用于正文渲染 | 实跑通过 |
 
 ### ❌ 已被推翻的探测脚本（**结论不可采信**，仅保留以记录方法迭代）
 
@@ -114,13 +120,20 @@
 | 设置页 11 个分区（含 `changelog` 的长列表） | ✅ 已覆盖，1113 键 × 100%/150% |
 | `::marker` 伪元素 | ⚠️ **仅** changelog 的 `li`（14px，rem，本来就会缩放），共 300 条 |
 | SVG 内联 `font-size` 图元 | ⚠️ 本机可达页面实测 **0 个**（`provider-brand-icon` 因无提供方未渲染、`context-usage-ring` 在聊天页不可达）——"SVG 例外 = 0"属正常 |
-| **编辑器列表标记**（`src/components/uitest/ui-test-editor.css:239-240` 的 `li::marker{font-size:12px}` / `ol > li::marker{font-size:16px}`） | ❌ **从不挂载，本工具发现不了** —— 实测 11 个分区里 `.ui-test-editor-body` 命中 **0**，点遍所有可达按钮后仍为 **0**；基线 300 条 marker 中 **0 条** 12px/16px（编辑器需要真实 exe 才能到达） |
-| 编辑器以外的非设置页界面 | ❌ 浏览器里**只有设置页可达**，其余页面需真实 exe |
+| **编辑器列表标记**（`src/components/uitest/ui-test-editor.css` 的 `li::marker` / `ol > li::marker`） | ⚠️ 本工具（浏览器）**发现不了** —— 实测 11 个分区里 `.ui-test-editor-body` 命中 **0**，点遍所有可达按钮后仍为 **0**；基线 300 条 marker 中 **0 条** 是这两条规则的。**但真实 exe 已闭环**：`verify-real-exe.mjs` 读真实 DOM 的 `li::marker`，默认档 12/16px → 150% 时 18/24px 逐位相符（见 `findings.md` §10.3） |
+| 编辑器以外的非设置页界面 | ⚠️ 浏览器里**只有设置页可达**；**真实 exe 已覆盖**：`verify-real-exe.mjs` 的全界面普查覆盖 2574 个文字元素 |
 
 > **因此：任务 7 改那两行 `::marker`，本工具的判据 2 不会变色。**
 > 判据 2 全绿 **不能**理解为"编辑器列表标记也已验证"。
-> 替代验证（由后续任务执行）：(a) **静态 CSS 校验脚本** —— 检查那几处引用同一
-> 字号变量、无残留 px 硬编码；(b) **真实 exe 中目视确认**。
+> 替代验证（已完成）：(a) **静态 CSS 校验脚本** `verify-body-font-single-source.mjs`
+> —— 检查那几处引用同一字号变量、无残留 px 硬编码（`--selftest` 14/0）；
+> (b) **真实 exe 实测** `verify-real-exe.mjs`（读 `li::marker` 计算值）
+> 与 `verify-real-exe-settings-save.mjs`（走设置界面保存后量像素）。
+>
+> ⚠️ **一条必须知道的边界更正（任务 10 实测）**：那两条 `li::marker` 规则
+> **对小说章节永远不生效** —— 章节走 `immersiveWriting`，正文是 `<textarea>`，
+> 不可能产生 `li`。唯一可达的消费者是**非章节文档**（大纲/设定页）的
+> Milkdown `.ProseMirror`。详见 `findings.md` §10.2。
 
 ---
 
@@ -143,7 +156,30 @@ node docs/font-scaling-fix-20261007/report-font-resolution.mjs
 
 # 绝对单位清点
 node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
+
+# 静态单一来源校验（正文字号四处 + 从属尺寸）
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs --selftest
+
+# 真实 exe 验收（需 WebView2 开 CDP，见下）
+node docs/font-scaling-fix-20261007/verify-real-exe.mjs --port 9333            # 自己启动 exe
+node docs/font-scaling-fix-20261007/verify-real-exe.mjs --attach --port 9333   # 附加到已在运行的实例
+node docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs --port 9333
 ```
 
 前置条件：`dist/` 已构建（`npm run build`）；Playwright 全局安装于
 `%APPDATA%\npm\node_modules\playwright`。
+
+**真实 exe 验收的前置**：先构建便携版（`node scripts/build-portable.mjs`），
+再带 CDP 参数启动 —— WebView2 只认环境变量，命令行参数无效：
+
+```powershell
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9333"
+Start-Process release-portable\QMaiWrite.exe -WorkingDirectory release-portable
+# 等 http://127.0.0.1:9333/json/version 可访问后再跑上面的脚本
+```
+
+⚠️ 应用启用了 `tauri_plugin_single_instance`：**若已有实例在运行，新进程会把参数
+转交给旧实例并立即退出**，CDP 端口不会打开，表现为"脚本说连不上"。此时要么先关掉
+旧实例，要么用 `--attach` 附加到那个已经在跑、且**当初就带着 CDP 参数启动**的实例。
+进程名是 `QMaiWrite`（不是 `qmai`）。

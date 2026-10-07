@@ -49,6 +49,12 @@ QMdelete/
 tokenyouhua/
 .codegraph/
 
+# === 字体调研原始素材（仅本地保留，勿提交）===
+# 148 个文件 / 约 222MB：抓取到的许可全文、PDF 抽取文本、各字体发行包。
+# 调研**结论**已落在 docs/font-license-due-diligence.md（阶段 3/4 的输入），
+# 原始素材体积过大不适合进版本库，但阶段 3/4 还要用，故只忽略、不删除。
+.font-research/
+
 # === IDE / 工具临时文件 ===
 .worktrees/
 .worktrees
@@ -59,6 +65,9 @@ tokenyouhua/
 .trae/
 .vscode/
 /.zed/
+# Agent 工具的工作目录（会反复自动重建，不进版本库）
+.claude/worktrees/
+.workbuddy/
 
 
 # === 开发调试产物（勿提交根目录）===

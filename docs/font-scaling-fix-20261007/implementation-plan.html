@@ -2284,6 +2284,165 @@ git commit -m "test(字号): 记录阶段 1+2 的门禁与 A/B 回归结果" --n
 git add docs/font-scaling-fix-20261007
 git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录：真实 exe 实测（含本计划一个<b>前提错误</b>，与四处会让结论变假的测量陷阱）</div>
+
+        <div class="callout danger">
+          <span class="h">步骤 2b 的前提是错的：小说章节里<b>永远造不出列表</b></span>
+          本步骤写的是"在正文里造出无序列表与有序列表"。实测发现这在章节里<b>做不到</b>，
+          而且原因不是没找到入口，是产品结构决定的：<br>
+          章节走 <code>immersiveWriting</code>（<code>preview-panel.tsx</code> 传
+          <code>immersiveWriting={isSelectedChapter}</code>），而 <code>wiki-editor.tsx</code> 里
+          <code>effectiveMode = immersiveWriting ? "edit" : mode</code> 把它钉死在编辑态 ——
+          正文是一个 <code>&lt;textarea&gt;</code>，textarea 里不可能有
+          <code>ul / ol / li / ::marker</code>。<br>
+          更巧的是 <code>UiTestEditor</code> 自己的读写切换按钮是<b>死代码</b>
+          （JSX 写成 <code>{false &amp;&amp; …}</code>，见 <code>ui-test-editor.tsx:176</code>），
+          所以"预览正文"那条路也进不去。<br>
+          <b>于是 <code>li::marker</code> 那两条规则唯一可达的消费者是「非章节文档」</b>
+          （大纲 / 设定页：从目录打开、<code>kind="outline"</code>、<code>immersiveWriting=false</code>，
+          走 Milkdown 的 <code>.ProseMirror</code>）。本次改为在真实大纲文档上验，
+          并把这条边界写进了 <code>ui-test-editor.css</code> 的注释。<br>
+          <b>这不是"换个地方验"的小事</b>：它把这两条规则的作用域从"小说正文"改成了
+          "大纲与设定页"，计划里"正文列表标记"的说法本身需要更正。
+        </div>
+
+        <div class="callout">
+          <span class="h">① 用户最初的抱怨：界面字号是否真的作用于<b>整个界面</b>（不只按钮）</span>
+          做法：在真实 exe 里保存元素引用，分别在根字号 100% 与 150% 下读<b>每一个元素</b>的
+          computed <code>font-size</code>，逐一比对倍率。
+          <table>
+            <thead><tr><th>指标</th><th>实测</th></tr></thead>
+            <tbody>
+              <tr><td>采集元素总数</td><td>5491</td></tr>
+              <tr><td>有自身文字且不在 SVG 内（可比对）</td><td>2574</td></tr>
+              <tr><td>恰好 ×1.5（跟着界面字号变）</td><td><b>2574</b></td></tr>
+              <tr><td>完全没变（×1.0）</td><td><b>0</b></td></tr>
+              <tr><td>跟随率</td><td><b>100.0%</b></td></tr>
+            </tbody>
+          </table>
+          「只有按钮有效果」这一原始症状在真实 exe 上<b>已被反证</b>：2574 个文字元素里
+          没有一个不跟随。<br>
+          （另一次采样共 6260 元素 / 2971 文字元素，同样 2971 全跟随、0 未变；
+          两次数字不同是因为测量时停留的页面不同，结论一致。）
+        </div>
+
+        <div class="callout">
+          <span class="h">② 列表标记：判据里<b>唯一只能靠真实 exe</b>的一项</span>
+          样本：真实 exe 打开 <code>wiki/outlines/开篇方向.md</code>
+          （实测 <code>ul &gt; li</code> 27 个、<code>ol &gt; li</code> 5 个、<code>##</code> 标题 6 个）。
+          <table>
+            <thead><tr><th>档位</th><th>正文 p</th><th>无序 li</th><th>无序 ::marker</th><th>有序 li</th><th>有序 ::marker</th><th>标题 h2</th></tr></thead>
+            <tbody>
+              <tr><td>默认</td><td>18</td><td>16</td><td><b>12</b></td><td>16</td><td><b>16</b></td><td>18</td></tr>
+              <tr><td>正文 150%</td><td>27</td><td>24</td><td>18</td><td>24</td><td>24</td><td>27</td></tr>
+              <tr><td>界面 150%</td><td>27</td><td>24</td><td>18</td><td>24</td><td>24</td><td>27</td></tr>
+              <tr><td>双 150%</td><td>40.5</td><td>36</td><td>27</td><td>36</td><td>36</td><td>40.5</td></tr>
+              <tr><td>正文 85%</td><td>15.3</td><td>13.6</td><td>10.2</td><td>13.6</td><td>13.6</td><td>15.3</td></tr>
+              <tr><td>双 85%</td><td>13.005</td><td>11.56</td><td>8.67</td><td>11.56</td><td>11.56</td><td>13.005</td></tr>
+            </tbody>
+          </table>
+          每一格都是<b>恰好</b>基准 × 期望倍率（27/18 = 40.5/27 = 1.5；13.005/18 = 0.7225），
+          不是"看起来变大了"。<br>
+          <b>比例守恒</b>（计划特别要求核对）：每一档都是
+          无序标记 &lt; 无序列表项（12&lt;16、18&lt;24、27&lt;36、10.2&lt;13.6、8.67&lt;11.56），
+          且有序标记 = 有序列表项（16=16、24=24、36=36…）。<b>没有一档比例颠倒或变得一样大。</b><br>
+          <b>顺带验证了设计边界 (j) 与 §5.3：文档标题 h2 的字号跟随正文字号，字体保持界面字体。</b>
+          实测标题 <code>font-size</code> 与正文完全相同（18 / 27 / 40.5 / 15.3 / 13.005），
+          而 <code>font-family</code> 首项始终是 <code>PingFang SC</code> —— 那是
+          <code>--ui</code> 栈的首项，<b>不是</b> <code>--serif</code> 的
+          <code>Noto Serif SC</code>。若当初把标题也接上 <code>--serif</code>，这里就会露馅。
+        </div>
+
+        <div class="callout">
+          <span class="h">③ 设置界面 → 保存 的端到端（滑块与下拉都真的拖/选并点了保存）</span>
+          已登记的脆弱点：<code>setUiFontSizeScale</code> 排在约 10 个 <code>await saveXxx(...)</code>
+          <b>之后</b>，前面任何一处抛错，后面这句就被静默跳过 —— 界面不动、也不报错。
+          所以这一层必须真的点保存按钮，直接改变量是验不到的。
+          <table>
+            <thead><tr><th>操作</th><th>结果</th></tr></thead>
+            <tbody>
+              <tr><td>界面字号拖到 150% → 保存</td><td><code>documentElement.style.fontSize = 150%</code>，
+                  落盘 <code>qmai-ui-font-size-scale = 1.5</code>；正文字号未被带动</td></tr>
+              <tr><td>正文字号拖到 125% → 保存</td><td><code>--qmai-body-font-scale = 1.25</code>；
+                  <b>真实文档</b> p 22.5 / 无序 li 20 / 无序 ::marker 15 / 有序 li 20 / 有序 ::marker 20
+                  （逐个恰好 ×1.25）</td></tr>
+              <tr><td>界面字体选「黑体」→ 保存</td><td>CDP 报告<b>真实渲染族</b>
+                  <code>Microsoft YaHei UI</code> → <code>SimHei</code></td></tr>
+              <tr><td>正文字体选「楷体」→ 保存</td><td>正文真实渲染族 <code>KaiTi</code>（44 字形）；
+                  界面控件 <code>.ui-test-nav-item</code> 仍是 <code>SimHei</code>（<b>独立</b>）；
+                  正文衬线层 <code>.ui-test-brand-name</code> 变 <code>KaiTi</code>（<b>设计如此</b>，
+                  <code>ui-test.css:118</code> 明确写 <code>var(--serif)</code>）</td></tr>
+              <tr><td>全部恢复初值 → 保存</td><td>界面/正文字号与字体均回到初始有效值</td></tr>
+            </tbody>
+          </table>
+          <b>字体判定用 CDP 的 <code>CSS.getPlatformFontsForNode</code>，不看
+          <code>getComputedStyle().fontFamily</code>。</b>后者只回显你写的栈：
+          栈首字体本机不存在时它<b>照样回显那个名字</b>，所以它证明不了任何"生效"。
+          CDP 报告的是 Chromium 实际拿来画字的那一款，无法伪装。
+        </div>
+
+        <div class="callout warn">
+          <span class="h">四处测量陷阱（每一处都会让结论变成假的，而且四处都真的踩到了）</span>
+          <b>① 键名不匹配 → 往 CSS 变量里写进了字符串 <code>"undefined"</code>。</b>
+          组合对象用的是 <code>body/root</code>，而设值函数读的是
+          <code>bodyScale/rootPct</code>；<code>undefined</code> 既非 <code>null</code> 也不是数字，
+          于是把 <code>--qmai-body-font-scale</code> 设成了字面量 <code>"undefined"</code>。
+          后果是 <code>calc(1.125rem * var(--scale))</code> 在<b>计算值阶段整条失效</b>，
+          字号静默退回继承值 <b>14px</b> —— 表现为<b>五个档位读数完全一样</b>。
+          这种"完全一致"最像"功能坏了"，我差点据此去改产品代码。
+          已加<b>回读正对照</b>：写进去的值必须等于要求写的值，否则直接判尺子失效并跳过该档读数。
+          <br>
+          <b>② <code>connectOverCDP</code> 的 <code>browser.close()</code> 会挂住。</b>
+          它试图去关掉那个<b>真实存在</b>的浏览器进程，于是永不返回：结论已全部打印完毕、
+          进程却不退出，实测挂过 10 分钟以上才发现。已改为
+          <code>Promise.race([close, 4s])</code> 并显式 <code>process.exit</code>。
+          <br>
+          <b>③ <code>page.evaluate</code> 的函数体是序列化后送进页面执行的，取不到脚本外层变量</b>
+          （报 <code>UI_KEY is not defined</code>）。localStorage 的键名必须写成字面量。
+          <br>
+          <b>④ 点目录行要点行内的 <code>button</code>。</b>
+          点击处理器挂在行内的 button 上，点外层 <code>div[data-page-path]</code> 只会<b>向上冒泡</b>、
+          不会下传，表现为"点了没反应"（第一次跑就是这样白等了 60 秒）。
+          <br>
+          <b>另有一处"把正确行为误报成缺陷"：</b>最初拿 <code>.ui-test-brand-name</code>
+          当"界面文字"去判正文字体的独立性，结果它跟着正文字体变了，被判为缺陷。
+          查 <code>ui-test.css:118</code> 才发现它<b>按设计</b>就用 <code>var(--serif)</code>
+          （"书卷感"品牌名）。改用 <code>.ui-test-nav-item</code>（不自己设 font-family、
+          继承 <code>--ui</code>）后才得到正确结论。<b>探针选错比不做验证更危险</b>——
+          它会让你去"修"一个本来正确的设计。
+        </div>
+
+        <div class="callout">
+          <span class="h">诚实缺口：真实 exe 里<b>没</b>量到的部分</span>
+          <ul class="plain">
+            <li><code>[data-find-highlights]</code> 查找高亮层的字号/行高对齐<b>未</b>在真实 exe 量到
+                （它只在章节里、且需要查找进行中）。由 <code>verify-body-font-scale.mjs</code>
+                注入验证覆盖：默认档正文 18px → 高亮层行高 35.1px = 18 × 1.95，逐位相符。</li>
+            <li><code>.ui-test-editor-details</code> / <code>-auxiliary</code> / <code>-path</code>
+                未在真实 exe 量像素：前两者要额外展开、<code>-path</code> 需点「查看文件详情」才挂载。
+                三者只跟界面字号，引用关系已由静态校验覆盖。</li>
+            <li>界面字体 11 个选项里，真实 exe 只实测了 <code>simhei</code> 与 <code>kaiti</code> 两项；
+                其余 9 项由 <code>verify-ui-font-applies.mjs</code> 用<b>真实产品 cssFamily</b>
+                在浏览器里逐个验（12 档真换字形、1 档仅度量差、3 档期望相同且成立）。</li>
+            <li><code>opt:microsoft-yahei</code> 只换度量不换字形（已登记为产品现状，
+                本次<b>刻意未改</b>字体栈）。</li>
+          </ul>
+        </div>
+
+        <div class="callout">
+          <span class="h">新增工具（都在 <code>docs/font-scaling-fix-20261007/</code>）</span>
+          <code>verify-real-exe.mjs</code>（列表标记 + 全界面字号普查）、
+          <code>verify-real-exe-settings-save.mjs</code>（设置界面 → 保存 → 生效/落盘/真实渲染）。
+          两者都靠 <code>WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…</code>
+          开 CDP，用 Playwright <code>connectOverCDP</code> 驱动真实 exe；
+          <code>--attach</code> 可附加到已在运行的实例。证据在 <code>real-exe-shots/</code>。
+          冷启动全流程（章节 → 切「大纲」→ 点开含列表文档 → 读 marker）已实跑通过，
+          说明它不是只在"已经摆好姿势"的页面上才成立。
+        </div>
+      </div></div>
+
     </div>
   </section>
 

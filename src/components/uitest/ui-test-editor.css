@@ -203,9 +203,28 @@
 /* 正文四处必须引用同一个字号变量（--qmai-body-font-size / -line-height 定义在
    ui-test.css 的 :root）。第 3 处 [data-find-highlights] 是覆盖在 textarea 之上的
    查找高亮层，取值表达式**必须与输入层逐字相同**，否则高亮与文字错位。
-   注意：编辑器 DOM 在浏览器可达路径下从不挂载（实测 .ui-test-editor-body = 0 /
-   .ProseMirror = 0），故本文件由 verify-body-font-single-source.mjs 静态校验
-   + 真实 exe 目视（任务 10 步骤 2b）双重把关，计算样式普查发现不了这里。 */
+
+   ── 这套规则在真实应用里**谁能用到**（任务 10 用 CDP 实测后补记，2026-10-08）──
+   计算样式普查到不了编辑器 DOM（11 个设置分区实测 .ui-test-editor-body = 0 /
+   .ProseMirror = 0），所以这条边界过去只能靠推测。实测结论如下，**与直觉相反**：
+
+   · **小说章节用不到 `li` 那两条**。章节走 `immersiveWriting`（见
+     preview-panel.tsx 的 `immersiveWriting={isSelectedChapter}`），
+     WikiEditor 里 `effectiveMode = immersiveWriting ? "edit" : mode` 把它钉死在
+     编辑态，正文是一个 `<textarea>`；textarea 里不可能有 `ul/ol/li/::marker`。
+     顺带一提，UiTestEditor 自己的读写切换按钮是死代码（JSX 里写成 `{false && …}`），
+     所以"预览正文"那条路也进不去。
+   · **`li::marker` 唯一可达的消费者是非章节文档**（大纲/设定页，从目录打开的
+     `.md`）：它们 `kind="outline"`、`immersiveWriting=false`，走 Milkdown 的
+     `.ProseMirror`（另含 read 模式的 `[dir][lang]`）。
+   · 实测样本：真实 exe 打开 `wiki/outlines/开篇方向.md`（`ul>li` 27 个、`ol>li` 5 个）
+     默认档 正文 18px / 无序 li 16px / 有序 li 16px / 无序 ::marker 12px /
+     有序 ::marker 16px；正文字号 125% 后为 22.5 / 20 / 20 / 15 / 20，
+     即逐个恰好 ×1.25，比例（无序 < 列表项、有序 = 列表项）保持不变。
+
+   因此本文件由 verify-body-font-single-source.mjs（静态）+
+   verify-real-exe.mjs（真实 exe 读 ::marker）+ verify-real-exe-settings-save.mjs
+   （真实 exe 走设置保存）三重把关；计算样式普查发现不了这里。 */
 .ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); overflow-wrap: anywhere; }
 /* 让旧编辑器参与正文排版，不再叠加文档卡片和第二个滚动容器。 */
 .ui-test-root .ui-test-editor-body > div { height: auto; overflow: visible; }
@@ -243,6 +262,12 @@
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: var(--qmai-body-font-list); line-height: 1.9; }
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9; }
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9; text-indent: 0; }
+/* 列表标记：**只有非章节文档（大纲/设定页）会走到这两条**——章节正文是
+   textarea，不可能产生 li。实测比例必须是「无序标记(0.75rem) < 无序列表项(1rem)」
+   与「有序标记 = 有序列表项」，两者都随 --qmai-body-font-scale 等比缩放。
+   检查方式见上方注释与 verify-real-exe.mjs（必须读 li::marker，
+   **不能**读 ul::marker：后者会静默返回 ul 自身的字号，而 16px 恰好等于
+   有序标记的期望值，会得到一个假通过）。 */
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li::marker { color: var(--ui-ink); font-size: var(--qmai-body-font-marker); }
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: var(--qmai-body-font-list); }
 .ui-test-root .ui-test-editor-details,
