@@ -42,6 +42,25 @@ const mustExist = ["证据索引", "启用此文风", "这份成果没有引用�
  * 这两个词的清除改由下面的「承载 chunk 内 0 次」来断言，那才是精确的判据。
  */
 const mustBeGone = ["证据索引与实际覆盖", "自动核验仍需人工复核", "旧版资料导入", "无结构化规则"]
+
+/*
+ * 第二轮改动的结构标记。文案（如「证据索引」）不足以证明结构变了 ——
+ * 文案没变但结构可能悄悄回到旧的 <details> 独占一行写法，所以这里直接钉结构：
+ *   - wb-card-meta：承载「统计 + 证据索引」的那一行 flex 容器；
+ *   - data-ui-tree-memory-dot-spacer：没提取过记忆的章节所占的那一格；
+ *   - aria-label 模板「的证据索引」：入口是按钮而不是 <summary>。
+ * 以及删掉的结构不许回来：旧 CSS 里的 `.wb-card-evidence>summary` 选择器。
+ */
+const mustExistStructural = [
+  { needle: "wb-card-meta", why: "承载「统计 + 证据索引」的同行容器" },
+  { needle: "data-ui-tree-memory-dot-spacer", why: "章节行里没记忆时占位的那一格" },
+  { needle: "的证据索引", why: "证据索引入口的 aria-label 模板（按钮而非 summary）" },
+]
+const mustBeGoneStructural = [
+  { needle: ".wb-card-evidence>summary", why: "旧版 <details> 的 summary 样式选择器" },
+  { needle: "wb-card-evidence summary", why: "旧版 <details> 的 summary 样式选择器（紧凑写法）" },
+]
+
 /**
  * 这些词只在**承载拆书库卡片**的 chunk 里要求消失。
  *
@@ -81,6 +100,18 @@ for (const f of workbenchChunks) {
   for (const n of mustBeGoneInWorkbench) {
     check(!text.includes(n), `拆书库 chunk 内已清除: ${n}`, `在 ${f}`)
   }
+}
+
+// 4) 第二轮改动的结构标记：文案没变但结构可能悄悄回退，所以这里直接钉结构。
+// CSS 也要一起查 —— 旧选择器只会留在 CSS 里，JS 里搜不到。
+const allText = [...assets, ...cssAssets].map((f) => readFileSync(join(repo, "dist/assets", f), "utf8"))
+for (const { needle, why } of mustExistStructural) {
+  const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
+  check(hits.length > 0, `结构标记存在: ${needle}（${why}）`, hits.length ? hits.join(", ") : "任何资源里都没有")
+}
+for (const { needle, why } of mustBeGoneStructural) {
+  const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
+  check(hits.length === 0, `旧结构已清除: ${needle}（${why}）`, hits.length ? `仍在 ${hits.join(", ")}` : "")
 }
 
 // 3) 真机校验：exe 大小与 version-info 一致（防止"复制了旧文件却报告成功"）。

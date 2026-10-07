@@ -345,7 +345,52 @@ export function resolveChapterMemoryDotState(input: {
     这也是为什么本轮把「工作区必须等于 HEAD」当作跑变异的前置条件。
   </p>
 
-  <footer>QMAI · 青幕AI写作 · 2026-10-07 · 依据：用户三轮问答确认（绿点位置=标题左侧 / 提取中=灰点脉冲 / 悬停说明=要 / 旧版标签=整段删除 / 整版指标=一并删除）</footer>
+  <h2>7. 第二轮改动（用户看图后追加）</h2>
+  <p>用户在看图验收后提了两条：证据索引改<b>左右排列 + 点击弹窗</b>；章节目录里「有小绿点和没有小绿点混杂，
+    看起来排序错乱」。后者是<b>我上一轮的缺陷</b>，不是新需求。</p>
+  <table>
+    <tr><th>改动</th><th>根因 / 措施</th><th>验证</th></tr>
+    <tr><td>证据索引与「N条规则 · M条依据」同排一行</td>
+      <td>原为 <code>&lt;details&gt;</code>，结构上必然独占一行。改为 <code>.wb-card-meta</code>
+        flex 行容器：<b>「同一行」必须是结构事实</b>，只靠视觉凑近的话窗口一窄就掉行</td>
+      <td>浏览器实测两者垂直重叠、右缘在统计右侧；变异 A/B 把统计或入口挪出容器 → 该用例变红</td></tr>
+    <tr><td>点击改为弹窗</td>
+      <td>原文长短不一，内联展开会把卡片撑得忽高忽低</td>
+      <td>弹窗内容只含本卡引用；变异 C 把 <code>onClick</code> 接成 false → 两条用例变红</td></tr>
+    <tr><td>触发按钮要像一句小字</td>
+      <td>全局 <code>.book-workbench button</code> 带 <code>min-height:34px</code> + 边框，
+        不压掉的话这行会被撑高、多出一个方框</td>
+      <td>实测 16.5px / 无边框；变异 G 还原全局样式 → 34px，断言变红</td></tr>
+    <tr><td><b>没记忆的章节也占住圆点那一格</b></td>
+      <td><b>上一轮的注释把理由写反了。</b>我当时写「怕标题整体右移，所以什么都不渲染」，
+        但什么都不渲染才是左右不一的原因：有点的行被圆点+gap 推右 14px，没点的贴左。
+        改为渲染 <code>aria-hidden</code> 的等宽占位，真点与占位共用同一个
+        <code>MEMORY_DOT_SLOT_CLASS</code> 常量（两处各写一份 Tailwind 字符串早晚会改歪）</td>
+      <td>浏览器实测标题左边界 <code>[58.22, 58.22, 58.22]</code> 完全一致；
+        变异 I 删掉占位 → <code>[58.22, 58.22, 44.22]</code>，差的正是那 14px</td></tr>
+  </table>
+  <p class="note">
+    <b>弹窗必须脱离 <code>.book-workbench</code> 外壳来测。</b>弹窗经 portal 渲染到 <code>body</code>，
+    <code>.book-workbench small</code> 那条规则管不到它 —— 混在外壳里量，等于没测到「作用域丢失」
+    这个真实风险。所以 harness 单独起了一页只放弹窗 markup，并断言位置说明仍是 11px 小字。
+  </p>
+  <p class="note">
+    <b>一条负向对照自己的缺陷</b>：我给「同一行」写的变异只改容器 <code>display:block</code>，
+    结果显示「没抓到」，一度让人以为正式断言是空话。实际原因是 <code>small</code> 与
+    <code>inline-flex</code> 的按钮都是行内级，在块容器里<b>照样同行</b>；而正式断言是
+    「flex <b>且</b> 重叠」两个条件的合取，本来抓得到。修法是变异必须复算<b>与断言完全相同的那个布尔</b>，
+    再补一条竖排变异证明「重叠」那一半也承重。教训：<b>负向对照写错，会让有效断言看起来像空话</b>，
+    和假通过一样危险。
+  </p>
+  <p class="note">
+    <b>一条发布流程教训</b>：本轮我漏跑了编译步骤，只执行了 <code>build-portable.mjs</code>（它只负责
+    <b>复制</b>已有的 exe），于是脚本报告「便携版已生成」、version-info 也照写 —— 但 exe 还是上一版。
+    是 <code>verify-in-exe.mjs</code> 抓到的：28 个 dist 资源名在 exe 里找不到，且字节数与上一版完全相同。
+    正确命令是 <code>npx.cmd tauri build --no-bundle</code> 之后才 copy。
+    <b>「脚本说成功」不等于「产物是新的」</b>，这正是当初写资源名校验而不是只看退出码的原因。
+  </p>
+
+  <footer>QMAI · 青幕AI写作 · 2026-10-07 · 依据：用户三轮问答确认（绿点位置=标题左侧 / 提取中=灰点脉冲 / 悬停说明=要 / 旧版标签=整段删除 / 整版指标=一并删除）＋ 第二轮两条（证据索引=同行+弹窗 / 圆点位=每行统一留出）</footer>
 </main>
 </body>
 </html>
