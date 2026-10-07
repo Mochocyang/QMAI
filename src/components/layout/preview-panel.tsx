@@ -1844,7 +1844,7 @@ export function PreviewPanel() {
         </div>
         {visibleSaveStatus ? (
           <div className="mt-1 text-right">
-            <span className="block truncate text-[11px] text-muted-foreground/80">
+            <span className="block truncate text-[0.6875rem] text-muted-foreground/80">
               {visibleSaveStatus}
             </span>
           </div>

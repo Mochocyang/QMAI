@@ -927,7 +927,7 @@ function ClaudeCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {result.path}
                 </div>
               )}
@@ -938,7 +938,7 @@ function ClaudeCliStatusPill() {
                   Wiki bug. */}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   claude
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.claudeAuthErrorSuffix")}
@@ -950,7 +950,7 @@ function ClaudeCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.claudeUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   npm i -g @anthropic-ai/claude-code
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -1031,13 +1031,13 @@ function CodexCliStatusPill() {
                 })}
               </div>
               {result?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {result.path}
                 </div>
               )}
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.codexAuthErrorSuffix")}
@@ -1049,7 +1049,7 @@ function CodexCliStatusPill() {
               <div>{result?.error ?? t("settings.sections.llm.cliStatus.codexUnavailable")}</div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   npm install -g @openai/codex
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.installSuffix")}
@@ -1284,7 +1284,7 @@ function CursorCliStatusPill() {
                   : (agent?.error ?? t("settings.sections.llm.cliStatus.cursorAgentUnavailable"))}
               </div>
               {agent?.path && (
-                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
                   {agent.path}
                 </div>
               )}
@@ -1297,7 +1297,7 @@ function CursorCliStatusPill() {
               </div>
               <div className="text-muted-foreground">
                 {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
-                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                   agent login
                 </code>{" "}
                 {t("settings.sections.llm.cliStatus.cursorAuthErrorSuffix")}
@@ -1305,7 +1305,7 @@ function CursorCliStatusPill() {
               {agent?.installed && (
                 <div className="text-muted-foreground">
                   {t("settings.sections.llm.cliStatus.cursorUpdatePrefix")}{" "}
-                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                     agent update
                   </code>{" "}
                   {t("settings.sections.llm.cliStatus.cursorUpdateSuffix")}
@@ -1337,7 +1337,7 @@ function CursorCliStatusPill() {
               {!agent?.installed && (
                 <div className="text-muted-foreground">
                   {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
-                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[10px]">
+                  <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
                     curl https://cursor.com/install -fsS | bash
                   </code>{" "}
                   {t("settings.sections.llm.cliStatus.installSuffix")}

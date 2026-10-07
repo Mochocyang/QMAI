@@ -168,14 +168,14 @@ export function AgentWorkflowPanel({
                 <button
                   type="button"
                   onClick={() => onConfirmSave(call)}
-                  className="rounded bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700"
+                  className="rounded bg-green-600 px-2.5 py-1 text-[0.6875rem] font-medium text-white hover:bg-green-700"
                 >
                   确认保存
                 </button>
                 <button
                   type="button"
                   onClick={() => onReject(call)}
-                  className="rounded border border-amber-300/70 bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent"
+                  className="rounded border border-amber-300/70 bg-background px-2.5 py-1 text-[0.6875rem] font-medium text-muted-foreground hover:bg-accent"
                 >
                   放弃
                 </button>

@@ -95,7 +95,7 @@ function handleAnchorClick(
 
   return (
     <div
-      className="min-w-0 max-w-none text-[15px] leading-7 text-foreground"
+      className="min-w-0 max-w-none text-[0.9375rem] leading-7 text-foreground"
       dir={direction}
       lang={htmlLang}
       style={{ textAlign: "start", overflowWrap: "anywhere", wordBreak: "break-word" }}

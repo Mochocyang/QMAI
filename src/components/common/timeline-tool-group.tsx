@@ -17,7 +17,7 @@ function ToolCallGroupImpl({ group, style }: ToolCallGroupProps) {
   const Chevron = expanded ? ChevronDown : ChevronRight
 
   return (
-    <div className="px-2 text-[12px]" style={style}>
+    <div className="px-2 text-[0.75rem]" style={style}>
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
@@ -28,7 +28,7 @@ function ToolCallGroupImpl({ group, style }: ToolCallGroupProps) {
         <Chevron aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
         <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-emerald-500/45" />
         <span className="min-w-0 flex-1 break-words text-foreground/75">{group.label}</span>
-        <span className="shrink-0 text-[10px]">{group.items.length}项</span>
+        <span className="shrink-0 text-[0.625rem]">{group.items.length}项</span>
       </button>
 
       {expanded && (

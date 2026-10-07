@@ -11,14 +11,14 @@ function declaration(file: string, selector: string, property: string) {
   return value
 }
 describe("工作区顶部标题对齐", () => {
-  it("目录保留22px顶部留白，统一28px标题行", () => {
+  it("目录保留22px顶部留白，统一1.75rem（原28px）标题行", () => {
     expect(css("ui-test.css")).toContain("--ui-heading-top: 22px")
-    expect(css("ui-test.css")).toContain("--ui-heading-line: 28px")
+    expect(css("ui-test.css")).toContain("--ui-heading-line: 1.75rem")
     expect(declaration("ui-test.css", ".ui-test-directory-head", "padding")).toBe("var(--ui-heading-top) 20px 10px")
     expect(declaration("ui-test.css", ".ui-test-directory-head h2", "line-height")).toBe("var(--ui-heading-line)")
   })
-  it("章节大纲标题为20px/28px，输入态和显示态同高度", () => {
-    expect(declaration("ui-test-editor.css", ".ui-test-root .ui-test-editor-title", "font")).toBe("500 20px/28px var(--serif)")
+  it("章节大纲标题为1.25rem/1.75rem（原20px/28px），输入态和显示态同高度", () => {
+    expect(declaration("ui-test-editor.css", ".ui-test-root .ui-test-editor-title", "font")).toBe("500 1.25rem/1.75rem var(--serif)")
     expect(declaration("ui-test-editor.css", ".ui-test-root .ui-test-editor-title-input", "min-height")).toBe("var(--ui-heading-line)")
     expect(declaration("ui-test-editor.css", ".ui-test-root .ui-test-editor-header", "padding-top")).toBe("var(--ui-heading-top)")
     expect(declaration("ui-test-editor.css", ".ui-test-root .ui-test-editor-title-row", "min-height")).toBe("var(--ui-heading-line)")
@@ -40,7 +40,7 @@ describe("工作区顶部标题对齐", () => {
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-content"]', "padding")).toBe("16px 24px 0")
     expect(declaration("ui-test-tools.css", ".ui-test-root .ui-test-soul-tab-row", "margin")).toBe("0")
     expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-project-editor"] > div', "padding")).toBe("0")
-    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-role-content"] .mb-4 > h2', "font")).toBe("500 20px/28px var(--serif)")
+    expect(declaration("ui-test-tools.css", '.ui-test-root [data-ui="soul-role-content"] .mb-4 > h2', "font")).toBe("500 1.25rem/1.75rem var(--serif)")
   })
   it("灵魂表单保持有边框输入区、双列基础字段和独立滚动区", () => {
     const field = '.ui-test-root [data-ui-page="soul"] [data-ui="soul-custom-form"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea):not([aria-invalid="true"])'

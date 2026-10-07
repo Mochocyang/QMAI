@@ -232,7 +232,7 @@ export function FileEditPreview({ edits, onApply, onDismiss, applied }: FileEdit
               <div key={i} className="rounded border bg-background p-2">
                 <div className="mb-1 text-xs font-medium text-muted-foreground">{edit.filePath} — 编辑替换内容</div>
                 <div className="mb-2 rounded bg-red-50 px-2 py-1 text-xs dark:bg-red-950/30">
-                  <div className="mb-1 text-[10px] font-medium text-red-500">原文：</div>
+                  <div className="mb-1 text-[0.625rem] font-medium text-red-500">原文：</div>
                   <pre className="whitespace-pre-wrap text-red-700 dark:text-red-300">{edit.search}</pre>
                 </div>
                 <textarea

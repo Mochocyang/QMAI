@@ -495,7 +495,7 @@ export function SimulationReportView({
           <TrendingUp className="h-4 w-4 text-primary" />
           <h2 className="text-sm font-semibold">{t("storySimulation.reportTitle")}</h2>
           {currentResult && (
-            <span className="rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+            <span className="rounded bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground">
               {formatDate(currentResult.createdAt)}
             </span>
           )}
@@ -739,13 +739,13 @@ function TimelineGroupedEvents({
                 ) : (
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.6875rem] font-medium text-primary">
                   {phaseLabel(phase)}
                 </span>
                 <span className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>
                   节点 {nodeIndex + 1}：{nodeTitle}
                 </span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
+                <span className="ml-auto text-[0.6875rem] text-muted-foreground">
                   {nodeEvents.length} 条
                 </span>
               </button>
@@ -758,7 +758,7 @@ function TimelineGroupedEvents({
                       className={`rounded-md border bg-muted/20 ${compact ? "px-2 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
                     >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground">
                           R{ev.round + 1}
                         </span>
                         {onInterviewAgent ? (

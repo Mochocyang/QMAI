@@ -503,7 +503,7 @@ export function ReviewView({
             void runNovelReviewAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
         </button>
@@ -514,7 +514,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -526,7 +526,7 @@ export function ReviewView({
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -537,7 +537,7 @@ export function ReviewView({
             event.stopPropagation()
             void handleIgnoreNovelReviewItem(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
         >
           {t("dashboard.actions.ignore")}
         </button>
@@ -949,7 +949,7 @@ export function ReviewView({
                         <button
                           type="button"
                           onClick={() => void handleDeleteHistory(entry)}
-                          className="shrink-0 text-[10px] text-muted-foreground hover:text-destructive"
+                          className="shrink-0 text-[0.625rem] text-muted-foreground hover:text-destructive"
                         >
                           {t("novel.history.delete")}
                         </button>
@@ -979,7 +979,7 @@ export function ReviewView({
                   onClick={() => setCognitionExpanded(!cognitionExpanded)}
                 >
                   <span>{t("novel.cognition.title")}</span>
-                  <span className="text-[10px]">{cognitionExpanded ? "▲" : "▼"}</span>
+                  <span className="text-[0.625rem]">{cognitionExpanded ? "▲" : "▼"}</span>
                 </button>
                 {cognitionExpanded && (
                   <div className="space-y-2 border-t px-3 py-2 text-xs">

@@ -61,7 +61,7 @@
   border: 0;
   background: transparent;
   color: var(--ui-ink);
-  font: 500 20px/28px var(--serif);
+  font: 500 1.25rem/1.75rem var(--serif);
   overflow-wrap: anywhere;
 }
 
@@ -87,7 +87,7 @@
   gap: 10px;
   margin-left: auto;
   color: var(--ui-muted);
-  font: 400 14px/22px var(--ui);
+  font: 400 0.875rem/1.375rem var(--ui);
   font-variant-numeric: tabular-nums;
 }
 
@@ -108,7 +108,7 @@
   border-radius: 12px;
   background: var(--ui-paper);
   color: var(--ui-ink);
-  font: 400 13px/1.6 var(--ui);
+  font: 400 0.8125rem/1.6 var(--ui);
   overflow-wrap: anywhere;
   box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent);
 }
@@ -132,7 +132,7 @@
   border: 0;
   background: transparent;
   color: var(--ui-accent);
-  font: 500 13px/1.5 var(--ui);
+  font: 500 0.8125rem/1.5 var(--ui);
   cursor: pointer;
 }
 
@@ -149,7 +149,7 @@
   border-radius: 8px;
   background: var(--ui-panel);
   color: var(--ui-muted);
-  font: 500 13px/1.5 var(--ui);
+  font: 500 0.8125rem/1.5 var(--ui);
   overflow-wrap: anywhere;
   cursor: pointer;
   transition: background-color 150ms, color 150ms;
@@ -190,7 +190,7 @@
   border-radius: 7px;
   background: transparent;
   color: inherit;
-  font: 400 13px/1.6 var(--ui);
+  font: 400 0.8125rem/1.6 var(--ui);
   text-align: start;
   overflow-wrap: anywhere;
   cursor: pointer;
@@ -198,9 +198,9 @@
 
 .ui-test-root .ui-test-editor-menu-item:is(:hover, [data-highlighted]) { background: var(--ui-soft); }
 .ui-test-root .ui-test-editor-menu-item[data-disabled] { opacity: .6; cursor: not-allowed; }
-.ui-test-root .ui-test-editor-path { margin: 0 0 20px; color: var(--ui-muted); font: 400 13px/1.6 var(--ui); overflow-wrap: anywhere; }
+.ui-test-root .ui-test-editor-path { margin: 0 0 20px; color: var(--ui-muted); font: 400 0.8125rem/1.6 var(--ui); overflow-wrap: anywhere; }
 
-.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 18px/1.95 var(--serif); overflow-wrap: anywhere; }
+.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 1.125rem/1.95 var(--serif); overflow-wrap: anywhere; }
 /* 让旧编辑器参与正文排版，不再叠加文档卡片和第二个滚动容器。 */
 .ui-test-root .ui-test-editor-body > div { height: auto; overflow: visible; }
 .ui-test-root .ui-test-editor-body .immersive-scroll-container { height: auto; overflow: visible; }
@@ -209,11 +209,11 @@
 .ui-test-root .ui-test-editor-body .milkdown { padding: 0; }
 .ui-test-root .ui-test-editor-body .ProseMirror,
 .ui-test-root .ui-test-editor-body [dir][lang],
-.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { color: var(--ui-ink); font: 400 18px/1.95 var(--serif); }
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { color: var(--ui-ink); font: 400 1.125rem/1.95 var(--serif); }
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: 1.95; text-indent: 2em; }
 .ui-test-root .ui-test-editor-body :is(h1, h2, h3, h4, h5, h6, li, blockquote, pre),
 .ui-test-root .ui-test-editor-body :is(li, blockquote) p { text-indent: 0; }
-.ui-test-root .ui-test-editor-body :is(h2, h3, h4, h5, h6) { margin: 26px 0 12px; font: 600 18px/1.6 var(--ui); color: var(--ui-ink); }
+.ui-test-root .ui-test-editor-body :is(h2, h3, h4, h5, h6) { margin: 26px 0 12px; font: 600 1.125rem/1.6 var(--ui); color: var(--ui-ink); }
 .ui-test-root .ui-test-editor-body :is(ul, ol) { margin: 6px 0 16px; padding-left: 1.5em; }
 .ui-test-root .ui-test-editor-body :is(pre, table) { max-width: 100%; overflow-x: auto; }
 .ui-test-root .ui-test-editor-body img { max-width: 100%; height: auto; }
@@ -223,7 +223,7 @@
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea[data-ui-test-indent="visual"] { text-indent: 2em each-line; }
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea { display: block; caret-color: var(--ui-accent); }
 /* Chrome textarea 的 each-line 当前只绘制首行，查找层须匹配实际绘制位置。 */
-.ui-test-root .ui-test-editor-body [data-find-highlights] { font-size: 18px; line-height: 1.95; }
+.ui-test-root .ui-test-editor-body [data-find-highlights] { font-size: 1.125rem; line-height: 1.95; }
 .ui-test-root .ui-test-editor-body [data-writing-editor] > div:has(> textarea[data-ui-test-indent="visual"]) > [data-find-highlights] { text-indent: 2em; }
 .ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body { padding-top: 24px; }
 .ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > :is(h2, h3):first-child { margin-top: 0; }
@@ -231,15 +231,15 @@
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea:focus-visible,
 .ui-test-root .ui-test-editor-body .ProseMirror:focus-visible { outline: none; box-shadow: none; caret-color: var(--ui-accent); }
 .ui-test-root .ui-test-editor-body [data-ui-test-frontmatter] { display: none; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { font-size: 18px; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { font-size: 1.125rem; }
 .ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { text-indent: 0; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: 16px; line-height: 1.9; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: 16px; line-height: 1.9; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: 16px; line-height: 1.9; text-indent: 0; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li::marker { color: var(--ui-ink); font-size: 12px; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: 16px; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: 1rem; line-height: 1.9; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: 1rem; line-height: 1.9; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: 1rem; line-height: 1.9; text-indent: 0; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li::marker { color: var(--ui-ink); font-size: 0.75rem; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: 1rem; }
 .ui-test-root .ui-test-editor-details,
-.ui-test-root .ui-test-editor-auxiliary { margin: 0 0 24px; padding: 16px; border-radius: 8px; background: var(--ui-panel); font: 400 13px/1.6 var(--ui); overflow-wrap: anywhere; }
+.ui-test-root .ui-test-editor-auxiliary { margin: 0 0 24px; padding: 16px; border-radius: 8px; background: var(--ui-panel); font: 400 0.8125rem/1.6 var(--ui); overflow-wrap: anywhere; }
 .ui-test-root .ui-test-editor-details .not-prose { margin: 0; border: 0; background: none; box-shadow: none; }
 .ui-test-root .ui-test-editor-details .ui-test-editor-path { margin-bottom: 8px; }
 .ui-test-root .ui-test-editor-auxiliary[hidden] { display: none; }
@@ -256,7 +256,7 @@
   gap: 12px 24px;
   margin-top: 32px;
   color: var(--ui-muted);
-  font: 400 13px/1.6 var(--ui);
+  font: 400 0.8125rem/1.6 var(--ui);
 }
 
 .ui-test-root .ui-test-editor-save { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
@@ -265,8 +265,8 @@
 .ui-test-root .ui-test-editor-save .ui-test-editor-action { margin-left: 8px; }
 .ui-test-root .ui-test-editor-task-status { margin-top: 8px; }
 .ui-test-root .ui-test-editor-footer-meta { font-variant-numeric: tabular-nums; }
-.ui-test-root .ui-test-editor-empty { display: grid; height: 100%; place-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--ui-muted); font: 400 14px/1.7 var(--ui); }
-.ui-test-root .ui-test-editor-empty h2 { margin: 0; color: var(--ui-ink); font: 500 22px/1.5 var(--serif); }
+.ui-test-root .ui-test-editor-empty { display: grid; height: 100%; place-content: center; gap: 8px; padding: 24px; text-align: center; color: var(--ui-muted); font: 400 0.875rem/1.7 var(--ui); }
+.ui-test-root .ui-test-editor-empty h2 { margin: 0; color: var(--ui-ink); font: 500 1.375rem/1.5 var(--serif); }
 
 @media (max-width: 640px) {
   .ui-test-root .ui-test-editor { padding: 0 20px; }

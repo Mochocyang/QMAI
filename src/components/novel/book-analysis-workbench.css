@@ -1,15 +1,15 @@
-.book-workbench{height:100%;overflow-y:auto;padding:0 28px 40px;color:var(--ui-ink,var(--foreground));font-size:14px;letter-spacing:0;background:var(--ui-paper,var(--background));container-type:inline-size}
+.book-workbench{height:100%;overflow-y:auto;padding:0 28px 40px;color:var(--ui-ink,var(--foreground));font-size:0.875rem;letter-spacing:0;background:var(--ui-paper,var(--background));container-type:inline-size}
 .wb-inner{max-width:1240px;margin:0 auto;min-width:0}
-.book-workbench h1{font-size:20px;font-weight:650;margin:0;white-space:nowrap}
+.book-workbench h1{font-size:1.25rem;font-weight:650;margin:0;white-space:nowrap}
 .book-workbench [hidden]{display:none!important}
-.book-workbench h2{font-size:16px;font-weight:600;margin:0 0 12px}
-.book-workbench h3{font-size:15px;font-weight:600;margin:0}
+.book-workbench h2{font-size:1rem;font-weight:600;margin:0 0 12px}
+.book-workbench h3{font-size:0.9375rem;font-weight:600;margin:0}
 .book-workbench p{margin:8px 0;line-height:1.7}
 .wb-header,.wb-row,.wb-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .wb-header{justify-content:space-between;gap:14px;min-height:66px;padding:14px 0}
 .wb-section{border-top:1px solid var(--ui-line,#d4ddda);padding:20px 0}
-.wb-muted,.book-workbench small{color:var(--ui-muted,#687871);font-size:12px}
-.book-workbench button,.book-workbench input:not([type=checkbox]),.book-workbench select{min-height:34px;border:1px solid var(--ui-line,#c6d1cb);border-radius:5px;background:var(--ui-paper,var(--background));padding:6px 10px;color:inherit;font-size:13px}
+.wb-muted,.book-workbench small{color:var(--ui-muted,#687871);font-size:0.75rem}
+.book-workbench button,.book-workbench input:not([type=checkbox]),.book-workbench select{min-height:34px;border:1px solid var(--ui-line,#c6d1cb);border-radius:5px;background:var(--ui-paper,var(--background));padding:6px 10px;color:inherit;font-size:0.8125rem}
 .book-workbench button{display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
 .book-workbench button svg{width:15px;height:15px;flex-shrink:0}
 .book-workbench button:disabled{opacity:.45;cursor:default}
@@ -18,23 +18,23 @@
 .book-workbench .wb-primary:hover:not(:disabled){filter:brightness(.95);background:var(--ui-accent,#496b59)}
 .book-workbench .wb-icon{width:34px;height:34px;padding:0}
 .book-workbench :is(input,textarea,button,select):focus-visible{outline:2px solid var(--ui-accent,#496b59);outline-offset:2px}
-.book-workbench textarea{width:100%;min-height:80px;resize:vertical;border:1px solid color-mix(in srgb,var(--ui-ink,#25312b) 30%,var(--ui-paper,#fff));border-radius:5px;padding:10px 13px;background:var(--ui-paper,var(--background));color:inherit;font-size:14px;line-height:1.8}
+.book-workbench textarea{width:100%;min-height:80px;resize:vertical;border:1px solid color-mix(in srgb,var(--ui-ink,#25312b) 30%,var(--ui-paper,#fff));border-radius:5px;padding:10px 13px;background:var(--ui-paper,var(--background));color:inherit;font-size:0.875rem;line-height:1.8}
 .book-workbench input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--ui-accent,#496b59);flex-shrink:0}
-.wb-range .wb-row>label{display:grid;gap:5px;font-size:12px}
+.wb-range .wb-row>label{display:grid;gap:5px;font-size:0.75rem}
 .wb-range input[type=number]{width:96px}
 .wb-range .wb-row{align-items:center}
-.wb-range-dash{font-size:12px;color:var(--ui-muted,#687871)}
-.book-workbench details>summary{cursor:pointer;font-size:13px;padding:10px 0}
+.wb-range-dash{font-size:0.75rem;color:var(--ui-muted,#687871)}
+.book-workbench details>summary{cursor:pointer;font-size:0.8125rem;padding:10px 0}
 .wb-chapters{margin-top:14px;padding:12px;border:1px solid var(--ui-line,#d4ddda);border-radius:6px}
 .wb-chapters .wb-row{padding-bottom:10px}
 .wb-chapter-list{max-height:300px;overflow-y:auto;border-top:1px solid var(--ui-line,#d4ddda)}
-.wb-chapter-row{display:grid;grid-template-columns:18px 42px minmax(0,1fr) 80px;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--ui-line,#d4ddda);font-size:13px}
+.wb-chapter-row{display:grid;grid-template-columns:18px 42px minmax(0,1fr) 80px;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--ui-line,#d4ddda);font-size:0.8125rem}
 .wb-chapter-row>span{overflow-wrap:anywhere}
 .wb-chapter-row small{text-align:right}
 .wb-skill-options{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 12px}
 .wb-skill-options label{display:flex;align-items:center;gap:7px}
 .wb-request{display:block;margin:12px 0}
-.wb-request>span{display:block;font-size:13px;margin-bottom:6px}
+.wb-request>span{display:block;font-size:0.8125rem;margin-bottom:6px}
 .wb-tabs{display:flex;gap:18px;border-bottom:1px solid var(--ui-line,#d4ddda);margin-bottom:16px;overflow-x:auto}
 .wb-tabs button{border:0;border-radius:0;white-space:nowrap;border-bottom:2px solid transparent}
 .wb-tabs button[aria-selected=true]{color:var(--ui-accent,#496b59);border-bottom-color:currentColor}
@@ -48,14 +48,14 @@
 .wb-rule dl{margin:6px 0;display:grid;grid-template-columns:64px minmax(0,1fr);gap:6px 12px;line-height:1.8}
 .wb-rule dt{color:var(--ui-muted,#687871)}
 .wb-rule dd{margin:0;overflow-wrap:anywhere}
-.wb-evidence{padding:12px;border-left:3px solid var(--ui-line,#c6d1cb);margin:8px 0;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+.wb-evidence{padding:12px;border-left:3px solid var(--ui-line,#c6d1cb);margin:8px 0;font-size:0.8125rem;white-space:pre-wrap;overflow-wrap:anywhere}
 /*
  * 证据索引现在只在**弹窗**里展示，而弹窗经 portal 渲染到 body、不在 .book-workbench 内。
  * 所以这里的两条必须写成全局选择器：`.book-workbench small` 那条管不到弹窗里的 <small>，
  * 不管的话「第N章 · 正文位置…」会掉回浏览器默认字号，与正文大小不协调。
  * 颜色也只能用 fallback（弹窗里没有 --ui-muted）。
  */
-.wb-evidence small{display:block;margin-bottom:5px;font-size:11px;color:#687871;white-space:normal}
+.wb-evidence small{display:block;margin-bottom:5px;font-size:0.6875rem;color:#687871;white-space:normal}
 .wb-evidence p{margin:0}
 .wb-book-picker{position:relative}
 .wb-book-picker>button{min-width:150px;max-width:360px;justify-content:space-between}
@@ -71,11 +71,11 @@
 /* 必须同时压掉 min-height：通用按钮规则里的 min-height:34px 会盖过 height，把它撑成 28x34。 */
 .book-workbench .wb-book-option>button.wb-icon{flex:0 0 auto;width:28px;height:28px;min-height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .wb-progress{width:160px;max-width:100%;height:6px;accent-color:var(--ui-accent,#496b59)}
-.wb-status{font-size:12px;color:var(--ui-accent,#496b59)}
+.wb-status{font-size:0.75rem;color:var(--ui-accent,#496b59)}
 .wb-character-pick{max-height:260px;overflow:auto;margin:10px 0}
 .wb-character-pick label{display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid var(--ui-line,#d4ddda)}
-.book-workbench [role=alert]{color:var(--ui-danger,#a83e3e);font-size:13px;white-space:pre-wrap}
-.book-workbench pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 inherit}
+.book-workbench [role=alert]{color:var(--ui-danger,#a83e3e);font-size:0.8125rem;white-space:pre-wrap}
+.book-workbench pre{white-space:pre-wrap;overflow-wrap:anywhere;font:0.8125rem/1.7 inherit}
 .wb-empty{padding:38px 0;text-align:center}
 html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(640px,calc(100vw - 32px));max-width:640px;padding:22px;gap:14px;border-radius:8px}
 /* 页签内的旧版结果区。旧版整页区块（.wb-legacy）已不再挂载，原先那五条规则一并删除；
@@ -83,14 +83,14 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-legacy-results{margin-top:22px;padding-top:16px;border-top:1px dashed var(--ui-line,#c6d1cb);min-width:0;overflow-wrap:anywhere}
 /* 必须写成 .book-workbench .wb-legacy-hint：既有的 .book-workbench p{margin:8px 0}（:7）
    特异性是 0,1,1，单写 .wb-legacy-hint 只有 0,1,0，压不下那 8px 上边距。 */
-.book-workbench .wb-legacy-hint{margin:0 0 12px;font-size:12px;color:var(--ui-muted,#687871)}
+.book-workbench .wb-legacy-hint{margin:0 0 12px;font-size:0.75rem;color:var(--ui-muted,#687871)}
 /* 窄容器下把旧版角色面板收成单列。宽的时候不写覆盖规则：它自己的内联值就是
    minmax(220px,320px) 1fr，内联样式本来就赢，再加一条 !important 只会让将来
    别处出现的内联网格被误伤（旧版那条 1fr!important 正是为此删掉的）。 */
 @container(max-width:900px){.wb-legacy-results [style*="grid-template-columns"]{grid-template-columns:1fr!important}}
 .wb-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
 .wb-section-heading h2{display:flex;align-items:center;gap:9px;margin:0}
-.wb-step-number{display:grid;place-items:center;width:25px;height:25px;border:1px solid var(--ui-line,#c6d1cb);border-radius:4px;font:11px Consolas,monospace;color:var(--ui-accent,#496b59);background:var(--ui-panel,var(--muted))}
+.wb-step-number{display:grid;place-items:center;width:25px;height:25px;border:1px solid var(--ui-line,#c6d1cb);border-radius:4px;font:0.6875rem Consolas,monospace;color:var(--ui-accent,#496b59);background:var(--ui-panel,var(--muted))}
 .wb-range-presets{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .book-workbench .wb-quiet{border-color:transparent;background:transparent}
 .wb-selection-count{margin-left:auto}
@@ -101,16 +101,16 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-demand-editor{border:1px solid color-mix(in srgb,var(--ui-ink,#25312b) 32%,var(--ui-paper,#fff));border-radius:6px;overflow:hidden}
 .wb-demand-editor:focus-within{border-color:var(--ui-accent,#496b59);box-shadow:0 0 0 2px color-mix(in srgb,var(--ui-accent,#496b59) 12%,transparent)}
 .wb-demand-editor .wb-request{margin:0}
-.wb-demand-editor .wb-request>span{display:flex;justify-content:space-between;gap:12px;padding:11px 13px 0;margin:0;font-weight:600;font-size:12px}
-.wb-demand-editor .wb-request small{font-size:11px;font-weight:400}
+.wb-demand-editor .wb-request>span{display:flex;justify-content:space-between;gap:12px;padding:11px 13px 0;margin:0;font-weight:600;font-size:0.75rem}
+.wb-demand-editor .wb-request small{font-size:0.6875rem;font-weight:400}
 .wb-demand-editor textarea{display:block;height:80px;border:0;border-radius:0;outline:none!important;box-shadow:none}
 .wb-demand-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--ui-panel,var(--muted));border-top:1px solid var(--ui-line,#d4ddda)}
-.wb-model{font-size:12px;min-width:0;overflow-wrap:anywhere}
+.wb-model{font-size:0.75rem;min-width:0;overflow-wrap:anywhere}
 .wb-model>span:nth-child(2){max-width:300px;overflow-wrap:anywhere}
-.book-workbench .wb-estimate{margin:10px 0 0;font-size:12px}
+.book-workbench .wb-estimate{margin:10px 0 0;font-size:0.75rem}
 .wb-task-section{padding:10px 0}
 .wb-task-section>.wb-result{padding:4px 0;border:0}
-.wb-task-section details>summary{font-size:12px;padding:7px 0}
+.wb-task-section details>summary{font-size:0.75rem;padding:7px 0}
 .wb-task-section .wb-progress{width:90px}
 .wb-results-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
 .wb-search{display:flex;align-items:center;gap:7px;min-width:0;border:1px solid var(--ui-line,#c6d1cb);border-radius:5px;padding:0 9px;background:var(--ui-paper,var(--background))}
@@ -124,25 +124,25 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-skill-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--ui-line,#c6d1cb);border-radius:7px;overflow:hidden;background:var(--ui-paper,var(--background))}
 .wb-card-main{padding:17px;flex:1}
 .wb-card-heading{display:flex;align-items:center;gap:10px}
-.wb-card-heading h3{font-size:16px;overflow-wrap:anywhere;min-width:0}
+.wb-card-heading h3{font-size:1rem;overflow-wrap:anywhere;min-width:0}
 /* 对象名后的生成日期：短格式、不换行、别把卡片挤溢出（窄容器下靠 h3 的 min-width:0 让位）。 */
-.book-workbench .wb-card-heading h3 .wb-card-date{color:var(--ui-muted,#687871);font-size:11px;font-weight:400;white-space:nowrap}
-.wb-avatar{display:grid;place-items:center;width:34px;height:37px;flex-shrink:0;border-radius:5px;background:#e6efe9;color:#476d59;font-weight:600;font-size:15px}
+.book-workbench .wb-card-heading h3 .wb-card-date{color:var(--ui-muted,#687871);font-size:0.6875rem;font-weight:400;white-space:nowrap}
+.wb-avatar{display:grid;place-items:center;width:34px;height:37px;flex-shrink:0;border-radius:5px;background:#e6efe9;color:#476d59;font-weight:600;font-size:0.9375rem}
 .wb-avatar[data-tone="1"]{background:#e9eff7;color:#526993}
 .wb-avatar[data-tone="2"]{background:#f5eaf0;color:#925c75}
-.wb-card-main>p{font-size:14px;line-height:1.8;margin:13px 0;overflow-wrap:anywhere}
+.wb-card-main>p{font-size:0.875rem;line-height:1.8;margin:13px 0;overflow-wrap:anywhere}
 .wb-card-description:not([data-expanded=true]){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
-.book-workbench .wb-overview-toggle{border:0;background:transparent;min-height:26px;padding:0;font-size:11px;color:var(--ui-accent,#496b59)}
+.book-workbench .wb-overview-toggle{border:0;background:transparent;min-height:26px;padding:0;font-size:0.6875rem;color:var(--ui-accent,#496b59)}
 .wb-overview-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
 .wb-traits{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 15px}
-.wb-traits span{font-size:11px;padding:4px 7px;border-radius:3px;background:var(--ui-panel,var(--muted));color:var(--ui-muted,#687871)}
+.wb-traits span{font-size:0.6875rem;padding:4px 7px;border-radius:3px;background:var(--ui-panel,var(--muted));color:var(--ui-muted,#687871)}
 /*
  * 「N条规则 · M条依据」与「证据索引」左右并排在同一行：统计在左，触发按钮紧跟其右。
  * 用 flex 行容器而不是让它们各自成块，这样两件事在结构上就是同一行
  * （只靠视觉上凑近、结构上仍是两行的话，窗口一窄又会掉行）。
  */
 .wb-card-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.wb-card-meta>small{font-size:11px}
+.wb-card-meta>small{font-size:0.6875rem}
 /*
  * 触发按钮要长得像**一句小字**，不是一个按钮盒子。
  * 必须显式压掉 .book-workbench button 的全局样式（min-height:34px、边框、内边距、纸底色），
@@ -150,13 +150,13 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
  * 用 :where() 保持低优先级不必要 —— 这里靠选择器权重（.book-workbench ...）压过全局那条。
  */
 .book-workbench .wb-card-evidence{min-height:0;height:auto;display:inline-flex;align-items:center;gap:4px;
-  padding:0;border:0;border-radius:0;background:none;color:var(--ui-accent,#496b59);font-size:11px;line-height:1.5;cursor:pointer}
+  padding:0;border:0;border-radius:0;background:none;color:var(--ui-accent,#496b59);font-size:0.6875rem;line-height:1.5;cursor:pointer}
 .book-workbench .wb-card-evidence:hover:not(:disabled){background:none;text-decoration:underline}
 .book-workbench .wb-card-evidence svg{width:12px;height:12px;flex-shrink:0}
 .wb-card-footer{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--ui-line,#c6d1cb);background:var(--ui-panel,var(--muted))}
 /* 修订与删除是一个动作组：包在一起让它们紧挨，不再被 space-between 摊到两端。 */
 .wb-card-actions{display:flex;align-items:center;gap:6px;flex:none}
-.book-workbench .wb-card-footer>button:first-child{border:0;background:transparent;padding:0;color:var(--ui-accent,#496b59);font-size:12px}
+.book-workbench .wb-card-footer>button:first-child{border:0;background:transparent;padding:0;color:var(--ui-accent,#496b59);font-size:0.75rem}
 /* 删除是这个面板里唯一的破坏性操作：hover 才变色，平时和旁边两个按钮长得一样。 */
 .book-workbench .wb-card-footer .wb-card-remove:hover:not(:disabled){color:var(--ui-danger,#a83e3e);border-color:var(--ui-danger,#a83e3e)}
 .wb-skill-grid[data-view=list]{grid-template-columns:1fr}
@@ -169,11 +169,11 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-revision-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .wb-style-profile{padding:16px 0}
 .wb-style-coverage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px;margin:12px 0 22px}
-.wb-style-coverage>div,.wb-style-word{border-bottom:1px solid var(--ui-line,#c6d1cb);padding:12px 0;font-size:13px;overflow-wrap:anywhere}
+.wb-style-coverage>div,.wb-style-word{border-bottom:1px solid var(--ui-line,#c6d1cb);padding:12px 0;font-size:0.8125rem;overflow-wrap:anywhere}
 .wb-style-coverage strong{margin-right:10px}
 .wb-style-profile>h3{margin-top:16px}
 @container(max-width:620px){.wb-style-coverage{grid-template-columns:1fr}}
-.wb-results-section>div>.wb-row>label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.wb-results-section>div>.wb-row>label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.75rem}
 .wb-results-section select{max-width:100%}
 /*
  * 合并版本列表：所有版本的对象卡连成一份。
@@ -195,11 +195,11 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
  * 会直接贴在一起，看起来像同一个版本的两段，日期标签也就失去了「分组标题」的作用。
  */
 .wb-revision-extras{min-width:0;margin-top:18px}
-.wb-revision-date{font-size:12px;color:var(--ui-muted,#687871);white-space:nowrap}
+.wb-revision-date{font-size:0.75rem;color:var(--ui-muted,#687871);white-space:nowrap}
 @container(max-width:900px){.wb-header>.wb-row>.wb-muted{display:none}.wb-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-header .wb-book-picker>button{min-width:130px;max-width:250px}}
-@container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:12px}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}
+@container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:0.75rem}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}
 @media(max-width:640px){.book-workbench{padding:0 16px 32px}.wb-header{padding:12px 0}.wb-header>div{max-width:100%}.wb-rule dl{grid-template-columns:54px minmax(0,1fr);gap:8px}.wb-tabs{gap:8px}.wb-chapter-row{grid-template-columns:18px 30px minmax(0,1fr) 64px}.wb-model>span:nth-child(2){max-width:190px}.wb-demand-editor textarea{height:100px}.wb-book-picker>button span{max-width:135px}}
 .wb-soul-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:10px 14px;border-top:1px solid var(--ui-line,#c6d1cb)}
-.wb-soul-status{font-size:12px;color:var(--ui-muted,#687871)}
-.book-workbench .wb-soul-actions button{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.wb-soul-status{font-size:0.75rem;color:var(--ui-muted,#687871)}
+.book-workbench .wb-soul-actions button{display:inline-flex;align-items:center;gap:4px;font-size:0.75rem}
 .wb-soul-actions button svg{width:14px;height:14px}

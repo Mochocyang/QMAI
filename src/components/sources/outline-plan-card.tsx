@@ -72,7 +72,7 @@ export function OutlinePlanCard({
             {protocol.elements.filter((element) => element.satisfied).map((element) => (
               <li key={element.key}>
                 <span className="font-medium">{element.key}</span>：{element.value}
-                <span className="ml-1 rounded border px-1 text-[10px] text-muted-foreground">
+                <span className="ml-1 rounded border px-1 text-[0.625rem] text-muted-foreground">
                   {element.source}
                 </span>
               </li>
@@ -109,7 +109,7 @@ export function OutlinePlanCard({
               {plan.files.map((file) => (
                 <li key={`${file.targetFolder}/${file.fileName}`}>
                   {[file.targetFolder, file.fileName].filter(Boolean).join("/")}
-                  <span className="ml-1 rounded border px-1 text-[10px] text-muted-foreground">
+                  <span className="ml-1 rounded border px-1 text-[0.625rem] text-muted-foreground">
                     {[file.fileType, file.writeMode].filter(Boolean).join(" · ")}
                   </span>
                 </li>

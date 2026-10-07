@@ -158,7 +158,7 @@ function CodePreview({ filePath, content }: { filePath: string; content: string 
     <div className="h-full overflow-auto p-6">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span>{filePath}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">{lang}</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] uppercase">{lang}</span>
       </div>
       <pre className="whitespace-pre-wrap rounded-lg bg-muted/30 p-4 font-mono text-sm">
         {content}
@@ -212,7 +212,7 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
     <div ref={scrollRootRef} className="h-full overflow-auto p-6">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span>{filePath}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">{label}</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] uppercase">{label}</span>
       </div>
       {frontmatter && <FrontmatterPanel data={frontmatter} />}
       <div
@@ -341,7 +341,7 @@ function HtmlFilePreview({ filePath, content, onSave }: HtmlFilePreviewProps) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
         <span className="truncate" title={filePath}>{filePath}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">HTML</span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] uppercase">HTML</span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             type="button"

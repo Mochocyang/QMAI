@@ -739,7 +739,7 @@ export function MaintenanceSection() {
                 onChange={setDetectModelId}
                 disabled={scanning}
               />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
                 {t("settings.sections.maintenance.dedup.detectModelHint", {
                   defaultValue: "扫描分组用。实体多时上下文更大，建议用更强、上下文更长的模型。",
                 })}
@@ -756,7 +756,7 @@ export function MaintenanceSection() {
                 onChange={setMergeModelId}
                 disabled={scanning}
               />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
                 {t("settings.sections.maintenance.dedup.mergeModelHint", {
                   defaultValue: "写合并正文用。输入通常更短，可用相对便宜的模型。",
                 })}
@@ -918,11 +918,11 @@ function ProcessLogPanel({
 }) {
   return (
     <div className="space-y-1.5 rounded border border-border/60 bg-background/80 px-2 py-1.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[0.6875rem] font-medium text-muted-foreground">
         {live ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
         <span>{title}</span>
       </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/90">
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-foreground/90">
         {lines.length > 0
           ? lines.join("\n")
           : "…"}
@@ -1061,7 +1061,7 @@ function TaskStatusChip({ task, pendingPosition, mergeStage }: ChipProps) {
             defaultValue: "合并中...",
           })
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-400">
+      <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-amber-700 dark:text-amber-400">
         <Loader2 className="h-3 w-3 animate-spin" />
         {label}
       </span>
@@ -1070,7 +1070,7 @@ function TaskStatusChip({ task, pendingPosition, mergeStage }: ChipProps) {
   if (task.status === "pending") {
     if (pendingPosition === 0) {
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-muted-foreground">
           {t("settings.sections.maintenance.dedup.queued", {
             defaultValue: "已排队",
           })}
@@ -1078,7 +1078,7 @@ function TaskStatusChip({ task, pendingPosition, mergeStage }: ChipProps) {
       )
     }
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+      <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-muted-foreground">
         {t("settings.sections.maintenance.dedup.queuedAhead", {
           defaultValue: "已排队（前方还有 {{n}} 项）",
           n: pendingPosition,
@@ -1088,7 +1088,7 @@ function TaskStatusChip({ task, pendingPosition, mergeStage }: ChipProps) {
   }
   if (task.status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:text-rose-400">
+      <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase text-rose-700 dark:text-rose-400">
         <AlertTriangle className="h-3 w-3" />
         {t("settings.sections.maintenance.dedup.failed", {
           defaultValue: "失败（{{retries}}/3）",
@@ -1150,7 +1150,7 @@ function DuplicateGroupCard({
       }`}
     >
       <div className="flex items-center gap-2">
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${confidenceClass}`}>
+        <span className={`rounded px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase ${confidenceClass}`}>
           {group.confidence}
         </span>
         <span className="text-xs text-muted-foreground">
@@ -1374,7 +1374,7 @@ function NovelScenarioHelp() {
             </div>
           </div>
 
-          <p className="pt-1 text-[11px] text-muted-foreground/70">
+          <p className="pt-1 text-[0.6875rem] text-muted-foreground/70">
             {t("settings.sections.maintenance.dedup.novelHelpTip", {
               defaultValue:
                 "💡 小提示：扫描结果只是 AI 的猜测，需要你确认后才会真正合并。觉得不是重复的可以点「不是重复」，下次扫描就不会再出现了。",

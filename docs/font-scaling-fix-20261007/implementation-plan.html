@@ -732,6 +732,62 @@ git diff -U0 -- src | Select-String -Pattern "28px|Npx/Npx|/\d+px"</code></pre>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3c：换算"经 CSS 变量间接传递的尺寸"（第五类来源）</div>
+        <div class="callout danger">
+          <span class="h">已实测确认：codemod 存在第五类盲区，且它真的漏了元素</span>
+          下列写法<b>不被 codemod 识别</b>，因为它只匹配字面量 px，
+          而消费点的值不是 <code>Npx</code>：
+          <pre><code>--ui-heading-line: 28px;            <span class="c">/* 定义：px 字面量，但属性名以 -- 开头，codemod 不碰自定义属性 */</span>
+.some-row { line-height: var(--ui-heading-line); }   <span class="c">/* 消费：值里没有 px，匹配不到 */</span></code></pre>
+          <b>实测后果（不是推测）</b>：只做 codemod 时，判据 2 残留
+          <b>11 个未解释元素</b> —— 全部是同一个元素（侧边栏各分区的「设置」项，
+          因出现在 11 个分区而被计 11 次）。它 <code>fontSize</code>
+          已正确缩放（13px → 19.5px，×1.500），但
+          <code>lineHeight</code> <b>恒为 28px（×1.000）</b>。
+          把 <code>--ui-heading-line</code> 改成 <code>1.75rem</code> 后，判据 2 归零。
+        </div>
+        <div class="note">
+          判定标准（务必按此标准，不要凭感觉）：<b>该值是否参与文字布局？</b>
+          参与（被用作 <code>line-height</code>/<code>font-size</code>/<code>font</code>/<code>height</code>/<code>min-height</code>/<code>max-height</code>）→ 必须改 rem；
+          纯外部间距（只用于 <code>padding</code>/<code>margin</code>）→ 可保留 px，
+          但<b>必须写进脚本白名单并附理由</b>。
+        </div>
+        <div class="note">
+          实测：全仓库 px 取值的自定义属性只有 4 个 ——
+          <code>--ui-heading-line</code>（15 处消费，含 line-height/height → <b>已改 1.75rem</b>）、
+          <code>--soul-field-height</code>（文字容器 min-height → <b>已改 6rem</b>，
+          其 <code>var(--soul-field-height, 40px)</code> 兜底值同时改为 <code>2.5rem</code>）、
+          <code>--ui-heading-top</code>（只用于 padding → 刻意保留 px，已登记白名单）、
+          <code>--radius</code>（圆角，与文字无关 → 保留，已登记白名单）。
+        </div>
+        <pre><code>node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs --selftest
+node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs</code></pre>
+        <div class="expect">
+          期望：自检 <b>15 通过 / 0 失败</b>（含 <code>12.5px → 0.78125rem</code>、
+          SVG 属性能被看见、变量间接 px 能被发现三类正向对照，
+          以及"已是 rem 的变量不算问题""非 px 变量不算问题"两条负向对照）。<br>
+          清点结果：<code>绝对单位 ... 合计: 0</code>、
+          <code>svg-fontSize-attribute 2</code>、
+          <code>结论: ... ✓ 通过（换算完整）</code>，退出码 <b>0</b>；
+          「经自定义属性间接传递的 px」小节里两个变量都显示"已登记白名单"。
+        </div>
+        <div class="expect bad">
+          退出码非 0：说明绝对单位未清零，或出现了<b>未登记白名单且影响文字布局</b>的
+          px 自定义属性 —— 后者正是本步骤新增的防线，必须改 rem 或写明白名单理由，
+          <b>不得直接把变量加进白名单了事</b>（白名单理由会被校验，空泛理由同样报错）。
+        </div>
+        <div class="callout warn">
+          <span class="h">为什么这一类必须由脚本持续看守</span>
+          任务 7 会把正文字号改成 <code>font-size: var(--qmai-body-font-size)</code>，
+          此后 <code>count-absolute-font-units.mjs</code> 的
+          "字号字面量已清零"<b>不再能证明"没有漏项"</b> ——
+          因为间接来源会变多。所以既要靠本步骤的变量清点，
+          也要靠任务 7 的 <code>verify-body-font-single-source.mjs</code> 与静态 CSS 校验。
+          两个角度都不可省。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 4：检查注释里是否有已失真的描述</div>
         <pre><code>git diff -U0 -- src | Select-String -Pattern "^\+.*/\*.*[\d.]+px|^\+.*//.*[\d.]+px" | Select-Object -First 20</code></pre>
         <div class="note">codemod 不改注释，所以注释里若写着旧的 px 值需人工更新。有则改掉，无则继续。</div>
@@ -756,23 +812,66 @@ npx tsc -p tsconfig.node.json --noEmit</code></pre>
 node docs/font-scaling-fix-20261007/census-computed-font.mjs `
   --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-after.json"</code></pre>
         <div class="expect">
-          期望两项都通过：<br>
-          <code>判据 1（100% 等效，无视觉回归）: 通过</code>（不同 = 0）<br>
-          <code>判据 2（150% 全部缩放）: 通过</code>（未解释 = 0，SVG 例外 = 2 或与设置页实际渲染相符）
+          期望两项都通过（<b>以下是 2026-10-08 实测值，可逐字对照</b>）：<br>
+          <code>判据 1（100% 等效，无视觉回归）: 通过</code>
+          —— <code>元素数 改动前=1113 改动后=1113</code>、
+          <code>仅改动前有: 0</code>、<code>仅改动后有: 0</code>、
+          <code>fontSize/lineHeight 不同: 0</code><br>
+          <code>判据 2（150% 全部缩放）: 通过</code>
+          —— <code>正确缩放: 1113</code>、<code>SVG 例外: 0</code>、
+          <code>未解释: 0</code><br>
+          过程自检：<code>参与比对元素 = 1113</code>、<code>三组之和 = 1113</code>、
+          <code>行高断言覆盖 = 1113（跳过 0）</code>、
+          <code>SVG 例外配额 = 0（上限 33）</code>、退出码 <b>0</b>。
+        </div>
+        <div class="note">
+          这两个数字与改动前的可证伪预测一致：改造前 <code>correctly-scaled = 894</code>、
+          <code>unexplained = 219</code>，预测换算后应为
+          <code>894 + 219 = 1113</code> 全部缩放 —— 实测正是 <b>1113</b>。
         </div>
         <div class="expect bad">
           判据 1 有差异：定位差异元素（输出会打印 DOM 路径与前后字号），
           逐一判断是换算错误还是该处有意改动；换算错误必须修 codemod 后重跑，不得手改结果。<br>
           判据 2 有"未解释"：输出会给出元素 class 与前后字号，
-          用 <code>grep</code> 定位其字号来源，补齐该处换算。
+          用 <code>grep</code> 定位其字号来源，补齐该处换算。<br>
+          <b>若 SVG 例外不是 0</b>：说明确实有 SVG 图元进入了采集范围。
+          此时不得用 <code>--max-svg-exceptions</code> 一笔带过，
+          必须逐个核对是否真属图标几何，并把结论写进文档。
         </div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 8：提交</div>
+        <div class="note">
+          实测规模：<b>71 个文件</b> = codemod 改写 <b>67</b> 个
+          + 本次手工修的 4 个测试文件断言
+          （<code>ui-test-header-alignment.spec.ts</code>、
+          <code>ui-test-shelf.test.tsx</code>、
+          <code>ui-test-tools.spec.tsx</code>、
+          <code>ui-test-editor.spec.tsx</code>），
+          另加 A 类修复的 <code>ui-test.css</code> 与 <code>ui-test-tools.css</code>。
+        </div>
         <pre><code>git add -A src scripts/convert-font-units-to-rem.mjs `
         docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
-git commit -m "fix(字号): 557 处绝对单位换算为精确 rem，界面字号真正生效" --no-verify</code></pre>
+git commit -m "fix(字号): 573 处相对单位换算为精确 rem，界面字号真正生效" --no-verify</code></pre>
+        <div class="callout danger">
+          <span class="h">提交前必须先跑完"读 CSS 的测试文件"的 A/B，不能只看判据 1/2</span>
+          判据 1/2 只看<b>运行时计算样式</b>，看不见<b>断言 CSS 文本的单元测试</b>
+          —— 后者会把旧 px 值写死在正则里，换算后必然变红。<br>
+          实测：这一批共 <b>12 个</b>读 <code>.css</code> 的测试文件。
+          回退到改动前跑同一批：<code>10 失败 / 235 通过（245）</code>；
+          改动后：<code>10 失败 / 235 通过（245）</code> —— <b>失败项逐条相同，新增失败 0</b>。
+          那 10 个失败是<b>既有失败</b>（<code>ui-test-ai-input.spec.tsx</code> 2 个、
+          <code>ui-test-ai.spec.tsx</code> 8 个），不属于本任务，<b>不得去修</b>。
+        </div>
+        <div class="callout warn">
+          <span class="h">找"会受影响的测试"时，按文件名搜关键词会漏</span>
+          实测漏过一次：<code>ui-test-editor.spec.tsx:533</code> 的正则
+          <code>/20px\/28px\s+var\(--serif\)/</code> 那一行<b>不含 <code>font</code> 字样</b>，
+          按 <code>font-size|font:|line-height</code> 搜关键词搜不到它。
+          可靠做法：<b>列出所有引用了 <code>.css</code> 的测试文件</b>，整批跑，
+          再用 A/B 比对失败集合是否完全相同。
+        </div>
       </div></div>
     </div>
 

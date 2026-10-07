@@ -306,7 +306,7 @@ export function InterviewHistoryView() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{interview.agentName}</span>
                               {interview.frameworkTitle && (
-                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                                   {interview.frameworkTitle}
                                 </span>
                               )}
@@ -314,7 +314,7 @@ export function InterviewHistoryView() {
                             <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
                               {getPreview(interview)}
                             </p>
-                            <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                            <div className="mt-2 flex items-center gap-3 text-[0.6875rem] text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
                                 {formatDate(interview.updatedAt)}

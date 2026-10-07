@@ -1086,7 +1086,7 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
                     {/* 「忽略」按最小宽度排版：5 列时每格只有约 145px，
                         按钮多占 1px，名字就少显示一个字。 */}
                     <button type="button" title={`忽略「${name}」`} aria-label={`忽略${name}`}
-                      className="shrink-0 rounded px-0.5 text-[11px] leading-4 text-muted-foreground hover:text-foreground"
+                      className="shrink-0 rounded px-0.5 text-[0.6875rem] leading-4 text-muted-foreground hover:text-foreground"
                       onClick={() => void ignoreName(name)}>忽略</button>
                   </div>
                 ))}

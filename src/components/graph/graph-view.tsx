@@ -808,13 +808,13 @@ function DocumentGraphView({
                           <h3 className="break-words text-base font-semibold">{activeGroupIndex + 1}.{nodeIndex + 1} {node.label}</h3>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>{getGraphNodeTypeLabel(node.type)} · {t("graph.contextNodeLinks", { count: node.linkCount })}</span>
-                            {riskLabel && <span className="rounded border border-amber-300 bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-700 dark:border-amber-800 dark:text-amber-300">{riskLabel}</span>}
+                            {riskLabel && <span className="rounded border border-amber-300 bg-amber-500/10 px-1.5 py-0.5 text-[0.6875rem] text-amber-700 dark:border-amber-800 dark:text-amber-300">{riskLabel}</span>}
                             {riskStateLabel && (() => {
                             const labelColor = getGraphNodeRiskStateLabelColor(riskStateLabel)
                             return (
                               <button
                                 type="button"
-                                className={`rounded border px-1.5 py-0.5 text-[11px] transition-colors ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
+                                className={`rounded border px-1.5 py-0.5 text-[0.6875rem] transition-colors ${labelColor.bg} ${labelColor.border} ${labelColor.text}`}
                                 onClick={(event) => {
                                   event.stopPropagation()
                                   cycleRiskStateLabel(node)
@@ -1604,7 +1604,7 @@ export function GraphView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-1.5 text-[10px]"
+                  className="h-6 px-1.5 text-[0.625rem]"
                   onClick={resetFilters}
                 >
                   {t("graph.reset")}
@@ -1623,7 +1623,7 @@ export function GraphView() {
                     />
                     <span>{t("graph.hideIndexOverview")}</span>
                     {modeControlsStructural && (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[0.625rem] text-muted-foreground">
                         ({t("novel.graph.modeControlHint", {
                           mode: t(`novel.graph.modeLabels.${graphMode}`, { defaultValue: GRAPH_MODE_LABELS[graphMode] }),
                         })})
@@ -1639,7 +1639,7 @@ export function GraphView() {
                     />
                     <span>{t("graph.hideIsolated")}</span>
                     {modeControlsIsolated && (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[0.625rem] text-muted-foreground">
                         ({t("novel.graph.modeControlHint", {
                           mode: t(`novel.graph.modeLabels.${graphMode}`, { defaultValue: GRAPH_MODE_LABELS[graphMode] }),
                         })})
@@ -1741,7 +1741,7 @@ export function GraphView() {
                 <div className="text-muted-foreground">{t("graph.contextNodeLinks", { count: contextNode.linkCount })}</div>
                 {novelMode && NOVEL_NODE_TYPE_LABELS[contextNode.type as keyof typeof NOVEL_NODE_TYPE_LABELS] && (
                   <span
-                    className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
+                    className="mt-1 inline-block rounded px-1.5 py-0.5 text-[0.625rem] font-medium"
                     style={{
                       backgroundColor: hexToRgba(NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8", 0.15),
                       color: NODE_TYPE_COLORS[contextNode.type] ?? "#94a3b8",
@@ -1811,7 +1811,7 @@ export function GraphView() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[10px] px-1"
+                    className="h-6 text-[0.625rem] px-1"
                     onClick={() => setFilters((prev) => ({ ...prev, hiddenTypes: new Set() }))}
                     title={t("graph.showAllTypes")}
                   >
@@ -1869,7 +1869,7 @@ export function GraphView() {
                                   {label}
                                 </span>
                                 <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-[10px]">{t("graph.hidden")}</span>}
+                                {isHidden && <span className="text-muted-foreground/60 text-[0.625rem]">{t("graph.hidden")}</span>}
                               </div>
                             )
                           }
@@ -1877,7 +1877,7 @@ export function GraphView() {
                             <>
                               {novelTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-[10px] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground/70 text-[0.625rem] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.novelNodeTypes")}
                                   </div>
                                   {novelTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
@@ -1887,7 +1887,7 @@ export function GraphView() {
                               )}
                               {baseTypes.some((t) => (typeCounts[t] ?? 0) > 0) && (
                                 <>
-                                  <div className="text-muted-foreground/70 text-[10px] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
+                                  <div className="text-muted-foreground/70 text-[0.625rem] font-semibold px-1 pt-1 border-t border-border/50 mt-0.5">
                                     {t("novel.graph.baseNodeTypes")}
                                   </div>
                                   {baseTypes.filter((t) => (typeCounts[t] ?? 0) > 0).map((type) =>
@@ -1932,7 +1932,7 @@ export function GraphView() {
                                   {label}
                                 </span>
                                 <span className="text-muted-foreground/60 ml-auto">{typeCounts[type]}</span>
-                                {isHidden && <span className="text-muted-foreground/60 text-[10px]">{t("graph.hidden")}</span>}
+                                {isHidden && <span className="text-muted-foreground/60 text-[0.625rem]">{t("graph.hidden")}</span>}
                               </div>
                             )
                           })}

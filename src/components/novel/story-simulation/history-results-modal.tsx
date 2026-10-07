@@ -134,12 +134,12 @@ export function HistoryResultsModal({
                         })}
                       </span>
                       {result.hasDraft && (
-                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] text-primary">
                           草稿
                         </span>
                       )}
                       {(result.status ?? "complete") !== "complete" && (
-                        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                        <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] text-amber-700 dark:text-amber-300">
                           未完成
                         </span>
                       )}

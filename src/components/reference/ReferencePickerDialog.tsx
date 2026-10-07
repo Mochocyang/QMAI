@@ -245,7 +245,7 @@ export function ReferencePickerDialog({
                               {item.skillKinds?.map((kind) => (
                                 <span
                                   key={kind}
-                                  className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                  className="inline-flex items-center rounded border px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground"
                                 >
                                   {SKILL_KIND_LABELS[kind]}
                                 </span>
@@ -253,7 +253,7 @@ export function ReferencePickerDialog({
                               {item.skillStages?.map((stage) => (
                                 <span
                                   key={stage}
-                                  className="inline-flex items-center rounded border border-dashed px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                  className="inline-flex items-center rounded border border-dashed px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                                 >
                                   {SKILL_STAGE_LABELS[stage]}
                                 </span>
@@ -261,7 +261,7 @@ export function ReferencePickerDialog({
                               {item.skillModes?.map((mode) => (
                                 <span
                                   key={mode}
-                                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                                 >
                                   {SKILL_MODE_LABELS[mode]}
                                 </span>

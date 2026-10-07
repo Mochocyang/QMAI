@@ -212,7 +212,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
           </label>
         )}
 
-        <div className="ml-auto text-[11px] text-muted-foreground">
+        <div className="ml-auto text-[0.6875rem] text-muted-foreground">
           共 {filteredClues.length} 条线索
         </div>
       </div>
@@ -232,7 +232,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                   <span className="text-xs font-medium text-primary">
                     节点 {nodeIndex + 1}
                   </span>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[0.6875rem] text-muted-foreground">
                     {nodeClues.length} 条线索
                   </span>
                 </div>
@@ -251,15 +251,15 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         />
 
                         <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${info.color}`}>
+                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${info.color}`}>
                             <Icon className="h-2.5 w-2.5" />
                             {info.label}
                           </span>
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-[0.6875rem] text-muted-foreground">
                             第 {clue.round + 1} 轮
                           </span>
                           {clue.isSecret && (
-                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-600 dark:text-amber-400">
                               <EyeOff className="h-2.5 w-2.5" />
                               秘密
                             </span>
@@ -267,7 +267,7 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                         </div>
 
                         {clue.actorName && (
-                          <div className="mb-1 text-[11px] font-medium text-foreground">
+                          <div className="mb-1 text-[0.6875rem] font-medium text-foreground">
                             {clue.actorName}
                             {clue.targetName && <> → {clue.targetName}</>}
                           </div>
@@ -281,14 +281,14 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                           <Eye className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
                           <div className="flex flex-wrap gap-1">
                             {clue.knowAgents.length === 0 ? (
-                              <span className="text-[10px] text-muted-foreground">无人知晓</span>
+                              <span className="text-[0.625rem] text-muted-foreground">无人知晓</span>
                             ) : clue.knowAgents.length === agentList.length ? (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">所有人都知道</span>
+                              <span className="text-[0.625rem] text-emerald-600 dark:text-emerald-400">所有人都知道</span>
                             ) : (
                               clue.knowAgents.map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400"
+                                  className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[0.625rem] text-emerald-700 dark:text-emerald-400"
                                 >
                                   {getAgentName(id)}
                                 </span>
@@ -304,13 +304,13 @@ export function ClueTimelinePanel({ agents, rumors, events }: ClueTimelinePanelP
                               {clue.unknowAgents.slice(0, 5).map((id) => (
                                 <span
                                   key={id}
-                                  className="rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                                  className="rounded bg-muted/50 px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                                 >
                                   {getAgentName(id)}
                                 </span>
                               ))}
                               {clue.unknowAgents.length > 5 && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[0.625rem] text-muted-foreground">
                                   +{clue.unknowAgents.length - 5}人
                                 </span>
                               )}

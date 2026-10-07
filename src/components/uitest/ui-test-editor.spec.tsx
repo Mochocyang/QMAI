@@ -528,10 +528,10 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
   })
 
-  it("单独提供最大800正文容器，20px标题与18px/1.95衬线正文", () => {
+  it("单独提供最大800正文容器，1.25rem/1.75rem标题与1.125rem/1.95衬线正文", () => {
     expect(css).toMatch(/max-width:\s*800px/)
-    expect(css).toMatch(/20px\/28px\s+var\(--serif\)/)
-    expect(css).toMatch(/18px\/1\.95\s+var\(--serif\)/)
+    expect(css).toMatch(/1\.25rem\/1\.75rem\s+var\(--serif\)/)
+    expect(css).toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
     expect(css).toContain("text-indent: 2em")
     expect(css).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)
   })

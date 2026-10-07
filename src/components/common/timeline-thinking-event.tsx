@@ -45,7 +45,7 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
           manuallyChangedRef.current = true
           setCollapsed(false)
         }}
-        className="flex items-center gap-1.5 px-2 py-1 text-left text-[12px] text-muted-foreground hover:text-foreground w-full"
+        className="flex items-center gap-1.5 px-2 py-1 text-left text-[0.75rem] text-muted-foreground hover:text-foreground w-full"
         aria-label={`思考完成，${charCount}字，点击展开`}
         aria-expanded={false}
       >
@@ -61,7 +61,7 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
         <Brain aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 flex items-center gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="text-[0.6875rem] font-medium text-muted-foreground">
               {event.streaming ? "思考中" : `思考完成 · ${charCount}字`}
             </span>
             {!event.streaming && (
@@ -71,15 +71,15 @@ function ThinkingEventImpl({ event }: ThinkingEventProps) {
                   manuallyChangedRef.current = true
                   setCollapsed(true)
                 }}
-                className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                className="text-[0.625rem] text-muted-foreground/70 hover:text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 收起
               </button>
             )}
           </div>
-          <div className="border-l-2 border-amber-400/30 pl-2.5 text-[12px] leading-5 text-foreground/75 whitespace-pre-wrap [contain:content]">
+          <div className="border-l-2 border-amber-400/30 pl-2.5 text-[0.75rem] leading-5 text-foreground/75 whitespace-pre-wrap [contain:content]">
             {display.truncated ? (
-              <div className="mb-1 text-[11px] text-muted-foreground/80">…上文已省略</div>
+              <div className="mb-1 text-[0.6875rem] text-muted-foreground/80">…上文已省略</div>
             ) : null}
             {display.text}
             {event.streaming && (

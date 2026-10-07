@@ -146,7 +146,7 @@ export function ReasoningDepthControl({
                   onClick={() => onChange(step)}
                   // The first stop means "defer to the provider setting", not
                   // "less than off", so it is italicised out of the ramp.
-                  className={`px-0.5 text-[9px] ${index === 0 ? "italic" : ""} ${
+                  className={`px-0.5 text-[0.5625rem] ${index === 0 ? "italic" : ""} ${
                     index === activeIndex
                       ? "font-bold text-primary"
                       : "text-muted-foreground/50"
@@ -156,7 +156,7 @@ export function ReasoningDepthControl({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[10px] text-muted-foreground">
+            <p className="mt-2 text-[0.625rem] text-muted-foreground">
               {t("chat.reasoningDepth.hint")}
             </p>
           </div>

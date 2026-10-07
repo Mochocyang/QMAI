@@ -134,7 +134,7 @@ function RadarChart({
         y={y}
         textAnchor="middle"
         dominantBaseline="middle"
-        className="fill-current text-[11px] text-foreground"
+        className="fill-current text-[0.6875rem] text-foreground"
       >
         {DIMENSION_LABELS[key]}
       </text>
@@ -296,7 +296,7 @@ function TimelineCompareTab({ branches }: { branches: SimulationBranch[] }) {
               <div className="space-y-3">
                 {rounds.map(({ round, events }) => (
                   <div key={round} className="space-y-1.5">
-                    <div className="text-[11px] font-medium text-muted-foreground">
+                    <div className="text-[0.6875rem] font-medium text-muted-foreground">
                       第 {round + 1} 轮 · {events.length} 条事件
                     </div>
                     {events.map((ev) => (

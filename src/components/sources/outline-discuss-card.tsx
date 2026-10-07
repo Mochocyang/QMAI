@@ -193,7 +193,7 @@ function OutlineDiscussDecisionCard({
                       <div className="flex items-center gap-2 font-medium">
                         <span>{option.label}</span>
                         {isPreference ? (
-                          <span className="rounded border border-sky-500/40 px-1 text-[10px] font-normal text-sky-700 dark:text-sky-300">
+                          <span className="rounded border border-sky-500/40 px-1 text-[0.625rem] font-normal text-sky-700 dark:text-sky-300">
                             AI 倾向
                           </span>
                         ) : null}

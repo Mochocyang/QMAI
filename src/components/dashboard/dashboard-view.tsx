@@ -627,7 +627,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             void runAiRewrite(item)
           }}
           disabled={isRewriting}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isRewriting ? t("dashboard.actions.rewriting") : t("dashboard.actions.aiRewrite")}
         </button>
@@ -638,7 +638,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleViewRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.viewRewrite")}
           </button>
@@ -650,7 +650,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
               event.stopPropagation()
               void handleRestoreRewrite(item)
             }}
-            className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+            className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
           >
             {t("dashboard.actions.restore")}
           </button>
@@ -661,7 +661,7 @@ export function DashboardView({ headerActions }: DashboardViewProps = {}) {
             event.stopPropagation()
             void handleIgnoreDashItem(item)
           }}
-          className="rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-accent"
+          className="rounded border border-border px-2 py-1 text-[0.6875rem] text-foreground hover:bg-accent"
         >
           {t("dashboard.actions.ignore")}
         </button>

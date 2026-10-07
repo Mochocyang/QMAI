@@ -343,7 +343,7 @@ function DeviationRow({
         </td>
         <td className="px-2 py-1.5">
           <span
-            className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${severityInfo.className}`}
+            className={`inline-block rounded border px-1.5 py-0.5 text-[0.625rem] font-medium ${severityInfo.className}`}
           >
             {severityInfo.label}
           </span>
@@ -434,7 +434,7 @@ function RevisionCompare({
       {showCompare && (
         <div className="flex min-h-0 gap-2 p-2">
           <div className="flex flex-1 flex-col">
-            <div className="mb-1 text-[10px] font-medium text-muted-foreground">
+            <div className="mb-1 text-[0.625rem] font-medium text-muted-foreground">
               {tr("originalDraft")}
             </div>
             <div className="max-h-[250px] overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/20 p-2 text-xs leading-relaxed text-muted-foreground">
@@ -442,7 +442,7 @@ function RevisionCompare({
             </div>
           </div>
           <div className="flex flex-1 flex-col">
-            <div className="mb-1 text-[10px] font-medium text-muted-foreground">
+            <div className="mb-1 text-[0.625rem] font-medium text-muted-foreground">
               {tr("revisedDraft")}
             </div>
             <div className="max-h-[250px] overflow-y-auto whitespace-pre-wrap rounded-md bg-green-50/50 p-2 text-xs leading-relaxed text-foreground dark:bg-green-950/20">

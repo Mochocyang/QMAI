@@ -1623,7 +1623,7 @@ export function KnowledgeTree({
                 ) : (
                   <span className="truncate font-medium">{node.name}</span>
                 )}
-                <span className="ml-auto text-[10px] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -1752,7 +1752,7 @@ export function KnowledgeTree({
               <>
                 <span className="min-w-0 flex-1 truncate">{page.title.replace(/^第(\d+)章\s*/, "$1 ")}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-[11px] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+                  <span className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
                     {page.wordCountLabel}
                   </span>
                 )}
@@ -2090,7 +2090,7 @@ export function KnowledgeTree({
                         >
                           <Folder className="h-3 w-3 shrink-0 text-amber-500" />
                           <span className="truncate">{vol.name}</span>
-                          {isCurrentVolume && <span className="ml-auto text-[10px] text-muted-foreground">当前</span>}
+                          {isCurrentVolume && <span className="ml-auto text-[0.625rem] text-muted-foreground">当前</span>}
                         </button>
                       )
                     })}
@@ -2127,7 +2127,7 @@ export function KnowledgeTree({
                         >
                           <Folder className="h-3 w-3 shrink-0 text-amber-500" />
                           <span className="truncate">{folder.name}</span>
-                          {isCurrentFolder && <span className="ml-auto text-[10px] text-muted-foreground">当前</span>}
+                          {isCurrentFolder && <span className="ml-auto text-[0.625rem] text-muted-foreground">当前</span>}
                         </button>
                       )
                     })}
@@ -2442,7 +2442,7 @@ function DeleteButton({
       <Button
         variant="destructive"
         size="sm"
-        className={`h-6 shrink-0 px-1.5 text-[10px] font-semibold animate-pulse ${className}`}
+        className={`h-6 shrink-0 px-1.5 text-[0.625rem] font-semibold animate-pulse ${className}`}
         onClick={(event) => {
           event.stopPropagation()
           onClick()

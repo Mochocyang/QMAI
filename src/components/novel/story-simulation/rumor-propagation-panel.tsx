@@ -127,7 +127,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
               >
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${
                       rumor.distortion < 0.3
                         ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
                         : rumor.distortion < 0.6
@@ -137,14 +137,14 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                   >
                     失真 {(rumor.distortion * 100).toFixed(0)}%
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[0.625rem] text-muted-foreground">
                     第 {rumor.round + 1} 轮
                   </span>
                 </div>
                 <div className="mb-1.5 line-clamp-2 text-xs">
                   {rumor.content}
                 </div>
-                <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-3 text-[0.625rem] text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Users className="h-3 w-3" />
                     {rumor.believedBy.length}
@@ -197,7 +197,7 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
 
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">失真度</div>
+                <div className="text-[0.625rem] text-muted-foreground">失真度</div>
                 <div
                   className={`text-lg font-semibold ${
                     selectedRumor.distortion < 0.3
@@ -211,13 +211,13 @@ export function RumorPropagationPanel({ rumors, agents, events }: RumorPropagati
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">可见人数</div>
+                <div className="text-[0.625rem] text-muted-foreground">可见人数</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.observableBy.length}
                 </div>
               </div>
               <div className="rounded-md border bg-muted/20 p-2 text-center">
-                <div className="text-[10px] text-muted-foreground">验证人数</div>
+                <div className="text-[0.625rem] text-muted-foreground">验证人数</div>
                 <div className="text-lg font-semibold">
                   {selectedRumor.verifiedBy.length}
                 </div>
@@ -278,16 +278,16 @@ function RumorTreeNodeView({
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 {isRoot ? (
-                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                     原始传闻
                   </span>
                 ) : (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[0.625rem] text-muted-foreground">
                     第 {rumor.generation} 代
                   </span>
                 )}
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  className={`rounded px-1.5 py-0.5 text-[0.625rem] font-medium ${
                     rumor.distortion < 0.3
                       ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
                       : rumor.distortion < 0.6
@@ -298,12 +298,12 @@ function RumorTreeNodeView({
                   失真 {(rumor.distortion * 100).toFixed(0)}%
                 </span>
               </div>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[0.625rem] text-muted-foreground">
                 第 {rumor.round + 1} 轮
               </span>
             </div>
             <div className="mb-1.5 line-clamp-2 text-xs">{rumor.content}</div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.625rem] text-muted-foreground">
               {spreaderName && (
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" />
@@ -320,7 +320,7 @@ function RumorTreeNodeView({
               </span>
             </div>
             {isRoot && sourceEvent && (
-              <div className="mt-2 rounded-md border bg-muted/20 p-2 text-[10px] text-muted-foreground">
+              <div className="mt-2 rounded-md border bg-muted/20 p-2 text-[0.625rem] text-muted-foreground">
                 <div className="mb-0.5 font-medium text-foreground">
                   源事件：{sourceEvent.actorName} 的{actionTypeLabel(sourceEvent.actionType)}
                 </div>

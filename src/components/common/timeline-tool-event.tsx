@@ -78,7 +78,7 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
   return (
     <div
       className={cn(
-        "group relative text-[12px]",
+        "group relative text-[0.75rem]",
         compact ? "px-1" : "px-2",
         isError
           ? "ml-0 border-l-2 border-red-500/60 bg-red-50/30 dark:bg-red-950/10"
@@ -106,7 +106,7 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
           {event.description}
         </span>
         <span className={cn(
-          "ml-1 mt-0.5 flex shrink-0 items-center gap-1 text-[10px]",
+          "ml-1 mt-0.5 flex shrink-0 items-center gap-1 text-[0.625rem]",
           STATUS_COLOR[event.status],
         )}>
           <StatusIcon
@@ -119,12 +119,12 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
 
       {expanded && hasDetails && (
         <div className={cn(
-          "space-y-1 pb-1 text-[11px] text-muted-foreground",
+          "space-y-1 pb-1 text-[0.6875rem] text-muted-foreground",
           compact ? "pl-4" : "pl-5",
         )}>
           {hasParams && event.params && (
             <div className="space-y-0.5">
-              <div className="text-[10px] font-medium text-muted-foreground/70">参数</div>
+              <div className="text-[0.625rem] font-medium text-muted-foreground/70">参数</div>
               {Object.entries(event.params).map(([key, value]) => (
                 <div key={key} className="break-all">
                   <span className="text-muted-foreground/60">{key}:</span>{" "}
@@ -135,7 +135,7 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
           )}
           {hasResult && event.result && (
             <div className="space-y-0.5">
-              <div className="text-[10px] font-medium text-muted-foreground/70">结果</div>
+              <div className="text-[0.625rem] font-medium text-muted-foreground/70">结果</div>
               <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-1.5 text-muted-foreground/80">
                 {event.result}
               </div>
@@ -143,7 +143,7 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
           )}
           {hasError && event.error && (
             <div className="space-y-0.5">
-              <div className="text-[10px] font-medium text-red-600 dark:text-red-400">错误</div>
+              <div className="text-[0.625rem] font-medium text-red-600 dark:text-red-400">错误</div>
               <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded bg-red-50/50 p-1.5 text-red-600 dark:bg-red-950/20 dark:text-red-400">
                 {event.error}
               </div>

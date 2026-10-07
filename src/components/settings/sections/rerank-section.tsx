@@ -176,12 +176,12 @@ export function RerankSection({ draft, setDraft }: Props) {
             <div className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{t("settings.sections.rerank.enableLabel")}</span>
               {hasConfig && !config.enabled && (
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                   {t("settings.sections.llm.configuredBadge")}
                 </span>
               )}
               {config.enabled && (
-                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                   {t("settings.sections.llm.activeBadge")}
                 </span>
               )}

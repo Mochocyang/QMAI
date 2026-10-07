@@ -541,7 +541,7 @@ export function SettingsView() {
       {/* Sidebar — category nav. Matches the IconSidebar's pill-on-accent
           pattern so the two navigational surfaces feel like one app. */}
       <aside data-ui="settings-sidebar" className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 px-4 pb-2 pt-4 text-[0.6875rem] font-semibold uppercase tracking-wider">
           <PanelHeaderWithHelp
             title={t("settings.title")}
             helpKey="settings"
@@ -574,7 +574,7 @@ export function SettingsView() {
                 <span className="flex min-w-0 flex-1 flex-col items-start">
                   <span className="truncate">{t(c.labelKey, { defaultValue: c.defaultLabel })}</span>
                   {c.hintKey ? (
-                    <span className={`truncate text-[10px] leading-tight ${
+                    <span className={`truncate text-[0.625rem] leading-tight ${
                       isActive ? "text-sidebar-accent-foreground/70" : "text-sidebar-foreground/55"
                     }`}>
                       {t(c.hintKey)}

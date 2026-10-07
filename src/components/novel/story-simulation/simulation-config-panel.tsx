@@ -77,7 +77,7 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
               >
                 <div className="flex w-full items-center justify-between">
                   <span className="text-sm font-medium">{info.name}</span>
-                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", info.color)}>
+                  <span className={cn("rounded-full px-2 py-0.5 text-[0.625rem] font-medium", info.color)}>
                     {info.freedomLabel}
                   </span>
                 </div>

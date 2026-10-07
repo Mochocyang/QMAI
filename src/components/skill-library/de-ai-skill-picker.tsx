@@ -122,12 +122,12 @@ export function DeAiSkillOptionsPanel({
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-sm">{skill.name}</span>
             {skill.id === currentSkillId ? (
-              <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">
+              <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[0.625rem] text-primary-foreground">
                 当前
               </span>
             ) : null}
             {skill.id === defaultSkillId ? (
-              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                 默认
               </span>
             ) : null}

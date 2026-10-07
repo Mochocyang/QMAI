@@ -234,12 +234,12 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
             <div className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{t("settings.sections.embedding.enableLabel")}</span>
               {hasConfig && !draft.embeddingEnabled && (
-                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                   {t("settings.sections.llm.configuredBadge")}
                 </span>
               )}
               {draft.embeddingEnabled && (
-                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
                   {t("settings.sections.llm.activeBadge")}
                 </span>
               )}
@@ -466,7 +466,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
                   <div className="text-xs font-medium">
                     {t("settings.sections.embedding.lastErrorHeading")}
                   </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[11px] leading-snug text-muted-foreground">
+                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[0.6875rem] leading-snug text-muted-foreground">
                     {lastError}
                   </pre>
                 </div>

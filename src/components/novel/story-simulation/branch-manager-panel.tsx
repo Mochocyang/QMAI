@@ -138,7 +138,7 @@ export function BranchManagerPanel({
       )}
 
       <div className="space-y-2 p-3">
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-[0.6875rem] text-muted-foreground">
           为当前推演状态命名，点击「创建分支」保存快照
         </div>
         <div className="flex gap-2">
@@ -213,7 +213,7 @@ export function BranchManagerPanel({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         {index === 0 && (
-                          <span className="shrink-0 rounded bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          <span className="shrink-0 rounded bg-gradient-to-r from-amber-500 to-orange-500 px-1.5 py-0.5 text-[0.625rem] font-medium text-white">
                             推荐
                           </span>
                         )}
@@ -233,7 +233,7 @@ export function BranchManagerPanel({
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.6875rem] text-muted-foreground">
                         <span className="font-semibold text-primary">
                           {branch.overallScore.toFixed(1)} 分
                         </span>
@@ -244,7 +244,7 @@ export function BranchManagerPanel({
                         </span>
                         <span>{formatDate(branch.createdAt)}</span>
                       </div>
-                      <div className="mt-1.5 grid grid-cols-4 gap-1 text-[10px] text-muted-foreground">
+                      <div className="mt-1.5 grid grid-cols-4 gap-1 text-[0.625rem] text-muted-foreground">
                         <div className="text-center">
                           <div className="font-medium text-foreground">
                             {branch.scoreDetails.avgDirectorScore.toFixed(1)}
@@ -312,7 +312,7 @@ export function BranchManagerPanel({
                     </div>
                   </div>
                   {isActive && (
-                    <div className="mt-1.5 border-t pt-1.5 text-[11px] text-primary">
+                    <div className="mt-1.5 border-t pt-1.5 text-[0.6875rem] text-primary">
                       ● 当前显示此分支
                     </div>
                   )}
@@ -338,12 +338,12 @@ export function BranchManagerPanel({
             对比选中的分支
           </Button>
           {compareBranchIds.length > 0 && compareBranchIds.length < 2 && (
-            <div className="mt-1.5 text-center text-[11px] text-muted-foreground">
+            <div className="mt-1.5 text-center text-[0.6875rem] text-muted-foreground">
               请再选择 {2 - compareBranchIds.length} 个分支
             </div>
           )}
           {compareBranchIds.length > 3 && (
-            <div className="mt-1.5 text-center text-[11px] text-amber-600">
+            <div className="mt-1.5 text-center text-[0.6875rem] text-amber-600">
               最多选择 3 个分支进行对比
             </div>
           )}

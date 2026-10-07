@@ -219,7 +219,7 @@ export function ChatMessage({
         {isAssistant && !message.discarded && (
           <div className="flex w-full items-center gap-1 flex-wrap">
             {canResumeUnfinished && (
-              <div className="basis-full rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[11px] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+              <div className="basis-full rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[0.6875rem] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
@@ -254,7 +254,7 @@ export function ChatMessage({
                 type="button"
                 onClick={onContinueUnfinished}
                 disabled={isSaving}
-                className="rounded border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/35"
+                className="rounded border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[0.6875rem] text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/35"
                 title="基于已有思考过程继续生成，减少重复消耗"
               >
                 继续未完成
@@ -576,7 +576,7 @@ function CitedReferencesPanel({
               className="flex w-full items-center gap-1.5 rounded text-left"
               title={page.path}
             >
-              <span className="text-[10px] text-muted-foreground/60 w-4 shrink-0 text-right">
+              <span className="text-[0.625rem] text-muted-foreground/60 w-4 shrink-0 text-right">
                 [{i + 1}]
               </span>
               {/*
@@ -598,7 +598,7 @@ function CitedReferencesPanel({
                   onClick={() =>
                     handleJumpToImageSource(info.firstUrl!, page.path)
                   }
-                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-blue-600 hover:bg-blue-100/40 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[0.625rem] text-blue-600 hover:bg-blue-100/40 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
                   title={`打开第一张图片所在原始文档（本页共 ${info.count} 张图片）`}
                 >
                   <ImageIcon className="h-3 w-3" />
@@ -622,7 +622,7 @@ function CitedReferencesPanel({
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="w-full text-center text-[10px] text-muted-foreground hover:text-primary pt-0.5"
+            className="w-full text-center text-[0.625rem] text-muted-foreground hover:text-primary pt-0.5"
           >
             +{citedPages.length - MAX_COLLAPSED} 条更多引用...
           </button>
@@ -1044,7 +1044,7 @@ function StreamingWorkflowBlock({ content }: { content: string }) {
         className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden pr-1 text-xs text-blue-800/70 dark:text-blue-300/60 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] [contain:content]"
       >
         {display.truncated ? (
-          <div className="mb-1 text-[11px] text-blue-700/60 dark:text-blue-400/60">…上文已省略</div>
+          <div className="mb-1 text-[0.6875rem] text-blue-700/60 dark:text-blue-400/60">…上文已省略</div>
         ) : null}
         {display.text}
         <span className="text-blue-500"><StreamingSpinner /></span>
@@ -1064,7 +1064,7 @@ function WorkflowBlock({ content }: { content: string }) {
         <span className="text-sm">📋</span>
         <span className="font-medium">{title}</span>
         {stageCount !== null && (
-          <span className="text-[10px] text-blue-600/60 dark:text-blue-500/60">{stageCount} 个阶段</span>
+          <span className="text-[0.625rem] text-blue-600/60 dark:text-blue-500/60">{stageCount} 个阶段</span>
         )}
       </div>
       <div className="w-full min-w-0 max-h-72 overflow-y-auto overflow-x-hidden border-t border-blue-500/20 px-2.5 py-2 pr-1 text-xs text-blue-800/80 dark:text-blue-300/70 whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere] [contain:content]">

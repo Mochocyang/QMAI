@@ -731,8 +731,8 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
         >
           <ConversationRunStatusIcon state={runState} />
           <span className="max-w-[140px] truncate font-medium">{getConversationTabTitle(conv.title, 10)}</span>
-          <span className="text-[10px] opacity-70">{msgCount}</span>
-          <span className="text-[10px] opacity-70">{formatDate(conv.updatedAt)}</span>
+          <span className="text-[0.625rem] opacity-70">{msgCount}</span>
+          <span className="text-[0.625rem] opacity-70">{formatDate(conv.updatedAt)}</span>
         </button>
         <button
           type="button"
@@ -802,7 +802,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
             <History className="h-3.5 w-3.5" />
             <span>{t(novelMode ? "novel.chat.conversationHistory" : "chat.conversationHistory")}</span>
             {historyCount > 0 && (
-              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[0.625rem] font-medium text-primary">
                 {historyCount}
               </span>
             )}
@@ -2806,7 +2806,7 @@ export function ChatPanel() {
                                   <span className="min-w-0 flex-1">
                                     <span className="flex items-center gap-2 text-sm font-medium">
                                       <span>{label}</span>
-                                      <span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                                      <span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">
                                         {description}
                                       </span>
                                     </span>
@@ -2895,7 +2895,7 @@ export function ChatPanel() {
                               {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
                                 <button key={mode} type="button" role="option" aria-selected={aiWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setAiWorkflowMode(mode); void saveAiWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
                                   <Check className={`mt-0.5 h-4 w-4 shrink-0 ${aiWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
-                                  <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
+                                  <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
                                 </button>
                               ))}
                             </div>

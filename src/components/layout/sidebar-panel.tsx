@@ -271,12 +271,12 @@ function StorySimulationSidebarPanel() {
                       })}
                     </span>
                     {result.draft && (
-                      <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] text-primary">
+                      <span className="shrink-0 rounded bg-primary/10 px-1 text-[0.625rem] text-primary">
                         草稿
                       </span>
                     )}
                   </div>
-                  <span className="block truncate text-[11px] text-muted-foreground">
+                  <span className="block truncate text-[0.6875rem] text-muted-foreground">
                     {result.report.recommendation?.slice(0, 25) || "查看推演结果"}...
                   </span>
                 </div>

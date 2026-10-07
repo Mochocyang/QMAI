@@ -644,9 +644,9 @@ export function WritingSkillLibrarySidebarPanel() {
             >
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{skill.name}</span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">写作</span>
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">写作</span>
                 {isLinked ? (
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">引用</span>
+                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[0.625rem] text-blue-700">引用</span>
                 ) : null}
               </div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{skill.description || "未填写说明"}</div>

@@ -97,7 +97,7 @@ type TabType = "overview" | "timeline"
 function StatusBadge({ status }: { status: ContextTrace["status"] }) {
   if (status === "running") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-blue-300/70 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-blue-300/70 bg-blue-50 px-2 py-0.5 text-[0.6875rem] font-medium text-blue-700 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300">
         <Loader2 className="h-3 w-3 animate-spin" />
         运行中
       </span>
@@ -105,7 +105,7 @@ function StatusBadge({ status }: { status: ContextTrace["status"] }) {
   }
   if (status === "done") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-green-300/70 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-800/60 dark:bg-green-950/40 dark:text-green-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-green-300/70 bg-green-50 px-2 py-0.5 text-[0.6875rem] font-medium text-green-700 dark:border-green-800/60 dark:bg-green-950/40 dark:text-green-300">
         <CheckCircle2 className="h-3 w-3" />
         已完成
       </span>
@@ -113,7 +113,7 @@ function StatusBadge({ status }: { status: ContextTrace["status"] }) {
   }
   if (status === "error") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-red-300/70 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
+      <span className="inline-flex items-center gap-1 rounded-full border border-red-300/70 bg-red-50 px-2 py-0.5 text-[0.6875rem] font-medium text-red-700 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300">
         <XCircle className="h-3 w-3" />
         出错
       </span>
@@ -139,7 +139,7 @@ function InfoRow({
         <Icon className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] text-muted-foreground">{label}</div>
+        <div className="text-[0.6875rem] text-muted-foreground">{label}</div>
         <div className={cn("text-sm font-medium", valueClassName)}>{value}</div>
       </div>
     </div>
@@ -205,7 +205,7 @@ function getDataSourceIcon(category: DataSourceCategory) {
 function SourceCategoryTag({ category }: { category: DataSourceCategory }) {
   const Icon = getDataSourceIcon(category)
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
       <Icon className="h-3 w-3" />
       {DATA_SOURCE_CATEGORY_LABELS[category] || category}
     </span>
@@ -220,7 +220,7 @@ function BudgetBar({ used, limit }: { used: number; limit: number }) {
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-[11px]">
+      <div className="mb-1 flex items-center justify-between text-[0.6875rem]">
         <span className="text-muted-foreground">字符使用</span>
         <span className="font-medium tabular-nums">
           {used.toLocaleString()} / {limit.toLocaleString()}
@@ -280,11 +280,11 @@ function RetrievalIndexSection({
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
           <Database className="h-3.5 w-3.5" />
         </div>
-        <div className="text-[11px] font-medium text-foreground">
+        <div className="text-[0.6875rem] font-medium text-foreground">
           检索索引
         </div>
         {hasIndex !== undefined && (
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+          <span className={`rounded-full px-1.5 py-0.5 text-[0.625rem] font-medium ${
             hasIndex
               ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
               : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
@@ -299,7 +299,7 @@ function RetrievalIndexSection({
           onClick={handleRebuild}
           disabled={disabled}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] font-medium transition-colors",
             disabled
               ? "cursor-not-allowed bg-muted text-muted-foreground/50"
               : "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -319,14 +319,14 @@ function RetrievalIndexSection({
         </button>
 
         {!projectPath && (
-          <div className="text-[11px] text-amber-600 dark:text-amber-400">
+          <div className="text-[0.6875rem] text-amber-600 dark:text-amber-400">
             请先打开项目后再使用此功能
           </div>
         )}
 
         {effectiveResult && (
           <div className={cn(
-            "rounded-md border p-2 text-[11px]",
+            "rounded-md border p-2 text-[0.6875rem]",
             effectiveResult.success
               ? "border-green-200 bg-green-50/60 text-green-800 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-300"
               : "border-red-200 bg-red-50/60 text-red-800 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300"
@@ -438,9 +438,9 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                 <ShieldAlert className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] font-medium text-foreground">必调工作流诊断</div>
+              <div className="text-[0.6875rem] font-medium text-foreground">必调工作流诊断</div>
             </div>
-            <div className="ml-9 grid gap-1 rounded-md border bg-background px-2 py-2 text-[11px] text-muted-foreground">
+            <div className="ml-9 grid gap-1 rounded-md border bg-background px-2 py-2 text-[0.6875rem] text-muted-foreground">
               <div>Provider：<span className="text-foreground">{contextInfo.requiredToolDiagnostics.provider}</span></div>
               <div>Model：<span className="break-all text-foreground">{contextInfo.requiredToolDiagnostics.model}</span></div>
               <div>Reasoning：<span className="text-foreground">{contextInfo.requiredToolDiagnostics.reasoningMode}</span></div>
@@ -514,10 +514,10 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">
                 <Zap className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] font-medium text-foreground">
+              <div className="text-[0.6875rem] font-medium text-foreground">
                 启用能力
               </div>
-              <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+              <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
                 {contextInfo.selectedCapabilities.length}
               </span>
             </div>
@@ -529,14 +529,14 @@ function OverviewTab({
                     {[capability.kind, capability.permission, capability.source].filter(Boolean).map((tag, index) => (
                       <span
                         key={`${capability.id}-${tag}-${index}`}
-                        className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                        className="rounded-md bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                       >
                         {tag}
                       </span>
                     ))}
                   </div>
                   {capability.reason && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">{capability.reason}</div>
+                    <div className="mt-1 text-[0.6875rem] text-muted-foreground">{capability.reason}</div>
                   )}
                 </div>
               ))}
@@ -553,10 +553,10 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400">
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] font-medium text-foreground">
+              <div className="text-[0.6875rem] font-medium text-foreground">
                 使用 Skill
               </div>
-              <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+              <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
                 {contextInfo.selectedSkills.length}
               </span>
             </div>
@@ -568,7 +568,7 @@ function OverviewTab({
                     {[...skill.kind, ...skill.stages, skill.source].map((tag, index) => (
                       <span
                         key={`${skill.id}-${tag}-${index}`}
-                        className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                        className="rounded-md bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground"
                       >
                         {tag}
                       </span>
@@ -589,10 +589,10 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400">
                 <Network className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] font-medium text-foreground">
+              <div className="text-[0.6875rem] font-medium text-foreground">
                 外部搜索
               </div>
-              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
                 {contextInfo.webSearches.length}
               </span>
             </div>
@@ -601,20 +601,20 @@ function OverviewTab({
                 <div key={`${search.query}-${search.searchedAt}-${index}`} className="rounded-md border bg-background px-2 py-1.5">
                   <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-foreground">
                     <span>{search.query}</span>
-                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                       {search.provider}
                     </span>
-                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                       {search.resultCount} 条结果
                     </span>
                   </div>
                   {search.sources.length > 0 && (
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-[0.6875rem] text-muted-foreground">
                       来源：{search.sources.join("、")}
                     </div>
                   )}
                   {search.message && (
-                    <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    <div className="mt-1 text-[0.6875rem] text-amber-600 dark:text-amber-400">
                       {search.message}
                     </div>
                   )}
@@ -632,10 +632,10 @@ function OverviewTab({
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-green-100 text-green-600 dark:bg-green-950/40 dark:text-green-400">
             <CheckCircle2 className="h-3.5 w-3.5" />
           </div>
-          <div className="text-[11px] font-medium text-foreground">
+          <div className="text-[0.6875rem] font-medium text-foreground">
             已加载数据源
           </div>
-          <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+          <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
             {contextInfo.loadedSources.length}
           </span>
         </div>
@@ -645,7 +645,7 @@ function OverviewTab({
               <SourceCategoryTag key={cat} category={cat} />
             ))
           ) : (
-            <span className="text-[11px] text-muted-foreground/70">无</span>
+            <span className="text-[0.6875rem] text-muted-foreground/70">无</span>
           )}
         </div>
       </div>
@@ -658,10 +658,10 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400">
                 <ShieldAlert className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] font-medium text-foreground">
+              <div className="text-[0.6875rem] font-medium text-foreground">
                 已禁载数据源
               </div>
-              <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300">
+              <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300">
                 {contextInfo.blockedSources.length}
               </span>
             </div>
@@ -671,7 +671,7 @@ function OverviewTab({
                 return (
                   <span
                     key={cat}
-                    className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] text-red-600 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400"
+                    className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[0.6875rem] text-red-600 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-400"
                   >
                     <Icon className="h-3 w-3" />
                     {DATA_SOURCE_CATEGORY_LABELS[cat] || cat}
@@ -702,7 +702,7 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
                 <Layers className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] text-muted-foreground">字符预算使用</div>
+              <div className="text-[0.6875rem] text-muted-foreground">字符预算使用</div>
             </div>
             <div className="ml-9">
               <BudgetBar
@@ -728,7 +728,7 @@ function OverviewTab({
                   ? <CheckCircle2 className="h-3.5 w-3.5" />
                   : <XCircle className="h-3.5 w-3.5" />}
               </div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="text-[0.6875rem] text-muted-foreground">
                 输出协议校验
                 <span className={`ml-1.5 font-medium ${
                   contextInfo.resultProtocol.valid
@@ -740,7 +740,7 @@ function OverviewTab({
               </div>
             </div>
             <div className="ml-9 space-y-2">
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[0.6875rem] text-muted-foreground">
                 {contextInfo.resultProtocol.wordCount != null && (
                   <span>字数：{contextInfo.resultProtocol.wordCount.toLocaleString()}</span>
                 )}
@@ -760,12 +760,12 @@ function OverviewTab({
               </div>
               {contextInfo.resultProtocol.warnings.length > 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50/60 p-2 dark:border-amber-900/40 dark:bg-amber-950/20">
-                  <div className="mb-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  <div className="mb-1 text-[0.6875rem] font-medium text-amber-700 dark:text-amber-400">
                     警告（{contextInfo.resultProtocol.warnings.length}）
                   </div>
                   <ul className="space-y-0.5">
                     {contextInfo.resultProtocol.warnings.map((w, i) => (
-                      <li key={i} className="text-[11px] text-amber-800 dark:text-amber-300">
+                      <li key={i} className="text-[0.6875rem] text-amber-800 dark:text-amber-300">
                         · {w}
                       </li>
                     ))}
@@ -774,12 +774,12 @@ function OverviewTab({
               )}
               {contextInfo.resultProtocol.errors.length > 0 && (
                 <div className="rounded-md border border-red-200 bg-red-50/60 p-2 dark:border-red-900/40 dark:bg-red-950/20">
-                  <div className="mb-1 text-[11px] font-medium text-red-700 dark:text-red-400">
+                  <div className="mb-1 text-[0.6875rem] font-medium text-red-700 dark:text-red-400">
                     错误（{contextInfo.resultProtocol.errors.length}）
                   </div>
                   <ul className="space-y-0.5">
                     {contextInfo.resultProtocol.errors.map((e, i) => (
-                      <li key={i} className="text-[11px] text-red-800 dark:text-red-300">
+                      <li key={i} className="text-[0.6875rem] text-red-800 dark:text-red-300">
                         · {e}
                       </li>
                     ))}
@@ -802,12 +802,12 @@ function OverviewTab({
                 写后自检
               </span>
               {contextInfo.postWriteCheckMeta?.source === "ai" && (
-                <span className="ml-2 inline-flex items-center rounded-full border border-blue-300/70 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300">
+                <span className="ml-2 inline-flex items-center rounded-full border border-blue-300/70 bg-blue-50 px-2 py-0.5 text-[0.625rem] font-medium text-blue-700 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300">
                   AI 推理
                 </span>
               )}
               {contextInfo.postWriteCheckMeta?.source === "rule" && (
-                <span className="ml-2 inline-flex items-center rounded-full border border-gray-300/70 bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:border-gray-800/60 dark:bg-gray-950/40 dark:text-gray-300">
+                <span className="ml-2 inline-flex items-center rounded-full border border-gray-300/70 bg-gray-50 px-2 py-0.5 text-[0.625rem] font-medium text-gray-700 dark:border-gray-800/60 dark:bg-gray-950/40 dark:text-gray-300">
                   规则检查
                 </span>
               )}
@@ -819,7 +819,7 @@ function OverviewTab({
               </span>
             </div>
             {contextInfo.postWriteCheckMeta?.fallbackReason && (
-              <div className="mt-1 text-[11px] text-muted-foreground">
+              <div className="mt-1 text-[0.6875rem] text-muted-foreground">
                 降级原因：{contextInfo.postWriteCheckMeta.fallbackReason}
               </div>
             )}
@@ -834,12 +834,12 @@ function OverviewTab({
                     {!item.passed && <span className="text-muted-foreground/70">: {item.detail}</span>}
                   </div>
                   {item.evidence && (
-                    <div className="ml-5 mt-1 text-[11px] text-muted-foreground">
+                    <div className="ml-5 mt-1 text-[0.6875rem] text-muted-foreground">
                       <span className="font-medium">依据：</span>{item.evidence}
                     </div>
                   )}
                   {item.suggestion && (
-                    <div className="ml-5 mt-0.5 text-[11px] text-muted-foreground">
+                    <div className="ml-5 mt-0.5 text-[0.6875rem] text-muted-foreground">
                       <span className="font-medium">建议：</span>{item.suggestion}
                     </div>
                   )}
@@ -858,9 +858,9 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
                 <AlertTriangle className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] text-muted-foreground">分类路由版本</div>
+              <div className="text-[0.6875rem] text-muted-foreground">分类路由版本</div>
             </div>
-            <div className="ml-9 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[12px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+            <div className="ml-9 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[0.75rem] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
               <div className="mb-2">
                 classification.md 版本过旧（当前 v{contextInfo.classificationVersion.currentVersion}，最新 v{contextInfo.classificationVersion.latestVersion}），可能缺少新增的意图路由配置。
               </div>
@@ -868,7 +868,7 @@ function OverviewTab({
                 <button
                   type="button"
                   onClick={() => setUpgradeStatus("confirming")}
-                  className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500"
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[0.6875rem] font-medium text-white transition-colors hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500"
                 >
                   <RefreshCw className="h-3 w-3" />
                   一键升级到最新版本
@@ -876,14 +876,14 @@ function OverviewTab({
               )}
               {upgradeStatus === "confirming" && (
                 <div className="space-y-2">
-                  <div className="text-[11px]">
+                  <div className="text-[0.6875rem]">
                     确定要升级 classification.md 吗？升级会在现有配置基础上补充新增的意图路由，不会修改你已有的自定义配置。
                   </div>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={handleUpgradeClassification}
-                      className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500"
+                      className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[0.6875rem] font-medium text-white transition-colors hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500"
                     >
                       <CheckCircle2 className="h-3 w-3" />
                       确认升级
@@ -891,7 +891,7 @@ function OverviewTab({
                     <button
                       type="button"
                       onClick={() => setUpgradeStatus("idle")}
-                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[0.6875rem] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                       <X className="h-3 w-3" />
                       取消
@@ -900,24 +900,24 @@ function OverviewTab({
                 </div>
               )}
               {upgradeStatus === "loading" && (
-                <div className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300">
+                <div className="inline-flex items-center gap-1 text-[0.6875rem] text-amber-700 dark:text-amber-300">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   正在升级...
                 </div>
               )}
               {upgradeStatus === "success" && (
-                <div className="inline-flex items-center gap-1 text-[11px] text-green-700 dark:text-green-400">
+                <div className="inline-flex items-center gap-1 text-[0.6875rem] text-green-700 dark:text-green-400">
                   <CheckCircle2 className="h-3 w-3" />
                   升级成功！下次 AI 会话将使用最新路由配置
                 </div>
               )}
               {upgradeStatus === "error" && upgradeError && (
-                <div className="text-[11px] text-red-700 dark:text-red-400">
+                <div className="text-[0.6875rem] text-red-700 dark:text-red-400">
                   升级失败：{upgradeError}
                 </div>
               )}
               {!projectPath && upgradeStatus === "idle" && (
-                <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                <div className="text-[0.6875rem] text-amber-700 dark:text-amber-300">
                   请在项目中使用此功能
                 </div>
               )}
@@ -934,9 +934,9 @@ function OverviewTab({
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
                 <AlertTriangle className="h-3.5 w-3.5" />
               </div>
-              <div className="text-[11px] text-muted-foreground">兜底/降级原因</div>
+              <div className="text-[0.6875rem] text-muted-foreground">兜底/降级原因</div>
             </div>
-            <div className="ml-9 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[12px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+            <div className="ml-9 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[0.75rem] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
               {contextInfo.fallbackReason}
             </div>
           </div>
@@ -944,7 +944,7 @@ function OverviewTab({
       )}
 
       {contextInfo.fallbackReason && contextInfo.classificationVersion?.needsUpgrade && (
-        <div className="ml-9 mt-1 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[12px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+        <div className="ml-9 mt-1 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[0.75rem] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
           {contextInfo.fallbackReason}
         </div>
       )}
@@ -1058,7 +1058,7 @@ function CopyTraceButton({ trace }: { trace: ContextTrace }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       title="复制调试信息"
     >
       {copied ? (
@@ -1141,7 +1141,7 @@ export function ContextTracePanel({
           >
             <Zap className="h-3.5 w-3.5" />
             工具调用时间线
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] tabular-nums">
               {trace.toolCalls.length}
             </span>
           </button>

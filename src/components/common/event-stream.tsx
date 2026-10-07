@@ -71,7 +71,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens, sh
   if (events.length === 0) {
     if (isStreaming) {
       return (
-        <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-muted-foreground">
+        <div className="flex items-center gap-2 px-2 py-3 text-[0.75rem] text-muted-foreground">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
           <span>{waitingHint ?? "思考中..."}</span>
         </div>
@@ -111,7 +111,7 @@ function EventStreamImpl({ events, isStreaming, totalDurationMs, totalTokens, sh
 
         {showSummary && !isStreaming && (totalDurationMs !== undefined || totalTokens !== undefined) && (
           <div
-            className="mt-2 flex items-center gap-3 px-2 pt-2 border-t border-border/50 text-[11px] text-muted-foreground/70"
+            className="mt-2 flex items-center gap-3 px-2 pt-2 border-t border-border/50 text-[0.6875rem] text-muted-foreground/70"
           >
             {totalTokens !== undefined && (
               <span className="flex items-center gap-1">

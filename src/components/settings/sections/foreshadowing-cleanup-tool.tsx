@@ -698,7 +698,7 @@ export function ForeshadowingCleanupTool() {
         )}
       </button>
       {helpOpen && (
-        <div className="space-y-1.5 rounded border border-border/50 bg-background/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="space-y-1.5 rounded border border-border/50 bg-background/60 px-3 py-2 text-[0.6875rem] leading-relaxed text-muted-foreground">
           <p>
             <strong>重复</strong>：同一线索被反复「新增」→ 合并为一条，保留最早埋设与最长说明。
           </p>
@@ -723,7 +723,7 @@ export function ForeshadowingCleanupTool() {
       )}
 
       {projectReady && displayOverview && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 rounded border border-border/50 bg-background/50 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 rounded border border-border/50 bg-background/50 px-3 py-2 text-[0.6875rem] text-muted-foreground">
           <span>
             {t("settings.sections.maintenance.foreshadowing.overviewTotal", {
               defaultValue: "总计 {{n}}",
@@ -802,7 +802,7 @@ export function ForeshadowingCleanupTool() {
       )}
 
       {invalidSnaps.length > 0 && (
-        <ul className="max-h-28 overflow-auto rounded border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+        <ul className="max-h-28 overflow-auto rounded border border-border/50 bg-background/50 px-2 py-1.5 text-[0.6875rem] text-muted-foreground">
           {invalidSnaps.map((s) => (
             <li key={s.path}>
               {s.fileName}（chapterNumber={s.chapterNumber}，伏笔变化 {s.foreshadowingChangeCount}）
@@ -908,7 +908,7 @@ export function ForeshadowingCleanupTool() {
             />
           </div>
           {scanProgress?.batch && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               {t("settings.sections.maintenance.foreshadowing.scanBatchDetail", {
                 defaultValue: "本批 {{batchSize}} 条 · 活跃共 {{activeCount}} 条（分批调用模型，较慢属正常）",
                 batchSize: scanProgress.batch.batchSize,
@@ -1092,11 +1092,11 @@ function ProcessLog({
 }) {
   return (
     <div className="space-y-1.5 rounded border border-border/60 bg-background/80 px-2 py-1.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[0.6875rem] font-medium text-muted-foreground">
         {live ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
         <span>{title}</span>
       </div>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/90">
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-foreground/90">
         {lines.length > 0 ? lines.join("\n") : "…"}
       </pre>
     </div>
@@ -1136,7 +1136,7 @@ function CleanupQueuePanel({
           return (
           <li
             key={task.id}
-            className="flex items-center gap-2 rounded border border-border/50 bg-background/70 px-2 py-1.5 text-[11px]"
+            className="flex items-center gap-2 rounded border border-border/50 bg-background/70 px-2 py-1.5 text-[0.6875rem]"
           >
             {task.status === "processing" ? (
               <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-500" />
@@ -1256,7 +1256,7 @@ function IssueCard({
           </div>
           <p className="text-xs text-muted-foreground">{issue.reason}</p>
           {issue.kind === "duplicate" && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[0.6875rem] text-muted-foreground">
               {t("settings.sections.maintenance.foreshadowing.canonicalHint", {
                 defaultValue: "选中要保留的主条目，其余会合并进它。",
               })}
@@ -1264,16 +1264,16 @@ function IssueCard({
           )}
         </div>
         {task?.status === "processing" && applyProgress?.taskId === task.id ? (
-          <span className="flex items-center gap-1 text-[11px] text-blue-600">
+          <span className="flex items-center gap-1 text-[0.6875rem] text-blue-600">
             <Loader2 className="h-3 w-3 animate-spin" />
             {applyProgress.stage}
           </span>
         ) : task?.status === "pending" ? (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[0.6875rem] text-muted-foreground">
             #{pendingPosition}
           </span>
         ) : task?.status === "failed" ? (
-          <span className="flex items-center gap-1 text-[11px] text-destructive">
+          <span className="flex items-center gap-1 text-[0.6875rem] text-destructive">
             <XCircle className="h-3 w-3" />
             failed
           </span>
@@ -1291,20 +1291,20 @@ function IssueCard({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                 <span className="font-medium text-foreground">{title}</span>
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                <code className="rounded bg-muted px-1 py-0.5 text-[0.625rem] text-muted-foreground">
                   {id}
                 </code>
               </div>
               {subtitle && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</p>
+                <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">{subtitle}</p>
               )}
               {detail && (
-                <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground/90">
+                <p className="mt-0.5 line-clamp-2 text-[0.6875rem] leading-relaxed text-muted-foreground/90">
                   {detail}
                 </p>
               )}
               {!item && (
-                <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                <p className="mt-0.5 text-[0.6875rem] text-amber-600 dark:text-amber-400">
                   {t("settings.sections.maintenance.foreshadowing.itemMissing", {
                     defaultValue: "追踪器中已找不到这条（可能已处理）",
                   })}
@@ -1391,7 +1391,7 @@ function IssueCard({
         )}
       </div>
       {task?.error && (
-        <p className="text-[11px] text-destructive">{task.error}</p>
+        <p className="text-[0.6875rem] text-destructive">{task.error}</p>
       )}
     </div>
   )

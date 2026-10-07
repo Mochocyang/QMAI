@@ -131,7 +131,7 @@ export function GraphSidebarPanel() {
               <select
                 value={edgeStyle}
                 onChange={(e) => setEdgeStyle(e.target.value as GraphEdgeStyle)}
-                className="flex-1 h-6 rounded border border-input bg-background px-1 text-[11px] outline-none"
+                className="flex-1 h-6 rounded border border-input bg-background px-1 text-[0.6875rem] outline-none"
               >
                 <option value="curve">曲线避让</option>
                 <option value="arrow">箭头</option>

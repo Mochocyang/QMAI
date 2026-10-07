@@ -5943,8 +5943,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     >
                       <ConversationRunStatusIcon state={runStates[conv.id]} />
                       <span className="max-w-[140px] truncate font-medium">{getConversationTabTitle(conv.title, 10)}</span>
-                      <span className="text-[10px] opacity-70">{conv.messages.length}</span>
-                      <span className="text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                      <span className="text-[0.625rem] opacity-70">{conv.messages.length}</span>
+                      <span className="text-[0.625rem] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
                     </button>
                     {hoveredConversationId === conv.id ? (
                       <button
@@ -5960,7 +5960,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 );
               })}
               {outlineWorkflowStage !== "idle" && outlineWorkflowStage !== "saved" ? (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
                   {outlineWorkflowStage === "intent_analysis" ? "意图分析中" :
                    outlineWorkflowStage === "waiting_user_input" ? "等待选择" :
                    outlineWorkflowStage === "collecting_requirements"
@@ -6017,7 +6017,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             <History className="h-3.5 w-3.5" />
             <span>历史大纲对话</span>
             {menuConversationCount > 0 ? (
-              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-medium text-primary">
+              <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[0.625rem] font-medium text-primary">
                 {menuConversationCount}
               </span>
             ) : null}
@@ -6061,8 +6061,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                         <button type="button" onClick={() => setActiveConversation(conv.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={conv.title}>
                           <ConversationRunStatusIcon state={runStates[conv.id]} />
                           <span className="min-w-0 flex-1 truncate font-medium">{getConversationTabTitle(conv.title, 16)}</span>
-                          <span className="shrink-0 text-[10px] opacity-70">{conv.messages.length}</span>
-                          <span className="shrink-0 text-[10px] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
+                          <span className="shrink-0 text-[0.625rem] opacity-70">{conv.messages.length}</span>
+                          <span className="shrink-0 text-[0.625rem] opacity-70">{formatOutlineConversationDate(conv.updatedAt)}</span>
                         </button>
                         <button type="button" aria-label={`删除大纲会话：${conv.title}`} onClick={() => requestDeleteConversation(conv.id)} className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-destructive">
                           <Trash2 className="h-3 w-3" />
@@ -6183,7 +6183,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                       {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
                         <button key={mode} type="button" role="option" aria-selected={outlineWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setOutlineWorkflowMode(mode); void saveOutlineWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
                           <Check className={`mt-0.5 h-4 w-4 shrink-0 ${outlineWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
-                          <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
+                          <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
                         </button>
                       ))}
                     </div>
@@ -6291,7 +6291,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                             <span className="min-w-0 flex-1">
                               <span className="flex items-center gap-2 text-sm font-medium">
                                 <span>{label}</span>
-                                <span className="rounded border px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">
+                                <span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">
                                   {description}
                                 </span>
                               </span>

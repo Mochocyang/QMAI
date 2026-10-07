@@ -72,7 +72,7 @@ export function OutputTokensSelector({
             key={preset.value}
             type="button"
             onClick={() => onChange(preset.value)}
-            className={`text-[9px] px-0.5 ${
+            className={`text-[0.5625rem] px-0.5 ${
               i === closestIndex ? "text-primary font-bold" : "text-muted-foreground/50"
             }`}
           >
@@ -80,7 +80,7 @@ export function OutputTokensSelector({
           </button>
         ))}
       </div>
-      <p className="text-[10px] text-muted-foreground mt-1">
+      <p className="text-[0.625rem] text-muted-foreground mt-1">
         {t("settings.sections.llm.maxOutputTokensHint")}
       </p>
     </div>

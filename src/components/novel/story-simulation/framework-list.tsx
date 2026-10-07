@@ -175,7 +175,7 @@ export function FrameworkList({
                       >
                         {displayTitle(framework)}
                       </span>
-                      <span className="mt-0.5 text-[11px] text-muted-foreground">
+                      <span className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                         {framework.nodes.length} 节点 · {framework.targetWords} 字
                         {isBound ? " · 已绑定" : ""}
                       </span>

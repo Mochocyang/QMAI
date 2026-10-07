@@ -40,17 +40,17 @@ export function AgentStageStream({ stages }: AgentStageStreamProps) {
   return (
     <div className="mb-2 w-full min-w-0 max-w-full overflow-hidden border-l border-border/80 pl-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+        <div className="flex min-w-0 items-center gap-2 text-[0.8125rem] font-medium text-foreground">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <Sparkles className="h-3.5 w-3.5" />
           </span>
           <span>生成过程</span>
-          <span className="text-[11px] font-normal text-muted-foreground">({visibleStages.length})</span>
+          <span className="text-[0.6875rem] font-normal text-muted-foreground">({visibleStages.length})</span>
         </div>
         <button
           type="button"
           onClick={() => setAllOpen((value) => !value)}
-          className="shrink-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="shrink-0 rounded px-1.5 py-1 text-[0.6875rem] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {allOpen ? "全部折叠" : "展开全部"}
         </button>
@@ -104,20 +104,20 @@ function AgentStageRow({
                 open && "rotate-90",
               )}
             />
-            <span className="min-w-0 break-words text-[13px] font-medium text-foreground">
+            <span className="min-w-0 break-words text-[0.8125rem] font-medium text-foreground">
               {stage.title}
             </span>
           </span>
-          <span className="mt-0.5 block break-words pl-5 text-[12px] leading-5 text-muted-foreground">
+          <span className="mt-0.5 block break-words pl-5 text-[0.75rem] leading-5 text-muted-foreground">
             {stage.summary || summarizeAgentStage(stage)}
           </span>
         </span>
-        <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
+        <span className="shrink-0 pt-0.5 text-[0.6875rem] text-muted-foreground">
           {statusLabel(stage.status)}
         </span>
       </button>
       {open && (
-        <div className="mt-1.5 max-h-80 space-y-1.5 overflow-y-auto pr-1 pl-5 text-[12px] leading-5 [contain:content]">
+        <div className="mt-1.5 max-h-80 space-y-1.5 overflow-y-auto pr-1 pl-5 text-[0.75rem] leading-5 [contain:content]">
           {stage.events.map((event) => (
             <AgentActivityRow key={event.id} event={event} />
           ))}
@@ -133,14 +133,14 @@ function AgentActivityRow({ event }: { event: AgentActivityEvent }) {
     <div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded border border-border/50 bg-background/45 px-2 py-1.5">
       <Icon className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />
       <div className="min-w-0">
-        <div className="break-words text-[12px] font-medium text-foreground">{event.title}</div>
-        <div className="mt-0.5 whitespace-pre-wrap break-words text-[12px] text-muted-foreground">{event.content}</div>
+        <div className="break-words text-[0.75rem] font-medium text-foreground">{event.title}</div>
+        <div className="mt-0.5 whitespace-pre-wrap break-words text-[0.75rem] text-muted-foreground">{event.content}</div>
         {event.sourceRefs && event.sourceRefs.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {event.sourceRefs.map((source, index) => (
               <span
                 key={`${event.id}-${source.type}-${source.path ?? source.title}-${index}`}
-                className="rounded border border-border/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                className="rounded border border-border/60 px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
               >
                 {source.title}
               </span>

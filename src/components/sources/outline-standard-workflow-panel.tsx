@@ -102,18 +102,18 @@ export function OutlineStandardWorkflowPanel({
   return (
     <div className="mb-2 w-full min-w-0 max-w-full overflow-hidden rounded-md border border-sky-200/70 bg-sky-50/45 p-3 text-xs dark:border-sky-900/45 dark:bg-sky-950/15">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+        <div className="flex min-w-0 items-center gap-2 text-[0.8125rem] font-medium text-foreground">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
             <Workflow className="h-3.5 w-3.5" />
           </span>
           <span>{workflowTitle(intentPhase)}</span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+          <span className="inline-flex items-center gap-1 text-[0.6875rem] font-normal text-muted-foreground">
             <StatusIcon status={status} />
             {statusLabel(status)}
           </span>
         </div>
         {safeToolCalls.length > 0 ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 text-[0.6875rem] text-muted-foreground">
             <span>完成：{doneCount}/{safeToolCalls.length}</span>
             {failedCount > 0 ? (
               <span className="text-red-600 dark:text-red-400">失败：{failedCount}</span>
@@ -129,7 +129,7 @@ export function OutlineStandardWorkflowPanel({
             <span className="min-w-0 break-words font-medium text-foreground">工具执行</span>
           </div>
           <span className={cn(
-            "inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground",
+            "inline-flex shrink-0 items-center gap-1 text-[0.6875rem] text-muted-foreground",
             status === "error" && "text-red-600 dark:text-red-400",
             status === "done" && "text-emerald-700 dark:text-emerald-300",
           )}>

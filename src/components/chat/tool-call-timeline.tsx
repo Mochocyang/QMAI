@@ -198,35 +198,35 @@ function ToolCallIcon({ category, status }: { category: "read" | "write" | "acti
 function StatusBadge({ status }: { status: string }) {
   if (status === "running") {
     return (
-      <span className="rounded border border-blue-300/70 bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:border-blue-800/60 dark:bg-blue-950/50 dark:text-blue-300">
+      <span className="rounded border border-blue-300/70 bg-blue-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-blue-800 dark:border-blue-800/60 dark:bg-blue-950/50 dark:text-blue-300">
         运行中
       </span>
     )
   }
   if (status === "done") {
     return (
-      <span className="rounded border border-green-300/70 bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-800 dark:border-green-800/60 dark:bg-green-950/50 dark:text-green-300">
+      <span className="rounded border border-green-300/70 bg-green-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-green-800 dark:border-green-800/60 dark:bg-green-950/50 dark:text-green-300">
         完成
       </span>
     )
   }
   if (status === "error") {
     return (
-      <span className="rounded border border-red-300/70 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800 dark:border-red-800/60 dark:bg-red-950/50 dark:text-red-300">
+      <span className="rounded border border-red-300/70 bg-red-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-red-800 dark:border-red-800/60 dark:bg-red-950/50 dark:text-red-300">
         错误
       </span>
     )
   }
   if (status === "cancelled") {
     return (
-      <span className="rounded border border-muted-foreground/30 bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <span className="rounded border border-muted-foreground/30 bg-muted px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground">
         已取消
       </span>
     )
   }
   if (status === "approval_required") {
     return (
-      <span className="rounded border border-amber-300/70 bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-300">
+      <span className="rounded border border-amber-300/70 bg-amber-100 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-300">
         待确认
       </span>
     )
@@ -309,7 +309,7 @@ function TimelineItem({
           {expanded && (
             <div
               className={cn(
-                "max-h-40 overflow-y-auto overflow-x-hidden border-t px-3 py-2 text-[11px] whitespace-pre-wrap break-words leading-relaxed",
+                "max-h-40 overflow-y-auto overflow-x-hidden border-t px-3 py-2 text-[0.6875rem] whitespace-pre-wrap break-words leading-relaxed",
                 hasError
                   ? "border-red-200/60 text-red-700 dark:border-red-900/30 dark:text-red-300/80"
                   : isCancelled
@@ -321,10 +321,10 @@ function TimelineItem({
             >
               {needsApproval && call.preview && (
                 <div className="mb-1.5 rounded border border-amber-300/50 bg-amber-100/60 p-2 dark:border-amber-800/40 dark:bg-amber-900/20">
-                  <div className="mb-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                  <div className="mb-0.5 text-[0.625rem] font-semibold text-amber-700 dark:text-amber-400">
                     拟写入内容预览
                   </div>
-                  <div className="whitespace-pre-wrap break-words font-mono text-[10px] text-amber-900 dark:text-amber-200">
+                  <div className="whitespace-pre-wrap break-words font-mono text-[0.625rem] text-amber-900 dark:text-amber-200">
                     {call.preview}
                   </div>
                 </div>
@@ -338,7 +338,7 @@ function TimelineItem({
                       e.stopPropagation()
                       onConfirmSave(call)
                     }}
-                    className="rounded bg-green-600 px-3 py-1 text-[11px] font-medium text-white hover:bg-green-700"
+                    className="rounded bg-green-600 px-3 py-1 text-[0.6875rem] font-medium text-white hover:bg-green-700"
                   >
                     确认保存
                   </button>
@@ -348,7 +348,7 @@ function TimelineItem({
                       e.stopPropagation()
                       onReject(call)
                     }}
-                    className="rounded border border-muted-foreground/30 bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent"
+                    className="rounded border border-muted-foreground/30 bg-background px-3 py-1 text-[0.6875rem] font-medium text-muted-foreground hover:bg-accent"
                   >
                     放弃
                   </button>
@@ -432,11 +432,11 @@ export function ToolCallTimeline({
         <div className="flex items-center gap-1.5 text-xs font-medium text-blue-700 dark:text-blue-400">
           <Zap className="h-3.5 w-3.5" />
           <span>AI 工具调用</span>
-          <span className="text-[10px] font-normal text-blue-600/70 dark:text-blue-400/70">
+          <span className="text-[0.625rem] font-normal text-blue-600/70 dark:text-blue-400/70">
             ({filteredToolCalls.length}/{safeToolCalls.length})
           </span>
           {errorCount > 0 && (
-            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[0.625rem] font-medium text-white">
               {errorCount} 错误
             </span>
           )}
@@ -446,7 +446,7 @@ export function ToolCallTimeline({
             type="button"
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] hover:bg-blue-100/60 dark:hover:bg-blue-900/30",
+              "flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.625rem] hover:bg-blue-100/60 dark:hover:bg-blue-900/30",
               showFilters || activeFilter !== "all" || errorOnly
                 ? "text-blue-700 dark:text-blue-300"
                 : "text-blue-600/70 dark:text-blue-400/70"
@@ -458,7 +458,7 @@ export function ToolCallTimeline({
           <button
             type="button"
             onClick={toggleAll}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-100/60 dark:text-blue-400 dark:hover:bg-blue-900/30"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.625rem] text-blue-600 hover:bg-blue-100/60 dark:text-blue-400 dark:hover:bg-blue-900/30"
           >
             {isAllExpanded ? (
               <>
@@ -484,7 +484,7 @@ export function ToolCallTimeline({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索工具名称或结果..."
-              className="w-full rounded-md border border-blue-200/60 bg-white/70 py-1 pl-7 pr-2 text-[11px] text-blue-900 placeholder-blue-500/50 outline-none focus:border-blue-400 dark:border-blue-800/40 dark:bg-blue-950/30 dark:text-blue-100 dark:placeholder-blue-400/40"
+              className="w-full rounded-md border border-blue-200/60 bg-white/70 py-1 pl-7 pr-2 text-[0.6875rem] text-blue-900 placeholder-blue-500/50 outline-none focus:border-blue-400 dark:border-blue-800/40 dark:bg-blue-950/30 dark:text-blue-100 dark:placeholder-blue-400/40"
             />
           </div>
           <div className="flex flex-wrap gap-1">
@@ -494,7 +494,7 @@ export function ToolCallTimeline({
                 type="button"
                 onClick={() => setActiveFilter(opt.key)}
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-[10px] transition-colors",
+                  "rounded-md px-2 py-0.5 text-[0.625rem] transition-colors",
                   activeFilter === opt.key
                     ? "bg-blue-500 text-white"
                     : "bg-blue-100/60 text-blue-700 hover:bg-blue-200/60 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
@@ -507,7 +507,7 @@ export function ToolCallTimeline({
               type="button"
               onClick={() => setErrorOnly(!errorOnly)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[10px] transition-colors",
+                "rounded-md px-2 py-0.5 text-[0.625rem] transition-colors",
                 errorOnly
                   ? "bg-red-500 text-white"
                   : "bg-red-100/60 text-red-700 hover:bg-red-200/60 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
@@ -522,7 +522,7 @@ export function ToolCallTimeline({
 
       <div className="relative">
         {filteredToolCalls.length === 0 ? (
-          <div className="py-6 text-center text-[11px] text-blue-500/60 dark:text-blue-400/50">
+          <div className="py-6 text-center text-[0.6875rem] text-blue-500/60 dark:text-blue-400/50">
             没有匹配的工具调用
           </div>
         ) : (

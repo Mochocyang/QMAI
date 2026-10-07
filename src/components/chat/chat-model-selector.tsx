@@ -216,7 +216,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             {modelGroups.map((group, groupIdx) => (
               <div key={group.id}>
                 {groupIdx > 0 && <div className="my-1 h-px bg-border" />}
-                <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="px-3 py-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </div>
                 {group.models.map((model) => {
