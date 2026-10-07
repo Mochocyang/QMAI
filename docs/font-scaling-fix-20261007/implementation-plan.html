@@ -1506,6 +1506,70 @@ export function applyBodyFontFamily(value: unknown, root?: HTMLElement): void {
 git add src/lib/font-settings.ts src/lib/font-settings.spec.ts src/components/uitest/ui-test.css
 git commit -m "feat(字体): 正文字体独立设置，默认保持宋体系观感" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录：本任务的"文件清单"漏了让功能可用的那一段</div>
+        <div class="callout danger">
+          <span class="h">原计划只列了 3 个文件，但没有一个是"用户能选到它"的地方</span>
+          任务 6 的 <code>files</code> 只写了 <code>font-settings.ts</code>、
+          <code>ui-test.css</code>、<code>font-settings.spec.ts</code>。
+          照此实施的结果是：字体选项存在、<code>--serif</code> 也派生好了，
+          <b>但界面上没有任何地方可以选正文字体</b> —— 功能等于没做。<br>
+          设计文档 §5.2 其实要求"新增设置项「正文字体」（<code>uiBodyFontFamily</code>），
+          在「外观与界面」内与「界面字体」并列"，是计划漏抄了。
+          实际必须补齐的接线（与界面字体逐一同构）：
+          <table>
+            <thead><tr><th>文件</th><th>补什么</th></tr></thead>
+            <tbody>
+              <tr><td><code>settings-types.ts</code></td><td>草稿字段 <code>uiBodyFontFamily</code></td></tr>
+              <tr><td><code>wiki-store.ts</code></td><td>状态、<code>setUiBodyFontFamily</code>、独立 localStorage 键 <code>qmai-body-font-family</code></td></tr>
+              <tr><td><code>project-store.ts</code></td><td><code>saveUiBodyFontFamily</code> / <code>loadUiBodyFontFamily</code></td></tr>
+              <tr><td><code>settings-view.tsx</code></td><td>读草稿初值、保存时写 store 与持久化</td></tr>
+              <tr><td><code>interface-section.tsx</code></td><td>「正文字体」下拉（<code>aria-label="正文字体"</code>）</td></tr>
+              <tr><td><code>App.tsx</code></td><td>启动时 <code>loadUiBodyFontFamily</code> + <code>applyBodyFontFamily</code>，以及跟随状态的 effect</td></tr>
+            </tbody>
+          </table>
+          <b>教训</b>：涉及"新增一个用户可见设置"的任务，文件清单必须包含
+          <b>从控件到持久化的整条链路</b>；只列数据层与样式层的清单，
+          做出来的东西看起来完整、实际不可用。
+          本任务据此补了一条会把断链变红的接线断言
+          （<code>interface-sidebar-nav.spec.ts</code> 的"正文字体接成完整一条链路"）。
+        </div>
+        <div class="callout warn">
+          <span class="h">新增证明脚本与实测结果</span>
+          <code>docs/font-scaling-fix-20261007/verify-body-font-applies.mjs</code>
+          同时验证两个方向，缺一不可：<br>
+          <b>A</b> 改正文字体 → 正文真的换字形；
+          <b>B</b> 改正文字体 → 界面字体<b>不变</b>（用户确认的边界，
+          也是"加变量派生"最容易写错的地方）。<br>
+          实测（<b>2026-10-08</b>）：楷体/仿宋/黑体 —— 真实 <code>--serif</code> 元素
+          <b>已变</b>、注入的正文规则探针<b>已变</b>、界面字体<b>未变</b>；
+          反向改界面字体 —— 界面<b>已变</b>、正文两处<b>均未变</b>。<br>
+          Chromium 报告的真实渲染字体：默认正文 <code>Noto Serif SC</code>、
+          楷体 <code>KaiTi</code>、仿宋 <code>FangSong</code>、黑体 <code>SimHei</code>，
+          而界面侧四个用例恒为 <code>Microsoft YaHei UI</code>（<b>独立性最硬的证据</b>）。
+          退出码 0；尺子四项对照全绿（含负向对照与界面字体反向对照）。
+        </div>
+        <div class="callout warn">
+          <span class="h">覆盖面：真实 <code>--serif</code> 元素只有 1 个，且正文规则仍不可达</span>
+          遍历设置页全部分区后发现，可达页面上真实的 <code>--serif</code> 消费者
+          <b>只有 <code>span.ui-test-brand-name</code>（侧边栏品牌名）1 个</b>。
+          小说编辑器（<code>.ui-test-editor-body</code> / <code>.ProseMirror</code>）
+          依旧从不挂载 —— 这是已登记的盲区。<br>
+          因此正文规则用<b>注入真实选择器结构</b>的方式验证：
+          在真实页面里插入
+          <code>&lt;div class="ui-test-root"&gt;&lt;div class="ui-test-editor-body"&gt;…</code>，
+          让 <code>.ui-test-root .ui-test-editor-body</code> 这条<b>真实规则</b>级联生效。
+          <b>它只证明"CSS 规则对变量有反应"，不能替代真实 exe 里的目视验证</b>
+          （任务 10 步骤 2b），两者不可互相顶替。
+        </div>
+        <div class="callout warn">
+          <span class="h">已知影响面：<code>--serif</code> 不止正文在用（5 处）</span>
+          见步骤 3 的表格。默认档下这 5 处全部不变（回退栈与改造前逐字一致，
+          已由 <code>ui-font-derivation.spec.ts</code> 的静态断言守住）；
+          用户主动改成正文字体后它们会一起变 —— 属有意接受的行为。
+        </div>
+      </div></div>
     </div>
 
     <!-- Task 7 -->

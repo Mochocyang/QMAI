@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react"
 import { Check } from "lucide-react"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import { UI_FONT_OPTIONS, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, UI_FONT_SIZE_PRESETS } from "@/lib/font-settings"
+import { BODY_FONT_OPTIONS, UI_FONT_OPTIONS, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, UI_FONT_SIZE_PRESETS } from "@/lib/font-settings"
 
 interface Props {
   draft: SettingsDraft
@@ -58,6 +58,12 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
           <div><label htmlFor={`${id}-font`}>界面字体</label><p>沿用本机已安装字体与系统回退；保存后生效。</p></div>
           <select id={`${id}-font`} aria-label="界面字体" value={draft.uiFontFamily} onChange={(event) => setDraft("uiFontFamily", event.target.value as SettingsDraft["uiFontFamily"])}>
             {UI_FONT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </div>
+        <div className="ui-test-interface-row">
+          <div><label htmlFor={`${id}-body-font`}>正文字体</label><p>只影响小说正文与书卷感衬线标题，与界面字体相互独立。</p></div>
+          <select id={`${id}-body-font`} aria-label="正文字体" value={draft.uiBodyFontFamily} onChange={(event) => setDraft("uiBodyFontFamily", event.target.value as SettingsDraft["uiBodyFontFamily"])}>
+            {BODY_FONT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </div>
         <div className="ui-test-interface-row">

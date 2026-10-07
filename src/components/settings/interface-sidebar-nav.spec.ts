@@ -64,4 +64,33 @@ describe("settings sidebar nav preferences", () => {
     expect(applyAt).toBeGreaterThan(-1)
     expect(persistAt).toBeGreaterThan(applyAt)
   })
+
+  /**
+   * 正文字体（独立设置）的接线防线。
+   *
+   * 计划的任务 6 只列了 font-settings.ts / ui-test.css / spec 三个文件，
+   * **漏掉了让用户真正能用上它的那一段接线**（设置项、草稿字段、store、
+   * 持久化、启动应用）。只改那三个文件的话：字体选项存在、CSS 也派生好了，
+   * 但界面上没有地方可选 —— 功能等于没做。
+   * 故在此把整条链路钉住，任何一环断掉都会变红。
+   */
+  it("正文字体接成完整一条链路：控件、草稿字段、store、持久化", () => {
+    // 1) 设置页有控件，且绑定到草稿的新字段
+    expect(interfaceSectionSource).toContain("BODY_FONT_OPTIONS")
+    expect(interfaceSectionSource).toContain('aria-label="正文字体"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontFamily"')
+    // 2) 草稿类型里有该字段（否则 setDraft 的类型对不上，tsc 会先报错）
+    expect(settingsTypesSource).toContain("uiBodyFontFamily")
+    // 3) store 有状态与 setter，且用**独立**的 localStorage 键
+    expect(wikiStoreSource).toContain("uiBodyFontFamily: readStoredBodyFontFamily()")
+    expect(wikiStoreSource).toContain("setUiBodyFontFamily:")
+    expect(wikiStoreSource).toContain('const BODY_FONT_FAMILY_KEY = "qmai-body-font-family"')
+    // 共用同一个键会让两个设置互相覆盖 —— 这正是要防的
+    expect(wikiStoreSource).not.toContain('const BODY_FONT_FAMILY_KEY = "qmai-ui-font-family"')
+    // 4) 保存时既写 store 也持久化（只做一个会"这次生效下次丢失"或反之）
+    expect(settingsViewSource).toContain("setUiBodyFontFamily(draft.uiBodyFontFamily)")
+    expect(settingsViewSource).toContain("saveUiBodyFontFamily(draft.uiBodyFontFamily")
+    // 5) 界面字体也要照旧保存，不能被新字段挤掉
+    expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")
+  })
 })

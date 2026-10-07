@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
+  BODY_FONT_OPTIONS,
+  DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   UI_FONT_SIZE_PRESETS,
+  applyBodyFontFamily,
   clampUiFontSizeScale,
+  getBodyFontFamilyCss,
   getUiFontFamilyCss,
+  normalizeBodyFontFamily,
   normalizeUiFontFamily,
   applyUiFontFamily,
 } from "./font-settings"
@@ -87,5 +92,73 @@ describe("界面字号范围", () => {
       // 预设必须能被钳制原样通过，否则选中态永远匹配不上
       expect(clampUiFontSizeScale(preset.value)).toBe(preset.value)
     }
+  })
+})
+
+describe("正文字体（与界面字体相互独立）", () => {
+  it("默认值保持现状（宋体系），避免默认观感变化", () => {
+    expect(DEFAULT_BODY_FONT_FAMILY).toBe("serif-default")
+    const css = getBodyFontFamilyCss(DEFAULT_BODY_FONT_FAMILY)
+    expect(css).toContain("Noto Serif SC")
+    expect(css).toContain("Source Han Serif SC")
+    expect(css).toContain("Songti SC")
+    expect(css).toContain("SimSun")
+  })
+
+  it("默认栈与改造前 ui-test.css 里 --serif 的取值逐字一致", () => {
+    // 逐字一致是"默认观感不变"的硬条件：回退栈只要差一个字，
+    // 默认档的正文与那几个共用 --serif 的标题就会换字形。
+    expect(getBodyFontFamilyCss(DEFAULT_BODY_FONT_FAMILY)).toBe(
+      '"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif',
+    )
+  })
+
+  it("每个选项都以通用族收尾（字体缺失时仍有合理回退）", () => {
+    for (const option of BODY_FONT_OPTIONS) {
+      if (option.value === "follow-ui") continue
+      expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+    }
+  })
+
+  it("非法值回退到默认，而不是产生空字体", () => {
+    expect(normalizeBodyFontFamily("nope")).toBe(DEFAULT_BODY_FONT_FAMILY)
+    expect(normalizeBodyFontFamily(null)).toBe(DEFAULT_BODY_FONT_FAMILY)
+    expect(normalizeBodyFontFamily(undefined)).toBe(DEFAULT_BODY_FONT_FAMILY)
+    expect(getBodyFontFamilyCss("nope")).toBe(getBodyFontFamilyCss(DEFAULT_BODY_FONT_FAMILY))
+  })
+
+  it("可选「跟随界面字体」，且它指向界面字体变量而不是复制一份字体栈", () => {
+    // 必须是变量引用：复制字体栈会在用户改界面字体后失效
+    expect(getBodyFontFamilyCss("follow-ui")).toBe("var(--qmai-ui-font-family)")
+  })
+
+  it("正文字体与界面字体互不干扰（两组选项互不共享写入的变量）", () => {
+    const values = new Map<string, string>()
+    const root = {
+      style: { setProperty: (k: string, v: string) => values.set(k, v) },
+    } as unknown as HTMLElement
+    applyBodyFontFamily("kaiti", root)
+    applyUiFontFamily("simsun", root)
+    expect(values.get("--qmai-body-font-family")).toContain("KaiTi")
+    expect(values.get("--qmai-ui-font-family")).toContain("SimSun")
+    // 关键：写正文字体不能顺带改掉界面字体变量
+    expect(values.get("--qmai-ui-font-family")).not.toContain("KaiTi")
+  })
+
+  it("正文选项里不出现「本机默认」这类与界面字体重复的项（避免两处同义）", () => {
+    // 正文必须显式区分"衬线正文默认"与"跟随界面字体"；
+    // 若再放一个含糊的"系统默认"，用户无法预期它到底跟谁。
+    const values = BODY_FONT_OPTIONS.map((o) => o.value)
+    expect(values).toContain("follow-ui")
+    expect(values).toContain(DEFAULT_BODY_FONT_FAMILY)
+    expect(values).not.toContain("system")
+    expect(new Set(values).size).toBe(values.length)
+  })
+
+  it("界面字体与正文字体的默认值各自独立（改一个不影响另一个）", () => {
+    // 这两个默认值曾被混为一谈的隐患：--serif 一度就是界面字体的近亲。
+    expect(DEFAULT_UI_FONT_FAMILY).toBe("system")
+    expect(DEFAULT_BODY_FONT_FAMILY).toBe("serif-default")
+    expect(getUiFontFamilyCss(DEFAULT_UI_FONT_FAMILY)).not.toBe(getBodyFontFamilyCss(DEFAULT_BODY_FONT_FAMILY))
   })
 })

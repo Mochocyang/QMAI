@@ -16,9 +16,12 @@ import {
   type SidebarNavConfig,
 } from "@/lib/sidebar-nav-preferences"
 import {
+  DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
   clampUiFontSizeScale,
+  normalizeBodyFontFamily,
   normalizeUiFontFamily,
+  type BodyFontFamily,
   type UiFontFamily,
 } from "@/lib/font-settings"
 import {
@@ -54,6 +57,8 @@ const GRAPH_EDGE_STYLE_KEY = "lk-graph-edge-style"
 const GRAPH_EDGE_LABELS_ALWAYS_KEY = "lk-graph-edge-labels-always"
 const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 const UI_FONT_FAMILY_KEY = "qmai-ui-font-family"
+/** 正文字体独立键：与界面字体分开存，任何一个被改都不会覆盖另一个。 */
+const BODY_FONT_FAMILY_KEY = "qmai-body-font-family"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
 type SettingsCategoryId =
@@ -79,6 +84,11 @@ const readStoredUiFontSizeScale = (): number => {
 const readStoredUiFontFamily = (): UiFontFamily => {
   if (typeof localStorage === "undefined") return DEFAULT_UI_FONT_FAMILY
   return normalizeUiFontFamily(localStorage.getItem(UI_FONT_FAMILY_KEY))
+}
+
+const readStoredBodyFontFamily = (): BodyFontFamily => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_FAMILY
+  return normalizeBodyFontFamily(localStorage.getItem(BODY_FONT_FAMILY_KEY))
 }
 
 const readStoredVisualStyle = (): VisualStyle => {
@@ -646,6 +656,7 @@ interface WikiState {
   theme: "light" | "dark" | "system"
   uiFontSizeScale: number
   uiFontFamily: UiFontFamily
+  uiBodyFontFamily: BodyFontFamily
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
   dataVersion: number
@@ -721,6 +732,7 @@ interface WikiState {
   setTheme: (theme: "light" | "dark" | "system") => void
   setUiFontSizeScale: (scale: number) => void
   setUiFontFamily: (fontFamily: UiFontFamily) => void
+  setUiBodyFontFamily: (fontFamily: BodyFontFamily) => void
   setVisualStyle: (visualStyle: VisualStyle) => void
   setSidebarNavConfig: (config: Partial<SidebarNavConfig>) => void
   bumpDataVersion: () => void
@@ -942,6 +954,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   theme: "system",
   uiFontSizeScale: readStoredUiFontSizeScale(),
   uiFontFamily: readStoredUiFontFamily(),
+  uiBodyFontFamily: readStoredBodyFontFamily(),
   visualStyle: readStoredVisualStyle(),
   sidebarNavConfig: readStoredSidebarNavConfig(),
 
@@ -1011,6 +1024,13 @@ export const useWikiStore = create<WikiState>((set) => ({
       localStorage.setItem(UI_FONT_FAMILY_KEY, normalized)
     }
     set({ uiFontFamily: normalized })
+  },
+  setUiBodyFontFamily: (fontFamily) => {
+    const normalized = normalizeBodyFontFamily(fontFamily)
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(BODY_FONT_FAMILY_KEY, normalized)
+    }
+    set({ uiBodyFontFamily: normalized })
   },
   setVisualStyle: (visualStyle) => {
     const normalized = normalizeVisualStyle(visualStyle)

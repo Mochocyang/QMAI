@@ -23,7 +23,7 @@ import { useChatStore } from "@/stores/chat-store"
 import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
-import type { UiFontFamily } from "@/lib/font-settings"
+import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
@@ -175,6 +175,7 @@ function initialDraft(
   uiLanguage: string,
   uiFontSizeScale: number,
   uiFontFamily: UiFontFamily,
+  uiBodyFontFamily: BodyFontFamily,
   visualStyle: SettingsDraft["visualStyle"],
   sidebarNavConfig: SidebarNavConfig,
 ): SettingsDraft {
@@ -219,6 +220,7 @@ function initialDraft(
     uiLanguage,
     uiFontSizeScale,
     uiFontFamily,
+    uiBodyFontFamily,
     visualStyle,
     sidebarNavConfig,
   }
@@ -251,6 +253,8 @@ export function SettingsView() {
   const setUiFontSizeScale = useWikiStore((s) => s.setUiFontSizeScale)
   const uiFontFamily = useWikiStore((s) => s.uiFontFamily)
   const setUiFontFamily = useWikiStore((s) => s.setUiFontFamily)
+  const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
+  const setUiBodyFontFamily = useWikiStore((s) => s.setUiBodyFontFamily)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const setVisualStyle = useWikiStore((s) => s.setVisualStyle)
   const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
@@ -272,6 +276,7 @@ export function SettingsView() {
       i18n.language,
       uiFontSizeScale,
       uiFontFamily,
+      uiBodyFontFamily,
       visualStyle,
       sidebarNavConfig,
     ),
@@ -338,6 +343,7 @@ export function SettingsView() {
         prev.uiLanguage,
         uiFontSizeScale,
         uiFontFamily,
+        uiBodyFontFamily,
         visualStyle,
         sidebarNavConfig,
       ),
@@ -354,6 +360,7 @@ export function SettingsView() {
     maxHistoryMessages,
     uiFontSizeScale,
     uiFontFamily,
+    uiBodyFontFamily,
     visualStyle,
     sidebarNavConfig,
   ])
@@ -376,6 +383,7 @@ export function SettingsView() {
       saveMaxHistoryMessages,
       saveUiFontSizeScale,
       saveUiFontFamily,
+      saveUiBodyFontFamily,
       saveVisualStyle,
     } = await import("@/lib/project-store")
 
@@ -470,6 +478,11 @@ export function SettingsView() {
     await saveUiFontSizeScale(draft.uiFontSizeScale, project?.id, project?.path)
     setUiFontFamily(draft.uiFontFamily)
     await saveUiFontFamily(draft.uiFontFamily)
+    // 正文字体与界面字体各自存各自的键：只做其中一个会导致
+    // "这次生效、下次启动丢失"。应用（写 CSS 变量）交给 App 的 effect，
+    // 与既有做法一致，不在这里重复写。
+    setUiBodyFontFamily(draft.uiBodyFontFamily)
+    await saveUiBodyFontFamily(draft.uiBodyFontFamily)
     setVisualStyle(draft.visualStyle)
     await saveVisualStyle(draft.visualStyle)
     const { applyVisualStyle } = await import("@/lib/visual-style-settings")
@@ -497,6 +510,7 @@ export function SettingsView() {
     outputLanguage,
     setUiFontSizeScale,
     setUiFontFamily,
+    setUiBodyFontFamily,
     setVisualStyle,
     setSidebarNavConfig,
   ])

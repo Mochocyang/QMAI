@@ -18,7 +18,14 @@
      --qmai-ui-font-family 由 index.css 的 :root 提供默认值，
      并由 applyUiFontFamily 写到 documentElement 行内样式（可继承、优先级最高）。 */
   --ui: var(--qmai-ui-font-family);
-  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  /* --serif 是「正文衬线层」，由用户在「外观与界面 → 正文字体」中决定，
+     同样必须派生而不是硬编码，否则那个设置会重演 --ui 的老毛病（设了没效果）。
+     第二个参数是回退栈，与改造前的取值逐字一致：
+     未设置时（含首屏、以及任何不经过 JS 的场景）行为与改造前完全相同。
+     注意 --serif 不止正文在用（工具页标题、对话框标题、参考对话框 h3、
+     模型设置空状态标题），用户主动改字体时它们会一起变 —— 这是有意接受的，
+     因为它们同属"书卷感"衬线层。 */
+  --serif: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);
   --ui-canvas: #edf1ec; --ui-paper: #fcfdfb; --ui-panel: #f2f5ef; --ui-soft: #e4ece3;
   --ui-ink: #273c35; --ui-muted: #5d6e64; --ui-accent: #45624f; --ui-on-accent: #fff;
   --ui-warm: #f3ebdf; --ui-danger: #943f36; --ui-line: #dfe6da;

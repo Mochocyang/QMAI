@@ -4,7 +4,12 @@ import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
-import { normalizeUiFontFamily, type UiFontFamily } from "@/lib/font-settings"
+import {
+  normalizeBodyFontFamily,
+  normalizeUiFontFamily,
+  type BodyFontFamily,
+  type UiFontFamily,
+} from "@/lib/font-settings"
 import {
   VISUAL_STYLE_STORAGE_VERSION,
   normalizeVisualStyle,
@@ -883,6 +888,7 @@ export async function loadVisualStyle(): Promise<VisualStyle | null> {
 
 const UI_FONT_SIZE_SCALE_KEY = "uiFontSizeScale"
 const UI_FONT_FAMILY_KEY = "uiFontFamily"
+const BODY_FONT_FAMILY_KEY = "uiBodyFontFamily"
 const MAX_HISTORY_MESSAGES_KEY = "maxHistoryMessages"
 
 export async function saveUiFontSizeScale(scale: number, _projectId?: string, _projectPath?: string): Promise<void> {
@@ -901,6 +907,19 @@ export async function loadUiFontFamily(): Promise<UiFontFamily | null> {
   const store = await getStore()
   const saved = await store.get<string>(UI_FONT_FAMILY_KEY)
   return saved ? normalizeUiFontFamily(saved) : null
+}
+
+/** 持久化正文字体。与界面字体各用各的键，互不覆盖。 */
+export async function saveUiBodyFontFamily(fontFamily: BodyFontFamily): Promise<void> {
+  const store = await getStore()
+  await store.set(BODY_FONT_FAMILY_KEY, normalizeBodyFontFamily(fontFamily))
+  await store.save()
+}
+
+export async function loadUiBodyFontFamily(): Promise<BodyFontFamily | null> {
+  const store = await getStore()
+  const saved = await store.get<string>(BODY_FONT_FAMILY_KEY)
+  return saved ? normalizeBodyFontFamily(saved) : null
 }
 
 export async function saveMaxHistoryMessages(max: number, _projectId?: string, _projectPath?: string): Promise<void> {

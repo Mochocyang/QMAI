@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -22,7 +22,7 @@ import { resolveConfig } from "@/components/settings/preset-resolver"
 import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
-import { applyUiFontFamily } from "@/lib/font-settings"
+import { applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -40,6 +40,7 @@ function App() {
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
   const uiFontFamily = useWikiStore((s) => s.uiFontFamily)
+  const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
@@ -138,6 +139,11 @@ function App() {
     applyUiFontFamily(uiFontFamily)
   }, [uiFontFamily])
 
+  // 正文字体独立应用：只写 --qmai-body-font-family，不碰界面字体。
+  useEffect(() => {
+    applyBodyFontFamily(uiBodyFontFamily)
+  }, [uiBodyFontFamily])
+
   useEffect(() => {
     applyVisualStyle("classic")
   }, [visualStyle])
@@ -221,6 +227,13 @@ function App() {
         if (savedUiFontFamily) {
           useWikiStore.getState().setUiFontFamily(savedUiFontFamily)
           applyUiFontFamily(savedUiFontFamily)
+        }
+
+        // 正文字体与界面字体各自独立读回，缺一不可
+        const savedUiBodyFontFamily = await loadUiBodyFontFamily()
+        if (savedUiBodyFontFamily) {
+          useWikiStore.getState().setUiBodyFontFamily(savedUiBodyFontFamily)
+          applyBodyFontFamily(savedUiBodyFontFamily)
         }
 
         const savedConfig = await loadLlmConfig()

@@ -39,6 +39,16 @@ describe("界面字体生效链路", () => {
     expect(serif[0]).not.toContain("--qmai-ui-font-family")
   })
 
+  it("--serif 派生自 --qmai-body-font-family，回退栈与改造前逐字一致", () => {
+    let value: string | undefined
+    postcss.parse(uitestCss).walkDecls("--serif", (decl) => { value = decl.value })
+    expect(value).toContain("var(--qmai-body-font-family")
+    // 回退栈必须与改造前 --serif 的取值完全相同：未设置变量时
+    // （首屏、以及任何不经过 JS 的场景）行为必须与改造前一致
+    const fallback = value!.slice(value!.indexOf(",") + 1).replace(/\)\s*$/, "").trim()
+    expect(fallback).toBe('"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif')
+  })
+
   it("index.css 的 :root 默认值与 font-settings 的默认选项逐字一致", () => {
     // 两处若不一致，applyUiFontFamily 生效前后会各用一套字体：
     // 首屏闪一下再变，且默认观感与设置里显示的"本机默认"不符。

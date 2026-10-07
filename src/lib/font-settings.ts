@@ -109,3 +109,82 @@ export const UI_FONT_SIZE_PRESETS = [
   { label: "大", value: 1.25 },
   { label: "特大", value: 1.5 },
 ] as const
+
+/* ────────────────────────── 正文字体（独立于界面字体） ────────────────────────── */
+
+export const DEFAULT_BODY_FONT_FAMILY = "serif-default" as const
+
+/**
+ * 正文字体选项。与界面字体**完全独立**：写的是另一个 CSS 变量
+ * （`--qmai-body-font-family`），用户改其中任一个都不会影响另一个。
+ *
+ * 为什么需要它：`--serif`（正文衬线层）原先是一套固定字体栈，
+ * 用户想换正文观感只能忍受系统默认。现在集中在这里配置。
+ *
+ * 约定：只列中文字体（与界面字体同一条产品决定）。列出 Arial 这类西文字体时，
+ * 中文仍会回退到系统字体，用户会觉得"选了没用"。
+ */
+export const BODY_FONT_OPTIONS = [
+  {
+    value: "serif-default",
+    label: "默认（宋体系）",
+    // 必须与改造前 ui-test.css 里 --serif 的取值逐字一致，
+    // 否则默认档的正文与共用 --serif 的几个标题会换字形。
+    cssFamily: '"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif',
+  },
+  {
+    value: "follow-ui",
+    label: "跟随界面字体",
+    /*
+     * 必须是**变量引用**，不能把界面字体的栈复制一份：
+     * 复制来的副本在用户之后修改界面字体时不会跟着变，
+     * 表现为"我选了跟随界面字体，但界面字体改了它却没变"。
+     */
+    cssFamily: "var(--qmai-ui-font-family)",
+  },
+  { value: "simsun", label: "宋体", cssFamily: 'SimSun, "Songti SC", serif' },
+  { value: "nsimsun", label: "新宋体", cssFamily: 'NSimSun, SimSun, "Songti SC", serif' },
+  { value: "kaiti", label: "楷体", cssFamily: 'KaiTi, "Kaiti SC", serif' },
+  { value: "fangsong", label: "仿宋", cssFamily: 'FangSong, "Fangsong SC", serif' },
+  {
+    value: "source-han-serif",
+    label: "思源宋体",
+    cssFamily: '"Source Han Serif SC", "Noto Serif SC", SimSun, serif',
+  },
+  {
+    value: "source-han-sans",
+    label: "思源黑体",
+    cssFamily: '"Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+  },
+  {
+    value: "microsoft-yahei",
+    label: "微软雅黑",
+    cssFamily: '"Microsoft YaHei", "Microsoft YaHei UI", system-ui, sans-serif',
+  },
+] as const
+
+export type BodyFontFamily = (typeof BODY_FONT_OPTIONS)[number]["value"]
+
+const BODY_FONT_FAMILY_VALUES = new Set<string>(BODY_FONT_OPTIONS.map((option) => option.value))
+
+export function normalizeBodyFontFamily(value: unknown): BodyFontFamily {
+  return typeof value === "string" && BODY_FONT_FAMILY_VALUES.has(value)
+    ? (value as BodyFontFamily)
+    : DEFAULT_BODY_FONT_FAMILY
+}
+
+export function getBodyFontFamilyCss(value: unknown): string {
+  const normalized = normalizeBodyFontFamily(value)
+  return BODY_FONT_OPTIONS.find((option) => option.value === normalized)?.cssFamily
+    ?? BODY_FONT_OPTIONS[0].cssFamily
+}
+
+/**
+ * 只写 `--qmai-body-font-family`，**绝不触碰** `--qmai-ui-font-family`。
+ * 两者互不干扰是用户明确确认的边界（`ui-test.css` 的 `--serif` 从前者派生）。
+ */
+export function applyBodyFontFamily(value: unknown, root?: HTMLElement): void {
+  if (typeof document === "undefined" && !root) return
+  const target = root ?? document.documentElement
+  target.style.setProperty("--qmai-body-font-family", getBodyFontFamilyCss(value))
+}

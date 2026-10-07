@@ -1,7 +1,7 @@
 import type { CustomApiMode } from "./llm-presets"
 import type { AzureModelFamily, ReasoningConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
-import type { UiFontFamily } from "@/lib/font-settings"
+import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import type { VisualStyle } from "@/lib/visual-style-settings"
 
 /**
@@ -64,6 +64,8 @@ export interface SettingsDraft {
   uiLanguage: string
   uiFontSizeScale: number
   uiFontFamily: UiFontFamily
+  /** 正文字体：与界面字体互相独立（用户确认的边界）。 */
+  uiBodyFontFamily: BodyFontFamily
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
 
