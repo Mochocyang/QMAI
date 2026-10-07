@@ -101,7 +101,7 @@
 /* 写作区输入框包在 .shrink-0.bg-background 里，不是面板的直接子节点。这层直角白底会从圆角外露出来。 */
 [data-ui-ai-panel] .bg-background:has(> [data-ui-ai-composer]) { background-color: transparent; }
 [data-ui-ai-composer] > .border-t { padding: 0; border: 0; }
-[data-ui-ai-panel] [data-reference-input-footer] > div:first-child { flex-wrap: wrap; }
+[data-ui-ai-panel] [data-reference-input-footer] > div:first-child { flex-wrap: nowrap; }
 [data-ui-ai-panel] [data-reference-input-footer] [aria-label="上下文用量"] { display: inline-flex; flex: 0 0 auto; width: 28px; height: 28px; color: var(--ui-muted); }
 [data-ui-ai-tools] { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; margin-bottom: 8px; }
 [data-ui-ai-tools] > .flex { flex: 1; flex-wrap: wrap; gap: 4px; overflow: visible; }
@@ -125,23 +125,51 @@
 [data-ui-ai-composer] textarea { color: var(--ui-ink); font: 14px/1.7 var(--ui); }
 [data-ui-ai-composer] textarea::placeholder { color: var(--ui-muted); opacity: 1; }
 [data-ui-ai-composer] [data-reference-input-footer] {
-  flex-wrap: wrap;
+  /*
+   * 收窄时**不换行**。这里曾经是 flex-wrap: wrap，配一条注释说明
+   * 「一行放不下时，思考深度、模型和发送整组落到第二排，避免末尾被裁切」——
+   * 用户看过实机后判定那是缺陷：底栏被收窄时变成上下两排，看起来像排错了，
+   * 要的是**模型框跟着收窄**。所以现在靠压缩与截断让位，不靠换行。
+   * 代价是极窄时文字会被省略号截掉 —— 这是有意选择：宁可截断也不摆成两排。
+   */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
+  min-width: 0;
   /* 底和右侧留出圆角半径，避免发送按钮被 14px 圆角裁掉。 */
   padding: 8px 14px 14px;
   border: 0;
 }
-/* 一行放不下时，思考深度、模型和发送整组落到第二排，避免末尾被裁切。 */
+/*
+ * 右组（思考深度 + 模型 + 发送）从「撑满并保证不小于内容宽」改为「可压缩到 0 宽」。
+ * 旧写法的 min-width: min(100%, max-content) 正是换行的根因：它保证这一组永远
+ * 不小于自己的内容宽度，空间不够时 flex 只能把它整组挤到下一排。
+ */
+/*
+ * 右组整体也优先让位：flex-shrink 给一个极大的权重。
+ *
+ * 只在模型那层给大权重是不够的 —— flex 的收缩量是在**每一层各自**按
+ * (flex-shrink × flex-basis) 分配的。在底栏这一层，左组与右组权重相当，
+ * 于是实测左组也被压掉一半（156px → 78.8px），把「计划」按钮裁掉了。
+ * 使用者要的是"模型框收窄"，被裁的不该是一个功能按钮。
+ * 这里把右组在底栏这一层的收缩权重拉高，让模型先让位；左组只在模型压无可压时
+ * 才作为最后手段让步（下面那条仍有 min-width:0，配合 overflow:hidden 兜底）。
+ */
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child {
-  flex: 1 0 auto;
+  flex: 0 1000 auto;
   justify-content: flex-end;
   width: auto;
-  min-width: min(100%, max-content);
+  min-width: 0;
   max-width: 100%;
   margin-left: auto;
   gap: 2px;
+}
+/* 左组也要可压缩：极窄时先让「快速」这类文字让步，而不是把右组顶到第二排。 */
+[data-ui-ai-composer] [data-reference-input-footer] > div:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .ui-test-ai-model {
   display: flex;
@@ -157,10 +185,21 @@
 }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative,
 [data-ui-ai-composer] .ui-test-ai-model > .relative { flex: 0 0 auto; width: auto; min-width: 0; }
-[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { flex: 0 0 auto; width: auto; min-width: 0; }
+/*
+ * 模型选择是**唯一**优先被压缩的那一项：它的文案最长（模型名），被截断了也还有
+ * title 能看全名。所以：
+ *   - 它从 flex:0 0 auto 放开为可收缩，且 flex-shrink 给一个极大的权重，
+ *     让收窄时**先压它**（用户的要求是"把模型框收窄"），压到 0 才轮到别人；
+ *   - .relative 自己变成 flex 容器，按钮作为 flex 项才能被压到 min-content 以下
+ *     （flex 项的自动最小尺寸就是 min-content，不放开 min-width 永远截不断）。
+ * 思考深度那个 .relative 保持 flex:0 0 auto（上面那条）。
+ */
+[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child { display: flex; flex: 0 1000 auto; width: auto; min-width: 0; overflow: hidden; }
 [data-ui-ai-composer] [data-reference-input-footer] > div:last-child > .relative > button,
-[data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: fit-content; min-width: 0; max-width: 9rem; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
-[data-ui-ai-composer] .ui-test-ai-model > .relative > button > span { flex: 0 1 auto; width: auto; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative > button { width: auto; min-width: 0; max-width: 9rem; padding: 5px 2px; border: 0; background: transparent; color: var(--ui-muted); box-shadow: none; font-size: 12px; }
+[data-ui-ai-composer] .ui-test-ai-model > .relative:last-child > button { flex: 1 1 auto; min-width: 44px; }
+/* 模型名那个 span 是 flex 项，自动最小尺寸等于 min-content；不放开 min-width 就永远截不断。 */
+[data-ui-ai-composer] .ui-test-ai-model > .relative > button > span { flex: 0 1 auto; width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 [data-ui-ai-composer] [aria-label="引用内容"] { flex-shrink: 0; color: var(--ui-muted); }
 [data-ui-ai-composer] [aria-label="发送消息"] { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; line-height: 0; border-radius: 9px; background: var(--ui-accent); color: var(--ui-on-accent); }
 [data-ui-ai-composer] [aria-label="发送消息"]:disabled { background: var(--ui-soft); color: var(--ui-muted); }

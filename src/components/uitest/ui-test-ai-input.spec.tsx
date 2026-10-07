@@ -42,17 +42,53 @@ afterEach(async () => {
 })
 
 describe("测试版 AI 模型选择布局", () => {
-  it("思考按钮与模型选择同一行；底栏放不下时整组换到第二排", () => {
+  it("思考按钮与模型选择同一行；底栏收窄时压缩模型框而不是换到第二排", () => {
     const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
     expect(css).toMatch(/\[data-ui-ai-composer\] \{[^}]*overflow:\s*visible;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \.bg-background:has\(>\s*\[data-ui-ai-composer\]\) \{[^}]*background-color:\s*transparent;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] div:has\(>\s*\[data-reference-input-footer\]\) \{[^}]*overflow:\s*hidden;[^}]*clip-path:\s*inset\(0 round 14px\);[^}]*border-radius:\s*14px;/s)
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] \{[^}]*flex-wrap:\s*wrap;[^}]*padding:\s*8px 14px 14px;/s)
-    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex:\s*1 0 auto;[^}]*min-width:\s*min\(100%, max-content\);[^}]*max-width:\s*100%;[^}]*gap:\s*2px;/s)
+    /*
+     * 底栏**不换行**：曾经是 flex-wrap:wrap（"放不下就整组落到第二排"），
+     * 用户判定那是缺陷 —— 收窄时要的是模型框跟着收窄。这条断言就是那条需求的守卫。
+     */
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] \{[^}]*flex-wrap:\s*nowrap;[^}]*min-width:\s*0;[^}]*padding:\s*8px 14px 14px;/s)
+    /*
+     * 右组必须可压缩到 0 宽，且收缩权重远高于左组。
+     * 旧的 min-width: min(100%, max-content) 保证它不小于内容宽，正是换行的根因；
+     * 旧值 flex: 1 0 auto 也让它只长不缩。flex-shrink=1000 是关键：只在模型那一层
+     * 给大权重不够，因为收缩量是在每一层各自按 (shrink × basis) 分配的 ——
+     * 实测底栏这一层若不偏向右组，左组会被压掉一半、把「计划」按钮裁掉。
+     */
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*flex:\s*0 1000 auto;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*gap:\s*2px;/s)
+    expect(css).not.toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child \{[^}]*min-width:\s*min\(100%, max-content\)/s)
+    // 左组同样可压缩，避免极窄时把右组顶到第二排（只有在模型压无可压时才轮到它）。
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:first-child \{[^}]*flex:\s*0 1 auto;[^}]*min-width:\s*0;/s)
+    /*
+     * 模型框是收窄时**优先**让步的那一项：flex-shrink 权重极大，且 .relative 变成
+     * flex 容器，按钮作为 flex 项才能被压到 min-content 以下、露出省略号。
+     * 按钮另有 44px 下限：收到底只剩几像素就点不中也认不出了。
+     */
+    expect(css).toMatch(/\[data-ui-ai-composer\] \.ui-test-ai-model > \.relative:last-child \{[^}]*display:\s*flex;[^}]*flex:\s*0 1000 auto;[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;/s)
+    expect(css).toMatch(/\[data-ui-ai-composer\] \.ui-test-ai-model > \.relative:last-child > button \{[^}]*flex:\s*1 1 auto;[^}]*min-width:\s*44px;/s)
+    // 模型名的 span 必须放开 min-width，否则 flex 的自动最小尺寸会让它永远截不断。
+    expect(css).toMatch(/\[data-ui-ai-composer\] \.ui-test-ai-model > \.relative > button > span \{[^}]*min-width:\s*0;[^}]*text-overflow:\s*ellipsis;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:last-child > \.ui-test-ai-model \{[^}]*display: flex;[^}]*flex-direction: row;[^}]*flex-wrap: nowrap;[^}]*min-width: 0;/s)
     expect(css).toMatch(/\[data-ui-ai-panel\] \[data-reference-input-footer\] \[aria-label="上下文用量"\] \{[^}]*display: inline-flex;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] \[aria-label="停止生成"\] \{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*padding:\s*0;/s)
     expect(css).toMatch(/\[data-ui-ai-composer\] \[aria-label="发送消息"\] \{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*padding:\s*0;/s)
+  })
+
+  /*
+   * 上面那条是 CSS 文本契约，量不出"到底有没有换行"。
+   * 真实换行行为由浏览器几何脚本守：docs/ai-composer-nowrap-20261007/check-composer.mjs
+   * （8 个宽度实测同一行 + 模型框随之变窄 + 3 条负向对照）。
+   * 这里只做一件事：确认那条脚本还在，且没有被悄悄删掉。
+   */
+  it("底栏收窄行为由真实浏览器脚本守着（jsdom 量不出布局）", () => {
+    const script = readFileSync(resolve(__dirname, "../../../docs/ai-composer-nowrap-20261007/check-composer.mjs"), "utf8")
+    expect(script).toContain("flex-wrap:wrap")
+    expect(script).toContain("同一行")
+    expect(script).toContain("模型框确实收窄")
   })
 })
 
