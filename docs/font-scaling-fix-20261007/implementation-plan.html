@@ -830,6 +830,46 @@ git commit -m "fix(字号): 557 处绝对单位换算为精确 rem，界面字�
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1c：静态预判的已有风险点（控制方已实测，直接处理）</div>
+        <div class="note">
+          新增工具 <code>docs/font-scaling-fix-20261007/predict-clipping-risk.mjs</code>：
+          按**规则块**（花括号配对，非按行）找出"有效行高 × 倍率 &gt; 固定 px 高度"的规则。
+          有效行高覆盖三类来源：<code>font</code> 简写里的 px 行高、
+          <code>line-height: Npx</code>、以及<b>无单位行高 × 字号</b>
+          （最后一类最易漏：<code>height:28px; font-size:14px; line-height:1.6</code>
+          在 150% 下需要 33.6px）。
+        </div>
+        <div class="callout danger">
+          <span class="h">实测结果：全仓库只有 <b>2 条</b>规则存在此结构性风险，都在同一处</span>
+          两条规则（<code>src/components/uitest/models/model-settings.css:105</code> 与
+          <code>:147</code>）都作用于<b>同一个组件</b>：
+          <code>.model-tag-compose &gt; input</code>（模型设置里的标签输入框），
+          写法是经典的"行高等于高度"垂直居中：
+          <pre><code>min-height: 28px; height: 28px; font: 14px/28px var(--ui);</code></pre>
+          换算后是 <code>font: 0.875rem/1.75rem</code> —— 字号与行高都会缩放，
+          但 <code>height: 28px</code> <b>不会</b>（<code>height</code> 不是字号，不在换算范围内）。
+          150% 时行高需 <b>42px</b>，容器仍是 <b>28px</b>，<b>缺 14px</b>；
+          <code>input</code> 默认裁切 → 文字会被切掉。
+        </div>
+        <div class="expect">
+          <b>修法（容器侧，换算解决不了）</b>：把高度也改成 rem，让两者同步缩放，例如
+          <code>min-height: 1.75rem; height: 1.75rem;</code>（与 28px 在默认档逐字等价，
+          故不影响判据 1），或改为 <code>height: auto</code> + 靠 <code>padding</code> 撑高。
+          <b>不要</b>去改行高来迁就高度 —— 那会让正文/输入文本的行距偏离设计。
+        </div>
+        <div class="callout warn">
+          <span class="h">为什么"只有 2 条"这个结论本身需要被证明</span>
+          该工具带 <code>--selftest</code>（11 例：3 类行高来源、跨行规则、max-height，
+          以及 4 个负向边界）。<b>只有先证明它"该报的一定报"，"报得少"才可信</b>
+          —— 否则无法区分"布局真的健壮"与"分析器失灵"。
+          自检已通过；控制方在编写过程中正是被自检抓出一个错误的测试期望
+          （无单位行高 1.6×16px×1.5 = 38.4px ≤ 40px，本就不该报），
+          说明自检确实在起作用。步骤 3 修复后请重跑 <code>--selftest</code> 与正式分析，
+          确认这 2 条已消失且自检仍全绿。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 2：判定</div>
         <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,150</code></pre>
         <div class="expect">
