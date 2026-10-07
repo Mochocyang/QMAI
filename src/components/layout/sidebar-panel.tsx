@@ -623,6 +623,8 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           completed: progress.completed,
           total: progress.total,
           currentTitle: progress.currentPath ? titleByPath.get(progress.currentPath) ?? progress.currentPath : "",
+          // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
+          activeChapterPaths: progress.currentPath ? [normalizePath(progress.currentPath)] : [],
         })
       },
     })

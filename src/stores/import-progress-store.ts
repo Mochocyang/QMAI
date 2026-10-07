@@ -30,6 +30,14 @@ export interface ImportProgressTask {
   total: number
   currentTitle: string
   activeTitles?: string[]
+  /**
+   * 正在提取记忆的章节**路径**（已规范化）。
+   *
+   * 为什么不能复用 `currentTitle` 判断「哪一章在提取」：标题会重名，
+   * 同一本书里两章都叫「第3章 无名」并不罕见，按标题匹配会让两行同时显示
+   * 「提取中」——而实际只提取了其中一章。路径是唯一的。
+   */
+  activeChapterPaths?: string[]
   concurrency?: number
   message?: string
   error?: string
@@ -47,6 +55,7 @@ interface StartImportProgressTaskInput {
   message?: string
   abortController?: AbortController
   activeTitles?: string[]
+  activeChapterPaths?: string[]
   concurrency?: number
 }
 
@@ -93,6 +102,7 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
             currentTitle: input.currentTitle ?? "",
             message: input.message,
             activeTitles: input.activeTitles ?? [],
+            activeChapterPaths: input.activeChapterPaths ?? [],
             concurrency: input.concurrency,
             cancelling: false,
             createdAt: now,
@@ -115,7 +125,12 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
     },
     finishTask: (taskId, status, patch = {}) => {
       const task = get().tasks.find((item) => item.id === taskId)
-      get().updateTask(taskId, { ...patch, status, cancelling: false })
+      /*
+       * 结束时由 store 自己清空 activeChapterPaths，且排在 patch 之后（永远获胜）：
+       * 不依赖每个调用点都记得清。漏清一次，那一行就会永远显示「提取中」，
+       * 而它其实早就提取完了 —— 用户能看到的假状态比看不到状态更糟。
+       */
+      get().updateTask(taskId, { ...patch, status, cancelling: false, activeChapterPaths: [] })
       reconcileOutlineTasks(task)
       get().pruneSettledTasks()
     },
@@ -126,7 +141,7 @@ export const useImportProgressStore = create<ImportProgressState>((set, get) => 
       const task = get().tasks.find((t) => t.id === taskId)
       if (!task) return
       task.abortController?.abort()
-      get().updateTask(taskId, { status: "cancelled", cancelling: false, activeTitles: [] })
+      get().updateTask(taskId, { status: "cancelled", cancelling: false, activeTitles: [], activeChapterPaths: [] })
       reconcileOutlineTasks(task)
       get().pruneSettledTasks()
     },

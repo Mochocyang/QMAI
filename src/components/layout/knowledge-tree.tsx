@@ -14,6 +14,8 @@ import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
+import { extractChapterNumber } from "@/lib/novel/chapter-utils"
+import { chapterSnapshotNumbersFrom, resolveChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
@@ -53,6 +55,13 @@ interface WikiPageInfo {
   title: string
   type: "chapter" | "outline"
   chapterNumber?: number
+  /**
+   * 文件名里的数字。**只**给「是否已提取记忆」那枚绿点用：
+   * 树推不出 chapterNumber 时（frontmatter 没有 chapter_number、标题里也没有数字），
+   * `ingestChapter` 自己会回退到文件名取号，绿点也必须跟着回退，否则会漏报。
+   * 排序仍然用 chapterNumber —— 这里刻意不合并，避免改动既有的排序行为。
+   */
+  fileChapterNumber?: number
   tags: string[]
   origin?: string
   status?: ChapterStatus
@@ -283,12 +292,17 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
   const chapterNumber = type === "chapter"
     ? (extractChapterNumberFromContent(content) ?? extractPageOrderFromTitle(title) ?? undefined)
     : undefined
+  // 绿点专用的章号回退来源，见 WikiPageInfo.fileChapterNumber 的说明。
+  const fileChapterNumber = type === "chapter"
+    ? (extractChapterNumber(fileName.replace(/\.md$/i, "")) ?? undefined)
+    : undefined
 
   return {
     path: normalizedPath,
     title,
     type,
     chapterNumber,
+    fileChapterNumber,
     tags,
     origin,
     status,
@@ -365,6 +379,8 @@ export function KnowledgeTree({
   const outlineImportTasks = useImportProgressStore((s) => s.tasks)
   const [pages, setPages] = useState<WikiPageInfo[]>([])
   const [extractedOutlinePaths, setExtractedOutlinePaths] = useState<Set<string>>(() => new Set())
+  /** 盘上已有章节记忆快照的章号集合，绿点的判定依据。 */
+  const [chapterSnapshotNumbers, setChapterSnapshotNumbers] = useState<Set<number>>(() => new Set())
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
   const [armedPath, setArmedPath] = useState<string | null>(null)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
@@ -514,6 +530,57 @@ export function KnowledgeTree({
       cancelled = true
     }
   }, [filterType, novelMode, outlinePages, project, dataVersion, outlineTasks, outlineImportTasks])
+
+  /**
+   * 章节记忆快照的号码集合。只在**章节**页签下读，且用动态 import：
+   * `listSnapshots` 住在 chapter-ingest 这个重模块里，章节目录是本应用最常驻的组件，
+   * 没必要为了几个数字把它拉进首屏（同文件里的一键提取也是这么做的）。
+   *
+   * 依赖 `settledChapterKey` 而不是整个 tasks 数组：批量提取时每个章节都会
+   * updateTask 一次，若用数组当依赖，每章都会重读一次快照目录 —— 白读 N 次。
+   * 只在任务真正结束时重读一次，那时才会有新快照落盘。
+   */
+  const settledChapterKey = useMemo(() => {
+    if (!project) return ""
+    const pp = normalizePath(project.path)
+    return outlineImportTasks
+      .filter((task) => task.projectPath === pp && task.kind === "chapter" && task.status !== "running")
+      .map((task) => `${task.id}:${task.status}:${task.updatedAt}`)
+      .join("|")
+  }, [outlineImportTasks, project])
+
+  useEffect(() => {
+    if (!project || filterType !== "chapter") {
+      setChapterSnapshotNumbers(new Set())
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const { listSnapshots } = await import("@/lib/novel/chapter-ingest")
+        const numbers = chapterSnapshotNumbersFrom(await listSnapshots(project.path))
+        if (!cancelled) setChapterSnapshotNumbers(new Set(numbers))
+      } catch {
+        // 快照目录不存在（还没提取过任何章节）是正常状态，静默当作「一个都没有」。
+        if (!cancelled) setChapterSnapshotNumbers(new Set())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [filterType, project, dataVersion, settledChapterKey])
+
+  /** 正在提取记忆的章节路径。按路径匹配，理由见 store 里 activeChapterPaths 的注释。 */
+  const runningChapterPaths = useMemo(() => {
+    const running = new Set<string>()
+    if (!project) return running
+    const pp = normalizePath(project.path)
+    for (const task of outlineImportTasks) {
+      if (task.projectPath !== pp || task.kind !== "chapter" || task.status !== "running") continue
+      for (const path of task.activeChapterPaths ?? []) running.add(normalizePath(path))
+    }
+    return running
+  }, [outlineImportTasks, project])
 
   const isOutlinePathIngesting = useCallback((outlinePath: string) => {
     if (!project) return false
@@ -786,6 +853,8 @@ export function KnowledgeTree({
           completed,
           total: chapterPaths.length,
           currentTitle: titleByPath.get(chapterPath) ?? chapterPath,
+          // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
+          activeChapterPaths: [chapterPath],
         })
 
         const page = sortedChapterPages.find((item) => item.path === chapterPath)
@@ -1573,6 +1642,14 @@ export function KnowledgeTree({
       const isInsertTarget = isDragging && dragInsertIndex !== null && chapterIndex !== undefined && chapterIndex === dragInsertIndex && !isDragSource
       const isOutlineExtracted = filterType === "outline" && extractedOutlinePaths.has(normalizedPath)
       const isOutlineIngesting = filterType === "outline" && isOutlinePathIngesting(normalizedPath)
+      const memoryDotState = filterType === "chapter"
+        ? resolveChapterMemoryDotState({
+            snapshotChapterNumbers: chapterSnapshotNumbers,
+            chapterNumber: page.chapterNumber,
+            fileChapterNumber: page.fileChapterNumber,
+            running: runningChapterPaths.has(normalizedPath),
+          })
+        : "none"
       return [
         <div
           key={normalizedPath}
@@ -1613,6 +1690,23 @@ export function KnowledgeTree({
             title={page.title}
           >
             {filterType === "outline" ? (page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : null}
+            {/*
+              * 「已提取记忆」绿点：贴在标题左侧。已提取=实心绿点，提取中=灰点脉冲，
+              * 没提取过就什么都不渲染（不是渲染一个透明点占位 —— 那会让标题整体右移，
+              * 于是整列参差不齐）。判定与取号规则都在 chapter-memory-dot.ts 里。
+              */}
+            {memoryDotState !== "none" && (
+              <span
+                role="img"
+                data-state={memoryDotState}
+                data-ui-tree-memory-dot="true"
+                aria-label={memoryDotState === "done" ? "已提取记忆" : "正在提取记忆"}
+                title={memoryDotState === "done" ? "已提取记忆" : "正在提取记忆"}
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  memoryDotState === "done" ? "bg-emerald-500" : "animate-pulse bg-muted-foreground/60"
+                }`}
+              />
+            )}
             {renamingPath === normalizedPath ? (
               <input
                 type="text"

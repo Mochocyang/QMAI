@@ -1021,6 +1021,8 @@ export function PreviewPanel() {
             total: 1,
             currentTitle: String(chapterTitle),
             message: "正在提取章节记忆",
+            // 章节目录里那一行的「提取中」灰点靠这个字段点亮（按路径，不按标题）。
+            activeChapterPaths: [normalizePath(targetPath)],
             abortController: ingestAbortController,
           })
           const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
