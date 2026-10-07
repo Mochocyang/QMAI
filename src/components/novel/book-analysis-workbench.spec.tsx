@@ -853,6 +853,30 @@ describe("分析结果自动入库", () => {
     expect(mocks.revisions.mock.calls.length).toBeGreaterThan(1)
   })
 
+  it("端到端：自动发布成功后，重读回来的 confirmedAt 让徽标从「尚未入库」变成「已入库」", async () => {
+    /*
+     * 这是整个「分析完自动入库」功能的用户可见结果，必须端到端钉住：
+     * 只是断言「revisions 被重读过」或「存在某个徽标」都不够 —— 前者不保证界面跟着变，
+     * 后者不保证变的是对的那一版。这里让 mock 第一次返回未入库版本、之后返回已入库版本，
+     * 模拟真实落盘→重读的往返。
+     */
+    const pending = revisionFixture({ id: "rev-auto", taskId: "t-auto" })
+    const stored = revisionFixture({ id: "rev-auto", taskId: "t-auto", confirmedAt: 99 })
+    let loads = 0
+    mocks.revisions.mockImplementation(async () => { loads += 1; return [loads === 1 ? pending : stored] })
+
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => {})
+
+    const block = host.querySelector('[data-revision-id="rev-auto"]')!
+    // 重读确实发生过（否则下面的绿只是「本来就没渲染过待确认」）。
+    expect(loads).toBeGreaterThan(1)
+    const badges = Array.from(block.querySelectorAll(".wb-card-status")).map((b) => b.textContent)
+    expect(badges.length).toBeGreaterThan(0)
+    expect(badges.every((t) => t === "已入库")).toBe(true)
+    expect(block.textContent).not.toContain("尚未入库")
+  })
+
   it("自动发布失败只报错一次、不重试、不写确认标记", async () => {
     // 盘上的版本必须每次都以新数组回来（去重只靠 id，不靠引用相等），
     // 并且发布成功后才带上 confirmedAt —— 否则重读不会真的改变 revisions，effect 也就不会重跑，

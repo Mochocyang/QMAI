@@ -273,9 +273,11 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
   const switchCount = (tsx.match(/className="wb-view-switch"/g) ?? []).length
   check(switchCount === 1, "视图切换在组件源码里只渲染一份", `实得 ${switchCount} 份`)
   check(/className="wb-results-bar"/.test(tsx), "页签与视图切换被包在同一个 wb-results-bar 里")
-  check(readFileSync(join(repo, "src/components/novel/book-analysis-workbench.css"), "utf8")
-    .includes(".wb-results-bar .wb-tabs{flex:1;min-width:0;border-bottom:0;margin-bottom:0}"),
-    "CSS 里 .wb-results-bar 收编了页签原有的 border/margin（否则会出现双下边框）")
+  // 断言行为而不是逐字原文：构建期 lightningcss 会重排属性，死盯字符串顺序会假失败。
+  const srcCss = readFileSync(join(repo, "src/components/novel/book-analysis-workbench.css"), "utf8")
+  const barTabsRule = srcCss.match(/\.wb-results-bar \.wb-tabs\{([^}]*)\}/)?.[1] ?? ""
+  check(/border-bottom:\s*0/.test(barTabsRule) && /margin-bottom:\s*0/.test(barTabsRule),
+    "CSS 里 .wb-results-bar 收编了页签原有的 border/margin（否则会出现双下边框）", barTabsRule)
 
   const barHtml = `<section class="wb-section wb-results-section">
     <div class="wb-results-bar">

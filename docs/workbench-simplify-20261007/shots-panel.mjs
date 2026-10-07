@@ -44,10 +44,23 @@ const HTML = (body) => `<!doctype html><html><head><style>${allCss}</style>
 h4{margin:22px 0 6px;font-size:13px;color:#5f6b66;font-weight:600}</style></head>
 <body><div class="book-workbench">${body}</div></body></html>`
 
+// 结果区工具条：页签 + **一份**视图切换（全版本平铺后不再每块一个开关）
+const bar = `<section class="wb-section wb-results-section"><div class="wb-results-bar">
+  <div class="wb-tabs" role="tablist" aria-label="分析结果">
+    <button role="tab" aria-selected="true">角色 Skill</button>
+    <button role="tab" aria-selected="false">文风 Skill</button>
+    <button role="tab" aria-selected="false">故事 Skill</button>
+  </div>
+  <div class="wb-view-switch" role="group" aria-label="成果展示方式">
+    <button class="wb-icon" title="卡片视图" aria-label="卡片视图" aria-pressed="true">▦</button>
+    <button class="wb-icon" title="列表视图" aria-label="列表视图" aria-pressed="false">☰</button>
+  </div>
+</div>`
+
 // 场景一：旧版在前、新版在后的平铺（含日期）
-const stacked = `<h4>同一技能页的全部版本平铺（旧版本在前、新版本在后，每个对象名后带生成日期）</h4>` +
+const stacked = `<h4>同一技能页的全部版本平铺（旧版本在前、新版本在后，每个对象名后带生成日期）</h4>` + bar +
   block("2026/10/4 08:12 · 60章 · 12个对象 · 4项未采纳 · 旧版导入", oldCards) +
-  block("2026/10/7 09:03 · 90章 · 18个对象 · 尚未入库", newCards)
+  block("2026/10/7 09:03 · 90章 · 18个对象 · 尚未入库", newCards) + `</section>`
 
 for (const [w, h, name] of [[1280, 980, "panel-stacked-1280.png"], [760, 1100, "panel-stacked-760.png"]]) {
   const page = await browser.newPage({ viewport: { width: w, height: h } })
