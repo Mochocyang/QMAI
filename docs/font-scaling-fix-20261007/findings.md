@@ -419,8 +419,9 @@ px 探针保持不变: true（12px → 12px）
 | 完全没变（×1.0） | **0** |
 | 跟随率 | **100.0%** |
 
-2574 个文字元素**没有一个**不跟随。（另一次采样在另一个页面：6260 元素 /
-2971 文字元素，同样全部跟随、0 未变。）
+2574 个文字元素**没有一个**不跟随。原始证据（脚本每次覆盖写这一个文件）：
+`real-exe-shots/real-exe-ui-scale.json` —— `total: 5491` / `texty: 2574` /
+`scaled: 2574` / `unscaled: 0` / `followRatePct: 100` / `unscaledTop: []`。
 
 ### 10.2 一处必须更正的边界认识：`li::marker` 与小说章节无关
 
@@ -471,6 +472,11 @@ px 探针保持不变: true（12px → 12px）
 字体判定一律用 CDP 的 `CSS.getPlatformFontsForNode`，**不看**
 `getComputedStyle().fontFamily` —— 后者只回显你写的栈，栈首字体本机不存在时
 它照样回显那个名字，证明不了任何"生效"。
+
+原始证据：`real-exe-shots/real-exe-settings-save.json`（脚本每次运行覆盖写入，
+**不是可选的** —— 靠 stdout 的数字无法复核，本节最初就因此撤掉过一处引用）。
+里面逐条记着滑块写入值与**回读值**、`localStorage` 落盘值、CDP 报告的真实渲染族
+（含 `before`/`after` 两个方向）、以及恢复前后的期望/实际对照。
 
 ### 10.5 本次踩到并已修的测量陷阱（会让结论变成假的）
 

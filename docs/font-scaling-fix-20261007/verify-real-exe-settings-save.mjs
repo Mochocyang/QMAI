@@ -31,6 +31,7 @@
 
 import { join, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { writeFileSync } from "node:fs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -39,6 +40,20 @@ const PORT = Number(argOf("--port") ?? 9333)
 const OUTLINE_KEY = argOf("--doc") ?? "开篇方向"
 const UI_FONT_TO_TRY = argOf("--ui-font") ?? "simhei"      // 黑体，实测本机可用
 const BODY_FONT_TO_TRY = argOf("--body-font") ?? "kaiti"   // 楷体，实测本机可用
+/**
+ * 证据落盘路径。**默认就写**，不是可选项。
+ *
+ * 为什么不靠 stdout：本脚本的结论会被人引用进 findings.md / 实施记录，
+ * 而 stdout 只存在于终端滚动缓冲里 —— 引用一个只存在于终端里的数字，
+ * 等于引用一个无法复核的断言（这一轮就因此撤掉过一处「6260/2971」的引用）。
+ * 写成 JSON 后，文档里的每个数字都能在这一份产物里找到。
+ */
+const OUT = argOf("--out") ?? join(HERE, "real-exe-shots", "real-exe-settings-save.json")
+const evidence = {
+  note: "真实 exe：设置界面改字号/字体 → 点保存 → 生效、落盘、真实渲染族。由 verify-real-exe-settings-save.mjs 每次运行覆盖写入。",
+  capture: { uiFontTried: UI_FONT_TO_TRY, bodyFontTried: BODY_FONT_TO_TRY, doc: OUTLINE_KEY },
+  initial: null, sliders: null, cases: [], docCase: null, fontCase: null, restore: null, fails: [], notes: [], verdict: null,
+}
 
 const mod = await import(pathToFileURL(join(process.env.APPDATA, "npm/node_modules/playwright/index.js")).href)
 const chromium = mod.chromium ?? mod.default?.chromium
@@ -59,6 +74,20 @@ const bye = async () => { try { await Promise.race([browser.close(), wait(4000)]
 const fails = [], notes = []
 const eff = (v) => (v == null ? 1 : v)
 const near = (a, b, t = 0.05) => a !== null && b !== null && Math.abs(a - b) < t
+
+/** 落盘证据。放在退出前调用，通过与否都写 —— 失败的现场同样需要留证。 */
+function writeEvidence(verdict) {
+  evidence.fails = fails
+  evidence.notes = notes
+  evidence.verdict = verdict
+  try {
+    writeFileSync(OUT, JSON.stringify(evidence, null, 2), "utf8")
+    console.log(`\n  证据已写入: ${OUT}`)
+  } catch (e) {
+    console.log(`\n  ⚠ 证据写入失败: ${e.message}`)
+    fails.push(`证据写入失败: ${e.message}`)
+  }
+}
 
 /** Chromium 实际渲染这个元素用的字体族。取不到返回 null。 */
 async function platformFont(selector) {
@@ -199,6 +228,7 @@ async function waitForDoc(timeoutMs = 60_000) {
 /* ── 开始 ── */
 console.log("  ══ 真实 exe：设置界面改字号与字体 → 保存 → 生效？落盘？真实渲染变了吗？══")
 const before = await page.evaluate(READ_STATE)
+evidence.initial = before
 console.log(`  初始：DOM root=${before.domRootPct ?? "(未设置)"} computed=${before.domComputedRoot}  --body-scale=${before.domBodyScale ?? "(未设置)"}`)
 console.log(`        落盘 界面字号=${before.storedUi} 正文字号=${before.storedBody}（有效值 ${eff(before.storedUi)}/${eff(before.storedBody)}）`)
 console.log(`        落盘 界面字体=${before.storedUiFont} 正文字体=${before.storedBodyFont}`)
@@ -223,6 +253,11 @@ const ok1 = a1.domRootPct === "150%" && eff(a1.storedUi) === 1.5
 console.log(`    ${ok1 ? "✓" : "✗"} 界面字号：DOM(${a1.domRootPct}) 落盘(${a1.storedUi})`)
 if (!ok1) fails.push(`界面字号保存未生效：DOM=${a1.domRootPct} 落盘=${a1.storedUi}`)
 const indep1 = eff(a1.storedBody) === eff(before.storedBody)
+evidence.cases.push({
+  label: "界面字号→150%", slider: { written: 150, read: set1.value, min: set1.min, max: set1.max, step: set1.step },
+  after: a1, domRootPct: a1.domRootPct, computedRoot: a1.domComputedRoot, storedUi: a1.storedUi,
+  independence: { storedBodyBefore: eff(before.storedBody), storedBodyAfter: eff(a1.storedBody), ok: indep1 }, ok: ok1,
+})
 console.log(`    ${indep1 ? "✓" : "✗"} 独立性：正文字号有效值未被动（${eff(before.storedBody)} → ${eff(a1.storedBody)}）`)
 if (!indep1) fails.push(`改界面字号顺带改了正文字号（${eff(before.storedBody)} → ${eff(a1.storedBody)}）`)
 
@@ -239,6 +274,11 @@ await wait(2500)
 const a2 = await page.evaluate(READ_STATE)
 console.log(`  保存后：DOM root=${a2.domRootPct ?? "(清除)"}  --body-scale=${a2.domBodyScale}  落盘 界面=${a2.storedUi} 正文=${a2.storedBody}`)
 const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null) && eff(a2.storedBody) === 1.25 && eff(a2.storedUi) === 1
+evidence.cases.push({
+  label: "正文→125%（界面回100%）", slider: { written: 125, read: set2.value },
+  after: a2, domBodyScale: a2.domBodyScale, domRootPct: a2.domRootPct,
+  storedBody: a2.storedBody, storedUi: a2.storedUi, ok: ok2,
+})
 console.log(`    ${ok2 ? "✓" : "✗"} 正文字号：DOM(${a2.domBodyScale}) 落盘(${a2.storedBody}) 界面字号回(${a2.storedUi})`)
 if (!ok2) fails.push(`正文字号保存未生效：DOM=${a2.domBodyScale} 落盘 正文=${a2.storedBody} 界面=${a2.storedUi}`)
 
@@ -251,12 +291,15 @@ console.log(`  打开: ${JSON.stringify(await page.evaluate(OPEN_DOC, OUTLINE_KE
 const doc = await waitForDoc()
 console.log(`  文档实测: p=${doc.p} 无序li=${doc.ulLi} marker=${doc.ulMarker} 有序li=${doc.olLi} marker=${doc.olMarker} li.display=${doc.liDisplay}`)
 const expSize = { p: 22.5, ulLi: 20, ulMarker: 15, olLi: 20, olMarker: 20 }
+const docChecks = {}
 for (const [k, v] of Object.entries(expSize)) {
   const ok = near(doc[k], v)
+  docChecks[k] = { expected: v, measured: doc[k], ok }
   console.log(`    ${ok ? "✓" : "✗"} ${k.padEnd(9)} 期望 ${v}px 实测 ${doc[k]}px`)
   if (!ok) fails.push(`正文字号 125% 下 ${k} 期望 ${v}px 实测 ${doc[k]}px`)
 }
 if (doc.liDisplay && doc.liDisplay !== "list-item") fails.push(`::marker 读数不可信（li.display=${doc.liDisplay}）`)
+evidence.docCase = { scale: 1.25, liDisplay: doc.liDisplay, checks: docChecks, ok: Object.values(docChecks).every((c) => c.ok) }
 
 // ── 用例 4：界面字体 → 黑体（真实渲染族判定）──
 console.log("")
@@ -289,6 +332,15 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   if (a4.storedUiFont !== UI_FONT_TO_TRY || a4.storedBodyFont !== BODY_FONT_TO_TRY) {
     fails.push(`字体设置未落盘：界面=${a4.storedUiFont} 正文=${a4.storedBodyFont}`)
   }
+  evidence.fontCase = {
+    options: s4a.options ?? [],
+    selectWritten: { ui: UI_FONT_TO_TRY, body: BODY_FONT_TO_TRY },
+    selectRead: { ui: s4a.value, body: s4b.value },
+    stored: { uiFont: a4.storedUiFont, bodyFont: a4.storedBodyFont },
+    realRenderedUI: { before: baseUiFont?.main ?? null, beforeAll: baseUiFont?.all ?? [], after: afterUiFont?.main ?? null, afterAll: afterUiFont?.all ?? [], changed: !!changed },
+    // 下面三项在用例 5 里填
+    realRenderedBody: null, realRenderedUiControl: null, realRenderedSerifLayer: null,
+  }
 
   // ── 用例 5：正文字体只影响正文与「正文衬线层」，界面控件不受影响 ──
   console.log("")
@@ -314,6 +366,9 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   const brandIsKai = serifConsumer && /KaiTi|楷体|Kaiti/i.test(serifConsumer.main)
   console.log(`    ${brandIsKai ? "✓" : "✗"} 设计一致：正文衬线层随正文字体变为「${serifConsumer?.main}」（ui-test.css:118 明确用 var(--serif)）`)
   if (!brandIsKai) fails.push(`正文衬线层未跟随正文字体（brand-name 渲染为「${serifConsumer?.main}」）`)
+  evidence.fontCase.realRenderedBody = { selector: ".ui-test-editor-body .ProseMirror p", main: docFont?.main ?? null, all: docFont?.all ?? [] }
+  evidence.fontCase.realRenderedUiControl = { selector: ".ui-test-nav-item", main: uiFontNow?.main ?? null, all: uiFontNow?.all ?? [] }
+  evidence.fontCase.realRenderedSerifLayer = { selector: ".ui-test-brand-name", main: serifConsumer?.main ?? null, all: serifConsumer?.all ?? [] }
 }
 
 // ── 恢复 ──
@@ -339,6 +394,11 @@ if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") }
   if (before.storedBody === null && a3.storedBody === 1) {
     notes.push("正文字号原为「从未设置」(null)，保存后落为显式默认值 1 —— 语义相同（都是 100%），非串改")
   }
+  evidence.restore = {
+    expected: { uiSize: eff(before.storedUi), bodySize: eff(before.storedBody), uiFont: before.storedUiFont ?? "system", bodyFont: before.storedBodyFont ?? "serif-default" },
+    actual: { uiSize: a3.storedUi, bodySize: a3.storedBody, uiFont: a3.storedUiFont, bodyFont: a3.storedBodyFont, domRootPct: a3.domRootPct, domBodyScale: a3.domBodyScale },
+    ok: restored,
+  }
 }
 
 console.log("")
@@ -346,8 +406,10 @@ for (const n of notes) console.log(`  · ${n}`)
 if (fails.length) {
   console.log(`  ✗ FAIL（${fails.length} 项）`)
   for (const f of fails) console.log(`    · ${f}`)
+  writeEvidence("fail")
   await bye(); process.exit(1)
 }
 console.log("  ✓ 通过：设置界面改字号与字体 → 保存 → 生效、落盘、真实渲染同步变化")
+writeEvidence("pass")
 await bye()
 process.exit(0)

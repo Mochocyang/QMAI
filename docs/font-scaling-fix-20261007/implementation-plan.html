@@ -2323,9 +2323,9 @@ git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" 
             </tbody>
           </table>
           「只有按钮有效果」这一原始症状在真实 exe 上<b>已被反证</b>：2574 个文字元素里
-          没有一个不跟随。<br>
-          （另一次采样共 6260 元素 / 2971 文字元素，同样 2971 全跟随、0 未变；
-          两次数字不同是因为测量时停留的页面不同，结论一致。）
+          没有一个不跟随。原始证据：<code>real-exe-shots/real-exe-ui-scale.json</code>
+          （<code>total: 5491</code> / <code>texty: 2574</code> / <code>scaled: 2574</code> /
+          <code>unscaled: 0</code> / <code>followRatePct: 100</code> / <code>unscaledTop: []</code>）。
         </div>
 
         <div class="callout">
@@ -2380,7 +2380,11 @@ git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" 
           <b>字体判定用 CDP 的 <code>CSS.getPlatformFontsForNode</code>，不看
           <code>getComputedStyle().fontFamily</code>。</b>后者只回显你写的栈：
           栈首字体本机不存在时它<b>照样回显那个名字</b>，所以它证明不了任何"生效"。
-          CDP 报告的是 Chromium 实际拿来画字的那一款，无法伪装。
+          CDP 报告的是 Chromium 实际拿来画字的那一款，无法伪装。<br>
+          原始证据：<code>real-exe-shots/real-exe-settings-save.json</code>
+          （脚本每次运行<b>覆盖写入</b>，含滑块写入值与回读值、落盘值、
+          真实渲染族的 before/after、以及恢复前后的对照）。
+          这一条是硬性要求：靠 stdout 的数字无法复核，本节最初就因此撤掉过一处引用。
         </div>
 
         <div class="callout warn">

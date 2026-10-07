@@ -38,7 +38,7 @@
 | `probe-font-scaling.mjs` | 完整应用界面上的字号缩放采样 | 12/12 未缩放，复现缺陷 |
 | `probe-navigable-pages.mjs` | 探明纯浏览器可覆盖哪些页面 | 结论：仅设置页可达 |
 | `verify-real-exe.mjs` | **真实 exe 验收**：CDP 附加到便携版，读真实 DOM 的 `li::marker` 各档像素值，并做**全界面**字号普查（100% vs 150% 逐元素比对） | 实跑通过；冷启动全流程（章节 → 切「大纲」→ 点开含列表文档）亦通过；**界面字号跟随率 100.0%**（2574/2574 文字元素，0 未变） |
-| `verify-real-exe-settings-save.mjs` | **真实 exe 端到端**：在设置界面拖滑块/选下拉 → **点保存** → 断言 DOM、localStorage 落盘、以及**真实渲染族**（CDP `CSS.getPlatformFontsForNode`） | 实跑通过；5 个用例 + 恢复初值。覆盖了「直接改 CSS 变量验不到」的保存链路（`setUiFontSizeScale` 排在约 10 个 `await` 之后） |
+| `verify-real-exe-settings-save.mjs` | **真实 exe 端到端**：在设置界面拖滑块/选下拉 → **点保存** → 断言 DOM、localStorage 落盘、以及**真实渲染族**（CDP `CSS.getPlatformFontsForNode`） | 实跑通过；5 个用例 + 恢复初值。覆盖了「直接改 CSS 变量验不到」的保存链路（`setUiFontSizeScale` 排在约 10 个 `await` 之后）。**默认写证据** `real-exe-shots/real-exe-settings-save.json`（`--out` 可改路径）—— 文档里引用的每个数字都必须能在产物里复核 |
 | `verify-body-font-single-source.mjs` | 正文字号**静态**单一来源校验（编辑器 DOM 在浏览器里不可达，故必须与真实 exe 双管齐下） | `--selftest` 14/0；正例通过、13 类反例逐一检出 |
 | `verify-body-font-scale.mjs` | 注入式验证正文字号/行高（含查找高亮层对齐） | 实跑通过 |
 | `verify-ui-font-applies.mjs` | 界面字体 11 项逐个验证（用**真实产品 `cssFamily`**，CDP 判真实渲染族） | `--selftest` 49/0；12 档真换字形、1 档仅度量差、3 档期望相同且成立 |
