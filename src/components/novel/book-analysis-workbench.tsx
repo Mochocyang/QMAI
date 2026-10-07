@@ -732,10 +732,17 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
   const empty = names !== null && names.length === 0
   return (
     <Dialog open={Boolean(subject)} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[640px]">
-        <DialogHeader><DialogTitle>绑定「{subject}」</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">绑定后会自动把该角色灵魂加入自定义灵魂库。</p>
-        <label className="flex items-center gap-2 rounded-md border px-2">
+      {/*
+        纵向分配：标题/说明/搜索框/计数/页脚全都 shrink-0（按内容占位、绝不被压扁），
+        只有中间的名单区吸收剩余高度并自己滚动。之前这几行没有 shrink-0，
+        窗口一矮就被挤到只剩几像素、文字被裁一半，名单区还会被压成 0。
+        整个对话框再兜一层 overflow-y-auto：窗口真的极矮时宁可对话框自己滚，
+        也不能让「绑定所选」按钮跑到看不见的地方。
+      */}
+      <DialogContent className="flex max-h-[85vh] flex-col gap-3 overflow-y-auto sm:max-w-[640px]">
+        <DialogHeader className="shrink-0"><DialogTitle>绑定「{subject}」</DialogTitle></DialogHeader>
+        <p className="shrink-0 text-sm text-muted-foreground">绑定后会自动把该角色灵魂加入自定义灵魂库。</p>
+        <label className="flex shrink-0 items-center gap-2 rounded-md border px-2">
           <Search className="size-4 shrink-0 opacity-60" />
           {/* Dialog 的初始焦点落在第一个可聚焦控件上，也就是这里，所以打开即输入。 */}
           <input aria-label="搜索小说人物" placeholder="搜索小说人物" value={query}
@@ -747,9 +754,11 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
               event.preventDefault(); event.stopPropagation(); setQuery("")
             }} />
         </label>
-        {!loading && <p className="text-xs text-muted-foreground">已选 {picked.length} 个 · 匹配 {visible.length} / 共 {candidates.length}</p>}
+        {!loading && <p className="shrink-0 text-xs text-muted-foreground">已选 {picked.length} 个 · 匹配 {visible.length} / 共 {candidates.length}</p>}
         {/* 文案与 character-aura.ts 的常量一致 */}
-        {empty && <p role="alert" className="text-sm">请先在大纲中添加人物小传或人物设定，再绑定角色灵魂</p>}
+        {empty && <p role="alert" className="shrink-0 text-sm">请先在大纲中添加人物小传或人物设定，再绑定角色灵魂</p>}
+        {/* min-h-0 让名单区成为唯一吸收纵向压力的地方：窗口再矮也是它变短，
+            标题/搜索框/计数/按钮始终按内容完整显示，绝不被裁。 */}
         <div className="min-h-0 flex-1 overflow-y-auto" data-testid="bindable-name-list">
           {/* 加载提示只占列表区：标题、搜索框和底部按钮立刻可用。 */}
           {loading && <p className="text-sm text-muted-foreground">正在读取小说人物…</p>}
@@ -771,7 +780,7 @@ export function BindingTargetDialog({ subject, names, projectPath, alwaysKeep = 
               </div>
             : <p className="text-sm text-muted-foreground">{keyword ? `没有匹配「${query.trim()}」` : "没有可绑定的小说人物"}</p>)}
         </div>
-        <DialogFooter className="items-center">
+        <DialogFooter className="shrink-0 items-center">
           {ignored.length > 0 && <div className="mr-auto text-xs text-muted-foreground">
             <button type="button" aria-expanded={ignoredOpen} className="underline" onClick={() => setIgnoredOpen(!ignoredOpen)}>已忽略 {ignored.length} 项</button>
             {ignoredOpen && <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{ignored.map((name) => <li key={name} className="flex items-center gap-1">
