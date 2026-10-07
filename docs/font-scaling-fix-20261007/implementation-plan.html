@@ -2179,6 +2179,48 @@ node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,115,130
 git add -A
 git commit -m "test(字号): 记录阶段 1+2 的门禁与 A/B 回归结果" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录：全量 A/B 结论（含把 684 与 681 的差额逐条查明，而不是含糊过去）</div>
+        <div class="callout">
+          <span class="h">结论：新增失败文件 0 个，失败集合与基线<b>完全一致</b></span>
+          <table>
+            <thead><tr><th>指标</th><th>既有基线 <code>qmai-412-testmocks.json</code></th><th>本次</th><th>差</th></tr></thead>
+            <tbody>
+              <tr><td>spec 文件数</td><td>681</td><td>684</td><td>+3（全是本次新增的测试文件，见下）</td></tr>
+              <tr><td>用例数</td><td>6234</td><td>6329</td><td>+95（全是新增的通过用例）</td></tr>
+              <tr><td>失败用例数</td><td>192</td><td><b>192</b></td><td><b>0</b></td></tr>
+              <tr><td>失败文件数</td><td>29</td><td><b>29</b></td><td><b>0</b></td></tr>
+              <tr><td>新增失败文件</td><td>—</td><td>—</td><td><b>0</b>（且"基线失败但现已通过"也是 0）</td></tr>
+            </tbody>
+          </table>
+          失败集合是<b>逐一比对文件名</b>得出的（不是只比数量）：既没有新增的失败文件，
+          也没有任何一个基线失败文件变成通过 —— 两个方向都为 0，说明这 192 条确实是
+          同一批既有失败，没有掩盖掉新问题。
+          <br>
+          <b>+3 个文件逐条查明</b>（用 <code>vitest list</code> 取当前清单、
+          与基线 JSON 里的 <code>testResults[].name</code> 求差集）：
+          <code>docs/font-scaling-fix-20261007/census-guards.spec.mjs</code>（23 用例）、
+          <code>scripts/convert-font-units-to-rem.spec.mjs</code>（30 用例）、
+          <code>src/components/uitest/ui-font-derivation.spec.ts</code>（5 用例）——
+          合计 58 用例，都是本次为验收工具与换算脚本自己写的自检/守卫测试。
+          其余 95 − 58 = <b>37 用例</b>是加在既有 spec 文件里的（<code>font-settings.spec.ts</code>、
+          <code>interface-sidebar-nav.spec.ts</code> 等）。<b>反向差集为空</b>：没有任何文件消失。
+        </div>
+        <div class="callout danger">
+          <span class="h">两处测量陷阱（否则这个结论会是假的）</span>
+          <b>① PowerShell 5.1 的 <code>Tee-Object</code> 写的是 UTF-16LE。</b>
+          我第一次用 node 按 UTF-8 解析 <code>qmai-font-fix-task9.json</code>，
+          解析出的失败文件集是 <b>0 个</b> —— 若就此下结论，会得出一个"完全没有失败文件"的
+          荒唐结论（比真实情况还好，因而不会被怀疑）。已改为按 BOM 自动识别编码
+          （<code>ff fe</code> → UTF-16LE）。这条与本次字体修复无关，
+          但它说明<b>解析自己的报告也要有正对照</b>：失败集为 0 与"文件读坏了"在字面上无法区分。
+          <br>
+          <b>② 基线 JSON 里 <code>numTotalTestSuites</code> = 1824</b>，不是 681。
+          681 是 <code>testResults</code> 的长度（真正的文件数），1824 是 suite 数。
+          拿错字段会算出完全错误的"文件数差"。
+        </div>
+      </div></div>
     </div>
 
     <!-- Task 10 -->
