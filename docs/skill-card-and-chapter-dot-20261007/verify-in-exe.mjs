@@ -97,6 +97,45 @@ const mustNotContainComposer = [
  * 「等待确认」，和本次删掉的卡片徽标是两回事（实测：对 index 断言会误报 FAIL）。
  * 拆书库卡片在 book-analysis-view chunk 里，用「证据索引」定位它才精确。
  */
+/**
+ * 第四轮（记忆中心单页重构）标记。
+ *
+ * 这一轮的命题几乎全是**结构消失**，所以"旧写法已清除"那一侧才是主判据，
+ * 而且必须同时覆盖 JS 与 CSS：
+ *   - JS 侧：双栏握手字段 selectedMemoryCenterEntry、中间栏列表组件、占位文案；
+ *   - CSS 侧：内层双栏的两个选择器（[data-ui="memory-snapshots"] 是双栏里的章节竖栏、
+ *     [data-ui="memory-chapter-filter"] 是它的区间搜索）。
+ *
+ * needle 必须用**复数** memory-snapshots：卡片本身的选择器
+ * [data-ui="memory-snapshot"]（单数）改造后仍然存在（保留了原有视觉），
+ * 用单数会把它误判成"旧结构还在"。
+ */
+const mustExistMemoryCenter = [
+  { needle: "快照总数", why: "统计条首个 chip：与「章节快照」标签区分，避免 11 vs 1 的同名歧义" },
+  { needle: "显示更多", why: "快照页的渐进披露按钮" },
+  { needle: "暂无章节快照", why: "章节快照空态" },
+  { needle: "暂无大纲快照", why: "大纲快照空态" },
+  { needle: "清除区间", why: "区间筛选的复位入口" },
+  { needle: "memory-tabs", why: "标签条容器标记（替代原中间栏列表）" },
+  { needle: "memory-stats", why: "统计条容器标记" },
+  { needle: "memory-snapshot-collection", why: "全宽流式快照集合" },
+  { needle: "outline-snapshots", why: "大纲快照标签 key" },
+]
+const mustBeGoneMemoryCenter = [
+  { needle: "selectedMemoryCenterEntry", why: "双栏握手字段（已降级为页面内 useState）" },
+  { needle: "MemoryCenterListButton", why: "中间栏的记忆分类列表组件" },
+  { needle: "请先从左侧记忆列表选择一个项目", why: "中间栏占位文案（左侧列表已不存在）" },
+  { needle: "memory-snapshots", why: "内层双栏的章节竖栏选择器（注意是复数）" },
+  { needle: "memory-chapter-filter", why: "内层双栏的区间搜索容器选择器" },
+]
+/** 记忆中心三条规则按块内声明判定（产物会被 lightningcss 重排属性顺序）。 */
+const mustExistMemoryCenterCss = [
+  { selector: '[data-ui="memory-tabs"]', decls: ["flex-wrap:nowrap"], why: "标签条单排不换行" },
+  { selector: '[data-ui="memory-tabs"]', overflowX: true, why: "标签条靠横向滚动承载" },
+  { selector: '[data-ui="memory-stats"]', decls: ["flex-wrap:nowrap"], why: "统计条单排不换行" },
+  { selector: '[data-ui="memory-snapshot-collection"]', decls: ["flex-direction:column"], why: "快照全宽纵向堆叠" },
+]
+
 const mustBeGoneInWorkbench = ["wb-card-status", "wb-origin-tag", "待确认", "已入库"]
 
 const carriers = []
@@ -140,14 +179,35 @@ for (const { needle, why } of mustExistStructural) {
 /**
  * 取出一条 CSS 规则块的声明文本（顺序无关）。
  * 选择器里的 `[`、`]`、`(`、`)` 都要转义；块内容不含 `}`（压缩后是扁平的）。
+ *
+ * **必须先把属性选择器里的引号去掉**：lightningcss 会输出
+ * `[data-ui=memory-tabs]`，而源码写的是 `[data-ui="memory-tabs"]`。
+ * 拿带引号的选择器去查产物，永远查不到 —— 这条断言第一版就因此 4 项全红，
+ * 而且红得很有欺骗性（看起来像"规则没进产物"）。
  */
+function normalizeSelector(selector) {
+  return selector.replace(/(\[[\w-]+=)"([^"]*)"/g, "$1$2")
+}
+
 function cssRuleDecls(text, selector) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const escaped = normalizeSelector(selector).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const re = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, "g")
   const blocks = []
   let m
   while ((m = re.exec(text)) !== null) blocks.push(m[1])
   return blocks
+}
+
+/**
+ * `overflow-x: auto` 与 `overflow-y: hidden` 会被合并成 `overflow: auto hidden` 简写，
+ * 所以不能按 `overflow-x:auto` 这个子串断言。这里按语义判定：
+ * 取出 overflow / overflow-x 声明，看横向分量是不是 auto。
+ */
+function overflowXAuto(block) {
+  const match = block.match(/overflow(?:-x)?\s*:\s*([^;}]+)/)
+  if (!match) return false
+  const parts = match[1].trim().split(/\s+/)
+  return parts[0] === "auto" || parts[0] === "scroll"
 }
 
 for (const { selector, decls, why } of mustExistComposer) {
@@ -176,6 +236,35 @@ for (const { selector, decls, why } of mustNotContainComposer) {
 for (const { needle, why } of mustBeGoneStructural) {
   const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
   check(hits.length === 0, `旧结构已清除: ${needle}（${why}）`, hits.length ? `仍在 ${hits.join(", ")}` : "")
+}
+
+/*
+ * 第四轮：记忆中心单页重构。
+ *
+ * 存在侧与消失侧都跨 JS + CSS 全量查。"消失"是本轮的主判据 ——
+ * 双栏结构、握手字段、旧选择器都必须在打包产物里一个字都不剩，
+ * 否则单页只是"新页面叠在旧结构上"，用户仍会看到左侧那根竖栏。
+ */
+for (const { needle, why } of mustExistMemoryCenter) {
+  const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
+  check(hits.length > 0, `记忆中心新标记存在: ${needle}（${why}）`,
+    hits.length ? hits.join(", ") : "任何资源里都没有")
+}
+for (const { needle, why } of mustBeGoneMemoryCenter) {
+  const hits = [...assets, ...cssAssets].filter((f, i) => allText[i].includes(needle))
+  check(hits.length === 0, `记忆中心旧结构已清除: ${needle}（${why}）`,
+    hits.length ? `仍在 ${hits.join(", ")}` : "")
+}
+for (const { selector, decls, overflowX, why } of mustExistMemoryCenterCss) {
+  const hits = []
+  for (let i = 0; i < allText.length; i++) {
+    const blocks = cssRuleDecls(allText[i], selector)
+    const ok = blocks.some((b) => (overflowX ? overflowXAuto(b) : decls.every((d) => b.includes(d))))
+    if (ok) hits.push([...assets, ...cssAssets][i])
+  }
+  const want = overflowX ? "overflow-x:auto（含简写 overflow:auto hidden）" : decls.join("+")
+  check(hits.length > 0, `记忆中心新样式存在: ${selector} 含 ${want}（${why}）`,
+    hits.length ? hits.join(", ") : "任何资源里都没找到这条规则")
 }
 
 // 3) 真机校验：exe 大小与 version-info 一致（防止"复制了旧文件却报告成功"）。
