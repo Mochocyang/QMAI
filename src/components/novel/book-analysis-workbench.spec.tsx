@@ -34,6 +34,12 @@ const mocks = vi.hoisted(() => {
     inspect: vi.fn(async () => ({ targets: [], impacts: [], fingerprint: "fp-1" })),
     confirmRevision: vi.fn(async () => ({})),
     materialize: vi.fn(async () => ({})),
+    // 删除接口由并行的数据层单元实现，组件这边只消费签名：不打桩会走到真实落盘。
+    removeRevisionItem: vi.fn(async () => ({})),
+    // 自动入库失败要「只报一次错」，所以断言的是 toast 而不是界面文本。
+    toastError: vi.fn(), toastSuccess: vi.fn(), toastInfo: vi.fn(),
+    // 侧边栏「从分析活动跳过来」的目标。默认为空：绝大多数用例不该被跳转影响。
+    activity: { navigation: null as null | { bookId: string; projectPath: string; skill: string; taskId: string } },
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
     pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
@@ -64,6 +70,16 @@ vi.mock("@/lib/project-refresh", () => ({ refreshProjectState: mocks.refreshProj
 vi.mock("@/lib/novel/book-analysis/workbench-publish", () => ({
   inspectWorkbenchPublication: mocks.inspect, confirmWorkbenchRevision: mocks.confirmRevision,
 }))
+// 删除走并行的数据层单元（签名已冻结）：组件只负责「确认后调用它 + 刷新列表」。
+vi.mock("@/lib/novel/book-analysis/workbench-remove", () => ({
+  removeWorkbenchRevisionItem: mocks.removeRevisionItem,
+  workbenchStoryFrameworkId: (bookId: string) => `wb-story-${bookId}`,
+}))
+// toast 是自动入库失败的唯一出口：不换成桩就只能断言界面文本，测不出「只报一次」。
+vi.mock("@/lib/toast", () => ({ toast: { success: mocks.toastSuccess, error: mocks.toastError, info: mocks.toastInfo } }))
+vi.mock("@/stores/book-analysis-activity-store", () => ({
+  useBookAnalysisActivityStore: Object.assign((s: any) => s(mocks.activity), { getState: () => mocks.activity }),
+}))
 // 只替换落盘那一个函数：buildLegacyCharacterRevision 必须是真的，
 // 「旧版条目并入」这组用例全部依赖它的真实字段映射。
 vi.mock("@/lib/novel/book-analysis/legacy-character-revision", async (importOriginal) => ({
@@ -82,6 +98,9 @@ const book = {
  */
 const legacyBook = {
   ...book,
+  // 真实的 metadata 一定带 updatedAt（旧版迁移版本的 createdAt 就取它）；
+  // 显式给一个更早的值，让「旧版本在前」的顺序断言不依赖缺字段的偶然行为。
+  metadata: { ...book.metadata, updatedAt: 5 },
   recognizedCharacters: [],
   characters: [{
     id: "char-1", name: "林烬", aliases: [], importance: 9, category: "protagonist" as const,
@@ -103,6 +122,23 @@ function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
     ...overrides,
   }
 }
+/**
+ * 一条带结构化规则的分析结果版本。默认是「尚未入库的新版角色版本」——
+ * 正是自动入库要处理的那一类；各用例只覆盖自己关心的字段。
+ */
+const ruleFixture = {
+  id: "R1", dimension: "judgment", condition: "信息不足时", action: "先核对再判断",
+  boundary: "不附带职业知识", observation: "先检查材料", evidenceIds: [] as string[],
+}
+const itemFixture = (subject: string) => ({
+  subject, summary: `${subject}的判断倾向`, limitations: "不迁移身份", rules: [{ ...ruleFixture }],
+})
+const revisionFixture = (overrides: Record<string, unknown> = {}): any => ({
+  workbenchVersion: 2, id: "rev-characters", taskId: "t-characters", bookId: "book-1", bookTitle: "测试作品",
+  skill: "characters", requirements: "", selectedChapterIds: ["c1"], createdAt: 1, coverage: [], evidence: [],
+  items: [itemFixture("许七安")],
+  ...overrides,
+})
 /** 结果区页签，故事导图只在「故事 Skill」页签下渲染。 */
 const skillTab = (label: string) => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
   .find((t) => t.textContent?.includes(label))!
@@ -127,6 +163,13 @@ beforeEach(() => {
   mocks.load.mockResolvedValue({ books: [book] })
   // 绑定候选列表会被单个用例改成空数组，复位免得漏进下一个用例。
   mocks.listBindable.mockResolvedValue(["沈微", "裴探"])
+  // 会抛错的桩（自动入库失败、删除失败）用 mockRejectedValueOnce，漏消费就会污染下一个用例。
+  mocks.confirmRevision.mockReset()
+  mocks.confirmRevision.mockResolvedValue({})
+  mocks.removeRevisionItem.mockReset()
+  mocks.removeRevisionItem.mockResolvedValue({})
+  // 活动跳转默认没有请求：留着会让下一个用例在挂载时切页签并滚动。
+  mocks.activity.navigation = null
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove() })
@@ -175,7 +218,7 @@ describe("单页拆书工作台", () => {
     expect(host.querySelector<HTMLTextAreaElement>('[aria-label="角色 Skill需求"]')!.value).toBe("只提炼判断倾向，不继承职业")
     expect(JSON.parse(localStorage.getItem(`qmai-book-workbench:${book.path}`)!).skills).toHaveLength(3)
   })
-  it("01方案展示真实对象卡片，可搜索、切换列表并展开完整依据", async () => {
+  it("01方案展示真实对象卡片，可切换列表并展开完整依据", async () => {
     const longSummary = "人物会先核对事实，但在压力下也会犹豫。".repeat(15)
     mocks.revisions.mockResolvedValue([{
       workbenchVersion: 2, id: "rev-characters", skill: "characters", bookTitle: "测试作品",
@@ -195,18 +238,15 @@ describe("单页拆书工作台", () => {
     expect(overview).not.toBeNull()
     await act(async () => overview.click())
     expect(host.querySelector(".wb-card-description")!.getAttribute("data-expanded")).toBe("true")
-    const search = host.querySelector<HTMLInputElement>('[aria-label="搜索成果"]')!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "魏渊")
-      search.dispatchEvent(new Event("input", { bubbles: true }))
-    })
-    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
-    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("魏渊")
+    // 搜索框已随「结果面板简化」删除：两个对象必须都在，且再也没有搜索入口。
+    expect(host.querySelector('[aria-label="搜索成果"]')).toBeNull()
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(2)
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="列表视图"]')!.click())
     expect(host.querySelector(".wb-skill-grid")!.getAttribute("data-view")).toBe("list")
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="查看魏渊规则"]')!.click())
     expect(host.querySelector(".wb-rule-detail")!.textContent).toContain("他先核对了账册。")
-    expect(host.textContent).toContain("确认并加入")
+    // 整版「确认并加入」入口已删除（改为打开页面自动入库）。
+    expect(host.textContent).not.toContain("确认并加入")
   })
   it("文风入库不自动启用，提供显式启用入口", async () => {
     mocks.revisions.mockResolvedValue([{
@@ -392,7 +432,7 @@ describe("旧版结果并入页签", () => {
     expect(host.textContent).toContain("旧版资料导入 · 无结构化规则")
   })
 
-  it("角色条目都带「加入自定义灵魂库」与「绑定」两个按钮", async () => {
+  it("角色条目都带「加入自定义灵魂库」与「绑定」两个按钮，整版「确认并加入」入口已删除", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
     await act(async () => root.render(<BookAnalysisWorkbench />))
@@ -402,27 +442,27 @@ describe("旧版结果并入页签", () => {
     expect(labels.some((l) => l?.startsWith("绑定"))).toBe(true)
     // 情况 Z 仍有可发布数据，按钮必须可用（绝不能按 rules.length 判断）
     expect(buttons.find((b) => b.textContent?.includes("加入自定义灵魂库"))!.disabled).toBe(false)
-    // 「确认并加入」也不能因为没有规则就被禁掉
-    expect(buttons.find((b) => b.textContent?.includes("确认并加入"))!.disabled).toBe(false)
+    // 这条没有结构化规则的旧版条目：整版入口删掉之后，也不能被自动入库顺带扫进来。
+    expect(host.textContent).not.toContain("确认并加入")
+    expect(mocks.confirmRevision).not.toHaveBeenCalled()
+    expect(mocks.materialize).not.toHaveBeenCalled()
   })
 
-  it("旧版迁移条目排在磁盘版本之后，不顶掉用户最新生成的结果", async () => {
+  it("旧版迁移条目与新分析版本同时平铺，互不顶掉（旧版在前、新结果在后）", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
-    mocks.revisions.mockResolvedValue([{
-      workbenchVersion: 2, id: "rev-characters-new", skill: "characters", bookTitle: "测试作品",
-      selectedChapterIds: ["c1"], createdAt: 9, requirements: "", coverage: [], evidence: [],
-      items: [{
-        subject: "许七安", summary: "新的判断倾向", limitations: "不迁移身份",
-        rules: [{ id: "R1", dimension: "judgment", condition: "信息不足时", action: "先核对再判断",
-          boundary: "不附带职业知识", observation: "先检查材料", evidenceIds: [] }],
-      }],
-    }])
+    mocks.revisions.mockResolvedValue([revisionFixture({ id: "rev-characters-new", createdAt: 9, confirmedAt: 10 })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    // result 取的是 selectedRevisions[0]（见 :285）：迁移条目一旦被前置就会盖住刚生成的版本，
-    // 用户会以为自己最新的分析结果丢了。这条就是用顺序把那个回归钉死。
-    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("许七安")
-    expect(host.textContent).not.toContain("林烬")
+    // 以前只渲染 selectedRevisions[0]：迁移条目一旦被前置，用户刚生成的结果就整块消失。
+    // 平铺后两版都在，谁也不会顶掉谁。
+    expect(host.textContent).toContain("许七安")
+    expect(host.textContent).toContain("林烬")
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(2)
+    // 渲染顺序按 createdAt 升序：旧版迁移（updatedAt=5）在前，新分析（9）在后。
+    const ids = [...host.querySelectorAll("[data-revision-id]")].map((el) => el.getAttribute("data-revision-id"))
+    expect(ids).toHaveLength(2)
+    expect(ids[0]).toMatch(/^legacy-chars-/)
+    expect(ids[1]).toBe("rev-characters-new")
   })
 
   it("既无人格块也无散文字段的角色显示「无可用资料」而不是「未加入灵魂库」", async () => {
@@ -444,16 +484,13 @@ describe("旧版结果并入页签", () => {
   })
 })
 
-describe("旧版条目落盘时机与绑定对话框", () => {
+describe("角色绑定对话框", () => {
   /** 卡片上的两个按钮；绑定那个的文案以「绑定」开头，须限定在灵魂操作区内取。 */
   const cardButton = (subject: string, label: string) => {
     const actions = host.querySelector(`[data-testid="wb-soul-actions-${subject}"]`)
     return [...(actions?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
       .find((b) => b.textContent?.includes(label))!
   }
-  /** 「确认并加入」在汇总行里，不在角色卡片内。 */
-  const publishButton = () => [...host.querySelectorAll<HTMLButtonElement>("button")]
-    .find((b) => b.textContent?.includes("确认并加入"))!
   /** 对话框走 portal 渲染到 document.body，不在 host 里。 */
   const dialog = () => document.body.querySelector('[role="dialog"]')
   const dialogButton = (label: string) =>
@@ -462,28 +499,6 @@ describe("旧版条目落盘时机与绑定对话框", () => {
   beforeEach(() => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
-  })
-
-  it("确认并加入时先落盘旧版条目，再按 id 确认发布（顺序不能反）", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
-    await act(async () => root.render(<BookAnalysisWorkbench />))
-    await act(async () => publishButton().click())
-    // materializeLegacyCharacterRevision 只写版本 json，confirmWorkbenchRevision 是    // 按住 id 从磁盘重读的：先确认后落盘会读不到条目，这一条钉的就是顺序。
-    expect(mocks.materialize).toHaveBeenCalledWith(legacyBook.path, legacyBook)
-    expect(mocks.materialize.mock.invocationCallOrder[0])
-      .toBeLessThan(mocks.confirmRevision.mock.invocationCallOrder[0])
-    expect(mocks.confirmRevision).toHaveBeenCalledWith("/project", legacyBook.path, expect.any(String), "fp-1", legacyBook)
-    confirm.mockRestore()
-  })
-
-  it("用户在最后一步取消确认时不落盘（懒落盘契约）", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
-    await act(async () => root.render(<BookAnalysisWorkbench />))
-    await act(async () => publishButton().click())
-    // 取消 = 没有确认过 = 磁盘上不该留下任何痕迹。
-    expect(mocks.materialize).not.toHaveBeenCalled()
-    expect(mocks.confirmRevision).not.toHaveBeenCalled()
-    confirm.mockRestore()
   })
 
   it("点「绑定…」读取可绑定小说人物并打开对话框", async () => {
@@ -571,29 +586,14 @@ describe("灵魂操作区只属于角色页签", () => {
     expect(host.textContent).not.toContain("绑定…")
   })
 
-  it("角色页签的新版条目与旧版条目都仍渲染两个按钮", async () => {
+  it("角色页签的新版条目与旧版条目同时平铺，都仍渲染两个按钮", async () => {
     mocks.old.selectedLibraryBookId = "book-1"
     mocks.load.mockResolvedValue({ books: [legacyBook] })
-    mocks.revisions.mockResolvedValue([{
-      workbenchVersion: 2, id: "rev-characters-new", skill: "characters", bookTitle: "测试作品",
-      selectedChapterIds: ["c1"], createdAt: 9, requirements: "", coverage: [], evidence: [],
-      items: [{
-        subject: "许七安", summary: "新的判断倾向", limitations: "不迁移身份",
-        rules: [{ id: "R1", dimension: "judgment", condition: "信息不足时", action: "先核对再判断",
-          boundary: "不附带职业知识", observation: "先检查材料", evidenceIds: [] }],
-      }],
-    }])
+    mocks.revisions.mockResolvedValue([revisionFixture({ id: "rev-characters-new", createdAt: 9 })])
     await act(async () => root.render(<BookAnalysisWorkbench />))
-    // 默认结果是排在磁盘版本之后才追加的旧版迁移条目之前那一条（新版）。
     expect(soulActions("许七安")!.textContent).toContain("加入自定义灵魂库")
     expect(soulActions("许七安")!.textContent).toContain("绑定…")
-    // 切到「旧版导入」那条，收口不能把迁移条目一起误伤。
-    const select = host.querySelector<HTMLSelectElement>('[aria-label="结果版本"]')!
-    const legacyOption = [...select.options].find((o) => o.textContent?.includes("旧版导入"))!
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, legacyOption.value)
-      select.dispatchEvent(new Event("change", { bubbles: true }))
-    })
+    // 平铺后旧版迁移条目同时在场（不再需要下拉切换），收口不能把迁移条目一起误伤。
     expect(soulActions("林烬")).not.toBeNull()
     expect(soulActions("林烬")!.textContent).toContain("加入自定义灵魂库")
     expect(soulActions("林烬")!.textContent).toContain("绑定…")
@@ -760,5 +760,289 @@ describe("侧边栏「现在处理」定位新版选角色区", () => {
     expect(mocks.old.consumeReopenRequest).not.toHaveBeenCalled()
     expect(mocks.old.pendingRecognitionTaskId).toBe("t-missing")
     expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+})
+
+describe("结果面板简化：退场的六个元素", () => {
+  it("结果版本下拉、搜索成果、仅待确认、汇总行、确认并加入、导出结果都不再渲染", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({ confirmedAt: 2 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 先证明结果区真的渲染了：否则「六个元素都不在」可能只是因为整页是空的。
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
+    expect(host.querySelector('[aria-label="结果版本"]')).toBeNull()
+    expect(host.querySelector("select")).toBeNull()
+    expect(host.querySelector('[aria-label="搜索成果"]')).toBeNull()
+    expect(host.querySelector(".wb-summary")).toBeNull()
+    expect(host.querySelector('[aria-label="导出结果"]')).toBeNull()
+    expect(host.textContent).not.toContain("仅待确认")
+    expect(host.textContent).not.toContain("确认并加入")
+    expect(host.textContent).not.toContain("已加入使用库")
+    // 视图切换是保留下来的：不是把整条工具栏都删了。
+    expect(host.querySelector('[aria-label="卡片视图"]')).not.toBeNull()
+  })
+})
+
+describe("分析结果自动入库", () => {
+  it("打开结果页自动把尚未入库的新版版本发布一次", async () => {
+    const revision = revisionFixture()
+    mocks.revisions.mockResolvedValue([revision])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.inspect).toHaveBeenCalledWith("/project", revision)
+    expect(mocks.confirmRevision).toHaveBeenCalledWith("/project", book.path, "rev-characters", "fp-1", book)
+  })
+
+  it("已入库的版本不再自动发布", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({ confirmedAt: 2 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.inspect).not.toHaveBeenCalled()
+    expect(mocks.confirmRevision).not.toHaveBeenCalled()
+  })
+
+  it("origin 为 legacy 的版本绝不自动发布（会造成重复角色灵魂）", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    // 迁移条目确实在场：否则「没有发布」可能只是因为没有版本可发。
+    expect(host.textContent).toContain("林烬")
+    // legacy 走 importBookAnalysisSkillsAsAuras，与新版 wb-<sha256> 是两套 id 体系：
+    // 对已被新版发布过的书自动跑 legacy 发布会造出重复角色灵魂，
+    // 而且它是懒落盘的 —— 自动发布等于「仅仅打开页面就往磁盘写文件」。
+    expect(mocks.inspect).not.toHaveBeenCalled()
+    expect(mocks.confirmRevision).not.toHaveBeenCalled()
+    expect(mocks.materialize).not.toHaveBeenCalled()
+  })
+
+  it("没有结构化规则的版本没有可入库内容，不自动发布", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-empty", items: [{ subject: "许七安", summary: "只有概述", limitations: "", rules: [] }],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.confirmRevision).not.toHaveBeenCalled()
+    expect(host.querySelector('[data-revision-id="rev-empty"]')!.textContent).toContain("尚未入库")
+  })
+
+  it("自动发布成功后重新读取版本列表（拿回落盘的 confirmedAt）", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture()])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.confirmRevision).toHaveBeenCalledTimes(1)
+    expect(mocks.revisions.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it("自动发布失败只报错一次、不重试、不写确认标记", async () => {
+    // 盘上的版本必须每次都以新数组回来（去重只靠 id，不靠引用相等），
+    // 并且发布成功后才带上 confirmedAt —— 否则重读不会真的改变 revisions，effect 也就不会重跑，
+    // 这条用例会「靠巧合」通过，根本测不到重入守卫。
+    const revision = revisionFixture()
+    mocks.confirmRevision.mockRejectedValueOnce(new Error("磁盘写入失败"))
+    mocks.confirmRevision.mockImplementation(async () => { revision.confirmedAt = 2; return {} })
+    mocks.revisions.mockImplementation(async () => [revision])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.toastError).toHaveBeenCalledWith("磁盘写入失败")
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+    expect(mocks.confirmRevision).toHaveBeenCalledTimes(1)
+    expect(revision.confirmedAt).toBeUndefined()
+    // 任务状态变化会重读版本列表（revisions 换成新数组 → effect 重跑）：
+    // 少了「每个 id 每次挂载只尝试一次」的守卫，这里会再发一次，并无限刷屏。
+    mocks.pipeline.tasks = [stuckTask({ status: "running" })]
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(mocks.revisions.mock.calls.length).toBeGreaterThan(1)
+    expect(mocks.confirmRevision).toHaveBeenCalledTimes(1)
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("全版本平铺", () => {
+  const block = (id: string) => host.querySelector(`[data-revision-id="${id}"]`)!
+
+  it("同一技能的全部版本都平铺渲染，旧版本在前、新版本在后", async () => {
+    const older = revisionFixture({ id: "rev-old", createdAt: 10, confirmedAt: 11, items: [itemFixture("魏渊")] })
+    const newer = revisionFixture({
+      id: "rev-new", createdAt: 20, confirmedAt: 21, selectedChapterIds: ["c1", "c2"],
+      items: [itemFixture("许七安"), itemFixture("林烬")],
+    })
+    // 磁盘返回的是降序（最新在前）：渲染顺序必须自己按 createdAt 升序排。
+    mocks.revisions.mockResolvedValue([newer, older])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect([...host.querySelectorAll("[data-revision-id]")].map((el) => el.getAttribute("data-revision-id")))
+      .toEqual(["rev-old", "rev-new"])
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(3)
+    // 两个版本同屏，不再需要下拉切换。
+    expect(host.querySelector('[aria-label="结果版本"]')).toBeNull()
+  })
+
+  it("版本标题行给出时间、章数与对象数，未采纳项追加在标题里", async () => {
+    const createdAt = new Date(2026, 9, 6, 22, 17).getTime()
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-meta", createdAt, confirmedAt: createdAt + 1, selectedChapterIds: ["c1", "c2", "c3"],
+      items: [{ ...itemFixture("许七安"), styleFingerprint: {
+        // 画像字段必须给全：styleItemEvidenceIds 会直接读 lexicon/scenes，缺了会抛错（不是渲染问题）。
+        version: 1, positioning: "", coverage: [], lexicon: [], scenes: [],
+        omitted: [
+          { kind: "rule", label: "R1 · judgment", reason: "依据不足" },
+          { kind: "rule", label: "R2 · judgment", reason: "依据不足" },
+        ],
+      } }],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(block("rev-meta").textContent).toContain("2026/10/6 22:17 · 3章 · 1个对象 · 2项未采纳")
+  })
+
+  it("legacy 版本标「旧版导入」，未入库的新版标「尚未入库」", async () => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [legacyBook] })
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-pending", createdAt: 9, items: [{ subject: "许七安", summary: "", limitations: "", rules: [] }],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(block("rev-pending").querySelector(".wb-revision-heading")!.textContent)
+      .toContain("1章 · 1个对象 · 尚未入库")
+    const legacyHeading = host.querySelector('[data-revision-id^="legacy-chars-"] .wb-revision-heading')!
+    expect(legacyHeading.textContent).toContain("旧版导入")
+    // legacy 照旧平铺显示，但它不是「尚未入库的新版结果」。
+    expect(legacyHeading.textContent).not.toContain("尚未入库")
+  })
+})
+
+describe("对象名后的生成日期", () => {
+  it("对象名后显示所属版本的生成日期（M/D HH:mm）", async () => {
+    const createdAt = new Date(2026, 9, 7, 9, 3).getTime()
+    mocks.revisions.mockResolvedValue([revisionFixture({ createdAt, confirmedAt: createdAt + 1 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelector(".wb-skill-card h3")!.textContent).toBe("许七安 · 10/7 09:03")
+  })
+
+  it("同一个对象在不同版本里各显示自己版本的生成日期", async () => {
+    const oldAt = new Date(2026, 9, 6, 22, 17).getTime()
+    const newAt = new Date(2026, 9, 7, 9, 3).getTime()
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-new", createdAt: newAt, confirmedAt: newAt + 1 }),
+      revisionFixture({ id: "rev-old", createdAt: oldAt, confirmedAt: oldAt + 1 }),
+    ])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect([...host.querySelectorAll(".wb-skill-card h3")].map((h) => h.textContent))
+      .toEqual(["许七安 · 10/6 22:17", "许七安 · 10/7 09:03"])
+  })
+})
+
+describe("结果条目的删除", () => {
+  const block = (id: string) => host.querySelector(`[data-revision-id="${id}"]`)!
+  const removeButton = (subject: string) => host.querySelector<HTMLButtonElement>(`[aria-label="删除${subject}"]`)!
+  /** 确认框走 portal 渲染到 document.body。 */
+  const dialog = () => document.body.querySelector('[role="dialog"]')
+  const dialogButton = (label: string) =>
+    [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === label)!
+
+  it("角色卡片上的删除按钮弹出确认框，写明删的是这个角色的灵魂", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({ confirmedAt: 2 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => removeButton("许七安").click())
+    expect(dialog()).not.toBeNull()
+    expect(dialog()!.textContent).toContain("从角色灵魂库删除「许七安」？")
+    expect(dialog()!.textContent).toContain("将删除该角色的灵魂及其规则，并解除它已绑定的小说人物。此操作不可撤销。")
+    // 只是打开确认框：不许已经删了才问。
+    expect(mocks.removeRevisionItem).not.toHaveBeenCalled()
+  })
+
+  it("在确认框里点「取消」：什么都不发生", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({ confirmedAt: 2 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => removeButton("许七安").click())
+    await act(async () => dialogButton("取消").click())
+    expect(mocks.removeRevisionItem).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
+  })
+
+  it("确认删除后调用删除接口，并重新读取版本列表", async () => {
+    const revision = revisionFixture({ confirmedAt: 2 })
+    mocks.revisions.mockResolvedValue([revision])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const loads = mocks.revisions.mock.calls.length
+    await act(async () => removeButton("许七安").click())
+    await act(async () => dialogButton("删除").click())
+    expect(mocks.removeRevisionItem).toHaveBeenCalledTimes(1)
+    const input = mocks.removeRevisionItem.mock.calls[0][0]
+    expect(input).toEqual({ projectPath: "/project", bookPath: book.path, revision, subject: "许七安" })
+    expect(input.revision).toBe(revision)
+    expect(mocks.revisions.mock.calls.length).toBeGreaterThan(loads)
+  })
+
+  it("文风页的确认框写明删的是整版文风预设", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-style", skill: "style", confirmedAt: 2,
+      items: [{ subject: "文风", summary: "短段落", limitations: "", rules: [{ ...ruleFixture }] }],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (skillTab("文风 Skill") as HTMLButtonElement).click())
+    await act(async () => removeButton("文风").click())
+    expect(dialog()!.textContent).toContain("删除文风预设「测试作品 · 文风」？")
+    expect(dialog()!.textContent).toContain("将删除该文风预设。此操作不可撤销。")
+  })
+
+  it("故事页的确认框写明删的是整版故事框架", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-story", skill: "story", confirmedAt: 2,
+      items: [{ subject: "故事机制", summary: "先压后放", limitations: "", rules: [{ ...ruleFixture }] }],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (skillTab("故事 Skill") as HTMLButtonElement).click())
+    await act(async () => removeButton("故事机制").click())
+    expect(dialog()!.textContent).toContain("删除故事框架「测试作品 · 故事机制」？")
+    expect(dialog()!.textContent).toContain("将删除该故事框架。此操作不可撤销。")
+  })
+
+  it("删除失败时报告错误，卡片保留", async () => {
+    mocks.removeRevisionItem.mockRejectedValueOnce(new Error("删除失败"))
+    mocks.revisions.mockResolvedValue([revisionFixture({ confirmedAt: 2 })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => removeButton("许七安").click())
+    await act(async () => dialogButton("删除").click())
+    expect(mocks.toastError).toHaveBeenCalledWith("删除失败")
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
+  })
+
+  it("已删除的对象不再渲染（removedSubjects 过滤）", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      confirmedAt: 2, removedSubjects: ["魏渊"], items: [itemFixture("许七安"), itemFixture("魏渊")],
+    })])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelectorAll(".wb-skill-card")).toHaveLength(1)
+    expect(host.querySelector(".wb-skill-card")!.textContent).toContain("许七安")
+    expect(host.textContent).not.toContain("魏渊")
+    // 标题行的对象数按实际渲染出来的条目算，删掉的不能再算进去。
+    expect(block("rev-characters").textContent).toContain("1个对象")
+  })
+})
+
+describe("从分析活动跳转定位版本", () => {
+  let scrollIntoView: ReturnType<typeof vi.fn>
+  let originalScrollIntoView: typeof Element.prototype.scrollIntoView | undefined
+
+  beforeEach(() => {
+    mocks.old.selectedLibraryBookId = "book-1"
+    originalScrollIntoView = Element.prototype.scrollIntoView
+    scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView
+  })
+  afterEach(() => {
+    if (originalScrollIntoView) Element.prototype.scrollIntoView = originalScrollIntoView
+    else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+
+  it("跳转时切到对应页签，并把该版本滚进视野（不再有「选中版本」）", async () => {
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-new", taskId: "t-new", createdAt: 20, confirmedAt: 21 }),
+      revisionFixture({ id: "rev-activity", taskId: "t-activity", createdAt: 10, confirmedAt: 11 }),
+    ])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => (skillTab("文风 Skill") as HTMLButtonElement).click())
+    // 先证明切换真的生效：目标版本此刻不在 DOM 里。
+    expect(host.querySelector('[data-revision-id="rev-activity"]')).toBeNull()
+    mocks.activity.navigation = { bookId: "book-1", projectPath: "/project", skill: "characters", taskId: "t-activity" }
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    const target = host.querySelector('[data-revision-id="rev-activity"]')
+    expect(target).not.toBeNull()
+    // 不只是「有人调用过 scrollIntoView」：滚的必须正是那个版本容器。
+    expect(scrollIntoView.mock.contexts).toContain(target)
   })
 })
