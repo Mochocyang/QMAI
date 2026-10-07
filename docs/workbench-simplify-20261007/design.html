@@ -109,6 +109,23 @@ export interface WorkbenchItem {
   <tr><td>C. 挪进分析流水线 store</td><td>与 UI 解耦更彻底，但要改动流水线并重写其测试，改动面远大于收益</td></tr>
 </table>
 
+<div class="danger">
+  <p><b>实测发现的重要例外：<code>origin === "legacy"</code> 的版本绝不能自动入库。</b></p>
+  <p>理由（读代码得出，不是猜测）：</p>
+  <ol>
+    <li><code>buildLegacyCharacterRevision</code> 在 <code>book.characters.length &gt; 0</code> 时就返回版本 ——
+    <b>任何拆过角色的书都有</b>，不是少数旧书。它的作用是「把作品资料里的角色映射成工作台条目」。</li>
+    <li>新版工作台发布角色用的是 <code>wb-${sha256(名字)}</code>；而 legacy 走
+    <code>ensureLegacyCharacterAura → importBookAnalysisSkillsAsAuras</code>，<b>是另一套 id 体系</b>。
+    对已被新版发布过的书自动跑 legacy 发布，会<b>产生重复角色灵魂</b>。</li>
+    <li>legacy 版本原本是<b>懒落盘</b>的（注释原文：「只有用户点了确认并加入，才把迁移版本写进 revisions 目录」）。
+    自动发布等于<b>仅仅打开拆书库页面就往磁盘写文件、并批量导入角色</b>，这是用户从没要求过的副作用。</li>
+  </ol>
+  <p><b>因此：自动入库只针对 <code>origin !== "legacy"</code> 的版本</b>（即真正的分析结果，也正是你说「分析完自动入库」所指的东西）。
+  legacy 条目照常平铺显示；要单独导入某个角色，用角色卡片上<b>已有的</b>「加入自定义灵魂库」按钮即可 ——
+  逐个明确操作，不是整版静默导入。</p>
+</div>
+
 <h3>4.2 怎么记住「用户删除了某条」</h3>
 <table>
   <tr><th>方案</th><th>取舍</th></tr>
@@ -153,8 +170,7 @@ export interface WorkbenchItem {
 </code></pre>
 
 <h2>6. 删除功能设计</h2>
-<h3>6.1 确认弹窗</h3>
-<p>使用仓库现成的 base-ui <code>Dialog</code>（与绑定对话框同一套），不自己搭遮罩。文案按技能页区分：</p>
+<h3>6.1 确认弹窗</h3><p>使用仓库现成的 base-ui <code>Dialog</code>（与绑定对话框同一套），不自己搭遮罩。文案按技能页区分：</p>
 <pre><code>角色页：从角色灵魂库删除「许七安」？
         将删除该角色的灵魂及其规则，并解除它已绑定的小说人物。此操作不可撤销。
 

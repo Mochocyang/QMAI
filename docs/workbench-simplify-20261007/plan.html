@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拆书库结果面板简化 · 实施计划</title>
+<style>
+  :root { --ink:#1d2321; --muted:#5f6b66; --line:#dfe5e1; --panel:#f6f8f6; --accent:#2f6f52; --danger:#b42318; --warn:#8a5a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:40px 24px 80px; background:#eef1ee; color:var(--ink);
+         font:15px/1.85 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:1000px; margin:0 auto; background:#fff; border-radius:14px; padding:44px 48px 56px;
+         box-shadow:0 1px 3px #17231d14, 0 12px 40px #17231d0f; }
+  h1 { font-size:26px; line-height:1.5; margin:0 0 6px; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 28px; }
+  h2 { font-size:19px; margin:44px 0 14px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+  h3 { font-size:16px; margin:28px 0 10px; }
+  h4 { font-size:14px; margin:20px 0 8px; color:var(--accent); }
+  p, li { margin:8px 0; }
+  ul, ol { padding-left:24px; }
+  code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+         font:13px/1.6 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:14px 16px;
+        overflow-x:auto; font:12.5px/1.7 ui-monospace,Consolas,"Cascadia Mono",monospace; }
+  pre code { background:none; border:0; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note, .warn, .danger { border-radius:9px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  .note { background:#eef5f1; border-left:4px solid var(--accent); }
+  .warn { background:#fdf6e6; border-left:4px solid var(--warn); }
+  .danger { background:#fdeceb; border-left:4px solid var(--danger); }
+  .tag { display:inline-block; background:var(--panel); border:1px solid var(--line); border-radius:999px;
+         padding:1px 9px; font-size:12px; color:var(--muted); margin-left:6px; }
+  .ok { color:var(--accent); font-weight:600; }
+  .no { color:var(--danger); font-weight:600; }
+  .step { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:2px 10px;
+          font:12px/1.6 ui-monospace,Consolas,monospace; color:var(--muted); }
+  footer { max-width:1000px; margin:22px auto 0; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>拆书库结果面板简化 · 实施计划</h1>
+<p class="sub">实施计划 · 2026-10-07 · 依据 <code>docs/workbench-simplify-20261007/design.html</code> · 分支 <code>main</code></p>
+
+<h2>0. 冻结的接口（两个实施单元据此并行，不得擅自改名）</h2>
+<pre><code>// src/lib/novel/book-analysis/workbench-core.ts
+interface WorkbenchRevision { … removedSubjects?: string[] }
+export function sanitizeRemovedSubjects(value: unknown): string[]
+
+// src/lib/novel/book-analysis/workbench-publish.ts
+export async function workbenchAuraId(subject: string): Promise&lt;string&gt;
+//   = `wb-${(await sha256Text(subject)).slice(0, 16)}`
+//   publishWorkbenchCharacter 内部必须改用它，保证「发布 id」与「删除 id」同源
+
+// src/lib/novel/writing-style-store.ts
+export async function removeWritingStylePreset(projectPath: string, styleId: string): Promise&lt;WritingStyleStore&gt;
+export async function removeWritingStylePresetBySourceBook(projectPath: string, sourceBook: string): Promise&lt;WritingStyleStore&gt;
+//   两者都必须：若 enabledStyleId 指向被删项 → 置 null
+
+// src/lib/novel/book-analysis/workbench-remove.ts（新文件）
+export function workbenchStoryFrameworkId(bookId: string): string          // `wb-story-${bookId}`
+export async function removeWorkbenchRevisionItem(input: {
+  projectPath: string; bookPath: string; revision: WorkbenchRevision; subject: string
+}): Promise&lt;WorkbenchRevision&gt;
+</code></pre>
+
+<h2>1. 实施单元 A：数据层（TDD）</h2>
+<table>
+  <tr><th style="width:230px">文件</th><th>改动</th><th>测试</th></tr>
+  <tr>
+    <td><code>workbench-core.ts</code></td>
+    <td>加 <code>removedSubjects?: string[]</code>；实现 <code>sanitizeRemovedSubjects</code>（非数组→<code>[]</code>；数组内非字符串、空串、去重）</td>
+    <td>新增 <code>workbench-core.spec.ts</code> 或并入现有：4 条清洗用例</td>
+  </tr>
+  <tr>
+    <td><code>workbench-storage.ts</code></td>
+    <td><code>loadWorkbenchRevisions</code> 读出后套 <code>sanitizeRemovedSubjects</code>；<b>不抛错</b></td>
+    <td>3 条：缺字段→<code>[]</code>；脏字段→清洗；<code>items</code> 缺失仍抛错（既有行为不能松）</td>
+  </tr>
+  <tr>
+    <td><code>workbench-publish.ts</code></td>
+    <td>导出 <code>workbenchAuraId</code>；<code>publishWorkbenchCharacter</code> 改用它</td>
+    <td>2 条：id 形如 <code>wb-</code>+16位；发布产出的 aura.id 与 <code>workbenchAuraId(subject)</code> <b>逐个相等</b></td>
+  </tr>
+  <tr>
+    <td><code>writing-style-store.ts</code></td>
+    <td>新增两个 remove</td>
+    <td>4 条：按 id 删；按 sourceBook 删；删的正是启用项→<code>enabledStyleId=null</code>；删不存在的→不变、不抛</td>
+  </tr>
+  <tr>
+    <td><code>workbench-remove.ts</code>（新）</td>
+    <td>三技能页分派 + 记录 <code>removedSubjects</code> 落盘</td>
+    <td>6 条：角色删除调用 <code>deleteCustomCharacterAura</code> 且 id 正确；文风删整版且标记<b>全部</b> subject；故事删框架且标记全部 subject；重复删除幂等；未知 skill 抛错；返回值已落盘（再 load 仍在）</td>
+  </tr>
+</table>
+
+<h2>2. 实施单元 B：组件（TDD）</h2>
+<table>
+  <tr><th style="width:230px">改动</th><th>要点</th></tr>
+  <tr><td>删 6 项 UI + 对应 state</td><td><code>selectedRevision</code>、<code>query</code>、<code>pendingOnly</code> 三个 state 全删；<code>confirm()</code>、<code>exportResult()</code> 删除；<code>Check</code>/<code>Download</code> 从 import 移除（<code>noUnusedLocals: true</code>，留着必编译失败）</td></tr>
+  <tr><td>活动跳转改写</td><td>原本靠 <code>setSelectedRevision</code>；改为切页签 + <code>scrollIntoView</code> 定位到该版本（用 <code>data-revision-id</code>）</td></tr>
+  <tr><td>自动入库 effect</td><td>只处理 <code>!confirmedAt && origin !== "legacy"</code>；每个 id 每次挂载<b>只尝试一次</b>（<code>useRef</code> 记录），失败 <code>toast.error</code> 且不写标记、<b>不重试</b>（避免无限刷屏）；成功后 <code>reloadRevisions()</code></td></tr>
+  <tr><td>全版本平铺</td><td>渲染顺序按 <code>createdAt</code> <b>升序</b>（旧在前）；<b>不改</b> <code>loadWorkbenchRevisions</code> 的降序数组顺序（组件 <code>:290</code> 有注释警告）</td></tr>
+  <tr><td>版本标题行</td><td><code>时间 · N章 · M个对象 ·（K项未采纳）</code>；legacy 额外标「旧版导入」；非 legacy 且未入库标「尚未入库」</td></tr>
+  <tr><td>对象名后加日期</td><td>取所属版本 <code>createdAt</code>，格式 <code>M/D HH:mm</code></td></tr>
+  <tr><td>删除按钮 + 弹窗</td><td>卡片底部第三个按钮（<code>Trash2</code> 已 import）；base-ui <code>Dialog</code>；文案按技能页三分支；确认后调 <code>removeWorkbenchRevisionItem</code> 并刷新</td></tr>
+  <tr><td>过滤已删除</td><td>渲染时 <code>items.filter(i =&gt; !removedSubjects.includes(i.subject))</code></td></tr>
+</table>
+
+<h3>2.1 必须重写的既有断言（实测定位）</h3>
+<table>
+  <tr><th>行号</th><th>原断言</th><th>处理</th></tr>
+  <tr><td><code>:198-204</code></td><td>用搜索框过滤后只剩 1 张卡</td><td>删除该段（搜索功能已移除）</td></tr>
+  <tr><td><code>:209</code></td><td><code>toContain("确认并加入")</code></td><td>改为断言该文案<b>不存在</b></td></tr>
+  <tr><td><code>:405-406</code></td><td>「确认并加入」不因无规则被禁</td><td>改为断言无规则版本<b>不会</b>被自动发布（<code>confirmWorkbenchRevision</code> 未被调用）</td></tr>
+  <tr><td><code>:454-456</code></td><td>按钮在汇总行、点击触发发布</td><td>改为断言<b>打开即自动发布</b>一次</td></tr>
+  <tr><td><code>:467</code></td><td>「先落盘旧版条目，再按 id 确认」顺序</td><td>顺序不变量保留，但主语改为自动入库路径 —— 该用例对应 <code>origin:"legacy"</code>，按新规则<b>不再自动发布</b>，故改写成「legacy 不自动发布」</td></tr>
+  <tr><td><code>:591</code></td><td><code>[aria-label="结果版本"]</code></td><td>删除该用例（下拉已移除）</td></tr>
+</table>
+
+<h2>3. 验证顺序</h2>
+<ol>
+  <li>单元 A 的 spec 全绿 → 单元 B 的 spec 全绿（B 用 mock 隔离，可与 A 并行）</li>
+  <li><code>npx tsc -p tsconfig.app.json --noEmit</code> 必须 0（两个单元都落地后才有意义）</li>
+  <li>聚焦套件：affected specs 列表跑通并<b>核对文件数与用例数</b>（vitest 遇不存在路径会静默少跑）</li>
+  <li>变异验证：关键守卫逐条破坏 → 必须让具名测试失败，并附正向对照</li>
+  <li>全量套件与基线 A/B：<b>新增失败文件必须为 0</b></li>
+  <li>独立对抗性审查（子代理），缺口逐条闭环</li>
+  <li>便携版重建 + 243 产物嵌入校验</li>
+</ol>
+
+<h2>4. 明确不在本次范围</h2>
+<ul>
+  <li>不做「覆盖已有条目时弹窗确认」（用户已接受静默覆盖；备份仍在 <code>analysis/publication-history</code>）</li>
+  <li>不做删除撤销</li>
+  <li>不改文风库/故事框架库的其它行为</li>
+  <li>不动分析流水线、不改 <code>loadWorkbenchRevisions</code> 的排序</li>
+</ul>
+
+<h2>5. 风险登记</h2>
+<table>
+  <tr><th>风险</th><th>缓解</th></tr>
+  <tr><td>自动入库静默覆盖同 id 旧条目</td><td>发布前照旧写 <code>publication-history</code> 备份快照；用户已知情接受</td></tr>
+  <tr><td>legacy 版本若被自动发布 → 重复角色灵魂</td><td><b>明确排除 legacy</b>，并写一条具名测试钉死「legacy 不自动发布」</td></tr>
+  <tr><td>失败后无限重试刷屏</td><td>每 id 每次挂载只尝试一次；失败只报错一次</td></tr>
+  <tr><td>删掉 state 后遗漏引用 → 编译失败</td><td><code>tsc --noEmit</code> 作为硬门槛</td></tr>
+  <tr><td>旧版在前导致最新结果在最下面</td><td>已向用户说明并确认；如日后不适可反向一行</td></tr>
+</table>
+
+<footer>拆书库结果面板简化 · 实施计划 · 2026-10-07</footer>
+</main>
+</body>
+</html>
