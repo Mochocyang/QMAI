@@ -1048,6 +1048,18 @@ git commit -m "feat(字体): 正文字体独立设置，默认保持宋体系观
 
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 1：写单一来源静态校验（先失败）</div>
+        <div class="callout danger">
+          <span class="h">为什么这里的静态校验不是"辅助手段"，而是<b>主要</b>验收手段</span>
+          独立审查实测确认：<code>ui-test-editor.css</code> 的编辑器 DOM
+          <b>在本工具的浏览器可达路径下从不挂载</b> —— 遍历 11 个设置分区后
+          <code>.ui-test-editor-body = 0</code>、<code>.ProseMirror = 0</code>；
+          点遍页面上所有可达按钮后仍为 0。基线里那 300 条 <code>::marker</code>
+          <b>全部来自更新日志分区的 <code>li</code></b>（14px，rem，本来就会缩放），
+          <b>0 条</b>是编辑器那两条规则（12px/16px）。
+          因此：<b>改 <code>li::marker</code> / <code>ol &gt; li::marker</code>，
+          计算样式普查发现不了。</b> 本步骤的静态校验与任务 10 的真实 exe 目视，
+          是这两条规则<b>唯一</b>的验证途径，必须两者都做，不可省略其一。
+        </div>
         <pre><code><span class="c">// audit of src/components/uitest/ui-test-editor.css</span>
 <span class="c">// 通过条件（全部满足）：</span>
 <span class="c">// 1) 文件中不再出现 font-size: 18px 或 font: ... 18px</span>
@@ -1055,9 +1067,18 @@ git commit -m "feat(字体): 正文字体独立设置，默认保持宋体系观
 <span class="c">//    .ui-test-editor-body、[data-writing-editor] textarea / .ProseMirror、</span>
 <span class="c">//    [data-find-highlights]、:is(.ProseMirror, [dir][lang]) &gt; p</span>
 <span class="c">// 3) 查找高亮层与输入层的 font-size 与 line-height 取值表达式完全相同</span>
-<span class="c">// 4) 正文从属尺寸使用 em（16px/12px/21px 等不再出现绝对 px）</span></code></pre>
+<span class="c">// 4) 从属尺寸引用对应的 calc(精确rem * 倍数) 变量（不用 em —— ::marker 的</span>
+<span class="c">//    em 基准是所属 li 而非正文，按 12/18 写会得到 10.67px 而非 12px）</span>
+<span class="c">// 5) 编辑器内不再出现任何 px 字号/行高（含 li::marker 12px、ol&gt;li::marker 16px）</span>
+<span class="c">// 6) 下列 6 条规则都存在且引用了预期的变量（逐条断言，缺一即失败）：</span>
+<span class="c">//    :is(h2,h3,h4,h5,h6) -> var(--qmai-body-font-size) + 字体仍为 var(--ui)</span>
+<span class="c">//    :is(ul,ol)          -> var(--qmai-body-font-list)</span>
+<span class="c">//    li / li p           -> var(--qmai-body-font-list)</span>
+<span class="c">//    li::marker          -> var(--qmai-body-font-marker)</span>
+<span class="c">//    ol &gt; li::marker     -> var(--qmai-body-font-list)</span>
+<span class="c">//    [data-find-highlights] -> 与输入层完全相同的 font-size 与 line-height 表达式</span></code></pre>
         <pre><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</code></pre>
-        <div class="expect bad">期望：失败（当前 18px 硬编码 4 处）。</div>
+        <div class="expect bad">期望：失败（当前 18px 硬编码 4 处、marker 为硬编码 px）。</div>
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
@@ -1325,16 +1346,28 @@ npx tsc -p tsconfig.node.json --noEmit</code></pre>
 
       <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 4：最终判据复核</div>
-        <pre><code>node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
+        <pre><code><span class="c"># 先证明"尺子"本身可信，再量东西 —— 顺序不能反</span>
+npx vitest run docs/font-scaling-fix-20261007/census-guards.spec.mjs `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+<span class="c"># 再跑各项判据</span>
+node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
 node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-final.json"
 node docs/font-scaling-fix-20261007/census-computed-font.mjs `
   --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-final.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --compare "$env:TEMP\census-final.json" "$env:TEMP\census-final.json"
 node docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs
 node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
 node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,115,130,150</code></pre>
         <div class="expect">
-          期望：绝对单位 0（SVG 属性 2）；判据 1、2 通过；界面字体生效性通过；
-          正文单一来源通过；各档溢出为 0。
+          期望：<b>防线测试全绿</b>（7 条虚假通过路径都失败、正向对照通过）；
+          绝对单位 0（SVG 属性 2）；判据 1、2 通过；自比差异 0（工具仍确定）；
+          界面字体生效性通过；正文单一来源通过；各档溢出为 0。
+        </div>
+        <div class="expect bad">
+          若判据 2 的"未解释 = 0"而绝对单位也已清零，属正常收尾；
+          若绝对单位已清零但判据 2 仍报未解释，说明有**非 px 来源**未缩放
+          （例如某个 CSS 变量或内联样式），必须查清再收尾，不得放过。
         </div>
       </div></div>
 
@@ -1376,6 +1409,32 @@ git commit -m "test(字号): 记录阶段 1+2 的门禁与 A/B 回归结果" --n
       </div></div>
 
       <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2b：编辑器列表标记专项验证（<b>不可省略</b>）</div>
+        <div class="callout danger">
+          <span class="h">这是 <code>li::marker</code> 两条规则的唯一可达验证途径</span>
+          计算样式普查工具在浏览器里<b>根本到不了编辑器 DOM</b>
+          （11 个设置分区实测 <code>.ui-test-editor-body = 0</code>；
+          遍点可达按钮后仍为 0；基线 300 条 <code>::marker</code> 全部来自更新日志分区）。
+          所以下列三项<b>只能</b>在真实 exe 里验，且必须在<b>多个正文字号倍数</b>下各验一次。
+        </div>
+        <ul class="plain">
+          <li>在正文里造出<b>无序列表</b>（<code>-</code> / <code>*</code>）与<b>有序列表</b>（<code>1.</code>），
+              确认标记（<code>•</code> 与 <code>1.</code>）正常显示、不被裁切、不与正文重叠</li>
+          <li>把「正文字号」从 100% 调到 150%（并叠加「界面字号」150%）：<b>标记必须跟着变大</b>，
+              且与列表项文字的比例保持不变。<b>若标记大小不变 → 那两条规则没接上变量，属缺陷</b></li>
+          <li>特别核对：无序标记（原 12px）应<b>小于</b>列表项文字（原 16px）；
+              有序标记（原 16px）应与列表项文字<b>同大</b>。若两者变得一样大或比例颠倒，
+              说明倍数变量接错了（这类错误在计算样式普查里也检不出来——marker 不在其覆盖内）</li>
+          <li>造多级列表（嵌套 <code>ul</code>/<code>ol</code>）确认不串位</li>
+        </ul>
+        <div class="expect">
+          期望：标记随字号同步缩放、比例正确、无裁切。把每种组合的截图存进
+          <code>docs/font-scaling-fix-20261007/</code> 并在 <code>findings.md</code> 记录实测像素值
+          （可用浏览器开发者工具或截图量取）。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
         <div class="title">步骤 3：把证据与结论写入文档并提交</div>
         <pre><code><span class="c"># 在 findings.md 追加一节「阶段 1+2 实施结果」，含截图与实测数据</span>
 git add docs/font-scaling-fix-20261007
@@ -1392,15 +1451,30 @@ git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" 
       <tbody>
         <tr><td>完整性</td><td>绝对单位需改数 = 0；SVG 图标属性 = 2（已登记）</td><td><code>count-absolute-font-units.mjs</code></td></tr>
         <tr><td>等效性（无回归）</td><td>100% 根字号下，每个文本元素的 computed <code>font-size</code> / <code>line-height</code> 与改动前相同</td><td><code>census-computed-font.mjs</code></td></tr>
-        <tr><td>生效性</td><td>150% 根字号下，除 SVG 图标文字外所有文本元素恰为 1.5 倍</td><td><code>census-computed-font.mjs</code></td></tr>
+        <tr><td>生效性</td><td>150% 根字号下，除 SVG 图标文字外所有文本元素恰为 1.5 倍（<b>字号与行高都要判</b>）</td><td><code>census-computed-font.mjs</code></td></tr>
+        <tr><td><b>工具自身可信</b></td><td>7 条虚假通过路径全部必须失败；正向对照必须通过（否则守卫可能只是"因其他原因失败"而假绿）</td><td><code>census-guards.spec.mjs</code></td></tr>
         <tr><td>界面字体生效</td><td>设为本机存在的字体后渲染位图改变；设为不存在字体后与默认相同</td><td><code>verify-ui-font-applies.mjs</code></td></tr>
-        <tr><td>正文一致性</td><td>查找高亮层与输入层引用同一字号变量，无残留 18px 硬编码</td><td><code>verify-body-font-single-source.mjs</code></td></tr>
+        <tr><td>正文一致性</td><td>查找高亮层与输入层引用同一字号变量，无残留 px 硬编码；6 条从属规则各引用预期变量</td><td><code>verify-body-font-single-source.mjs</code></td></tr>
         <tr><td>无裁切</td><td>100%–150% 各档被裁切的文本元素 = 0</td><td><code>measure-ui-overflow.mjs</code></td></tr>
         <tr><td>类型</td><td>两个 tsc 配置均无输出</td><td><code>tsc -p ... --noEmit</code></td></tr>
         <tr><td>回归</td><td>新增失败文件 0 个</td><td><code>npm run test:mocks</code> + A/B</td></tr>
         <tr><td>真实运行</td><td>exe 中逐项目视确认全部符合预期</td><td>人工</td></tr>
+        <tr><td><b>编辑器列表标记</b></td><td>标记随正文字号缩放且比例正确（无序 &lt; 列表项，有序 = 列表项）</td><td><b>只能</b>在真实 exe 目视（任务 10 步骤 2b）</td></tr>
       </tbody>
     </table>
+
+    <div class="callout danger">
+      <span class="h">必须知道的覆盖边界（独立审查实测，已登记在工具与文档中）</span>
+      计算样式普查工具<b>到不了编辑器 DOM</b>：11 个设置分区实测
+      <code>.ui-test-editor-body = 0</code>、<code>.ProseMirror = 0</code>，
+      遍点可达按钮后仍为 0；基线里 300 条 <code>::marker</code>
+      <b>全部来自更新日志分区的 <code>li</code></b>（14px，rem，本来就会缩放），
+      <b>0 条</b>是编辑器那两条（12px/16px）。<br>
+      因此 <code>ui-test-editor.css</code> 的正文与列表标记规则
+      <b>不由判据 1/2 覆盖</b>，只能靠
+      <code>verify-body-font-single-source.mjs</code>（静态）
+      + 任务 10 步骤 2b（真实 exe）。<b>不得因为判据 1/2 全绿就认为编辑器也已验证。</b>
+    </div>
   </section>
 
   <!-- ============================================================ -->
