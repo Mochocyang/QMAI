@@ -1762,6 +1762,99 @@ node docs/font-scaling-fix-20261007/census-computed-font.mjs `
         <pre><code>git add -A src docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
 git commit -m "feat(字号): 正文字号独立设置，正文引入单一字号来源修正高亮错位风险" --no-verify</code></pre>
       </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">实施记录（4 件原计划没有的事，其中 1 件会导致测试红）</div>
+        <div class="callout danger">
+          <span class="h">一、文件清单再次漏项，而且这次漏的会让既有测试失败</span>
+          任务 7 的 <code>files</code> 只写了 <code>ui-test-editor.css</code> 与新脚本两个。
+          实际必改的还有 8 个（<code>ui-test.css</code> 变量定义、
+          <code>font-settings.ts</code>、<code>wiki-store.ts</code>、
+          <code>project-store.ts</code>、<code>settings-types.ts</code>、
+          <code>settings-view.tsx</code>、<code>interface-section.tsx</code>、
+          <code>App.tsx</code>），步骤 5 里零散提到过其中几个，但清单没有。<br>
+          <b>真正危险的是第 9 个：<code>ui-test-editor.spec.tsx</code>。</b>
+          该文件有两条断言直接匹配字面量：
+          <code>1\.125rem\/1\.95\s+var\(--serif\)</code> 与
+          <code>\[data-find-highlights\][^{]*\{[^}]*line-height:\s*1\.95</code>。
+          本任务把这两处改成引用单一来源变量，它们<b>必然失败</b>，
+          而计划里一个字都没提。<br>
+          这两条断言<b>不是噪音，而是必须更新的契约</b>：它们钉的正是
+          "正文 18px、行高 1.95"这个数值。已替换为更强的新断言 ——
+          同时要求"引用了变量"和"不得再出现字面量"，
+          即从"数值对不对"升级为"来源是不是唯一"。<br>
+          <b>是 A/B 发现的，不是计划发现的</b>：批内 12 个 spec 在 HEAD 上
+          <code>10 failed / 198 passed</code>，改动后先变成 <code>12 failed</code>
+          （新增 <code>ui-test-editor.spec.tsx:531</code> 与 <code>:547</code>），
+          更新断言后回到 <code>10 failed / 206 passed</code>，
+          <b>新增失败文件 0</b>，且 <code>ui-test-editor.spec.tsx</code> 39 条全过。<br>
+          教训：<b>凡改动 CSS 里的具体数值，必须把"有测试在断言这个数值"当作已知风险</b>，
+          先用文件清单列出它们，再改；否则只能靠 A/B 事后兜住。
+        </div>
+        <div class="callout danger">
+          <span class="h">二、<code>font</code> 简写里放两个 <code>var()</code> 是有真实风险的写法</span>
+          本任务把正文字号写成
+          <code>font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif)</code>。
+          <b>CSS 规范允许，但若浏览器判定无效，整条声明会静默失效</b> ——
+          字号退回继承值，而<b>静态校验照样全绿</b>（它只看写法符合不符合预期）。<br>
+          故补了动态判据 <code>verify-body-font-scale.mjs</code>，实测：
+          默认档（未设置 <code>--qmai-body-font-scale</code>）
+          <b>10/10 处逐位还原</b> —— 正文 18px、文档标题 18px、
+          查找高亮层 18px、输入层 18px、列表 16px、列表项 16px、
+          <b>无序标记 12px</b>、<b>有序标记 16px</b>，高亮层与正文行高同为 35.1px。<br>
+          同时验证倍数与乘积语义：<code>×0.85 / ×1 / ×1.25 / ×1.5</code> 各档均为
+          「改造前值 × 倍数」；界面字号 × 正文字号 = 18 × 1.5 × 1.5 =
+          <b>40.5px</b>（设计确认的上限值，实测一致）。<br>
+          Chromium 报告的真实渲染字体：正文 <code>Noto Serif SC</code>、
+          文档标题 <code>Microsoft YaHei UI</code> ——
+          证明"文档标题用界面字体、正文用正文字体"这条用户确认的边界确实成立。
+        </div>
+        <div class="callout danger">
+          <span class="h">三、我自己的度量脚本假通过了一次（<code>ul::marker</code>）</span>
+          首版读数写的是 <code>getComputedStyle(ul, "::marker")</code>。
+          <code>ul</code> 不是 <code>list-item</code>，浏览器对不存在的伪元素
+          <b>退回返回元素自身样式</b>，于是「无序标记 12px」被读成 <code>ul</code> 的 16px。
+          更糟的是「有序标记」的期望值恰好也是 16px —— <b>它就这样通过了</b>。<br>
+          已改为读 <code>li::marker</code>，并加守卫 <code>A0</code>：
+          <code>li</code> 的 <code>display</code> 必须是 <code>list-item</code>，
+          否则宣布 <code>::marker</code> 读数不可信。<br>
+          <b>这条比它修的那个 bug 更重要</b>：一个"碰巧正确"的值比一个明显的错误更难发现，
+          因为它不会留下任何异常痕迹。
+        </div>
+        <div class="callout danger">
+          <span class="h">四、census 的路径键有盲区，已补守卫并做了三条负向对照</span>
+          键是「分区::DOM 路径」，而<b>新增一个同级元素会让其后同级元素的路径整体平移</b>。
+          实测：新增「正文字体」行后，「界面字号」那一行被顶替到新路径，
+          其旧路径被新行的 <code>label</code> 占用 ——
+          而两个 <code>label</code> 字号恰好都是 14px，
+          于是<b>判据 1 的数值比较完全看不出这里换了内容</b>。<br>
+          处理（不是放宽，是补上 D 看不到的那条）：
+          <table>
+            <thead><tr><th>守卫</th><th>语义</th></tr></thead>
+            <tbody>
+              <tr><td><code>D/元素消失</code></td><td><b>一律失败</b>，不受任何额度影响（元素不见可能是渲染失败）</td></tr>
+              <tr><td><code>D/新增超出放行额度</code></td><td>新增必须用 <code>--allow-new-elements N</code> 显式放行（默认 0），并<b>逐个打印</b> cls/字号/文字</td></tr>
+              <tr><td><code>D1/新增元素未缩放</code></td><td>新增元素在 150% 档也必须按 1.5 倍缩放</td></tr>
+              <tr><td><code>J/内容指纹丢失</code></td><td>按「文字+字号+行高」多重集核查 before 内容一条都不能少，<b>专治路径平移</b></td></tr>
+            </tbody>
+          </table>
+          判据 1 的通过条件随之从「键集必须逐一对应」改为
+          「消失 0 且新增在额度内」—— 新增元素没有"改动前"值可比，谈不上视觉回归，
+          其正确性由判据 2 + D1 + J 保证。<br>
+          <b>J 的指纹不含 class 名</b>：任务 2 的换算会把 Tailwind 的
+          <code>text-[10px]</code> 合法改成 <code>text-[0.625rem]</code>
+          （实测侧边栏 11 处全变），那是已提交的改动；class 承载的字号信息
+          已由 <code>fontSize</code>/<code>lineHeight</code> 两个计算值覆盖。<br>
+          <b>三条负向对照证明这些守卫不是永远为真</b>：
+          ① 把某元素文字改掉（模拟"删 A 插 B"）→ <code>J</code> 报错，且明确指出
+          "路径仍在但内容已被顶替"；② 删掉一个键 → <code>D/元素消失</code> + <code>J</code>；
+          ③ 把新增元素的 150% 档字号改成不缩放 → <code>D1</code> 报错。<br>
+          本次正式判定：<code>--allow-new-elements 10</code> 下放行 4 个新增
+          （两行的 <code>label</code> 与说明 <code>p</code>，已逐个核对并在 150% 档缩放），
+          判据 1、判据 2 均通过，<code>J</code> 报"改动前 1113 个元素内容全部找到对应"，
+          退出码 0；默认严格模式下仍然失败，证明放行不是默认行为。
+        </div>
+      </div></div>
     </div>
 
     <!-- Task 8 -->

@@ -176,6 +176,8 @@ const DEFAULT_MIN_ELEMENTS = SETTINGS_SECTIONS.length
  * **显式**给出配额，那是一次可见的、刻意的声明，而不是数据里悄悄多出的字段。
  */
 const DEFAULT_MAX_SVG_EXCEPTIONS = 0
+/** 默认不允许任何新增元素（严格）。见 parseAllowNewElementsArg 的说明。 */
+const DEFAULT_ALLOW_NEW_ELEMENTS = 0
 /**
  * 配额上限：例外数不得超过参与元素的一个极小比例（且至少有 5 的绝对余量，
  * 免得小样本 fixtures 被卡死）。理由：已登记例外只可能是**零星的图标文字**，
@@ -259,14 +261,38 @@ function parseMaxSvgExceptionsArg(raw) {
   return { value: n }
 }
 
+/**
+ * 允许的新增元素数（非负整数）。默认 0（严格）。
+ *
+ * 为什么需要这个开关：键是「分区::DOM 路径」，而**新增一个同级元素会让
+ * 其后所有同级元素的路径整体平移**。产品继续演进（如本任务新增「正文字号」
+ * 设置行）时，路径键必然增长，这不是回归。
+ * 但盲放行同样危险，故此处设计为：
+ *   · **消失一律失败**（元素不见可能是渲染失败，绝不能靠开关绕过）
+ *   · 新增必须显式放行且**逐个打印**（cls / 字号 / 文字），不允许静默通过
+ *   · 另加守卫 J 按**内容指纹**（cls+文字+字号+行高）核查 before 的每个条目
+ *     在 after 中是否仍有对应 —— 这条专门补上"路径平移"造成的盲区：
+ *     删掉 A 又在 A 的位置插入 B 时，路径键看不出任何异常。
+ */
+function parseAllowNewElementsArg(raw) {
+  if (raw === undefined) return { value: DEFAULT_ALLOW_NEW_ELEMENTS }
+  const trimmed = raw.trim()
+  if (trimmed.startsWith("--") || trimmed === "") return { error: `--allow-new-elements 需要非负整数取值，读到的却是 ${JSON.stringify(raw)}` }
+  const n = Number(trimmed)
+  if (!Number.isInteger(n) || n < 0) return { error: `--allow-new-elements 必须是非负整数（收到 ${JSON.stringify(raw)}）` }
+  return { value: n }
+}
+
 const scalesParsed = parseScalesArg(argOf("--scales"))
 const minElementsParsed = parseMinElementsArg(argOf("--min-elements"))
 const outParsed = parseOutArg(argOf("--out"))
 const maxSvgParsed = parseMaxSvgExceptionsArg(argOf("--max-svg-exceptions"))
+const allowNewParsed = parseAllowNewElementsArg(argOf("--allow-new-elements"))
 const CENSUS_SCALES = scalesParsed.scales ?? []
-const ARG_ERRORS = [scalesParsed.error, minElementsParsed.error, outParsed.error, maxSvgParsed.error].filter(Boolean)
+const ARG_ERRORS = [scalesParsed.error, minElementsParsed.error, outParsed.error, maxSvgParsed.error, allowNewParsed.error].filter(Boolean)
 const MIN_ELEMENTS = minElementsParsed.value ?? DEFAULT_MIN_ELEMENTS
 const MAX_SVG_EXCEPTIONS = maxSvgParsed.value ?? DEFAULT_MAX_SVG_EXCEPTIONS
+const ALLOW_NEW_ELEMENTS = allowNewParsed.value ?? DEFAULT_ALLOW_NEW_ELEMENTS
 const OUT_FILE = outParsed.value ?? "census.json"
 
 /* ─────────── 比较模式 ─────────── */
@@ -351,12 +377,78 @@ function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions })
   console.log(`  ::marker 条数: before 100%=${markerCount.before100} 150%=${markerCount.before150}`
     + `；after 100%=${markerCount.after100} 150%=${markerCount.after150}`)
 
-  /* ── 守卫 D：键集必须逐一对应（新增/消失的键对判据不可见） ── */
+  /* ── 守卫 D：键集必须逐一对应（新增/消失的键对判据不可见）
+         消失一律失败；新增必须显式放行且逐个打印。见 parseAllowNewElementsArg。 ── */
   const missing = keysB.filter((k) => !setA.has(k))
   const added = keysA.filter((k) => !setB.has(k))
-  if (missing.length || added.length) {
-    fail("D/键集不一致", `改动前/后 100% 档键集必须逐一对应：仅改动前有 ${missing.length}（示例 ${missing.slice(0, 3).join(" | ") || "—"}），仅改动后有 ${added.length}（示例 ${added.slice(0, 3).join(" | ") || "—"}）。CSS 值改动不应改变 DOM 路径`)
+  if (missing.length) {
+    fail("D/元素消失", `仅改动前有 ${missing.length} 个键（示例 ${missing.slice(0, 3).join(" | ")}）。元素凭空消失可能是渲染失败或条件渲染变化，**任何情况下都必须排查**，不接受放行`)
   }
+  if (added.length > ALLOW_NEW_ELEMENTS) {
+    fail("D/新增超出放行额度", `仅改动后有 ${added.length} 个键，超过 --allow-new-elements ${ALLOW_NEW_ELEMENTS}。`
+      + `新增元素确实可能来自新增的界面（不是回归），但必须显式放行；请先核对清单再提高额度。`
+      + `示例 ${added.slice(0, 3).join(" | ")}`)
+  }
+  if (added.length) {
+    console.log("")
+    console.log(`  ── 已放行的新增元素（${added.length} 个，额度 ${ALLOW_NEW_ELEMENTS}）—— 请逐条人工核对 ──`)
+    for (const k of added) {
+      const v = a100[k]
+      console.log(`    + [${v.cls || "(无class)"}] ${v.fontSize}/${v.lineHeight} ${JSON.stringify((v.text ?? "").slice(0, 26))}`)
+    }
+    const addedUnscaled = added.filter((k) => {
+      const y100 = a100[k], y150 = a150[k]
+      if (!y100 || !y150) return false
+      const base = parsePx(y100.fontSize)
+      const big = parsePx(y150.fontSize)
+      if (base === null || big === null || base === 0) return false
+      return Math.abs(big / base - 1.5) > 0.02
+    })
+    if (addedUnscaled.length) {
+      fail("D1/新增元素未缩放", `${addedUnscaled.length} 个新增元素在 150% 档未按 1.5 倍缩放（示例 ${addedUnscaled.slice(0, 3).join(" | ")}）—— 新增的界面也必须跟随界面字号`)
+    } else {
+      console.log(`    已核验：${added.length} 个新增元素在 150% 档均按 1.5 倍缩放`)
+    }
+  }
+
+  /*
+   * ── 守卫 J：按**内容指纹**核查 before 的每个条目在 after 中是否仍有对应 ──
+   *
+   * 补的是守卫 D 的盲区：键是「分区::DOM 路径」，删掉 A 又在 A 的位置插入 B，
+   * 路径键看不出任何异常（既不新增也不消失）。实测已遇到路径平移：
+   * 插入「正文字体」行后，「界面字号」那一行的 DOM 索引整体后移，
+   * 其旧路径被新行的 label 顶替 —— 两个 label 字号恰好都是 14px，
+   * 于是判据 1 的数值比较**完全看不出**这里换了内容。
+   * 本守卫用「文字 + 字号 + 行高」的多重集覆盖比对，能把"内容被顶替"揪出来。
+   *
+   * 指纹**不含 class 名**：任务 2 的机械换算会把 Tailwind 的 arbitrary class
+   * 从 `text-[10px]` 合法地改成 `text-[0.625rem]`（实测侧边栏 11 处全变），
+   * 那是已提交且已 A/B 验证的改动，与"元素是否还在"无关；
+   * 而 class 承载的字号信息已由 fontSize/lineHeight 两个计算值覆盖 ——
+   * 用户看到的是文字与字形，不是 class 名。
+   */
+  const fingerprint = (v) => `${v.text ?? ""}\u0000${v.fontSize}\u0000${v.lineHeight}`
+  const afterFingerprints = new Map()
+  for (const k of keysA) {
+    const f = fingerprint(a100[k])
+    afterFingerprints.set(f, (afterFingerprints.get(f) ?? 0) + 1)
+  }
+  const lostContent = []
+  for (const k of keysB) {
+    const f = fingerprint(b100[k])
+    const n = afterFingerprints.get(f) ?? 0
+    if (n > 0) afterFingerprints.set(f, n - 1)
+    else lostContent.push({ key: k, before: b100[k] })
+  }
+  if (lostContent.length) {
+    const samePath = lostContent.filter((x) => setA.has(x.key))
+    fail("J/内容指纹丢失", `改动前有 ${lostContent.length} 个「元素内容」（文字+字号+行高）在改动后找不到对应`
+      + (samePath.length ? `；其中 ${samePath.length} 个**路径仍在但内容已被顶替**（守卫 D 看不到这类问题）` : "")
+      + `。示例：` + lostContent.slice(0, 3).map((x) => `[${x.before.cls || "无class"}] ${JSON.stringify((x.before.text ?? "").slice(0, 18))} ${x.before.fontSize}/${x.before.lineHeight} @ ${x.key.slice(-40)}`).join(" | "))
+  } else {
+    console.log(`  守卫 J（内容指纹覆盖）: 改动前 ${keysB.length} 个元素内容在改动后全部找到对应 ✓`)
+  }
+
   if (keysA.length < keysB.length) {
     fail("D2/键数不足", `after 100% 档键数 ${keysA.length} < 基线(before) ${keysB.length}：after 每档键数不低于基线，否则是局部丢采集`)
   }
@@ -389,9 +481,17 @@ function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions })
       console.log(`          后: ${d.after.fontSize} / lh ${d.after.lineHeight}`)
     }
   }
-  // 判据 1 只有在"两侧均为非空对象且键集逐一对应"的前提下才可能通过
+  /*
+   * 判据 1 的通过条件。注意 `added` 用的是**额度**而不是「必须为 0」：
+   * 键是 DOM 路径，新增界面元素会让键集合法增长（本次 4 个来自新增的
+   * 「正文字体 / 正文字号」设置行）。新增元素没有"改动前"值可比，
+   * 谈不上"视觉回归"；它们的正确性由另外两条保证 ——
+   *   · 判据 2（新增元素在 150% 档必须按 1.5 倍缩放）+ 守卫 D1 复核
+   *   · 守卫 J（改动前的内容一个都不能少，含路径被顶替的情况）
+   * 而**消失**永远不允许（missing 必须为 0，且不受额度影响）。
+   */
   const judge1 = diff100.length === 0
-    && missing.length === 0 && added.length === 0
+    && missing.length === 0 && added.length <= ALLOW_NEW_ELEMENTS
     && keysB.length > 0 && keysA.length > 0
 
   /* ── 判据 2：150% 生效性（fontSize 与 lineHeight 双断言，三分类） ── */

@@ -26,6 +26,20 @@
      模型设置空状态标题），用户主动改字体时它们会一起变 —— 这是有意接受的，
      因为它们同属"书卷感"衬线层。 */
   --serif: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);
+  /* 正文字号：先跟随界面字号（rem），再叠加正文字号倍数。
+     「单一来源」是正确性要求，不是优化：正文有 4 处用同一字号，其中
+     [data-find-highlights] 是覆盖在 textarea 之上的查找高亮层，必须与输入层
+     逐像素对齐；两处各写一份数字，今天相同、改一处就错位。
+     1.125rem = 改造前的 18px（100% 根字号下计算值完全相同，判据 1 会强制保证）。
+     从属尺寸一律写 calc(<精确 rem> * 倍数)，**不用 em**：
+     实测 ::marker 的 em 基准是所属 li（16px）而非正文 18px，
+     按 12/18=0.6667em 写会得到 10.67px 而不是 12px；
+     而 0.8889em 这类近似值还会破坏判据 1 的逐位等效（×18px=16.0002px）。
+     改造前每个从属尺寸都是 16 的整数倍，即精确 rem，故此法既精确又能缩放。 */
+  --qmai-body-font-size: calc(1.125rem * var(--qmai-body-font-scale, 1));   /* 正文 18px */
+  --qmai-body-font-list: calc(1rem * var(--qmai-body-font-scale, 1));       /* 列表 16px */
+  --qmai-body-font-marker: calc(0.75rem * var(--qmai-body-font-scale, 1));  /* 无序标记 12px */
+  --qmai-body-line-height: 1.95;
   --ui-canvas: #edf1ec; --ui-paper: #fcfdfb; --ui-panel: #f2f5ef; --ui-soft: #e4ece3;
   --ui-ink: #273c35; --ui-muted: #5d6e64; --ui-accent: #45624f; --ui-on-accent: #fff;
   --ui-warm: #f3ebdf; --ui-danger: #943f36; --ui-line: #dfe6da;

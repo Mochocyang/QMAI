@@ -17,7 +17,9 @@ import {
 } from "@/lib/sidebar-nav-preferences"
 import {
   DEFAULT_BODY_FONT_FAMILY,
+  DEFAULT_BODY_FONT_SIZE_SCALE,
   DEFAULT_UI_FONT_FAMILY,
+  clampBodyFontSizeScale,
   clampUiFontSizeScale,
   normalizeBodyFontFamily,
   normalizeUiFontFamily,
@@ -59,6 +61,8 @@ const UI_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"
 const UI_FONT_FAMILY_KEY = "qmai-ui-font-family"
 /** 正文字体独立键：与界面字体分开存，任何一个被改都不会覆盖另一个。 */
 const BODY_FONT_FAMILY_KEY = "qmai-body-font-family"
+/** 正文字号独立键：与界面字号分开存。 */
+const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
 type SettingsCategoryId =
@@ -89,6 +93,13 @@ const readStoredUiFontFamily = (): UiFontFamily => {
 const readStoredBodyFontFamily = (): BodyFontFamily => {
   if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_FAMILY
   return normalizeBodyFontFamily(localStorage.getItem(BODY_FONT_FAMILY_KEY))
+}
+
+const readStoredBodyFontSizeScale = (): number => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_SIZE_SCALE
+  const raw = localStorage.getItem(BODY_FONT_SIZE_SCALE_KEY)
+  if (raw === null) return DEFAULT_BODY_FONT_SIZE_SCALE
+  return clampBodyFontSizeScale(raw)
 }
 
 const readStoredVisualStyle = (): VisualStyle => {
@@ -657,6 +668,7 @@ interface WikiState {
   uiFontSizeScale: number
   uiFontFamily: UiFontFamily
   uiBodyFontFamily: BodyFontFamily
+  uiBodyFontSizeScale: number
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
   dataVersion: number
@@ -733,6 +745,7 @@ interface WikiState {
   setUiFontSizeScale: (scale: number) => void
   setUiFontFamily: (fontFamily: UiFontFamily) => void
   setUiBodyFontFamily: (fontFamily: BodyFontFamily) => void
+  setUiBodyFontSizeScale: (scale: number) => void
   setVisualStyle: (visualStyle: VisualStyle) => void
   setSidebarNavConfig: (config: Partial<SidebarNavConfig>) => void
   bumpDataVersion: () => void
@@ -955,6 +968,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   uiFontSizeScale: readStoredUiFontSizeScale(),
   uiFontFamily: readStoredUiFontFamily(),
   uiBodyFontFamily: readStoredBodyFontFamily(),
+  uiBodyFontSizeScale: readStoredBodyFontSizeScale(),
   visualStyle: readStoredVisualStyle(),
   sidebarNavConfig: readStoredSidebarNavConfig(),
 
@@ -1031,6 +1045,15 @@ export const useWikiStore = create<WikiState>((set) => ({
       localStorage.setItem(BODY_FONT_FAMILY_KEY, normalized)
     }
     set({ uiBodyFontFamily: normalized })
+  },
+  setUiBodyFontSizeScale: (scale) => {
+    // 与界面字号同样的"单一来源"处理：读回与写入都走同一个 clamp，
+    // 否则会出现"设成 150% 后下次启动被读回时截成别的值"。
+    const clamped = clampBodyFontSizeScale(scale)
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY, String(clamped))
+    }
+    set({ uiBodyFontSizeScale: clamped })
   },
   setVisualStyle: (visualStyle) => {
     const normalized = normalizeVisualStyle(visualStyle)

@@ -5,6 +5,7 @@ import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, Out
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import {
+  clampBodyFontSizeScale,
   normalizeBodyFontFamily,
   normalizeUiFontFamily,
   type BodyFontFamily,
@@ -889,6 +890,7 @@ export async function loadVisualStyle(): Promise<VisualStyle | null> {
 const UI_FONT_SIZE_SCALE_KEY = "uiFontSizeScale"
 const UI_FONT_FAMILY_KEY = "uiFontFamily"
 const BODY_FONT_FAMILY_KEY = "uiBodyFontFamily"
+const BODY_FONT_SIZE_SCALE_KEY = "uiBodyFontSizeScale"
 const MAX_HISTORY_MESSAGES_KEY = "maxHistoryMessages"
 
 export async function saveUiFontSizeScale(scale: number, _projectId?: string, _projectPath?: string): Promise<void> {
@@ -920,6 +922,19 @@ export async function loadUiBodyFontFamily(): Promise<BodyFontFamily | null> {
   const store = await getStore()
   const saved = await store.get<string>(BODY_FONT_FAMILY_KEY)
   return saved ? normalizeBodyFontFamily(saved) : null
+}
+
+/** 持久化正文字号。与界面字号各用各的键，互不覆盖。 */
+export async function saveUiBodyFontSizeScale(scale: number): Promise<void> {
+  const store = await getStore()
+  await store.set(BODY_FONT_SIZE_SCALE_KEY, clampBodyFontSizeScale(scale))
+  await store.save()
+}
+
+export async function loadUiBodyFontSizeScale(): Promise<number | null> {
+  const store = await getStore()
+  const saved = await store.get<number>(BODY_FONT_SIZE_SCALE_KEY)
+  return saved === null || saved === undefined ? null : clampBodyFontSizeScale(saved)
 }
 
 export async function saveMaxHistoryMessages(max: number, _projectId?: string, _projectPath?: string): Promise<void> {

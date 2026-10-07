@@ -176,6 +176,7 @@ function initialDraft(
   uiFontSizeScale: number,
   uiFontFamily: UiFontFamily,
   uiBodyFontFamily: BodyFontFamily,
+  uiBodyFontSizeScale: number,
   visualStyle: SettingsDraft["visualStyle"],
   sidebarNavConfig: SidebarNavConfig,
 ): SettingsDraft {
@@ -221,6 +222,7 @@ function initialDraft(
     uiFontSizeScale,
     uiFontFamily,
     uiBodyFontFamily,
+    uiBodyFontSizeScale,
     visualStyle,
     sidebarNavConfig,
   }
@@ -255,6 +257,8 @@ export function SettingsView() {
   const setUiFontFamily = useWikiStore((s) => s.setUiFontFamily)
   const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
   const setUiBodyFontFamily = useWikiStore((s) => s.setUiBodyFontFamily)
+  const uiBodyFontSizeScale = useWikiStore((s) => s.uiBodyFontSizeScale)
+  const setUiBodyFontSizeScale = useWikiStore((s) => s.setUiBodyFontSizeScale)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const setVisualStyle = useWikiStore((s) => s.setVisualStyle)
   const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
@@ -277,6 +281,7 @@ export function SettingsView() {
       uiFontSizeScale,
       uiFontFamily,
       uiBodyFontFamily,
+      uiBodyFontSizeScale,
       visualStyle,
       sidebarNavConfig,
     ),
@@ -344,6 +349,7 @@ export function SettingsView() {
         uiFontSizeScale,
         uiFontFamily,
         uiBodyFontFamily,
+        uiBodyFontSizeScale,
         visualStyle,
         sidebarNavConfig,
       ),
@@ -361,6 +367,7 @@ export function SettingsView() {
     uiFontSizeScale,
     uiFontFamily,
     uiBodyFontFamily,
+    uiBodyFontSizeScale,
     visualStyle,
     sidebarNavConfig,
   ])
@@ -384,6 +391,7 @@ export function SettingsView() {
       saveUiFontSizeScale,
       saveUiFontFamily,
       saveUiBodyFontFamily,
+      saveUiBodyFontSizeScale,
       saveVisualStyle,
     } = await import("@/lib/project-store")
 
@@ -483,6 +491,8 @@ export function SettingsView() {
     // 与既有做法一致，不在这里重复写。
     setUiBodyFontFamily(draft.uiBodyFontFamily)
     await saveUiBodyFontFamily(draft.uiBodyFontFamily)
+    setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)
+    await saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale)
     setVisualStyle(draft.visualStyle)
     await saveVisualStyle(draft.visualStyle)
     const { applyVisualStyle } = await import("@/lib/visual-style-settings")
@@ -511,6 +521,7 @@ export function SettingsView() {
     setUiFontSizeScale,
     setUiFontFamily,
     setUiBodyFontFamily,
+    setUiBodyFontSizeScale,
     setVisualStyle,
     setSidebarNavConfig,
   ])

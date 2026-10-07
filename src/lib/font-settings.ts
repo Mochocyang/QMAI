@@ -95,15 +95,46 @@ export const UI_FONT_SIZE_MAX = 1.5
  * 而不是被 `Number(null) === 0` 这种隐式转换带到下限 0.8 ——
  * "没有存过值"与"用户想要最小字号"是两件事，不能混为一谈。
  */
-export function clampUiFontSizeScale(value: unknown): number {
+function clampScale(value: unknown, min: number, max: number): number {
   if (value === null || value === undefined || value === "") return 1
   const n = Number(value)
   if (!Number.isFinite(n)) return 1
-  return Math.max(UI_FONT_SIZE_MIN, Math.min(UI_FONT_SIZE_MAX, Number(n.toFixed(2))))
+  return Math.max(min, Math.min(max, Number(n.toFixed(2))))
+}
+
+export function clampUiFontSizeScale(value: unknown): number {
+  return clampScale(value, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX)
 }
 
 /** 界面字号预设。与上面同一份范围定义放在一起，避免与滑块边界脱节。 */
 export const UI_FONT_SIZE_PRESETS = [
+  { label: "小", value: 0.85 },
+  { label: "默认", value: 1 },
+  { label: "大", value: 1.25 },
+  { label: "特大", value: 1.5 },
+] as const
+
+/**
+ * 正文字号倍率的允许范围（与界面字号**独立**的一份定义）。
+ *
+ * 为什么不能与界面字号共用常量：下限不同 —— 界面下限 80% 是为了
+ * 让想缩小界面的用户能更小；正文下限 85% 是因为正文再小就影响阅读，
+ * 而正文是写作软件的核心内容。共用会让其中一个被迫迁就另一个。
+ *
+ * 上下限相乘的语义：文档最终字号 = 界面字号 × 正文字号。
+ * 上限 1.5 × 1.5 = 2.25 倍（正文 18px → 约 40.5px），
+ * 该组合已实测无裁切、无溢出（见 overflow 报告）。
+ */
+export const BODY_FONT_SIZE_MIN = 0.85
+export const BODY_FONT_SIZE_MAX = 1.5
+export const DEFAULT_BODY_FONT_SIZE_SCALE = 1
+
+export function clampBodyFontSizeScale(value: unknown): number {
+  return clampScale(value, BODY_FONT_SIZE_MIN, BODY_FONT_SIZE_MAX)
+}
+
+/** 正文字号预设。85% 是下限档，故没有单独的"小"档位。 */
+export const BODY_FONT_SIZE_PRESETS = [
   { label: "小", value: 0.85 },
   { label: "默认", value: 1 },
   { label: "大", value: 1.25 },

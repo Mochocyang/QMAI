@@ -2,7 +2,16 @@ import { useEffect, useId, useState } from "react"
 import { Check } from "lucide-react"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import { BODY_FONT_OPTIONS, UI_FONT_OPTIONS, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, UI_FONT_SIZE_PRESETS } from "@/lib/font-settings"
+import {
+  BODY_FONT_OPTIONS,
+  BODY_FONT_SIZE_MAX,
+  BODY_FONT_SIZE_MIN,
+  BODY_FONT_SIZE_PRESETS,
+  UI_FONT_OPTIONS,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+  UI_FONT_SIZE_PRESETS,
+} from "@/lib/font-settings"
 
 interface Props {
   draft: SettingsDraft
@@ -15,6 +24,8 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
   const [skinError, setSkinError] = useState("")
   const scalePercent = Math.round(draft.uiFontSizeScale * 100)
   const sizePreset = UI_FONT_SIZE_PRESETS.find((preset) => Math.abs(draft.uiFontSizeScale - preset.value) < 0.001)
+  const bodyScalePercent = Math.round(draft.uiBodyFontSizeScale * 100)
+  const bodySizePreset = BODY_FONT_SIZE_PRESETS.find((preset) => Math.abs(draft.uiBodyFontSizeScale - preset.value) < 0.001)
 
   useEffect(() => {
     const root = document.documentElement
@@ -74,6 +85,16 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
               {UI_FONT_SIZE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label} · {Math.round(preset.value * 100)}%</option>)}
             </select>
             <input type="range" min={Math.round(UI_FONT_SIZE_MIN * 100)} max={Math.round(UI_FONT_SIZE_MAX * 100)} step={5} value={scalePercent} aria-label="界面字号" onChange={(event) => setDraft("uiFontSizeScale", Number(event.target.value) / 100)} />
+          </div>
+        </div>
+        <div className="ui-test-interface-row">
+          <div><label htmlFor={`${id}-body-size`}>正文字号</label><p>当前 {bodyScalePercent}%；在界面字号之上只作用于正文与文档标题，保存后生效。</p></div>
+          <div className="ui-test-interface-size">
+            <select id={`${id}-body-size`} aria-label="正文字号预设" value={bodySizePreset?.value ?? "custom"} onChange={(event) => setDraft("uiBodyFontSizeScale", Number(event.target.value))}>
+              {!bodySizePreset && <option value="custom" disabled>自定义 · {bodyScalePercent}%</option>}
+              {BODY_FONT_SIZE_PRESETS.map((preset) => <option key={preset.value} value={preset.value}>{preset.label} · {Math.round(preset.value * 100)}%</option>)}
+            </select>
+            <input type="range" min={Math.round(BODY_FONT_SIZE_MIN * 100)} max={Math.round(BODY_FONT_SIZE_MAX * 100)} step={5} value={bodyScalePercent} aria-label="正文字号" onChange={(event) => setDraft("uiBodyFontSizeScale", Number(event.target.value) / 100)} />
           </div>
         </div>
       </div>

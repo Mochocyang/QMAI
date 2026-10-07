@@ -93,4 +93,53 @@ describe("settings sidebar nav preferences", () => {
     // 5) 界面字体也要照旧保存，不能被新字段挤掉
     expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")
   })
+
+  /**
+   * 正文字号（独立设置）的接线防线 —— 与正文字体同样的整条链路。
+   *
+   * 特别注意「两个范围必须各自独立」：界面字号 80%–150%、正文字号 85%–150%，
+   * 若有人图省事让两者共用常量或共用 localStorage 键，
+   * 会出现"改界面字号把正文字号也改了"这种极难排查的串味。
+   */
+  it("正文字号接成完整一条链路，且与界面字号各自独立", () => {
+    // 1) 设置页有两行控件（预设下拉 + 滑块），分别绑定各自字段
+    expect(interfaceSectionSource).toContain('aria-label="正文字号预设"')
+    expect(interfaceSectionSource).toContain('aria-label="正文字号"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontSizeScale"')
+    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_PRESETS")
+    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_MIN")
+    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_MAX")
+    // 2) 草稿类型里有该字段
+    expect(settingsTypesSource).toContain("uiBodyFontSizeScale")
+    // 3) store：状态 + setter + **独立**的 localStorage 键，且读写都走同一个 clamp
+    expect(wikiStoreSource).toContain("uiBodyFontSizeScale: readStoredBodyFontSizeScale()")
+    expect(wikiStoreSource).toContain("setUiBodyFontSizeScale:")
+    expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
+    expect(wikiStoreSource).not.toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"')
+    expect(wikiStoreSource).toContain("clampBodyFontSizeScale(scale)")
+    // 4) 保存时既写 store 也持久化
+    expect(settingsViewSource).toContain("setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)")
+    expect(settingsViewSource).toContain("saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale")
+    // 5) 界面字号照旧保存，不能被挤掉
+    expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
+  })
+
+  /**
+   * App.tsx 必须把正文字号写成**倍数变量**（--qmai-body-font-scale），
+   * 而不是算好一个 px 值写进 fontSize。
+   *
+   * 为什么：正文 CSS 用 calc(<精确rem> * var(--qmai-body-font-scale, 1))，
+   * rem 部分已经跟随界面字号。若这里写成"算出最终 px 再设根字号"，
+   * 两个设置就会互相覆盖（改一个就把另一个的效果冲掉），
+   * 而且 ::marker 等伪元素拿不到。写成变量则两者天然相乘。
+   */
+  it("正文字号通过倍数变量应用，与界面字号相乘而非互相覆盖", () => {
+    const appSource = readFileSync(resolve(__dirname, "../../App.tsx"), "utf8")
+    expect(appSource).toContain('setProperty("--qmai-body-font-scale"')
+    expect(appSource).toContain("uiBodyFontSizeScale")
+    // 界面字号仍是根字号百分比（rem 基准），两者机制不同、互不覆盖
+    expect(appSource).toContain("document.documentElement.style.fontSize")
+    // 启动必须读回，否则重开软件就丢
+    expect(appSource).toContain("loadUiBodyFontSizeScale()")
+  })
 })

@@ -66,6 +66,8 @@ export interface SettingsDraft {
   uiFontFamily: UiFontFamily
   /** 正文字体：与界面字体互相独立（用户确认的边界）。 */
   uiBodyFontFamily: BodyFontFamily
+  /** 正文字号倍数：与界面字号互相独立；文档最终字号 = 界面字号 × 本值。 */
+  uiBodyFontSizeScale: number
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
 

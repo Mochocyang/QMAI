@@ -528,10 +528,18 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
   })
 
-  it("单独提供最大800正文容器，1.25rem/1.75rem标题与1.125rem/1.95衬线正文", () => {
+  it("单独提供最大800正文容器，1.25rem/1.75rem标题与单一来源的衬线正文", () => {
     expect(css).toMatch(/max-width:\s*800px/)
     expect(css).toMatch(/1\.25rem\/1\.75rem\s+var\(--serif\)/)
-    expect(css).toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
+    /*
+     * 正文字号必须是**单一来源变量**，不再是字面量 1.125rem/1.95。
+     * 原来的断言（正则直接匹配 1.125rem/1.95）在这里被有意替换：
+     * 字面量会让「正文字号」设置完全失效，也会让查找高亮层与输入层
+     * 各写一份取值 —— 今天相同、改一处就错位（高亮框与文字偏移）。
+     * 新断言比原来更强：它同时钉住"引用变量"与"不得再出现字面量"。
+     */
+    expect(css).toMatch(/font:\s*400\s+var\(--qmai-body-font-size\)\/var\(--qmai-body-line-height\)\s+var\(--serif\)/)
+    expect(css).not.toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
     expect(css).toContain("text-indent: 2em")
     expect(css).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)
   })
@@ -544,8 +552,11 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/\.ProseMirror, \[dir\]\[lang\]\) li p[^}]+text-indent: 0/)
   })
 
-  it("正文查找高亮保持与原textarea同一行高，避免样式修正后偏位", () => {
-    expect(css).toMatch(/\[data-find-highlights\][^{]*\{[^}]*line-height:\s*1\.95/)
+  it("正文查找高亮与输入层共用同一个字号与行高变量，避免样式修正后偏位", () => {
+    // 原来只断言"行高是字面量 1.95"；现在两者都必须是同一个变量的引用，
+    // 否则覆盖在 textarea 之上的高亮层会与输入文字错位
+    expect(css).toMatch(/\[data-find-highlights\][^{]*\{[^}]*font-size:\s*var\(--qmai-body-font-size\)/)
+    expect(css).toMatch(/\[data-find-highlights\][^{]*\{[^}]*line-height:\s*var\(--qmai-body-line-height\)/)
     expect(css).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
   })
 

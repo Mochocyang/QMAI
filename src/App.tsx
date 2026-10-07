@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontSizeScale, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -41,6 +41,7 @@ function App() {
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
   const uiFontFamily = useWikiStore((s) => s.uiFontFamily)
   const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
+  const uiBodyFontSizeScale = useWikiStore((s) => s.uiBodyFontSizeScale)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
@@ -144,6 +145,17 @@ function App() {
     applyBodyFontFamily(uiBodyFontFamily)
   }, [uiBodyFontFamily])
 
+  /*
+   * 正文字号：写成**倍数变量**，而不是直接算出一个 px 值。
+   * 正文 CSS 里的字号是 calc(<精确rem> * var(--qmai-body-font-scale, 1))，
+   * rem 部分已经跟随上面的界面字号，所以这里只叠加倍数即可 ——
+   * 最终文档字号 = 界面字号 × 正文字号，两个设置各自独立生效。
+   * 写成行内样式是为了让它能继承给所有后代（含 ::marker 等伪元素）。
+   */
+  useEffect(() => {
+    document.documentElement.style.setProperty("--qmai-body-font-scale", String(uiBodyFontSizeScale))
+  }, [uiBodyFontSizeScale])
+
   useEffect(() => {
     applyVisualStyle("classic")
   }, [visualStyle])
@@ -234,6 +246,11 @@ function App() {
         if (savedUiBodyFontFamily) {
           useWikiStore.getState().setUiBodyFontFamily(savedUiBodyFontFamily)
           applyBodyFontFamily(savedUiBodyFontFamily)
+        }
+
+        const savedUiBodyFontSizeScale = await loadUiBodyFontSizeScale()
+        if (savedUiBodyFontSizeScale !== null) {
+          useWikiStore.getState().setUiBodyFontSizeScale(savedUiBodyFontSizeScale)
         }
 
         const savedConfig = await loadLlmConfig()
