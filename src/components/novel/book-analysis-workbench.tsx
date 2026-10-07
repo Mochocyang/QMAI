@@ -761,6 +761,7 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
   const itemEvidence = [...new Set(item.rules.flatMap((rule) => rule.evidenceIds))]
     .map((id) => revision.evidence.find((evidence) => evidence.id === id))
     .filter((evidence) => !!evidence)
+  const [evidenceOpen, setEvidenceOpen] = useState(false)
   return <article className="wb-skill-card">
     <div className="wb-card-main">
       <div className="wb-card-heading"><span className="wb-avatar" data-tone={index % 3}>{item.subject.slice(0, 1)}</span>
@@ -773,20 +774,48 @@ function SkillCard({ revision, item, index, itemDate, expanded, overviewOpen, bo
         {overviewOpen ? "收起概述" : "展开完整概述"}<ChevronDown />
       </button>}
       <div className="wb-traits">{[...new Set(item.rules.map((rule) => WORKBENCH_DIMENSIONS[rule.dimension] ?? rule.dimension))].map((dimension) => <span key={dimension}>{dimension}</span>)}</div>
-      <small>{item.rules.length}条规则 · {new Set(item.rules.flatMap((rule) => rule.evidenceIds)).size}条依据</small>
-      {/*
-        * 证据索引原来挂在版本级、排在合并列表之后，点开一张卡看不到它引用的原文在哪。
-        * 下沉到卡片里紧跟上面那行小字，字号与它一致；折叠态平时不占位，所以不会变吵。
-        * 只列**这份成果自己**引用的原文 —— 整版覆盖统计已按需求移除。
-        */}
-      <details className="wb-card-evidence"><summary>证据索引</summary>
-        {itemEvidence.length
-          ? itemEvidence.map((evidence) => <blockquote className="wb-evidence" key={evidence.id}>
-            <small>第{evidence.order}章 · 正文位置{evidence.start}～{evidence.end}</small><p>{evidence.text}</p>
-          </blockquote>)
-          : <p className="wb-muted">这份成果没有引用原文。</p>}
-      </details>
+      <div className="wb-card-meta">
+        <small>{item.rules.length}条规则 · {new Set(item.rules.flatMap((rule) => rule.evidenceIds)).size}条依据</small>
+        {/*
+          * 证据索引原来是一个 <details>，另起一行、点开就地把原文展开（上下排列）。
+          * 现在与左边那行统计**并排同一行**，点击改为弹窗 —— 原文有长有短，
+          * 内联展开会把卡片撑得忽高忽低，弹窗里给足空间反而更好读。
+          * 只列**这份成果自己**引用的原文；整版覆盖统计已按需求移除。
+          */}
+        <button
+          type="button"
+          className="wb-card-evidence"
+          data-ui-card-evidence="true"
+          aria-label={`查看${item.subject}的证据索引`}
+          onClick={() => setEvidenceOpen(true)}
+        >
+          <Search />证据索引
+        </button>
+      </div>
     </div>
+    {/*
+      * 弹窗挂在卡片内部、内容经 portal 渲染到 body。
+      * 它只属于这一张卡（itemEvidence 是按本卡规则算出来的），
+      * 所以状态放在 SkillCard 本地即可 —— 外层用 key={item.subject} 渲染，
+      * 同一版本里 subject 唯一，状态不会串到别的卡片上。
+      */}
+    <Dialog open={evidenceOpen} onOpenChange={setEvidenceOpen}>
+      <DialogContent className="flex max-h-[80vh] flex-col gap-3 sm:max-w-[680px]">
+        <DialogHeader className="shrink-0">
+          <DialogTitle>{item.subject}的证据索引</DialogTitle>
+          <DialogDescription>
+            这份成果引用了 {itemEvidence.length} 条原文，来自它自己的 {item.rules.length} 条规则。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto">
+          {itemEvidence.length
+            ? itemEvidence.map((evidence) => <blockquote className="wb-evidence" key={evidence.id}>
+              <small>第{evidence.order}章 · 正文位置{evidence.start}～{evidence.end}</small><p>{evidence.text}</p>
+            </blockquote>)
+            : <p className="wb-muted">这份成果没有引用原文。</p>}
+        </div>
+      </DialogContent>
+    </Dialog>
     <footer className="wb-card-footer">
       <button aria-label={`查看${item.subject}规则`} aria-expanded={expanded} onClick={onToggleRules}><FileText />{expanded ? "收起规则" : "查看规则"}</button>
       {/* 修订与删除是一个动作组：包在同一个容器里让它们紧挨，靠右与「查看规则」分开。 */}

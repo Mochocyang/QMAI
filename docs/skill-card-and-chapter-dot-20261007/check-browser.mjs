@@ -53,17 +53,30 @@ const browser = await (mod.chromium ?? mod.default.chromium).launch()
 
 const page = await browser.newPage({ viewport: { width: 1180, height: 900 } })
 
-// ---- 2. 卡片：证据索引字号、位置、无徽标、无版本级块 ----
-// 结构完全照抄 book-analysis-workbench.tsx 的真实产物（含 <details class="wb-card-evidence">）。
+// ---- 2. 卡片：证据索引与统计同排一行、按钮外形像小字、无徽标、无版本级块 ----
+// 结构照抄 book-analysis-workbench.tsx 的真实产物：.wb-card-meta 行里放 small + button。
 const cardHtml = (subject, rules, evidence) => `<article class="wb-skill-card"><div class="wb-card-main">
   <div class="wb-card-heading"><span class="wb-avatar" data-tone="0">${subject[0]}</span>
     <h3>${subject}<small class="wb-card-date"> · 10/7 09:03</small></h3></div>
   <p class="wb-card-description">在关键节点上的取舍与表达方式。</p>
-  <small>${rules}条规则 · ${evidence.length}条依据</small>
-  <details class="wb-card-evidence"><summary>证据索引</summary>
-    ${evidence.length ? evidence.map((e) => `<blockquote class="wb-evidence"><small>第${e.order}章 · 正文位置${e.start}～${e.end}</small><p>${e.text}</p></blockquote>`).join("")
+  <div class="wb-card-meta">
+    <small>${rules}条规则 · ${evidence.length}条依据</small>
+    <button type="button" class="wb-card-evidence" data-ui-card-evidence="true" aria-label="查看${subject}的证据索引"><svg viewBox="0 0 24 24" width="12" height="12"></svg>证据索引</button>
+  </div></div></article>`
+
+/*
+ * 弹窗那份 markup 单独一页：真实弹窗经 portal 渲染到 body，
+ * **不在** .book-workbench 里，所以它必须脱离那个外壳来量 —— 混在外壳里量等于没测到
+ * "作用域丢失"这个真实风险（.book-workbench small 那条管不到弹窗内的 <small>）。
+ */
+const dialogHtml = (evidence) => `<!doctype html><html><head><meta charset="utf-8"><style>${allCss}</style>
+<style>body{margin:0;background:#f4f6f4;font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif;padding:20px}</style></head>
+<body><div data-slot="dialog-content" class="rounded-xl bg-white p-4 text-sm ring-1 ring-black/10" style="max-width:680px">
+  <h2 style="margin:0 0 4px;font-size:16px">许七安的证据索引</h2>
+  <p style="margin:0 0 12px;color:#687871;font-size:13px">这份成果引用了 ${evidence.length} 条原文，来自它自己的 3 条规则。</p>
+  ${evidence.length ? evidence.map((e) => `<blockquote class="wb-evidence"><small>第${e.order}章 · 正文位置${e.start}～${e.end}</small><p>${e.text}</p></blockquote>`).join("")
     : `<p class="wb-muted">这份成果没有引用原文。</p>`}
-  </details></div></article>`
+</div></body></html>`
 
 const page1 = `<!doctype html><html><head><meta charset="utf-8"><style>${allCss}</style>
 <style>body{margin:0;background:#f4f6f4;font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif}
@@ -81,33 +94,37 @@ await page.waitForTimeout(150)
 const geom = await page.evaluate(() => {
   const cards = [...document.querySelectorAll(".wb-skill-card")]
   const card = cards[0]
-  const small = card.querySelector(".wb-card-main > small")
-  const ev = card.querySelector(".wb-card-evidence")
-  const summary = ev.querySelector("summary")
+  const row = card.querySelector(".wb-card-meta")
+  const small = row.querySelector("small")
+  const ev = row.querySelector(".wb-card-evidence")
   const cs = (el) => getComputedStyle(el)
+  const rs = small.getBoundingClientRect(), re = ev.getBoundingClientRect()
   const withEv = cards[0]
   const noEv = cards[1]
   return {
     cardCount: cards.length,
     // 用户明确要求：证据索引与「N条规则 · M条依据」同字号
     smallFont: cs(small).fontSize,
-    summaryFont: cs(summary).fontSize,
-    summaryText: summary.textContent.trim(),
-    // 位置：必须在「N条规则」那行之后、且仍在卡片内部
-    afterSmall: Boolean(small.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING),
-    insideCard: card.contains(ev),
-    // 折叠态不应撑高卡片太多
-    collapsedH: withEv.getBoundingClientRect().height,
-    emptyCardH: noEv.getBoundingClientRect().height,
+    evFont: cs(ev).fontSize,
+    evText: ev.textContent.trim(),
+    // 「同一行」的判据：两者垂直重叠（同一个 flex 行），而不是各占一行
+    sameRow: re.top < rs.bottom && rs.top < re.bottom,
+    // 左右：统计在左、触发在右
+    evRightOfSmall: re.left >= rs.right - 0.5,
+    rowIsFlex: cs(row).display === "flex",
+    // 触发按钮必须像一句小字：没有盒子边框、高度贴近文字，而不是 34px 的按钮
+    evBorder: cs(ev).borderTopWidth,
+    evHeight: +re.height.toFixed(1),
+    evLeft: +re.left.toFixed(1),
     // 无徽标 / 无来源标签
     badges: document.querySelectorAll(".wb-card-status").length,
     originTags: document.querySelectorAll(".wb-origin-tag").length,
     // 标题行仍然只有一个 h3 + 日期，没有被徽标删除弄塌
     headingH: card.querySelector(".wb-card-heading").getBoundingClientRect().height,
-    // 证据条目在展开后可见
-    quoteCount: card.querySelectorAll(".wb-evidence").length,
-    // 空证据卡显示兜底文案而不是空白
-    emptyText: cards[1].querySelector(".wb-card-evidence p")?.textContent?.trim() ?? "",
+    // 原文不再内联在卡片里（改为弹窗）
+    inlineQuotes: document.querySelectorAll(".wb-skill-card .wb-evidence").length,
+    // 空证据卡也有同样的那一行（按钮仍在，只是点开是兜底文案）
+    emptyCardHasRow: Boolean(cards[1].querySelector(".wb-card-meta .wb-card-evidence")),
     // 整页文本里不应再出现版本级那一块
     bodyHasVersionBlock: document.body.textContent.includes("证据索引与实际覆盖"),
     bodyHasManualNote: document.body.textContent.includes("自动核验仍需人工复核"),
@@ -116,39 +133,75 @@ const geom = await page.evaluate(() => {
   }
 })
 
-check(geom.summaryText === "证据索引", "标签只剩「证据索引」", `实际「${geom.summaryText}」`)
-check(geom.smallFont === geom.summaryFont, "证据索引与「N条规则 · M条依据」同字号",
-  `small=${geom.smallFont} summary=${geom.summaryFont}`)
-check(geom.afterSmall && geom.insideCard, "证据索引位于那行小字之后且仍在卡片内",
-  `afterSmall=${geom.afterSmall} insideCard=${geom.insideCard}`)
+check(geom.evText === "证据索引", "标签只剩「证据索引」", `实际「${geom.evText}」`)
+check(geom.smallFont === geom.evFont, "证据索引与「N条规则 · M条依据」同字号",
+  `small=${geom.smallFont} 证据索引=${geom.evFont}`)
+check(geom.rowIsFlex && geom.sameRow, "两者在同一行（同一个 flex 行容器里垂直重叠）",
+  `display=${geom.rowIsFlex} sameRow=${geom.sameRow}`)
+check(geom.evRightOfSmall, "证据索引在统计的右侧", `统计右缘 → 触发左缘 ${geom.evLeft}`)
+// 全局 .book-workbench button 会给 34px 高 + 边框；这一行必须压掉它，否则统计与触发不在一个视觉层级
+check(geom.evHeight <= 22, "触发按钮被压成一行小字的高度（不是 34px 的按钮）", `${geom.evHeight}px`)
+check(geom.evBorder === "0px", "触发按钮没有边框（看起来像小字而不是盒子）", geom.evBorder)
 check(geom.badges === 0, "卡片上没有任何 .wb-card-status", `找到 ${geom.badges} 个`)
 check(geom.originTags === 0, "卡片上没有任何 .wb-origin-tag", `找到 ${geom.originTags} 个`)
 check(!geom.bodyHasVersionBlock && !geom.bodyHasManualNote, "版本级「证据索引与实际覆盖」整块不存在")
 check(!geom.bodyHasBadgeWords, "页面文本里不再出现「待确认／已入库」")
-check(geom.quoteCount === 2, "卡片列出该成果引用的 2 条原文", `实际 ${geom.quoteCount} 条`)
-check(geom.emptyText === "这份成果没有引用原文。", "无引用的成果有兜底文案", `实际「${geom.emptyText}」`)
-check(geom.headingH > 10 && geom.headingH < 48, "删除徽标后标题行高度正常（没塌也没撑）",
+check(geom.inlineQuotes === 0, "原文不再内联在卡片里（改为弹窗展示）", `内联 ${geom.inlineQuotes} 条`)
+check(geom.emptyCardHasRow, "没有引用的成果也有那一行入口")
+check(geom.headingH > 10 && geom.headingH < 48, "标题行高度正常（没塌也没撑）",
   `${geom.headingH.toFixed(1)}px`)
-// 折叠态的卡片不该比一个没有证据块的卡片高出太多（details 折叠时 summary 占一行）
-check(geom.collapsedH - geom.emptyCardH < 40, "折叠态下证据索引几乎不增加卡片高度",
-  `有证据 ${geom.collapsedH.toFixed(0)}px vs 空证据 ${geom.emptyCardH.toFixed(0)}px`)
-
-// 展开后原文可见
-await page.evaluate(() => { document.querySelector(".wb-card-evidence").open = true })
-await page.waitForTimeout(80)
-const expanded = await page.evaluate(() => {
-  const ev = document.querySelector(".wb-card-evidence")
-  return { quoteH: ev.querySelector(".wb-evidence").getBoundingClientRect().height,
-    text: ev.textContent.includes("他先核对了账册") }
-})
-check(expanded.text && expanded.quoteH > 10, "展开后能看到引用原文", `条目高 ${expanded.quoteH.toFixed(1)}px`)
 
 await page.screenshot({ path: join(shots, "card-evidence.png"), fullPage: true })
 
-// ---- 3. 章节绿点：尺寸、颜色、位置在标题左侧、运行态脉冲 ----
+// ---- 2b. 弹窗（脱离 .book-workbench 外壳）里的原文可读性 ----
+await page.setContent(dialogHtml([{ order: 1, start: 10, end: 20, text: "他先核对了账册，才开口。" }, { order: 2, start: 88, end: 96, text: "这一笔对不上，他记在心里没说。" }]))
+await page.waitForTimeout(120)
+const dlg = await page.evaluate(() => {
+  const quotes = [...document.querySelectorAll(".wb-evidence")]
+  const cs = (el) => getComputedStyle(el)
+  const first = quotes[0]
+  const meta = first.querySelector("small")
+  return {
+    count: quotes.length,
+    metaFont: cs(meta).fontSize,
+    metaColor: cs(meta).color,
+    metaDisplay: cs(meta).display,
+    quoteFont: cs(first).fontSize,
+    quotePadding: cs(first).paddingTop,
+    visible: quotes.every((q) => q.getBoundingClientRect().height > 20),
+    borderLeft: cs(first).borderLeftWidth,
+  }
+})
+check(dlg.count === 2, "弹窗里列出 2 条原文", `实际 ${dlg.count} 条`)
+check(dlg.visible, "弹窗里的原文条目有实际高度（不是被压扁/隐形）")
+// 这条是"作用域丢失"的直接判据：弹窗在 .book-workbench 之外，<small> 必须另有全局规则兜住
+check(dlg.metaFont === "11px" && dlg.metaDisplay === "block",
+  "弹窗里的「第N章 · 正文位置…」保留了 11px 小字（没掉回浏览器默认）",
+  `font=${dlg.metaFont} display=${dlg.metaDisplay}`)
+check(dlg.metaColor !== "rgb(0, 0, 0)", "弹窗里的位置说明用了次要色，不是纯黑正文色", dlg.metaColor)
+check(dlg.borderLeft === "3px", "弹窗里的原文仍带引用侧边线", dlg.borderLeft)
+
+await page.setContent(dialogHtml([]))
+await page.waitForTimeout(80)
+const dlgEmpty = await page.evaluate(() => ({
+  text: document.querySelector(".wb-muted")?.textContent?.trim() ?? "",
+  color: document.querySelector(".wb-muted") ? getComputedStyle(document.querySelector(".wb-muted")).color : "",
+}))
+check(dlgEmpty.text === "这份成果没有引用原文。", "空证据弹窗有兜底文案", `实际「${dlgEmpty.text}」`)
+check(dlgEmpty.color === "rgb(104, 120, 113)", "兜底文案的次要色在弹窗外也生效（未掉成纯黑）", dlgEmpty.color)
+
+// ---- 3. 章节绿点：尺寸、颜色、位置、运行态脉冲，以及**没点也要留位** ----
+/*
+ * 结构照抄 knowledge-tree.tsx：点槽在标题**之前**，与真点共用同一份尺寸 class
+ * （MEMORY_DOT_SLOT_CLASS）。没记忆的行放一个 aria-hidden 的等宽占位。
+ * 真点与占位必须由**同一个常量**拼出来 —— 这里也照做，两处各写一份就测不出改歪。
+ */
+const DOT_SLOT = "h-1.5 w-1.5 shrink-0 rounded-full"
 const dotRow = (state, title, number) => `<div class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
   <span class="text-muted-foreground">${number}</span>
-  ${state === "none" ? "" : `<span role="img" data-state="${state}" data-ui-tree-memory-dot="true" aria-label="${state === "done" ? "已提取记忆" : "正在提取记忆"}" title="${state === "done" ? "已提取记忆" : "正在提取记忆"}" class="h-1.5 w-1.5 shrink-0 rounded-full ${state === "done" ? "bg-emerald-500" : "animate-pulse bg-muted-foreground/60"}"></span>`}
+  ${state === "none"
+    ? `<span aria-hidden="true" data-ui-tree-memory-dot-spacer="true" class="${DOT_SLOT}"></span>`
+    : `<span role="img" data-state="${state}" data-ui-tree-memory-dot="true" aria-label="${state === "done" ? "已提取记忆" : "正在提取记忆"}" title="${state === "done" ? "已提取记忆" : "正在提取记忆"}" class="${DOT_SLOT} ${state === "done" ? "bg-emerald-500" : "animate-pulse bg-muted-foreground/60"}"></span>`}
   <span class="truncate">${title}</span></div>`
 
 const page2 = `<!doctype html><html><head><meta charset="utf-8"><style>${allCss}</style>
@@ -198,6 +251,18 @@ const dots = await page.evaluate(() => {
     noDotRowHasDot: rows[2].querySelectorAll('[data-ui-tree-memory-dot="true"]').length,
     // 高度 1.5 = 6px
     cssH: cs(all[0]).height,
+    /*
+     * 用户反馈的核心：有点的行与没点的行，标题左边界必须完全一致，
+     * 否则整列看起来"排序错乱"。这里量的是**每个标题 span 的 left**，
+     * 以及每行点槽的 left/宽度 —— 三者一起才能说明"留位"真的生效了。
+     */
+    titleLefts: rows.map((row) => +row.querySelector("span:last-child").getBoundingClientRect().left.toFixed(2)),
+    slotLefts: rows.map((row) => +row.querySelector('[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]').getBoundingClientRect().left.toFixed(2)),
+    slotWidths: rows.map((row) => +row.querySelector('[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]').getBoundingClientRect().width.toFixed(2)),
+    slotCounts: rows.map((row) => row.querySelectorAll('[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]').length),
+    spacerCount: document.querySelectorAll("[data-ui-tree-memory-dot-spacer]").length,
+    spacerAriaHidden: document.querySelector("[data-ui-tree-memory-dot-spacer]")?.getAttribute("aria-hidden"),
+    spacerHasTitle: document.querySelector("[data-ui-tree-memory-dot-spacer]")?.hasAttribute("title"),
   }
 })
 
@@ -217,6 +282,20 @@ check(dots.animations[0] === "none" && dots.animations[1] !== "none",
 check(dots.leftOfTitle.every(Boolean), "绿点在标题左侧", JSON.stringify(dots.leftOfTitle))
 check(dots.verticallyInsideRow.every(Boolean), "绿点垂直居中在行内", JSON.stringify(dots.verticallyInsideRow))
 check(dots.labels.join(",") === "已提取记忆,正在提取记忆", "aria-label 说明状态", dots.labels.join(","))
+/*
+ * 这三条就是用户要的"排列统一"：每一行都占满同一格，
+ * 于是所有标题的左边界落在同一个 x 上（容差 0.5px 吸收亚像素取整）。
+ */
+check(dots.slotCounts.every((n) => n === 1), "每一行都恰有一个点槽（有记忆或占位）",
+  JSON.stringify(dots.slotCounts))
+check(dots.spacerCount === 1, "没有记忆的那一行放的是占位而不是真点", `占位 ${dots.spacerCount} 个`)
+check(new Set(dots.slotWidths).size === 1, "所有点槽同宽（占位与真点等宽）",
+  JSON.stringify(dots.slotWidths))
+check(new Set(dots.slotLefts).size === 1, "所有点槽左边界一致", JSON.stringify(dots.slotLefts))
+check(new Set(dots.titleLefts).size === 1, "所有标题左边界一致（这才是用户看到的「不整齐」）",
+  JSON.stringify(dots.titleLefts))
+check(dots.spacerAriaHidden === "true" && dots.spacerHasTitle === false,
+  "占位对屏幕阅读器与悬停都不可见", `aria-hidden=${dots.spacerAriaHidden} 有title=${dots.spacerHasTitle}`)
 check(dots.titles.join(",") === "已提取记忆,正在提取记忆", "悬停 tooltip 说明状态", dots.titles.join(","))
 
 // 截图前把提取中那枚点的动画彻底去掉。
@@ -275,19 +354,25 @@ check(btn.replacedText === "此历史版本已被替换" && !btn.replacedHasButt
 await page.setContent(page1)
 await page.waitForTimeout(100)
 const mutated = await page.evaluate(() => {
+  const cs = (el) => getComputedStyle(el)
+  const row = document.querySelector(".wb-card-meta")
+  const ev = row.querySelector(".wb-card-evidence")
+  const small = row.querySelector("small")
+
   // 变异 A：把证据索引字号改成 18px（用户要求同字号，这必须被抓到）
-  const sum = document.querySelector(".wb-card-evidence summary")
-  sum.style.fontSize = "18px"
-  const small = document.querySelector(".wb-card-main > small")
-  const a = getComputedStyle(sum).fontSize === getComputedStyle(small).fontSize
+  ev.style.fontSize = "18px"
+  const a = cs(ev).fontSize === cs(small).fontSize
+  ev.style.fontSize = ""
+
   // 变异 B：把徽标加回来
   const badge = document.createElement("span")
   badge.className = "wb-card-status"
   document.querySelector(".wb-card-heading").append(badge)
   const b = document.querySelectorAll(".wb-card-status").length === 0
+
   // 变异 C：把证据索引全部挪出卡片（模拟"又回到版本级"）
   // 注意必须 remove **所有** .wb-card-evidence：这一页有两张卡，只删第一张的话
-  // 第二张的「证据索引」summary 仍在 body 文本里，变异体不会被抓到（实测踩到过，
+  // 第二张的「证据索引」按钮仍在 body 文本里，变异体不会被抓到（实测踩到过，
   // 那会让这条负向对照变成假通过）。
   const evs = document.querySelectorAll(".wb-card-evidence")
   evs.forEach((e) => e.remove())
@@ -300,6 +385,74 @@ check(mutated.c === false && mutated.removedEvidence === 2,
   "变异对照：证据索引全部移除后「存在」断言确实失败",
   `移除 ${mutated.removedEvidence} 个证据块`)
 
+/*
+ * 本轮新增的两条断言各自也要有负向对照 —— 否则"左右排列"和"按钮像小字"
+ * 可能只是恒真的空话。
+ */
+await page.setContent(page1)
+await page.waitForTimeout(100)
+const rowMutant = await page.evaluate(() => {
+  const cs = (el) => getComputedStyle(el)
+  const row = document.querySelector(".wb-card-meta")
+  const ev = row.querySelector(".wb-card-evidence")
+  const small = row.querySelector("small")
+  /*
+   * 关键：这里必须复算**与正式断言完全相同的那个布尔**，
+   * 而不是它的一半。第一版只复算了"垂直重叠"那一半，于是变异体显示"没抓到"，
+   * 而正式断言（flex 且重叠）其实是抓得到的 —— 那是**负向对照本身的缺陷**，
+   * 它会让一条有效的断言看起来像空话，也会掩盖真正的空话。
+   */
+  const sameRowAssertion = () => {
+    const rs = small.getBoundingClientRect(), re = ev.getBoundingClientRect()
+    const overlap = re.top < rs.bottom && rs.top < re.bottom
+    return cs(row).display === "flex" && overlap
+  }
+  const rightOf = () => ev.getBoundingClientRect().left >= small.getBoundingClientRect().right - 0.5
+
+  const before = { sameRow: sameRowAssertion(), rightOf: rightOf(), display: cs(row).display }
+
+  /*
+   * 变异 F：还原成旧版的样子 —— 块级容器 + 块级元素（原来那个 <details> 就是这样独占一行）。
+   * 只改容器是不够的：`small` 与 `inline-flex` 的按钮都是行内级，块容器里照样同行。
+   */
+  row.style.display = "block"
+  ev.style.display = "block"
+  const afterBlock = { sameRow: sameRowAssertion(), display: cs(row).display }
+  row.style.display = ""
+  ev.style.display = ""
+
+  // 变异 F2：容器仍是 flex，但改成竖排 —— 证明"垂直重叠"那一半也是承重的
+  row.style.flexDirection = "column"
+  const afterColumn = { sameRow: sameRowAssertion(), display: cs(row).display }
+  row.style.flexDirection = ""
+
+  // 变异 G：还原全局按钮样式（把 34px 的按钮盒子放回来）—— 高度断言必须失败
+  const h0 = +ev.getBoundingClientRect().height.toFixed(1)
+  ev.style.minHeight = "34px"; ev.style.padding = "6px 10px"; ev.style.border = "1px solid #c6d1cb"
+  const h1 = +ev.getBoundingClientRect().height.toFixed(1)
+  const border1 = cs(ev).borderTopWidth
+  ev.style.minHeight = ""; ev.style.padding = ""; ev.style.border = ""
+
+  // 变异 H：把触发按钮挪到统计左边 —— "在右侧"必须失败
+  row.insertBefore(ev, small)
+  const afterSwap = rightOf()
+  row.appendChild(ev)
+
+  return { before, afterBlock, afterColumn, h0, h1, border1, afterSwap }
+})
+check(rowMutant.before.sameRow && rowMutant.before.display === "flex",
+  "对照前提：未变异时两者确实同排一行")
+check(rowMutant.afterBlock.sameRow === false,
+  "变异对照：还原成块级独占一行后「同一行」断言确实失败",
+  `sameRow=${rowMutant.afterBlock.sameRow} display=${rowMutant.afterBlock.display}`)
+check(rowMutant.afterColumn.sameRow === false,
+  "变异对照：容器改成竖排后「同一行」断言确实失败（重叠那一半也承重）",
+  `sameRow=${rowMutant.afterColumn.sameRow} display=${rowMutant.afterColumn.display}`)
+check(rowMutant.h1 > 22 && rowMutant.border1 !== "0px",
+  "变异对照：还原全局按钮样式后高度/边框断言确实失败",
+  `高度 ${rowMutant.h0}px → ${rowMutant.h1}px，边框 ${rowMutant.border1}`)
+check(rowMutant.afterSwap === false, "变异对照：把按钮挪到统计左边后「在右侧」断言确实失败")
+
 await page.setContent(page2)
 await page.waitForTimeout(100)
 const dotMutant = await page.evaluate(() => {
@@ -308,14 +461,38 @@ const dotMutant = await page.evaluate(() => {
   d.style.width = "12px"; d.style.height = "12px"
   const r = d.getBoundingClientRect()
   const sizeOk = r.width >= 5.5 && r.width <= 6.5
-  // 变异 E：把绿点改成灰色
   d.style.width = ""; d.style.height = ""
+
+  // 变异 E：把绿点改成灰色（用参照元素比，不写死 rgb，理由见上面的 oklch 说明）
+  const ref = document.createElement("span")
+  ref.className = "bg-emerald-500"
+  document.body.appendChild(ref)
+  const emerald = getComputedStyle(ref).backgroundColor
+  ref.remove()
+  const color0 = getComputedStyle(d).backgroundColor
   d.style.backgroundColor = "rgb(120,120,120)"
-  const colorOk = getComputedStyle(d).backgroundColor === "rgb(16, 185, 129)"
-  return { sizeOk, colorOk }
+  const colorOk = getComputedStyle(d).backgroundColor === emerald
+  d.style.backgroundColor = ""
+
+  /*
+   * 变异 I（用户反馈的核心）：把占位点删掉 —— 模拟修复前的行为。
+   * 这必须让「所有标题左边界一致」失败，否则那条断言证明不了任何事。
+   */
+  const rows = [...document.querySelectorAll(".wrap > div")]
+  const titleLefts = () => rows.map((row) => +row.querySelector("span:last-child").getBoundingClientRect().left.toFixed(2))
+  const alignedBefore = new Set(titleLefts()).size === 1
+  const spacers = document.querySelectorAll("[data-ui-tree-memory-dot-spacer]")
+  spacers.forEach((s) => s.remove())
+  const leftsAfter = titleLefts()
+  const alignedAfter = new Set(leftsAfter).size === 1
+
+  return { sizeOk, colorOk, color0, emerald, alignedBefore, alignedAfter, leftsAfter, removedSpacers: spacers.length }
 })
 check(dotMutant.sizeOk === false, "变异对照：圆点改成 12px 后尺寸断言确实失败")
 check(dotMutant.colorOk === false, "变异对照：绿点改成灰色后颜色断言确实失败")
+check(dotMutant.alignedBefore === true && dotMutant.alignedAfter === false,
+  "变异对照：删掉占位点后「标题左边界一致」断言确实失败（证明这条断言承重）",
+  `移除 ${dotMutant.removedSpacers} 个占位，标题 left=${JSON.stringify(dotMutant.leftsAfter)}`)
 
 await browser.close()
 

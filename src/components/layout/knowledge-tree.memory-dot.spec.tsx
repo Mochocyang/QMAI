@@ -213,4 +213,66 @@ describe("章节目录的记忆绿点", () => {
       .toBe("done")
     cleanup()
   })
+
+  /*
+   * 用户反馈：有小绿点的行和没小绿点的行混在一起时，标题左边界不一致，看起来"排序错乱"。
+   * 修法是**每一行都占住圆点那一格**：有记忆的放真点，没有的放等宽占位。
+   *
+   * 这里断言的是"结构上每行都有且仅有一个点槽"，以及占位与真点用同一套尺寸 class ——
+   * jsdom 没有布局引擎，量不出像素级的左边界是否一致，那部分由真实浏览器几何脚本承担
+   * （docs/skill-card-and-chapter-dot-20261007/check-browser.mjs）。
+   * 两层各管一半：这层管"组件确实渲染了占位"，那层管"渲染出来确实对齐"。
+   */
+  it("没有记忆的章节也留出圆点那一格，保证每行标题左边界一致", async () => {
+    const { container, cleanup } = mount()
+    await flush()
+
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-page-path]")]
+    const chapterRows = rows.filter((row) => row.querySelector("button [class*='truncate'], button input"))
+    expect(chapterRows.length).toBeGreaterThanOrEqual(3)
+
+    for (const row of chapterRows) {
+      const slots = row.querySelectorAll("[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]")
+      expect(slots.length, `${row.getAttribute("data-page-path")} 的点槽不是恰好一个`).toBe(1)
+    }
+
+    // 有记忆的那一行是真点，没有的是占位；两者都不能缺失。
+    const doneRow = rowFor(container, "第2章-雨夜.md")
+    const noneRow = rowFor(container, "第5章-归途.md")
+    expect(doneRow.querySelector("[data-ui-tree-memory-dot]")).not.toBeNull()
+    expect(doneRow.querySelector("[data-ui-tree-memory-dot-spacer]")).toBeNull()
+    expect(noneRow.querySelector("[data-ui-tree-memory-dot]")).toBeNull()
+    expect(noneRow.querySelector("[data-ui-tree-memory-dot-spacer]")).not.toBeNull()
+
+    /*
+     * 占位必须与真点同尺寸，否则"留位"就白留了。
+     * 判据是**子集**而不是相等：真点会多一个颜色 class（bg-emerald-500 或灰+animate-pulse），
+     * 那是状态差异、不影响宽度。所以要求占位上的每个 class 都出现在真点上，
+     * 再额外钉住两个宽度 class 确实在场 —— 这样谁把 MEMORY_DOT_SLOT_CLASS 改歪都会红。
+     */
+    const spacer = noneRow.querySelector<HTMLElement>("[data-ui-tree-memory-dot-spacer]")!
+    const dot = doneRow.querySelector<HTMLElement>("[data-ui-tree-memory-dot]")!
+    const spacerClasses = [...spacer.classList]
+    expect(spacerClasses.length, "占位点没有尺寸 class").toBeGreaterThan(0)
+    for (const name of spacerClasses) {
+      expect([...dot.classList], `真点缺少占位点的 class ${name}`).toContain(name)
+    }
+    expect(spacerClasses).toContain("h-1.5")
+    expect(spacerClasses).toContain("w-1.5")
+    expect(spacerClasses).toContain("shrink-0")
+    cleanup()
+  })
+
+  it("占位点对屏幕阅读器与悬停都不存在（它不是「已提取」声明）", async () => {
+    const { container, cleanup } = mount()
+    await flush()
+
+    const spacer = rowFor(container, "第5章-归途.md").querySelector<HTMLElement>("[data-ui-tree-memory-dot-spacer]")!
+    // 占位是纯布局用的：不能有 role/title/aria-label，否则会被读成"这章已提取/正在提取"。
+    expect(spacer.getAttribute("role")).toBeNull()
+    expect(spacer.getAttribute("title")).toBeNull()
+    expect(spacer.getAttribute("aria-label")).toBeNull()
+    expect(spacer.getAttribute("aria-hidden")).toBe("true")
+    cleanup()
+  })
 })

@@ -27,6 +27,13 @@ import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
 
+/**
+ * 章节行最前面那一格圆点的尺寸 class。真点与占位点**共用**这一份，
+ * 这是"没提取过的行也留出同样宽度"能成立的唯一保证 ——
+ * 两处各写一份 Tailwind 字符串，早晚会改歪一处而没人发现。
+ */
+const MEMORY_DOT_SLOT_CLASS = "h-1.5 w-1.5 shrink-0 rounded-full"
+
 function formatImportProgressRunningLabel(task: ImportProgressTask, kindLabel: string): string {
   if (task.cancelling) return `正在取消${kindLabel}提取...`
 
@@ -1691,18 +1698,29 @@ export function KnowledgeTree({
           >
             {filterType === "outline" ? (page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : null}
             {/*
-              * 「已提取记忆」绿点：贴在标题左侧。已提取=实心绿点，提取中=灰点脉冲，
-              * 没提取过就什么都不渲染（不是渲染一个透明点占位 —— 那会让标题整体右移，
-              * 于是整列参差不齐）。判定与取号规则都在 chapter-memory-dot.ts 里。
+              * 「已提取记忆」绿点：贴在标题左侧。已提取=实心绿点，提取中=灰点脉冲。
+              *
+              * 没提取过时**仍然占位**（一个 aria-hidden 的空 span，尺寸 class 与真点完全相同）。
+              * 最初这里是什么都不渲染，理由是"怕标题整体右移"——那个理由搞反了：
+              * 什么都不渲染才是让标题左右不一的原因（有点的行被圆点+gap 推右 14px，
+              * 没点的行贴在左边），用户看到的就是这种错乱。占位后所有行的标题左边界一致。
+              * 占位必须与真点同 class，否则宽度不同、留位就白留了。
+              * 判定与取号规则都在 chapter-memory-dot.ts 里。
               */}
-            {memoryDotState !== "none" && (
+            {memoryDotState === "none" ? (
+              <span
+                aria-hidden="true"
+                data-ui-tree-memory-dot-spacer="true"
+                className={MEMORY_DOT_SLOT_CLASS}
+              />
+            ) : (
               <span
                 role="img"
                 data-state={memoryDotState}
                 data-ui-tree-memory-dot="true"
                 aria-label={memoryDotState === "done" ? "已提取记忆" : "正在提取记忆"}
                 title={memoryDotState === "done" ? "已提取记忆" : "正在提取记忆"}
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                className={`${MEMORY_DOT_SLOT_CLASS} ${
                   memoryDotState === "done" ? "bg-emerald-500" : "animate-pulse bg-muted-foreground/60"
                 }`}
               />

@@ -353,20 +353,60 @@ describe("拆书库卡片精简", () => {
     await act(async () => root.render(<BookAnalysisWorkbench />))
 
     const card = host.querySelector('[data-revision-id="rev-evidence"] .wb-skill-card')!
-    const index = card.querySelector(".wb-card-evidence")!
-    expect(index, "卡片里没有证据索引").not.toBeNull()
-    // 标签只有「证据索引」四个字，不再带「与实际覆盖」。
-    expect(index.querySelector("summary")!.textContent).toBe("证据索引")
-    // 只列这张卡引用的 e1；e2 属于同一版本但没被这个对象引用，不能出现。
-    expect(index.textContent).toContain("他先核对了账册。")
-    expect(index.textContent).not.toContain("这一笔对不上。")
-    // 正向控制：证据索引确实在卡片里，且紧跟「N条规则 · M条依据」那一行。
-    const small = card.querySelector(".wb-card-main > small")!
+    const index = card.querySelector<HTMLButtonElement>(".wb-card-evidence")!
+    expect(index, "卡片里没有证据索引入口").not.toBeNull()
+    /*
+     * 需求：与「N条规则 · M条依据」**左右并排同一行**，而不是像原来那样另起一行折叠展开。
+     * 判据有两条，缺一不可：
+     *   1) 两者是同一个 .wb-card-meta 行容器里的兄弟（这才是"同一行"在结构上的含义）；
+     *   2) 不再有 <details>/<summary>（那正是"上下排列"的旧做法）。
+     * 只断言"两者都存在"是不够的 —— 上下两行也能满足。
+     */
+    const row = card.querySelector(".wb-card-meta")!
+    expect(row, "没有承载「统计 + 证据索引」的那一行").not.toBeNull()
+    const small = row.querySelector("small")!
     expect(small.textContent).toContain("1条规则 · 1条依据")
+    expect(row.contains(small)).toBe(true)
+    expect(row.contains(index)).toBe(true)
     expect(small.compareDocumentPosition(index) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(index.tagName).toBe("BUTTON")
+    expect(card.querySelector(".wb-card-evidence summary")).toBeNull()
+    expect(index.textContent).toContain("证据索引")
+    // 标签只有「证据索引」四个字，不再带「与实际覆盖」，也不带条数。
+    expect(index.textContent?.trim()).toBe("证据索引")
+
+    // 点击之前不显示原文：内容是**弹窗**里的，不是内联展开的。
+    expect(host.textContent).not.toContain("他先核对了账册。")
+    await act(async () => index.click())
+
+    // 弹窗渲染到 body 的 portal 里（DialogContent 不留在卡片容器内）。
+    const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-content"]')
+    expect(dialog, "点击后没有弹出证据索引").not.toBeNull()
+    expect(dialog!.textContent).toContain("许七安")
+    // 只列这张卡引用的 e1；e2 属于同一版本但没被这个对象引用，不能出现。
+    expect(dialog!.textContent).toContain("他先核对了账册。")
+    expect(dialog!.textContent).not.toContain("这一笔对不上。")
     // 版本级整块已删除（连带整版 metrics 与覆盖分段）。
     expect(host.textContent).not.toContain("证据索引与实际覆盖")
     expect(host.textContent).not.toContain("自动核验仍需人工复核")
+  })
+
+  it("没有引用原文的成果：弹窗里给兜底文案，而不是一个空弹窗", async () => {
+    mocks.revisions.mockResolvedValue([revisionFixture({
+      id: "rev-no-evidence", confirmedAt: 3,
+      items: [{ subject: "许七安", summary: "判断倾向", limitations: "", rules: [{ ...ruleFixture, evidenceIds: [] }] }],
+      evidence: [{ id: "e9", chapterId: "c9", order: 9, start: 1, end: 5, text: "别的对象引用的。", sourceHash: "h9" }],
+    })])
+    mocks.old.selectedLibraryBookId = "book-1"
+    mocks.load.mockResolvedValue({ books: [book] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+
+    const card = host.querySelector('[data-revision-id="rev-no-evidence"] .wb-skill-card')!
+    await act(async () => card.querySelector<HTMLButtonElement>(".wb-card-evidence")!.click())
+    const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-content"]')!
+    expect(dialog.textContent).toContain("这份成果没有引用原文。")
+    // 同一版本里别的对象引用的原文不能漏进这个弹窗。
+    expect(dialog.textContent).not.toContain("别的对象引用的。")
   })
 })
   it("取消侧栏和重复标题，显示页内设置并初始化后台服务", async () => {

@@ -49,6 +49,14 @@
 .wb-rule dt{color:var(--ui-muted,#687871)}
 .wb-rule dd{margin:0;overflow-wrap:anywhere}
 .wb-evidence{padding:12px;border-left:3px solid var(--ui-line,#c6d1cb);margin:8px 0;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+/*
+ * 证据索引现在只在**弹窗**里展示，而弹窗经 portal 渲染到 body、不在 .book-workbench 内。
+ * 所以这里的两条必须写成全局选择器：`.book-workbench small` 那条管不到弹窗里的 <small>，
+ * 不管的话「第N章 · 正文位置…」会掉回浏览器默认字号，与正文大小不协调。
+ * 颜色也只能用 fallback（弹窗里没有 --ui-muted）。
+ */
+.wb-evidence small{display:block;margin-bottom:5px;font-size:11px;color:#687871;white-space:normal}
+.wb-evidence p{margin:0}
 .wb-book-picker{position:relative}
 .wb-book-picker>button{min-width:150px;max-width:360px;justify-content:space-between}
 .wb-book-picker>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -128,15 +136,23 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-overview-toggle[aria-expanded=true] svg{transform:rotate(180deg)}
 .wb-traits{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 15px}
 .wb-traits span{font-size:11px;padding:4px 7px;border-radius:3px;background:var(--ui-panel,var(--muted));color:var(--ui-muted,#687871)}
-.wb-card-main>small{font-size:11px}
 /*
- * 卡片内的证据索引：summary 与上面「N条规则 · M条依据」同字号（11px），
- * 折叠态只占一行，展开后才是原文条目 —— 这样「移到卡片里」不会让卡片变高。
+ * 「N条规则 · M条依据」与「证据索引」左右并排在同一行：统计在左，触发按钮紧跟其右。
+ * 用 flex 行容器而不是让它们各自成块，这样两件事在结构上就是同一行
+ * （只靠视觉上凑近、结构上仍是两行的话，窗口一窄又会掉行）。
  */
-.wb-card-main .wb-card-evidence{margin-top:7px}
-.book-workbench .wb-card-main .wb-card-evidence>summary{font-size:11px;padding:0;color:var(--ui-accent,#496b59)}
-.wb-card-evidence .wb-evidence{margin:8px 0 0}
-.wb-card-evidence>p{margin:7px 0 0;font-size:12px}
+.wb-card-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wb-card-meta>small{font-size:11px}
+/*
+ * 触发按钮要长得像**一句小字**，不是一个按钮盒子。
+ * 必须显式压掉 .book-workbench button 的全局样式（min-height:34px、边框、内边距、纸底色），
+ * 否则这一行会被撑到 34px 高、还多出一个方框，与左边的统计完全不在一个视觉层级上。
+ * 用 :where() 保持低优先级不必要 —— 这里靠选择器权重（.book-workbench ...）压过全局那条。
+ */
+.book-workbench .wb-card-evidence{min-height:0;height:auto;display:inline-flex;align-items:center;gap:4px;
+  padding:0;border:0;border-radius:0;background:none;color:var(--ui-accent,#496b59);font-size:11px;line-height:1.5;cursor:pointer}
+.book-workbench .wb-card-evidence:hover:not(:disabled){background:none;text-decoration:underline}
+.book-workbench .wb-card-evidence svg{width:12px;height:12px;flex-shrink:0}
 .wb-card-footer{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--ui-line,#c6d1cb);background:var(--ui-panel,var(--muted))}
 /* 修订与删除是一个动作组：包在一起让它们紧挨，不再被 space-between 摊到两端。 */
 .wb-card-actions{display:flex;align-items:center;gap:6px;flex:none}
