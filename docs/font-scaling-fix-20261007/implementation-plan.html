@@ -1,0 +1,1480 @@
+<!-- 青幕AI写作 · 界面字号/字体修复实施计划 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实施计划 — 界面字号与界面字体修复（阶段 1+2）</title>
+<script>
+  // 渲染前应用主题，避免闪白
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-plan-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:      #FAF9F5;
+    --panel:   #FFFFFF;
+    --soft:    #F0EEE6;
+    --line:    #D1CFC5;
+    --line-2:  #E3DACC;
+    --ink:     #141413;
+    --body:    #3D3D3A;
+    --muted:   #87867F;
+    --accent:  #D97757;
+    --ok:      #788C5D;
+    --warn:    #B8860B;
+    --danger:  #B5482F;
+    --code-bg: #F5F3EC;
+    --serif: ui-serif, Georgia, 'Times New Roman', serif;
+    --sans:  system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --mono:  ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+  html.dark {
+    --bg:      #16171A;
+    --panel:   #1E2024;
+    --soft:    #26282D;
+    --line:    #383B42;
+    --line-2:  #2E3137;
+    --ink:     #F2F1EC;
+    --body:    #CFCEC8;
+    --muted:   #8E8D87;
+    --accent:  #E08A6B;
+    --ok:      #9BB07A;
+    --warn:    #D6A63C;
+    --danger:  #E0705A;
+    --code-bg: #1A1C20;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg); color: var(--body);
+    line-height: 1.6; padding: 48px 28px 140px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1080px; margin: 0 auto; }
+
+  /* 主题切换 */
+  .theme-btn {
+    position: fixed; top: 18px; right: 18px; z-index: 50;
+    font: 500 12.5px var(--sans);
+    padding: 8px 14px; border-radius: 999px;
+    border: 1.5px solid var(--line); background: var(--panel); color: var(--body);
+    cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* 头部 */
+  .eyebrow {
+    font: 600 11.5px var(--mono); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 14px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 37px; line-height: 1.16;
+    color: var(--ink); letter-spacing: -.01em; margin-bottom: 18px; max-width: 860px;
+  }
+  .lede { font-size: 15px; color: var(--body); max-width: 800px; margin-bottom: 26px; }
+
+  .gate {
+    border-left: 3px solid var(--accent); background: var(--soft);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin-bottom: 28px;
+    font-size: 14px; max-width: 900px;
+  }
+  .gate strong { color: var(--ink); }
+
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 30px; }
+  @media (max-width: 820px) { .facts { grid-template-columns: 1fr; } }
+  .fact {
+    background: var(--panel); border: 1.5px solid var(--line);
+    border-radius: 11px; padding: 13px 15px;
+  }
+  .fact .k { font: 600 10.5px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .fact .v { font-size: 14.5px; color: var(--ink); }
+  .fact .v.bad { color: var(--danger); }
+  .fact .v.good { color: var(--ok); }
+
+  /* 区块 */
+  section { margin-bottom: 58px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 7px; }
+  .sec-head .num {
+    font: 600 11.5px var(--mono); background: var(--line-2); color: var(--ink);
+    padding: 3px 9px; border-radius: 7px;
+  }
+  .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: 25px; color: var(--ink); letter-spacing: -.01em; }
+  .sec-intro { font-size: 14px; color: var(--muted); max-width: 780px; margin-bottom: 24px; }
+
+  /* 任务卡片 */
+  .task {
+    background: var(--panel); border: 1.5px solid var(--line);
+    border-radius: 13px; padding: 20px 22px; margin-bottom: 18px;
+  }
+  .task > h3 {
+    font-family: var(--serif); font-weight: 500; font-size: 19.5px;
+    color: var(--ink); margin-bottom: 4px;
+  }
+  .task .sub { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+
+  .files { margin: 0 0 16px; padding: 0; list-style: none; }
+  .files li {
+    font: 400 12.5px var(--mono); color: var(--body);
+    padding: 3px 0 3px 15px; position: relative;
+  }
+  .files li::before { content: '›'; position: absolute; left: 2px; color: var(--accent); }
+  .files .tag { font: 600 10px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-right: 7px; }
+
+  /* 步骤 */
+  .step {
+    display: grid; grid-template-columns: 22px 1fr; gap: 11px;
+    padding: 9px 0; border-top: 1px dashed var(--line-2);
+  }
+  .step:first-of-type { border-top: 0; }
+  .step .box {
+    width: 15px; height: 15px; margin-top: 4px;
+    border: 1.5px solid var(--muted); border-radius: 4px;
+  }
+  .step .body { min-width: 0; }
+  .step .title { font-size: 14px; color: var(--ink); font-weight: 500; margin-bottom: 5px; }
+  .step .note { font-size: 13px; color: var(--body); margin-bottom: 6px; }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 11px 13px; overflow-x: auto;
+    font: 400 12.5px/1.62 var(--mono); color: var(--body); margin: 7px 0;
+  }
+  pre .c { color: var(--muted); }
+  pre .g { color: var(--ok); }
+  pre .r { color: var(--danger); }
+  pre .y { color: var(--warn); }
+  code {
+    font: 400 .882em var(--mono); background: var(--code-bg);
+    border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 5px;
+  }
+  pre code { background: none; border: 0; padding: 0; }
+
+  .expect {
+    font-size: 13px; padding: 8px 12px; border-radius: 8px;
+    background: var(--soft); border-left: 3px solid var(--ok); margin: 6px 0;
+  }
+  .expect.bad { border-left-color: var(--danger); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 10px 0 6px; }
+  th, td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  th { font: 600 11.5px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+  td code { font-size: 12px; }
+
+  .callout {
+    border-radius: 10px; padding: 13px 16px; margin: 14px 0;
+    border: 1.5px solid var(--line); background: var(--soft); font-size: 13.5px;
+  }
+  .callout.warn { border-left: 3px solid var(--warn); }
+  .callout.danger { border-left: 3px solid var(--danger); }
+  .callout.ok { border-left: 3px solid var(--ok); }
+  .callout .h { font-weight: 600; color: var(--ink); display: block; margin-bottom: 4px; }
+
+  ul.plain { margin: 8px 0 8px 20px; font-size: 13.5px; }
+  ul.plain li { margin-bottom: 5px; }
+
+  footer { border-top: 1.5px solid var(--line); padding-top: 22px; font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<button class="theme-btn" id="themeBtn" type="button">切换主题</button>
+<div class="page">
+
+  <div class="eyebrow">青幕AI写作 · 实施计划</div>
+  <h1>界面字号与界面字体修复（阶段 1+2）</h1>
+  <p class="lede">
+    让「界面字号」真正缩放文字、让「界面字体」真正生效，并扩充中文字体选项。
+    本计划只覆盖阶段 1 与阶段 2；阶段 3（枚举本机中文字体）与阶段 4（捆绑字体）另行规划。
+  </p>
+
+  <div class="gate">
+    <strong>给自动化执行者：</strong>必需子技能：使用 <code>subagent-driven-development</code>（推荐）
+    或 <code>executing-plans</code> 按任务逐条执行本计划。步骤为复选框式跟踪，
+    每个任务结束前必须完成其验收步骤，不得跳过。
+  </div>
+
+  <div class="facts">
+    <div class="fact"><div class="k">Goal</div><div class="v">字号真实缩放、字体真实生效、只列中文字体</div></div>
+    <div class="fact"><div class="k">需改绝对单位</div><div class="v bad">557 处 / 67 个文件</div></div>
+    <div class="fact"><div class="k">技术栈</div><div class="v">React 19 · TS · Vite 8 · vitest 5 · Tauri v2</div></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">01</span><h2>目标与既有结论</h2></div>
+    <p class="sec-intro">
+      三个根因已实测确认，证据与自我纠错记录见
+      <code>docs/font-scaling-fix-20261007/findings.md</code>，设计见同目录 <code>design.md</code>。
+    </p>
+
+    <table>
+      <thead><tr><th>问题</th><th>根因</th><th>本计划对应任务</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>字号只在部分位置生效<br>（"只有按钮有效果"）</td>
+          <td>根字号只影响 <code>rem</code>；557 处字号写死 <code>px</code> 不缩放；
+              Tailwind 内置类（1489 处）用 rem 故会缩放</td>
+          <td>任务 1、2、3、4</td>
+        </tr>
+        <tr>
+          <td>界面字体无效</td>
+          <td><code>ui-test.css:5</code> 把 <code>--ui</code> 硬编码，
+              而按钮/输入框/菜单/设置/工具区都用 <code>var(--ui)</code></td>
+          <td>任务 5</td>
+        </tr>
+        <tr>
+          <td>正文字体/字号无独立设置</td>
+          <td>正文走独立的 <code>--serif</code> 通路；正文 18px 在 4 处重复</td>
+          <td>任务 6、7</td>
+        </tr>
+        <tr>
+          <td>字体选项偏少且含纯拉丁字体</td>
+          <td>仅 7 项，含 Arial</td>
+          <td>任务 8</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout ok">
+      <span class="h">已建立的验收体系（含工具自检）</span>
+      <code>census-computed-font.mjs</code> 用计算样式普查做双判据。工具已自检：
+      基线自比对时判据 1 报"0 处不同"（等效性检查有效），判据 2 报"27/27 未缩放"
+      （能抓到真实缺陷）；并已排除"根字号被 React 覆盖"这一会伪造结论的可能。
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">02</span><h2>关键设计决定</h2></div>
+    <p class="sec-intro">两个决定直接决定判据能否通过，执行时不得自行更改。</p>
+
+    <div class="callout danger">
+      <span class="h">决定 A：px 行高改为 <code>rem</code>，<span style="text-decoration:underline">不是</span>无单位比值</span>
+      设计初稿曾写"px 行高改为无单位比值"。这**会破坏判据 1**：
+      <code>line-height: 20px</code> 配 <code>font-size: 13px</code>，比值是
+      <code>20/13 = 1.538461…</code>，无法写成精确小数 →
+      100% 时计算行高变成约 19.994px 而非 20px → 判据 1 失败。<br>
+      <code>20px = 1.25rem</code> 是精确值 → 100% 时恰好 20px，且随根字号缩放。
+      因此 <b>字号与行高统一换算为 rem</b>。
+    </div>
+
+    <div class="callout warn">
+      <span class="h">决定 B：只缩放字体，不动布局尺寸</span>
+      只改字号与行高的数值，<b>不改</b> <code>width/height/padding/margin/gap</code>、
+      图标与 SVG 尺寸。例外：任务 3 的溢出实测若发现某容器确实裁切文字，
+      允许调整该容器并逐条记录（改了哪个选择器、为什么、实测数据）。
+    </div>
+
+    <div class="callout">
+      <span class="h">决定 C：两处 SVG <code>fontSize</code> 属性属图标几何，不换算、不参与判据 2</span>
+      <code>context-usage-ring.tsx:136 fontSize="7"</code>（固定 viewBox 环形图内的百分比）与
+      <code>provider-brand-icon.tsx:59 fontSize="13.5"</code>（16×16 viewBox 内画单字"自"）。
+      二者无单位等同 px，但改 rem 会让字形溢出图标框。判据 2 将它们**显式登记为例外**，
+      而不是默默忽略。
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">03</span><h2>文件结构</h2></div>
+    <p class="sec-intro">新增文件集中在下方；其余为对既有文件的定点修改。</p>
+
+    <ul class="files">
+      <li><span class="tag">新增</span>scripts/convert-font-units-to-rem.mjs — 换算 codemod（可重跑、幂等）</li>
+      <li><span class="tag">新增</span>scripts/convert-font-units-to-rem.spec.mjs — codemod 单测</li>
+      <li><span class="tag">新增</span>docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs — 界面字体生效性证明</li>
+      <li><span class="tag">新增</span>docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs — 正文单一来源静态校验</li>
+      <li><span class="tag">改</span>docs/font-scaling-fix-20261007/census-computed-font.mjs — 增 SVG 例外登记与更多页面覆盖</li>
+      <li><span class="tag">改</span>src/lib/font-settings.ts — 字体选项、正文字体类型与 normalize</li>
+      <li><span class="tag">改</span>src/components/uitest/ui-test.css — <code>--ui</code> 派生、正文字体/字号变量</li>
+      <li><span class="tag">改</span>src/components/uitest/ui-test-editor.css — 正文单一字号来源</li>
+      <li><span class="tag">改</span>src/components/settings/sections/interface-section.tsx — 字号范围、正文字体/字号控件</li>
+      <li><span class="tag">改</span>src/components/settings/settings-types.ts、settings-view.tsx — 草稿字段与保存</li>
+      <li><span class="tag">改</span>src/stores/wiki-store.ts — 正文字体/字号状态与持久化读取</li>
+      <li><span class="tag">改</span>src/lib/project-store.ts — <code>saveUiBodyFontFamily</code> / <code>saveUiBodyFontSizeScale</code></li>
+      <li><span class="tag">改</span>src/App.tsx — 写入正文倍数 CSS 变量</li>
+      <li><span class="tag">改</span>src/lib/font-settings.spec.ts — 选项与 normalize 测试</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">04</span><h2>任务</h2></div>
+    <p class="sec-intro">
+      严格按序执行。每个任务的"提交"步骤使用给定信息。
+      完整绝对单位清单见 <code>absolute-font-units.md</code>。
+    </p>
+
+    <!-- Task 0 -->
+    <div class="task">
+      <h3>任务 0：增强验收工具并重采基线</h3>
+      <p class="sub">必须先做：改动源码前基线才有效。工具不先自检，后面的判据都不可信。</p>
+      <ul class="files">
+        <li><span class="tag">改</span>docs/font-scaling-fix-20261007/census-computed-font.mjs</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：给采集记录加 <code>inSvg</code> 标记</div>
+        <div class="note">在 <code>censusOnce()</code> 的 <code>page.evaluate</code> 内，为每条记录增加字段：</div>
+        <pre><code>inSvg: !!(el.closest &amp;&amp; el.closest('svg')),</code></pre>
+        <div class="note">含义：该文本位于 SVG 内部，属图标几何（决定 D）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：把判据 2 改为三分类</div>
+        <div class="note">把原先的 <code>notScaled</code> 单列表拆成三组，并让通过条件只看 <code>unexplained</code>：</div>
+        <pre><code>const svgException = []   <span class="c">// inSvg === true 且未按 1.5 缩放 → 已登记例外（图标几何）</span>
+const unexplained = []    <span class="c">// 其余未按 1.5 缩放的 → 真正的漏项</span>
+<span class="c">// ratio 判定不变：|ratio - 1.5| &lt; 0.015 视为正确缩放</span>
+<span class="c">// 注意：isMarker === true 的条目**必须**缩放，归入 unexplained 判定，不得算例外</span>
+const judge2 = unexplained.length === 0</code></pre>
+        <div class="note">输出中分别打印三组数量：<code>正确缩放 / SVG 例外 / 未解释</code>。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：扩大采集覆盖面</div>
+        <div class="note">
+          当前仅采集设置页根视图（27 个文本元素）。在设置页内依次点击各子分区后再采集，
+          以覆盖更多 <code>ui-test-tools.css</code> 规则。定位方式用 <code>aria-label</code> 与文本，
+          点击后等待 700ms，并累积所有元素（同一 DOM 路径以最后一次为准）。
+        </div>
+        <pre><code><span class="c">// 设置页子分区的可点击项（依实际 DOM 调整选择器，但不得减少覆盖面）</span>
+const SUBNAV = ['外观', '模型', '网络', '数据', '关于', '维护']
+for (const label of SUBNAV) {
+  await page.evaluate((t) =&gt; {
+    for (const el of document.querySelectorAll('.ui-test-root button, .ui-test-root a, .ui-test-root [role="tab"]')) {
+      const s = (el.textContent || '').trim()
+      if (s === t || el.getAttribute('aria-label') === t) { el.click(); return }
+    }
+  }, label)
+  await page.waitForTimeout(700)
+  Object.assign(census[String(scale)], await censusOnce())   <span class="c">// 合并而非覆盖</span>
+}</code></pre>
+        <div class="note">若某子分区在当前环境下点不到，记录实际到达的分区名并在输出里打印，供后续判断覆盖面。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：工具自检（两个方向都要验）</div>
+        <pre><code>cd C:\QMAI_C\QMAI-main
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-check.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --compare "$env:TEMP\census-check.json" "$env:TEMP\census-check.json"</code></pre>
+        <div class="expect">
+          期望：判据 1 报 <code>0</code> 处不同（自己比自己必须等效）；
+          判据 2 报 <code>正确缩放: 0</code>、<code>未解释 &gt; 0</code>（在设置页复现缺陷）。
+          <b>两者同时成立才说明工具能区分"等效"与"生效"。</b>
+        </div>
+        <div class="expect bad">若判据 2 的"未解释"为 0，说明工具已失去检出能力 —— 必须先修工具，不得继续。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：堵住 <code>::marker</code> 覆盖漏洞（必做）</div>
+        <div class="callout danger">
+          <span class="h">为何必须做：任务 7 的列表标记字号只靠人眼是验不出来的</span>
+          普通普查遍历元素并读 <code>getComputedStyle(el)</code>，
+          <b>取不到 <code>::marker</code> 的字号</b>。
+          而任务 7 恰好要改 <code>li::marker</code>（12px）与
+          <code>ol &gt; li::marker</code>（16px）两处，且这里最容易算错基准
+          （<code>em</code> 相对的是 <code>li</code> 而非正文）。
+          若不枚举，这两处改错<b>不会被任何判据发现</b>。
+        </div>
+        <div class="note">
+          在 <code>censusOnce()</code> 内追加一遍 <code>::marker</code> 采集，
+          用第二参数读伪元素样式；记录时以 <code>::marker</code> 为后缀区分：
+        </div>
+        <pre><code>for (const li of document.querySelectorAll('.ui-test-editor-body li, .ui-test-root li')) {
+  const marker = getComputedStyle(li, '::marker')
+  if (!marker || marker.fontSize === '') continue
+  records.push({
+    selector: pathOf(li) + '::marker',
+    tag: li.tagName.toLowerCase() + '::marker',
+    fontSize: marker.fontSize,
+    lineHeight: marker.lineHeight,
+    inSvg: false,
+    isMarker: true,
+  })
+}</code></pre>
+        <div class="expect">
+          期望：采集结果里出现 <code>::marker</code> 条目（列表页可达时数量 &gt; 0）。
+          若一个都没有，说明当前页面没有列表 —— 需在 Task 10 的真实 exe 中补验，
+          并在 <code>findings.md</code> 中注明该判据当次未覆盖列表标记。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 6：重采基线并确认源码未改</div>
+        <pre><code>git status --porcelain -- src   <span class="c"># 必须为空：此刻尚未改动任何源码</span>
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --out docs/font-scaling-fix-20261007/census-before.json</code></pre>
+        <div class="expect">期望：<code>git status -- src</code> 无输出；新基线元素数明显多于原先的 27。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 7：提交</div>
+        <pre><code>git add docs/font-scaling-fix-20261007/census-computed-font.mjs `
+        docs/font-scaling-fix-20261007/census-before.json
+git commit -m "test(字号): 验收工具增 SVG 例外登记、marker 采集与更多页面覆盖，重采基线" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 1 -->
+    <div class="task">
+      <h3>任务 1：写换算 codemod（TDD）</h3>
+      <p class="sub">557 处手工改不可靠。先写测试，再写实现。</p>
+      <ul class="files">
+        <li><span class="tag">新增</span>scripts/convert-font-units-to-rem.spec.mjs</li>
+        <li><span class="tag">新增</span>scripts/convert-font-units-to-rem.mjs</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：先写失败的测试</div>
+        <pre><code>import { describe, expect, it } from "vitest"
+import { readFileSync } from "node:fs"
+import { pxToRem, convertCss, convertTsx, convertFile } from "./convert-font-units-to-rem.mjs"
+
+describe("pxToRem", () =&gt; {
+  it("0.5 的整数倍全部换得精确有限小数", () =&gt; {
+    expect(pxToRem(12)).toBe("0.75rem")
+    expect(pxToRem(12.5)).toBe("0.78125rem")
+    expect(pxToRem(13)).toBe("0.8125rem")
+    expect(pxToRem(13.5)).toBe("0.84375rem")
+    expect(pxToRem(9)).toBe("0.5625rem")
+    expect(pxToRem(100)).toBe("6.25rem")
+    expect(pxToRem(16)).toBe("1rem")
+  })
+  it("非数值抛错，不静默产出坏值", () =&gt; {
+    expect(() =&gt; pxToRem("abc")).toThrow()
+  })
+})
+
+describe("convertCss", () =&gt; {
+  it("独立 font-size 换成 rem", () =&gt; {
+    expect(convertCss("a{font-size:13px}")).toBe("a{font-size:0.8125rem}")
+    expect(convertCss("a{ font-size: 12.5px; }")).toBe("a{ font-size: 0.78125rem; }")
+  })
+  it("独立 line-height 换成 rem（不是无单位比值）", () =&gt; {
+    expect(convertCss("a{line-height:20px}")).toBe("a{line-height:1.25rem}")
+  })
+  it("font 简写：字号与 px 行高都换，字重与字族保持", () =&gt; {
+    expect(convertCss("a{font:500 20px/28px var(--serif)}"))
+      .toBe("a{font:500 1.25rem/1.75rem var(--serif)}")
+  })
+  it("font 简写的无单位行高保持不动", () =&gt; {
+    expect(convertCss("a{font: 400 13px/1.6 var(--ui)}"))
+      .toBe("a{font: 400 0.8125rem/1.6 var(--ui)}")
+  })
+  it("不碰布局尺寸与颜色", () =&gt; {
+    const src = "a{width:13px;padding:10px;border:1px solid #fff;margin:0 2px}"
+    expect(convertCss(src)).toBe(src)
+  })
+  it("不改动注释里的示例", () =&gt; {
+    const src = "/* font-size:13px 是旧的 */\na{font-size:13px}"
+    expect(convertCss(src)).toBe("/* font-size:13px 是旧的 */\na{font-size:0.8125rem}")
+  })
+  it("幂等：二次调用结果不变", () =&gt; {
+    const once = convertCss("a{font-size:13px;line-height:20px}")
+    expect(convertCss(once)).toBe(once)
+  })
+})
+
+describe("convertTsx", () =&gt; {
+  it("Tailwind 任意值换为 rem", () =&gt; {
+    expect(convertTsx('className="text-[11px]"')).toBe('className="text-[0.6875rem]"')
+    expect(convertTsx('"text-[10px] leading-tight"')).toBe('"text-[0.625rem] leading-tight"')
+  })
+  it("不碰 min-w- / max-w- / gap- 等非字号任意值", () =&gt; {
+    const src = 'className="min-w-[16px] max-w-[600px] gap-[10px] text-[13px]"'
+    expect(convertTsx(src)).toBe('className="min-w-[16px] max-w-[600px] gap-[10px] text-[0.8125rem]"')
+  })
+  it("不碰颜色任意值", () =&gt; {
+    const src = 'className="text-[#fff] text-[rgb(0,0,0)]"'
+    expect(convertTsx(src)).toBe(src)
+  })
+  it("不碰 SVG 的 fontSize 属性（图标几何）", () =&gt; {
+    const src = '&lt;text fontSize="13.5"&gt;自&lt;/text&gt;'
+    expect(convertTsx(src)).toBe(src)
+  })
+  it("已是 rem 的不重复转换", () =&gt; {
+    const src = 'className="text-[0.75rem]"'
+    expect(convertTsx(src)).toBe(src)
+  })
+})
+
+describe("对真实源码的约束", () =&gt; {
+  it("css 与 tsx 的换算结果里不再有 px 字号", () =&gt; {
+    const css = convertCss(readFileSync("src/components/uitest/ui-test-editor.css", "utf8"))
+    expect(css).not.toMatch(/font-size:\s*[\d.]+px/)
+    expect(css).not.toMatch(/line-height:\s*[\d.]+px/)
+  })
+})</code></pre>
+        <div class="expect bad">
+          期望：全部失败（模块不存在）。若"对真实源码的约束"这条意外通过，
+          说明 <code>ui-test-editor.css</code> 已无 px 字号 —— 需先核对文件内容再继续。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：运行测试确认失败</div>
+        <pre><code>npx vitest run scripts/convert-font-units-to-rem.spec.mjs `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+        <div class="expect bad">期望：因找不到模块而失败（Failed to load / Cannot find module）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：实现 codemod</div>
+        <pre><code><span class="c">/**
+ * 把绝对单位字号/行高换算为精确 rem（16px 基准）。
+ *
+ * 为什么必须精确：所有 px 取值都是 0.5 的整数倍，÷16 得到有限的十进制小数，
+ * 因此在根字号 100% 时换算后的计算值与改动前逐位相同 → 零视觉回归。
+ * 若 px 行高改成无单位比值，像 20px/13px 这类比例无法写成精确小数，
+ * 会让 100% 下的计算行高变成 19.994px，破坏等效性。故一律用 rem。
+ *
+ * 只改字号与行高，不动布局尺寸、图标尺寸与颜色。
+ * 幂等：重复运行不再产生变化。
+ */</span>
+import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs"
+import { join, relative } from "node:path"
+import { pathToFileURL } from "node:url"
+
+<span class="c">/** 精确换算：0.5 的整数倍 → 最多 5 位小数的有限小数。 */</span>
+export function pxToRem(px) {
+  const value = Number(px)
+  if (!Number.isFinite(value) || value &lt;= 0) throw new Error(`非法 px 值: ${px}`)
+  const rem = value / 16
+  if (!Number.isFinite(rem)) throw new Error(`换算失败: ${px}`)
+  return `${Number(rem.toFixed(6))}rem`
+}
+
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//g
+
+<span class="c">/** 只对注释之外的片段做替换，避免改写注释里的示例。 */</span>
+function mapOutsideComments(text, fn) {
+  let out = ""
+  let last = 0
+  for (const m of text.matchAll(CSS_COMMENT)) {
+    out += fn(text.slice(last, m.index)) + m[0]
+    last = m.index + m[0].length
+  }
+  return out + fn(text.slice(last))
+}
+
+function convertCssChunk(chunk) {
+  let out = chunk
+  <span class="c">// font 简写：仅当字号/行高带 px 时换算；字重、字族、无单位行高原样保留</span>
+  out = out.replace(
+    /\bfont:\s*([^;{}]*?)([\d.]+)px(\s*\/\s*([\d.]+)px)?/g,
+    (_m, head, size, slash, lh) =&gt;
+      `font: ${head}${pxToRem(size)}${slash ? `/${pxToRem(lh)}` : ""}`,
+  )
+  out = out.replace(/font-size:\s*([\d.]+)px/g, (_m, v) =&gt; `font-size: ${pxToRem(v)}`)
+  out = out.replace(/line-height:\s*([\d.]+)px/g, (_m, v) =&gt; `line-height: ${pxToRem(v)}`)
+  return out
+}
+
+export function convertCss(text) {
+  return mapOutsideComments(text, convertCssChunk)
+}
+
+export function convertTsx(text) {
+  <span class="c">// 只匹配 text-[Npx]；min-w-/max-w-/gap-/颜色任意值不匹配</span>
+  return mapOutsideComments(text, (chunk) =&gt;
+    chunk.replace(/text-\[([\d.]+)px\]/g, (_m, v) =&gt; `text-[${pxToRem(v)}]`),
+  )
+}
+
+function walk(dir, out = []) {
+  for (const entry of readdirSync(dir)) {
+    const p = join(dir, entry)
+    if (statSync(p).isDirectory()) walk(p, out)
+    else if (/\.(css|tsx|ts)$/.test(entry)) out.push(p)
+  }
+  return out
+}
+
+export function convertFile(absPath) {
+  const original = readFileSync(absPath, "utf8")
+  const isCss = absPath.endsWith(".css")
+  const converted = isCss ? convertCss(original) : convertTsx(original)
+  return { original, converted, changed: original !== converted }
+}
+
+function main() {
+  const dryRun = process.argv.includes("--dry-run")
+  const check = process.argv.includes("--check")
+  const root = join(process.cwd(), "src")
+  let files = 0
+  let changedFiles = 0
+  for (const abs of walk(root)) {
+    files++
+    const { converted, changed } = convertFile(abs)
+    if (!changed) continue
+    changedFiles++
+    const rel = relative(process.cwd(), abs).replace(/\\/g, "/")
+    console.log(`  ${dryRun || check ? "将改" : "已改"} ${rel}`)
+    if (!dryRun &amp;&amp; !check) writeFileSync(abs, converted, "utf8")
+  }
+  console.log(`\n  扫描 ${files} 个文件，${changedFiles} 个需换算`)
+  if (check &amp;&amp; changedFiles &gt; 0) process.exitCode = 1
+}
+
+if (process.argv[1] &amp;&amp; import.meta.url === pathToFileURL(process.argv[1]).href) main()</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：运行测试确认通过</div>
+        <pre><code>npx vitest run scripts/convert-font-units-to-rem.spec.mjs `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+        <div class="expect">期望：全部用例通过（约 17 个）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：提交</div>
+        <pre><code>git add scripts/convert-font-units-to-rem.mjs scripts/convert-font-units-to-rem.spec.mjs
+git commit -m "test(字号): 新增 px→rem 换算 codemod 及其单测" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 2 -->
+    <div class="task">
+      <h3>任务 2：应用换算并验证等效与生效</h3>
+      <p class="sub">本任务是阶段 1 的核心。判据 1 必须全绿才是"无回归"。</p>
+      <ul class="files">
+        <li><span class="tag">改</span>src 下 67 个文件（由 codemod 自动改写）</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：先看将改哪些文件</div>
+        <pre><code>cd C:\QMAI_C\QMAI-main
+node scripts/convert-font-units-to-rem.mjs --dry-run</code></pre>
+        <div class="expect">期望：约 67 个文件，输出形如 <code>将改 src/components/uitest/ui-test-tools.css</code>。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：正式改写</div>
+        <pre><code>node scripts/convert-font-units-to-rem.mjs</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：静态校验——绝对单位必须清零</div>
+        <div class="note">先扩展清点脚本，把 SVG 的 <code>fontSize="N"</code> 属性单列一类（属图标几何，不计入需改）：</div>
+        <pre><code><span class="c">// 在 count-absolute-font-units.mjs 的 TSX 分支增加：</span>
+for (const m of line.matchAll(/fontSize=["']([\d.]+)["']/g)) {
+  hits.push({ file: rel(f), line: n, kind: "svg-fontSize-attribute", value: m[1], raw: line.trim().slice(0, 80) })
+}</code></pre>
+        <div class="note">
+          并把 <code>svg-fontSize-attribute</code> 归入"其他（需人工确认）"而非"需改"，
+          并单独打印其数量与位置。
+        </div>
+        <div class="note">
+          同时把统计口径分列成两栏（已用独立脚本对账确认）：
+          <b>557 = 声明处数</b>，<b>569 = 需换算的数值个数</b>，
+          差 12 来自 12 处 <code>font</code> 简写各含一个 px 行高。
+        </div>
+        <pre><code>node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs</code></pre>
+        <div class="expect">
+          期望：<code>绝对单位（不缩放，需改）声明处数: 0</code>、
+          <code>需换算数值个数: 0</code>；
+          <code>svg-fontSize-attribute</code> 恰为 <code>2</code> 处，位置是
+          <code>context-usage-ring.tsx:136</code> 与 <code>provider-brand-icon.tsx:59</code>。
+        </div>
+        <div class="expect bad">
+          若非 0：用输出清单定位漏项。若 SVG 属性数不是 2 而是更多，
+          说明还有别的 SVG 属性字样被发现 —— 逐个核对是否属图标几何，
+          不得直接放宽判据。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3b：对账 codemod 是否真的换了 569 个数值</div>
+        <div class="callout warn">
+          <span class="h">为何单独对账：换算表曾漏掉 28px</span>
+          改造前统计显示 <code>28px</code> 出现 <b>6 次</b>，
+          <b>且只以 <code>font</code> 简写里的行高形式出现</b>
+          （如 <code>font: 500 22px/28px …</code>），没有独立的
+          <code>line-height: 28px</code>。若 codemod 的简写分支写错，
+          这 6 处会静默漏掉，而行高漏改在放大后表现为"行距偏挤"，
+          容易被误判成主观观感问题。
+        </div>
+        <pre><code>git show --stat HEAD -- src | Select-String "changed"
+git diff -U0 -- src | Select-String -Pattern "^\+\s*.*\d+rem" | Measure-Object
+<span class="c"># 逐个确认这几个"只在简写里出现"的取值已被换算</span>
+git diff -U0 -- src | Select-String -Pattern "28px|Npx/Npx|/\d+px"</code></pre>
+        <div class="expect">
+          期望：diff 里<b>不再出现</b> <code>/\d+px</code> 形式（简写里的 px 行高已清零）；
+          换算出的 rem 行高包含 <code>1.75rem</code>（原 28px）、
+          <code>1.375rem</code>（原 22px）、<code>1.5rem</code>（原 24px）、
+          <code>1.625rem</code>（原 26px）、<code>1.25rem</code>（原 20px）、
+          <code>1.125rem</code>（原 18px）。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：检查注释里是否有已失真的描述</div>
+        <pre><code>git diff -U0 -- src | Select-String -Pattern "^\+.*/\*.*[\d.]+px|^\+.*//.*[\d.]+px" | Select-Object -First 20</code></pre>
+        <div class="note">codemod 不改注释，所以注释里若写着旧的 px 值需人工更新。有则改掉，无则继续。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：类型门禁</div>
+        <pre><code>npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit</code></pre>
+        <div class="expect">期望：两条命令均无输出、退出码 0。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 6：重新构建</div>
+        <pre><code>npm run build</code></pre>
+        <div class="expect">期望：构建成功。（<code>build</code> 脚本含 typecheck，属预期。）</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 7：判据 1 + 判据 2</div>
+        <pre><code>node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-after.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-after.json"</code></pre>
+        <div class="expect">
+          期望两项都通过：<br>
+          <code>判据 1（100% 等效，无视觉回归）: 通过</code>（不同 = 0）<br>
+          <code>判据 2（150% 全部缩放）: 通过</code>（未解释 = 0，SVG 例外 = 2 或与设置页实际渲染相符）
+        </div>
+        <div class="expect bad">
+          判据 1 有差异：定位差异元素（输出会打印 DOM 路径与前后字号），
+          逐一判断是换算错误还是该处有意改动；换算错误必须修 codemod 后重跑，不得手改结果。<br>
+          判据 2 有"未解释"：输出会给出元素 class 与前后字号，
+          用 <code>grep</code> 定位其字号来源，补齐该处换算。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 8：提交</div>
+        <pre><code>git add -A src scripts/convert-font-units-to-rem.mjs `
+        docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
+git commit -m "fix(字号): 557 处绝对单位换算为精确 rem，界面字号真正生效" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 3 -->
+    <div class="task">
+      <h3>任务 3：溢出实测与修复</h3>
+      <p class="sub">字号会放大而容器仍是 px，这是阶段 1 的主要风险。用实测而非静态推断。</p>
+      <ul class="files"><li><span class="tag">改</span>按实测结果定点修改相关 CSS</li></ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：采集改动前的溢出基线（若尚未采集）</div>
+        <div class="note">
+          溢出基线需在改动前采集才有对比意义。若已错过，则不比较绝对数量，
+          改为只判定"150% 档不存在被裁切的文本元素"这一绝对标准。
+        </div>
+        <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs `
+  --scales 100,115,130,150 --json &gt; "$env:TEMP\overflow-after.json"</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：判定</div>
+        <pre><code>node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,150</code></pre>
+        <div class="expect">
+          期望：150% 档下被裁切的文本元素数量为 <code>0</code>。
+        </div>
+        <div class="expect bad">若有：输出会列出 tag / 字号 / 纵向偏差 / 横向偏差 / 选择器，按此定点修复。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：修复并记录</div>
+        <div class="note">
+          只调整确实裁切的容器：优先改成自适应（<code>min-height</code> 代替 <code>height</code>、
+          或把固定高度换算为 rem），而不是把字号改回去。
+          每处修复必须在提交信息里写明：选择器、原因、实测数据。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：回归并提交</div>
+        <pre><code>npm run build
+node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,115,130,150
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-after2.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-after2.json"</code></pre>
+        <div class="expect">期望：溢出为 0，且判据 1、2 仍全部通过。</div>
+        <pre><code>git add -A src
+git commit -m "fix(字号): 修复字号放大后被裁切的容器（见提交正文实测数据）" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 4 -->
+    <div class="task">
+      <h3>任务 4：字号范围放宽到 80%–150%</h3>
+      <p class="sub">用户已确认。滑块与预设一并调整。</p>
+      <ul class="files">
+        <li><span class="tag">改</span>src/components/settings/sections/interface-section.tsx</li>
+        <li><span class="tag">改</span>src/stores/wiki-store.ts（钳制范围，如有）</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：先看现有钳制逻辑（已核实：两处，都要改）</div>
+        <pre><code>Select-String -Path src/stores/wiki-store.ts -Pattern "0\.85, Math\.min\(1\.3" -Context 2,2</code></pre>
+        <div class="expect">
+          已核实恰好两处 <code>Math.max(0.85, Math.min(1.3, …))</code>：<br>
+          · <code>wiki-store.ts:75</code> —— <b>读取</b>已存值时的钳制<br>
+          · <code>wiki-store.ts:1000-1001</code> —— <code>setUiFontSizeScale</code> <b>写入</b>时<br>
+          <b>两处都必须放宽到 0.8 / 1.5</b>。只改写入侧的话，用户设的 150%
+          在下次启动读回时会被截成 130%（"保存后失效"这类难查的缺陷）。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：改预设与滑块</div>
+        <pre><code>const FONT_SIZE_PRESETS = [
+  { label: "小", value: 0.85 },
+  { label: "默认", value: 1 },
+  { label: "大", value: 1.25 },
+  { label: "特大", value: 1.5 },
+]</code></pre>
+        <pre><code>&lt;input type="range" min={80} max={150} step={5} value={scalePercent}
+       aria-label="界面字号" onChange={...} /&gt;</code></pre>
+        <div class="note">
+          同步把 <code>wiki-store.ts:75</code>（读取侧）与 <code>1000-1001</code>（写入侧）
+          的钳制都放宽到 <code>0.8</code>–<code>1.5</code>。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：验证边界真能生效</div>
+        <pre><code>npm run build
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-bound.json" --scales 100,150</code></pre>
+        <div class="note">
+          再用浏览器度量校对：设根字号 150% 后，任一 <code>text-sm</code> 元素应为 21px。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：提交</div>
+        <pre><code>git add src/components/settings/sections/interface-section.tsx src/stores/wiki-store.ts
+git commit -m "feat(字号): 界面字号范围放宽到 80%-150% 并更新预设" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 5 -->
+    <div class="task">
+      <h3>任务 5：让「界面字体」真正生效</h3>
+      <p class="sub">一处修全局：<code>--ui</code> 改为派生自用户选择。</p>
+      <ul class="files">
+        <li><span class="tag">改</span>src/components/uitest/ui-test.css</li>
+        <li><span class="tag">新增</span>docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：写生效性证明脚本（先看它失败）</div>
+        <div class="note">
+          思路：加载真实 <code>dist</code>，用 canvas 像素哈希（方法自检已通过的权威方法）
+          渲染一个真实按钮文字，分别在「默认字体」与「设为 SimHei」两种
+          <code>--qmai-ui-font-family</code> 下取值；两者必须不同。
+          另设负向对照：设一个不存在的字体名，其哈希应与默认相同（证明确实是字体在起作用）。
+        </div>
+        <pre><code><span class="c">// docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs 要点</span>
+const DEFAULT = 'system-ui, "Microsoft YaHei", sans-serif'
+const CASES = [
+  { name: '默认',   css: DEFAULT,                 expectDifferFromDefault: false },
+  { name: '黑体',   css: 'SimHei, sans-serif',    expectDifferFromDefault: true  },
+  { name: '楷体',   css: 'KaiTi, serif',          expectDifferFromDefault: true  },
+  { name: '不存在', css: '"__NoSuchFont__", system-ui, "Microsoft YaHei", sans-serif',
+                                                  expectDifferFromDefault: false },
+]
+<span class="c">// 目标元素：真实按钮（.ui-test-root button）与输入框，验证 var(--ui) 通路</span>
+<span class="c">// 对每个用例：setProperty('--qmai-ui-font-family', css) → 对目标元素截图 → 像素哈希</span>
+<span class="c">// 通过条件：expectDifferFromDefault 为 true 的必须与默认不同；为 false 的必须与默认相同</span>
+<span class="c">// 任一不符即退出码 1</span></code></pre>
+        <pre><code>node docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs</code></pre>
+        <div class="expect bad">
+          期望此刻<b>失败</b>：设 SimHei 后哈希与默认相同 —— 证明当前 <code>--ui</code>
+          硬编码导致用户选择被绕过。这是修复前的缺陷证据，务必记录下来。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：改 <code>--ui</code> 为派生</div>
+        <pre><code><span class="c">/* src/components/uitest/ui-test.css 第 5 行附近 */</span>
+<span class="c">/* 界面字体跟随用户在「外观与界面」中的选择；</span>
+<span class="c">   --qmai-ui-font-family 由 index.css 的 :root 提供默认值，</span>
+<span class="c">   并由 applyUiFontFamily 写到 documentElement 行内样式（优先级最高、可继承）。 */</span>
+--ui: var(--qmai-ui-font-family);</code></pre>
+        <div class="expect">
+          已核实：全仓 <code>--ui</code> 与 <code>--serif</code> <b>只有这一处定义</b>
+          （<code>ui-test.css:5-6</code>，就在 <code>.ui-test-root, html[data-ui-test-skin]</code>
+          这个合并选择器块内）—— 不存在皮肤块另行覆盖的情况，改这一行即可全局生效。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：确认没有别处再覆盖</div>
+        <pre><code>Select-String -Path src -Include *.css -Recurse -Pattern "--ui\s*:" 
+Select-String -Path src -Include *.css -Recurse -Pattern "font-family:\s*(?!var\(--ui\)|var\(--serif\)|var\(--qmai)"</code></pre>
+        <div class="expect">
+          期望：<code>--ui</code> 的所有定义都等于 <code>var(--qmai-ui-font-family)</code>；
+          第二条若仍列出硬编码字体栈，逐个判断是否属图标/特殊用途（需在计划外记录理由）。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：重建并确认脚本通过</div>
+        <pre><code>npm run build
+node docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs</code></pre>
+        <div class="expect">期望：通过 —— 设 SimHei/楷体后哈希改变，设不存在字体后哈希与默认相同。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：提交</div>
+        <pre><code>git add src/components/uitest/ui-test.css `
+        docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs
+git commit -m "fix(字体): --ui 改为派生自用户选择，界面字体设置真正生效" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 6 -->
+    <div class="task">
+      <h3>任务 6：正文字体独立设置</h3>
+      <p class="sub">用户已确认：界面字体与正文字体互不干扰。</p>
+      <ul class="files">
+        <li><span class="tag">改</span>src/lib/font-settings.ts</li>
+        <li><span class="tag">改</span>src/components/uitest/ui-test.css（<code>--serif</code> 派生）</li>
+        <li><span class="tag">改</span>src/lib/font-settings.spec.ts</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：先写测试</div>
+        <pre><code>it("正文字体默认值保持现状（宋体系），避免默认观感变化", () =&gt; {
+  expect(DEFAULT_BODY_FONT_FAMILY).toBe("serif-default")
+  expect(getBodyFontFamilyCss("serif-default")).toContain("Noto Serif SC")
+  expect(getBodyFontFamilyCss("serif-default")).toContain("SimSun")
+})
+it("正文字体选项都带通用族回退", () =&gt; {
+  for (const option of BODY_FONT_OPTIONS) {
+    expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+  }
+})
+it("非法正文字体值回退到默认", () =&gt; {
+  expect(normalizeBodyFontFamily("nope")).toBe(DEFAULT_BODY_FONT_FAMILY)
+})
+it("正文字体可选「跟随界面字体」", () =&gt; {
+  expect(getBodyFontFamilyCss("follow-ui")).toBe("var(--qmai-ui-font-family)")
+})</code></pre>
+        <pre><code>npx vitest run src/lib/font-settings.spec.ts `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+        <div class="expect bad">期望：失败（未导出这些符号）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：实现选项与工具函数</div>
+        <pre><code>export const DEFAULT_BODY_FONT_FAMILY = "serif-default" as const
+
+export const BODY_FONT_OPTIONS = [
+  { value: "serif-default", label: "默认（宋体系）",
+    cssFamily: '"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif' },
+  { value: "follow-ui", label: "跟随界面字体", cssFamily: "var(--qmai-ui-font-family)" },
+  { value: "simsun",   label: "宋体",   cssFamily: 'SimSun, "Songti SC", serif' },
+  { value: "nsimsun",  label: "新宋体", cssFamily: 'NSimSun, SimSun, "Songti SC", serif' },
+  { value: "kaiti",    label: "楷体",   cssFamily: 'KaiTi, "Kaiti SC", serif' },
+  { value: "fangsong", label: "仿宋",   cssFamily: 'FangSong, "Fangsong SC", serif' },
+  { value: "noto-serif", label: "思源宋体",
+    cssFamily: '"Noto Serif SC", "Source Han Serif SC", SimSun, serif' },
+  { value: "microsoft-yahei", label: "微软雅黑",
+    cssFamily: '"Microsoft YaHei", system-ui, sans-serif' },
+  { value: "noto-sans", label: "思源黑体",
+    cssFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif' },
+] as const
+
+export type BodyFontFamily = (typeof BODY_FONT_OPTIONS)[number]["value"]
+export function normalizeBodyFontFamily(value: unknown): BodyFontFamily { /* 白名单 */ }
+export function getBodyFontFamilyCss(value: unknown): string { /* 查表，缺省回退第一项 */ }
+export function applyBodyFontFamily(value: unknown, root?: HTMLElement): void {
+  const target = root ?? document.documentElement
+  target.style.setProperty("--qmai-body-font-family", getBodyFontFamilyCss(value))
+}</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：CSS 派生</div>
+        <pre><code><span class="c">/* src/components/uitest/ui-test.css：--serif 语义改为「正文衬线族」 */</span>
+--serif: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);</code></pre>
+        <div class="note">
+          <code>var()</code> 的第二参数作为回退，保证未设置时行为与现在一致。
+        </div>
+        <div class="callout warn">
+          <span class="h">必须知情：<code>--serif</code> 不止正文在用（已核实 5 处消费者）</span>
+          把 <code>--serif</code> 改成用户的正文字体后，以下<b>全部</b>会跟着变：
+          <table>
+            <thead><tr><th>位置</th><th>用途</th><th>默认档下</th></tr></thead>
+            <tbody>
+              <tr><td><code>ui-test-editor.css</code> 正文 4 处</td><td>小说正文（本次目标）</td><td>不变</td></tr>
+              <tr><td><code>ui-test-tools.css:25</code></td><td>工具页页标题</td><td>不变</td></tr>
+              <tr><td><code>ui-test.css:184</code></td><td>对话框标题</td><td>不变</td></tr>
+              <tr><td><code>ui-test.css:265</code></td><td>参考对话框 h3</td><td>不变</td></tr>
+              <tr><td><code>model-settings.css:28</code></td><td>空状态标题</td><td>不变</td></tr>
+            </tbody>
+          </table>
+          <b>默认档下全部不变</b>（回退栈与现值逐字相同，判据 1 会强制保证这一点）。
+          用户主动改成正文字体后这几个标题会一起变 —— 这是有意接受的行为
+          （用户选择的正文字体统一支配"书卷感"衬线层），但必须知道其影响面，
+          不能以为只影响正文。<b>若判据 1 在这些位置报出差异，说明回退栈没写对，必须修回退栈。</b>
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：测试通过并提交</div>
+        <pre><code>npx vitest run src/lib/font-settings.spec.ts `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+git add src/lib/font-settings.ts src/lib/font-settings.spec.ts src/components/uitest/ui-test.css
+git commit -m "feat(字体): 正文字体独立设置，默认保持宋体系观感" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 7 -->
+    <div class="task">
+      <h3>任务 7：正文字号独立设置（单一来源）</h3>
+      <p class="sub">
+        正确性关键：正文 18px 在 4 处重复，其中一处是覆盖在输入框上的查找高亮层。
+        若不同步，高亮框会与文字错位。
+      </p>
+      <ul class="files">
+        <li><span class="tag">改</span>src/components/uitest/ui-test-editor.css</li>
+        <li><span class="tag">新增</span>docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</li>
+      </ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：写单一来源静态校验（先失败）</div>
+        <pre><code><span class="c">// audit of src/components/uitest/ui-test-editor.css</span>
+<span class="c">// 通过条件（全部满足）：</span>
+<span class="c">// 1) 文件中不再出现 font-size: 18px 或 font: ... 18px</span>
+<span class="c">// 2) 以下四处都引用 var(--qmai-body-font-size)：</span>
+<span class="c">//    .ui-test-editor-body、[data-writing-editor] textarea / .ProseMirror、</span>
+<span class="c">//    [data-find-highlights]、:is(.ProseMirror, [dir][lang]) &gt; p</span>
+<span class="c">// 3) 查找高亮层与输入层的 font-size 与 line-height 取值表达式完全相同</span>
+<span class="c">// 4) 正文从属尺寸使用 em（16px/12px/21px 等不再出现绝对 px）</span></code></pre>
+        <pre><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</code></pre>
+        <div class="expect bad">期望：失败（当前 18px 硬编码 4 处）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：定义单一来源变量</div>
+        <pre><code><span class="c">/* ui-test.css 的 :root（或 ui-test-editor.css 顶部） */</span>
+<span class="c">/* 正文基准字号：先跟随界面字号（rem），再叠加正文字号倍数。
+
+   单一来源是正确性要求，不是优化：
+   正文在 4 处使用同一字号，其中 [data-find-highlights] 是覆盖在
+   textarea 之上的查找高亮层，必须与输入层逐像素对齐。
+   1.125rem = 改造前的 18px（100% 根字号下计算值完全相同）。 */</span>
+--qmai-body-font-size: calc(1.125rem * var(--qmai-body-font-scale, 1));
+--qmai-body-line-height: 1.95;</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：四处改为引用该变量</div>
+        <pre><code><span class="c">/* 原 203 行 */</span>
+.ui-test-root .ui-test-editor-body {
+  min-width: 0;
+  font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif);
+  overflow-wrap: anywhere;
+}
+<span class="c">/* 原 212 行 */</span>
+.ui-test-root .ui-test-editor-body .ProseMirror,
+.ui-test-root .ui-test-editor-body [dir][lang],
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea {
+  color: var(--ui-ink);
+  font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif);
+}
+<span class="c">/* 原 226 行：查找高亮层必须与输入层一致 */</span>
+.ui-test-root .ui-test-editor-body [data-find-highlights] {
+  font-size: var(--qmai-body-font-size);
+  line-height: var(--qmai-body-line-height);
+}
+<span class="c">/* 原 234 行 */</span>
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) &gt; p { font-size: var(--qmai-body-font-size); }</code></pre>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：从属尺寸改为「精确 rem × 倍数」（<b>不要用 em</b>）</div>
+        <div class="callout danger">
+          <span class="h">为何不用 em（我原先的想法已被自己推翻，两处都错）</span>
+          真实值：正文 18px、列表 16px、<code>li::marker</code> 12px、<code>ol &gt; li::marker</code> 16px。<br>
+          <b>错误一（不精确）</b>：16/18 = 0.888888…，写成 <code>0.8889em</code> 后
+          ×18px = <b>16.0002px</b>，破坏判据 1 的逐位等效。<br>
+          <b>错误二（比例基准错）</b>：<code>::marker</code> 的 <code>em</code> 相对的是
+          <b>所属 <code>li</code>（16px）</b>，不是正文 18px。按 12/18=0.6667em 写会得到
+          0.6667×16 = <b>10.67px</b>，而正确值是 12px。正确比例是 12/16 = 0.75em。<br>
+          两个错误叠加会同时造成"列表字变小 + 偏离精确值"，且 <code>::marker</code>
+          若未被普查枚举则不会被判据发现 —— 必须换方案，不能靠验收兜底。
+        </div>
+        <div class="note">
+          <b>采用方案</b>：改造前每个从属尺寸本身都是 16 的整数倍，即精确 rem。
+          于是统一写成
+          <code>calc(&lt;精确 rem&gt; * var(--qmai-body-font-scale, 1))</code> —— 
+          既精确（100% 档逐位还原），又同时跟随界面字号（rem）与正文字号倍数。
+          这也是 codemod 已产出的值，只需再乘一次倍数。
+        </div>
+        <pre><code><span class="c">/* 在 :root 补两个从属尺寸变量，与 --qmai-body-font-size 并列 */</span>
+--qmai-body-font-size:   calc(1.125rem * var(--qmai-body-font-scale, 1)); <span class="c">/* 正文 18px */</span>
+--qmai-body-font-list:   calc(1rem    * var(--qmai-body-font-scale, 1)); <span class="c">/* 列表 16px */</span>
+--qmai-body-font-marker: calc(0.75rem * var(--qmai-body-font-scale, 1)); <span class="c">/* 标记 12px */</span></code></pre>
+        <div class="note">下列<b>全部 6 条</b>规则都要改（行号为改造前行号，codemod 不改行号）：</div>
+        <pre><code><span class="c">/* 216：文档标题 h2-h6 —— 字号跟随倍数，但字体按用户确认保持 var(--ui) */</span>
+.ui-test-root .ui-test-editor-body :is(h2, h3, h4, h5, h6) {
+  margin: 26px 0 12px; font: 600 var(--qmai-body-font-size)/1.6 var(--ui); color: var(--ui-ink);
+}
+<span class="c">/* 236：列表容器 —— 21px 左内边距是布局尺寸，保持不动 */</span>
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) {
+  padding-left: 21px; font-size: var(--qmai-body-font-list); line-height: 1.9;
+}
+<span class="c">/* 237 / 238：列表项与项内段落 */</span>
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li {
+  margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9;
+}
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p {
+  margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9; text-indent: 0;
+}
+<span class="c">/* 239：无序列表标记 */</span>
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li::marker {
+  color: var(--ui-ink); font-size: var(--qmai-body-font-marker);
+}
+<span class="c">/* 240：有序列表标记（改造前 16px，比无序的大） */</span>
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol &gt; li::marker {
+  font-size: var(--qmai-body-font-list);
+}</code></pre>
+        <div class="expect">
+          精确性自检：倍数 = 1 时，<code>calc(1.125rem*1)=18px</code>、
+          <code>calc(1rem*1)=16px</code>、<code>calc(0.75rem*1)=12px</code> —— 与改造前逐位相同。
+        </div>
+        <div class="note">
+          第 201 行 <code>.ui-test-editor-path</code>（13px，<code>var(--ui)</code>）与
+          第 242 行 <code>.ui-test-editor-details / -auxiliary</code>（13px，<code>var(--ui)</code>）
+          <b>只跟随界面字号</b>（设计 §5.3：设定/辅助信息不随正文字号）→
+          保持 codemod 产出的 <code>0.8125rem</code>，<b>不</b>乘倍数。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：接入状态与设置界面</div>
+        <div class="note">四处改动，缺一不可（否则设置存不住或刷新后丢失）：</div>
+        <ul class="plain">
+          <li><code>src/lib/font-settings.ts</code>：<code>BODY_FONT_SIZE_PRESETS</code>（85%/100%/125%/150%）与钳制 0.85–1.5</li>
+          <li><code>src/stores/wiki-store.ts</code>：<code>uiBodyFontSizeScale</code>、<code>setUiBodyFontSizeScale</code>、读取键 <code>qmai-ui-body-font-scale</code></li>
+          <li><code>src/lib/project-store.ts</code>：<code>saveUiBodyFontSizeScale</code>（键 <code>uiBodyFontSizeScale</code>）</li>
+          <li><code>settings-types.ts</code> + <code>settings-view.tsx</code>：草稿字段与保存调用</li>
+        </ul>
+        <pre><code><span class="c">// App.tsx：与既有字号 effect 并列</span>
+useEffect(() =&gt; {
+  document.documentElement.style.setProperty(
+    "--qmai-body-font-scale", String(uiBodyFontSizeScale))
+}, [uiBodyFontSizeScale])</code></pre>
+        <pre><code><span class="c">// interface-section.tsx：与「界面字号」同结构的第二行</span>
+&lt;div className="ui-test-interface-row"&gt;
+  &lt;div&gt;
+    &lt;label htmlFor={`${id}-body-size`}&gt;正文字号&lt;/label&gt;
+    &lt;p&gt;当前 {bodyScalePercent}%；在界面字号之上只作用于正文，保存后生效。&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div className="ui-test-interface-size"&gt;
+    &lt;select id={`${id}-body-size`} aria-label="正文字号预设" value={...} onChange={...}&gt;...&lt;/select&gt;
+    &lt;input type="range" min={85} max={150} step={5} value={bodyScalePercent}
+           aria-label="正文字号" onChange={...} /&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</code></pre>
+        <div class="note">「正文字体」也用同样的行结构，<code>aria-label="正文字体"</code>。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 6：校验通过 + 门禁</div>
+        <pre><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit
+npm run build
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-body.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-body.json"</code></pre>
+        <div class="expect">期望：单一来源校验通过；tsc 无输出；判据 1、2 仍通过。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 7：提交</div>
+        <pre><code>git add -A src docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+git commit -m "feat(字号): 正文字号独立设置，正文引入单一字号来源修正高亮错位风险" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 8 -->
+    <div class="task">
+      <h3>任务 8：扩充字体选项（只列中文字体）</h3>
+      <p class="sub">用户已确认移除 Arial；不静态列出多数机器没有的字体。</p>
+      <ul class="files"><li><span class="tag">改</span>src/lib/font-settings.ts、src/lib/font-settings.spec.ts</li></ul>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：先写测试</div>
+        <pre><code>it("不再提供纯拉丁字体选项", () =&gt; {
+  expect(UI_FONT_OPTIONS.map((o) =&gt; o.value)).not.toContain("arial")
+})
+it("旧值 arial 平滑回退到默认，不抛错", () =&gt; {
+  expect(normalizeUiFontFamily("arial")).toBe(DEFAULT_UI_FONT_FAMILY)
+})
+it("每个选项都以通用族收尾，保证未安装时静默回退可预期", () =&gt; {
+  for (const option of UI_FONT_OPTIONS) {
+    expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+  }
+})
+it("含中文覆盖的常用选项齐备", () =&gt; {
+  const values = UI_FONT_OPTIONS.map((o) =&gt; o.value)
+  for (const v of ["system", "microsoft-yahei", "simhei", "simsun", "nsimsun",
+                   "kaiti", "fangsong", "dengxian", "noto-sans", "noto-serif"]) {
+    expect(values).toContain(v)
+  }
+})</code></pre>
+        <pre><code>npx vitest run src/lib/font-settings.spec.ts `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+        <div class="expect bad">期望：失败（仍含 arial、缺 simhei 等）。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：改写选项表</div>
+        <pre><code>export const UI_FONT_OPTIONS = [
+  { value: "system", label: "本机默认",
+    cssFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif' },
+  { value: "microsoft-yahei", label: "微软雅黑",
+    cssFamily: '"Microsoft YaHei", "Microsoft JhengHei", "PingFang SC", system-ui, sans-serif' },
+  { value: "microsoft-jhenghei", label: "微软正黑体",
+    cssFamily: '"Microsoft JhengHei", "Microsoft YaHei", system-ui, sans-serif' },
+  { value: "simhei", label: "黑体",
+    cssFamily: 'SimHei, "Heiti SC", "Microsoft YaHei", sans-serif' },
+  { value: "simsun", label: "宋体",
+    cssFamily: 'SimSun, "Songti SC", "Noto Serif SC", serif' },
+  { value: "nsimsun", label: "新宋体",
+    cssFamily: 'NSimSun, SimSun, "Songti SC", serif' },
+  { value: "kaiti", label: "楷体",
+    cssFamily: 'KaiTi, "Kaiti SC", "STKaiti", serif' },
+  { value: "fangsong", label: "仿宋",
+    cssFamily: 'FangSong, "Fangsong SC", "STFangsong", serif' },
+  { value: "dengxian", label: "等线",
+    cssFamily: 'DengXian, "Microsoft YaHei", system-ui, sans-serif' },
+  { value: "noto-sans", label: "思源黑体",
+    cssFamily: '"Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif' },
+  { value: "noto-serif", label: "思源宋体",
+    cssFamily: '"Noto Serif SC", "Source Han Serif SC", SimSun, serif' },
+  { value: "pingfang", label: "苹方（macOS）",
+    cssFamily: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif' },
+] as const</code></pre>
+        <div class="callout">
+          <span class="h">为何不放霞鹜文楷 / MiSans / 鸿蒙黑体等</span>
+          这些字体在多数用户机器上不存在。静态列出会让用户选到不存在的字体 →
+          静默回退默认 → 看起来"选了没反应"，正是本次要修的病症本身。
+          它们应在阶段 4 随包安装后引入，或阶段 3 由真实枚举驱动。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：补一条迁移说明</div>
+        <div class="note">
+          在 <code>font-settings.ts</code> 的 <code>normalizeUiFontFamily</code> 上方加注释，
+          说明 <code>arial</code> 已移除、旧值会回退默认，属预期行为而非缺陷。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：测试通过并提交</div>
+        <pre><code>npx vitest run src/lib/font-settings.spec.ts `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+git add src/lib/font-settings.ts src/lib/font-settings.spec.ts
+git commit -m "feat(字体): 字体选项扩充为只列中文字体并移除 Arial" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 9 -->
+    <div class="task">
+      <h3>任务 9：全量门禁与 A/B 回归</h3>
+      <p class="sub">确认没有引入新的测试失败。既有约 190 余个失败属基线，不修。</p>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：类型门禁</div>
+        <pre><code>npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit</code></pre>
+        <div class="expect">期望：均无输出。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：与本任务相关的用例</div>
+        <pre><code>npx vitest run src/lib/font-settings.spec.ts src/components/uitest `
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+        <div class="expect">期望：字体设置与界面组件用例全部通过。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：全量并 A/B 对比</div>
+        <pre><code>npm run test:mocks 2&gt;&amp;1 | Tee-Object -FilePath "$env:TEMP\qmai-font-fix.json" | Select-Object -Last 25</code></pre>
+        <div class="note">把结果与既有基线 <code>$env:TEMP\qmai-412-testmocks.json</code>（681 文件 / 6234 用例 / 192 失败）对比。</div>
+        <div class="expect">
+          期望：<b>新增失败文件 0 个</b>。失败总数落在基线附近（±5，已知存在轻微不稳定的用例）。
+        </div>
+        <div class="expect bad">
+          若出现新的失败文件：逐个确认是否由本次改动导致。
+          与本任务无关的既有失败（如 <code>outline-chat-panel.spec.tsx</code>、
+          <code>book-analysis-cache-workflow.spec.ts</code>、缺 <code>fast-check</code> 的
+          <code>review-store.property.test.ts</code>）属基线，<b>不得修改</b>。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 4：最终判据复核</div>
+        <pre><code>node docs/font-scaling-fix-20261007/count-absolute-font-units.mjs
+node docs/font-scaling-fix-20261007/census-computed-font.mjs --out "$env:TEMP\census-final.json"
+node docs/font-scaling-fix-20261007/census-computed-font.mjs `
+  --compare docs/font-scaling-fix-20261007/census-before.json "$env:TEMP\census-final.json"
+node docs/font-scaling-fix-20261007/verify-ui-font-applies.mjs
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+node docs/font-scaling-fix-20261007/measure-ui-overflow.mjs --scales 100,115,130,150</code></pre>
+        <div class="expect">
+          期望：绝对单位 0（SVG 属性 2）；判据 1、2 通过；界面字体生效性通过；
+          正文单一来源通过；各档溢出为 0。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 5：提交（如有改动）</div>
+        <pre><code>git status --porcelain
+git add -A
+git commit -m "test(字号): 记录阶段 1+2 的门禁与 A/B 回归结果" --no-verify</code></pre>
+      </div></div>
+    </div>
+
+    <!-- Task 10 -->
+    <div class="task">
+      <h3>任务 10：构建并在真实 exe 中验证</h3>
+      <p class="sub">
+        浏览器只能到达设置页；编辑器与工具页必须靠真实 exe 目视确认。
+      </p>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 1：构建便携版</div>
+        <pre><code>npm run build:portable</code></pre>
+        <div class="expect">期望：生成 <code>release-portable\QMaiWrite.exe</code>。</div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 2：逐项目视确认（记录截图）</div>
+        <ul class="plain">
+          <li>打开设置 → 外观与界面，把「界面字号」拉到 150%：<b>整个界面</b>文字应明显变大
+              （导航、列表、按钮、说明文字一致），不再只有按钮变</li>
+          <li>把「界面字号」拉到 80%：文字应明显变小，布局不破裂</li>
+          <li>切换「界面字体」为黑体/楷体：导航、按钮、输入框、设置页文字应随之改变</li>
+          <li>打开一本小说 → 编辑器：切换「正文字体」应只改变正文，界面不变</li>
+          <li>调整「正文字号」：正文应变大，且<b>用查找功能确认高亮框与文字仍对齐</b></li>
+          <li>检查任务 3 修复过的容器在 150% 下无文字裁切</li>
+        </ul>
+        <div class="expect bad">
+          任一项不符即为缺陷，回到对应任务修复；<b>不得以"看起来差不多"放过</b>。
+        </div>
+      </div></div>
+
+      <div class="step"><div class="box"></div><div class="body">
+        <div class="title">步骤 3：把证据与结论写入文档并提交</div>
+        <pre><code><span class="c"># 在 findings.md 追加一节「阶段 1+2 实施结果」，含截图与实测数据</span>
+git add docs/font-scaling-fix-20261007
+git commit -m "docs(字号): 记录阶段 1+2 在真实 exe 中的验证结果" --no-verify</code></pre>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">05</span><h2>验收判据汇总</h2></div>
+    <table>
+      <thead><tr><th>判据</th><th>标准</th><th>工具</th></tr></thead>
+      <tbody>
+        <tr><td>完整性</td><td>绝对单位需改数 = 0；SVG 图标属性 = 2（已登记）</td><td><code>count-absolute-font-units.mjs</code></td></tr>
+        <tr><td>等效性（无回归）</td><td>100% 根字号下，每个文本元素的 computed <code>font-size</code> / <code>line-height</code> 与改动前相同</td><td><code>census-computed-font.mjs</code></td></tr>
+        <tr><td>生效性</td><td>150% 根字号下，除 SVG 图标文字外所有文本元素恰为 1.5 倍</td><td><code>census-computed-font.mjs</code></td></tr>
+        <tr><td>界面字体生效</td><td>设为本机存在的字体后渲染位图改变；设为不存在字体后与默认相同</td><td><code>verify-ui-font-applies.mjs</code></td></tr>
+        <tr><td>正文一致性</td><td>查找高亮层与输入层引用同一字号变量，无残留 18px 硬编码</td><td><code>verify-body-font-single-source.mjs</code></td></tr>
+        <tr><td>无裁切</td><td>100%–150% 各档被裁切的文本元素 = 0</td><td><code>measure-ui-overflow.mjs</code></td></tr>
+        <tr><td>类型</td><td>两个 tsc 配置均无输出</td><td><code>tsc -p ... --noEmit</code></td></tr>
+        <tr><td>回归</td><td>新增失败文件 0 个</td><td><code>npm run test:mocks</code> + A/B</td></tr>
+        <tr><td>真实运行</td><td>exe 中逐项目视确认全部符合预期</td><td>人工</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============================================================ -->
+  <section>
+    <div class="sec-head"><span class="num">06</span><h2>风险与不做的事</h2></div>
+    <table>
+      <thead><tr><th>风险</th><th>对策</th></tr></thead>
+      <tbody>
+        <tr><td>557 处漏改或改错</td><td>codemod 自动改写 + 静态清零判据 + 等效性判据</td></tr>
+        <tr><td>px 行高漏改致行距变挤</td><td>已纳入换算；判据 1 会捕获任何偏差</td></tr>
+        <tr><td>字号放大导致容器裁切</td><td>各档实测溢出并定点修复，逐条记录</td></tr>
+        <tr><td>查找高亮层与输入层字号不同步</td><td>单一 <code>--qmai-body-font-size</code>，静态校验禁止硬编码</td></tr>
+        <tr><td>旧设置 <code>arial</code> 失效</td><td>白名单自动回退默认，补迁移说明</td></tr>
+        <tr><td>新增字体名在本机不存在</td><td>回退栈 + 阶段 3 由真实枚举根治</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <span class="h">本计划明确不做</span>
+      不缩放布局尺寸（仅字体与行高）；不改 Tailwind 内置字号定义；
+      不引入 <code>zoom</code>；不做字体枚举（阶段 3）与字体捆绑（阶段 4）；
+      不改富文本导出的 HTML/CSS；不修既有基线失败约 190 余个。
+    </div>
+
+    <div class="callout warn">
+      <span class="h">已核实的 4 处"看似漏项、实为正当例外"（勿误改）</span>
+      <table>
+        <thead><tr><th>位置</th><th>为何不改</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>context-usage-ring.tsx:136</code><br><code>fontSize="7"</code></td>
+            <td>固定 viewBox 环形图内的百分比文字，属图标几何；改 rem 会让字形溢出圆环</td>
+          </tr>
+          <tr>
+            <td><code>provider-brand-icon.tsx:59,62</code><br><code>fontSize="13.5"</code> + 硬编码字体栈</td>
+            <td>16×16 viewBox 内画单字"自"的品牌标记，属图标几何，且字体是品牌观感的一部分</td>
+          </tr>
+          <tr>
+            <td><code>story-map-renderer.ts:98</code><br><code>font-family: "Microsoft YaHei", …</code></td>
+            <td>生成<b>独立导出的 HTML 文档</b>（故事地图）。导出物应保持固定字体：
+                用户界面设置不应改变已导出文件的观感，且导出物可能在别的机器上打开</td>
+          </tr>
+          <tr>
+            <td><code>ui-test-shelf.css:291</code><br><code>var(--ui, "PingFang SC", …)</code></td>
+            <td>回退值本身写死了字体栈。因 <code>--ui</code> 恒有定义，该回退是死代码、
+                行为无影响。可选清理，但不属缺陷</td>
+          </tr>
+        </tbody>
+      </table>
+      <b>任务 5 步骤 3 的 grep 会列出第 2、3 项</b> —— 届时按本表判定为例外并记录，
+      不要为了"让 grep 干净"而改动它们。
+    </div>
+  </section>
+
+  <footer>
+    证据与工具索引见 <code>docs/font-scaling-fix-20261007/README.md</code>
+    （其中标注了哪些探测脚本已被推翻、不可再作为结论依据）。
+    根因报告见 <code>findings.md</code>，设计见 <code>design.md</code>。
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('themeBtn');
+    function label() {
+      btn.textContent = document.documentElement.classList.contains('dark') ? '☀ 浅色' : '☾ 深色';
+    }
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('qmai-plan-theme', dark ? 'dark' : 'light'); } catch (e) {}
+      label();
+    });
+    label();
+  })();
+</script>
+</body>
+</html>
