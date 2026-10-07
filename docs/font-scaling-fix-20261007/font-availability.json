@@ -1,0 +1,1186 @@
+{
+  "probedAt": "2026-10-07T17:39:08.365Z",
+  "host": {
+    "platform": "win32",
+    "type": "Windows_NT",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "hostname": "DESKTOP-4FUFDU1"
+  },
+  "method": "对照法：experiment = <候选>, <基准>；baseline = <基准>；以 Chromium CSS.getPlatformFontsForNode 报告的实际渲染字体族为准，任一基准下有变化即判可用",
+  "baselines": [
+    "serif",
+    "sans-serif",
+    "monospace"
+  ],
+  "ruler": {
+    "positiveControl": {
+      "name": "Arial",
+      "sampleKind": "latin",
+      "usable": true
+    },
+    "negativeControl": {
+      "name": "__QMaiNoSuchFont__",
+      "sampleKind": "cjk",
+      "usable": false
+    },
+    "baselinesSane": true,
+    "nsimsunUsable": true,
+    "singleBaselineWouldMiss": true,
+    "ok": true
+  },
+  "entries": [
+    {
+      "name": "Arial",
+      "role": "对照-必然存在",
+      "sampleKind": "latin",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Arial",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Arial",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Arial",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Arial",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "__QMaiNoSuchFont__",
+      "role": "对照-必然不存在",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Segoe UI",
+      "role": "Segoe UI(栈尾回退项)",
+      "sampleKind": "latin",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Segoe UI",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Segoe UI",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Segoe UI",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Segoe UI",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "Microsoft YaHei",
+      "role": "微软雅黑",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Microsoft YaHei",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "Microsoft YaHei UI",
+      "role": "微软雅黑UI",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Microsoft YaHei UI",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Microsoft YaHei UI",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei UI",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Microsoft YaHei UI",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "微软雅黑",
+      "role": "微软雅黑-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Microsoft YaHei",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "Microsoft JhengHei",
+      "role": "微软正黑体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "微軟正黑體",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "微軟正黑體",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "微軟正黑體",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "微軟正黑體",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "微软正黑体",
+      "role": "微软正黑体-中文名",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "SimHei",
+      "role": "黑体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimHei",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimHei",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "SimHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "SimHei",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "黑体",
+      "role": "黑体-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimHei",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimHei",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "SimHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "SimHei",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "SimSun",
+      "role": "宋体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "sans-serif",
+        "withFont": "SimSun",
+        "baseFont": "Microsoft YaHei",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "SimSun",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "SimSun",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "宋体",
+      "role": "宋体-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "sans-serif",
+        "withFont": "SimSun",
+        "baseFont": "Microsoft YaHei",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "SimSun",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "SimSun",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "NSimSun",
+      "role": "新宋体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "NSimSun",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "NSimSun",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "NSimSun",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "新宋体",
+      "role": "新宋体-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "NSimSun",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "NSimSun",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "NSimSun",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "KaiTi",
+      "role": "楷体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "KaiTi",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "KaiTi",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "KaiTi",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "KaiTi",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "楷体",
+      "role": "楷体-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "KaiTi",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "KaiTi",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "KaiTi",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "KaiTi",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "FangSong",
+      "role": "仿宋",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "FangSong",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "FangSong",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "FangSong",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "FangSong",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "仿宋",
+      "role": "仿宋-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "FangSong",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "FangSong",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "FangSong",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "FangSong",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "DengXian",
+      "role": "等线",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "DengXian",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "DengXian",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "DengXian",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "DengXian",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "等线",
+      "role": "等线-中文名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "DengXian",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "DengXian",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "DengXian",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "DengXian",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "PingFang SC",
+      "role": "苹方(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Heiti SC",
+      "role": "黑体-简(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Songti SC",
+      "role": "宋体-简(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Kaiti SC",
+      "role": "楷体-简(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "STKaiti",
+      "role": "STKaiti(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Fangsong SC",
+      "role": "仿宋-简(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "STFangsong",
+      "role": "STFangsong(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Hiragino Sans GB",
+      "role": "冬青黑体(macOS)",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Noto Sans SC",
+      "role": "思源黑体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Noto Sans SC",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Noto Sans SC",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Noto Sans SC",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Noto Sans SC",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "Noto Serif SC",
+      "role": "思源宋体",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Noto Serif SC",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Noto Serif SC",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Noto Serif SC",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Noto Serif SC",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "Source Han Sans SC",
+      "role": "思源黑体-旧名",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Source Han Serif SC",
+      "role": "思源宋体-旧名",
+      "sampleKind": "cjk",
+      "usable": true,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "Source Han Serif SC Heavy",
+        "baseFont": "SimSun",
+        "differs": true
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "Source Han Serif SC Heavy",
+          "baseFont": "SimSun",
+          "differs": true
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Source Han Serif SC Heavy",
+          "baseFont": "Microsoft YaHei",
+          "differs": true
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "Source Han Serif SC Heavy",
+          "baseFont": "NSimSun",
+          "differs": true
+        }
+      ]
+    },
+    {
+      "name": "LXGW WenKai",
+      "role": "霞鹜文楷",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "HarmonyOS Sans SC",
+      "role": "鸿蒙黑体",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "MiSans",
+      "role": "小米",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    },
+    {
+      "name": "Alibaba PuHuiTi",
+      "role": "阿里巴巴普惠体",
+      "sampleKind": "cjk",
+      "usable": false,
+      "evidence": {
+        "baseline": "serif",
+        "withFont": "SimSun",
+        "baseFont": "SimSun",
+        "differs": false
+      },
+      "perBaseline": [
+        {
+          "baseline": "serif",
+          "withFont": "SimSun",
+          "baseFont": "SimSun",
+          "differs": false
+        },
+        {
+          "baseline": "sans-serif",
+          "withFont": "Microsoft YaHei",
+          "baseFont": "Microsoft YaHei",
+          "differs": false
+        },
+        {
+          "baseline": "monospace",
+          "withFont": "NSimSun",
+          "baseFont": "NSimSun",
+          "differs": false
+        }
+      ]
+    }
+  ]
+}

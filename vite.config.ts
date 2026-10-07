@@ -141,6 +141,15 @@ export default defineConfig({
       // 只写 .worktrees 那条匹配不到 .claude/worktrees/，因为路径段必须恰好
       // 叫 .worktrees 的那一级。
       "**/.claude/**",
+      // 同一个病症的第二个实例：.codex-temp/ 下是 agent 留下的快照副本
+      // （每个子目录里各有一份 src/**），它们的路径段叫 .codex-temp，
+      // 既不等于 .temp、也不等于 .worktrees，所以上面两条都拦不住。
+      // 实测 `npx vitest run src/lib/font-settings.spec.ts` 在不加排除项时会
+      // 带出 10 份 .codex-temp 里的同名 spec（11 文件 / 59 用例，真正的文件
+      // 只占 1 文件 / 29 用例）；跑 ui-test-tools.spec.tsx 时更会带出 109 条
+      // 无关失败，真实文件却是 ✓ —— 这类噪音只能靠人眼过滤才能确认结论，
+      // 是可信度的净损耗。故与 .claude 同法显式排除。
+      "**/.codex-temp/**",
     ],
   },
 })

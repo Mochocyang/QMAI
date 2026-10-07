@@ -40,11 +40,29 @@
  *   ② 负对照：编造的不存在字体名对中文样本必须判为"不可用"
  *   ③ 对照组本身有效：三个基准各自都要报告出具体字体族
  *   ④ 多基准确实覆盖了单基准的假阴性：NSimSun 必须被判为可用
+ *
+ * ── 为什么要把结果落盘成事实文件（--out）──
+ * 上面这些判定只存在于终端输出里，用完就没了：`font-settings.spec.ts` 想验证
+ * "每个选项打头的字体名在本机真的可用"时，只能自己再抄一张静态白名单，
+ * 而那张白名单分不清"族名写得像中文字体"与"本机真的装了这个字体"——
+ * 实测白名单 20 条里有 8 条在本机不可用（PingFang SC / Heiti SC / Songti SC /
+ * Kaiti SC / STKaiti / STFangsong / Source Han Sans SC），
+ * 于是把 `Source Han Sans SC` 提到 `noto-sans` 栈首时全部测试依然全绿，
+ * 而用户点下去就是"选了没反应"——正是本任务要根除的病症。
+ * 所以这里把**每一次实跑的原始读数**（含尺子对照的取值）写进 JSON，
+ * 让 spec 断言的是"实测事实"而不是"名字长得像"。
+ *
+ * 用法：
+ *   node docs/font-scaling-fix-20261007/probe-installed-fonts.mjs
+ *   node docs/font-scaling-fix-20261007/probe-installed-fonts.mjs --out docs/.../font-availability.json
+ *
+ * 退出码：0 = 尺子对照全部成立；1 = 尺子对照失败（本次读数不可信）。
  */
 
-import { existsSync } from "node:fs"
+import { existsSync, writeFileSync } from "node:fs"
 import { join, resolve, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { hostname, platform, arch, release, type } from "node:os"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, "..", "..")
@@ -52,10 +70,21 @@ const REPO = resolve(HERE, "..", "..")
 const CJK = "青幕中文样张写作字体"
 const LATIN = "QMAI Font Sample Ag"
 
-/** 待测字体名。`sample` 指定用哪类样本（中文候选用中文）。 */
+/**
+ * 待测字体名。`sample` 指定用哪类样本（中文候选用中文）。
+ *
+ * ── 覆盖面不变量：本表必须覆盖两个选项表里出现的所有字体名 ──
+ * 即 `UI_FONT_OPTIONS` 与 `BODY_FONT_OPTIONS` 的 `cssFamily` 里出现的每一个
+ * 非通用族字体名，都必须在这里被实测过一次 —— 否则 spec 里
+ * 「选项栈里的每个字体名都被 probe 测过」那条断言会红。
+ * 这条不变量是本次补上 `Fangsong SC` 与 `Segoe UI` 时立的：
+ * 前者出现在 `fangsong` / `source-han-*` 的 macOS 回退位却从未被实测，
+ * 后者出现在 `system` 栈尾部同样是空白。
+ */
 const NAMES = [
   { role: "对照-必然存在", name: "Arial", sample: LATIN },
   { role: "对照-必然不存在", name: "__QMaiNoSuchFont__", sample: CJK },
+  { role: "Segoe UI(栈尾回退项)", name: "Segoe UI", sample: LATIN },
   { role: "微软雅黑", name: "Microsoft YaHei", sample: CJK },
   { role: "微软雅黑UI", name: "Microsoft YaHei UI", sample: CJK },
   { role: "微软雅黑-中文名", name: "微软雅黑", sample: CJK },
@@ -78,6 +107,7 @@ const NAMES = [
   { role: "宋体-简(macOS)", name: "Songti SC", sample: CJK },
   { role: "楷体-简(macOS)", name: "Kaiti SC", sample: CJK },
   { role: "STKaiti(macOS)", name: "STKaiti", sample: CJK },
+  { role: "仿宋-简(macOS)", name: "Fangsong SC", sample: CJK },
   { role: "STFangsong(macOS)", name: "STFangsong", sample: CJK },
   { role: "冬青黑体(macOS)", name: "Hiragino Sans GB", sample: CJK },
   { role: "思源黑体", name: "Noto Sans SC", sample: CJK },
@@ -89,6 +119,9 @@ const NAMES = [
   { role: "小米", name: "MiSans", sample: CJK },
   { role: "阿里巴巴普惠体", name: "Alibaba PuHuiTi", sample: CJK },
 ]
+
+/** 样本类型：spec 只认「用中文样本实测可用」的名字才是能覆盖中文的字体。 */
+const sampleKindOf = (sample) => (sample === CJK ? "cjk" : "latin")
 
 async function loadPlaywright() {
   for (const c of [join(process.env.APPDATA ?? "", "npm/node_modules/playwright/index.js"), join(REPO, "node_modules/playwright/index.js")]) {
@@ -139,6 +172,19 @@ async function platformFontsOf(cdp, selector) {
 }
 
 async function main() {
+  const argv = process.argv.slice(2)
+  const argVal = (flag) => {
+    const i = argv.indexOf(flag)
+    if (i < 0) return null
+    const v = argv[i + 1]
+    if (!v || v.startsWith("--")) {
+      console.log(`  ✗ ARG-FAIL：${flag} 后面缺少文件路径`)
+      process.exit(1)
+    }
+    return v
+  }
+  const outAt = argVal("--out") ?? argVal("--record")
+
   const chromium = await loadPlaywright()
   const browser = await chromium.launch()
   const page = await browser.newPage()
@@ -215,6 +261,51 @@ async function main() {
   console.log("")
   console.log("  说明：判为「不可用」的项，用户选中后会静默回退到回退栈里的下一个字体，")
   console.log("       也就是\"选了没反应\"。本报告只提供事实，不替代产品决定。")
+
+  /* ── 落盘成事实文件 ────────────────────────────────────────────────
+   * 内容刻意包含**尺子对照的取值**（正/负对照各自的 usable、
+   * 三基准是否都取到具体字体族）。理由：spec 会断言 Arial 可用、
+   * __QMaiNoSuchFont__ 不可用 —— 这证明这份文件出自一次**尺子有效的实跑**，
+   * 而不是一次尺子坏掉的运行所产出的垃圾数据（那种运行会把所有字体名
+   * 都判成不可用，于是"每个选项打头字体名都可用"这条断言虽然还绿，
+   * 但依据已经毫无意义）。没有这两个对照取值，下游断言就是无条件相信。
+   * 落盘一律用 writeFileSync 写 UTF-8：本机是 PowerShell 5.1，
+   * `>` 重定向会写成 UTF-16，读回来 JSON.parse 直接炸。
+   */
+  const fact = {
+    probedAt: new Date().toISOString(),
+    host: { platform: platform(), type: type(), release: release(), arch: arch(), hostname: hostname() },
+    method: "对照法：experiment = <候选>, <基准>；baseline = <基准>；以 Chromium CSS.getPlatformFontsForNode 报告的实际渲染字体族为准，任一基准下有变化即判可用",
+    baselines: BASELINES,
+    ruler: {
+      positiveControl: { name: "Arial", sampleKind: "latin", usable: arial?.usable === true },
+      negativeControl: { name: "__QMaiNoSuchFont__", sampleKind: "cjk", usable: bogus?.usable === true },
+      baselinesSane: baselineSane,
+      nsimsunUsable: nsimsun?.usable === true,
+      singleBaselineWouldMiss,
+      ok: rulerOk,
+    },
+    entries: rows.map((r) => ({
+      name: r.name,
+      role: r.role,
+      sampleKind: sampleKindOf(r.sample),
+      usable: r.usable,
+      evidence: {
+        baseline: r.evidence.baseline,
+        withFont: r.evidence.withFont,
+        baseFont: r.evidence.baseFont,
+        differs: r.evidence.differs,
+      },
+      perBaseline: r.perBaseline,
+    })),
+  }
+  if (outAt) {
+    const dest = resolve(REPO, outAt)
+    writeFileSync(dest, JSON.stringify(fact, null, 2), "utf8")
+    console.log("")
+    console.log(`  已写出实测事实文件：${outAt}（${fact.entries.length} 项，尺子 ok=${rulerOk}）`)
+  }
+
   if (!rulerOk) {
     console.log("")
     console.log("  ✗ 尺子对照失败：本次读数不可信")

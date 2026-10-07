@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   BODY_FONT_OPTIONS,
@@ -20,6 +22,115 @@ import {
   normalizeUiFontFamily,
   applyUiFontFamily,
 } from "./font-settings"
+
+/* ────────── 本机字体可用性的实测事实与判断器（本文件多处共用，故置于顶部） ────────── */
+
+/**
+ * 本机字体可用性的**实测事实文件**（由 probe-installed-fonts.mjs --out 生成）。
+ *
+ * ── 为什么判断器必须读这份文件，而不是读一张手写白名单 ──
+ * 本文件曾经用的是 `CJK_FONT_NAMES` —— 一张把"能覆盖中文的族名"与
+ * "本机真的装了这个字体"混在一起的静态白名单。它的致命问题不是写错了名字，
+ * 而是**它根本没有在测"能不能用"**：20 条里有 8 条在本机实测不可用
+ * （PingFang SC / Heiti SC / Songti SC / Kaiti SC / STKaiti / STFangsong /
+ * Source Han Sans SC），可白名单照样把它们判为 true。后果是把
+ * `Source Han Sans SC` 提到 `noto-sans` 栈首（本机实测不可用 → 用户点它
+ * 就是"选了没反应"）时，**全部测试依然全绿** —— 正是本次要修的病症
+ * 换了个地方再犯一次。
+ *
+ * ── 事实文件必须自证"尺子有效"──
+ * 下方「尺子对照」一组的断言（正对照 Arial 可用、负对照 __QMaiNoSuchFont__
+ * 不可用、三基准各自都取到具体字体族）**不是走过场**：一份由"坏尺子"产出的
+ * 事实文件会把**所有**字体名都判成不可用，此时"每个选项打头字体名都可用"
+ * 这条断言虽然仍会红，可一旦有人图省事把它反转过来，就会变成永远为真。
+ * 断言这两个对照取值，等于断言这份事实文件出自一次**对照法本身成立**的实跑，
+ * 而不是一次读数不可信的运行。没有这一条，下面所有可用性断言都是无条件相信。
+ */
+const FONT_AVAILABILITY = JSON.parse(
+  readFileSync(resolve(__dirname, "../../docs/font-scaling-fix-20261007/font-availability.json"), "utf8"),
+) as {
+  probedAt: string
+  host: { platform: string }
+  baselines: string[]
+  ruler: {
+    positiveControl: { name: string; usable: boolean }
+    negativeControl: { name: string; usable: boolean }
+    baselinesSane: boolean
+    ok: boolean
+  }
+  entries: Array<{
+    name: string
+    role: string
+    sampleKind: "cjk" | "latin"
+    usable: boolean
+    evidence: { baseline: string; withFont: string | null; baseFont: string | null }
+  }>
+}
+
+const AVAILABILITY_ENTRIES = FONT_AVAILABILITY.entries
+
+/** 被实测过的所有名字（不论判定）。 */
+const PROBED_NAMES = new Set(AVAILABILITY_ENTRIES.map((e) => e.name))
+
+/**
+ * **本机用中文样本实测可用**的名字集合。
+ *
+ * 两个条件缺一不可：
+ *   · `usable` —— 对照法实测（加了这个名字之后渲染确实变了）；
+ *   · `sampleKind === "cjk"` —— 样本是纯中文。
+ * 第二个条件才是"能覆盖中文"的证据：probe 用纯中文样本，
+ * 一个没有中文字形的字体（如 Arial、Segoe UI）会被判为不可用，
+ * 所以 usable+cjk 恰好等价于"本机能提供中文字形"。
+ * 只用 usable 不用 sampleKind 的话，Arial（拉丁样本实测可用）也会混进来。
+ */
+const USABLE_CJK_NAMES = new Set(
+  AVAILABILITY_ENTRIES.filter((e) => e.usable && e.sampleKind === "cjk").map((e) => e.name),
+)
+
+/**
+ * CSS 通用族与**系统字体关键字**（不是字体名，是 CSS Fonts 规范定义的关键字，
+ * 由浏览器解析为平台默认字体，写进栈里是正确的用法）。
+ * 从"字体名"里剔除它们，是为了让"每个字体名都被实测过"这条断言
+ * 只针对真正的字体名 —— 这不是放宽，而是把断言对准它想守的东西。
+ */
+const NON_FONT_FAMILY_TOKENS = new Set([
+  "serif", "sans-serif", "monospace", "cursive", "fantasy",
+  "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace",
+  "-apple-system", "BlinkMacSystemFont",
+  "inherit", "initial", "unset", "revert",
+])
+
+/** 从一条 cssFamily 里抽出所有"字体名"（去引号、去空白、剔除通用族与系统关键字）。 */
+function fontNamesIn(cssFamily: string): string[] {
+  // 变量引用（如 follow-ui 的 var(--qmai-ui-font-family)）里的字体名由别处决定，
+  // 不在这里展开：展开会把界面字体表的名字重复算一遍。
+  if (cssFamily.includes("var(")) return []
+  return cssFamily
+    .split(",")
+    .map((s) => s.trim().replace(/^["']|["']$/g, "").trim())
+    .filter(Boolean)
+    .filter((n) => !NON_FONT_FAMILY_TOKENS.has(n))
+}
+
+/** 字体栈打头的那一项（去引号）。 */
+function leadingFontName(cssFamily: string): string {
+  return cssFamily.split(",")[0].trim().replace(/^["']|["']$/g, "")
+}
+
+/**
+ * 判断器：字体栈打头的名字必须是**本机实测可用**的中文字体。
+ *
+ * 与旧版 `leadsWithCjkFont` 的区别：旧版只问"这个名字长不长得像中文字体"
+ * （查一张手写白名单），本版问"这个名字在本机**真的能渲染出中文**吗"
+ * （查实测事实文件）。后者才是用户点下去会不会"没反应"的判据。
+ */
+function leadsWithMeasuredCjkFont(cssFamily: string): boolean {
+  return USABLE_CJK_NAMES.has(leadingFontName(cssFamily))
+}
+
+/** 通用族收尾判据：通用族必须是**最后一项**（允许前后空格，但不允许拼错/自造）。 */
+const endsWithGenericFamily = (cssFamily: string): boolean =>
+  /(^|,)\s*(serif|sans-serif|monospace)\s*$/.test(cssFamily)
 
 describe("font settings", () => {
   it("defaults to the local system font and ignores invalid stored values", () => {
@@ -121,8 +232,25 @@ describe("正文字体（与界面字体相互独立）", () => {
 
   it("每个选项都以通用族收尾（字体缺失时仍有合理回退）", () => {
     for (const option of BODY_FONT_OPTIONS) {
+      if (option.value === "follow-ui") continue // 变量引用，通用族由界面字体表负责
+      expect(endsWithGenericFamily(option.cssFamily)).toBe(true)
+    }
+  })
+
+  it("正文每个选项的栈里都含实测可用的中文字体，且首个可用名不晚于第二位", () => {
+    // 这条拦的是"整条栈全是本机没有的名字"——那样正文选中后必然静默回退到
+    // 浏览器兜底，用户看到的就是"选了没反应"。允许出现在第二位是因为
+    // source-han-sans 刻意以 Adobe 原版名 "Source Han Sans SC" 打头
+    // （本机实测不可用），紧随其后的 "Noto Sans SC" 已实测可用，
+    // 且两者在字形上是同一套设计（Source Han Sans = Noto Sans CJK 的共同发行），
+    // 所以那一条不存在"选了没反应"。真要收紧成"必须打头可用"，
+    // 就得改动产品字体栈顺序（跨机器行为会变），不属于本次修复范围。
+    for (const option of BODY_FONT_OPTIONS) {
       if (option.value === "follow-ui") continue
-      expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+      const names = fontNamesIn(option.cssFamily)
+      const firstUsable = names.findIndex((n) => USABLE_CJK_NAMES.has(n))
+      expect(firstUsable, `${option.value} 整条栈里没有任何实测可用的中文字体`).toBeGreaterThanOrEqual(0)
+      expect(firstUsable, `${option.value} 的首个可用字体名排在第 ${firstUsable + 1} 位，过晚`).toBeLessThanOrEqual(1)
     }
   })
 
@@ -225,45 +353,6 @@ describe("正文字号（独立于界面字号）", () => {
 
 /* ────────────────────────── 界面字体选项（只列中文字体） ────────────────────────── */
 
-/**
- * 被认定为"能覆盖中文"的字体族名白名单。
- *
- * 为什么需要一个白名单而不是"看起来像中文"的模糊判断：本文件的规矩是
- * **以实测可用的名字为准**（见 probe-installed-fonts.mjs 的实测表）。
- * 「微软正黑体」用中文名在本机实测不可用、必须写英文名 `Microsoft JhengHei`，
- * 所以"含汉字"根本不能作为判据 —— 只能按真实族名列白名单。
- */
-const CJK_FONT_NAMES = [
-  // Windows 自带
-  "Microsoft YaHei",
-  "Microsoft YaHei UI",
-  "Microsoft JhengHei",
-  "SimHei",
-  "SimSun",
-  "NSimSun",
-  "KaiTi",
-  "FangSong",
-  "DengXian",
-  // macOS 自带（阶段 4 的真机回退项）
-  "PingFang SC",
-  "Heiti SC",
-  "Songti SC",
-  "Kaiti SC",
-  "STKaiti",
-  "Fangsong SC",
-  "STFangsong",
-  // 计划随后续安装包分发的开源字体
-  "Noto Sans SC",
-  "Noto Serif SC",
-  "Source Han Sans SC",
-  "Source Han Serif SC",
-] as const
-
-/** 取字体栈的第一项（去掉引号），判断它是不是白名单里的中文字体。 */
-function leadsWithCjkFont(cssFamily: string): boolean {
-  const first = cssFamily.split(",")[0].trim().replace(/^["']|["']$/g, "")
-  return (CJK_FONT_NAMES as readonly string[]).includes(first)
-}
 
 describe("界面字体选项（只列中文字体）", () => {
   it("不再提供纯拉丁字体选项", () => {
@@ -276,30 +365,123 @@ describe("界面字体选项（只列中文字体）", () => {
 
   it("每个选项都以通用族收尾，保证未安装时静默回退可预期", () => {
     for (const option of UI_FONT_OPTIONS) {
-      expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+      expect(endsWithGenericFamily(option.cssFamily)).toBe(true)
     }
   })
 
-  it("含中文覆盖的常用选项齐备", () => {
-    const values = UI_FONT_OPTIONS.map((o) => o.value)
-    for (const v of ["system", "microsoft-yahei", "simhei", "simsun", "nsimsun",
-                     "kaiti", "fangsong", "dengxian", "noto-sans", "noto-serif"]) {
-      expect(values).toContain(v)
-    }
+  it("界面字体选项与计划中的 11 项**全等**（增删都必须显式改本测试）", () => {
+    // 这条曾经是"抽查 10 个 value 是否包含"——名义上叫"常用选项齐备"，
+    // 实际漏掉了本次新增的 microsoft-jhenghei（表里 11 项、只查了 10 项），
+    // 一个会误导读者的"齐备"。改为与完整期望数组全等：
+    // 顺序、增、删三者任一变化都会红，逼实施者显式面对。
+    expect(UI_FONT_OPTIONS.map((o) => o.value)).toEqual([
+      "system",
+      "microsoft-yahei",
+      "microsoft-jhenghei",
+      "simhei",
+      "simsun",
+      "nsimsun",
+      "kaiti",
+      "fangsong",
+      "dengxian",
+      "noto-sans",
+      "noto-serif",
+    ])
+  })
+
+  it("事实文件出自一次尺子有效的实跑（正/负对照取值正确）", () => {
+    // 见文件头对 FONT_AVAILABILITY 的说明：没有这两条，下游所有可用性断言
+    // 都只是"相信一份 JSON"，无法区分"真测出来的"与"坏尺子批量判死"。
+    expect(FONT_AVAILABILITY.ruler.positiveControl.name).toBe("Arial")
+    expect(FONT_AVAILABILITY.ruler.positiveControl.usable).toBe(true)
+    expect(FONT_AVAILABILITY.ruler.negativeControl.name).toBe("__QMaiNoSuchFont__")
+    expect(FONT_AVAILABILITY.ruler.negativeControl.usable).toBe(false)
+    expect(FONT_AVAILABILITY.ruler.baselinesSane).toBe(true)
+    expect(FONT_AVAILABILITY.ruler.ok).toBe(true)
+    expect(FONT_AVAILABILITY.baselines).toEqual(["serif", "sans-serif", "monospace"])
+    // 事实文件必须真的有一批可用项，否则"每个打头名字都可用"可能只是
+    // 因为集合为空而空洞成立（空集会让任何名字都判否，不会判是，但仍值得钉住）
+    expect(USABLE_CJK_NAMES.size).toBeGreaterThanOrEqual(10)
+    // 抽取函数本身必须是有产出的，否则下面那条"差集为空"会空洞通过
+    expect(fontNamesIn('SimSun, "Songti SC", serif')).toEqual(["SimSun", "Songti SC"])
+    expect(fontNamesIn("var(--qmai-ui-font-family)")).toEqual([])
+  })
+
+  it("两个选项表里出现的每个字体名都被 probe 实测过（差集必须为空）", () => {
+    const inStacks = new Set<string>()
+    for (const option of UI_FONT_OPTIONS) for (const n of fontNamesIn(option.cssFamily)) inStacks.add(n)
+    for (const option of BODY_FONT_OPTIONS) for (const n of fontNamesIn(option.cssFamily)) inStacks.add(n)
+
+    // 先证明抽取确实抽到了东西（否则空集让下面的差集恒为空）
+    expect(inStacks.size).toBeGreaterThanOrEqual(15)
+    expect(inStacks).toContain("SimSun")
+    expect(inStacks).toContain("Fangsong SC")
+
+    const neverProbed = [...inStacks].filter((n) => !PROBED_NAMES.has(n)).sort()
+    expect(neverProbed).toEqual([])
+
+    // ── 负向对照：证明本断言会失败 ──
+    // 把本次补测的两个名字从 probe 表里拿掉，还原改造前的状态，
+    // 差集必须**非空**。若这里也得到空数组，说明上面的断言是永远为真的装饰。
+    const probeBeforeFix = new Set([...PROBED_NAMES].filter((n) => n !== "Fangsong SC" && n !== "Segoe UI"))
+    const diffBeforeFix = [...inStacks].filter((n) => !probeBeforeFix.has(n)).sort()
+    expect(diffBeforeFix).toEqual(["Fangsong SC", "Segoe UI"])
   })
 
   it("每个选项都以中文字体打头，不能拿纯拉丁字体顶在前面", () => {
     // 先验证判断器本身有区分力：给一条纯拉丁字体打头的栈，它必须判否。
     // 否则下面那条 for 循环就是"永远为真"的装饰（本任务吃过一次亏：
     // document.fonts.check 对编造的字体名也返回 true，正是负向对照抓出来的）。
-    expect(leadsWithCjkFont('Arial, "Microsoft YaHei", system-ui, sans-serif')).toBe(false)
-    expect(leadsWithCjkFont('Helvetica, "Segoe UI", sans-serif')).toBe(false)
-    expect(leadsWithCjkFont('system-ui, "Microsoft YaHei", sans-serif')).toBe(false)
-    expect(leadsWithCjkFont('"Microsoft YaHei", system-ui, sans-serif')).toBe(true)
+    expect(leadsWithMeasuredCjkFont('Arial, "Microsoft YaHei", system-ui, sans-serif')).toBe(false)
+    expect(leadsWithMeasuredCjkFont('Helvetica, "Segoe UI", sans-serif')).toBe(false)
+    expect(leadsWithMeasuredCjkFont('system-ui, "Microsoft YaHei", sans-serif')).toBe(false)
+    // 编造的名字同样必须判否（老白名单也拦得住它，但不能因此省掉）
+    expect(leadsWithMeasuredCjkFont('"Not A Real Font SC", "Microsoft YaHei", sans-serif')).toBe(false)
+    // 正对照：本机实测可用的中文字体打头必须判是
+    expect(leadsWithMeasuredCjkFont('"Microsoft YaHei", system-ui, sans-serif')).toBe(true)
 
     for (const option of UI_FONT_OPTIONS) {
-      expect(leadsWithCjkFont(option.cssFamily)).toBe(true)
+      if (option.value === "system") continue // 见下一条：system 是显式豁免
+      expect(leadsWithMeasuredCjkFont(option.cssFamily)).toBe(true)
     }
+  })
+
+  it("system 项豁免打头可用性，但仍须含实测可用名且以通用族收尾", () => {
+    const system = UI_FONT_OPTIONS.find((o) => o.value === "system")!
+    /*
+     * ── 为什么 system 必须豁免"打头名字本机可用" ──
+     * 这一项表达的是「跟随本机默认」，不是「用户选中了苹方」。
+     * 它的栈首刻意放 macOS 的 "PingFang SC"，在 Windows 上必然不可用，
+     * 靠紧接其后的 "Microsoft YaHei UI" 命中 —— 那是**设计**，
+     * 不是"选了没反应"：用户点的是"本机默认"，本机也确实用了本机的字体。
+     * 若把它也纳入"打头必须可用"，唯一能让测试变绿的改法就是改掉这个栈，
+     * 而那会改变默认档字形（已被 verify-ui-font-applies.mjs --compare +
+     * ui-font-before.json 在真实浏览器里钉死），属于销毁回归防线。
+     */
+    expect(leadingFontName(system.cssFamily)).toBe("PingFang SC")
+    // 本机确实没有苹方 —— 这条钉住"豁免是有前提的"，不是随手放行
+    expect(USABLE_CJK_NAMES.has("PingFang SC")).toBe(false)
+    expect(USABLE_CJK_NAMES.has("Microsoft YaHei UI")).toBe(true)
+
+    const usableInStack = fontNamesIn(system.cssFamily).filter((n) => USABLE_CJK_NAMES.has(n))
+    expect(usableInStack.length).toBeGreaterThan(0)
+    expect(endsWithGenericFamily(system.cssFamily)).toBe(true)
+  })
+
+  it("通用族收尾判据的边界（拼错/自造必须判否，尾随空格必须判是）", () => {
+    // 旧判据 /(serif|sans-serif|monospace)$/ 的三个漏网点，一一钉住：
+    expect(endsWithGenericFamily('"SimHei", san-serif')).toBe(false)   // 拼错
+    expect(endsWithGenericFamily('"SimHei", my-serif')).toBe(false)    // 自造
+    expect(endsWithGenericFamily('"SimHei", sans-serif ')).toBe(true)  // 尾随空格
+    expect(endsWithGenericFamily('"SimHei", sans-serif')).toBe(true)
+    expect(endsWithGenericFamily("san-serif")).toBe(false)
+    expect(endsWithGenericFamily("serif")).toBe(true)
+    expect(endsWithGenericFamily('"SimHei", "Microsoft YaHei", sans-serif')).toBe(true)
+    // 负向对照：旧判据对前两条判"通过"，本判据判"不通过" —— 证明判据真的收紧了
+    const oldRule = (s: string) => /(serif|sans-serif|monospace)$/.test(s)
+    expect(oldRule('"SimHei", san-serif')).toBe(true)
+    expect(oldRule('"SimHei", my-serif')).toBe(true)
+    expect(oldRule('"SimHei", sans-serif ')).toBe(false)
   })
 
   it("system 项的字体栈逐字保持改造前的取值（默认档不能变字形）", () => {

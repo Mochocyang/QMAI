@@ -33,6 +33,12 @@ export const DEFAULT_UI_FONT_FAMILY = "system" as const
  *     「读取本机已安装字体」的枚举功能在 macOS 上自动列出。
  * 注意苹方仍出现在下面若干项的栈里作为**回退项** —— 那是 macOS 上的正确取值，
  * 与「把它列成一个用户可选项」是两回事。
+ *
+ * ── 与 `BODY_FONT_OPTIONS` 里同名项的回退链**刻意不同** ──
+ * 本表比正文表多若干只在别的平台才可能存在的次选（`STKaiti` / `STFangsong` /
+ * `Noto Serif SC` 等）：界面字体要跨平台尽量命中，多一个不会命中的回退项零成本；
+ * 正文表更看重衬线连续性，故宁可早收通用族。逐条对照与理由见
+ * `BODY_FONT_OPTIONS` 上方注释 —— 那是**设计**，不是漂移，不要抽公共常量合并。
  */
 export const UI_FONT_OPTIONS = [
   {
@@ -278,6 +284,30 @@ export const DEFAULT_BODY_FONT_FAMILY = "serif-default" as const
  *
  * 约定：只列中文字体（与界面字体同一条产品决定）。列出 Arial 这类西文字体时，
  * 中文仍会回退到系统字体，用户会觉得"选了没用"。
+ *
+ * ── 为什么下面几条的回退链与 `UI_FONT_OPTIONS` 里同名项不一样（刻意，不是漂移）──
+ * 实测两组确实不同，且**只应不同**，不要抽公共常量合并：
+ *   · 宋体    界面 `SimSun, "Songti SC", "Noto Serif SC", serif`
+ *             正文 `SimSun, "Songti SC", serif`
+ *   · 楷体    界面 `KaiTi, "Kaiti SC", "STKaiti", serif`   正文 `KaiTi, "Kaiti SC", serif`
+ *   · 仿宋    界面 `FangSong, "Fangsong SC", "STFangsong", serif`
+ *             正文 `FangSong, "Fangsong SC", serif`
+ *   · 微软雅黑 界面 `"Microsoft YaHei", "Microsoft JhengHei", "PingFang SC", system-ui, sans-serif`
+ *             正文 `"Microsoft YaHei", "Microsoft YaHei UI", system-ui, sans-serif`
+ *   （新宋体两边恰好相同，是巧合而非约束。）
+ * 两条依据：
+ *   ① **界面表要多铺一层跨平台次选**（`STKaiti` / `STFangsong` / `Noto Serif SC`
+ *      这类只在别的平台或"阶段 4 随安装包分发"之后才存在的名字）。
+ *      界面文字的诉求是"在任何机器上都尽量命中一个像样的中文字形"，
+ *      多一个不会命中的回退项零成本；而正文表更看重**衬线连续性** ——
+ *      正文是写作软件的主体，楷体/仿宋/宋体之间来回跳一次字形，
+ *      读者对整篇文档的观感就断了，所以正文宁可用通用族收尾，
+ *      也不为了"多一层保险"把风格不同的字体塞进回退链。
+ *   ② **微软雅黑一项的方向相反**：界面表用「微软正黑体（繁体，同样带简体字形）」
+ *      作次选，因为它要在雅黑缺失时保住"无衬线现代中文字形"这一观感；
+ *      正文表用「Microsoft YaHei UI」作次选，因为正文默认是宋体系，
+ *      用户特地选雅黑时是要"正文换成无衬线"，UI 变体是最贴近的同族回退。
+ * 读者据此可判断：两表不同是设计，谁把某一项"对齐"过去，就改变了那边的回退语义。
  */
 export const BODY_FONT_OPTIONS = [
   {
