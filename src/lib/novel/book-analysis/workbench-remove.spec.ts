@@ -273,7 +273,7 @@ describe("发布与删除同源守卫", () => {
   })
 
   it("库里存在两条同 (书名, 角色名) 的灵魂时两条都要删掉，不留同名残留", async () => {
-    // 新版发布与 legacy 导入是两套 id 体系，同一本书同一个人可能各留一条。
+    // 同一本书、同一个角色名，库里可能留下多条（例如书名被改过、或早期重复导入）。
     io.auras = [
       auraFixture("custom-old1", "许七安", "来自拆书作品《测试作品》的可迁移人格。"),
       auraFixture("custom-old2", "许七安", "来自拆书作品《测试作品》的角色分析。"),
@@ -284,5 +284,86 @@ describe("发布与删除同源守卫", () => {
     })
     expect(io.auras.map((aura) => aura.id)).toEqual(["custom-other"])
     expect(io.deleteAura).toHaveBeenCalledTimes(2)
+  })
+
+  it("书名互相包含时不能误删另一本书的灵魂（《测试》不得删掉《测试作品》的）", async () => {
+    /*
+     * 删除是「连使用库一起真删」且不可撤销，所以同源判据必须按书名边界精确匹配。
+     * 判据原先用的是 text.includes(bookTitle) 的子串匹配，于是《测试作品》的
+     * 来源备注「来自拆书作品《测试作品》…」里也含有「测试」二字 ——
+     * 在《测试》里删一个同名角色，会把《测试作品》的灵魂一起真删掉。
+     */
+    io.auras = [
+      auraFixture("custom-long", "许七安", "来自拆书作品《测试作品》的可迁移人格。"),
+      auraFixture("custom-short", "许七安", "来自拆书作品《测试》的可迁移人格。"),
+      auraFixture("custom-other", "许七安", "来自拆书作品《另一本书》的可迁移人格。"),
+    ]
+    await removeWorkbenchRevisionItem({
+      projectPath: PROJECT, bookPath: BOOK_PATH,
+      revision: charactersRevision({ bookTitle: "测试" }), subject: "许七安",
+    })
+    // 只该删掉《测试》那一条；《测试作品》与《另一本书》都必须原样保留。
+    expect(io.auras.map((aura) => aura.id).sort()).toEqual(["custom-long", "custom-other"])
+  })
+
+  it("书名与角色名相同但属于别的作品时，发布侧也不该互相顶替", async () => {
+    /*
+     * 同一个子串判据也用在发布侧（决定「更新已有」还是「新建」）。
+     * 若子串匹配，在《测试》里发布「许七安」会去更新《测试作品》那条 —— 把另一本书的
+     * 灵魂改写成这本书的内容。这里钉住它不会被复用。
+     */
+    io.auras = [auraFixture("custom-long", "许七安", "来自拆书作品《测试作品》的可迁移人格。")]
+    const revision = { ...publishableRevision(), bookTitle: "测试" }
+    await saveWorkbenchRevision(BOOK_PATH, revision)
+    const preview = await inspectWorkbenchPublication(PROJECT, revision)
+    const confirmed = await confirmWorkbenchRevision(PROJECT, BOOK_PATH, revision.id, preview.fingerprint)
+    expect(confirmed.publishedIds).not.toContain("custom-long")
+    expect(io.auras.find((aura) => aura.id === "custom-long")!.sourceNote).toContain("《测试作品》")
+    // 顺带证明它是**真的新建了一条**，而不是「什么都没做」蒙过去的。
+    expect(io.auras.some((aura) => aura.sourceNote?.includes("《测试》"))).toBe(true)
+  })
+
+  it("删除后回收 publishedIds 里的已删 id，不留悬空引用", async () => {
+    io.auras = [auraFixture("custom-abc123", "许七安", "来自拆书作品《测试作品》的可迁移人格。")]
+    await saveWorkbenchRevision(BOOK_PATH, { ...publishableRevision(), confirmedAt: 5, publishedIds: ["custom-abc123"] })
+    const next = await removeWorkbenchRevisionItem({
+      projectPath: PROJECT, bookPath: BOOK_PATH,
+      revision: publishableRevision(), subject: "许七安",
+    })
+    // publishedIds 语义是「本版现存于库中的条目」：删掉的那条不能还挂在上面。
+    expect(next.publishedIds).toEqual([])
+    const reread = (await loadWorkbenchRevisions(BOOK_PATH)).find((r) => r.id === publishableRevision().id)!
+    expect(reread.publishedIds).toEqual([])
+  })
+
+  it("文风整版被删后 publishedIds 也清空（整版只有一个库条目）", async () => {
+    seedWritingStyleStore(null)
+    await saveWorkbenchRevision(BOOK_PATH, { ...styleRevision(), confirmedAt: 5, publishedIds: ["style-1"] })
+    const next = await removeWorkbenchRevisionItem({
+      projectPath: PROJECT, bookPath: BOOK_PATH, revision: styleRevision(), subject: "文风",
+    })
+    expect(next.publishedIds).toEqual([])
+  })
+
+  it("旧版迁移条目删除后仍会落盘：否则被删的旧版角色下次打开又会被重新造出来", async () => {
+    /*
+     * 旧版迁移条目是懒落盘的（只读 book 实时构建，磁盘上本来没有）。
+     * 删除时必须以盘上内容为基准并把 removedSubjects 落盘 —— 不落盘的话
+     * buildLegacyCharacterRevision 会把它重新造出来，正是用户抱怨的「删了又回来」。
+     * 这是对「懒落盘」契约的一处有意扩展，这条用例把它钉死。
+     */
+    io.auras = [auraFixture("custom-legacy", "林烬", "来自拆书作品《测试作品》的角色分析。")]
+    const legacy = charactersRevision({
+      id: "legacy-chars-book-1", origin: "legacy", bookTitle: "测试作品",
+      items: [{ subject: "林烬", summary: "多疑", limitations: "", rules: [] }],
+    })
+    // 前提：盘上确实没有这个版本（懒落盘）。
+    expect(await loadWorkbenchRevisions(BOOK_PATH)).toEqual([])
+
+    await removeWorkbenchRevisionItem({ projectPath: PROJECT, bookPath: BOOK_PATH, revision: legacy, subject: "林烬" })
+
+    const stored = await loadWorkbenchRevisions(BOOK_PATH)
+    expect(stored.map((r) => r.id)).toEqual(["legacy-chars-book-1"])
+    expect(stored[0].removedSubjects).toEqual(["林烬"])
   })
 })

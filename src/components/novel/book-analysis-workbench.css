@@ -38,6 +38,10 @@
 .wb-tabs{display:flex;gap:18px;border-bottom:1px solid var(--ui-line,#d4ddda);margin-bottom:16px;overflow-x:auto}
 .wb-tabs button{border:0;border-radius:0;white-space:nowrap;border-bottom:2px solid transparent}
 .wb-tabs button[aria-selected=true]{color:var(--ui-accent,#496b59);border-bottom-color:currentColor}
+/* 页签与视图切换同一行：border/margin 由这一行持有，选中页签的下划线正好压在它上面。 */
+.wb-results-bar{display:flex;align-items:flex-end;gap:12px;border-bottom:1px solid var(--ui-line,#d4ddda);margin-bottom:16px}
+.wb-results-bar .wb-tabs{flex:1;min-width:0;border-bottom:0;margin-bottom:0}
+.wb-results-bar .wb-view-switch{flex:none;margin-left:auto;margin-bottom:2px}
 .wb-result{border-bottom:1px solid var(--ui-line,#d4ddda);padding:16px 0}
 .wb-result>summary{font-weight:600}
 .wb-rule{padding:14px 0;border-top:1px solid var(--ui-line,#d4ddda)}

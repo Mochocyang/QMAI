@@ -296,6 +296,8 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   // 精修结果回来时用来判断对话框是否已经换人／关掉，避免迟到的结果污染下一次打开。
   const bindingSessionRef = useRef(0)
   const [activeSkill, setActiveSkill] = useState<AnalysisSkill>("characters")
+  // 结果区的卡片/列表视图：全版本平铺后由结果区统一持有，所有版本块共用一份。
+  const [view, setView] = useState<"grid" | "list">("grid")
   const [activeRequest, setActiveRequest] = useState<AnalysisSkill>("characters")
   // 全版本平铺后不再有「选中版本」：活动跳转改成「切到对应页签 + 等目标版本渲染出来后滚进视野」。
   const [scrollTargetId, setScrollTargetId] = useState<string | null>(null)
@@ -309,6 +311,7 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   const [characterIds, setCharacterIds] = useState<string[]>([])
   const [characterSearch, setCharacterSearch] = useState("")
   const activityNavigation = useBookAnalysisActivityStore((s) => s.navigation)
+  const consumeNavigation = useBookAnalysisActivityStore((s) => s.consumeNavigation)
   const pipeline = useBookAnalysisPipelineStore()
   const signature = tasks.map((task) => `${task.id}:${task.status}`).join()
   // 侧边栏/toast 的「现在处理」写的是这个字段。旧版是订阅它才重开面板的（book-analysis-view.tsx:141）：
@@ -373,9 +376,13 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   /**
    * 自动入库：分析结果不再需要用户点「确认并加入」——读出来就发布。
    * 两条硬规则：
-   *  1) origin === "legacy" 绝不在这里发布。legacy 走 importBookAnalysisSkillsAsAuras，
-   *     与新版 wb-<sha256> 是两套 id 体系：对已被新版发布过的书再自动跑一遍会造出重复角色灵魂；
-   *     而且它是懒落盘的，自动发布等于「仅仅打开页面就往磁盘写文件、并批量导入角色」。
+   *  1) origin === "legacy" 绝不在这里发布，理由是「懒落盘 + 打开页面即批量导入」：
+   *     legacy 走 importBookAnalysisSkillsAsAuras，会把作品库里**全部**旧版角色
+   *     批量导入灵魂库，而它原本只在用户点确认时才落盘。自动发布会变成
+   *     「仅仅打开结果页就往磁盘写文件、并批量建灵魂」。
+   *     （原先这里写的「两套 id 体系会造出重复角色灵魂」经复验**不成立**：
+   *      aura-adapter.ts 有同源去重 existingAuraKeys，且两条路径最终都调用同一个
+   *      createCustomCharacterAuraFromGeneratedSkill。别再按那个错理由去改去重逻辑。）
    *  2) 每个版本 id 每次挂载只尝试一次：失败只报一次错、不重试，
    *     否则 revisions/signature 每次变化都会再发一次，用户看到的是刷屏。
    */
@@ -410,8 +417,17 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
   useEffect(() => {
     if (!activityNavigation || activityNavigation.bookId !== book.id || activityNavigation.projectPath !== projectPath) return
     setActiveSkill(activityNavigation.skill)
-    setScrollTargetId(revisions.find((r) => r.taskId === activityNavigation.taskId && r.skill === activityNavigation.skill)?.id ?? null)
-  }, [activityNavigation, revisions, book.id, projectPath])
+    const target = revisions.find((r) => r.taskId === activityNavigation.taskId && r.skill === activityNavigation.skill)
+    /*
+     * 只在**真的找到目标版本**时才消费掉跳转请求。
+     * 结果页是异步读出 revisions 的，第一轮往往是空数组；那时就消费会把跳转弄丢。
+     * 反过来，一旦找到就必须消费 —— 否则本 effect 依赖 revisions，之后每次
+     * 版本列表重载（自动入库后 reload、用户删掉一个对象…）都会把视口再拉回这个旧版本。
+     */
+    if (!target) return
+    setScrollTargetId(target.id)
+    consumeNavigation()
+  }, [activityNavigation, revisions, book.id, projectPath, consumeNavigation])
   // 目标版本可能刚才还在别的页签下（还没渲染），所以滚动必须等它真的出现在 DOM 里再做。
   useEffect(() => {
     if (!scrollTargetId) return
@@ -586,14 +602,21 @@ function BookWorkspace({ book, projectPath, tasks, onRefresh }: {
       <details><summary><History size={14} className="inline" /> 历史任务（{tasks.length}）</summary>{tasks.filter((t) => t.id !== task.id).map((t) => <TaskProgress key={t.id} task={t} />)}</details>
     </section>}
     <section className="wb-section wb-results-section">
-      <div className="wb-tabs" role="tablist" aria-label="分析结果">{ANALYSIS_SKILL_ORDER.map((skill) => {
-        const Icon = skillIcons[skill]
-        return <button key={skill} role="tab" aria-selected={activeSkill === skill} onClick={() => setActiveSkill(skill)}><Icon />{WORKBENCH_LABELS[skill]}</button>
-      })}</div>
+      {/* 视图切换只此一份，统管结果区里所有版本块（全版本平铺后每块各一个会互相打架）。 */}
+      <div className="wb-results-bar">
+        <div className="wb-tabs" role="tablist" aria-label="分析结果">{ANALYSIS_SKILL_ORDER.map((skill) => {
+          const Icon = skillIcons[skill]
+          return <button key={skill} role="tab" aria-selected={activeSkill === skill} onClick={() => setActiveSkill(skill)}><Icon />{WORKBENCH_LABELS[skill]}</button>
+        })}</div>
+        <div className="wb-view-switch" role="group" aria-label="成果展示方式">
+          <button className="wb-icon" title="卡片视图" aria-label="卡片视图" aria-pressed={view === "grid"} onClick={() => setView("grid")}><LayoutGrid /></button>
+          <button className="wb-icon" title="列表视图" aria-label="列表视图" aria-pressed={view === "list"} onClick={() => setView("list")}><List /></button>
+        </div>
+      </div>
       {orderedRevisions.length > 0 ? orderedRevisions.map((revision) => <section className="wb-revision-block" data-revision-id={revision.id} key={revision.id}>
         <div className="wb-revision-heading"><span className="wb-revision-meta">{revisionMeta(revision)}</span></div>
         <WorkbenchResult revision={revision} previous={revisions.find((r) => r.id === revision.parentRevisionId)}
-          bookPath={book.path} projectPath={projectPath} book={book} soulStatus={soulStatus} busy={starting || hasActiveTask}
+          bookPath={book.path} projectPath={projectPath} book={book} soulStatus={soulStatus} view={view} busy={starting || hasActiveTask}
           onAddToSoul={(subject) => void handleAddToSoul(revision, subject)}
           onBind={(subject) => void openBindingDialog(revision, subject)}
           onRevisionChanged={() => { void reloadRevisions().catch(reportError); onRefresh() }}
@@ -631,14 +654,15 @@ function TaskProgress({ task }: { task: BookAnalysisPipelineTask }) {
   </div>
 }
 
-function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soulStatus, busy, onAddToSoul, onBind, onRevisionChanged, onRevise, revising }: {
+function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soulStatus, view, busy, onAddToSoul, onBind, onRevisionChanged, onRevise, revising }: {
   revision: WorkbenchRevision; previous?: WorkbenchRevision; projectPath: string; bookPath: string; book: BookAnalysisLibraryBook
   soulStatus: Record<string, CharacterSoulStatus>; busy: boolean
+  // view 由结果区统一持有：全版本平铺后每个版本块各自切换会变成 N 个互不相干的开关。
+  view: "grid" | "list"
   onAddToSoul: (subject: string) => void; onBind: (subject: string) => void
   onRevisionChanged: () => void; onRevise: (requirements: string) => Promise<void> | null; revising: boolean
 }) {
   const [requirements, setRequirements] = useState("")
-  const [view, setView] = useState<"grid" | "list">("grid")
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null)
   const [expandedOverviews, setExpandedOverviews] = useState<string[]>([])
   const [revisionOpen, setRevisionOpen] = useState(false)
@@ -687,14 +711,11 @@ function WorkbenchResult({ revision, previous, projectPath, bookPath, book, soul
     requestAnimationFrame(() => revisionInput.current?.focus())
   }
   return <div className="wb-results">
-    <div className="wb-results-tools">
-      {styleState?.current && <button onClick={() => void toggleStyle().catch(reportError)}><Play />{styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
-      {styleState && !styleState.current && <span className="wb-muted">此历史版本已被替换</span>}
-      <div className="wb-view-switch" role="group" aria-label="成果展示方式">
-        <button className="wb-icon" title="卡片视图" aria-label="卡片视图" aria-pressed={view === "grid"} onClick={() => setView("grid")}><LayoutGrid /></button>
-        <button className="wb-icon" title="列表视图" aria-label="列表视图" aria-pressed={view === "list"} onClick={() => setView("list")}><List /></button>
-      </div>
-    </div>
+    {/* 工具栏只留本版本自己的动作（启用文风）；视图切换已提到结果区顶部统一一份。 */}
+    {styleState && <div className="wb-results-tools">
+      {styleState.current && <button onClick={() => void toggleStyle().catch(reportError)}><Play />{styleState.enabled ? "取消启用文风" : "启用此文风"}</button>}
+      {!styleState.current && <span className="wb-muted">此历史版本已被替换</span>}
+    </div>}
     {revision.requirements && <details><summary>本次需求</summary><p>{revision.requirements}</p></details>}
     {mapHtml && <details className="wb-result"><summary>原作结构观察导图</summary><iframe title="原作结构观察导图" srcDoc={mapHtml} sandbox="allow-same-origin" style={{ width: "100%", height: 480, border: 0 }} /></details>}
     <div className="wb-skill-grid" data-view={view}>

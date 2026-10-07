@@ -215,9 +215,39 @@ export async function removeWorkbenchRevisionItem(input: {
   </ol>
   <b>修正</b>：删除改用与发布<b>同源</b>的判据
   <code>isSameBookAnalysisCharacterAura(a, bookTitle, subject)</code>
-  （发布路径 <code>workbench-publish.ts:124</code> 找 existing 用的就是它），
-  并且<b>删掉全部匹配项</b>而不是只删第一条 —— 因为新版发布与 legacy 导入是两套 id 体系，
-  同一本书同一个人可能各留一条，只删一条会留下同名残留。
+  （发布路径 <code>workbench-publish.ts</code> 找 existing 用的就是它），
+  并且<b>删掉全部匹配项</b>而不是只删第一条 —— 同一 (书名, 角色名) 在库里可能留下多条
+  （历史重复导入，或书名改过而旧备注仍在），只删一条会留下同名残留。
+  <br><b>注意</b>：原先这里写的理由是「新版发布与 legacy 导入是两套 id 体系」，
+  经独立审查<b>证伪</b>（两条路径共用同一个创建函数，且 <code>aura-adapter.ts</code> 有同源去重），
+  故按实际情况改写。结论不变：仍然全删。
+</div>
+
+<div class="warn">
+  <b>独立对抗审查后追加的三处修复（本轮，均有回归测试 + 变异验证）</b>
+  <ol>
+    <li><b>删除判据的子串误伤（数据丢失）</b>：<code>isSameBookAnalysisCharacterAura</code> 原用
+    <code>text.includes(bookTitle)</code> 裸子串。书名互为子串时（《测试》⊂《测试作品》），
+    在《测试》里删同名角色会把《测试作品》的灵魂<b>一起真删</b>（不可撤销）；发布侧同理会去改写别书的条目。
+    <b>修法</b>：改为按 <code>《书名》</code> 边界匹配（与既有 <code>aura-cleanup.ts</code> 的
+    <code>《\\s*title\\s*》</code> 约定一致）。反例：把书名裸写进 <code>sourceNote</code> 的历史数据
+    会不再被认作同源；保留了 <code>text.trim() === title</code> 兜底。</li>
+    <li><b>活动跳转重复滚动（回归）</b>：<code>navigation</code> 从不被消费，而跳转 effect 依赖
+    <code>revisions</code>，于是每次版本列表重载（自动入库后 reload、用户删一个对象…）都会把视口
+    再拉回那个旧版本。实测「跳转后 <code>scrolls=1</code> → 删一个对象 → <code>scrolls=2</code>」。
+    <b>修法</b>：<code>book-analysis-activity-store</code> 新增 <code>consumeNavigation()</code>，
+    组件在<b>确实找到目标版本后</b>消费（找到之前不能消费，否则异步首轮空数组会把跳转吃掉）。</li>
+    <li><b>删除后的悬空引用与落盘契约</b>：删除时一并回收 <code>publishedIds</code> 里已删的 id
+    （否则它作为「本版在库条目」的语义会与库不一致）；并**明确承认**——删除懒落盘的 legacy 迁移条目
+    会把它落盘（不落盘的话 <code>removedSubjects</code> 存不下来，被删的旧版角色下次打开又会被重新造出来）。
+    两条都有回归测试。</li>
+  </ol>
+  <b>顺带修复</b>：全版本平铺后每个版本块各渲染一份卡片/列表开关（N 份互不相干），
+  已把 <code>view</code> 提到结果区统一持有，视图切换只渲染一份并统管所有版本块。
+  同时发现 <code>check-panel.mjs</code> 的「非空洞证明」是<b>假绿</b>的：
+  <code>allCss</code> 里同一条 <code>.wb-card-date</code> 规则出现两份（dist 产物 + 源文件），
+  非全局 <code>replace</code> 只改掉第一份，剩下的仍带 <code>white-space:nowrap</code>，
+  于是变异体根本没被削弱。已改为全局替换并断言「无带 nowrap 的残留」。
 </div>
 
 <footer>拆书库结果面板简化 · 实施计划 · 2026-10-07</footer>

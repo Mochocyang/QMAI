@@ -216,11 +216,23 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
 //     加/不加它时完全一致（因为 overflow-wrap:anywhere 已经让文本随时可换行）。
 //     故下面只对 nowrap 做非空洞证明，不假装 min-width:0 挡住了什么。
 {
+  /*
+   * allCss = dist 里所有 CSS + 源文件 CSS，所以同一条 `.wb-card-date` 规则可能出现**两次**
+   * （dist 是构建产物，源文件是当前真相）。必须全局替换：只换第一处的话，留在后面的
+   * 那一份仍带 white-space:nowrap，变异体根本不会被削弱，这条「非空洞证明」就会
+   * 变成永远通过的空洞断言 —— 构建刷新 dist 之后确实这么假绿过一次，故在此钉死替换份数。
+   */
+  const dateRule = /\.book-workbench \.wb-card-heading h3 \.wb-card-date\{[^}]*\}/g
+  const occurrences = (allCss.match(dateRule) ?? []).length
   const beforeCss = allCss.replace(
-    /\.book-workbench \.wb-card-heading h3 \.wb-card-date\{[^}]*\}/,
+    dateRule,
     ".book-workbench .wb-card-heading h3 .wb-card-date{color:#687871;font-size:11px;font-weight:400}",
   )
+  check(occurrences >= 1, "非空洞证明①a：CSS 里确实找得到日期规则", `实得 ${occurrences} 处`)
   check(beforeCss !== allCss, "非空洞证明①：确实构造出了「去掉 nowrap」的 CSS 变异体")
+  const leftoverNowrap = (beforeCss.match(dateRule) ?? []).filter((rule) => rule.includes("nowrap")).length
+  check(leftoverNowrap === 0,
+    "非空洞证明①b：变异后不再有任何一份带 nowrap 的日期规则残留", `残留 ${leftoverNowrap} 处`)
   await page.setContent(`<!doctype html><html><head><style>${beforeCss}</style>
     <style>body{margin:0;font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif}
     .book-workbench{--ui-line:#c6d1cb;--ui-muted:#687871;--ui-accent:#496b59;--ui-paper:#fff;--ui-panel:#f2f5f3;--ui-ink:#1d2321;--ui-warning:#88641d;--ui-danger:#a83e3e}
@@ -253,6 +265,63 @@ for (const [w, view, label] of [[1280, "grid", "1280px 卡片视图"], [1280, "l
   check(/sort\(\(a, b\) => b\.createdAt - a\.createdAt\)/.test(store), "loadWorkbenchRevisions 仍保持 newest-first（未被改动）")
   // 过滤已删除项
   check(/removedSubjects/.test(tsx) && /removed\.includes\(item\.subject\)|removedSubjects\?*\.includes/.test(tsx), "已删除项在渲染时被过滤掉")
+}
+
+// ---- 结果区工具条：页签 + 视图切换必须在同一行、互不重叠、不溢出 ----
+{
+  // 结构性不变量：视图切换在源码里只能出现一次（全版本平铺后不能每块一个开关）。
+  const switchCount = (tsx.match(/className="wb-view-switch"/g) ?? []).length
+  check(switchCount === 1, "视图切换在组件源码里只渲染一份", `实得 ${switchCount} 份`)
+  check(/className="wb-results-bar"/.test(tsx), "页签与视图切换被包在同一个 wb-results-bar 里")
+  check(readFileSync(join(repo, "src/components/novel/book-analysis-workbench.css"), "utf8")
+    .includes(".wb-results-bar .wb-tabs{flex:1;min-width:0;border-bottom:0;margin-bottom:0}"),
+    "CSS 里 .wb-results-bar 收编了页签原有的 border/margin（否则会出现双下边框）")
+
+  const barHtml = `<section class="wb-section wb-results-section">
+    <div class="wb-results-bar">
+      <div class="wb-tabs" role="tablist" aria-label="分析结果">
+        <button role="tab" aria-selected="true">角色 Skill</button>
+        <button role="tab" aria-selected="false">文风 Skill</button>
+        <button role="tab" aria-selected="false">故事 Skill</button>
+      </div>
+      <div class="wb-view-switch" role="group" aria-label="成果展示方式">
+        <button class="wb-icon" aria-label="卡片视图" aria-pressed="true">g</button>
+        <button class="wb-icon" aria-label="列表视图" aria-pressed="false">l</button>
+      </div>
+    </div></section>`
+
+  for (const w of [1280, 900, 700, 620, 600, 420]) {
+    await page.setViewportSize({ width: w, height: 900 })
+    await page.evaluate((html) => { document.getElementById("host").innerHTML = html }, barHtml)
+    await page.waitForTimeout(40)
+    const m = await page.evaluate(() => {
+      const host = document.getElementById("host")
+      const bar = host.querySelector(".wb-results-bar")
+      const tabs = host.querySelector(".wb-tabs")
+      const sw = host.querySelector(".wb-view-switch")
+      const tr = tabs.getBoundingClientRect(), sr = sw.getBoundingClientRect(), br = bar.getBoundingClientRect()
+      return {
+        overlap: Math.round(tr.right - sr.left),
+        swRightSpill: Math.round(sr.right - br.right),
+        swCount: host.querySelectorAll(".wb-view-switch").length,
+        sameRow: Math.abs(tr.top - sr.top) < Math.max(tr.height, sr.height),
+        barH: Math.round(br.height),
+        overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        borderBottom: getComputedStyle(bar).borderBottomWidth,
+        tabsBorder: getComputedStyle(tabs).borderBottomWidth,
+      }
+    })
+    check(m.swCount === 1, `${w}px：结果区只有一个视图切换`, `实得 ${m.swCount}`)
+    check(m.overlap <= 0, `${w}px：页签与视图切换不重叠`, `重叠 ${m.overlap}px`)
+    check(m.swRightSpill <= 0, `${w}px：视图切换不超出工具条右边缘`, `溢出 ${m.swRightSpill}px`)
+    check(m.overflowX <= 0, `${w}px：工具条不造成横向溢出`, `溢出 ${m.overflowX}px`)
+    // 双下边框：页签自己那份必须已被收编为 0（真正的下边框挂在 bar 上）
+    check(m.borderBottom !== "0px" && m.tabsBorder === "0px",
+      `${w}px：下边框只在工具条上有一份（页签那份为 0）`, `bar=${m.borderBottom} tabs=${m.tabsBorder}`)
+    if (w >= 620) check(m.sameRow, `${w}px：页签与视图切换确实在同一行`, `bar 高 ${m.barH}px`)
+  }
+  // 恢复默认视口，避免影响后续断言
+  await page.setViewportSize({ width: 1280, height: 900 })
 }
 
 await browser.close()

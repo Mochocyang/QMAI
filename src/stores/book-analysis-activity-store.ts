@@ -24,6 +24,14 @@ interface ActivityState {
   navigation: Pick<AnalysisOutcome, "projectPath" | "bookId" | "taskId" | "skill"> | null
   initializeProject(path: string): Promise<void>
   record(outcome: AnalysisOutcome): Promise<void>
+  /**
+   * 消费掉待处理的跳转请求。
+   *
+   * 「查看结果」是一次性事件，不是持续状态。结果面板那个 effect 依赖 revisions，
+   * 所以只要 navigation 一直留着，每次版本列表重载（自动入库后 reload、用户删掉
+   * 一个对象…）都会把视口再硬拉回那个旧版本块。清空 navigation 后 effect 不再触发。
+   */
+  consumeNavigation(): void
 }
 export const useBookAnalysisActivityStore = create<ActivityState>((set, get) => ({
   projectPath: null, outcomes: [], error: null, navigation: null,
@@ -46,6 +54,9 @@ export const useBookAnalysisActivityStore = create<ActivityState>((set, get) => 
       await createDirectory(joinPath(path, ".qmai"))
       await writeFileAtomic(recordPath(path), JSON.stringify([...entries.filter((e) => e.id !== outcome.id), outcome], null, 2))
     })
+  },
+  consumeNavigation() {
+    if (get().navigation) set({ navigation: null })
   },
 }))
 

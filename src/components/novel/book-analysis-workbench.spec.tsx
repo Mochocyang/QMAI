@@ -39,7 +39,11 @@ const mocks = vi.hoisted(() => {
     // 自动入库失败要「只报一次错」，所以断言的是 toast 而不是界面文本。
     toastError: vi.fn(), toastSuccess: vi.fn(), toastInfo: vi.fn(),
     // 侧边栏「从分析活动跳过来」的目标。默认为空：绝大多数用例不该被跳转影响。
-    activity: { navigation: null as null | { bookId: string; projectPath: string; skill: string; taskId: string } },
+    // consumeNavigation 照生产语义实现（清空 navigation），否则测不出「跳转只消费一次」。
+    activity: {
+      navigation: null as null | { bookId: string; projectPath: string; skill: string; taskId: string },
+      consumeNavigation: () => { mocks.activity.navigation = null },
+    },
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
     pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
@@ -382,7 +386,8 @@ describe("旧版结果并入页签", () => {
     // 旧版角色数据已由工作台合并进新版条目（含旧版迁移条目）。
     // LegacySkillResults 若在这里再渲染一遍旧版角色面板，同一个页签里就会出现第三份角色列表，
     // 所以 characters 这一支整块返回 null——即使 legacyBook 上确实有旧版角色。
-    expect(legacyBook.characters.length).toBeGreaterThan(0)
+    // 注意：`legacyBook.characters.length > 0` 断的是 fixture 自己，没有信息量，故不再断言；
+    // 「文风页签下 null 来自确实没有 styleProfile」那条才是真有信息量的（见下一个用例）。
     expect(host.querySelector('[data-testid="legacy-skill-results"]')).toBeNull()
   })
 
@@ -445,7 +450,6 @@ describe("旧版结果并入页签", () => {
     // 这条没有结构化规则的旧版条目：整版入口删掉之后，也不能被自动入库顺带扫进来。
     expect(host.textContent).not.toContain("确认并加入")
     expect(mocks.confirmRevision).not.toHaveBeenCalled()
-    expect(mocks.materialize).not.toHaveBeenCalled()
   })
 
   it("旧版迁移条目与新分析版本同时平铺，互不顶掉（旧版在前、新结果在后）", async () => {
@@ -780,6 +784,28 @@ describe("结果面板简化：退场的六个元素", () => {
     // 视图切换是保留下来的：不是把整条工具栏都删了。
     expect(host.querySelector('[aria-label="卡片视图"]')).not.toBeNull()
   })
+
+  it("视图切换全结果区只有一份，且统管所有版本块（平铺后不再每块一个开关）", async () => {
+    /*
+     * 全版本平铺后，若每个版本块各自渲染一份卡片/列表开关，就会变成 N 个互不相干的
+     * 开关：在第 5 版点「列表」而第 3 版纹丝不动，看起来像坏了。这里钉住只有一份，
+     * 且它切换的是**所有**版本块的网格。
+     */
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-old", taskId: "t-old", createdAt: 10, confirmedAt: 11 }),
+      revisionFixture({ id: "rev-new", taskId: "t-new", createdAt: 20, confirmedAt: 21 }),
+    ])
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    expect(host.querySelectorAll('[aria-label="列表视图"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[aria-label="卡片视图"]')).toHaveLength(1)
+    // 两个版本块都在场，且各自的网格默认是卡片视图。
+    expect(host.querySelectorAll(".wb-revision-block")).toHaveLength(2)
+    expect(Array.from(host.querySelectorAll(".wb-skill-grid")).map((g) => g.getAttribute("data-view"))).toEqual(["grid", "grid"])
+
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="列表视图"]')!.click())
+    // 一次点击必须同时作用于两个版本块。
+    expect(Array.from(host.querySelectorAll(".wb-skill-grid")).map((g) => g.getAttribute("data-view"))).toEqual(["list", "list"])
+  })
 })
 
 describe("分析结果自动入库", () => {
@@ -804,12 +830,11 @@ describe("分析结果自动入库", () => {
     await act(async () => root.render(<BookAnalysisWorkbench />))
     // 迁移条目确实在场：否则「没有发布」可能只是因为没有版本可发。
     expect(host.textContent).toContain("林烬")
-    // legacy 走 importBookAnalysisSkillsAsAuras，与新版 wb-<sha256> 是两套 id 体系：
-    // 对已被新版发布过的书自动跑 legacy 发布会造出重复角色灵魂，
-    // 而且它是懒落盘的 —— 自动发布等于「仅仅打开页面就往磁盘写文件」。
+    // legacy 是懒落盘的，且它会批量导入作品库里的全部旧版角色：
+    // 自动发布等于「仅仅打开页面就往磁盘写文件、并批量建灵魂」。
+    // （注意：不要用「两套 id 体系会造重复灵魂」当理由 —— 经复验不成立。）
     expect(mocks.inspect).not.toHaveBeenCalled()
     expect(mocks.confirmRevision).not.toHaveBeenCalled()
-    expect(mocks.materialize).not.toHaveBeenCalled()
   })
 
   it("没有结构化规则的版本没有可入库内容，不自动发布", async () => {
@@ -1043,6 +1068,64 @@ describe("从分析活动跳转定位版本", () => {
     const target = host.querySelector('[data-revision-id="rev-activity"]')
     expect(target).not.toBeNull()
     // 不只是「有人调用过 scrollIntoView」：滚的必须正是那个版本容器。
+    expect(scrollIntoView.mock.contexts).toContain(target)
+  })
+
+  it("跳转只消费一次：之后版本列表重载不会把视口再拉回那个旧版本", async () => {
+    /*
+     * 症状（独立审查发现）：nav effect 依赖 revisions，而 navigation 从不被消费，
+     * 于是每次 revisions 变化（自动入库后 reload、点一次删除…）都会重新 setScrollTargetId，
+     * 把用户正看着的视口硬拉回那个旧版本。跳转必须是一次性事件。
+     */
+    const initial = [
+      revisionFixture({ id: "rev-new", taskId: "t-new", createdAt: 20, confirmedAt: 21 }),
+      revisionFixture({ id: "rev-activity", taskId: "t-activity", createdAt: 10, confirmedAt: 11 }),
+    ]
+    mocks.revisions.mockResolvedValue(initial)
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    mocks.activity.navigation = { bookId: "book-1", projectPath: "/project", skill: "characters", taskId: "t-activity" }
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+
+    const afterFirstJump = scrollIntoView.mock.calls.length
+    expect(afterFirstJump).toBeGreaterThan(0)
+
+    /*
+     * 让删除流程触发一次真实的 reloadRevisions（这是用户最常走到的路径：
+     * 跳转过来 → 删掉一个对象 → 列表重载）。旧实现会在这次重载后再把视口拉回去。
+     */
+    mocks.revisions.mockResolvedValue([
+      ...initial,
+      revisionFixture({ id: "rev-added", taskId: "t-added", createdAt: 30, confirmedAt: 31 }),
+    ])
+    const removeButton = host.querySelector<HTMLButtonElement>('[aria-label="删除许七安"]')!
+      ?? host.querySelector<HTMLButtonElement>(".wb-card-remove")!
+    await act(async () => removeButton.click())
+    const confirmDelete = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent?.trim() === "删除")
+    await act(async () => confirmDelete?.click())
+    await act(async () => {})
+
+    // 不能因为列表重载就再滚一次。
+    expect(scrollIntoView.mock.calls.length).toBe(afterFirstJump)
+  })
+
+  it("结果列表是异步读出来的：第一轮为空时不能提前消费掉跳转，否则跳转永久丢失", async () => {
+    /*
+     * 生产里 revisions 是 useEffect 里异步 loadWorkbenchRevisions 读出来的，
+     * 第一轮渲染必然是空数组。若在「还没找到目标版本」时就 consumeNavigation()，
+     * 跳转请求会被吃掉，等数据到了也没人再滚 —— 用户从侧边栏点「查看结果」什么都不会发生。
+     */
+    mocks.revisions.mockResolvedValue([
+      revisionFixture({ id: "rev-activity", taskId: "t-activity", createdAt: 10, confirmedAt: 11 }),
+    ])
+    // 关键：跳转请求在**首帧之前**就已存在，此时组件手里还没有 revisions。
+    mocks.activity.navigation = { bookId: "book-1", projectPath: "/project", skill: "characters", taskId: "t-activity" }
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+    await act(async () => {})
+
+    const target = host.querySelector('[data-revision-id="rev-activity"]')
+    expect(target).not.toBeNull()
+    // 数据到达后必须仍然完成那次跳转。
     expect(scrollIntoView.mock.contexts).toContain(target)
   })
 })

@@ -126,12 +126,18 @@ export interface WorkbenchItem {
   <ol>
     <li><code>buildLegacyCharacterRevision</code> 在 <code>book.characters.length &gt; 0</code> 时就返回版本 ——
     <b>任何拆过角色的书都有</b>，不是少数旧书。它的作用是「把作品资料里的角色映射成工作台条目」。</li>
-    <li>新版工作台发布角色用的是 <code>wb-${sha256(名字)}</code>；而 legacy 走
-    <code>ensureLegacyCharacterAura → importBookAnalysisSkillsAsAuras</code>，<b>是另一套 id 体系</b>。
-    对已被新版发布过的书自动跑 legacy 发布，会<b>产生重复角色灵魂</b>。</li>
     <li>legacy 版本原本是<b>懒落盘</b>的（注释原文：「只有用户点了确认并加入，才把迁移版本写进 revisions 目录」）。
     自动发布等于<b>仅仅打开拆书库页面就往磁盘写文件、并批量导入角色</b>，这是用户从没要求过的副作用。</li>
   </ol>
+  <p><b>实施后经独立审查证伪并修正</b>：原先这里的第 2 条理由写作「新版用
+  <code>wb-${sha256(名字)}</code>、legacy 走 <code>importBookAnalysisSkillsAsAuras</code>，是另一套 id 体系，
+  自动发布会产生重复角色灵魂」——<b>该说法不成立</b>。实测：<code>aura-adapter.ts</code> 有同源去重
+  <code>existingAuraKeys</code>（用的就是 <code>isSameBookAnalysisCharacterAura</code>），
+  且两条路径最终都调用同一个 <code>createCustomCharacterAuraFromGeneratedSkill</code>；
+  「新版先发布许七安 → 再整版跑 legacy 导入」实测 <code>imported === []</code>，库里仍只有 1 条。
+  真正的重复场景是<b>书名不匹配</b>（如《测试作品》与《测试作品（修订版）》）。
+  <b>结论（legacy 不自动发布）不变</b>，承重的是上面两条理由（懒落盘 + 打开页面即批量导入）。
+  保留这段更正记录，是为了避免后来者据此去「修」一处并没坏的去重逻辑。</p>
   <p><b>因此：自动入库只针对 <code>origin !== "legacy"</code> 的版本</b>（即真正的分析结果，也正是你说「分析完自动入库」所指的东西）。
   legacy 条目照常平铺显示；要单独导入某个角色，用角色卡片上<b>已有的</b>「加入自定义灵魂库」按钮即可 ——
   逐个明确操作，不是整版静默导入。</p>
