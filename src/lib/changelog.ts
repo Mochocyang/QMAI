@@ -7,6 +7,45 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_ONE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "4.1.1",
+  date: "2026-10-07",
+  highlights: {
+    en: [
+      "[Book-Analysis Panel Simplified] Removed six items — version dropdown, search box, pending-only filter, summary status row, whole-version \"Confirm & Add\" and export — plus the \"in library / pending\" badge and the whole-version statistics block, so generated results are shown directly.",
+      "[Automatic Ingestion & Deletion] Opening results automatically publishes versions that are not yet in the library, with no manual per-version confirmation, and every object gains a delete button with confirmation that truly removes the matching soul-library entry and cannot come back on the next ingestion; legacy entries still require manual import so they cannot create duplicate characters.",
+      "[Versions Merged Into One List] Object cards from all versions are merged into one continuous list with the oldest first, the revision and delete buttons sit next to each other, and the evidence index moves into each card listing only the source text that this result itself cites.",
+      "[Character Recognition & Binding] The binding dialog gains a search box, five items per row and ignore/restore, and is widened to 760px so it no longer clips common character names; a failed character recognition no longer locks the \"Start Analysis\" button.",
+      "[Legacy Characters & Deleting Works] Legacy characters migrate into new-style entries and are merged into the matching tab with legacy results always shown (the story tab labels them \"Historical Map\"), and any work plus the current work can now be deleted with confirmation.",
+      "[No More Three-Minute Wait] The soul library's character list is split into an instant local pass plus a background refinement and cached by file fingerprint, so it no longer rescans outlines and waits on model timeouts on every open; non-name entries are filtered out.",
+      "[Three Soul-Library Data Fixes] Refined names on disk are no longer overwritten by cache write-back; a failed LLM refinement is no longer permanently marked as done (which previously hid characters only the model could find, with no error shown); and a failed entity-page read no longer leaves a partial cache that made a character name vanish for good.",
+      "[Memory Center Single-Page Rebuild] The two nested two-column layouts are gone: categories become a top tab strip, content takes the full window width, and snapshot details open in the same page while preserving your scroll position.",
+      "[Outline Snapshots Now Viewable] Outline snapshots were previously only counted and never rendered, so they could not be opened at all; they are now listed and sorted by title, and the count mismatch from truncation is fixed — the interface had shown 9 while there were 10.",
+      "[Chapter Memory Dots] Chapters whose memory has been extracted show a green dot and chapters being extracted show a pulsing gray dot, keyed by path rather than title so duplicate titles cannot light up two rows at once.",
+      "[Fixed Permanently Disabled \"HTML\"] Every outline type now produces HTML; previously the common \"looks like a chapter outline but lacks structured data\" case — for example continuing from an outline — always produced a request with no HTML.",
+      "[Requirement Analysis Overlay] Requirement analysis is now an overlay anchored inside the panel and offers concrete options that are never empty, and it is no longer dismissed by dragging the window.",
+      "[Profile Documents & Styling] All eight profile templates gained color tokens plus rotating section accents, blank-page navigation inside profile documents is fixed, and the very low body-text contrast under the starry-night skin is fixed — all three skins now meet WCAG AA.",
+      "[Interface Details] Reply times add month and day for older records, the generating wait text no longer flickers and stays visible after the body text appears, the draft \"extract memory\" hint is no longer covered by the body text, and custom models use the shared preset selectors for context window and max output.",
+    ],
+    zh: [
+      "【拆书结果面板精简】移除结果版本下拉、搜索框、仅待确认、汇总状态行、整版「确认并加入」、导出结果，以及「已入库/待确认」状态徽标与整版统计，生成结果直接展示",
+      "【结果自动入库与对象删除】打开结果即自动发布尚未入库的新版本，不再逐版手动确认；每个对象新增删除按钮（二次确认），删除会真正移除灵魂库条目且不会「删了又回来」；旧版条目仍走手动导入，避免产生重复角色",
+      "【版本合并为一份列表】各版本对象卡合并为一份连续列表（旧版在前），修订与删除按钮紧挨；证据索引下沉到每张卡片，只列该成果自己引用的原文",
+      "【角色识别与绑定对话框】绑定对话框新增搜索框、改为每行 5 个、支持忽略与恢复，并加宽至 760px 修正纵向裁切，常见角色名不再显示不全；识别失败后「开始分析」不再被锁死",
+      "【旧版角色整合与删除作品】旧版角色迁移为新版条目并入对应页签，旧版结果改为常显（故事页签标注为「历史导图」）；作品下拉每一项与顶部当前作品均可删除，均保留二次确认",
+      "【灵魂库打开不再等 3 分钟】人物名单拆成「本地秒回」+「后台精修」并按文件指纹缓存，不再每次打开都重扫大纲、串行等待模型超时；过滤「编号派通用手段」「冲突点」「当前状态」等非人名条目",
+      "【修复灵魂库三处数据问题】缓存写回不再覆盖已落盘的精修结果；LLM 精修失败不再被永久标记为「已精修」（此前会导致只能由模型发现的人物永不出现，且没有任何报错）；实体页读取失败不再留下残缺缓存使人名永久消失",
+      "【记忆中心单页重构】拆掉嵌套的两层双栏，改为整窗单页：分类变为顶部标签条、内容独占全宽，快照详情在同页内返回并保留滚动位置",
+      "【大纲快照可查看】此前大纲快照只用于计数、从不渲染，实际无法打开；现按标题排序正常展示，并修复截断导致的计数不符（界面显示 9 而实际 10）",
+      "【章节目录记忆绿点】已提取记忆的章节显示绿点、提取中显示灰点脉冲；按路径而非标题判定，「提取中」不会因标题重名同时点亮两行",
+      "【修复「HTML 形式」永久置灰】任何大纲类型都会生成 HTML；此前「像章纲但缺结构化数据」（例如从大纲继续生成章纲）必然产出无 HTML 的请求",
+      "【需求分析浮层】需求分析改为面板内锚定浮层并给出具体选项，选项不再空白，也不再被拖动窗口等操作误关",
+      "【档案文档与配色】八类档案模板补齐配色令牌并加入分区强调色轮转；修复档案文档内分区导航跳空白页、星夜皮肤正文对比度过低的问题，三套皮肤均达 WCAG AA",
+      "【界面细节】AI 回复时间更早的记录补月日与年月日；生成中的等待文案整段显示不再忽隐忽现；草稿「提取记忆」提示不再被正文盖住；自定义模型的上下文窗口与输出上限改用统一预设选择器",
+    ],
+  },
+};
+
 const FOUR_POINT_ONE_ZERO_CHANGELOG: ChangelogEntry = {
   version: "4.1.0",
   date: "2026-10-04",
@@ -1745,6 +1784,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_ONE_ONE_CHANGELOG.version)
+    return [FOUR_POINT_ONE_ONE_CHANGELOG];
   if (version === FOUR_POINT_ONE_ZERO_CHANGELOG.version)
     return [FOUR_POINT_ONE_ZERO_CHANGELOG];
   if (version === FOUR_POINT_ZERO_FOUR_CHANGELOG.version)
@@ -1900,6 +1941,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_ONE_ONE_CHANGELOG,
     FOUR_POINT_ONE_ZERO_CHANGELOG,
     FOUR_POINT_ZERO_FOUR_CHANGELOG,
     FOUR_POINT_ZERO_THREE_CHANGELOG,
