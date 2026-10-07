@@ -361,29 +361,120 @@ px-18         18      18      18   否（px）
 
 ## 9. 阶段 3 / 4 登记（本阶段不实施）
 
+> **技术前提已在一手实验与官方文档中核实**（Windows 11 build 26200 / zh-CN，
+> 中完整性级别、**非管理员**）。详细报告：`research-font-install.md`。
+> 下列四处**修正了设计初稿的错误假设** —— 勿按初稿前提实现。
+
 ### 阶段 3：枚举本机中文字体
 
-- Rust 侧 `EnumFontFamiliesExW` 枚举 + `GetGlyphIndicesW`
-  （`GGI_MARK_NONEXISTING_GLYPHS`，0xFFFF = 缺字）验证中文覆盖。
-- 可行性已确认：`windows-sys` 已在 `Cargo.lock`，所需 GDI API
-  全部存在于**本机已缓存**的 `windows-sys 0.61.2` 绑定中 → **离线可做**。
+- Rust 侧枚举 + 中文覆盖校验。**首选 DirectWrite `IDWriteFont::HasCharacter`**
+  （WebView 实际使用的引擎，接受 UCS-4，可覆盖 Ext-B 如 U+20000+）；
+  次选 GDI `GetGlyphIndicesW` + `GGI_MARK_NONEXISTING_GLYPHS`（**0xFFFF = 缺字**）。
+- ⚠️ **GDI 会静默替换字体**：实验中对 `黑体`/`SimHei` 的请求实际选中的是 `宋体`
+  （字形索引与覆盖数完全相同 → 等于在探测宋体却以为在测黑体）。
+  因此任何 GDI 覆盖探测**必须先用 `GetTextFaceW` 校验实际选中的字体名**，
+  不匹配则丢弃该结果。优先用 DirectWrite 可回避此坑。
+- ⚠️ 枚举去重：本机 `EnumFontFamiliesExW` 对 219 个字形族返回 **1149 行**
+  （每个字符集/脚本一行）。按 `lfFaceName` 去重，并**过滤 `@` 前缀的竖排变体**（50 个）。
+  ⚠️ `elfScript` 是**本地化字符串**（本机返回"西方/日语/中欧/西里尔语"等），
+  不可用作判断依据，应使用数值型 `lfCharSet`（134 = GB2312）。
+- ⚠️ `windows-sys` **不是** `src-tauri/Cargo.toml` 的直接依赖（仅传递依赖，
+  版本 0.52/0.59/0.60/0.61 在 `Cargo.lock`）。必须显式添加：
+  ```toml
+  [target.'cfg(windows)'.dependencies]
+  windows-sys = { version = "0.61", features = [
+    "Win32_Foundation", "Win32_Graphics_Gdi",
+    "Win32_System_Registry", "Win32_UI_WindowsAndMessaging" ] }
+  ```
+- ⚠️ `FONTENUMPROCW` 在 `windows-sys` 中声明为 `*const LOGFONTW`，
+  但 Windows 实际传入 `ENUMLOGFONTEXW` → 回调内需指针转换。
 - 根治"选了不存在的字体 → 静默回退 → 看起来没反应"。
 
 ### 阶段 4：捆绑写作字体并按用户安装
 
-- 平台机制：Windows `%LOCALAPPDATA%\Microsoft\Windows\Fonts` + `HKCU` 注册表 +
-  `AddFontResourceExW`（免管理员/UAC）；macOS `~/Library/Fonts`；
-  Linux `~/.local/share/fonts` + `fc-cache -f`。
-- 生效时机为**首次启动**（便携版 exe 没有"安装时"这个时机）。
-- **许可证是最大风险**，已确认的关键结论：
-  - **MiSans 不可捆绑** —— 小米官方许可禁止再分发字体文件，
-    仅允许自由使用其创作的作品。
-  - 微软雅黑/宋体/楷体/仿宋/等线/黑体等为 Windows 专有字体，**只能读本机**。
-  - 霞鹜新晰黑/新致宋为 **IPA Font License 1.0**（非 OFL），
-    再分发需提供"换回原始 IPA 字体"的途径，否则禁止。
-  - 确认可安全捆绑的 OFL 字体：霞鹜文楷、思源黑体/宋体（Source Han）、
-    Sarasa Gothic、得意黑、朱雀仿宋、Maple Mono、寒蝉圆体、未来荧黑等。
-  - 规则：**"可免费使用" ≠ "可再分发"**，每个字体都必须核对一手许可原文。
+**平台机制（已实测）**
+
+| 平台 | 用户级位置 | 附加步骤 | 权限 |
+|---|---|---|---|
+| Windows | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` | 写 `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` | **免管理员（已实测）** |
+| macOS | `~/Library/Fonts` | 拷贝即可；可选 `CTFontManagerRegisterFontsForURL`（`kCTFontManagerScopeUser`） | 无需提权 |
+| Linux | `$XDG_DATA_HOME/fonts`（默认 `~/.local/share/fonts`） | `fc-cache -f` | 无需提权 |
+
+**⚠️ 四处修正（与设计初稿不同，均已实测）**
+
+1. **HKCU 的注册表值数据必须是绝对路径**，不是裸文件名。
+   同一字体文件同一目录：裸名 → 新进程**看不到**；绝对路径 → 可见。
+   "裸文件名相对于字体目录"只是 HKLM/`%windir%\Fonts` 的约定。
+2. **只写注册表即可立即生效** —— 文件拷贝 + HKCU 值写入后，
+   全新进程在毫秒级内即能看到该字体，**无需注销/重启、无需 `AddFontResourceExW`**。
+   `AddFontResourceExW` 现在仅用于两种场景：`FR_PRIVATE` 的进程内专用字体，
+   或强制**已在运行**的进程刷新字体缓存。
+3. **不需要提权**：中完整性级别下，用户字体目录拷贝与 HKCU 写入均成功，
+   而 HKLM 同位置写入被拒（`SecurityException`）。
+4. **注册表值名用英文族名**，形如 `"<EnglishFamily> (TrueType)"`
+   （Windows 对 `.otf` 也用 `(TrueType)`）。
+
+**作用域区分（实测）**
+
+| 方式 | 作用域 | 生命周期 |
+|---|---|---|
+| `AddFontResourceExW(path, FR_PRIVATE=0x10, NULL)` | **仅调用进程** | 进程退出即失效 |
+| `AddFontResourceExW(path, 0, NULL)` | 整个会话的全部进程 | 到移除或会话结束，不持久 |
+| 字体目录文件 + 注册表值 | 全部进程、此后所有会话 | 到删除值+文件为止 |
+
+**命名（实测）**：中文名是 name 表的本地化记录，**不是独立字体族**。
+DirectWrite 中 `Microsoft YaHei` ≡ `微软雅黑`（同一族索引）、`SimSun` ≡ `宋体`、
+`SimHei` ≡ `黑体`、`NSimSun` ≡ `新宋体` → CSS 两种名字都能匹配。
+但 **GDI 枚举在本机返回的是中文名**（宋体/黑体/微软雅黑…），而注册表用英文名。
+→ 注册表值名用**英文**（与 Windows 自身一致）；CSS 回退栈**两种都放**。
+
+**⚠️ 字体文件放置位置（已核实本仓库现状）**
+
+- 本仓库 `bundle.resources` 目前仅有 `"../skills/**/*": "skills/"`，
+  而该源位于 `src-tauri/` **之外** → 生成的 `installer.nsi` 把它放到
+  `$INSTDIR\_up_\skills\...`（`_up_` 前缀），便携版脚本则另行把 `skills`
+  **平铺**复制到发布目录。
+- 因此字体文件**必须放在 `src-tauri/fonts/` 内**，才能落到 `$INSTDIR\fonts\`，
+  与 Rust 侧解析路径和安装逻辑一致；放在仓库根会被塞进 `_up_`。
+- 便携版脚本 `build-portable.mjs` 目前**只处理 `skills`**，若字体随包分发需同步扩展。
+
+**⚠️ 卸载清理**
+
+- 顺序：`RemoveFontResourceExW` → `RegDeleteValueW` → 广播 `WM_FONTCHANGE` → 删除文件。
+- **绝不可就地注册应用目录内的字体**：会有文件锁定风险，且 Tauri 更新器替换
+  应用文件时可能失败。必须**先拷贝到用户字体目录**再注册。
+- 安装器的"删除应用数据"选项**不会**清理 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`，
+  必须显式清理；需持久化一份安装清单 `{文件 → 族名 → 注册表值名}` 才能精确卸载。
+- 文件被占用时回退 `MoveFileExW(..., MOVEFILE_DELAY_UNTIL_REBOOT)` / NSIS `Delete /REBOOTOK`。
+
+**⚠️ 安装时机：建议由应用在启动时幂等"确保"安装，而非只依赖安装器**
+
+理由：可覆盖全部发布形态（`nsis` / `app`/便携版 / AppImage）、更新后能自愈、
+不踩 `$UpdateMode` 陷阱、可测试、且能在界面里如实反映可用状态。
+安装器侧的已知陷阱：`POSTINSTALL`/`POSTUNINSTALL` 是**无条件执行**的，
+且更新时旧卸载器会带 `/UPDATE` 运行 → 字体清理必须用 `${If} $UpdateMode <> 1` 保护，
+否则会在更新过程中删除字体。另需 `SetShellVarContext current`。
+
+**⚠️ `@font-face` 与系统安装的关系**
+
+`@font-face` 的族名**只在本文档的 CSS 字体集内可见**，不写注册表/fontconfig/
+CoreText，其他应用与文档无法解析。两者应共存：`@font-face` 来自应用资源
+（有保证、许可安全、版本固定、便携版/沙箱可用）；系统安装用于 WebView 之外
+（其他软件、导出的 HTML/PDF 按名引用）。
+⚠️ 若 `@font-face` 族名与系统族名**同名**，应用内会静默优先用 `@font-face` 副本，
+导致 OS 安装失败**无法被发现** → 用不同的应用内名，或另行重新枚举校验。
+⚠️ `@font-face` **不能**使再分发变合法，许可仍然适用。
+
+**许可证是最大风险（已确认的关键结论）**
+
+- **MiSans 不可捆绑** —— 小米官方许可明文禁止再分发字体文件，仅允许自由使用
+  其创作的作品。
+- 微软雅黑/宋体/楷体/仿宋/等线/黑体等为 Windows 专有字体，**只能读本机**。
+- 霞鹜新晰黑/新致宋为 **IPA Font License 1.0**（非 OFL），再分发需提供
+  "换回原始 IPA 字体"的途径，否则禁止。
+- 确认可安全捆绑的 OFL 字体：霞鹜文楷、思源黑体/宋体（Source Han）、
+  Sarasa Gothic、得意黑、朱雀仿宋、Maple Mono、寒蝉圆体、未来荧黑等。
+- 规则：**"可免费使用" ≠ "可再分发"**，每个字体都必须核对一手许可原文。
 - 中文字体**无法子集化压缩**（写作会用到任意汉字，裁集会致冷僻字成方块），
   每个 5–20MB，需按体积预算挑选。
 

@@ -253,12 +253,12 @@ Arial、Times New Roman、Georgia、Consolas、Segoe UI、Cascadia Mono/Cascadia
 
 | 项 | 结论 |
 |---|---|
-| `windows-sys` | 已在 Cargo.lock（版本 0.61.2 / 0.60.2 / 0.59.0 等），**本地 registry 已缓存 0.61.2** |
+| `windows-sys` | 在 `Cargo.lock` 中（0.61.2 / 0.60.2 / 0.59.0 等），**本地 registry 已缓存 0.61.2**。⚠️ 但**不是 `src-tauri/Cargo.toml` 的直接依赖**（仅传递依赖），必须显式添加并启用 GDI/注册表 feature |
 | 所需 API | `EnumFontFamiliesExW`、`GetGlyphIndicesW`、`AddFontResourceExW`、`RemoveFontResourceExW`、`GetFontUnicodeRanges`、`CreateCompatibleDC`、`GetDC` —— **全部已在缓存的 crate 绑定中**（离线可用） |
 | crates.io | `index.crates.io` 返回 200，`static.crates.io` 返回 403（根路径不可列，非阻断） |
 | 打包目标 | `bundle.targets = ["nsis", "app"]` |
 | 用户字体目录 | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` 存在（免管理员权限安装可行） |
-| 中文字体覆盖判定 | 可用 `GetGlyphIndicesW` + `GGI_MARK_NONEXISTING_GLYPHS`（0xFFFF 表示缺字） |
+| 中文字体覆盖判定 | 首选 DirectWrite `IDWriteFont::HasCharacter`（可用 UCS-4，覆盖 Ext-B）；次选 `GetGlyphIndicesW` + `GGI_MARK_NONEXISTING_GLYPHS`（0xFFFF 表示缺字）。⚠️ GDI 会**静默替换**字体（实测：请求黑体实际选中宋体），用 GDI 必须先用 `GetTextFaceW` 校验实际字体名 |
 
 → **无需联网、无需新增未缓存依赖即可实现本机字体枚举。**
 
