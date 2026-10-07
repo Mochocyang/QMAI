@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>QMAI 4.1.1 更新日志预览</title>
+<style>
+  /* 浅色：src/index.css 的 :root */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --page: oklch(0.985 0 0);
+  }
+  /* 深色：src/index.css 的 .dark（苍苍竹色） */
+  .dark {
+    --background: #10251d;
+    --foreground: #e7fff2;
+    --primary: #9ad7b7;
+    --muted: #1e4434;
+    --muted-foreground: #a8cdb9;
+    --border: #315846;
+    --page: #0b1a14;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: var(--page);
+    color: var(--foreground);
+  }
+  .wrap { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 1000px) { .wrap { grid-template-columns: 1fr; } }
+  .pane { border: 1px dashed color-mix(in srgb, var(--muted-foreground) 45%, transparent); border-radius: 10px; padding: 16px; background: var(--background); }
+  .pane-title { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); margin: 0 0 14px; }
+  h3 { font-size: 14px; font-weight: 500; color: var(--muted-foreground); margin: 0 0 16px; }
+  /* 卡片：rounded-lg border border-border/60 bg-muted/20 p-4 */
+  .card {
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    background: color-mix(in oklab, var(--muted) 20%, var(--background));
+    border-radius: calc(0.625rem);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .head { display: flex; align-items: baseline; gap: 12px; }
+  .badge { border-radius: 4px; padding: 2px 8px; font-size: 14px; font-weight: 600; background: color-mix(in oklab, var(--muted) 100%, transparent); color: var(--muted-foreground); }
+  .badge.current { background: color-mix(in oklab, var(--primary) 15%, transparent); color: var(--primary); }
+  .date { font-size: 12px; color: var(--muted-foreground); }
+  .current-tag { font-size: 12px; color: #059669; }
+  .dark .current-tag { color: #34d399; }
+  ul { margin: 12px 0 0; padding: 0; list-style: none; }
+  li { display: flex; gap: 8px; font-size: 14px; line-height: 1.625; color: color-mix(in oklab, var(--foreground) 90%, transparent); }
+  li + li { margin-top: 8px; }
+  .dot { margin-top: 6px; width: 6px; height: 6px; flex: 0 0 auto; border-radius: 9999px; background: color-mix(in oklab, var(--primary) 60%, transparent); }
+  .more { margin-top: 12px; font-size: 12px; font-weight: 500; color: var(--primary); }
+  .meta { font-size: 12px; color: var(--muted-foreground); margin: 0 0 14px; }
+  .toggle { position: fixed; right: 16px; top: 16px; z-index: 10; display: flex; gap: 6px; }
+  .toggle button {
+    font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--background); color: var(--foreground);
+  }
+  .toggle button[aria-pressed="true"] { background: var(--primary); color: var(--background); border-color: var(--primary); }
+</style>
+</head>
+<body>
+<div class="toggle">
+  <button id="btn-zh" aria-pressed="true" onclick="setLang('zh')">中文</button>
+  <button id="btn-en" aria-pressed="false" onclick="setLang('en')">English</button>
+</div>
+
+<div class="wrap">
+  <div class="pane">
+    <p class="pane-title">浅色主题（:root）— 展开全部</p>
+    <h3>版本历史</h3>
+    <div class="card" id="card-light"></div>
+  </div>
+  <div class="pane dark">
+    <p class="pane-title">深色主题（.dark 苍苍竹色）— 展开全部</p>
+    <h3>版本历史</h3>
+    <div class="card" id="card-dark"></div>
+  </div>
+  <div class="pane">
+    <p class="pane-title">默认折叠态（设置页打开时看到的样子）</p>
+    <h3>版本历史</h3>
+    <div class="card" id="card-collapsed"></div>
+  </div>
+  <div class="pane">
+    <p class="pane-title">与上一版对比（v4.1.0 的形态）</p>
+    <h3>版本历史</h3>
+    <div class="card">
+      <div class="head">
+        <span class="badge">v4.1.0</span>
+        <span class="date">2026-10-04</span>
+      </div>
+      <ul>
+        <li><span class="dot"></span><span>上一版本共 21 条，中英各 21 条，扁平编号、无分节标题</span></li>
+        <li><span class="dot"></span><span>本版共 14 条，比上一版多 -7 条</span></li>
+        <li><span class="dot"></span><span>折叠到 5 条，其余通过「查看更多 9 条」展开</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {
+  zh: ["【拆书结果面板精简】移除结果版本下拉、搜索框、仅待确认、汇总状态行、整版「确认并加入」、导出结果，以及「已入库/待确认」状态徽标与整版统计，生成结果直接展示","【结果自动入库与对象删除】打开结果即自动发布尚未入库的新版本，不再逐版手动确认；每个对象新增删除按钮（二次确认），删除会真正移除灵魂库条目且不会「删了又回来」；旧版条目仍走手动导入，避免产生重复角色","【版本合并为一份列表】各版本对象卡合并为一份连续列表（旧版在前），修订与删除按钮紧挨；证据索引下沉到每张卡片，只列该成果自己引用的原文","【角色识别与绑定对话框】绑定对话框新增搜索框、改为每行 5 个、支持忽略与恢复，并加宽至 760px 修正纵向裁切，常见角色名不再显示不全；识别失败后「开始分析」不再被锁死","【旧版角色整合与删除作品】旧版角色迁移为新版条目并入对应页签，旧版结果改为常显（故事页签标注为「历史导图」）；作品下拉每一项与顶部当前作品均可删除，均保留二次确认","【灵魂库打开不再等 3 分钟】人物名单拆成「本地秒回」+「后台精修」并按文件指纹缓存，不再每次打开都重扫大纲、串行等待模型超时；过滤「编号派通用手段」「冲突点」「当前状态」等非人名条目","【修复灵魂库三处数据问题】缓存写回不再覆盖已落盘的精修结果；LLM 精修失败不再被永久标记为「已精修」（此前会导致只能由模型发现的人物永不出现，且没有任何报错）；实体页读取失败不再留下残缺缓存使人名永久消失","【记忆中心单页重构】拆掉嵌套的两层双栏，改为整窗单页：分类变为顶部标签条、内容独占全宽，快照详情在同页内返回并保留滚动位置","【大纲快照可查看】此前大纲快照只用于计数、从不渲染，实际无法打开；现按标题排序正常展示，并修复截断导致的计数不符（界面显示 9 而实际 10）","【章节目录记忆绿点】已提取记忆的章节显示绿点、提取中显示灰点脉冲；按路径而非标题判定，「提取中」不会因标题重名同时点亮两行","【修复「HTML 形式」永久置灰】任何大纲类型都会生成 HTML；此前「像章纲但缺结构化数据」（例如从大纲继续生成章纲）必然产出无 HTML 的请求","【需求分析浮层】需求分析改为面板内锚定浮层并给出具体选项，选项不再空白，也不再被拖动窗口等操作误关","【档案文档与配色】八类档案模板补齐配色令牌并加入分区强调色轮转；修复档案文档内分区导航跳空白页、星夜皮肤正文对比度过低的问题，三套皮肤均达 WCAG AA","【界面细节】AI 回复时间更早的记录补月日与年月日；生成中的等待文案整段显示不再忽隐忽现；草稿「提取记忆」提示不再被正文盖住；自定义模型的上下文窗口与输出上限改用统一预设选择器"],
+  en: ["[Book-Analysis Panel Simplified] Removed six items — version dropdown, search box, pending-only filter, summary status row, whole-version \"Confirm & Add\" and export — plus the \"in library / pending\" badge and the whole-version statistics block, so generated results are shown directly.","[Automatic Ingestion & Deletion] Opening results automatically publishes versions that are not yet in the library, with no manual per-version confirmation, and every object gains a delete button with confirmation that truly removes the matching soul-library entry and cannot come back on the next ingestion; legacy entries still require manual import so they cannot create duplicate characters.","[Versions Merged Into One List] Object cards from all versions are merged into one continuous list with the oldest first, the revision and delete buttons sit next to each other, and the evidence index moves into each card listing only the source text that this result itself cites.","[Character Recognition & Binding] The binding dialog gains a search box, five items per row and ignore/restore, and is widened to 760px so it no longer clips common character names; a failed character recognition no longer locks the \"Start Analysis\" button.","[Legacy Characters & Deleting Works] Legacy characters migrate into new-style entries and are merged into the matching tab with legacy results always shown (the story tab labels them \"Historical Map\"), and any work plus the current work can now be deleted with confirmation.","[No More Three-Minute Wait] The soul library's character list is split into an instant local pass plus a background refinement and cached by file fingerprint, so it no longer rescans outlines and waits on model timeouts on every open; non-name entries are filtered out.","[Three Soul-Library Data Fixes] Refined names on disk are no longer overwritten by cache write-back; a failed LLM refinement is no longer permanently marked as done (which previously hid characters only the model could find, with no error shown); and a failed entity-page read no longer leaves a partial cache that made a character name vanish for good.","[Memory Center Single-Page Rebuild] The two nested two-column layouts are gone: categories become a top tab strip, content takes the full window width, and snapshot details open in the same page while preserving your scroll position.","[Outline Snapshots Now Viewable] Outline snapshots were previously only counted and never rendered, so they could not be opened at all; they are now listed and sorted by title, and the count mismatch from truncation is fixed — the interface had shown 9 while there were 10.","[Chapter Memory Dots] Chapters whose memory has been extracted show a green dot and chapters being extracted show a pulsing gray dot, keyed by path rather than title so duplicate titles cannot light up two rows at once.","[Fixed Permanently Disabled \"HTML\"] Every outline type now produces HTML; previously the common \"looks like a chapter outline but lacks structured data\" case — for example continuing from an outline — always produced a request with no HTML.","[Requirement Analysis Overlay] Requirement analysis is now an overlay anchored inside the panel and offers concrete options that are never empty, and it is no longer dismissed by dragging the window.","[Profile Documents & Styling] All eight profile templates gained color tokens plus rotating section accents, blank-page navigation inside profile documents is fixed, and the very low body-text contrast under the starry-night skin is fixed — all three skins now meet WCAG AA.","[Interface Details] Reply times add month and day for older records, the generating wait text no longer flickers and stays visible after the body text appears, the draft \"extract memory\" hint is no longer covered by the body text, and custom models use the shared preset selectors for context window and max output."],
+};
+const VERSION = "4.1.1";
+const DATE = "2026-10-07";
+const COLLAPSED = 5;
+let lang = "zh";
+
+function renderCard(target, lines, current) {
+  const head = document.createElement("div");
+  head.className = "head";
+  const badge = document.createElement("span");
+  badge.className = "badge" + (current ? " current" : "");
+  badge.textContent = "v" + VERSION;
+  const date = document.createElement("span");
+  date.className = "date";
+  date.textContent = DATE;
+  head.append(badge, date);
+  if (current) {
+    const tag = document.createElement("span");
+    tag.className = "current-tag";
+    tag.textContent = "← 当前版本";
+    head.append(tag);
+  }
+  const ul = document.createElement("ul");
+  for (const line of lines) {
+    const li = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    const span = document.createElement("span");
+    span.textContent = line;
+    li.append(dot, span);
+    ul.append(li);
+  }
+  target.replaceChildren(head, ul);
+}
+
+function render() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  const lines = DATA[lang];
+  renderCard(document.getElementById("card-light"), lines, true);
+  renderCard(document.getElementById("card-dark"), lines, true);
+
+  const collapsed = document.getElementById("card-collapsed");
+  renderCard(collapsed, lines.slice(0, COLLAPSED), true);
+  const more = document.createElement("div");
+  more.className = "more";
+  more.textContent = lang === "zh"
+    ? "查看更多 " + (lines.length - COLLAPSED) + " 条"
+    : "Show " + (lines.length - COLLAPSED) + " more";
+  collapsed.append(more);
+
+  document.getElementById("btn-zh").setAttribute("aria-pressed", String(lang === "zh"));
+  document.getElementById("btn-en").setAttribute("aria-pressed", String(lang === "en"));
+}
+
+function setLang(next) { lang = next; render(); }
+render();
+</script>
+</body>
+</html>
