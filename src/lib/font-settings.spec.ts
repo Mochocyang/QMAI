@@ -7,6 +7,7 @@ import {
   DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_BODY_FONT_SIZE_SCALE,
   DEFAULT_UI_FONT_FAMILY,
+  UI_FONT_OPTIONS,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   UI_FONT_SIZE_PRESETS,
@@ -219,5 +220,96 @@ describe("正文字号（独立于界面字号）", () => {
     expect(UI_FONT_SIZE_MIN).not.toBe(BODY_FONT_SIZE_MIN)
     expect(UI_FONT_SIZE_MAX).toBe(BODY_FONT_SIZE_MAX)
     expect(BODY_FONT_SIZE_PRESETS).not.toBe(UI_FONT_SIZE_PRESETS)
+  })
+})
+
+/* ────────────────────────── 界面字体选项（只列中文字体） ────────────────────────── */
+
+/**
+ * 被认定为"能覆盖中文"的字体族名白名单。
+ *
+ * 为什么需要一个白名单而不是"看起来像中文"的模糊判断：本文件的规矩是
+ * **以实测可用的名字为准**（见 probe-installed-fonts.mjs 的实测表）。
+ * 「微软正黑体」用中文名在本机实测不可用、必须写英文名 `Microsoft JhengHei`，
+ * 所以"含汉字"根本不能作为判据 —— 只能按真实族名列白名单。
+ */
+const CJK_FONT_NAMES = [
+  // Windows 自带
+  "Microsoft YaHei",
+  "Microsoft YaHei UI",
+  "Microsoft JhengHei",
+  "SimHei",
+  "SimSun",
+  "NSimSun",
+  "KaiTi",
+  "FangSong",
+  "DengXian",
+  // macOS 自带（阶段 4 的真机回退项）
+  "PingFang SC",
+  "Heiti SC",
+  "Songti SC",
+  "Kaiti SC",
+  "STKaiti",
+  "Fangsong SC",
+  "STFangsong",
+  // 计划随后续安装包分发的开源字体
+  "Noto Sans SC",
+  "Noto Serif SC",
+  "Source Han Sans SC",
+  "Source Han Serif SC",
+] as const
+
+/** 取字体栈的第一项（去掉引号），判断它是不是白名单里的中文字体。 */
+function leadsWithCjkFont(cssFamily: string): boolean {
+  const first = cssFamily.split(",")[0].trim().replace(/^["']|["']$/g, "")
+  return (CJK_FONT_NAMES as readonly string[]).includes(first)
+}
+
+describe("界面字体选项（只列中文字体）", () => {
+  it("不再提供纯拉丁字体选项", () => {
+    expect(UI_FONT_OPTIONS.map((o) => o.value)).not.toContain("arial")
+  })
+
+  it("旧值 arial 平滑回退到默认，不抛错", () => {
+    expect(normalizeUiFontFamily("arial")).toBe(DEFAULT_UI_FONT_FAMILY)
+  })
+
+  it("每个选项都以通用族收尾，保证未安装时静默回退可预期", () => {
+    for (const option of UI_FONT_OPTIONS) {
+      expect(option.cssFamily).toMatch(/(serif|sans-serif|monospace)$/)
+    }
+  })
+
+  it("含中文覆盖的常用选项齐备", () => {
+    const values = UI_FONT_OPTIONS.map((o) => o.value)
+    for (const v of ["system", "microsoft-yahei", "simhei", "simsun", "nsimsun",
+                     "kaiti", "fangsong", "dengxian", "noto-sans", "noto-serif"]) {
+      expect(values).toContain(v)
+    }
+  })
+
+  it("每个选项都以中文字体打头，不能拿纯拉丁字体顶在前面", () => {
+    // 先验证判断器本身有区分力：给一条纯拉丁字体打头的栈，它必须判否。
+    // 否则下面那条 for 循环就是"永远为真"的装饰（本任务吃过一次亏：
+    // document.fonts.check 对编造的字体名也返回 true，正是负向对照抓出来的）。
+    expect(leadsWithCjkFont('Arial, "Microsoft YaHei", system-ui, sans-serif')).toBe(false)
+    expect(leadsWithCjkFont('Helvetica, "Segoe UI", sans-serif')).toBe(false)
+    expect(leadsWithCjkFont('system-ui, "Microsoft YaHei", sans-serif')).toBe(false)
+    expect(leadsWithCjkFont('"Microsoft YaHei", system-ui, sans-serif')).toBe(true)
+
+    for (const option of UI_FONT_OPTIONS) {
+      expect(leadsWithCjkFont(option.cssFamily)).toBe(true)
+    }
+  })
+
+  it("system 项的字体栈逐字保持改造前的取值（默认档不能变字形）", () => {
+    // 这个栈与改造前 ui-test.css 里 --ui 的取值逐字一致，也是 index.css :root
+    // 的默认值。顺序只要变一个字，"用户没做任何选择、默认字形却变了"的
+    // 视觉回归就会发生。已由 verify-ui-font-applies.mjs --compare +
+    // ui-font-before.json 在真实浏览器里双重守住，这里再加一道静态防线。
+    expect(UI_FONT_OPTIONS[0].value).toBe("system")
+    expect(UI_FONT_OPTIONS[0].cssFamily).toBe(
+      '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    )
   })
 })
