@@ -74,7 +74,16 @@ const MEMORY_FILE_CONFIGS = [
   { key: "conflicts", title: "conflicts", fileName: "conflicts.md" },
 ] as const
 
-const RECENT_SNAPSHOT_CARD_LIMIT = 10
+/*
+ * 这里曾经有 RECENT_SNAPSHOT_CARD_LIMIT = 10，把返回的卡片截断到 10 条。
+ * 去掉它的三个理由：
+ *   1) 它不省 I/O —— 上面的 listSnapshots + loadSnapshot 已经把**全部**快照读进内存，
+ *      截断只是把已经读到的数据丢掉；
+ *   2) 它制造了错误计数 —— 排序是「章节在前、大纲在后」，1 章节 + 10 大纲时
+ *      截断后只剩 9 个大纲卡片，界面显示 9、实际 10；
+ *   3) 它让大纲快照永远看不到 —— 单页改造后两类快照各自成标签页，需要全量。
+ * 页面规模的担心改由视图层的「默认显示 15 张 + 显示更多」承担。
+ */
 
 function trimList(items: string[], maxItems: number): { items: string[]; hasMore: boolean } {
   return {
@@ -117,7 +126,13 @@ function stripFrontmatter(markdown: string): string {
   return normalized
 }
 
-function parseMemoryMarkdownPreview(
+/*
+ * parseMemoryMarkdownPreview / buildMemoryCenterSnapshotCards / buildMemoryCenterStats
+ * 是本模块自己的测试（memory-center.test.ts）依赖的公开接口，必须保持导出。
+ * 它们曾经丢失过 `export`，那三条测试便一直在 import 到 undefined 上失败 ——
+ * 而 tsconfig.app.json 排除了 *.test.ts，类型检查也没能发现。恢复导出即修复。
+ */
+export function parseMemoryMarkdownPreview(
   markdown: string,
   maxSections = 3,
   maxGroupsPerSection = 4,
@@ -205,7 +220,7 @@ function parseMemoryMarkdownPreview(
   }))
 }
 
-function buildMemoryCenterSnapshotCards(
+export function buildMemoryCenterSnapshotCards(
   snapshots: ChapterSnapshot[],
   limit = 6,
   maxItemsPerList = 3,
@@ -244,7 +259,7 @@ function buildMemoryCenterSnapshotCards(
     })
 }
 
-function buildMemoryCenterStats(
+export function buildMemoryCenterStats(
   snapshots: MemoryCenterSnapshotCard[],
   files: MemoryCenterFilePreview[],
 ): MemoryCenterStats {
@@ -316,7 +331,8 @@ export async function loadMemoryCenterData(projectPath: string): Promise<MemoryC
 
   return {
     stats: buildMemoryCenterStats(allSnapshotCards, files),
-    snapshots: allSnapshotCards.slice(0, RECENT_SNAPSHOT_CARD_LIMIT),
+    // 全量返回：章节与大纲由视图层各自筛选，加载器不再做任何取舍。
+    snapshots: allSnapshotCards,
     allChapterNumbers,
     files,
     dismantlingProjects,

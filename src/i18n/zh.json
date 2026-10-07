@@ -1734,11 +1734,10 @@
       "loading": "正在加载记忆中心...",
       "empty": "当前还没有可展示的小说记忆。",
       "emptyHint": "先保存正式章节，或同步章节快照后，这里会逐步积累人物、伏笔和时间线记忆。",
-      "selectPrompt": "请先从左侧记忆列表选择一个项目。",
-      "selectHint": "选择最近章节快照、人物状态或其他记忆分类后，详情会显示在这里。",
-      "openFile": "打开详情",
-      "openSection": "打开详情",
-      "closeDetail": "关闭",
+      "back": "返回",
+      "showMore": "显示更多",
+      "noChapterSnapshots": "暂无章节快照",
+      "noOutlineSnapshots": "暂无大纲快照",
       "edit": "编辑",
       "save": "保存",
       "saving": "保存中...",
@@ -1753,8 +1752,13 @@
       "deleteSuccess": "记忆已删除",
       "fileDetailDescription": "正在查看该记忆页的完整内容。",
       "emptyFile": "这个记忆页暂时还没有内容。",
+      "tabs": {
+        "chapterSnapshots": "章节快照",
+        "outlineSnapshots": "大纲快照"
+      },
       "stats": {
         "snapshots": "章节快照",
+        "totalSnapshots": "快照总数",
         "synced": "已同步快照",
         "characters": "人物条目",
         "foreshadowing": "进行中伏笔"
@@ -1767,7 +1771,14 @@
         "openSnapshot": "查看记忆",
         "detailDescription": "正在查看章节快照详情。",
         "listDescription": "按时间倒序查看最近章节快照，并可继续打开单个快照详情。",
-        "summaryFallback": "该章节暂未生成摘要。"
+        "summaryFallback": "该章节暂未生成摘要。",
+        "outlineFallback": "大纲快照 {{number}}",
+        "outlineSummary": "共 {{count}} 条大纲快照，按标题排列。",
+        "rangeStart": "起始章",
+        "rangeEnd": "结束章",
+        "clearRange": "清除区间",
+        "rangeSummary": "区间 {{start}}–{{end}} 章，共 {{count}} 条",
+        "recentSummary": "最近 {{shown}} 章（共 {{total}} 章）"
       },
       "sections": {
         "characterStates": "人物状态",

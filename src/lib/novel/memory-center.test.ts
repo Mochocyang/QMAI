@@ -159,7 +159,7 @@ describe("memory-center", () => {
     expect(stats.memoryFileCount).toBe(2)
   })
 
-  it("loadMemoryCenterData 保留最近 10 条章节快照，不会被意外裁成 6 条", async () => {
+  it("loadMemoryCenterData 返回全部快照，不做任何截断", async () => {
     mockListSnapshots.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     mockLoadSnapshot.mockImplementation(async (_projectPath: string, chapterNumber: number) => (
       makeSnapshot({
@@ -175,5 +175,29 @@ describe("memory-center", () => {
     expect(data.snapshots).toHaveLength(10)
     expect(data.snapshots[0]?.chapterNumber).toBe(10)
     expect(data.snapshots[9]?.chapterNumber).toBe(1)
+  })
+
+  /*
+   * 回归：这里曾经有一个 RECENT_SNAPSHOT_CARD_LIMIT = 10 的 slice。
+   * 排序是「章节快照在前、大纲快照在后」，所以 1 个章节 + 10 个大纲时
+   * 截断会把最后一个大纲快照丢掉 —— 界面显示 9 条、实际 10 条。
+   * 单页改造后两类快照各自成标签页，大纲必须全量可见。
+   */
+  it("loadMemoryCenterData 不会把大纲快照挤掉（1 章节 + 10 大纲 = 11 条全返回）", async () => {
+    const chapterNumbers = [3, -100, -200, -300, -400, -500, -600, -700, -800, -900, -1000]
+    mockListSnapshots.mockResolvedValue(chapterNumbers)
+    mockLoadSnapshot.mockImplementation(async (_projectPath: string, chapterNumber: number) => (
+      makeSnapshot({ chapterNumber, summary: `快照 ${chapterNumber}` })
+    ))
+    mockReadFile.mockRejectedValue(new Error("memory file missing"))
+
+    const data = await loadMemoryCenterData("E:/Novel")
+
+    expect(data.stats.snapshotCount).toBe(11)
+    expect(data.snapshots).toHaveLength(11)
+    // 章节快照仍然排在前面，大纲在后再按编号降序
+    expect(data.snapshots[0]?.chapterNumber).toBe(3)
+    expect(data.snapshots.filter((card) => card.chapterNumber < 0)).toHaveLength(10)
+    expect(data.snapshots.some((card) => card.chapterNumber === -1000)).toBe(true)
   })
 })

@@ -293,7 +293,7 @@ const fullWindowViews = … "skillLibrary" … "soul" … "bookAnalysis"</pre>
     <li>删除 <code>selectedMemoryCenterEntry</code> 会同时失效 <code>memory-center-dismantling.spec.ts</code>
       的现有断言 —— 已计划按「保留意图、改写断言」处理，而不是删掉测试。</li>
     <li><code>sidebar-panel.tsx</code> 是 1203 行的共享文件，删分支前需先确认
-      <code>memoryData</code>/<code>memoryLoading</code>/<code>memoryError</code> 未被「导入记忆提取"
+      <code>memoryData</code>/<code>memoryLoading</code>/<code>memoryError</code> 未被「导入记忆提取」
       那条取消路径复用；若被复用则只删渲染分支、保留状态。</li>
     <li>单页后一次性渲染的卡片变多（真实数据 1+36 上限），已用「默认 15 张 + 显示更多」控制 DOM 规模。</li>
   </ul>

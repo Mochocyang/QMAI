@@ -3,17 +3,9 @@ import { useTranslation } from "react-i18next"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import {
-  BookOpenCheck,
-  BookText,
-  Brain,
-  Clock3,
-  FileText,
-  GitBranchPlus,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
-  Users,
 } from "lucide-react"
 import { KnowledgeTree, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
@@ -35,7 +27,6 @@ import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import type { MemoryCenterData, MemoryCenterFilePreview } from "@/lib/novel/memory-center"
 import {
   OUTLINE_IMPORT_EXTENSIONS,
   collectOutlineImportCandidatesFromFolder,
@@ -328,68 +319,6 @@ interface ImportMemoryDecisionRequest {
   count: number
 }
 
-const MEMORY_LABEL_KEYS: Record<string, string> = {
-  "dismantling-library": "拆文记忆库",
-  snapshots: "novel.memoryCenter.snapshots.title",
-  "character-states": "novel.memoryCenter.sections.characterStates",
-  "character-cognition": "novel.memoryCenter.sections.cognition",
-  "foreshadowing-tracker": "novel.memoryCenter.sections.foreshadowing",
-  timeline: "novel.memoryCenter.sections.timeline",
-  "canon-facts": "novel.memoryCenter.sections.canonFacts",
-  conflicts: "novel.memoryCenter.sections.conflicts",
-}
-
-const MEMORY_ICONS: Record<string, typeof Users> = {
-  "dismantling-library": BookOpenCheck,
-  snapshots: FileText,
-  "character-states": Users,
-  "character-cognition": Brain,
-  "foreshadowing-tracker": Sparkles,
-  timeline: Clock3,
-  "canon-facts": BookText,
-  conflicts: GitBranchPlus,
-}
-
-function countMemoryFileEntries(file: MemoryCenterFilePreview | null | undefined): number {
-  if (!file) return 0
-  return file.sections.reduce(
-    (sum, section) => sum + section.items.length + section.groups.length,
-    0,
-  )
-}
-
-function MemoryCenterListButton({
-  label,
-  count,
-  selected,
-  icon: Icon,
-  disabled,
-  onClick,
-}: {
-  label: string
-  count: number
-  selected: boolean
-  icon: typeof Users
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <Button
-      type="button"
-      variant={selected ? "secondary" : "ghost"}
-      className="h-auto w-full justify-between px-3 py-2.5"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="truncate">{label}</span>
-      </span>
-      <span className="ml-3 shrink-0 text-sm font-semibold leading-none">{count}</span>
-    </Button>
-  )
-}
-
 async function getExistingChapterTitles(projectPath: string): Promise<Set<string>> {
   const titles = new Set<string>()
   try {
@@ -433,10 +362,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
   const activeView = useWikiStore((s) => s.activeView)
-  const novelMode = useWikiStore((s) => s.novelMode)
   const selectedFile = useWikiStore((s) => s.selectedFile)
-  const selectedMemoryCenterEntry = useWikiStore((s) => s.selectedMemoryCenterEntry)
-  const setSelectedMemoryCenterEntry = useWikiStore((s) => s.setSelectedMemoryCenterEntry)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const setChatExpanded = useWikiStore((s) => s.setChatExpanded)
@@ -453,9 +379,6 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const [inputTitle, setInputTitle] = useState("")
   const [creating, setCreating] = useState(false)
   const [pendingPages, setPendingPages] = useState<PendingPageInfo[]>([])
-  const [memoryData, setMemoryData] = useState<MemoryCenterData | null>(null)
-  const [memoryLoading, setMemoryLoading] = useState(false)
-  const [memoryError, setMemoryError] = useState<string | null>(null)
   const [outlineImporting, setOutlineImporting] = useState(false)
   const [bulkOutlineOpen, setBulkOutlineOpen] = useState(false)
   const [bulkChapterOpen, setBulkChapterOpen] = useState(false)
@@ -469,11 +392,6 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const activeImportTaskIdRef = useRef<string | null>(null)
   const outlineImportCancelledRef = useRef(false)
   const memoryDecisionResolveRef = useRef<((decision: ImportMemoryDecision) => void) | null>(null)
-
-  const loadMemoryCenter = useCallback(async (projectPath: string) => {
-    const { loadMemoryCenterData } = await import("@/lib/novel/memory-center")
-    return loadMemoryCenterData(projectPath)
-  }, [])
 
   function cancelPendingCreate() {
     setPendingCreate(null)
@@ -933,48 +851,17 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
         ? t("sidebar.newFolderPrompt")
         : ""
 
-  useEffect(() => {
-    if (!(activeView === "lint" && novelMode)) return
-    setSelectedMemoryCenterEntry(null)
-  }, [activeView, novelMode, setSelectedMemoryCenterEntry])
-
-  useEffect(() => {
-    if (!(activeView === "lint" && novelMode)) return
-    if (selectedMemoryCenterEntry !== "dismantling-library") return
-    setSelectedMemoryCenterEntry(null)
-  }, [activeView, novelMode, selectedMemoryCenterEntry, setSelectedMemoryCenterEntry])
-
-  useEffect(() => {
-    if (!(activeView === "lint" && novelMode) || !project?.path) {
-      setMemoryData(null)
-      setMemoryError(null)
-      setMemoryLoading(false)
-      return
-    }
-
-    let cancelled = false
-    setMemoryLoading(true)
-    setMemoryError(null)
-
-    void loadMemoryCenter(project.path)
-      .then((nextData) => {
-        if (cancelled) return
-        setMemoryData(nextData)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        const message = err instanceof Error ? err.message : String(err)
-        setMemoryError(message)
-      })
-      .finally(() => {
-        if (cancelled) return
-        setMemoryLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeView, loadMemoryCenter, novelMode, project?.path])
+  /*
+   * 记忆中心整块从这里移除了。
+   *
+   * 它原本在 lint && novelMode 下渲染一个「记忆分类列表」，与右侧内容区构成
+   * 双栏结构。记忆中心已改为整窗单页（见 ui-test-shell.tsx 的 fullWindowViews），
+   * 分类列表变成页面顶部的标签条，所以这一栏、它的数据加载、以及它与内容区之间
+   * 的握手状态（selectedMemoryCenterEntry）全部不再需要。
+   *
+   * 注意 handleCancelImportMemoryExtraction 仍在下面：那是**导入章节时的记忆提取**
+   * 取消入口，与记忆中心的展示无关，两者此前共用过 memory 前缀，别误删。
+   */
 
   useEffect(() => {
     if (!onUiTestRegisterCancel) return
@@ -1010,90 +897,10 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     return <TrashPanel />
   }
 
-  if (activeView === "lint" && novelMode) {
-    const fileMap = new Map(memoryData?.files.map((file) => [file.key, file]) ?? [])
-    const entries = Object.keys(MEMORY_LABEL_KEYS).filter((key) => key !== "dismantling-library").map((key) => {
-      if (key === "snapshots") {
-        return {
-          key,
-          label: t(MEMORY_LABEL_KEYS[key]),
-          count: memoryData?.stats.snapshotCount ?? 0,
-          icon: MEMORY_ICONS[key] ?? FileText,
-          disabled: (memoryData?.snapshots.length ?? 0) === 0,
-        }
-      }
-
-      const file = fileMap.get(key)
-      return {
-        key,
-        label: t(MEMORY_LABEL_KEYS[key]),
-        count: countMemoryFileEntries(file),
-        icon: MEMORY_ICONS[key] ?? FileText,
-        disabled: !file,
-      }
-    })
-
-    return (
-      <div className="flex h-full flex-col">
-        <div data-ui-panel-heading className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-          <div className="flex items-center gap-1.5 text-sm font-semibold">
-          <PanelHeaderWithHelp title={t("novel.memoryCenter.title")} helpKey="memory" />
-        </div>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            onClick={() => {
-              if (!project?.path) return
-              setMemoryLoading(true)
-              setMemoryError(null)
-              void loadMemoryCenter(project.path)
-                .then((nextData) => setMemoryData(nextData))
-                .catch((err) => {
-                  const message = err instanceof Error ? err.message : String(err)
-                  setMemoryError(message)
-                })
-                .finally(() => setMemoryLoading(false))
-            }}
-            disabled={memoryLoading}
-            title={t("novel.memoryCenter.refresh")}
-          >
-            <RefreshCw className={`h-4 w-4 ${memoryLoading ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-2 py-3">
-          {memoryError ? (
-            <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {memoryError}
-            </div>
-          ) : null}
-
-          {memoryLoading && !memoryData ? (
-            <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">
-              <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
-              {t("novel.memoryCenter.loading")}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {entries.map((entry) => (
-                <MemoryCenterListButton
-                  key={entry.key}
-                  label={entry.label}
-                  count={entry.count}
-                  selected={selectedMemoryCenterEntry === entry.key}
-                  icon={entry.icon}
-                  disabled={entry.disabled}
-                  onClick={() => setSelectedMemoryCenterEntry(entry.key)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
+  /*
+   * 记忆中心分支已删除：分类列表变成页面内的标签条，整个记忆中心现在是整窗单页。
+   * 详见 ui-test-shell.tsx 的 fullWindowViews。
+   */
 
   return (
     <div className="flex h-full flex-col">

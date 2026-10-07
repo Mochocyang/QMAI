@@ -914,7 +914,14 @@
 
 .ui-test-root .ui-test-soul-back svg { width: 15px; height: 15px; }
 
-/* 记忆：保留实际条目与快照动作，章节筛选变成内容区的工具行。 */
+/*
+ * 记忆中心：整窗单页。
+ *
+ * 这里曾经有 memory-snapshots / memory-chapter-filter 两组规则，它们是
+ * **内层双栏**（左章节列表 + 右快照详情）的样式。两条竖栏拆掉后，
+ * 那些选择器在源码里已经不存在，留着只会误导下一个来改样式的人，所以一并删除。
+ * 新的结构是：统计条 + 标签条 + 全宽滚动内容区。
+ */
 .ui-test-root [data-ui-page="memory"] {
   overflow: hidden;
 }
@@ -924,42 +931,46 @@
   scrollbar-gutter: stable;
 }
 
-.ui-test-root [data-ui="memory-snapshots"] {
-  height: auto;
-  min-height: 100%;
-  flex-direction: column;
+/*
+ * 标签条：单排横向滚动，**绝不换行**。
+ *
+ * `flex-wrap: nowrap` 与 `overflow-x: auto` 在这里成对出现：
+ * 只给 overflow-x 而不锁 nowrap，窄屏下 flex 仍会折成两排，
+ * 而两排会被读成"排错了"（本项目刚修过同类缺陷）。
+ * 横向滚动至少是用户能预期的行为。
+ */
+.ui-test-root [data-ui="memory-tabs"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
-.ui-test-root [data-ui="memory-chapter-filter"] {
-  width: 100%;
-  border: 0;
-  margin-bottom: 20px;
-  gap: 10px;
+.ui-test-root [data-ui="memory-tabs"]::-webkit-scrollbar {
+  display: none;
 }
 
-.ui-test-root [data-ui="memory-chapter-filter"] > div {
-  padding-inline: 0;
-  border: 0;
+.ui-test-root [data-ui="memory-tab"] {
+  flex: 0 0 auto;
 }
 
-.ui-test-root [data-ui="memory-chapter-filter"] > .overflow-y-auto {
+/* 统计条同理：一排 chip，窄了横向滚动，不折行。 */
+.ui-test-root [data-ui="memory-stats"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ui-test-root [data-ui="memory-stats"]::-webkit-scrollbar {
+  display: none;
+}
+
+/* 快照集合：全宽纵向堆叠，取代原来的左右分栏。 */
+.ui-test-root [data-ui="memory-snapshot-collection"] {
   display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 130px;
-}
-
-.ui-test-root [data-ui="memory-chapter-filter"] > .overflow-y-auto > button {
-  width: auto;
-  max-width: 100%;
-  border-radius: 7px;
-  background: var(--ui-panel);
-}
-
-.ui-test-root [data-ui="memory-snapshots"] > .overflow-y-auto {
-  overflow: visible;
-  padding: 0;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
 }
 
 .ui-test-root [data-ui="memory-snapshot"],

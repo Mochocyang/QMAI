@@ -575,7 +575,6 @@ interface WikiState {
    * one wiki-relative) still works.
    */
   pendingScrollImageSrc: string | null
-  selectedMemoryCenterEntry: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
@@ -659,7 +658,7 @@ interface WikiState {
   setFileContent: (content: string) => void
   setPendingEditorHighlight: (highlight: PendingEditorHighlight | null) => void
   setPendingScrollImageSrc: (src: string | null) => void
-  setSelectedMemoryCenterEntry: (entry: string | null) => void
+
   setChatExpanded: (expanded: boolean) => void
   setSearchPanelOpen: (open: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
@@ -736,7 +735,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   fileContent: "",
   pendingEditorHighlight: null,
   pendingScrollImageSrc: null,
-  selectedMemoryCenterEntry: null,
+
   chatExpanded: false,
   searchPanelOpen: false,
   activeView: "wiki",
@@ -802,7 +801,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setFileContent: (fileContent) => set({ fileContent }),
   setPendingEditorHighlight: (pendingEditorHighlight) => set({ pendingEditorHighlight }),
   setPendingScrollImageSrc: (pendingScrollImageSrc) => set({ pendingScrollImageSrc }),
-  setSelectedMemoryCenterEntry: (selectedMemoryCenterEntry) => set({ selectedMemoryCenterEntry }),
+
   setChatExpanded: (chatExpanded) => set({ chatExpanded }),
   setSearchPanelOpen: (searchPanelOpen) => set({ searchPanelOpen }),
   setActiveView: (activeView) => set((state) => {

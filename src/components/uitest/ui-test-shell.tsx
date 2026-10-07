@@ -72,6 +72,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setTheme = useWikiStore((s) => s.setTheme)
   const selectedFile = useWikiStore((s) => s.selectedFile)
+  const novelMode = useWikiStore((s) => s.novelMode)
   const chatExpanded = useWikiStore((s) => s.chatExpanded)
   const setChatExpanded = useWikiStore((s) => s.setChatExpanded)
   const outlineExpanded = useOutlineGenerationStore((s) => s.panelOpen)
@@ -110,7 +111,16 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
   // 技能库、灵魂改为整窗卡片画廊，不再占用左侧目录栏。
   const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites" || activeView === "soul" || activeView === "bookAnalysis"
-  const hasDirectory = Boolean(project && activeView !== "settings" && !fullWindowViews)
+  /*
+   * 记忆中心同样改为整窗单页：它的分类列表现在是页面内的标签条，
+   * 不再需要左侧目录栏 —— 那一栏原来是"中间栏"，与右侧内容区构成双栏。
+   *
+   * 必须带上 novelMode：activeView === "lint" 由两个页面共用
+   * （content-area.tsx 里 novelMode ? <MemoryCenterView/> : <LintView/>）。
+   * LintView 依赖目录栏的章节树，只看 activeView 会把它的目录栏一起藏掉。
+   */
+  const memoryCenterFullWindow = activeView === "lint" && novelMode
+  const hasDirectory = Boolean(project && activeView !== "settings" && !fullWindowViews && !memoryCenterFullWindow)
   const sidebarPreference = preference.directory?.[activeView] ?? activeView !== "graph"
   const sidebarVisible = hasDirectory && sidebarPreference
   const showShelf = !project && !showGlobalSettings
