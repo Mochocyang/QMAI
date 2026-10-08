@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -1624,7 +1624,7 @@ export function KnowledgeTree({
                 ) : (
                   <span className="truncate font-medium">{node.name}</span>
                 )}
-                <span className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span data-ui-tree-meta="true" className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -1704,10 +1704,24 @@ export function KnowledgeTree({
             }`}
             title={page.title}
           >
-            {filterType === "outline" ? (page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : null}
             {/*
-              * 「已提取记忆」绿点：贴在标题左侧。已提取=实心绿点，提取中=灰点脉冲。
-              * 章节与大纲共用这一枚点，判定见上面的 memoryDotState。
+              * 「已提取记忆」绿点：标题左侧**唯一**的起始槽位，章节与大纲完全一致。
+              * 已提取=实心绿点，提取中=灰点脉冲，判定见上面的 memoryDotState。
+              *
+              * 大纲行原先在这一点之前还挂了个文件类型图标（普通 .md 是 FileText、
+              * 网页剪藏是 Globe）。那枚图标把大纲行的点与标题整体推右，是"排列不齐"的来源：
+              * ui-test.css 有一条 `.ui-test-root [data-ui-tree-row] > button:first-of-type > svg`
+              * 把所有行内图标统一成 15px，所以两种图标其实一样宽，问题不在图标之间，
+              * 而在于**图标本身 + 后面那个 8px 的 gap = 23px**：
+              * 实测（201px 栏宽）大纲标题左边界 47px，章节标题 24px，两个列表对不齐。
+              * 用户明确要求"不要前面的那个图标了，统一替换为小绿点"，故整枚图标删除：
+              * 大纲行结构从此是 [点槽][标题]，章节行是 [点槽][标题][字数]，
+              * 前缀逐字相同，实测两边标题左边界都落在 24px。
+              *
+              * 注意字号是**另一件事**，删图标并不能解决：删掉图标后大纲行的标题恰好变成
+              * 行内最后一个 span，会被 ui-test.css 里那条按"最后一个 span"选中的 0.75rem
+              * 规则命中，标题比章节小一号。所以那边改成用 data-ui-tree-meta 显式标记
+              * （见 ui-test.css 的注释），两处改动缺一不可。
               *
               * 没提取过时**仍然占位**（一个 aria-hidden 的空 span，尺寸 class 与真点完全相同）。
               * 最初这里是什么都不渲染，理由是"怕标题整体右移"——那个理由搞反了：
@@ -1761,7 +1775,7 @@ export function KnowledgeTree({
               <>
                 <span className="min-w-0 flex-1 truncate">{page.title.replace(/^第(\d+)章\s*/, "$1 ")}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+                  <span data-ui-tree-meta="true" className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
                     {page.wordCountLabel}
                   </span>
                 )}

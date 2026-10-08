@@ -198,6 +198,60 @@ describe("已提取记忆的小绿点：状态保持与统一显示", () => {
     cleanup()
   })
 
+  it("大纲行不再有前导文件图标：点槽就是行内第一个元素（问题：大纲图标与排列）", async () => {
+    const { container, render, cleanup } = mount()
+    render("outline")
+    await flush()
+
+    for (const name of ["主线索.md", "势力设定.md"]) {
+      const button = rowFor(container, name).querySelector("button")!
+      // 用户要求"大纲当中不要前面的那个图标了"，普通大纲的 FileText 与网页剪藏的 Globe
+      // 都要删干净。标题按钮里除了点槽和标题不该再有别的东西，所以这里直接断言没有 svg。
+      expect(button.querySelector("svg"), `${name} 的行里不该再有任何前导图标`).toBeNull()
+      // 点槽（真点或占位）必须是按钮里的第一个元素，标题紧随其后 —— 这正是章节行的结构，
+      // 也是"有点的"和"没点的"两类行标题左边界能落在同一个 x 上的前提。
+      const first = button.firstElementChild as HTMLElement
+      expect(first.matches("[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]")).toBe(true)
+      expect(first.nextElementSibling?.tagName).toBe("SPAN")
+    }
+    cleanup()
+  })
+
+  it("大纲行与章节行的起始槽位同构：左起第一格都是点槽，第二格都是标题", async () => {
+    const { container, render, cleanup } = mount()
+    const leading = (fileName: string) => {
+      const button = rowFor(container, fileName).querySelector("button")!
+      const [slot, title] = Array.from(button.children) as HTMLElement[]
+      return { slot, title }
+    }
+
+    render("outline")
+    await flush()
+    const outline = leading("势力设定.md")
+
+    render("chapter")
+    await flush()
+    const chapter = leading("第5章-归途.md")
+
+    /*
+     * 两个列表必须**左起同构**：[点槽][标题] —— 这是"标题左边界落在同一个 x"的唯一来源。
+     * 只比点槽的 class 是不够的：大纲行原先在点槽前面多挂了一枚 14px 的图标，
+     * 那样点槽根本不是第一个元素，标题会被整体推右 22px（网页剪藏的图标是 12px，又差 2px，
+     * 于是同一个大纲列表内部也参差不齐）。所以这里连"谁是第一个元素"一起钉住。
+     */
+    for (const [label, row] of [["大纲", outline], ["章节", chapter]] as const) {
+      expect(row.slot.matches("[data-ui-tree-memory-dot], [data-ui-tree-memory-dot-spacer]"),
+        `${label}行左起第一格必须是点槽`).toBe(true)
+      expect(row.title.tagName, `${label}行第二格是标题`).toBe("SPAN")
+      expect(row.title.className).toContain("truncate")
+    }
+    // 两侧的占位点是同一份 class，宽度因此逐字相同。
+    expect(outline.slot.className).toBe(chapter.slot.className)
+    // 标题的 class 也必须一致，否则 flex 行为（能否收缩、何时省略号）会不一样。
+    expect(outline.title.className).toBe(chapter.title.className)
+    cleanup()
+  })
+
   it("大纲行右侧不再有对号与提取按钮（问题二）", async () => {
     const { container, render, cleanup } = mount()
     render("outline")

@@ -245,7 +245,16 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 .ui-test-root [data-ui-tree-row] > button:first-of-type { padding-inline: 10px; gap: 8px; }
 .ui-test-root [data-ui-tree-row] > button:first-of-type > svg { width: 15px; height: 15px; color: var(--ui-muted); }
 .ui-test-root [data-ui-tree-row] > button:first-of-type .text-amber-500 { color: var(--ui-muted); }
-.ui-test-root [data-ui-tree-row] > button:first-of-type > span:last-child:not(:first-of-type) { font-size: 0.75rem; }
+/*
+ * 尾部的小号「元数据」文字：文件夹的条数、章节的字数。
+ *
+ * 这里原先写的是 `> span:last-child:not(:first-of-type)` —— 用"最后一个 span"来挑这两处，
+ * 结果是**大纲行被误伤**：大纲行的行内结构是 [点槽][标题]，标题正好是最后一个 span，
+ * 于是大纲标题被压到 0.75rem，而章节标题是 0.875rem，同一个侧栏里两个列表的字号不一致。
+ * 改成由 `data-ui-tree-meta` 显式标记后，命中范围与"条数/字数"这个本意完全一致，
+ * 大纲标题恢复成与章节标题同号的 0.875rem（继承行按钮的 text-sm）。
+ */
+.ui-test-root [data-ui-tree-row] > button:first-of-type > [data-ui-tree-meta] { font-size: 0.75rem; }
 .ui-test-root .ui-test-tree-more { position: absolute; right: 2px; top: 5px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: var(--ui-panel); line-height: 0; box-shadow: none; z-index: 2; }
 .ui-test-root .ui-test-tree-more svg { display: block; width: 15px; height: 15px; margin: 0; }
 .ui-test-root .ui-test-tree-more:hover, .ui-test-root .ui-test-tree-more:active, .ui-test-root .ui-test-tree-more:focus-visible { padding: 0; border: 0; border-radius: 6px; box-shadow: none; transform: none; }
