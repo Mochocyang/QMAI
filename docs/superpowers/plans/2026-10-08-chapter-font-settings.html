@@ -4394,21 +4394,49 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 179、返回体 225、selector 260–261、<strong>两个</strong> initialDraft 调用 283–284 与 352、resync deps 370、handleSave 494–495、deps 524）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「4) 保存时」那一段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「正文字号」用例里 <strong>5) 保存时</strong> 那一段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先把守卫的保存链路那一段改成新契约（看到红）</div>
     <div class="step-body">
-      <p>把那条测试里关于 <code>settingsViewSource</code> 的那一段（从 <code>// 4) 保存时</code> 到 <code>saveUiFontSizeScale(…)</code> 为止；改造前是第 120–125 行，本文件已被前面任务改过、行号已偏移）替换为：</p>
-<pre><code>    // 4) 保存时**既写 store 也持久化**。
+      <div class="note warn">
+        <span class="t">先看清是<strong>哪一条</strong>测试、<strong>哪一段</strong> —— 编号已被任务 9 改过</span>
+        <p>要改的是「<strong>正文字号接成完整一条链路，且与界面字号各自独立</strong>」这条用例里，
+        以 <code>// 5) 保存时既写 store 也持久化（&#42;&#42;旧契约，任务 10 改写&#42;&#42;）</code>
+        开头、到 <code>saveUiFontSizeScale(draft.uiFontSizeScale</code> 为止的那一段
+        （本任务已在 <code>interface-sidebar-nav.spec.ts</code> 里把它标成"旧契约"，
+        照着标记找最稳）。</p>
+        <p><strong>不要按行号找</strong>。任务 9 已往这条用例里插入了一段新的 <code>2)</code>，
+        原来的编号整体顺延；而且它当时<strong>漏改了顺延</strong>，
+        文件里一度出现两个 <code>// 3)</code>（质量评审报出，已在
+        <code>3c53528</code> 一并修正）。修好后这条用例的编号是：</p>
+        <ul>
+          <li><code>1)</code> 控件在共享组件里</li>
+          <li><code>2)</code> 设置页通过共享组件接线</li>
+          <li><code>3)</code> 草稿类型里有这 6 个字段</li>
+          <li><code>4)</code> store：5 个新状态 + 5 个 setter + 5 个互不相同的键</li>
+          <li><code>5)</code> 保存时既写 store 也持久化 ← <strong>本任务替换这一段</strong></li>
+          <li><code>6)</code> 界面字号照旧保存</li>
+        </ul>
+        <p>替换后的编号是 <code>5)</code> 与 <code>6)</code>
+        （本任务原稿写的是 <code>4)</code> 与 <code>5)</code> —— 那是任务 9 插入之前的编号，
+        照抄会再造出两个 <code>// 4)</code>）。</p>
+        <p>这条提醒的通用教训：图纸上的<strong>行号与编号都会随前面任务的落地而漂</strong>。
+        本任务原稿只承认了行号会漂，没承认编号也会 ——
+        而编号更容易被忽略，因为它看起来像"内容"而不是"坐标"。
+        <strong>凡引用别处的位置，一律用可内容定位的标记（如这里的"旧契约"标记），不要用序号。</strong></p>
+      </div>
+
+      <p>把那一段替换为：</p>
+<pre><code>    // 5) 保存时**既写 store 也持久化**。
     //    只做一个就会出现「这次生效、下次启动丢失」或反之 ——
     //    本仓库已经踩过这个坑，这两条断言就是当时的产物。
     for (const name of ["FontPx", "LineHeight", "LetterSpacing", "MarginX", "SafeBottom"]) {
       expect(settingsViewSource).toContain(`setUiBody${name}(draft.uiBody${name})`)
       expect(settingsViewSource).toContain(`saveUiBody${name}(draft.uiBody${name}`)
     }
-    // 5) 界面字号与界面字体照旧保存，不能被新字段挤掉
+    // 6) 界面字号与界面字体照旧保存，不能被新字段挤掉
     expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
     expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")</code></pre>
 
