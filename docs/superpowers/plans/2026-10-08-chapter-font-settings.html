@@ -953,7 +953,7 @@ describe("createDebouncedPersist", () =&gt; {
     expect(calls).toEqual(["a"])
   })
 
-  it("没有待落盘内容时 flush 什么也不做", () =&gt; {
+  it("没有待落盘内容时 flush 什么也不做", async () =&gt; {
     const calls: string[] = []
     const d = createDebouncedPersist(400)
     d.flush()
