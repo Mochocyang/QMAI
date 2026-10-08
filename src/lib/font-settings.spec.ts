@@ -675,6 +675,26 @@ describe("正文排版参数", () => {
     expect(bodyFontPxFromScale([])).toBe(DEFAULT_BODY_FONT_PX)
   })
 
+  it("数字字符串必须照常可用：localStorage 里存的就是 String(number)", () => {
+    // 为什么单独立一条：getItem() 返回的永远是字符串。
+    // 若某个钳制函数改成只接受 typeof value === "number"，
+    // 用户存过的值会被当成"没存过"而悄悄退回默认 ——
+    // 界面一切正常，只是设置"不生效"，属于最难发现的那类缺陷。
+    // 注意 toFiniteNumber 会先 trim：读取路径上出现带空白的字符串
+    // 是有可能的（手改过 app-state.json / 老版本写入格式不同）。
+    expect(clampBodyFontPx("18")).toBe(18)
+    expect(clampBodyFontPx(" 21 ")).toBe(21)
+    expect(clampBodyLineHeight("1.95")).toBe(1.95)
+    expect(clampBodyLetterSpacing("2")).toBe(2)
+    expect(clampBodyMarginX("40")).toBe(40)
+    expect(clampBodySafeBottom("60")).toBe(60)
+    // 越界的字符串同样要钳制，而不是原样漏出去
+    expect(clampBodyFontPx("999")).toBe(BODY_FONT_PX_MAX)
+    expect(clampBodyLineHeight("9")).toBe(BODY_LINE_HEIGHT_MAX)
+    // 负数也得能读出来（字间距允许负值）
+    expect(clampBodyLetterSpacing("-0.5")).toBe(-0.5)
+  })
+
   it("旧倍数迁移成 px：0.85→15 / 1→18 / 1.25→23 / 1.5→27", () => {
     // 第二参数缺省 = 界面字号 100%，老调用与老语义不变
     expect(bodyFontPxFromScale(0.85)).toBe(15)
