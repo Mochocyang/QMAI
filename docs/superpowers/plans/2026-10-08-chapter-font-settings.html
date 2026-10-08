@@ -196,6 +196,36 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
   </div>
 
+  <h3>守卫那一层与实现，必须进同一个提交</h3>
+  <div class="note warn">
+    <span class="t">不要把守卫的改动"留给最后一个任务统一提交"—— 那会让中间每个提交都是红的</span>
+    <p><code>interface-sidebar-nav.spec.ts</code> 里那条横跨五层的断言，由任务 3 / 5 / 9 / 10 / 11
+    各认领一层。每个任务都要<strong>改自己那一层，并在自己的提交里一起提交它</strong>。</p>
+    <p>这条规则不是洁癖，是实测出来的：本计划早期版本让这五个任务"改而不提交"，
+    由任务 12 统一提交。结果在任务 3 的检出处实跑，那个提交<strong>是红的</strong>：</p>
+    <pre><code>❯ interface-sidebar-nav.spec.ts (7 tests | 1 failed)
+  × 正文字号接成完整一条链路，且与界面字号各自独立
+  AssertionError: expected 'import { create } from "zustand"…'
+                  to contain 'uiBodyFontSizeScale: readStoredBodyFo…'</code></pre>
+    <p>因为任务 3 改了 <code>wiki-store.ts</code>（删旧字段、加 5 个新字段），
+    而被推迟提交的 spec 那一层还在要求旧字段存在。于是：</p>
+    <ul>
+      <li>任务 3 / 5 / 9 / 10 / 11 的<strong>每一个</strong>提交都是红的；</li>
+      <li><code>git bisect</code> 全部失效 —— 它会把红归给不相干的提交；</li>
+      <li>某个任务的改动若要 revert 或 cherry-pick，窗口完全错乱。</li>
+    </ul>
+    <p><strong>可能有人会担心</strong>：spec 那个 it 横跨五层，各任务分别提交，
+    会不会出现"我这层改了、别层还没跟上"的红？<strong>不会</strong> ——
+    尚未被认领的那几层断言全都是"某个源文件里必须出现某字面量"，
+    而那些源文件（<code>App.tsx</code>、<code>settings-view.tsx</code>、
+    <code>settings-types.ts</code>、<code>interface-section.tsx</code>）
+    在各自任务动手<strong>之前</strong>仍然含有那些字面量，所以照样绿。
+    按层提交天然自洽。</p>
+    <p>同理，<strong>不要</strong>因为"想让 <code>git diff --stat</code> 干净"
+    就把自己刚写的断言 <code>git checkout --</code> 掉。那会把这一层守卫整个抹掉，
+    而它正是该任务存在的理由。</p>
+  </div>
+
   <h3>写 store 测试前必读：zustand 的 getState() 是快照</h3>
   <div class="note warn">
     <span class="t">先取快照、再调 setter、再断言快照的字段 —— 这条必定红，且与你的实现无关</span>
@@ -1251,7 +1281,7 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/stores/wiki-store.ts（键定义区、读取函数区、state 类型、setter 区、initial state）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「3) store：」那一段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「3) store：」那一段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
     <div>Create: src/stores/wiki-store.body-typography.spec.ts（本仓库按关注点命名，参考 wiki-store.ai-outline-model.spec.ts）</div>
   </div>
 
@@ -1435,8 +1465,27 @@ describe("正文排版参数（store 侧）", () => {
     expect(localStorage.getItem("qmai-body-margin-x")).toBe("40")
     s.setUiBodyMarginX(null)
     expect(store.getState().uiBodyMarginX).toBeNull()
-    // null 不能落成字符串 "null"，否则读回时 Number("null") 是 NaN
-    expect(localStorage.getItem("qmai-body-margin-x")).not.toBe("null")
+
+    /*
+     * ⚠ 这里必须是**正面断言"键不存在"**，不能只断言"不是字符串 null"。
+     *
+     * 只写 .not.toBe("null") 的话，它只排除了一种错误写法，
+     * 下面两种真错法都会溜过去（实测都存活）：
+     *   · removeItem(**错键**) —— 正键仍留着上面的 "40"
+     *   · null 分支**什么都不做** —— 正键仍留着 "40"
+     * 两者的症状都是：用户点了「跟随窗口」，界面看着对了，
+     * **重开软件又变回旧值** —— 因为那个 40 从来没被删掉。
+     * 这就是"用否定排除法代替正面断言"的陷阱：断言"不是甲"对乙丙丁毫无约束力。
+     */
+    expect(localStorage.getItem("qmai-body-margin-x")).toBeNull()
+
+    /*
+     * 再走一次往返：证明"删掉"之后仍然**能重新写入**。
+     * 否则一个"永远不写这个键"的实现也能骗过上面那条断言。
+     */
+    s.setUiBodyMarginX(64)
+    expect(store.getState().uiBodyMarginX).toBe(64)
+    expect(localStorage.getItem("qmai-body-margin-x")).toBe("64")
   })
 
   /*
@@ -1722,16 +1771,17 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
 npx vitest run src/stores/wiki-store.body-typography.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.body-typography.spec.ts
+      <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.body-typography.spec.ts \
+        src/components/settings/interface-sidebar-nav.spec.ts
 git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久化键"</code></pre>
     </div>
   </div>
@@ -2022,9 +2072,9 @@ export async function loadUiBodySafeBottom(): Promise&lt;number | null&gt; {
 npx vitest run src/lib/project-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
@@ -2045,7 +2095,7 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/App.tsx（import 9 行；selector 43–44 行；effect 148–157 行；启动读回 251–254 行）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「5) App」那条 it：正文字号通过倍数变量应用…）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「5) App」那条 it：正文字号通过倍数变量应用…）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
   </div>
 
   <div class="step">
@@ -2237,16 +2287,16 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
 npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/App.tsx
+      <pre class="cmd"><code>git add src/App.tsx src/components/settings/interface-sidebar-nav.spec.ts
 git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"</code></pre>
     </div>
   </div>
@@ -2317,9 +2367,9 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
@@ -2562,9 +2612,9 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
@@ -3129,9 +3179,9 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
 npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
@@ -3154,7 +3204,7 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     <div>Modify: src/components/settings/settings-types.ts:69–70（两个字段 → 6 个）</div>
     <div>Modify: src/components/settings/sections/interface-section.tsx（import 区、hook 区、两行控件）</div>
     <div>Modify: src/components/settings/sections/interface-section.spec.tsx（Harness 草稿的 6 个字段）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「1) 设置页有两行控件」与「2) 草稿类型里有该字段」两段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「1) 设置页有两行控件」与「2) 草稿类型里有该字段」两段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
   </div>
 
   <div class="step">
@@ -3329,16 +3379,17 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
 npx vitest run src/components/settings/sections/interface-section.spec.tsx src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/components/settings/settings-types.ts src/components/settings/sections/interface-section.tsx src/components/settings/sections/interface-section.spec.tsx
+      <pre class="cmd"><code>git add src/components/settings/settings-types.ts src/components/settings/sections/interface-section.tsx src/components/settings/sections/interface-section.spec.tsx \
+        src/components/settings/interface-sidebar-nav.spec.ts
 git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控件"</code></pre>
     </div>
   </div>
@@ -3352,7 +3403,7 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 179、返回体 225、selector 260–261、<strong>两个</strong> initialDraft 调用 283–284 与 352、resync deps 370、handleSave 494–495、deps 524）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「4) 保存时」那一段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「4) 保存时」那一段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
   </div>
 
   <div class="step">
@@ -3467,16 +3518,16 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
 npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/components/settings/settings-view.tsx
+      <pre class="cmd"><code>git add src/components/settings/settings-view.tsx src/components/settings/interface-sidebar-nav.spec.ts
 git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</code></pre>
     </div>
   </div>
@@ -3490,7 +3541,7 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/layout/preview-panel.tsx（import 3 行；位置助手 175–188；state 237–238 旁；章节工具栏 1520；大纲工具栏 1530 后；浮层 1930 旁）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前**追加**一条新 it）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前**追加**一条新 it）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
     <div>Create: src/components/layout/preview-panel.chapter-toolbar.spec.tsx</div>
   </div>
 
@@ -3881,16 +3932,17 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
 npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 8：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/components/layout/preview-panel.tsx src/components/layout/preview-panel.chapter-toolbar.spec.tsx
+      <pre class="cmd"><code>git add src/components/layout/preview-panel.tsx src/components/layout/preview-panel.chapter-toolbar.spec.tsx \
+        src/components/settings/interface-sidebar-nav.spec.ts
 git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大纲新增字体设置浮层"</code></pre>
     </div>
   </div>
@@ -3903,7 +3955,7 @@ git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大
 
   <div class="files">
     <div class="lbl">Files</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts</div>
+    <div>Verify: src/components/settings/interface-sidebar-nav.spec.ts —— 五层断言<strong>已由任务 3 / 5 / 9 / 10 / 11 各自改好并各自提交</strong>。本任务只复核"五层都在、且都没有被放松"，<strong>不再重写它</strong>。若发现哪一层被放松了，在本任务里补回（那时才改它、才提交它）。</div>
     <div>Verify: src/components/uitest/ui-test-editor.spec.tsx（断言在任务 7 里写的，本任务只跑它、不改它）</div>
     <div>Modify: docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</div>
     <div>Modify: docs/font-scaling-fix-20261007/verify-body-font-scale.mjs</div>
@@ -4244,16 +4296,16 @@ node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
-        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
-        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+        更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
+        而那正是本仓库历史上踩过的坑。</p>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 12f：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/components/settings/interface-sidebar-nav.spec.ts docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs docs/font-scaling-fix-20261007/verify-body-font-scale.mjs docs/font-scaling-fix-20261007/verify-real-exe.mjs docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs
+      <pre class="cmd"><code>git add docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs docs/font-scaling-fix-20261007/verify-body-font-scale.mjs docs/font-scaling-fix-20261007/verify-real-exe.mjs docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs
 git commit -m "test(排版): 守卫跟随 px 模型，新增变量独占与派生比例两条防线"</code></pre>
     </div>
   </div>
