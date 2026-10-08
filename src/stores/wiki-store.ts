@@ -17,9 +17,18 @@ import {
 } from "@/lib/sidebar-nav-preferences"
 import {
   DEFAULT_BODY_FONT_FAMILY,
-  DEFAULT_BODY_FONT_SIZE_SCALE,
+  DEFAULT_BODY_FONT_PX,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_LETTER_SPACING,
+  DEFAULT_BODY_MARGIN_X,
+  DEFAULT_BODY_SAFE_BOTTOM,
   DEFAULT_UI_FONT_FAMILY,
-  clampBodyFontSizeScale,
+  clampBodyFontPx,
+  clampBodyLineHeight,
+  clampBodyLetterSpacing,
+  clampBodyMarginX,
+  clampBodySafeBottom,
+  resolveMigratedBodyFontPx,
   clampUiFontSizeScale,
   normalizeBodyFontFamily,
   normalizeUiFontFamily,
@@ -63,6 +72,15 @@ const UI_FONT_FAMILY_KEY = "qmai-ui-font-family"
 const BODY_FONT_FAMILY_KEY = "qmai-body-font-family"
 /** 正文字号独立键：与界面字号分开存。 */
 const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"
+/*
+ * 旧键保留**只读**：新用户不会再写它，但读回时要用它做一次性迁移。
+ * 不删除的理由：用户回滚到旧版本时，旧设置仍然在。
+ */
+const BODY_FONT_PX_KEY = "qmai-body-font-px"
+const BODY_LINE_HEIGHT_KEY = "qmai-body-line-height"
+const BODY_LETTER_SPACING_KEY = "qmai-body-letter-spacing"
+const BODY_MARGIN_X_KEY = "qmai-body-margin-x"
+const BODY_SAFE_BOTTOM_KEY = "qmai-body-safe-bottom"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
 type SettingsCategoryId =
@@ -95,11 +113,51 @@ const readStoredBodyFontFamily = (): BodyFontFamily => {
   return normalizeBodyFontFamily(localStorage.getItem(BODY_FONT_FAMILY_KEY))
 }
 
-const readStoredBodyFontSizeScale = (): number => {
-  if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_SIZE_SCALE
-  const raw = localStorage.getItem(BODY_FONT_SIZE_SCALE_KEY)
-  if (raw === null) return DEFAULT_BODY_FONT_SIZE_SCALE
-  return clampBodyFontSizeScale(raw)
+/**
+ * 读回正文字号（px）。
+ *
+ * 新键优先；读不到时交给 resolveMigratedBodyFontPx 决定，它会
+ * **把界面字号乘进去**（0.85→15 / 1→18 / 1.25→23 / 1.5→27），
+ * 并在「没存过 + 界面字号非默认」时按界面字号补种一次。
+ * 旧键不写、不删，见上面常量处的说明。
+ *
+ * ⚠ 顺序是有意义的：readStoredUiFontSizeScale 定义在本函数**上方**。
+ * 本函数在模块求值期就会被调用（state 初始化处），若它引用了
+ * 定义在下面的 const 箭头函数，会直接抛暂时性死区错误、整个 store
+ * 起不来。挪动这两个函数的相对位置前先看这条警告。
+ */
+const readStoredBodyFontPx = (): number => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_PX
+  const raw = localStorage.getItem(BODY_FONT_PX_KEY)
+  if (raw !== null) return clampBodyFontPx(raw)
+  const legacy = localStorage.getItem(BODY_FONT_SIZE_SCALE_KEY)
+  const migrated = resolveMigratedBodyFontPx(legacy, readStoredUiFontSizeScale())
+  // null = 没有可迁移/可补种的值，保持默认
+  return migrated ?? DEFAULT_BODY_FONT_PX
+}
+
+/**
+ * 读取一个「数字 or null」的排版参数。
+ * null 是合法取值（仅左右边距用它表示「跟随窗口」），见 clampBodyMarginX。
+ */
+const readStoredBodyLineHeight = (): number => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_LINE_HEIGHT
+  return clampBodyLineHeight(localStorage.getItem(BODY_LINE_HEIGHT_KEY))
+}
+
+const readStoredBodyLetterSpacing = (): number => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_LETTER_SPACING
+  return clampBodyLetterSpacing(localStorage.getItem(BODY_LETTER_SPACING_KEY))
+}
+
+const readStoredBodyMarginX = (): number | null => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_MARGIN_X
+  return clampBodyMarginX(localStorage.getItem(BODY_MARGIN_X_KEY))
+}
+
+const readStoredBodySafeBottom = (): number => {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_SAFE_BOTTOM
+  return clampBodySafeBottom(localStorage.getItem(BODY_SAFE_BOTTOM_KEY))
 }
 
 const readStoredVisualStyle = (): VisualStyle => {
@@ -668,7 +726,16 @@ interface WikiState {
   uiFontSizeScale: number
   uiFontFamily: UiFontFamily
   uiBodyFontFamily: BodyFontFamily
-  uiBodyFontSizeScale: number
+  /** 正文字号（px 绝对值）。替代原 uiBodyFontSizeScale（倍数）。 */
+  uiBodyFontPx: number
+  /** 正文行间距（无单位倍数）。 */
+  uiBodyLineHeight: number
+  /** 正文字间距（px，可为负）。 */
+  uiBodyLetterSpacing: number
+  /** 正文左右边距（px）；null = 跟随窗口。 */
+  uiBodyMarginX: number | null
+  /** 正文底部安全距离（px）。 */
+  uiBodySafeBottom: number
   visualStyle: VisualStyle
   sidebarNavConfig: SidebarNavConfig
   dataVersion: number
@@ -745,7 +812,11 @@ interface WikiState {
   setUiFontSizeScale: (scale: number) => void
   setUiFontFamily: (fontFamily: UiFontFamily) => void
   setUiBodyFontFamily: (fontFamily: BodyFontFamily) => void
-  setUiBodyFontSizeScale: (scale: number) => void
+  setUiBodyFontPx: (value: number) => void
+  setUiBodyLineHeight: (value: number) => void
+  setUiBodyLetterSpacing: (value: number) => void
+  setUiBodyMarginX: (value: number | null) => void
+  setUiBodySafeBottom: (value: number) => void
   setVisualStyle: (visualStyle: VisualStyle) => void
   setSidebarNavConfig: (config: Partial<SidebarNavConfig>) => void
   bumpDataVersion: () => void
@@ -968,7 +1039,11 @@ export const useWikiStore = create<WikiState>((set) => ({
   uiFontSizeScale: readStoredUiFontSizeScale(),
   uiFontFamily: readStoredUiFontFamily(),
   uiBodyFontFamily: readStoredBodyFontFamily(),
-  uiBodyFontSizeScale: readStoredBodyFontSizeScale(),
+  uiBodyFontPx: readStoredBodyFontPx(),
+  uiBodyLineHeight: readStoredBodyLineHeight(),
+  uiBodyLetterSpacing: readStoredBodyLetterSpacing(),
+  uiBodyMarginX: readStoredBodyMarginX(),
+  uiBodySafeBottom: readStoredBodySafeBottom(),
   visualStyle: readStoredVisualStyle(),
   sidebarNavConfig: readStoredSidebarNavConfig(),
 
@@ -1046,14 +1121,43 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
     set({ uiBodyFontFamily: normalized })
   },
-  setUiBodyFontSizeScale: (scale) => {
-    // 与界面字号同样的"单一来源"处理：读回与写入都走同一个 clamp，
-    // 否则会出现"设成 150% 后下次启动被读回时截成别的值"。
-    const clamped = clampBodyFontSizeScale(scale)
+  /*
+   * 5 个排版参数的统一写法：钳制 → 落 localStorage → 写 store。
+   * 三者缺一都会出问题：
+   *   · 少钳制 → 「设成 200px 后下次启动被读回时截成别的值」；
+   *   · 少落盘 → 这次生效、下次启动丢失；
+   *   · 少写 store → 界面不刷新。
+   * 范围一律来自 font-settings.ts 的 clamp，不在这里重写数字。
+   */
+  setUiBodyFontPx: (value) => {
+    const clamped = clampBodyFontPx(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_FONT_PX_KEY, String(clamped))
+    set({ uiBodyFontPx: clamped })
+  },
+  setUiBodyLineHeight: (value) => {
+    const clamped = clampBodyLineHeight(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_LINE_HEIGHT_KEY, String(clamped))
+    set({ uiBodyLineHeight: clamped })
+  },
+  setUiBodyLetterSpacing: (value) => {
+    const clamped = clampBodyLetterSpacing(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_LETTER_SPACING_KEY, String(clamped))
+    set({ uiBodyLetterSpacing: clamped })
+  },
+  setUiBodyMarginX: (value) => {
+    const clamped = clampBodyMarginX(value)
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY, String(clamped))
+      // null 表示「跟随窗口」：移除该键，让读取函数回到默认的 null，
+      // 而不是写字符串 "null"（读回时 Number("null") 是 NaN）
+      if (clamped === null) localStorage.removeItem(BODY_MARGIN_X_KEY)
+      else localStorage.setItem(BODY_MARGIN_X_KEY, String(clamped))
     }
-    set({ uiBodyFontSizeScale: clamped })
+    set({ uiBodyMarginX: clamped })
+  },
+  setUiBodySafeBottom: (value) => {
+    const clamped = clampBodySafeBottom(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_SAFE_BOTTOM_KEY, String(clamped))
+    set({ uiBodySafeBottom: clamped })
   },
   setVisualStyle: (visualStyle) => {
     const normalized = normalizeVisualStyle(visualStyle)
