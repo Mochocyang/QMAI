@@ -25,6 +25,15 @@ import {
   defaultBodyMarginXForViewport,
 } from "@/lib/font-settings"
 
+/*
+ * React 19 需要这个全局，act(...) 才会正常工作且不刷警告。
+ * 同目录另外四个手写 createRoot+act 的 spec 都设了它
+ * （data-management-section / user-memory-section / interface-section /
+ *  uitest/ui-test-tools），这个文件原先漏了 —— 每条用例都会往 stderr 打
+ * `The current testing environment is not configured to support act(...)`。
+ */
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 let root: Root
 let container: HTMLDivElement
 

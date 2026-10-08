@@ -1848,6 +1848,27 @@
   margin-top: 28px;
 }
 
+/*
+ * 嵌套时不要再叠一次外边距。
+ *
+ * 为什么会有嵌套：设置页把它自己的字段容器标成 data-ui="interface-fields"，
+ * 而任务 9 引入的共享控件（body-typography-fields）根节点**也必须**带这个属性 ——
+ * 它的 label / p / select / range 样式全靠上面那组后代选择器
+ * （本文件 1858 / 1862 / 1868 / 1886 行），去掉属性那些样式会整块失效。
+ *
+ * 于是同一条规则命中两层。在 flex 容器里，**gap 与子项 margin 是相加的**，
+ * 所以正文那一组上方会变成 26 + 28 = 54px，而同层其它行之间是 26px ——
+ * 大约两倍，看起来像"这里多空了一块"。
+ *
+ * 上面那条 margin-top: 28px 是在"这个块只会出现一次"的前提下写的
+ * （它负责跟皮肤区拉开距离），嵌套出现是任务 9 才有的新情况，
+ * 不是当初的有意设计。所以这里把**内层**的 margin-top 归零：
+ * 内外层之间的间距交回给外层的 gap（26px），与其它行保持一致。
+ */
+.ui-test-root [data-ui="interface-fields"] [data-ui="interface-fields"] {
+  margin-top: 0;
+}
+
 .ui-test-root [data-ui="interface-fields"] .ui-test-interface-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(160px, 250px);

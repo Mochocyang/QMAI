@@ -98,11 +98,21 @@ describe("settings sidebar nav preferences", () => {
   })
 
   /**
-   * 正文字号（独立设置）的接线防线 —— 与正文字体同样的整条链路。
+   * 正文字号的接线防线 —— 与正文字体同样的整条链路。
    *
-   * 特别注意「两个范围必须各自独立」：界面字号 80%–150%、正文字号 85%–150%，
-   * 若有人图省事让两者共用常量或共用 localStorage 键，
-   * 会出现"改界面字号把正文字号也改了"这种极难排查的串味。
+   * ── 注意：本用例的下半段现在还钉着**旧契约**，任务 10 会整体改写 ──
+   *
+   * 上半段（1) 与 2)）已经是新契约：控件在共享组件里、设置页只做接线。
+   * 下半段（4) 与 5)）钉的还是旧字段 `uiBodyFontSizeScale` ——
+   * 那是"倍数"时代的字段，任务 3 已把它换成绝对值 `uiBodyFontPx`。
+   * 这两条断言**目前是绿的**，因为 `settings-view.tsx` 里那段旧代码还在
+   * （也正是 `tsc` 现在报的那 6 条错的来源）；任务 10 会同时改源码与这里。
+   *
+   * 原注释说的「界面字号 80%–150%、正文字号 85%–150%，两个范围必须各自独立」
+   * 只对**界面字号**仍成立：正文字号已改成绝对 px（12–32，见
+   * `font-settings.ts` 的 `BODY_FONT_PX_MIN/MAX`），不再是百分比。
+   * "两个范围必须各自独立"这个**意图**仍然要守（改界面字号不得动正文字号），
+   * 只是它的形式从"两个百分比范围"变成"百分比 vs 绝对 px"。
    */
   it("正文字号接成完整一条链路，且与界面字号各自独立", () => {
     // 1) 控件在**共享组件**里，且绑定到草稿字段
@@ -122,7 +132,15 @@ describe("settings sidebar nav preferences", () => {
       expect(bodyTypographySource).toContain(`label="${label}"`)
     }
     // 2) 设置页通过共享组件接线，而不是自己再写一套控件
-    expect(interfaceSectionSource).toContain("BodyTypographyFields")
+    //
+    // ⚠ 必须断言 `<BodyTypographyFields`（带尖括号），不能只断言 `BodyTypographyFields`。
+    //
+    // 后者是**空转**的：那个串在 interface-section.tsx 里出现两次 ——
+    // import 说明符与 JSX。只删 JSX、留下 import 时，整文件文本里它照样在，
+    // 断言照样绿。Task 9 的实现者用变异实测发现了这一点
+    // （M7：删掉整块 JSX 而保留 import，本文件 0 条 FAIL 全绿），我独立复核后收紧。
+    // 这是"源码文本断言必须钉到**使用点**，不能钉到**名字出现过**"的又一例。
+    expect(interfaceSectionSource).toContain("<BodyTypographyFields")
     expect(interfaceSectionSource).toContain('setDraft("uiBodyFontPx"')
     expect(interfaceSectionSource).toContain('setDraft("uiBodyLineHeight"')
     expect(interfaceSectionSource).toContain('setDraft("uiBodyLetterSpacing"')
@@ -132,7 +150,7 @@ describe("settings sidebar nav preferences", () => {
     for (const field of ["uiBodyFontFamily", "uiBodyFontPx", "uiBodyLineHeight", "uiBodyLetterSpacing", "uiBodyMarginX", "uiBodySafeBottom"]) {
       expect(settingsTypesSource).toContain(field)
     }
-    // 3) store：5 个新状态 + 5 个 setter + 5 个**互不相同**的 localStorage 键
+    // 4) store：5 个新状态 + 5 个 setter + 5 个**互不相同**的 localStorage 键
     //
     // 键必须各不相同：共用一个键会让「改行距把字号也改了」这种串味缺陷
     // 出现，而且极难排查 —— 这是本仓库已经吃过一次的亏。
@@ -176,10 +194,10 @@ describe("settings sidebar nav preferences", () => {
     // 旧倍数键必须保留只读（迁移要用），但不得再被写入
     expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
     expect(wikiStoreSource).not.toContain("localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY")
-    // 4) 保存时既写 store 也持久化
+    // 5) 保存时既写 store 也持久化（**旧契约，任务 10 改写**）
     expect(settingsViewSource).toContain("setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)")
     expect(settingsViewSource).toContain("saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale")
-    // 5) 界面字号照旧保存，不能被挤掉
+    // 6) 界面字号照旧保存，不能被挤掉
     expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
   })
 

@@ -19,6 +19,17 @@ import { UI_FONT_OPTIONS, BODY_FONT_OPTIONS, getBodyFontFamilyCss, normalizeBody
 import { SYSTEM_FONT_PREFIX } from "@/lib/system-fonts"
 import { BUNDLED_FONT_LICENSES } from "@/lib/bundled-font-licenses"
 
+/*
+ * React 19 需要这个全局，act(...) 才会正常工作且不刷警告。
+ * 同目录另外三个手写 createRoot+act 的 spec 都设了它
+ * （data-management-section / user-memory-section / uitest/ui-test-tools），
+ * 这里原先漏了 —— 后果是每条用例都往 stderr 打
+ * `The current testing environment is not configured to support act(...)`：
+ * 测试仍然通过，但**真正的失败会被淹没在这堆噪声里**，
+ * 而本文件恰恰有好几条"缺字段就会炸"的用例（见下方 Harness 的注释）。
+ */
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 /** 本机字体枚举的假结果，由各用例覆盖。 */
 const sysFonts = vi.hoisted(() => ({
   result: [] as { family: string; display: string }[],
@@ -60,9 +71,11 @@ async function renderSection() {
       uiLanguage: "zh",
       uiFontFamily: "system",
       uiFontSizeScale: 1,
-      // 正文的 6 个字段也必须给：缺了会让字号/行距算出 NaN、
-      // 正文字体下拉拿到 undefined，在 jsdom 里刷一堆与本测试无关的告警，
-      // 从而把真正的失败淹没掉
+      // 正文的 6 个字段也必须给：缺了会让共享组件在
+      // `value.lineHeight.toFixed(2)` 处抛
+      // `TypeError: Cannot read properties of undefined (reading 'toFixed')`，
+      // 整块控件渲染不出来，本文件多数用例会连带失败。
+      // 用 `as SettingsDraft` 会关掉缺字段检查，所以这里必须手工给全。
       uiBodyFontFamily: "serif-default",
       uiBodyFontPx: 18,
       uiBodyLineHeight: 1.95,

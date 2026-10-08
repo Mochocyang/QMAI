@@ -78,6 +78,26 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
    * 写成显式 switch 而不是「键名相同就直接拼字符串」：
    * 拼字符串的写法在草稿字段改名后会静默写到一个不存在的键上，
    * 而 switch 会让 tsc 立刻报错。
+   *
+   * ⚠ `default` 里那句 `const _never: never = key` 不是装饰，它是**必需的**。
+   *
+   * 原先这里写的是 `default: break`，而它会让**共享控件新增参数**这件事
+   * 完全静默：`BodyTypographyValue` 加第 7 个键时，switch 没覆盖它，
+   * `default: break` 把它吸收掉，函数返回 undefined，界面上表现为
+   * 「这一项怎么拖都没反应」—— 而 `tsc` 报 **0 个错**。
+   * 上面那句"switch 会让 tsc 立刻报错"只对**改名**成立，对**新增键**不成立。
+   *
+   * 实测（用仓库自带 typescript 5.9.3 在内存里编译最小复现，
+   * 见 .codex-temp/probe-b1-exhaustive-switch.mjs）：
+   *   6 键 + default:break → 0 错（当前，基线）
+   *   7 键 + default:break → 0 错（← 漏洞：新增参数静默丢写）
+   *   6 键 + never 收尾    → 0 错（修法不误报）
+   *   7 键 + never 收尾    → 1 错 TS2322（修法抓住了）
+   *   7 键 + 删掉 default  → 0 错（所以"删掉 default"修不好）
+   *
+   * 为什么这个洞值得专门堵：任务 11 要在写作现场浮层里接同一个共享组件，
+   * 那正是最可能给它加参数的时刻。没有这道防线，漏一个 case
+   * 不会有任何红灯，只能靠人眼比对两份 switch。
    */
   const setBodyTypography = useCallback(<K extends keyof BodyTypographyValue>(
     key: K,
@@ -90,7 +110,12 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
       case "letterSpacing": setDraft("uiBodyLetterSpacing", next as number); break
       case "marginX": setDraft("uiBodyMarginX", next as number | null); break
       case "safeBottom": setDraft("uiBodySafeBottom", next as number); break
-      default: break
+      default: {
+        // 走到这里说明上面漏了一个 case。赋给 never 会让 tsc 报 TS2322。
+        // 全部 case 都覆盖时 key 收窄成 never，这一句是合法的（不误报）。
+        const _never: never = key
+        void _never
+      }
     }
   }, [setDraft])
 
@@ -135,7 +160,7 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
         </div>
         {systemFontError && (
           <p role="status" className="ui-test-interface-description">
-            未能读取本机字体（{systemFontError}），两个下拉都只显示推荐的随包字体。
+            未能读取本机字体（{systemFontError}），界面字体下拉只显示推荐的随包字体。
           </p>
         )}
         {/*
