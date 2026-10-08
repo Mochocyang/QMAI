@@ -60,11 +60,15 @@ async function renderSection() {
       uiLanguage: "zh",
       uiFontFamily: "system",
       uiFontSizeScale: 1,
-      // 正文的两个字段也必须给：缺了会让正文字号算出 NaN、
+      // 正文的 6 个字段也必须给：缺了会让字号/行距算出 NaN、
       // 正文字体下拉拿到 undefined，在 jsdom 里刷一堆与本测试无关的告警，
       // 从而把真正的失败淹没掉
       uiBodyFontFamily: "serif-default",
-      uiBodyFontSizeScale: 1,
+      uiBodyFontPx: 18,
+      uiBodyLineHeight: 1.95,
+      uiBodyLetterSpacing: 0,
+      uiBodyMarginX: null,
+      uiBodySafeBottom: 51,
       visualStyle: "fangzheng",
       sidebarNavConfig: DEFAULT_SIDEBAR_NAV_CONFIG,
     } as SettingsDraft)
@@ -160,7 +164,7 @@ describe("阶段 3：本机中文字体分组", () => {
       .toEqual(UI_FONT_OPTIONS.map((o) => o.value))
   })
 
-  it("枚举只请求一次——设置页重渲染不得反复跨 IPC 枚举", async () => {
+  it("枚举次数与重渲染无关——设置页重渲染不得反复跨 IPC 枚举", async () => {
     sysFonts.result = [{ family: "yyb", display: "yyb" }]
     await renderSection()
     // 触发一次与字体无关的状态变更（切换字号）
@@ -169,8 +173,17 @@ describe("阶段 3：本机中文字体分组", () => {
       range.value = "120"
       range.dispatchEvent(new Event("change", { bubbles: true }))
     })
-    // 模块级缓存 + effect 无依赖 ⇒ 只应请求一次
-    expect(sysFonts.calls).toBe(1)
+    /*
+     * effect 无依赖 + 模块级缓存 ⇒ 每个消费者挂载时请求一次，此后与重渲染无关。
+     *
+     * 为什么是 2 而不是 1：正文字体控件搬进共享组件 `BodyTypographyFields`
+     * 之后，设置页有**两个** useSystemFonts 消费者 —— 界面字体下拉在本文件、
+     * 正文字体下拉在共享组件里，各自挂载一次。真实 `loadSystemCjkFonts`
+     * 是模块级缓存，第二次调用不会真的再跨一次 IPC。
+     * 断言仍取**精确值**：上面刚触发过一次与字体无关的状态变更，
+     * 若哪个 effect 的依赖数组写错，计数会超过 2 而变红。
+     */
+    expect(sysFonts.calls).toBe(2)
   })
 })
 
@@ -303,7 +316,11 @@ describe("随包字体的第三方许可告知（鸿蒙黑体的许可强制义�
         uiFontFamily: "system",
         uiFontSizeScale: 1,
         uiBodyFontFamily: "serif-default",
-        uiBodyFontSizeScale: 1,
+        uiBodyFontPx: 18,
+        uiBodyLineHeight: 1.95,
+        uiBodyLetterSpacing: 0,
+        uiBodyMarginX: null,
+        uiBodySafeBottom: 51,
         visualStyle: "fangzheng",
         sidebarNavConfig: DEFAULT_SIDEBAR_NAV_CONFIG,
       } as SettingsDraft)

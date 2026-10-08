@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 const interfaceSectionSource = readFileSync(resolve(__dirname, "sections/interface-section.tsx"), "utf8")
 const settingsTypesSource = readFileSync(resolve(__dirname, "settings-types.ts"), "utf8")
 const settingsViewSource = readFileSync(resolve(__dirname, "settings-view.tsx"), "utf8")
+const bodyTypographySource = readFileSync(resolve(__dirname, "sections/body-typography-fields.tsx"), "utf8")
 const wikiStoreSource = readFileSync(resolve(__dirname, "../../stores/wiki-store.ts"), "utf8")
 
 describe("settings sidebar nav preferences", () => {
@@ -76,9 +77,10 @@ describe("settings sidebar nav preferences", () => {
    * 故在此把整条链路钉住，任何一环断掉都会变红。
    */
   it("正文字体接成完整一条链路：控件、草稿字段、store、持久化", () => {
-    // 1) 设置页有控件，且绑定到草稿的新字段
-    expect(interfaceSectionSource).toContain("BODY_FONT_OPTIONS")
-    expect(interfaceSectionSource).toContain('aria-label="正文字体"')
+    // 1) 控件在**共享组件**里（Task 9 把正文字体那一行搬进了 BodyTypographyFields：
+    //    设置页与写作现场浮层共用同一份 JSX），接线仍要问设置页
+    expect(bodyTypographySource).toContain("BODY_FONT_OPTIONS")
+    expect(bodyTypographySource).toContain('aria-label="正文字体"')
     expect(interfaceSectionSource).toContain('setDraft("uiBodyFontFamily"')
     // 2) 草稿类型里有该字段（否则 setDraft 的类型对不上，tsc 会先报错）
     expect(settingsTypesSource).toContain("uiBodyFontFamily")
@@ -103,15 +105,33 @@ describe("settings sidebar nav preferences", () => {
    * 会出现"改界面字号把正文字号也改了"这种极难排查的串味。
    */
   it("正文字号接成完整一条链路，且与界面字号各自独立", () => {
-    // 1) 设置页有两行控件（预设下拉 + 滑块），分别绑定各自字段
-    expect(interfaceSectionSource).toContain('aria-label="正文字号预设"')
-    expect(interfaceSectionSource).toContain('aria-label="正文字号"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontSizeScale"')
-    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_PRESETS")
-    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_MIN")
-    expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_MAX")
-    // 2) 草稿类型里有该字段
-    expect(settingsTypesSource).toContain("uiBodyFontSizeScale")
+    // 1) 控件在**共享组件**里，且绑定到草稿字段
+    //
+    // 为什么必须看共享组件：设置页与写作现场用的是同一个组件。
+    // 只看设置页会漏掉"控件搬走了但接线没跟上"这种情况。
+    expect(bodyTypographySource).toContain("BODY_FONT_OPTIONS")
+    expect(bodyTypographySource).toContain('aria-label="正文字体"')
+    expect(bodyTypographySource).toContain('aria-label="正文字号预设"')
+    expect(bodyTypographySource).toContain('aria-label="正文字号"')
+    // 这 4 个滑块用**动态**属性 aria-label={label}，字面量只以 label="行间距" 这个
+    // prop 的形式出现 —— 所以这里断言 prop，不能断言 aria-label="行间距"
+    // （那样写永远不成立：源码里根本没有那个字符串）。
+    // 两条一起断言：prop 传的标签对，且 aria-label 确实接到了它。
+    expect(bodyTypographySource).toContain("aria-label={label}")
+    for (const label of ["行间距", "字间距", "左右边距", "底部安全距离"]) {
+      expect(bodyTypographySource).toContain(`label="${label}"`)
+    }
+    // 2) 设置页通过共享组件接线，而不是自己再写一套控件
+    expect(interfaceSectionSource).toContain("BodyTypographyFields")
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontPx"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyLineHeight"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyLetterSpacing"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyMarginX"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodySafeBottom"')
+    // 3) 草稿类型里有这 6 个字段
+    for (const field of ["uiBodyFontFamily", "uiBodyFontPx", "uiBodyLineHeight", "uiBodyLetterSpacing", "uiBodyMarginX", "uiBodySafeBottom"]) {
+      expect(settingsTypesSource).toContain(field)
+    }
     // 3) store：5 个新状态 + 5 个 setter + 5 个**互不相同**的 localStorage 键
     //
     // 键必须各不相同：共用一个键会让「改行距把字号也改了」这种串味缺陷
