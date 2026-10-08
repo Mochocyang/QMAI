@@ -26,9 +26,17 @@
  *      会**静默退回返回元素自身样式**。本项目已踩过一次 —— 读 `ul::marker`
  *      拿到的其实是 `ul` 的 16px，而"有序标记"的期望恰好也是 16px，于是它通过了。
  *   ② 默认档必须逐位还原改造前的值（18/16/12/16px）。
- *   ③ 倍数必须真的改变字号，否则"默认档正确"可能只是变量完全没生效。
- *   ④ 界面字号 × 正文字号 必须相乘（设计：文档尺寸 = 两者相乘）。
+ *   ③ 写入的 px 必须真的改变字号，否则「默认档正确」可能只是变量完全没生效。
+ *   ④ 界面字号变化时正文**不得**跟着变（本次改造的核心新不变量：
+ *      正文是绝对 px，与界面字号解耦。改造前是「两者相乘」）。
+ *      组合表里刻意保留「界面150%」那一档 —— 删掉它等于放弃这条不变量。
  *   ⑤ 界面字号必须改变**整个界面**（不只按钮）—— 这正是用户最初的抱怨。
+ *
+ * ── 尺子的语义已从「倍数」改为「px」（本次改造）──
+ * 过去这里写 `--qmai-body-font-scale`（倍数，与界面字号相乘）；
+ * 现在写 `--qmai-body-font-px`（绝对像素，`<N>px`），期望值由 N 直接推出：
+ *   正文 = Npx、无序/有序列表项 = N×8/9、无序标记 = N×2/3、有序标记 = N×8/9。
+ * 默认档（清掉该变量）= 18 / 16 / 12 / 16px，与改造前逐位相同。
  *
  * 用法：
  *   node verify-real-exe.mjs                 # 启动 exe 并验证
@@ -142,18 +150,25 @@ const LIST_STATE = () => {
   }
 }
 
-const SET_SCALE = (o) => {
+/*
+ * 尺子：把已知的**绝对 px** 写进 App 的独占变量 `--qmai-body-font-px`（`<N>px`）。
+ *
+ * 语义已从「倍数」改成「px」：写进去的就是正文字号的像素值，
+ * 期望值直接由它推出（见下方判定 2），**不再乘界面字号** ——
+ * 改造后正文与界面字号彻底解耦。
+ */
+const SET_BODY_PX = (o) => {
   const r = document.documentElement
-  const bs = o.bodyScale, rp = o.rootPct
+  const px = o.bodyPx, rp = o.rootPct
   // 只接受有限数字或 null。写进 "undefined" 这类字符串会让
-  // calc(1.125rem * var(--scale)) 在计算值阶段整条失效，字号静默退回继承值 ——
+  // var(--qmai-body-font-px, 18px) 的兜底与声明整条失效，字号静默退回继承值 ——
   // 表现是"所有档位读数完全一样"，极易被误读成"功能坏了"。
-  if (typeof bs === "number" && Number.isFinite(bs)) r.style.setProperty("--qmai-body-font-scale", String(bs))
-  else r.style.removeProperty("--qmai-body-font-scale")
+  if (typeof px === "number" && Number.isFinite(px)) r.style.setProperty("--qmai-body-font-px", `${px}px`)
+  else r.style.removeProperty("--qmai-body-font-px")
   if (typeof rp === "number" && Number.isFinite(rp)) r.style.fontSize = `${rp}%`
   else r.style.removeProperty("font-size")
   // 回读：尺子自身的正对照。写进去的值必须等于要求的值。
-  return { appliedScale: r.style.getPropertyValue("--qmai-body-font-scale") || null, appliedRoot: r.style.fontSize || null, computedRoot: getComputedStyle(r).fontSize }
+  return { appliedBodyPx: r.style.getPropertyValue("--qmai-body-font-px") || null, appliedRoot: r.style.fontSize || null, computedRoot: getComputedStyle(r).fontSize }
 }
 
 /** 读列表标记的相关计算样式。`li` 非 list-item 时标记读数为 null（守卫 A0）。 */
@@ -179,10 +194,21 @@ const READ_MARKERS = () => {
       highlight: cs(body.querySelector("[data-find-highlights]")),
     },
     vars: {
+      /*
+       * App 独占的 5 个变量（唯一入口是 font-settings.ts 的 applyBodyTypography，
+       * 写在 documentElement 行内样式上）—— 真机验证要一次看到全部 5 个，
+       * 因为"这几个值有没有真的写进去、ui-test.css 有没有偷偷再声明一份盖掉它"
+       * 是本次改造新引入的失败模式，只会表现为「设置保存了但界面不变」。
+       */
+      bodyFontPx: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-font-px").trim(),
+      bodyLeading: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-leading").trim(),
+      bodyLetterSpacing: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-letter-spacing").trim(),
+      bodyMarginX: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-margin-x").trim(),
+      bodySafeBottom: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-safe-bottom").trim(),
+      // 三个派生尺寸 + 界面侧读数（与改造前同名保留，便于对照旧记录）
       bodyFontSize: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-font-size").trim(),
       bodyFontMarker: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-font-marker").trim(),
       bodyFontList: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-font-list").trim(),
-      bodyScale: document.documentElement.style.getPropertyValue("--qmai-body-font-scale") || "(未设置)",
       rootFontSize: getComputedStyle(document.documentElement).fontSize,
       serif: getComputedStyle(document.documentElement).getPropertyValue("--qmai-body-font-family").trim().slice(0, 80),
     },
@@ -325,7 +351,7 @@ async function main() {
     if (opened?.ok) {
       console.log("")
       console.log("  ══ 三、列表标记随正文字号缩放（真实 DOM 的 ::marker）══")
-      await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: null })
+      await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: null })
       await wait(500)
       const base = await page.evaluate(READ_MARKERS)
       const row = (l, s) => console.log(`    ${l.padEnd(13)} fontSize=${s ? s.fontSize : "(无)"}  lineHeight=${s ? s.lineHeight : "(无)"}  display=${s ? s.display : "—"}`)
@@ -334,29 +360,39 @@ async function main() {
       row("正文 p", base.samples.paragraph); row("无序 li", base.samples.ulLi); row("有序 li", base.samples.olLi)
       row("无序 ::marker", base.samples.ulMarker); row("有序 ::marker", base.samples.olMarker)
       const cdpBody = await platformFonts(cdp, ".ui-test-editor-body .ProseMirror p")
-      console.log(`  变量: --qmai-body-font-size=${base.vars.bodyFontSize}  --qmai-body-font-list=${base.vars.bodyFontList}  --qmai-body-font-marker=${base.vars.bodyFontMarker}  root=${base.vars.rootFontSize}`)
+      console.log(`  变量(5 个 App 独占 + 派生): --qmai-body-font-px=${base.vars.bodyFontPx || "(未设置)"}  --qmai-body-leading=${base.vars.bodyLeading || "(未设置)"}  --qmai-body-letter-spacing=${base.vars.bodyLetterSpacing || "(未设置)"}  --qmai-body-margin-x=${base.vars.bodyMarginX || "(未设置)"}  --qmai-body-safe-bottom=${base.vars.bodySafeBottom || "(未设置)"}`)
+      console.log(`  派生尺寸: --qmai-body-font-size=${base.vars.bodyFontSize}  --qmai-body-font-list=${base.vars.bodyFontList}  --qmai-body-font-marker=${base.vars.bodyFontMarker}  root=${base.vars.rootFontSize}`)
       console.log(`  Chromium 报告正文真实字体: ${cdpBody ?? "(取不到)"}`)
 
+      /*
+       * 组合表：尺子由「倍数」改成「绝对 px」。
+       *
+       * 「界面150%」与「24px+界面150%」这两档**必须保留** —— 它们证明的是
+       * 本次改造最核心的新不变量「改界面字号时正文不变」。
+       * 删掉它们等于放弃这条不变量，而任务 13 会以为它被验证过。
+       * （改造前这里是「正文150% / 界面150% / 双150% / 正文85% / 双85%」的乘积表：
+       *   "双"这个概念在新模型里已经不存在。）
+       */
       const combos = [
-        { label: "正文150%", bodyScale: 1.5, rootPct: null },
-        { label: "界面150%", bodyScale: null, rootPct: 150 },
-        { label: "双150%", bodyScale: 1.5, rootPct: 150 },
-        { label: "正文85%", bodyScale: 0.85, rootPct: null },
-        { label: "双85%", bodyScale: 0.85, rootPct: 85 },
+        { label: "正文24px", bodyPx: 24, rootPct: null },
+        { label: "界面150%", bodyPx: null, rootPct: 150 },
+        { label: "24px+界面150%", bodyPx: 24, rootPct: 150 },
+        { label: "正文15px", bodyPx: 15, rootPct: null },
+        { label: "15px+界面85%", bodyPx: 15, rootPct: 85 },
       ]
       const results = { default: base, combos: [] }
       console.log("")
       for (const c of combos) {
-        const set = await page.evaluate(SET_SCALE, c)
+        const set = await page.evaluate(SET_BODY_PX, c)
         // 尺子正对照：写进去的必须等于要求写的
-        const wantScale = c.bodyScale === null ? null : String(c.bodyScale)
-        const rulerOk = (set.appliedScale || null) === wantScale
-        if (!rulerOk) fails.push(`尺子失效：要求 --qmai-body-font-scale=${wantScale}，实际写入 ${set.appliedScale}`)
+        const wantPx = c.bodyPx === null ? null : `${c.bodyPx}px`
+        const rulerOk = (set.appliedBodyPx || null) === wantPx
+        if (!rulerOk) fails.push(`尺子失效：要求 --qmai-body-font-px=${wantPx}，实际写入 ${set.appliedBodyPx}`)
         await wait(400)
         const m = await page.evaluate(READ_MARKERS)
         results.combos.push({ ...c, set, rulerOk, measured: m })
         const f = (s) => (s ? s.fontSize : "—")
-        console.log(`    ${c.label.padEnd(9)} 写入(--scale=${set.appliedScale ?? "清除"}, root=${set.appliedRoot ?? "清除"}${rulerOk ? "" : " ✗尺子"}) 正文p=${f(m.samples.paragraph)}  无序li=${f(m.samples.ulLi)} marker=${f(m.samples.ulMarker)}  有序li=${f(m.samples.olLi)} marker=${f(m.samples.olMarker)}  可信=${m.guards.markerReadable}`)
+        console.log(`    ${c.label.padEnd(13)} 写入(--qmai-body-font-px=${set.appliedBodyPx ?? "清除"}, root=${set.appliedRoot ?? "清除"}${rulerOk ? "" : " ✗尺子"}) 正文p=${f(m.samples.paragraph)}  无序li=${f(m.samples.ulLi)} marker=${f(m.samples.ulMarker)}  有序li=${f(m.samples.olLi)} marker=${f(m.samples.olMarker)}  可信=${m.guards.markerReadable}`)
         await page.screenshot({ path: join(SHOT_DIR, `03-${c.label}.png`) })
       }
 
@@ -376,41 +412,61 @@ async function main() {
       console.log(`    ${propOk ? "✓" : "✗"} 比例：无序标记(${base.samples.ulMarker?.fontSize}) < 无序列表项(${base.samples.ulLi?.fontSize})；有序标记(${base.samples.olMarker?.fontSize}) = 有序列表项(${base.samples.olLi?.fontSize})`)
       if (!propOk) fails.push("默认档标记比例不符（无序应小于列表项、有序应等于列表项）")
 
+      /*
+       * 判定 2：正文字号 = 设定的绝对 px（**且与界面字号无关**）+ 比例守恒。
+       *
+       * 改造前这里断言的是「界面字号 × 正文倍数」的乘积倍率；
+       * 新模型下期望值由设定的 px 直接推出，界面字号**不进公式** ——
+       * 「24px+界面150%」那一档期望仍是 24px 而不是 36px，这正是解耦的证明。
+       */
       console.log("")
-      console.log("  ── 判定 2：倍数同步 + 比例守恒 ──")
+      console.log("  ── 判定 2：正文字号取设定 px（与界面字号解耦）+ 比例守恒 ──")
       const near = (x, y) => x !== null && Math.abs(x - y) < 0.02
       for (const c of results.combos) {
         const m = c.measured
         if (!c.rulerOk) continue   // 尺子失效时读数无意义，已在上面记为失败
         if (!m.guards.markerReadable || !m.samples.olMarker || !m.samples.ulMarker) { fails.push(`${c.label}: 读不到 marker`); continue }
-        const exp = (c.bodyScale ?? 1) * (c.rootPct ? c.rootPct / 100 : 1)
-        const r = (a, z) => (z ? a / z : null)
-        const gP = r(m.samples.paragraph.fontSize, base.samples.paragraph.fontSize)
-        const gU = r(m.samples.ulMarker.fontSize, base.samples.ulMarker.fontSize)
-        const gO = r(m.samples.olMarker.fontSize, base.samples.olMarker.fontSize)
-        const gUlLi = r(m.samples.ulLi.fontSize, base.samples.ulLi.fontSize)
-        const ok = near(gP, exp) && near(gU, exp) && near(gO, exp) && near(gUlLi, exp)
+        const basePx = c.bodyPx ?? 18
+        const want = { paragraph: basePx, ulLi: basePx * 8 / 9, olLi: basePx * 8 / 9, ulMarker: basePx * 2 / 3, olMarker: basePx * 8 / 9 }
+        const got = {
+          paragraph: m.samples.paragraph?.fontSize, ulLi: m.samples.ulLi?.fontSize,
+          olLi: m.samples.olLi?.fontSize, ulMarker: m.samples.ulMarker?.fontSize, olMarker: m.samples.olMarker?.fontSize,
+        }
+        const ok = Object.keys(want).every((k) => near(got[k], want[k]))
         const ulLt = m.samples.ulMarker.fontSize < m.samples.ulLi.fontSize
         const olEq = Math.abs(m.samples.olMarker.fontSize - m.samples.olLi.fontSize) < 0.01
-        console.log(`    ${ok && ulLt && olEq ? "✓" : "✗"} ${c.label.padEnd(9)} 期望倍率 ${exp.toFixed(4)}｜实测 正文=${gP?.toFixed(4)} 无序li=${gUlLi?.toFixed(4)} 无序marker=${gU?.toFixed(4)} 有序marker=${gO?.toFixed(4)}｜比例 无序<列表项=${ulLt} 有序=列表项=${olEq}`)
-        if (!ok) fails.push(`${c.label} 倍率不符：期望 ${exp}，marker 实测 ${gU}/${gO}`)
+        const fmt = (k) => `${got[k]}${near(got[k], want[k]) ? "" : `(期望${want[k].toFixed(4)})`}`
+        console.log(`    ${ok && ulLt && olEq ? "✓" : "✗"} ${c.label.padEnd(13)} 期望 px=${basePx}（界面 ${c.rootPct ?? "100"}% 不参与）｜实测 正文=${fmt("paragraph")} 无序li=${fmt("ulLi")} 无序marker=${fmt("ulMarker")} 有序li=${fmt("olLi")} 有序marker=${fmt("olMarker")}｜比例 无序<列表项=${ulLt} 有序=列表项=${olEq}`)
+        if (!ok) fails.push(`${c.label} 正文字号未按设定 px 生效（正文与界面字号应解耦）：期望 ${JSON.stringify(want)}，实测 ${JSON.stringify(got)}`)
         if (!ulLt || !olEq) fails.push(`${c.label} 比例被破坏：无序<列表项=${ulLt}，有序=列表项=${olEq}`)
+      }
+      /*
+       * 解耦结论的正对照：界面字号必须**真的**改变了根字号。
+       * 若 150% 那一档的根字号与 100% 相同，"正文没跟着变"就是一句空话
+       * （两次读数在同一个渲染环境里，什么都没被证明）。
+       */
+      const rootAt100 = results.combos.find((c) => c.rootPct !== 150)?.set?.computedRoot
+      const rootAt150 = results.combos.find((c) => c.rootPct === 150)?.set?.computedRoot
+      const rootRulerOk = !!rootAt100 && !!rootAt150 && parseFloat(rootAt150) > parseFloat(rootAt100)
+      console.log(`    ${rootRulerOk ? "✓" : "✗"} 尺子正对照：界面字号确实生效 root@${results.combos.find((c) => c.rootPct !== 150)?.rootPct ?? "100"}%=${rootAt100} → root@150%=${rootAt150}（否则「正文不变」是空结论）`)
+      if (!rootRulerOk) {
+        fails.push(`界面字号尺子失效：150% 未改变根字号（${rootAt100} → ${rootAt150}）—— 「正文不随界面字号变」可能只是因为界面字号根本没生效，本次解耦结论不成立`)
       }
       writeFileSync(join(SHOT_DIR, "real-exe-marker-results.json"), JSON.stringify({ capturedAt: new Date().toISOString(), exe: EXE, opened, probe, results, fails }, null, 2), "utf8")
 
       // 复位
-      await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: null })
+      await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: null })
     }
   }
 
   /* ── 四、界面字号必须改变整个界面（用户最初的抱怨）── */
   console.log("")
   console.log("  ══ 四、界面字号是否改变整个界面（不只按钮）══")
-  await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: 100 })
+  await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: 100 })
   await wait(600)
   const col = await page.evaluate(CENSUS_COLLECT)
   console.log(`  100% 时采集元素 ${col.count} 个`)
-  await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: 150 })
+  await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: 150 })
   await wait(800)
   const rb = await page.evaluate(CENSUS_READBACK)
   const rootNow = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
@@ -461,7 +517,7 @@ async function main() {
   if (ratioPct < 95) fails.push(`界面字号跟随率仅 ${ratioPct.toFixed(1)}%（<95%），说明仍有大量文字不跟界面字号变化`)
   else if (texty.length >= MIN_TEXTY) notes.push(`界面字号跟随率 ${ratioPct.toFixed(1)}%（${scaled.length}/${texty.length} 文字元素，含 ${controlTexty.length} 个表单控件）`)
 
-  await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: null })
+  await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: null })
 
   /* ── 结论 ── */
   console.log("")

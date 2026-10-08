@@ -21,12 +21,16 @@
  *   ① 保存前滑块/下拉必须真的变了值（否则按保存不会走应用分支）
  *   ② 保存后 localStorage 必须真的跟着变（证明落盘，而不只是内存生效）
  *   ③ 界面字体与正文字体必须**各自独立**
- *   ④ 正文字号必须在**真实文档**上量出像素变化
+ *   ④ 正文字号必须在**真实文档**上量出**设定的绝对 px**：
+ *      正文 = Npx、无序/有序列表项 = N×8/9、无序标记 = N×2/3、有序标记 = N×8/9
+ *      （改造前这里量的是"×1.25 倍"，因为改造前正文与界面字号相乘；
+ *       现在正文是绝对 px，与界面字号解耦）
  *   ⑤ 换字体必须在真实渲染族上量出变化，且默认档必须与初始渲染族相同
  *
- * 关于 `null`：正文字号默认值是 1（100%）。从未设置过时 localStorage 里是
- * `null`，一旦保存过就写成 `1`。两者**语义相同**，故断言比较"有效值"
- * （null → 1），否则会把"写入默认值"误报成"串改设置"。
+ * 关于 `null`：正文字号默认值是 **18px**。从未设置过时 localStorage 里是
+ * `null`，一旦保存过就写成 `"18"`。两者**语义相同**，故断言比较"有效值"
+ * （null → 18），否则会把"写入默认值"误报成"串改设置"。
+ * 界面字号仍是倍数（null → 1），两者默认值不同，**不能共用同一个 eff()**。
  */
 
 import { join, dirname } from "node:path"
@@ -40,6 +44,12 @@ const PORT = Number(argOf("--port") ?? 9333)
 const OUTLINE_KEY = argOf("--doc") ?? "开篇方向"
 const UI_FONT_TO_TRY = argOf("--ui-font") ?? "simhei"      // 黑体，实测本机可用
 const BODY_FONT_TO_TRY = argOf("--body-font") ?? "kaiti"   // 楷体，实测本机可用
+/*
+ * 正文字号滑块现在写的是**绝对 px**（12–32，步长 1），不再是百分比倍数。
+ * 取 24 而不是默认 18：必须与初始值不同，否则「保存确实生效」与
+ * 「本来就是这个值」无法区分（与"未设置 vs 显式默认"同一类假通过）。
+ */
+const BODY_PX_TO_TRY = Number(argOf("--body-px") ?? 24)
 /**
  * 证据落盘路径。**默认就写**，不是可选项。
  *
@@ -72,7 +82,12 @@ await cdp.send("DOM.enable"); await cdp.send("CSS.enable")
 const bye = async () => { try { await Promise.race([browser.close(), wait(4000)]) } catch { /* 忽略 */ } }
 
 const fails = [], notes = []
-const eff = (v) => (v == null ? 1 : v)
+/*
+ * 两种"有效值"：界面字号是倍数（null → 1），正文字号是**绝对 px**（null → 18）。
+ * 共用一个 eff() 会把"未设置正文"算成 1（1px），断言会全错。
+ */
+const effUi = (v) => (v == null ? 1 : v)
+const effBodyPx = (v) => (v == null ? 18 : v)
 const near = (a, b, t = 0.05) => a !== null && b !== null && Math.abs(a - b) < t
 
 /** 落盘证据。放在退出前调用，通过与否都写 —— 失败的现场同样需要留证。 */
@@ -112,11 +127,15 @@ const READ_STATE = () => {
   return {
     domRootPct: r.style.fontSize || null,
     domComputedRoot: getComputedStyle(r).fontSize,
-    domBodyScale: r.style.getPropertyValue("--qmai-body-font-scale") || null,
+    /* App 独占的 5 个变量里，本用例最关心字号这一个 ——
+       它由 applyBodyTypography 写成 `<N>px`。旧名 domBodyScale（倍数）已废弃。 */
+    domBodyPx: r.style.getPropertyValue("--qmai-body-font-px") || null,
     domUiFamilyVar: r.style.getPropertyValue("--qmai-ui-font-family") || null,
     domBodyFamilyVar: r.style.getPropertyValue("--qmai-body-font-family") || null,
     storedUi: parse("qmai-ui-font-size-scale"),
-    storedBody: parse("qmai-ui-body-font-scale"),
+    /* 正文字号落盘在 qmai-body-font-px（px 数字，无单位）。
+       旧的 qmai-ui-body-font-scale 只剩迁移用途，不再被写入。 */
+    storedBody: parse("qmai-body-font-px"),
     storedUiFont: str("qmai-ui-font-family"),
     storedBodyFont: str("qmai-body-font-family"),
     settingsOpen: !!document.querySelector('[data-ui="settings-navigation"]'),
@@ -229,8 +248,8 @@ async function waitForDoc(timeoutMs = 60_000) {
 console.log("  ══ 真实 exe：设置界面改字号与字体 → 保存 → 生效？落盘？真实渲染变了吗？══")
 const before = await page.evaluate(READ_STATE)
 evidence.initial = before
-console.log(`  初始：DOM root=${before.domRootPct ?? "(未设置)"} computed=${before.domComputedRoot}  --body-scale=${before.domBodyScale ?? "(未设置)"}`)
-console.log(`        落盘 界面字号=${before.storedUi} 正文字号=${before.storedBody}（有效值 ${eff(before.storedUi)}/${eff(before.storedBody)}）`)
+console.log(`  初始：DOM root=${before.domRootPct ?? "(未设置)"} computed=${before.domComputedRoot}  --qmai-body-font-px=${before.domBodyPx ?? "(未设置)"}`)
+console.log(`        落盘 界面字号=${before.storedUi} 正文字号=${before.storedBody}（有效值 ${effUi(before.storedUi)} / ${effBodyPx(before.storedBody)}px）`)
 console.log(`        落盘 界面字体=${before.storedUiFont} 正文字体=${before.storedBodyFont}`)
 
 if (!(await goToSettings())) { await bye(); process.exit(1) }
@@ -249,57 +268,72 @@ console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
 await wait(2500)
 const a1 = await page.evaluate(READ_STATE)
 console.log(`  保存后：DOM root=${a1.domRootPct} computed=${a1.domComputedRoot}  落盘 界面=${a1.storedUi} 正文=${a1.storedBody}`)
-const ok1 = a1.domRootPct === "150%" && eff(a1.storedUi) === 1.5
+const ok1 = a1.domRootPct === "150%" && effUi(a1.storedUi) === 1.5
 console.log(`    ${ok1 ? "✓" : "✗"} 界面字号：DOM(${a1.domRootPct}) 落盘(${a1.storedUi})`)
 if (!ok1) fails.push(`界面字号保存未生效：DOM=${a1.domRootPct} 落盘=${a1.storedUi}`)
-const indep1 = eff(a1.storedBody) === eff(before.storedBody)
+const indep1 = effBodyPx(a1.storedBody) === effBodyPx(before.storedBody)
 evidence.cases.push({
   label: "界面字号→150%", slider: { written: 150, read: set1.value, min: set1.min, max: set1.max, step: set1.step },
   after: a1, domRootPct: a1.domRootPct, computedRoot: a1.domComputedRoot, storedUi: a1.storedUi,
-  independence: { storedBodyBefore: eff(before.storedBody), storedBodyAfter: eff(a1.storedBody), ok: indep1 }, ok: ok1,
+  independence: { storedBodyBefore: effBodyPx(before.storedBody), storedBodyAfter: effBodyPx(a1.storedBody), ok: indep1 }, ok: ok1,
 })
-console.log(`    ${indep1 ? "✓" : "✗"} 独立性：正文字号有效值未被动（${eff(before.storedBody)} → ${eff(a1.storedBody)}）`)
-if (!indep1) fails.push(`改界面字号顺带改了正文字号（${eff(before.storedBody)} → ${eff(a1.storedBody)}）`)
+console.log(`    ${indep1 ? "✓" : "✗"} 独立性：正文字号有效值未被动（${effBodyPx(before.storedBody)}px → ${effBodyPx(a1.storedBody)}px）`)
+if (!indep1) fails.push(`改界面字号顺带改了正文字号（${effBodyPx(before.storedBody)}px → ${effBodyPx(a1.storedBody)}px）`)
 
-// ── 用例 2：界面字号回 100，正文字号 → 125 ──
+// ── 用例 2：界面字号回 100，正文字号 → 24px（改造后滑块单位是 px，范围 12–32）──
 console.log("")
-console.log("  ── 用例 2：界面字号回 100%，正文字号拖到 125%，一起保存 ──")
+console.log("  ── 用例 2：界面字号回 100%，正文字号拖到 24px，一起保存 ──")
 await page.evaluate(SET_CONTROL, { tag: "input", label: "界面字号", value: 100 })
 await wait(300)
-const set2 = await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: 125 })
-console.log(`  拖滑块: 正文写入 ${set2.value}`)
+const set2 = await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: BODY_PX_TO_TRY })
+console.log(`  拖滑块: 正文写入 ${set2.value}（min=${set2.min} max=${set2.max} step=${set2.step}）`)
+if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字号滑块写入 ${BODY_PX_TO_TRY} 但读到 ${set2.value}（单位应为 px）`)
 await wait(600)
 console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
 await wait(2500)
 const a2 = await page.evaluate(READ_STATE)
-console.log(`  保存后：DOM root=${a2.domRootPct ?? "(清除)"}  --body-scale=${a2.domBodyScale}  落盘 界面=${a2.storedUi} 正文=${a2.storedBody}`)
-const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null) && eff(a2.storedBody) === 1.25 && eff(a2.storedUi) === 1
+console.log(`  保存后：DOM root=${a2.domRootPct ?? "(清除)"}  --qmai-body-font-px=${a2.domBodyPx}  落盘 界面=${a2.storedUi} 正文=${a2.storedBody}`)
+const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null)
+  && a2.domBodyPx === `${BODY_PX_TO_TRY}px`
+  && effBodyPx(a2.storedBody) === BODY_PX_TO_TRY
+  && effUi(a2.storedUi) === 1
 evidence.cases.push({
-  label: "正文→125%（界面回100%）", slider: { written: 125, read: set2.value },
-  after: a2, domBodyScale: a2.domBodyScale, domRootPct: a2.domRootPct,
+  label: `正文→${BODY_PX_TO_TRY}px（界面回100%）`, slider: { written: BODY_PX_TO_TRY, read: set2.value, min: set2.min, max: set2.max, step: set2.step },
+  after: a2, domBodyPx: a2.domBodyPx, domRootPct: a2.domRootPct,
   storedBody: a2.storedBody, storedUi: a2.storedUi, ok: ok2,
 })
-console.log(`    ${ok2 ? "✓" : "✗"} 正文字号：DOM(${a2.domBodyScale}) 落盘(${a2.storedBody}) 界面字号回(${a2.storedUi})`)
-if (!ok2) fails.push(`正文字号保存未生效：DOM=${a2.domBodyScale} 落盘 正文=${a2.storedBody} 界面=${a2.storedUi}`)
+console.log(`    ${ok2 ? "✓" : "✗"} 正文字号：DOM(${a2.domBodyPx}) 落盘(${a2.storedBody}) 界面字号回(${a2.storedUi})`)
+if (!ok2) fails.push(`正文字号保存未生效：DOM --qmai-body-font-px=${a2.domBodyPx} 落盘 正文=${a2.storedBody} 界面=${a2.storedUi}`)
 
-// ── 用例 3：正文字号必须在真实文档上量出像素变化 ──
+// ── 用例 3：正文字号必须在真实文档上量出**设定的绝对 px** ──
 console.log("")
-console.log("  ── 用例 3：回到大纲文档，实测正文与列表是否变成 1.25 倍 ──")
+console.log(`  ── 用例 3：回到大纲文档，实测正文与列表是否等于设定的 ${BODY_PX_TO_TRY}px 及其派生值 ──`)
 await page.evaluate(GO_TO_OUTLINE)
 await wait(2000)
 console.log(`  打开: ${JSON.stringify(await page.evaluate(OPEN_DOC, OUTLINE_KEY))}`)
 const doc = await waitForDoc()
 console.log(`  文档实测: p=${doc.p} 无序li=${doc.ulLi} marker=${doc.ulMarker} 有序li=${doc.olLi} marker=${doc.olMarker} li.display=${doc.liDisplay}`)
-const expSize = { p: 22.5, ulLi: 20, ulMarker: 15, olLi: 20, olMarker: 20 }
+/*
+ * 期望值由设定的 px 推出（比例沿用改造前 16/18 = 8/9、12/18 = 2/3）：
+ *   正文 = Npx、无序/有序列表项 = N×8/9、无序标记 = N×2/3、有序标记 = N×8/9。
+ * 浏览器保留小数（N×8/9 是循环小数），故用 near() 做接近比较，不用相等。
+ */
+const expSize = {
+  p: BODY_PX_TO_TRY,
+  ulLi: BODY_PX_TO_TRY * 8 / 9,
+  ulMarker: BODY_PX_TO_TRY * 2 / 3,
+  olLi: BODY_PX_TO_TRY * 8 / 9,
+  olMarker: BODY_PX_TO_TRY * 8 / 9,
+}
 const docChecks = {}
 for (const [k, v] of Object.entries(expSize)) {
   const ok = near(doc[k], v)
   docChecks[k] = { expected: v, measured: doc[k], ok }
   console.log(`    ${ok ? "✓" : "✗"} ${k.padEnd(9)} 期望 ${v}px 实测 ${doc[k]}px`)
-  if (!ok) fails.push(`正文字号 125% 下 ${k} 期望 ${v}px 实测 ${doc[k]}px`)
+  if (!ok) fails.push(`正文字号 ${BODY_PX_TO_TRY}px 下 ${k} 期望 ${v}px（±0.05）实测 ${doc[k]}px`)
 }
 if (doc.liDisplay && doc.liDisplay !== "list-item") fails.push(`::marker 读数不可信（li.display=${doc.liDisplay}）`)
-evidence.docCase = { scale: 1.25, liDisplay: doc.liDisplay, checks: docChecks, ok: Object.values(docChecks).every((c) => c.ok) }
+evidence.docCase = { fontPx: BODY_PX_TO_TRY, liDisplay: doc.liDisplay, checks: docChecks, ok: Object.values(docChecks).every((c) => c.ok) }
 
 // ── 用例 4：界面字体 → 黑体（真实渲染族判定）──
 console.log("")
@@ -375,9 +409,10 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
 console.log("")
 console.log("  ── 恢复原始设置 ──")
 if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") } else {
-  await page.evaluate(SET_CONTROL, { tag: "input", label: "界面字号", value: Math.round(eff(before.storedUi) * 100) })
+  await page.evaluate(SET_CONTROL, { tag: "input", label: "界面字号", value: Math.round(effUi(before.storedUi) * 100) })
   await wait(300)
-  await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: Math.round(eff(before.storedBody) * 100) })
+  // 正文字号滑块的单位是 px，直接写回有效 px 值（不再是 ×100 的百分比）
+  await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: effBodyPx(before.storedBody) })
   await wait(300)
   await page.evaluate(SET_CONTROL, { tag: "select", label: "界面字体", value: before.storedUiFont ?? "system" })
   await wait(300)
@@ -386,17 +421,17 @@ if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") }
   console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
   await wait(2500)
   const a3 = await page.evaluate(READ_STATE)
-  console.log(`  恢复后：DOM root=${a3.domRootPct ?? "(清除)"} --body-scale=${a3.domBodyScale ?? "(清除)"} 落盘 界面字号=${a3.storedUi} 正文字号=${a3.storedBody} 界面字体=${a3.storedUiFont} 正文字体=${a3.storedBodyFont}`)
-  const restored = eff(a3.storedUi) === eff(before.storedUi) && eff(a3.storedBody) === eff(before.storedBody)
+  console.log(`  恢复后：DOM root=${a3.domRootPct ?? "(清除)"} --qmai-body-font-px=${a3.domBodyPx ?? "(清除)"} 落盘 界面字号=${a3.storedUi} 正文字号=${a3.storedBody} 界面字体=${a3.storedUiFont} 正文字体=${a3.storedBodyFont}`)
+  const restored = effUi(a3.storedUi) === effUi(before.storedUi) && effBodyPx(a3.storedBody) === effBodyPx(before.storedBody)
     && a3.storedUiFont === (before.storedUiFont ?? "system") && a3.storedBodyFont === (before.storedBodyFont ?? "serif-default")
-  console.log(`    ${restored ? "✓" : "✗"} 已恢复初始有效值（尺寸 ${eff(before.storedUi)}/${eff(before.storedBody)}，字体 ${before.storedUiFont ?? "system"}/${before.storedBodyFont ?? "serif-default"}）`)
+  console.log(`    ${restored ? "✓" : "✗"} 已恢复初始有效值（尺寸 ${effUi(before.storedUi)} / ${effBodyPx(before.storedBody)}px，字体 ${before.storedUiFont ?? "system"}/${before.storedBodyFont ?? "serif-default"}）`)
   if (!restored) fails.push(`未能恢复初始设置（界面=${a3.storedUi}/${a3.storedUiFont} 正文=${a3.storedBody}/${a3.storedBodyFont}）`)
-  if (before.storedBody === null && a3.storedBody === 1) {
-    notes.push("正文字号原为「从未设置」(null)，保存后落为显式默认值 1 —— 语义相同（都是 100%），非串改")
+  if (before.storedBody === null && a3.storedBody === 18) {
+    notes.push("正文字号原为「从未设置」(null)，保存后落为显式默认值 18 —— 语义相同（都是默认 18px），非串改")
   }
   evidence.restore = {
-    expected: { uiSize: eff(before.storedUi), bodySize: eff(before.storedBody), uiFont: before.storedUiFont ?? "system", bodyFont: before.storedBodyFont ?? "serif-default" },
-    actual: { uiSize: a3.storedUi, bodySize: a3.storedBody, uiFont: a3.storedUiFont, bodyFont: a3.storedBodyFont, domRootPct: a3.domRootPct, domBodyScale: a3.domBodyScale },
+    expected: { uiSize: effUi(before.storedUi), bodySizePx: effBodyPx(before.storedBody), uiFont: before.storedUiFont ?? "system", bodyFont: before.storedBodyFont ?? "serif-default" },
+    actual: { uiSize: a3.storedUi, bodySize: a3.storedBody, uiFont: a3.storedUiFont, bodyFont: a3.storedBodyFont, domRootPct: a3.domRootPct, domBodyPx: a3.domBodyPx },
     ok: restored,
   }
 }

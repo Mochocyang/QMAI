@@ -9,20 +9,31 @@
  * 字号静默退回继承值 —— 静态校验照样全绿，而正文根本不再缩放。
  * 故必须实测。
  *
- * 还必须在默认档（未设置 --qmai-body-font-scale）逐位还原改造前的
+ * 还必须在默认档（未设置 --qmai-body-font-px）逐位还原改造前的
  * 18px / 16px / 12px：判据 1 要求"默认观感零变化"，
- * 而 calc(1.125rem * 1) 是否真的等于 18px、::marker 是否真的 12px，
+ * 而 var(--qmai-body-font-px, 18px) 的兜底是否真的等于 18px、
+ * 派生出来的列表 18×8/9 = 16px 与标记 18×2/3 = 12px 是否真的到位，
  * 只有浏览器说了算。
  *
  * 覆盖面（如实说明）：编辑器 DOM 在实际可达路径下从不挂载，故此处
  * **注入真实选择器结构**，让 .ui-test-root .ui-test-editor-body 等真实规则级联生效。
  * 它证明"真实 CSS 规则对真实变量有正确反应"，**不替代**真实 exe 目视（任务 10 步骤 2b）。
  *
+ * ── 文件名保留，语义已从「倍数」改为「px」（本次改造）──
+ * 本脚本过去用 `--qmai-body-font-scale`（倍数）当尺子。改造后正文字号是
+ * **绝对 px**（`--qmai-body-font-px`），与界面字号**彻底解耦**。
+ * 文件名没有改（它被 findings.md 与图稿引用），但下面每一条判据都换了模型：
+ * 期望值不再是「改造前值 × 倍数」，而是「设定的 px」（从属尺寸按 8/9、2/3 派生）。
+ *
  * 尺子自身的对照（不成立则本次结论无效）：
- *   ① 倍数必须真的改变字号（否则"默认档正确"可能只是变量没生效）
+ *   ① 写入的 px 必须真的改变字号（否则"默认档正确"可能只是变量没生效）
  *   ② 探针若不在 .ui-test-root 内，就不该被规则命中 ——
  *      证明测到的是真实选择器链，而不是某种全局继承
- *   ③ 界面字号 × 正文字号 必须乘积生效（验证设计：文档尺寸 = 两者相乘）
+ *   ③ 界面字号变化时正文**不得**跟着变（本次改造的核心新不变量：
+ *      正文是绝对 px，与界面字号解耦。组合表里刻意保留 rootPct=150 那一档 ——
+ *      删掉它等于放弃这条不变量）。
+ *      配套的正对照：界面 150% 必须**真的**改变了根字号，否则"正文没变"
+ *      可能只是因为界面字号根本没生效（那这条结论就是空的）。
  *   ④ Chromium 报告真实渲染字体，确认正文用的是 --serif 而非界面字体
  */
 
@@ -95,10 +106,14 @@ const INJECT = () => {
   return mk(root.parentElement, "qmai-body-scale-probe")
 }
 
-const SET_SCALE = (value) => {
+/*
+ * 尺子：把已知 px 写进 App 的独占变量 --qmai-body-font-px。
+ * 语义从「倍数」改成「px」——写进去的就是正文字号的绝对像素值。
+ */
+const SET_BODY_PX = (value) => {
   const r = document.documentElement
-  if (value === null) r.style.removeProperty("--qmai-body-font-scale")
-  else r.style.setProperty("--qmai-body-font-scale", value)
+  if (value === null) r.style.removeProperty("--qmai-body-font-px")
+  else r.style.setProperty("--qmai-body-font-px", value)
 }
 const SET_ROOT_PCT = (pct) => {
   const r = document.documentElement
@@ -170,7 +185,7 @@ async function main() {
     })
     await page.waitForTimeout(1500)
 
-    await page.evaluate(SET_SCALE, null)
+    await page.evaluate(SET_BODY_PX, null)
     await page.evaluate(SET_ROOT_PCT, null)
     await page.waitForTimeout(150)
     const injected = await page.evaluate(INJECT)
@@ -183,7 +198,7 @@ async function main() {
 
     console.log("  ══ 正文字号单一来源：真实浏览器动态验证（真实 dist/ · 1440x900）══")
     console.log("")
-    console.log("  ── 默认档（未设置 --qmai-body-font-scale，应与改造前逐位相同）──")
+    console.log("  ── 默认档（未设置 --qmai-body-font-px，应与改造前逐位相同）──")
     const expectBase = [
       ["正文 .ProseMirror p", at1.para, 18],
       ["正文 .ui-test-editor-body", at1.body, 18],
@@ -209,7 +224,7 @@ async function main() {
       fail("A0/marker 读数无效", `探针 li 的 display 是 ${at1.liDisplay} 而非 list-item —— ::marker 读数不可信`)
     }
     if (baseOk !== expectBase.length) {
-      fail("A/默认档未逐位还原", `${expectBase.length - baseOk} 处与改造前不符 —— font 简写里的 var() 可能被判为无效（声明整体失效）或 calc 未按 1 倍还原`)
+      fail("A/默认档未逐位还原", `${expectBase.length - baseOk} 处与改造前不符 —— font 简写里的 var() 可能被判为无效（声明整体失效），或 var(--qmai-body-font-px, 18px) 的兜底值与派生比例未按 18px 还原`)
     }
     // 高亮层必须与输入层逐像素对齐（单一来源的核心目的）
     if (!close(at1.highlights.lineHeight, at1.para.lineHeight)) {
@@ -221,31 +236,36 @@ async function main() {
     console.log(`  文档标题字体: ${at1.heading.fontFamily.split(",")[0]}（应为界面字体，不跟随正文字体）`)
     console.log(`  正文字体:     ${at1.para.fontFamily.split(",")[0]}（应为衬线正文字体）`)
 
-    // ① 尺子有效：倍数必须真的改变字号
+    // ① 尺子有效：写进去的 px 必须真的改变字号
     console.log("")
-    console.log("  ── 倍数生效（尺子自身的对照①）──")
-    console.log("  倍数     正文     列表     无序标记   有序标记   界面字号")
+    console.log("  ── 字号生效（尺子自身的对照①）──")
+    console.log("  正文 px  正文     列表     无序标记   有序标记   界面字号")
     console.log("  " + "─".repeat(58))
     const scaleRows = []
-    for (const s of [null, "1", "1.25", "1.5", "0.85"]) {
-      await page.evaluate(SET_SCALE, s)
+    for (const p of [null, "18px", "24px", "32px", "12px"]) {
+      await page.evaluate(SET_BODY_PX, p)
       await page.waitForTimeout(120)
       const r = await page.evaluate(READ, "qmai-body-scale-probe")
-      const k = s === null ? 1 : Number(s)
-      scaleRows.push({ s, k, r })
-      console.log(`  ${(s === null ? "未设置" : `×${s}`).padEnd(8)} ${r.para.fontSizeRaw.padStart(8)} ${r.listUl.fontSizeRaw.padStart(8)} ${r.markerUl.fontSizeRaw.padStart(10)} ${r.markerOl.fontSizeRaw.padStart(10)} ${r.body.fontSizeRaw.padStart(9)}`)
+      const base = p === null ? 18 : parseFloat(p)
+      scaleRows.push({ p, base, r })
+      console.log(`  ${(p === null ? "未设置" : p).padEnd(8)} ${r.para.fontSizeRaw.padStart(8)} ${r.listUl.fontSizeRaw.padStart(8)} ${r.markerUl.fontSizeRaw.padStart(10)} ${r.markerOl.fontSizeRaw.padStart(10)} ${r.body.fontSizeRaw.padStart(9)}`)
     }
+    /*
+     * 期望值由 px 直接推出，不再乘界面字号：
+     *   正文 = Npx、列表 = N×8/9、无序标记 = N×2/3、有序标记 = N×8/9
+     * （比例沿用改造前 16/18 与 12/18，故默认档 18 → 16 / 12 / 16 逐位不变）
+     */
     const rulerOk = scaleRows.every((row) =>
-      close(row.r.para.fontSize, 18 * row.k)
-      && close(row.r.listUl.fontSize, 16 * row.k)
-      && close(row.r.markerUl.fontSize, 12 * row.k)
-      && close(row.r.markerOl.fontSize, 16 * row.k))
-    if (!rulerOk) fail("C/倍数未按预期缩放", "某一档的正文字号/列表/标记不等于「改造前值 × 倍数」")
-    // 「未设置」与显式 1 必须完全一致（证明默认值 1 生效）
-    const unset = scaleRows.find((x) => x.s === null).r
-    const one = scaleRows.find((x) => x.s === "1").r
-    const defaultSame = close(unset.para.fontSize, one.para.fontSize) && close(unset.markerUl.fontSize, one.markerUl.fontSize)
-    if (!defaultSame) fail("D/默认值与显式 1 不一致", "未设置变量与设置为 1 结果不同，说明回退默认值不是 1")
+      close(row.r.para.fontSize, row.base)
+      && close(row.r.listUl.fontSize, row.base * 8 / 9)
+      && close(row.r.markerUl.fontSize, row.base * 2 / 3)
+      && close(row.r.markerOl.fontSize, row.base * 8 / 9))
+    if (!rulerOk) fail("C/字号未按预期生效", "某一档的正文字号/列表/标记不等于「设定 px」「设定 px × 8/9」「设定 px × 2/3」")
+    // 「未设置」与显式 18px 必须完全一致（证明回退默认值 18px 生效）
+    const unset = scaleRows.find((x) => x.p === null).r
+    const explicit = scaleRows.find((x) => x.p === "18px").r
+    const defaultSame = close(unset.para.fontSize, explicit.para.fontSize) && close(unset.markerUl.fontSize, explicit.markerUl.fontSize)
+    if (!defaultSame) fail("D/未设置与显式 18px 不一致", "未设置变量与设置为 18px 结果不同，说明回退默认值不是 18px")
 
     // ② 对照：探针不在 .ui-test-root 内时不应被规则命中
     const outsidePara = outside?.para
@@ -255,38 +275,56 @@ async function main() {
     }
     console.log("")
     console.log("  ── 尺子自身的对照 ──")
-    console.log(`  ① 倍数真的改变字号     ${rulerOk ? "✓ 0.85~1.5 各档均为「改造前值 × 倍数」" : "✗ 不符"}`)
+    console.log(`  ① 字号真的改变字号     ${rulerOk ? "✓ 12px~32px 各档 =「设定 px」与「设定 px × 8/9 / × 2/3」" : "✗ 不符"}`)
     console.log(`  ② 选择器链对照         ${outsideNotMatched ? `✓ 根外探针为 ${outsidePara?.fontSizeRaw}（未被命中）` : "✗ 根外也被命中"}`)
-    console.log(`  ③ 未设置 == 显式 1      ${defaultSame ? "✓ 回退默认值确为 1" : "✗ 不一致"}`)
+    console.log(`  ③ 未设置 == 显式 18px   ${defaultSame ? "✓ 回退默认值确为 18px" : "✗ 不一致"}`)
 
-    // ③ 界面字号 × 正文字号 必须乘积生效（设计：文档尺寸 = 两者相乘）
+    /*
+     * ③ 界面字号与正文字号**解耦**（本次改造最核心的语义变化）。
+     * 改造前这里是「界面字号 × 正文倍数」的乘积语义；现在正文是绝对 px，
+     * 改界面字号**不得**改变正文字号。
+     * rootPct=150 那一档**必须保留** —— 删掉它等于放弃这条新不变量。
+     */
     console.log("")
-    console.log("  ── 界面字号 × 正文字号 的乘积语义（设计 §5.3）──")
+    console.log("  ── 界面字号 × 正文字号：已解耦（正文是绝对 px，不随界面字号变）──")
+    const rootFontPx = () => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
     const combos = []
-    for (const [rootPct, scale] of [[100, null], [100, "1.25"], [150, null], [150, "1.5"], [80, "0.85"]]) {
+    for (const [rootPct, p] of [[100, null], [100, "24px"], [150, null], [150, "32px"], [80, "15px"]]) {
       await page.evaluate(SET_ROOT_PCT, rootPct)
-      await page.evaluate(SET_SCALE, scale)
+      await page.evaluate(SET_BODY_PX, p)
       await page.waitForTimeout(120)
       const r = await page.evaluate(READ, "qmai-body-scale-probe")
-      const k = scale === null ? 1 : Number(scale)
-      const want = 18 * (rootPct / 100) * k
-      const ok = close(r.para.fontSize, want)
-      combos.push({ rootPct, scale, got: r.para.fontSize, want, ok })
-      console.log(`  界面 ${String(rootPct).padStart(3)}% × 正文 ${(scale === null ? "默认" : `×${scale}`).padEnd(5)} → ${r.para.fontSizeRaw.padStart(9)}  期望 ${want}px  ${ok ? "✓" : "✗"}`)
+      const rootNow = await rootFontPx()
+      const base = p === null ? 18 : parseFloat(p)
+      const ok = close(r.para.fontSize, base)
+      combos.push({ rootPct, p, got: r.para.fontSize, want: base, ok, rootNow })
+      console.log(`  界面 ${String(rootPct).padStart(3)}% × 正文 ${(p === null ? "默认" : p).padEnd(5)} → ${r.para.fontSizeRaw.padStart(9)}  期望 ${base}px（不乘界面字号）  ${ok ? "✓" : "✗"}  [root=${rootNow}]`)
     }
     await page.evaluate(SET_ROOT_PCT, null)
-    await page.evaluate(SET_SCALE, null)
+    await page.evaluate(SET_BODY_PX, null)
     await page.waitForTimeout(150)
     const comboOk = combos.every((c) => c.ok)
-    if (!comboOk) fail("F/相乘语义不成立", "正文字号未等于「界面字号 × 正文字号倍数」")
-    // 上限 1.5 × 1.5 = 2.25 倍（约 40.5px）—— 设计确认过的最大值
+    if (!comboOk) fail("F/解耦语义不成立", "正文字号不等于设定的 px —— 要么设定值没生效，要么正文仍跟着界面字号变（改造前才相乘）")
+    /*
+     * 「正文没随界面字号变」这条结论只有在界面字号**真的生效**时才有意义。
+     * 若 150% 没有改变根字号，"正文不变"就只是个空结论（两条读数是同一个环境）。
+     * 故补一条尺子正对照 —— 这是新增的判据，不是放松：它让解耦结论不再可能是恒真。
+     */
+    const root100 = combos.find((c) => c.rootPct === 100)?.rootNow
+    const root150 = combos.find((c) => c.rootPct === 150)?.rootNow
+    const rootRulerOk = !!root100 && !!root150 && parseFloat(root150) > parseFloat(root100)
+    if (!rootRulerOk) {
+      fail("G/界面字号尺子失效", `界面 150% 未改变根字号（100% → ${root100}，150% → ${root150}）—— "正文没跟着变"可能只是因为界面字号根本没生效，本次解耦结论不成立`)
+    }
+    console.log(`  尺子正对照：界面 100% → root=${root100}，150% → root=${root150}  ${rootRulerOk ? "✓ 界面字号确实生效（解耦结论非空）" : "✗ 界面字号未生效"}`)
+    // 上限 32px（旧模型理论上限 18 × 1.5 × 1.5 = 40.5px，故裁切风险是下降的）
     await page.evaluate(SET_ROOT_PCT, 150)
-    await page.evaluate(SET_SCALE, "1.5")
+    await page.evaluate(SET_BODY_PX, "32px")
     await page.waitForTimeout(120)
     const maxRec = await page.evaluate(READ, "qmai-body-scale-probe")
-    console.log(`  上限组合 150% × 1.5 → ${maxRec.para.fontSizeRaw}（设计确认约 40.5px）`)
+    console.log(`  上限组合 界面150% + 正文32px → ${maxRec.para.fontSizeRaw}（正文上限 32px，与界面字号无关）`)
     await page.evaluate(SET_ROOT_PCT, null)
-    await page.evaluate(SET_SCALE, null)
+    await page.evaluate(SET_BODY_PX, null)
     await page.waitForTimeout(120)
 
     // ④ Chromium 报告的真实渲染字体：正文必须用衬线正文字体，不是界面字体
@@ -311,7 +349,7 @@ async function main() {
     console.log("  说明：编辑器 DOM 在实际可达路径下从不挂载（已登记盲区）。此处注入真实选择器")
     console.log("       结构，证明真实 CSS 规则对真实变量有正确反应；不替代真实 exe 目视。")
     for (const g of guards) console.log(`  ✗ GUARD-FAIL [${g.code}] ${g.detail}`)
-    console.log(`  结论: 默认档 ${baseOk}/${expectBase.length} 逐位还原、倍数与乘积语义成立，守卫 ${guards.length} 项未通过 → ${guards.length === 0 ? "✓ 通过" : "✗ 未通过"}`)
+    console.log(`  结论: 默认档 ${baseOk}/${expectBase.length} 逐位还原、字号生效、界面与正文解耦，守卫 ${guards.length} 项未通过 → ${guards.length === 0 ? "✓ 通过" : "✗ 未通过"}`)
     process.exit(guards.length === 0 ? 0 : 1)
   } finally {
     await browser.close()
