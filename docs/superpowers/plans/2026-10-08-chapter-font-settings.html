@@ -2784,14 +2784,64 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
   })
 
   it("列表行高跟随行间距变量，标题与表格保持固定", () =&gt; {
-    // 列表三项都必须引用变量：只改 p 的话列表行距不动，
-    // 用户会觉得「行间距只对一半文字有效」
-    for (const selector of [":is(ul, ol)", "li {", "li p"]) {
-      const at = css.indexOf(selector)
-      expect(at, `找不到选择器片段：${selector}`).toBeGreaterThan(-1)
+    /*
+     * 列表三行都必须**引用**行高变量：只改 p 的话列表行距不动，
+     * 用户会觉得「行间距只对一半文字有效」。
+     *
+     * ⚠ 这里原来是两条**空转**的断言，被一条变异实测抓住（M4b）：
+     *   · `for (const selector of […]) expect(css.indexOf(selector)).toBeGreaterThan(-1)`
+     *     —— 只证明"这三个选择器出现过"，它们在文件里有几十处匹配，
+     *        跟它们的 line-height 是什么**完全无关**；
+     *   · `expect(css).not.toMatch(/…line-height: 1\.9/)`
+     *     —— **否定式只排除一种错误写法**：把 li 的行高换成 1.8 / 2.0 / 1.95
+     *        等任何别的写死值，全套测试 47 passed 照样绿。
+     * 实测：把 li 的行高改成 `1.8`，`Tests 47 passed (47)`。
+     *
+     * 改成**正面**断言：三种标题形态各自必须写成
+     * `font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height);`，
+     * 且**恰好三处**。这样断言绑定的是"写法与数量"，而不是"某个坏值没出现"。
+     * 数量断言同时挡住"复制成第四份"（复制会让改一处漏一处，正是要防的漂移）。
+     */
+    /*
+     * 断言写成"按行筛出 + 逐个选择器核对"，而不是一个大正则。
+     * 原因：`:is(ul, ol) {` 在文件里出现两次（另有一处 margin/padding 规则，
+     * 与行高无关），用 `[^}]*` 拼的正则要依赖回溯才绕得过去，很脆。
+     * 先按"引用了列表字号的规则行"筛，再核对选择器，意图也更直白。
+     */
+    const LIST_DECL = "font-size: var(--qmai-body-font-list)"
+    const LINE_VAR = "line-height: var(--qmai-body-line-height)"
+    const listLines = css.split(/\r?\n/).filter((l) =&gt; l.includes(LIST_DECL))
+
+    // 引用列表字号的规则共 4 条：三块正文 + 一条有序列表标记
+    expect(listLines.length, `引用列表字号的规则应是 4 条，实际 ${listLines.length} 条`).toBe(4)
+
+    // 其中三块正文必须行行接上行高变量
+    const withLineHeight = listLines.filter((l) =&gt; l.includes(LINE_VAR))
+    expect(
+      withLineHeight.length,
+      `列表三块（:is(ul, ol) / li / li p）都应引用行高变量，实际只有 ${withLineHeight.length} 块`,
+    ).toBe(3)
+
+    // 三块**各自**都要接上，而不是"某处有变量就算数"
+    for (const selector of [":is(ul, ol) {", " li {", " li p {"]) {
+      const hit = withLineHeight.filter((l) =&gt; l.includes(selector))
+      expect(hit.length, `应有且只有一条 ${selector.trim()} 规则同时引用列表字号与行高变量`).toBe(1)
     }
-    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: 1\.9/)
-    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距
+
+    /*
+     * 唯一允许不接行高的是有序列表标记 `ol &gt; li::marker` ——
+     * 它只按字号取尺寸，标记本身没有行距概念。
+     * 把这条"允许的例外"也钉住：否则把 li 的行高写死之后，
+     * withoutLineHeight 会变成 2 条，而这条断言会立刻报红。
+     */
+    const withoutLineHeight = listLines.filter((l) =&gt; !l.includes(LINE_VAR))
+    expect(withoutLineHeight.length, "只有 ::marker 那一条可以不接行高变量").toBe(1)
+    expect(withoutLineHeight[0], "不接行高的那条必须是 ::marker").toContain("::marker")
+
+    // 任何"列表字号 + 写死行高"的组合都不许留
+    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: [\d.]/)
+
+    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距（这是有意固定，不是漏改）
     expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
     expect(css).toMatch(/line-height: 1\.7;/)
   })
@@ -2862,10 +2912,22 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      * 「设置保存了但界面不变」：宿主规则比 html 更近时（.ui-test-root 就是，
      * 见 ui-test.css 顶部那句注释），继承下来的 App 值会被本规则盖掉。
      *
-     * 这个坑此前**没有任何断言拦着**：Task 6 的实现者做了变异 M3
+     * 这个坑在**当下**没有任何断言拦着：Task 6 的实现者做了变异 M3
      * （在 .ui-test-root 里加一行 --qmai-body-font-px: 20px），
      * 全仓 699 个测试文件没有一个变红。也就是说它今天没人踩，
      * 只是也没有任何东西阻止别人明天踩。
+     *
+     * ── 与任务 12 那段检查的关系（互补，不是重复）──
+     * 任务 12 的 Step 12c 里已经有一段 APP_OWNED_VARS 检查，但它
+     *   · 只扫 ui-test.css **一个文件**（它自己的注释写着"本文件的变量宿主是 .ui-test-root"）；
+     *   · 且活在 verify-body-font-single-source.mjs 这个**验收脚本**里 ——
+     *     那个脚本不在 npm run test:mocks、也不被 package.json 或 CI 调用。
+     * 本条的覆盖面更宽、跑得更勤：
+     *   · 扫**全部** CSS 文件（index.css、ui-test-tools.css、以后新增的都算）——
+     *     声明写在哪一个文件里都能让设置失效，只守一个文件等于留了后门；
+     *   · 活在**主测试套件**里，每次 npm run test:mocks 都会跑。
+     * 所以两处都要留：删掉任务 12 那段会让验收脚本失去自检，删掉本条
+     * 会让日常门禁失去这个坑。
      *
      * 为什么不写成"检查某个文件的某一段"：声明可以出现在任何一个 CSS 里
      * （index.css、ui-test-tools.css、将来新增的都能放）。漏一个文件
@@ -2907,12 +2969,12 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     }
     expect(
       violations,
-      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\\n` +
+      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\n` +
         `要表达默认值，请写成使用点的第二个参数 var(--qmai-body-xxx, 兜底值)。`,
     ).toEqual([])
   })</code></pre>
 
-      <p>这个文件顶部要补上两类 import：</p><ul><li><code>defaultBodyMarginXForViewport</code> 与三个 <code>BODY_MARGIN_X_VIEWPORT_*</code>（来自 <code>@/lib/font-settings</code>）；</li><li><strong>以及 node 内置符号</strong>：第 6 条断言要递归扫目录，需要 <code>readdirSync</code>（补进已有的 <code>node:fs</code> 那行）与 <code>join</code>（补进已有的 <code>node:path</code> 那行）。漏了它们 <code>typecheck:tests</code> 会报 TS2304 —— 本块是**片段**不是整文件，<code>check-brief-imports</code> 抓不到这一处，只能靠这里写明。</li></ul>
+      <p>这个文件顶部要补上两类 import：</p><ul><li><code>defaultBodyMarginXForViewport</code> 与三个 <code>BODY_MARGIN_X_VIEWPORT_*</code>（来自 <code>@/lib/font-settings</code>）；</li><li><strong>以及 node 内置符号</strong>：第 6 条断言要递归扫目录，需要 <code>readdirSync</code>（补进已有的 <code>node:fs</code> 那行）与 <code>join</code>、<strong><code>relative</code></strong>（都补进已有的 <code>node:path</code> 那行）。漏了它们 <code>typecheck:tests</code> 会报 TS2304 —— 本块是<strong>片段</strong>不是整文件，<code>check-brief-imports</code> 抓不到这一处，只能靠这里写明。</li></ul>
 
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect bad">Expected: FAIL —— 前 5 条变红：行高那条（CSS 还是 1.95）、<code>letter-spacing</code> 那条（CSS 里还没有）、列表行高那条（CSS 还是 1.9）、安全距离那条（CSS 还是 36px）、窄屏媒体查询那条（CSS 里还有 <code>padding: 0 20px</code>）。<strong>第 6 条（App 独占变量不许被声明）应当是绿的</strong> —— 它守的是「不许出现某种写法」，现状本来就正确。但「绿」不算验证过：必须按下面那条变异把它<strong>弄红一次</strong>，才算证明它真的在守东西。若某条这一轮就绿，说明它没测到本次要改的东西，先修断言再往下走。</p>

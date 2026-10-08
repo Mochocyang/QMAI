@@ -624,14 +624,64 @@ describe("测试版正文样式边界", () => {
   })
 
   it("列表行高跟随行间距变量，标题与表格保持固定", () => {
-    // 列表三项都必须引用变量：只改 p 的话列表行距不动，
-    // 用户会觉得「行间距只对一半文字有效」
-    for (const selector of [":is(ul, ol)", "li {", "li p"]) {
-      const at = css.indexOf(selector)
-      expect(at, `找不到选择器片段：${selector}`).toBeGreaterThan(-1)
+    /*
+     * 列表三行都必须**引用**行高变量：只改 p 的话列表行距不动，
+     * 用户会觉得「行间距只对一半文字有效」。
+     *
+     * ⚠ 这里原来是两条**空转**的断言，被一条变异实测抓住（M4b）：
+     *   · `for (const selector of […]) expect(css.indexOf(selector)).toBeGreaterThan(-1)`
+     *     —— 只证明"这三个选择器出现过"，它们在文件里有几十处匹配，
+     *        跟它们的 line-height 是什么**完全无关**；
+     *   · `expect(css).not.toMatch(/…line-height: 1\.9/)`
+     *     —— **否定式只排除一种错误写法**：把 li 的行高换成 1.8 / 2.0 / 1.95
+     *        等任何别的写死值，全套测试 47 passed 照样绿。
+     * 实测：把 li 的行高改成 `1.8`，`Tests 47 passed (47)`。
+     *
+     * 改成**正面**断言：三种标题形态各自必须写成
+     * `font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height);`，
+     * 且**恰好三处**。这样断言绑定的是"写法与数量"，而不是"某个坏值没出现"。
+     * 数量断言同时挡住"复制成第四份"（复制会让改一处漏一处，正是要防的漂移）。
+     */
+    /*
+     * 断言写成"按行筛出 + 逐个选择器核对"，而不是一个大正则。
+     * 原因：`:is(ul, ol) {` 在文件里出现两次（另有一处 margin/padding 规则，
+     * 与行高无关），用 `[^}]*` 拼的正则要依赖回溯才绕得过去，很脆。
+     * 先按"引用了列表字号的规则行"筛，再核对选择器，意图也更直白。
+     */
+    const LIST_DECL = "font-size: var(--qmai-body-font-list)"
+    const LINE_VAR = "line-height: var(--qmai-body-line-height)"
+    const listLines = css.split(/\r?\n/).filter((l) => l.includes(LIST_DECL))
+
+    // 引用列表字号的规则共 4 条：三块正文 + 一条有序列表标记
+    expect(listLines.length, `引用列表字号的规则应是 4 条，实际 ${listLines.length} 条`).toBe(4)
+
+    // 其中三块正文必须行行接上行高变量
+    const withLineHeight = listLines.filter((l) => l.includes(LINE_VAR))
+    expect(
+      withLineHeight.length,
+      `列表三块（:is(ul, ol) / li / li p）都应引用行高变量，实际只有 ${withLineHeight.length} 块`,
+    ).toBe(3)
+
+    // 三块**各自**都要接上，而不是"某处有变量就算数"
+    for (const selector of [":is(ul, ol) {", " li {", " li p {"]) {
+      const hit = withLineHeight.filter((l) => l.includes(selector))
+      expect(hit.length, `应有且只有一条 ${selector.trim()} 规则同时引用列表字号与行高变量`).toBe(1)
     }
-    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: 1\.9/)
-    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距
+
+    /*
+     * 唯一允许不接行高的是有序列表标记 `ol > li::marker` ——
+     * 它只按字号取尺寸，标记本身没有行距概念。
+     * 把这条"允许的例外"也钉住：否则把 li 的行高写死之后，
+     * withoutLineHeight 会变成 2 条，而这条断言会立刻报红。
+     */
+    const withoutLineHeight = listLines.filter((l) => !l.includes(LINE_VAR))
+    expect(withoutLineHeight.length, "只有 ::marker 那一条可以不接行高变量").toBe(1)
+    expect(withoutLineHeight[0], "不接行高的那条必须是 ::marker").toContain("::marker")
+
+    // 任何"列表字号 + 写死行高"的组合都不许留
+    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: [\d.]/)
+
+    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距（这是有意固定，不是漏改）
     expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
     expect(css).toMatch(/line-height: 1\.7;/)
   })
