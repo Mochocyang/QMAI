@@ -4700,6 +4700,10 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
     <div>Modify: src/components/layout/preview-panel.tsx（import 3 行；位置助手 175–188；state 237–238 旁；章节工具栏 1520；大纲工具栏 1530 后；浮层 1930 旁）</div>
     <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前<strong>追加</strong>一条新 it）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
     <div>Create: src/components/layout/preview-panel.chapter-toolbar.spec.tsx</div>
+    <div>Modify: src/components/uitest/ui-test-editor.spec.tsx（<strong>只有那一处工具栏按钮清单断言</strong>）—— 那条断言<strong>完整列举</strong>了章节工具栏的按钮：<code>expect(labels).toEqual(["去AI味","提取记忆","查看记忆","一键排版"])</code>。本任务新增「字体设置」按钮后它必然红，必须同步更新为 <code>["去AI味","提取记忆","查看记忆","字体设置","一键排版"]</code>。</div>
+    <div class="lbl">注</div>
+    <div><strong>这个文件原先漏在清单外</strong>（Task 11 实测暴露、并因此在 main 上红了一条既有单测）。13 份简报里没有任何任务认领它：任务 6/12 只跑不改、任务 7 改的是同文件里的 <strong>CSS 契约</strong>断言、任务 13 是人工验收。所以它必须由本任务认领 —— 否则下次往工具栏加按钮还会再漏一次。</div>
+    <div>更新时<strong>保留「完整列举」</strong>，不要放宽成「包含这几项即可」：这条断言的价值正是冻结工具栏的<strong>组合与顺序</strong>，放宽之后误删按钮、两个按钮换位都不会被发现。新增按钮时让它红一次、由人确认位置合理，是它该有的行为。</div>
   </div>
 
   <div class="step">
@@ -4845,6 +4849,15 @@ describe("章节与大纲工具栏图标", () =&gt; {
     <div class="step-body">
       <pre class="cmd"><code>npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect bad">Expected: FAIL — 第 1 条「一键排版用魔法棒图标」因当前用的是 <code>Type</code> 而失败；第 3 条因找不到两个调用点而失败。<strong>这就是缺陷存在的证据</strong>，别跳过这一步。</p>
+      <div class="note warn">
+        <span class="t">⚠ 「字体设置」在源码里有<strong>两处</strong>（章节 / 大纲）—— 两处必须<strong>各自</strong>钉一遍</span>
+        <p>Task 11 的变异验证实测出一个<strong>真盲区</strong>：只把<strong>大纲</strong>那处的图标改回 <code>WandSparkles</code>，全部守卫<strong>依然全绿</strong>。</p>
+        <p>根因是取按钮片段的助手用了 <code>findIndex</code> —— <strong>只取第一处匹配</strong>。而「字体设置」在 <code>preview-panel.tsx</code> 里有两处（章节工具栏与大纲工具栏），两者文本<strong>逐字节相同</strong>（同一套 <code>className</code>/<code>title</code>/<code>onClick</code>/同一个 <code>&lt;Type /&gt;</code>，就像两处入口本来就该长一样）。于是大纲那处<strong>从来没进入任何断言的视野</strong>。</p>
+        <p>这个盲区值得堵，因为它与本次要修的缺陷<strong>同类</strong>：用户原话是「一键排版的图标与正文字体的图标两个不能设置为一样」，而且「大纲当中也要有这个设置功能」也是用户明确要求的。只守住章节那处，等于把「大纲里又抄错了图标」这类回归放走 —— 而它恰恰是<strong>用户在界面上能直接看到</strong>的那种错。</p>
+        <p><strong>做法</strong>：取按钮片段的助手要带 <strong>occurrence（第几处）</strong> 参数，并对<strong>每一处</strong>各写一条断言。找不到第 N 处时应当<strong>抛错</strong>而不是退回第一处 —— 静默退回会让「某个入口被删掉」继续假绿，那是要防的另一件事。</p>
+        <p>已有常驻验证脚本 <code>.codex-temp/verify-outline-font-icon-guard.mjs</code> 守着这条断言：基线绿 → 只改大纲图标变红（且红在<strong>新增的那条</strong>用例上）→ <strong>把新断言注掉后同一个变异重新变绿</strong>（反向对照，证明它不是摆设）→ 逐字节还原。四态 8/8 通过。</p>
+        <p><strong>通用要求</strong>：以后往写作现场再加第三个入口时，同样要各自钉一遍 —— 否则这个盲区会第三次出现。</p>
+      </div>
     </div>
   </div>
 
@@ -4964,20 +4977,30 @@ function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties 
    * 一次落全套就没有这个问题：最后一个任务写的是当时 store 里的全部值，
    * 它必然包含之前每一次改动。多写几个字段的代价远小于丢一个设置。
    */
-  const persistAllBodyTypography = useCallback(() =&gt; {
+  const persistAllBodyTypography = useCallback(async () =&gt; {
     const s = useWikiStore.getState()
     /*
-     * ⚠ 这里必须 void 掉 Promise.all 的结果，不能 return 它。
+     * ⚠ 必须写成 async + await。**不能**用 void 包住 Promise.all。
      *
-     * createDebouncedPersist().schedule 的签名是
-     *   schedule(run: () => Promise&lt;void&gt;): void
-     * 而 Promise.all([...]) 的类型是 Promise&lt;void[]&gt;。
-     * 直接 return 会让 schedule(persistAllBodyTypography) 报
-     *   TS2345: Type 'void[]' is not assignable to type 'void'
-     * —— 报错指向 schedule 那一行，看着与"保存 5 个参数"毫无关系，
-     * 很容易被误判成 debounced-persist 的签名写错了。
+     * 理由（实测，不是推测）：createDebouncedPersist().schedule 的签名是
+     *   schedule(run: () =&gt; Promise&lt;void&gt;): void
+     * 一个**同步**函数即使内部 void 掉了 Promise.all，它的类型仍然是
+     * () =&gt; void，于是 schedule(persistAllBodyTypography) 报：
+     *   TS2345: Argument of type '() =&gt; void' is not assignable to
+     *           parameter of type '() =&gt; Promise&lt;void&gt;'
+     * （实现者实测报在 preview-panel.tsx:402 那一行 schedule 调用处。）
+     *
+     * 直接 return Promise.all([...]) 也不行 —— 它的类型是
+     * Promise&lt;[void, void, …]&gt;，而 schedule 要的是 Promise&lt;void&gt;。
+     * 只有 async 函数 + await 同时满足「真的等到落盘」与「返回 Promise&lt;void&gt;」。
+     *
+     * ⚠ 这段最初写的是「void 掉 Promise.all」，并附了一条把报错方向说**反**的
+     * 注释（说成 void[] 不能赋给 void、报错指向 schedule 那一行）。
+     * 实现者用仓库自带的 TS 5.9.3 探了**四种**写法才定案。
+     * 为什么要把这段留下来：那条错注释会把人引向去改
+     * debounced-persist 的签名 —— 而那个签名是**对的**，改它才是真错。
      */
-    void Promise.all([
+    await Promise.all([
       saveUiBodyFontFamily(s.uiBodyFontFamily),
       saveUiBodyFontPx(s.uiBodyFontPx),
       saveUiBodyLineHeight(s.uiBodyLineHeight),
@@ -5023,7 +5046,16 @@ function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties 
         // 任务 11 的键 → store 映射是**第二处**同样的 switch：
         // 写成 default: break 的话，"共享控件新增第 7 个参数"会在这里静默丢写
         // —— 表现是"设置页能改、写作现场浮层改不动"，比单点漏更难排查。
-        const _never: never = next
+        // ⚠ 这里必须写 key，**不能**写 next。
+        //
+        // 先看事实：switch 收窄的是 **key**（判别式），
+        // 而 next 的类型始终是 BodyTypographyValue[K]，它**不随 case 收窄**。
+        // 所以 `const _never: never = next` 在**当前这 6 个键的状态下就编译不过**：
+        //   TS2322: Type 'BodyTypographyValue[K]' is not assignable to type 'never'
+        // 这不是「当心以后加键」，是「照抄就卡住」。
+        //
+        // 写成 `= key` 才既编译得过、又能在新增第 7 个键时报错（与任务 9 一致）。
+        const _never: never = key
         void _never
       }
     }
@@ -5166,6 +5198,28 @@ git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大
 node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
 node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
       <p class="expect bad">Expected: <strong>FAIL</strong>。任务 1–11 已经把字号从「rem × 倍数」改成了绝对 px、把行高从字面量改成了变量，而这些脚本还钉着旧契约（例如断言 <code>--qmai-body-line-height</code> 必须恰好是 <code>1.95</code>）。</p>
+      <div class="note danger">
+        <span class="t">⛔ 先看这条再动手：这三个脚本里有<strong>两个会启动真实 exe</strong>，而那个 exe 写的是<strong>用户的真实设置</strong></span>
+        <p>已实测（不是推测）：</p>
+        <ul>
+          <li><code>verify-body-font-single-source.mjs</code> —— <strong>静态</strong>，只读两个 CSS 文件。<strong>随便跑</strong>。实测它现在红在恰好 4 条旧契约上（<code>--qmai-body-font-size</code> / <code>-font-list</code> / <code>-font-marker</code> 三条要 <code>calc(…rem * var(--qmai-body-font-scale, 1))</code>，以及 <code>--qmai-body-line-height</code> 要求无单位 <code>1.95</code>），<strong>与上面的预期完全对得上</strong>。</li>
+          <li><code>verify-body-font-scale.mjs</code> 与 <code>verify-real-exe.mjs</code> —— 需要 <code>playwright</code>（走 CDP），后者还会 <strong>起子进程</strong>启动真实 exe。</li>
+          <li><code>verify-real-exe-settings-save.mjs</code>（本任务也要改它）—— 它会<strong>改字号与字体、点保存</strong>，末尾再把初值设回去。</li>
+        </ul>
+        <p><strong>关键风险</strong>：<code>verify-real-exe.mjs</code> 启动的是仓库内的便携版 <code>release-portable/QMaiWrite.exe</code>（不是用户装的那个，这点是好消息），但它的 identifier 就是 <code>com.qingmuai.writer</code> —— 我扫过那个 exe 的二进制，<strong>没有任何带后缀的隔离变体</strong>。而 Tauri v2 的 app 数据目录 = <code>%APPDATA%\&lt;identifier&gt;\</code>，所以：</p>
+        <ul>
+          <li>它写的正是用户的真实 <code>%APPDATA%\com.qingmuai.writer\app-state.json</code>（26,757 B，47 个键，含 <code>uiFontFamily</code> / <code>uiBodyFontFamily</code> 等真实偏好）。</li>
+          <li>末尾那步"恢复"是<strong>通过界面把值再设回去</strong>，不是还原文件 —— 中途失败/超时就会把用户设置留在被改过的状态。</li>
+          <li>本仓库历史上<strong>曾经</strong>用过隔离（<code>%APPDATA%</code> 下留着 <code>com.qingmuai.writer.uitest</code> 与 <code>.uitaudit20260908151432</code> 两个目录），但全仓库 grep <code>uitaudit</code> <strong>零命中</strong> —— 那个机制已经不在了，现在跑就是共用。</li>
+        </ul>
+        <p>所以跑之前必须：</p>
+        <ul>
+          <li><strong>先备份</strong> <code>app-state.json</code>（记下 SHA-256），跑完核对已逐字节恢复；</li>
+          <li><strong>确认用户已关闭正在运行的那个实例</strong>。运行中的实例持有自己的内存状态，可能在脚本"恢复"之后又保存一次、把恢复覆盖掉 —— 那样"已恢复"的结论就是假的。（我实测过：用户当时确实有一个 <code>D:\QMaiWrite\qmai.exe</code> 在跑。）</li>
+          <li>静态那一条不用管，它只读 CSS。</li>
+        </ul>
+        <p>这条警告的通用教训：<strong>验收工具的副作用和它的判据一样需要审。</strong>本仓库已有一次先例是"一个会错误报'通过'的工具比没有工具更危险"；这次是"一个会改用户数据的工具"。凡是会启动真实程序、会写盘的验收脚本，动手前先问三句：它启动的是哪一个？它写到哪里去？失败了会留下什么？</p>
+      </div>
 
       <div class="note">
         <span class="t">为什么这一步必须做，而且要留下输出</span>
@@ -5666,6 +5720,13 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
       <p>想再确认一层"新前端真的行得通"，跑 <code>docs/font-scaling-fix-20261007/verify-real-exe.mjs</code>
       （它连真实 exe 的 CDP，能读到计算样式）。只搜文件名只能证明"资源进去了"，
       证不了"进去的是对的那一版"。</p>
+      <div class="note danger">
+        <span class="t">⛔ 跑它之前先看 <strong>任务 12 Step 0</strong> 那条数据安全警告</span>
+        <p>那个脚本启动的是仓库内的便携版 <code>release-portable/QMaiWrite.exe</code>，而它内嵌的 identifier 就是 <code>com.qingmuai.writer</code>（我扫过二进制，<strong>没有</strong>任何带后缀的隔离变体）—— 所以它读写的正是你<strong>真实</strong>的设置文件 <code>%APPDATA%\com.qingmuai.writer\app-state.json</code>。</p>
+        <p>本任务这一处只读计算样式，看起来无害；但那条警告里的另外两点同样适用：<strong>先备份 app-state.json 并记 SHA-256</strong>，以及<strong>确认没有正在运行的实例</strong>（运行中的实例可能在之后又保存一次，把脚本的恢复覆盖掉）。</p>
+        <p>为什么在这里要再说一遍：同一风险在两个任务里各出现一次，就应当在两处都能看到 —— 只在任务 12 写一次，等于把安全性寄托在「读者记得别处写过」。（本仓库已有一次同类教训：守卫那一层最初设计成「留给任务 12 统一提交」，结果每个中间任务的提交在检出处都是红的 —— 也是「以为别处会处理」。）</p>
+        <p>注意与本任务已有那条「安装前要完全退出正在运行的青幕」的区别：那条是<strong>安装</strong>的要求（文件被占用），与「跑验收脚本会改用户设置」是两件事，不能互相替代。</p>
+      </div>
     </div>
   </div>
 
