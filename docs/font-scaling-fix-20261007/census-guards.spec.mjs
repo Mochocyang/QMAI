@@ -23,7 +23,7 @@
  * 用例之间不共享任何可变状态：每个用例独立构造 payload 与临时文件。
  */
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -183,12 +183,86 @@ function expectPass(res) {
 /** 每个用例都给足时间：参数解析若失效，采集模式会真的去启动浏览器。 */
 const guardIt = (name, fn) => it(name, fn, TIMEOUT_MS)
 
+/**
+ * 一份**真正不同**的 before/after 对：before 在 150% 档不缩放（即缺陷状态），
+ * after 已修（150% 全部 ×1.5）。
+ *
+ * 为什么不能拿 cleanPair() 当"真修复"用：cleanPair() 的 before 与 after
+ * **内容完全相同**，所以那其实是自比较 —— 用它断言"真修复必须宣告达成"
+ * 会得到反直觉的失败（工具正确地把措辞收窄了，而断言期望它不收窄）。
+ */
+function fixedPair() {
+  return {
+    before: fileOf(buildBucket(), buildBucket()),
+    after: fileOf(buildBucket(), buildBucket({ fontSizeScale: 1.5, lineHeightScale: 1.5 })),
+  }
+}
+
+/**
+ * 只取结论行（含 `→`）。
+ *
+ * 断言"结论怎么说"必须只看结论行：工具的解释性文字里会**引用**被否定的结论
+ * （自比较提示原文就写着「它不构成「字号修复已达成」的证据」），
+ * 于是对整个输出做 `not.toContain("字号修复已达成")` 会被自己的免责声明误伤
+ * —— 这是本文件第一版真实踩到的坑。
+ */
+function conclusionsOf(out) {
+  return out.split(/\r?\n/).filter((l) => l.includes("→"))
+}
+
 describe("census-computed-font.mjs 防虚假通过防线", () => {
   /* ── 正向对照：先证明生成器与工具在正常输入上确实能通过 ── */
 
   guardIt("[对照] 干净 fixtures（两侧键集一致、100% 等效、150% 全部 ×1.5）→ 退出 0", () => {
     const { before, after } = cleanPair()
     expectPass(runCompare(before, after))
+  })
+
+  /*
+   * ── 自比较不得冒充"修复已达成"（对抗性审查 P2-②）──
+   *
+   * 自比较（同一份数据同时充当"改动前"与"改动后"）**是**受支持的用法：
+   * implementation-plan.html 用它做采集与判定的确定性自检（"judge-1 self-compare = 0"）。
+   * 但它证明不了"修复达成" —— 判据 1 的语义是"改动前有缺陷、改动后没有"，
+   * 两边一样时只在证明"A 等于 A"。实测它曾打印
+   * 「字号修复已达成：既无回归，又真实生效」并退出 0。
+   *
+   * 故这里钉三点：①退出码仍为 0（确定性自检不能被破坏）；
+   * ②结论行**不得**宣称"修复已达成"；③真修复通过时**必须**仍然宣告达成
+   * （防止措辞收窄变成全局行为，把真结论也一起收掉）。
+   */
+
+  guardIt("[自比较] 同一文件自比较 → 退出 0，但结论不得宣称「修复已达成」", () => {
+    const { before } = cleanPair()
+    const p = writeJson(before)
+    const res = runTool(["--compare", p, p])
+    expectPass(res)
+    expect(res.output, "必须明确提示这是自比较模式").toContain("自比较模式")
+    const lines = conclusionsOf(res.output)
+    expect(lines.length, "应恰好有一条结论行").toBe(1)
+    expect(lines[0], "自比较的结论不得宣称修复已达成").not.toContain("字号修复已达成")
+    expect(lines[0], "自比较的结论应说明它证明的是确定性").toContain("确定性")
+  })
+
+  guardIt("[自比较] 路径不同但内容相同的复制件 → 也必须被识别为自比较", () => {
+    // `cp before.json before-copy.json` 之后路径不同、内容相同，拿它当"改动后"
+    // 照样是自比较。只比路径的实现会在这里漏判，于是又印出"修复已达成"。
+    const { before } = cleanPair()
+    const src = writeJson(before)
+    const copy = join(TMP_ROOT, `copy-${Date.now()}.json`)
+    writeFileSync(copy, readFileSync(src))
+    const res = runTool(["--compare", src, copy])
+    expectPass(res)
+    expect(res.output, "内容相同即应判为自比较，不能只比路径").toContain("自比较模式")
+    expect(conclusionsOf(res.output)[0], "复制件自比较不得宣称修复已达成").not.toContain("字号修复已达成")
+  })
+
+  guardIt("[反向] 真正不同的 before/after → 必须确实给出「修复已达成」结论", () => {
+    const { before, after } = fixedPair()
+    const res = runCompare(before, after)
+    expectPass(res)
+    expect(res.output, "真修复不得被误判成自比较").not.toContain("自比较模式")
+    expect(conclusionsOf(res.output)[0], "真修复通过时必须宣告达成").toContain("字号修复已达成")
   })
 
   guardIt("[对照] 真 SVG 例外（inSvg && svgFontSizeAttr，未缩放）+ 显式配额 → 退出 0", () => {

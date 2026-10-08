@@ -141,8 +141,9 @@
  *   防线测试：`npx vitest run docs/font-scaling-fix-20261007/census-guards.spec.mjs`
  */
 import { createServer } from "node:http"
+import { createHash } from "node:crypto"
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs"
-import { join, extname } from "node:path"
+import { join, extname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 const argv = process.argv.slice(2)
@@ -302,7 +303,27 @@ const OUT_FILE = outParsed.value ?? "census.json"
  *
  * @returns {number} 进程退出码（0 = 只有全部判据与防线都成立时才可能）
  */
-function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions }) {
+/**
+ * 两份输入是否其实是**同一份数据**。
+ *
+ * 不只看路径：`cp after.json after-copy.json` 之后路径不同但内容相同，
+ * 拿它当「改动后」照样是自比较。故同时比归一化绝对路径与内容哈希。
+ * 读不到文件时返回 false —— 让下游的读取错误去报它自己的 ARG-FAIL，
+ * 不在这里把"读不到"误报成"同一份"。
+ */
+function sameInput(pathA, pathB) {
+  let absA, absB
+  try { absA = resolve(pathA); absB = resolve(pathB) } catch { return false }
+  // Windows 下路径大小写不敏感
+  if (absA.toLowerCase() === absB.toLowerCase()) return true
+  try {
+    const a = readFileSync(pathA)
+    const b = readFileSync(pathB)
+    return createHash("sha256").update(a).digest("hex") === createHash("sha256").update(b).digest("hex")
+  } catch { return false }
+}
+
+function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions, selfCompare = false }) {
   const failures = []
   const fail = (code, msg) => {
     failures.push(code)
@@ -635,7 +656,12 @@ function compareCensus(beforePath, afterPath, { minElements, maxSvgExceptions })
     if (!judge2) failedJudges.push(`判据2(150%缩放,未解释${unexplained.length})`)
     console.error(`  ✗ FAIL 未达成: ${[...failedJudges, ...failures].join(", ")}`)
   }
-  console.log(`    → ${ok ? "字号修复已达成：既无回归，又真实生效" : "尚未达成，需继续修（含防虚假通过防线）"}`)
+  console.log(`    → ${ok
+    ? (selfCompare
+      // 自比较下不得宣称"修复已达成"：两边相同证明不了任何改动
+      ? "采集与判定确定性已确认（自比较）。**此结果不构成「修复已达成」的证据**"
+      : "字号修复已达成：既无回归，又真实生效")
+    : "尚未达成，需继续修（含防虚假通过防线）"}`)
   return ok ? 0 : 1
 }
 
@@ -651,7 +677,29 @@ if (ARG_ERRORS.length) {
     console.error(`  ✗ ARG-FAIL 用法: --compare <before.json> <after.json>（收到 ${JSON.stringify(argv.slice(i))}）`)
     process.exitCode = 1
   } else {
-    process.exitCode = compareCensus(beforePath, afterPath, { minElements: MIN_ELEMENTS, maxSvgExceptions: MAX_SVG_EXCEPTIONS })
+    /*
+     * 自比较：同一份数据同时充当「改动前」与「改动后」。
+     *
+     * 这**是**受支持的用法 —— `implementation-plan.html` 用它做采集与判定的确定性自检
+     * （「judge-1 self-compare = 0」），故不能拒绝。
+     *
+     * 但它**不能**支持「修复已达成」这个结论：判据 1 的语义是「改动前有缺陷、改动后没有」，
+     * 两边完全一样时它只在证明「A 等于 A」。实测该用法曾打印
+     * 「字号修复已达成：既无回归，又真实生效」。
+     * 故这里不拦退出码，只把结论措辞缩到它真正证明的范围。
+     */
+    const selfCompare = sameInput(beforePath, afterPath)
+    if (selfCompare) {
+      console.log(`  ⓘ 自比较模式：前后两份是同一份数据`)
+      console.log(`     本模式校验的是「采集与判定是否确定性可复现」。`)
+      console.log(`     **它不构成「字号修复已达成」的证据** —— 两边相同只能证明「A 等于 A」。`)
+      console.log(`     要证明修复达成，请用两个真正不同的采集结果（before 含缺陷、after 已修）。\n`)
+    }
+    process.exitCode = compareCensus(beforePath, afterPath, {
+      minElements: MIN_ELEMENTS,
+      maxSvgExceptions: MAX_SVG_EXCEPTIONS,
+      selfCompare,
+    })
   }
 } else {
   /* ─────────── 采集模式 ─────────── */
