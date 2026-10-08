@@ -2158,7 +2158,7 @@ export async function loadUiBodySafeBottom(): Promise&lt;number | null&gt; {
 npx vitest run src/lib/project-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件该随提交消失）。
         更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
         而那正是本仓库历史上踩过的坑。</p>
     </div>
@@ -2453,7 +2453,7 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件该随提交消失）。
         更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
         而那正是本仓库历史上踩过的坑。</p>
     </div>
@@ -2698,7 +2698,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件该随提交消失）。
         更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
         而那正是本仓库历史上踩过的坑。</p>
     </div>
@@ -3265,7 +3265,7 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
 npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件该随提交消失）。
         更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
         而那正是本仓库历史上踩过的坑。</p>
     </div>
@@ -4382,7 +4382,7 @@ node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件与守卫 spec 都该随提交消失）。
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>不该</strong>再看到你改动过的文件（源文件该随提交消失）。
         更不要为了"让 diff 干净"去放宽自己写的断言 —— 遇到抓不住的变异，最省事的应对就是放宽它，
         而那正是本仓库历史上踩过的坑。</p>
     </div>
