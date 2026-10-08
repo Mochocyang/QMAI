@@ -1,6 +1,12 @@
+// 注：isStructuralGraphNode 并未被删除，只是自 01aab5f（refactor(cleanup): 收口测试专用旧模块和
+// 未使用导出）起不再是导出符号——其实现完全未变，仍位于 src/lib/graph-filters.ts，并被
+// applyGraphFilters 内部调用（该函数唯一的使用点）。仓库中不存在其它等价的公开判定。
+// 为遵守「只能改测试文件」，这里改为经由公开 API applyGraphFilters 等价地验证同一判定：
+// 在 hideStructural: true 且其余全部过滤条件停用时，节点被隐藏 ⇔ isStructuralGraphNode(node) === true。
+// 原有断言（toBe(true) / toBe(false)）与测试意图均保持不变。
 import { describe, expect, it } from "vitest"
 import type { GraphEdge, GraphNode } from "@/lib/wiki-graph"
-import { applyGraphFilters, DEFAULT_GRAPH_FILTERS, isStructuralGraphNode, type GraphFilterState } from "./graph-filters"
+import { applyGraphFilters, DEFAULT_GRAPH_FILTERS, type GraphFilterState } from "./graph-filters"
 
 const nodes: GraphNode[] = [
   { id: "index", label: "Index", type: "other", path: "/p/wiki/index.md", linkCount: 4, community: 0 },
@@ -26,12 +32,22 @@ function makeFilters(overrides: Partial<GraphFilterState> = {}): GraphFilterStat
   }
 }
 
+/**
+ * 等价替代已不再导出的 isStructuralGraphNode：通过其唯一调用点 applyGraphFilters 观察结果。
+ * makeFilters() 默认 hideStructural: true，且 hiddenTypes / hiddenNodeIds 为空、
+ * hideIsolated 为 false、maxLinks / minimumEdgeWeight / allowedNodeTypes 均未设置，
+ * 因此单节点输入下「被隐藏」只能由结构性判定造成，与直接调用谓词语义等价。
+ */
+function isHiddenAsStructural(node: GraphNode): boolean {
+  return applyGraphFilters([node], [], makeFilters()).hiddenNodeIds.has(node.id)
+}
+
 describe("graph filters", () => {
   it("detects structural graph nodes by id, type, and path", () => {
-    expect(isStructuralGraphNode(nodes[0])).toBe(true)
-    expect(isStructuralGraphNode({ ...nodes[1], id: "overview", path: "/p/wiki/concepts/overview.md" })).toBe(true)
-    expect(isStructuralGraphNode({ ...nodes[1], type: "overview" })).toBe(true)
-    expect(isStructuralGraphNode(nodes[1])).toBe(false)
+    expect(isHiddenAsStructural(nodes[0])).toBe(true)
+    expect(isHiddenAsStructural({ ...nodes[1], id: "overview", path: "/p/wiki/concepts/overview.md" })).toBe(true)
+    expect(isHiddenAsStructural({ ...nodes[1], type: "overview" })).toBe(true)
+    expect(isHiddenAsStructural(nodes[1])).toBe(false)
   })
 
   it("hides structural nodes and their connected edges by default", () => {

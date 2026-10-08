@@ -48,6 +48,7 @@ const book: BookAnalysisLibraryBook = {
   styleStatus: "missing",
   boundAurasCount: 0,
   addedAuraCharacterIds: [],
+  evidence: [],
 }
 
 function renderPanel(

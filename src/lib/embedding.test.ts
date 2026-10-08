@@ -33,9 +33,14 @@ vi.mock("@/lib/tauri-fetch", () => ({
 }))
 
 // readFile / listDirectory aren't exercised in this file's cases; stub.
+// createDirectory / writeFileAtomic were added to the module by the
+// batched-rebuild work (bfde041) — embedAllPages writes an index
+// manifest, so the double must expose them too.
 vi.mock("@/commands/fs", () => ({
   readFile: vi.fn(),
   listDirectory: vi.fn(),
+  createDirectory: vi.fn(),
+  writeFileAtomic: vi.fn(),
 }))
 
 import {
@@ -76,6 +81,28 @@ function oversizeErrorResponse(status = 400): Response {
 
 function genericErrorResponse(status: number, body: string): Response {
   return new Response(body, { status, statusText: "Error" })
+}
+
+/**
+ * Batch-aware OpenAI-shaped 200 response: one embedding per text found
+ * in the request body. `emptyAt` lists item positions that come back
+ * without a usable embedding — the batched parser (bfde041) keeps the
+ * position and yields a null vector for it, i.e. a per-item failure
+ * inside an otherwise successful batch.
+ */
+function batchOkResponse(opts?: RequestInit, emptyAt: number[] = []): Response {
+  const body = JSON.parse(String(opts?.body)) as { input?: unknown }
+  const input = body.input
+  const count = Array.isArray(input) ? input.length : 1
+  const data = Array.from({ length: count }, (_, index) =>
+    emptyAt.includes(index)
+      ? { index, wrong_field: [0.5] }
+      : { index, embedding: [0.5] },
+  )
+  return new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })
 }
 
 beforeEach(() => {
@@ -520,7 +547,9 @@ describe("fetchEmbedding — provider wire formats", () => {
     })
 
     expect(out).toBeNull()
-    expect(getLastEmbeddingError()).toContain("missing embedding.values")
+    // 该期望于 bfde041 随「批量嵌入/按 provider 统一缺失字段文案」变更：
+    // 原 "missing embedding.values" → "Embedding response missing embeddings[].values"。
+    expect(getLastEmbeddingError()).toContain("Embedding response missing embeddings[].values")
   })
 
   it("rejects Gemini embedding vectors with NaN or Infinity values", async () => {
@@ -542,7 +571,9 @@ describe("fetchEmbedding — provider wire formats", () => {
       })
 
       expect(out).toBeNull()
-      expect(getLastEmbeddingError()).toContain("missing embedding.values")
+      // 该期望于 bfde041 随「批量嵌入/按 provider 统一缺失字段文案」变更：
+      // 原 "missing embedding.values" → "Embedding response missing embeddings[].values"。
+      expect(getLastEmbeddingError()).toContain("Embedding response missing embeddings[].values")
     }
   })
 
@@ -562,7 +593,9 @@ describe("fetchEmbedding — provider wire formats", () => {
     })
 
     expect(out).toBeNull()
-    expect(getLastEmbeddingError()).toContain("missing embedding.values")
+    // 该期望于 bfde041 随「批量嵌入/按 provider 统一缺失字段文案」变更：
+    // 原 "missing embedding.values" → "Embedding response missing embeddings[].values"。
+    expect(getLastEmbeddingError()).toContain("Embedding response missing embeddings[].values")
   })
 
   it("surfaces Gemini auth errors with HTTP status", async () => {
@@ -816,24 +849,25 @@ describe("embedPage", () => {
   it("keeps successful chunks even when some fail, preserving original chunk_index gaps", async () => {
     // Two 1100-char paragraphs under default opts produce exactly 3
     // chunks after packing + merging + overlap. Fail the middle embed
-    // (call index 1) — upsert must receive 2 rows at indexes 0 and 2,
+    // (batch item 1) — upsert must receive 2 rows at indexes 0 and 2,
     // proving the failed chunk's index is preserved (NOT backfilled
     // to [0, 1]) so a re-embed later can update the gap directly.
     const para = "a".repeat(1100)
     const content = `${para}\n\n${para}`
-    let call = 0
-    mockHttpFetch.mockImplementation(async () => {
-      const i = call++
-      // 404 Not Found — not an oversize phrase, so fetchEmbedding
-      // returns null immediately without halving/retrying.
-      if (i === 1) return new Response("not found", { status: 404, statusText: "Not Found" })
-      return okResponse([0.5])
-    })
+    // 该期望于 bfde041 随「批量嵌入」变更：3 个 chunk 走同一次
+    // 请求，单个 chunk 失败表现为该 item 没有 embedding（位置保留、
+    // 向量为 null），不再是「每 chunk 一次请求 + 整体 404」。
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts, [1]),
+    )
 
     await embedPage("/tmp/p", "page", "Page", content, cfg)
 
-    // Exactly 3 embed attempts (one per chunk), 2 successes, 1 upsert.
-    expect(mockHttpFetch).toHaveBeenCalledTimes(3)
+    // Exactly ONE batched request carrying all 3 chunks (the pre-bfde041
+    // per-chunk loop issued 3), 2 successes, 1 upsert.
+    expect(mockHttpFetch).toHaveBeenCalledTimes(1)
+    const batchedBody = JSON.parse(String((mockHttpFetch.mock.calls[0][1] as RequestInit).body))
+    expect(batchedBody.input).toHaveLength(3)
     expect(mockInvoke).toHaveBeenCalledTimes(1)
     const payload = mockInvoke.mock.calls[0][1] as {
       chunks: Array<{ chunk_index: number }>
@@ -918,7 +952,11 @@ describe("embedPage", () => {
     // forced to 400 we should see noticeably more (roughly 5 pieces
     // before merging). If the draft → cfg → chunker plumbing breaks,
     // BOTH calls would produce the same chunk count and this fires.
-    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    // 该期望于 bfde041 随「批量嵌入」变更：一次请求要带回该批
+    // 每个 text 的向量，否则只有第一个 chunk 拿到向量、upsert 只写 1 行。
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts),
+    )
 
     const content = "a".repeat(2000)
 
@@ -948,7 +986,11 @@ describe("embedPage", () => {
     // is overlapChunkChars. Non-first chunks under overlap=200 must
     // be meaningfully longer than their overlap=0 counterparts —
     // the overlap injection is literally prepended text.
-    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    // 该期望于 bfde041 随「批量嵌入」变更：一次请求要带回该批
+    // 每个 text 的向量（见 batchOkResponse）。
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts),
+    )
     const content = `${"ab ".repeat(400)}\n\n${"cd ".repeat(400)}`
 
     mockInvoke.mockClear()
@@ -1019,19 +1061,28 @@ describe("embedAllPages", () => {
 
   it("indexes every non-structural .md file, recursing into subdirs", async () => {
     listDirectoryMock.mockResolvedValueOnce(makeTree())
+    // listWikiPages reads each page once to hash it, and the rebuild
+    // producer reads it again to chunk it — both reads get the body.
     readFileMock.mockResolvedValue("# Title\n\nBody.")
-    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts),
+    )
 
     const count = await embedAllPages("/proj", cfg)
 
     // 2 non-structural pages: rope.md and sub/attention.md.
     expect(count).toBe(2)
-    // 2 upsert invokes, one per indexed page — other commands may
-    // appear if the production code adds helpers later, but this
-    // filter pins the exact pageIds.
-    const upsertCalls = mockInvoke.mock.calls.filter((c) => c[0] === "vector_upsert_chunks")
-    expect(upsertCalls).toHaveLength(2)
-    const pageIds = upsertCalls.map((c) => (c[1] as { pageId: string }).pageId).sort()
+    // 该期望于 bfde041 随「全量重建走临时表」变更：首次索引没有
+    // manifest，走 vector_rebuild_begin/append/commit 整表换入，
+    // 不再逐页 vector_upsert_chunks。下面按页 id 精确断言写入内容。
+    const commands = mockInvoke.mock.calls.map((c) => c[0])
+    expect(commands.filter((c) => c === "vector_rebuild_begin")).toHaveLength(1)
+    expect(commands.filter((c) => c === "vector_rebuild_commit")).toHaveLength(1)
+    expect(commands.filter((c) => c === "vector_upsert_chunks")).toHaveLength(0)
+    const staged = mockInvoke.mock.calls
+      .filter((c) => c[0] === "vector_rebuild_append")
+      .flatMap((c) => (c[1] as { chunks: Array<{ page_id: string }> }).chunks)
+    const pageIds = [...new Set(staged.map((row) => row.page_id))].sort()
     expect(pageIds).toEqual(["attention", "rope"])
   })
 
@@ -1039,10 +1090,14 @@ describe("embedAllPages", () => {
     listDirectoryMock.mockResolvedValueOnce([
       { name: "rope.md", path: "/proj/wiki/rope.md", is_dir: false },
     ])
-    readFileMock.mockResolvedValueOnce(
+    // Both the hashing read (listWikiPages) and the chunking read
+    // (rebuild producer) see the frontmatter body.
+    readFileMock.mockResolvedValue(
       `---\ntitle: "RoPE 旋转位置编码"\ntype: concept\n---\n# RoPE\n\nBody.`,
     )
-    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts),
+    )
     await embedAllPages("/proj", cfg)
     const body = JSON.parse((mockHttpFetch.mock.calls[0][1] as RequestInit).body as string)
     expect(body.input.startsWith("RoPE 旋转位置编码")).toBe(true)
@@ -1052,8 +1107,10 @@ describe("embedAllPages", () => {
     listDirectoryMock.mockResolvedValueOnce([
       { name: "mystery.md", path: "/proj/wiki/mystery.md", is_dir: false },
     ])
-    readFileMock.mockResolvedValueOnce("no frontmatter here, just body.")
-    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    readFileMock.mockResolvedValue("no frontmatter here, just body.")
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) =>
+      batchOkResponse(opts),
+    )
     await embedAllPages("/proj", cfg)
     const body = JSON.parse((mockHttpFetch.mock.calls[0][1] as RequestInit).body as string)
     expect(body.input.startsWith("mystery")).toBe(true)

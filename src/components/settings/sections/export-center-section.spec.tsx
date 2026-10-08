@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ExportDocument, ExportSource } from "@/lib/export-center/types"
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const { collectMock, exportMock, registryMock } = vi.hoisted(() => ({
   collectMock: vi.fn(),

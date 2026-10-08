@@ -3,6 +3,14 @@ import type { LlmConfig } from "@/stores/wiki-store"
 import type { AnalysisSkill, BookAnalysisPipelineTask } from "./analysis-pipeline-types"
 import { createStoryAnalysisAdapter } from "./story-analysis-adapter"
 
+/**
+ * 依赖签名直接从生产工厂的 override 参数推导，避免手抄签名抄错，
+ * 也让 vi.fn 的 calls 元组保留真实参数类型（否则会被推成空元组 []）。
+ */
+type StoryAdapterOverrides = NonNullable<Parameters<typeof createStoryAnalysisAdapter>[0]>
+type StoryCallModel = NonNullable<StoryAdapterOverrides["callModel"]>
+type StoryRecognizeCharacters = NonNullable<StoryAdapterOverrides["recognizeCharacters"]>
+
 function task(): BookAnalysisPipelineTask {
   const module = (skill: AnalysisSkill) => ({
     skill,
@@ -46,7 +54,7 @@ const metadata = {
 
 describe("story analysis adapter", () => {
   it("只选故事时临时识别人物但不会发布角色结果", async () => {
-    const recognizeCharacters = vi.fn(async () => [{
+    const recognizeCharacters = vi.fn<StoryRecognizeCharacters>(async () => [{
       id: "character-1",
       name: "林远",
       aliases: ["小远"],
@@ -68,7 +76,7 @@ describe("story analysis adapter", () => {
         branches: [{ id: "b1", kind: "foreshadow", label: "老宅秘密", triggeredBy: "夜探老宅", events: [] }],
       }],
     })
-    const callModel = vi.fn(async () => mapJson)
+    const callModel = vi.fn<StoryCallModel>(async () => mapJson)
     const adapter = createStoryAnalysisAdapter({
       recognizeCharacters,
       callModel,
@@ -106,12 +114,16 @@ describe("story analysis adapter", () => {
     })
 
     expect(recognizeCharacters).toHaveBeenCalledTimes(1)
-    const content = callModel.mock.calls[0][0][1].content
-    expect(Array.isArray(content)).toBe(true)
-    expect(content[0]).toMatchObject({ type: "text", cacheControl: true })
-    expect(content[0].text).toContain("林远推门而入")
-    expect(content[0].text).not.toContain("临时人物线索")
-    const text = content.map((block: { text: string }) => block.text).join("")
+    const messageContent = callModel.mock.calls[0][0][1].content
+    expect(Array.isArray(messageContent)).toBe(true)
+    if (!Array.isArray(messageContent)) throw new Error("故事导图用户消息的 content 应为内容块数组")
+    const content = messageContent
+    const firstBlock = content[0]
+    expect(firstBlock).toMatchObject({ type: "text", cacheControl: true })
+    if (firstBlock.type !== "text") throw new Error("故事导图用户消息首个内容块应为文本块")
+    expect(firstBlock.text).toContain("林远推门而入")
+    expect(firstBlock.text).not.toContain("临时人物线索")
+    const text = content.map((block) => (block.type === "text" ? block.text : "")).join("")
     expect(text).toContain("临时人物线索")
     expect(recognizeCharacters.mock.calls[0][0].onRequestTrace).toBe(onRequestTrace)
     expect(callModel.mock.calls[0][3]).toBe(onRequestTrace)
@@ -126,7 +138,7 @@ describe("story analysis adapter", () => {
       mainLineLabel: "主线",
       chapters: [{ id: "ch-0001", order: 1, summary: "s", mainEvents: [{ label: "e" }] }],
     })
-    const callModel = vi.fn(async () => mergedJson)
+    const callModel = vi.fn<StoryCallModel>(async () => mergedJson)
     const adapter = createStoryAnalysisAdapter({ callModel })
     const inputTask = task()
     const makeMap = (chapterId: string, order: number) => ({

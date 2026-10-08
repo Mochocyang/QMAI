@@ -3,6 +3,8 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
 
 const mocks = vi.hoisted(() => ({
   deletePublishedBook: vi.fn(),
@@ -15,8 +17,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("@/stores/book-analysis-import-store", () => ({
-  useBookAnalysisImportStore: (selector: (state: any) => unknown) =>
-    selector({ deletePublishedBook: mocks.deletePublishedBook }),
+  useBookAnalysisImportStore: (
+    selector: (state: { deletePublishedBook: (bookId: string) => Promise<void> }) => unknown,
+  ) => selector({ deletePublishedBook: mocks.deletePublishedBook }),
 }))
 
 vi.mock("@/stores/book-analysis-store", () => ({
@@ -61,7 +64,7 @@ vi.mock("@/lib/toast", () => ({
 
 import { useLibraryOperations } from "./use-library-operations"
 
-const libraryBook = {
+const libraryBook: BookAnalysisLibraryBook = {
   id: "book-1",
   path: "E:/项目甲/book-analysis/book-1",
   metadata: {
@@ -78,7 +81,22 @@ const libraryBook = {
   styleStatus: "missing" as const,
   boundAurasCount: 0,
   addedAuraCharacterIds: [],
+  evidence: [],
 }
+
+/** 已配置可用模型的 LLM 配置，与 mock 的 hasUsableLlm 返回 true 保持一致。 */
+const llmConfig: LlmConfig = {
+  provider: "openai",
+  apiKey: "sk-test-key",
+  model: "gpt-4o",
+  ollamaUrl: "http://localhost:11434",
+  customEndpoint: "",
+  maxContextSize: 204_800,
+  reasoning: { mode: "auto" },
+}
+
+/** 未配置任何供应商覆盖项，与 store 默认值一致。 */
+const providerConfigs: ProviderConfigs = {}
 
 let host: HTMLDivElement
 let root: Root
@@ -95,9 +113,10 @@ function Harness() {
     setLibraryState,
     setSelectedBookId,
     setSelectedCharacterId,
+    selectedCharacterId: null,
     setChapterSelectionData: vi.fn(),
-    llmConfig: {} as any,
-    providerConfigs: [],
+    llmConfig,
+    providerConfigs,
     startTask: vi.fn(),
   })
   return null

@@ -20,10 +20,14 @@ async function renderCard(props: Partial<React.ComponentProps<typeof NextStepCar
   await act(async () => {
     root.render(
       <NextStepCard
-        recommendation={{ recommendations: [
-          { id: "A", label: "继续完善人物弧光", reason: "人物动机仍可加强" },
-          { id: "B", label: "检查伏笔闭环", reason: "避免遗漏" },
-        ] }}
+        recommendation={{
+          completedModule: "人物弧光",
+          completedScope: "主要人物的动机与转变",
+          recommendations: [
+            { id: "A", label: "继续完善人物弧光", reason: "人物动机仍可加强" },
+            { id: "B", label: "检查伏笔闭环", reason: "避免遗漏" },
+          ],
+        }}
         onSelectRecommendation={onSelectRecommendation}
         {...props}
       />,
@@ -91,7 +95,11 @@ describe("NextStepCard", () => {
     const label = "<script>alert(1)</script> **\u7ee7\u7eed**"
     const onSelectRecommendation = vi.fn(async () => true)
     const { container } = await renderCard({
-      recommendation: { recommendations: [{ id: "safe", label, reason: "plain text" }] },
+      recommendation: {
+        completedModule: "伏笔",
+        completedScope: "伏笔埋设与回收",
+        recommendations: [{ id: "safe", label, reason: "plain text" }],
+      },
       onSelectRecommendation,
     })
     const button = container.querySelector("button") as HTMLButtonElement

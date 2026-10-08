@@ -62,7 +62,28 @@ vi.mock("./simple-extraction-engine", () => ({
 import { readFile } from "@/commands/fs"
 import { extractCharactersFromChapters, extractSingleCharacter } from "./character-extraction-engine"
 import type { ExtractedCharacter, RecognizedCharacter } from "./types"
+import type { ChatMessage, ContentBlock } from "@/lib/llm-providers"
 import type { LlmConfig } from "@/stores/wiki-store"
+
+/**
+ * 收窄消息 content 为内容块数组。`ChatMessage["content"]` 是
+ * `string | ContentBlock[]` 的联合，直接取下标读 `.text` 不合法；
+ * 调用方先断言数组形态，这里只做收窄，遇到字符串会让用例失败而不是静默跳过。
+ */
+function asContentBlocks(content: ChatMessage["content"]): ContentBlock[] {
+  if (!Array.isArray(content)) throw new Error("expected ContentBlock[] content")
+  return content
+}
+
+/**
+ * 断言并收窄为文本块。ContentBlock 是 text | image 的可辨识联合，
+ * 直接读 .text 不合法；这里先断言再收窄，遇到图片块会让用例失败而不是静默跳过。
+ */
+function expectTextBlock(block: ContentBlock): Extract<ContentBlock, { type: "text" }> {
+  expect(block.type).toBe("text")
+  if (block.type !== "text") throw new Error("expected a text content block")
+  return block
+}
 
 const fakeLlmConfig: LlmConfig = {
   provider: "openai",
@@ -101,13 +122,16 @@ describe("extractCharactersFromChapters 目标角色约束", () => {
       const order = path.includes("chapter-2") ? 2 : 1
       return `---\ntitle: 第${order}章\norder: ${order}\n---\n林烬与乌鸦同时出现。`
     })
-    streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
+    streamChatMock.mockImplementation(async (_cfg, messages: ChatMessage[], handlers: any) => {
       const content = messages[0].content
-      const text = typeof content === "string" ? content : content.map((block: { text: string }) => block.text).join("")
+      const text = typeof content === "string"
+        ? content
+        : content.map((block) => (block.type === "text" ? block.text : "")).join("")
       expect(text).toContain('角色"林烬"')
       expect(Array.isArray(content)).toBe(true)
-      expect(content[0]).toMatchObject({ cacheControl: true })
-      expect(content[0].text).not.toContain('角色"林烬"')
+      const firstBlock = expectTextBlock(asContentBlocks(content)[0])
+      expect(firstBlock).toMatchObject({ cacheControl: true })
+      expect(firstBlock.text).not.toContain('角色"林烬"')
       handlers.onRequestTrace?.({ requestId: "details" })
       handlers.onToken(JSON.stringify({
         name: "林烬",
@@ -191,9 +215,11 @@ describe("extractCharactersFromChapters 角色识别失败处理", () => {
 
   it("单个角色详情失败时跳过该角色并保留其他成功结果", async () => {
     vi.mocked(readFile).mockResolvedValue("---\ntitle: 第一章\norder: 1\n---\n林烬与顾司玥同行。")
-    streamChatMock.mockImplementation(async (_cfg, messages: Array<{ content: string }>, handlers: any) => {
+    streamChatMock.mockImplementation(async (_cfg, messages: ChatMessage[], handlers: any) => {
       const content = messages[0]?.content ?? ""
-      const prompt = typeof content === "string" ? content : content.map((block: { text: string }) => block.text).join("")
+      const prompt = typeof content === "string"
+        ? content
+        : content.map((block) => (block.type === "text" ? block.text : "")).join("")
       if (prompt.includes('角色"顾司玥"')) {
         handlers.onError(new Error("JSON Parse error: Unterminated string"))
         return
@@ -279,7 +305,7 @@ describe("extractSingleCharacter (fix/character-reextract-and-loading-state)", (
   it("simple 模式下 LLM 抛错时，extractSingleCharacter 抛出包含错误信息的 Error", async () => {
     // 模拟 simple-extraction-engine 内部 catch 返回 { error: "..." }
     const { extractSingleProfile } = await import("./simple-extraction-engine")
-    ;(extractSingleProfile as any).mockImplementationOnce(async () => ({
+    vi.mocked(extractSingleProfile).mockImplementationOnce(async () => ({
       name: "林烬",
       profile: {
         personality: "",

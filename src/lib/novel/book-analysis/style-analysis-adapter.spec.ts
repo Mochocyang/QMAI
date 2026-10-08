@@ -121,8 +121,15 @@ const integratedResponse = [
   "2. 比喻只用日常喻体。",
 ].join("\n")
 
+/**
+ * 从生产依赖契约里取出 callModel 的真实签名，避免 mock 被推成零参函数
+ * （零参会让 mock.calls[0] 成为空元组，既取不到 messages 也取不到 content）。
+ */
+type StyleAdapterOverrides = NonNullable<Parameters<typeof createStyleAnalysisAdapter>[0]>
+type StyleAdapterCallModel = NonNullable<StyleAdapterOverrides["callModel"]>
+
 function makeAdapter(responses: string[], overrides: Record<string, unknown> = {}) {
-  const callModel = vi.fn(async () => responses.shift() ?? "")
+  const callModel = vi.fn<StyleAdapterCallModel>(async () => responses.shift() ?? "")
   const adapter = createStyleAnalysisAdapter({
     readFile: vi.fn(async () => `---\nid: ch-0001\ntitle: 第一章 试炼\n---\n${CHAPTER_BODY}`),
     loadMetadata: vi.fn(async () => metadata),

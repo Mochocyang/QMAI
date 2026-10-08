@@ -1,13 +1,67 @@
 import { describe, expect, it } from "vitest"
+import type { ContentBlock } from "@/lib/llm-providers"
 import { buildContextHubSystemContent, flattenContextHubSystemContent, buildContextHubPromptParts, withContextHubTaskContent, markHistoryCacheBoundary } from "./prompt-content"
 import type { ContextHubResult } from "./types"
 
-const result = {
+/**
+ * 断言并收窄为文本块。ContentBlock 是 text | image 的可辨识联合，
+ * 直接读 .text 不合法；这里先断言再收窄，遇到图片块会让用例失败而不是静默跳过。
+ */
+function expectTextBlock(block: ContentBlock): Extract<ContentBlock, { type: "text" }> {
+  expect(block.type).toBe("text")
+  if (block.type !== "text") throw new Error("expected a text content block")
+  return block
+}
+
+const result: ContextHubResult = {
+  surface: "ai-chat",
   stableCore: "稳定项目核心",
   sessionSummary: "当前会话摘要",
   dynamicContext: "任务动态片段",
+  contextPack: {
+    task: "调整第二章",
+    chapterGoal: "",
+    outline: "",
+    recentSummaries: [],
+    previousChapterEnding: "",
+    characterStates: "",
+    soulDoc: "",
+    characterAuras: "",
+    storyFrameworkBinding: "",
+    cognitionStates: "",
+    foreshadowingStates: "",
+    timeline: "",
+    relatedSettings: "",
+    canonRules: "",
+    writingStyle: "",
+    searchResults: "",
+    graphSearchResults: "",
+    mustDo: "",
+    mustAvoid: "",
+    nextChapterAdvice: "",
+    revisionDirectives: "",
+  },
+  dependencyStamp: { fingerprint: "prompt-content-spec", sourceCount: 0, kinds: [] },
+  stats: {
+    cacheHits: 0,
+    reloaded: 0,
+    empty: 0,
+    fallbackUsed: 0,
+    readFailed: 0,
+    writeFailed: 0,
+    stableTokens: 0,
+    summaryTokens: 0,
+    dynamicTokens: 0,
+    candidateTokens: 0,
+    estimatedSavedTokens: 0,
+    estimatedSavedPercent: 0,
+    expanded: false,
+    providerCacheEnabled: false,
+  },
+  cacheItems: [],
   warnings: [],
-} as ContextHubResult
+  readFile: async () => "",
+}
 
 describe("context hub system content", () => {
   it("places stable core after software rules and marks its end as cacheable", () => {
@@ -23,7 +77,7 @@ describe("context hub system content", () => {
   it("flattens blocks byte-for-byte for non-Anthropic provider configs", () => {
     const content = buildContextHubSystemContent("软件规则", result, ["本轮任务规则"])
 
-    expect(flattenContextHubSystemContent(content)).toBe(content.map((block) => block.text).join(""))
+    expect(flattenContextHubSystemContent(content)).toBe(content.map((block) => expectTextBlock(block).text).join(""))
   })
 })
 
@@ -49,9 +103,10 @@ describe("对话缓存前缀与本轮资料分离", () => {
     const second = buildContextHubPromptParts("固定规则", material, ["根据分析生成大纲"])
     expect(first.taskContext[0]).toEqual(second.taskContext[0])
     expect(first.taskContext[0]).toMatchObject({ cacheControl: true })
-    expect(first.taskContext[0].text).toContain(material.dynamicContext)
-    expect(first.taskContext[0].text).not.toContain("先做意图分析")
-    expect(first.taskContext[1].text).toContain("先做意图分析")
+    const materialBlock = expectTextBlock(first.taskContext[0])
+    expect(materialBlock.text).toContain(material.dynamicContext)
+    expect(materialBlock.text).not.toContain("先做意图分析")
+    expect(expectTextBlock(first.taskContext[1]).text).toContain("先做意图分析")
   })
 
   it("把本轮资料放到当前用户消息中，保留图片和原始请求且不修改输入", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { getCustomCompatibleHeaders, getProviderConfig, modelSupportsReasoningControl, parseGoogleLine, parseOpenAiSseError, withCustomOriginHeader } from "./llm-providers"
+import type { ChatMessage } from "./llm-providers"
 import { filterDeAiOutput } from "./novel/de-ai-output"
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
@@ -481,7 +482,7 @@ describe("prompt caching cache_control breakpoints", () => {
         { type: "text", text: "稳定项目核心", cacheControl: true },
         { type: "text", text: "动态上下文" },
       ],
-    }]) as Record<string, any>
+    }]) as { systemInstruction: { parts: Array<{ text: string }> } }
 
     expect(body.systemInstruction.parts).toEqual([{ text: "稳定项目核心动态上下文" }])
   })
@@ -518,7 +519,7 @@ describe("Qwen3.5/3.6 leading system coalesce", () => {
     { role: "user" as const, content: "开始写" },
   ]
 
-  function rolesAndContent(config: LlmConfig, messages = dualSystem) {
+  function rolesAndContent(config: LlmConfig, messages: ChatMessage[] = dualSystem) {
     const body = getProviderConfig(config).buildBody(messages) as {
       messages?: Array<{ role: string; content: unknown }>
       input?: Array<{ role: string; content: unknown }>

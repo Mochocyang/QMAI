@@ -211,6 +211,13 @@ function parseProviderBatch(
   return parseOpenAiEmbeddingBatch(data, count)
 }
 
+/** Per-item field the provider's single-text response must carry. */
+function embeddingItemShape(provider: EmbeddingProvider): string {
+  if (provider === "google") return "embedding.values"
+  if (provider === "dashscope") return "output.embeddings[0].embedding"
+  return "data[0].embedding"
+}
+
 function rememberEmbeddingFailure(message: string) {
   lastEmbeddingError = message
   console.warn(`[Embedding] ${message}`)
@@ -255,7 +262,16 @@ async function postEmbeddingTextsOnce(
       )
       return { ok: true, vectors: texts.map(() => null) }
     }
-    if (vectors.some((vector) => vector)) lastEmbeddingError = null
+    if (vectors.some((vector) => vector)) {
+      lastEmbeddingError = null
+    } else if (texts.length === 1) {
+      // Envelope parsed but the only item carried no usable vector. Report
+      // it here, otherwise a single-text caller would return null while
+      // lastEmbeddingError kept a stale (or absent) message.
+      rememberEmbeddingFailure(
+        `Embedding response missing ${embeddingItemShape(provider)} (got ${JSON.stringify(data).slice(0, 200)})`,
+      )
+    }
     return { ok: true, vectors }
   } catch (err) {
     const message = isFetchNetworkError(err)
@@ -644,6 +660,12 @@ interface WikiPageRef {
   path: string
   title: string
   hash: string
+  /**
+   * Content read while hashing the page, reused by the embed pass so the
+   * file is only read once. Absent when that read failed — the embed pass
+   * then retries the read and reports the failure for that page alone.
+   */
+  content?: string
 }
 
 function manifestPath(projectPath: string): string {
@@ -689,14 +711,26 @@ async function listWikiPages(projectPath: string): Promise<WikiPageRef[]> {
 
   const pages: WikiPageRef[] = []
   for (const file of files) {
-    const content = await readFile(file.path)
-    const title = pageTitleFromMarkdown(content, file.id)
-    pages.push({
-      id: file.id,
-      path: file.path,
-      title,
-      hash: hashEmbeddingPage(title, content),
-    })
+    try {
+      const content = await readFile(file.path)
+      const title = pageTitleFromMarkdown(content, file.id)
+      pages.push({
+        id: file.id,
+        path: file.path,
+        title,
+        hash: hashEmbeddingPage(title, content),
+        content,
+      })
+    } catch (error) {
+      // One unreadable page must not abort the whole index. Keep the page so
+      // it is still counted and reported, force it dirty with an empty hash
+      // (no real hash is ever empty), and let the embed pass retry the read
+      // and log the per-page failure.
+      const message = error instanceof Error ? error.message : String(error)
+      noteEmbeddingLogError(message)
+      embeddingIndexLog("page-read-fail", { pageId: file.id, error: message.slice(0, 200) })
+      pages.push({ id: file.id, path: file.path, title: file.id, hash: "" })
+    }
   }
   return pages
 }
@@ -769,14 +803,19 @@ async function embedPagesIncremental(
   const dirtyPages: WikiPageRef[] = []
   for (const page of pages) {
     if (dirtyIds.has(page.id)) dirtyPages.push(page)
-    else hashes[page.id] = page.hash
+    else {
+      hashes[page.id] = page.hash
+      // Skipped page: drop the hashing read so a large run stays flat in memory.
+      page.content = undefined
+    }
   }
   let done = pages.length - dirtyPages.length
   onProgress?.(done, pages.length)
   await mapWithConcurrency(dirtyPages, EMBED_BATCH_CONCURRENCY, async (page) => {
     try {
-      const content = await readFile(page.path)
+      const content = page.content ?? (await readFile(page.path))
       const ok = await embedPage(projectPath, page.id, page.title, content, cfg)
+      page.content = undefined
       if (ok) hashes[page.id] = page.hash
       else embeddingIndexLog("page-incomplete", { pageId: page.id })
     } catch (error) {
@@ -889,8 +928,9 @@ async function embedPagesRebuild(
         if (queue.closed) return
         let chunks: Chunk[] = []
         try {
-          const content = await readFile(page.path)
+          const content = page.content ?? (await readFile(page.path))
           chunks = chunkMarkdown(content, chunkOptions(cfg))
+          page.content = undefined
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           noteEmbeddingLogError(message)
@@ -1033,16 +1073,23 @@ export async function embedAllPages(
     const pageHashes: Record<string, string> = {}
     for (const page of pages) pageHashes[page.id] = page.hash
     const plan = planEmbeddingReindex(pageHashes, manifest, configHash)
-    setEmbeddingLogPhase(plan.mode)
+    // A staged rebuild swaps in a table built from the pages we could read, so a
+    // page whose read failed would silently lose its existing vectors. Patch the
+    // readable pages in place instead: the unreadable page keeps its rows and
+    // stays dirty, so the next run retries it.
+    const mode = plan.mode === "rebuild" && pages.some((page) => page.content === undefined)
+      ? "incremental"
+      : plan.mode
+    setEmbeddingLogPhase(mode)
     setEmbeddingLogProgress(0, pages.length)
     embeddingIndexLog("plan", {
-      mode: plan.mode,
+      mode,
       pages: pages.length,
       dirty: plan.dirtyIds.length,
       removed: plan.removedIds.length,
     })
 
-    const nextPages = plan.mode === "rebuild"
+    const nextPages = mode === "rebuild"
       ? await embedPagesRebuild(pp, pages, cfg, progress)
       : await embedPagesIncremental(
         pp,

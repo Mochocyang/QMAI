@@ -30,7 +30,7 @@ import {
   type OutlineChatConversation,
   type OutlineChatMessage,
 } from "../../stores/outline-chat-store"
-import type { AgentMessage } from "@/lib/agent/types"
+import type { AgentConfig, AgentMessage } from "@/lib/agent/types"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
@@ -228,9 +228,20 @@ describe("OutlineChatPanel controls", () => {
 
     const container = await renderOutlineChatPanel()
 
-    expect(container.textContent).toContain("上下文中控")
-    expect(container.textContent).toContain("本地资料复用率 60%")
-    expect(container.textContent).toContain("估算少发送约 1,320 Token")
+    // 该期望于 26f80ee（全新界面统一、旧版界面移除）随「上下文中控单行数字摘要」变更：
+    // 标题文案与「本地资料复用率 / 估算少发送约」长句已下线，改为用量按钮 + 用时 + 结束时间。
+    const details = container.querySelector<HTMLElement>(".ui-test-context-details")
+    expect(details).not.toBeNull()
+    expect(details?.querySelector('[aria-label="查看本轮用量"]')).not.toBeNull()
+    // 未提供 generationTiming，用时与结束时间都落到占位符
+    expect(details?.querySelector('[aria-label="用时 —"]')).not.toBeNull()
+    await act(async () => {
+      details?.querySelector<HTMLButtonElement>('[aria-label="查看本轮用量"]')?.click()
+    })
+    const usageDialog = details?.querySelector<HTMLElement>('[aria-label="本轮用量"]')
+    expect(usageDialog?.textContent).toContain("缓存命中")
+    // cacheableHits 3 / cacheableLoaded 5 → 本地资料复用率 60%
+    expect(usageDialog?.querySelector("strong")?.textContent).toBe("60%")
   })
 
   it.each([
@@ -255,11 +266,11 @@ describe("OutlineChatPanel controls", () => {
     setOutlineConversations([{
       ...conversation([
         { id: "old-user", role: "user", content: "已有问题" },
-        { id: "old-assistant", role: "assistant", content: "已有回答", nextStepRecommendation: { recommendations: [
+        { id: "old-assistant", role: "assistant", content: "已有回答", nextStepRecommendation: { completedModule: "人物设定", completedScope: "人物设定", recommendations: [
           { id: recId, label, reason: "推荐理由" },
           { id: "other", label: "另一个建议", reason: "其他理由" },
         ] } },
-      ]), modelId: "gpt-4o", contextSummary: "当前会话摘要",
+      ]), modelId: "gpt-4o", contextSummary: { text: "当前会话摘要", updatedAt: 100 },
     }], "outline-active", { pendingReferenceTokens: [reference] })
     const container = await renderOutlineChatPanel()
     const beforeCount = useOutlineChatStore.getState().conversations.length
@@ -294,7 +305,7 @@ describe("OutlineChatPanel controls", () => {
       callbacks.onDone()
       return { toolCalls: [], roundsUsed: 1, finalText: "A done" }
     })
-    const nextStep = { recommendations: [{ id: "next", label: "Continue A", reason: "next" }] }
+    const nextStep = { completedModule: "故事总纲", completedScope: "核心设定", recommendations: [{ id: "next", label: "Continue A", reason: "next" }] }
     setOutlineConversations([
       { id: "conversation-a", title: "A", createdAt: 1, updatedAt: 1, modelId: "gpt-4o", messages: [{ id: "a-assistant", role: "assistant", content: "A answer", nextStepRecommendation: nextStep }] },
       { id: "conversation-b", title: "B", createdAt: 2, updatedAt: 2, modelId: "gpt-4o", messages: [{ id: "b-assistant", role: "assistant", content: "B answer" }] },
@@ -327,7 +338,7 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("当前会话运行或已达到全局 3 并发上限时禁用下一步按钮并显示与输入区一致的中文原因", async () => {
-    const recommendationMessage = { id: "assistant-next", role: "assistant" as const, content: "已有回答", nextStepRecommendation: { recommendations: [{ id: "A", label: "继续完善", reason: "推荐" }] } }
+    const recommendationMessage = { id: "assistant-next", role: "assistant" as const, content: "已有回答", nextStepRecommendation: { completedModule: "人物设定", completedScope: "主角", recommendations: [{ id: "A", label: "继续完善", reason: "推荐" }] } }
     setOutlineConversations([conversation([recommendationMessage])], "outline-active", { runStates: { "outline-active": { status: "running", updatedAt: 1, runId: "active-run" } } })
     const container = await renderOutlineChatPanel()
     let button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("继续完善")) as HTMLButtonElement
@@ -343,7 +354,7 @@ describe("OutlineChatPanel controls", () => {
     const reference = { id: "ref-fail", category: "outline" as const, title: "失败引用", displayTitle: "失败引用", path: "大纲/失败.md" }
     vi.spyOn(AgentRunner.prototype, "run").mockRejectedValue(new Error("网络中断"))
     const toastSpy = vi.spyOn(toast, "info")
-    setOutlineConversations([conversation([{ id: "assistant-next", role: "assistant", content: "已有回答", nextStepRecommendation: { recommendations: [{ id: "A", label: "继续完善", reason: "推荐" }] } }])], "outline-active", { pendingReferenceTokens: [reference] })
+    setOutlineConversations([conversation([{ id: "assistant-next", role: "assistant", content: "已有回答", nextStepRecommendation: { completedModule: "人物设定", completedScope: "主角", recommendations: [{ id: "A", label: "继续完善", reason: "推荐" }] } }])], "outline-active", { pendingReferenceTokens: [reference] })
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes("继续完善")) as HTMLButtonElement
     await act(async () => { button.click(); await new Promise((resolve) => setTimeout(resolve, 0)) })
@@ -812,7 +823,7 @@ describe("OutlineChatPanel controls", () => {
       },
     })
     const finalOutline = "# 第27章 地下乱战\n\n## 本章目标\n沈渊必须在增援抵达前夺下中枢。"
-    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, _messages, callbacks) => {
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
       const text = runSpy.mock.calls.length === 1 ? GEMINI_OUTLINE_THOUGHT_DUMP : finalOutline
       callbacks.onText(text)
       callbacks.onDone()
@@ -1791,7 +1802,11 @@ describe("OutlineChatPanel controls", () => {
 
 
   async function chooseOutlineModel(container: HTMLElement, label: string) {
-    const trigger = container.querySelector<HTMLButtonElement>(".h-8.w-32") ?? undefined
+    // 触发器样式于 5388348（调整大纲章节编辑与对话界面）由 .h-8.w-32 改为 h-8 w-fit max-w-40，
+    // 改用模型区容器定位：该区域内只有模型选择按钮没有 aria-label（思考深度按钮带 aria-label）。
+    const trigger = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".ui-test-ai-model button"),
+    ).find((button) => !button.hasAttribute("aria-label"))
     expect(trigger).toBeDefined()
     await act(async () => {
       trigger?.click()
@@ -2015,7 +2030,7 @@ describe("OutlineChatPanel controls", () => {
       }),
       "<!-- /next_step -->",
     ].join("\n")
-    const fallbackCalls: Array<{ modelId: string; messages: Array<{ role: string; content: string }> }> = []
+    const fallbackCalls: Array<{ modelId: AgentConfig["modelId"]; messages: AgentMessage[] }> = []
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, messages, callbacks) => {
       const system = agentMessageContentText(
         messages.find((message) => message.role === "system")?.content ?? "",
@@ -2040,7 +2055,10 @@ describe("OutlineChatPanel controls", () => {
     expect(wizardTrigger).toBeDefined()
 
     await act(async () => wizardTrigger?.click())
-    const inspiration = document.querySelector<HTMLTextAreaElement>("#outline-wizard-inspiration")
+    // 该期望于 26f80ee（全新界面统一、旧版界面移除）随之变更：旧版向导的
+    // #outline-wizard-inspiration / 「确定生成」分支被删除，只留新版向导的
+    // aria-label="故事灵感/处理要求" 与「提交需求」按钮。
+    const inspiration = document.querySelector<HTMLTextAreaElement>('[aria-label="故事灵感/处理要求"]')
     expect(inspiration).not.toBeNull()
     await act(async () => {
       if (!inspiration) return
@@ -2049,7 +2067,7 @@ describe("OutlineChatPanel controls", () => {
       inspiration.dispatchEvent(new Event("input", { bubbles: true }))
     })
     const submit = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u786e\u5b9a\u751f\u6210"))
+      .find((button) => button.textContent?.includes("提交需求"))
     expect(submit).toBeDefined()
     await act(async () => {
       submit?.click()
@@ -2066,8 +2084,8 @@ describe("OutlineChatPanel controls", () => {
     const assistant = current?.messages.findLast((message) => message.role === "assistant")
     expect(fallbackCalls).toHaveLength(1)
     expect(fallbackCalls[0].modelId).toBe("openai/gpt-4o")
-    expect(fallbackCalls[0].messages.some((message) => message.role === "user" && message.content.includes(inspirationText))).toBe(true)
-    expect(fallbackCalls[0].messages.some((message) => message.role === "user" && message.content.includes("\u65e2\u6709\u4e16\u754c\u89c2"))).toBe(true)
+    expect(fallbackCalls[0].messages.some((message) => message.role === "user" && agentMessageContentText(message.content).includes(inspirationText))).toBe(true)
+    expect(fallbackCalls[0].messages.some((message) => message.role === "user" && agentMessageContentText(message.content).includes("\u65e2\u6709\u4e16\u754c\u89c2"))).toBe(true)
     expect(state.activeConversationId).toBe("outline-active")
     expect(current?.modelId).toBe("openai/gpt-4o")
     expect(userMessages).toHaveLength(1)
@@ -2130,14 +2148,14 @@ describe("OutlineChatPanel controls", () => {
     const wizardTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent?.includes("\u9009\u62e9\u751f\u6210\u4f60\u60f3\u8981\u7684\u5c0f\u8bf4"))
     await act(async () => wizardTrigger?.click())
-    const inspiration = document.querySelector<HTMLTextAreaElement>("#outline-wizard-inspiration")
+    const inspiration = document.querySelector<HTMLTextAreaElement>('[aria-label="故事灵感/处理要求"]')
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
       if (inspiration) setValue?.call(inspiration, "\u89e6\u53d1\u5408\u5e76\u5931\u8d25\u56de\u9000")
       inspiration?.dispatchEvent(new Event("input", { bubbles: true }))
     })
     const submit = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u786e\u5b9a\u751f\u6210"))
+      .find((button) => button.textContent?.includes("提交需求"))
     await act(async () => {
       submit?.click()
       for (let attempt = 0; attempt < 300; attempt += 1) {
@@ -2190,7 +2208,7 @@ describe("OutlineChatPanel controls", () => {
       },
     })
     const regenerated = "# 第27章 地下乱战\n\n## 核心事件\n沈渊截断敌方增援。"
-    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (config, _registry, _messages, callbacks) => {
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
       const text = runSpy.mock.calls.length === 1 ? GEMINI_OUTLINE_THOUGHT_DUMP : regenerated
       callbacks.onText(text)
       callbacks.onDone()
@@ -2254,7 +2272,7 @@ describe("OutlineChatPanel controls", () => {
       callbacks.onText(text); callbacks.onDone()
       return { toolCalls: [], roundsUsed: 1, finalText: text }
     })
-    setOutlineConversations([conversation([{ id: "u0", role: "user", content: "\u751f\u6210\u5927\u7eb2", novelGenerationRequest: { version: 1, summary: "\u751f\u6210\u5927\u7eb2", details: [], modelContent: "\u751f\u6210\u5927\u7eb2" } }, { id: "a1", role: "assistant", content: "# \u5927\u7eb2\n\n## \u7ed3\u679c\n\u5df2\u5b8c\u6210", nextStepRecommendation: { recommendations: [{ id: "A", label, reason: "\u7ee7\u7eed" }] } }])], "outline-active")
+    setOutlineConversations([conversation([{ id: "u0", role: "user", content: "\u751f\u6210\u5927\u7eb2", novelGenerationRequest: { version: 1, summary: "\u751f\u6210\u5927\u7eb2", details: [], modelContent: "\u751f\u6210\u5927\u7eb2" } }, { id: "a1", role: "assistant", content: "# \u5927\u7eb2\n\n## \u7ed3\u679c\n\u5df2\u5b8c\u6210", nextStepRecommendation: { completedModule: "\u5927\u7eb2", completedScope: "\u5f53\u524d\u5927\u7eb2", recommendations: [{ id: "A", label, reason: "\u7ee7\u7eed" }] } }])], "outline-active")
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent?.includes(label))
     await act(async () => { button?.click(); for (let i = 0; i < 100 && useOutlineChatStore.getState().runStates["outline-active"]?.status === "running"; i += 1) await new Promise((resolve) => setTimeout(resolve, 5)) })
@@ -2268,7 +2286,7 @@ describe("OutlineChatPanel controls", () => {
       return { toolCalls: [], roundsUsed: 1, finalText: text }
     })
     const label = "\u89e3\u91ca\u4e00\u4e0b\u8fd9\u4e2a\u8bbe\u5b9a"
-    setOutlineConversations([conversation([{ id: "a1", role: "assistant", content: "\u5df2\u56de\u7b54", nextStepRecommendation: { recommendations: [{ id: "A", label, reason: "\u8bf4\u660e" }] } }])], "outline-active")
+    setOutlineConversations([conversation([{ id: "a1", role: "assistant", content: "\u5df2\u56de\u7b54", nextStepRecommendation: { completedModule: "\u4eba\u7269\u8bbe\u5b9a", completedScope: "\u4e3b\u89d2", recommendations: [{ id: "A", label, reason: "\u8bf4\u660e" }] } }])], "outline-active")
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent?.includes(label))
     await act(async () => { button?.click(); for (let i = 0; i < 100 && useOutlineChatStore.getState().runStates["outline-active"]?.status === "running"; i += 1) await new Promise((resolve) => setTimeout(resolve, 5)) })
@@ -2277,7 +2295,7 @@ describe("OutlineChatPanel controls", () => {
 
   it("structured next step forwards references to Agent and clears them after successful send", async () => {
     const reference = { id: "next-ref", category: "outline" as const, title: "\u4eba\u7269\u8bbe\u5b9a", displayTitle: "\u4eba\u7269\u8bbe\u5b9a", path: "\u5927\u7eb2/\u4eba\u7269.md" }
-    let sentMessages: Array<{ role: string; content: string }> = []
+    let sentMessages: AgentMessage[] = []
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
       sentMessages = messages
       callbacks.onText("# \u4eba\u7269\u5173\u7cfb\n\n## \u7ed3\u679c\n\u5b8c\u6210"); callbacks.onDone()
@@ -2288,7 +2306,7 @@ describe("OutlineChatPanel controls", () => {
     const container = await renderOutlineChatPanel()
     const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent?.includes(label))
     await act(async () => { button?.click(); for (let i = 0; i < 100 && useOutlineChatStore.getState().runStates["outline-active"]?.status === "running"; i += 1) await new Promise((resolve) => setTimeout(resolve, 5)) })
-    expect(sentMessages.some((message) => message.role === "user" && message.content.includes("\u4eba\u7269\u8bbe\u5b9a"))).toBe(true)
+    expect(sentMessages.some((message) => message.role === "user" && agentMessageContentText(message.content).includes("\u4eba\u7269\u8bbe\u5b9a"))).toBe(true)
     expect(container.querySelector("[aria-label=\"\u79fb\u9664\u5f15\u7528\u0020\u4eba\u7269\u8bbe\u5b9a\"]")).toBeNull()
   })
 

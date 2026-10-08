@@ -71,6 +71,29 @@ function chunks(skills: AnalysisSkill[], count = 2): AnalysisChunkRecord[] {
   })))
 }
 
+type SchedulerOptions = Parameters<typeof createAnalysisScheduler>[0]
+type LoadChunkResult = NonNullable<SchedulerOptions["loadChunkResult"]>
+
+/** 按 Skill 逐项组装适配器，保证 skill 字段与键名都是 AnalysisSkill 而不是 string。 */
+function adaptersFor(
+  build: (skill: AnalysisSkill) => Omit<AnalysisSkillAdapter, "skill">,
+): Record<AnalysisSkill, AnalysisSkillAdapter> {
+  return {
+    characters: { skill: "characters", ...build("characters") },
+    story: { skill: "story", ...build("story") },
+    style: { skill: "style", ...build("style") },
+  }
+}
+
+/** 用内存表代替落盘读取，签名与 createAnalysisScheduler 要求的加载器一致。 */
+function loadChunkResultStub(load: (chunk: AnalysisChunkRecord) => unknown): LoadChunkResult {
+  const stub = async <T>(chunk: AnalysisChunkRecord): Promise<T | null> => {
+    const value: unknown = load(chunk)
+    return (value ?? null) as T | null
+  }
+  return stub
+}
+
 function createHarness(options: {
   onRun?: (skill: AnalysisSkill, chunkId: string, signal: AbortSignal) => Promise<void>
   concurrency?: number
@@ -80,29 +103,25 @@ function createHarness(options: {
   const calls: string[] = []
   let running = 0
   let maxRunning = 0
-  const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
-    skill,
-    {
-      skill,
-      async runChunk({ chunk, signal }) {
-        calls.push(`${skill}:${chunk.id}:start`)
-        running += 1
-        maxRunning = Math.max(maxRunning, running)
-        await options.onRun?.(skill as AnalysisSkill, chunk.id, signal)
-        running -= 1
-        calls.push(`${skill}:${chunk.id}:done`)
-        return { result: { skill, chunkId: chunk.id }, evidence: [] }
-      },
-      async aggregate() {
-        calls.push(`${skill}:aggregate`)
-        return { skill }
-      },
-      async publish() {
-        calls.push(`${skill}:publish`)
-        return `${skill}.json`
-      },
-    } satisfies AnalysisSkillAdapter,
-  ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+  const adapters = adaptersFor((skill) => ({
+    async runChunk({ chunk, signal }) {
+      calls.push(`${skill}:${chunk.id}:start`)
+      running += 1
+      maxRunning = Math.max(maxRunning, running)
+      await options.onRun?.(skill, chunk.id, signal)
+      running -= 1
+      calls.push(`${skill}:${chunk.id}:done`)
+      return { result: { skill, chunkId: chunk.id }, evidence: [] }
+    },
+    async aggregate() {
+      calls.push(`${skill}:aggregate`)
+      return { skill }
+    },
+    async publish() {
+      calls.push(`${skill}:publish`)
+      return `${skill}.json`
+    },
+  }))
   const savedResults = new Map<string, unknown>()
   const savedTasks: BookAnalysisPipelineTask[] = []
   const scheduler = createAnalysisScheduler({
@@ -118,7 +137,7 @@ function createHarness(options: {
       savedResults.set(resultPath, result)
       return { ...chunk, status: "completed", resultPath, completedAt: 10, updatedAt: 10 }
     }),
-    loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
+    loadChunkResult: loadChunkResultStub((chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
     now: () => 10,
   })
   return { scheduler, calls, adapters, savedTasks, getMaxRunning: () => maxRunning }
@@ -267,26 +286,22 @@ describe("analysis scheduler", () => {
   it("区块 onProgress 会进入 snapshot.progresses，完成后清除", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
-      skill,
-      {
-        skill,
-        async runChunk({ chunk, onProgress }) {
-          onProgress?.({ stageLabel: "识别角色中", percentage: 40, currentItem: "第一章" })
-          await gate
-          onProgress?.({ stageLabel: "区块完成", percentage: 100 })
-          return { result: { chunkId: chunk.id }, evidence: [] }
-        },
-        async aggregate({ onProgress }) {
-          onProgress?.({ stageLabel: "正在合并角色候选…", percentage: 93 })
-          return { skill }
-        },
-        async publish({ onProgress }) {
-          onProgress?.({ stageLabel: "正在保存角色结果…", percentage: 97 })
-          return `${skill}.json`
-        },
-      } satisfies AnalysisSkillAdapter,
-    ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+    const adapters = adaptersFor((skill) => ({
+      async runChunk({ chunk, onProgress }) {
+        onProgress?.({ stageLabel: "识别角色中", percentage: 40, currentItem: "第一章" })
+        await gate
+        onProgress?.({ stageLabel: "区块完成", percentage: 100 })
+        return { result: { chunkId: chunk.id }, evidence: [] }
+      },
+      async aggregate({ onProgress }) {
+        onProgress?.({ stageLabel: "正在合并角色候选…", percentage: 93 })
+        return { skill }
+      },
+      async publish({ onProgress }) {
+        onProgress?.({ stageLabel: "正在保存角色结果…", percentage: 97 })
+        return `${skill}.json`
+      },
+    }))
     const savedResults = new Map<string, unknown>()
     const scheduler = createAnalysisScheduler({
       adapters,
@@ -298,7 +313,7 @@ describe("analysis scheduler", () => {
         savedResults.set(resultPath, result)
         return { ...chunk, status: "completed", resultPath, completedAt: 10, updatedAt: 10 }
       }),
-      loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
+      loadChunkResult: loadChunkResultStub((chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
       now: () => 10,
     })
     scheduler.initialize([task(["characters"], ["chunk-1"])], chunks(["characters"], 1))
@@ -365,32 +380,28 @@ describe("analysis scheduler", () => {
   it("snapshot.progresses 为浅拷贝，外部修改不影响内部状态", async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
-    const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
-      skill,
-      {
-        skill,
-        async runChunk({ chunk, onProgress }) {
-          onProgress?.({ stageLabel: "进行中", percentage: 40 })
-          await gate
-          return { result: { chunkId: chunk.id }, evidence: [] }
-        },
-        async aggregate() { return { skill } },
-        async publish() { return `${skill}.json` },
-      } satisfies AnalysisSkillAdapter,
-    ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+    const adapters = adaptersFor((skill) => ({
+      async runChunk({ chunk, onProgress }) {
+        onProgress?.({ stageLabel: "进行中", percentage: 40 })
+        await gate
+        return { result: { chunkId: chunk.id }, evidence: [] }
+      },
+      async aggregate() { return { skill } },
+      async publish() { return `${skill}.json` },
+    }))
     const scheduler = createAnalysisScheduler({
       adapters,
       llmConfig: {} as LlmConfig,
       saveTask: vi.fn(async () => {}),
       saveChunk: vi.fn(async () => {}),
-      saveCompletedChunk: vi.fn(async (_bookPath, chunk, result) => ({
+      saveCompletedChunk: vi.fn(async (_bookPath, chunk) => ({
         ...chunk,
         status: "completed",
         resultPath: `${chunk.id}.result.json`,
         completedAt: 10,
         updatedAt: 10,
       })),
-      loadChunkResult: vi.fn(async () => ({ result: {}, evidence: [] })),
+      loadChunkResult: loadChunkResultStub(() => ({ result: {}, evidence: [] })),
       now: () => 10,
     })
     scheduler.initialize([task(["characters"], ["chunk-1"])], chunks(["characters"], 1))
@@ -407,27 +418,25 @@ describe("analysis scheduler", () => {
   it("取消聚合时中止聚合请求并把任务标记为已取消", async () => {
     let aggregateSignal: AbortSignal | null = null
     let notifyAggregateStarted!: () => void
+    // 通过读取函数取值，避免控制在流分析里把外层变量收窄成初始的 null。
+    const aggregateSignalSeen = (): AbortSignal | null => aggregateSignal
     const aggregateStarted = new Promise<void>((resolve) => { notifyAggregateStarted = resolve })
-    const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
-      skill,
-      {
-        skill,
-        async runChunk({ chunk }) {
-          return { result: { chunkId: chunk.id }, evidence: [] }
-        },
-        async aggregate({ signal }) {
-          aggregateSignal = signal
-          notifyAggregateStarted()
-          await new Promise<void>((_resolve, reject) => {
-            signal.addEventListener("abort", () => reject(new Error("已取消")), { once: true })
-          })
-          return {}
-        },
-        async publish() {
-          return `${skill}.json`
-        },
-      } satisfies AnalysisSkillAdapter,
-    ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+    const adapters = adaptersFor((skill) => ({
+      async runChunk({ chunk }) {
+        return { result: { chunkId: chunk.id }, evidence: [] }
+      },
+      async aggregate({ signal }) {
+        aggregateSignal = signal
+        notifyAggregateStarted()
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("已取消")), { once: true })
+        })
+        return {}
+      },
+      async publish() {
+        return `${skill}.json`
+      },
+    }))
     const savedResults = new Map<string, unknown>()
     const scheduler = createAnalysisScheduler({
       adapters,
@@ -439,7 +448,7 @@ describe("analysis scheduler", () => {
         savedResults.set(resultPath, result)
         return { ...chunk, status: "completed", resultPath, completedAt: 10, updatedAt: 10 }
       }),
-      loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
+      loadChunkResult: loadChunkResultStub((chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
       now: () => 10,
     })
     scheduler.initialize([task(["characters"], ["chunk-1"])], chunks(["characters"], 1))
@@ -449,28 +458,24 @@ describe("analysis scheduler", () => {
     await scheduler.cancelTask("task-1")
     await running
 
-    expect(aggregateSignal?.aborted).toBe(true)
+    expect(aggregateSignalSeen()?.aborted).toBe(true)
     expect(scheduler.getSnapshot().tasks[0].status).toBe("cancelled")
   })
 
   it("llmConfig 传函数时按任务解析，adapter 拿到该任务选定的模型", async () => {
     const seenModels: string[] = []
-    const adapters = Object.fromEntries(["characters", "story", "style"].map((skill) => [
-      skill,
-      {
-        skill,
-        async runChunk({ chunk, llmConfig }) {
-          seenModels.push(llmConfig.model)
-          return { result: { chunkId: chunk.id }, evidence: [] }
-        },
-        async aggregate() {
-          return { skill }
-        },
-        async publish() {
-          return `${skill}.json`
-        },
-      } satisfies AnalysisSkillAdapter,
-    ])) as Record<AnalysisSkill, AnalysisSkillAdapter>
+    const adapters = adaptersFor((skill) => ({
+      async runChunk({ chunk, llmConfig }) {
+        seenModels.push(llmConfig.model)
+        return { result: { chunkId: chunk.id }, evidence: [] }
+      },
+      async aggregate() {
+        return { skill }
+      },
+      async publish() {
+        return `${skill}.json`
+      },
+    }))
     const savedResults = new Map<string, unknown>()
     const scheduler = createAnalysisScheduler({
       adapters,
@@ -482,7 +487,7 @@ describe("analysis scheduler", () => {
         savedResults.set(resultPath, result)
         return { ...chunk, status: "completed", resultPath, completedAt: 10, updatedAt: 10 }
       }),
-      loadChunkResult: vi.fn(async (chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
+      loadChunkResult: loadChunkResultStub((chunk) => chunk.resultPath ? savedResults.get(chunk.resultPath) ?? null : null),
       now: () => 10,
     })
     const configured = { ...task(["style"], ["chunk-1"]), modelKey: "openai/gpt-4o-mini" }

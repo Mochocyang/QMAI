@@ -125,6 +125,7 @@ describe("applyAgentToolEvent", () => {
       title: "调用完成：read_chapter",
       toolCallId: "read-1",
     })
+    if (!event) throw new Error("read_chapter 的 result 事件应生成 activity 事件")
     expect(event.content).toContain("铜铃线索")
   })
 

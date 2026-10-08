@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+/**
+ * @/commands/fs 的替身。显式标注签名（与生产实现一致：fileExists / readFile 收
+ * path，getExecutableDir / getResourceDir 不收参），mockImplementation 的回调参数
+ * 才有真实类型可写。
+ */
 const fsMock = {
-  fileExists: vi.fn(async () => false),
-  readFile: vi.fn(async () => ""),
-  getExecutableDir: vi.fn(async () => "C:/App"),
-  getResourceDir: vi.fn(async () => "C:/App/_up_"),
+  fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+  getExecutableDir: vi.fn<() => Promise<string>>(async () => "C:/App"),
+  getResourceDir: vi.fn<() => Promise<string>>(async () => "C:/App/_up_"),
 }
 
 vi.mock("@/commands/fs", () => ({
-  fileExists: (...args: unknown[]) => fsMock.fileExists(...(args as [])),
-  readFile: (...args: unknown[]) => fsMock.readFile(...(args as [])),
-  getExecutableDir: (...args: unknown[]) => fsMock.getExecutableDir(...(args as [])),
-  getResourceDir: (...args: unknown[]) => fsMock.getResourceDir(...(args as [])),
+  fileExists: (path: string) => fsMock.fileExists(path),
+  readFile: (path: string) => fsMock.readFile(path),
+  getExecutableDir: () => fsMock.getExecutableDir(),
+  getResourceDir: () => fsMock.getResourceDir(),
 }))
 
 import {
@@ -36,6 +41,16 @@ import {
   type ChapterOutlineData,
 } from "./chapter-outline-template"
 import type { VolumeOutlineData } from "./volume-outline-template"
+
+/**
+ * attachChapterOutlineHtml 的入参形状，与生产函数的泛型约束保持一致：
+ * 只有显式标注它，返回值的 T 才会带上可选的 htmlContent。
+ */
+type OutlineHtmlRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+}
 
 /** 12 章对应的 10 环节映射（单调前进）。 */
 const STAGE_FOR_CHAPTER = [
@@ -358,40 +373,36 @@ describe("chapter-outline-template", () => {
 
   it("attachChapterOutlineHtml 给章纲请求补上渲染后的静态 HTML", () => {
     const reply = ["正文", "```json", JSON.stringify({ chapterOutlineData: buildData() }), "```"].join("\n")
-    const enriched = attachChapterOutlineHtml(
-      { fileType: "chapter-outline", content: "# 章纲\n核心事件", htmlContent: undefined as string | undefined },
-      reply,
-    )
+    const request: OutlineHtmlRequest = { fileType: "chapter-outline", content: "# 章纲\n核心事件" }
+    const enriched = attachChapterOutlineHtml(request, reply)
     expect(enriched.htmlContent).toContain("<html")
     expect(enriched.htmlContent).toContain("<details")
   })
 
   it("attachChapterOutlineHtml 兼容 chapterOutlineBatch 信封（单发降级路径也能补 HTML）", () => {
     const reply = ["正文", "```json", JSON.stringify({ chapterOutlineBatch: buildData() }), "```"].join("\n")
-    const enriched = attachChapterOutlineHtml(
-      { fileType: "chapter-outline", content: "# 章纲\n核心事件", htmlContent: undefined as string | undefined },
-      reply,
-    )
+    const request: OutlineHtmlRequest = { fileType: "chapter-outline", content: "# 章纲\n核心事件" }
+    const enriched = attachChapterOutlineHtml(request, reply)
     expect(enriched.htmlContent).toContain("<html")
     expect(enriched.htmlContent).toContain("<details")
   })
 
   it("attachChapterOutlineHtml 不处理非章纲请求", () => {
     const reply = ["正文", "```json", JSON.stringify({ chapterOutlineData: buildData() }), "```"].join("\n")
-    expect(attachChapterOutlineHtml({ fileType: "volume-outline", content: "x" }, reply).htmlContent).toBeUndefined()
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: "x" }
+    expect(attachChapterOutlineHtml(request, reply).htmlContent).toBeUndefined()
   })
 
   it("attachChapterOutlineHtml 不覆盖真正的 HTML 文档", () => {
     const reply = ["正文", "```json", JSON.stringify({ chapterOutlineData: buildData() }), "```"].join("\n")
     const existing = "<!DOCTYPE html><html><body>已有</body></html>"
-    expect(attachChapterOutlineHtml({ fileType: "chapter-outline", content: "x", htmlContent: existing }, reply).htmlContent).toBe(existing)
+    const request: OutlineHtmlRequest = { fileType: "chapter-outline", content: "x", htmlContent: existing }
+    expect(attachChapterOutlineHtml(request, reply).htmlContent).toBe(existing)
   })
 
   it("attachChapterOutlineHtml 无数据时清掉非 HTML 内容", () => {
-    const enriched = attachChapterOutlineHtml(
-      { fileType: "chapter-outline", content: "x", htmlContent: 'json {"chapterOutlineData":{}}' },
-      "没有任何数据块的回复",
-    )
+    const request: OutlineHtmlRequest = { fileType: "chapter-outline", content: "x", htmlContent: 'json {"chapterOutlineData":{}}' }
+    const enriched = attachChapterOutlineHtml(request, "没有任何数据块的回复")
     expect(enriched.htmlContent).toBeUndefined()
   })
 })
@@ -654,7 +665,7 @@ describe("chapter-outline-template 运行时加载", () => {
   })
 
   it("项目目录存在覆盖模板时优先使用", async () => {
-    fsMock.fileExists.mockImplementation(async (path: unknown) =>
+    fsMock.fileExists.mockImplementation(async (path: string) =>
       String(path).endsWith(".qmai/章纲模板.html"))
     fsMock.readFile.mockResolvedValue(CUSTOM_TEMPLATE)
 
@@ -665,7 +676,7 @@ describe("chapter-outline-template 运行时加载", () => {
   })
 
   it("项目无覆盖时回退到程序 skills 目录", async () => {
-    fsMock.fileExists.mockImplementation(async (path: unknown) =>
+    fsMock.fileExists.mockImplementation(async (path: string) =>
       String(path).includes("C:/App/skills/SkillHub/ZhanggangSkill/zhanggangjiegouhua/template.html"))
     fsMock.readFile.mockResolvedValue(CUSTOM_TEMPLATE)
 

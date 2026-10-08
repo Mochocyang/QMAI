@@ -63,6 +63,13 @@ const pack: ContextPack = {
   revisionDirectives: "",
 }
 
+/** ChatMessage.content 是 string | ContentBlock[]；取纯文本，供断言提示词内容 */
+function chatMessageText(content: ChatMessage["content"]): string {
+  return typeof content === "string"
+    ? content
+    : content.map((block) => (block.type === "text" ? block.text : "")).join("")
+}
+
 function streamChatReturning(responses: string[]) {
   let index = 0
   return vi.fn(async (_config: LlmConfig, _messages: ChatMessage[], callbacks: StreamCallbacks) => {
@@ -87,11 +94,12 @@ describe("writing entity local lookup", () => {
   })
 
   it("does not treat names that only appear in the chapter outline as resolved", () => {
-    const corpus = buildLocalWritingCorpus({
+    const packWithOutlineOnlyNames: ContextPack = {
       ...pack,
       outline: "第3章：李鸿章在总理衙门与赫德会面。",
       chapterGoal: "李鸿章与赫德谈判",
-    })
+    }
+    const corpus = buildLocalWritingCorpus(packWithOutlineOnlyNames)
     expect(corpus).not.toContain("李鸿章")
     expect(corpus).not.toContain("赫德")
     expect(isLocallyResolvedEntity("李鸿章", corpus, [])).toBe(false)
@@ -408,9 +416,10 @@ describe("collectWritingEntityWebSearch", () => {
       messages: ChatMessage[],
       callbacks: StreamCallbacks,
     ) => {
-      const user = messages.find((message) => message.role === "user")?.content ?? ""
-      if (user.includes("下列名称")) {
-        judgePrompt = messages.map((message) => message.content).join("\n")
+      const user = messages.find((message) => message.role === "user")
+      const userText = user ? chatMessageText(user.content) : ""
+      if (userText.includes("下列名称")) {
+        judgePrompt = messages.map((message) => chatMessageText(message.content)).join("\n")
         callbacks.onToken('{"needExternal":[]}')
       } else {
         callbacks.onToken('{"entities":["李鸿章"]}')

@@ -13,7 +13,9 @@ describe("图谱可视控制", () => {
     expect(graphView).toContain("labelDisplayMode")
     expect(graphView).toContain("edgeStrengthPercent")
     expect(graphView).toContain("edgeLabelSize: 14")
-    expect(graphView).toContain('edgeLabelColor: { color: "#334155" }')
+    // 该期望于 3fac12a 随「新版界面运行时切换与独立测试版」变更：画布不解析 CSS 变量，
+    // 边标签色改为读取界面皮肤的 --ui-muted，并把 #334155 保留为皮肤读取前的默认值（26f80ee 去掉测试版开关、2f762e6 合并重复的固定色行）。
+    expect(graphView).toContain('edgeLabelColor: { color: uiTestGraphColors?.muted ?? "#334155" }')
   })
 
   it("supports node dragging and opening the real profile page in the outline editing area", () => {

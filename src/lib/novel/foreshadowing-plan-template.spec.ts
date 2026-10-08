@@ -26,6 +26,9 @@ import {
   resetForeshadowingProfileTemplateForTest,
 } from "./foreshadowing-plan-template"
 
+/** 生产 attachForeshadowingProfileHtml 的入参契约（htmlContent 可选，函数内补全）。 */
+type ForeshadowingProfileSaveRequest = Parameters<typeof attachForeshadowingProfileHtml>[0]
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -113,11 +116,12 @@ describe("foreshadowing-plan-template", () => {
 
   it("attachForeshadowingProfileHtml：fileType 由调用方判定（不再自查）；真 HTML 保留；无数据原样返回", () => {
     const source = "# 伏笔追踪\n## 伏笔状态表\n| ID | 状态 |\n| --- | --- |\n| F001 | 已埋 |"
-    const attached = attachForeshadowingProfileHtml({ fileType: "foreshadowing", content: source }, source)
+    const request: ForeshadowingProfileSaveRequest = { fileType: "foreshadowing", content: source }
+    const attached = attachForeshadowingProfileHtml(request, source)
     expect(attached.htmlContent).toContain("伏笔台账")
 
     // 不再自查 fileType：即使是 setting，只要能解析出伏笔数据就渲染（由调用方决定是否调用）
-    const setting = { fileType: "setting", content: source }
+    const setting: ForeshadowingProfileSaveRequest = { fileType: "setting", content: source }
     expect(attachForeshadowingProfileHtml(setting, source).htmlContent).toContain("伏笔台账")
 
     const empty = { fileType: "setting", content: "" }

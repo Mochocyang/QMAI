@@ -1,19 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { FileNode } from "@/types/wiki"
 
+/**
+ * attachVolumeOutlineHtml 的入参形状，与生产函数的泛型约束保持一致：
+ * 只有显式标注它，返回值的 T 才会带上可选的 htmlContent / structuredData。
+ */
+type OutlineHtmlRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+  structuredData?: string
+}
+
+/**
+ * @/commands/fs 的替身。显式标注签名（与生产实现一致：readFile / fileExists
+ * 收 path，listDirectory 返回 FileNode[]），mockImplementation 的参数才有类型。
+ */
 const fsMock = {
-  fileExists: vi.fn(async () => false),
-  readFile: vi.fn(async () => ""),
-  listDirectory: vi.fn(async () => [] as Array<{ name: string; path: string; is_dir: boolean }>),
-  getExecutableDir: vi.fn(async () => "C:/App"),
-  getResourceDir: vi.fn(async () => "C:/App/_up_"),
+  fileExists: vi.fn<(path: string) => Promise<boolean>>(async () => false),
+  readFile: vi.fn<(path: string) => Promise<string>>(async () => ""),
+  listDirectory: vi.fn<(path: string) => Promise<FileNode[]>>(async () => []),
+  getExecutableDir: vi.fn<() => Promise<string>>(async () => "C:/App"),
+  getResourceDir: vi.fn<() => Promise<string>>(async () => "C:/App/_up_"),
 }
 
 vi.mock("@/commands/fs", () => ({
-  fileExists: (...args: unknown[]) => fsMock.fileExists(...(args as [])),
-  readFile: (...args: unknown[]) => fsMock.readFile(...(args as [])),
-  listDirectory: (...args: unknown[]) => fsMock.listDirectory(...(args as [])),
-  getExecutableDir: (...args: unknown[]) => fsMock.getExecutableDir(...(args as [])),
-  getResourceDir: (...args: unknown[]) => fsMock.getResourceDir(...(args as [])),
+  fileExists: (path: string) => fsMock.fileExists(path),
+  readFile: (path: string) => fsMock.readFile(path),
+  listDirectory: (path: string) => fsMock.listDirectory(path),
+  getExecutableDir: () => fsMock.getExecutableDir(),
+  getResourceDir: () => fsMock.getResourceDir(),
 }))
 
 import {
@@ -508,49 +524,47 @@ describe("volume-outline-template", () => {
 
   it("attachVolumeOutlineHtml 给卷纲请求补上渲染后的静态 HTML", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
-    const enriched = attachVolumeOutlineHtml(
-      { fileType: "volume-outline", content: VALID_MD, htmlContent: undefined as string | undefined },
-      reply,
-    )
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: VALID_MD }
+    const enriched = attachVolumeOutlineHtml(request, reply)
     expect(enriched.htmlContent).toContain("<html")
     expect(enriched.htmlContent).toContain("<details")
   })
 
   it("attachVolumeOutlineHtml 不处理非卷纲请求", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
-    expect(attachVolumeOutlineHtml({ fileType: "chapter-outline", content: VALID_MD }, reply).htmlContent).toBeUndefined()
+    const request: OutlineHtmlRequest = { fileType: "chapter-outline", content: VALID_MD }
+    expect(attachVolumeOutlineHtml(request, reply).htmlContent).toBeUndefined()
   })
 
   it("attachVolumeOutlineHtml 不覆盖真正的 HTML 文档", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
     const existing = "<!DOCTYPE html><html><body>已有</body></html>"
-    expect(attachVolumeOutlineHtml({ fileType: "volume-outline", content: VALID_MD, htmlContent: existing }, reply).htmlContent).toBe(existing)
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: VALID_MD, htmlContent: existing }
+    expect(attachVolumeOutlineHtml(request, reply).htmlContent).toBe(existing)
   })
 
   it("attachVolumeOutlineHtml 会把非 HTML 内容（误抓的 json）替换成渲染结果", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
-    const enriched = attachVolumeOutlineHtml(
-      { fileType: "volume-outline", content: VALID_MD, htmlContent: 'json {"volumeOutlineData":{"title":"误抓内容"}}' },
-      reply,
-    )
+    const request: OutlineHtmlRequest = {
+      fileType: "volume-outline",
+      content: VALID_MD,
+      htmlContent: 'json {"volumeOutlineData":{"title":"误抓内容"}}',
+    }
+    const enriched = attachVolumeOutlineHtml(request, reply)
     expect(enriched.htmlContent).toContain("<html")
     expect(enriched.htmlContent).not.toContain("误抓内容")
   })
 
   it("attachVolumeOutlineHtml 无数据时清掉非 HTML 内容", () => {
-    const enriched = attachVolumeOutlineHtml(
-      { fileType: "volume-outline", content: VALID_MD, htmlContent: 'json {"foo":1}' },
-      "没有任何数据块的回复",
-    )
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: VALID_MD, htmlContent: 'json {"foo":1}' }
+    const enriched = attachVolumeOutlineHtml(request, "没有任何数据块的回复")
     expect(enriched.htmlContent).toBeUndefined()
   })
 
   it("attachVolumeOutlineHtml 同时带上结构化数据（供章纲交叉校验）", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
-    const enriched = attachVolumeOutlineHtml(
-      { fileType: "volume-outline", content: VALID_MD },
-      reply,
-    )
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: VALID_MD }
+    const enriched = attachVolumeOutlineHtml(request, reply)
     expect(enriched.structuredData).toBeTruthy()
     const parsed = JSON.parse(enriched.structuredData ?? "{}") as { stories?: unknown[] }
     expect(parsed.stories).toHaveLength(10)
@@ -559,10 +573,8 @@ describe("volume-outline-template", () => {
   it("已有真 HTML 时仍补结构化数据、不覆盖 HTML", () => {
     const reply = ["正文", "```json", JSON.stringify({ volumeOutlineData: buildData() }), "```"].join("\n")
     const existing = "<!DOCTYPE html><html><body>已有</body></html>"
-    const enriched = attachVolumeOutlineHtml(
-      { fileType: "volume-outline", content: VALID_MD, htmlContent: existing },
-      reply,
-    )
+    const request: OutlineHtmlRequest = { fileType: "volume-outline", content: VALID_MD, htmlContent: existing }
+    const enriched = attachVolumeOutlineHtml(request, reply)
     expect(enriched.htmlContent).toBe(existing)
     expect(enriched.structuredData).toBeTruthy()
   })
@@ -573,8 +585,8 @@ describe("volume-outline-template", () => {
       { name: "说明.md", path: "E:/Novel/wiki/outlines/卷纲/说明.md", is_dir: false },
       { name: "坏文件.json", path: "E:/Novel/wiki/outlines/卷纲/坏文件.json", is_dir: false },
     ])
-    fsMock.readFile.mockImplementation(async (path: unknown) => {
-      if (String(path).endsWith("坏文件.json")) return "{ 不是合法 JSON"
+    fsMock.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("坏文件.json")) return "{ 不是合法 JSON"
       return JSON.stringify(buildData())
     })
 
@@ -648,8 +660,8 @@ describe("volume-outline-template 运行时加载", () => {
   })
 
   it("项目目录存在覆盖模板时优先使用", async () => {
-    fsMock.fileExists.mockImplementation(async (path: unknown) =>
-      String(path).endsWith(".qmai/卷纲模板.html"))
+    fsMock.fileExists.mockImplementation(async (path: string) =>
+      path.endsWith(".qmai/卷纲模板.html"))
     fsMock.readFile.mockResolvedValue(CUSTOM_TEMPLATE)
 
     await primeVolumeOutlineTemplate("E:/Novel")
@@ -659,8 +671,8 @@ describe("volume-outline-template 运行时加载", () => {
   })
 
   it("项目无覆盖时回退到程序 skills 目录", async () => {
-    fsMock.fileExists.mockImplementation(async (path: unknown) =>
-      String(path).includes("C:/App/skills/SkillHub/DagangSkill/juangangzhedieshu/template.html"))
+    fsMock.fileExists.mockImplementation(async (path: string) =>
+      path.includes("C:/App/skills/SkillHub/DagangSkill/juangangzhedieshu/template.html"))
     fsMock.readFile.mockResolvedValue(CUSTOM_TEMPLATE)
 
     await primeVolumeOutlineTemplate("E:/Novel")

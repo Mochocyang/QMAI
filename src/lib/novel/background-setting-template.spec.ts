@@ -34,6 +34,16 @@ beforeEach(() => {
   resetBackgroundProfileTemplateForTest()
 })
 
+/**
+ * 背景设定保存请求的入参契约：与 outline-save-request 中 attachSettingFamilyHtml 的
+ * 约束一致 —— htmlContent 可选，由渲染器补齐后再读取。
+ */
+type BackgroundProfileSaveRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+}
+
 describe("background-setting-template", () => {
   it("内置模板包含全部占位符与背景样式", () => {
     expect(BACKGROUND_PROFILE_TEMPLATE_READY).toBe(true)
@@ -110,13 +120,14 @@ describe("background-setting-template", () => {
 
   it("attachBackgroundProfileHtml 渲染背景卡；无数据原样返回；真 HTML 保留", () => {
     const source = "# 背景设定\n## 历史沿革\n| 时期 | 关键事件 |\n| --- | --- |\n| 开元 | 立国 |"
-    const attached = attachBackgroundProfileHtml({ fileType: "setting", content: source }, source)
+    const request: BackgroundProfileSaveRequest = { fileType: "setting", content: source }
+    const attached = attachBackgroundProfileHtml(request, source)
     expect(attached.htmlContent).toContain("背景卡")
 
-    const empty = { fileType: "setting", content: "" }
+    const empty: BackgroundProfileSaveRequest = { fileType: "setting", content: "" }
     expect(attachBackgroundProfileHtml(empty, "")).toBe(empty)
 
-    const kept = { fileType: "setting", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
+    const kept: BackgroundProfileSaveRequest = { fileType: "setting", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
     expect(attachBackgroundProfileHtml(kept, "x").htmlContent).toContain("<!DOCTYPE html>")
   })
 

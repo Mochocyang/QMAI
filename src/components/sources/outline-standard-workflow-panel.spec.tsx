@@ -31,6 +31,7 @@ const sampleCalls: ToolCallRecord[] = [
     result: "已写入",
     status: "running",
     startedAt: 160,
+    finishedAt: 0,
   },
 ]
 

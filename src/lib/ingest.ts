@@ -158,7 +158,7 @@ const CLOSER_LINE = /^---\s*END\s+FILE\s*---\s*$/i
  *
  * Exported for tests.
  */
-function isSafeIngestPath(p: string): boolean {
+export function isSafeIngestPath(p: string): boolean {
   if (typeof p !== "string" || p.trim().length === 0) return false
   // No control / NUL bytes anywhere.
   if (/[\x00-\x1f]/.test(p)) return false
@@ -223,8 +223,11 @@ const FENCE_LINE = /^\s{0,3}(```+|~~~+)/
  * This parser fixes every one except H2 (which is fundamentally a
  * stream-budget problem), and at least surfaces H2 as a warning so the
  * user isn't left wondering why a page is missing.
+ *
+ * Exported for tests（2026-08-24 的 `01aab5f` 在收口"未使用导出"时误摘了它，
+ * 但 33 项路径安全/块解析断言依赖直接单测该函数，故恢复导出）。
  */
-function parseFileBlocks(text: string): ParseFileBlocksResult {
+export function parseFileBlocks(text: string): ParseFileBlocksResult {
   // H1 fix: normalize CRLF to LF before anything else. Cheap and
   // covers the case where a proxy / server / LLM inserts Windows line
   // endings into the stream.

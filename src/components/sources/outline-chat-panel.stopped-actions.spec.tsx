@@ -15,6 +15,7 @@ vi.mock("@/lib/project-store", async (importOriginal) => ({
 }))
 
 import { AgentRunner } from "@/lib/agent/runner"
+import type { AgentRunRecord } from "@/lib/agent/types"
 import { CONTINUE_STOPPED_GENERATION_PROMPT } from "@/lib/novel/stopped-generation"
 import { useWikiStore } from "@/stores/wiki-store"
 import { OutlineChatPanel } from "./outline-chat-panel"
@@ -146,7 +147,10 @@ describe("大纲面板：停止生成后的「重试 / 继续」", () => {
       const userMessage = [...messages].reverse().find((message) => message.role === "user")
       const content = userMessage?.content
       sent.push(typeof content === "string" ? content : JSON.stringify(content))
-      callbacks.onText("继续写出来的大纲。")
+      const generatedText = "继续写出来的大纲。"
+      callbacks.onText(generatedText)
+      const record: AgentRunRecord = { toolCalls: [], roundsUsed: 1, finalText: generatedText }
+      return record
     })
 
     setOutlineConversations([

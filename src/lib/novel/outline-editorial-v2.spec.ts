@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vitest"
 import { JSDOM } from "jsdom"
 import { readFileSync } from "node:fs"
-import { normalizeProfileDocument, renderProfileDocumentHtml, type ProfileDocument } from "./profile-document"
-import { attachOutlineHtml } from "./outline-save-request"
+import { normalizeProfileDocument, renderProfileDocumentHtml, type ProfileDocument, type ProfileSection } from "./profile-document"
+import { attachOutlineHtml, type OutlineSaveRequest } from "./outline-save-request"
+import type { ProfileDiagram } from "./profile-diagram"
 import { buildSettingProfileOutputRules } from "./setting-profile-contracts"
 import { applyDocumentAppearance } from "../html-document-appearance"
 
 const paths = ["JueseSkill/character-design/profile.html", "SheDingSkill/faction-system/profile.html", "SheDingSkill/power-system/profile.html", "SheDingSkill/power-system/golden-finger.html", "SheDingSkill/world-rules/background.html", "SheDingSkill/map-progression/profile.html", "SheDingSkill/foreshadowing-suspense/profile.html", "SheDingSkill/map-progression/location.html"]
 const template = () => readFileSync("skills/SkillHub/" + paths[5], "utf8")
-const data = () => ({name: "星陨盆地", tag: "科幻 / 设计提案", tagline: "不是任何示例小说的地图", sections: [
+/** 归一化之前的原始 JSON 形状：`omitted` 由 normalizeProfileDiagram 依据被丢弃的条目算出，原始数据里没有。 */
+type RawDiagram = Omit<ProfileDiagram, "omitted">
+interface RawProfile {
+  name: string
+  tag: string
+  tagline: string
+  sections: ProfileSection[]
+  diagram: RawDiagram
+}
+const data = (): RawProfile => ({name: "星陨盆地", tag: "科幻 / 设计提案", tagline: "不是任何示例小说的地图", sections: [
   {kind: "table", heading: "区域划分", head: ["区域", "环境", "控制者"], rows: [["北部观测站", "风蚀岩台", "科考队"], ["南侧营地", "低洼冻土", "营地议会"]]},
   {kind: "kv", heading: "写作约束", items: [{label: "信息", text: "行程只在满足补给条件时成立。"}]},
 ], diagram: {
@@ -104,7 +114,14 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
   })
   it("真正的地理保存链路保留数据并输出可读SVG与图例", () => {
     const source = "```json\n" + JSON.stringify({geographyProfileData: data()}) + "\n```"
-    const saved = attachOutlineHtml({fileType: "setting", fileName: "地理设定-星陨盆地.md", content: "# 地理设定：星陨盆地\n## 区域划分\n北部观测站与南侧营地"}, source)
+    /*
+     * attachOutlineHtml 的返回值类型跟随入参 T，所以入参必须显式声明成带 htmlContent 的请求形状，
+     * 否则 T 被收窄成字面量本身，读回 htmlContent 会被判成「属性不存在」。
+     */
+    const request: Pick<OutlineSaveRequest, "fileType" | "fileName" | "content" | "htmlContent"> = {
+      fileType: "setting", fileName: "地理设定-星陨盆地.md", content: "# 地理设定：星陨盆地\n## 区域划分\n北部观测站与南侧营地",
+    }
+    const saved = attachOutlineHtml(request, source)
     const doc = new JSDOM(saved.htmlContent).window.document
     expect(doc.querySelector('svg[data-profile-diagram="map"]')).not.toBeNull()
     expect(doc.querySelector('.diagram-legend')?.textContent).toContain("冻土驮道")
@@ -120,7 +137,7 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
     raw.diagram.nodes = [
       {id: "entry", label: "入口", x: 10, y: 10, width: 20, height: 20, description: "需登记"},
       {id: "vault", label: "资料室", x: 50, y: 10, width: 30, height: 40, description: "双钥匙"},
-    ] as typeof raw.diagram.nodes
+    ]
     raw.diagram.routes = [{from:"entry", to:"vault", label:"登记通道", mode:"land", detail:"仅开放日可走"}]
     const html = renderProfileDocumentHtml(normalizeProfileDocument(raw)!, template(), "地点设定")
     expect(html).toContain('data-profile-diagram="floorplan"')
@@ -129,7 +146,7 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
     expect(html).not.toContain("暗梯")
   })
   it("没有图形信息时不画虚构地图，正文完整保留", () => {
-    const raw = data(); delete (raw as {diagram?: unknown}).diagram
+    const raw = data(); delete (raw as {diagram?: RawDiagram}).diagram
     const html = renderProfileDocumentHtml(normalizeProfileDocument(raw)!, template(), "地理")
     expect(html).not.toContain("data-profile-diagram=")
     expect(html).toContain("北部观测站")

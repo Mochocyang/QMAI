@@ -6222,28 +6222,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       {/* Input */}
       <div className="shrink-0 border-t px-3 py-2" data-ui-ai-input-area>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <>
-            <div className="relative hidden">
-                <Button ref={workflowModeTriggerRef} type="button" variant="outline" size="sm" aria-haspopup="listbox" aria-expanded={workflowModeDropdownOpen} aria-label="AI 大纲执行模式" className="h-8 shrink-0 rounded-full border px-2.5 text-xs" onClick={() => setWorkflowModeDropdownOpen((open) => !open)}>
-                  <span className="mr-1">{OUTLINE_WORKFLOW_MODE_OPTIONS.find((option) => option.mode === outlineWorkflowMode)?.label ?? "标准"}</span>
-                  <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
-                </Button>
-                {workflowModeDropdownOpen && workflowModeDropdownStyle ? createPortal(
-                  <>
-                    <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
-                    <div ref={workflowModeDropdownRef} role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }} data-ui-ai-menu="mode">
-                      {OUTLINE_WORKFLOW_MODE_OPTIONS.map(({ mode, label, description, routeDescription }) => (
-                        <button key={mode} type="button" role="option" aria-selected={outlineWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setOutlineWorkflowMode(mode); void saveOutlineWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
-                          <Check className={`mt-0.5 h-4 w-4 shrink-0 ${outlineWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
-                          <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
-                        </button>
-                      ))}
-                    </div>
-                  </>,
-                  document.body,
-                ) : null}
-            </div>
-          </>
           <p className="text-xs text-muted-foreground">
             {isOutlineFastMode
               ? "通过固定选项收集需求后，直接生成大纲正文"

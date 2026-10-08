@@ -6,11 +6,11 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ProviderConfigs } from "@/stores/wiki-store"
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const persistMocks = vi.hoisted(() => ({
-  saveProviderConfigs: vi.fn(async () => {}),
-  saveActivePresetId: vi.fn(async () => {}),
+  saveProviderConfigs: vi.fn<(configs: ProviderConfigs) => Promise<void>>(async () => {}),
+  saveActivePresetId: vi.fn<(id: string | null) => Promise<void>>(async () => {}),
 }))
 
 vi.mock("@/lib/project-store", () => persistMocks)

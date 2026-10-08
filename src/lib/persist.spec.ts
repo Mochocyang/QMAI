@@ -18,6 +18,7 @@ vi.mock("@/lib/context-hub/context-hub", () => ({
 }))
 
 import { loadChatHistory, saveChatHistory } from "./persist"
+import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 describe("chat context summary persistence", () => {
   beforeEach(() => {
@@ -43,7 +44,8 @@ describe("chat context summary persistence", () => {
     }], [])
 
     const manifestCall = fsMocks.writeFile.mock.calls.find(([path]) => path.endsWith("/.qmai/conversations.json"))
-    expect(JSON.parse(manifestCall[1]).conversations[0].contextSummary).toEqual(contextSummary)
+    expect(manifestCall).toBeDefined()
+    expect(JSON.parse(manifestCall![1]).conversations[0].contextSummary).toEqual(contextSummary)
   })
 
   it("migrates a legacy string summary while loading", async () => {
@@ -111,7 +113,7 @@ describe("chat context summary persistence", () => {
   })
 
   it("persists the context snapshot reference with an assistant message", async () => {
-    const contextHubSnapshot = {
+    const contextHubSnapshot: ContextHubSnapshotRef = {
       id: "assistant:1",
       surface: "ai-chat",
       createdAt: 10,
@@ -138,7 +140,8 @@ describe("chat context summary persistence", () => {
     }])
 
     const messageCall = fsMocks.writeFile.mock.calls.find(([path]) => path.endsWith("/.qmai/chats/chat-1.json"))
-    expect(JSON.parse(messageCall[1])[0].contextHubSnapshot).toEqual(contextHubSnapshot)
+    expect(messageCall).toBeDefined()
+    expect(JSON.parse(messageCall![1])[0].contextHubSnapshot).toEqual(contextHubSnapshot)
   })
 
   it("writes an empty message file when an existing conversation is cleared", async () => {

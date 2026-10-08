@@ -15,12 +15,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const listDirectory = vi.fn()
 const readFile = vi.fn()
-const fileExists = vi.fn(async () => false)
+const fileExists = vi.fn<(path: string) => Promise<boolean>>(async () => false)
 
 vi.mock("@/commands/fs", () => ({
   listDirectory: (...args: unknown[]) => listDirectory(...args),
   readFile: (...args: unknown[]) => readFile(...args),
-  fileExists: (...args: unknown[]) => fileExists(...(args as [string])),
+  fileExists: (path: string) => fileExists(path),
   writeFile: vi.fn(),
   writeFileAtomic: vi.fn(),
   createDirectory: vi.fn(),

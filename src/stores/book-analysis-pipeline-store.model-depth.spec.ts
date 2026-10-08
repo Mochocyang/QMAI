@@ -22,6 +22,9 @@ vi.mock("@/lib/novel/book-analysis/analysis-scheduler", () => ({
       initialize: vi.fn(),
       subscribe: vi.fn(() => () => undefined),
       dispose: vi.fn(async () => undefined),
+      // 该替身于 d072562（feat(context-hub): 完善拆书库分析缓存与角色抽取）随 AnalysisScheduler.registerTask 变更补齐：
+      // 生产调度器在此提交新增了 registerTask，store 在创建/配置任务时调用它，旧替身缺该方法会抛 TypeError。
+      registerTask: vi.fn(async () => undefined),
       enqueue: vi.fn(async () => undefined),
       pauseTask: vi.fn(async () => undefined),
       continueTask: vi.fn(async () => undefined),

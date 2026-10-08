@@ -1,0 +1,35 @@
+{
+  // 独立的「只查测试文件」类型检查配置。
+  // 父配置 tsconfig.app.json 用 include: ["src"] + exclude: [测试文件]，把所有测试
+  // 排除在 npm run build（tsc --build）之外，导致测试引用了已被删除或取消导出的生产
+  // 函数也长期没人发现。本配置只把测试文件作为根文件重新纳入检查，其它编译选项
+  // （严格度 strict、paths/alias、skipLibCheck 等）全部继承父配置，不另起一套。
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    // 继承父配置的 noEmit: true，这里显式写死，确保没有任何输出副作用。
+    "noEmit": true,
+    // 测试实际跑在 Node（本机 v24，ES2023 方法齐全）上，Array.prototype.at()（ES2022）
+    // 与 findLast()/toSorted()（ES2023）都可直接使用；父配置的 lib 是 ES2020，会让
+    // 这些本来正确的调用报 TS2550。这里只把测试程序的 lib 对齐到真实运行时（target
+    // 不动，不产生任何降级/输出差异）。这不构成放水：生产代码由 tsconfig.app.json
+    // 以 ES2020 单独检查，若生产里用了这些方法，主门禁仍然会报错。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  // include 必须显式重写：父配置的 include 只有 src，会拉入全部生产源码，这里只要测试
+  // 文件。TypeScript 的 include 通配符中递归段可以匹配零层目录，所以 src 根目录下的
+  // foo.spec.ts 也会被匹配到，不需要额外再加一条 src 根层模式。
+  // 另外必须带上环境声明文件（src/vite-env.d.ts 里的 vite/client 引用 +
+  // __APP_VERSION__ / __BUILD_TIME__）。父配置靠 include 的 src 顺带把它拉进来，
+  // 这里改成只收测试文件后它会掉出程序，凭空产生一批 import.meta.env 不存在、
+  // 找不到 ?raw / ?url / ?worker 模块的假错。补进来只是补齐类型环境，不放松任何检查。
+  "include": [
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.d.ts"
+  ],
+  // exclude 必须显式重写：子配置的 exclude 会整体替换父配置的 exclude，而不是叠加，
+  // 所以这里要把父配置里那四条测试排除规则清掉。只保留依赖与构建产物目录。
+  "exclude": ["node_modules", "dist"]
+}

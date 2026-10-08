@@ -31,7 +31,7 @@ vi.mock("@/lib/app-update-support", () => ({
   APP_AUTO_UPDATE_RELEASES_URL: "https://github.com/Mochocyang/QMAI/releases",
 }))
 
-function createPackage(version: string): ChangelogUpdatePackage {
+function createPackage(version: string) {
   return {
     version,
     body: "稍后安装",
@@ -42,7 +42,7 @@ function createPackage(version: string): ChangelogUpdatePackage {
     }),
     install: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
-  }
+  } satisfies ChangelogUpdatePackage
 }
 
 function buttonLabels(host: HTMLElement) {

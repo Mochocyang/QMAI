@@ -26,6 +26,17 @@ import {
   resetLocationProfileTemplateForTest,
 } from "./location-setting-template"
 
+/**
+ * attachLocationProfileHtml<T extends { fileType: string; htmlContent?: string; content: string; ... }> 返回 T，
+ * 因此入参必须显式带上可选的 htmlContent 字段，返回值才暴露 htmlContent（与生产调用方
+ * outline-save-request.ts 中的请求类型一致）。
+ */
+type LocationProfileSaveRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+}
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -110,13 +121,18 @@ describe("location-setting-template", () => {
 
   it("attachLocationProfileHtml 渲染地点卡；无数据原样返回；真 HTML 保留", () => {
     const source = "# 地点设定\n## 空间规则\n| 规则 | 说明 |\n| --- | --- |\n| 御剑限高 | 峰顶禁飞 |"
-    const attached = attachLocationProfileHtml({ fileType: "setting", content: source }, source)
+    const request: LocationProfileSaveRequest = { fileType: "setting", content: source }
+    const attached = attachLocationProfileHtml(request, source)
     expect(attached.htmlContent).toContain("地点卡")
 
-    const empty = { fileType: "setting", content: "" }
+    const empty: LocationProfileSaveRequest = { fileType: "setting", content: "" }
     expect(attachLocationProfileHtml(empty, "")).toBe(empty)
 
-    const kept = { fileType: "setting", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
+    const kept: LocationProfileSaveRequest = {
+      fileType: "setting",
+      content: "x",
+      htmlContent: "<!DOCTYPE html><html></html>",
+    }
     expect(attachLocationProfileHtml(kept, "x").htmlContent).toContain("<!DOCTYPE html>")
   })
 

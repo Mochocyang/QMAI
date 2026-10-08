@@ -73,7 +73,9 @@ describe("WikiEditor immersive writing", () => {
 
     const textarea = container.querySelector("textarea")
     expect(textarea).not.toBeNull()
-    expect(textarea?.style.fieldSizing).toBe("content")
+    // `field-sizing` (camelCase: fieldSizing) is not in TypeScript's DOM lib yet, so read the
+    // property through the typed CSSStyleDeclaration API instead of the untyped camelCase accessor.
+    expect(textarea?.style.getPropertyValue("field-sizing")).toBe("content")
 
     act(() => root.unmount())
     document.body.removeChild(container)
@@ -103,7 +105,7 @@ describe("WikiEditor immersive writing", () => {
 
     const fallbackTextarea = fallbackContainer.querySelector("textarea")
     expect(fallbackTextarea).not.toBeNull()
-    expect(fallbackTextarea?.style.fieldSizing).toBe("")
+    expect(fallbackTextarea?.style.getPropertyValue("field-sizing")).toBe("")
 
     act(() => fallbackRoot.unmount())
     document.body.removeChild(fallbackContainer)

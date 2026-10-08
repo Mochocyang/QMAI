@@ -451,6 +451,8 @@ function buildLargeContextPack(chapterCount: number): ContextPack {
     characterStates: "林烬：右臂受伤，潜入密牢中\n陆沉舟：被黑玉令控制\n太子：在宫中等待消息",
     soulDoc: "",
     characterAuras: "",
+    // 未绑定故事框架：按 ContextPack.storyFrameworkBinding 的契约填空字符串
+    storyFrameworkBinding: "",
     cognitionStates: "林烬知道：师兄还活着\n林烬不知道：黑玉令的真正来源\n读者知道：太子是幕后黑手",
     foreshadowingStates: "黑玉令：推进中\n地下哭声：未回收\n旧名阿烬：已回收",
     timeline: "冬月初七深夜，距离入城已三天",

@@ -32,7 +32,7 @@ function book(characters: ExtractedCharacter[], skills: CharacterSkill[]): BookA
   return {
     id: "book-1", path: "/project/book-analysis/book-1",
     metadata: { title: "测试作品", totalChapters: 3, totalWords: 3000, sourceType: "file", createdAt: 1, updatedAt: 2 },
-    recognizedCharacters: [], characters, skills, styleStatus: "disabled",
+    recognizedCharacters: [], characters, skills, styleStatus: "missing",
     boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [],
   }
 }

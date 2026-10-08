@@ -3,7 +3,12 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BookAnalysisWorkbench } from "./book-analysis-workbench"
+import type { AnalysisModuleState, AnalysisSkill, BookAnalysisPipelineTask } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 import type { BatchImportTask } from "@/lib/novel/book-analysis/batch-import-types"
+import type { BookAnalysisLibraryBook } from "@/lib/novel/book-analysis/library-state"
+// 只借类型：这两个模块在下面都被 vi.mock 换成桩，import type 不会真的把它们加载进来。
+import type { WorkbenchRevision } from "@/lib/novel/book-analysis/workbench-core"
+import type { RemoveWorkbenchItemInput } from "@/lib/novel/book-analysis/workbench-remove"
 const mocks = vi.hoisted(() => {
   const init = vi.fn(async () => {})
   // 「现在处理」的两个 action 必须真的联动：consumeReopenRequest 要清掉 requestReopenChapterSelection
@@ -32,10 +37,13 @@ const mocks = vi.hoisted(() => {
     // inspectWorkbenchPublication 会读 aura/文风/框架三个 store（真实 IO），
     // confirmWorkbenchRevision 会按 id 从盘上重读版本：两个都必须打桩。
     inspect: vi.fn(async () => ({ targets: [], impacts: [], fingerprint: "fp-1" })),
-    confirmRevision: vi.fn(async () => ({})),
+    // 调用签名照抄生产（workbench-publish.ts:143）。必须显式标注：否则 mock.calls 是空元组，
+    // 测试连「第几个参数是版本 id」都断言不了（calls[0][2] 会报 TS2493）。
+    confirmRevision: vi.fn<(projectPath: string, bookPath: string, revisionId: string, expectedFingerprint: string, book?: BookAnalysisLibraryBook) => Promise<WorkbenchRevision>>(),
     materialize: vi.fn(async () => ({})),
     // 删除接口由并行的数据层单元实现，组件这边只消费签名：不打桩会走到真实落盘。
-    removeRevisionItem: vi.fn(async () => ({})),
+    // 同样按生产签名（workbench-remove.ts:65）标注，让 calls[0][0] 是 RemoveWorkbenchItemInput。
+    removeRevisionItem: vi.fn<(input: RemoveWorkbenchItemInput) => Promise<WorkbenchRevision>>(),
     // 自动入库失败要「只报一次错」，所以断言的是 toast 而不是界面文本。
     toastError: vi.fn(), toastSuccess: vi.fn(), toastInfo: vi.fn(),
     // 侧边栏「从分析活动跳过来」的目标。默认为空：绝大多数用例不该被跳转影响。
@@ -46,7 +54,7 @@ const mocks = vi.hoisted(() => {
     },
     wiki: { project: { id: "p", name: "测试项目", path: "/project" }, providerConfigs: {} },
     imports: { tasks: [] as BatchImportTask[], batches: [], revision: 0, initializeProject: init, createBatch: vi.fn(), deletePublishedBook: vi.fn(), deleteRecord: vi.fn(async () => {}) },
-    pipeline: { tasks: [], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
+    pipeline: { tasks: [] as BookAnalysisPipelineTask[], chunks: [], progresses: {}, initializeProject: init, recognizeWorkbenchCharacters: vi.fn(async () => {}), confirmCharacterSelection: vi.fn(async () => {}), startTask: vi.fn(async () => {}) },
   }
 })
 vi.mock("@/stores/wiki-store", () => ({ useWikiStore: Object.assign((s: any) => s(mocks.wiki), { getState: () => mocks.wiki }) }))
@@ -117,12 +125,24 @@ const legacyBook = {
   addedAuraCharacterIds: [],
   evidence: [],
 }
+/**
+ * 一个技能模块的初始快照。stuckTask 只关心「任务整体卡在选角色」，
+ * 不模拟任何模块进度，但 modules 是 BookAnalysisPipelineTask 的必填字段，按类型给全。
+ */
+const moduleFixture = (skill: AnalysisSkill): AnalysisModuleState => ({
+  skill, status: "pending", range: { startOrder: 1, endOrder: 123 },
+  chunkIds: [], completedChunkIds: [], failedChunkId: null, resultPath: null, analysisVersion: 1, updatedAt: 1,
+})
 /** 角色识别失败时，任务会留在 awaiting-character-selection 并把原因写进 error。 */
-function stuckTask(overrides: Partial<Record<string, unknown>> = {}) {
+function stuckTask(overrides: Partial<BookAnalysisPipelineTask> = {}): BookAnalysisPipelineTask {
   return {
-    id: "t-1", bookId: "book-1", bookTitle: "测试作品", bookPath: book.path, projectPath: "/project",
-    status: "awaiting-character-selection", selectedSkills: ["characters"], workbenchVersion: 2,
-    recognizedCharacters: [] as unknown[], error: "HTTP 429: Too Many Requests", createdAt: 1, updatedAt: 1,
+    version: 1, id: "t-1", batchId: null, projectPath: "/project", bookId: "book-1",
+    bookTitle: "测试作品", bookPath: book.path, workbenchVersion: 2,
+    selectedSkills: ["characters"], range: { startOrder: 1, endOrder: 123 },
+    status: "awaiting-character-selection", currentSkill: "characters",
+    modules: { characters: moduleFixture("characters"), story: moduleFixture("story"), style: moduleFixture("style") },
+    recognizedCharacters: [], error: "HTTP 429: Too Many Requests",
+    createdAt: 1, startedAt: null, completedAt: null, updatedAt: 1,
     ...overrides,
   }
 }
@@ -137,7 +157,7 @@ const ruleFixture = {
 const itemFixture = (subject: string) => ({
   subject, summary: `${subject}的判断倾向`, limitations: "不迁移身份", rules: [{ ...ruleFixture }],
 })
-const revisionFixture = (overrides: Record<string, unknown> = {}): any => ({
+const revisionFixture = (overrides: Partial<WorkbenchRevision> = {}): WorkbenchRevision => ({
   workbenchVersion: 2, id: "rev-characters", taskId: "t-characters", bookId: "book-1", bookTitle: "测试作品",
   skill: "characters", requirements: "", selectedChapterIds: ["c1"], createdAt: 1, coverage: [], evidence: [],
   items: [itemFixture("许七安")],
@@ -147,7 +167,7 @@ const revisionFixture = (overrides: Record<string, unknown> = {}): any => ({
 const skillTab = (label: string) => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
   .find((t) => t.textContent?.includes(label))!
 /** 一个文风版本。默认 createdAt=1，与 mocks.loadStyles 里 style-1 的 generatedAt 对齐。 */
-const styleRevisionFixture = (overrides: Record<string, unknown> = {}): any => revisionFixture({
+const styleRevisionFixture = (overrides: Partial<WorkbenchRevision> = {}): WorkbenchRevision => revisionFixture({
   skill: "style", id: "rev-style", taskId: "t-style",
   items: [{ subject: "文风", summary: "短段落", limitations: "局限", rules: [{ ...ruleFixture }] }],
   ...overrides,
@@ -181,10 +201,11 @@ beforeEach(() => {
   mocks.loadStyles.mockReset()
   mocks.loadStyles.mockResolvedValue({ enabledStyleId: null, styles: [{ id: "style-1", sourceBook: "测试作品", profile: { generatedAt: 1 } }] })
   // 会抛错的桩（自动入库失败、删除失败）用 mockRejectedValueOnce，漏消费就会污染下一个用例。
+  // 默认返回值是「一条完整版本」而不是 {}：签名要的是 WorkbenchRevision，空对象只是掩盖了契约。
   mocks.confirmRevision.mockReset()
-  mocks.confirmRevision.mockResolvedValue({})
+  mocks.confirmRevision.mockResolvedValue(revisionFixture())
   mocks.removeRevisionItem.mockReset()
-  mocks.removeRevisionItem.mockResolvedValue({})
+  mocks.removeRevisionItem.mockResolvedValue(revisionFixture())
   // 活动跳转默认没有请求：留着会让下一个用例在挂载时切页签并滚动。
   mocks.activity.navigation = null
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
@@ -770,8 +791,8 @@ describe("选角色列表的角色行", () => {
     mocks.pipeline.tasks = [stuckTask({
       error: null,
       recognizedCharacters: [
-        { id: "c1", name: "许七安", category: "主角", aliases: ["宁宴"], chapterIndices: [0], importanceScore: 90, appearances: 5 },
-        { id: "c2", name: "许玲月", category: "配角", aliases: [], chapterIndices: [0], importanceScore: 40, appearances: 2 },
+        { id: "c1", name: "许七安", category: "主角", aliases: ["宁宴"], chapterIndices: [0], importanceScore: 90, appearances: 5, sourceBook: "测试作品" },
+        { id: "c2", name: "许玲月", category: "配角", aliases: [], chapterIndices: [0], importanceScore: 40, appearances: 2, sourceBook: "测试作品" },
       ],
     })]
     await act(async () => root.render(<BookAnalysisWorkbench />))
@@ -808,7 +829,7 @@ describe("识别角色失败后不被锁死", () => {
   it("回归保护：已有待选角色时仍不重复开始分析", async () => {
     mocks.pipeline.tasks = [stuckTask({
       error: null,
-      recognizedCharacters: [{ id: "c1", name: "许七安", category: "主角", aliases: [], chapterIndices: [0], importanceScore: 1, appearances: 1 }],
+      recognizedCharacters: [{ id: "c1", name: "许七安", category: "主角", aliases: [], chapterIndices: [0], importanceScore: 1, appearances: 1, sourceBook: "测试作品" }],
     })]
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(startButton().disabled).toBe(true)
@@ -1056,7 +1077,8 @@ describe("分析结果自动入库", () => {
     // 这条用例会「靠巧合」通过，根本测不到重入守卫。
     const revision = revisionFixture()
     mocks.confirmRevision.mockRejectedValueOnce(new Error("磁盘写入失败"))
-    mocks.confirmRevision.mockImplementation(async () => { revision.confirmedAt = 2; return {} })
+    // 入库成功返回的正是「盘上那条版本」（带 confirmedAt），与生产签名一致。
+    mocks.confirmRevision.mockImplementation(async () => { revision.confirmedAt = 2; return revision })
     mocks.revisions.mockImplementation(async () => [revision])
     await act(async () => root.render(<BookAnalysisWorkbench />))
     expect(mocks.toastError).toHaveBeenCalledWith("磁盘写入失败")
@@ -1074,8 +1096,6 @@ describe("分析结果自动入库", () => {
 })
 
 describe("全版本平铺", () => {
-  const block = (id: string) => host.querySelector(`[data-revision-id="${id}"]`)!
-
   it("同一技能的全部版本都平铺渲染，旧版本在前、新版本在后", async () => {
     const older = revisionFixture({ id: "rev-old", createdAt: 10, confirmedAt: 11, items: [itemFixture("魏渊")] })
     const newer = revisionFixture({

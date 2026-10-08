@@ -195,6 +195,8 @@ describe("parseContextHubSnapshot", () => {
       requestCountAvailable: false,
       usageScope: "provider_thread",
     })
+    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("requestCountAvailable")
+    expect(damaged?.stats.requestDiagnostics).not.toHaveProperty("usageScope")
   })
 
   it("保留章节工作流完整总账，供界面显示真实用量", () => {

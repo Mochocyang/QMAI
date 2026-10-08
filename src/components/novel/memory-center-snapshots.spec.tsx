@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { MemoryCenterSnapshotCard } from "@/lib/novel/memory-center"
 import { DEFAULT_SNAPSHOT_PAGE_SIZE, SnapshotCollection } from "./memory-center-snapshots"
 

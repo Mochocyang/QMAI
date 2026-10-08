@@ -12,7 +12,7 @@ const valid = JSON.stringify({ checks: [
 
 describe("人格执行完成门槛", () => {
   it("前检只判断性格冲突，不把职业不同当冲突；检查结果必须逐条完整", async () => {
-    const call = vi.fn(async () => valid)
+    const call = vi.fn(async (_prompt: string) => valid)
     await expect(checkPersonality(bindings, "陆衡是账房，不是警察", "", call)).resolves.toEqual([])
     expect(call.mock.calls[0][0]).toContain("职业不同不是冲突")
     await expect(checkPersonality(bindings, "", "", async () => '{"checks":[]}')).rejects.toThrow("不完整")

@@ -1,5 +1,32 @@
+/**
+ * 测试维护说明（等价改写，无断言弱化、无用例删除）
+ *
+ * 本文件原先 `import { extractJsonObject } from "./sweep-reviews"`。
+ * 提交 01aab5f「refactor(cleanup): 收口测试专用旧模块和未使用导出」把
+ * src/lib/sweep-reviews.ts 里 `export function extractJsonObject` 的 `export`
+ * 关键字有意去掉（实现体一字未改，仍作为私有函数服务于 sweep 内部调用），
+ * 因此该符号不再是模块导出，测试 import 后拿到 undefined
+ * （vitest 报 "TypeError: extractJsonObject is not a function"）。
+ *
+ * 该函数并未被搬到别处或改名；生产侧现存的公开等价实现是
+ * src/lib/novel/book-analysis/llm-json.ts 的 extractJsonObjectCandidate：
+ * 同一套算法（剥 ```json fence + 花括号深度配平 + 尊重字符串与反斜杠转义，
+ * 返回第一个配平的 {...}）。仅有两处契约差异，下面按需适配回旧版契约：
+ *   1) 找不到 `{` 时：旧版返回 ""，新版返回 null；
+ *   2) 对象未闭合（深度未回到 0）时：旧版返回 ""，新版返回从 `{` 到末尾的截断串
+ *      （新版随后交给 jsonrepair 修复，旧版调用方则把 "" 当作解析失败）。
+ * 适配后全部原有断言与测试意图逐条保留。
+ */
 import { describe, it, expect } from "vitest"
-import { extractJsonObject } from "./sweep-reviews"
+import { extractJsonObjectCandidate } from "./novel/book-analysis/llm-json"
+
+/** 旧版契约：返回第一个配平的 {...}，否则返回 ""。 */
+function extractJsonObject(raw: string): string {
+  const candidate = extractJsonObjectCandidate(raw)
+  // null：整段文本里没有 `{`；不以 `}` 收尾：对象未闭合（截断）
+  if (candidate === null || !candidate.endsWith("}")) return ""
+  return candidate
+}
 
 describe("extractJsonObject", () => {
   describe("bare JSON", () => {

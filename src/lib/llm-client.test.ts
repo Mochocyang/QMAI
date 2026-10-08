@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { isFetchNetworkError, streamChat } from "./llm-client"
-import { resetHttpFetchForTests } from "./tauri-fetch"
+import { streamChat } from "./llm-client"
+// `isFetchNetworkError` still lives in ./tauri-fetch (implemented there since
+// the helper was introduced); commit 01aab5f only dropped llm-client's
+// pass-through re-export of it, so the equivalent import is the origin module.
+import { isFetchNetworkError, resetHttpFetchForTests } from "./tauri-fetch"
 
 afterEach(() => {
   resetHttpFetchForTests()

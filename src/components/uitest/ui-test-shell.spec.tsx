@@ -180,7 +180,9 @@ describe("独立UI测试版外壳", () => {
     expect(labels).toEqual(["关闭窗口", "最小化", "最大化或还原"])
     const actions = host.querySelector(".ui-test-win-actions")
     const brand = host.querySelector(".ui-test-brand")
-    expect(actions?.compareDocumentPosition(brand!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(actions).not.toBeNull()
+    expect(brand).not.toBeNull()
+    expect(actions!.compareDocumentPosition(brand!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(host.querySelectorAll(".ui-test-win-actions")).toHaveLength(1)
   })
   it("没有固定活动栏；目录与窗口操作有中文可访问名称", async () => {

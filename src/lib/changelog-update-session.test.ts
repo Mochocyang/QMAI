@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import type { DownloadEvent } from "@tauri-apps/plugin-updater"
 import {
   __setChangelogUpdateCheckerForTest,
@@ -21,21 +21,31 @@ vi.mock("@/lib/app-update-support", () => ({
   APP_AUTO_UPDATE_RELEASES_URL: "https://github.com/Mochocyang/QMAI/releases",
 }))
 
-function createPackage(version: string, body = "修复自动更新"): ChangelogUpdatePackage {
+/**
+ * 测试里需要拿到 mock 断言/改行为的 API，所以把 ChangelogUpdatePackage 的
+ * 三个方法字段显式标注为对应签名的 Mock（仍然满足生产类型契约）。
+ */
+type ChangelogUpdatePackageMock = ChangelogUpdatePackage & {
+  download: Mock<ChangelogUpdatePackage["download"]>
+  install: Mock<ChangelogUpdatePackage["install"]>
+  close: Mock<ChangelogUpdatePackage["close"]>
+}
+
+function createPackage(version: string, body = "修复自动更新"): ChangelogUpdatePackageMock {
   return {
     version,
     body,
-    download: vi.fn(async (onEvent?: (event: DownloadEvent) => void) => {
+    download: vi.fn<(onEvent?: (event: DownloadEvent) => void) => Promise<void>>(async (onEvent) => {
       onEvent?.({ event: "Started", data: { contentLength: 10 } })
       onEvent?.({ event: "Progress", data: { chunkLength: 10 } })
       onEvent?.({ event: "Finished" })
     }),
-    install: vi.fn(async () => undefined),
-    close: vi.fn(async () => undefined),
+    install: vi.fn<() => Promise<void>>(async () => undefined),
+    close: vi.fn<() => Promise<void>>(async () => undefined),
   }
 }
 
-async function downloadVersion(version: string, body?: string) {
+async function downloadVersion(version: string, body?: string): Promise<ChangelogUpdatePackageMock> {
   const pkg = createPackage(version, body)
   __setChangelogUpdateCheckerForTest(async () => pkg)
   await checkForChangelogUpdate()

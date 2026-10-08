@@ -30,7 +30,11 @@ describe("QMAI model settings", () => {
       resolve(__dirname, "sections/llm-provider-section.tsx"),
       "utf8",
     )
-    expect(source).toContain("https://global.modelmesh.info/model")
+    // 该期望于 26f80ee 随「v4.0.0 全新界面（LLM 设置页改为模型配置库）」变更：旧版 200K 提示条与其中的
+    // 「参考文档」外链随旧界面一并移除，新页面不再外链模型参数文档；失效的 URL 常量随后由 2f762e6 删除。
+    // 200K 要求本身仍在本页呈现：MIN_USER_LLM_CONTEXT_SIZE 仍是 204800，且 ContextSizeSelector 会渲染
+    // settings.sections.llm.contextWindowHint（“最低 200K”）。
+    expect(source).not.toContain("https://global.modelmesh.info/model")
     expect(source).toContain("MIN_USER_LLM_CONTEXT_SIZE")
     expect(source).toContain("maxContextSize: preset.suggestedContextSize ?? MIN_USER_LLM_CONTEXT_SIZE")
     expect(source).toContain("<ContextSizeSelector")

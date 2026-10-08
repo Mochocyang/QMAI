@@ -68,11 +68,11 @@ it("连接与功能测试均使用草稿且不会隐式保存", async () => {
   expect(host.textContent).toContain("尚未保存")
 })
 it("修改接口后，旧拉取请求不能回填到新配置", async () => {
-  const pending = deferred<{ models: string[]; source: string }>()
+  const pending = deferred<Awaited<ReturnType<typeof fetchLlmModelList>>>()
   vi.mocked(fetchLlmModelList).mockReturnValueOnce(pending.promise)
   await click(host, "拉取模型")
   await changeInput(host, "接口地址", "https://another.invalid/v1")
-  await act(async () => pending.resolve({ models: ["obsolete-model"], source: "mock" }))
+  await act(async () => pending.resolve({ models: ["obsolete-model"] }))
   expect(host.textContent).not.toContain("obsolete-model")
   expect(button(host, "拉取模型").disabled).toBe(false)
 })
@@ -123,7 +123,7 @@ it("添加配置自动展开，不会把未填写的新卡写进运行配置", a
 })
 
 it("拉取只进入下方目录，测试已选模型，失败项在标签和目录中标红", async () => {
-  vi.mocked(fetchLlmModelList).mockResolvedValue({ models: ["beta", "gamma"], source: "mock" })
+  vi.mocked(fetchLlmModelList).mockResolvedValue({ models: ["beta", "gamma"] })
   await click(host, "拉取模型")
   expect(host.querySelectorAll(".model-tag-input > span")).toHaveLength(1)
   expect(host.querySelector(".model-catalog")?.textContent).toContain("beta")
@@ -132,7 +132,7 @@ it("拉取只进入下方目录，测试已选模型，失败项在标签和目�
   await click(host, "gamma")
   vi.mocked(testLlmConnection).mockImplementation(async config => ({ ok: config.model !== "beta", message: config.model === "beta" ? "连接失败" : "OK" }))
   await click(host, "测试连接")
-  expect(testLlmConnection.mock.calls.map(([config]) => config.model)).toEqual(["alpha", "beta", "gamma"])
+  expect(vi.mocked(testLlmConnection).mock.calls.map(([config]) => config.model)).toEqual(["alpha", "beta", "gamma"])
   expect(host.querySelector(".model-tag-input > span.is-failed")?.textContent).toContain("beta")
   const catalog = (name: string) => [...host.querySelectorAll(".model-catalog-list button")].find(item => item.textContent === name)
   expect(catalog("beta")?.classList.contains("is-failed")).toBe(true)
@@ -149,7 +149,7 @@ it("移除一个失败模型时，其余失败模型保持红色", async () => {
   const models = ["alpha", "beta"].map((model, index) => ({ id: model, model, name: model, description: "", createdAt: index }))
   useWikiStore.setState({ providerConfigs: { "custom-unit": { ...original, savedModels: models } } })
   await unmount(); ({ host, unmount } = await mountModel(<UiTestProviderCard id="custom-unit" expanded isNew={false} onToggle={() => {}} onRemoved={() => {}} />))
-  vi.mocked(fetchLlmModelList).mockResolvedValue({ models: ["alpha", "beta"], source: "mock" })
+  vi.mocked(fetchLlmModelList).mockResolvedValue({ models: ["alpha", "beta"] })
   await click(host, "拉取模型")
   vi.mocked(testLlmConnection).mockResolvedValue({ ok: false, message: "连接失败" })
   await click(host, "测试连接")
@@ -180,9 +180,13 @@ it("测试连接直接发送请求，不再等待费用确认", async () => {
 })
 it("取消异步删除确认不能写配置或关闭卡片", async () => {
   const answer=deferred<boolean>()
-  vi.mocked(window.confirm).mockReturnValueOnce(answer.promise as unknown as boolean)
+  // 桌面注入的 window.confirm 返回 Promise<boolean>（见 model-confirm 的 confirmModelAction），
+  // 这里用 vi.stubGlobal 以真实签名替换全局 confirm，模拟用户尚未做出选择的状态。
+  const asyncConfirm = vi.fn<(message?: string) => Promise<boolean>>(() => answer.promise)
+  vi.stubGlobal("confirm", asyncConfirm)
   await click(host,"删除配置")
   expect(saveProviderConfigs).not.toHaveBeenCalled()
   await act(async () => answer.resolve(false))
   expect(useWikiStore.getState().providerConfigs["custom-unit"]).toBe(original)
+  vi.unstubAllGlobals()
 })

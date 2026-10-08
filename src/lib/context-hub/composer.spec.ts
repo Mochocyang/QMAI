@@ -190,6 +190,9 @@ describe("composeContext", () => {
 
     expect(large.stats.budgetTokens).toBe(computeNovelContextTokenBudget(204_800, 0))
     expect(small.stats.budgetTokens).toBe(computeNovelContextTokenBudget(32_000, 0))
+    if (typeof large.stats.budgetTokens !== "number" || typeof small.stats.budgetTokens !== "number") {
+      throw new Error("composeContext 必须在 stats 中返回数值型 budgetTokens，否则上面的等值断言无法成立")
+    }
     expect(large.stats.budgetTokens).toBeGreaterThan(small.stats.budgetTokens)
     expect(large.stats.budgetTokens).not.toBe(16_000)
   })

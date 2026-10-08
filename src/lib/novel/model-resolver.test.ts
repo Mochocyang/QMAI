@@ -51,49 +51,55 @@ const cliProviderConfigs: ProviderConfigs = {
   },
 }
 
-const storeState = vi.hoisted(() => ({
-  llmConfig: {
-    provider: "claude-code" as const,
-    apiKey: "",
-    model: "claude-sonnet",
-    ollamaUrl: "http://localhost:11434",
-    customEndpoint: "",
-    maxContextSize: 204800,
-    reasoning: { mode: "auto" as const },
-    localCliIsolation: false,
-  } as LlmConfig,
-  defaultLlmModel: "",
-  aiChatModel: "",
-  providerConfigs: {
-    openai: {
-      enabled: true,
-      apiKey: "sk-test",
-      savedModels: [{ id: "1", name: "GPT-4o", model: "gpt-4o", createdAt: 1 }],
-    },
-  } as ProviderConfigs,
-  novelConfig: {
+const storeState = vi.hoisted(() => {
+  const novelConfig: NovelConfig = {
     contextTokenBudget: 0,
     recentSummaryWindow: 8,
     searchTopK: 5,
     chapterTargetChars: 3000,
     autoIngestOnSave: true,
     autoExtractOnImport: true,
-    reviewBeforeSave: false,
     deepPreviousChaptersAnalysis: false,
-    deepChapterReview: true,
-    reviewReasoningEffort: "high" as const,
+    writingWebSearchEnabled: true,
+    reviewReasoningEffort: "high",
     defaultLlmModel: "",
     writingModel: "",
     reviewModel: "",
     summaryModel: "",
     extractModel: "",
     deAiModel: "",
+    deAiBatchConcurrency: 3,
     communitySummaryEnabled: true,
     communitySummaryInterval: 5,
     communitySummaryAsync: true,
     autoGenerateChapterTitle: true,
-  } as NovelConfig,
-}))
+    draftMemoryHintEnabled: true,
+    draftMemoryHintSeen: false,
+  }
+
+  return {
+    llmConfig: {
+      provider: "claude-code" as const,
+      apiKey: "",
+      model: "claude-sonnet",
+      ollamaUrl: "http://localhost:11434",
+      customEndpoint: "",
+      maxContextSize: 204800,
+      reasoning: { mode: "auto" as const },
+      localCliIsolation: false,
+    } as LlmConfig,
+    defaultLlmModel: "",
+    aiChatModel: "",
+    providerConfigs: {
+      openai: {
+        enabled: true,
+        apiKey: "sk-test",
+        savedModels: [{ id: "1", name: "GPT-4o", model: "gpt-4o", createdAt: 1 }],
+      },
+    } as ProviderConfigs,
+    novelConfig,
+  }
+})
 
 vi.mock("@/stores/wiki-store", () => ({
   useWikiStore: {

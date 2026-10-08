@@ -8,7 +8,7 @@
 // 触发事件的对象，测的是我们自己那段判定逻辑。
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 
 const platformMock = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock("@/lib/platform", () => platformMock)
@@ -34,6 +34,8 @@ vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: webviewMock.getCurrentWebview,
 }))
 
+import { type ListKind } from "@/lib/novel/drop-import"
+
 import { useListFileDrop } from "./use-list-file-drop"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -42,11 +44,11 @@ const LIST_RECT = { left: 100, top: 200, right: 400, bottom: 600 }
 
 let container: HTMLDivElement
 let root: Root
-let onDropPaths: ReturnType<typeof vi.fn>
-let onUnsupportedDrop: ReturnType<typeof vi.fn>
+let onDropPaths: Mock<(paths: string[]) => void>
+let onUnsupportedDrop: Mock<(message: string) => void>
 let dragging: boolean
 
-function Harness({ kind = "chapter" as const, enabled = true }) {
+function Harness({ kind = "chapter", enabled = true }: { kind?: ListKind; enabled?: boolean }) {
   const { containerRef, isDraggingOver } = useListFileDrop({
     enabled,
     kind,
@@ -73,22 +75,22 @@ beforeEach(async () => {
   webviewMock.state.handler = null
   webviewMock.state.listenError = null
   webviewMock.state.unlisten.mockReset()
-  onDropPaths = vi.fn()
-  onUnsupportedDrop = vi.fn()
+  onDropPaths = vi.fn<(paths: string[]) => void>()
+  onUnsupportedDrop = vi.fn<(message: string) => void>()
   dragging = false
 
   container = document.createElement("div")
   document.body.appendChild(container)
   root = createRoot(container)
   // jsdom 不做布局，getBoundingClientRect 全是 0；直接把列表矩形钉死。
-  Element.prototype.getBoundingClientRect = vi.fn(() => ({
+  Element.prototype.getBoundingClientRect = vi.fn<() => DOMRect>(() => ({
     ...LIST_RECT,
     x: LIST_RECT.left,
     y: LIST_RECT.top,
     width: LIST_RECT.right - LIST_RECT.left,
     height: LIST_RECT.bottom - LIST_RECT.top,
     toJSON: () => ({}),
-  })) as unknown as Element["getBoundingClientRect"]
+  }))
 
   Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1 })
 })
@@ -99,7 +101,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(props: { kind?: "chapter" | "outline"; enabled?: boolean } = {}) {
+async function mount(props: { kind?: ListKind; enabled?: boolean } = {}) {
   await act(async () => { root.render(<Harness {...props} />) })
   await flush()
 }

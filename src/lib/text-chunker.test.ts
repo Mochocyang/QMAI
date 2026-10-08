@@ -9,7 +9,6 @@
 import { describe, it, expect } from "vitest"
 import {
   chunkMarkdown,
-  stripFrontmatter,
   type Chunk,
 } from "./text-chunker"
 
@@ -22,11 +21,33 @@ const rep = (ch: string, n: number): string => ch.repeat(n)
 const lines = (...ls: string[]): string => ls.join("\n")
 
 // ── stripFrontmatter ────────────────────────────────────────────────
+//
+// `stripFrontmatter` used to be `export`ed from ./text-chunker. Commit
+// 01aab5f ("收口测试专用旧模块和未使用导出") dropped the `export` keyword
+// because no production file imported it. The function itself was NOT
+// deleted: it lives at src/lib/text-chunker.ts:131 with byte-identical
+// semantics and is the very first thing `chunkMarkdown` calls
+// (text-chunker.ts:107). Only test files may change here, so the same
+// contract is exercised through the public API instead:
+//
+//   stripFrontmatter(content).body       ≡ chunkMarkdown(content)[0].text
+//   stripFrontmatter(content).bodyOffset ≡ chunkMarkdown(content)[0].charStart
+//
+// Both identities hold exactly, because `chunkMarkdown` forwards `body`
+// into `splitIntoSections(body, bodyOffset)`, which seeds the first
+// section's `start` with `bodyOffset` and emits the section text verbatim
+// (text-chunker.ts:110, :163-174, :245-255). Every original assertion is
+// preserved at full strength; `toHaveLength(1)` is added so the mapping
+// cannot silently degrade if the input ever spans several sections.
+// If the export is ever restored, these can call stripFrontmatter directly.
 
-describe("stripFrontmatter", () => {
+describe("stripFrontmatter (via the public chunkMarkdown path)", () => {
   it("removes a standard YAML frontmatter block", () => {
     const input = "---\ntitle: RoPE\ntype: concept\n---\nBody content"
-    const { body, bodyOffset } = stripFrontmatter(input)
+    const result = chunkMarkdown(input)
+    expect(result).toHaveLength(1)
+    const body = result[0].text
+    const bodyOffset = result[0].charStart
     expect(body).toBe("Body content")
     // Exact offset — the fence is 4 chars (`---\n`), the body 29 chars,
     // the close fence 4 chars → body starts at index 33.
@@ -36,20 +57,32 @@ describe("stripFrontmatter", () => {
 
   it("is a no-op when there is no frontmatter", () => {
     const input = "# Just Body\n\nHello"
-    expect(stripFrontmatter(input).body).toBe(input)
-    expect(stripFrontmatter(input).bodyOffset).toBe(0)
+    const result = chunkMarkdown(input)
+    expect(result).toHaveLength(1)
+    expect(result[0].text).toBe(input)
+    expect(result[0].charStart).toBe(0)
   })
 
   it("leaves content alone when closing fence is missing", () => {
     // Malformed — treat the whole thing as body rather than eating it all.
     const input = "---\ntitle: Broken\nbody continues forever"
-    expect(stripFrontmatter(input).body).toBe(input)
+    const result = chunkMarkdown(input)
+    expect(result).toHaveLength(1)
+    expect(result[0].text).toBe(input)
+    // Same no-op guarantee for the reported offset.
+    expect(result[0].charStart).toBe(0)
   })
 
   it("tolerates CRLF line endings in the fence", () => {
     const input = "---\r\ntitle: X\r\n---\r\nbody"
-    const out = stripFrontmatter(input)
-    expect(out.body.trim()).toBe("body")
+    const result = chunkMarkdown(input)
+    expect(result).toHaveLength(1)
+    expect(result[0].text.trim()).toBe("body")
+    // The fence must actually be consumed (not merely trimmed away), and
+    // the reported offset must point at the body inside the original CRLF
+    // document.
+    expect(result[0].charStart).toBe(input.indexOf("body"))
+    expect(input.slice(result[0].charStart)).toBe("body")
   })
 })
 

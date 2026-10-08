@@ -15,6 +15,19 @@ function compactTokens(tokens: number): string {
   return `${Math.round(tokens)} tokens`
 }
 
+/**
+ * 命中数大于总数说明计数损坏，此时宁可显示「未提供」，
+ * 也不用错误分母算出超过 100% 的比例（见 20260907-011559 更新日志）。
+ */
+function cacheHitRate(hits: number | undefined, total: number | undefined): number | undefined {
+  if (
+    typeof hits !== "number" || !Number.isSafeInteger(hits) || hits < 0
+    || typeof total !== "number" || !Number.isSafeInteger(total) || total <= 0
+    || hits > total
+  ) return undefined
+  return Math.round((hits / total) * 1000) / 10
+}
+
 function formatDuration(milliseconds: number): string {
   const seconds = Math.max(0, Math.round(milliseconds / 1000))
   return `${Math.floor(seconds / 60)}分${seconds % 60}秒`
@@ -53,12 +66,8 @@ export function UiTestGenerationStats({ stats, timing, className }: { stats?: Co
   const output = diagnostics?.outputTokens ?? totals?.outputTokens
   const uncached = input !== undefined && cached !== undefined ? Math.max(0, input - cached) : undefined
   const total = [input, output].every((value) => value !== undefined) ? input! + (cached ?? 0) + output! : undefined
-  const localCacheRate = stats && stats.cacheableLoaded
-    ? Math.round(((stats.cacheableHits ?? 0) / stats.cacheableLoaded) * 1000) / 10
-    : undefined
-  const cacheRate = input && cached !== undefined
-    ? Math.round((cached / input) * 1000) / 10
-    : localCacheRate
+  const localCacheRate = cacheHitRate(stats?.cacheableHits, stats?.cacheableLoaded)
+  const cacheRate = cacheHitRate(cached, input) ?? localCacheRate
   const duration = timing?.finishedAt ? formatDuration(timing.finishedAt - timing.startedAt) : "—"
   const finished = timing?.finishedAt ? formatFinishTime(timing.finishedAt) : "—"
   const value = (tokens: number | undefined) => tokens === undefined ? "未提供" : `${tokens.toLocaleString()} tokens`

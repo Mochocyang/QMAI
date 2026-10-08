@@ -12,13 +12,13 @@ import { normalizeUserLlmMaxOutputTokens } from "./llm-context-size"
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
-  isFetchNetworkError: vi.fn(() => false),
+  isFetchNetworkError: vi.fn<(err: unknown) => boolean>(() => false),
   streamClaudeCodeCli: vi.fn(),
 }))
 
 vi.mock("./tauri-fetch", () => ({
   getHttpFetch: vi.fn(async () => mocks.fetch),
-  isFetchNetworkError: (...args: unknown[]) => mocks.isFetchNetworkError(...args),
+  isFetchNetworkError: (err: unknown) => mocks.isFetchNetworkError(err),
 }))
 
 vi.mock("./local-cli-config", () => ({
@@ -621,7 +621,13 @@ describe("实际外发请求的离线稳定前缀验收（非供应商命中率�
     const { buildSimpleExtractionPromptParts } = await import("./novel/book-analysis/simple-extraction-prompts")
     const { buildSimpleExtractionMessages } = await import("./novel/book-analysis/simple-extraction-messages")
     const { buildStoryMapCacheContent } = await import("./novel/book-analysis/story-map-prompts")
-    const { buildStyleExtractionPrompt } = await import("./novel/book-analysis/style-prompts")
+    // 旧 ./novel/book-analysis/style-prompts 的 buildStyleExtractionPrompt(sampleText, bookTitle)
+    // 已在 15c00e3「用 Writing DNA 替换拆书文风模块」随模块整体删除，替代物是分层蒸馏的
+    // writing-dna-prompts：L1/L6 语言与节奏 prompt 承接了原文风提取 prompt 的核心维度
+    // （narrativeDensity / sentenceStyle / rhetoricDensity / dialogueStyle /
+    //  vocabularyPreferences / avoidPatterns），且两种深度都会发送，故用它保持同一验收意图。
+    const { buildLanguageAndRhythmPrompt } = await import("./novel/book-analysis/writing-dna-prompts")
+    const { computeStyleMetrics } = await import("./novel/book-analysis/style-metrics")
     const material = "长篇小说的稳定作品资料与章节原文。".repeat(1000)
     const build = (target: string): ChatMessage[] => {
       if (surface === "chat" || surface === "outline") return buildAgentRequestMessages([
@@ -637,7 +643,7 @@ describe("实际外发请求的离线稳定前缀验收（非供应商命中率�
         chapters: [{ id: "ch-1", title: "第一章", order: 1, content: material }],
         temporaryCharacters: [{ name: target, aliases: [], category: "主角" }],
       }) }]
-      return [{ role: "user", content: [{ type: "text", text: buildStyleExtractionPrompt(material, "测试作品"), cacheControl: true }] }]
+      return [{ role: "user", content: [{ type: "text", text: buildLanguageAndRhythmPrompt(computeStyleMetrics([material]), material, "测试作品"), cacheControl: true }] }]
     }
     mocks.fetch.mockReset()
     mocks.fetch.mockImplementation(async () => new Response('data: {"choices":[{"delta":{"content":"完成"}}]}\ndata: [DONE]\n', { status: 200 }))

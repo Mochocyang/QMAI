@@ -72,7 +72,19 @@ function createHarness() {
     readArtifact: vi.fn(async (key: string) => artifacts.get(key) ?? null),
     writeArtifact: vi.fn(async (key: string, value: CachedArtifact) => { artifacts.set(key, value) }),
   }
-  return { adapter: new DataSourceCacheAdapter({ registry, storage }), revisions, registry, storage }
+  // 生产的 DataSourceCacheStorage 声明的是泛型方法（readArtifact<T>/writeArtifact<T>），
+  // 而 vi.fn 返回的 Mock<T> 会把签名擦除成 Parameters/ReturnType，结构上无法满足泛型契约。
+  // 所以这里给适配器一个与契约同形的泛型视图，调用依旧记录在上面的 spy 上。
+  // 所有类型共用同一个异构 Map，读取时无法静态还原值类型，因此只有这一处收窄，
+  // 与生产 storage.ts 读取 artifact 时的收窄一致。
+  const cacheStorage = {
+    readArtifact: async <T>(key: string): Promise<CachedArtifact<T> | null> =>
+      (await storage.readArtifact(key)) as CachedArtifact<T> | null,
+    writeArtifact: async <T>(key: string, value: CachedArtifact<T>): Promise<void> => {
+      await storage.writeArtifact(key, value)
+    },
+  }
+  return { adapter: new DataSourceCacheAdapter({ registry, storage: cacheStorage }), revisions, registry, storage, cacheStorage }
 }
 
 describe("DataSourceCacheAdapter", () => {
@@ -269,7 +281,7 @@ describe("DataSourceCacheAdapter", () => {
     const cold = await coldRegistry.loadAll(context)
     expect(harness.adapter.getStats()).toMatchObject({ cacheableLoaded: 8, cacheableHits: 0 })
 
-    const warmAdapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const warmAdapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.cacheStorage })
     const warmRegistry = new DataSourceRegistry({ loadAdapter: warmAdapter })
     warmRegistry.registerAll(sources)
     const warm = await warmRegistry.loadAll(context)
@@ -288,7 +300,7 @@ describe("DataSourceCacheAdapter", () => {
     const harness = createHarness()
     const cachedSource: DataSource<string> = { name: "canonRules", priority: 1, load: async () => "规则" }
     await harness.adapter.load(cachedSource, context, () => cachedSource.load(context))
-    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.cacheStorage })
     const sources = new DataSourceRegistry({ loadAdapter: adapter })
     sources.registerAll([
       cachedSource,
@@ -330,7 +342,7 @@ describe("DataSourceCacheAdapter", () => {
     await harness.adapter.load(source, context, () => source.load(context))
     const artifact = harness.storage.writeArtifact.mock.calls[0]![1]
     harness.storage.readArtifact.mockResolvedValue({ ...artifact, value })
-    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.storage })
+    const adapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.cacheStorage })
     const directLoad = vi.fn(async () => "不应重载")
 
     await expect(adapter.load(source, context, directLoad)).resolves.toEqual(value)
@@ -380,7 +392,7 @@ describe("DataSourceCacheAdapter", () => {
     const hit = await harness.adapter.load(source, context, directLoad)
     const forcedAdapter = new DataSourceCacheAdapter({
       registry: harness.registry,
-      storage: harness.storage,
+      storage: harness.cacheStorage,
       forceRefresh: true,
     })
     const forced = await forcedAdapter.load(source, context, directLoad)

@@ -6,7 +6,8 @@ import { UserMemorySection } from "./user-memory-section"
 import { loadGlobalUserMemoryConfig } from "@/lib/user-memory/store"
 import { addManualUserMemoryRule, saveGlobalUserMemoryConfig } from "@/lib/user-memory/store"
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+// React 19 需要 IS_REACT_ACT_ENVIRONMENT 才能让 act(...) 正常工作且无警告
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 describe("UserMemorySection", () => {
   let host: HTMLDivElement

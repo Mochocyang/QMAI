@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
-import { DataSourceRegistry, type DataSource, type ContextLoadContext } from "./context-data-source"
+import {
+  DataSourceRegistry,
+  type DataSource,
+  type ContextLoadContext,
+  type DataSourceLoadAdapter,
+} from "./context-data-source"
 
 const context: ContextLoadContext = {
   projectPath: "E:/Novel",
@@ -15,15 +20,36 @@ const context: ContextLoadContext = {
 describe("DataSourceRegistry", () => {
   it("uses an optional load adapter without changing the source contract", async () => {
     const load = vi.fn(async () => "原始值")
-    const adapter = {
-      load: vi.fn(async (_source, _context, directLoad) => `缓存:${await directLoad()}`),
+    const fallback = vi.fn(async () => "适配器取值")
+    // loadAdapter.load 的生产类型是泛型方法
+    //   <T>(source: DataSource<T>, context, directLoad) => Promise<T>
+    // 适配器对任意 T 都只能返回同一个 T，不能把来源的值改写成别的类型 —— 这正是用例名所说的
+    //「不改变来源契约」，生产里的 DataSourceCacheAdapter 也是这么实现的。
+    // 这里让适配器在调用过一次 directLoad（主路径）之后，按自己的策略返回来源声明的 fallback 值：
+    // 两条路径都是同一个 T，类型契约不变，但结果值只可能来自适配器自己的返回值。
+    // 另外：vi.fn 的 Mock 会把调用签名擦成 (...args) => Promise<unknown>（显式传泛型签名也一样），
+    // 擦除后的签名无法赋给上面的泛型方法，所以适配器只用真实对象实现该契约，
+    // 并用自带的记录数组代替 Mock 的调用记录。
+    const seen: Array<{ sourceName: string; context: ContextLoadContext }> = []
+    const adapter: DataSourceLoadAdapter = {
+      async load<T>(source: DataSource<T>, context: ContextLoadContext, directLoad: () => Promise<T>) {
+        seen.push({ sourceName: source.name, context })
+        const primaryValue = await directLoad()
+        return source.fallback ? source.fallback(context) : primaryValue
+      },
     }
     const registry = new DataSourceRegistry({ loadAdapter: adapter })
-    registry.register({ name: "outline", priority: 1, load })
+    registry.register({ name: "outline", priority: 1, load, fallback })
 
-    await expect(registry.loadAll(context)).resolves.toMatchObject({ outline: "缓存:原始值" })
-    expect(adapter.load).toHaveBeenCalledOnce()
+    const loaded = await registry.loadAll(context)
+
+    // 适配器被调用恰好一次，收到的是 outline 来源和本次 context；
+    // 主路径（registry 传进来的 directLoad → 来源 load）恰好执行一次；
+    // 结果值取自适配器自己的返回值，而不是 registry 手里的主路径结果。
+    expect(seen).toEqual([{ sourceName: "outline", context }])
+    expect(loaded).toMatchObject({ outline: "适配器取值" })
     expect(load).toHaveBeenCalledOnce()
+    expect(fallback).toHaveBeenCalledOnce()
   })
 
   it("replaces undefined snapshot payloads with default values", async () => {

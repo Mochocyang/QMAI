@@ -107,7 +107,7 @@ describe("表格渲染健壮性", () => {
     const html = renderProfileDocumentHtml(
       {
         name: "测试对象",
-        sections: [{ kind: "table", heading: "无表头表", rows: [["a"], ["a", "b"]] }],
+        sections: [{ kind: "table", heading: "无表头表", head: [], rows: [["a"], ["a", "b"]] }],
       },
       MIN_TEMPLATE,
       "测试 · 卡",

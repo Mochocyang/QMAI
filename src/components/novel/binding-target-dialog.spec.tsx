@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BindingTargetDialog, BookAnalysisWorkbench } from "./book-analysis-workbench"
 import type { BatchImportTask } from "@/lib/novel/book-analysis/batch-import-types"
+import type { CharacterSoulStatus } from "@/lib/novel/book-analysis/workbench-soul-actions"
 const mocks = vi.hoisted(() => {
   const init = vi.fn(async () => {})
   const old: any = {
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => {
     init, old, files, load: vi.fn(), revisions: vi.fn(async (): Promise<any[]> => []),
     loadStyles: vi.fn(async () => ({ enabledStyleId: null as string | null, styles: [] })),
     setStyle: vi.fn(async () => {}),
-    loadSoulStatus: vi.fn(async () => "none" as const),
+    loadSoulStatus: vi.fn(async (): Promise<CharacterSoulStatus> => "none"),
     addToSoul: vi.fn(async () => ({ auraId: "aura-1", auraName: "林烬" })),
     bindCharacters: vi.fn(async () => ({ succeeded: 1, alreadyBound: [] as string[], failed: [] as string[] })),
     listBindable: vi.fn(async () => ["沈微", "裴探"]),

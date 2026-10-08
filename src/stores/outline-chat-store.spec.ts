@@ -129,7 +129,7 @@ describe("outline-chat-store", () => {
   })
 
   it("保存运行状态但不保存临时流式内容", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     useOutlineChatStore.setState({ conversations: [conversation("a")] })
     useOutlineChatStore.getState().startConversationRun("a", "run-a")
     useOutlineChatStore.getState().setStreamingContent("a", "临时内容")
@@ -140,7 +140,7 @@ describe("outline-chat-store", () => {
   })
 
   it("保存成功后使用当前大纲历史引用清理快照", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     const stored = conversation("a")
     stored.messages = [{
       id: "assistant",
@@ -167,7 +167,7 @@ describe("outline-chat-store", () => {
   })
 
   it("仅运行状态变化也会自动保存", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     useOutlineChatStore.setState({ conversations: [conversation("a")] })
     useOutlineChatStore.getState().startConversationRun("a", "run-a")
     await vi.advanceTimersByTimeAsync(500)
@@ -176,7 +176,7 @@ describe("outline-chat-store", () => {
   })
 
   it("加载时过滤孤儿状态，并把遗留运行状态转为中断", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     fsMocks.readFile.mockResolvedValue(JSON.stringify({
       conversations: [conversation("kept")], activeConversationId: "kept",
       runStates: { kept: { status: "running", updatedAt: 10, runId: "run-kept" }, orphan: { status: "failed", updatedAt: 20, error: "孤儿状态" } },
@@ -189,7 +189,7 @@ describe("outline-chat-store", () => {
   })
 
   it("兼容没有运行状态字段的旧版大纲会话文件", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     useOutlineChatStore.setState({
       pendingReferenceTokens: [{ id: "old-ref", category: "outline", title: "旧引用", displayTitle: "旧引用" }],
     })
@@ -201,7 +201,7 @@ describe("outline-chat-store", () => {
   })
 
   it("加载失败时清除上一个项目的会话状态", async () => {
-    useWikiStore.setState({ project: { name: "项目", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "project", name: "项目", path: "C:/Book" } })
     useOutlineChatStore.setState({
       conversations: [conversation("old")], activeConversationId: "old",
       pendingReferenceTokens: [{ id: "ref", category: "outline", title: "旧引用", displayTitle: "旧引用" }],
@@ -239,7 +239,7 @@ describe("outline-chat-store", () => {
     expect(state.loaded).toBe(true)
   })
   it("persists structured model content and reloads legacy messages", async () => {
-    useWikiStore.setState({ project: { name: "??", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "invalid", name: "??", path: "C:/Book" } })
     const request: OutlineWizardRequest = {
       task: "newBook", length: "auto", channel: "auto", genre: "auto", customGenre: "",
       inspiration: "persisted inspiration", sellingPoints: [], targets: ["outline"], scale: "",
@@ -285,7 +285,7 @@ describe("outline-chat-store", () => {
     { version: 1, summary: "??", details: ["??"] },
     { version: 1, summary: "??", details: "??", modelContent: "??" },
   ])("ignores invalid persisted novel request package %#", async (invalidPackage) => {
-    useWikiStore.setState({ project: { name: "??", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "invalid", name: "??", path: "C:/Book" } })
     const stored = conversation("invalid")
     stored.messages = [{ id: "u", role: "user", content: "????", novelGenerationRequest: invalidPackage as never }]
     fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "invalid" }))
@@ -296,7 +296,7 @@ describe("outline-chat-store", () => {
   })
 
   it("持久化计划模式的追问与确认状态", async () => {
-    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "novel-project", name: "Novel", path: "C:/Book" } })
     const stored = conversation("plan")
     stored.messages = [{
       id: "assistant",
@@ -340,7 +340,7 @@ describe("outline-chat-store", () => {
     { status: "needs_input", module: "章节细纲", elements: [], missing: [], questions: [{ question: 1 }] },
     { status: "ready", module: "章节细纲", elements: [], missing: [], questions: [], plan: { steps: [] } },
   ])("丢弃结构不完整的计划协议 %#", async (invalidProtocol) => {
-    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "novel-project", name: "Novel", path: "C:/Book" } })
     const stored = conversation("invalid-plan")
     stored.messages = [{
       id: "assistant",
@@ -356,7 +356,7 @@ describe("outline-chat-store", () => {
   })
 
   it("持久化共创模式的拍板与定稿状态", async () => {
-    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "novel-project", name: "Novel", path: "C:/Book" } })
     const stored = conversation("discuss")
     stored.messages = [{
       id: "assistant",
@@ -399,7 +399,7 @@ describe("outline-chat-store", () => {
     { status: "ready", module: "", judgment: "判断", nextStep: "", decisions: [], agreed: [] },
     { status: "needs_decision", module: "章节细纲", judgment: "", nextStep: "", decisions: [{ question: 1 }], agreed: [] },
   ])("丢弃结构不完整的共创协议 %#", async (invalidProtocol) => {
-    useWikiStore.setState({ project: { name: "Novel", path: "C:/Book" } })
+    useWikiStore.setState({ project: { id: "novel-project", name: "Novel", path: "C:/Book" } })
     const stored = conversation("invalid-discuss")
     stored.messages = [{
       id: "assistant",

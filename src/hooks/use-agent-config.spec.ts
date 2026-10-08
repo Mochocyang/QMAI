@@ -564,6 +564,7 @@ describe("useAgentConfig", () => {
           {
             id: "skill:three",
             name: "三翻四抖",
+            displayName: "三翻四抖",
             description: "三次转折，四次震惊。",
             kind: ["structure", "planning"],
             stages: ["planning", "drafting"],
@@ -577,6 +578,7 @@ describe("useAgentConfig", () => {
           {
             id: "skill:hidden",
             name: "禁用 Skill",
+            displayName: "禁用 Skill",
             description: "",
             kind: ["review"],
             stages: ["review"],

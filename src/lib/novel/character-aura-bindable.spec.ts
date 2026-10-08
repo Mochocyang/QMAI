@@ -485,7 +485,7 @@ describe("character-aura 可绑定人物名单（本地/缓存/精修拆分）",
     let started = 0
     let finished = 0
     let maxInFlight = 0
-    let releaseGate: (() => void) | null = null
+    let releaseGate: (() => void) | undefined
     const gate = new Promise<void>((resolve) => {
       releaseGate = resolve
     })

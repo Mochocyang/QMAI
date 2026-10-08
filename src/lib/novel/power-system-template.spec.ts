@@ -114,7 +114,12 @@ describe("power-system-template", () => {
 
   it("attachPowerSystemHtml 渲染体系卡；无数据时原样返回；真 HTML 保留", () => {
     const source = "# 力量体系\n## 等级阶梯\n| 等级 | 名称 |\n| --- | --- |\n| 一阶 | 引气 |"
-    const attached = attachPowerSystemHtml({ fileType: "setting", content: source }, source)
+    // 请求形状对齐生产类型 OutlineSaveRequest：htmlContent 是可选的伴生 HTML 字段
+    const request: { fileType: string; content: string; htmlContent?: string } = {
+      fileType: "setting",
+      content: source,
+    }
+    const attached = attachPowerSystemHtml(request, source)
     expect(attached.htmlContent).toContain("体系卡")
 
     const empty = { fileType: "setting", content: "" }

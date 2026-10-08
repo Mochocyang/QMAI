@@ -30,6 +30,16 @@ import {
   settingOutlineDataFromMarkdown,
 } from "./setting-outline-template"
 
+/**
+ * attachSettingOutlineHtml 的入参在生产侧是泛型约束（fileType / content / 可选的 htmlContent 等）。
+ * 把对象字面量内联进调用时，T 会被推成「不含 htmlContent」的窄类型，
+ * 于是读返回值上的 htmlContent 会报 TS2339。这里按生产签名显式标注请求类型，T 才带上 htmlContent。
+ * referencedSkills 取自生产 OutlineSaveRequest，函数只透传、不消费，所以此处可选。
+ */
+type SettingOutlineRequest = Parameters<typeof attachSettingOutlineHtml>[0] & {
+  referencedSkills?: string[]
+}
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -92,10 +102,13 @@ describe("setting-outline-template", () => {
   })
 
   it("attachSettingOutlineHtml 对 fileType=setting 的不同分项给出正确 eyebrow", () => {
-    const background = attachSettingOutlineHtml(
-      { fileType: "setting", fileName: "背景设定.md", targetFolder: "设定", content: "# 时代风貌\n- 民国初年" },
-      "# 时代风貌\n- 民国初年",
-    )
+    const request: SettingOutlineRequest = {
+      fileType: "setting",
+      fileName: "背景设定.md",
+      targetFolder: "设定",
+      content: "# 时代风貌\n- 民国初年",
+    }
+    const background = attachSettingOutlineHtml(request, "# 时代风貌\n- 民国初年")
     expect(background.htmlContent).toContain("背景设定 · 卡片流")
     expect(background.htmlContent).not.toContain("力量体系 · 卡片流")
   })
@@ -274,10 +287,13 @@ describe("setting-outline-template", () => {
 
   it("attachSettingOutlineHtml：单卡片 JSON 优先", () => {
     const source = "```json\n" + JSON.stringify({ settingOutlineData: { title: "金手指", cards: [{ title: "系统面板", sections: [{ heading: "规则", items: [{ label: "激活", text: "遇险时" }] }] }] } }) + "\n```"
-    const result = attachSettingOutlineHtml(
-      { fileType: "setting", content: "# 金手指\n一些正文", referencedSkills: [], sourceIntent: "" },
-      source,
-    )
+    const request: SettingOutlineRequest = {
+      fileType: "setting",
+      content: "# 金手指\n一些正文",
+      referencedSkills: [],
+      sourceIntent: "",
+    }
+    const result = attachSettingOutlineHtml(request, source)
     expect(result.htmlContent).toContain("系统面板")
   })
 
@@ -291,19 +307,25 @@ describe("setting-outline-template", () => {
         ],
       },
     }) + "\n```"
-    const result = attachSettingOutlineHtml(
-      { fileType: "organization", content: "# 青云门\n## 阵营目标\n- 正道之首", referencedSkills: [], sourceIntent: "" },
-      source,
-    )
+    const request: SettingOutlineRequest = {
+      fileType: "organization",
+      content: "# 青云门\n## 阵营目标\n- 正道之首",
+      referencedSkills: [],
+      sourceIntent: "",
+    }
+    const result = attachSettingOutlineHtml(request, source)
     expect(result.htmlContent).toContain("青云门")
     expect(result.htmlContent).not.toContain("魔教")
   })
 
   it("attachSettingOutlineHtml：无结构化数据时用 MD 兜底；非设定类型原样返回", () => {
-    const fallback = attachSettingOutlineHtml(
-      { fileType: "character", content: "# 林辰\n## 定位\n- 男主", referencedSkills: [], sourceIntent: "" },
-      "没有任何 JSON",
-    )
+    const fallbackRequest: SettingOutlineRequest = {
+      fileType: "character",
+      content: "# 林辰\n## 定位\n- 男主",
+      referencedSkills: [],
+      sourceIntent: "",
+    }
+    const fallback = attachSettingOutlineHtml(fallbackRequest, "没有任何 JSON")
     expect(fallback.htmlContent).toContain("林辰")
 
     const chapter = { fileType: "chapter-outline", content: "x" }

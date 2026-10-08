@@ -2,15 +2,42 @@ import { describe, it, expect, vi } from "vitest"
 import {
   extractEntitySummary,
   detectDuplicateGroups,
-  parseDetectorResponse,
   mergeDuplicateGroup,
-  rewriteCrossReferences,
   rewriteIndexMd,
+  type DuplicateGroup,
   type EntitySummary,
 } from "./dedup"
 import { parseFrontmatterArray } from "./sources-merge"
 
+// ──────────────────────────────────────────────────────────────────
+// Maintenance note — why two suites drive the public API.
+//
+// Commit 01aab5f ("refactor(cleanup): 收口测试专用旧模块和未使用导出")
+// removed the `export` keyword from parseDetectorResponse() and
+// rewriteCrossReferences() in ./dedup. Neither function was deleted:
+// both are still present, byte-for-byte semantically unchanged, as
+// private helpers of detectDuplicateGroups() and mergeDuplicateGroup().
+// Only the public export — which existed solely for unit tests — was
+// withdrawn. Production code must not be edited to re-export them, so
+// the two suites below exercise the exact same code paths through the
+// public entry points: detectDuplicateGroups() hands the raw LLM
+// response straight to parseDetectorResponse(), and mergeDuplicateGroup()
+// feeds every otherWikiPages entry through rewriteCrossReferences().
+// Every original case, assertion and intent is preserved.
+// ──────────────────────────────────────────────────────────────────
+
 const PAGE = (fm: string, body: string) => `---\n${fm}\n---\n\n${body}`
+
+const FIXED_TODAY = () => "2026-04-30"
+
+/** Minimal EntitySummary for one slug. */
+const mkSummary = (slug: string, title = slug, type = "entity"): EntitySummary => ({
+  slug,
+  path: `wiki/entities/${slug}.md`,
+  type,
+  title,
+  tags: [],
+})
 
 // ──────────────────────────────────────────────────────────────────
 // Stage 1: extractEntitySummary
@@ -61,60 +88,73 @@ describe("extractEntitySummary", () => {
 })
 
 // ──────────────────────────────────────────────────────────────────
-// Stage 2: parseDetectorResponse
+// Stage 2: parseDetectorResponse (private since 01aab5f — driven via
+// detectDuplicateGroups, which passes the raw response straight to it)
 // ──────────────────────────────────────────────────────────────────
 
+/**
+ * Run a raw LLM response through the public detector. Every slug the
+ * response may mention is declared as a valid summary so that slug
+ * validation can never mask what the parser itself does.
+ */
+async function parseVia(raw: string, slugs: string[]): Promise<DuplicateGroup[]> {
+  const llm = vi.fn().mockResolvedValue(raw)
+  return detectDuplicateGroups(slugs.map((s) => mkSummary(s)), llm)
+}
+
 describe("parseDetectorResponse", () => {
-  it("parses a clean JSON response", () => {
+  it("parses a clean JSON response", async () => {
     const raw = JSON.stringify({
       groups: [
         { slugs: ["a", "b"], reason: "same thing", confidence: "high" },
       ],
     })
-    expect(parseDetectorResponse(raw)).toEqual([
+    expect(await parseVia(raw, ["a", "b"])).toEqual([
       { slugs: ["a", "b"], reason: "same thing", confidence: "high" },
     ])
   })
 
-  it("strips ```json code fences if the LLM wrapped its output", () => {
+  it("strips ```json code fences if the LLM wrapped its output", async () => {
     const raw = '```json\n{"groups": [{"slugs": ["a","b"], "reason": "x", "confidence": "high"}]}\n```'
-    const out = parseDetectorResponse(raw)
+    const out = await parseVia(raw, ["a", "b"])
     expect(out).toHaveLength(1)
     expect(out[0].slugs).toEqual(["a", "b"])
   })
 
-  it("strips conversational preamble before the JSON", () => {
+  it("strips conversational preamble before the JSON", async () => {
     const raw =
       'Sure, here are the duplicates I found:\n\n{"groups": [{"slugs": ["foo","bar"], "reason": "synonyms", "confidence": "medium"}]}\n\nLet me know if you need anything else.'
-    const out = parseDetectorResponse(raw)
+    const out = await parseVia(raw, ["foo", "bar"])
     expect(out[0].slugs).toEqual(["foo", "bar"])
     expect(out[0].confidence).toBe("medium")
   })
 
-  it("rejects groups with fewer than 2 slugs", () => {
+  it("rejects groups with fewer than 2 slugs", async () => {
     const raw = '{"groups": [{"slugs": ["only-one"], "reason": "x", "confidence": "high"}]}'
-    expect(parseDetectorResponse(raw)).toEqual([])
+    // "only-one" is a declared summary, so this group is rejected purely
+    // because it carries a single slug.
+    expect(await parseVia(raw, ["only-one", "unrelated"])).toEqual([])
   })
 
-  it("defaults invalid confidence values to 'low'", () => {
+  it("defaults invalid confidence values to 'low'", async () => {
     const raw = '{"groups": [{"slugs": ["a","b"], "reason": "", "confidence": "extremely-high"}]}'
-    expect(parseDetectorResponse(raw)[0].confidence).toBe("low")
+    expect((await parseVia(raw, ["a", "b"]))[0].confidence).toBe("low")
   })
 
-  it("returns [] for malformed JSON", () => {
-    expect(parseDetectorResponse("not json at all")).toEqual([])
-    expect(parseDetectorResponse('{"groups": [unclosed')).toEqual([])
-    expect(parseDetectorResponse("")).toEqual([])
+  it("returns [] for malformed JSON", async () => {
+    expect(await parseVia("not json at all", ["a", "b"])).toEqual([])
+    expect(await parseVia('{"groups": [unclosed', ["a", "b"])).toEqual([])
+    expect(await parseVia("", ["a", "b"])).toEqual([])
   })
 
-  it("returns [] when the JSON object has no groups field", () => {
-    expect(parseDetectorResponse('{"other_field": []}')).toEqual([])
+  it("returns [] when the JSON object has no groups field", async () => {
+    expect(await parseVia('{"other_field": []}', ["a", "b"])).toEqual([])
   })
 
-  it("survives quoted braces inside reason strings", () => {
+  it("survives quoted braces inside reason strings", async () => {
     const raw =
       '{"groups": [{"slugs": ["a","b"], "reason": "Same thing { really }", "confidence": "high"}]}'
-    const out = parseDetectorResponse(raw)
+    const out = await parseVia(raw, ["a", "b"])
     expect(out[0].reason).toBe("Same thing { really }")
   })
 })
@@ -219,71 +259,109 @@ describe("detectDuplicateGroups", () => {
 })
 
 // ──────────────────────────────────────────────────────────────────
-// Stage 3: rewriteCrossReferences
+// Stage 3: rewriteCrossReferences (private since 01aab5f — driven via
+// mergeDuplicateGroup, which applies it to every otherWikiPages entry)
 // ──────────────────────────────────────────────────────────────────
 
+/**
+ * Apply `redirects` (old-slug → canonical-slug) to one cross-reference
+ * page through the public merge path and return the resulting content.
+ * mergeDuplicateGroup() reports only pages that actually changed, so a
+ * page that is left untouched falls back to the original content —
+ * exactly the contract the old pure function had.
+ */
+async function rewriteContent(
+  content: string,
+  redirects: Map<string, string>,
+  path = "wiki/concepts/ref.md",
+): Promise<string> {
+  // mergeDuplicateGroup derives its redirects from group members that
+  // are not the canonical slug, so rebuild that group from the map.
+  const canonicalSlug = Array.from(redirects.values())[0]
+  const slugs = [canonicalSlug, ...redirects.keys()].filter(
+    (s, i, all) => all.indexOf(s) === i,
+  )
+  const result = await mergeDuplicateGroup(
+    {
+      group: slugs.map((slug) => ({
+        slug,
+        path: `wiki/entities/${slug}.md`,
+        content: PAGE("type: entity", "x"),
+      })),
+      canonicalSlug,
+      otherWikiPages: [{ path, content }],
+    },
+    vi.fn().mockResolvedValue(PAGE("type: entity", "merged")),
+    { today: FIXED_TODAY },
+  )
+  return result.rewrites.find((r) => r.path === path)?.newContent ?? content
+}
+
 describe("rewriteCrossReferences", () => {
-  it("rewrites bare wikilinks", () => {
-    const out = rewriteCrossReferences(
+  it("rewrites bare wikilinks", async () => {
+    const out = await rewriteContent(
       "See [[old-slug]] for context.",
       new Map([["old-slug", "new-slug"]]),
     )
     expect(out).toBe("See [[new-slug]] for context.")
   })
 
-  it("rewrites wikilinks with aliases, preserving the alias", () => {
-    const out = rewriteCrossReferences(
+  it("rewrites wikilinks with aliases, preserving the alias", async () => {
+    const out = await rewriteContent(
       "See [[old-slug|the old display]] here.",
       new Map([["old-slug", "new-slug"]]),
     )
     expect(out).toBe("See [[new-slug|the old display]] here.")
   })
 
-  it("does not touch wikilinks pointing at unrelated slugs", () => {
+  it("does not touch wikilinks pointing at unrelated slugs", async () => {
     const input = "Both [[paos]] and [[unrelated]] are mentioned."
-    const out = rewriteCrossReferences(input, new Map([["paos", "phosphorus-accumulating-organisms"]]))
+    const out = await rewriteContent(
+      input,
+      new Map([["paos", "phosphorus-accumulating-organisms"]]),
+    )
     expect(out).toContain("[[phosphorus-accumulating-organisms]]")
     expect(out).toContain("[[unrelated]]")
   })
 
-  it("rewrites the related field (inline form)", () => {
+  it("rewrites the related field (inline form)", async () => {
     const input = PAGE(
       "type: entity\ntitle: Foo\nrelated: [old-slug, kept]",
       "body",
     )
-    const out = rewriteCrossReferences(input, new Map([["old-slug", "new-slug"]]))
+    const out = await rewriteContent(input, new Map([["old-slug", "new-slug"]]))
     expect(parseFrontmatterArray(out, "related")).toEqual(["new-slug", "kept"])
   })
 
-  it("rewrites the related field (block form)", () => {
+  it("rewrites the related field (block form)", async () => {
     const input = PAGE(
       "type: entity\ntitle: Foo\nrelated:\n  - old-slug\n  - kept",
       "body",
     )
-    const out = rewriteCrossReferences(input, new Map([["old-slug", "new-slug"]]))
+    const out = await rewriteContent(input, new Map([["old-slug", "new-slug"]]))
     expect(parseFrontmatterArray(out, "related")).toEqual(["new-slug", "kept"])
   })
 
-  it("dedupes related when canonical was already in the list", () => {
+  it("dedupes related when canonical was already in the list", async () => {
     // Page already linked to BOTH the canonical AND the duplicate.
     // After redirect, we'd have ["new-slug", "new-slug"] before dedup.
     const input = PAGE(
       "type: entity\nrelated: [old-slug, new-slug, kept]",
       "body",
     )
-    const out = rewriteCrossReferences(input, new Map([["old-slug", "new-slug"]]))
+    const out = await rewriteContent(input, new Map([["old-slug", "new-slug"]]))
     expect(parseFrontmatterArray(out, "related")).toEqual(["new-slug", "kept"])
   })
 
-  it("returns content unchanged when no redirects apply", () => {
+  it("returns content unchanged when no redirects apply", async () => {
     const input = PAGE("type: entity\nrelated: [a, b]", "[[c]] and [[d]] here.")
-    const out = rewriteCrossReferences(input, new Map([["nonexistent", "other"]]))
+    const out = await rewriteContent(input, new Map([["nonexistent", "other"]]))
     expect(out).toBe(input)
   })
 
-  it("rewrites multiple slugs in one pass", () => {
+  it("rewrites multiple slugs in one pass", async () => {
     const input = "[[old-a]] and [[old-b]] and [[keep-me]]."
-    const out = rewriteCrossReferences(
+    const out = await rewriteContent(
       input,
       new Map([
         ["old-a", "canonical"],
@@ -359,8 +437,6 @@ describe("rewriteIndexMd", () => {
 // ──────────────────────────────────────────────────────────────────
 
 describe("mergeDuplicateGroup", () => {
-  const FIXED_TODAY = () => "2026-04-30"
-
   it("throws when canonicalSlug isn't in the group", async () => {
     await expect(
       mergeDuplicateGroup(

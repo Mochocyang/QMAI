@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
-import { AgentRunner, ModelDoesNotSupportToolsError } from "./runner"
+import { AgentRunner } from "./runner"
 import { ToolRegistry } from "./registry"
 import type { AgentConfig, AgentMessage } from "./types"
 import type { Tool } from "./types"

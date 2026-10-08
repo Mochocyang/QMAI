@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import type { AiCapability } from "./types"
 import {
   buildAvailableCapabilities,
   buildBuiltInToolCapabilities,

@@ -8,6 +8,8 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { ListDirectoryOptions } from "@/commands/fs"
+import type { FileNode } from "@/types/wiki"
 
 const platformMock = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock("@/lib/platform", () => platformMock)
@@ -26,17 +28,23 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }))
 
-const writeFile = vi.fn(async () => {})
-const readFile = vi.fn(async () => "")
-const listDirectory = vi.fn(async () => [])
-const createDirectory = vi.fn(async () => {})
-const fileExists = vi.fn(async () => false)
+// 显式标注签名，与 @/commands/fs 的生产契约一致；
+// 否则 vi.fn(async () => ...) 会被推断成零参签名，mock.calls 变成空元组 []。
+const writeFile = vi.fn<(path: string, contents: string) => Promise<void>>(async () => {})
+const readFile = vi.fn<(path: string) => Promise<string>>(async () => "")
+const listDirectory = vi.fn<
+  (path: string, includeHiddenOrOptions?: boolean | ListDirectoryOptions) => Promise<FileNode[]>
+>(async () => [])
+const createDirectory = vi.fn<(path: string) => Promise<void>>(async () => {})
+const fileExists = vi.fn<(path: string) => Promise<boolean>>(async () => false)
 vi.mock("@/commands/fs", () => ({
-  writeFile: (...args: unknown[]) => writeFile(...(args as [string, string])),
-  readFile: (...args: unknown[]) => readFile(...(args as [string])),
-  listDirectory: (...args: unknown[]) => listDirectory(...(args as [string])),
-  createDirectory: (...args: unknown[]) => createDirectory(...(args as [string])),
-  fileExists: (...args: unknown[]) => fileExists(...(args as [string])),
+  writeFile: (...args: [string, string]) => writeFile(...args),
+  readFile: (...args: [string]) => readFile(...args),
+  listDirectory: (
+    ...args: [string, (boolean | ListDirectoryOptions)?]
+  ) => listDirectory(...args),
+  createDirectory: (...args: [string]) => createDirectory(...args),
+  fileExists: (...args: [string]) => fileExists(...args),
   deleteFile: vi.fn(),
   openFileLocation: vi.fn(),
   copyFile: vi.fn(),
@@ -97,14 +105,16 @@ const dropTarget = () =>
 
 /** 把列表容器的矩形钉死：jsdom 不做布局，getBoundingClientRect 全是 0。 */
 function stubListRect() {
-  Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    ...LIST_RECT,
-    x: LIST_RECT.left,
-    y: LIST_RECT.top,
-    width: LIST_RECT.right - LIST_RECT.left,
-    height: LIST_RECT.bottom - LIST_RECT.top,
-    toJSON: () => ({}),
-  })) as unknown as Element["getBoundingClientRect"]
+  Element.prototype.getBoundingClientRect = vi.fn(
+    (): DOMRect => ({
+      ...LIST_RECT,
+      x: LIST_RECT.left,
+      y: LIST_RECT.top,
+      width: LIST_RECT.right - LIST_RECT.left,
+      height: LIST_RECT.bottom - LIST_RECT.top,
+      toJSON: () => ({}),
+    }),
+  )
 }
 
 beforeEach(() => {

@@ -66,6 +66,7 @@ beforeEach(() => {
     characterStates: "林烬：潜入中",
     soulDoc: "",
     characterAuras: "",
+    storyFrameworkBinding: "",
     cognitionStates: "",
     foreshadowingStates: "黑玉令：未回收",
     timeline: "冬月初七深夜",

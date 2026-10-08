@@ -246,7 +246,9 @@ function legacyBook(over: Partial<BookAnalysisLibraryBook> = {}): BookAnalysisLi
     id: "book-1", path: bookPath,
     metadata: { title: "测试作品", totalChapters: 3, totalWords: 3000, sourceType: "file", createdAt: 1, updatedAt: 2 },
     recognizedCharacters: [], characters: [legacyCharacter({ personalityProfile: legacyProfile })], skills: [],
-    styleStatus: "disabled", boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [], ...over,
+    // 旧版迁移作品不带 styleProfile、也没有启用的文风来源，按 library-state 的推导只能是 "missing"
+    // （BookStyleStatus 只有 missing／available／enabled 三态，"disabled" 从来不是合法取值）。
+    styleStatus: "missing", boundAurasCount: 0, addedAuraCharacterIds: [], evidence: [], ...over,
   }
 }
 

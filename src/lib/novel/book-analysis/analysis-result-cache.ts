@@ -182,12 +182,17 @@ function isCompleteOutput(value: unknown, input: AnalysisResultCacheInput): valu
         isRecord(chapter) && chapter.id === id && Array.isArray(chapter.mainEvents) && chapter.mainEvents.length > 0
       )))
   }
+  // 文风区块结果有新旧两种形状：Writing DNA 分层产物（15c00e3 起）
+  // 与替换前的一次性 raw+profile；两者都要按各自字段证明完整，否则重复分析无法复用。
   const profile = result.profile
-  const sampledChapterIds = isRecord(profile) ? profile.sampledChapterIds : null
-  return typeof result.raw === "string" && Boolean(result.raw.trim())
-    && isRecord(profile) && profile.schemaVersion === 1 && Array.isArray(sampledChapterIds)
-    && input.chunk.chapterIds.every((id) => sampledChapterIds.includes(id))
+  const writingDna = isRecord(result.metrics) && isRecord(result.layers)
+    && Array.isArray(result.samples) && Array.isArray(result.chapterMeta)
+  const legacyStyle = typeof result.raw === "string" && Boolean(result.raw.trim())
+    && isRecord(profile) && profile.schemaVersion === 1
     && typeof profile.constitution === "string" && Array.isArray(profile.samples)
+  const sampledChapterIds = isRecord(profile) ? profile.sampledChapterIds : result.sampledChapterIds
+  return (writingDna || legacyStyle) && Array.isArray(sampledChapterIds)
+    && input.chunk.chapterIds.every((id) => sampledChapterIds.includes(id))
 }
 
 function rebindOutput(input: AnalysisResultCacheInput, output: AnalysisChunkOutput, now: number): AnalysisChunkOutput {

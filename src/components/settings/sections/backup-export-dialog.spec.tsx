@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ProjectBackupInfo } from "@/lib/backup/types"
 import { BackupExportDialog } from "./backup-export-dialog"
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const projects: ProjectBackupInfo[] = [
   { id: "p1", name: "长安夜雨", path: "C:/Novel" },

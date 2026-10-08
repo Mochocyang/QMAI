@@ -111,7 +111,12 @@ describe("golden-finger-template", () => {
 
   it("attachGoldenFingerHtml 渲染能力卡；无数据原样返回；真 HTML 保留", () => {
     const source = "# 金手指设定\n## 机制\n- 绑定方式：濒死激活"
-    const attached = attachGoldenFingerHtml({ fileType: "setting", content: source }, source)
+    // 请求形状对齐生产类型 OutlineSaveRequest：htmlContent 是可选的伴生 HTML 字段
+    const request: { fileType: string; content: string; htmlContent?: string } = {
+      fileType: "setting",
+      content: source,
+    }
+    const attached = attachGoldenFingerHtml(request, source)
     expect(attached.htmlContent).toContain("能力卡")
 
     const empty = { fileType: "setting", content: "" }

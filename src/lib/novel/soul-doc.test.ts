@@ -1,5 +1,10 @@
+// 注：`SOUL_DOC_FILENAME` 的具名导出已在 01aab5f（refactor(cleanup): 收口测试专用旧模块和未使用导出）
+// 中被移除——该提交判定「只有测试在用」的导出属于未使用导出，把 `export const SOUL_DOC_FILENAME`
+// 降级为 soul-doc.ts 内的私有常量。常量本身仍然存在（值仍为 "soul.md"，仍被 readSoulDoc /
+// writeSoulDoc 使用），但已没有可导入的等价替代物，故此处改为通过公开 API 的行为断言来验证同一事实，
+// 断言强度不降低（filename 精确相等，而非存在性判断）。
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { readSoulDoc, writeSoulDoc, SOUL_DOC_FILENAME } from "./soul-doc"
+import { readSoulDoc, writeSoulDoc } from "./soul-doc"
 import * as fs from "@/commands/fs"
 
 vi.mock("@/commands/fs", () => ({
@@ -15,8 +20,13 @@ beforeEach(() => {
 })
 
 describe("SOUL_DOC_FILENAME", () => {
-  it("should be soul.md", () => {
-    expect(SOUL_DOC_FILENAME).toBe("soul.md")
+  it("should be soul.md", async () => {
+    mockReadFile.mockResolvedValueOnce("")
+    await readSoulDoc("/project/path")
+    expect(mockReadFile).toHaveBeenCalledWith("/project/path/soul.md")
+
+    await writeSoulDoc("/project/path", "content")
+    expect(mockWriteFileAtomic).toHaveBeenCalledWith("/project/path/soul.md", "content")
   })
 })
 

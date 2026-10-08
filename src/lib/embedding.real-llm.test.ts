@@ -45,10 +45,12 @@ vi.mock("@/commands/fs", () => ({
 import {
   embedPage,
   fetchEmbedding,
-  looksLikeOversizeError,
   getLastEmbeddingError,
   searchByEmbedding,
 } from "./embedding"
+// looksLikeOversizeError 定义并导出在 embedding-batch.ts（embedding.ts 只是 import 它，
+// 并未 re-export），故这里必须从原始模块引入。
+import { looksLikeOversizeError } from "./embedding-batch"
 
 const ENABLED =
   process.env.RUN_LLM_TESTS === "1" &&

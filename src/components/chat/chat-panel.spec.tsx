@@ -373,7 +373,11 @@ describe("chat-panel agent reference integration", () => {
   it("uses the conversation split helpers for toolbar / history; top-conversation chip block is removed", () => {
     expect(source).toContain("splitConversationToolbarItems")
     expect(source).toContain("isStreamingConversation")
-    expect(source).toContain("topConversations")
+    // 该期望于 2f762e6 随「章纲（细纲）结构化生成与读取链路优化」变更：顶部会话 chip 的 JSX 块已在 26f80ee
+    // 随「调整对话输入框与界面资源」删除，遗留的 topConversations 解构已无任何读取方（死代码），
+    // 2f762e6 一并清理，故此处改为精确断言它彻底不存在，且工具栏/历史只消费 historyConversations。
+    expect(source).not.toContain("topConversations")
+    expect(source).toContain("const { historyConversations } = splitConversationToolbarItems(")
     expect(source).toContain("historyConversations")
     expect(source).not.toContain("historyConversations = sorted.filter((conv) => conv.id !== activeConversationId)")
   })

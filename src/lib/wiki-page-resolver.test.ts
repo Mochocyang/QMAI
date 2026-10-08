@@ -1,7 +1,19 @@
 import { describe, it, expect } from "vitest"
 import type { FileNode } from "@/types/wiki"
+/**
+ * NOTE: `findInTreeByName` is NOT deleted — commit 01aab5f
+ * ("refactor(cleanup): 收口测试专用旧模块和未使用导出") merely dropped its
+ * `export` keyword, leaving the implementation byte-identical (it is still the
+ * private helper used by `resolveRelatedSlug` / `resolveSourceName`). Because
+ * that symbol is no longer part of the module's public surface, the
+ * "subtree-name lookup" suite below drives the very same code path through its
+ * exported delegates. Every original assertion and expected value is preserved:
+ *   - `findInTreeByName(tree, name, `${WIKI}/`)`        -> `resolveRelatedSlug(tree, name, WIKI)`
+ *     (bare refs are passed through unchanged when they already end in ".md")
+ *   - `findInTreeByName(tree, name, `${SOURCES}/`)`     -> `resolveSourceName(tree, name, SOURCES)`
+ *     (non-".md" refs go straight to the sources root lookup)
+ */
 import {
-  findInTreeByName,
   resolveRelatedSlug,
   resolveSourceName,
   unwrapWikilink,
@@ -75,31 +87,31 @@ describe("unwrapWikilink", () => {
   })
 })
 
-describe("findInTreeByName", () => {
+describe("subtree name lookup (findInTreeByName, driven via its exported delegates)", () => {
   it("returns null on an empty tree", () => {
-    expect(findInTreeByName([], "foo.md", "/wiki/")).toBeNull()
+    expect(resolveRelatedSlug([], "foo.md", "/wiki/")).toBeNull()
   })
 
   it("finds a file at the top of a subtree", () => {
-    expect(findInTreeByName(TREE, "foo.md", `${WIKI}/`)).toBe(`${WIKI}/entities/foo.md`)
+    expect(resolveRelatedSlug(TREE, "foo.md", WIKI)).toBe(`${WIKI}/entities/foo.md`)
   })
 
   it("recurses into nested directories", () => {
-    expect(findInTreeByName(TREE, "q1.pdf", `${SOURCES}/`)).toBe(
+    expect(resolveSourceName(TREE, "q1.pdf", SOURCES)).toBe(
       `${SOURCES}/year-2025/q1.pdf`,
     )
   })
 
   it("respects pathContains as a subtree filter", () => {
     // "notes.md" exists under raw/sources/year-2025 but not under wiki/.
-    expect(findInTreeByName(TREE, "notes.md", `${WIKI}/`)).toBeNull()
-    expect(findInTreeByName(TREE, "notes.md", `${SOURCES}/`)).toBe(
+    expect(resolveRelatedSlug(TREE, "notes.md", WIKI)).toBeNull()
+    expect(resolveSourceName(TREE, "notes.md", SOURCES)).toBe(
       `${SOURCES}/year-2025/notes.md`,
     )
   })
 
   it("returns null when nothing matches", () => {
-    expect(findInTreeByName(TREE, "missing.md", `${WIKI}/`)).toBeNull()
+    expect(resolveRelatedSlug(TREE, "missing.md", WIKI)).toBeNull()
   })
 })
 

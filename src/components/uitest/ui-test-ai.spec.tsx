@@ -10,6 +10,7 @@ import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
+import type { ConversationRunStates } from "@/lib/conversation-run-state"
 import { getUiTestAiMenuStyle } from "./ui-test-ai-parts"
 
 const build = vi.hoisted(() => ({ enabled: true }))
@@ -46,6 +47,19 @@ vi.mock("@/lib/novel/story-simulation/framework-binding", () => ({ loadBinding: 
 vi.mock("@/lib/novel/story-simulation/framework-store", () => ({ loadFrameworks: vi.fn(async () => []) }))
 
 type Panel = "chapter" | "outline"
+/**
+ * 章节 / 大纲两个 store 的 state 类型不同，直接用 `kind === "chapter" ? useChatStore : useOutlineChatStore`
+ * 取到的会是两个 store 的联合类型，而联合的函数签名不可调用（TS2349）。
+ * 按 kind 索引这张表则能拿到确定的 store 类型，配合下面只声明测试真正用到的 state 子集
+ * （ConversationRunStates 仍是生产类型），对两个 store 都成立，不需要任何断言。
+ */
+const stores = { chapter: useChatStore, outline: useOutlineChatStore } as const
+type SessionPatch = {
+  activeConversationId?: string | null
+  streamingContents?: Record<string, string>
+  runStates?: ConversationRunStates
+}
+type SessionStore = { setState: (patch: SessionPatch) => void }
 const mounted: Array<{ root: Root; container: HTMLDivElement }> = []
 const title = "当前会话的完整长标题".repeat(6)
 const userText = "请检查这段测试内容。"
@@ -144,8 +158,8 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
   it("生成上滑显示三点、停止不跳走、点击到底并恢复跟随", async () => {
     seed(kind)
     const id = `${kind}-active`
-    const store = kind === "chapter" ? useChatStore : useOutlineChatStore
-    store.setState({ streamingContents: { [id]: "" }, runStates: { [id]: { status: "running", runId: "scroll-run", updatedAt: now } } })
+    const store: SessionStore = stores[kind]
+    await act(async () => { store.setState({ streamingContents: { [id]: "" }, runStates: { [id]: { status: "running", runId: "scroll-run", updatedAt: now } } }) })
     const container = await mount(kind)
     const scroll = container.querySelector<HTMLDivElement>('[data-chat-scroll]')!
     expect(scroll).not.toBeNull()
@@ -155,7 +169,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await act(async () => { scroll.scrollTop = 900; scroll.dispatchEvent(new Event("scroll")) })
     await act(async () => { scroll.scrollTop = 200; scroll.dispatchEvent(new Event("scroll")) })
     expect(container.querySelectorAll('[data-stream-dot]')).toHaveLength(3)
-    await act(async () => { store.setState({ streamingContents: {}, runStates: { [id]: { status: "idle" } } }) })
+    await act(async () => { store.setState({ streamingContents: {}, runStates: { [id]: { status: "idle", updatedAt: now } } }) })
     expect(scroll.scrollTop).toBe(200)
     expect(container.querySelectorAll('[data-stream-dot]')).toHaveLength(0)
     const button = container.querySelector<HTMLButtonElement>('[aria-label="下滑"]')!
@@ -169,12 +183,15 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(container.querySelector('[aria-label="下滑"]')).toBeNull()
   })
 
-  it("仅测试构建出现专用面板；正式版仍保留原消息与输入 DOM", async () => {
+  it("界面版本已统一：专用面板与原始消息/输入 DOM 不再由旧开关切换", async () => {
     build.enabled = false
     seed(kind)
     const container = await mount(kind)
-    expect(container.querySelector("[data-ui-ai-panel]")).toBeNull()
-    expect(container.querySelector("[data-ui-ai-header]")).toBeNull()
+    // 该期望于 26f80ee（fix(ui): 调整对话输入框与界面资源，随 4.0.0「旧版界面已移除，只保留新版」发布）
+    // 随「只保留新版界面」变更：IS_UI_TEST_BUILD 恒为 true，旧版界面分支已整体移除，
+    // 因此把开关置假也不再退回旧 DOM，专用面板与真实消息/输入框始终存在。
+    expect(container.querySelector(`[data-ui-ai-panel="${kind}"]`)).not.toBeNull()
+    expect(container.querySelector("[data-ui-ai-header]")).not.toBeNull()
     expect(container.querySelector('[aria-label="引用输入框"]')).not.toBeNull()
     expect(container.textContent).toContain(answerText)
     expect(container.querySelector(".qmai-new-conversation-button")).not.toBeNull()
@@ -201,6 +218,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
   })
 
   it("大纲回复先显示引用资料，再显示上下文 Token 数字", async () => {
+    if (kind !== "outline") return
     seed("outline")
     const contextHubSnapshot: ContextHubSnapshotRef = {
       id: "answer-existing",
@@ -225,7 +243,10 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     }))
 
     const container = await mount("outline")
-    const row = container.querySelector("[data-ui-ai-actions]")
+    // 该期望于 26f80ee（随 4.0.0「旧版界面已移除，只保留新版」）变更：
+    // [data-ui-ai-actions] 这一动作区钩子已不再输出，改用回复消息本身承载
+    // 引用资料 / 上下文用量 / 重新生成，定位换到同一处真实 DOM。
+    const row = container.querySelector('[data-ui-ai-message="assistant"]')
     const sources = row?.querySelector("details")
     const stats = row?.querySelector(".ui-test-context-stats")
     const regenerate = row?.querySelector("[aria-label='重新生成']")
@@ -253,7 +274,9 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
   it("独立滚动区渲染原始消息，保存与重试动作仍在消息后", async () => {
     seed(kind)
     const container = await mount(kind)
-    const scroll = container.querySelector("[data-ui-ai-scroll]")
+    // 该期望于 26f80ee（随 4.0.0「旧版界面已移除，只保留新版」）变更：
+    // 滚动区钩子由 [data-ui-ai-scroll] 改为两面板共用的 [data-chat-scroll]。
+    const scroll = container.querySelector("[data-chat-scroll]")
     expect(scroll).not.toBeNull()
     expect(scroll?.querySelector('[data-ui-ai-message="user"]')?.textContent).toContain(userText)
     const assistant = scroll?.querySelector('[data-ui-ai-message="assistant"]')
@@ -268,12 +291,19 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     seed(kind)
     const container = await mount(kind)
     const composer = container.querySelector("[data-ui-ai-composer]")
+    const inputArea = container.querySelector("[data-ui-ai-input-area]")
     const footer = composer?.querySelector("[data-reference-input-footer]")
     const mode = footer?.querySelector('[aria-label="AI 大纲执行模式"]')
     const usage = footer?.querySelector('[aria-label="上下文用量"]')
     const reference = footer?.querySelector('[aria-label="引用内容"]')
-    expect(composer?.textContent).toContain("通过固定选项生成大纲需求")
-    expect(composer?.textContent).toContain("选择生成你想要的小说")
+    // 该期望于 26f80ee（随 4.0.0「旧版界面已移除，只保留新版」）变更：
+    // data-ui-ai-composer 收窄为输入框本体，说明与「选择生成你想要的小说」
+    // 随输入区外框 [data-ui-ai-input-area] 上移，用输入区断言二者仍在输入框上方。
+    const note = inputArea?.querySelector("p")
+    expect(note).not.toBeNull()
+    expect(inputArea?.textContent).toContain("通过固定选项生成大纲需求")
+    expect(inputArea?.textContent).toContain("选择生成你想要的小说")
+    expect(inputArea && composer && (note!.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
     expect(mode).not.toBeNull()
     expect(usage).not.toBeNull()
     expect(reference).not.toBeNull()
@@ -282,8 +312,8 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await act(async () => {
       useWikiStore.setState({
         aiOutlineModel: "deepseek/deepseek-v4-flash",
-        llmConfig: { ...useWikiStore.getState().llmConfig, provider: "deepseek", model: "deepseek-v4-flash", customEndpoint: "https://api.deepseek.com/v1" },
-        providerConfigs: { deepseek: { enabled: true, apiKey: "ui-test-only", savedModels: [{ id: "deepseek-v4-flash", model: "deepseek-v4-flash", name: "DeepSeek-V4-Flash", createdAt: 1 }] } },
+        llmConfig: { ...useWikiStore.getState().llmConfig, provider: "custom", model: "deepseek-v4-flash", customEndpoint: "https://api.deepseek.com/v1" },
+        providerConfigs: { deepseek: { enabled: true, apiKey: "ui-test-only", baseUrl: "https://api.deepseek.com/v1", savedModels: [{ id: "deepseek-v4-flash", model: "deepseek-v4-flash", name: "DeepSeek-V4-Flash", createdAt: 1 }] } },
       })
     })
     await flushLayoutFrame()
@@ -339,13 +369,15 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await click(container.querySelector("[data-ui-ai-header] [aria-expanded]"))
     const menu = document.querySelector('[data-ui-ai-menu="history"]')
     expect(menu).not.toBeNull()
-    expect(menu?.textContent).toContain(kind === "chapter" ? "全部会话 3 条" : "全部会话 1 条")
+    // 该期望于 ed6a41d「历史下拉列出全部会话，修复非当前会话不可达」变更：
+    // 大纲面板改为与章节面板一致的 menuConversations（全部会话）计数与列表。
+    expect(menu?.textContent).toContain("全部会话 3 条")
     expect(menu?.textContent).toContain("清理旧会话")
-    const names = kind === "chapter" ? [title, "另一个正在生成的会话", "以前的会话"] : ["以前的会话"]
+    const names = [title, "另一个正在生成的会话", "以前的会话"]
     for (const name of names) {
       expect(Array.from(menu?.querySelectorAll("button[title]") ?? []).some((button) => button.getAttribute("title") === name)).toBe(true)
     }
-    if (kind === "chapter") expect(menu?.querySelector('[aria-label="正在生成"]')).not.toBeNull()
+    expect(menu?.querySelector('[aria-label="正在生成"]')).not.toBeNull()
     await click(menu?.querySelector('button[title="以前的会话"]') ?? null)
     expect(kind === "chapter" ? useChatStore.getState().activeConversationId : useOutlineChatStore.getState().activeConversationId).toBe(`${kind}-old`)
     expect(document.querySelector('[data-ui-ai-menu="history"]')).toBeNull()

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import postcss from "postcss"
 import { describe, expect, it } from "vitest"
-import { DEFAULT_UI_FONT_FAMILY, UI_FONT_OPTIONS, getUiFontFamilyCss } from "@/lib/font-settings"
+import { DEFAULT_UI_FONT_FAMILY, getUiFontFamilyCss } from "@/lib/font-settings"
 
 const uitestCss = readFileSync(resolve(__dirname, "ui-test.css"), "utf8")
 const indexCss = readFileSync(resolve(__dirname, "../../index.css"), "utf8")

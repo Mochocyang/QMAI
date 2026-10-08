@@ -10,7 +10,17 @@ import {
   renderOutlineHtmlForPath,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
+  type OutlineSaveRequestFileType,
 } from "./outline-save-request"
+
+/**
+ * `attachOutlineHtml` 的入参形状，直接由生产签名推导（`Parameters<...>[0]`）。
+ *
+ * 该函数的返回类型就是泛型 T，所以必须显式标注调用点：直接传对象字面量时，
+ * T 会被推成 `{ fileType: string; content: string }` 这类没有 htmlContent 的窄类型，
+ * 测试就访问不到生产函数实际会补上的那个字段了。
+ */
+type AttachOutlineHtmlInput = Parameters<typeof attachOutlineHtml>[0]
 
 const SAMPLE_CHAPTER_OUTLINE = [
   "# 章纲-第001章",
@@ -838,7 +848,7 @@ describe("outline-save-request", () => {
 
   it("attachOutlineHtml 为设定类（组织势力）补 htmlContent", () => {
     const source = "# 青云门\n## 阵营目标\n- 维护正道秩序\n## 掌握资源\n**掌门**：玉虚真人"
-    const attached = attachOutlineHtml(
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "organization", content: source },
       source,
     )
@@ -848,13 +858,13 @@ describe("outline-save-request", () => {
 
   it("attachOutlineHtml 对 fileType=setting 的力量体系走专属体系卡", () => {
     const source = "# 力量体系\n## 体系概览\n- 力量本质：灵力\n## 等级阶梯\n| 等级 | 名称 |\n| --- | --- |\n| 一阶 | 引气 |"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("力量体系 · 体系卡")
   })
 
   it("分类成章纲但正文其实是设定类时，仍借用设定家族补出 HTML（fileType 不变）", () => {
     const source = "# 力量体系\n## 等级阶梯\n| 等级 | 说明 |\n| --- | --- |\n| 一转 | 引气 |"
-    const attached = attachOutlineHtml(
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "chapter-outline", content: source, fileName: "力量体系总纲.md" },
       "",
     )
@@ -869,7 +879,7 @@ describe("outline-save-request", () => {
      * 正确做法是：不出设定卡，但要出章纲卡。所以这里保留原意图（不含「设定 · 卡片流」），
      * 同时补上真正该有的结果。
      */
-    const realChapter = attachOutlineHtml(
+    const realChapter = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "chapter-outline", content: "# 第001章章纲\n## 核心事件\n- 主角觉醒", fileName: "章纲-第001章.md" },
       "",
     )
@@ -885,7 +895,7 @@ describe("outline-save-request", () => {
      * 遍历 ALLOWED_FILE_TYPES 全部成员：新增类型时若忘记补渲染器，这条会红，
      * 而不是等到用户发现保存框的「HTML 形式」是灰的、且永远无法勾选。
      */
-    const sources: Record<string, string> = {
+    const sources: Record<OutlineSaveRequestFileType, string> = {
       "chapter-outline": "# 章纲-第001章\n## 本章目标\n- 主角找回记忆\n## 核心事件\n- 拾得残碑",
       "volume-outline": "# 千碑城卷纲\n## 卷级定位\n- 建立契约关系\n## 故事线\n- 入城",
       "outline": "# 世界观总纲\n## 时代\n- 灵气复苏后的第三十年\n## 主要冲突\n- 旧秩序与新势力的对立",
@@ -895,14 +905,15 @@ describe("outline-save-request", () => {
       "foreshadowing": "# 伏笔计划\n## 埋设\n- 第一卷埋下残碑\n## 回收\n- 第三卷回收",
       "quality-report": "# 大纲质量检查\n## 结构\n- 分卷节奏偏快\n## 建议\n- 第二卷补一条支线",
     }
-    const fileTypes = [
+    /* 这 8 个成员必须与生产的 OutlineSaveRequestFileType 完全一致（写错/漏写会在这里报错） */
+    const fileTypes: OutlineSaveRequestFileType[] = [
       "outline", "volume-outline", "chapter-outline", "character",
       "setting", "foreshadowing", "organization", "quality-report",
     ]
     for (const fileType of fileTypes) {
       const content = sources[fileType]
-      const attached = attachOutlineHtml(
-        { fileType, fileName: `X.md`, targetFolder: fileType, content } as never,
+      const attached = attachOutlineHtml<AttachOutlineHtmlInput>(
+        { fileType, fileName: "X.md", targetFolder: fileType, content },
         // 关键：sourceText 与结构化 JSON 全部欠奉，只有正文本身
         content,
       )
@@ -913,14 +924,14 @@ describe("outline-save-request", () => {
   })
 
   it("卷纲/章纲缺结构化数据时的兜底 HTML 保留自己的标识，不退化成「设定」", () => {
-    const volume = attachOutlineHtml(
+    const volume = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "volume-outline", fileName: "千碑城卷纲.md", targetFolder: "卷纲", content: "# 千碑城卷纲\n## 卷级定位\n- 建立契约" },
       "",
     )
     expect(volume.htmlContent).toContain("卷纲 · 卡片流")
     expect(volume.htmlContent).not.toContain("设定 · 卡片流")
 
-    const report = attachOutlineHtml(
+    const report = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "quality-report", fileName: "大纲质量检查.md", targetFolder: "质量检查", content: "# 大纲质量检查\n## 结构\n- 节奏偏快" },
       "",
     )
@@ -1008,18 +1019,18 @@ describe("outline-save-request", () => {
 
   it("attachOutlineHtml 对 fileType=setting 未命中子类型时走通用卡片流", () => {
     const source = "# 设定\n## 说明\n- 内容"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("设定 · 卡片流")
   })
 
   it("fileType=setting 但内容/文件夹指组织势力时走专属势力卡（不回退通用卡片流）", () => {
-    const byContent = attachOutlineHtml(
+    const byContent = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 组织势力设定\n## 阵营目标\n- 维护正道秩序\n## 掌握资源\n- 灵脉" },
       "",
     )
     expect(byContent.htmlContent).toContain("组织势力 · 势力卡")
 
-    const byFolder = attachOutlineHtml(
+    const byFolder = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 某势力\n## 阵营目标\n- 扩张", targetFolder: "组织势力" },
       "",
     )
@@ -1027,13 +1038,13 @@ describe("outline-save-request", () => {
   })
 
   it("fileType=setting 但内容指人物小传 / 伏笔时也走各自专属卡", () => {
-    const character = attachOutlineHtml(
+    const character = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 林辰\n## 基本信息\n- 身份：外门弟子", targetFolder: "人物小传" },
       "",
     )
     expect(character.htmlContent).toContain("人物小传 · 角色卡")
 
-    const foreshadowing = attachOutlineHtml(
+    const foreshadowing = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 伏笔追踪\n## 伏笔状态表\n| ID | 状态 |\n| --- | --- |\n| F001 | 已埋 |" },
       "",
     )
@@ -1042,42 +1053,42 @@ describe("outline-save-request", () => {
 
   it("attachOutlineHtml 对 fileType=foreshadowing 走专属伏笔台账", () => {
     const source = "# 伏笔追踪\n## 伏笔状态表\n| ID | 状态 |\n| --- | --- |\n| F001 | 已埋 |"
-    const attached = attachOutlineHtml({ fileType: "foreshadowing", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "foreshadowing", content: source }, source)
     expect(attached.htmlContent).toContain("伏笔计划 · 伏笔台账")
   })
 
   it("attachOutlineHtml 对 fileType=setting 的金手指走专属能力卡", () => {
     const source = "# 金手指设定\n## 机制\n- 绑定方式：濒死激活\n## 已解锁能力\n| 解锁章节 | 能力 |\n| --- | --- |\n| 第1章 | 识海 |"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("金手指 · 能力卡")
   })
 
   it("attachOutlineHtml 对 fileType=setting 的地理设定走专属地理卡", () => {
     const source = "# 地理设定\n## 区域划分\n| 区域 | 类型 |\n| --- | --- |\n| 东荒 | 荒原 |"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("地理设定 · 地理卡")
   })
 
   it("attachOutlineHtml 对 fileType=setting 的地点设定走专属地点卡", () => {
     const source = "# 地点设定\n## 空间规则\n| 规则 | 说明 |\n| --- | --- |\n| 御剑限高 | 峰顶禁飞 |"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("地点设定 · 地点卡")
   })
 
   it("attachOutlineHtml 对 fileType=setting 的背景设定走专属背景卡", () => {
     const source = "# 背景设定\n## 历史沿革\n| 时期 | 关键事件 |\n| --- | --- |\n| 开元 | 立国 |"
-    const attached = attachOutlineHtml({ fileType: "setting", content: source }, source)
+    const attached = attachOutlineHtml<AttachOutlineHtmlInput>({ fileType: "setting", content: source }, source)
     expect(attached.htmlContent).toContain("背景设定 · 背景卡")
   })
 
   it("地点 / 背景按文件名区分（同为 fileType=setting）", () => {
-    const byFolder = attachOutlineHtml(
+    const byFolder = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 清风镇\n## 地点定位\n- 所处区域：东荒", targetFolder: "地点设定" },
       "",
     )
     expect(byFolder.htmlContent).toContain("地点卡")
 
-    const byIntent = attachOutlineHtml(
+    const byIntent = attachOutlineHtml<AttachOutlineHtmlInput>(
       { fileType: "setting", content: "# 某设定\n## 世界观背景\n- 世界前提：灵气复苏", sourceIntent: "生成背景设定" },
       "",
     )

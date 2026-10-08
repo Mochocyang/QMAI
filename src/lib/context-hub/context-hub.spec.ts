@@ -66,7 +66,12 @@ function createHarness() {
     dispose: vi.fn(),
   }
   const storage = {
-    readArtifact: vi.fn(async (key: string) => artifacts.get(key) ?? null),
+    // `vi.fn` erases the generic signature of `HubStorage.readArtifact<T>`, so the
+    // in-memory fake declares it as a real generic method. The backing map is
+    // type-erased (it holds every cached source), hence the read-side assertion.
+    async readArtifact<T>(key: string): Promise<CachedArtifact<T> | null> {
+      return (artifacts.get(key) as CachedArtifact<T> | undefined) ?? null
+    },
     writeArtifact: vi.fn(async (key: string, value: CachedArtifact) => { artifacts.set(key, value) }),
     readStableBundle: vi.fn(async (surface: string) => bundles.get(surface) ?? null),
     writeStableBundle: vi.fn(async (surface: string, value: StableBundle) => { bundles.set(surface, value) }),

@@ -4,9 +4,7 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest"
 import "@/i18n"
 import { useWikiStore } from "@/stores/wiki-store"
 import { LlmProviderSection } from "@/components/settings/sections/llm-provider-section"
-import { saveProviderConfigs } from "@/lib/project-store"
-import { fetchLlmModelList } from "@/lib/settings-model-list"
-import { mountModel, click, changeInput, deferred } from "./model-test-utils"
+import { mountModel, click } from "./model-test-utils"
 vi.mock("@/lib/ui-test", () => ({ IS_UI_TEST_BUILD: true }))
 vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
 vi.mock("@/lib/project-store", () => ({ saveProviderConfigs: vi.fn(), saveActivePresetId: vi.fn(), saveLlmConfig: vi.fn() }))

@@ -28,7 +28,8 @@ interface WikiTypeStyle {
   dotClass: string
 }
 
-const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
+// 供测试直接钉住表内容与 fallback（2026-08-24 的 `01aab5f` 误摘过这两个 export）。
+export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   entity: {
     label: "Entity",
     icon: User,
@@ -91,7 +92,7 @@ const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
   },
 }
 
-const FALLBACK_TYPE_STYLE: WikiTypeStyle = {
+export const FALLBACK_TYPE_STYLE: WikiTypeStyle = {
   label: "Page",
   icon: Hash,
   chipClass: "bg-muted text-muted-foreground",

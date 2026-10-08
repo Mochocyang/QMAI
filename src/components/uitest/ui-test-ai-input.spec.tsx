@@ -13,6 +13,8 @@ const formalKey = "qmai-reference-input-height"
 const testKey = "qm-uitest-reference-input-height"
 
 async function renderInput(enabled: boolean) {
+  // VITE_QMAI_UI_TEST 自 26f80ee 起已不再被生产代码读取（旧版界面已删除，见下方说明），
+  // 这里仍保留两种取值的渲染路径，只用于证明构建环境已不再切换界面版本。
   vi.stubEnv("VITE_QMAI_UI_TEST", enabled ? "1" : "0")
   vi.resetModules()
   ;({ ReferenceInput } = await import("@/components/reference/ReferenceInput"))
@@ -144,25 +146,55 @@ describe("测试版引用输入框真实高度逻辑", () => {
   })
 })
 
-describe("正式版引用输入框不回退", () => {
-  it("仍默认 192px，忽略测试版的 96px 偏好", async () => {
-    localStorage.setItem(testKey, "96")
+/*
+ * 旧「正式版界面」已被刻意删除，本组断言随之从「正式版不回退」改成「只剩统一的新版」。
+ * 证据：提交 26f80ee（2026-09-25「fix(ui): 调整对话输入框与界面资源」）把
+ * src/lib/ui-test.ts 的 IS_UI_TEST_BUILD 由「本机偏好 / 构建环境二选一」改成硬编码
+ * `export const IS_UI_TEST_BUILD = true`（注释写明「已统一为只保留新版界面……旧版界面已移除」），
+ * 并在 src/components/reference/ReferenceInput.tsx 删掉按它分叉的旧高度分支：
+ * 旧键 qmai-reference-input-height / 默认 192px / 下限 192px 全部消失。
+ * 同期 GenxinLOG/更新日志.md「20260925-1331 删除旧版界面设置」与
+ * GenxinLOG/20260927-1322-更新日志.md「旧版界面已移除，只保留新版」确认是刻意设计。
+ * 故此处精确断言新的唯一真实意图值（128/112/300 + 只认 qm-uitest- 键），不放宽断言。
+ */
+describe("旧版正式界面已删除：只剩统一的新版输入框", () => {
+  // 该期望于 26f80ee 随「界面统一：旧版界面已移除」变更。
+  it("正式键 260 不再被读取，统一默认 128px，且不覆盖旧键", async () => {
+    localStorage.setItem(formalKey, "260")
     const input = await renderInput(false)
-    expect(input.style.height).toBe("192px")
+    expect(input.style.height).toBe("128px")
+    expect(input.style.maxHeight).toBe("128px")
+    expect(localStorage.getItem(formalKey)).toBe("260")
+    expect(localStorage.getItem(testKey)).toBeNull()
   })
 
-  it("仍读取正式偏好，最低 192px、最高 300px；双击仍恢复 192px", async () => {
+  // 该期望于 26f80ee 随「界面统一：旧版界面已移除」变更。
+  it("构建环境不再切换界面版本：0 与 1 都读同一个测试版键，旧 192px 默认/下限换成 128/112", async () => {
+    localStorage.setItem(formalKey, "240")
+    localStorage.setItem(testKey, "96")
+    const off = await renderInput(false)
+    expect(off.style.height).toBe("112px")
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    const on = await renderInput(true)
+    expect(on.style.height).toBe("112px")
+    expect(localStorage.getItem(formalKey)).toBe("240")
+    expect(localStorage.getItem(testKey)).toBe("96")
+  })
+
+  // 该期望于 26f80ee 随「界面统一：旧版界面已移除」变更。
+  it("旧正式版 240px 下限已删除：拖动夹在 112–300px，双击回 128px 且只写测试版键", async () => {
     localStorage.setItem(formalKey, "240")
     const input = await renderInput(false)
-    expect(input.style.height).toBe("240px")
+    expect(input.style.height).toBe("128px")
     await dragInput(400, 800)
-    expect(input.style.height).toBe("192px")
+    expect(input.style.height).toBe("112px")
     await dragInput(400, 0)
     expect(input.style.height).toBe("300px")
     await act(async () => host.querySelector('[role="separator"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })))
-    expect(input.style.height).toBe("192px")
-    expect(localStorage.getItem(formalKey)).toBe("192")
-    expect(localStorage.getItem(testKey)).toBeNull()
+    expect(input.style.height).toBe("128px")
+    expect(localStorage.getItem(testKey)).toBe("128")
+    expect(localStorage.getItem(formalKey)).toBe("240")
   })
 })
 // 两种助手共用面板留白，大纲不能再叠加第二层横向内边距。

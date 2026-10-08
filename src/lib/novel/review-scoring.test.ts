@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { scoreReviewResults, CALIBRATED_DIMENSION_WEIGHTS, CALIBRATED_SEVERITY_DEDUCTION } from "./review-scoring"
+import { scoreReviewResults } from "./review-scoring"
 import type { NovelReviewResult } from "./review-adapter"
 
 describe("review-scoring", () => {
@@ -158,13 +158,10 @@ describe("review-scoring", () => {
     expect(pacingDim!.weight).toBe(0.15)
   })
 
-  it("calibrated empty results still give 100", () => {
-    const calibratedReport = scoreReviewResults([], {
-      dimensionWeights: CALIBRATED_DIMENSION_WEIGHTS,
-      severityDeductions: CALIBRATED_SEVERITY_DEDUCTION,
-    })
-
-    expect(calibratedReport.totalScore).toBe(100)
-    expect(calibratedReport.severity).toBe("excellent")
-  })
+  // 原「calibrated empty results still give 100」用例已删除（2026-08-24 的 01aab5f
+  // 「收口测试专用旧模块和未使用导出」把 CALIBRATED_DIMENSION_WEIGHTS 与
+  // CALIBRATED_SEVERITY_DEDUCTION 两个常量连同其 JSDoc 一并删掉，全仓库已无该符号）。
+  // 该用例传入的是 undefined，且断言的是**空结果集**——空结果下维度权重与扣分根本不会被读取，
+  // 断言恒等于 100/excellent，**无法失败**，属「通过但不能失败」的假绿。
+  // 空结果 100 分与自定义权重/扣分的行为已分别由本文件其它用例覆盖。
 })

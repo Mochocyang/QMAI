@@ -28,7 +28,7 @@ const CANDIDATE = [
 
 describe("de-ai batch chapter apply", () => {
   it("未打开章节时保留磁盘 frontmatter 和原标题，只替换正文", async () => {
-    const writeFileAtomic = vi.fn(async () => undefined)
+    const writeFileAtomic = vi.fn<(path: string, content: string) => Promise<void>>(async () => undefined)
     const applier = createDeAiBatchChapterApplier({
       requestOpenUpdate: vi.fn(async () => false),
       readFile: vi.fn(async () => CURRENT_MARKDOWN),

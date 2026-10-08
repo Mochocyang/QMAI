@@ -33,7 +33,7 @@ describe("角色候选筛选", () => {
 })
 
 describe("recognizedCharacterToExtracted（识别角色 → 角色档案）", () => {
-  const recognized = (overrides: Partial<RecognizedCharacter>): RecognizedCharacter => ({
+  const recognized = (overrides: Partial<RecognizedCharacter> = {}): RecognizedCharacter => ({
     id: "char-hanli",
     name: "韩立",
     aliases: ["小韩"],

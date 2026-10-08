@@ -27,6 +27,17 @@ import {
   resetCharacterProfileTemplateForTest,
 } from "./character-profile-template"
 
+/**
+ * attachCharacterProfileHtml<T extends { fileType: string; htmlContent?: string; content: string }> 返回 T，
+ * 因此入参必须显式带上可选的 htmlContent 字段，返回值才暴露 htmlContent（与生产调用方
+ * outline-save-request.ts 中的请求类型一致）。
+ */
+type CharacterProfileSaveRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+}
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -145,18 +156,19 @@ describe("character-profile-template", () => {
 
   it("attachCharacterProfileHtml：单角色 JSON 优先；fileType 由调用方判定（不再自查）；真 HTML 保留", () => {
     const source = "```json\n" + JSON.stringify({ characterProfileData: { name: "林辰", sections: [{ heading: "基本信息", items: [{ label: "身份", text: "x" }] }] } }) + "\n```"
-    const attached = attachCharacterProfileHtml({ fileType: "character", content: "# 别的\n## 基本信息\n- 身份：y" }, source)
+    const request: CharacterProfileSaveRequest = { fileType: "character", content: "# 别的\n## 基本信息\n- 身份：y" }
+    const attached = attachCharacterProfileHtml(request, source)
     expect(attached.htmlContent).toContain("林辰")
 
     // 不再自查 fileType：即使是 setting，只要能解析出角色数据就渲染（由调用方决定是否调用）
-    const setting = { fileType: "setting", content: "# 林辰\n## 基本信息\n- 身份：外门弟子" }
+    const setting: CharacterProfileSaveRequest = { fileType: "setting", content: "# 林辰\n## 基本信息\n- 身份：外门弟子" }
     expect(attachCharacterProfileHtml(setting, "").htmlContent).toContain("人物小传 · 角色卡")
 
     // 无任何可解析数据时原样返回
-    const empty = { fileType: "setting", content: "" }
+    const empty: CharacterProfileSaveRequest = { fileType: "setting", content: "" }
     expect(attachCharacterProfileHtml(empty, "")).toBe(empty)
 
-    const kept = { fileType: "character", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
+    const kept: CharacterProfileSaveRequest = { fileType: "character", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
     expect(attachCharacterProfileHtml(kept, "x").htmlContent).toContain("<!DOCTYPE html>")
   })
 
@@ -167,10 +179,8 @@ describe("character-profile-template", () => {
         { name: "苏晚", sections: [{ heading: "基本信息", items: [{ label: "身份", text: "b" }] }] },
       ],
     }) + "\n```"
-    const attached = attachCharacterProfileHtml(
-      { fileType: "character", content: "# 林辰\n## 基本信息\n- 身份：外门弟子" },
-      source,
-    )
+    const request: CharacterProfileSaveRequest = { fileType: "character", content: "# 林辰\n## 基本信息\n- 身份：外门弟子" }
+    const attached = attachCharacterProfileHtml(request, source)
     expect(attached.htmlContent).toContain("林辰")
     expect(attached.htmlContent).not.toContain("苏晚")
   })

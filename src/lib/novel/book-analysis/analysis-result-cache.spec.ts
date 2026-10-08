@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { normalizeGlobalUserMemoryConfig, loadGlobalUserMemoryConfig } from "@/lib/user-memory/store"
 import type { GlobalUserMemoryConfig } from "@/lib/user-memory/types"
-import type { AnalysisChunkRecord, AnalysisSkill, BookAnalysisPipelineTask } from "./analysis-pipeline-types"
+import type { AnalysisChunkRecord, AnalysisModuleState, AnalysisSkill, BookAnalysisPipelineTask } from "./analysis-pipeline-types"
 import type { AnalysisChunkOutput, AnalysisSkillAdapter } from "./analysis-skill-adapter"
 import { saveCompletedChunk } from "./analysis-pipeline-storage"
 import { createAnalysisScheduler } from "./analysis-scheduler"
@@ -60,14 +60,19 @@ function config(): LlmConfig {
 
 function task(id = "task-1", skill: AnalysisSkill = "style"): BookAnalysisPipelineTask {
   const range = { startOrder: 1, endOrder: 1 }
+  const moduleState = (key: AnalysisSkill): AnalysisModuleState => ({
+    skill: key, status: key === skill ? "pending" : "skipped", range,
+    chunkIds: key === skill ? ["chunk-1"] : [], completedChunkIds: [],
+    failedChunkId: null, resultPath: null, analysisVersion: 1, updatedAt: 1,
+  })
   return {
     version: 1, id, batchId: null, projectPath, bookId: "book-1", bookPath,
     selectedSkills: [skill], range, status: "queued", currentSkill: null,
-    modules: Object.fromEntries((["characters", "story", "style"] as const).map((key) => [key, {
-      skill: key, status: key === skill ? "pending" : "skipped", range,
-      chunkIds: key === skill ? ["chunk-1"] : [], completedChunkIds: [],
-      failedChunkId: null, resultPath: null, analysisVersion: 1, updatedAt: 1,
-    }])) as BookAnalysisPipelineTask["modules"],
+    modules: {
+      characters: moduleState("characters"),
+      story: moduleState("story"),
+      style: moduleState("style"),
+    },
     targetCharacters: skill === "characters" ? [{
       id: "char-linyuan", name: "林远", aliases: ["小林"], appearances: 2,
       chapterIndices: [0], importanceScore: 90, category: "主角", sourceBook: "样本作品",
@@ -120,11 +125,17 @@ function harness(options: {
   ))
   const aggregate = vi.fn(async ({ chunks }: Parameters<AnalysisSkillAdapter["aggregate"]>[0]) => chunks[0])
   const publish = vi.fn(async ({ bookPath, skill }: Parameters<AnalysisSkillAdapter["publish"]>[0]) => `${bookPath}/${skill}.json`)
+  // 必须保留 saveCompletedChunk 的泛型签名：调度器的 saveCompletedChunk 选项就是该泛型函数类型，
+  // 换成非泛型的窄签名无法赋值。泛型实参在 mock.calls 中被擦成 unknown，因此下面按调度器
+  // 的真实契约（只持久化 AnalysisChunkOutput）在取值处标注具体类型。
   const persistCompleted = vi.fn(saveCompletedChunk)
+  const adapterFor = (skill: AnalysisSkill): AnalysisSkillAdapter => ({ skill, runChunk, aggregate, publish })
   const scheduler = createAnalysisScheduler({
-    adapters: Object.fromEntries((["characters", "story", "style"] as const).map((skill) => [skill, {
-      skill, runChunk, aggregate, publish,
-    }])) as Record<AnalysisSkill, AnalysisSkillAdapter>,
+    adapters: {
+      characters: adapterFor("characters"),
+      story: adapterFor("story"),
+      style: adapterFor("style"),
+    },
     llmConfig: options.config ?? config(),
     saveCompletedChunk: persistCompleted,
     now: () => 200,
@@ -204,7 +215,8 @@ describe("拆书成功结果按内容复用", () => {
     expect(warm.persistCompleted.mock.calls[0][1]).toMatchObject({ taskId: next.id, id: "new-chunk-id" })
     expect(cold.aggregate).toHaveBeenCalledTimes(1)
     expect(warm.aggregate).not.toHaveBeenCalled()
-    expect(warm.publish.mock.calls[0][0].result).toEqual(warm.persistCompleted.mock.calls[0][2].result)
+    const persisted = warm.persistCompleted.mock.calls[0][2] as AnalysisChunkOutput
+    expect(warm.publish.mock.calls[0][0].result).toEqual(persisted.result)
     expect(warm.publish).toHaveBeenCalledTimes(1)
     expect(warm.scheduler.getSnapshot().tasks[0]).toMatchObject({ status: "completed" })
     expect(warm.scheduler.getSnapshot().tasks[0].modules[skill].completedChunkIds).toEqual(["new-chunk-id"])

@@ -10,9 +10,15 @@ import {
   planMarkdownAiRepair,
 } from "./markdown-quality-finalizer"
 
+// 生产侧的 FinalizeStructuredMarkdownOptions 未导出，这里从函数签名反推 AI 修复回调的
+// 真实契约（{ content, maxTokens } -> Promise<string>），避免测试按旧签名手写 mock。
+type MarkdownRepairWithAi = Parameters<
+  typeof finalizeStructuredMarkdownMessage
+>[1]["repairWithAi"]
+
 describe("finalizeStructuredMarkdownMessage", () => {
   it("全文 markdown 围栏即使只有一个标题也必须本地去除围栏", async () => {
-    const repairWithAi = vi.fn<(content: string) => Promise<string>>()
+    const repairWithAi = vi.fn<MarkdownRepairWithAi>()
 
     const finalMessage = await finalizeStructuredMarkdownMessage(
       "```markdown\n# 唯一标题\n```",
@@ -24,7 +30,7 @@ describe("finalizeStructuredMarkdownMessage", () => {
   })
 
   it("让全文 markdown 围栏进入本地修复并返回最终消息正文", async () => {
-    const repairWithAi = vi.fn<(content: string) => Promise<string>>()
+    const repairWithAi = vi.fn<MarkdownRepairWithAi>()
     const source = "```markdown\n人物设定\n\n- 姓名：林川\n- 目标：复仇\n```"
 
     const finalMessage = await finalizeStructuredMarkdownMessage(source, {
@@ -43,7 +49,7 @@ describe("finalizeStructuredMarkdownMessage", () => {
 
     const finalMessage = await finalizeStructuredMarkdownMessage(source, {
       enabled: true,
-      repairWithAi: vi.fn(),
+      repairWithAi: vi.fn<MarkdownRepairWithAi>(),
       onFailure: vi.fn(),
     })
 

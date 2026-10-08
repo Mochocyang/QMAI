@@ -26,6 +26,15 @@ import {
   resetFactionProfileTemplateForTest,
 } from "./faction-profile-template"
 
+/**
+ * 待附加 HTML 的保存请求。
+ *
+ * `attachFactionProfileHtml` 的返回类型就是它自己的泛型参数 `T`；若直接传对象字面量，
+ * `T` 会被推成只有 `fileType` / `content` 的窄类型，返回值便不再暴露 `htmlContent`。
+ * 这里显式取该函数的第一个形参类型（即它的泛型约束），让请求带上可选的 `htmlContent`。
+ */
+type FactionProfileAttachRequest = Parameters<typeof attachFactionProfileHtml>[0]
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -114,18 +123,19 @@ describe("faction-profile-template", () => {
 
   it("attachFactionProfileHtml：单势力 JSON 优先；fileType 由调用方判定（不再自查）；真 HTML 保留；多势力用 MD", () => {
     const source = "```json\n" + JSON.stringify({ factionProfileData: { name: "青云门", sections: [{ heading: "基本信息", items: [{ label: "类型", text: "门派" }] }] } }) + "\n```"
-    const attached = attachFactionProfileHtml({ fileType: "organization", content: "# 别的\n## 基本信息\n- 类型：x" }, source)
+    const organizationRequest: FactionProfileAttachRequest = { fileType: "organization", content: "# 别的\n## 基本信息\n- 类型：x" }
+    const attached = attachFactionProfileHtml(organizationRequest, source)
     expect(attached.htmlContent).toContain("青云门")
 
     // 不再自查 fileType：即使是 setting，只要能解析出势力数据就渲染（由调用方决定是否调用）
-    const setting = { fileType: "setting", content: "# 青云门\n## 阵营目标\n- 维护正道秩序" }
+    const setting: FactionProfileAttachRequest = { fileType: "setting", content: "# 青云门\n## 阵营目标\n- 维护正道秩序" }
     expect(attachFactionProfileHtml(setting, "").htmlContent).toContain("组织势力 · 势力卡")
 
     // 无任何可解析数据时原样返回
-    const empty = { fileType: "setting", content: "" }
+    const empty: FactionProfileAttachRequest = { fileType: "setting", content: "" }
     expect(attachFactionProfileHtml(empty, "")).toBe(empty)
 
-    const kept = { fileType: "organization", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
+    const kept: FactionProfileAttachRequest = { fileType: "organization", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
     expect(attachFactionProfileHtml(kept, "x").htmlContent).toContain("<!DOCTYPE html>")
 
     const multi = "```json\n" + JSON.stringify({
@@ -134,7 +144,8 @@ describe("faction-profile-template", () => {
         { name: "魔教", sections: [{ heading: "基本信息", items: [{ label: "类型", text: "邪教" }] }] },
       ],
     }) + "\n```"
-    const byMd = attachFactionProfileHtml({ fileType: "organization", content: "# 势力：青云门\n## 基本信息\n- 类型：门派" }, multi)
+    const byMdRequest: FactionProfileAttachRequest = { fileType: "organization", content: "# 势力：青云门\n## 基本信息\n- 类型：门派" }
+    const byMd = attachFactionProfileHtml(byMdRequest, multi)
     expect(byMd.htmlContent).toContain("青云门")
     expect(byMd.htmlContent).not.toContain("魔教")
   })
@@ -158,7 +169,8 @@ describe("faction-profile-template", () => {
         ],
       },
     }) + "\n```"
-    const attached = attachFactionProfileHtml({ fileType: "organization", content: "# 别的" }, source)
+    const request: FactionProfileAttachRequest = { fileType: "organization", content: "# 别的" }
+    const attached = attachFactionProfileHtml(request, source)
     const html = attached.htmlContent ?? ""
     expect(html).not.toContain("**")
     expect(html).not.toContain("`")
@@ -177,7 +189,8 @@ describe("faction-profile-template", () => {
         sections: [{ kind: "kv", heading: "基本信息", items: [{ label: "规模", text: "三千人" }] }],
       },
     }) + "\n```"
-    const html = attachFactionProfileHtml({ fileType: "organization", content: "# 别的" }, source).htmlContent ?? ""
+    const request: FactionProfileAttachRequest = { fileType: "organization", content: "# 别的" }
+    const html = attachFactionProfileHtml(request, source).htmlContent ?? ""
     expect(html).not.toContain('class="role"')
     expect(html).toContain("1 个分区")
   })

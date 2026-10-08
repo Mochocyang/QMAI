@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFile, writeFile, createDirectory, listDirectory } from "@/commands/fs"
+import type { CommunityInfo, GraphEdge, GraphNode } from "@/lib/wiki-graph"
 import { buildWikiGraph } from "@/lib/wiki-graph"
 import { streamChat } from "@/lib/llm-client"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
@@ -75,7 +76,14 @@ const novelConfig: NovelConfig = {
   draftMemoryHintSeen: false,
 }
 
-function node(id: string, community: number) {
+/** Matches the graph shape buildWikiGraph resolves to. */
+interface MockWikiGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  communities: CommunityInfo[]
+}
+
+function node(id: string, community: number): GraphNode {
   return {
     id,
     label: id,
@@ -86,7 +94,7 @@ function node(id: string, community: number) {
   }
 }
 
-function community(id: number, memberIds: string[]) {
+function community(id: number, memberIds: string[]): CommunityInfo {
   return {
     id,
     nodeCount: memberIds.length,
@@ -95,9 +103,11 @@ function community(id: number, memberIds: string[]) {
   }
 }
 
-function graphWithCommunity(id: number, memberIds: string[]) {
+function graphWithCommunity(id: number, memberIds: string[]): MockWikiGraph {
   return {
     nodes: memberIds.map((memberId) => node(memberId, id)),
+    // The community-summary path only reads nodes and communities.
+    edges: [],
     communities: [community(id, memberIds)],
   }
 }
@@ -137,7 +147,7 @@ describe("community summary incremental rebuild", () => {
       cb.onToken("A community summary.")
       cb.onDone()
     })
-    mockEmbedPage.mockResolvedValue(undefined)
+    mockEmbedPage.mockResolvedValue(true)
     useWikiStore.setState({
       embeddingConfig: {
         enabled: true,

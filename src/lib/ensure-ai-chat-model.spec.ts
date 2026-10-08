@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const saveAiChatModel = vi.fn(async () => {})
+const saveAiChatModel = vi.fn<(model: string) => Promise<void>>(async () => {})
 
 vi.mock("@/lib/project-store", () => ({
-  saveAiChatModel: (...args: unknown[]) => saveAiChatModel(...args),
+  saveAiChatModel: (model: string) => saveAiChatModel(model),
 }))
 
 import { ensureAiChatModelSelected } from "./ensure-ai-chat-model"

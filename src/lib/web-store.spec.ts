@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   APP_STATE_ATOMIC_WRITE_COMMAND,
+  type AtomicPersistStore,
   wrapStoreForAtomicPersist,
 } from "./web-store"
 
@@ -15,19 +16,22 @@ describe("wrapStoreForAtomicPersist", () => {
 
   function createInner(initial: Record<string, unknown> = {}) {
     const values = new Map(Object.entries(initial))
+    // The double keeps untyped storage while AtomicPersistStore exposes generic
+    // readers, so get/entries narrow their own lookup to the requested type.
+    const store: AtomicPersistStore = {
+      get: async <T>(key: string) => values.get(key) as T | undefined,
+      set: vi.fn(async (key: string, value: unknown) => {
+        values.set(key, value)
+      }),
+      delete: vi.fn(async (key: string) => values.delete(key)),
+      entries: async <T>() => [...values.entries()] as Array<[string, T]>,
+    }
     return {
       values,
       save: vi.fn(async () => {
         throw new Error("plugin save must not be called")
       }),
-      store: {
-        get: vi.fn(async <T>(key: string) => values.get(key) as T | undefined),
-        set: vi.fn(async (key: string, value: unknown) => {
-          values.set(key, value)
-        }),
-        delete: vi.fn(async (key: string) => values.delete(key)),
-        entries: vi.fn(async () => [...values.entries()] as Array<[string, unknown]>),
-      },
+      store,
     }
   }
 

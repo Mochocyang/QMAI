@@ -26,6 +26,17 @@ import {
   resetGeographyProfileTemplateForTest,
 } from "./geography-setting-template"
 
+/**
+ * attachGeographyProfileHtml<T extends { fileType: string; htmlContent?: string; content: string }> 返回 T，
+ * 因此入参必须显式带上可选的 htmlContent 字段，返回值才暴露 htmlContent（与生产调用方
+ * outline-save-request.ts 中的请求类型一致）。
+ */
+type GeographyProfileSaveRequest = {
+  fileType: string
+  content: string
+  htmlContent?: string
+}
+
 beforeEach(() => {
   fsMock.fileExists.mockReset().mockResolvedValue(false)
   fsMock.readFile.mockReset().mockResolvedValue("")
@@ -111,13 +122,13 @@ describe("geography-setting-template", () => {
 
   it("attachGeographyProfileHtml 渲染地理卡；无数据原样返回；真 HTML 保留", () => {
     const source = "# 地理设定\n## 区域划分\n| 区域 | 类型 |\n| --- | --- |\n| 东荒 | 荒原 |"
-    const attached = attachGeographyProfileHtml({ fileType: "setting", content: source }, source)
-    expect(attached.htmlContent).toContain("地理卡")
+    const attached: GeographyProfileSaveRequest = { fileType: "setting", content: source }
+    expect(attachGeographyProfileHtml(attached, source).htmlContent).toContain("地理卡")
 
-    const empty = { fileType: "setting", content: "" }
+    const empty: GeographyProfileSaveRequest = { fileType: "setting", content: "" }
     expect(attachGeographyProfileHtml(empty, "")).toBe(empty)
 
-    const kept = { fileType: "setting", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
+    const kept: GeographyProfileSaveRequest = { fileType: "setting", content: "x", htmlContent: "<!DOCTYPE html><html></html>" }
     expect(attachGeographyProfileHtml(kept, "x").htmlContent).toContain("<!DOCTYPE html>")
   })
 
