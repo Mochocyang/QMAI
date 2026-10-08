@@ -21,6 +21,26 @@ const fixture = vi.hoisted(() => ({
   enabled: true,
   files: new Map<string, string>(),
   write: vi.fn(),
+  /*
+   * 6 个落盘函数的 spy。
+   *
+   * ── 为什么必须把落盘也盯住（代码质量审查 C2）──
+   * 审查实测：`applyBodyTypographyChange` 在三个 spec 里 **0 命中**，
+   * `.schedule(` 只在 debounced-persist.spec.ts 里出现过。
+   * 也就是说「浮层里改了值 → 真的写进 app-state.json」这条链路上，
+   * **落盘那一段零行为覆盖**，只有"源码里存在这行字符串"级别的守卫。
+   * 而"读回来了却忘了写回 / 写错字段"正是本仓库记录过的最难发现的一类：
+   * 编译过、界面不报错，唯一症状是"重开软件设置回退"。
+   * 所以这里用真 spy 从行为上钉住它。
+   */
+  saved: {
+    fontFamily: vi.fn(async () => {}),
+    fontPx: vi.fn(async () => {}),
+    lineHeight: vi.fn(async () => {}),
+    letterSpacing: vi.fn(async () => {}),
+    marginX: vi.fn(async () => {}),
+    safeBottom: vi.fn(async () => {}),
+  },
 }))
 
 vi.mock("@/lib/ui-test", () => ({ get IS_UI_TEST_BUILD() { return fixture.enabled } }))
@@ -42,6 +62,13 @@ vi.mock("@/commands/fs", async (importOriginal) => ({
 vi.mock("@/lib/project-store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/project-store")>(),
   saveNovelConfig: vi.fn(async () => {}),
+  /* 6 个正文排版落盘函数换成 spy：只观察调用，不改行为。 */
+  saveUiBodyFontFamily: fixture.saved.fontFamily,
+  saveUiBodyFontPx: fixture.saved.fontPx,
+  saveUiBodyLineHeight: fixture.saved.lineHeight,
+  saveUiBodyLetterSpacing: fixture.saved.letterSpacing,
+  saveUiBodyMarginX: fixture.saved.marginX,
+  saveUiBodySafeBottom: fixture.saved.safeBottom,
 }))
 vi.mock("@/components/skill-library/use-de-ai-skill-options", () => ({
   useDeAiSkillOptions: () => ({ loading: false, skills: [], effectiveName: "未启用", currentSkillId: null, defaultSkillId: null, loadError: "" }),
@@ -487,10 +514,16 @@ describe("编辑器异常与原业务回归", () => {
     ["大纲", outlinePath],
   ])("%s写作现场的字体设置浮层暴露全部 6 个控件，且显示的是 store 里的真值", async (_kind, path) => {
     /*
-     * 这条同时补另一个缺口：浮层的取值/回写**此前没有任何覆盖**。
+     * ── 这条覆盖的到底是什么（措辞经代码质量审查 C2 校正过）──
+     * 它覆盖的是**取值**这一半：浮层里每个控件显示的必须是 store 里的真值。
      * 6 个值全是 number，所以"把行间距接成字号"这种串味
      * tsc 拦不住、源码文本断言也拦不住（它只看字面量有没有写对）。
      * 这里从**渲染结果**上看：每个控件显示的值必须等于 store 里的值。
+     *
+     * ⚠ 它**不覆盖回写**：本用例从头到尾没有触发浮层里任何控件的 onChange，
+     * 也不断言任何落盘函数被调用。原来这里的注释写成"补的是取值/回写"，
+     * 是把半个缺口说成了整个 —— 审查指出后已改正。
+     * 回写与落盘由**下一条**用例（"拖动浮层里的滑块会写回 store 并落盘"）真行为覆盖。
      *
      * 用 [data-ui-typography-value="<标签>"] 这个测试钩子
      * （body-typography-fields.tsx 里专门为此加的）。
@@ -538,6 +571,166 @@ describe("编辑器异常与原业务回归", () => {
     expect(shown("行间距"), "行间距应显示 store 里的 1.50").toBe("1.50")
     expect(shown("字间距"), "字间距应显示 store 里的 0.5px").toBe("0.5px")
     expect(shown("底部安全距离"), "底部安全距离应显示 store 里的 64px").toBe("64px")
+  })
+
+  it.each([
+    ["章节", chapterPath],
+    ["大纲", outlinePath],
+  ])("%s写作现场：拖动浮层里的滑块会写回 store 并落盘（真行为，不是源码文本）", async (_kind, path) => {
+    /*
+     * ── 这条补的是「回写 + 落盘」，代码质量审查 C2 指出的真缺口 ──
+     * 上一条只证明"控件显示的值来自 store"（读）。
+     * 这一条从反方向走完整条链路：
+     *   拖滑块 → onChange → applyBodyTypographyChange → store setter
+     *          → schedule(persistAllBodyTypography) → 关浮层 flush → 6 个 saveUiBody*
+     *
+     * 为什么值得单独立一条：这条链路上每一环都可能"看着对其实错"，
+     * 而且全是 tsc 拦不住的 —— 6 个值都是 number：
+     *   · case 与 setter 交叉接错：拖「行间距」结果改了「字间距」
+     *   · 落盘列表漏一个字段：那个设置永远存不下去，重开软件就回退
+     *   · 落盘读错字段：saveUiBodyLineHeight(s.uiBodyFontPx)
+     * 前两条以前只有源码文本断言（且审查实测那两条有假红/漏判），
+     * 第三条则完全没有覆盖。
+     *
+     * 断言用**具体数值**而不是"被调用过"：只查调用次数的话，
+     * 参数接错（把 lineHeight 的值传给 safeBottom）照样绿。
+     */
+    for (const spy of Object.values(fixture.saved)) spy.mockClear()
+
+    const s = useWikiStore.getState()
+    /* 先把 6 个值摆成一组互不相同的数，串味才看得出来 */
+    s.setUiBodyFontPx(19)
+    s.setUiBodyLineHeight(1.8)
+    s.setUiBodyLetterSpacing(0.4)
+    s.setUiBodyMarginX(44)
+    s.setUiBodySafeBottom(55)
+    await mount(path)
+
+    const toolbar = container.querySelector(".ui-test-editor-toolbar")!
+    await act(async () => { button("字体设置", toolbar).click() })
+    const dialog = container.querySelector('[role="dialog"][aria-label="字体设置"]')!
+    expect(dialog).not.toBeNull()
+
+    /*
+     * 拖「行间距」到 2.2 —— 这是最容易被串味接错的一格。
+     * 断言：① store 里 lineHeight 真的变了
+     *       ② 其余 4 个数字字段**一个都没动**（串味的直接特征）
+     */
+    const lineSlider = dialog.querySelector<HTMLInputElement>('input[type="range"][aria-label="行间距"]')!
+    expect(lineSlider, "浮层里应有行间距滑块").not.toBeNull()
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!
+    await act(async () => {
+      nativeSetter.call(lineSlider, "2.2")
+      lineSlider.dispatchEvent(new window.Event("input", { bubbles: true }))
+    })
+
+    const after = useWikiStore.getState()
+    expect(after.uiBodyLineHeight, "拖行间距应把 store 的 lineHeight 改成 2.2").toBe(2.2)
+    expect(after.uiBodyFontPx, "拖行间距不该动字号").toBe(19)
+    expect(after.uiBodyLetterSpacing, "拖行间距不该动字间距").toBe(0.4)
+    expect(after.uiBodyMarginX, "拖行间距不该动左右边距").toBe(44)
+    expect(after.uiBodySafeBottom, "拖行间距不该动底部安全距离").toBe(55)
+
+    /*
+     * 落盘是**去抖**的（400ms），此刻还不该写。
+     * 这一条同时钉住了"确实走了去抖"——若把 schedule 改成直接 await，
+     * 一次拖动会写几十遍 app-state.json，这里会先红。
+     */
+    for (const [name, spy] of Object.entries(fixture.saved)) {
+      expect(spy, `刚拖完还没到去抖窗口，不该已经落盘 ${name}`).not.toHaveBeenCalled()
+    }
+
+    /*
+     * 点浮层外关闭 → 走 document mousedown → closeBodyFontPopover → flush。
+     * 这是用户最常见的操作顺序（「拖完最后一下就关掉」），
+     * 也是"最后一次改动不能被丢掉"这条要求的落点。
+     */
+    await act(async () => {
+      document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }))
+    })
+    expect(container.querySelector('[role="dialog"][aria-label="字体设置"]')).toBeNull()
+
+    /*
+     * 现在 6 个落盘函数都必须被调用，且**各自收到自己那个字段的值**。
+     * 参数接错、漏落盘、落盘读错字段，都会在这里红。
+     */
+    expect(fixture.saved.lineHeight, "关浮层应把行间距落盘").toHaveBeenCalledWith(2.2)
+    expect(fixture.saved.fontPx, "落盘应写 store 里的字号 19").toHaveBeenCalledWith(19)
+    expect(fixture.saved.letterSpacing, "落盘应写字间距 0.4").toHaveBeenCalledWith(0.4)
+    expect(fixture.saved.marginX, "落盘应写左右边距 44").toHaveBeenCalledWith(44)
+    expect(fixture.saved.safeBottom, "落盘应写底部安全距离 55").toHaveBeenCalledWith(55)
+    /*
+     * 正文字体是唯一一个非数字字段，单独断言"被调用过"——
+     * 它的值取决于 store 当前字体，用具体值会让用例依赖默认字体设置。
+     */
+    expect(fixture.saved.fontFamily, "落盘应包含正文字体（漏一个有字段就永远存不下去）").toHaveBeenCalled()
+  })
+
+  it("卸载写作现场时，还没到去抖窗口的排版改动**必须落盘**（不能丢）", async () => {
+    /*
+     * ── 这条守的是一个真实缺陷，代码质量审查 I1 发现的 ──
+     * 原来组件卸载时调的是 `persist.dispose()`。而 dispose 的语义是
+     * **丢弃**待落盘动作（`debounced-persist.ts` 里 `pending = null`），
+     * flush 才是"立刻执行"。
+     *
+     * 为什么这条路径真的会丢：用户调完设置后最常见的做法是直接关掉
+     * 写作视图。关**浮层**那条路径是安全的（document 的 mousedown 会
+     * 先调 closeBodyFontPopover，里面就是 flush）—— 所以上一条用例
+     * 即使全绿也**证明不了**这条不变量。真正没保护的是**不经过 mousedown
+     * 的卸载**：
+     *   ① 拖完滑块 400ms 内直接关窗口 / Alt+F4（走 Tauri 关闭，无 mousedown）
+     *   ② 键盘导航切走视图，导致写作现场整个卸载
+     * 而启动读回是 app-state 优先的，丢一次写入就等于"我明明调过，重开又变回去"。
+     *
+     * 做法：用**独立的 root**（不动 afterEach 用的那个），
+     * 拖完滑块立刻卸载，中间不点任何东西、不关浮层。
+     * 若有人把 flush 改回 dispose，这条会红在"应把行间距落盘"上。
+     */
+    for (const spy of Object.values(fixture.saved)) spy.mockClear()
+
+    const local = document.createElement("div")
+    document.body.appendChild(local)
+    const localRoot = createRoot(local)
+    try {
+      const s = useWikiStore.getState()
+      s.setUiBodyFontPx(19)
+      s.setUiBodyLineHeight(1.8)
+      s.setUiBodySafeBottom(55)
+      useWikiStore.setState({ project, selectedFile: chapterPath, novelMode: true, activeView: "wiki" })
+
+      await act(async () => { localRoot.render(<div className="ui-test-root"><PreviewPanel /></div>) })
+      await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+
+      const toolbar = local.querySelector(".ui-test-editor-toolbar")!
+      const entry = Array.from(toolbar.querySelectorAll<HTMLButtonElement>("button")).find(
+        (item) => item.getAttribute("aria-label") === "字体设置",
+      )!
+      await act(async () => { entry.click() })
+      const dialog = local.querySelector('[role="dialog"][aria-label="字体设置"]')!
+      expect(dialog, "浮层应已打开（否则下面拖的不是浮层里的滑块）").not.toBeNull()
+
+      const lineSlider = dialog.querySelector<HTMLInputElement>('input[type="range"][aria-label="行间距"]')!
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!
+      await act(async () => {
+        nativeSetter.call(lineSlider, "2.4")
+        lineSlider.dispatchEvent(new window.Event("input", { bubbles: true }))
+      })
+      expect(useWikiStore.getState().uiBodyLineHeight, "拖动应立即写进 store").toBe(2.4)
+
+      /* 还没到 400ms 去抖窗口，此刻确实还没落盘 */
+      expect(fixture.saved.lineHeight, "此刻还在去抖窗口内，不该已落盘").not.toHaveBeenCalled()
+
+      /* 关键一步：直接卸载，不关浮层、不点任何东西 */
+      await act(async () => { localRoot.unmount() })
+
+      expect(
+        fixture.saved.lineHeight,
+        "卸载时必须 flush 而不是 dispose —— 否则这次改动会被丢掉，用户重开软件看到设置回退",
+      ).toHaveBeenCalledWith(2.4)
+      expect(fixture.saved.safeBottom, "卸载时该落的是整套值，不只是刚拖的那一个").toHaveBeenCalledWith(55)
+    } finally {
+      local.remove()
+    }
   })
 
   it("已有正文的草稿章打开时提示先保存为正式再提取记忆", async () => {

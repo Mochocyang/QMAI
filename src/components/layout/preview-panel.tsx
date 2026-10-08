@@ -317,9 +317,29 @@ export function PreviewPanel() {
     setBodyFontOpen(false)
   }, [])
 
+  /*
+   * 卸载时**必须 flush，不能 dispose**。
+   *
+   * ⚠ 这里原本写的是 dispose()，那是一个真实的丢数据缺陷（代码质量审查 I1 发现）。
+   * 两者的语义天差地别（见 debounced-persist.ts）：
+   *   · flush()   立刻执行待落盘动作并取消定时器 —— **保住**最后一次改动
+   *   · dispose() 直接丢弃待落盘动作（pending = null）—— **丢掉**最后一次改动
+   *
+   * 为什么"卸载"这条路径上真的会丢：用户调完设置后最常见的做法是直接关掉
+   * 写作视图或关窗口。关浮层那条路径是安全的（document 的 mousedown 会先
+   * 触发 closeBodyFontPopover，它里面就是 flush）—— 但**不经过 mousedown 的
+   * 卸载**没有这个保护：
+   *   ① 拖完滑块 400ms 内直接关窗口 / Alt+F4（走 Tauri 的关闭，没有 mousedown）
+   *   ② 键盘导航切走视图，导致写作现场整个卸载
+   * 而启动读回是 **app-state 优先**的，丢一次 app-state 写入就等于
+   * 「下次开软件，我刚调的设置又变回去了」—— 正是这套去抖逻辑本来要防的那件事。
+   *
+   * 卸载后组件不再存在，所以"立刻写一次"没有重复渲染的代价；
+   * 而"少写一次"的代价是一个用户可见的设置丢失。两者不对称，选 flush。
+   */
   useEffect(() => {
     const persist = bodyTypographyPersist.current
-    return () => { persist.dispose() }
+    return () => { persist.flush() }
   }, [])
 
   /*
