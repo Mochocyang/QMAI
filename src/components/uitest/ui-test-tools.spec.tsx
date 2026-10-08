@@ -179,9 +179,24 @@ describe("真实外观页的测试皮肤", () => {
     const { InterfaceSection } = await vi.importActual<typeof import("@/components/settings/sections/interface-section")>("@/components/settings/sections/interface-section")
     const onChange = vi.fn()
     function InterfaceHarness() {
-      // 此组件只读取 UI 草稿字段；保留真实 React 状态更新以检验所有控件。
+      /*
+       * 正文的 6 个字段必须给全。
+       *
+       * 这里原来只给 5 个界面字段，并用 `as SettingsDraft` 绕过类型检查 ——
+       * 旧的两行本地控件读 `draft.uiBodyFontSizeScale` 只会得到 NaN（不抛错），
+       * 所以缺字段一直没被发现。Task 9 把这两行换成共享控件
+       * `BodyTypographyFields` 后，它读 `value.lineHeight.toFixed(2)`：
+       * undefined 直接抛 `Cannot read properties of undefined`，
+       * 本文件 5 条用例同时红。
+       *
+       * 这不是"共享控件太脆"，而是**这个草稿本来就不完整** ——
+       * `as SettingsDraft` 正是让缺字段逃过类型系统的那个断言。
+       * 本文件其余用例不需要这些字段，但草稿是共享的，所以一并给全。
+       */
       const [draft, setDraft] = useState<SettingsDraft>({
         uiLanguage: "zh", uiFontFamily: "system", uiFontSizeScale: 1,
+        uiBodyFontFamily: "serif-default", uiBodyFontPx: 18, uiBodyLineHeight: 1.95,
+        uiBodyLetterSpacing: 0, uiBodyMarginX: null, uiBodySafeBottom: 51,
         visualStyle: "fangzheng", sidebarNavConfig: DEFAULT_SIDEBAR_NAV_CONFIG,
       } as SettingsDraft)
       return <InterfaceSection draft={draft} setDraft={(key, value) => { onChange(key, value); setDraft((current) => ({ ...current, [key]: value })) }} />
