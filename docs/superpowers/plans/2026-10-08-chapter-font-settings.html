@@ -5196,29 +5196,35 @@ git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大
     <div class="step-body">
       <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
 node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
-node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
-      <p class="expect bad">Expected: <strong>FAIL</strong>。任务 1–11 已经把字号从「rem × 倍数」改成了绝对 px、把行高从字面量改成了变量，而这些脚本还钉着旧契约（例如断言 <code>--qmai-body-line-height</code> 必须恰好是 <code>1.95</code>）。</p>
+node docs/font-scaling-fix-20261007/verify-real-exe.mjs   # ⛔ 本任务**不跑**这一个，见下方警告</code></pre>
+      <p class="expect bad">Expected: <strong>FAIL</strong>（<strong>前两个</strong>；第三个本任务<strong>不跑</strong>，理由见下）。任务 1–11 已经把字号从「rem × 倍数」改成了绝对 px、把行高从字面量改成了变量，而这两个脚本还钉着旧契约（例如断言 <code>--qmai-body-line-height</code> 必须恰好是 <code>1.95</code>）。</p>
       <div class="note danger">
-        <span class="t">⛔ 先看这条再动手：这三个脚本里有<strong>两个会启动真实 exe</strong>，而那个 exe 写的是<strong>用户的真实设置</strong></span>
-        <p>已实测（不是推测）：</p>
+        <span class="t">⛔ 先看这条再动手：三个脚本里<strong>只有一个</strong>会启动真实 exe —— 但按"它到底碰什么"分清，比记住数量更重要</span>
+        <p>已实测（逐个读源码，不是推测）。<strong>本条警告的第一版把分类写错了</strong>（说成"两个会启动真实 exe"），错因是把"用了 playwright"和"启动 exe"混为一谈。留着这段纠正，因为一个<strong>过宽</strong>的警告和一条过窄的判据一样有害：多要求的动作不会出错，却会让人不再逐条核对，并掩盖真正重要的那一条。</p>
         <ul>
-          <li><code>verify-body-font-single-source.mjs</code> —— <strong>静态</strong>，只读两个 CSS 文件。<strong>随便跑</strong>。实测它现在红在恰好 4 条旧契约上（<code>--qmai-body-font-size</code> / <code>-font-list</code> / <code>-font-marker</code> 三条要 <code>calc(…rem * var(--qmai-body-font-scale, 1))</code>，以及 <code>--qmai-body-line-height</code> 要求无单位 <code>1.95</code>），<strong>与上面的预期完全对得上</strong>。</li>
-          <li><code>verify-body-font-scale.mjs</code> 与 <code>verify-real-exe.mjs</code> —— 需要 <code>playwright</code>（走 CDP），后者还会 <strong>起子进程</strong>启动真实 exe。</li>
-          <li><code>verify-real-exe-settings-save.mjs</code>（本任务也要改它）—— 它会<strong>改字号与字体、点保存</strong>，末尾再把初值设回去。</li>
+          <li><code>verify-body-font-single-source.mjs</code> —— <strong>静态</strong>，只读两个 CSS 文件。<strong>随便跑</strong>。实测它现在红在<strong>恰好 4 条</strong>旧契约上（<code>--qmai-body-font-size</code> / <code>-font-list</code> / <code>-font-marker</code> 三条要 <code>calc(…rem * var(--qmai-body-font-scale, 1))</code>，以及 <code>--qmai-body-line-height</code> 要求无单位 <code>1.95</code>），与预期完全对得上。</li>
+          <li><code>verify-body-font-scale.mjs</code> —— <strong>不起 exe、也不连 CDP</strong>：它自己起一个 http 服务把 <code>dist/</code> 喂给 <strong>playwright 自带的 chromium</strong>。实测 <code>dist/</code> 已是新构建（10/09 00:41，且已含 <code>--qmai-body-font-px</code>），所以<strong>现在就能跑、应当红</strong>，而且<strong>完全不碰用户数据</strong>。（前提是 <code>dist/</code> 存在，否则它直接 exit 1。）</li>
+          <li><code>verify-real-exe.mjs</code> —— <strong>唯一会启动 exe 的那个</strong>：<code>spawn(EXE)</code> + <code>connectOverCDP(9222)</code>。</li>
+          <li><code>verify-real-exe-settings-save.mjs</code>（本任务也要改它）—— <strong>不起 exe</strong>，而是 <code>connectOverCDP(9333)</code> 连一个<strong>已经在跑</strong>的实例；它会<strong>改字号与字体、点保存</strong>，末尾再把初值设回去。</li>
         </ul>
-        <p><strong>关键风险</strong>：<code>verify-real-exe.mjs</code> 启动的是仓库内的便携版 <code>release-portable/QMaiWrite.exe</code>（不是用户装的那个，这点是好消息），但它的 identifier 就是 <code>com.qingmuai.writer</code> —— 我扫过那个 exe 的二进制，<strong>没有任何带后缀的隔离变体</strong>。而 Tauri v2 的 app 数据目录 = <code>%APPDATA%\&lt;identifier&gt;\</code>，所以：</p>
+        <p><strong>本任务的决定：不要跑 <code>verify-real-exe.mjs</code>。</strong>下面两条理由任一都够：</p>
+        <ul>
+          <li><strong>它的结果是无效证据</strong>：<code>release-portable/QMaiWrite.exe</code> 是 <strong>10/08 16:16</strong> 构建的，<strong>早于整个 px 改造</strong>（改造落到 <code>dist/</code> 是 10/09 00:41）。拿一个旧前端去跑，测的不是本次契约 —— 它红或绿都不能说明本任务改对了没有。</li>
+          <li><strong>它是唯一会写用户真实设置的那个</strong>（identifier 见下）。</li>
+        </ul>
+        <p>真正的真机验证属于<strong>任务 13</strong>：那时 <code>npx tauri build</code> 会产出含新前端的 exe，再跑才有意义（见任务 13 的交叉引用）。所以本任务的 Step 0 只跑<strong>前两个</strong>。</p>
+        <p><strong>关键风险（只针对 <code>verify-real-exe.mjs</code>）</strong>：它启动的是仓库内的便携版 <code>release-portable/QMaiWrite.exe</code>（不是用户装的那个，这点是好消息），但它的 identifier 就是 <code>com.qingmuai.writer</code> —— 我扫过那个 exe 的二进制，<strong>没有任何带后缀的隔离变体</strong>。而 Tauri v2 的 app 数据目录 = <code>%APPDATA%\&lt;identifier&gt;\</code>，所以：</p>
         <ul>
           <li>它写的正是用户的真实 <code>%APPDATA%\com.qingmuai.writer\app-state.json</code>（26,757 B，47 个键，含 <code>uiFontFamily</code> / <code>uiBodyFontFamily</code> 等真实偏好）。</li>
-          <li>末尾那步"恢复"是<strong>通过界面把值再设回去</strong>，不是还原文件 —— 中途失败/超时就会把用户设置留在被改过的状态。</li>
+          <li>末尾那步「恢复」是<strong>通过界面把值再设回去</strong>，不是还原文件 —— 中途失败/超时就会把用户设置留在被改过的状态。</li>
           <li>本仓库历史上<strong>曾经</strong>用过隔离（<code>%APPDATA%</code> 下留着 <code>com.qingmuai.writer.uitest</code> 与 <code>.uitaudit20260908151432</code> 两个目录），但全仓库 grep <code>uitaudit</code> <strong>零命中</strong> —— 那个机制已经不在了，现在跑就是共用。</li>
         </ul>
-        <p>所以跑之前必须：</p>
+        <p>所以<strong>将来（任务 13）要跑它时</strong>，必须先：</p>
         <ul>
           <li><strong>先备份</strong> <code>app-state.json</code>（记下 SHA-256），跑完核对已逐字节恢复；</li>
-          <li><strong>确认用户已关闭正在运行的那个实例</strong>。运行中的实例持有自己的内存状态，可能在脚本"恢复"之后又保存一次、把恢复覆盖掉 —— 那样"已恢复"的结论就是假的。（我实测过：用户当时确实有一个 <code>D:\QMaiWrite\qmai.exe</code> 在跑。）</li>
-          <li>静态那一条不用管，它只读 CSS。</li>
+          <li><strong>确认用户已关闭正在运行的那个实例</strong>。运行中的实例持有自己的内存状态，可能在脚本「恢复」之后又保存一次、把恢复覆盖掉 —— 那样「已恢复」的结论就是假的。（我实测过：用户当时确实有一个 <code>D:\QMaiWrite\qmai.exe</code> 在跑。）</li>
         </ul>
-        <p>这条警告的通用教训：<strong>验收工具的副作用和它的判据一样需要审。</strong>本仓库已有一次先例是"一个会错误报'通过'的工具比没有工具更危险"；这次是"一个会改用户数据的工具"。凡是会启动真实程序、会写盘的验收脚本，动手前先问三句：它启动的是哪一个？它写到哪里去？失败了会留下什么？</p>
+        <p>这条警告的通用教训：<strong>验收工具的副作用和它的判据一样需要审 —— 而且这份审查本身也会写错，必须逐条对着源码核，不能凭"用了哪个依赖库"推断。</strong>本仓库已有一次先例是「一个会错误报『通过』的工具比没有工具更危险」；这次是「一个会改用户数据的工具」。凡是会启动真实程序、会写盘的验收脚本，动手前先问三句：它启动的是哪一个？它写到哪里去？失败了会留下什么？</p>
       </div>
 
       <div class="note">
@@ -5723,7 +5729,9 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
       <div class="note danger">
         <span class="t">⛔ 跑它之前先看 <strong>任务 12 Step 0</strong> 那条数据安全警告</span>
         <p>那个脚本启动的是仓库内的便携版 <code>release-portable/QMaiWrite.exe</code>，而它内嵌的 identifier 就是 <code>com.qingmuai.writer</code>（我扫过二进制，<strong>没有</strong>任何带后缀的隔离变体）—— 所以它读写的正是你<strong>真实</strong>的设置文件 <code>%APPDATA%\com.qingmuai.writer\app-state.json</code>。</p>
-        <p>本任务这一处只读计算样式，看起来无害；但那条警告里的另外两点同样适用：<strong>先备份 app-state.json 并记 SHA-256</strong>，以及<strong>确认没有正在运行的实例</strong>（运行中的实例可能在之后又保存一次，把脚本的恢复覆盖掉）。</p>
+        <p><strong>与任务 12 的差别正在于此</strong>：任务 12 明确<strong>不跑</strong>这个脚本，因为那时 <code>release-portable/QMaiWrite.exe</code> 还是 10/08 16:16 的旧构建（早于整个 px 改造），跑出来的结果不构成证据。而<strong>本任务已经跑过 <code>npx tauri build</code></strong>，exe 里才第一次含新前端 —— 到这里它才是一个有意义的验证。</p>
+        <p>所以这一次要跑，但必须先：<strong>先备份 app-state.json 并记 SHA-256</strong>（跑完核对逐字节恢复），以及<strong>确认没有正在运行的实例</strong>（运行中的实例可能在之后又保存一次，把脚本的恢复覆盖掉）。</p>
+        <p>另外区分清楚：<code>verify-body-font-scale.mjs</code> <strong>不需要</strong>这些前提 —— 它不碰 exe、不连 CDP，只是把 <code>dist/</code> 喂给 playwright 自带的 chromium（任务 12 已经跑过它）。真正会写用户数据的，只有 <code>verify-real-exe.mjs</code> 这一个。</p>
         <p>为什么在这里要再说一遍：同一风险在两个任务里各出现一次，就应当在两处都能看到 —— 只在任务 12 写一次，等于把安全性寄托在「读者记得别处写过」。（本仓库已有一次同类教训：守卫那一层最初设计成「留给任务 12 统一提交」，结果每个中间任务的提交在检出处都是红的 —— 也是「以为别处会处理」。）</p>
         <p>注意与本任务已有那条「安装前要完全退出正在运行的青幕」的区别：那条是<strong>安装</strong>的要求（文件被占用），与「跑验收脚本会改用户设置」是两件事，不能互相替代。</p>
       </div>
