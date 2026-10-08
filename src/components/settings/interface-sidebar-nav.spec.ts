@@ -240,5 +240,33 @@ describe("settings sidebar nav preferences", () => {
      * （这条只防"删掉"，不证明"互不覆盖" —— 后者由上面两条配对/写回断言保证。）
      */
     expect(appSource).toContain("document.documentElement.style.fontSize")
+
+    /*
+     * 依赖数组必须逐个列出那 5 个字段。
+     *
+     * 为什么这条不能省（Task 5 实现者实测发现，我复现确认）：
+     * 把依赖数组改成 `[]` 时，上面**所有**断言照样全绿 ——
+     * 源码文本一个字都没变，只有运行时行为变了。
+     * 而 `[]` 让 applyBodyTypography 只在挂载时跑一次：
+     * 挂载时 store 初值来自 localStorage（wiki-store 模块加载期的 readStored*），
+     * 而启动读回读的是 app-state（project-store 的 getStore），
+     * 读回值写进 store 后**不会**再落到 CSS 变量 ——
+     * 于是本次会话"设置页显示 A、正文实际 B"，要下次启动才自愈。
+     * 这正是本计划要根除的"设了没反应"同型缺陷，
+     * 而升级迁移（老用户只有旧键）走的恰好是这条读回路径。
+     *
+     * ⚠ 必须**定位到这一个 effect 的依赖数组**，不能直接
+     * `expect(appSource).toContain("[]")` 之类：App.tsx 里本来就有 3 个
+     * 空依赖数组，那样写是恒真的（这正是本仓库反复踩的坑）。
+     * 所以从 applyBodyTypography 调用处往后截取到它自己的 `])` 为止。
+     */
+    const callAt = appSource.indexOf("applyBodyTypography({")
+    const afterCall = appSource.slice(callAt)
+    const depsAt = afterCall.indexOf("}, [")
+    const depsEnd = afterCall.indexOf("])", depsAt)
+    const deps = depsAt >= 0 && depsEnd > depsAt ? afterCall.slice(depsAt, depsEnd) : ""
+    for (const [, storeField] of APPLIED) {
+      expect(deps).toContain(storeField)
+    }
   })
 })
