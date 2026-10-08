@@ -243,6 +243,34 @@
 .ui-test-root .ui-test-editor-body :is(ul, ol) { margin: 6px 0 16px; padding-left: 1.5em; }
 .ui-test-root .ui-test-editor-body :is(pre, table) { max-width: 100%; overflow-x: auto; }
 .ui-test-root .ui-test-editor-body img { max-width: 100%; height: auto; }
+/*
+ * 表格 / 引用块 / 代码块在 WYSIWYG 编辑态没有任何骨架。
+ * milkdown 主题包只做正文排版（段落、列表、标题），gfm 预设虽然把
+ * `| 项 | 设定 |` 解析成了 <table>，却没有配套的边框和内边距，
+ * 于是导入的设定集在编辑态摊成一片纯文字、列与列之间看不出边界。
+ * 实测那份真实设定集 427 行里有 160 行是表格行、34 行引用、3 段围栏代码，
+ * 所以这三类都要补，取值与阅读态（WikiReader 的组件样式）对齐。
+ * 只作用于编辑态根节点（.ProseMirror / .milkdown）：阅读态既有样式已经齐全，
+ * 再叠加会变成双层边框。
+ * 单元格里 `> p` 那条必须比上面 `:is(.ProseMirror, [dir][lang]) p`（优先级 0,4,1）
+ * 更具体，否则正文的段首缩进会留在表格里把列撑歪；这里多带一层 .tableWrapper
+ * （prosemirror-tables 生成的表格包裹层，见 milkdown-vendor chunk 里
+ * `this.dom.className = "tableWrapper"`）来取得 0,4,2。
+ */
+.ui-test-root .ui-test-editor-body .ProseMirror table,
+.ui-test-root .ui-test-editor-body .milkdown table { width: 100%; margin: 0 0 16px; border-collapse: collapse; }
+.ui-test-root .ui-test-editor-body .ProseMirror :is(th, td),
+.ui-test-root .ui-test-editor-body .milkdown :is(th, td) { border: 1px solid var(--ui-line); padding: 6px 12px; line-height: 1.7; text-align: start; vertical-align: top; }
+.ui-test-root .ui-test-editor-body .ProseMirror th,
+.ui-test-root .ui-test-editor-body .milkdown th { background: var(--ui-soft); font-weight: 600; }
+.ui-test-root .ui-test-editor-body .ProseMirror .tableWrapper table :is(th, td) > p,
+.ui-test-root .ui-test-editor-body .milkdown .tableWrapper table :is(th, td) > p { margin: 0; text-indent: 0; }
+.ui-test-root .ui-test-editor-body .ProseMirror blockquote,
+.ui-test-root .ui-test-editor-body .milkdown blockquote { margin: 0 0 16px; border-left: 3px solid var(--ui-accent); background: var(--ui-panel); padding: 8px 14px; }
+.ui-test-root .ui-test-editor-body .ProseMirror blockquote > :last-child,
+.ui-test-root .ui-test-editor-body .milkdown blockquote > :last-child { margin-bottom: 0; }
+.ui-test-root .ui-test-editor-body .ProseMirror pre,
+.ui-test-root .ui-test-editor-body .milkdown pre { margin: 0 0 16px; border: 1px solid var(--ui-line); border-radius: 6px; background: var(--ui-panel); padding: 12px 14px; }
 /* 原写作文本已经含全角缩进，不能再叠加 CSS 缩进。Enter/查找/选区沿用原编辑器。 */
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea { text-indent: 0; }
 /* 声明视觉缩进，不改 textarea 值、选区或写盘；原生控件的支持限制见下。 */

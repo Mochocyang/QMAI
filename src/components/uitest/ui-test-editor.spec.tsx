@@ -560,6 +560,48 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
   })
 
+  it("表格/引用/代码块在编辑态有骨架，且单元格不受正文段首缩进影响", () => {
+    // 导入的设定集在编辑态摊成纯文字：gfm 解析出了 <table>，但编辑态没有边框和内边距。
+    // 断言按"单行片段"来写，避免依赖换行符（本文件是 CRLF）。
+    expect(css).toContain(".ui-test-root .ui-test-editor-body .ProseMirror table,")
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown table \{ width: 100%; margin: 0 0 16px; border-collapse: collapse; \}/,
+    )
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown :is\(th, td\) \{ border: 1px solid var\(--ui-line\); padding: 6px 12px;/,
+    )
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown th \{ background: var\(--ui-soft\); font-weight: 600; \}/,
+    )
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown blockquote \{ margin: 0 0 16px; border-left: 3px solid var\(--ui-accent\); background: var\(--ui-panel\);/,
+    )
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown pre \{ margin: 0 0 16px; border: 1px solid var\(--ui-line\);/,
+    )
+
+    /*
+     * 关键：单元格内 `> p` 的重置必须比上面
+     * `.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p`
+     * 更具体。那条是 0,4,1（两个 class + :is 里最具体的 [dir][lang] 两个属性 → b=4，
+     * 再加元素 p），所以这里凑到 0,4,2：.tableWrapper + table + :is(th,td) + p。
+     * 只断言"写了这条规则"不够——选择器写弱了规则照样在文件里，
+     * 只是会被上面那条盖掉、表格里每格文字仍缩进两字，所以连 .tableWrapper
+     * 与 table 两层一起钉住。
+     */
+    expect(css).toContain(
+      ".ui-test-root .ui-test-editor-body .ProseMirror .tableWrapper table :is(th, td) > p,",
+    )
+    expect(css).toMatch(
+      /\.ui-test-root \.ui-test-editor-body \.milkdown \.tableWrapper table :is\(th, td\) > p \{ margin: 0; text-indent: 0; \}/,
+    )
+
+    // 正文段落本身的 2em 缩进不能被这次修改动到。
+    expect(css).toMatch(
+      /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: 1\.95; text-indent: 2em; \}/,
+    )
+  })
+
   it("全部选择器受ui-test-root约束，长标题、窄屏、菜单都不溢出", () => {
     expect(css).toContain(".ui-test-root .ui-test-editor")
     const selectors = css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+(?=\{)/g) ?? []
