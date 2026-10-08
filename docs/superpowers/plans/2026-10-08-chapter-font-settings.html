@@ -196,6 +196,30 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
   </div>
 
+  <h3>写 store 测试前必读：zustand 的 getState() 是快照</h3>
+  <div class="note warn">
+    <span class="t">先取快照、再调 setter、再断言快照的字段 —— 这条必定红，且与你的实现无关</span>
+    <p>zustand 5 的 <code>setState</code> 实现是
+    <code>state = Object.assign({}, state, nextState)</code>
+    （<code>node_modules/zustand/esm/vanilla.mjs</code>）：每次写都换成一个<strong>新对象</strong>。
+    所以下面这种写法永远读到调用 setter <strong>之前</strong>的值：</p>
+    <pre><code>const s = store.getState()
+s.setUiBodyFontPx(9999)
+expect(s.uiBodyFontPx).toBe(32)   // ✗ 实测 expected 18 to be 32 —— s 是旧快照</code></pre>
+    <p>正确写法是每次断言都重新取：</p>
+    <pre><code>const s = store.getState()      // 取一次，只用来调 setter
+s.setUiBodyFontPx(9999)
+expect(store.getState().uiBodyFontPx).toBe(32)   // ✓ 实时读</code></pre>
+    <p>还有一类更隐蔽的：<code>expect(s.uiBodyMarginX).toBeNull()</code>，它靠「初值本来就是
+    <code>null</code>」偶然变绿，对 setter 到底写没写<strong>毫无鉴别力</strong>。
+    凡是要断言「设成 X 之后就是 X」，先设一个<strong>不同的</strong>值再设 X ——
+    这样「没写」和「写错」都会红。</p>
+    <p><strong>为什么单独立一条</strong>：Task 3 的实现者实测踩到了它 ——
+    用例名叫「写入的值经过钳制」却因为读旧快照而必红（<code>expected 18 to be 32</code>），
+    看上去像实现写错了，实际是断言写法错了。同一个模板会出现在任何"先取快照再调 setter"
+    的 store 测试里，所以写在这里。</p>
+  </div>
+
   <h3>开工前先跑一条门禁</h3>
   <div class="note">
     <span class="t">每次改完本计划、以及每个任务开工前</span>
@@ -1371,21 +1395,33 @@ describe("正文排版参数（store 侧）", () => {
   })
 
   it("写入的值经过钳制（范围是单一来源，不在 store 里各写一遍）", async () =&gt; {
-    const s = (await freshStore()).getState()
+    const store = await freshStore()
+    const s = store.getState()
+    /*
+     * ⚠ 断言必须读**实时** state（store.getState().字段），不能读上面那个 s。
+     * zustand 5 的 setState 是 state = Object.assign({}, state, nextState)
+     * （见 node_modules/zustand/esm/vanilla.mjs），每次写都换成一个**新对象**，
+     * 所以 s 永远是调用 setter 之前的那个旧快照 —— 读 s.uiBodyFontPx 会一直得到
+     * 初值 18，这条用例就变成"必红且与实现无关"（实测 expected 18 to be 32）。
+     */
     s.setUiBodyFontPx(9999)
-    expect(s.uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
+    expect(store.getState().uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
     s.setUiBodyLineHeight(0)
-    expect(s.uiBodyLineHeight).toBe(BODY_LINE_HEIGHT_MIN)
+    expect(store.getState().uiBodyLineHeight).toBe(BODY_LINE_HEIGHT_MIN)
     s.setUiBodySafeBottom(-5)
-    expect(s.uiBodySafeBottom).toBe(BODY_SAFE_BOTTOM_MIN)
+    expect(store.getState().uiBodySafeBottom).toBe(BODY_SAFE_BOTTOM_MIN)
   })
 
   it("左右边距可以存成「跟随窗口」(null)，且读回还是 null", async () =&gt; {
-    const s = (await freshStore()).getState()
+    const store = await freshStore()
+    const s = store.getState()
+    // 先设一个非 null 值，再设回 null：这样"setter 没写"或"把 null 写成 0"
+    // 都会红。若只断言初值就是 null，那它证明不了任何事（初值本来就是 null）。
     s.setUiBodyMarginX(40)
+    expect(store.getState().uiBodyMarginX).toBe(40)
     expect(localStorage.getItem("qmai-body-margin-x")).toBe("40")
     s.setUiBodyMarginX(null)
-    expect(s.uiBodyMarginX).toBeNull()
+    expect(store.getState().uiBodyMarginX).toBeNull()
     // null 不能落成字符串 "null"，否则读回时 Number("null") 是 NaN
     expect(localStorage.getItem("qmai-body-margin-x")).not.toBe("null")
   })
@@ -2019,16 +2055,68 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
   it("App 通过 applyBodyTypography 应用 5 个排版变量，且与界面字号机制不同", () =&gt; {
     const appSource = readFileSync(resolve(__dirname, "../../App.tsx"), "utf8")
     expect(appSource).toContain("applyBodyTypography({")
-    // 5 个参数必须都在同一次调用里（少一个就不会生效）
-    for (const field of ["fontPx", "lineHeight", "letterSpacing", "marginX", "safeBottom"]) {
-      expect(appSource).toContain(`${field}: uiBody`)
+
+    /*
+     * 5 个参数的**配对**必须逐字对上。
+     *
+     * 为什么不能只断言「字段名 + 某个 uiBody* 名字」：
+     * 那样写的话，把 lineHeight: uiBodyLineHeight 串成 lineHeight: uiBodySafeBottom
+     * 仍然绿 —— tsc 也拦不住（五个值都是 number）。
+     * 而"串味"正是这种一次写 5 个变量的写法最容易犯的错。
+     */
+    const APPLIED = [
+      ["fontPx", "uiBodyFontPx"],
+      ["lineHeight", "uiBodyLineHeight"],
+      ["letterSpacing", "uiBodyLetterSpacing"],
+      ["marginX", "uiBodyMarginX"],
+      ["safeBottom", "uiBodySafeBottom"],
+    ]
+    for (const [field, storeField] of APPLIED) {
+      expect(appSource).toContain(`${field}: ${storeField}`)
     }
-    // 界面字号仍是根字号百分比（rem 基准），两者机制不同、互不覆盖
+
+    /*
+     * 启动读回：**每一条读回都必须真的写进 store**。
+     *
+     * 这是本任务最容易漏、也最难发现的一步 —— 读回来了却忘了写回，
+     * 编译过、界面不报错、本次会话也不报错，只有"重开软件设置回退"
+     * 这一个症状，而它恰恰是启动读回存在的全部理由。
+     * 所以这里断言的是"读回 + 判空 + 写回"三件事连成的整句原文：
+     * 删掉写回那一行、把 setter 换错、把判空条件改坏，都会立刻变红。
+     *
+     * 注意 marginX 用的是 !== null（null 是合法值，表示"跟随窗口"，
+     * 此时保留 store 默认值即可，不能写成 ?? 或把 null 也写进去）。
+     */
+    const ROUND_TRIP = [
+      ["savedBodyFontPx", "UiBodyFontPx"],
+      ["savedBodyLineHeight", "UiBodyLineHeight"],
+      ["savedBodyLetterSpacing", "UiBodyLetterSpacing"],
+      ["savedBodyMarginX", "UiBodyMarginX"],
+      ["savedBodySafeBottom", "UiBodySafeBottom"],
+    ]
+    for (const [saved, suffix] of ROUND_TRIP) {
+      expect(appSource).toContain(`await load${suffix}(`)
+      expect(appSource).toContain(
+        `if (${saved} !== null) useWikiStore.getState().set${suffix}(${saved})`,
+      )
+    }
+
+    /*
+     * 整个计划里最该被钉住的一行。
+     *
+     * 老用户只有旧键"正文倍数"，新字号 = 旧倍数 × 界面字号。
+     * 迁移时若忘了把界面字号传进去，界面字号 150% 的用户升级后
+     * 会发现正文**变小**了 —— 不报错、不崩溃，只是悄悄变了。
+     * 这个缺陷在计划评审阶段真的出现过一次，所以宁可单独钉一行。
+     */
+    expect(appSource).toContain("await loadUiBodyFontPx(uiFontSizeScale)")
+
+    /*
+     * 界面字号机制不许被顺手删掉：它仍是根字号百分比（rem 基准），
+     * 与正文的绝对 px 是两套机制。
+     * （这条只防"删掉"，不证明"互不覆盖" —— 后者由上面两条配对/写回断言保证。）
+     */
     expect(appSource).toContain("document.documentElement.style.fontSize")
-    // 启动必须逐项读回，否则重开软件就丢
-    for (const loader of ["loadUiBodyFontPx(uiFontSizeScale)", "loadUiBodyLineHeight()", "loadUiBodyLetterSpacing()", "loadUiBodyMarginX()", "loadUiBodySafeBottom()"]) {
-      expect(appSource).toContain(loader)
-    }
   })</code></pre>
 
             <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
@@ -2357,6 +2445,17 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      现在唯一来源是 --qmai-body-safe-bottom，由用户在"字体设置"里调。
      缺省 51px 是用户确认的值。 */
   padding-bottom: var(--qmai-body-safe-bottom, 51px);</code></pre>
+
+      <div class="note">
+        <span class="t">一条跨任务依赖：这条 CSS 改完，"行距可调"还不算被证明</span>
+        <p>本任务把正文的 <code>line-height</code> 从写死的 <code>1.95</code> 改成
+        <code>var(--qmai-body-line-height)</code>，而那个变量当前是由
+        <code>ui-test.css</code> 里的字面量 <code>1.95</code> 提供的 ——
+        真正的间接层（<code>var(--qmai-body-leading, 1.95)</code>）是<strong>任务 6</strong> 的活。</p>
+        <p>也就是说：任务 6 没做时，本任务那条断言照样绿，而行间距滑块对正文段落完全无效。
+        本任务只证明"CSS 引用的是变量"，不证明"用户能调"。别在报告里把后者算成已完成 ——
+        那条链路由任务 6 提供变量、任务 12 做静态守卫、任务 13 真机读回，三处合起来才算。</p>
+      </div>
 
       <p>文件末尾 <code>@media (max-width: 640px)</code> 块里要删<strong>两行</strong>，不止一行：
 
@@ -3796,8 +3895,20 @@ node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
       <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect">Expected: 全绿。若红，说明某个任务的 Step 0 改了一半 —— 回到那个任务处理，不要在这里补写。</p>
       <p>复核三层契约确实都还在（防止被"顺手放宽"）：</p>
-      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/settings/interface-sidebar-nav.spec.ts','utf8'); const must=[['五层-控件','BodyTypographyFields'],['五层-迁移','resolveMigratedBodyFontPx('],['五层-App','applyBodyTypography({'],['五层-现场','openBodyFontPopover'],['五层-flush','bodyTypographyPersist.current.flush()'],['计数-恰好两处','?.length).toBe(2)']]; for(const [n,m] of must) if(!s.includes(m)) throw new Error('守卫缺少 '+n+'（'+m+'）'); console.log('OK 五层接线断言都在，且入口计数仍是恰好 2')"</code></pre>
+      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/settings/interface-sidebar-nav.spec.ts','utf8'); const must=[['五层-控件','BodyTypographyFields'],['五层-迁移','resolveMigratedBodyFontPx('],['五层-App','applyBodyTypography({'],['五层-现场','openBodyFontPopover'],['五层-flush','bodyTypographyPersist.current.flush()'],['计数-恰好两处','openBodyFontPopover(event.currentTarget)']]; for(const [n,m] of must) if(!s.includes(m)) throw new Error('守卫缺少 '+n+'（'+m+'）'); console.log('OK 五层接线断言都在，且入口计数仍是恰好 2')"</code></pre>
       <p class="expect">Expected: <code>OK 五层接线断言都在，且入口计数仍是恰好 2</code>。若报缺哪一层，回到对应任务查提交。</p>
+
+      <div class="note">
+        <span class="t">为什么复核串里不能用 <code>?.length).toBe(2)</code></span>
+        <p>那个片段是<strong>恒真</strong>的：<code>interface-sidebar-nav.spec.ts</code> 里
+        <code>wiki-store</code> 的旧断言本来就有
+        <code>expect(wikiStoreSource.match(/clampUiFontSizeScale\(/g)?.length).toBe(2)</code>。
+        也就是说 —— 任务 11 写进去的"两处入口"计数即使被删掉、或被放宽成
+        <code>toBeGreaterThan(0)</code>，这条复核<strong>照样打印 OK</strong>，
+        而那正是它要防的"顺手放宽"。</p>
+        <p>换成 <code>openBodyFontPopover(event.currentTarget)</code> 才有鉴别力：
+        它是任务 11 新增的函数调用串，改造前在仓库里 0 次出现，被删就一定报缺。</p>
+      </div>
     </div>
   </div>
 
@@ -3812,8 +3923,18 @@ node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect">Expected: 全绿（任务 7 交付时就是绿的）。若有红，说明任务 7 之后的某个改动动了 CSS，回到任务 7 处理，<strong>不要在这里改断言迁就实现</strong>。</p>
       <p>顺带复核四条新契约确实还在，防止被"顺手放宽"：</p>
-      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x','--qmai-body-letter-spacing','--qmai-body-line-height']; for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 四条新契约断言仍在')"</code></pre>
+      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x, clamp(20px, 4vw, 48px)','--qmai-body-letter-spacing, 0','letter-spacing: var(--qmai-body-letter-spacing)']; for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 四条新契约断言仍在')"</code></pre>
       <p class="expect">Expected: <code>OK 四条新契约断言仍在</code>。若报"守卫里缺少"，说明断言被删了 —— 查任务 7 的提交，不要重新写一份。</p>
+
+      <div class="note">
+        <span class="t">原复核串里 <code>--qmai-body-line-height</code> 是恒真的</span>
+        <p>那个变量名在<strong>改造前</strong>就已经出现在
+        <code>ui-test-editor.spec.tsx</code> 里（正文行高的旧断言），所以拿它当"新契约还在"的证据
+        等于什么都没证明 —— 被删掉也不会报缺。</p>
+        <p>换成改造前<strong>不存在</strong>的三个串才有鉴别力：<code>--qmai-body-margin-x, clamp(20px, 4vw, 48px)</code>、
+        <code>--qmai-body-letter-spacing, 0</code>、以及<code>letter-spacing: var(--qmai-body-letter-spacing)</code>
+        （分别是本次新增的兜底值、默认值与使用点）。实测改造前这三个串在该文件里都是 0 次出现。</p>
+      </div>
     </div>
   </div>
 
@@ -3902,7 +4023,28 @@ function isDerivedRatio(value, numerator, denominator) {
     }
   }</code></pre>
 
-      <p><strong>3)</strong> 第 176 行那句「ui-test-editor.css 里也定义了 …」的名单里去掉已经没有意义的 <code>BODY_SCALE_VAR</code>（该变量已废弃）。若全仓 grep 确认无人再引用 <code>BODY_SCALE_VAR</code>，把它第 45 行的导出也删掉。</p>
+      <p><strong>3)</strong> 第 176 行那句「ui-test-editor.css 里也定义了 …」的名单里去掉已经没有意义的 <code>BODY_SCALE_VAR</code>（该变量已废弃）。</p>
+
+      <div class="note warn">
+        <span class="t">第 1 步和第 3 步都有一个陷阱：删了定义却还有人在用</span>
+        <p>这两件事都必须<strong>先 grep 再动手</strong>，否则自检会以 ReferenceError 崩掉 ——
+        而不是体面地"逐类检出反例"，你会以为自检器坏了。</p>
+        <p><strong>① <code>isScaledRem</code> 不能只删定义。</strong>第 1 步把它替换掉之后，
+        文件末尾的校验主体里还有一处调用它（<code>const ok = d.value === var(...) || isScaledRem(d.value, rem)</code>）。
+        那处必须一起改掉 —— 改成两个新判据的组合，例如
+        <code>d.value === var(...) || isDerivedRatio(d.value, num, den)</code>。
+        留着悬空引用的话，自检跑到对应的反例时会抛
+        <code>ReferenceError: isScaledRem is not defined</code>，整个 <code>--selftest</code> 中断。</p>
+        <p><strong>② <code>BODY_SCALE_VAR</code> 的导出删不得。</strong>别处的措辞是"若 grep 确认无人引用就删"，
+        但<strong>本文件里还有两处引用它</strong>：一处是校验主体的 <code>bad()</code> 提示文案，
+        另一处是 <code>expectScaled</code> 循环里的错误信息模板串
+        （<code>`…应写 calc(${rem}rem * var(${BODY_SCALE_VAR}, 1))`</code>）。
+        删掉导出 → 反例触发那条模板串 → ReferenceError。
+        <strong>正确做法：保留 45 行的导出，只在提示文案里改措辞</strong>（把"应写 calc(rem × 倍数)"
+        改成"应写 calc(var(--qmai-body-font-size) × 分子 / 分母)"）。
+        更好的是把这两处文案也一并改成新模型，然后导出就真的没人用了 —— 但那要连
+        <code>expectScaled</code> 的调用形态一起改，属于第 2 步的收尾，别漏。</p>
+      </div>
 
       <p><strong>4)</strong> 更新第 286–289 行的 <code>ROOT_OK</code> 夹具：</p>
 <pre><code class="cmd">  --qmai-body-font-size: var(--qmai-body-font-px, 18px);
@@ -3910,7 +4052,31 @@ function isDerivedRatio(value, numerator, denominator) {
   --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 2 / 3);
   --qmai-body-line-height: var(--qmai-body-leading, 1.95);</code></pre>
 
-      <p><strong>5)</strong> 第 300–302 行 <code>GOOD_EDITOR</code> 里的 <code>line-height: 1.9;</code> 三处改为 <code>line-height: var(--qmai-body-line-height);</code>；第 334 行的变异</p>
+      <p><strong>5)</strong> 第 300–302 行 <code>GOOD_EDITOR</code> 里的 <code>line-height: 1.9;</code> 三处改为 <code>line-height: var(--qmai-body-line-height);</code>。</p>
+
+      <div class="note warn">
+        <span class="t">改完这两个夹具之后，有两条既有反例会变成"空操作"—— 必须一起修</span>
+        <p>第 4 步与第 5 步换掉了 <code>ROOT_OK</code> 与 <code>GOOD_EDITOR</code> 的内容，
+        而两条既有反例是靠 <code>.replace(旧串, …)</code> 构造的。旧串一消失，
+        <code>replace</code> 就成了 no-op（不报错、静默返回原文），于是那条"反例"
+        其实喂进去的是**完全合规的 CSS**，自然报不出红 → 自检恒 ✗。
+        这正是第 7 步要你确认的那种失败，所以先把它们改对：</p>
+        <p><strong>① 反例⑨「变量倍数写错」</strong> —— 它 replace 的是 <code>"0.75rem"</code>，
+        但新 <code>ROOT_OK</code> 里的标记尺寸已经是 <code>calc(var(--qmai-body-font-size) * 2 / 3)</code>，
+        没有 <code>0.75rem</code> 了。改写成一个仍然"错"的派生比例，例如把
+        <code>2 / 3</code> 换成 <code>3 / 4</code>：
+        <code>ROOT_OK.replace("calc(var(--qmai-body-font-size) * 2 / 3)", "calc(var(--qmai-body-font-size) * 3 / 4)")</code>。
+        用例名也顺手改成「变量派生比例写错（2/3 写成 3/4）」。</p>
+        <p><strong>② 反例⑪「px 行高漏网」</strong> —— 它的 <code>mut(from, to)</code> 搜索串里含
+        <code>line-height: 1.9;</code>，而第 5 步刚把这三处全改掉了。
+        把搜索串里的 <code>line-height: 1.9;</code> 换成 <code>line-height: var(--qmai-body-line-height);</code>
+        （替换目标仍写 <code>line-height: 26px;</code>）—— 语义不变：证明"px 行高会被抓到"。</p>
+        <p><strong>怎么自查</strong>：跑 <code>--selftest</code> 时，若某条夹具报"未报红"，
+        先怀疑它是不是空操作 —— 在 <code>node -e</code> 里把那个 <code>replace</code>
+        单独跑一遍，看字符串有没有真的变。</p>
+      </div>
+
+      <p>第 334 行的变异</p>
 <pre><code class="cmd">    GOOD_EDITOR, ROOT_OK.replace("calc(1.125rem * var(--qmai-body-font-scale, 1))", "1.125rem"), false)</code></pre>
       <p>改为</p>
 <pre><code class="cmd">    GOOD_EDITOR, ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "18px"), false)</code></pre>
@@ -3919,7 +4085,23 @@ function isDerivedRatio(value, numerator, denominator) {
       <p>改为</p>
 <pre><code class="cmd">    GOOD_EDITOR, ROOT_OK + "\n.ui-test-root { --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 3 / 4); }", false)</code></pre>
 
-      <p><strong>6)</strong> 在自检里<strong>新增两条负向夹具</strong>，专门验证新守卫真的会红：</p>
+      <p><strong>6)</strong> 在自检里<strong>新增三条负向夹具</strong>，专门验证新守卫真的会红：</p>
+
+      <div class="note warn">
+        <span class="t">必须用 add(...)，不是 mut(...) —— 写错了会"静默不跑还打印 OK"</span>
+        <p>自检里有两个 helper，签名差别很大：</p>
+        <pre><code>const add = (name, css, css2, expectClean) =&gt; cases.push({ name, css, css2, expectClean })
+const mut = (from, to) =&gt; GOOD_EDITOR.replace(from, to)</code></pre>
+        <p><code>add</code> 才<strong>注册用例</strong>；<code>mut</code> 只是"在 GOOD_EDITOR 上做一次替换、返回字符串"。
+        所以下面这种写法是<strong>错的</strong>：</p>
+        <pre><code>mut("正文字号间接层被重复声明", GOOD_EDITOR, ROOT_OK + "…", false)   // ✗</code></pre>
+        <p>四参传给两参函数：<code>to</code> 之后的实参被丢弃，<code>mut</code> 返回一个字符串后
+        就地被丢掉 —— <strong>一个用例都没注册</strong>，自检却照样打印"通过"。
+        而 <code>docs/**/*.mjs</code> 不在 <code>tsconfig.test.json</code> 的 include 里，
+        连"实参个数不对"都不会报。三条新防线就此全部落空。</p>
+        <p>正确写法（第 3 个参数是要校验的 CSS，第 4 个是 <code>expectClean=false</code>，
+        表示"这条应当报红"）：</p>
+      </div>
 <pre><code>  /* 新增：App 独占变量被重复声明时必须报红 ——
      这是本次改造新引入的失败模式，必须有负向夹具证明守卫有效 */
   mut("正文字号间接层被重复声明",
@@ -3963,6 +4145,28 @@ node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs --selftes
       <div class="note danger">
         <span class="t">不要为了让脚本变绿而放松判据</span>
         <p>这三个脚本的价值在于「用真实渲染证明设置真的生效」。如果改成"只要变量存在就算过"，它们就从证据退化成了摆设。判据必须是<strong>计算结果</strong>（计算样式的 px 值），不是"属性字符串里有某个字"。</p>
+      </div>
+
+      <div class="note warn">
+        <span class="t">表格只说了"改名"，但这两个脚本的<strong>数学</strong>也建立在乘积上 —— 必须一起改</span>
+        <p>这是本次改造里最容易漏的一处：新设计把正文与界面字号<strong>彻底解耦</strong>
+        （正文是绝对 px，界面字号只影响界面）。而下面这些地方全都在断言
+        「界面字号 × 正文字号」的乘积语义：</p>
+        <ul>
+          <li><code>verify-body-font-scale.mjs</code>：组合表
+          <code>[[100, null], [100, "1.25"], [150, null], [150, "1.5"], [80, "0.85"]]</code>
+          与期望值 <code>want = 18 * (rootPct / 100) * k</code>，以及头注释里写的
+          「③ 界面字号 × 正文字号 必须乘积生效（设计 §5.3）」。新模型下
+          <code>rootPct=150</code> 那一档的期望值不再是 27px 而是 18px（正文不随界面字号变）。</li>
+          <li><code>verify-real-exe.mjs</code>：<code>exp = (c.bodyScale ?? 1) * (c.rootPct ? c.rootPct / 100 : 1)</code>
+          以及 <code>双150%</code> / <code>双85%</code> 这两个组合 —— "双"这个概念本身没了。</li>
+        </ul>
+        <p><strong>要做的不是"让它们变绿"，而是把断言改成新模型下仍然有意义的形状</strong>：
+        保留"界面字号变化时正文<strong>不</strong>跟着变"这一条（这正是本次改造的语义），
+        把乘积期望值换成"正文始终等于设定的 px"。这样脚本反而更能证明新行为 ——
+        它证明的是「解耦」而不是「乘积」。</p>
+        <p>不要只是把 <code>rootPct=150</code> 那档从组合表里删掉。删掉等于放弃
+        「界面字号改了正文不变」这个本次最核心的新不变量，而任务 13 会以为它被验证过。</p>
       </div>
     </div>
   </div>
