@@ -5,7 +5,12 @@ import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, Out
 import { DEFAULT_NOVEL_CONFIG, DEFAULT_RERANK_CONFIG } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import {
-  clampBodyFontSizeScale,
+  clampBodyFontPx,
+  clampBodyLineHeight,
+  clampBodyLetterSpacing,
+  clampBodyMarginX,
+  clampBodySafeBottom,
+  resolveMigratedBodyFontPx,
   normalizeBodyFontFamily,
   normalizeUiFontFamily,
   type BodyFontFamily,
@@ -890,7 +895,16 @@ export async function loadVisualStyle(): Promise<VisualStyle | null> {
 const UI_FONT_SIZE_SCALE_KEY = "uiFontSizeScale"
 const UI_FONT_FAMILY_KEY = "uiFontFamily"
 const BODY_FONT_FAMILY_KEY = "uiBodyFontFamily"
+/*
+ * 旧键（倍数）保留**只读**：新版本不再写它，但读回时要用它做一次性迁移。
+ * 不删除的理由与 wiki-store.ts 那边一致 —— 用户回滚到旧版本时旧设置仍在。
+ */
 const BODY_FONT_SIZE_SCALE_KEY = "uiBodyFontSizeScale"
+const BODY_FONT_PX_KEY = "uiBodyFontPx"
+const BODY_LINE_HEIGHT_KEY = "uiBodyLineHeight"
+const BODY_LETTER_SPACING_KEY = "uiBodyLetterSpacing"
+const BODY_MARGIN_X_KEY = "uiBodyMarginX"
+const BODY_SAFE_BOTTOM_KEY = "uiBodySafeBottom"
 const MAX_HISTORY_MESSAGES_KEY = "maxHistoryMessages"
 
 export async function saveUiFontSizeScale(scale: number, _projectId?: string, _projectPath?: string): Promise<void> {
@@ -924,17 +938,96 @@ export async function loadUiBodyFontFamily(): Promise<BodyFontFamily | null> {
   return saved ? normalizeBodyFontFamily(saved) : null
 }
 
-/** 持久化正文字号。与界面字号各用各的键，互不覆盖。 */
-export async function saveUiBodyFontSizeScale(scale: number): Promise<void> {
+/* ── 正文排版参数（5 个键，各自独立） ──
+ *
+ * 为什么不合成一个「排版设置对象」存一个键：
+ * 这 5 个参数在设置页是 5 个独立控件、在写作现场是 5 个独立滑块。
+ * 合成对象后，任何一次「只改行距」的写入都必须把其它 4 个值一起回写，
+ * 一旦某个控件传了 undefined，就会把别的设置清掉 —— 这正是要防的串味。
+ * 所以一个参数一个键，读写只碰自己那一个。
+ */
+
+/**
+ * 「数字即全部语义」的参数通用落盘。
+ * 只有左右边距不适用（它的 null 有语义，见 saveUiBodyMarginX）。
+ */
+async function saveBodyNumber(key: string, value: number, clamp: (input: unknown) => number): Promise<void> {
   const store = await getStore()
-  await store.set(BODY_FONT_SIZE_SCALE_KEY, clampBodyFontSizeScale(scale))
+  await store.set(key, clamp(value))
   await store.save()
 }
 
-export async function loadUiBodyFontSizeScale(): Promise<number | null> {
+/** 通用读回。返回 null 表示「没有存过」，由调用方决定是否保留默认值。 */
+async function loadBodyNumber(key: string, clamp: (input: unknown) => number | null): Promise<number | null> {
   const store = await getStore()
-  const saved = await store.get<number>(BODY_FONT_SIZE_SCALE_KEY)
-  return saved === null || saved === undefined ? null : clampBodyFontSizeScale(saved)
+  const saved = await store.get<number>(key)
+  return saved === null || saved === undefined ? null : clamp(saved)
+}
+
+/** 持久化正文字号（px）。 */
+export async function saveUiBodyFontPx(value: number): Promise<void> {
+  await saveBodyNumber(BODY_FONT_PX_KEY, value, clampBodyFontPx)
+}
+
+/**
+ * 读回正文字号（px）。新键优先；读不到时交给 resolveMigratedBodyFontPx，
+ * 它会乘入界面字号并处理「没存过 + 界面字号非默认」的补种。
+ * 返回 null = 不要覆盖 store 默认值。旧键不删除。
+ *
+ * 为什么要界面倍数当**参数**而不是在这里自己读：
+ * 本模块（app-state）里根本没有 loadUiFontSizeScale ——
+ * app-state.json 里那个 uiFontSizeScale 键是只写不读的既有缺口，
+ * 启动时的界面字号实际来自 wiki-store 的 localStorage 读取。
+ * 与其在这里补一个半吊子读取，不如让已经拿到值的调用方传进来：
+ * App 的启动块本来就有 uiFontSizeScale，传参是零成本的，
+ * 而且两个来源不可能分叉。
+ */
+export async function loadUiBodyFontPx(uiFontScale: number): Promise<number | null> {
+  const direct = await loadBodyNumber(BODY_FONT_PX_KEY, clampBodyFontPx)
+  if (direct !== null) return direct
+  const store = await getStore()
+  const legacy = await store.get<number>(BODY_FONT_SIZE_SCALE_KEY)
+  return resolveMigratedBodyFontPx(legacy, uiFontScale)
+}
+
+export async function saveUiBodyLineHeight(value: number): Promise<void> {
+  await saveBodyNumber(BODY_LINE_HEIGHT_KEY, value, clampBodyLineHeight)
+}
+
+export async function loadUiBodyLineHeight(): Promise<number | null> {
+  return loadBodyNumber(BODY_LINE_HEIGHT_KEY, clampBodyLineHeight)
+}
+
+export async function saveUiBodyLetterSpacing(value: number): Promise<void> {
+  await saveBodyNumber(BODY_LETTER_SPACING_KEY, value, clampBodyLetterSpacing)
+}
+
+export async function loadUiBodyLetterSpacing(): Promise<number | null> {
+  return loadBodyNumber(BODY_LETTER_SPACING_KEY, clampBodyLetterSpacing)
+}
+
+/**
+ * 持久化左右边距。null 表示「跟随窗口」：此时**删除**该键，
+ * 让读回也得到 null（而不是存字符串 "null"，读回时 Number("null") 是 NaN）。
+ */
+export async function saveUiBodyMarginX(value: number | null): Promise<void> {
+  const store = await getStore()
+  const clamped = clampBodyMarginX(value)
+  if (clamped === null) await store.delete(BODY_MARGIN_X_KEY)
+  else await store.set(BODY_MARGIN_X_KEY, clamped)
+  await store.save()
+}
+
+export async function loadUiBodyMarginX(): Promise<number | null> {
+  return loadBodyNumber(BODY_MARGIN_X_KEY, clampBodyMarginX)
+}
+
+export async function saveUiBodySafeBottom(value: number): Promise<void> {
+  await saveBodyNumber(BODY_SAFE_BOTTOM_KEY, value, clampBodySafeBottom)
+}
+
+export async function loadUiBodySafeBottom(): Promise<number | null> {
+  return loadBodyNumber(BODY_SAFE_BOTTOM_KEY, clampBodySafeBottom)
 }
 
 export async function saveMaxHistoryMessages(max: number, _projectId?: string, _projectPath?: string): Promise<void> {
