@@ -4541,6 +4541,22 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
         基线绿 → 只改 <code>save</code> 变红 → 只改 <code>set</code> 变红 → 两侧都改变红；
         并且<strong>把新断言注掉后，「只改 save」必须重新变绿</strong> ——
         这一步排除了"其实是别的断言顺手挡住了"这种可能。</p>
+        <p><strong>顺带纠正一个曾经写错的判断</strong>：Task 10 实现时把「把某条 <code>save</code> 行注释掉、测试仍全绿」归类成 <strong>「源码文本断言的固有盲区，无法避免」</strong>。这句话<strong>不对</strong>。</p>
+        <p>实测（<code>.codex-temp/check-tsc-unused-net.mjs</code>，用仓库自带的 tsc、与 <code>tsconfig.app.json</code> 一致的开关）：<code>tsconfig.app.json</code> 第 20 行有 <code>noUnusedLocals: true</code>，而注释掉调用行会让<strong>对应的解构绑定变成未使用</strong> ——</p>
+        <p>（那条脚本是<strong>常驻门禁</strong>，不是用完即弃的探针：它同时盯着 <code>tsconfig.app.json</code> 里那个开关还在不在 —— 图纸这句话完全依赖它。所以<strong>不要删它</strong>；删了会有另一条检查器报警，见下。）</p>
+        <ul>
+          <li>基线（5 个解构名全用到）→ exit 0，绿；</li>
+          <li>注释掉用 <code>saveUiBodyMarginX</code> 的那一行 → exit 2，<code>error TS6133: 'saveUiBodyMarginX' is declared but its value is never read.</code></li>
+        </ul>
+        <p>所以<strong>这一层原本就没有洞</strong>，两条防线还是<strong>互补</strong>的：</p>
+        <ul>
+          <li>注释掉调用行、名字仍留在解构里 → <strong>tsc 红</strong>（TS6133），文本断言绿；</li>
+          <li>连名字一起从解构里删掉 → tsc 绿，<strong>文本断言红</strong>（上面那条 <code>toContain("saveUiBodyMarginX(draft.uiBodyMarginX)")</code> 找不到）；</li>
+          <li>只删名字、留着调用 → tsc 红（名字未定义），文本断言绿。</li>
+        </ul>
+        <p>也就是说，"漏掉这一行"的每一种形态都各有一条防线接住。说它是"无法避免的盲区"，会让人去补一个<strong>已经存在</strong>的守卫，或者干脆接受一个<strong>并不存在</strong>的缺口。</p>
+        <p><strong>通用教训：「这个测试看不见」≠「没有防线」。</strong>判定"盲区"之前要枚举<strong>所有</strong>已经跑着的门禁（这里是 tsc 的 <code>noUnusedLocals</code>），而不是只看手里这一个测试文件。盲区判断错了有两个方向的害处：一是往上补冗余守卫（而且新守卫本身可能没有鉴别力）；二是更糟的 —— 让人认为缺口不可避免而<strong>停止找</strong>，把一个已经闭合的环当成开的。</p>
+        <p>这与图纸里 Task 5 那一段是同一族：那里是"文本断言对控制流不敏感"，于是换了 AST 去看语法结构；这里是"文本断言看不见未使用绑定"，而 tsc 已经在看了。两处的答案都是<strong>先问别的门禁管不管</strong>，再决定要不要新写守卫。</p>
       </div>
     </div>
   </div>
