@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { existsSync, readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
 import { act, createRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,6 +9,12 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import {
+  BODY_MARGIN_X_VIEWPORT_MAX,
+  BODY_MARGIN_X_VIEWPORT_MIN,
+  BODY_MARGIN_X_VIEWPORT_VW,
+  defaultBodyMarginXForViewport,
+} from "@/lib/font-settings"
 import { UiTestEditor } from "./ui-test-editor"
 
 const fixture = vi.hoisted(() => ({
@@ -609,6 +615,143 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
   })
 
+  it("字间距只声明一处，靠继承保证输入层与高亮层取值必然相同", () => {
+    // 复制成三份的话，改其中一份就会让覆盖层与输入文字错位。
+    // 继承是"按构造相同"，比三处写同一个表达式更强。
+    const matches = css.match(/letter-spacing:\s*var\(--qmai-body-letter-spacing/g) ?? []
+    expect(matches.length).toBe(1)
+    expect(css).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+  })
+
+  it("列表行高跟随行间距变量，标题与表格保持固定", () => {
+    // 列表三项都必须引用变量：只改 p 的话列表行距不动，
+    // 用户会觉得「行间距只对一半文字有效」
+    for (const selector of [":is(ul, ol)", "li {", "li p"]) {
+      const at = css.indexOf(selector)
+      expect(at, `找不到选择器片段：${selector}`).toBeGreaterThan(-1)
+    }
+    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: 1\.9/)
+    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距
+    expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
+    expect(css).toMatch(/line-height: 1\.7;/)
+  })
+
+  it("底部安全距离与左右边距都是变量，没有写死的数字残留", () => {
+    // 改造前是 padding-bottom: 36px（窄屏另有 28px），两处独立数字正是"不可调"的根源
+    expect(css).toMatch(/\.ui-test-editor-scroll \{[^}]*padding-bottom:\s*var\(--qmai-body-safe-bottom, 51px\)/)
+    expect(css).not.toContain("padding-bottom: 36px")
+    expect(css).not.toContain("padding-bottom: 28px")
+    // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
+    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, clamp\(20px, 4vw, 48px\)\)/)
+    expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
+  })
+
+  /**
+   * CSS 的兜底 clamp 与 font-settings 里的常量必须是同一组数。
+   *
+   * 为什么要拿常量拼出期望串、而不是把 "clamp(20px, 4vw, 48px)" 抄一遍：
+   * 抄一遍的话，改常量时这条断言照样绿，而设置页显示给用户的
+   * 「当前实际边距」会与真实渲染不符 —— 界面在说谎，且没有任何红灯。
+   * 用常量拼串才能让漂移变成一个失败的测试。
+   */
+  it("左右边距的 CSS 兜底值与 font-settings 的常量一致", () => {
+    const expected = `clamp(${BODY_MARGIN_X_VIEWPORT_MIN}px, ${BODY_MARGIN_X_VIEWPORT_VW}vw, ${BODY_MARGIN_X_VIEWPORT_MAX}px)`
+    expect(css).toContain(`var(--qmai-body-margin-x, ${expected})`)
+    // 同一个表达式在设置页算出的值必须与实际渲染一致
+    expect(defaultBodyMarginXForViewport(1000)).toBe(40)
+  })
+
+  it("窄屏媒体查询里不再有会盖掉 padding 的规则", () => {
+    /*
+     * 为什么这条必须有：基规则上的 padding: 0（Step 2）与
+     * @media (max-width: 640px) 里的 .ui-test-root .ui-test-editor { padding: 0 20px; }
+     * **特异性完全相同**，而后者在文件更后面 —— 于是在 ≤640px 时它会把
+     * padding 覆盖回去：用户把左右边距拖到最小，窄窗口里仍残留 20px，
+     * 就是本计划要根除的「设了没反应」。
+     * 上面那条断言只钉基规则（[^}]*padding:\s*0;），留着这条媒体查询它照样绿 ——
+     * 实测确认过：删掉这条规则**没有任何红灯**。补这一条才让它变红。
+     * （这与 Task 5 的依赖数组缺口同型：都是"已知但没钉住"。）
+     */
+    const at = css.indexOf("@media (max-width: 640px)")
+    expect(at, "应还有窄屏媒体查询").toBeGreaterThan(-1)
+    // 按大括号配对切出该媒体查询的块体，而不是用正则猜到哪里结束
+    const open = css.indexOf("{", at)
+    let depth = 0
+    let end = -1
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++
+      else if (css[i] === "}") { depth--; if (depth === 0) { end = i; break } }
+    }
+    expect(end, "应能找到该媒体查询的收尾大括号").toBeGreaterThan(-1)
+    const block = css.slice(open, end)
+    // 反面：不许再有 .ui-test-editor 的 padding 覆盖
+    expect(block, "窄屏媒体查询里不该再有 .ui-test-editor 的 padding 覆盖").not.toMatch(
+      /\.ui-test-root \.ui-test-editor \{/,
+    )
+    // 正面：顶部标题那条规则要留着 —— 防止"把整个媒体查询删掉"冒充通过
+    expect(block).toContain(".ui-test-editor-header")
+  })
+
+  it("5 个 App 独占变量不许在任何 CSS 里被声明，只能用 var(…, 兜底) 取用", () => {
+    /*
+     * 为什么这条要**全仓扫描**，而不是只看某一个文件：
+     *
+     * 这 5 个变量的唯一合法写入方是 App（写在 documentElement 的行内样式上，
+     * 见 App.tsx 的 applyBodyTypography effect）。一旦哪条 CSS 规则把它们
+     * **声明**出来，就会出现本计划反复要根除的那个症状 ——
+     * 「设置保存了但界面不变」：宿主规则比 html 更近时（.ui-test-root 就是，
+     * 见 ui-test.css 顶部那句注释），继承下来的 App 值会被本规则盖掉。
+     *
+     * 这个坑此前**没有任何断言拦着**：Task 6 的实现者做了变异 M3
+     * （在 .ui-test-root 里加一行 --qmai-body-font-px: 20px），
+     * 全仓 699 个测试文件没有一个变红。也就是说它今天没人踩，
+     * 只是也没有任何东西阻止别人明天踩。
+     *
+     * 为什么不写成"检查某个文件的某一段"：声明可以出现在任何一个 CSS 里
+     * （index.css、ui-test-tools.css、将来新增的都能放）。漏一个文件
+     * 等于没防，所以按目录递归全扫。
+     *
+     * 兜底值不是"不许有"，而是**必须写成使用点的第二个参数**
+     * var(--qmai-body-font-px, 18px)。那条路径不参与层叠，是安全的。
+     */
+    const APP_EXCLUSIVE_BODY_VARS = [
+      "--qmai-body-font-px",
+      "--qmai-body-leading",
+      "--qmai-body-letter-spacing",
+      "--qmai-body-margin-x",
+      "--qmai-body-safe-bottom",
+    ]
+
+    const cssFiles: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (entry.name.endsWith(".css")) cssFiles.push(full)
+      }
+    }
+    walk(resolve(__dirname, "..", ".."))   // src/
+    expect(cssFiles.length, "应当扫到多个 CSS 文件（扫不到说明路径写错了）").toBeGreaterThan(3)
+
+    const violations: string[] = []
+    for (const file of cssFiles) {
+      const lines = readFileSync(file, "utf8").split(/\r?\n/)
+      for (const [index, line] of lines.entries()) {
+        for (const name of APP_EXCLUSIVE_BODY_VARS) {
+          // 声明形态：行首（允许缩进）就是「变量名 + 冒号」
+          if (new RegExp(`^\\s*${name}\\s*:`).test(line)) {
+            violations.push(`${relative(resolve(__dirname, "..", ".."), file)}:${index + 1}  ${line.trim()}`)
+          }
+        }
+      }
+    }
+    expect(
+      violations,
+      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\\n` +
+        `要表达默认值，请写成使用点的第二个参数 var(--qmai-body-xxx, 兜底值)。`,
+    ).toEqual([])
+  })
+
   it("表格/引用/代码块在编辑态有骨架，且单元格不受正文段首缩进影响", () => {
     // 导入的设定集在编辑态摊成纯文字：gfm 解析出了 <table>，但编辑态没有边框和内边距。
     // 断言按"单行片段"来写，避免依赖换行符（本文件是 CRLF）。
@@ -645,9 +788,10 @@ describe("测试版正文样式边界", () => {
       /\.ui-test-root \.ui-test-editor-body \.milkdown \.tableWrapper table :is\(th, td\) > p \{ margin: 0; text-indent: 0; \}/,
     )
 
-    // 正文段落本身的 2em 缩进不能被这次修改动到。
+    // 正文段落本身的 2em 缩进不能被这次修改动到；行高必须是变量引用 ——
+    // 写死 1.95 会让「行间距」这个设置对正文段落完全失效。
     expect(css).toMatch(
-      /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: 1\.95; text-indent: 2em; \}/,
+      /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: var\(--qmai-body-line-height\); text-indent: 2em; \}/,
     )
   })
 

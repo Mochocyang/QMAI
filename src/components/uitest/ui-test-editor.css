@@ -4,7 +4,12 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0 clamp(20px, 4vw, 48px);
+  /* 水平边距移到 .ui-test-editor-document 上（见下一条）。
+     为什么不能留在这一层：正文容器有 max-width: 800px。
+     在 1280px 窗口下，把这里的 padding 从 48px 一路调大，
+     正文仍是 800px 宽、位置不变 —— 滑块看起来完全没反应，
+     正是本仓库反复要根除的"设了没反应"。 */
+  padding: 0;
   background: var(--ui-paper);
   color: var(--ui-ink);
   font-family: var(--ui);
@@ -19,6 +24,10 @@
   max-width: 800px;
   min-width: 0;
   margin: 0 auto;
+  /* 左右边距的真正落点：它直接决定正文行宽（800px 上限内的可用宽度）。
+     未拖动滑块时 --qmai-body-margin-x 不存在，兜底值 clamp(20px,4vw,48px)
+     与改造前逐位相同，老用户打开不会有任何视觉变化。 */
+  padding: 0 var(--qmai-body-margin-x, clamp(20px, 4vw, 48px));
 }
 
 .ui-test-root .ui-test-editor-header {
@@ -37,7 +46,12 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-bottom: 36px;
+  /* 底部安全距离：滚到底时最后一行下方保留的空白。
+     改造前这里是写死的 36px，且窄屏另有一条 28px 覆盖（已删除，
+     见文件末尾的 @media 块）—— 两处独立数字正是"不可调"的根源。
+     现在唯一来源是 --qmai-body-safe-bottom，由用户在"字体设置"里调。
+     缺省 51px 是用户确认的值。 */
+  padding-bottom: var(--qmai-body-safe-bottom, 51px);
   scrollbar-width: thin;
   scrollbar-color: var(--ui-soft) transparent;
 }
@@ -224,8 +238,14 @@
 
    因此本文件由 verify-body-font-single-source.mjs（静态）+
    verify-real-exe.mjs（真实 exe 读 ::marker）+ verify-real-exe-settings-save.mjs
-   （真实 exe 走设置保存）三重把关；计算样式普查发现不了这里。 */
-.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); overflow-wrap: anywhere; }
+   （真实 exe 走设置保存）三重把关；计算样式普查发现不了这里。
+
+   新的可调参数（字号 px / 行间距 / 字间距 / 左右边距 / 底部安全距离）
+   一律通过 ui-test.css 的间接层与使用点的 var(...) 兜底值流向正文，
+   函数入口只有 font-settings.ts 的 applyBodyTypography 一个。
+   为什么要有入口：这些值同时决定正文与覆盖在正文上的查找高亮层，
+   两处各写一次就会错位（见上面 [data-find-highlights] 的说明）。 */
+.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); letter-spacing: var(--qmai-body-letter-spacing, 0); overflow-wrap: anywhere; }
 /* 让旧编辑器参与正文排版，不再叠加文档卡片和第二个滚动容器。 */
 .ui-test-root .ui-test-editor-body > div { height: auto; overflow: visible; }
 .ui-test-root .ui-test-editor-body .immersive-scroll-container { height: auto; overflow: visible; }
@@ -235,7 +255,7 @@
 .ui-test-root .ui-test-editor-body .ProseMirror,
 .ui-test-root .ui-test-editor-body [dir][lang],
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea { color: var(--ui-ink); font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: 1.95; text-indent: 2em; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: var(--qmai-body-line-height); text-indent: 2em; }
 .ui-test-root .ui-test-editor-body :is(h1, h2, h3, h4, h5, h6, li, blockquote, pre),
 .ui-test-root .ui-test-editor-body :is(li, blockquote) p { text-indent: 0; }
 /* 文档标题：字号跟随正文字号倍数，但字体按用户确认保持 var(--ui)。 */
@@ -287,12 +307,12 @@
 .ui-test-root .ui-test-editor-body [data-ui-test-frontmatter] { display: none; }
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { font-size: var(--qmai-body-font-size); }
 .ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-body :is(.ProseMirror, [dir][lang]) > p { text-indent: 0; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: var(--qmai-body-font-list); line-height: 1.9; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9; }
-.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: 1.9; text-indent: 0; }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); text-indent: 0; }
 /* 列表标记：**只有非章节文档（大纲/设定页）会走到这两条**——章节正文是
    textarea，不可能产生 li。实测比例必须是「无序标记(0.75rem) < 无序列表项(1rem)」
-   与「有序标记 = 有序列表项」，两者都随 --qmai-body-font-scale 等比缩放。
+   与「有序标记 = 有序列表项」，两者都随 --qmai-body-font-size 等比缩放。
    检查方式见上方注释与 verify-real-exe.mjs（必须读 li::marker，
    **不能**读 ul::marker：后者会静默返回 ul 自身的字号，而 16px 恰好等于
    有序标记的期望值，会得到一个假通过）。 */
@@ -329,9 +349,7 @@
 .ui-test-root .ui-test-editor-empty h2 { margin: 0; color: var(--ui-ink); font: 500 1.375rem/1.5 var(--serif); }
 
 @media (max-width: 640px) {
-  .ui-test-root .ui-test-editor { padding: 0 20px; }
   .ui-test-root .ui-test-editor-header { padding-top: var(--ui-heading-top); }
-  .ui-test-root .ui-test-editor-scroll { padding-bottom: 28px; }
   .ui-test-root .ui-test-editor-title-row { gap: 10px; }
   .ui-test-root .ui-test-editor-meta { margin-left: 0; }
   .ui-test-root .ui-test-editor-toolbar { gap: 6px; margin-bottom: 24px; }
