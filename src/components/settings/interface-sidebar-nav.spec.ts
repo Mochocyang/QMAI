@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import ts from "typescript"
 import { describe, expect, it } from "vitest"
 
 const interfaceSectionSource = readFileSync(resolve(__dirname, "sections/interface-section.tsx"), "utf8")
@@ -235,13 +236,6 @@ describe("settings sidebar nav preferences", () => {
     expect(appSource).toContain("await loadUiBodyFontPx(uiFontSizeScale)")
 
     /*
-     * 界面字号机制不许被顺手删掉：它仍是根字号百分比（rem 基准），
-     * 与正文的绝对 px 是两套机制。
-     * （这条只防"删掉"，不证明"互不覆盖" —— 后者由上面两条配对/写回断言保证。）
-     */
-    expect(appSource).toContain("document.documentElement.style.fontSize")
-
-    /*
      * 依赖数组必须逐个列出那 5 个字段。
      *
      * 为什么这条不能省（Task 5 实现者实测发现，我复现确认）：
@@ -259,6 +253,8 @@ describe("settings sidebar nav preferences", () => {
      * `expect(appSource).toContain("[]")` 之类：App.tsx 里本来就有 3 个
      * 空依赖数组，那样写是恒真的（这正是本仓库反复踩的坑）。
      * 所以从 applyBodyTypography 调用处往后截取到它自己的 `])` 为止。
+     * （截取的起点是**第一处**调用 —— 下面的"只有一个调用点"断言负责
+     *  保证第一处就是唯一那处，否则这段会检查错对象。）
      */
     const callAt = appSource.indexOf("applyBodyTypography({")
     const afterCall = appSource.slice(callAt)
@@ -267,6 +263,180 @@ describe("settings sidebar nav preferences", () => {
     const deps = depsAt >= 0 && depsEnd > depsAt ? afterCall.slice(depsAt, depsEnd) : ""
     for (const [, storeField] of APPLIED) {
       expect(deps).toContain(storeField)
+    }
+
+    /*
+     * 界面字号机制不许被顺手删掉：它仍是根字号百分比（rem 基准），
+     * 与正文的绝对 px 是两套机制。
+     *
+     * ⚠ 只断言上面这一行 token 是不够的 —— Task 5 的质量评审实测出两个漏网的变异：
+     *     · 把值改成字面量 "100%"（界面字号从此永久失效）→ 绿
+     *     · 把 deps 改成 []（改界面字号要重启才生效）→ 绿
+     *   因为 `toContain` 只证明"这行还在"，对"值算什么"和"何时重跑"都不敏感。
+     *   而同一个文件里紧邻的 applyBodyTypography 那条已经补了依赖数组断言，
+     *   兄弟 effect 不能只靠一个 token 兜着 —— 那两个变异的用户可见后果
+     *   与正文字号失效是同一类（"设了没反应"）。
+     * 所以这里复刻同一种形状：定位到它自己的作用域，断言完整表达式 + 依赖数组。
+     */
+    const sizeAt = appSource.indexOf("document.documentElement.style.fontSize")
+    expect(sizeAt).toBeGreaterThan(-1)
+    // 到此 effect 结束为止的一小段（`}, [...])` 是它的收尾）
+    const sizeTail = appSource.slice(sizeAt, appSource.indexOf("}, [", sizeAt) + 120)
+    // 值必须是"界面字号 × 100 取整"这个表达式，不能是写死的百分比
+    expect(sizeTail).toMatch(/Math\.round\(\s*uiFontSizeScale\s*\*\s*100\s*\)/)
+    // 依赖数组必须跟着界面字号，否则改了要重启才生效
+    expect(sizeTail).toMatch(/\},\s*\[\s*uiFontSizeScale\s*\]/)
+
+    /*
+     * 正文排版 effect 在全文件里**只能有一个调用点**。
+     *
+     * 为什么这条不是洁癖：上面那段依赖数组断言用 `indexOf("applyBodyTypography({")`
+     * 取**第一处**。Task 5 的质量评审构造了一个诱饵 —— 在真实 effect 之前
+     * 插一个文本完整的第二处调用，再把**真实** effect 的依赖数组改成 `[]`
+     * （就是我们要防的那个 bug），依赖数组断言照样全绿，因为它检查的是诱饵。
+     * 真实来源并不牵强：写作现场若也要应用一次排版、或旧写法被注释掉却留了
+     * 完整文本，都会产生第二个调用点。
+     * 钉住"只有一个"就把这种漂移变成红。
+     */
+    expect(
+      appSource.split("applyBodyTypography({").length - 1,
+      "applyBodyTypography 应只有一个调用点（多处会让依赖数组断言检查错对象）",
+    ).toBe(1)
+
+    /*
+     * ── 控制流层：上面**全部**文本断言都原理上看不见的那一半 ──
+     *
+     * Task 5 的质量评审实测出两个漏网变异，它们比"改坏一个字面量"隐蔽得多：
+     *   · `if (false) applyBodyTypography({…})` —— 5 个配对、5 条读回、
+     *     正确的依赖数组**文本一个都没变**，功能却 100% 死掉；
+     *   · 把 5 条「判空 + 写回」整块包进 `if (false) { … }` —— 同理。
+     * 两者都全绿。这不是"变异无害"，是**源码文本断言对控制流不敏感**：
+     * 它只能证明"这些字还在文件里"，证明不了"这行会被执行"。
+     *
+     * 而它们的用户可见后果正是本计划存在的理由：启动读回不执行
+     * ⇒「重开软件设置就回退」。这个症状不会报错、不会崩，
+     * 只有用户自己会发现 —— 与当初 F1 那个"界面 150% 的老用户正文变小"同类。
+     *
+     * 所以这一层改用 TypeScript AST：不看文本，看**语法结构**。
+     * 两个判据：
+     *   1. 那次调用/那 5 条写回必须是所在函数体里的**直接语句**，
+     *      向上到函数体之间不能夹着 if / 三元；
+     *   2. 依赖数组**逐项等于**那 5 个标识符（按 AST 取，不靠 indexOf 猜位置）。
+     * 判据 2 顺带替掉"唯一调用点"那条的脆弱性来源：这里按 effect 找，
+     * 不按"文件里第一次出现"找，诱饵骗不到它。
+     */
+    const sf = ts.createSourceFile("App.tsx", appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    /*
+     * `parseDiagnostics` 存在于运行时，但**不在** SourceFile 的公开类型上
+     * （TypeScript 把它标成内部字段）。所以这里显式取交集类型，而不是
+     * `as any` —— 保留"它是个诊断数组"这个信息，也避免把整行类型关掉。
+     * 断言它的意义：这个 AST 守卫的一切结论都建立在"文件能解析"之上；
+     * 若解析失败（例如有人把 App.tsx 改成语法错误），AST 会静默退化成一堆
+     * 残缺节点，后面的"找不到 if 包裹"就会**假绿**。所以先钉住解析是否成功。
+     */
+    const parseDiagnostics = (sf as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] })
+      .parseDiagnostics
+    expect(parseDiagnostics, "App.tsx 应能被解析（否则这个 AST 守卫会假绿）").toHaveLength(0)
+
+    const isFunctionLike = (n: ts.Node): boolean =>
+      ts.isArrowFunction(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n)
+
+    /** 从 node 向上走到最近的函数体；途中遇到 if / 三元即视为"可能不执行"。 */
+    const conditionallyGuarded = (node: ts.Node): boolean => {
+      let cur: ts.Node | undefined = node.parent
+      while (cur && !isFunctionLike(cur)) {
+        if (ts.isIfStatement(cur) || ts.isConditionalExpression(cur)) return true
+        cur = cur.parent
+      }
+      return false
+    }
+
+    const effectNodes: ts.CallExpression[] = []
+    const collectEffects = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "useEffect"
+      ) {
+        effectNodes.push(node)
+      }
+      ts.forEachChild(node, collectEffects)
+    }
+    collectEffects(sf)
+    expect(effectNodes.length, "App.tsx 里应能找到多个 useEffect").toBeGreaterThan(1)
+
+    // (1) 排版 effect：依赖数组按 AST 逐项核对
+    const applyEffect = effectNodes.find((e) => e.getText().includes("applyBodyTypography"))
+    expect(applyEffect, "应有一个 useEffect 调用 applyBodyTypography").toBeDefined()
+    if (applyEffect) {
+      const depsArg = applyEffect.arguments[1]
+      expect(
+        ts.isArrayLiteralExpression(depsArg),
+        "排版 effect 必须有显式依赖数组（省略它会让它每次渲染都跑）",
+      ).toBe(true)
+      if (ts.isArrayLiteralExpression(depsArg)) {
+        expect(depsArg.elements.map((e) => e.getText())).toEqual([
+          "uiBodyFontPx",
+          "uiBodyLineHeight",
+          "uiBodyLetterSpacing",
+          "uiBodyMarginX",
+          "uiBodySafeBottom",
+        ])
+      }
+
+      let callNode: ts.CallExpression | null = null
+      const findApplyCall = (n: ts.Node): void => {
+        if (
+          !callNode &&
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === "applyBodyTypography"
+        ) {
+          callNode = n
+        }
+        ts.forEachChild(n, findApplyCall)
+      }
+      findApplyCall(applyEffect)
+      expect(callNode, "应在该 effect 里找到 applyBodyTypography 调用").not.toBeNull()
+      if (callNode) {
+        expect(
+          conditionallyGuarded(callNode),
+          "applyBodyTypography 不能被 if / 三元包着 —— 文本断言看不见这种死代码",
+        ).toBe(false)
+      }
+    }
+
+    // (2) 5 条启动读回写回同样不许被包在条件里
+    /*
+     * 判据必须**窄**：第一版写成「thenStatement 里出现 useWikiStore.getState().set」
+     * 就收录，结果匹配到 **22** 条 —— App.tsx 里还有别的"判空后写 store"。
+     * 那样断言"恰好 5 条"会直接红，而放宽成"至少 5 条"又会让真正那 5 条
+     * 被别的语句稀释掉（用户可见后果完全不同：读回缺失才是"重开设置回退"）。
+     * 所以这里要求 thenStatement 是**单条表达式**、且整条文本就是
+     * `useWikiStore.getState().setXxx(yyy)` 这一种形状。
+     */
+    const WRITE_BACK = /^useWikiStore\.getState\(\)\.set[A-Za-z]+\([A-Za-z]+\)$/
+    const writeBacks: ts.IfStatement[] = []
+    const collectWriteBacks = (node: ts.Node): void => {
+      if (
+        ts.isIfStatement(node) &&
+        ts.isExpressionStatement(node.thenStatement) &&
+        WRITE_BACK.test(node.thenStatement.getText())
+      ) {
+        writeBacks.push(node)
+      }
+      ts.forEachChild(node, collectWriteBacks)
+    }
+    collectWriteBacks(sf)
+    expect(writeBacks.length, "应恰好有 5 条「判空 + 写回 store」").toBe(5)
+    for (const wb of writeBacks) {
+      expect(
+        conditionallyGuarded(wb),
+        `读回写回不能被 if / 三元包裹（否则重开软件设置就回退）：${wb.getText().slice(0, 70)}`,
+      ).toBe(false)
     }
   })
 })
