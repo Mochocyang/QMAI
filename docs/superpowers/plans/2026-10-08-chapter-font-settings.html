@@ -4441,7 +4441,8 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
 
   <div class="files">
     <div class="lbl">Files</div>
-    <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 179、返回体 225、selector 260–261、<strong>两个</strong> initialDraft 调用 283–284 与 352、resync deps 370、handleSave 494–495、deps 524）</div>
+    <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 179、返回体 225、selector 260–261、<strong>两个</strong> initialDraft 调用 283–284 与 352、resync deps 370、<strong>动态 import 解构 394</strong>、handleSave 494–495、deps 524）</div>
+    <div>上面这些行号是<strong>改造前</strong>的坐标（以 Task 10 开工时的文件为准）。本图纸里行号只用来<strong>指方向</strong>，不要拿来直接定位 —— 前面 9 个任务已经改过若干文件，行号会有偏移。定位一律按计划给出的<strong>原文</strong>去搜。这一份枚举原本漏了「动态 import 解构 394」，而那正是本任务真正要动的地方之一（见 Step 2 末尾那个 warn 块）：清单少一行，就可能让人漏改或误以为不该动它。</div>
     <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「正文字号」用例里 <strong>5) 保存时</strong> 那一段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
   </div>
 
