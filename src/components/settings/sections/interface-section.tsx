@@ -18,6 +18,11 @@ import {
   systemFontValue,
   type SystemCjkFont,
 } from "@/lib/system-fonts"
+import {
+  BUNDLED_FONT_LICENSES,
+  BUNDLED_FONT_LICENSES_DIR,
+  HARMONYOS_PROMINENT_NOTICE,
+} from "@/lib/bundled-font-licenses"
 
 interface Props {
   draft: SettingsDraft
@@ -185,7 +190,53 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
           </div>
         </div>
       </div>
+      <BundledFontLicenses />
     </div>
+  )
+}
+
+/**
+ * 随包字体的第三方许可告知。
+ *
+ * ── 为什么这是**必需**的，不是"顺手加的版权页" ──
+ * 随包的 9 款族里有一款不是 OFL：鸿蒙黑体（HarmonyOS Sans SC）。它的许可
+ * （HarmonyOS Sans Fonts License Agreement）第 2 条第 1 项是**强制**义务：
+ *
+ *   `YOU shall make a prominent notice in the software to state that
+ *    HarmonyOS Sans Fonts are used.`
+ *
+ * 注意"In the software"—— 仅仅把许可证文本随安装包放到磁盘上**不满足**这一条，
+ * 那句话必须出现在用户能看到的界面上。第 4 条（保留版权声明与本协议）
+ * 才由随包的 `fonts/licenses/` 满足。所以这里既有显著声明，也列出各款版权行。
+ *
+ * 该许可还有两个产品层面需知悉的性质：**不可转让**、且**可被撤销**。
+ *
+ * ── 数据不写在这里 ──
+ * 全部来自 `src/lib/bundled-font-licenses.json`，并由
+ * `scripts/check-bundled-font-licenses.mjs` 对照随包清单与许可原文核对。
+ * 清单增删字体而这里没跟上，就变成"告知不完整"或"告知与事实不符" ——
+ * 两者都不会有任何测试失败来提醒，所以必须靠校验脚本。
+ */
+function BundledFontLicenses() {
+  return (
+    <section aria-label="第三方字体许可" data-ui="bundled-font-licenses">
+      <p className="ui-test-interface-label">第三方字体许可</p>
+      <p className="ui-test-interface-description" data-ui="harmonyos-notice">
+        {HARMONYOS_PROMINENT_NOTICE}
+      </p>
+      <ul className="ui-test-interface-description" data-ui="bundled-font-license-list">
+        {BUNDLED_FONT_LICENSES.map((font) => (
+          <li key={font.family}>
+            <span>{font.display}</span>
+            <span> · {font.license}</span>
+            <span> · {font.copyright}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="ui-test-interface-description">
+        以上字体的完整许可证原文随安装包提供，位于安装目录的 {BUNDLED_FONT_LICENSES_DIR} 文件夹下。
+      </p>
+    </section>
   )
 }
 

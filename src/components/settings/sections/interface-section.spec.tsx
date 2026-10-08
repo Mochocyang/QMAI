@@ -17,6 +17,7 @@ import type { SettingsDraft } from "@/components/settings/settings-types"
 import { DEFAULT_SIDEBAR_NAV_CONFIG } from "@/lib/sidebar-nav-preferences"
 import { UI_FONT_OPTIONS, BODY_FONT_OPTIONS, getBodyFontFamilyCss, normalizeBodyFontFamily, normalizeUiFontFamily } from "@/lib/font-settings"
 import { SYSTEM_FONT_PREFIX } from "@/lib/system-fonts"
+import { BUNDLED_FONT_LICENSES } from "@/lib/bundled-font-licenses"
 
 /** 本机字体枚举的假结果，由各用例覆盖。 */
 const sysFonts = vi.hoisted(() => ({
@@ -250,5 +251,76 @@ describe("阶段 3：正文字体下拉的本机分组", () => {
     // 正文默认是宋体系；掉到 sans-serif 会让整篇小说静默换字形
     expect(css.trim().endsWith("serif")).toBe(true)
     expect(css.trim().endsWith("sans-serif")).toBe(false)
+  })
+})
+
+describe("随包字体的第三方许可告知（鸿蒙黑体的许可强制义务）", () => {
+  /**
+   * 鸿蒙黑体的许可要求"在软件中显著注明使用了 HarmonyOS Sans"。
+   * 这几条断言的是**界面上真的有这句话**，而不只是数据文件里有 ——
+   * 数据正确但没渲染出来，许可义务照样没履行。
+   */
+  const notice = () => container.querySelector('[data-ui="harmonyos-notice"]')
+
+  it("渲染了许可告知区，且显著声明出现在界面上", async () => {
+    await renderSection()
+
+    const section = container.querySelector('[data-ui="bundled-font-licenses"]')
+    expect(section, "界面上没有随包字体许可告知区").not.toBeNull()
+
+    expect(notice(), "没有渲染鸿蒙黑体的显著声明").not.toBeNull()
+    // 必须点名 HarmonyOS Sans（只说"用了鸿蒙黑体"不够，许可是按英文名写的）
+    expect(notice()!.textContent).toMatch(/HarmonyOS Sans/i)
+  })
+
+  it("9 款族全部列出，且每款都带版权行", async () => {
+    await renderSection()
+    const items = container.querySelectorAll('[data-ui="bundled-font-license-list"] li')
+    expect(items).toHaveLength(BUNDLED_FONT_LICENSES.length)
+    expect(items.length).toBe(9)
+
+    // 逐条核对：显示名与版权行都要真的渲染出来，不能只列个名字
+    const rendered = Array.from(items).map((li) => li.textContent ?? "")
+    for (const font of BUNDLED_FONT_LICENSES) {
+      const hit = rendered.some((t) => t.includes(font.display) && t.includes(font.copyright))
+      expect(hit, `${font.display} 的版权行没有渲染出来：${font.copyright}`).toBe(true)
+    }
+  })
+
+  it("告知的位置不依赖用户已选字体——默认设置下也必须可见", async () => {
+    // 用默认草稿（uiFontFamily = "system"）渲染，声明仍须出现。
+    // 若把它塞进某个"仅在选了随包字体时才展开"的分支里，许可义务就落空了。
+    await renderSection()
+    expect(notice()).not.toBeNull()
+    expect(fontSelect().value).toBe("system")
+  })
+
+  it("告知是纯展示，不往 draft 里写任何字段——不得改动设置保存流程", async () => {
+    const written: string[] = []
+    function Harness() {
+      const [draft, setDraft] = useState<SettingsDraft>({
+        uiLanguage: "zh",
+        uiFontFamily: "system",
+        uiFontSizeScale: 1,
+        uiBodyFontFamily: "serif-default",
+        uiBodyFontSizeScale: 1,
+        visualStyle: "fangzheng",
+        sidebarNavConfig: DEFAULT_SIDEBAR_NAV_CONFIG,
+      } as SettingsDraft)
+      return (
+        <InterfaceSection
+          draft={draft}
+          setDraft={(key, value) => {
+            written.push(String(key))
+            setDraft((current) => ({ ...current, [key]: value }))
+          }}
+        />
+      )
+    }
+    await act(async () => { root.render(<Harness />) })
+    await act(async () => { await Promise.resolve() })
+
+    // 只渲染、不交互 ⇒ 不应有任何 setDraft 调用
+    expect(written).toEqual([])
   })
 })

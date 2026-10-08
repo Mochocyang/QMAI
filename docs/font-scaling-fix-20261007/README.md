@@ -55,8 +55,10 @@
 | `bundled-fonts.md` + `bundled-fonts.json` | **随包字体清单**（9 族 / 11 个字重文件，209,720,176 B = 200.00 MiB）与逐款授权依据 | 体积与清单由 `sync-fonts-manifest.mjs --check` 钉住；§1.1 记录同族多字重撞注册表值名的实测缺陷 |
 | `docs/font-license-verification/verify-bundle-licenses.mjs` | **授权判据**：逐款比对许可证原文，只认"允许把字体文件打进闭源商业安装包再分发" | 可捆绑 23 款 / 明确不可捆绑 2 款 / 0 款需人工判定。用户点名要的 MiSans 与阿里巴巴普惠体被判**不可捆绑**并给出原文依据 |
 | `scripts/sync-fonts-manifest.mjs --check` | 运行期清单与磁盘文件的一致性 + 同族值名查重 | 11 款一致；值名重复会直接退出 1 |
-| `verify-nsis-font-cleanup.mjs` | **卸载清理段的验收**：从真实模板抽出那段代码，`makensis` 编译（阶段一），并在**一次性注册表键 + 含中文的临时目录**上**真跑一遍**（阶段二 `--e2e`） | 两阶段通过。阶段二会断言记录文件是**纯 ASCII**、文件与注册表值都被删掉、记录之外的 canary 值未被误删、重复执行幂等。两条变异均实测变红（去掉 NSIS 目录前缀 / Rust 退回写绝对路径） |
+| `verify-nsis-font-cleanup.mjs` | **卸载清理段的验收**：从真实模板抽出那段代码，`makensis` 编译（阶段一），并在**一次性注册表键 + 含中文的临时目录**上**真跑一遍**（阶段二 `--e2e`） | 两阶段通过。⭐ 骨架**必须**是 `Section Uninstall`：同一段代码在普通 `Section` 里编译合法，用错 StrFunc 变体（`${StrTrimNewLines}` vs `${UnStrTrimNewLines}`）会在这里假绿、却让真实安装包**完全打不出来**（实测 2×2 矩阵见 `bundled-fonts.md` §6 第 5 条）。阶段二跑的是**真正的卸载器**（`WriteUninstaller` + `/S`），因为清理段只在卸载器里执行 |
 | `verify-real-exe-fonts.mjs` | **真实 exe 验收**：便携版启动后读 HKCU 值、断言 9 个族都能在下拉里选到、canvas 像素哈希证明字形确实变了（含确定性对照） | 实跑通过；11 个文件 / 9 个族；多字重部分按**文件名**匹配，不用值名前缀（否则基线里已有的 `Source Han Serif SC Heavy` 会让 Bold 未装也判过） |
+| `scripts/check-bundled-font-licenses.mjs` | **界面许可告知与事实的一致性**：族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽 | 9 族全绿。鸿蒙黑体的许可**强制**要求"在软件中显著注明使用了 HarmonyOS Sans"——仅随包放许可证文本**不满足**该条，故告知必须在界面上 |
+| `src/lib/bundled-font-licenses.spec.ts` | 同上，但在**测试套件里自动跑**（脚本要人记得跑） | 9 条用例，直接读 `src-tauri/fonts/` 真实文件。9 条变异全部实测变红（删族 / 加族 / 改版权行 / 声明清空 / 不点名 / 谎称非 OFL / UI 不渲染） |
 
 ### ❌ 已被推翻的探测脚本（**结论不可采信**，仅保留以记录方法迭代）
 
@@ -210,12 +212,21 @@ node scripts/sync-fonts-manifest.mjs --check
 # 授权判据（只认"允许打进闭源商业安装包再分发"）
 node docs/font-license-verification/verify-bundle-licenses.mjs
 
+# 界面许可告知与事实一致（鸿蒙黑体的许可强制要求"在软件中显著注明"）
+node scripts/check-bundled-font-licenses.mjs
+npx vitest run src/lib/bundled-font-licenses.spec.ts src/components/settings/sections/interface-section.spec.tsx
+
 # Rust 侧字体安装/清理的单元测试（含"路径含中文时记录仍必须是纯 ASCII"）
 cd src-tauri && cargo test --offline --lib font_install -- --test-threads=1
 
 # 真实 exe：随包字体是否真的装上了、能否在下拉里选到、字形是否真变了
 # （前置：便携版已构建，且 WebView2 带 CDP 参数启动，同上）
 node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
+
+# ⚠️ 唯一能发现 NSIS 上下文相关错误的检查：真正把安装包打出来
+#    `npm run build:portable` 走 tauri build --no-bundle，**不跑 NSIS**，
+#    所以它不能替代这一步（安装包曾因此长期完全打不出来而无人察觉）
+npx tauri build --bundles nsis
 ```
 
 前置条件：`dist/` 已构建（`npm run build`）；Playwright 全局安装于

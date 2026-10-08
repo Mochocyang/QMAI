@@ -175,7 +175,7 @@ unmodified copies`，但有以下必须遵守的限制：
    许可原文把 "fonts software" 排除在可修改范围之外。
    （`bundled-fonts.json` 里记录的是原始字节，未做任何处理。）
 2. **必须保留版权声明与许可协议** —— 已在 `licenses/harmonyos-sans-LICENSE.txt`。
-3. **必须显著注明使用了 HarmonyOS Sans** —— 见 §4 的界面与文档义务。
+3. **必须显著注明使用了 HarmonyOS Sans** —— **已实施**，见 §3.3。
 4. **不得单独再分发** —— 只能随本软件一起分发。
 5. **许可证不可转让，且可被撤销（revocable）** —— 这是持续风险：
    一旦华为撤销授权，后续版本必须立刻移除该字体。**建议法务登记此风险**。
@@ -184,13 +184,50 @@ unmodified copies`，但有以下必须遵守的限制：
 > **不是**字体许可 —— 这是本项目最容易踩的陷阱。真实许可是官方 ZIP 内的
 > 协议全文，已按此处理。
 
-### 3.3 界面与文档义务（待实施，非本阶段代码）
+### 3.3 界面与文档义务（已实施）
 
-- [ ] 在「设置 → 关于」或同类位置**显著注明**本软件包含 HarmonyOS Sans 字体，
-      并附华为版权声明。
-- [ ] 分发 `licenses/` 目录（已随包，是否需要额外在关于页给出入口待定）。
-- [ ] 每次发版跑一次 `node docs/font-license-verification/verify-bundle-licenses.mjs`；
+界面义务的依据是许可第 2 条第 1 项的**强制**措辞：
+
+```
+YOU shall make a prominent notice in the software to state that
+HarmonyOS Sans Fonts are used.
+```
+
+关键词是 **in the software** —— 仅把许可证文本随安装包放到磁盘上
+**不满足**这一条，那句话必须出现在用户能看到的界面上。
+
+- [x] **在「设置 → 界面」分区内**显著注明本软件包含 HarmonyOS Sans 字体，并列出
+      全部 9 款随包字体族的版权行。
+      - 实现：`src/components/settings/sections/interface-section.tsx` 的
+        `BundledFontLicenses`（渲染在 `[data-ui="interface-settings"]` 内，
+        锚点 `data-ui="bundled-font-licenses"` / `data-ui="harmonyos-notice"`）。
+      - 数据：`src/lib/bundled-font-licenses.json`（单一数据源）。
+      - **为什么放在「界面」分区而不是新增一个设置分区**：① 字体就是在这个分区里
+        选的，许可信息出现在选择处最自然；② 验收工具
+        `census-computed-font.mjs` 的 `SETTINGS_SECTIONS` 写死了 **11 个分区**，
+        并有一条守卫 B/分区覆盖 = 11/11 —— 新增分区会让普查**静默漏掉**它。
+        放在既有分区内则分区数不变，守卫仍然有效；③ 不必改动设置保存流程。
+- [x] 分发 `licenses/` 目录（已随包进安装包的 `$INSTDIR\fonts\licenses\`），
+      并在界面上写明该目录位置。
+- [x] 每次发版跑一次 `node docs/font-license-verification/verify-bundle-licenses.mjs`；
       **任一字体 SHA-256 变化即必须重新人工核对许可证**。
+
+**告知与事实的一致性由两道检查守住**（这是本节的真正风险点：告知一旦与随包
+清单脱节，两种错法都不会有任何测试失败来提醒）：
+
+| 检查 | 触发 | 覆盖 |
+|---|---|---|
+| `scripts/check-bundled-font-licenses.mjs` | 手动 | 族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽 |
+| `src/lib/bundled-font-licenses.spec.ts` | **自动**（测试套件） | 同上，直接读 `src-tauri/fonts/` 的真实文件 |
+
+两者职责相同、触发时机不同，是互补而非重复：脚本**要人记得跑**，
+spec 在套件里自动跑。若清单增删字体而告知没跟上 →
+「告知不完整」（许可不合规）或「告知与事实不符」（误导用户）。
+
+```powershell
+node scripts/check-bundled-font-licenses.mjs
+npx vitest run src/lib/bundled-font-licenses.spec.ts src/components/settings/sections/interface-section.spec.tsx
+```
 
 ---
 

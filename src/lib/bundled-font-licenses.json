@@ -1,0 +1,70 @@
+{
+  "_comment": "随包字体与其许可证。这是界面「第三方字体许可」告知的唯一数据源。请勿手工改这里而不跑 scripts/check-bundled-font-licenses.mjs —— 它会对照 src-tauri/fonts/fonts-manifest.json 与实际许可证原文核对（清单增删字体而这里没跟上 = 告知不完整）。",
+  "prominentNotice": "本软件内置并使用 HarmonyOS Sans（鸿蒙黑体）字体。",
+  "licensesDir": "fonts/licenses",
+  "fonts": [
+    {
+      "family": "Source Han Serif SC",
+      "display": "思源宋体",
+      "license": "OFL-1.1",
+      "licenseFile": "source-han-serif-OFL.txt",
+      "copyright": "Copyright 2017-2022 Adobe (http://www.adobe.com/)"
+    },
+    {
+      "family": "Source Han Sans SC",
+      "display": "思源黑体",
+      "license": "OFL-1.1",
+      "licenseFile": "source-han-sans-OFL.txt",
+      "copyright": "Copyright 2014-2025 Adobe (http://www.adobe.com/)"
+    },
+    {
+      "family": "LXGW WenKai",
+      "display": "霞鹜文楷",
+      "license": "OFL-1.1",
+      "licenseFile": "lxgw-wenkai-OFL.txt",
+      "copyright": "Copyright 2021-2026 LXGW (https://github.com/lxgw/LxgwWenKai)"
+    },
+    {
+      "family": "WenJin Mincho Plane 0",
+      "display": "文津宋体",
+      "license": "OFL-1.1",
+      "licenseFile": "wenjin-mincho-OFL.txt",
+      "copyright": "Copyright (c) 2024-2026, Takushun Wu (https://github.com/takushun-wu/)"
+    },
+    {
+      "family": "ChillKai",
+      "display": "寒蝉正楷体",
+      "license": "OFL-1.1",
+      "licenseFile": "chillkai-OFL.txt",
+      "copyright": "Copyright 2023 The ChillKai Project Authors"
+    },
+    {
+      "family": "HarmonyOS Sans SC",
+      "display": "鸿蒙黑体",
+      "license": "HarmonyOS Sans Fonts License Agreement",
+      "licenseFile": "harmonyos-sans-LICENSE.txt",
+      "copyright": "Copyright 2021 Huawei Device Co., Ltd."
+    },
+    {
+      "family": "Smiley Sans",
+      "display": "得意黑",
+      "license": "OFL-1.1",
+      "licenseFile": "smiley-sans-OFL.txt",
+      "copyright": "Copyright (c) 2022--2024, atelierAnchor <https://atelier-anchor.com>"
+    },
+    {
+      "family": "Zhuque Fangsong (technical preview)",
+      "display": "朱雀仿宋",
+      "license": "OFL-1.1",
+      "licenseFile": "zhuque-fangsong-OFL.txt",
+      "copyright": "Copyright (c) 2023, Zhejiang JadeFoci Techonology Co. LTD"
+    },
+    {
+      "family": "Sarasa Gothic SC",
+      "display": "更纱黑体",
+      "license": "OFL-1.1",
+      "licenseFile": "sarasa-gothic-OFL.txt",
+      "copyright": "Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis, belleve@typeof.net)."
+    }
+  ]
+}
