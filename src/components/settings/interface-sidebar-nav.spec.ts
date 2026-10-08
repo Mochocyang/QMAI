@@ -513,4 +513,24 @@ describe("settings sidebar nav preferences", () => {
       ).toBe(false)
     }
   })
+
+  /**
+   * 写作现场必须也能改这 6 个参数，且与设置页共用同一个组件。
+   * 用户原话：「大纲当中也要有这个设置功能」。
+   *
+   * 为什么单独立一条：这条守的是"两个入口都存在"。
+   * 只留章节、漏掉大纲是很自然的疏漏（两处工具栏长得几乎一样），
+   * 而且漏掉之后在界面上不容易看出来。
+   */
+  it("写作现场浮层与设置页共用同一个控件组件", () => {
+    const previewSource = readFileSync(resolve(__dirname, "../layout/preview-panel.tsx"), "utf8")
+    // ⚠ 带尖括号 —— 与 Task 9 同一理由：不带的话 import 那行就能满足它，
+    // 于是"导入了但没渲染"这个最可能的疏漏反而是恒绿的。
+    expect(previewSource).toContain("<BodyTypographyFields")
+    expect(previewSource).toContain('aria-label="字体设置"')
+    // 两处入口（章节 + 大纲）都调同一个打开函数
+    expect(previewSource.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
+    // 关浮层必须 flush，否则「拖完就关」会丢掉最后一次改动
+    expect(previewSource).toContain("bodyTypographyPersist.current.flush()")
+  })
 })

@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Eraser, MoreHorizontal, Type, X } from "lucide-react"
+import { BookOpen, Brain, Eraser, MoreHorizontal, Type, WandSparkles, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -16,7 +16,7 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
-import { saveNovelConfig } from "@/lib/project-store"
+import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
@@ -69,6 +69,9 @@ import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
 import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui-test-editor"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
+import { createDebouncedPersist } from "@/lib/debounced-persist"
+import { BodyTypographyFields, type BodyTypographyValue } from "@/components/settings/sections/body-typography-fields"
+import type { BodyFontFamily } from "@/lib/font-settings"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -171,20 +174,27 @@ const CHAPTER_TITLE_MIN_WIDTH_PX = 48
 const CHAPTER_TITLE_RESTING_EXTRA_WIDTH_PX = 2
 const CHAPTER_TITLE_EDITING_EXTRA_WIDTH_PX = 16
 const DE_AI_SKILL_PICKER_WIDTH_PX = 288
+const BODY_TYPOGRAPHY_PANEL_WIDTH_PX = 360
 
-function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties {
+/**
+ * 把一个浮层贴到锚点按钮下方，并保证不越出视口右缘。
+ * 抽成通用函数是因为字体设置面板（360px）比去AI味选择器（288px）
+ * 宽，两者都需要同一套夹取逻辑；复制一份必然漂移。
+ */
+function getFloatingPanelPosition(anchor: HTMLElement | null | undefined, widthPx: number): CSSProperties {
   if (!anchor) return { right: 24, top: 80 }
   const rect = anchor.getBoundingClientRect()
   const gap = 8
-  const viewportWidth = window.innerWidth || DE_AI_SKILL_PICKER_WIDTH_PX
+  const viewportWidth = window.innerWidth || widthPx
   const left = Math.min(
     Math.max(rect.left, gap),
-    Math.max(gap, viewportWidth - DE_AI_SKILL_PICKER_WIDTH_PX - gap),
+    Math.max(gap, viewportWidth - widthPx - gap),
   )
-  return {
-    left,
-    top: rect.bottom + gap,
-  }
+  return { left, top: rect.bottom + gap }
+}
+
+function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties {
+  return getFloatingPanelPosition(anchor, DE_AI_SKILL_PICKER_WIDTH_PX)
 }
 
 export function PreviewPanel() {
@@ -236,6 +246,16 @@ export function PreviewPanel() {
   const [selectionTransformModelName, setSelectionTransformModelName] = useState("")
   const [deAiSkillPickerOpen, setDeAiSkillPickerOpen] = useState(false)
   const [deAiSkillPickerPosition, setDeAiSkillPickerPosition] = useState<CSSProperties>(() => getDeAiSkillPickerPosition())
+  // ── 写作现场「字体设置」浮层 ──
+  const [bodyFontOpen, setBodyFontOpen] = useState(false)
+  const [bodyFontPosition, setBodyFontPosition] = useState<CSSProperties>(() => getFloatingPanelPosition(null, BODY_TYPOGRAPHY_PANEL_WIDTH_PX))
+  const bodyFontRef = useRef<HTMLDivElement | null>(null)
+  /*
+   * 落盘去抖。写作现场改参数是"边拖边看"，store 与 CSS 变量必须立即生效
+   * （zustand 同步更新，App 的 effect 会把变量写到 documentElement），
+   * 但落盘要合并 —— 一次拖动会触发几十次 onChange。
+   */
+  const bodyTypographyPersist = useRef(createDebouncedPersist(400))
   const [chapterDeAiSkillId, setChapterDeAiSkillId] = useState<string | null | undefined>(undefined)
   const [pendingSelectionForDeAi, setPendingSelectionForDeAi] = useState<ChapterBodySelection | null>(null)
   const [chapterTitleDraft, setChapterTitleDraft] = useState("")
@@ -268,6 +288,142 @@ export function PreviewPanel() {
   const fileContentRef = useRef(fileContent)
   const selectedFileRef = useRef<string | null>(selectedFile)
   const deAiSkillPickerRef = useRef<HTMLDivElement | null>(null)
+
+  const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
+  const setUiBodyFontFamily = useWikiStore((s) => s.setUiBodyFontFamily)
+  const uiBodyFontPx = useWikiStore((s) => s.uiBodyFontPx)
+  const setUiBodyFontPx = useWikiStore((s) => s.setUiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) => s.uiBodyLineHeight)
+  const setUiBodyLineHeight = useWikiStore((s) => s.setUiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) => s.uiBodyLetterSpacing)
+  const setUiBodyLetterSpacing = useWikiStore((s) => s.setUiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) => s.uiBodyMarginX)
+  const setUiBodyMarginX = useWikiStore((s) => s.setUiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) => s.uiBodySafeBottom)
+  const setUiBodySafeBottom = useWikiStore((s) => s.setUiBodySafeBottom)
+
+  const openBodyFontPopover = useCallback((anchor?: HTMLElement | null) => {
+    setBodyFontPosition(getFloatingPanelPosition(anchor, BODY_TYPOGRAPHY_PANEL_WIDTH_PX))
+    setBodyFontOpen(true)
+  }, [])
+
+  /*
+   * 关闭时必须 flush：用户最常见的操作顺序是「拖完最后一下就关掉」。
+   * 只靠定时器的话最后一次改动会被丢掉，表现为
+   * 「明明调过了，重开软件又变回去」。
+   */
+  const closeBodyFontPopover = useCallback(() => {
+    bodyTypographyPersist.current.flush()
+    setBodyFontOpen(false)
+  }, [])
+
+  useEffect(() => {
+    const persist = bodyTypographyPersist.current
+    return () => { persist.dispose() }
+  }, [])
+
+  /*
+   * 把「当前 store 里的全套 6 个参数」落盘。
+   *
+   * ⚠ 为什么不是每个字段各排一个落盘任务 —— 这是一个真实的丢数据缺陷：
+   * createDebouncedPersist 的去抖语义是**替换待执行任务**（不是排队）。
+   * 若按字段各排一个，用户在 400ms 内先拖「行间距」再拖「底部安全距离」，
+   * 第一个任务会被第二个直接顶掉 —— 行间距只写进了 localStorage，
+   * 没写进 app-state.json。而启动读回是 app-state 优先的，于是
+   * 下次开软件行间距又变回旧值，用户看到"我明明调过"。
+   *
+   * 一次落全套就没有这个问题：最后一个任务写的是当时 store 里的全部值，
+   * 它必然包含之前每一次改动。多写几个字段的代价远小于丢一个设置。
+   */
+  const persistAllBodyTypography = useCallback(async () => {
+    const s = useWikiStore.getState()
+    /*
+     * ⚠ 这里必须是 async + await，不能写成同步函数 + `void Promise.all(...)`，
+     * 更不能直接 `return Promise.all(...)`。
+     *
+     * createDebouncedPersist().schedule 的签名是
+     *   schedule(run: () => Promise<void>): void
+     * 而 Promise.all([...]) 的类型是 Promise<[void, void, …]>：
+     *   · 同步函数 + void 掉结果 → 类型是 () => void，报 TS2345
+     *       Argument of type '() => void' is not assignable to
+     *       parameter of type '() => Promise<void>'
+     *   · 直接 return → Promise<[void,…]> 不是 Promise<void>，同样 TS2345
+     * 只有 async + await 的返回类型恰好是 () => Promise<void>。
+     * 两种报错都指向 schedule 那一行，看着与"保存这几个参数"毫无关系，
+     * 很容易被误判成 debounced-persist 的签名写错了。
+     */
+    await Promise.all([
+      saveUiBodyFontFamily(s.uiBodyFontFamily),
+      saveUiBodyFontPx(s.uiBodyFontPx),
+      saveUiBodyLineHeight(s.uiBodyLineHeight),
+      saveUiBodyLetterSpacing(s.uiBodyLetterSpacing),
+      saveUiBodyMarginX(s.uiBodyMarginX),
+      saveUiBodySafeBottom(s.uiBodySafeBottom),
+    ])
+  }, [])
+
+  /*
+   * 现场改排版参数：store 立即生效 + 落盘去抖。
+   * 与设置页的差别只有"没有保存按钮"，取值来源同一个 store，
+   * 所以两处不可能读出两套值。
+   *
+   * 注意 setter 是**同步**写 zustand 的，所以 persistAllBodyTypography
+   * 稍后读到的一定是最新值（包括这一次的改动）。
+   */
+  const applyBodyTypographyChange = useCallback(<K extends keyof BodyTypographyValue>(
+    key: K,
+    next: BodyTypographyValue[K],
+  ) => {
+    switch (key) {
+      case "fontFamily":
+        setUiBodyFontFamily(next as BodyFontFamily)
+        break
+      case "fontPx":
+        setUiBodyFontPx(next as number)
+        break
+      case "lineHeight":
+        setUiBodyLineHeight(next as number)
+        break
+      case "letterSpacing":
+        setUiBodyLetterSpacing(next as number)
+        break
+      case "marginX":
+        setUiBodyMarginX(next as number | null)
+        break
+      case "safeBottom":
+        setUiBodySafeBottom(next as number)
+        break
+      default: {
+        // ⚠ 与 Task 9 的 setBodyTypography 同一个道理，也必须写成穷尽收尾。
+        // 任务 11 的键 → store 映射是**第二处**同样的 switch：
+        // 写成 default: break 的话，"共享控件新增第 7 个参数"会在这里静默丢写
+        // —— 表现是"设置页能改、写作现场浮层改不动"，比单点漏更难排查。
+        // 收窄的是 key，不是 next：写成 `never = next` 会直接 TS2322（实测）。
+        const _never: never = key
+        void _never
+      }
+    }
+    bodyTypographyPersist.current.schedule(persistAllBodyTypography)
+  }, [persistAllBodyTypography, setUiBodyFontFamily, setUiBodyFontPx, setUiBodyLineHeight, setUiBodyLetterSpacing, setUiBodyMarginX, setUiBodySafeBottom])
+
+  // 点击浮层外或按 Esc 关闭（与去AI味选择器同一套交互）
+  useEffect(() => {
+    if (!bodyFontOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (bodyFontRef.current?.contains(event.target as Node)) return
+      closeBodyFontPopover()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeBodyFontPopover()
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [bodyFontOpen, closeBodyFontPopover])
+
   const chapterToolbarRef = useRef<HTMLDivElement | null>(null)
   const titleMeasureRef = useRef<HTMLSpanElement | null>(null)
   // 只观察原保存结果，不改变写入时机、内容或冲突策略。
@@ -1517,7 +1673,15 @@ export function PreviewPanel() {
           <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
             <BookOpen aria-hidden="true" />
           </button>
-          {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><Type aria-hidden="true" /></button> : null}
+          {/*
+            字体设置（原「正文排版」）。图标是 Type（T），一键排版是 WandSparkles ——
+            用户明确要求两者不能是同一个图标：改造前两者都是 Type，
+            用户在工具栏上无法区分"调字体"与"自动整理段落"。
+          */}
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+            <Type aria-hidden="true" />
+          </button>
+          {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
         </>
       ) : (
         <>
@@ -1528,6 +1692,15 @@ export function PreviewPanel() {
             if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
             else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
           }}><BookOpen aria-hidden="true" /></button>
+          {/*
+            大纲里也要能调字体。用户原话：「关于字体、间距等这些的设置，
+            大纲当中也要有这个设置功能」。
+            与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数
+            是已确认的决定，不各自维护一份。
+          */}
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+            <Type aria-hidden="true" />
+          </button>
         </>
       )}
       moreActions={[]}
@@ -1924,6 +2097,45 @@ export function PreviewPanel() {
           <CognitionPanel
             projectPath={project.path}
             onClose={() => setShowCognition(false)}
+          />
+        </div>
+      ) : null}
+      {bodyFontOpen ? (
+        <div
+          ref={bodyFontRef}
+          className="fixed z-50 rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
+          style={{ ...bodyFontPosition, width: BODY_TYPOGRAPHY_PANEL_WIDTH_PX }}
+          role="dialog"
+          aria-label="字体设置"
+        >
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <div className="truncate text-sm font-medium">字体设置</div>
+            <button
+              type="button"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={closeBodyFontPopover}
+              aria-label="关闭字体设置"
+              title="关闭字体设置"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {/*
+            与设置页共用同一个组件、同一份 store 取值。
+            dense 只影响说明段落，不影响任何数值语义。
+          */}
+          <BodyTypographyFields
+            idPrefix="chapter-body-typography"
+            dense
+            value={{
+              fontFamily: uiBodyFontFamily,
+              fontPx: uiBodyFontPx,
+              lineHeight: uiBodyLineHeight,
+              letterSpacing: uiBodyLetterSpacing,
+              marginX: uiBodyMarginX,
+              safeBottom: uiBodySafeBottom,
+            }}
+            onChange={applyBodyTypographyChange}
           />
         </div>
       ) : null}
