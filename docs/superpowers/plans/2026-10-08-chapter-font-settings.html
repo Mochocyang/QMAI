@@ -1297,8 +1297,21 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
     expect(wikiStoreSource).toContain('"qmai-body-font-family"')
     // 迁移必须走单一来源的纯函数，并且把**界面字号**传进去 ——
     // 自己写 bodyScale × 18 会让界面字号非 100% 的用户一升级正文就变小
-    expect(wikiStoreSource).toContain("resolveMigratedBodyFontPx(")
-    expect(wikiStoreSource).toContain("readStoredUiFontSizeScale()")
+    /*
+     * ⚠ 这两条必须断言**整行调用形态**，不能拆成两个独立的 toContain。
+     *
+     * 拆开的写法没有鉴别力：把
+     *     resolveMigratedBodyFontPx(legacy, readStoredUiFontSizeScale())
+     * 改成
+     *     resolveMigratedBodyFontPx(legacy, 1)
+     * 之后，"readStoredUiFontSizeScale()" 这个字符串仍然出现在
+     * uiFontSizeScale: readStoredUiFontSizeScale() 那一行里，
+     * 于是第二条断言照样通过 —— 而"迁移时忘了乘界面字号"正是
+     * 界面 150% 的用户升级后正文变小的那个真实缺陷。
+     */
+    expect(wikiStoreSource).toMatch(
+      /resolveMigratedBodyFontPx\(\s*legacy\s*,\s*readStoredUiFontSizeScale\(\)\s*\)/,
+    )
     // 旧倍数键必须保留只读（迁移要用），但不得再被写入
     expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
     expect(wikiStoreSource).not.toContain("localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY")</code></pre>
@@ -2580,6 +2593,8 @@ git commit -m "fix(编辑区): 底部安全距离与左右边距改为可调，�
     <div class="step-body">
 <pre><code>// src/components/settings/sections/body-typography-fields.spec.tsx
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -2673,21 +2688,68 @@ describe("BodyTypographyFields", () =&gt; {
       expect(el.min, label).toBe(min)
       expect(el.max, label).toBe(max)
     }
+
+    /*
+     * 光比属性值还不够 —— 上面那一段只能抓住"常量本身被改了"，
+     * 抓不住标题承诺的"不在组件里重写数字"：
+     * 把 min={BODY_LINE_HEIGHT_MIN} 改成 min={1.2} 时，
+     * 只要 1.2 恰好等于 BODY_LINE_HEIGHT_MIN，属性比较照样通过。
+     * 所以再补一条源码文本守卫：这个组件里不许出现字面量 min=/max=。
+     * （与 Task 9 守 interface-section.tsx 的手法一致。）
+     */
+    const source = readFileSync(resolve(__dirname, "body-typography-fields.tsx"), "utf8")
+    for (const [prop, constName] of [
+      ["min", "BODY_FONT_PX_MIN"], ["max", "BODY_FONT_PX_MAX"],
+      ["min", "BODY_LINE_HEIGHT_MIN"], ["max", "BODY_LINE_HEIGHT_MAX"],
+      ["min", "BODY_LETTER_SPACING_MIN"], ["max", "BODY_LETTER_SPACING_MAX"],
+      ["min", "BODY_MARGIN_X_MIN"], ["max", "BODY_MARGIN_X_MAX"],
+      ["min", "BODY_SAFE_BOTTOM_MIN"], ["max", "BODY_SAFE_BOTTOM_MAX"],
+    ]) {
+      expect(source, `范围必须引用 ${constName} 而不是写字面量`).toContain(`${prop}={${constName}}`)
+    }
   })
 
   it("拖动滑块把新值交给调用方，且只交自己那一个键", () =&gt; {
     const seen: [string, unknown][] = []
     render(BASE, (key, next) =&gt; { seen.push([key, next]) })
-    setRange(input("行间距"), "2.2")
-    expect(seen).toEqual([["lineHeight", 2.2]])
-    seen.length = 0
-    setRange(input("底部安全距离"), "120")
-    expect(seen).toEqual([["safeBottom", 120]])
+    /*
+     * 五个滑块必须**逐个**拖一遍。
+     * 只挑两个测的话，把 onChange("letterSpacing", next) 误写成
+     * onChange("fontPx", next) 这种串味不会被任何断言抓住 ——
+     * 而"串味"正是这类"一个 onChange 按 key 分发"的写法最容易犯的错。
+     * 每个四元组 = [控件标签, 拖到的值, 期望交给调用方的键, 期望的值]。
+     */
+    const drags: [string, string, string, unknown][] = [
+      ["正文字号", "22", "fontPx", 22],
+      ["行间距", "2.2", "lineHeight", 2.2],
+      ["字间距", "1.5", "letterSpacing", 1.5],
+      ["左右边距", "60", "marginX", 60],
+      ["底部安全距离", "120", "safeBottom", 120],
+    ]
+    for (const [label, raw, key, want] of drags) {
+      seen.length = 0
+      setRange(input(label), raw)
+      expect(seen, `拖「${label}」应只交 ${key} 一个键`).toEqual([[key, want]])
+    }
   })
 
   it("左右边距为 null 时显示「跟随窗口」，提供按钮切回 null", () =&gt; {
     const seen: [string, unknown][] = []
-    render({ ...BASE, marginX: 40 }, (key, next) =&gt; { seen.push([key, next]) })
+    // 先设成一个非 null 值，确认显示的是具体像素值而不是「跟随窗口」；
+    // 再用 null 渲染 —— 标题说的就是 null 这一档，原来却只渲染了 40。
+    const first = render({ ...BASE, marginX: 40 }, (key, next) =&gt; { seen.push([key, next]) })
+    expect(container.textContent).toContain("40px")
+    expect(container.textContent).not.toContain("跟随窗口")
+    first.unmount()
+
+    render({ ...BASE, marginX: null }, (key, next) =&gt; { seen.push([key, next]) })
+    /*
+     * 必须断言**显示文本**。
+     * 只断言"按钮存在"是不够的：把「跟随窗口」改成空串、
+     * 或把 display 的取值分支删掉，按钮照样在、断言照样绿 ——
+     * 而用户看到的就是一片空白。
+     */
+    expect(container.textContent).toContain("跟随窗口")
     const back = container.querySelector&lt;HTMLButtonElement&gt;('[aria-label="左右边距跟随窗口"]')
     expect(back).not.toBeNull()
     act(() =&gt; { back?.click() })
@@ -4230,7 +4292,7 @@ git commit -m "test(排版): 守卫跟随 px 模型，新增变量独占与派�
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 1：全量门禁（6 条，逐条确认输出）</div>
+    <div class="step-h"><span class="box"></span>Step 1：全量门禁（7 条，逐条确认输出）</div>
     <div class="step-body">
       <pre class="cmd"><code>npm run test:mocks
 npx tsc -p tsconfig.app.json --noEmit
@@ -4238,7 +4300,15 @@ npx tsc -p tsconfig.node.json --noEmit
 npm run typecheck
 npm run typecheck:tests
 npx vite build
-cargo test --offline --lib -- --test-threads=1</code></pre>
+cargo test --offline --lib --manifest-path src-tauri/Cargo.toml -- --test-threads=1</code></pre>
+
+      <div class="note">
+        <span class="t">最后一条要带 <code>--manifest-path</code>，别在仓库根直接跑</span>
+        <p>仓库根<strong>没有</strong> <code>Cargo.toml</code> —— Rust 工程在
+        <code>src-tauri/</code> 下。在根目录直接跑 <code>cargo test</code> 会得到
+        <code>could not find `Cargo.toml`</code>，看着像环境坏了，其实只是没切目录。
+        用 <code>--manifest-path src-tauri/Cargo.toml</code>，或先 <code>cd src-tauri</code>。</p>
+      </div>
       <p class="expect">Expected（改造前的基线，用来对照，不允许下降）：</p>
       <ul>
         <li><code>test:mocks</code>：697 个文件，6523 passed / 0 failed / 6 todo。新增文件后<strong>文件数与通过数都应上升</strong>，failed 必须为 0。那 6 个 todo 是别的文件里既有的 <code>it.todo</code>，不是本次引入。</li>
@@ -4272,8 +4342,28 @@ node scripts/check-bundled-font-licenses.mjs</code></pre>
         <li>把「底部安全距离」拖到 120 → 滚到底时最后一行下方留白明显变大。</li>
         <li>把「行间距」拖到 2.4 → 正文段落与列表都变松；表格与标题<strong>不变</strong>。</li>
       </ol>
-      <p>然后跑真实的 CDP 数值验证（需要先启动应用）：</p>
+      <p>然后跑数值验证：</p>
       <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs</code></pre>
+
+      <div class="note warn">
+        <span class="t">这个脚本<b>不需要</b>启动青幕 —— 它跑的是 dist，不是真实 exe</span>
+        <p>别被文件名骗了：<code>verify-body-font-scale.mjs</code> 自己起一个
+        <code>node:http</code> 静态服务指向本地 <code>dist/</code>，再用 Playwright 的
+        chromium 打开它（全脚本<strong>没有</strong> <code>connectOverCDP</code>）。
+        所以：</p>
+        <ul>
+          <li>跑之前要先有<strong>最新的</strong> <code>dist/</code> —— 即先跑
+          <code>npx vite build</code>。拿着旧 dist 跑，它验的是旧前端，
+          结果"绿"也说明不了本次改动。</li>
+          <li>脚本自己的头注释也写明它"<strong>不替代</strong>真实 exe 目视"。</li>
+        </ul>
+        <p>真正连 CDP、驱动**真实 exe** 的是另一个脚本（<code>verify-real-exe.mjs</code>，
+        它用 <code>--port</code> 默认为 9222 的 <code>connectOverCDP</code>），
+        那个才需要先启动应用。</p>
+        <p>换句话说：本步骤证明的是"改完之后 CSS 与变量的数值对得上"，
+        <strong>不是</strong>"真实安装的软件里表现正确"。后者要靠
+        <code>verify-real-exe.mjs</code> 与 Step 4 之后的目视。</p>
+      </div>
       <p class="expect">Expected: 每个档位的正文/列表/标记计算值与 px 模型的期望值一致（±0.5px 容差，浏览器会保留小数）。</p>
     </div>
   </div>
@@ -4294,12 +4384,40 @@ node scripts/check-bundled-font-licenses.mjs</code></pre>
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 5：确认前端真的被打进了 exe</div>
     <div class="step-body">
-      <p>用户的安装目录里<strong>没有独立的 dist/</strong>，前端是嵌进 exe 的。所以必须证明新 exe 里确实是新前端，否则用户装完看不到任何变化。用 chunk 名对齐：</p>
-      <pre class="cmd"><code># 取本次 build 产出的、包含排版代码的 chunk 名
-Get-ChildItem dist\assets\*.js | Select-String -Pattern "qmai-body-safe-bottom" -List | Select-Object -First 3 Path
-# 再到新 exe 里找同一个 chunk 名（strings 式扫描）
-Select-String -Path src-tauri\target\release\qmai.exe -Pattern "qmai-body-safe-bottom" -Encoding utf8 -List</code></pre>
-      <p class="expect">Expected: dist 的 chunk 名与新 exe 内出现的 chunk 名一致。若 exe 里找不到，说明 build 没把前端更新进去，不要交付。</p>
+      <p>用户的安装目录里<strong>没有独立的 dist/</strong>，前端是嵌进 exe 的。所以必须证明新 exe 里确实是新前端，否则用户装完看不到任何变化。</p>
+
+      <div class="note danger">
+        <span class="t">必须在 exe 里搜 <b>chunk 文件名</b>，不能搜 JS 内容 —— 搜内容一定找不到</span>
+        <p>这一点很容易搞错、而且错得很危险：tauri 把前端资源<strong>压缩</strong>后嵌进 exe
+        （<code>src-tauri/Cargo.lock</code> 里有 <code>brotli</code>；
+        <code>tauri-codegen</code> 的 <code>embedded_assets.rs</code> 注释写明
+        <em>"a directory of assets that are compressed and embedded"</em>）。
+        所以 exe 里只有资源的<strong>文件名</strong>是明文，<strong>内容</strong>是压缩字节。</p>
+        <p>实测（拿既有的 <code>qmai.exe</code>）：chunk 名 <code>index-CTXIFUjL.js</code>
+        <strong>能找到</strong>，而 <code>qmai-body-font-scale</code>、<code>ProseMirror</code>、
+        <code>ui-test-root</code> <strong>全都找不到</strong> —— 尽管
+        <code>qmai-body-font-scale</code> 确实存在于
+        <code>dist/assets/index-CTXIFUjL.js</code> 里。</p>
+        <p>所以：<strong>不要</strong>因为"在 exe 里搜不到 JS 内容"就判定 build 没打进去、
+        拒绝交付。那会错杀一个完全正常的构建。正确做法是比对<strong>文件名</strong>。</p>
+      </div>
+
+      <pre class="cmd"><code># 1) 取本次 build 产出的、包含排版代码的 chunk 文件名
+$chunk = (Get-ChildItem dist\assets\*.js |
+  Select-String -Pattern "qmai-body-safe-bottom" -List |
+  Select-Object -First 1 -ExpandProperty Path | Split-Path -Leaf)
+Write-Output "本次 chunk 文件名: $chunk"
+
+# 2) 确认这个文件名确实出现在 dist 的 index.html 里（被引用到了）
+Select-String -Path dist\index.html -Pattern ([regex]::Escape($chunk)) -List | Select-Object -First 1
+
+# 3) 到新 exe 里找**同一个文件名**（明文；不要搜 JS 内容）
+Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape($chunk)) -Encoding utf8 -List</code></pre>
+      <p class="expect">Expected: 三步都命中，且第 3 步打印的就是第 1 步那个 chunk 文件名。
+      若第 3 步找不到文件名，才说明 build 没把前端更新进去 —— 这时不要交付。</p>
+      <p>想再确认一层"新前端真的行得通"，跑 <code>docs/font-scaling-fix-20261007/verify-real-exe.mjs</code>
+      （它连真实 exe 的 CDP，能读到计算样式）。只搜文件名只能证明"资源进去了"，
+      证不了"进去的是对的那一版"。</p>
     </div>
   </div>
 

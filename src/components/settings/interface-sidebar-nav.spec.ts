@@ -111,12 +111,50 @@ describe("settings sidebar nav preferences", () => {
     expect(interfaceSectionSource).toContain("BODY_FONT_SIZE_MAX")
     // 2) 草稿类型里有该字段
     expect(settingsTypesSource).toContain("uiBodyFontSizeScale")
-    // 3) store：状态 + setter + **独立**的 localStorage 键，且读写都走同一个 clamp
-    expect(wikiStoreSource).toContain("uiBodyFontSizeScale: readStoredBodyFontSizeScale()")
-    expect(wikiStoreSource).toContain("setUiBodyFontSizeScale:")
+    // 3) store：5 个新状态 + 5 个 setter + 5 个**互不相同**的 localStorage 键
+    //
+    // 键必须各不相同：共用一个键会让「改行距把字号也改了」这种串味缺陷
+    // 出现，而且极难排查 —— 这是本仓库已经吃过一次的亏。
+    const storeKeys = [
+      ["uiBodyFontPx", "qmai-body-font-px"],
+      ["uiBodyLineHeight", "qmai-body-line-height"],
+      ["uiBodyLetterSpacing", "qmai-body-letter-spacing"],
+      ["uiBodyMarginX", "qmai-body-margin-x"],
+      ["uiBodySafeBottom", "qmai-body-safe-bottom"],
+    ] as const
+    const seenKeys = new Set<string>()
+    for (const [field, key] of storeKeys) {
+      expect(wikiStoreSource).toContain(`${field}: readStored`)
+      expect(wikiStoreSource).toContain(`set${field[0].toUpperCase()}${field.slice(1)}:`)
+      expect(wikiStoreSource).toContain(`"${key}"`)
+      expect(seenKeys.has(key), `键 ${key} 被两个参数共用`).toBe(false)
+      seenKeys.add(key)
+    }
+    // 正文字体仍有自己的键
+    expect(wikiStoreSource).toContain('"qmai-body-font-family"')
+    // 迁移必须走单一来源的纯函数，并且把**界面字号**传进去 ——
+    // 自己写 bodyScale × 18 会让界面字号非 100% 的用户一升级正文就变小
+    /*
+     * ⚠ 必须断言**参数形态**，不能拆成两个独立的 toContain。
+     *
+     * 拆开的写法没有鉴别力：把
+     *     resolveMigratedBodyFontPx(legacy, readStoredUiFontSizeScale())
+     * 改成
+     *     resolveMigratedBodyFontPx(legacy, 1)
+     * 之后，"readStoredUiFontSizeScale()" 这个字符串仍然出现在
+     * uiFontSizeScale: readStoredUiFontSizeScale() 那一行里，
+     * 于是第二条断言照样通过 —— 而"迁移时忘了乘界面字号"正是
+     * 界面 150% 的用户升级后正文变小的那个真实缺陷。
+     *
+     * 用正则而不是字面量，是为了容忍换行与空格：这行有 81 字符，
+     * 折成三行是完全合理的写法，字面量 toContain 会因此假红。
+     */
+    expect(wikiStoreSource).toMatch(
+      /resolveMigratedBodyFontPx\(\s*legacy\s*,\s*readStoredUiFontSizeScale\(\)\s*\)/,
+    )
+    // 旧倍数键必须保留只读（迁移要用），但不得再被写入
     expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
-    expect(wikiStoreSource).not.toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-font-size-scale"')
-    expect(wikiStoreSource).toContain("clampBodyFontSizeScale(scale)")
+    expect(wikiStoreSource).not.toContain("localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY")
     // 4) 保存时既写 store 也持久化
     expect(settingsViewSource).toContain("setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)")
     expect(settingsViewSource).toContain("saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale")
