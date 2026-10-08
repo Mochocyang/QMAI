@@ -27,6 +27,7 @@ import {
   loadLastReadChapter,
   loadOutlineWorkflowMode,
   loadUiBodyFontPx,
+  loadUiBodyLetterSpacing,
   loadUiBodyLineHeight,
   loadUiBodyMarginX,
   loadUiBodySafeBottom,
@@ -187,24 +188,39 @@ describe("正文排版参数持久化", () => {
     // app-state.json 是明文，可被手改
     storeMocks.values.set("uiBodyFontPx", 999)
     storeMocks.values.set("uiBodyLineHeight", 9)
+    storeMocks.values.set("uiBodyLetterSpacing", 99)
     storeMocks.values.set("uiBodySafeBottom", -50)
 
     await expect(loadUiBodyFontPx(1)).resolves.toBe(32)
     await expect(loadUiBodyLineHeight()).resolves.toBe(2.6)
+    await expect(loadUiBodyLetterSpacing()).resolves.toBe(6)
     await expect(loadUiBodySafeBottom()).resolves.toBe(0)
   })
 
   it("左右边距的 null 是一等公民，不能被读成 0", async () => {
     // null = 跟随窗口。读成 0 会让正文贴边，且用户没动过任何设置
     await saveUiBodyMarginX(null)
-    // 断言的是**读回函数**的行为，不是 mock 里 Map 的状态：
-      // 用 Map.get 去查已删除的键会得到 undefined，那条断言检验的是 mock
-      // 怎么写的，而不是被测代码对不对 —— 换任何实现它都不会红。
-      expect(storeMocks.values.has("uiBodyMarginX")).toBe(false)
+
+    /*
+     * 这两条断言各守一侧，都不能删（都实测过鉴别力）：
+     *
+     *   has(...) —— 守**写回侧**：null 必须真的把键删掉，
+     *               而不是写 0、写字符串 "null"、或什么都不做。
+     *               （实测：把 delete 换成 set(key, 0) / set(key, "null")
+     *                 只有这一条会红 —— 因为读回函数在两种写法下都还能
+     *                 返回 null，下面的 resolves.toBeNull() 照样绿。）
+     *   resolves.toBeNull() —— 守**读回侧**：把 null 读成 0 时只有它红。
+     *
+     * 早先这里有个注释说 has(...)「换任何实现都不会红」，是**错的**：
+     * 它恰恰是唯一抓住写回侧两种错法的断言。
+     */
+    expect(storeMocks.values.has("uiBodyMarginX")).toBe(false)
     await expect(loadUiBodyMarginX()).resolves.toBeNull()
 
-    storeMocks.values.set("uiBodyMarginX", 40)
-    await expect(loadUiBodyMarginX()).resolves.toBe(40)
+    // 设回去还能读回 —— 防止"永远不写这个键"骗过上面那条
+    await saveUiBodyMarginX(64)
+    expect(storeMocks.values.get("uiBodyMarginX")).toBe(64)
+    await expect(loadUiBodyMarginX()).resolves.toBe(64)
   })
 
   it("迁移：新键读不到、旧倍数键在，按 18×界面倍数×正文倍数 换算", async () => {
