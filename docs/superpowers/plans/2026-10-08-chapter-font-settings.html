@@ -3985,7 +3985,7 @@ node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect">Expected: 全绿（任务 7 交付时就是绿的）。若有红，说明任务 7 之后的某个改动动了 CSS，回到任务 7 处理，<strong>不要在这里改断言迁就实现</strong>。</p>
       <p>顺带复核四条新契约确实还在，防止被"顺手放宽"：</p>
-      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x, clamp(20px, 4vw, 48px)','--qmai-body-letter-spacing, 0','letter-spacing: var(--qmai-body-letter-spacing)']; for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 四条新契约断言仍在')"</code></pre>
+      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x, clamp(20px, 4vw, 48px)','--qmai-body-letter-spacing, 0','var(--qmai-body-letter-spacing']; for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 四条新契约断言仍在')"</code></pre>
       <p class="expect">Expected: <code>OK 四条新契约断言仍在</code>。若报"守卫里缺少"，说明断言被删了 —— 查任务 7 的提交，不要重新写一份。</p>
 
       <div class="note">
