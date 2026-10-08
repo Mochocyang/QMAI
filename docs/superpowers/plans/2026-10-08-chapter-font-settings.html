@@ -196,6 +196,32 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
   </div>
 
+  <h3>开工前先跑一条门禁</h3>
+  <div class="note">
+    <span class="t">每次改完本计划、以及每个任务开工前</span>
+    <p>本仓库的检查脚本都在 <code>.codex-temp/</code>（该目录不入库）。一条命令跑完全部：</p>
+    <pre class="cmd"><code>node .codex-temp/check-all.mjs</code></pre>
+    <p>它包含 8 项，每项都对应一个<strong>真实踩过的坑</strong>：</p>
+    <table>
+      <thead><tr><th>检查</th><th>防的是什么</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">check-plan.mjs</td><td>计划自身的 14 条一致性检查（任务覆盖、守卫按层分散、红色阶段存在等）</td></tr>
+        <tr><td class="mono">check-plan.mjs --mutate</td><td>证明上面那 14 条检查<strong>真的有鉴别力</strong>：注入 16 个已知缺陷，必须全部被报出来</td></tr>
+        <tr><td class="mono">check-docs.mjs</td><td>HTML 配平、代码块里的裸 <code>&lt;</code>、未定义 class、深色模式</td></tr>
+        <tr><td class="mono">scan-sync-await.mjs</td><td>同步 <code>it</code> 里混入 <code>await</code> —— 会以 TS1308 卡住 <code>typecheck:tests</code></td></tr>
+        <tr><td class="mono">check-brief-syntax.mjs</td><td>代码块语法（真的跑 <code>tsc</code>，因为 <code>await</code> 位置错不是解析错误，只有真 tsc 能抓）</td></tr>
+        <tr><td class="mono">verify-syntax-checker.mjs</td><td>证明上面那个检查器<strong>抓得住缺陷、也不误报</strong>正常写法</td></tr>
+        <tr><td class="mono">check-brief-imports.mjs</td><td>完整文件型的测试块用了常量却没 import（TS2304）、或用了 DOM 却没声明 jsdom</td></tr>
+        <tr><td class="mono">verify-t3-red.mjs</td><td>把任务 3 的测试块真的抽出来跑一遍，确认它<strong>红在计划预期的原因上</strong>，而不是环境/导入错误</td></tr>
+      </tbody>
+    </table>
+    <p><strong>「预期变红」是一句预测，预测必须实测。</strong>任务 3 的 Step 2 原写「Expected: FAIL」，
+    实测却是 <code>11 failed | 1 passed (12)</code> —— 那 1 条是禁止型断言（不许删旧键），
+    改造前本来就该绿。不实测就发现不了这类偏差，而偏差会让人怀疑自己的环境、进而去改本来正确的代码。</p>
+    <p>改完计划后顺序是：<code>node .codex-temp/split-plan.mjs</code>（重新生成简报）→
+    <code>node .codex-temp/check-all.mjs</code>。简报是派活的输入，门禁跑的是简报，不是计划本身。</p>
+  </div>
+
   <h3>每个任务都要做变异验证（不是可选项）</h3>
   <div class="note warn">
     <span class="t">为什么这条是硬要求</span>
@@ -260,7 +286,7 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
       <tr><td class="mono">src/lib/debounced-persist.ts</td><td><strong>新建</strong></td><td>把滑块的连续变化合并成一次落盘</td></tr>
       <tr><td class="mono">src/lib/debounced-persist.spec.ts</td><td><strong>新建</strong></td><td>合并/flush/dispose 的单测</td></tr>
       <tr><td class="mono">src/stores/wiki-store.ts</td><td>改</td><td>5 个新状态 + 5 个 setter + 5 个独立 localStorage 键；旧的倍数键只读用于迁移</td></tr>
-      <tr><td class="mono">src/stores/wiki-store.spec.ts</td><td>改</td><td>键独立性、迁移、读写走同一个 clamp</td></tr>
+      <tr><td class="mono">src/stores/wiki-store.body-typography.spec.ts</td><td>新建</td><td>键独立性、迁移（含乘入界面字号）、读写走同一个 clamp</td></tr>
       <tr><td class="mono">src/lib/project-store.ts</td><td>改</td><td>5 个新键的 save/load（app-state.json）</td></tr>
       <tr><td class="mono">src/App.tsx</td><td>改</td><td>启动读回 + 变化时调 <code>applyBodyTypography</code></td></tr>
       <tr><td class="mono">src/components/uitest/ui-test.css</td><td>改</td><td>变量层：由用户值派生正文 4 处共用字号与从属尺寸</td></tr>
@@ -1201,7 +1227,7 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/stores/wiki-store.ts（键定义区、读取函数区、state 类型、setter 区、initial state）</div>
-    <div>Test:   src/stores/wiki-store.spec.ts（追加 describe）</div>
+    <div>Create: src/stores/wiki-store.body-typography.spec.ts（本仓库按关注点命名，参考 wiki-store.ai-outline-model.spec.ts）</div>
   </div>
 
   <div class="step">
@@ -1262,12 +1288,54 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 1：先写会失败的测试</div>
     <div class="step-body">
-      <p>追加到 <code>src/stores/wiki-store.spec.ts</code>。<strong>先读该文件顶部</strong>，照它已有的方式重置 localStorage 与 store：</p>
-<pre><code>describe("正文排版参数（store 侧）", () =&gt; {
-  beforeEach(() =&gt; { localStorage.clear() })
+      <div class="note warn">
+        <span class="t">两个会让这一步直接卡住的坑，先看</span>
+        <p><strong>① 文件是新建的，不是追加。</strong>本仓库没有 <code>src/stores/wiki-store.spec.ts</code>（从来没有过）。约定是按关注点拆：
+        <code>wiki-store.ai-outline-model.spec.ts</code>、本任务新建 <code>wiki-store.body-typography.spec.ts</code>。别去读一个不存在的文件。</p>
+        <p><strong>② 必须声明 jsdom。</strong><code>vite.config.ts</code> 全局是 <code>environment: "node"</code>，实测 node 下 <code>typeof localStorage === "undefined"</code>。
+        这些用例直接用 <code>localStorage</code>，缺了首行的 <code>// @vitest-environment jsdom</code> 会全部以
+        "localStorage is not defined" 失败 —— 报错与被测逻辑毫无关系。</p>
+        <p><strong>③ 全部用动态 import，不要静态 import。</strong>下面有一组迁移用例要用
+        <code>vi.resetModules()</code> 重放"模块加载时读 localStorage"这个时机。若文件顶部还留着一句静态
+        <code>import { useWikiStore }</code>，它与 resetModules 之后的动态 import 会是<strong>两个模块实例</strong>，
+        你读到的 state 是陈旧的 —— 测试会以看似无关的方式失败。统一用
+        <code>await import("...")</code> 就没有这个陷阱。</p>
+      </div>
 
-  it("5 个参数各自一个独立的 localStorage 键", () =&gt; {
-    const s = useWikiStore.getState()
+      <p>新建 <code>src/stores/wiki-store.body-typography.spec.ts</code>：</p>
+<pre><code>// @vitest-environment jsdom
+//
+// 为什么必须声明 jsdom：vite.config.ts 全局是 environment: "node",
+// node 下没有 localStorage，这些用例会全部以 "localStorage is not defined" 失败。
+//
+// 为什么全部用动态 import 而不是静态 import：
+// 下面有迁移用例要用 vi.resetModules() 重放"模块加载时读 localStorage"。
+// 若顶部同时有一句静态 import，它与 resetModules 之后的动态 import 会是
+// 两个模块实例，读到的 state 陈旧 —— 表现为看似无关的失败。
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+// 范围常量从 font-settings 导入 —— 断言里要用它们，不能自己抄一遍数字：
+// 抄一遍的话，改范围时测试照样绿（"单一来源"也包括测试里不许有第二份数字）。
+import {
+  BODY_FONT_PX_MAX,
+  BODY_LINE_HEIGHT_MIN,
+  BODY_SAFE_BOTTOM_MIN,
+  DEFAULT_BODY_FONT_PX,
+} from "@/lib/font-settings"
+
+describe("正文排版参数（store 侧）", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.resetModules()
+  })
+
+  /** 取一个"刚加载"的 store（初值来自 localStorage）。 */
+  async function freshStore() {
+    return (await import("@/stores/wiki-store")).useWikiStore
+  }
+
+  it("5 个参数各自一个独立的 localStorage 键", async () =&gt; {
+    const s = (await freshStore()).getState()
     s.setUiBodyFontPx(20)
     s.setUiBodyLineHeight(2.2)
     s.setUiBodyLetterSpacing(1.5)
@@ -1281,11 +1349,11 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
     expect(localStorage.getItem("qmai-body-safe-bottom")).toBe("100")
   })
 
-  it("改一个参数不会动到其它参数（键独立性的真正含义）", () =&gt; {
-    const s = useWikiStore.getState()
+  it("改一个参数不会动到其它参数（键独立性的真正含义）", async () =&gt; {
+    const s = (await freshStore()).getState()
     s.setUiBodyFontPx(20)
     s.setUiBodyLineHeight(2.2)
-    const before = useWikiStore.getState()
+    const before = (await freshStore()).getState()
     const snapshot = {
       fontPx: before.uiBodyFontPx,
       lineHeight: before.uiBodyLineHeight,
@@ -1294,45 +1362,115 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
       safeBottom: before.uiBodySafeBottom,
     }
     s.setUiBodyLetterSpacing(2)
-    const after = useWikiStore.getState()
+    const after = (await freshStore()).getState()
     expect(after.uiBodyFontPx).toBe(snapshot.fontPx)
     expect(after.uiBodyLineHeight).toBe(snapshot.lineHeight)
     expect(after.uiBodyMarginX).toBe(snapshot.marginX)
     expect(after.uiBodySafeBottom).toBe(snapshot.safeBottom)
   })
 
-  it("写入的值经过钳制（范围是单一来源，不在 store 里各写一遍）", () =&gt; {
-    const s = useWikiStore.getState()
+  it("写入的值经过钳制（范围是单一来源，不在 store 里各写一遍）", async () =&gt; {
+    const s = (await freshStore()).getState()
     s.setUiBodyFontPx(9999)
-    expect(useWikiStore.getState().uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
+    expect(s.uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
     s.setUiBodyLineHeight(0)
-    expect(useWikiStore.getState().uiBodyLineHeight).toBe(BODY_LINE_HEIGHT_MIN)
+    expect(s.uiBodyLineHeight).toBe(BODY_LINE_HEIGHT_MIN)
     s.setUiBodySafeBottom(-5)
-    expect(useWikiStore.getState().uiBodySafeBottom).toBe(BODY_SAFE_BOTTOM_MIN)
+    expect(s.uiBodySafeBottom).toBe(BODY_SAFE_BOTTOM_MIN)
   })
 
-  it("左右边距可以存成「跟随窗口」(null)，且读回还是 null", () =&gt; {
-    const s = useWikiStore.getState()
+  it("左右边距可以存成「跟随窗口」(null)，且读回还是 null", async () =&gt; {
+    const s = (await freshStore()).getState()
     s.setUiBodyMarginX(40)
     expect(localStorage.getItem("qmai-body-margin-x")).toBe("40")
     s.setUiBodyMarginX(null)
-    expect(useWikiStore.getState().uiBodyMarginX).toBeNull()
+    expect(s.uiBodyMarginX).toBeNull()
     // null 不能落成字符串 "null"，否则读回时 Number("null") 是 NaN
     expect(localStorage.getItem("qmai-body-margin-x")).not.toBe("null")
   })
 
-  it("旧倍数键迁移成 px，且旧键不被删除（回滚到旧版本仍可用）", () =&gt; {
-    localStorage.clear()
+  /*
+   * ── 迁移用例：这是本任务唯一的"会读用户既存数据并据此改写行为"的代码 ──
+   *
+   * 为什么必须在这里测，而不是推给任务 12 的静态守卫：
+   * 静态守卫只能证明"读回函数先看新键、再看旧键"，证明不了**乘没乘界面字号**。
+   * 而改造前正文的实际渲染高度 = 18px × 界面倍数 × 正文倍数（rem 基准被 App
+   * 设成界面倍数×100%），只乘正文倍数的话，界面 150% 的老用户一升级
+   * 正文就从 27px 掉到 18px。这件事只有这一层能钉住。
+   *
+   * 做法：vi.resetModules() 后重新 import，模块求值期会重新读 localStorage ——
+   * 这正是"首次启动"的时机。
+   */
+  it("迁移：旧倍数 1.25（界面 100%）→ 23px", async () =&gt; {
     localStorage.setItem("qmai-ui-body-font-scale", "1.25")
-    // readStoredBodyFontPx 是模块内部函数，这里通过重新读取 store 的初始值来验证：
-    // 用动态 import 拿到新鲜模块（vi.resetModules）后读 getState()
+    localStorage.setItem("qmai-ui-font-size-scale", "1")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(23)
+  })
+
+  it("迁移：旧倍数 0.85（界面 100%）→ 15px", async () =&gt; {
+    localStorage.setItem("qmai-ui-body-font-scale", "0.85")
+    localStorage.setItem("qmai-ui-font-size-scale", "1")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(15)
+  })
+
+  it("迁移必须把界面字号乘进去：旧倍数 1 + 界面 150% → 27px", async () =&gt; {
+    // 只乘正文倍数会得到 18 —— 老用户一升级正文就变小。
+    // 这条断言就是那个缺陷的守卫。
+    localStorage.setItem("qmai-ui-body-font-scale", "1")
+    localStorage.setItem("qmai-ui-font-size-scale", "1.5")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(27)
+  })
+
+  it("迁移：乘积超过 32px 上限时被夹住（有意，不是 bug）", async () =&gt; {
+    // 18 × 1.25 × 1.5 = 33.75 → 32。
+    // 改造前是 28.1px 且没有上限概念，所以这里确实变小了一点 ——
+    // 钉住它是为了让这个取舍是"决定"而不是"意外"。
+    localStorage.setItem("qmai-ui-body-font-scale", "1.25")
+    localStorage.setItem("qmai-ui-font-size-scale", "1.5")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
+  })
+
+  it("没存过正文倍数但界面字号非默认 → 按界面字号补种，否则正文凭空变小", async () =&gt; {
+    localStorage.setItem("qmai-ui-font-size-scale", "1.5")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(27)
+  })
+
+  it("什么都没存且界面字号为默认 → 落在默认值，不写新键", async () =&gt; {
+    // resolveMigratedBodyFontPx 在"没存过 + 界面倍数 1"时返回 null
+    // （让"未设置"保持未设置，日后改默认值对新用户仍然有效）。
+    // 但 store 的 state 类型是 number，所以这里落成默认值；
+    // 真正把 null 传到持久化层的是任务 4 的 loadUiBodyFontPx。
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(DEFAULT_BODY_FONT_PX)
+    expect(localStorage.getItem("qmai-body-font-px")).toBeNull()
+  })
+
+  it("新键优先于旧键：迁移只发生一次", async () =&gt; {
+    localStorage.setItem("qmai-ui-body-font-scale", "0.85")
+    localStorage.setItem("qmai-body-font-px", "24")
+    expect((await freshStore()).getState().uiBodyFontPx).toBe(24)
+  })
+
+  it("旧倍数键迁移后不被删除（回滚到旧版本仍可用）", async () =&gt; {
+    localStorage.setItem("qmai-ui-body-font-scale", "1.25")
+    localStorage.setItem("qmai-ui-font-size-scale", "1")
+    await freshStore()
     expect(localStorage.getItem("qmai-ui-body-font-scale")).toBe("1.25")
   })
 })</code></pre>
-      <div class="note warn">
-        <span class="t">关于迁移那条用例</span>
-        <p>模块级 <code>readStoredBodyFontPx</code> 在模块加载时就被调用一次，普通单测很难重放「首次启动」。真正可靠的验证放在任务 12 的静态守卫里（断言读回函数确实先看新键、再看旧键，且不删旧键）。上面这条用例只负责钉住「旧键不被删除」，并用 <code>expect(localStorage.getItem(...))</code> 而非断言新值——不要把它写成看起来在测迁移、其实什么都没测的空断言。</p>
-        <p>任务 12 会补一条<strong>真正能红</strong>的迁移守卫。</p>
+      <div class="note">
+        <span class="t">关于那一组迁移用例</span>
+        <p><strong>为什么用 <code>vi.resetModules()</code> + 动态 import：</strong>模块级
+        <code>readStoredBodyFontPx</code> 在模块求值期就被调用一次，普通单测重放不了「首次启动」。
+        <code>vi.resetModules()</code> 后重新 import 会重新求值模块、重新读 localStorage ——
+        那就是首次启动的时机。这个手法已经实测可用（用既存的
+        <code>uiFontSizeScale</code> 验证：存 1.25 读回 1.25、存越界 9 被夹成 1.5、不存得 1）。</p>
+        <p><strong>为什么不能只靠任务 12 的静态守卫：</strong>静态守卫能证明「读回函数先看新键、再看旧键」，
+        证明不了<strong>乘没乘界面字号</strong>。而"没乘界面字号"正是会让界面 150% 的老用户
+        一升级正文就从 27px 掉到 18px 的那个缺陷。这条只能在这一层钉住。</p>
+        <p>写这些断言时<strong>不要</strong>把它写成"自己 set 再自己 get"的形状
+        （<code>localStorage.setItem(k, v); expect(localStorage.getItem(k)).toBe(v)</code>）——
+        那无论实现怎么改都绿，看起来在测迁移、其实什么都没测。期望值必须来自
+        迁移公式 <code>round(18 × 界面倍数 × 正文倍数)</code> 并夹到 <code>[12, 32]</code>。</p>
       </div>
     </div>
   </div>
@@ -1340,8 +1478,20 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 2：运行，确认变红</div>
     <div class="step-body">
-      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect bad">Expected: FAIL — <code>setUiBodyFontPx is not a function</code>。</p>
+      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.body-typography.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL —— 实测是 <code>11 failed | 1 passed (12)</code>。</p>
+      <p>失败的那 11 条，报错应当都是 <code>TypeError: s.setUiBodyFontPx is not a function</code> 这一类
+      （实现还不存在），而<strong>不是</strong> <code>localStorage is not defined</code> 或
+      <code>Cannot find name BODY_FONT_PX_MAX</code>。若你看到的是后两类，说明是环境或 import 的问题，
+      先修那个 —— 别去改实现，改了也还是红的。</p>
+      <div class="note">
+        <span class="t">那 1 条本来就该通过，别去"修"它</span>
+        <p>通过的是最后一条「旧倍数键迁移后不被删除（回滚到旧版本仍可用）」。它断言的是
+        <strong>不许删旧键</strong>，改造前后都成立，所以它不会先红。</p>
+        <p>这是"每个断言都要先看到红"的一个<strong>合法例外</strong>：禁止型断言（不许做某事）在改动前
+        本来就该绿。它的鉴别力体现在别处 —— 如果实现顺手把旧键删掉，它会立刻红。</p>
+        <p>下面 Step 3a 的注释里写着"旧键不写、不删"，就是这条断言对应的实现约束。</p>
+      </div>
     </div>
   </div>
 
@@ -1503,7 +1653,7 @@ const readStoredBodySafeBottom = (): number =&gt; {
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿；并让 tsc 暴露所有待改的调用点</div>
     <div class="step-body">
-      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.body-typography.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 npx tsc -p tsconfig.app.json --noEmit</code></pre>
       <p class="expect">Expected: 单测 PASS；tsc 会报出所有仍在用 <code>uiBodyFontSizeScale</code> / <code>setUiBodyFontSizeScale</code> 的文件。</p>
       <div class="note">
@@ -1519,7 +1669,7 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
       <p>本任务写了新断言（store 的 5 个状态 / setter / 键名 / 迁移）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
       <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
       <pre class="cmd"><code># 改坏一处实现后：
-npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+npx vitest run src/stores/wiki-store.body-typography.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
       <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
@@ -1529,7 +1679,7 @@ git diff --stat</code></pre>
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
-      <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.spec.ts
+      <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.body-typography.spec.ts
 git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久化键"</code></pre>
     </div>
   </div>
@@ -2275,7 +2425,19 @@ import {
 // 兜底边距不在这里定义，它和其余范围常量同住 font-settings（单一来源）。
 // 本文件测的是"控件用了它"，不是"它算得对"——后者已在任务 1 的
 // font-settings.spec.ts 里测过，不要在这里再抄一遍期望值。
-import { defaultBodyMarginXForViewport } from "@/lib/font-settings"
+import {
+  BODY_FONT_PX_MIN,
+  BODY_FONT_PX_MAX,
+  BODY_LINE_HEIGHT_MIN,
+  BODY_LINE_HEIGHT_MAX,
+  BODY_LETTER_SPACING_MIN,
+  BODY_LETTER_SPACING_MAX,
+  BODY_MARGIN_X_MIN,
+  BODY_MARGIN_X_MAX,
+  BODY_SAFE_BOTTOM_MIN,
+  BODY_SAFE_BOTTOM_MAX,
+  defaultBodyMarginXForViewport,
+} from "@/lib/font-settings"
 
 let root: Root
 let container: HTMLDivElement
