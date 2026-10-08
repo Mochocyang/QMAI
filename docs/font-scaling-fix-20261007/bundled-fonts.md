@@ -67,7 +67,7 @@ src-tauri/fonts/
 
 ## 3. 许可证义务（发布前必须逐条满足）
 
-### 3.1 九款 OFL-1.1 字体
+### 3.1 八款 OFL-1.1 字体
 
 - **必须随包分发 OFL-1.1 全文与各自的版权行** —— 已放在 `fonts/licenses/`。
 - **若修改了字体（子集化 / 格式转换 / 改名），必须去掉保留字体名（RFN）。**
@@ -220,7 +220,7 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
 **芫荽的处置**：从随包清单移出，但**留痕**在
 `bundled-fonts.json` 的 `excludedAfterProbe` 里（含来源、tag、SHA-256 与
 排除理由），这样日后有人问"芫荽为什么没随包"能直接查到答案。
-`snyc-fonts-manifest.mjs` 会检查这些被排除的文件**确实不在**
+`sync-fonts-manifest.mjs` 会检查这些被排除的文件**确实不在**
 `src-tauri/fonts/` 里 —— 资源目录是整目录打包的，留着它会让安装包白白多出
 9.01 MiB。若日后要支持繁体写作，应**另加一层繁体判据与单独的字体分组**，
 而不是把它塞回现有清单。
@@ -266,4 +266,11 @@ cd src-tauri; cargo test --offline --lib font_install
 
 # 5) 卸载清理段的 NSIS 语法（用真正的 makensis 编译模板原文片段）
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs
+
+# 6) 真实 exe 端到端：字体落盘/注册表 + 下拉可选中 + 选中后真换字形
+#    （需要先 node scripts/build-portable.mjs；脚本自己会还原它改动的用户设置）
+node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
+
+# 7) 真实机器上的清理（会真的删掉本机已安装的随包字体，仅手动执行）
+cd src-tauri; cargo test --offline --lib 手动_在真实机器上清理随包字体 -- --ignored --nocapture
 ```
