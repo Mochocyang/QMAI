@@ -476,8 +476,53 @@ pub const UNINSTALL_RECORD_FILE: &str = "installed-fonts.txt";
 /// 安装记录的 JSON 文件名。
 pub const INSTALL_RECORD_FILE: &str = "qmai-installed-fonts.json";
 
+/// 取路径的最后一段（同时按 `\` 与 `/` 切分，与 NSIS 的处理一致）。
+///
+/// 刻意**不用** `std::path::Path::file_name()`：它在非 Windows 上不把 `\` 当
+/// 分隔符，而这些记录里存的永远是 Windows 路径，而单元测试可能在别的平台上跑；
+/// 那样同一份记录在不同平台上会被解释成不同的文件名。
+fn last_component(p: &str) -> &str {
+    p.rsplit(['\\', '/']).next().unwrap_or("")
+}
+
+/// 算出卸载记录第 2 行要写的**纯文件名**（不含目录）。
+///
+/// 抽成独立函数是因为兜底链有三层，塞进 `write_uninstall_record` 的循环里会让
+/// "第 2 行绝不能为空"这条不变量淹没在缩进里 —— 而它一旦被破坏（写出空行），
+/// NSIS 侧的 `StrCmp $R3 "" qmai_fonts_close` 就会**提前结束整个清理循环**，
+/// 后面所有字体都不会被清理，且没有任何报错。
+fn record_file_name(f: &RecordedFont) -> String {
+    let sanitize = |s: &str| s.replace(['\t', '\r', '\n'], " ");
+    // `.` / `..` / 空串拼出去会指向目录而不是文件，一律不接受
+    let usable = |s: String| match s.trim() {
+        "" | "." | ".." => None,
+        _ => Some(s),
+    };
+    /*
+     * 优先取 `dest` 的最后一段，而不是直接信任 `f.file`：
+     * `dest` 才是"实际装到哪里"的唯一凭据，Rust 侧的 `remove_installed_fonts`
+     * 也是按它删的。两边同源，就不会出现"Rust 删 A、NSIS 删 B"这种
+     * 只在用户卸载时才暴露的分歧。
+     * 取"最后一段"同时也消掉了目录穿越（`..\..\x` → `x`）。
+     */
+    for cand in [
+        sanitize(last_component(&f.dest)),
+        sanitize(last_component(&f.file)),
+    ] {
+        if let Some(ok) = usable(cand) {
+            return ok;
+        }
+    }
+    let from_id = sanitize(&f.id);
+    if !from_id.trim().is_empty() {
+        return from_id;
+    }
+    // 记录整条都坏了。给一个删不掉任何真实文件的名字，但**必须非空**。
+    "qmai-unknown-font".to_string()
+}
+
 /// 写卸载器要读的纯文本记录：**每两项一组，交替两行** ——
-/// 第 1 行**注册表值名**（含 `(TrueType)` 后缀与字重），第 2 行目标绝对路径。
+/// 第 1 行**注册表值名**（含 `(TrueType)` 后缀与字重），第 2 行**纯文件名**。
 ///
 /// ── 为什么第 1 行是值名而不是族名 ──
 /// NSIS 那边执行的是 `DeleteRegValue HKCU <字体键> "$R2"`，需要一个**完整的**
@@ -486,7 +531,25 @@ pub const INSTALL_RECORD_FILE: &str = "qmai-installed-fonts.json";
 /// 现在记录里直接写完整值名，NSIS 原样使用，规则只存在于
 /// `registry_value_name` 一个地方。
 ///
-/// ── 为什么不用 `族名<TAB>路径` 一行一项 ──
+/// ── 为什么第 2 行是**文件名**而不是绝对路径（实测出来的坑）──
+/// NSIS 的 `FileRead` 按**系统 ANSI 代码页**解码，而且**不认 BOM**。
+/// 在 `verify-nsis-font-cleanup.mjs --e2e` 的编码矩阵上实测：
+///   · UTF-8 无 BOM：只有内容全是 ASCII 时才对（ASCII 与 ANSI 字节相同）
+///   · UTF-8 带 BOM：多出一个 `U+FEFF`（BOM 被当成正文，不剥离）
+///   · UTF-16LE（带/不带 BOM）：直接读断（`0x00` 被当成字符串结束）
+/// 而本文件由 Rust 以 UTF-8 写出。真实清单里的族名与文件名**全是 ASCII**
+/// （由 `清单里的族名与文件名必须全是ASCII` 钉住），所以唯一可能带非 ASCII 的
+/// 就是路径前缀 `%LOCALAPPDATA%` —— 中文 Windows 用户名会让它变成
+/// `C:\Users\张三\AppData\Local`。那种机器上卸载器拿到的是乱码路径，
+/// 而 `Delete` 对不存在的路径**静默成功**：字体永久残留，且没有任何报错。
+///
+/// 只写文件名之后，文件内容就是**纯 ASCII**，编码差异不再有任何影响；
+/// 绝对路径改由 NSIS 用 `$LOCALAPPDATA\Microsoft\Windows\Fonts` 现场拼出，
+/// 那一侧是原生 Unicode，中文用户名完全没问题。
+/// 前提是 `dest` 恒等于 `<字体目录>\<文件名>` —— 由 `install_into` 的
+/// `dest_dir.join(&entry.file)` 保证，并有测试钉住。
+///
+/// ── 为什么不用 `值名<TAB>文件名` 一行一项 ──
 /// NSIS 核心指令里没有"查找子串"，一行两项就必须引 `StrFunc.nsh` 的 `${StrLoc}`
 /// 做下标运算（先找 TAB 位置、再 `IntOp` 加一、再按偏移取子串）。
 /// 交替两行只需要 `FileRead` 两次，全是核心指令。
@@ -494,7 +557,7 @@ pub const INSTALL_RECORD_FILE: &str = "qmai-installed-fonts.json";
 /// 让文件好看一点重要得多。
 ///
 /// ── 因此这个文件**不能有注释行** ──
-/// 一行注释就会让后面所有行错位（值名位置读到路径）。格式说明放在此处与
+/// 一行注释就会让后面所有行错位（值名位置读到文件名）。格式说明放在此处与
 /// `docs/font-scaling-fix-20261007/` 里，不放在数据文件里。
 fn write_uninstall_record(app_data_dir: &Path, record: &InstallRecord) -> Result<(), String> {
     let mut text = String::new();
@@ -518,16 +581,17 @@ fn write_uninstall_record(app_data_dir: &Path, record: &InstallRecord) -> Result
             }
         };
         let value_name = value_name.replace(['\t', '\r', '\n'], " ");
-        let dest = f.dest.replace(['\t', '\r', '\n'], " ");
         // 值名不能为空：空行会被卸载器当成"读完了"而提前结束
         let value_name = if value_name.trim().is_empty() {
             f.id.clone()
         } else {
             value_name
         };
+        // 第 2 行只写文件名（见上方关于编码的说明），且保证非空
+        let file_name = record_file_name(f);
         text.push_str(&value_name);
         text.push_str("\r\n");
-        text.push_str(&dest);
+        text.push_str(&file_name);
         text.push_str("\r\n");
     }
     let path = app_data_dir.join(UNINSTALL_RECORD_FILE);
@@ -1137,7 +1201,7 @@ mod tests {
     }
 
     #[test]
-    fn 卸载记录是交替两行且能按卸载器的读法还原() {
+    fn 卸载记录是交替两行且第二行是纯文件名() {
         let dir = temp_dir("uninstall");
         let dest_a = r"C:\Users\x\AppData\Local\Microsoft\Windows\Fonts\a.ttf";
         let dest_b = r"C:\Users\x\AppData\Local\Microsoft\Windows\Fonts\b.ttf";
@@ -1185,11 +1249,107 @@ mod tests {
         assert_eq!(
             parsed,
             vec![
-                ("AFont (TrueType)".to_string(), dest_a.to_string()),
-                ("BFont (TrueType)".to_string(), dest_b.to_string()),
+                ("AFont (TrueType)".to_string(), "a.ttf".to_string()),
+                ("BFont (TrueType)".to_string(), "b.ttf".to_string()),
             ]
         );
+        /*
+         * 记录里**不得出现绝对路径**，也不得出现任何非 ASCII。
+         *
+         * 原因见 `write_uninstall_record` 的文档：NSIS 的 `FileRead` 按系统 ANSI
+         * 代码页解码、且不认 BOM，而本文件由 Rust 以 UTF-8 写出。内容全 ASCII 时
+         * 两者字节相同才"碰巧"能跑；一旦路径里出现非 ASCII（中文 Windows 用户名
+         * → `C:\Users\张三\AppData\Local`），卸载器拿到的是乱码路径，
+         * 而 `Delete` 对不存在的路径**静默成功** —— 字体永久残留、没有任何报错。
+         */
+        assert!(
+            text.is_ascii(),
+            "记录必须是纯 ASCII，否则中文用户名下 NSIS 会读成乱码：{text:?}"
+        );
+        for p in [dest_a, dest_b] {
+            assert!(
+                !text.contains(p),
+                "记录里不该出现绝对路径 {p}（目录由 NSIS 用 $LOCALAPPDATA 现场拼）：{text:?}"
+            );
+        }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **回归**：路径含非 ASCII（中文 Windows 用户名）时，记录仍必须是纯 ASCII。
+    ///
+    /// 这是实测出来的真实缺陷，不是假想：`%LOCALAPPDATA%` 在中文用户名下会变成
+    /// `C:\Users\张三\AppData\Local`。修好之前，卸载器会拿这个路径按 ANSI 解码，
+    /// 得到乱码后 `Delete` 一个不存在的路径并**静默成功** ——
+    /// 用户卸载完，字体库里永久留下 11 个字体，且没有任何提示。
+    #[test]
+    fn 路径含中文时记录仍必须是纯ASCII() {
+        let dir = temp_dir("uninstall-cjk");
+        let record = InstallRecord {
+            manifest_version: 1,
+            installed: vec![RecordedFont {
+                id: "cjk".into(),
+                file: "SourceHanSerifSC-Bold.otf".into(),
+                family: "Source Han Serif SC".into(),
+                dest: r"C:\Users\张三\AppData\Local\Microsoft\Windows\Fonts\SourceHanSerifSC-Bold.otf"
+                    .into(),
+                reg_value_name: Some("Source Han Serif SC Bold (TrueType)".into()),
+                size_bytes: 1,
+            }],
+        };
+        write_uninstall_record(&dir, &record).unwrap();
+        let text = fs::read_to_string(dir.join(UNINSTALL_RECORD_FILE)).unwrap();
+        assert!(
+            text.is_ascii(),
+            "路径含非 ASCII 时记录仍必须全 ASCII（否则 NSIS 读成乱码、字体清不掉）：{text:?}"
+        );
+        assert_eq!(
+            parse_uninstall_record(&text),
+            vec![(
+                "Source Han Serif SC Bold (TrueType)".to_string(),
+                "SourceHanSerifSC-Bold.otf".to_string()
+            )],
+            "第 2 行必须是纯文件名，这样记录里才不可能出现非 ASCII"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 第 2 行**在任何损坏输入下都不得为空**。
+    ///
+    /// NSIS 侧用 `StrCmp $R3 "" qmai_fonts_close` 判断"读完了"，
+    /// 所以一个空文件名会让它**提前结束整个清理循环**：后面所有字体都不会被清理，
+    /// 而且不会有任何报错。同时文件名里不能残留路径分隔符，
+    /// 否则 `"${QMAIFONTDIR}\$R3"` 会拼到字体目录**之外**去删东西。
+    #[test]
+    fn 记录第二行在任何损坏输入下都不得为空或含分隔符() {
+        let cases: Vec<(&str, &str, &str)> = vec![
+            ("", "", ""),                        // 整条都空
+            (r"C:\a\b.ttf", "", ""),             // 只有 dest
+            ("", "b.ttf", ""),                   // 只有 file
+            ("", "", "only-id"),                 // 只有 id
+            (r"C:\dir\", "x", ""),               // dest 以分隔符结尾 → 取不到文件名
+            (r"C:\dir\..\..\evil.exe", "x", ""), // 目录穿越必须被消掉
+            (".", "..", ""),                     // 退化成纯分隔符
+            ("///", "///", ""),                  // 非 Windows 分隔符
+        ];
+        for (dest, file, id) in cases {
+            let f = RecordedFont {
+                id: id.into(),
+                file: file.into(),
+                family: "F".into(),
+                dest: dest.into(),
+                reg_value_name: Some("F (TrueType)".into()),
+                size_bytes: 1,
+            };
+            let name = record_file_name(&f);
+            assert!(
+                !name.trim().is_empty(),
+                "dest={dest:?} file={file:?} id={id:?} 算出了空文件名（NSIS 会提前结束清理）"
+            );
+            assert!(
+                !name.contains(['\\', '/']),
+                "dest={dest:?} 算出的文件名仍含分隔符：{name:?}（会删到字体目录之外）"
+            );
+        }
     }
 
     /// 卸载记录里必须写**带字重的完整值名**，否则卸载时删不掉那个键。
@@ -1253,8 +1413,9 @@ mod tests {
         let text = fs::read_to_string(dir.join(UNINSTALL_RECORD_FILE)).unwrap();
         let parsed = parse_uninstall_record(&text);
         assert_eq!(parsed.len(), 2, "必须仍然是两组：{parsed:?}");
-        assert_eq!(parsed[0].1, "/tmp/a.ttf");
-        assert_eq!(parsed[1].1, "/tmp/b.ttf");
+        // 第 2 行现在是纯文件名（目录由 NSIS 用 $LOCALAPPDATA 现场拼）
+        assert_eq!(parsed[0].1, "a.ttf");
+        assert_eq!(parsed[1].1, "b.ttf");
         // 空白族名拼不出可用值名，回退到 id，绝不能是空行
         assert_eq!(parsed[1].0, "empty", "空白族名应回退到 id");
         assert!(!parsed[0].0.contains('\n'), "换行必须被剥掉");
@@ -1577,5 +1738,128 @@ mod tests {
             }
         }
         println!("  ✓ 清理完成且无残留");
+    }
+
+    /*
+     * ── 为 NSIS 端到端验证写出一份**真实**的卸载记录（手动触发的诊断工具）──
+     *
+     * 卸载清理在 NSIS 侧要读 `installed-fonts.txt`，而写下这个文件的是本模块的
+     * `write_uninstall_record`。**这条跨语言的约定原本只被"编译通过"验证过** ——
+     * 编译通过证明不了 FileRead 读得对、StrTrimNewLines 剥得对、
+     * DeleteRegValue 删得掉。
+     *
+     * 所以这里由**生产代码**（而不是测试里另写一份）写出记录，并附一张
+     * `expected.json` 说明预期结果，交给
+     * docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs 去真跑一遍 NSIS。
+     *
+     * 关键点：记录内容绝不能在验收脚本里"照着格式再写一遍" ——
+     * 那样测的是"我以为的格式"，而不是"实际写出的格式"，正是要避免的假绿。
+     *
+     * 由验收脚本调用，需要 `QMAI_FONT_E2E_DIR` 指向一个已经建好的工作目录。
+     */
+    #[test]
+    #[ignore = "诊断工具，由 verify-nsis-font-cleanup.mjs 调用"]
+    fn 诊断_写出卸载记录供NSIS端到端验证() {
+        /*
+         * 两个环境变量把这次运行完全圈在临时目录里：
+         *   · QMAI_FONT_E2E_DIR       —— 冒充应用数据目录（写 installed-fonts.txt）
+         *   · QMAI_FONT_E2E_FONTS_DIR —— 冒充用户字体目录（记录里写的 dest）
+         * 这样验收脚本能真跑一遍 NSIS 清理，而不碰用户真实的 %APPDATA%
+         * 与真实字体注册表。
+         */
+        let app_data = PathBuf::from(
+            std::env::var("QMAI_FONT_E2E_DIR")
+                .expect("需要 QMAI_FONT_E2E_DIR 环境变量指向工作目录"),
+        );
+        let fonts_dir = PathBuf::from(
+            std::env::var("QMAI_FONT_E2E_FONTS_DIR")
+                .expect("需要 QMAI_FONT_E2E_FONTS_DIR 环境变量指向字体目录"),
+        );
+        fs::create_dir_all(&app_data).expect("建数据目录");
+        fs::create_dir_all(&fonts_dir).expect("建字体目录");
+
+        /*
+         * 值名与文件名都只用 ASCII —— 这不是偷懒，而是要**忠实复现生产形状**：
+         * 真实清单里的族名（`Source Han Serif SC`）与文件名
+         * （`SourceHanSerifSC-Bold.otf`）全是 ASCII，见
+         * `清单里的族名与文件名必须全是ASCII` 这个测试。
+         * 唯一可能带非 ASCII 的是**路径前缀** `%LOCALAPPDATA%` ——
+         * 中文 Windows 用户名会让它变成 `C:\Users\张三\AppData\Local`。
+         * 所以验收脚本要把字体目录指向一个**含中文的目录**，
+         * 否则测的就不是真实缺陷。
+         */
+        let entries = vec![
+            RecordedFont {
+                id: "e2e-plain".into(),
+                file: "E2EPlain-Regular.ttf".into(),
+                family: "QMAI E2E Plain".into(),
+                dest: fonts_dir.join("E2EPlain-Regular.ttf").to_string_lossy().to_string(),
+                reg_value_name: Some("QMAI E2E Plain (TrueType)".into()),
+                size_bytes: 11,
+            },
+            RecordedFont {
+                id: "e2e-bold".into(),
+                file: "E2EBold-Regular.otf".into(),
+                family: "QMAI E2E Bold".into(),
+                dest: fonts_dir.join("E2EBold-Regular.otf").to_string_lossy().to_string(),
+                reg_value_name: Some("QMAI E2E Bold (TrueType)".into()),
+                size_bytes: 22,
+            },
+        ];
+        let record = InstallRecord { manifest_version: 1, installed: entries };
+        write_uninstall_record(&app_data, &record).expect("写卸载记录");
+
+        /*
+         * 真的把两个文件建出来。
+         * 不建的话 NSIS 的 `Delete` 会对着不存在的路径"成功"，
+         * 于是"文件被删掉了"这个断言无论清理段写得多错都会通过 —— 典型的假绿。
+         */
+        for f in &record.installed {
+            fs::write(&f.dest, vec![b'x'; f.size_bytes as usize]).expect("建假字体文件");
+        }
+
+        // 供验收脚本建注册表值/断言用；记录文件本身才是被测对象
+        let expected: Vec<String> = record
+            .installed
+            .iter()
+            .map(|f| {
+                format!(
+                    "{{\"valueName\":{},\"dest\":{}}}",
+                    json_string(f.reg_value_name.as_deref().unwrap_or("")),
+                    json_string(&f.dest)
+                )
+            })
+            .collect();
+        let sidecar = format!("{{\"expected\":[{}]}}", expected.join(","));
+        fs::write(app_data.join("expected.json"), sidecar).expect("写 expected.json");
+
+        let record_path = app_data.join(UNINSTALL_RECORD_FILE);
+        println!("  记录文件：{}", record_path.display());
+        println!("  字节数：{}", fs::metadata(&record_path).map(|m| m.len()).unwrap_or(0));
+        println!("  条目数：{}", record.installed.len());
+    }
+
+    /// 把一个字符串编码成 JSON 字符串字面量（含转义）。
+    ///
+    /// 只用于上面的诊断工具写 `expected.json`：路径里可能有反斜杠、
+    /// 值名里可能有引号，手工拼 JSON 会写出非法文件，
+    /// 而验收脚本读不动它时会报"格式错"而不是"预期内容错"，很难定位。
+    #[cfg(test)]
+    fn json_string(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
     }
 }

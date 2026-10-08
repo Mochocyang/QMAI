@@ -48,6 +48,16 @@
 | `verify-ui-font-applies.mjs` | 界面字体 11 项逐个验证（用**真实产品 `cssFamily`**，CDP 判真实渲染族） | `--selftest` 49/0；12 档真换字形、1 档仅度量差、3 档期望相同且成立 |
 | `verify-body-font-applies.mjs` | 正文字体是否真的作用于正文渲染 | 实跑通过 |
 
+### ✅ 阶段 3/4（中文字体枚举 + 随包字体）的权威工具
+
+| 文件 | 用途 | 自检情况 |
+|---|---|---|
+| `bundled-fonts.md` + `bundled-fonts.json` | **随包字体清单**（9 族 / 11 个字重文件，209,720,176 B = 200.00 MiB）与逐款授权依据 | 体积与清单由 `sync-fonts-manifest.mjs --check` 钉住；§1.1 记录同族多字重撞注册表值名的实测缺陷 |
+| `docs/font-license-verification/verify-bundle-licenses.mjs` | **授权判据**：逐款比对许可证原文，只认"允许把字体文件打进闭源商业安装包再分发" | 可捆绑 23 款 / 明确不可捆绑 2 款 / 0 款需人工判定。用户点名要的 MiSans 与阿里巴巴普惠体被判**不可捆绑**并给出原文依据 |
+| `scripts/sync-fonts-manifest.mjs --check` | 运行期清单与磁盘文件的一致性 + 同族值名查重 | 11 款一致；值名重复会直接退出 1 |
+| `verify-nsis-font-cleanup.mjs` | **卸载清理段的验收**：从真实模板抽出那段代码，`makensis` 编译（阶段一），并在**一次性注册表键 + 含中文的临时目录**上**真跑一遍**（阶段二 `--e2e`） | 两阶段通过。阶段二会断言记录文件是**纯 ASCII**、文件与注册表值都被删掉、记录之外的 canary 值未被误删、重复执行幂等。两条变异均实测变红（去掉 NSIS 目录前缀 / Rust 退回写绝对路径） |
+| `verify-real-exe-fonts.mjs` | **真实 exe 验收**：便携版启动后读 HKCU 值、断言 9 个族都能在下拉里选到、canvas 像素哈希证明字形确实变了（含确定性对照） | 实跑通过；11 个文件 / 9 个族；多字重部分按**文件名**匹配，不用值名前缀（否则基线里已有的 `Source Han Serif SC Heavy` 会让 Bold 未装也判过） |
+
 ### ❌ 已被推翻的探测脚本（**结论不可采信**，仅保留以记录方法迭代）
 
 | 文件 | 当时结论 | 为何被推翻 |
@@ -187,6 +197,25 @@ node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs --selftes
 node docs/font-scaling-fix-20261007/verify-real-exe.mjs --port 9333            # 自己启动 exe
 node docs/font-scaling-fix-20261007/verify-real-exe.mjs --attach --port 9333   # 附加到已在运行的实例
 node docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs --port 9333
+
+# ── 阶段 4（随包字体）──────────────────────────────────────────────
+# 卸载清理段：先编译，再在一次性注册表键 + 含中文的临时目录上真跑一遍
+# （--e2e 需要先构建过 Rust；不带 --e2e 只做编译与契约检查）
+node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs
+node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs --e2e
+
+# 运行期清单与磁盘一致性 + 同族注册表值名查重
+node scripts/sync-fonts-manifest.mjs --check
+
+# 授权判据（只认"允许打进闭源商业安装包再分发"）
+node docs/font-license-verification/verify-bundle-licenses.mjs
+
+# Rust 侧字体安装/清理的单元测试（含"路径含中文时记录仍必须是纯 ASCII"）
+cd src-tauri && cargo test --offline --lib font_install -- --test-threads=1
+
+# 真实 exe：随包字体是否真的装上了、能否在下拉里选到、字形是否真变了
+# （前置：便携版已构建，且 WebView2 带 CDP 参数启动，同上）
+node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 ```
 
 前置条件：`dist/` 已构建（`npm run build`）；Playwright 全局安装于

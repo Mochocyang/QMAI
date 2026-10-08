@@ -341,8 +341,10 @@ cd src-tauri; cargo test --offline --lib 随包字体的清单族名 -- --nocapt
 # 4) 安装/卸载记录与幂等性
 cd src-tauri; cargo test --offline --lib font_install
 
-# 5) 卸载清理段的 NSIS 语法（用真正的 makensis 编译模板原文片段）
+# 5) 卸载清理段：先编译，再在一次性注册表键 + 含中文的临时目录上**真跑一遍**
+#    （不带 --e2e 只做编译与 NSIS↔Rust 契约检查）
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs
+node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs --e2e
 
 # 6) 真实 exe 端到端：字体落盘/注册表 + 下拉可选中 + 选中后真换字形
 #    （需要先 node scripts/build-portable.mjs；脚本自己会还原它改动的用户设置）
@@ -351,3 +353,29 @@ node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 # 7) 真实机器上的清理（会真的删掉本机已安装的随包字体，仅手动执行）
 cd src-tauri; cargo test --offline --lib 手动_在真实机器上清理随包字体 -- --ignored --nocapture
 ```
+
+### 卸载记录文件为什么只存**文件名**
+
+NSIS 的 `FileRead` 按**系统 ANSI 代码页**解码，而且**不认 BOM**；记录文件却由 Rust
+以 UTF-8 写出。实测矩阵（内容全 ASCII，按"读出来的字符数"判定）：
+
+| 记录编码 | `FileRead` 结果 | 结论 |
+|---|---|---|
+| UTF-8 无 BOM | 与原文一致 | 只有全 ASCII 时才对（ASCII 与 ANSI 字节相同） |
+| UTF-8 带 BOM | 多 1 个字符 | BOM 被当成正文，**不剥离** |
+| UTF-16LE 带 / 不带 BOM | 只读出 1–2 个字符 | 读断（`0x00` 被当成结束） |
+
+所以记录里必须只有**纯 ASCII**。清单里的族名与文件名本来就全是 ASCII
+（由测试 `清单里的族名与文件名必须全是ASCII` 钉住），唯一可能带非 ASCII 的是路径
+前缀 `%LOCALAPPDATA%` —— 中文 Windows 用户名会让它变成 `C:\Users\张三\AppData\Local`。
+那种机器上卸载器会拿到乱码路径，而 `Delete` 对不存在的路径**静默成功**：
+字体永久残留，且没有任何报错。
+
+修法是第 2 行改存**纯文件名**，目录由 NSIS 用 `$LOCALAPPDATA\Microsoft\Windows\Fonts`
+现场拼出（那一侧是原生 Unicode）。三层回归防护：Rust 测试
+`路径含中文时记录仍必须是纯ASCII`、验收脚本的纯 ASCII 断言、以及
+`--e2e` 在**含中文的目录**上真跑一遍清理段。
+
+第 2 行还**绝不能为空** —— NSIS 用 `StrCmp $R3 ""` 判断"读完了"，
+一个空文件名会让它**提前结束整个清理循环**，后面所有字体都不清理。
+由 `记录第二行在任何损坏输入下都不得为空或含分隔符` 钉住（含目录穿越输入）。

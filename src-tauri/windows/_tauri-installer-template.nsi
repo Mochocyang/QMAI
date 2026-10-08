@@ -68,6 +68,39 @@ ${StrTrimNewLines}
 !define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
 !define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
 !define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
+; 随包字体写进/清理的 HKCU 键。
+;
+; ── 为什么抽成 !define ──
+; 卸载清理段必须能被执行一遍才算验证过。只"编译通过"证明不了
+; FileRead / StrTrimNewLines / DeleteRegValue 在运行时的实际行为 ——
+; 而这段代码用户装完就再也不会跑到，出错也只会表现为"卸载后字体库里多出十几个
+; 字体"。抽成 define 后，验收脚本可以把整段代码放进一个**一次性键**里真跑一遍
+; （见 docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs 的端到端部分），
+; 而不必污染用户真实的字体注册表。
+; 验收脚本会断言这里的值等于生产路径，防止有人把它改错。
+!define QMAIFONTKEY "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+
+; 随包字体的安装目录（每用户，无需提权）。与 Rust 侧
+; `font_install::user_font_dir()` 的 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`
+; 必须一致 —— 验收脚本会断言这一点。
+;
+; ── 为什么清理段要**自己拼**这个目录，而不是从记录里读绝对路径 ──
+; NSIS 的 `FileRead` 按系统 ANSI 代码页解码、且不认 BOM，而记录文件是 Rust 用
+; UTF-8 写的。内容全是 ASCII 时两者字节相同所以"碰巧"能跑；一旦路径里出现非
+; ASCII（中文 Windows 用户名 → `C:\Users\张三\AppData\Local`）就会读成乱码，
+; 而 `Delete` 对不存在的路径**静默成功**，字体永久残留且没有任何报错。
+; 所以记录里只存纯 ASCII 的文件名，目录在这里拼 —— `$LOCALAPPDATA` 是原生
+; Unicode，中文用户名不受影响。
+!define QMAIFONTDIR "$LOCALAPPDATA\Microsoft\Windows\Fonts"
+
+; 卸载记录文件所在目录。生产路径即 `$APPDATA\<bundle id>`，与 Rust 侧
+; `font_install::remove_installed_fonts` 读的那个目录必须一致。
+;
+; 抽成 !define 的理由同 `QMAIFONTKEY`：端到端验收脚本可以把它指向临时目录，
+; 于是整段清理代码能被真跑一遍，而不必往用户真实的 %APPDATA% 里写东西。
+; 验收脚本会断言这里的默认值与 Rust 侧常量一致。
+!define QMAIFONTRECORDDIR "$APPDATA\${BUNDLEID}"
+
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
 !define MANUKEY "Software\${MANUFACTURER}"
 !define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
@@ -875,14 +908,16 @@ Section Uninstall
   ; 不保护就会在更新过程中把字体删掉（更新完应用还得重装一遍，且用户会看到
   ; 字体短暂消失）。
   ;
-  ; 记录文件是**交替两行**的纯文本（完整值名一行、绝对路径一行），
+  ; 记录文件是**交替两行**的纯文本（完整值名一行、**纯文件名**一行），
   ; 没有注释行 —— 一行注释就会让后面全部错位、删错文件。
+  ; 第 2 行是文件名而不是绝对路径：见上面 `QMAIFONTDIR` 处的说明
+  ; （NSIS 按 ANSI 解码 UTF-8 记录，非 ASCII 路径会读成乱码）。
   ; 格式由 src-tauri/src/font_install.rs 的 write_uninstall_record 定义，
   ; 并由 Rust 侧同名测试 parse_uninstall_record 钉住。
   ;
   ; 注意：这一段必须排在下面"删除应用数据"里 RmDir /r "$APPDATA\${BUNDLEID}"
   ; **之前** —— 否则记录文件先被删掉，字体就再也清不掉了。
-    StrCpy $R0 "$APPDATA\${BUNDLEID}\installed-fonts.txt"
+    StrCpy $R0 "${QMAIFONTRECORDDIR}\installed-fonts.txt"
     IfFileExists "$R0" 0 qmai_fonts_done
     FileOpen $R1 "$R0" r
   qmai_fonts_loop:
@@ -890,17 +925,20 @@ Section Uninstall
     IfErrors qmai_fonts_close
     ${StrTrimNewLines} $R2 $R2
     StrCmp $R2 "" qmai_fonts_close ; 空行 = 读完了
-    FileRead $R1 $R3 ; 第 2 行：目标绝对路径
+    FileRead $R1 $R3 ; 第 2 行：纯文件名（不含目录，全 ASCII）
     IfErrors qmai_fonts_close
     ${StrTrimNewLines} $R3 $R3
     StrCmp $R3 "" qmai_fonts_close
+    ; 目录在这里拼，而不是用记录里的绝对路径：$LOCALAPPDATA 是原生 Unicode，
+    ; 中文用户名不会像"按 ANSI 解码 UTF-8 记录"那样被读成乱码。
+    StrCpy $R3 "${QMAIFONTDIR}\$R3"
     ; 从字体文件里删掉。被占用时 /REBOOTOK 保证重启后仍会删掉，
     ; 而不是静默留下一个孤儿字体文件。
     Delete /REBOOTOK "$R3"
     ; 值名原样使用：**不要**在这里拼 " (TrueType)"。
     ; 拼接规则若分散到 NSIS 里，加字重时必然有一处忘记改，
     ; 结果是卸载后 HKCU 里留下一批指向已删文件的悬空值。
-    DeleteRegValue HKCU "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$R2"
+    DeleteRegValue HKCU "${QMAIFONTKEY}" "$R2"
     Goto qmai_fonts_loop
   qmai_fonts_close:
     FileClose $R1
