@@ -434,6 +434,112 @@ describe("编辑器异常与原业务回归", () => {
     expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "一键排版"])
   })
 
+  /*
+   * ── 下面两条补的是审查发现的**真缺口**：大纲入口没有任何渲染层覆盖 ──
+   *
+   * 背景：Task 11 新增的守卫（preview-panel.chapter-toolbar.spec.tsx）是
+   * **源码文本**断言 —— 它只能证明那段 JSX 还在文件里，
+   * **证明不了它会被渲染出来**。
+   *
+   * 审查做了这个变异：把大纲那处的「字体设置」按钮包进条件渲染、
+   * 甚至包成 `{false ? (…字体设置…) : null}`（**确定**渲染不出来），
+   * 全部源码文本判据**依然全绿**。我独立复现过，结论一致
+   * （脚本见 .codex-temp/verify-outline-render-gap.mjs，含 `{false}` 反向对照）。
+   *
+   * 而"大纲里点不到字体设置"是**用户在界面上直接看到**的错，
+   * 也正是用户明确要求过的那件事（「大纲当中也要有这个设置功能」）。
+   * 所以必须有渲染层断言 —— 这正是本文件这一组用例该补的。
+   *
+   * 用 it.each 把两条路径都覆盖：只覆盖章节那处等于把大纲放走，
+   * 而"两处入口"恰恰是本次的要求。
+   */
+  it.each([
+    ["章节", chapterPath],
+    ["大纲", outlinePath],
+  ])("%s写作现场的「字体设置」入口真的渲染出来、且可点击", async (_kind, path) => {
+    await mount(path)
+    const toolbar = container.querySelector(".ui-test-editor-toolbar")!
+    expect(toolbar, "应有编辑器工具栏").not.toBeNull()
+
+    /*
+     * 用与 :211 相同的方式取按钮：按 aria-label 在工具栏里找。
+     * 找不到时 button() 会带着"应有可操作的…入口"的说明失败 ——
+     * 那正是"入口没渲染出来"该有的报错。
+     */
+    const entry = button("字体设置", toolbar)
+    expect(entry, "「字体设置」入口应渲染出来").toBeDefined()
+    expect(entry.disabled, "「字体设置」入口应可点击").toBe(false)
+
+    /*
+     * 反向对照：确认它此刻**还没有**浮层 ——
+     * 否则下一条"点开后有浮层"的断言可能被别的东西喂饱。
+     */
+    expect(container.querySelector('[role="dialog"][aria-label="字体设置"]')).toBeNull()
+
+    await act(async () => { entry.click() })
+
+    const dialog = container.querySelector('[role="dialog"][aria-label="字体设置"]')
+    expect(dialog, "点「字体设置」后应打开浮层").not.toBeNull()
+  })
+
+  it.each([
+    ["章节", chapterPath],
+    ["大纲", outlinePath],
+  ])("%s写作现场的字体设置浮层暴露全部 6 个控件，且显示的是 store 里的真值", async (_kind, path) => {
+    /*
+     * 这条同时补另一个缺口：浮层的取值/回写**此前没有任何覆盖**。
+     * 6 个值全是 number，所以"把行间距接成字号"这种串味
+     * tsc 拦不住、源码文本断言也拦不住（它只看字面量有没有写对）。
+     * 这里从**渲染结果**上看：每个控件显示的值必须等于 store 里的值。
+     *
+     * 用 [data-ui-typography-value="<标签>"] 这个测试钩子
+     * （body-typography-fields.tsx 里专门为此加的）。
+     */
+    const s = useWikiStore.getState()
+    /*
+     * 这里**不用** `?.()` 可选调用：setter 名若写错，`?.()` 会静默什么都不做，
+     * 于是断言失败时报的是"值没显示"、而不是"setter 不存在"，白查一轮。
+     * 直接调用，名字错了 tsc 与运行时都会立刻报。
+     */
+    s.setUiBodyFontPx(21)
+    s.setUiBodyLineHeight(1.5)
+    s.setUiBodyLetterSpacing(0.5)
+    s.setUiBodySafeBottom(64)
+    await mount(path)
+
+    const toolbar = container.querySelector(".ui-test-editor-toolbar")!
+    await act(async () => { button("字体设置", toolbar).click() })
+    const dialog = container.querySelector('[role="dialog"][aria-label="字体设置"]')!
+    expect(dialog).not.toBeNull()
+
+    // 六个控件都在（标签与 body-typography-fields.tsx 里的 aria-label 一致）
+    for (const label of ["正文字体", "正文字号预设", "正文字号", "行间距", "字间距", "左右边距", "底部安全距离"]) {
+      expect(
+        dialog.querySelector(`[aria-label="${label}"]`),
+        `浮层里应有「${label}」控件`,
+      ).not.toBeNull()
+    }
+
+    /*
+     * 取值：显示值必须来自对应的 store 字段。断言**具体数值**
+     * （而不是"存在即可"），这样串味会红 —— 例如把行间距接到字号上时，
+     * "行间距"那一格会显示 21.00 而不是 1.50。
+     *
+     * 两类控件取值方式不同，别混：
+     *   · 字号是 <input type="range" aria-label="正文字号">，读 .value
+     *   · 其余四条（行间距/字间距/左右边距/底部安全距离）走 SliderRow，
+     *     显示文本在 [data-ui-typography-value="<标签>"] 里
+     */
+    const sizeInput = dialog.querySelector<HTMLInputElement>('input[type="range"][aria-label="正文字号"]')!
+    expect(sizeInput, "应有正文字号滑块").not.toBeNull()
+    expect(sizeInput.value, "字号滑块应停在 store 里的 21").toBe("21")
+
+    const shown = (label: string) => dialog.querySelector(`[data-ui-typography-value="${label}"]`)?.textContent?.trim() ?? ""
+    expect(shown("行间距"), "行间距应显示 store 里的 1.50").toBe("1.50")
+    expect(shown("字间距"), "字间距应显示 store 里的 0.5px").toBe("0.5px")
+    expect(shown("底部安全距离"), "底部安全距离应显示 store 里的 64px").toBe("64px")
+  })
+
   it("已有正文的草稿章打开时提示先保存为正式再提取记忆", async () => {
     await mount()
     const hint = container.querySelector(".ui-test-editor-draft-hint")

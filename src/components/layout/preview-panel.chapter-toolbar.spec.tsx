@@ -124,3 +124,93 @@ describe("章节与大纲工具栏图标", () => {
     expect(source.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
   })
 })
+
+/*
+ * ── 下面这一组是「值接线」守卫，补的是审查发现的一个真缺口 ──
+ *
+ * 浮层里的 6 个控件共用正文一套值。这些值有三处"手抄"：
+ *   ① `value={{ fontPx: uiBodyFontPx, … }}`   —— 读
+ *   ② `case "fontPx": setUiBodyFontPx(…)`      —— 写
+ *   ③ `saveUiBodyFontPx(s.uiBodyFontPx)`       —— 落盘
+ * 三处都容易"串味"（把 lineHeight 接成 safeBottom）。
+ *
+ * 为什么现有守卫一条都抓不住：**6 个值全是 number**（fontFamily 除外），
+ * 所以串味之后 tsc 照样过、case 都在、`= key` 穷尽收尾也照样过。
+ * 审查实测了 6 个变异（读串味、写串味、落盘串味、漏一个落盘、漏一个 case、
+ * 以及漏一个 case 导致的错配），全部**保持绿**。而它们的用户可见后果是：
+ *   · 拖「行间距」结果「字号」动了（读串味）
+ *   · 改「行间距」实际改的是「字间距」（写串味）
+ *   · 某个设置**永远存不下去**，重开软件就回退（漏落盘）
+ * 都是"设置莫名其妙"那种很难归因的毛病。
+ *
+ * 本仓库已有先例：App.tsx 那份同样的映射**是有配对守卫的**
+ * （interface-sidebar-nav.spec.ts 的 APPLIED 数组）。Task 11 在
+ * preview-panel.tsx 里新增的是**第三份**拷贝，当时没配上守卫 ——
+ * 这里补上，与那份对齐。
+ */
+describe("字体设置浮层的值接线（三处手抄必须各自配对）", () => {
+  /** 取源码里 `case "X":` 之后第一条非空、非注释语句。 */
+  function statementAfterCase(caseName: string): string {
+    const lines = source.split(/\r?\n/)
+    const i = lines.findIndex((l) => l.trim() === `case "${caseName}":`)
+    if (i < 0) throw new Error(`找不到 case "${caseName}":`)
+    for (let j = i + 1; j < lines.length; j++) {
+      const t = lines[j].trim()
+      if (!t || t.startsWith("//") || t.startsWith("*")) continue
+      return t
+    }
+    throw new Error(`case "${caseName}": 之后没有语句`)
+  }
+
+  it("value 对象的 6 个字段各自对着正确的 store 字段", () => {
+    // 串味之后这里必须红：值都是 number，tsc 拦不住
+    for (const [field, storeField] of [
+      ["fontPx", "uiBodyFontPx"],
+      ["lineHeight", "uiBodyLineHeight"],
+      ["letterSpacing", "uiBodyLetterSpacing"],
+      ["marginX", "uiBodyMarginX"],
+      ["safeBottom", "uiBodySafeBottom"],
+    ] as const) {
+      expect(source).toContain(`${field}: ${storeField}`)
+    }
+    expect(source).toContain("fontFamily: uiBodyFontFamily")
+  })
+
+  it("switch 的每个 case 各自调用同名的 setter", () => {
+    /*
+     * 断言的是"该 case 之后的第一条语句就是这个 setter"，
+     * 而不是"文件里存在 setUiBodyFontPx(" —— 后者在 case 名与 setter
+     * 被交叉接错时**照样绿**（这正是 `as number` 掩盖住的那种错）。
+     */
+    for (const [key, setter] of [
+      ["fontFamily", "setUiBodyFontFamily"],
+      ["fontPx", "setUiBodyFontPx"],
+      ["lineHeight", "setUiBodyLineHeight"],
+      ["letterSpacing", "setUiBodyLetterSpacing"],
+      ["marginX", "setUiBodyMarginX"],
+      ["safeBottom", "setUiBodySafeBottom"],
+    ] as const) {
+      const stmt = statementAfterCase(key)
+      expect(stmt.startsWith(`${setter}(`), `${key} 之后的语句应调用 ${setter}，实际是：${stmt}`).toBe(true)
+    }
+  })
+
+  it("落盘时每个字段各自读同名的 store 字段", () => {
+    /*
+     * 「读回来了却忘了写回」是本仓库记录过的、最难发现的一类
+     * （编译过、界面不报错、只有"重开软件设置回退"一个症状）。
+     * 这里连"读哪个字段"一起钉住：把 saveUiBodyLineHeight(s.uiBodyFontPx)
+     * 写错、或整行删掉，都必须红。
+     */
+    for (const [saver, storeField] of [
+      ["saveUiBodyFontFamily", "s.uiBodyFontFamily"],
+      ["saveUiBodyFontPx", "s.uiBodyFontPx"],
+      ["saveUiBodyLineHeight", "s.uiBodyLineHeight"],
+      ["saveUiBodyLetterSpacing", "s.uiBodyLetterSpacing"],
+      ["saveUiBodyMarginX", "s.uiBodyMarginX"],
+      ["saveUiBodySafeBottom", "s.uiBodySafeBottom"],
+    ] as const) {
+      expect(source).toContain(`${saver}(${storeField})`)
+    }
+  })
+})
