@@ -212,21 +212,35 @@ HarmonyOS Sans Fonts are used.
 - [x] 每次发版跑一次 `node docs/font-license-verification/verify-bundle-licenses.mjs`；
       **任一字体 SHA-256 变化即必须重新人工核对许可证**。
 
-**告知与事实的一致性由两道检查守住**（这是本节的真正风险点：告知一旦与随包
-清单脱节，两种错法都不会有任何测试失败来提醒）：
+**告知与事实的一致性由三道检查守住**（这是本节的真正风险点：告知一旦与随包
+清单脱节，两种错法都不会有任何测试失败来提醒 —— 前者是许可不合规，
+后者是对用户误导）：
 
 | 检查 | 触发 | 覆盖 |
 |---|---|---|
 | `scripts/check-bundled-font-licenses.mjs` | 手动 | 族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽 |
 | `src/lib/bundled-font-licenses.spec.ts` | **自动**（测试套件） | 同上，直接读 `src-tauri/fonts/` 的真实文件 |
+| `verify-real-exe-fonts.mjs` 的「一·补」 | 手动（需便携版） | **告知真的对用户可见**：告知区有非零尺寸、显著声明可见且点名、9 族都带版权行 |
 
-两者职责相同、触发时机不同，是互补而非重复：脚本**要人记得跑**，
-spec 在套件里自动跑。若清单增删字体而告知没跟上 →
-「告知不完整」（许可不合规）或「告知与事实不符」（误导用户）。
+前两道比的是"数据与事实一致"，第三道比的是"**软件里真的看得见**"。
+许可要的是 `make a prominent notice in the software`，关键词是
+**in the software** —— jsdom 里的 spec 只能证明"组件会渲染这几个节点"，
+证明不了"用户真的能在软件里看到它"（例如设置页没挂载这个分区、
+或构建产物里丢了这段）。所以第三道必须在真实 exe 上跑，且判"可见"用的是
+`getBoundingClientRect()` 的非零尺寸加 `display/visibility/opacity` 检查：
+**藏起来不算"显著"**。
+
+> 实测（`release-portable\QMaiWrite.exe`）：告知区存在且可见、9 条每条带版权行、
+> 显著声明可见并点名 HarmonyOS Sans。截图见 `real-exe-fonts-03-许可告知.png`。
+
+若清单增删字体而告知没跟上 → 「告知不完整」（许可不合规）
+或「告知与事实不符」（误导用户）。
 
 ```powershell
 node scripts/check-bundled-font-licenses.mjs
 npx vitest run src/lib/bundled-font-licenses.spec.ts src/components/settings/sections/interface-section.spec.tsx
+# 真实 exe（需先 node scripts/build-portable.mjs）
+node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 ```
 
 ---
