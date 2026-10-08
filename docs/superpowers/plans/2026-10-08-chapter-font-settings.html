@@ -196,6 +196,37 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
   </div>
 
+  <h3>每个任务都要做变异验证（不是可选项）</h3>
+  <div class="note warn">
+    <span class="t">为什么这条是硬要求</span>
+    <p>「测试全绿」只证明测试跑了，不证明<strong>测试在检测任何东西</strong>。本计划在 Task 2 上真实吃过这个亏：那 5 条用例全部通过，但把实现里 <code>schedule</code> 的 <code>clearTimeout</code> 删掉（＝重犯本模块要修的那个 bug），它们<strong>照样全绿</strong>。实测：一次模拟拖动下正确实现落盘 1 次，删掉 <code>clearTimeout</code> 的版本落盘 7 次 —— 而测试毫无反应。</p>
+    <p>一条无法变红的断言比没有断言更糟：它让人以为这块被守住了。</p>
+  </div>
+
+  <p><strong>配方</strong>（每个任务在提交前做一次，把结果写进交付报告）：</p>
+  <ol>
+    <li>列出本任务新增/修改的<strong>每一条</strong>断言。</li>
+    <li>对每条断言，想一个"实现写错但看起来合理"的改法，用 <code>edit</code> 把实现改坏。</li>
+    <li>跑该断言的测试，<strong>确认它变红</strong>，记下报错原文。</li>
+    <li>把实现改回来，用 <code>git diff</code> 确认改回后工作区与提交一致。</li>
+    <li>报告完整的「变异 → 是否变红 → 红的用例」表格，<strong>包括没抓住的那些</strong>。</li>
+  </ol>
+
+  <div class="note">
+    <span class="t">没抓住怎么办</span>
+    <p><strong>直接报告，不要掩饰，也不要为了让表格好看而把测试改成迁就实现。</strong>没抓住通常意味着两种情况之一：</p>
+    <ul>
+      <li><strong>该断言没有鉴别力</strong>（例如断言的值恰好等于默认值，改坏了也同值）—— 要补一条有区分力的断言，或删掉这条并说明理由。</li>
+      <li><strong>那个变异其实无害</strong>（例如残留的定时器到点后 <code>pending</code> 已是 <code>null</code>，无可观测差异）—— 说明清楚它是冗余防御，不必硬凑测试。</li>
+    </ul>
+    <p>两种情况都有价值，但必须如实分类。做不到就<strong>停下来报告</strong>，不要跳过这一步。</p>
+  </div>
+
+  <div class="note danger">
+    <span class="t">只对"新增/修改的断言"做，不要对整仓做</span>
+    <p>这里不是要跑一遍全仓变异测试（那会非常慢）。只针对<strong>本任务写下的断言</strong>，每条一到两个变异即可。</p>
+  </div>
+
   <h3>任务里写的行号一律「以改造前为准」，定位请按内容搜索</h3>
   <div class="note warn">
     <span class="t">不要照着行号改</span>
@@ -1483,7 +1514,20 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-h"><span class="box"></span>Step 5：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（store 的 5 个状态 / setter / 键名 / 迁移）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.spec.ts
 git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久化键"</code></pre>
@@ -1740,7 +1784,20 @@ export async function loadUiBodySafeBottom(): Promise&lt;number | null&gt; {
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 4：提交</div>
+    <div class="step-h"><span class="box"></span>Step 4：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（app-state 的 5 个键读写与迁移）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/lib/project-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/lib/project-store.ts src/lib/project-store.spec.ts
 git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含旧倍数迁移）"</code></pre>
@@ -1883,7 +1940,20 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-h"><span class="box"></span>Step 5：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（App 的启动读回与变量应用）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/App.tsx
 git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"</code></pre>
@@ -1948,7 +2018,20 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 3：提交</div>
+    <div class="step-h"><span class="box"></span>Step 3：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（CSS 变量层（间接层与派生比例））。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/uitest/ui-test.css
 git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸由字号派生"</code></pre>
@@ -2145,7 +2228,20 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 7：提交</div>
+    <div class="step-h"><span class="box"></span>Step 7：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（CSS 契约（行高 / 字距 / 边距 / 安全距离））。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 8：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/uitest/ui-test-editor.css src/components/uitest/ui-test-editor.spec.tsx
 git commit -m "fix(编辑区): 底部安全距离与左右边距改为可调，修掉最后一行贴底"</code></pre>
@@ -2624,7 +2720,20 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-h"><span class="box"></span>Step 5：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（共享控件的标签、范围与钳制）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/settings/sections/body-typography-fields.tsx src/components/settings/sections/body-typography-fields.spec.tsx
 git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</code></pre>
@@ -2785,7 +2894,20 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-h"><span class="box"></span>Step 5：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（草稿字段与设置页接线）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/settings/sections/interface-section.spec.tsx src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/settings/settings-types.ts src/components/settings/sections/interface-section.tsx src/components/settings/sections/interface-section.spec.tsx
 git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控件"</code></pre>
@@ -2903,7 +3025,20 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-h"><span class="box"></span>Step 5：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（保存链路既写 store 也落盘）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/settings/settings-view.tsx
 git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</code></pre>
@@ -3266,7 +3401,20 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 7：提交</div>
+    <div class="step-h"><span class="box"></span>Step 7：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（两处入口、图标不同、共用同一浮层）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 8：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/layout/preview-panel.tsx src/components/layout/preview-panel.chapter-toolbar.spec.tsx
 git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大纲新增字体设置浮层"</code></pre>
@@ -3507,7 +3655,22 @@ node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs --selftes
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 12e：提交</div>
+    <div class="step-h"><span class="box"></span>Step 12e：变异验证（提交前必做）</div>
+    <div class="step-body">
+      <p>本任务写了新断言（三个守卫脚本换契约后仍守住不变量）。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
+      <pre class="cmd"><code># 改坏一处实现后：
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
+npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+# 改回后确认干净：
+git diff --stat</code></pre>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12f：提交</div>
     <div class="step-body">
       <pre class="cmd"><code>git add src/components/settings/interface-sidebar-nav.spec.ts docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs docs/font-scaling-fix-20261007/verify-body-font-scale.mjs docs/font-scaling-fix-20261007/verify-real-exe.mjs docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs
 git commit -m "test(排版): 守卫跟随 px 模型，新增变量独占与派生比例两条防线"</code></pre>
