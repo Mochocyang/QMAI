@@ -1227,6 +1227,7 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/stores/wiki-store.ts（键定义区、读取函数区、state 类型、setter 区、initial state）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「3) store：」那一段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
     <div>Create: src/stores/wiki-store.body-typography.spec.ts（本仓库按关注点命名，参考 wiki-store.ai-outline-model.spec.ts）</div>
   </div>
 
@@ -1672,7 +1673,9 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
 npx vitest run src/stores/wiki-store.body-typography.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -1699,7 +1702,32 @@ git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先写这一层的测试（看到红）</div>
     <div class="step-body">
-      <p><code>src/lib/project-store.spec.ts</code> 已经有一套现成的 mock 骨架（<code>storeMocks.values</code> 这个 Map + <code>get</code>/<code>set</code> 两个 spy），本任务的 5 个新函数直接用同一套骨架测，不要另起一套。</p>
+      <p><code>src/lib/project-store.spec.ts</code> 已经有一套现成的 mock 骨架（<code>storeMocks.values</code> 这个 Map + <code>get</code>/<code>set</code> 两个 spy），本任务的 5 个新函数直接用同一套骨架测，不要另起一套。
+
+      <div class="note warn">
+        <span class="t">但你必须先给这套骨架补上 save / delete，否则必红</span>
+        <p>现有 mock 只返回 <code>{ get, set }</code> 两个方法，而本任务的实现每次保存都会
+        <code>await store.save()</code>、左右边距为 <code>null</code> 时还会 <code>await store.delete(BODY_MARGIN_X_KEY)</code>。
+        照原样跑，<strong>实现写得再对也会以 <code>TypeError: store.save is not a function</code> 失败</strong> ——
+        那个红灯与被测逻辑毫无关系。</p>
+        <p>这个缺口至今没暴露，是因为现有 spec 覆盖的 4 个 save 函数
+        （<code>saveAiOutlineModel</code> / <code>saveAiWorkflowMode</code> / <code>saveOutlineWorkflowMode</code> /
+        <code>saveLastReadChapter</code>）<strong>没有一个</strong>调用 <code>store.save()</code>／<code>store.delete()</code>。</p>
+        <p>所以在 Step 0 里给 mock 补两个 spy，并让 <code>delete</code> 与真实 store 的语义保持一致
+        （<strong>删掉这个键</strong>，而不是把它设成 <code>null</code> 或 <code>undefined</code>）：</p>
+        <pre><code>vi.mock("@/lib/web-store", () =&gt; ({
+  getStore: vi.fn(async () =&gt; ({
+    get: storeMocks.get,
+    set: storeMocks.set,
+    // 本任务新增：现有骨架没有这两个，实现却要用
+    save: storeMocks.save,
+    delete: storeMocks.delete,
+  })),
+}))</code></pre>
+        <p><code>storeMocks.save</code> 是 <code>vi.fn(async () =&gt; {})</code>；
+        <code>storeMocks.delete</code> 是 <code>vi.fn(async (key: string) =&gt; { storeMocks.values.delete(key) })</code>。
+        <strong>不要</strong>为了迁就某条断言把 delete 写成 <code>values.set(key, null)</code> —— 那会让断言检验 mock 的写法而不是被测代码。</p>
+      </div></p>
 
       <div class="note warn">
         <span class="t">为什么这一步不能省</span>
@@ -1755,7 +1783,10 @@ git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久
   it("左右边距的 null 是一等公民，不能被读成 0", async () =&gt; {
     // null = 跟随窗口。读成 0 会让正文贴边，且用户没动过任何设置
     await saveUiBodyMarginX(null)
-    expect(storeMocks.values.get("uiBodyMarginX")).toBeNull()
+    // 断言的是**读回函数**的行为，不是 mock 里 Map 的状态：
+      // 用 Map.get 去查已删除的键会得到 undefined，那条断言检验的是 mock
+      // 怎么写的，而不是被测代码对不对 —— 换任何实现它都不会红。
+      expect(storeMocks.values.has("uiBodyMarginX")).toBe(false)
     await expect(loadUiBodyMarginX()).resolves.toBeNull()
 
     storeMocks.values.set("uiBodyMarginX", 40)
@@ -1773,7 +1804,7 @@ git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久
     await expect(loadUiBodyFontPx(1)).resolves.toBe(15)
   })
 
-  it("迁移：没存过、界面字号非默认时按界面字号补种一次", async () =&gt; {
+  it("迁移：没存过、界面字号非默认时按界面字号取值（loadUiBodyFontPx 只读，不写回）", async () =&gt; {
     // 关键场景：界面 150%、从没调过正文的用户。不补种他也会看到正文变小。
     await expect(loadUiBodyFontPx(1.5)).resolves.toBe(27)
     await expect(loadUiBodyFontPx(1.25)).resolves.toBe(23)
@@ -1942,7 +1973,9 @@ export async function loadUiBodySafeBottom(): Promise&lt;number | null&gt; {
 npx vitest run src/lib/project-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -1963,6 +1996,7 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/App.tsx（import 9 行；selector 43–44 行；effect 148–157 行；启动读回 251–254 行）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「5) App」那条 it：正文字号通过倍数变量应用…）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
   </div>
 
   <div class="step">
@@ -2085,7 +2119,11 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
     <div class="step-h"><span class="box"></span>Step 4：验证编译</div>
     <div class="step-body">
       <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit</code></pre>
-      <p class="expect">Expected: 只剩设置页与 spec 文件的报错（任务 8–10、12 处理）。App.tsx 自身应为干净。</p>
+      <p class="expect">Expected: 只剩设置页的报错（任务 9–10 处理）。App.tsx 自身应为干净。<br>
+        <strong>注意：这条命令看不到 spec 文件的报错。</strong><code>tsconfig.app.json</code> 显式
+        exclude 了 <code>src/**/*.spec.ts(x)</code> 与 <code>*.test.ts(x)</code>，
+        测试由 <code>npm run typecheck:tests</code>（<code>tsconfig.test.json</code>）单独查。
+        所以别在这里等 spec 的错误 —— 等不到，与你做错没做错无关。</p>
     </div>
   </div>
 
@@ -2098,7 +2136,9 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
 npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -2118,8 +2158,8 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
 
   <div class="files">
     <div class="lbl">Files</div>
-    <div>Modify: src/components/uitest/ui-test.css:38–42（整块替换注释与 4 行变量）</div>
-    <div>Test:   src/components/uitest/ui-test-editor.spec.tsx（任务 12 一起改）</div>
+    <div>Modify: src/components/uitest/ui-test.css:29–42（<strong>整块</strong>替换：注释从 29 行开始，38 行才是它的收尾，39–42 是 4 行变量）</div>
+    <div>Verify: src/components/uitest/ui-test-editor.spec.tsx（<strong>本任务只跑它、不改它</strong> —— 断言在任务 7 里写，见 task-07 Step 1；任务 12 也只是复跑）</div>
   </div>
 
   <div class="step">
@@ -2176,7 +2216,9 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -2316,7 +2358,29 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      缺省 51px 是用户确认的值。 */
   padding-bottom: var(--qmai-body-safe-bottom, 51px);</code></pre>
 
-      <p>文件末尾 <code>@media (max-width: 640px)</code> 块里（原第 334 行），<strong>删除整行</strong>：</p>
+      <p>文件末尾 <code>@media (max-width: 640px)</code> 块里要删<strong>两行</strong>，不止一行：
+
+      <div class="note warn">
+        <span class="t">除了 28px 那行，还必须删掉同块的 <code>padding: 0 20px</code></span>
+        <p>那个 <code>@media (max-width: 640px)</code> 块里有<strong>两条</strong>与本任务相关的规则：</p>
+        <pre><code>@media (max-width: 640px) {
+  .ui-test-root .ui-test-editor { padding: 0 20px; }        ← 也要删
+  .ui-test-root .ui-test-editor-header { padding-top: var(--ui-heading-top); }   ← 保留
+  .ui-test-root .ui-test-editor-scroll { padding-bottom: 28px; }   ← 要删
+}</code></pre>
+        <p>左边那条与文件开头的基规则（<code>.ui-test-root .ui-test-editor</code>，第 2 行）<strong>特异性完全相同</strong>，
+        而它在文件更后面 —— 于是 ≤640px 时它会把 Step 2 刚设的 <code>padding: 0</code> 覆盖回去。</p>
+        <p>后果有两层，都不是报错而是静默错误：</p>
+        <p><strong>① 「逐位相同」的承诺在窄屏不成立。</strong>Step 2 说兜底值与改造前逐位相同、老用户不会有任何视觉变化 ——
+        但窄屏实际空隙变成 <code>20px + clamp(20px, 4vw, 48px)</code>（640px 窗口下约 45.6px），而改造前是 20px。</p>
+        <p><strong>② 左右边距在窄屏调不到 0。</strong>即使把设置拖到最小，仍残留 20px ——
+        这正是本计划要根除的「设了没反应」，也正是 Step 1 那条断言的用意。</p>
+        <p>Step 1 的断言只钉基规则（<code>toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)</code>），
+        <strong>留着这条媒体查询它照样绿</strong> —— 所以这一步不能靠测试发现，只能靠你删掉它。
+        建议在 Step 1 里再补一条断言把这条媒体查询也钉住，否则将来有人加回来不会有任何红灯。</p>
+      </div>
+
+      下面这行（原第 334 行）<strong>删除整行</strong>：</p>
 <pre><code class="cmd">  .ui-test-root .ui-test-editor-scroll { padding-bottom: 28px; }</code></pre>
       <div class="note warn">
         <span class="t">为什么是删除而不是改成另一个变量</span>
@@ -2386,7 +2450,9 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -2542,14 +2608,13 @@ describe("BodyTypographyFields", () =&gt; {
     expect(select?.value).toBe("21")
   })
 })</code></pre>
-      <p>在文件顶部补上常量导入：</p>
-<pre><code class="cmd">import {
-  BODY_FONT_PX_MIN, BODY_FONT_PX_MAX,
-  BODY_LINE_HEIGHT_MIN, BODY_LINE_HEIGHT_MAX,
-  BODY_LETTER_SPACING_MIN, BODY_LETTER_SPACING_MAX,
-  BODY_MARGIN_X_MIN, BODY_MARGIN_X_MAX,
-  BODY_SAFE_BOTTOM_MIN, BODY_SAFE_BOTTOM_MAX,
-} from "@/lib/font-settings"</code></pre>
+      <div class="note">
+        <span class="t">这 10 个范围常量已经在上面那个完整块里 import 了，<strong>不要重复 import</strong></span>
+        <p>上面那段是<strong>整个 spec 文件</strong>（自带 <code>import … from "vitest"</code> 与
+        <code>@vitest-environment jsdom</code>），范围常量也已写在它的 import 区里。
+        把整块贴进新文件即可 —— 再补一次会重复绑定，<code>npm run typecheck:tests</code> 报
+        <code>TS2451 Cannot redeclare block-scoped variable</code>。</p>
+      </div>
     </div>
   </div>
 
@@ -2729,7 +2794,17 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
   )
 
   return (
-    &lt;div data-ui="body-typography"&gt;
+    /*
+     * 根节点用 interface-fields 而不是一个更"贴切"的新名字，是**必须的**：
+     * 下面那些 ui-test-interface-row / ui-test-interface-size 的布局样式，
+     * 在 CSS 里全部是 [data-ui="interface-fields"] 的后代选择器
+     * （见 ui-test-tools.css —— row 的 grid、size 的 flex、以及 label/p/select/range 的样式）。
+     * 用一个新名字会让这些类在设置页有效、在写作现场浮层里全部失效
+     * （浮层挂在 preview-panel 的 Tailwind 容器下，没有那个祖先），
+     * 而"两处入口共用同一套 UI"正是本任务存在的理由。
+     * 所以：沿用这个 data-ui 值，两处都拿到同一套样式。改名之前先看这条注释。
+     */
+    &lt;div data-ui="interface-fields"&gt;
       &lt;div className="ui-test-interface-row"&gt;
         &lt;div&gt;
           &lt;label htmlFor={`${id}-body-font`}&gt;正文字体&lt;/label&gt;
@@ -2876,7 +2951,10 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
     <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿</div>
     <div class="step-body">
       <pre class="cmd"><code>npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect">Expected: PASS — 7 passed（1 条 default-margin + 6 条组件）。</p>
+      <p class="expect">Expected: PASS — <strong>6 passed</strong>（本文件里的 6 条组件用例）。<br>
+        注意不要期待 7：那条 <code>defaultBodyMarginXForViewport</code> 的用例住在
+        <code>src/lib/font-settings.spec.ts</code>（任务 1 写的），本命令只跑组件这个文件，不会执行它。
+        看到 6 就对了。</p>
       <p>若「6 个滑块的范围」那条失败，检查是不是把范围数字写进了组件 —— 那正是它要防的。</p>
     </div>
   </div>
@@ -2890,7 +2968,9 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
 npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -2912,6 +2992,8 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     <div class="lbl">Files</div>
     <div>Modify: src/components/settings/settings-types.ts:69–70（两个字段 → 6 个）</div>
     <div>Modify: src/components/settings/sections/interface-section.tsx（import 区、hook 区、两行控件）</div>
+    <div>Modify: src/components/settings/sections/interface-section.spec.tsx（Harness 草稿的 6 个字段）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「1) 设置页有两行控件」与「2) 草稿类型里有该字段」两段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
   </div>
 
   <div class="step">
@@ -2929,8 +3011,13 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     expect(bodyTypographySource).toContain('aria-label="正文字体"')
     expect(bodyTypographySource).toContain('aria-label="正文字号预设"')
     expect(bodyTypographySource).toContain('aria-label="正文字号"')
+    // 这 4 个滑块用**动态**属性 aria-label={label}，字面量只以 label="行间距" 这个
+    // prop 的形式出现 —— 所以这里断言 prop，不能断言 aria-label="行间距"
+    // （那样写永远不成立：源码里根本没有那个字符串）。
+    // 两条一起断言：prop 传的标签对，且 aria-label 确实接到了它。
+    expect(bodyTypographySource).toContain("aria-label={label}")
     for (const label of ["行间距", "字间距", "左右边距", "底部安全距离"]) {
-      expect(bodyTypographySource).toContain(`aria-label="${label}"`)
+      expect(bodyTypographySource).toContain(`label="${label}"`)
     }
     // 2) 设置页通过共享组件接线，而不是自己再写一套控件
     expect(interfaceSectionSource).toContain("BodyTypographyFields")
@@ -2974,7 +3061,24 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 2：interface-section.tsx 换 import、删本地 hook</div>
     <div class="step-body">
-      <p>把第 15–20 行那段 <code>@/lib/system-fonts</code> 的导入<strong>整段删除</strong>（<code>useSystemFonts</code> 已移入共享组件），并加上共享组件的导入：</p>
+      <div class="note warn">
+        <span class="t">这段 import 只能删一半，删多了会断在别处</span>
+        <p>第 15–20 行那段 <code>@/lib/system-fonts</code> 导入一共 4 个名字。本地 hook 搬走后，
+        只有 <code>loadSystemCjkFonts</code> 与 <code>type SystemCjkFont</code> 不再需要；
+        <strong>另外两个必须留着</strong>：</p>
+        <ul>
+          <li><code>newSystemFontsOnly</code> —— 仍在本文件的 <code>uiSystemFonts</code> 与
+          <code>bodySystemFonts</code> 两个 <code>useMemo</code> 里用（各自按自己的内置表去重）；</li>
+          <li><code>systemFontValue</code> —— 仍在界面字体与正文字体两个下拉的「本机中文字体」分组里用。</li>
+        </ul>
+        <p>整段删掉会让 <code>tsc</code> 报 <code>TS2304 Cannot find name</code>，
+        而报错位置（下拉的 map 回调）看着与本任务毫无关系，很容易被误判成环境问题。
+        所以：删 <code>loadSystemCjkFonts</code> 与 <code>type SystemCjkFont</code> 两行，保留另外两行。</p>
+        <p>另外更正一句：<code>useSystemFonts</code> <strong>不是</strong>从那个模块导入的 ——
+        它是本文件内的本地函数（约 49–65 行），删完 import 后它才变成未使用、随实现一起删掉。</p>
+      </div>
+
+      <p>并加上共享组件的导入：</p>
 <pre><code class="cmd">import {
   BodyTypographyFields,
   useSystemFonts,
@@ -3064,7 +3168,9 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
 npx vitest run src/components/settings/sections/interface-section.spec.tsx src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -3084,7 +3190,8 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
 
   <div class="files">
     <div class="lbl">Files</div>
-    <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 176–181、返回体 224–225、selector 260–261、initialDraft 调用 283–284、handleSave 494–495、deps 524）</div>
+    <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 179、返回体 225、selector 260–261、<strong>两个</strong> initialDraft 调用 283–284 与 352、resync deps 370、handleSave 494–495、deps 524）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「4) 保存时」那一段）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交</div>
   </div>
 
   <div class="step">
@@ -3182,7 +3289,11 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
     <div class="step-h"><span class="box"></span>Step 4：编译</div>
     <div class="step-body">
       <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit</code></pre>
-      <p class="expect">Expected: 只剩 <code>interface-sidebar-nav.spec.ts</code> 的旧断言（那是任务 12a）以及可能残留的旧字段引用。逐个清掉，不要用 <code>as any</code> 或 <code>@ts-expect-error</code> 敷衍 —— 那会把「字段改名」这类必须暴露的问题藏起来。</p>
+      <p class="expect">Expected: 本文件自身干净。<br>
+        <strong>这条命令看不到 spec 文件的报错</strong> —— <code>tsconfig.app.json</code> 排除了全部
+        <code>*.spec.ts(x)</code>，测试由 <code>npm run typecheck:tests</code> 单独查。
+        ※<code>as any</code> 与 <code>@ts-expect-error</code> 一律不许用：它们会把「字段改名」这类
+        必须暴露的问题藏起来，之后由 <code>typecheck:tests</code> 在别处炸开、更难定位。</p>
     </div>
   </div>
 
@@ -3195,7 +3306,9 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
 npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -3216,13 +3329,15 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/layout/preview-panel.tsx（import 3 行；位置助手 175–188；state 237–238 旁；章节工具栏 1520；大纲工具栏 1530 后；浮层 1930 旁）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前**追加**一条新 it）—— <strong>本任务改它，但不 git add 它</strong>：该文件由任务 12 统一提交。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
     <div>Create: src/components/layout/preview-panel.chapter-toolbar.spec.tsx</div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先给写作现场补一条守卫（看到红）</div>
     <div class="step-body">
-      <p>在 <code>interface-sidebar-nav.spec.ts</code> 末尾（最外层 <code>describe</code> 收尾的 <code>})</code> 之前）追加：</p>
+      <p>在 <code>src/components/settings/interface-sidebar-nav.spec.ts</code>（<strong>注意是 settings 目录下那个</strong>，不是本任务的 preview-panel）
+      末尾 —— 即最外层 <code>describe</code> 收尾的 <code>})</code> 之前 —— 追加：</p>
 <pre><code>  /**
    * 写作现场必须也能改这 6 个参数，且与设置页共用同一个组件。
    * 用户原话：「大纲当中也要有这个设置功能」。
@@ -3275,25 +3390,45 @@ import { describe, expect, it } from "vitest"
 
 const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
 
-function buttonLine(ariaLabel: string): string {
-  const line = source.split(/\r?\n/).find((item) =&gt; item.includes(`aria-label="${ariaLabel}"`))
-  if (!line) throw new Error(`找不到按钮：${ariaLabel}`)
-  return line
+/**
+ * 取某个 aria-label 按钮的**完整片段**（不是"那一行"）。
+ *
+ * 为什么必须跨行：按钮常被排成多行 ——
+ *   &lt;button … aria-label="字体设置" …&gt;
+ *     &lt;Type aria-hidden="true" /&gt;
+ *   &lt;/button&gt;
+ * 只取命中 aria-label 的那一行，&lt;Type /&gt; 就落在视野之外，
+ * 「这个按钮用了哪个图标」的断言会**假红**：报错看着像"图标没换"，
+ * 其实只是排版换行了。反过来也一样 —— 一键排版按钮若被排成多行，
+ * 它的 not.toContain("&lt;Type") 会因为同一原因假绿。
+ *
+ * 做法：从命中 aria-label 的那行起累加，直到该 &lt;button&gt; 闭合。
+ */
+function buttonBlock(ariaLabel: string): string {
+  const lines = source.split(/\r?\n/)
+  const start = lines.findIndex((item) =&gt; item.includes(`aria-label="${ariaLabel}"`))
+  if (start &lt; 0) throw new Error(`找不到按钮：${ariaLabel}`)
+  const collected: string[] = []
+  for (let i = start; i &lt; lines.length; i++) {
+    collected.push(lines[i])
+    if (lines[i].includes("&lt;/button&gt;")) break
+  }
+  return collected.join("\n")
 }
 
 describe("章节与大纲工具栏图标", () =&gt; {
   it("一键排版用魔法棒图标，不再是字体图标", () =&gt; {
-    const line = buttonLine("一键排版")
+    const line = buttonBlock("一键排版")
     expect(line).toContain("WandSparkles")
     // 两处图标撞车正是本次要修的缺陷
     expect(line).not.toContain("&lt;Type")
   })
 
   it("字体设置用 Type 图标，且与一键排版不是同一个", () =&gt; {
-    const line = buttonLine("字体设置")
+    const line = buttonBlock("字体设置")
     expect(line).toContain("Type")
     expect(line).not.toContain("WandSparkles")
-    expect(buttonLine("一键排版")).not.toBe(line)
+    expect(buttonBlock("一键排版")).not.toBe(line)
   })
 
   it("章节与大纲都能打开字体设置浮层", () =&gt; {
@@ -3430,7 +3565,18 @@ function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties 
    */
   const persistAllBodyTypography = useCallback(() =&gt; {
     const s = useWikiStore.getState()
-    return Promise.all([
+    /*
+     * ⚠ 这里必须 void 掉 Promise.all 的结果，不能 return 它。
+     *
+     * createDebouncedPersist().schedule 的签名是
+     *   schedule(run: () => Promise&lt;void&gt;): void
+     * 而 Promise.all([...]) 的类型是 Promise&lt;void[]&gt;。
+     * 直接 return 会让 schedule(persistAllBodyTypography) 报
+     *   TS2345: Type 'void[]' is not assignable to type 'void'
+     * —— 报错指向 schedule 那一行，看着与"保存 5 个参数"毫无关系，
+     * 很容易被误判成 debounced-persist 的签名写错了。
+     */
+    void Promise.all([
       saveUiBodyFontFamily(s.uiBodyFontFamily),
       saveUiBodyFontPx(s.uiBodyFontPx),
       saveUiBodyLineHeight(s.uiBodyLineHeight),
@@ -3558,7 +3704,10 @@ import type { BodyFontFamily } from "@/lib/font-settings"</code></pre>
     <div class="step-body">
       <pre class="cmd"><code>npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 npx tsc -p tsconfig.app.json --noEmit</code></pre>
-      <p class="expect">Expected: 3 passed；tsc 干净（除任务 12 要改的 spec 文件）。</p>
+      <p class="expect">Expected: 3 passed；<code>tsc -p tsconfig.app.json</code> 干净。<br>
+        这条 tsc 命令<strong>看不到 spec 文件的报错</strong>（该配置排除了 <code>*.spec.ts(x)</code>），
+        所以「干净」指的是 <code>preview-panel.tsx</code> 自身干净；spec 由
+        <code>npm run typecheck:tests</code> 查。</p>
     </div>
   </div>
 
@@ -3571,7 +3720,9 @@ npx tsc -p tsconfig.app.json --noEmit</code></pre>
 npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
@@ -3827,7 +3978,9 @@ node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
-      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff</code> 为空。</p>
+      <p class="expect">Expected: 每条变异都能指出<strong>具体哪条断言</strong>抓住了它；改回后 <code>git diff --stat</code> 里<strong>只应剩下本任务 Files 列出、且由本任务提交的文件</strong> ——
+        若还看到 <code>interface-sidebar-nav.spec.ts</code>，那是<strong>预期内的</strong>（它由任务 12 统一提交），不要 checkout 掉它，
+        也不要为了"让 diff 干净"去放宽自己写的断言。</p>
     </div>
   </div>
 
