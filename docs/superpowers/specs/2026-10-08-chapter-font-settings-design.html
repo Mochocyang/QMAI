@@ -337,8 +337,13 @@
 <section>
   <div class="sec-head"><span class="num">07</span><h2>兼容与迁移</h2></div>
   <p class="sec-intro">老用户已经存过百分比倍数，必须无损迁移，不能让他们打开就发现字号变了。</p>
+  <div class="callout warn">
+    <span class="t">实施时发现的一个缺口：只乘正文倍数并不"无损"</span>
+    <p>改造前正文的实际渲染高度不是 <code>倍数 × 18</code>，而是 <b><code>18px × 界面字号倍数 × 正文倍数</code></b> —— 因为正文写的是 <code>1.125rem</code>，而 <code>rem</code> 的基准被 App 设成了 <code>界面倍数 × 100%</code>。</p>
+    <p>只按正文倍数换算的话，界面字号设成 150% 的用户一升级就会看到正文从 27px 掉到 18px —— 正好违反本节第一句话。所以迁移必须把界面倍数乘进来；并且对「界面字号非默认、但从没调过正文」的用户还要按界面字号<b>补种一次</b>（否则同一个缩水照样发生）。两件事都收在一个纯函数 <code>resolveMigratedBodyFontPx()</code> 里。</p>
+  </div>
   <table>
-    <thead><tr><th>旧键</th><th>旧值</th><th>迁移为</th></tr></thead>
+    <thead><tr><th>旧键</th><th>旧值</th><th>迁移为（界面倍数 = 1 时）</th></tr></thead>
     <tbody>
       <tr><td class="mono" rowspan="4">qmai-ui-body-font-scale</td><td class="mono">0.85</td><td class="mono">15px</td></tr>
       <tr><td class="mono">1.00</td><td class="mono">18px</td></tr>
@@ -347,7 +352,8 @@
     </tbody>
   </table>
   <ul>
-    <li>换算 <code>round(scale × 18)</code> 后夹到 <code>[12, 32]</code>；仅在读不到新键时执行一次。</li>
+    <li>换算 <code>round(界面倍数 × 正文倍数 × 18)</code> 后夹到 <code>[12, 32]</code>；仅在读不到新键时执行一次。</li>
+    <li>已知且有意的例外：乘积超过 32px 时被夹到 32px（如界面 1.5 × 正文 1.25 = 33.75）。新范围带来的结果，已用单测钉住，避免日后被当成 bug 改回去。</li>
     <li>旧键<b>不删除</b>，保留可读以便回滚到旧版本。</li>
     <li>字号预设由百分比档改为 px 档（15 / 18 / 21 / 24）供快速点选，滑块仍可在 12–32px 之间任意取值。</li>
   </ul>
