@@ -163,6 +163,7 @@ import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service"
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service"
+import { CONTINUE_STOPPED_GENERATION_PROMPT } from "@/lib/novel/stopped-generation"
 import {
   ensureSystemNotificationPermission,
   notifyChapterWritingOutcome,
@@ -2653,6 +2654,19 @@ export function ChatPanel() {
     await handleSendRef.current(prompt, [], "继续未完成")
   }, [isStreaming])
 
+  /**
+   * 「继续」：上一条回复被用户手动停止后，保留已生成的内容接着往下写。
+   *
+   * 与「重试」的分工：重试会删掉这条回复、换成当前选中的模型把原始请求整条重发；
+   * 继续则不动已有内容，作为新一轮用户请求把"接着写"的指令发给模型，
+   * 模型在历史里看得到已经生成的那半截，于是从断点续写。
+   * 提示词是共用常量，保证章节与大纲两侧的"继续"含义一致。
+   */
+  const handleContinueStopped = useCallback(async () => {
+    if (isStreaming) return
+    await handleSendRef.current(CONTINUE_STOPPED_GENERATION_PROMPT, [], "继续")
+  }, [isStreaming])
+
   const handleWriteToWiki = useCallback(async () => {
     if (!project) return
     const pp = normalizePath(project.path)
@@ -2701,6 +2715,7 @@ export function ChatPanel() {
                       onSaveAsChapter={handleSaveAsChapter}
                       onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                       onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
+                      onContinueStopped={isLastAssistant && !isStreaming ? handleContinueStopped : undefined}
                       saveStatus={isLastAssistant ? chapterSaveStatus : undefined}
                       isSaving={isSavingChapter}
                     />

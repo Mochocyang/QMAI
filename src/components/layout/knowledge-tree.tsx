@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Globe, Loader2, MessageCircle, Pencil, Plus, Search, Sparkles, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -15,13 +15,12 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import { extractChapterNumber } from "@/lib/novel/chapter-utils"
-import { chapterSnapshotNumbersFrom, resolveChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
+import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState, type ChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
 import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
-import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
@@ -539,9 +538,14 @@ export function KnowledgeTree({
   }, [filterType, novelMode, outlinePages, project, dataVersion, outlineTasks, outlineImportTasks])
 
   /**
-   * 章节记忆快照的号码集合。只在**章节**页签下读，且用动态 import：
-   * `listSnapshots` 住在 chapter-ingest 这个重模块里，章节目录是本应用最常驻的组件，
-   * 没必要为了几个数字把它拉进首屏（同文件里的一键提取也是这么做的）。
+   * 章节记忆快照的号码集合。只在**章节**页签下读。
+   *
+   * 这里直接读 `.novel/snapshots` 目录名，而不是走 `chapter-ingest` 的
+   * `listSnapshots`：那条路径要先动态 import 整个 chapter-ingest 模块图，
+   * 于是章节目录第一次打开时绿点要等模块加载完才亮（少则几十毫秒，
+   * 慢机器上肉眼可见），而绿点需要的只是目录里的几个文件名。
+   * 解析规则与 `listSnapshots` 共用 chapter-memory-dot.ts 里的同一个函数，
+   * 所以两条路径不会给出不同的号。
    *
    * 依赖 `settledChapterKey` 而不是整个 tasks 数组：批量提取时每个章节都会
    * updateTask 一次，若用数组当依赖，每章都会重读一次快照目录 —— 白读 N 次。
@@ -564,8 +568,10 @@ export function KnowledgeTree({
     let cancelled = false
     void (async () => {
       try {
-        const { listSnapshots } = await import("@/lib/novel/chapter-ingest")
-        const numbers = chapterSnapshotNumbersFrom(await listSnapshots(project.path))
+        const snapshotDir = `${normalizePath(project.path)}/.novel/snapshots`
+        const tree = await listDirectory(snapshotDir)
+        // 先解析出全部快照号（含大纲的负数），再只留章节的正数。
+        const numbers = chapterSnapshotNumbersFrom(chapterSnapshotNumbersFromFileNames(tree.map((file) => file.name)))
         if (!cancelled) setChapterSnapshotNumbers(new Set(numbers))
       } catch {
         // 快照目录不存在（还没提取过任何章节）是正常状态，静默当作「一个都没有」。
@@ -611,11 +617,6 @@ export function KnowledgeTree({
       task.status === "ingesting"
     ))
   }, [outlineImportTasks, outlineTasks, project])
-
-  const handleOutlineIngest = useCallback((outlinePath: string) => {
-    if (!project || !novelMode || isOutlinePathIngesting(outlinePath)) return
-    startOutlineIngestTask(project.path, outlinePath)
-  }, [isOutlinePathIngesting, novelMode, project])
 
   const sortedChapterPages = useMemo(() => {
     return effectivePages
@@ -1623,7 +1624,7 @@ export function KnowledgeTree({
                 ) : (
                   <span className="truncate font-medium">{node.name}</span>
                 )}
-                <span className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
+                <span data-ui-tree-meta="true" className="ml-auto text-[0.625rem] text-muted-foreground/60">{countMarkdownDescendants(node)}</span>
               </button>
             </div>
             {!isCollapsed && node.children && renderNodes(node.children, depth + 1)}
@@ -1649,14 +1650,21 @@ export function KnowledgeTree({
       const isInsertTarget = isDragging && dragInsertIndex !== null && chapterIndex !== undefined && chapterIndex === dragInsertIndex && !isDragSource
       const isOutlineExtracted = filterType === "outline" && extractedOutlinePaths.has(normalizedPath)
       const isOutlineIngesting = filterType === "outline" && isOutlinePathIngesting(normalizedPath)
-      const memoryDotState = filterType === "chapter"
+      /*
+       * 大纲和章节共用同一枚「已提取记忆」小绿点：
+       *   已提取 → 实心绿点；提取中 → 灰点脉冲（压过绿点，理由同章节）。
+       * 大纲这一侧不再单独画对号/提取按钮，状态一律由这枚点表达。
+       */
+      const memoryDotState: ChapterMemoryDotState = filterType === "chapter"
         ? resolveChapterMemoryDotState({
             snapshotChapterNumbers: chapterSnapshotNumbers,
             chapterNumber: page.chapterNumber,
             fileChapterNumber: page.fileChapterNumber,
             running: runningChapterPaths.has(normalizedPath),
           })
-        : "none"
+        : filterType === "outline"
+          ? (isOutlineIngesting ? "running" : isOutlineExtracted ? "done" : "none")
+          : "none"
       return [
         <div
           key={normalizedPath}
@@ -1696,16 +1704,31 @@ export function KnowledgeTree({
             }`}
             title={page.title}
           >
-            {filterType === "outline" ? (page.origin === "web-clip" ? <Globe className="h-3 w-3 shrink-0 text-blue-400" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : null}
             {/*
-              * 「已提取记忆」绿点：贴在标题左侧。已提取=实心绿点，提取中=灰点脉冲。
+              * 「已提取记忆」绿点：标题左侧**唯一**的起始槽位，章节与大纲完全一致。
+              * 已提取=实心绿点，提取中=灰点脉冲，判定见上面的 memoryDotState。
+              *
+              * 大纲行原先在这一点之前还挂了个文件类型图标（普通 .md 是 FileText、
+              * 网页剪藏是 Globe）。那枚图标把大纲行的点与标题整体推右，是"排列不齐"的来源：
+              * ui-test.css 有一条 `.ui-test-root [data-ui-tree-row] > button:first-of-type > svg`
+              * 把所有行内图标统一成 15px，所以两种图标其实一样宽，问题不在图标之间，
+              * 而在于**图标本身 + 后面那个 8px 的 gap = 23px**：
+              * 实测（201px 栏宽）大纲标题左边界 47px，章节标题 24px，两个列表对不齐。
+              * 用户明确要求"不要前面的那个图标了，统一替换为小绿点"，故整枚图标删除：
+              * 大纲行结构从此是 [点槽][标题]，章节行是 [点槽][标题][字数]，
+              * 前缀逐字相同，实测两边标题左边界都落在 24px。
+              *
+              * 注意字号是**另一件事**，删图标并不能解决：删掉图标后大纲行的标题恰好变成
+              * 行内最后一个 span，会被 ui-test.css 里那条按"最后一个 span"选中的 0.75rem
+              * 规则命中，标题比章节小一号。所以那边改成用 data-ui-tree-meta 显式标记
+              * （见 ui-test.css 的注释），两处改动缺一不可。
               *
               * 没提取过时**仍然占位**（一个 aria-hidden 的空 span，尺寸 class 与真点完全相同）。
               * 最初这里是什么都不渲染，理由是"怕标题整体右移"——那个理由搞反了：
               * 什么都不渲染才是让标题左右不一的原因（有点的行被圆点+gap 推右 14px，
               * 没点的行贴在左边），用户看到的就是这种错乱。占位后所有行的标题左边界一致。
               * 占位必须与真点同 class，否则宽度不同、留位就白留了。
-              * 判定与取号规则都在 chapter-memory-dot.ts 里。
+              * 章节的判定与取号规则都在 chapter-memory-dot.ts 里。
               */}
             {memoryDotState === "none" ? (
               <span
@@ -1752,34 +1775,19 @@ export function KnowledgeTree({
               <>
                 <span className="min-w-0 flex-1 truncate">{page.title.replace(/^第(\d+)章\s*/, "$1 ")}</span>
                 {page.type === "chapter" && page.wordCountLabel && (
-                  <span className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
+                  <span data-ui-tree-meta="true" className={`shrink-0 text-right text-[0.6875rem] ${isSelected ? "qm-selected-muted" : "text-muted-foreground"}`}>
                     {page.wordCountLabel}
                   </span>
                 )}
               </>
             )}
           </button>
-          {filterType === "outline" && novelMode ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`mr-0 h-7 w-7 shrink-0 ui-test-tree-extract ${isOutlineExtracted ? "text-emerald-600 hover:text-emerald-700" : ""}`}
-              title={isOutlineExtracted ? t("novel.outlineGenerator.reingestTitle") : t("novel.outlineGenerator.ingest")}
-              disabled={isOutlineIngesting}
-              onClick={(event) => {
-                event.stopPropagation()
-                handleOutlineIngest(normalizedPath)
-              }}
-            >
-              {isOutlineIngesting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isOutlineExtracted ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-            </Button>
-          ) : null}
+          {/*
+           * 大纲行右侧原本挂着一个「提取记忆」按钮（已提取时显示绿色对号）。
+           * 它和章节列表的规则不一致，且状态有两个来源（对号 + 绿点），
+           * 用户明确要求删掉对号和这个右侧图标，统一由标题左侧那枚绿点表达。
+           * 单条大纲的提取入口仍保留在编辑器工具栏（preview-panel 的「提取记忆」）。
+           */}
           {renamingPath !== normalizedPath ? <button type="button" className="ui-test-tree-more" aria-label={`${page.title}的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); openPageMenu(event, normalizedPath) }}><MoreHorizontal /></button> : null}
           <DeleteButton
             armed={isArmed}
@@ -1826,7 +1834,19 @@ export function KnowledgeTree({
     novelMode,
     extractedOutlinePaths,
     isOutlinePathIngesting,
-    handleOutlineIngest,
+    /*
+     * 这两项是「已提取记忆」绿点的唯一数据源，必须进依赖数组。
+     *
+     * 它们曾经缺席，症状是用户报的那种"切走再切回来绿点就没了"：
+     * 大纲页签下快照集合被清空、缓存用空集合重算了一次；切回章节后
+     * 异步读盘把集合填回来的那次 setState 触发的是**重渲染**，
+     * renderNodes 的依赖一个都没变，于是 useCallback 原样返回上一次
+     * 那份「全是占位点」的旧树 —— 直到用户点一下某个章节改了
+     * selectedFile，依赖才终于变化，绿点才冒出来。
+     * 所以这里不是"顺手补全依赖"，而是修掉那个具体症状。
+     */
+    chapterSnapshotNumbers,
+    runningChapterPaths,
     t,
   ])
 

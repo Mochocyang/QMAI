@@ -12,6 +12,7 @@ import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { FrameworkList } from "@/components/novel/story-simulation/framework-list"
+import { useListFileDrop } from "@/components/novel/use-list-file-drop"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
@@ -392,6 +393,17 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const activeImportTaskIdRef = useRef<string | null>(null)
   const outlineImportCancelledRef = useRef(false)
   const memoryDecisionResolveRef = useRef<((decision: ImportMemoryDecision) => void) | null>(null)
+  /**
+   * 「一次导入正在进行」的同步标记。
+   *
+   * `chapterImporting` / `outlineImporting` 是 state，要等到下一次渲染才变真，
+   * 而「是否提取记忆」这个弹窗是在 setState **之前** await 的 —— 中间这一段时间里
+   * 第二个入口照样能进来。菜单入口要用户再点一次才可能撞上，但桌面拖拽是
+   * 原生事件，连续拖两次就会撞上：第二次会覆盖 memoryDecisionResolveRef，
+   * 第一次那个 promise 永远不 resolve，导入就静默卡死。
+   * 所以用 ref 在函数入口处同步占位。
+   */
+  const importRunBusyRef = useRef(false)
 
   function cancelPendingCreate() {
     setPendingCreate(null)
@@ -412,6 +424,32 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   }, [activeView, selectedFile])
 
   const isChapter = mode === "knowledge"
+
+  /*
+   * 桌面文件直接拖进列表就能导入。
+   *
+   * 走 Tauri 的原生拖拽事件（不是 DOM 的 onDrop）：这个应用的 webview 默认开着
+   * dragDropEnabled，系统拖放会在到达 DOM 之前就被 Tauri 接走，React 的
+   * onDrop/dataTransfer 收不到桌面文件。判定、换算、扩展名粗筛都在
+   * lib/novel/drop-import.ts 与 components/novel/use-list-file-drop.ts 里，
+   * 这里只负责把落进来的路径接到与菜单导入同一段的导入流程上。
+   */
+  const { containerRef: dropContainerRef, isDraggingOver } = useListFileDrop({
+    enabled: Boolean(project) && !chapterImporting && !outlineImporting,
+    kind: isChapter ? "chapter" : "outline",
+    onDropPaths: (paths) => {
+      if (isChapter) {
+        void importChapterSourcePaths(paths)
+        return
+      }
+      void runOutlineImport({
+        count: paths.length,
+        askMemoryFirst: true,
+        performImport: (projectPath) => importOutlineFiles(projectPath, paths),
+      })
+    },
+    onUnsupportedDrop: (message) => window.alert(message),
+  })
 
   useEffect(() => {
     if (!pendingCreate?.kind) return
@@ -588,6 +626,39 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     }
   }
 
+  /**
+   * 把一批**已知路径**的章节文档导进来：问记忆 → 导入 → 落盘后提取。
+   *
+   * 抽出来是为了让「选文件」「选文件夹」「从桌面拖进来」三条入口共用同一段逻辑。
+   * 三条入口都对同一批文件得出同样的结果，用户才不会因为"这次是拖进来的"而
+   * 得到不一样的章节号或不一样的前言。
+   */
+  async function importChapterSourcePaths(sourcePaths: string[]) {
+    if (!project || chapterImporting || importRunBusyRef.current || sourcePaths.length === 0) return
+
+    // 同步占位，挡住"弹窗还没回答就又来一次"的并发入口（见 importRunBusyRef 注释）。
+    importRunBusyRef.current = true
+    const projectPath = normalizePath(project.path)
+    try {
+      const memoryDecision = await confirmChapterMemoryExtraction(sourcePaths.length)
+      if (memoryDecision === "cancel") return
+      const extractMemory = memoryDecision === "extract"
+      setChapterImporting(true)
+      const importedChapters = await importChapterFiles(projectPath, sourcePaths, {
+        finalForMemoryExtraction: extractMemory,
+      })
+      await finishChapterImport(projectPath, importedChapters, extractMemory)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("[SidebarPanel] chapter import failed:", error)
+      window.alert(`导入失败：${message}`)
+    } finally {
+      importRunBusyRef.current = false
+      setChapterImporting(false)
+      setChapterImportMenuOpen(false)
+    }
+  }
+
   async function handleImportChapterFiles() {
     if (!project || chapterImporting) return
 
@@ -600,24 +671,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     if (!selected || (Array.isArray(selected) && selected.length === 0)) return
     const sourcePaths = Array.isArray(selected) ? selected : [selected]
 
-    const memoryDecision = await confirmChapterMemoryExtraction(sourcePaths.length)
-    if (memoryDecision === "cancel") return
-    const extractMemory = memoryDecision === "extract"
-    setChapterImporting(true)
-    try {
-      const projectPath = normalizePath(project.path)
-      const importedChapters = await importChapterFiles(projectPath, sourcePaths, {
-        finalForMemoryExtraction: extractMemory,
-      })
-      await finishChapterImport(projectPath, importedChapters, extractMemory)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error("[SidebarPanel] chapter file import failed:", error)
-      window.alert(`导入失败：${message}`)
-    } finally {
-      setChapterImporting(false)
-      setChapterImportMenuOpen(false)
-    }
+    await importChapterSourcePaths(sourcePaths)
   }
 
   async function handleImportChapterFolder() {
@@ -638,24 +692,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
       return
     }
 
-    const memoryDecision = await confirmChapterMemoryExtraction(candidates.length)
-    if (memoryDecision === "cancel") return
-    const extractMemory = memoryDecision === "extract"
-    setChapterImporting(true)
-    try {
-      const projectPath = normalizePath(project.path)
-      const importedChapters = await importChapterFiles(projectPath, candidates.map((candidate) => candidate.path), {
-        finalForMemoryExtraction: extractMemory,
-      })
-      await finishChapterImport(projectPath, importedChapters, extractMemory)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error("[SidebarPanel] chapter folder import failed:", error)
-      window.alert(`导入失败：${message}`)
-    } finally {
-      setChapterImporting(false)
-      setChapterImportMenuOpen(false)
-    }
+    await importChapterSourcePaths(candidates.map((candidate) => candidate.path))
   }
 
   async function handleImportOutlineFiles() {
@@ -675,23 +712,66 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     if (!selected || (Array.isArray(selected) && selected.length === 0)) return
     const sourcePaths = Array.isArray(selected) ? selected : [selected]
 
-    setOutlineImporting(true)
+    await runOutlineImport({
+      count: sourcePaths.length,
+      askMemoryFirst: false,
+      performImport: (projectPath) => importOutlineFiles(projectPath, sourcePaths),
+    })
+  }
+
+  /**
+   * 大纲导入的公共收尾：问记忆 → 导入 → 刷新 →（按需）提取。
+   *
+   * 三条入口共用它，但 `performImport` 由调用方给：
+   *   - 「选文件夹」用 `importOutlineCandidates(projectPath, candidates)` —— 候选里
+   *     带着 targetFolders（文件夹里的子目录结构），换成按路径重算会把层级拍平。
+   *   - 「选文件」和「从桌面拖进来」用 `importOutlineFiles(projectPath, sourcePaths)`。
+   *
+   * `askMemoryFirst` 决定要不要先弹「是否提取记忆」：「选文件夹」和「拖进来」
+   * 都可能一次带进一大批，需要在开始前决定；「选文件」这条入口过去就不问，
+   * 保持原样，免得打断既有习惯。
+   */
+  async function runOutlineImport({
+    count,
+    askMemoryFirst,
+    performImport,
+  }: {
+    count: number
+    askMemoryFirst: boolean
+    performImport: (projectPath: string) => Promise<string[]>
+  }) {
+    if (!project || outlineImporting || importRunBusyRef.current || count === 0) return
+
+    // 同步占位，挡住"弹窗还没回答就又来一次"的并发入口（见 importRunBusyRef 注释）。
+    importRunBusyRef.current = true
+    const projectPath = normalizePath(project.path)
     try {
-      const projectPath = normalizePath(project.path)
-      const importedPaths = await importOutlineFiles(projectPath, sourcePaths)
+      let extractMemory = false
+      if (askMemoryFirst) {
+        const memoryDecision = await confirmOutlineMemoryExtraction(count)
+        if (memoryDecision === "cancel") return
+        extractMemory = memoryDecision === "extract"
+      }
+
+      setOutlineImporting(true)
+      const importedPaths = await performImport(projectPath)
       if (importedPaths.length === 0) {
         window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
         return
       }
       await refreshTree(projectPath, importedPaths[0])
+      if (extractMemory) {
+        await extractImportedOutlineMemories(projectPath, importedPaths)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error("[SidebarPanel] outline file import failed:", error)
+      console.error("[SidebarPanel] outline import failed:", error)
       window.alert(t("novel.outlineImport.importFailed", {
         message,
         defaultValue: `导入失败：${message}`,
       }))
     } finally {
+      importRunBusyRef.current = false
       setOutlineImporting(false)
       setOutlineImportMenuOpen(false)
     }
@@ -714,32 +794,11 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
       return
     }
 
-    const memoryDecision = await confirmOutlineMemoryExtraction(candidates.length)
-    if (memoryDecision === "cancel") return
-    const extractMemory = memoryDecision === "extract"
-    setOutlineImporting(true)
-    try {
-      const projectPath = normalizePath(project.path)
-      const importedPaths = await importOutlineCandidates(projectPath, candidates)
-      if (importedPaths.length === 0) {
-        window.alert(t("novel.outlineImport.emptyResult", { defaultValue: "没有找到可导入的大纲文档。" }))
-        return
-      }
-      await refreshTree(projectPath, importedPaths[0])
-      if (extractMemory) {
-        await extractImportedOutlineMemories(projectPath, importedPaths)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error("[SidebarPanel] outline folder import failed:", error)
-      window.alert(t("novel.outlineImport.importFailed", {
-        message,
-        defaultValue: `导入失败：${message}`,
-      }))
-    } finally {
-      setOutlineImporting(false)
-      setOutlineImportMenuOpen(false)
-    }
+    await runOutlineImport({
+      count: candidates.length,
+      askMemoryFirst: true,
+      performImport: (projectPath) => importOutlineCandidates(projectPath, candidates),
+    })
   }
 
   async function handleCreateNextChapter(parentDir?: string) {
@@ -960,7 +1019,21 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
       {!isChapter && bulkOutlineOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools /></div>}
       {isChapter && bulkChapterOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools kind="chapter" /></div>}
-      <div className="flex-1 overflow-hidden">
+      <div
+        ref={dropContainerRef}
+        data-ui-list-drop-target={isChapter ? "chapter" : "outline"}
+        className={`relative flex-1 overflow-hidden transition-colors ${isDraggingOver ? "ring-2 ring-inset ring-primary/60 bg-primary/5" : ""}`}
+      >
+        {/* 拖拽经过时才出现的一条提示：让用户知道"松手就导入到这里"。
+            不用整块遮罩，否则会挡住列表本身，用户看不到自己要放进哪。 */}
+        {isDraggingOver ? (
+          <div
+            className="pointer-events-none absolute inset-x-2 top-2 z-10 rounded border border-primary/40 bg-background/95 px-2 py-1 text-center text-[0.6875rem] text-primary shadow-sm"
+            data-ui-list-drop-hint="true"
+          >
+            松手即可导入到{isChapter ? "章节" : "大纲"}列表
+          </div>
+        ) : null}
         <KnowledgeTree
           searchQuery={uiTestQuery}
           onSearchQueryChange={setUiTestQuery}

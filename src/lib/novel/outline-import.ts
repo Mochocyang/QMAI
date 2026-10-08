@@ -37,7 +37,14 @@ function buildOutlineMarkdown(title: string, content: string): string {
   return buildPureOutlineMarkdown(title, content.replace(/^\uFEFF/, ""))
 }
 
-function isOutlineImportablePath(path: string): boolean {
+/**
+ * 这个路径能不能作为大纲文档导入。
+ *
+ * 导出是给「从桌面拖进大纲列表」用的：拖进来的是用户磁盘上的任意路径，
+ * 必须先按同一套规则过一遍，否则同一次导入会因为你走的是「选文件」还是
+ * 「拖文件」而对同一个文件给出两种结论。
+ */
+export function isOutlineImportablePath(path: string): boolean {
   const normalizedPath = normalizePath(path)
   const fileName = getFileName(normalizedPath)
   if (!fileName || fileName.startsWith(".")) return false

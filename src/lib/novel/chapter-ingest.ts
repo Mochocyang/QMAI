@@ -1,5 +1,6 @@
 import { readFile, writeFileAtomic, listDirectory, fileExists, createDirectory, deleteFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { chapterSnapshotNumbersFromFileNames } from "./chapter-memory-dot"
 import { useWikiStore } from "@/stores/wiki-store"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { isChapterPage, isFinalChapter, parseChapterNumber } from "./chapter-meta"
@@ -1335,17 +1336,7 @@ export async function listSnapshots(projectPath: string): Promise<number[]> {
   const snapshotDir = `${pp}/.novel/snapshots`
   try {
     const tree = await listDirectory(snapshotDir)
-    return tree
-      .filter(f => f.name.endsWith(".snapshot.json"))
-      .map(f => {
-        const stem = f.name.split(".")[0]
-        // outline-001 → -1, outline-002 → -2
-        const outlineMatch = stem.match(/^outline-(\d+)$/)
-        if (outlineMatch) return -parseInt(outlineMatch[1], 10)
-        return parseInt(stem, 10)
-      })
-      .filter(n => !isNaN(n))
-      .sort((a, b) => a - b)
+    return chapterSnapshotNumbersFromFileNames(tree.map((file) => file.name))
   } catch {
     return []
   }

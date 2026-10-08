@@ -81,3 +81,22 @@ describe("新版 UI 最外侧窗口", () => {
     expect(shell.match(/data-tauri-drag-region="false"/g)).toHaveLength(3)
   })
 })
+
+describe("文档树行的小号字号只归尾部元数据", () => {
+  const tree = readFileSync(resolve(__dirname, "../layout/knowledge-tree.tsx"), "utf8")
+
+  it("用显式标记挑条数/字数，不再用 span:last-child 去猜", () => {
+    /*
+     * 旧规则是 `> span:last-child:not(:first-of-type)`。它本意只想命中"文件夹条数"和
+     * "章节字数"，但大纲行的行内结构是 [点槽][标题]，标题正好也是最后一个 span，
+     * 于是大纲标题被误压到 0.75rem，而章节标题是 0.875rem —— 同一侧栏两个列表字号不一致。
+     * 现在改由 data-ui-tree-meta 显式标记，命中范围与本意严格一致。
+     */
+    expect(css).toMatch(/\.ui-test-root \[data-ui-tree-row\] > button:first-of-type > \[data-ui-tree-meta\] \{ font-size: 0\.75rem; \}/)
+    expect(css).not.toMatch(/\[data-ui-tree-row\]\s*>\s*button:first-of-type\s*>\s*span:last-child/)
+  })
+
+  it("恰好两处尾部元数据打上了标记：文件夹条数、章节字数", () => {
+    expect(tree.match(/data-ui-tree-meta="true"/g)).toHaveLength(2)
+  })
+})

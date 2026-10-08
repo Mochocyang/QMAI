@@ -1,5 +1,7 @@
 import { ScrollToLatestButton } from "@/components/chat/scroll-to-latest-button"
 import { UserMessageMeta } from "@/components/chat/user-message-meta"
+import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions"
+import { CONTINUE_STOPPED_GENERATION_PROMPT, isStoppedGenerationMessage } from "@/lib/novel/stopped-generation"
 import { buildSettingProfileOutputRules } from "@/lib/novel/setting-profile-contracts";
 import {
   type CSSProperties,
@@ -1408,6 +1410,7 @@ function OutlineAssistantMessage({
   onSubmitDiscussAnswers,
   onConfirmDiscuss,
   onResumeMultiAgent,
+  onContinueStopped,
   resumeMultiAgentDisabled,
   nextStepDisabled,
   nextStepDisabledReason,
@@ -1446,6 +1449,12 @@ function OutlineAssistantMessage({
   ) => Promise<boolean>;
   onConfirmDiscuss: (messageId: string, protocol: OutlineDiscussProtocol) => Promise<boolean>;
   onResumeMultiAgent: (messageId: string) => Promise<void>;
+  /**
+   * 「继续」：上一条大纲回复被用户手动停止后，保留已生成内容接着往下写。
+   * 与「重试」（onRegenerate，整条重发）配套，两个按钮由
+   * novel/stopped-generation-actions 统一渲染。
+   */
+  onContinueStopped?: () => void;
   resumeMultiAgentDisabled: boolean;
   nextStepDisabled: boolean;
   nextStepDisabledReason?: string;
@@ -1473,6 +1482,17 @@ function OutlineAssistantMessage({
   );
   const actionContent = answer || displayContent;
   const messageIsStreaming = isStreaming && index === activeMessagesLength - 1;
+  /**
+   * 上一条大纲回复是被用户手动停止的（正文结尾带着「已停止生成。」或
+   * 「⚠️ 生成已停止，以上为已生成的内容。」）。判定收在
+   * lib/novel/stopped-generation.ts 里，章节面板用的是同一份，两侧不会分歧。
+   *
+   * 只在最后一条、且这一轮已经跑完时成立：流式当中正文还没有收尾提示，
+   * 翻出来的历史停止消息也不该再长出这两个按钮。
+   */
+  const isStoppedGeneration = !messageIsStreaming
+    && index === activeMessagesLength - 1
+    && isStoppedGenerationMessage(msg.content);
   // 轮播俏皮文案：整段生成期间始终显示，消解等待的枯燥感。
   const waitingHint = useWaitingHint(messageIsStreaming);
   // 文案并到闪烁光标那一行显示，不单独占一行。
@@ -1623,6 +1643,18 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
+      {/*
+        * 停止生成之后的补救动作，紧贴在「已停止生成」那句提示的下方。
+        * 用户停止生成常常是想换个模型再试，所以停下之后必须当场给出
+        * 「重试」和「继续」；按钮与章节面板共用同一个组件，行为与外观一致。
+        */}
+      {isStoppedGeneration ? (
+        <StoppedGenerationActions
+          className="mt-2"
+          onRetry={() => void onRegenerate(index)}
+          onContinue={onContinueStopped}
+        />
+      ) : null}
       {/* File edit preview */}
       {parsed.hasEdits && !editDismissed && projectPath && !isStreaming ? (
         <FileEditPreview
@@ -1652,15 +1684,21 @@ function OutlineAssistantMessage({
           >
             {copied === msg.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
-          <button
-            onClick={() => void onRegenerate(index)}
-            disabled={isStreaming}
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
-            title="重新生成"
-            aria-label="重新生成"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
+          {/*
+            * 停止生成的消息不再单出一枚「重新生成」：上方那对按钮里的「重试」
+            * 就是同一个动作，并排出现只会让人猜哪个才是"换模型重来"。
+            */}
+          {!isStoppedGeneration ? (
+            <button
+              onClick={() => void onRegenerate(index)}
+              disabled={isStreaming}
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
+              title="重新生成"
+              aria-label="重新生成"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           {sourceDetails}
           {<div className="ml-auto">{contextHubDetails}</div>}
         </div>
@@ -5113,6 +5151,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     stopConversationRun,
   ]);
 
+  /**
+   * 「继续」：上一条大纲回复被用户手动停止后，保留已生成的内容接着往下写。
+   *
+   * 与「重试」（handleRegenerate，会从这条消息起整条重发）的分工：
+   * 继续不动已有内容，只是把"接着写"作为新一轮用户请求发出去，
+   * 模型在会话历史里看得到已经生成的那半截，于是从断点续写。
+   * 提示词与章节面板共用同一个常量，两侧「继续」的含义一致。
+   */
+  const handleContinueStopped = useCallback(async () => {
+    if (isStreaming) return;
+    await handleSendMessage(CONTINUE_STOPPED_GENERATION_PROMPT);
+  }, [handleSendMessage, isStreaming]);
+
   const handleRegenerate = useCallback(
     async (msgIndex: number) => {
       if (!project || isStreaming || !activeConversationId) return;
@@ -6130,6 +6181,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onSubmitDiscussAnswers={handleSubmitOutlineDiscussAnswers}
                   onConfirmDiscuss={handleConfirmOutlineDiscuss}
                   onResumeMultiAgent={handleResumeMultiAgent}
+                  onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped()}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
                   generationContext={activeMessages.slice(0, i).some((message) => message.role === "user" && Boolean(message.novelGenerationRequest))
