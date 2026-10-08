@@ -31,11 +31,42 @@ const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
  * 它的 not.toContain("<Type") 会因为同一原因假绿。
  *
  * 做法：从命中 aria-label 的那行起累加，直到该 <button> 闭合。
+ *
+ * ── occurrence 参数：为什么必须有（这是实测出来的一个真盲区）──
+ * 这个函数原先用 `findIndex`，也就是**只取第一处**匹配。
+ * 而「字体设置」在源码里有**两处**：章节工具栏一处、大纲工具栏一处。
+ * 于是 Task 11 的变异验证发现：**只把大纲那处的图标改回 WandSparkles，
+ * 全部守卫依然全绿** —— 大纲那一处从没进入任何断言的视野。
+ *
+ * 这正好和本次要修的缺陷同类：用户原话是「一键排版的图标与正文字体的图标
+ * 两个不能设置为一样」，而"两处入口"是用户明确要求的。
+ * 只守住章节那处，等于把"大纲里又抄错了图标"这类回归放走 ——
+ * 而它恰恰是**用户在界面上能直接看到**的那种错。
+ *
+ * 所以加 occurrence（1 起算）。传 2 就取第二处。
+ * 找不到第 occurrence 处时**抛错**而不是回退到第一处：
+ * 静默回退会让"大纲入口被删掉"这种情况继续假绿，
+ * 而那正是要防的另一件事。
  */
-function buttonBlock(ariaLabel: string): string {
+function buttonBlock(ariaLabel: string, occurrence = 1): string {
+  if (!Number.isInteger(occurrence) || occurrence < 1) {
+    throw new Error(`occurrence 必须是 1 起的整数，收到 ${occurrence}`)
+  }
   const lines = source.split(/\r?\n/)
-  const start = lines.findIndex((item) => item.includes(`aria-label="${ariaLabel}"`))
-  if (start < 0) throw new Error(`找不到按钮：${ariaLabel}`)
+  let seen = 0
+  let start = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(`aria-label="${ariaLabel}"`)) {
+      seen += 1
+      if (seen === occurrence) {
+        start = i
+        break
+      }
+    }
+  }
+  if (start < 0) {
+    throw new Error(`找不到第 ${occurrence} 处按钮：${ariaLabel}（共找到 ${seen} 处）`)
+  }
   const collected: string[] = []
   for (let i = start; i < lines.length; i++) {
     collected.push(lines[i])
@@ -57,6 +88,35 @@ describe("章节与大纲工具栏图标", () => {
     expect(line).toContain("Type")
     expect(line).not.toContain("WandSparkles")
     expect(buttonBlock("一键排版")).not.toBe(line)
+  })
+
+  /*
+   * 大纲那一处**必须单独钉**。
+   *
+   * 上面那条用的是第一处「字体设置」（章节工具栏）。实测变异：
+   * 只把大纲那处的图标改成 WandSparkles，全部守卫**依然全绿** ——
+   * 因为大纲那处从来没进入任何断言的视野（buttonBlock 原先只取第一处）。
+   *
+   * 而用户的要求是**两处入口**都要有、且图标都不能与一键排版撞车：
+   * 「大纲当中也要有这个设置功能」。所以这一条不是重复，
+   * 它守的是另一半。删掉它，大纲入口就能悄悄退化成魔法棒图标。
+   */
+  it("大纲的字体设置也用 Type 图标，同样不与一键排版撞车", () => {
+    const outline = buttonBlock("字体设置", 2)
+    expect(outline).toContain("Type")
+    expect(outline).not.toContain("WandSparkles")
+    /*
+     * 这里**故意不加** `expect(outline).not.toBe(buttonBlock("字体设置", 1))`。
+     * 我第一版加了它，结果是假红：章节与大纲那两段按钮的文本
+     * **逐字节相同**（同一套 className / title / onClick / 同一个 <Type />），
+     * 就像两处入口本来就该长一样。
+     *
+     * 而"它们是不是同一段被取到两次"这个担心，其实由 occurrence 机制本身
+     * 解决了：它按**行**逐个计数，第 2 次命中必然在更靠后的行上。
+     * 真正需要防的是"大纲入口被删掉"——那种情况下
+     * buttonBlock("字体设置", 2) 会**抛错**（找不到第 2 处），用例照样红，
+     * 而且报错信息会直接说明缺的是第几处。
+     */
   })
 
   it("章节与大纲都能打开字体设置浮层", () => {

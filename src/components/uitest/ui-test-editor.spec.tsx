@@ -208,12 +208,24 @@ describe("测试版正文编辑器", () => {
     expect(metadata?.textContent ?? "").toContain(`${countChapterBodyWords(chapter)} 字`)
   })
 
-  it("章节显示去AI味、提取记忆、查看记忆和一键排版", async () => {
+  it("章节显示去AI味、提取记忆、查看记忆、字体设置和一键排版", async () => {
     await mount()
     const toolbar = container.querySelector('.ui-test-editor-toolbar')!
     expect(button("去AI味", toolbar).disabled).toBe(false)
     expect(button("提取记忆", toolbar).disabled).toBe(false)
     expect(button("查看记忆", toolbar).disabled).toBe(false)
+    /*
+     * 「字体设置」这一条是 Task 11 补上的**渲染层**断言。
+     *
+     * 为什么需要它：Task 11 新增的守卫
+     * （preview-panel.chapter-toolbar.spec.tsx）是**源码文本**断言 ——
+     * 它只能证明那段 JSX 还在文件里，证明不了它**会被渲染出来**。
+     * 而"用户点不到按钮"恰恰是源码断言看不见的那一类失败
+     * （比如按钮被写进了一个永不成立的分支、或所在容器没挂上）。
+     * Task 11 的实现者也如实报告了这一点：他没有做人工 UI 验收，
+     * "用户真的看到"只被间接保证。这条断言补的就是那一层。
+     */
+    expect(button("字体设置", toolbar).disabled).toBe(false)
     expect(button("一键排版", toolbar).disabled).toBe(false)
     expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
     expect(toolbar.textContent).not.toContain("预览正文")
@@ -404,7 +416,22 @@ describe("编辑器异常与原业务回归", () => {
     await mount()
     const toolbar = container.querySelector(".ui-test-editor-toolbar")!
     const labels = [...toolbar.querySelectorAll("button.ui-test-editor-action")].map((item) => item.getAttribute("aria-label"))
-    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "一键排版"])
+    /*
+     * 「字体设置」是 Task 11 新加的（用户要求写作现场能调正文排版）。
+     * 它插在「查看记忆」与「一键排版」之间 —— 这条**完整列举**的断言
+     * 因此必须跟着更新，否则会报"工具栏多了个按钮"。
+     *
+     * 为什么保留"完整列举"而不放宽成"包含这几项即可"：
+     * 这条断言的价值正是**冻结工具栏的组合与顺序** ——
+     * 放宽之后，误删一个按钮、或两个按钮换了位置都不会被发现。
+     * 新增按钮时让它红一次、由人确认位置合理，是它该有的行为。
+     *
+     * 这条是被 Task 11 **实际打破**的既有断言：Task 11 的 Files 清单里
+     * 没有这个文件，13 份简报也没有任何任务认领它 —— 于是 main 上红了
+     * 一条既有单测。实现者按"只碰清单内文件"的规矩**停下来上报**，
+     * 没有越界改它（这是对的）。现在由我补上并修正图纸归属。
+     */
+    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "一键排版"])
   })
 
   it("已有正文的草稿章打开时提示先保存为正式再提取记忆", async () => {
