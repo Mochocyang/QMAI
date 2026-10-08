@@ -41,6 +41,35 @@ if (!Array.isArray(source.fonts) || source.fonts.length === 0) {
 
 const REQUIRED = ["id", "display", "family", "file", "sizeBytes", "sha256", "licenseFile"]
 
+/*
+ * 曾纳入、后经实测排除的字体（`excludedAfterProbe`）。
+ *
+ * 保留它们的来源与哈希是为了**留痕**：日后有人问"芫荽为什么没随包"，
+ * 答案（许可是好的，但它过不了中文判据）与它是从哪一版取的，都在这里。
+ *
+ * 但绝不能出现在磁盘上：资源目录是整目录递归打包的，文件在就会被装进
+ * 安装包（哪怕不在清单里、永远不会被安装），白占用户的下载体积。
+ */
+const excluded = Array.isArray(source.excludedAfterProbe) ? source.excludedAfterProbe : []
+for (const font of excluded) {
+  for (const key of ["id", "file", "excludedReason"]) {
+    if (!font[key]) die(`excludedAfterProbe 里的条目缺少 ${key}`)
+  }
+  const stray = resolve(fontsDir, font.file)
+  if (existsSync(stray)) {
+    die(
+      `${font.id} 已被排除（${font.excludedReason.slice(0, 40)}…），` +
+        `但文件仍在 fonts/ 里：${stray}\n` +
+        `  资源目录是整目录打包的 —— 留着它会让安装包白白多出 ` +
+        `${(font.sizeBytes / 1024 / 1024).toFixed(2)} MiB。请删除该文件（与其许可证）。`,
+    )
+  }
+  const strayLicense = font.licenseFile ? resolve(fontsDir, font.licenseFile) : null
+  if (strayLicense && existsSync(strayLicense)) {
+    die(`${font.id} 已被排除，但许可证文件仍在：${strayLicense}。请一并删除。`)
+  }
+}
+
 const entries = []
 for (const font of source.fonts) {
   for (const key of REQUIRED) {

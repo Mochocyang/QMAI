@@ -82,15 +82,6 @@
       "sizeBytes": 24047784,
       "sha256": "1202162d0369c25f4dd571582ffc4c8a8c42bf18db469d4580da9b41b6cb64a1",
       "licenseFile": "licenses/sarasa-gothic-OFL.txt"
-    },
-    {
-      "id": "iansui",
-      "display": "芫荽",
-      "family": "Iansui",
-      "file": "Iansui-Regular.ttf",
-      "sizeBytes": 9447424,
-      "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
-      "licenseFile": "licenses/iansui-OFL.txt"
     }
   ]
 }

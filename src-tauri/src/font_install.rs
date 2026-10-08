@@ -458,11 +458,57 @@ fn write_install_record(app_data_dir: &Path, record: &InstallRecord) -> Result<(
     Ok(())
 }
 
+/// 把一个族名注册到系统字体表；返回是否**确实写入**（用于决定要不要广播
+/// `WM_FONTCHANGE`）。幂等：值已指向同一路径时应返回 `Ok(false)`。
+///
+/// 抽成类型别名是为了让 `install_into` 可以在测试里注入一个不碰真实注册表的
+/// 实现 —— 见 `install_into` 的注释。
+type RegisterFn = dyn Fn(&str, &Path) -> Result<bool, String>;
+
+/// 真实的注册动作（Windows 写 HKCU 注册表；其他平台无此概念）。
+#[cfg(windows)]
+fn system_register(family: &str, dest: &Path) -> Result<bool, String> {
+    win::register_font(family, dest)
+}
+
+/// 非 Windows 平台没有 HKCU 字体注册表，等价于"无需注册"。
+#[cfg(not(windows))]
+fn system_register(_family: &str, _dest: &Path) -> Result<bool, String> {
+    Ok(false)
+}
+
 /// 确保随包字体已安装到本用户。
 ///
 /// `fonts_dir`：资源目录下的 `fonts/`（含 `fonts-manifest.json` 与字体文件）。
 /// `app_data_dir`：用于持久化安装记录与卸载记录。
 pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallReport {
+    let dest_dir = match user_font_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            let mut report = InstallReport::default();
+            report.error = Some(e);
+            return report;
+        }
+    };
+    install_into(fonts_dir, app_data_dir, &dest_dir, &system_register)
+}
+
+/// `ensure_fonts_installed` 的可测试内核。
+///
+/// ── 为什么要把目标目录与注册动作做成参数 ──
+/// 这条逻辑真正危险的部分是它的**副作用**：往用户字体目录写文件、写注册表。
+/// 若测试直接调 `ensure_fonts_installed`，就会在开发机上留下真实的字体文件与
+/// 注册表值 —— 本仓库的测试确实这么干过，结果是把一个 8 字节的假字体
+/// `a.ttf` 留在真实用户字体目录里，并写进 `AFont (TrueType)` 注册表值；
+/// 那个假族名会一直存在于系统的字体表里。
+/// 把两者变成参数后，测试用临时目录 + 假的注册函数，既能覆盖全部分支，
+/// 又不动开发机一根毫毛。
+fn install_into(
+    fonts_dir: &Path,
+    app_data_dir: &Path,
+    dest_dir: &Path,
+    register: &RegisterFn,
+) -> InstallReport {
     let mut report = InstallReport::default();
 
     let manifest = match read_manifest(fonts_dir) {
@@ -481,15 +527,24 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
     // 装了也只会得到一个"能选中但不好看"的坏族
     report.problems = verify_manifest_files(fonts_dir, &manifest);
 
-    let dest_dir = match user_font_dir() {
-        Ok(d) => d,
-        Err(e) => {
-            report.error = Some(e);
-            return report;
-        }
-    };
-
-    // 快速路径：记录与清单一致且每个目标文件大小相符 → 全部 already
+    /*
+     * ── 为什么不拿"上一次的安装记录"当作可以跳过的依据 ──
+     *
+     * 记录文件只是一份**缓存**，而"字体到底能不能用"取决于两件外部事实：
+     * ① 目标字体文件在、且大小对；② 注册表值在、且指向它。两者都可能被外部
+     * 单方面改动（杀毒、注册表清理工具、用户手改），而缓存不会知道。
+     *
+     * 曾经这里有过一条快速路径："记录里有同 id 且大小一致、目标文件也在"
+     * 就直接记为 already 并 `continue`。那条路径**不看注册表**，于是：
+     * 文件在、注册表值被清掉 → 每次启动都判 already → 注册表永远补不回来
+     * → 字体永远不出现在任何字体列表里，而记录显示一切正常。
+     * 这正是本次要根除的"选了没反应"，而且是**永久性**的、不会自愈。
+     *
+     * 现在的做法：拷不拷由 `copy_if_needed` 按大小判断（那才是真正贵的操作，
+     * 168MB 不该每次重拷）；注册**每次都调** —— `register_font` 本身幂等，
+     * 值已正确时返回 false 且不写。代价是每次启动 10 次注册表读，微秒级。
+     * 以事实为准，比以缓存为准多花的那点开销远远值得。
+     */
     let previous = read_install_record(app_data_dir);
     let mut record = InstallRecord {
         manifest_version: manifest.manifest_version,
@@ -502,35 +557,7 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
         let dest = dest_dir.join(&entry.file);
         let reg_name = registry_value_name(&entry.family);
 
-        // 记录里已有同 id 且大小一致、目标文件也在 → 走快速路径
-        let recorded_ok = previous
-            .as_ref()
-            .filter(|p| p.manifest_version == manifest.manifest_version)
-            .and_then(|p| p.installed.iter().find(|f| f.id == entry.id))
-            .filter(|f| f.size_bytes == entry.size_bytes)
-            .is_some()
-            && std::fs::metadata(&dest).map(|m| m.len() == entry.size_bytes).unwrap_or(false);
-
-        if recorded_ok {
-            report.outcomes.push(FontInstallOutcome {
-                id: entry.id.clone(),
-                display: entry.display.clone(),
-                family: entry.family.clone(),
-                status: "already".to_string(),
-                error: None,
-            });
-            record.installed.push(RecordedFont {
-                id: entry.id.clone(),
-                file: entry.file.clone(),
-                family: entry.family.clone(),
-                dest: dest.to_string_lossy().to_string(),
-                reg_value_name: Some(reg_name),
-                size_bytes: entry.size_bytes,
-            });
-            continue;
-        }
-
-        // 需要干活：拷贝
+        // 拷贝是真正贵的操作（单个 5–35MB），由大小一致来跳过
         let copied = match copy_if_needed(&src, &dest, entry.size_bytes) {
             Ok(c) => c,
             Err(e) => {
@@ -545,9 +572,13 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
             }
         };
 
-        // 注册（仅 Windows 有注册表步骤）
-        #[cfg(windows)]
-        let registered = match win::register_font(&entry.family, &dest) {
+        /*
+         * 注册**每次都调**，不看"上次的记录说已经装过了"。
+         * 理由见上方那段长注释：注册表值可能被外部清掉，而记录不会知道；
+         * 漏掉这一次注册，字体就会永久消失且不会自愈。
+         * `register` 是注入的，生产环境即 `win::register_font`（幂等）。
+         */
+        let registered = match register(&entry.family, &dest) {
             Ok(changed) => changed,
             Err(e) => {
                 report.outcomes.push(FontInstallOutcome {
@@ -560,8 +591,6 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
                 continue;
             }
         };
-        #[cfg(not(windows))]
-        let registered = false;
 
         if copied || registered {
             any_change = true;
@@ -570,6 +599,7 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
             id: entry.id.clone(),
             display: entry.display.clone(),
             family: entry.family.clone(),
+            // 报了 failed 的项在上面已 continue，能走到这里就是真的装好了
             status: if copied || registered { "installed" } else { "already" }.to_string(),
             error: None,
         });
@@ -581,6 +611,45 @@ pub fn ensure_fonts_installed(fonts_dir: &Path, app_data_dir: &Path) -> InstallR
             reg_value_name: Some(reg_name),
             size_bytes: entry.size_bytes,
         });
+    }
+
+    /*
+     * ── 本次构建不再随包的字体：保留在记录里，但不主动删除 ──
+     *
+     * 若某个 id 出现在上一次记录里、却不在本次清单里（例如以后把清单从 10 款
+     * 精简到 7 款），那个字体已经在用户机器上了。这里**不做**运行时删除，两个原因：
+     *   ① 记录文件是可被外部改写的（磁盘损坏、用户手改）。拿它里面的路径去
+     *      `remove_file`，等于让一个数据文件决定删哪个文件。风险与收益不成比例。
+     *   ② 一次性安装/卸载不该在"启动应用"这条路径上发生 —— 用户下次开机、
+     *      或文件被占用时，行为都难以预测。
+     *
+     * 但也不能直接丢掉：那样它就**永远不会被清理**了。所以把它原样带进新记录，
+     * 卸载器（NSIS 段与 `remove_installed_fonts`）仍会照单清理，同时如实记进
+     * `problems`，让"有一款旧字体还留在机器上"这件事在日志里可见 ——
+     * 静默保留正是"看得见但没人管"的来源。
+     *
+     * ⚠️ 这段**必须写在下面两个 write_* 之前**。写在后面的话，
+     * 补进 `record.installed` 的条目根本不会被持久化 —— 表现就是
+     * "上报了有一款旧字体，但记录里没有它"，于是它照样永远不会被清理。
+     * （这条顺序曾经写反过，是测试 `清单缩小后旧字体仍留在记录里以便日后清理`
+     * 抓出来的。）
+     */
+    if let Some(prev) = &previous {
+        if prev.manifest_version == manifest.manifest_version {
+            for old in &prev.installed {
+                if manifest.fonts.iter().any(|e| e.id == old.id) {
+                    continue; // 本次仍随包，已在上面处理
+                }
+                report.problems.push(format!(
+                    "随包清单已不再包含 {id}（{family}），但用户机器上仍有该字体；\
+                     已保留在卸载记录中，将在卸载时清理：{dest}",
+                    id = old.id,
+                    family = old.family,
+                    dest = old.dest
+                ));
+                record.installed.push(old.clone());
+            }
+        }
     }
 
     // 记录写失败不该让"字体已装好"这个事实丢失，但必须如实报告
@@ -1084,9 +1153,111 @@ mod tests {
         // 端到端：清单说 128 字节，实际写 8 字节
         let (root, _m) = fake_bundle("report-problems", &[("a", "甲", "AFont", 128)]);
         fs::write(root.join("fonts").join("a.ttf"), vec![0u8; 8]).unwrap();
-        let report = ensure_fonts_installed(&root.join("fonts"), &root.join("data"));
+        let dest = root.join("dest");
+        let report = install_into(&root.join("fonts"), &root.join("data"), &dest, &noop_register);
         assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
         assert!(report.summary().contains("文件异常 1 处"), "{}", report.summary());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// 不碰真实注册表的注册动作，返回"无需写入"。测试里用它隔离副作用。
+    fn noop_register(_family: &str, _dest: &Path) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    /*
+     * ── 下面这组测试针对一个真实修掉过的缺陷 ──
+     *
+     * 旧实现有一条"记录里有同 id、大小一致、目标文件也在 → already 并跳过
+     * 注册"的快速路径，它**不看注册表**。于是当文件在、注册表值被清掉时
+     * （杀毒软件、注册表清理工具、用户手改都会造成），每次启动都判 already，
+     * 注册表永远补不回来 —— 字体永远不出现在字体列表里，而记录一切正常。
+     * 这是永久性的、不会自愈的"选了没反应"。
+     *
+     * 现在的判据是"以事实为准"：拷贝按大小跳过，注册每次都调。
+     */
+    #[test]
+    fn 目标文件已在但注册表缺失时必须重新注册而不是判为已就位() {
+        let (root, _m) = fake_bundle("heal-register", &[("a", "甲", "AFont", 16)]);
+        let fonts_dir = root.join("fonts");
+        let data_dir = root.join("data");
+        let dest_dir = root.join("dest");
+
+        // 第一次：正常安装。假注册函数模拟"写入了"。
+        let first = install_into(&fonts_dir, &data_dir, &dest_dir, &|_, _| Ok(true));
+        assert_eq!(first.installed(), 1, "{:?}", first.outcomes);
+        assert!(dest_dir.join("a.ttf").exists(), "应被拷到目标目录");
+
+        // 第二次：文件都还在（会被按大小跳过拷贝），注册函数仍报"写入了"
+        // ——模拟"注册表值被外部清掉，必须重写"。
+        let second = install_into(&fonts_dir, &data_dir, &dest_dir, &|_, _| Ok(true));
+        assert_eq!(
+            second.installed(),
+            1,
+            "注册表缺失时必须重新注册，不能因为文件在就判 already：{:?}",
+            second.outcomes
+        );
+        assert_eq!(second.already(), 0);
+
+        // 第三次：一切正常，注册函数报"无需写入" → 才是真的 already
+        let third = install_into(&fonts_dir, &data_dir, &dest_dir, &noop_register);
+        assert_eq!(third.already(), 1, "{:?}", third.outcomes);
+        assert_eq!(third.installed(), 0, "无变化时不应谎报为已安装");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 注册失败时如实记为失败并说明已拷贝() {
+        let (root, _m) = fake_bundle("register-fail", &[("a", "甲", "AFont", 16)]);
+        let dest_dir = root.join("dest");
+        let report = install_into(
+            &root.join("fonts"),
+            &root.join("data"),
+            &dest_dir,
+            &|_, _| Err("注册表只读".to_string()),
+        );
+        assert_eq!(report.failed(), 1, "{:?}", report.outcomes);
+        let err = report.outcomes[0].error.as_deref().unwrap_or("");
+        // 文件确实已经拷过去了，失败原因必须把这一点讲清楚，
+        // 否则人会误以为"什么都没做成"而重复排查
+        assert!(err.contains("已拷贝"), "错误信息应说明已拷贝：{err}");
+        assert!(err.contains("注册表只读"), "应保留原始原因：{err}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 清单缩小后旧字体仍留在记录里以便日后清理() {
+        let (root, _m) = fake_bundle("shrink", &[("a", "甲", "AFont", 16), ("b", "乙", "BFont", 16)]);
+        let fonts_dir = root.join("fonts");
+        let data_dir = root.join("data");
+        let dest_dir = root.join("dest");
+        install_into(&fonts_dir, &data_dir, &dest_dir, &noop_register);
+
+        // 模拟新版本只随包 a：重写清单
+        let manifest: FontManifest =
+            serde_json::from_str(&fs::read_to_string(fonts_dir.join("fonts-manifest.json")).unwrap())
+                .unwrap();
+        let trimmed = FontManifest {
+            manifest_version: manifest.manifest_version,
+            fonts: manifest.fonts.iter().filter(|e| e.id == "a").cloned().collect(),
+        };
+        fs::write(
+            fonts_dir.join("fonts-manifest.json"),
+            serde_json::to_string_pretty(&trimmed).unwrap(),
+        )
+        .unwrap();
+
+        let report = install_into(&fonts_dir, &data_dir, &dest_dir, &noop_register);
+        // 必须**如实上报**有一款旧字体还在机器上，不能静默保留
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert!(report.problems[0].contains("b"), "{:?}", report.problems);
+        // 且必须仍在记录里，否则就永远不会被清理
+        let record = read_install_record(&data_dir).expect("记录应存在");
+        let ids: Vec<&str> = record.installed.iter().map(|f| f.id.as_str()).collect();
+        assert!(ids.contains(&"b"), "旧字体应保留在记录中：{ids:?}");
+        // 只有 a 出现在本次结果里（b 不再随包，不参与本次安装）
+        assert_eq!(report.outcomes.len(), 1);
         let _ = fs::remove_dir_all(&root);
     }
 }

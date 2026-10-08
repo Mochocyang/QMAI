@@ -614,10 +614,19 @@ CoreText，其他应用与文档无法解析。两者应共存：`@font-face` �
 `src-tauri/windows/_tauri-installer-template.nsi`（卸载清理）、
 `docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs`（NSIS 段编译验证）。
 
-**最终清单：10 款，合计 176,682,440 字节 = 168.50 MiB**（用户选择"精简核心
-8–10 款"）。全部经 `verify-bundle-licenses.mjs` 核实为可捆绑（9 款 OFL-1.1 +
-鸿蒙黑体为专有但明确允许 `bundle, redistribute`）。逐款来源、tag 与 SHA-256
-见 `bundled-fonts.json`；义务与用户决定见 `bundled-fonts.md`。
+**最终清单：9 款，合计 167,235,016 字节 = 159.49 MiB**（用户选择"精简核心
+8–10 款"）。全部经 `verify-bundle-licenses.mjs` 核实为可捆绑（8 款 OFL-1.1 +
+鸿蒙黑体为专有但明确允许 `bundle, redistribute`），且全部经 DirectWrite 实测
+确认**能被本应用列出并选中**。逐款来源、tag 与 SHA-256 见 `bundled-fonts.json`；
+义务与用户决定见 `bundled-fonts.md`。
+
+**不变式：随包字体集必须是"可被选中字体集"的子集。**
+这条来自一个真实缺陷：曾随包 **芫荽 Iansui**，它是纯繁体字体，
+不含简体特有的 东/龙/论/车。结果是它被安装到用户机器、写进注册表
+（9.01 MiB 白占），却因为过不了中文判据而**永远不会出现在下拉里**；
+而且即便硬列出来，简体正文里的 东/车 也只能回退到别的字体，
+同一段文字出现两种字形。现已移出清单并留痕于 `excludedAfterProbe`，
+由测试 `随包的每一款字体都必须能通过中文字体判据`（含负向对照）钉住。
 
 **与 §9 初稿的两处偏离**
 
@@ -632,7 +641,7 @@ CoreText，其他应用与文档无法解析。两者应共存：`@font-face` �
    就完事；只靠 NSIS 清理会让便携版用户机器上永久残留这些字体。
    且 Rust 侧这条路径**可测试**，NSIS 脚本不可测试。
 
-**族名一致性（本轮抓到的真实缺陷）**
+**族名一致性（本轮抓到的真实缺陷之一）**
 
 清单里的 `family` 同时用作 CSS 名字与注册表值名，必须与字体文件 `name` 表
 一致，否则"装得上、匹配不上"，表现为「选了没反应」。

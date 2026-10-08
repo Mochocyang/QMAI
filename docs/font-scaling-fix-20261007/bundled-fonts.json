@@ -122,7 +122,9 @@
       "sourceUrl": "https://github.com/be5invis/Sarasa-Gothic/releases/download/v1.0.42/SarasaGothicSC-TTF-1.0.42.7z",
       "licenseFile": "licenses/sarasa-gothic-OFL.txt",
       "licenseName": "OFL-1.1"
-    },
+    }
+  ],
+  "excludedAfterProbe": [
     {
       "id": "iansui",
       "display": "芫荽",
@@ -134,7 +136,8 @@
       "sourceTag": "v1.020",
       "sourceUrl": "https://github.com/ButTaiwan/iansui/releases/download/v1.020/iansui.zip",
       "licenseFile": "licenses/iansui-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "excludedReason": "许可完全没问题（OFL-1.1），但它**过不了中文字体判据**：实为纯繁体字体，不含简体特有的 东/龙/论/车（DirectWrite 实测）。后果有两个：① 它会被安装到用户机器上（9.01 MiB 白占），却永远不会出现在任何字体下拉里；② 就算硬列出来也是错的 —— 简体正文里的 东/车/龙/论 只能回退到别的字体，同一段文字出现两种字形，正是要根除的『选了没反应』类病症。故不随包。若日后要支持繁体写作，应单独加一层繁体判据与单独的字体分组，而不是把它塞进现有清单。"
     }
   ]
 }

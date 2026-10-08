@@ -1,0 +1,253 @@
+{
+  "exe": "C:\\QMAI_C\\QMAI-main\\release-portable\\QMaiWrite.exe",
+  "manifestCount": 9,
+  "steps": {
+    "selects": {
+      "ui": {
+        "label": "界面字体",
+        "value": "system",
+        "groups": [
+          {
+            "label": "推荐",
+            "options": [
+              {
+                "value": "system",
+                "text": "本机默认"
+              },
+              {
+                "value": "microsoft-yahei",
+                "text": "微软雅黑"
+              },
+              {
+                "value": "microsoft-jhenghei",
+                "text": "微软正黑体"
+              },
+              {
+                "value": "simhei",
+                "text": "黑体"
+              },
+              {
+                "value": "simsun",
+                "text": "宋体"
+              },
+              {
+                "value": "nsimsun",
+                "text": "新宋体"
+              },
+              {
+                "value": "kaiti",
+                "text": "楷体"
+              },
+              {
+                "value": "fangsong",
+                "text": "仿宋"
+              },
+              {
+                "value": "dengxian",
+                "text": "等线"
+              },
+              {
+                "value": "noto-sans",
+                "text": "思源黑体"
+              },
+              {
+                "value": "noto-serif",
+                "text": "思源宋体"
+              }
+            ]
+          },
+          {
+            "label": "本机中文字体",
+            "options": [
+              {
+                "value": "sys:ChillKai",
+                "text": "寒蝉正楷体"
+              },
+              {
+                "value": "sys:HarmonyOS Sans SC",
+                "text": "HarmonyOS Sans SC"
+              },
+              {
+                "value": "sys:LXGW WenKai",
+                "text": "霞鹜文楷"
+              },
+              {
+                "value": "sys:Microsoft JhengHei UI",
+                "text": "Microsoft JhengHei UI"
+              },
+              {
+                "value": "sys:Microsoft YaHei UI",
+                "text": "Microsoft YaHei UI"
+              },
+              {
+                "value": "sys:Sarasa Gothic SC",
+                "text": "更纱黑体 SC"
+              },
+              {
+                "value": "sys:Smiley Sans",
+                "text": "得意黑"
+              },
+              {
+                "value": "sys:Source Han Sans SC",
+                "text": "思源黑体"
+              },
+              {
+                "value": "sys:Source Han Serif SC",
+                "text": "思源宋体"
+              },
+              {
+                "value": "sys:WenJin Mincho Plane 0",
+                "text": "文津宋体 第0平面"
+              },
+              {
+                "value": "sys:Zhuque Fangsong (technical preview)",
+                "text": "朱雀仿宋（预览测试版）"
+              },
+              {
+                "value": "sys:yyb",
+                "text": "yyb"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "label": "正文字体",
+        "value": "serif-default",
+        "groups": [
+          {
+            "label": "推荐",
+            "options": [
+              {
+                "value": "serif-default",
+                "text": "默认（宋体系）"
+              },
+              {
+                "value": "follow-ui",
+                "text": "跟随界面字体"
+              },
+              {
+                "value": "simsun",
+                "text": "宋体"
+              },
+              {
+                "value": "nsimsun",
+                "text": "新宋体"
+              },
+              {
+                "value": "kaiti",
+                "text": "楷体"
+              },
+              {
+                "value": "fangsong",
+                "text": "仿宋"
+              },
+              {
+                "value": "source-han-serif",
+                "text": "思源宋体"
+              },
+              {
+                "value": "source-han-sans",
+                "text": "思源黑体"
+              },
+              {
+                "value": "microsoft-yahei",
+                "text": "微软雅黑"
+              }
+            ]
+          },
+          {
+            "label": "本机中文字体",
+            "options": [
+              {
+                "value": "sys:ChillKai",
+                "text": "寒蝉正楷体"
+              },
+              {
+                "value": "sys:DengXian",
+                "text": "等线"
+              },
+              {
+                "value": "sys:HarmonyOS Sans SC",
+                "text": "HarmonyOS Sans SC"
+              },
+              {
+                "value": "sys:LXGW WenKai",
+                "text": "霞鹜文楷"
+              },
+              {
+                "value": "sys:Microsoft JhengHei",
+                "text": "Microsoft JhengHei"
+              },
+              {
+                "value": "sys:Microsoft JhengHei UI",
+                "text": "Microsoft JhengHei UI"
+              },
+              {
+                "value": "sys:Microsoft YaHei UI",
+                "text": "Microsoft YaHei UI"
+              },
+              {
+                "value": "sys:Noto Sans SC",
+                "text": "Noto Sans SC"
+              },
+              {
+                "value": "sys:Sarasa Gothic SC",
+                "text": "更纱黑体 SC"
+              },
+              {
+                "value": "sys:SimHei",
+                "text": "黑体"
+              },
+              {
+                "value": "sys:Smiley Sans",
+                "text": "得意黑"
+              },
+              {
+                "value": "sys:WenJin Mincho Plane 0",
+                "text": "文津宋体 第0平面"
+              },
+              {
+                "value": "sys:Zhuque Fangsong (technical preview)",
+                "text": "朱雀仿宋（预览测试版）"
+              },
+              {
+                "value": "sys:yyb",
+                "text": "yyb"
+              }
+            ]
+          }
+        ]
+      },
+      "uiFontVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
+    },
+    "selection": {
+      "target": "sys:ChillKai",
+      "otherFamily": "SimSun",
+      "originalValue": "system",
+      "afterValue": "sys:ChillKai",
+      "uiFontVarAfter": "\"ChillKai\", system-ui, -apple-system, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif",
+      "raster": {
+        "targetSelf": {
+          "hash": "88e299f1",
+          "ink": 5029
+        },
+        "targetSelf2": {
+          "hash": "88e299f1",
+          "ink": 5029
+        },
+        "other": {
+          "hash": "afcd9197",
+          "ink": 5562
+        }
+      }
+    },
+    "restore": {
+      "originalValue": "system",
+      "restoredValue": "system",
+      "ok": true
+    }
+  },
+  "fails": [],
+  "notes": []
+}

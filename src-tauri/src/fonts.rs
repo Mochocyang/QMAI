@@ -78,6 +78,29 @@ pub fn qualifies_as_chinese_font(has_char: impl Fn(u32) -> bool) -> bool {
     PROBE_BASIC.iter().all(|&c| has_char(c)) && PROBE_SIMPLIFIED_ONLY.iter().all(|&c| has_char(c))
 }
 
+/// 诊断用码点：两层探针，外加用来区分简繁/日韩的额外样本。
+///
+/// 布局（共 25 项，顺序即含义）：`[0..7)` 基础层、`[7..13)` 简体层、
+/// `[13..19)` 繁体特有字形、`[19..22)` 假名/谚文、`[22..25)` 常用汉字样本。
+///
+/// 直接写字面量而不是用 const fn 拼：拼装版本写过一次，偏移量算错了一格
+/// （`12` 应为 `13`）导致"繁体层"盖住了"简体层"的最后一格、数组还少一格，
+/// 于是诊断结果整体错位、看起来像真有缺陷。诊断工具本身出错会把人引向
+/// 错误的结论，比没有诊断更糟。
+#[cfg(all(test, windows))]
+const DIAG_CODEPOINTS: [u32; 25] = [
+    // [0..7) 基础层：任何汉字字体都有
+    0x4E2D, 0x6587, 0x4E00, 0x5341, 0x5927, 0x5C0F, 0x9AD8, // 中文一十大 小高
+    // [7..13) 简体层：简体特有，日韩 JIS/KS 不含
+    0x4E1C, 0x56FD, 0x9F99, 0x8BBA, 0x8F66, 0x95E8, // 东国龙论车门
+    // [13..19) 繁体层：繁体特有（簡→繁 的对应形式）
+    0x6771, 0x570B, 0x9F8D, 0x8AD6, 0x8ECA, 0x9580, // 東國龍論車門
+    // [19..22) 假名与谚文：繁体中文正体不应包含
+    0x3042, 0x30A2, 0xAC00, // あ ア 가
+    // [22..25) 常用汉字样本：确认确有汉字排版能力
+    0x4F60, 0x597D, 0x7684, // 你 好 的
+];
+
 #[cfg(windows)]
 mod win {
     use super::{qualifies_as_chinese_font, CjkFont};
@@ -175,6 +198,48 @@ mod win {
             // （可复现是"这个列表能被测试断言"的前提）
             out.sort_by(|a, b| a.family.cmp(&b.family));
             out.dedup_by(|a, b| a.family == b.family);
+            Ok(out)
+        }
+    }
+
+    /// 从**字体文件**判断它是否含有给定码点的字形（不依赖是否已安装）。仅测试使用。
+    ///
+    /// 用 `GetGlyphIndices`：字形索引 0 恒为 `.notdef`（缺失字形），
+    /// 因此"索引 != 0"就是"有字形"。这条路径不经过系统字体集合，
+    /// 也就不受"字体是否已注册/是否被枚举到"的影响。
+    #[cfg(test)]
+    pub fn has_chars_of_file(path: &std::path::Path, codepoints: &[u32]) -> Result<Vec<bool>, String> {
+        use windows::Win32::Graphics::DirectWrite::{
+            DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE,
+        };
+        if !path.is_file() {
+            return Err(format!("字体文件不存在：{}", path.display()));
+        }
+        unsafe {
+            let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
+                .map_err(|e| format!("DWriteCreateFactory 失败: {e}"))?;
+            let wide = HSTRING::from(path.to_string_lossy().as_ref());
+            let file = factory
+                .CreateFontFileReference(&wide, None)
+                .map_err(|e| format!("CreateFontFileReference 失败：{e}"))?;
+            let face = factory
+                .CreateFontFace(
+                    DWRITE_FONT_FACE_TYPE_TRUETYPE,
+                    &[Some(file)],
+                    0,
+                    DWRITE_FONT_SIMULATIONS_NONE,
+                )
+                .map_err(|e| format!("CreateFontFace 失败：{e}"))?;
+            // 逐码点单独查：一次性传整批时，任何失败都会丢掉全部结果；
+            // 逐点查能把"某码点查不了"与"确实没有该字形"分开
+            let mut out = Vec::with_capacity(codepoints.len());
+            for &cp in codepoints {
+                let mut glyph: u16 = 0;
+                match face.GetGlyphIndices(&cp, 1, &mut glyph) {
+                    Ok(()) => out.push(glyph != 0),
+                    Err(_) => out.push(false),
+                }
+            }
             Ok(out)
         }
     }
@@ -299,6 +364,24 @@ pub fn family_names_of_file(path: &std::path::Path) -> Result<Vec<String>, Strin
 #[cfg(not(windows))]
 pub fn list_cjk_fonts() -> Result<Vec<CjkFont>, String> {
     Err("中文字体枚举目前仅实现 Windows（DirectWrite）".to_string())
+}
+
+/// 判定某个**字体文件**是否通过中文字体判据（不依赖它是否已安装）。
+#[cfg(all(test, windows))]
+fn file_passes_chinese_probe(path: &std::path::Path) -> Result<bool, String> {
+    let mut probe: Vec<u32> = Vec::new();
+    probe.extend_from_slice(&PROBE_BASIC);
+    probe.extend_from_slice(&PROBE_SIMPLIFIED_ONLY);
+    let hits = win::has_chars_of_file(path, &probe)?;
+    // 复用生产判据本身，而不是在测试里重写一遍规则 ——
+    // 重写的那一份迟早会与生产逻辑分叉
+    Ok(qualifies_as_chinese_font(|c| {
+        probe
+            .iter()
+            .position(|&p| p == c)
+            .map(|i| hits[i])
+            .unwrap_or(false)
+    }))
 }
 
 #[cfg(test)]
@@ -519,5 +602,154 @@ mod tests {
         let missing = std::path::Path::new("C:/definitely/not/here/nope.ttf");
         assert!(describe_font_file(missing).is_err());
         assert!(family_names_of_file(missing).is_err());
+    }
+
+    /*
+     * ── 随包字体必须真的能被列出来 ──
+     *
+     * 这条不变式来自一个真实缺陷：曾经随包了 **芫荽 Iansui**，它是纯繁体字体，
+     * 不含 东/国/龙/论/车/门 里的 东/龙/论/车。结果是它在用户机器上被安装、
+     * 被写进注册表（9 MB 实实在在占了空间），却因为过不了中文判据而
+     * **永远不会出现在任何字体下拉里** —— 用户看不到、也选不到。
+     *
+     * 而且就算硬把它列出来也是错的：它缺的这几个是极常用字，
+     * 简体正文里出现 东/车 时只能回退到别的字体，同一段文字出现两种字形。
+     *
+     * 所以规则是：**随包字体集必须是"可被选中字体集"的子集。**
+     * 要么它过判据（能被列出、能正常渲染简体），要么就不该随包。
+     */
+    #[cfg(windows)]
+    #[test]
+    fn 随包的每一款字体都必须能通过中文字体判据() {
+        let fonts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
+        let manifest_path = fonts_dir.join("fonts-manifest.json");
+        if !manifest_path.is_file() {
+            // 与族名一致性测试同样的边界：有字体文件却没清单 = 缺陷
+            let has_files = std::fs::read_dir(&fonts_dir)
+                .map(|rd| {
+                    rd.filter_map(|e| e.ok()).any(|e| {
+                        let n = e.file_name().to_string_lossy().to_lowercase();
+                        n.ends_with(".ttf") || n.ends_with(".otf") || n.ends_with(".ttc")
+                    })
+                })
+                .unwrap_or(false);
+            assert!(!has_files, "有字体文件却没有清单，无法核对可选中性");
+            println!("ⓘ 跳过：本检出不含随包字体");
+            return;
+        }
+        let manifest = crate::font_install::read_manifest(&fonts_dir)
+            .expect("清单应可读")
+            .expect("清单应存在");
+
+        let mut unusable = Vec::new();
+        for entry in &manifest.fonts {
+            let path = fonts_dir.join(&entry.file);
+            match file_passes_chinese_probe(&path) {
+                Ok(true) => {}
+                Ok(false) => unusable.push(format!(
+                    "{}（{} / {}）：过不了中文字体判据 —— 它会被安装到用户机器上，\
+                     却永远不会出现在字体下拉里（不可选中的随包字体 = 白占体积）",
+                    entry.display, entry.id, entry.file
+                )),
+                Err(e) => unusable.push(format!("{}（{}）：读取失败 {e}", entry.display, entry.id)),
+            }
+        }
+        assert!(
+            unusable.is_empty(),
+            "以下随包字体无法被用户选中：\n  {}",
+            unusable.join("\n  ")
+        );
+    }
+
+    /// 负向对照：这条测试必须能真的失败，否则上面那条只是装饰。
+    ///
+    /// 用一个**已知通不过**判据的字体验证机制本身有效 ——
+    /// 如果判据被误改成"永远返回 true"，这里会立刻报错。
+    #[cfg(windows)]
+    #[test]
+    fn 负向对照_纯拉丁字体文件必须被判据拒绝() {
+        // Arial 一定不含汉字；找不到就跳过（不同系统字体位置可能不同），
+        // 但**必须打印**，避免"跳过"被当成"通过"
+        let candidates = [
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/segoeui.ttf",
+        ];
+        let Some(path) = candidates
+            .iter()
+            .map(std::path::Path::new)
+            .find(|p| p.is_file())
+        else {
+            println!("ⓘ 跳过负向对照：找不到任何已知纯拉丁字体");
+            return;
+        };
+        let passed = file_passes_chinese_probe(path).expect("应能读取拉丁字体");
+        assert!(
+            !passed,
+            "纯拉丁字体 {} 竟通过了中文字体判据 —— 判据已失效",
+            path.display()
+        );
+    }
+
+    /// 诊断用：把某个字体文件对每层探针的覆盖情况打出来。
+    ///
+    /// 只在需要排查"某款随包字体为什么不出现在下拉里"时手动跑：
+    /// `cargo test --lib 诊断_随包字体对探针的覆盖 -- --nocapture --ignored`
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "诊断工具，非断言测试"]
+    fn 诊断_随包字体对探针的覆盖() {
+        let fonts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
+        for name in [
+            "Iansui-Regular.ttf",
+            "LXGWWenKai-Regular.ttf",
+            "WenJinMincho-Regular.ttf",
+            "ZhuqueFangsong-Regular.ttf",
+            "ChillKai-Regular.ttf",
+            "SmileySans-Regular.ttf",
+            "SarasaGothicSC-Regular.ttf",
+            "SourceHanSansSC-Regular.otf",
+            "SourceHanSerifSC-Regular.otf",
+            "HarmonyOSSansSC-Regular.ttf",
+        ] {
+            let path = fonts_dir.join(name);
+            if !path.is_file() {
+                println!("  {name}：文件不存在");
+                continue;
+            }
+            match win::has_chars_of_file(&path, &DIAG_CODEPOINTS) {
+                Ok(hits) => {
+                    let basic_missing: Vec<String> = PROBE_BASIC
+                        .iter()
+                        .zip(hits.iter())
+                        .filter(|(_, &has)| !has)
+                        .map(|(&c, _)| format!("U+{c:04X}"))
+                        .collect();
+                    let simp_missing: Vec<String> = PROBE_SIMPLIFIED_ONLY
+                        .iter()
+                        .zip(hits.iter().skip(7))
+                        .filter(|(_, &has)| !has)
+                        .map(|(&c, _)| format!("U+{c:04X} {}", char::from_u32(c).unwrap_or('?')))
+                        .collect();
+                    let trad_have: Vec<String> = DIAG_CODEPOINTS[13..19]
+                        .iter()
+                        .zip(hits.iter().skip(13))
+                        .filter(|(_, &has)| has)
+                        .map(|(&c, _)| char::from_u32(c).unwrap_or('?').to_string())
+                        .collect();
+                    // 假名/谚文：有任何一个都说明它更像日韩字体而非中文正体
+                    let kana_hangul: Vec<String> = DIAG_CODEPOINTS[19..22]
+                        .iter()
+                        .zip(hits.iter().skip(19))
+                        .filter(|(_, &has)| has)
+                        .map(|(&c, _)| char::from_u32(c).unwrap_or('?').to_string())
+                        .collect();
+                    println!(
+                        "  {name:<34} 基础缺={basic_missing:?} 简体缺={simp_missing:?} \
+                         繁体有={trad_have:?} 假名谚文={kana_hangul:?}"
+                    );
+                }
+                Err(e) => println!("  {name}：读取失败 {e}"),
+            }
+        }
     }
 }
