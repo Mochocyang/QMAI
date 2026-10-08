@@ -176,7 +176,11 @@ function initialDraft(
   uiFontSizeScale: number,
   uiFontFamily: UiFontFamily,
   uiBodyFontFamily: BodyFontFamily,
-  uiBodyFontSizeScale: number,
+  uiBodyFontPx: number,
+  uiBodyLineHeight: number,
+  uiBodyLetterSpacing: number,
+  uiBodyMarginX: number | null,
+  uiBodySafeBottom: number,
   visualStyle: SettingsDraft["visualStyle"],
   sidebarNavConfig: SidebarNavConfig,
 ): SettingsDraft {
@@ -222,7 +226,11 @@ function initialDraft(
     uiFontSizeScale,
     uiFontFamily,
     uiBodyFontFamily,
-    uiBodyFontSizeScale,
+    uiBodyFontPx,
+    uiBodyLineHeight,
+    uiBodyLetterSpacing,
+    uiBodyMarginX,
+    uiBodySafeBottom,
     visualStyle,
     sidebarNavConfig,
   }
@@ -257,8 +265,16 @@ export function SettingsView() {
   const setUiFontFamily = useWikiStore((s) => s.setUiFontFamily)
   const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
   const setUiBodyFontFamily = useWikiStore((s) => s.setUiBodyFontFamily)
-  const uiBodyFontSizeScale = useWikiStore((s) => s.uiBodyFontSizeScale)
-  const setUiBodyFontSizeScale = useWikiStore((s) => s.setUiBodyFontSizeScale)
+  const uiBodyFontPx = useWikiStore((s) => s.uiBodyFontPx)
+  const setUiBodyFontPx = useWikiStore((s) => s.setUiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) => s.uiBodyLineHeight)
+  const setUiBodyLineHeight = useWikiStore((s) => s.setUiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) => s.uiBodyLetterSpacing)
+  const setUiBodyLetterSpacing = useWikiStore((s) => s.setUiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) => s.uiBodyMarginX)
+  const setUiBodyMarginX = useWikiStore((s) => s.setUiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) => s.uiBodySafeBottom)
+  const setUiBodySafeBottom = useWikiStore((s) => s.setUiBodySafeBottom)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const setVisualStyle = useWikiStore((s) => s.setVisualStyle)
   const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
@@ -281,7 +297,11 @@ export function SettingsView() {
       uiFontSizeScale,
       uiFontFamily,
       uiBodyFontFamily,
-      uiBodyFontSizeScale,
+      uiBodyFontPx,
+      uiBodyLineHeight,
+      uiBodyLetterSpacing,
+      uiBodyMarginX,
+      uiBodySafeBottom,
       visualStyle,
       sidebarNavConfig,
     ),
@@ -349,7 +369,11 @@ export function SettingsView() {
         uiFontSizeScale,
         uiFontFamily,
         uiBodyFontFamily,
-        uiBodyFontSizeScale,
+        uiBodyFontPx,
+        uiBodyLineHeight,
+        uiBodyLetterSpacing,
+        uiBodyMarginX,
+        uiBodySafeBottom,
         visualStyle,
         sidebarNavConfig,
       ),
@@ -367,7 +391,11 @@ export function SettingsView() {
     uiFontSizeScale,
     uiFontFamily,
     uiBodyFontFamily,
-    uiBodyFontSizeScale,
+    uiBodyFontPx,
+    uiBodyLineHeight,
+    uiBodyLetterSpacing,
+    uiBodyMarginX,
+    uiBodySafeBottom,
     visualStyle,
     sidebarNavConfig,
   ])
@@ -391,7 +419,11 @@ export function SettingsView() {
       saveUiFontSizeScale,
       saveUiFontFamily,
       saveUiBodyFontFamily,
-      saveUiBodyFontSizeScale,
+      saveUiBodyFontPx,
+      saveUiBodyLineHeight,
+      saveUiBodyLetterSpacing,
+      saveUiBodyMarginX,
+      saveUiBodySafeBottom,
       saveVisualStyle,
     } = await import("@/lib/project-store")
 
@@ -491,8 +523,21 @@ export function SettingsView() {
     // 与既有做法一致，不在这里重复写。
     setUiBodyFontFamily(draft.uiBodyFontFamily)
     await saveUiBodyFontFamily(draft.uiBodyFontFamily)
-    setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)
-    await saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale)
+    /*
+     * 5 个排版参数各自一个 localStorage 键 + 一个 app-state 键：
+     * 只写 store 会「这次生效、下次启动丢失」，只落盘会「保存了但界面不变」。
+     * 应用（写 CSS 变量）交给 App 的 effect，与既有做法一致，这里不重复写。
+     */
+    setUiBodyFontPx(draft.uiBodyFontPx)
+    await saveUiBodyFontPx(draft.uiBodyFontPx)
+    setUiBodyLineHeight(draft.uiBodyLineHeight)
+    await saveUiBodyLineHeight(draft.uiBodyLineHeight)
+    setUiBodyLetterSpacing(draft.uiBodyLetterSpacing)
+    await saveUiBodyLetterSpacing(draft.uiBodyLetterSpacing)
+    setUiBodyMarginX(draft.uiBodyMarginX)
+    await saveUiBodyMarginX(draft.uiBodyMarginX)
+    setUiBodySafeBottom(draft.uiBodySafeBottom)
+    await saveUiBodySafeBottom(draft.uiBodySafeBottom)
     setVisualStyle(draft.visualStyle)
     await saveVisualStyle(draft.visualStyle)
     const { applyVisualStyle } = await import("@/lib/visual-style-settings")
@@ -521,7 +566,11 @@ export function SettingsView() {
     setUiFontSizeScale,
     setUiFontFamily,
     setUiBodyFontFamily,
-    setUiBodyFontSizeScale,
+    setUiBodyFontPx,
+    setUiBodyLineHeight,
+    setUiBodyLetterSpacing,
+    setUiBodyMarginX,
+    setUiBodySafeBottom,
     setVisualStyle,
     setSidebarNavConfig,
   ])

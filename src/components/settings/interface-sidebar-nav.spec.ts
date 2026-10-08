@@ -100,19 +100,21 @@ describe("settings sidebar nav preferences", () => {
   /**
    * 正文字号的接线防线 —— 与正文字体同样的整条链路。
    *
-   * ── 注意：本用例的下半段现在还钉着**旧契约**，任务 10 会整体改写 ──
+   * 上半段（1) 与 2)）钉的是控件位置：控件在共享组件里、设置页只做接线。
+   * 下半段（3)–6)）钉的是数据链路：草稿类型里有这 6 个字段、store 有
+   * 5 个新状态与 setter，保存时 **5 个排版参数各自 setUiBodyXxx +
+   * saveUiBodyXxx** —— 写 store（界面立刻生效）与落盘（下次启动还在）
+   * 一个都不能少；只做一个就会出现「这次生效、下次启动丢失」或反之，
+   * 这是本仓库已经踩过的坑，也正是 5) 那两条断言的来历。
    *
-   * 上半段（1) 与 2)）已经是新契约：控件在共享组件里、设置页只做接线。
-   * 下半段（4) 与 5)）钉的还是旧字段 `uiBodyFontSizeScale` ——
-   * 那是"倍数"时代的字段，任务 3 已把它换成绝对值 `uiBodyFontPx`。
-   * 这两条断言**目前是绿的**，因为 `settings-view.tsx` 里那段旧代码还在
-   * （也正是 `tsc` 现在报的那 6 条错的来源）；任务 10 会同时改源码与这里。
+   * 旧字段 `uiBodyFontSizeScale`（"倍数"时代）已不再被这条用例钉住：
+   * 正文字号现在是绝对值 `uiBodyFontPx`。
    *
-   * 原注释说的「界面字号 80%–150%、正文字号 85%–150%，两个范围必须各自独立」
-   * 只对**界面字号**仍成立：正文字号已改成绝对 px（12–32，见
-   * `font-settings.ts` 的 `BODY_FONT_PX_MIN/MAX`），不再是百分比。
-   * "两个范围必须各自独立"这个**意图**仍然要守（改界面字号不得动正文字号），
-   * 只是它的形式从"两个百分比范围"变成"百分比 vs 绝对 px"。
+   * 界面字号仍是百分比（80%–150%，`uiFontSizeScale`），
+   * 正文字号已是绝对 px（12–32，见 `font-settings.ts` 的
+   * `BODY_FONT_PX_MIN/MAX`），两者仍**相互独立** ——
+   * "改界面字号不得动正文字号"这个意图没有变，
+   * 只是形式从"两个百分比范围"变成"百分比 vs 绝对 px"。
    */
   it("正文字号接成完整一条链路，且与界面字号各自独立", () => {
     // 1) 控件在**共享组件**里，且绑定到草稿字段
@@ -194,11 +196,16 @@ describe("settings sidebar nav preferences", () => {
     // 旧倍数键必须保留只读（迁移要用），但不得再被写入
     expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
     expect(wikiStoreSource).not.toContain("localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY")
-    // 5) 保存时既写 store 也持久化（**旧契约，任务 10 改写**）
-    expect(settingsViewSource).toContain("setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)")
-    expect(settingsViewSource).toContain("saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale")
-    // 6) 界面字号照旧保存，不能被挤掉
+    // 5) 保存时**既写 store 也持久化**。
+    //    只做一个就会出现「这次生效、下次启动丢失」或反之 ——
+    //    本仓库已经踩过这个坑，这两条断言就是当时的产物。
+    for (const name of ["FontPx", "LineHeight", "LetterSpacing", "MarginX", "SafeBottom"]) {
+      expect(settingsViewSource).toContain(`setUiBody${name}(draft.uiBody${name})`)
+      expect(settingsViewSource).toContain(`saveUiBody${name}(draft.uiBody${name}`)
+    }
+    // 6) 界面字号与界面字体照旧保存，不能被新字段挤掉
     expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
+    expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")
   })
 
   /**
