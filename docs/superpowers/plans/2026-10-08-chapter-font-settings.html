@@ -196,6 +196,19 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
   </div>
 
+  <h3>任务里写的行号一律「以改造前为准」，定位请按内容搜索</h3>
+  <div class="note warn">
+    <span class="t">不要照着行号改</span>
+    <p>本计划里有几十处「第 N–M 行」的写法。它们是<strong>编写计划那一刻</strong>的行号，用来帮你快速找到那段代码，<strong>不是你执行时的行号</strong>。</p>
+    <p>会偏移的原因有两类，都真实存在：</p>
+    <ul>
+      <li><strong>跨任务</strong>：<code>interface-sidebar-nav.spec.ts</code> 被任务 3 / 5 / 9 / 10 / 11 依次修改，任务 3 一改完，后面任务的行号就都偏了。</li>
+      <li><strong>同一任务内</strong>：一个任务改同一文件的两处时，改完第一处，第二处的行号就已经变了（例如任务 9 先改 <code>interface-section.spec.tsx</code> 第 66–67 行，再改第 305–306 行；第一处从 2 行变 6 行，第二处实际已下移 4 行）。</li>
+    </ul>
+    <p>危害不是报错，而是<strong>改错地方</strong>：按行号摸过去会找到一段看着也相关的代码，改掉它、测试照样绿，而真正该改的那处还留着旧字面量，只是恰好没被跑到 —— 这种错误没有任何红灯会抓。</p>
+    <p>正确做法：用计划里给出的<strong>注释原文</strong>（如 <code>// 3) store：</code>）或<strong>断言原文</strong>（如 <code>clampBodyFontSizeScale(scale)</code>）作为起止锚点，在文件里搜索定位；找不到就说明你手上的文件与计划不一致，<strong>停下来报告</strong>，不要猜。</p>
+  </div>
+
   <h3>行尾与提交</h3>
   <ul>
     <li>仓库 <code>core.autocrlf=true</code>：索引是 LF、工作区是 CRLF。<code>src-tauri/Cargo.toml</code> 与 <code>gen/schemas/*.json</code> 在工作区显示为 modified 但 <code>git diff --numstat</code> 为空，那是换行符幻影，<strong>不要提交</strong>。</li>
@@ -1097,11 +1110,18 @@ git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</
 
       <div class="note warn">
         <span class="t">为什么必须现在改，而不是留给任务 12</span>
-        <p>这条守卫的第 115–119 行断言的是旧字段（<code>uiBodyFontSizeScale</code> / <code>BODY_FONT_SIZE_PRESETS</code> / <code>clampBodyFontSizeScale</code>）。本任务一删掉它们，守卫立刻变红，并且会<strong>一直红到任务 12</strong> —— 中间还有 9 个任务，每个都由全新子代理执行，都会看到一条与它无关的失败测试。遇到这种情况，最省事的做法就是放宽断言，而那正是本仓库历史上踩过的坑。</p>
+        <p>这条守卫里 <code>// 3) store：</code> 那一段（改造前是第 115–119 行）断言的是旧字段（<code>uiBodyFontSizeScale</code> / <code>BODY_FONT_SIZE_PRESETS</code> / <code>clampBodyFontSizeScale</code>）。本任务一删掉它们，守卫立刻变红，并且会<strong>一直红到任务 12</strong> —— 中间还有 9 个任务，每个都由全新子代理执行，都会看到一条与它无关的失败测试。遇到这种情况，最省事的做法就是放宽断言，而那正是本仓库历史上踩过的坑。</p>
         <p>所以顺序倒过来：先把这一层改成新契约、跑一遍看到红，再去做实现。这样本任务交付时套件是绿的，而且每条新断言都真的红过（任务 12 再写就会一次就绿，等于没验证）。</p>
       </div>
 
-      <p>把第 114–119 行（从 <code>// 3) store：…</code> 到 <code>clampBodyFontSizeScale(scale)</code> 那两行的 <code>expect</code>）替换为：</p>
+      <div class="note warn">
+        <span class="t">这个文件会被 5 个任务反复改，所以一律<strong>按内容定位</strong>，不要按行号</span>
+        <p>任务 3 / 5 / 9 / 10 / 11 都要改 <code>interface-sidebar-nav.spec.ts</code>，且按顺序执行。前面任务一旦改了本文件，后面任务看到的行号就全部偏移 —— 下面凡是写「改造前是第 N–M 行」的，那个数字<strong>只是给你定位用的起点，不是你此刻该信的行号</strong>。</p>
+        <p>后果不是报错，而是改错地方：按行号摸过去会找到一段看着也相关的断言，改掉它、测试照样绿，而真正该改的那条还留着旧字面量，只是恰好没被跑到。这种错误没有任何红灯会抓。</p>
+        <p>正确做法：用注释原文（如 <code>// 3) store：</code>）和断言原文（如 <code>clampBodyFontSizeScale(scale)</code>）作为起止锚点，在文件里搜索定位。</p>
+      </div>
+
+      <p>把从 <code>// 3) store：…</code> 到 <code>clampBodyFontSizeScale(scale)</code> 那两行的 <code>expect</code> 为止的一段替换为（改造前是第 114–119 行）：</p>
 <pre><code>    // 3) store：5 个新状态 + 5 个 setter + 5 个**互不相同**的 localStorage 键
     //
     // 键必须各不相同：共用一个键会让「改行距把字号也改了」这种串味缺陷
@@ -1671,7 +1691,7 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先把守卫里关于 App.tsx 的那条整个换掉（看到红）</div>
     <div class="step-body">
-      <p>把 <code>interface-sidebar-nav.spec.ts</code> 第 127–144 行那条 <code>it("正文字号通过倍数变量应用，与界面字号相乘而非互相覆盖", …)</code>（连同它上方 127–135 行的注释块）整体替换为下一条：</p>
+      <p>把 <code>interface-sidebar-nav.spec.ts</code> 里那条 <code>it("正文字号通过倍数变量应用，与界面字号相乘而非互相覆盖", …)</code>（连同它上方的注释块）整体替换为下一条 —— 它是文件里<strong>最后</strong>一条测试，用测试名或那两行断言原文搜索定位即可（改造前是第 127–144 行，注释在 127–135 行；任务 3 已经改过本文件，行号已偏移）：</p>
 <pre><code>  /**
    * App.tsx 必须把 5 个排版参数**写在 documentElement 的行内样式上**，
    * 由 CSS 的间接层读取。
@@ -2559,7 +2579,7 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
       <p>在 <code>interface-sidebar-nav.spec.ts</code> 第 8 行后加一行，让共享组件也进入检查范围：</p>
 <pre><code class="cmd">const bodyTypographySource = readFileSync(resolve(__dirname, "sections/body-typography-fields.tsx"), "utf8")</code></pre>
 
-      <p>把那条测试里第 104–113 行（从 <code>// 1) 设置页有两行控件…</code> 到 <code>// 2) 草稿类型里有该字段</code> 下面那行 <code>expect(settingsTypesSource).toContain("uiBodyFontSizeScale")</code>）替换为：</p>
+      <p>把那条测试里从 <code>// 1) 设置页有两行控件…</code> 到 <code>// 2) 草稿类型里有该字段</code> 下面那行 <code>expect(settingsTypesSource).toContain("uiBodyFontSizeScale")</code> 为止的一段替换为（改造前是第 104–113 行；本文件已被任务 3 与任务 5 改过，行号已偏移，请按内容定位）：</p>
 <pre><code>    // 1) 控件在**共享组件**里，且绑定到草稿字段
     //
     // 为什么必须看共享组件：设置页与写作现场用的是同一个组件。
@@ -2716,7 +2736,7 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先把守卫的保存链路那一段改成新契约（看到红）</div>
     <div class="step-body">
-      <p>把那条测试里关于 <code>settingsViewSource</code> 的第 120–125 行替换为：</p>
+      <p>把那条测试里关于 <code>settingsViewSource</code> 的那一段（从 <code>// 4) 保存时</code> 到 <code>saveUiFontSizeScale(…)</code> 为止；改造前是第 120–125 行，本文件已被前面任务改过、行号已偏移）替换为：</p>
 <pre><code>    // 4) 保存时**既写 store 也持久化**。
     //    只做一个就会出现「这次生效、下次启动丢失」或反之 ——
     //    本仓库已经踩过这个坑，这两条断言就是当时的产物。
