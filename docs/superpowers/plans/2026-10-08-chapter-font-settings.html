@@ -198,7 +198,7 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
 
   <h3>守卫那一层与实现，必须进同一个提交</h3>
   <div class="note warn">
-    <span class="t">不要把守卫的改动"留给最后一个任务统一提交"—— 那会让中间每个提交都是红的</span>
+    <span class="t">不要把守卫的改动"留给最后一个任务统一提交"—— 那会让每个中间提交都开一个红窗口</span>
     <p><code>interface-sidebar-nav.spec.ts</code> 里那条横跨五层的断言，由任务 3 / 5 / 9 / 10 / 11
     各认领一层。每个任务都要<strong>改自己那一层，并在自己的提交里一起提交它</strong>。</p>
     <p>这条规则不是洁癖，是实测出来的：本计划早期版本让这五个任务"改而不提交"，
@@ -208,11 +208,18 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
   AssertionError: expected 'import { create } from "zustand"…'
                   to contain 'uiBodyFontSizeScale: readStoredBodyFo…'</code></pre>
     <p>因为任务 3 改了 <code>wiki-store.ts</code>（删旧字段、加 5 个新字段），
-    而被推迟提交的 spec 那一层还在要求旧字段存在。于是：</p>
+    而被推迟提交的 spec 那一层还在要求旧字段存在。</p>
+    <p><strong>实测的准确范围</strong>（我一开始把后果写大了，逐提交核对后改正）：
+    真正红的是<strong>一个</strong>提交（<code>6c76be6</code>），因为下一个提交
+    恰好把那份 spec 一起带上了，红窗口当轮就关掉了。
+    但<strong>风险是面向未来的、而且更大</strong> —— 原设计下任务 5 / 9 / 10 / 11
+    各自都会再开一个同样的红窗口（它们都要改这个 spec，又要改实现）。
+    所以这条规则不是"修一个历史提交"，是<strong>不让后面四个任务各留一个红窗口</strong>。</p>
+    <p>即使只有一个提交，代价也是真的：</p>
     <ul>
-      <li>任务 3 / 5 / 9 / 10 / 11 的<strong>每一个</strong>提交都是红的；</li>
-      <li><code>git bisect</code> 全部失效 —— 它会把红归给不相干的提交；</li>
-      <li>某个任务的改动若要 revert 或 cherry-pick，窗口完全错乱。</li>
+      <li><code>git bisect</code> 会把红归给那个不相干的提交（它叫"新增 5 个持久化键"，
+      看起来完全像是缺陷来源）；</li>
+      <li>那个提交的改动若要 revert 或 cherry-pick，得手工挑出 spec 那一半。</li>
     </ul>
     <p><strong>可能有人会担心</strong>：spec 那个 it 横跨五层，各任务分别提交，
     会不会出现"我这层改了、别层还没跟上"的红？<strong>不会</strong> ——
