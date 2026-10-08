@@ -2539,9 +2539,18 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
    * 正文排版参数：一次写齐 5 个 CSS 变量。
    *
    * 为什么合并成一个 effect 而不是 5 个：它们共用同一个写入函数
-   * applyBodyTypography，拆成 5 个 effect 会写 5 次，而且任何一个漏写
-   * 都不会被任何测试发现。合成一个之后，「5 个参数是否都被应用」
-   * 由类型系统保证 —— 参数是必填对象的字段，少一个就编译不过。
+   * applyBodyTypography，拆成 5 个 effect 会写 5 次。
+   *
+   * ── 这个写法各自由什么保证（三种失效模式，别混为一谈）──
+   *   1. 字段**漏写**（少一个 key）→ 类型系统保证：参数是必填对象的字段，
+   *      少一个就是 TS2345。这是类型系统唯一能保证的一件事。
+   *   2. 字段**串味**（lineHeight 配成 uiBodySafeBottom）→ 类型系统**无感**
+   *      （五个值都是 number），由界面守卫里的"配对"断言保证。
+   *   3. 函数**内部**漏写某条 setProperty → 类型系统同样无感，
+   *      由 font-settings.spec.ts 保证。
+   *   4. 下面依赖数组**漏项** → 由界面守卫里的依赖数组断言保证。
+   * （早先这里写的是"5 个参数是否都被应用由类型系统保证"—— 那样说把
+   *  1 和 2/3/4 混作一件事，会让后来者以为覆盖比实际更强。已改正。）
    *
    * 正文字号由「倍数」改为绝对 px：正文自此**不随界面字号缩放**
    * （用户已确认接受）。上限 32px 低于旧模型理论上限 40.5px，
@@ -2765,7 +2774,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
       /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: var\(--qmai-body-line-height\); text-indent: 2em; \}/,
     )</code></pre>
 
-      <p>（2）新增四条断言（放在「正文查找高亮与输入层共用同一个字号与行高变量」那条之后）：</p>
+      <p>（2）新增<strong>六</strong>条断言（放在「正文查找高亮与输入层共用同一个字号与行高变量」那条之后）。其中第五条是窄屏媒体查询那条 —— 它必须真的红过一次：把 <code>padding: 0 20px;</code> 加回去确认它红，再删掉：</p>
 <pre><code>  it("字间距只声明一处，靠继承保证输入层与高亮层取值必然相同", () =&gt; {
     // 复制成三份的话，改其中一份就会让覆盖层与输入文字错位。
     // 继承是"按构造相同"，比三处写同一个表达式更强。
@@ -2810,16 +2819,107 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     expect(css).toContain(`var(--qmai-body-margin-x, ${expected})`)
     // 同一个表达式在设置页算出的值必须与实际渲染一致
     expect(defaultBodyMarginXForViewport(1000)).toBe(40)
+  })
+
+  it("窄屏媒体查询里不再有会盖掉 padding 的规则", () =&gt; {
+    /*
+     * 为什么这条必须有：基规则上的 padding: 0（Step 2）与
+     * @media (max-width: 640px) 里的 .ui-test-root .ui-test-editor { padding: 0 20px; }
+     * **特异性完全相同**，而后者在文件更后面 —— 于是在 ≤640px 时它会把
+     * padding 覆盖回去：用户把左右边距拖到最小，窄窗口里仍残留 20px，
+     * 就是本计划要根除的「设了没反应」。
+     * 上面那条断言只钉基规则（[^}]*padding:\s*0;），留着这条媒体查询它照样绿 ——
+     * 实测确认过：删掉这条规则**没有任何红灯**。补这一条才让它变红。
+     * （这与 Task 5 的依赖数组缺口同型：都是"已知但没钉住"。）
+     */
+    const at = css.indexOf("@media (max-width: 640px)")
+    expect(at, "应还有窄屏媒体查询").toBeGreaterThan(-1)
+    // 按大括号配对切出该媒体查询的块体，而不是用正则猜到哪里结束
+    const open = css.indexOf("{", at)
+    let depth = 0
+    let end = -1
+    for (let i = open; i &lt; css.length; i++) {
+      if (css[i] === "{") depth++
+      else if (css[i] === "}") { depth--; if (depth === 0) { end = i; break } }
+    }
+    expect(end, "应能找到该媒体查询的收尾大括号").toBeGreaterThan(-1)
+    const block = css.slice(open, end)
+    // 反面：不许再有 .ui-test-editor 的 padding 覆盖
+    expect(block, "窄屏媒体查询里不该再有 .ui-test-editor 的 padding 覆盖").not.toMatch(
+      /\.ui-test-root \.ui-test-editor \{/,
+    )
+    // 正面：顶部标题那条规则要留着 —— 防止"把整个媒体查询删掉"冒充通过
+    expect(block).toContain(".ui-test-editor-header")
+  })
+
+  it("5 个 App 独占变量不许在任何 CSS 里被声明，只能用 var(…, 兜底) 取用", () =&gt; {
+    /*
+     * 为什么这条要**全仓扫描**，而不是只看某一个文件：
+     *
+     * 这 5 个变量的唯一合法写入方是 App（写在 documentElement 的行内样式上，
+     * 见 App.tsx 的 applyBodyTypography effect）。一旦哪条 CSS 规则把它们
+     * **声明**出来，就会出现本计划反复要根除的那个症状 ——
+     * 「设置保存了但界面不变」：宿主规则比 html 更近时（.ui-test-root 就是，
+     * 见 ui-test.css 顶部那句注释），继承下来的 App 值会被本规则盖掉。
+     *
+     * 这个坑此前**没有任何断言拦着**：Task 6 的实现者做了变异 M3
+     * （在 .ui-test-root 里加一行 --qmai-body-font-px: 20px），
+     * 全仓 699 个测试文件没有一个变红。也就是说它今天没人踩，
+     * 只是也没有任何东西阻止别人明天踩。
+     *
+     * 为什么不写成"检查某个文件的某一段"：声明可以出现在任何一个 CSS 里
+     * （index.css、ui-test-tools.css、将来新增的都能放）。漏一个文件
+     * 等于没防，所以按目录递归全扫。
+     *
+     * 兜底值不是"不许有"，而是**必须写成使用点的第二个参数**
+     * var(--qmai-body-font-px, 18px)。那条路径不参与层叠，是安全的。
+     */
+    const APP_EXCLUSIVE_BODY_VARS = [
+      "--qmai-body-font-px",
+      "--qmai-body-leading",
+      "--qmai-body-letter-spacing",
+      "--qmai-body-margin-x",
+      "--qmai-body-safe-bottom",
+    ]
+
+    const cssFiles: string[] = []
+    const walk = (dir: string) =&gt; {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (entry.name.endsWith(".css")) cssFiles.push(full)
+      }
+    }
+    walk(resolve(__dirname, "..", ".."))   // src/
+    expect(cssFiles.length, "应当扫到多个 CSS 文件（扫不到说明路径写错了）").toBeGreaterThan(3)
+
+    const violations: string[] = []
+    for (const file of cssFiles) {
+      const lines = readFileSync(file, "utf8").split(/\r?\n/)
+      for (const [index, line] of lines.entries()) {
+        for (const name of APP_EXCLUSIVE_BODY_VARS) {
+          // 声明形态：行首（允许缩进）就是「变量名 + 冒号」
+          if (new RegExp(`^\\s*${name}\\s*:`).test(line)) {
+            violations.push(`${relative(resolve(__dirname, "..", ".."), file)}:${index + 1}  ${line.trim()}`)
+          }
+        }
+      }
+    }
+    expect(
+      violations,
+      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\\n` +
+        `要表达默认值，请写成使用点的第二个参数 var(--qmai-body-xxx, 兜底值)。`,
+    ).toEqual([])
   })</code></pre>
 
       <p>这个文件顶部要补上 <code>defaultBodyMarginXForViewport</code> 与三个 <code>BODY_MARGIN_X_VIEWPORT_*</code> 的 import（来自 <code>@/lib/font-settings</code>）。</p>
 
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect bad">Expected: FAIL —— 至少 4 条变红：行高那条（CSS 还是 1.95）、<code>letter-spacing</code> 那条（CSS 里还没有）、列表行高那条（CSS 还是 1.9）、安全距离那条（CSS 还是 36px）。若某条这一轮就绿，说明它没测到本次要改的东西，先修断言再往下走。</p>
+      <p class="expect bad">Expected: FAIL —— 前 5 条变红：行高那条（CSS 还是 1.95）、<code>letter-spacing</code> 那条（CSS 里还没有）、列表行高那条（CSS 还是 1.9）、安全距离那条（CSS 还是 36px）、窄屏媒体查询那条（CSS 里还有 <code>padding: 0 20px</code>）。<strong>第 6 条（App 独占变量不许被声明）应当是绿的</strong> —— 它守的是「不许出现某种写法」，现状本来就正确。但「绿」不算验证过：必须按下面那条变异把它<strong>弄红一次</strong>，才算证明它真的在守东西。若某条这一轮就绿，说明它没测到本次要改的东西，先修断言再往下走。</p>
 
       <div class="note">
         <span class="t">改完之后还要逐条做变异验证</span>
-        <p>Step 2–5 把 CSS 改绿之后，再回头把每一处<strong>逐个改回旧值</strong>跑一次：<code>var(--qmai-body-safe-bottom, 51px)</code> → <code>36px</code>、<code>letter-spacing</code> 复制出第二份、<code>li</code> 的 <code>line-height</code> → <code>1.9</code>、<code>p</code> 的 → <code>1.95</code>。每改一处确认对应用例变红再改回。<strong>一条改不红的断言等于没写。</strong></p>
+        <p>Step 2–5 把 CSS 改绿之后，再回头把每一处<strong>逐个改回旧值</strong>跑一次：<code>var(--qmai-body-safe-bottom, 51px)</code> → <code>36px</code>、<code>letter-spacing</code> 复制出第二份、<code>li</code> 的 <code>line-height</code> → <code>1.9</code>、<code>p</code> 的 → <code>1.95</code>、把 <code>padding: 0 20px;</code> 加回窄屏媒体查询、<strong>并在 <code>ui-test.css</code> 的 <code>.ui-test-root</code> 块里加一行 <code>--qmai-body-font-px: 20px;</code></strong>（这条有个来头：Task 6 的实现者实测过，加了它之后全仓 699 个测试文件<b>没有一个变红</b> —— 正是这条新断言要补上的缺口）。每改一处确认对应用例变红再改回。<strong>一条改不红的断言等于没写。</strong></p>
       </div>
     </div>
   </div>
@@ -2892,7 +2992,10 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
         这正是本计划要根除的「设了没反应」，也正是 Step 1 那条断言的用意。</p>
         <p>Step 1 的断言只钉基规则（<code>toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)</code>），
         <strong>留着这条媒体查询它照样绿</strong> —— 所以这一步不能靠测试发现，只能靠你删掉它。
-        建议在 Step 1 里再补一条断言把这条媒体查询也钉住，否则将来有人加回来不会有任何红灯。</p>
+        Step 1 里那条 <strong>「窄屏媒体查询里不再有会盖掉 padding 的规则」</strong>就是为它写的 ——
+        它按大括号配对切出该媒体查询的块体，反面断言其中不再有 <code>.ui-test-root .ui-test-editor {</code>，
+        正面断言顶部标题那条规则还在（防止"把整个媒体查询删掉"冒充通过）。
+        <strong>这条断言必须真的变红过一次</strong>：把 <code>padding: 0 20px;</code> 加回去，确认它红，再删掉。</p>
       </div>
 
       下面这行（原第 334 行）<strong>删除整行</strong>：</p>
@@ -4390,7 +4493,7 @@ node docs/font-scaling-fix-20261007/verify-real-exe.mjs</code></pre>
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect">Expected: 全绿（任务 7 交付时就是绿的）。若有红，说明任务 7 之后的某个改动动了 CSS，回到任务 7 处理，<strong>不要在这里改断言迁就实现</strong>。</p>
       <p>顺带复核四条新契约确实还在，防止被"顺手放宽"：</p>
-      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x, clamp(20px, 4vw, 48px)','--qmai-body-letter-spacing, 0','var(--qmai-body-letter-spacing']; for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 四条新契约断言仍在')"</code></pre>
+      <pre class="cmd"><code>node -e "const s=require('fs').readFileSync('src/components/uitest/ui-test-editor.spec.tsx','utf8'); const must=['--qmai-body-safe-bottom, 51px','--qmai-body-margin-x, clamp(20px, 4vw, 48px)','--qmai-body-letter-spacing, 0','var(--qmai-body-letter-spacing']; must.push('APP_EXCLUSIVE_BODY_VARS'); for(const m of must) if(!s.includes(m)) throw new Error('守卫里缺少 '+m); console.log('OK 五条新契约断言仍在')"</code></pre>
       <p class="expect">Expected: <code>OK 四条新契约断言仍在</code>。若报"守卫里缺少"，说明断言被删了 —— 查任务 7 的提交，不要重新写一份。</p>
 
       <div class="note">
