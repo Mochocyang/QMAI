@@ -2775,12 +2775,44 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     )</code></pre>
 
       <p>（2）新增<strong>六</strong>条断言（放在「正文查找高亮与输入层共用同一个字号与行高变量」那条之后）。其中第五条是窄屏媒体查询那条 —— 它必须真的红过一次：把 <code>padding: 0 20px;</code> 加回去确认它红，再删掉：</p>
-<pre><code>  it("字间距只声明一处，靠继承保证输入层与高亮层取值必然相同", () =&gt; {
-    // 复制成三份的话，改其中一份就会让覆盖层与输入文字错位。
-    // 继承是"按构造相同"，比三处写同一个表达式更强。
-    const matches = css.match(/letter-spacing:\s*var\(--qmai-body-letter-spacing/g) ?? []
-    expect(matches.length).toBe(1)
-    expect(css).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+<pre><code>  it("字间距在正文层与输入层引用同一个变量，且全文件没有写死的字间距", () =&gt; {
+    /*
+     * ⚠ 这条断言原来的命题是**错的**。它写「只声明一处，靠继承保证输入层与
+     * 高亮层取值必然相同」，并且只数了 `letter-spacing: var(...)` 出现 1 次。
+     * 实测（Blink）：**继承到不了原生 textarea** —— UA 样式表给表单控件声明了
+     * `letter-spacing: normal`，而任何声明都胜过继承。父级 2px 时
+     * div 读回 2px、textarea 读回 normal，加 `letter-spacing: inherit` 才回 2px。
+     *
+     * 那条「恰好 1 处」的断言验的是「这个变量表达式只出现了一次」，
+     * 而不是「输入层与高亮层取值相同」—— 后者 jsdom 也验不了。
+     * 它把一个**碰巧**成立的状态写成了**构造上必然**成立。
+     *
+     * 现在改成两条都成立的命题：
+     *   ① 正文层与输入层各自显式引用**同一个变量**（同源 ⇒ 不可能漂移）；
+     *   ② 全文件任何 letter-spacing 声明都不得写死值（写死才会错位）。
+     * 不断言声明数量：多一处同源声明无害，少一处才是缺陷。
+     */
+    const VAR = "var(--qmai-body-letter-spacing, 0)"
+    /*
+     * ⚠ 必须先把 CSS 的块注释挖掉再扫。
+     * 下面那条注释里就写着「UA 样式表给它声明了 letter-spacing: normal」——
+     * 不挖注释的话，这条**注释本身**会被当成一处「写死的字间距」而报假红。
+     * （同一个坑本会话在 check-css-var-contract.mjs 上已经踩过一次：
+     *  它把只出现在注释里的旧变量报成「仍在被使用」。）
+     */
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
+
+    // ① 正文层：div 系（.ProseMirror / [dir][lang] / 高亮层）继承的源头
+    expect(code).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+    // ① 输入层：原生 textarea 不吃继承，必须显式写一次同一个变量
+    expect(code).toMatch(/\[data-writing-editor\] textarea[^{]*\{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+
+    // ② 全文件不得写死字间距
+    const decls = [...code.matchAll(/letter-spacing:\s*([^;}]+)/g)].map((m) =&gt; m[1].trim())
+    expect(decls.length, "应至少在正文层与输入层各声明一次").toBeGreaterThanOrEqual(2)
+    for (const d of decls) {
+      expect(d, `字间距必须引用同一个变量，不能写死值（写死会让输入层与高亮层错位）：${d}`).toBe(VAR)
+    }
   })
 
   it("列表行高跟随行间距变量，标题与表格保持固定", () =&gt; {
@@ -2797,10 +2829,10 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      *        等任何别的写死值，全套测试 47 passed 照样绿。
      * 实测：把 li 的行高改成 `1.8`，`Tests 47 passed (47)`。
      *
-     * 改成**正面**断言：三种标题形态各自必须写成
-     * `font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height);`，
-     * 且**恰好三处**。这样断言绑定的是"写法与数量"，而不是"某个坏值没出现"。
-     * 数量断言同时挡住"复制成第四份"（复制会让改一处漏一处，正是要防的漂移）。
+     * 改成**正面**断言：三种列表形态（`:is(ul, ol)` / `li` / `li p`）
+     * 各自必须写成
+     * `font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height);`。
+     * 这样断言绑定的是"写法"，而不是"某个坏值没出现"。
      */
     /*
      * 断言写成"按行筛出 + 逐个选择器核对"，而不是一个大正则。
@@ -2812,38 +2844,48 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     const LINE_VAR = "line-height: var(--qmai-body-line-height)"
     const listLines = css.split(/\r?\n/).filter((l) =&gt; l.includes(LIST_DECL))
 
-    // 引用列表字号的规则共 4 条：三块正文 + 一条有序列表标记
-    expect(listLines.length, `引用列表字号的规则应是 4 条，实际 ${listLines.length} 条`).toBe(4)
-
-    // 其中三块正文必须行行接上行高变量
-    const withLineHeight = listLines.filter((l) =&gt; l.includes(LINE_VAR))
-    expect(
-      withLineHeight.length,
-      `列表三块（:is(ul, ol) / li / li p）都应引用行高变量，实际只有 ${withLineHeight.length} 块`,
-    ).toBe(3)
-
+    /*
+     * ⚠ 这里原来还有三条**数量**断言（共 4 条 / 接行高 3 条 / 不接 1 条）。
+     * 评审实测指出它们是**过度约束**：给正文加一条同样接上行高变量的新列表规则
+     * （例如再补一层 `.ProseMirror ul ol`）就会让总数变 5 而**误报红**，
+     * 而那两处改动语义完全正确。
+     *
+     * 更要紧的是：数量断言的鉴别力是**多余**的。下面三条逐选择器的
+     * `hit.length === 1` 已经抓住了全部已知变异 ——
+     * 复制规则会让 hit 变 2，删规则会让 hit 变 0，写死值则让最后那条兜底断言报红。
+     * 所以删掉数量、保留结构，误报更少而抓到的缺陷一个不少。
+     *
+     * 「允许的例外」也从"恰好一条且是 ::marker"改成**正面表述**：
+     * 凡引用了列表字号却不接行高变量的，都必须是 ::marker。
+     * 这样新增一条正确的列表规则不会误报，而"新增一条漏了行高的"仍会被抓住。
+     */
     // 三块**各自**都要接上，而不是"某处有变量就算数"
     for (const selector of [":is(ul, ol) {", " li {", " li p {"]) {
-      const hit = withLineHeight.filter((l) =&gt; l.includes(selector))
+      const hit = listLines.filter((l) =&gt; l.includes(selector) &amp;&amp; l.includes(LINE_VAR))
       expect(hit.length, `应有且只有一条 ${selector.trim()} 规则同时引用列表字号与行高变量`).toBe(1)
     }
 
-    /*
-     * 唯一允许不接行高的是有序列表标记 `ol &gt; li::marker` ——
-     * 它只按字号取尺寸，标记本身没有行距概念。
-     * 把这条"允许的例外"也钉住：否则把 li 的行高写死之后，
-     * withoutLineHeight 会变成 2 条，而这条断言会立刻报红。
-     */
+    // 唯一允许不接行高的是有序列表标记 `ol &gt; li::marker` ——
+    // 它只按字号取尺寸，标记本身没有行距概念。
     const withoutLineHeight = listLines.filter((l) =&gt; !l.includes(LINE_VAR))
-    expect(withoutLineHeight.length, "只有 ::marker 那一条可以不接行高变量").toBe(1)
-    expect(withoutLineHeight[0], "不接行高的那条必须是 ::marker").toContain("::marker")
+    expect(
+      withoutLineHeight.filter((l) =&gt; !l.includes("::marker")),
+      "凡引用列表字号却不接行高变量的，都必须是有序列表标记 ::marker",
+    ).toEqual([])
 
     // 任何"列表字号 + 写死行高"的组合都不许留
     expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: [\d.]/)
 
-    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距（这是有意固定，不是漏改）
+    /*
+     * 已确认的边界：标题 1.6、表格 1.7 不跟随行间距（这是有意固定，不是漏改）。
+     * 表格那条原来写的是裸串 /line-height: 1\.7;/ —— 全文件任何一处 1.7 都能满足它，
+     * 与"表格"这个命题无关（评审点名的同型问题）。改成锚住表格选择器。
+     */
     expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
-    expect(css).toMatch(/line-height: 1\.7;/)
+    expect(css).toMatch(/:is\(th, td\) \{[^}]*line-height: 1\.7;/)
+    // 且表格与标题都不许改跟行高变量（那会让"固定"这个决定被悄悄推翻）
+    expect(css).not.toMatch(/:is\(th, td\) \{[^}]*line-height: var\(--qmai-body-line-height\)/)
+    expect(css).not.toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*\/var\(--qmai-body-line-height\)/)
   })
 
   it("底部安全距离与左右边距都是变量，没有写死的数字残留", () =&gt; {
@@ -2852,7 +2894,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     expect(css).not.toContain("padding-bottom: 36px")
     expect(css).not.toContain("padding-bottom: 28px")
     // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
-    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, clamp\(20px, 4vw, 48px\)\)/)
+    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/)
     expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
   })
 
@@ -2866,7 +2908,15 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
    */
   it("左右边距的 CSS 兜底值与 font-settings 的常量一致", () =&gt; {
     const expected = `clamp(${BODY_MARGIN_X_VIEWPORT_MIN}px, ${BODY_MARGIN_X_VIEWPORT_VW}vw, ${BODY_MARGIN_X_VIEWPORT_MAX}px)`
-    expect(css).toContain(`var(--qmai-body-margin-x, ${expected})`)
+    /*
+     * 常量的落点从「使用点内联」改成了「定义 fallback 变量」：
+     * 因为正文容器的 padding **与 max-width** 都要用同一个默认边距
+     * （max-width = 800px + 2×默认边距，见 max-800 那条用例）。
+     * 抄两遍就会漂 —— 所以只定义一次，两处都引用它。
+     * 链条是：常量 → --qmai-body-margin-x-fallback → padding 与 max-width。
+     * 使用点是否引用它，由另外两条用例覆盖。
+     */
+    expect(css).toContain(`--qmai-body-margin-x-fallback: ${expected};`)
     // 同一个表达式在设置页算出的值必须与实际渲染一致
     expect(defaultBodyMarginXForViewport(1000)).toBe(40)
   })
@@ -2894,12 +2944,51 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     }
     expect(end, "应能找到该媒体查询的收尾大括号").toBeGreaterThan(-1)
     const block = css.slice(open, end)
-    // 反面：不许再有 .ui-test-editor 的 padding 覆盖
-    expect(block, "窄屏媒体查询里不该再有 .ui-test-editor 的 padding 覆盖").not.toMatch(
-      /\.ui-test-root \.ui-test-editor \{/,
-    )
+    /*
+     * 反面断言必须**按结构**写，不能只钉历史字面值。
+     *
+     * 原来写的是 `not.toMatch(/\.ui-test-root \.ui-test-editor \{/)` 加两条
+     * 全文件 `not.toContain("padding-bottom: 36px"/"28px")` —— 只排除了
+     * 历史上那一种写法。实测三种注入全部**照样绿**：
+     *   · 媒体查询里加 `.ui-test-editor-scroll { padding-bottom: 30px; }`
+     *   · 媒体查询里加 `.ui-test-editor-document { padding: 0 20px; }`
+     *     （这条最凶：它把本任务刚做的可调边距整体短路）
+     *   · 文件末尾再追加一条 `.ui-test-editor { padding: 0 20px; }`
+     *     （特异性相同、位置更后，层叠上真的生效）
+     * 这正是本提交自己总结的「否定式只排除一种坏值」，只是当时没修到这里。
+     *
+     * 现在按结构钉：.ui-test-editor / -document / -scroll 三者的规则里，
+     * **任何 padding 都必须引用我们那两个变量**（或就是基规则的重置 0）。
+     * 这样换值、换层、换位置都盖不住。
+     *
+     * ⚠ 第一版「允许重置 0」的条件写成 /^0(;|\s|$)/ —— 它把 `0 20px` 也放过了
+     * （`0` 后面正好跟一个空格）。实测：上面第 2、3 种注入**照样全绿**，
+     * 而这个脚本的变异表把它们标成"未抓住"才发现。
+     * 「看起来在防、实际漏掉最凶的那两种」比不写这条更坏。
+     * 现在改成**全部组件都是 0** 才算重置（`0` / `0 0` / `0 0 0 0`），
+     * 且必须先挖掉 CSS 注释，避免注释里的字样被当成规则。
+     */
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
+    const EDITOR_RULES = /\.ui-test-root \.ui-test-editor(-document|-scroll)?\s*\{([^}]*)\}/g
+    const offenders: string[] = []
+    for (const m of code.matchAll(EDITOR_RULES)) {
+      const pad = m[2].match(/padding(?:-(?:top|right|bottom|left))?:\s*([^;]+)/)
+      if (!pad) continue
+      const value = pad[1].trim()
+      const isPureZero = /^0(\s+0)*$/.test(value)          // 0 / 0 0 / 0 0 0 0
+      const usesOurVar = /var\(--qmai-body-(safe-bottom|margin-x)/.test(value)
+      if (isPureZero || usesOurVar) continue
+      offenders.push(`${m[0].split("{")[0].trim()} → padding: ${value}`)
+    }
+    expect(
+      offenders,
+      `这三个容器里的 padding 必须引用变量，写死就会在某种窗口宽度下悄悄盖掉用户的设置：\n${offenders.join("\n")}`,
+    ).toEqual([])
+
     // 正面：顶部标题那条规则要留着 —— 防止"把整个媒体查询删掉"冒充通过
     expect(block).toContain(".ui-test-editor-header")
+    // 正面：标题的 padding-top 必须仍在（上面那条结构断言把它排除了，这里补上）
+    expect(block).toMatch(/\.ui-test-root \.ui-test-editor-header \{ padding-top: var\(--ui-heading-top\); \}/)
   })
 
   it("5 个 App 独占变量不许在任何 CSS 里被声明，只能用 var(…, 兜底) 取用", () =&gt; {
@@ -2912,22 +3001,10 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      * 「设置保存了但界面不变」：宿主规则比 html 更近时（.ui-test-root 就是，
      * 见 ui-test.css 顶部那句注释），继承下来的 App 值会被本规则盖掉。
      *
-     * 这个坑在**当下**没有任何断言拦着：Task 6 的实现者做了变异 M3
+     * 这个坑此前**没有任何断言拦着**：Task 6 的实现者做了变异 M3
      * （在 .ui-test-root 里加一行 --qmai-body-font-px: 20px），
      * 全仓 699 个测试文件没有一个变红。也就是说它今天没人踩，
      * 只是也没有任何东西阻止别人明天踩。
-     *
-     * ── 与任务 12 那段检查的关系（互补，不是重复）──
-     * 任务 12 的 Step 12c 里已经有一段 APP_OWNED_VARS 检查，但它
-     *   · 只扫 ui-test.css **一个文件**（它自己的注释写着"本文件的变量宿主是 .ui-test-root"）；
-     *   · 且活在 verify-body-font-single-source.mjs 这个**验收脚本**里 ——
-     *     那个脚本不在 npm run test:mocks、也不被 package.json 或 CI 调用。
-     * 本条的覆盖面更宽、跑得更勤：
-     *   · 扫**全部** CSS 文件（index.css、ui-test-tools.css、以后新增的都算）——
-     *     声明写在哪一个文件里都能让设置失效，只守一个文件等于留了后门；
-     *   · 活在**主测试套件**里，每次 npm run test:mocks 都会跑。
-     * 所以两处都要留：删掉任务 12 那段会让验收脚本失去自检，删掉本条
-     * 会让日常门禁失去这个坑。
      *
      * 为什么不写成"检查某个文件的某一段"：声明可以出现在任何一个 CSS 里
      * （index.css、ui-test-tools.css、将来新增的都能放）。漏一个文件
@@ -2999,11 +3076,68 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
      正是本仓库反复要根除的"设了没反应"。 */
   padding: 0;</code></pre>
 
-      <p>第 13–22 行的 <code>.ui-test-editor-document</code> 规则里，给 <code>margin: 0 auto;</code> 那行后面加一行：</p>
-<pre><code>  /* 左右边距的真正落点：它直接决定正文行宽（800px 上限内的可用宽度）。
-     未拖动滑块时 --qmai-body-margin-x 不存在，兜底值 clamp(20px,4vw,48px)
-     与改造前逐位相同，老用户打开不会有任何视觉变化。 */
-  padding: 0 var(--qmai-body-margin-x, clamp(20px, 4vw, 48px));</code></pre>
+      <p>第 13–22 行的 <code>.ui-test-editor-document</code> 规则里，把 <code>max-width: 800px;</code> 换成下面这三条（连同注释），并删掉原来的那一行：</p>
+<pre><code>  /* 「跟随窗口」时的默认边距。只在这里写一次，下面两处都引用它 ——
+     抄两遍的话，改一处漏一处就会让默认档的正文宽度偏掉，而且不会有红灯。
+     注意它**不是** App 独占的那 5 个变量（那些不许在 CSS 里声明字面量），
+     只是本文件内部的局部量。 */
+  --qmai-body-margin-x-fallback: clamp(20px, 4vw, 48px);
+  /* 左右边距的真正落点：它直接决定正文行宽。 */
+  max-width: calc(800px + 2 * var(--qmai-body-margin-x-fallback));
+  padding: 0 var(--qmai-body-margin-x, var(--qmai-body-margin-x-fallback));</code></pre>
+
+      <div class="note warn">
+        <span class="t">为什么 <code>max-width</code> 不能是裸的 <code>800px</code>（这一步最容易做错）</span>
+        <p>本元素 <code>box-sizing</code> 是 <code>border-box</code> —— 这是 Tailwind preflight 用
+        <code>*</code> 全局设的（<code>node_modules/tailwindcss/preflight.css</code> 第 7–16 行），
+        并且已经进了产物 <code>dist/assets/index-*.css</code>。在 border-box 下，
+        <code>max-width</code> <strong>把左右 padding 一起算进去</strong>。</p>
+        <p>于是 <code>max-width: 800px</code> 加上 <code>padding: 0 …48px</code> 之后，
+        「800px」就从<strong>正文宽度</strong>变成了<strong>正文 + 两侧边距</strong>：
+        默认档正文只剩 <code>800 − 2×48 = 704px</code>。这是<strong>实测</strong>过的
+        （本机 Edge/Blink，也就是 WebView2 同引擎，1200px 窗口）：
+        旧写法 <code>705.94px</code>、新写法 <code>800.02px</code>；
+        760px 小窗两者都是 <code>677.13px</code>（窗格本来就窄于上限，不受影响）。</p>
+        <p>而本计划第 02 节的数值对照表写的是「<strong>默认档必须与今天逐位相同</strong>」。
+        所以老用户打开软件会发现正文窄了一圈 —— 而当时
+        <strong>没有任何断言覆盖这个几何量</strong>：原断言只查
+        <code>max-width: 800px</code> 这个字符串<strong>存在</strong>，字符串在、断言绿、
+        用户看到的却是窄了 12% 的正文。这是「断言绑在写法上、而不是绑在结果上」的典型。</p>
+        <p><strong>为什么上限用「默认」边距算，而不是用用户的
+        <code>--qmai-body-margin-x</code></strong>：用默认边距 → 默认档正文恰好 800px，
+        与改造前逐位相同（任意窗口宽度）；若用用户值 → 拖动时上限跟着一起涨、
+        正文恒为 800px，滑块又变成「设了没反应」。用默认值算出的固定上限两全：
+        默认档 = 800px，拖动时 padding 变大、上限不动，正文随之变窄。</p>
+      </div>
+
+      <div class="note">
+        <span class="t">不变式：默认档正文宽度必须仍是 800px —— 并且必须被断言钉住</span>
+        <p>上面那个 <code>calc</code> 不是美化，它是<strong>把「800px 是正文宽度」这个语义写进 CSS</strong>。
+        改回裸 <code>800px</code> 不会有任何报错，只会让用户看到更窄的正文。</p>
+        <p>所以 Step 1 里那条「单独提供最大800正文容器」的用例，断言必须<strong>钉几何关系</strong>，
+        不能只查字符串存在。要断三件事（缺任何一件都留一个绕过口）：</p>
+        <ul>
+          <li><code>--qmai-body-margin-x-fallback</code> 的定义存在，且等于
+          <code>clamp(20px, 4vw, 48px)</code>；</li>
+          <li><code>max-width: calc(800px + 2 * var(--qmai-body-margin-x-fallback))</code>；</li>
+          <li><code>padding</code> 用的是<strong>同一个</strong> fallback 变量 ——
+          否则上面那个上限算的不是同一边距。</li>
+        </ul>
+        <p>后两条由「左右边距的 CSS 兜底值与 font-settings 的常量一致」那条用例负责：
+        它拿 <code>BODY_MARGIN_X_VIEWPORT_MIN / _VW / _MAX</code> 三个常量
+        <strong>拼出</strong>期望串，而不是把 <code>clamp(20px, 4vw, 48px)</code> 手抄一遍 ——
+        手抄的话，改常量时断言照样绿，而设置页显示给用户的「当前实际边距」会与真实渲染不符。</p>
+        <p><strong>为什么还要一条真引擎探针</strong>：<code>box-sizing</code> 与
+        <code>max-width</code> 的相互作用是<strong>布局引擎算出来的</strong>，jsdom 不做布局，
+        源码文本断言也看不见。本机 Edge 就是 Blink（= WebView2 同引擎），
+        无头跑一次量出正文列宽即可（做法见 <code>.codex-temp/probe-d1-geometry.mjs</code>：
+        造两个只差 <code>max-width</code> 一个声明的页面，把量到的宽度写进 DOM，
+        用 <code>msedge --headless --dump-dom</code> 取回）。</p>
+        <p><strong>判据不要钉评审报的那个取整数字</strong>：他报「704」，实测是
+        <code>705.94</code>（无头窗口的 <code>innerWidth</code> 不正好是 1200，
+        <code>4vw</code> 因此是 <code>47.04</code> 而不是 48）。钉死 704 会得到一个假的「未复现」。
+        该钉的是<strong>主张本身</strong>：新式 = 800px（±1），且旧式比新式窄约 2×边距（≈94px）。</p>
+      </div>
       <div class="note">
         <span class="t">为什么这是单旋钮</span>
         <p>第 232 行 <code>.immersive-scroll-container &gt; div { padding: 0 }</code> 已经把内层 <code>px-8 py-10</code> 清掉了，所以「正文离两侧多远」完全由 <code>.ui-test-editor-document</code> 的内边距决定，没有第二处在争。</p>
@@ -3070,7 +3204,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 4：字间距（一处声明，靠继承覆盖全部后代）</div>
+    <div class="step-h"><span class="box"></span>Step 4：字间距（正文层与输入层各声明一次，引用同一个变量）</div>
     <div class="step-body">
       <p>第 228 行，把：</p>
 <pre><code class="cmd">.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); overflow-wrap: anywhere; }</code></pre>
@@ -3209,9 +3343,36 @@ const BASE: BodyTypographyValue = {
   safeBottom: 51,
 }
 
-function render(value: BodyTypographyValue, onChange = () =&gt; {}) {
+/*
+ * 这个回调类型必须与控件 prop 上的**泛型**签名同形。
+ *
+ * 不能写成 `onChange = () =&gt; {}` 让 TS 自己推断 —— 那样推断出来的是
+ * `() =&gt; void`，于是每个 `render(BASE, (key, next) =&gt; …)` 都会变成
+ * 「目标签名参数太少」的类型错误，而且 `key` / `next` 会落到隐式 any。
+ * （任务简报原稿就是裸默认值，`npm run typecheck:tests` 会因此报错。）
+ */
+type ChangeHandler = &lt;K extends keyof BodyTypographyValue&gt;(
+  key: K,
+  next: BodyTypographyValue[K],
+) =&gt; void
+
+/*
+ * dense 必须**可选**地传：写成 `dense={dense}` 会让每次渲染都显式传值，
+ * 于是组件自己的默认值（dense = false）永远走不到 —— 变异验证实测：
+ * 把默认值改成 true，全部用例照样绿（M12）。调用方（设置页，任务 9）是
+ * **省略**这个 prop 的，所以"省略时表现为非紧凑"必须真的被覆盖。
+ * 用条件展开而不是 `dense={dense ?? false}`：后者同样会把默认值架空。
+ */
+function render(value: BodyTypographyValue, onChange: ChangeHandler = () =&gt; {}, dense?: boolean) {
   act(() =&gt; {
-    root.render(&lt;BodyTypographyFields value={value} onChange={onChange} idPrefix="t" /&gt;)
+    root.render(
+      &lt;BodyTypographyFields
+        value={value}
+        onChange={onChange}
+        idPrefix="t"
+        {...(dense === undefined ? {} : { dense })}
+      /&gt;,
+    )
   })
   return container
 }
@@ -3237,9 +3398,69 @@ describe("BodyTypographyFields", () =&gt; {
   it("6 个参数各有一个可访问的控件，标签互不重复", () =&gt; {
     render(BASE)
     for (const label of ["正文字体", "正文字号预设", "正文字号", "行间距", "字间距", "左右边距", "底部安全距离"]) {
-      const found = container.querySelector(`[aria-label="${label}"]`)
-      expect(found, `缺少控件：${label}`).not.toBeNull()
+      const found = container.querySelectorAll(`[aria-label="${label}"]`)
+      // ① 存在性
+      expect(found.length, `缺少控件：${label}`).toBeGreaterThan(0)
+      /*
+       * ② 唯一性 —— 标题承诺的"互不重复"。
+       * 原稿只做 querySelector + not.toBeNull()，那是**只查存在性**：
+       * 变异验证实测（M11b：把 aria-label="正文字体" 也挂到根 div 上，
+       * 7 个标签一个不少），8 条用例**全绿** —— 重复完全抓不住。
+       * 重复的 aria-label 会让读屏用户听到两个同名控件、也让测试的
+       * 选择器变得不确定，所以这条补上。
+       */
+      expect(found.length, `标签重复：${label} 匹配到 ${found.length} 个元素`).toBe(1)
     }
+  })
+
+  /*
+   * 这一条**不在任务的 6 条里**，是我补的（本文件因此是 7 条，不是 6 条）。
+   * 理由：简报那 6 条里没有一条能抓住根节点 data-ui 被改名 ——
+   * 变异验证实测（M9：把它换成 data-ui="body-typography-fields"，同时跳过本条），
+   * 简报的 6 条**全绿**。而它的后果正是本任务要防的腐坏：
+   * ui-test-tools.css 里 ui-test-interface-row / -size / label / p / select / range
+   * 的样式全部是 [data-ui="interface-fields"] 的后代选择器
+   * （ui-test-tools.css:1851 / 1858 / 1862 / 1868 / 1880 / 1886），
+   * 改名后设置页与写作现场浮层的布局与字号会**静默全丢**，没有任何用例会红。
+   */
+  it("根元素保留 data-ui=\"interface-fields\"，样式所依赖的类名挂在它的后代上", () =&gt; {
+    render(BASE)
+    const host = container.querySelector('[data-ui="interface-fields"]')
+    expect(
+      host,
+      '根元素缺少 data-ui="interface-fields"，ui-test-tools.css 里的两列/滑块样式会全部失效',
+    ).not.toBeNull()
+    // 属性留着还不够：那两个类名必须真的出现在它的后代里，否则同样拿不到样式
+    expect(host?.querySelector(".ui-test-interface-row")).not.toBeNull()
+    expect(host?.querySelector(".ui-test-interface-size")).not.toBeNull()
+  })
+
+  /*
+   * 这一条也不在任务的 6 条里。变异验证实测：把 `dense` 的默认值从 false 改成
+   * true（M12）、或把 `dense ? null : &lt;p&gt;{hint}&lt;/p&gt;` 里的分支删掉（M15），
+   * 任务的 6 条**全绿**。而 dense 是写作现场浮层（任务 11）唯一的高度开关：
+   * 它失灵时浮层会带着 5 段说明文字挤在预览区里，没有任何用例会红。
+   */
+  it("dense 模式省掉说明段落，但控件一个不少", () =&gt; {
+    /*
+     * 刻意**不**把选择器限定成 [data-ui="interface-fields"] p：那样一来
+     * 根节点的 data-ui 被改名时，这条会以"非紧凑模式应当有说明段落"报红 ——
+     * 把一个属性改名说成 dense 失灵（变异验证实测 M9a 确实如此）。
+     * 每条用例只该为自己的那件事报红，所以这里按文档作用域数 &lt;p&gt;。
+     */
+    const hints = () =&gt; container.querySelectorAll("p").length
+
+    render(BASE)
+    expect(hints(), "非紧凑模式应当有说明段落").toBeGreaterThan(0)
+
+    render(BASE, () =&gt; {}, true)
+    expect(hints(), "紧凑模式应当省掉所有说明段落").toBe(0)
+    // 省说明不能连控件一起省：浮层里 6 个参数必须照旧可操作
+    for (const label of ["正文字体", "正文字号预设", "正文字号", "行间距", "字间距", "左右边距", "底部安全距离"]) {
+      expect(container.querySelector(`[aria-label="${label}"]`), `紧凑模式缺少控件：${label}`).not.toBeNull()
+    }
+    // 显示值那一行不能被当成"说明段落"一起省掉，否则用户拖动时看不到当前值
+    expect(container.querySelector('[data-ui-typography-value="左右边距"]')?.textContent).toBe("跟随窗口")
   })
 
   it("6 个滑块的范围与单一来源常量一致（不在组件里重写数字）", () =&gt; {
@@ -3303,25 +3524,54 @@ describe("BodyTypographyFields", () =&gt; {
 
   it("左右边距为 null 时显示「跟随窗口」，提供按钮切回 null", () =&gt; {
     const seen: [string, unknown][] = []
-    // 先设成一个非 null 值，确认显示的是具体像素值而不是「跟随窗口」；
-    // 再用 null 渲染 —— 标题说的就是 null 这一档，原来却只渲染了 40。
-    const first = render({ ...BASE, marginX: 40 }, (key, next) =&gt; { seen.push([key, next]) })
-    expect(container.textContent).toContain("40px")
-    expect(container.textContent).not.toContain("跟随窗口")
-    first.unmount()
 
-    render({ ...BASE, marginX: null }, (key, next) =&gt; { seen.push([key, next]) })
     /*
-     * 必须断言**显示文本**。
-     * 只断言"按钮存在"是不够的：把「跟随窗口」改成空串、
-     * 或把 display 的取值分支删掉，按钮照样在、断言照样绿 ——
-     * 而用户看到的就是一片空白。
+     * ── 本用例与原稿有三处出入，三处都是**实测出来的**，不是设计变更 ──
+     *
+     * ① 原稿 `expect(container.textContent).not.toContain("跟随窗口")`
+     *    在 marginX=40 下必然失败，而且与实现无关：hint 原文
+     *    「未调整时跟随窗口宽度」与按钮文案「改回跟随窗口」都含这四个字。
+     *    实测报错：
+     *      AssertionError: expected '正文字体只影响…未调整时跟随窗口宽度，调整后固定。40px改回跟随窗口…'
+     *      not to contain '跟随窗口'
+     *    也就是说这条**恒假**（恒假的代价比恒真更大：它会让人去改没坏的东西）。
+     *    要断言"显示的是 40px 而不是跟随窗口"，只能对准**显示值那一个元素**，
+     *    不能扫整个容器的文本。
+     * ② 原稿 `first.unmount()` 是 TypeError：render() 返回的是 container
+     *    （HTMLDivElement），不是 root。实测报错：
+     *      TypeError: first.unmount is not a function
+     *    同一行的第二段 render 本来就会复用同一个 root，不需要先卸载。
+     * ③ 原稿在 marginX=null 那一档点击按钮并期望它交出 null，但 null 档的按钮是
+     *    `disabled` 的，而 jsdom 按规范不对 disabled 表单控件执行 click() 的
+     *    激活行为。实测报错：
+     *      AssertionError: expected [] to deeply equal [ [ 'marginX', null ] ]
+     *    「切回跟随窗口」这个动作只在**非 null** 档才有意义（null 档已经在那里了），
+     *    所以点击移到非 null 档，并显式钉住两档的 disabled 状态。
      */
-    expect(container.textContent).toContain("跟随窗口")
-    const back = container.querySelector&lt;HTMLButtonElement&gt;('[aria-label="左右边距跟随窗口"]')
-    expect(back).not.toBeNull()
-    act(() =&gt; { back?.click() })
+    const marginDisplay = () =&gt; {
+      const el = container.querySelector('[data-ui-typography-value="左右边距"]')
+      if (!el) throw new Error("找不到左右边距的显示值")
+      return el.textContent
+    }
+    const backButton = () =&gt; {
+      const el = container.querySelector&lt;HTMLButtonElement&gt;('[aria-label="左右边距跟随窗口"]')
+      if (!el) throw new Error("找不到「左右边距跟随窗口」按钮")
+      return el
+    }
+
+    // ① 非 null：显示具体像素值（不是「跟随窗口」），按钮可用，点一下才交出 null
+    render({ ...BASE, marginX: 40 }, (key, next) =&gt; { seen.push([key, next]) })
+    expect(marginDisplay()).toBe("40px")
+    expect(backButton().disabled).toBe(false)
+    act(() =&gt; { backButton().click() })
     expect(seen).toEqual([["marginX", null]])
+
+    // ② null：显示「跟随窗口」，按钮已处于目标状态故禁用，且渲染本身不发出任何改动
+    seen.length = 0
+    render({ ...BASE, marginX: null }, (key, next) =&gt; { seen.push([key, next]) })
+    expect(marginDisplay()).toBe("跟随窗口")
+    expect(backButton().disabled).toBe(true)
+    expect(seen).toEqual([])
   })
 
   it("左右边距为 null 时，滑块停在当前真正生效的位置", () =&gt; {
@@ -3680,10 +3930,20 @@ export function BodyTypographyFields({ value, onChange, idPrefix, dense = false 
     <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿</div>
     <div class="step-body">
       <pre class="cmd"><code>npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect">Expected: PASS — <strong>6 passed</strong>（本文件里的 6 条组件用例）。<br>
-        注意不要期待 7：那条 <code>defaultBodyMarginXForViewport</code> 的用例住在
-        <code>src/lib/font-settings.spec.ts</code>（任务 1 写的），本命令只跑组件这个文件，不会执行它。
-        看到 6 就对了。</p>
+      <p class="expect">Expected: PASS — <strong>8 passed</strong>（本文件里的 8 条组件用例）。<br>
+        本任务原本预计 6 条，实际多出 2 条，各自都是<strong>变异实测逼出来的</strong>，
+        不是凑数：<br>
+        · <strong>根元素 <code>data-ui</code></strong> —— <code>ui-test-tools.css</code> 里
+        row / size / label / p / select / range 的样式<strong>全部</strong>是
+        <code>[data-ui="interface-fields"]</code> 的后代选择器。改名之后两处入口的布局与字号会
+        <strong>静默全丢</strong>，而原稿那 6 条一条都不会红（隔离实验：改名 + 跳过新增的 2 条 → <code>6 passed | 2 skipped</code>）。<br>
+        · <strong><code>dense</code> 省略时的行为</strong> —— 测试 helper 若写成 <code>dense={dense}</code>，
+        每次都显式传值，组件默认值就<strong>永远走不到</strong>；变异实测：把默认值从 <code>false</code> 改成 <code>true</code>，全部用例照样绿。调用方（任务 9）是<strong>省略</strong>这个 prop 的，所以必须真被覆盖。<br>
+        另有两处原稿断言被<strong>收紧</strong>（不是放宽）：「标签互不重复」原稿只做
+        <code>querySelector</code> + <code>not.toBeNull</code>（只查存在性），制造重复也全绿；
+        以及上面那条 <code>dense</code>。看到 8 就对了。</p>
+      <p>注意不要期待 9：那条 <code>defaultBodyMarginXForViewport</code> 数值正确性的用例住在
+        <code>src/lib/font-settings.spec.ts</code>（任务 1 写的），本命令只跑组件这个文件，不会执行它。</p>
       <p>若「6 个滑块的范围」那条失败，检查是不是把范围数字写进了组件 —— 那正是它要防的。</p>
     </div>
   </div>
@@ -3722,7 +3982,31 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     <div>Modify: src/components/settings/settings-types.ts:69–70（两个字段 → 6 个）</div>
     <div>Modify: src/components/settings/sections/interface-section.tsx（import 区、hook 区、两行控件）</div>
     <div>Modify: src/components/settings/sections/interface-section.spec.tsx（Harness 草稿的 6 个字段）</div>
+    <div>Modify: src/components/uitest/ui-test-tools.spec.tsx（「真实外观页的测试皮肤」那个 Harness 草稿的 6 个字段）—— <strong>本任务认领它</strong>，理由见下面那个 note</div>
     <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「1) 设置页有两行控件」与「2) 草稿类型里有该字段」两段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
+  </div>
+
+  <div class="note warn">
+    <span class="t">为什么本任务还要改一个"看起来无关"的 spec：ui-test-tools.spec.tsx</span>
+    <p>它不在本任务的功能范围内，但<strong>本任务会让它变红</strong>，所以必须由本任务认领。
+    这是 Task 9 实现者用实测发现的计划缺口 —— 我原来 13 个任务的 Files 块里
+    <strong>没有任何一个提到这个文件</strong>，而它能红到发布。</p>
+    <p><strong>成因</strong>：该文件第 183–186 行的测试草稿只给了 5 个界面字段
+    （<code>uiLanguage / uiFontFamily / uiFontSizeScale / visualStyle / sidebarNavConfig</code>），
+    并用 <code>as SettingsDraft</code> 绕过类型检查，<strong>一个排版字段都没给</strong>。
+    改造前，那两行本地控件读的是 <code>draft.uiBodyFontSizeScale</code> ——
+    缺字段只得到 <code>NaN</code>，<strong>不抛错</strong>，所以这个草稿一直是"能跑但假"的。</p>
+    <p>本任务把这两行换成共享控件后，它读 <code>value.lineHeight.toFixed(2)</code>：
+    <code>undefined</code> 上没有 <code>toFixed</code>，直接抛
+    <code>TypeError: Cannot read properties of undefined (reading 'toFixed')</code>，
+    该文件 <strong>5 条</strong>用例同时红，而报错栈指向
+    <code>body-typography-fields.tsx</code> —— 一个本任务<strong>没有改过</strong>的文件，
+    排查时会非常费解。</p>
+    <p><strong>要记住的教训</strong>：<code>as X</code> 这类断言会让"草稿不完整"逃过类型系统，
+    而不完整的草稿会在<strong>换掉消费者</strong>的那一刻突然爆炸。
+    所以本次修法不是"给共享控件加防御"，而是<strong>把草稿补全</strong> ——
+    缺字段是草稿的缺陷，不是控件的。补全后要<strong>复跑该 spec 确认 28 passed</strong>，
+    否则这个红会一直留在树里。</p>
   </div>
 
   <div class="step">
