@@ -175,6 +175,43 @@ export function indirectPxProblems(varDefs, varUses) {
   return { registry, problems }
 }
 
+/**
+ * 找出 `.ts/.tsx` 里**本脚本看不见**的 CSS：模板字符串与内联 `style="…"` 中的 px 字号。
+ *
+ * 抽成纯函数是为了让 `--selftest` 能钉住它。原来它内联在主流程里，只能靠
+ * 读输出数字来间接确认；一旦被删改，工具只会打印"另有 0 处"而**不会失败** ——
+ * 也就是说那道"声明可见范围"的防线本身可以被无声移除（变异实测确认）。
+ * 抽出来 + 加自检用例后，删掉它会让 --selftest 变红。
+ *
+ * @param {Array<{file: string, text: string}>} filesWithText
+ * @returns {Array<{file: string, line: number, value: string, raw: string}>}
+ */
+export function findTemplateCssBlindSpots(filesWithText) {
+  const found = []
+  for (const { file, text } of filesWithText) {
+    if (file.endsWith(".css")) continue
+    // 测试文件里的 CSS 是**构造出来的夹具**，不是产品样式债，排除
+    // （否则本仓库自己的 ui-test-clipping.spec.ts 夹具会被算成待改 px）
+    if (/\.(spec|test)\.(ts|tsx)$/.test(file)) continue
+    const lines = text.split(/\r?\n/)
+    lines.forEach((line, i) => {
+      /*
+       * 只需要**一个**模式：`font-size: Npx`。
+       * 内联 `style="…font-size:11px…"` 本身就是一段含该子串的文本，
+       * 上面的模式已经命中它。
+       *
+       * 原先还额外写了一个 `/style="[^"]*font-size:…/` 模式，导致同一处被计两次
+       * （`--selftest` 的 ⑤ 用例抓到：`style="margin:0;font-size:11px"` 实得
+       * ["11px","11px"]）。重复计数会虚报盲区规模，故删掉冗余模式。
+       */
+      for (const m of line.matchAll(/font-size:\s*([\d.]+)px/g)) {
+        found.push({ file, line: i + 1, value: m[1] + "px", raw: line.trim().slice(0, 90) })
+      }
+    })
+  }
+  return found
+}
+
 // ─────────────────────────── 自检 ───────────────────────────
 function selftest() {
   let pass = 0
@@ -216,6 +253,18 @@ function selftest() {
   eq("已是 rem 的变量不算问题（负向对照）", indirectPxProblems(d3.varDefs, d3.varUses).problems.length, 0)
   const d4 = collect([{ file: "h.css", text: `.r { --c: #fff; } .u { color: var(--c); }` }])
   eq("非 px 变量不算问题（负向对照）", indirectPxProblems(d4.varDefs, d4.varUses).problems.length, 0)
+
+  console.log("\n  ── (e) 必须看得见「模板字符串/内联 style 里的 CSS」这类盲区（缺陷 B）──")
+  const e1 = findTemplateCssBlindSpots([{ file: "x.ts", text: "  const css = `h1 { font-size: 20px; }`;" }])
+  eq("模板字符串里的 font-size 必须被看见", e1.map((h) => h.value), ["20px"])
+  const e2 = findTemplateCssBlindSpots([{ file: "y.ts", text: '  body.innerHTML = `<p style="margin:0;font-size:11px">x</p>`' }])
+  eq("内联 style=\"…\" 里的 font-size 必须被看见", e2.map((h) => h.value), ["11px"])
+  eq("已是 rem 的模板 CSS 不算盲区（负向对照）",
+    findTemplateCssBlindSpots([{ file: "z.ts", text: "  const css = `h1 { font-size: 1.25rem; }`;" }]).length, 0)
+  eq("测试夹具不算产品样式债（负向对照）",
+    findTemplateCssBlindSpots([{ file: "a.spec.ts", text: "  const css = `h1 { font-size: 20px; }`;" }]).length, 0)
+  eq(".css 文件由主流程负责，不由本函数重复统计（负向对照）",
+    findTemplateCssBlindSpots([{ file: "b.css", text: "h1 { font-size: 20px; }" }]).length, 0)
 
   console.log(`\n  自检结果: ${pass} 通过 / ${fail} 失败`)
   return fail === 0
@@ -296,16 +345,55 @@ for (const v of nums) {
   console.log(`    ${String(v).padStart(6)}px → ${(pxToRemExact(v) + "rem").padEnd(12)} ${String(dist[v]).padStart(4)} 处`)
 }
 
+/*
+ * ── 可见范围声明（对抗性审查"缺陷 B"）──
+ *
+ * 上面 `collect()` 对 `.css` 走 CSS 声明解析，对 `.ts/.tsx` 只认
+ * Tailwind 任意值 `text-[Npx]` 与内联 `style={{...}}`。
+ * 于是**模板字符串里的 CSS 完全不可见**：
+ *
+ *   story-map-renderer.ts    `${'`'}… font-size: 13px; …${'`'}`         （16 处）
+ *   profile-document.ts      style="… font-size:11px …"                  （1 处）
+ *
+ * 这些是**独立导出的 HTML 文档**（按 design §4.4 属设计上的例外，不参与界面缩放），
+ * 故不影响修复结论；但"绝对单位 0 处"这种说法会被读成"全局已清干净"，
+ * 而实际上有一整类载体没被扫。故这里主动把它们找出来并**显式声明在结论里**，
+ * 让工具无法在不说明范围的情况下宣称通过。
+ */
+const TEMPLATE_CSS_BLIND_SPOTS = findTemplateCssBlindSpots(filesWithText)
+
+if (TEMPLATE_CSS_BLIND_SPOTS.length) {
+  const byFileBS = {}
+  for (const b of TEMPLATE_CSS_BLIND_SPOTS) byFileBS[b.file] = (byFileBS[b.file] ?? 0) + 1
+  console.log(`\n  ⚠️ 本脚本可见范围之外：.ts/.tsx 模板字符串/内联 style 里的 CSS 共 ${TEMPLATE_CSS_BLIND_SPOTS.length} 处`)
+  for (const [f, c] of Object.entries(byFileBS).sort((a, b) => b[1] - a[1])) {
+    console.log(`      ${String(c).padStart(3)} 处  ${f}`)
+  }
+  console.log(`      这些是独立导出 HTML（design §4.4 例外），不计入上面的绝对单位数；`)
+  console.log(`      但上面的"绝对单位"合计**只覆盖 .css 与 Tailwind/内联 style 三类载体**，不代表全仓库已无 px。`)
+}
+
 // 写完整清单
 const out = ["# 绝对单位字号/行高 · 完整清单", "", `生成时间: ${new Date().toISOString()}`, "",
   `需改（绝对单位）: ${absTotal} 个数值（${declCount} 处声明；差值 ${hits.length - declCount} 为 font 简写的行高部分）`,
   `无需改（相对单位）: ${relTotal} 个数值`, "",
+  `> **可见范围声明：** 本清单覆盖 \`.css\` 声明、Tailwind 任意值 \`text-[Npx]\`、内联 \`style={{}}\`、`,
+  `> px 自定义属性及其消费者。**不覆盖** \`.ts/.tsx\` 模板字符串与内联字符串 \`style="…"\` 里的 CSS`,
+  `> —— 实测该处还有 ${TEMPLATE_CSS_BLIND_SPOTS.length} 处 px（详见下方"可见范围外"一节）。`,
+  `> 故本清单的"绝对单位 0 处"仅指上述已覆盖载体。`, "",
   "## 经自定义属性间接传递的 px（codemod 看不见）", "",
   "| 变量 | 值 | 定义处 | 消费属性 | 判定 |", "|---|---|---|---|---|"]
 for (const r of registry.sort((a, b) => a.name.localeCompare(b.name))) {
   const props = r.uses.length ? [...new Set(r.uses.map((u) => u.prop))].join(", ") : "(无消费者)"
   const verdict = r.allow ? `白名单：${r.allow}` : r.textProps.length ? "★ 未登记，须改 rem" : "无文字布局消费者"
   out.push(`| \`${r.name}\` | ${r.px}px | ${r.def.file}:${r.def.line} | ${props} | ${verdict} |`)
+}
+if (TEMPLATE_CSS_BLIND_SPOTS.length) {
+  out.push("", "## 可见范围外：模板字符串 / 内联 style 里的 CSS", "",
+    "| 文件 | 行 | 值 | 原文 |", "|---|---|---|---|")
+  for (const b of TEMPLATE_CSS_BLIND_SPOTS.sort((a, c) => a.file.localeCompare(c.file) || a.line - c.line)) {
+    out.push(`| ${b.file} | ${b.line} | ${b.value} | \`${b.raw.replace(/\|/g, "\\|")}\` |`)
+  }
 }
 out.push("", "## 需改清单", "", "| 文件 | 行 | 类型 | 值 | 原文 |", "|---|---|---|---|---|")
 for (const k of ABSOLUTE) for (const h of (byKind[k] ?? []).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)) {
@@ -317,4 +405,7 @@ console.log("\n  完整清单 → docs/font-scaling-fix-20261007/absolute-font-u
 // 结论与退出码：让本脚本成为可判定的关卡，而不是只打印数字
 const ok = absTotal === 0 && problems.length === 0
 console.log(`\n  结论: 绝对单位 ${absTotal} 个 / 未登记的间接 px ${problems.length} 个 → ${ok ? "✓ 通过（换算完整）" : "✗ 未通过（换算不完整）"}`)
+// 即使通过，也必须说清"在哪三类载体上通过" —— 否则"通过"会被读成全仓库已无 px
+console.log(`    范围: 仅 .css 声明 + Tailwind 任意值 + 内联 style + px 自定义属性；`
+  + `.ts/.tsx 模板字符串里的 CSS 不在内（另有 ${TEMPLATE_CSS_BLIND_SPOTS.length} 处，见清单"可见范围外"一节）`)
 process.exit(ok ? 0 : 1)
