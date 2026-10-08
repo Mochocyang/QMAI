@@ -1,20 +1,45 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   BODY_FONT_OPTIONS,
+  BODY_FONT_PX_MAX,
+  BODY_FONT_PX_MIN,
+  BODY_FONT_PX_PRESETS,
   BODY_FONT_SIZE_MAX,
   BODY_FONT_SIZE_MIN,
   BODY_FONT_SIZE_PRESETS,
+  BODY_LETTER_SPACING_MAX,
+  BODY_LETTER_SPACING_MIN,
+  BODY_LINE_HEIGHT_MAX,
+  BODY_LINE_HEIGHT_MIN,
+  BODY_MARGIN_X_MAX,
+  BODY_MARGIN_X_MIN,
+  BODY_SAFE_BOTTOM_MAX,
+  BODY_SAFE_BOTTOM_MIN,
   DEFAULT_BODY_FONT_FAMILY,
+  DEFAULT_BODY_FONT_PX,
   DEFAULT_BODY_FONT_SIZE_SCALE,
+  DEFAULT_BODY_LETTER_SPACING,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_MARGIN_X,
+  DEFAULT_BODY_SAFE_BOTTOM,
   DEFAULT_UI_FONT_FAMILY,
   UI_FONT_OPTIONS,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   UI_FONT_SIZE_PRESETS,
   applyBodyFontFamily,
+  applyBodyTypography,
+  bodyFontPxFromScale,
+  clampBodyFontPx,
   clampBodyFontSizeScale,
+  clampBodyLetterSpacing,
+  clampBodyLineHeight,
+  clampBodyMarginX,
+  clampBodySafeBottom,
   clampUiFontSizeScale,
   getBodyFontFamilyCss,
   getUiFontFamilyCss,
@@ -599,5 +624,144 @@ describe("界面字体选项（只列中文字体）", () => {
     expect(UI_FONT_OPTIONS[0].cssFamily).toBe(
       '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     )
+  })
+})
+
+/* ────────────────────────── 正文排版参数（px 模型） ────────────────────────── */
+
+describe("正文排版参数", () => {
+  it("正文字号范围 12–32px，默认 18px", () => {
+    expect(BODY_FONT_PX_MIN).toBe(12)
+    expect(BODY_FONT_PX_MAX).toBe(32)
+    expect(DEFAULT_BODY_FONT_PX).toBe(18)
+  })
+
+  it("正文字号取整并夹到范围内", () => {
+    expect(clampBodyFontPx(15)).toBe(15)
+    expect(clampBodyFontPx(15.4)).toBe(15)
+    expect(clampBodyFontPx(15.6)).toBe(16)
+    expect(clampBodyFontPx(1)).toBe(BODY_FONT_PX_MIN)
+    expect(clampBodyFontPx(999)).toBe(BODY_FONT_PX_MAX)
+  })
+
+  it("正文字号对无效输入退回默认，而不是被隐式转成 0 再夹到下限", () => {
+    // Number(null) === 0，若不特殊处理会得到 12px ——
+    // 「没存过值」与「用户要最小字号」是两件事
+    expect(clampBodyFontPx(null)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx(undefined)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx("")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx("abc")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx(Number.NaN)).toBe(DEFAULT_BODY_FONT_PX)
+  })
+
+  it("旧倍数迁移成 px：0.85→15 / 1→18 / 1.25→23 / 1.5→27", () => {
+    expect(bodyFontPxFromScale(0.85)).toBe(15)
+    expect(bodyFontPxFromScale(1)).toBe(18)
+    expect(bodyFontPxFromScale(1.25)).toBe(23)
+    expect(bodyFontPxFromScale(1.5)).toBe(27)
+  })
+
+  it("旧倍数迁移对垃圾值不抛错", () => {
+    expect(bodyFontPxFromScale(null)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale("")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(0)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(-3)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(Number.NaN)).toBe(DEFAULT_BODY_FONT_PX)
+  })
+
+  it("字号预设全部是范围内的整数且钳制后原样通过", () => {
+    // 若预设值钳制后会变，设置页的「选中态」就永远匹配不上
+    expect(BODY_FONT_PX_PRESETS.map((p) => p.value)).toEqual([15, 18, 21, 24])
+    expect(BODY_FONT_PX_PRESETS.length).toBeGreaterThan(0)
+    for (const preset of BODY_FONT_PX_PRESETS) {
+      expect(Number.isInteger(preset.value)).toBe(true)
+      expect(clampBodyFontPx(preset.value)).toBe(preset.value)
+    }
+  })
+
+  it("行间距范围 1.2–2.6，默认 1.95，保留两位小数", () => {
+    expect(DEFAULT_BODY_LINE_HEIGHT).toBe(1.95)
+    expect(clampBodyLineHeight(1.95)).toBe(1.95)
+    expect(clampBodyLineHeight(1)).toBe(BODY_LINE_HEIGHT_MIN)
+    expect(clampBodyLineHeight(9)).toBe(BODY_LINE_HEIGHT_MAX)
+    expect(clampBodyLineHeight(1.234)).toBe(1.23)
+    expect(clampBodyLineHeight(null)).toBe(DEFAULT_BODY_LINE_HEIGHT)
+  })
+
+  it("行间距钳制幂等", () => {
+    for (const v of [1.2, 1.5, 1.95, 2.05, 2.6]) {
+      const once = clampBodyLineHeight(v)
+      expect(clampBodyLineHeight(once)).toBe(once)
+    }
+  })
+
+  it("字间距范围 -1–6px，默认 0", () => {
+    expect(DEFAULT_BODY_LETTER_SPACING).toBe(0)
+    expect(clampBodyLetterSpacing(0)).toBe(0)
+    expect(clampBodyLetterSpacing(-9)).toBe(BODY_LETTER_SPACING_MIN)
+    expect(clampBodyLetterSpacing(99)).toBe(BODY_LETTER_SPACING_MAX)
+    expect(clampBodyLetterSpacing(0.5)).toBe(0.5)
+    expect(clampBodyLetterSpacing(null)).toBe(DEFAULT_BODY_LETTER_SPACING)
+  })
+
+  it("左右边距 null = 跟随窗口，这是默认值", () => {
+    // null 不是"忘了设"，而是一个有意义的取值：让 CSS 的
+    // clamp(20px, 4vw, 48px) 生效，老用户打开后界面与改造前逐位相同
+    expect(DEFAULT_BODY_MARGIN_X).toBeNull()
+    expect(clampBodyMarginX(null)).toBeNull()
+    expect(clampBodyMarginX(undefined)).toBeNull()
+    expect(clampBodyMarginX("")).toBeNull()
+    expect(clampBodyMarginX("abc")).toBeNull()
+  })
+
+  it("左右边距一旦给了数字就钳到 0–160 并取整", () => {
+    expect(clampBodyMarginX(0)).toBe(0)
+    expect(clampBodyMarginX(10)).toBe(10)
+    expect(clampBodyMarginX(10.6)).toBe(11)
+    expect(clampBodyMarginX(-5)).toBe(BODY_MARGIN_X_MIN)
+    expect(clampBodyMarginX(9999)).toBe(BODY_MARGIN_X_MAX)
+  })
+
+  it("底部安全距离范围 0–240px，默认 51px", () => {
+    expect(DEFAULT_BODY_SAFE_BOTTOM).toBe(51)
+    expect(clampBodySafeBottom(51)).toBe(51)
+    expect(clampBodySafeBottom(-1)).toBe(BODY_SAFE_BOTTOM_MIN)
+    expect(clampBodySafeBottom(9999)).toBe(BODY_SAFE_BOTTOM_MAX)
+    expect(clampBodySafeBottom(null)).toBe(DEFAULT_BODY_SAFE_BOTTOM)
+  })
+})
+
+describe("applyBodyTypography 写 CSS 变量", () => {
+  function makeRoot() {
+    const el = document.createElement("div")
+    return el
+  }
+
+  it("五行变量一次写齐，字号与两处 px 值带单位", () => {
+    const root = makeRoot()
+    applyBodyTypography(
+      { fontPx: 15, lineHeight: 2.1, letterSpacing: 0.5, marginX: 40, safeBottom: 80 },
+      root,
+    )
+    expect(root.style.getPropertyValue("--qmai-body-font-px")).toBe("15px")
+    expect(root.style.getPropertyValue("--qmai-body-leading")).toBe("2.1")
+    expect(root.style.getPropertyValue("--qmai-body-letter-spacing")).toBe("0.5px")
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("40px")
+    expect(root.style.getPropertyValue("--qmai-body-safe-bottom")).toBe("80px")
+  })
+
+  it("marginX 为 null 时移除该属性，让 CSS 兜底生效", () => {
+    const root = makeRoot()
+    applyBodyTypography({ fontPx: 15, lineHeight: 1.95, letterSpacing: 0, marginX: 40, safeBottom: 51 }, root)
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("40px")
+    applyBodyTypography({ fontPx: 15, lineHeight: 1.95, letterSpacing: 0, marginX: null, safeBottom: 51 }, root)
+    // 留着空字符串也会盖掉 CSS 的 clamp，必须是彻底移除
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("")
+  })
+
+  it("行高不带单位（带了 px 会让行高不随字号变化）", () => {
+    const root = makeRoot()
+    applyBodyTypography({ fontPx: 18, lineHeight: 1.95, letterSpacing: 0, marginX: null, safeBottom: 51 }, root)
+    expect(root.style.getPropertyValue("--qmai-body-leading")).not.toMatch(/px/)
   })
 })

@@ -416,3 +416,169 @@ export function applyBodyFontFamily(value: unknown, root?: HTMLElement): void {
   const target = root ?? document.documentElement
   target.style.setProperty("--qmai-body-font-family", getBodyFontFamilyCss(value))
 }
+
+/* ────────────────────────── 正文排版参数（字号 / 行距 / 字距 / 边距 / 安全距离） ────────────────────────── */
+
+/**
+ * 正文字号的允许范围（单位 px，绝对值）。
+ *
+ * ── 为什么从「倍数」改成「px」──
+ * 旧模型是 `calc(1.125rem * var(--qmai-body-font-scale, 1))`：
+ * 正文字号 = 界面字号 × 正文倍数。用户找不到「我要 15px」这个动作
+ * —— 只有 85%/100%/125%/150% 四档百分比，且改界面字号会连带改正文。
+ * 现在正文是绝对 px，与界面字号彻底解耦（用户已确认接受这一代价）。
+ *
+ * 上限 32px 低于旧模型的理论上限 40.5px（18 × 1.5 × 1.5），
+ * 故裁切 / 溢出风险是**下降**的，不是上升。
+ */
+export const BODY_FONT_PX_MIN = 12
+export const BODY_FONT_PX_MAX = 32
+export const DEFAULT_BODY_FONT_PX = 18
+
+/** 旧倍数 → 新 px 的换算基准：倍数 1 等于改造前的 18px。 */
+export const BODY_FONT_PX_BASE = 18
+
+/**
+ * 把任意输入钳到字号范围并取整。
+ *
+ * 无效输入退回默认档，而不是被 `Number(null) === 0` 带到下限：
+ * 「没有存过值」与「用户想要最小字号」是两件事，不能混为一谈
+ * （这条是仓库里已有的教训，与 clampScale 的处理保持一致）。
+ */
+export function clampBodyFontPx(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_FONT_PX
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_FONT_PX
+  return Math.max(BODY_FONT_PX_MIN, Math.min(BODY_FONT_PX_MAX, Math.round(n)))
+}
+
+/**
+ * 旧「正文倍数」一次性迁移成 px。
+ *
+ * 只在读不到新键时调用，并且**不删除**旧键 —— 用户回滚到旧版本时，
+ * 旧设置仍然在。映射：0.85→15 / 1→18 / 1.25→23 / 1.5→27。
+ * 用 round：1.25 × 18 = 22.5，取 23 与设置页旧文案的量级一致；
+ * 0.85 × 18 = 15.3，取 15（下限档）。
+ */
+export function bodyFontPxFromScale(scale: unknown): number {
+  const n = Number(scale)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_BODY_FONT_PX
+  return clampBodyFontPx(n * BODY_FONT_PX_BASE)
+}
+
+/** 正文字号预设（px）。滑块仍可任意取值，这些只是快速点选。 */
+export const BODY_FONT_PX_PRESETS = [
+  { label: "小", value: 15 },
+  { label: "默认", value: 18 },
+  { label: "大", value: 21 },
+  { label: "特大", value: 24 },
+] as const
+
+/**
+ * 行间距范围（无单位倍数）。
+ *
+ * 必须是**无单位**数字：带单位（如 32px）会让行高不随字号变化，
+ * 用户调大字号后行距被"吃掉"、文字挤在一起。
+ * 下限 1.2 是「紧凑但可读」的经验下限，上限 2.6 再往上单屏放不下几行。
+ */
+export const BODY_LINE_HEIGHT_MIN = 1.2
+export const BODY_LINE_HEIGHT_MAX = 2.6
+export const DEFAULT_BODY_LINE_HEIGHT = 1.95
+
+export function clampBodyLineHeight(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_LINE_HEIGHT
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_LINE_HEIGHT
+  // 两位小数：滑块步长 0.05，两位足够；同时避免浮点误差反复漂移
+  return Math.max(BODY_LINE_HEIGHT_MIN, Math.min(BODY_LINE_HEIGHT_MAX, Number(n.toFixed(2))))
+}
+
+/**
+ * 字间距范围（px）。
+ *
+ * 允许负值：中文排版里轻微收紧（-0.5px）能让密排的宋体更整齐，
+ * 这是真实存在的排版诉求，不是笔误。
+ */
+export const BODY_LETTER_SPACING_MIN = -1
+export const BODY_LETTER_SPACING_MAX = 6
+export const DEFAULT_BODY_LETTER_SPACING = 0
+
+export function clampBodyLetterSpacing(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_LETTER_SPACING
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_LETTER_SPACING
+  return Math.max(BODY_LETTER_SPACING_MIN, Math.min(BODY_LETTER_SPACING_MAX, Number(n.toFixed(1))))
+}
+
+/**
+ * 左右边距范围（px）。`null` 是一个**有意义的取值**：跟随窗口。
+ *
+ * 改造前正文两侧的间距是响应式的 `clamp(20px, 4vw, 48px)`。
+ * 若把默认值直接定成某个固定 px，所有现有用户打开后版面都会变 ——
+ * 那是一次没人要求的视觉回归。所以默认是 null：不写这个变量，
+ * 让 CSS 的 clamp 兜底，行为与改造前逐位相同；用户拖动滑块之后才固定。
+ */
+export const BODY_MARGIN_X_MIN = 0
+export const BODY_MARGIN_X_MAX = 160
+export const DEFAULT_BODY_MARGIN_X: number | null = null
+
+export function clampBodyMarginX(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return Math.max(BODY_MARGIN_X_MIN, Math.min(BODY_MARGIN_X_MAX, Math.round(n)))
+}
+
+/**
+ * 底部安全距离范围（px）。
+ *
+ * 这是用户报的核心不适感：写作时当前行总贴在窗口最下沿，视线被迫一直在最下面。
+ * 默认 51px 是用户确认的值（改造前是写死的 36px，窄屏还有条 28px 覆盖）。
+ */
+export const BODY_SAFE_BOTTOM_MIN = 0
+export const BODY_SAFE_BOTTOM_MAX = 240
+export const DEFAULT_BODY_SAFE_BOTTOM = 51
+
+export function clampBodySafeBottom(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_SAFE_BOTTOM
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_SAFE_BOTTOM
+  return Math.max(BODY_SAFE_BOTTOM_MIN, Math.min(BODY_SAFE_BOTTOM_MAX, Math.round(n)))
+}
+
+export interface BodyTypographySettings {
+  fontPx: number
+  lineHeight: number
+  letterSpacing: number
+  /** null = 跟随窗口，见 clampBodyMarginX 上方说明。 */
+  marginX: number | null
+  safeBottom: number
+}
+
+/**
+ * 把 5 个排版参数写到 `documentElement` 的行内样式。
+ *
+ * ── 变量命名与那条「不能重复声明」的约束 ──
+ * 这里写的 5 个变量（--qmai-body-font-px / --qmai-body-leading /
+ * --qmai-body-letter-spacing / --qmai-body-margin-x / --qmai-body-safe-bottom）
+ * 是**用户值的唯一入口**，`ui-test.css` 里**不得**再为它们声明字面量默认值。
+ *
+ * 原因：`.ui-test-root` 比 `html` 更靠近正文。若在 `.ui-test-root` 块里也声明
+ * 同名变量，就会盖掉这里写的行内样式，表现为「设置保存了但界面不变」。
+ * CSS 侧因此一律写成 `var(--qmai-body-xxx, 兜底值)`。
+ * （旧代码的 --qmai-body-font-scale 没这个问题，因为字体栈那条读的是
+ *   **继承**下来的值，而这里读的是**本元素自己的**声明。）
+ *
+ * marginX 为 null 时**移除**该属性：留着空字符串同样会盖掉 CSS 的 clamp。
+ */
+export function applyBodyTypography(settings: BodyTypographySettings, root?: HTMLElement): void {
+  if (typeof document === "undefined" && !root) return
+  const target = root ?? document.documentElement
+  target.style.setProperty("--qmai-body-font-px", `${clampBodyFontPx(settings.fontPx)}px`)
+  target.style.setProperty("--qmai-body-leading", String(clampBodyLineHeight(settings.lineHeight)))
+  target.style.setProperty("--qmai-body-letter-spacing", `${clampBodyLetterSpacing(settings.letterSpacing)}px`)
+  target.style.setProperty("--qmai-body-safe-bottom", `${clampBodySafeBottom(settings.safeBottom)}px`)
+  const marginX = clampBodyMarginX(settings.marginX)
+  if (marginX === null) target.style.removeProperty("--qmai-body-margin-x")
+  else target.style.setProperty("--qmai-body-margin-x", `${marginX}px`)
+}
