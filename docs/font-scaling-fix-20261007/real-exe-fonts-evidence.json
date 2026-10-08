@@ -221,6 +221,24 @@
       },
       "uiFontVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
     },
+    "notice": {
+      "hasSection": true,
+      "sectionVisible": true,
+      "noticeText": "本软件内置并使用 HarmonyOS Sans（鸿蒙黑体）字体。",
+      "noticeVisible": true,
+      "itemCount": 9,
+      "items": [
+        "思源宋体 · OFL-1.1 · Copyright 2017-2022 Adobe (http://www.adobe.com/)",
+        "思源黑体 · OFL-1.1 · Copyright 2014-2025 Adobe (http://www.adobe.com/)",
+        "霞鹜文楷 · OFL-1.1 · Copyright 2021-2026 LXGW (https://github.com/lxgw/LxgwWenKai)",
+        "文津宋体 · OFL-1.1 · Copyright (c) 2024-2026, Takushun Wu (https://github.com/takushun-wu/)",
+        "寒蝉正楷体 · OFL-1.1 · Copyright 2023 The ChillKai Project Authors",
+        "鸿蒙黑体 · HarmonyOS Sans Fonts License Agreement · Copyright 2021 Huawei Device Co., Ltd.",
+        "得意黑 · OFL-1.1 · Copyright (c) 2022--2024, atelierAnchor <https://atelier-anchor.com>",
+        "朱雀仿宋 · OFL-1.1 · Copyright (c) 2023, Zhejiang JadeFoci Techonology Co. LTD",
+        "更纱黑体 · OFL-1.1 · Copyright (c) 2015-2025, Renzhi Li (aka. Belleve Invis, belleve@typeof.net)."
+      ]
+    },
     "multiWeight": {
       "count": 17,
       "families": {
@@ -258,12 +276,12 @@
       "uiFontVarAfter": "\"ChillKai\", system-ui, -apple-system, \"Segoe UI\", \"Microsoft YaHei\", \"PingFang SC\", sans-serif",
       "raster": {
         "targetSelf": {
-          "hash": "88e299f1",
-          "ink": 5029
+          "hash": "77f8209d",
+          "ink": 9227
         },
         "targetSelf2": {
-          "hash": "88e299f1",
-          "ink": 5029
+          "hash": "77f8209d",
+          "ink": 9227
         },
         "other": {
           "hash": "afcd9197",
