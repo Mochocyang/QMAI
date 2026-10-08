@@ -291,6 +291,75 @@ async function main() {
   evidence.steps.selects = selects
   await page.screenshot({ path: join(HERE, "real-exe-fonts-01-下拉.png") }).catch(() => {})
 
+  /*
+   * ── 一·补、界面上必须有鸿蒙黑体的许可告知 ──
+   *
+   * 鸿蒙黑体的许可（HarmonyOS Sans Fonts License Agreement）第 2 条第 1 项是
+   * **强制**义务：
+   *   `YOU shall make a prominent notice in the software to state that
+   *    HarmonyOS Sans Fonts are used.`
+   *
+   * 关键词是 **in the software** —— 所以这条只能在**真实 exe** 里验：
+   * jsdom 里的 `interface-section.spec.tsx` 证明的是"组件会渲染这几个节点"，
+   * 证明不了"用户真的能在软件里看到它"（比如设置页根本没挂载这个分区、
+   * 或者构建产物里丢了这段）。许可义务要的正是后者。
+   */
+  console.log("")
+  console.log("  ══ 一·补、界面上的第三方字体许可告知（鸿蒙黑体的强制义务）══")
+  const notice = await page.evaluate(() => {
+    const section = document.querySelector('[data-ui="bundled-font-licenses"]')
+    const noticeEl = document.querySelector('[data-ui="harmonyos-notice"]')
+    const items = Array.from(document.querySelectorAll('[data-ui="bundled-font-license-list"] li'))
+    // 可见性：许可要求"显著"，藏起来（display:none / 0 尺寸）不算
+    const visible = (el) => {
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      return r.width > 0 && r.height > 0 && cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) > 0
+    }
+    return {
+      hasSection: !!section,
+      sectionVisible: visible(section),
+      noticeText: (noticeEl?.textContent ?? "").trim(),
+      noticeVisible: visible(noticeEl),
+      itemCount: items.length,
+      items: items.map((li) => (li.textContent ?? "").replace(/\s+/g, " ").trim()),
+    }
+  }).catch((e) => ({ error: String(e) }))
+
+  if (notice?.error) {
+    fails.push(`读取许可告知失败：${notice.error}`)
+    console.log(`  ✗ 读取失败：${notice.error}`)
+  } else {
+    evidence.steps.notice = notice
+    console.log(`  告知区存在=${notice.hasSection} 可见=${notice.sectionVisible} 条目=${notice.itemCount}`)
+    if (!notice.hasSection) {
+      fails.push("界面上找不到随包字体许可告知区（data-ui=\"bundled-font-licenses\"）")
+    } else if (!notice.sectionVisible) {
+      // 允许出现在折页/详情里，但必须有可见尺寸 —— 完全不可见就不满足"显著"
+      fails.push("许可告知区存在但不可见（尺寸为 0 或被 display:none 隐藏）—— 不满足许可的『显著注明』")
+    }
+    // 显著声明必须点名 HarmonyOS Sans
+    if (!/HarmonyOS Sans/i.test(notice.noticeText)) {
+      fails.push(`显著声明没有点名 HarmonyOS Sans（实际读到：${JSON.stringify(notice.noticeText)}）`)
+    } else if (!notice.noticeVisible) {
+      fails.push("显著声明存在但不可见 —— 不满足许可的『显著注明』")
+    } else {
+      console.log(`  ✓ 显著声明可见且点名 HarmonyOS Sans：${JSON.stringify(notice.noticeText)}`)
+    }
+    // 9 个族都要列出来，且每条都要带版权行
+    if (notice.itemCount !== 9) {
+      fails.push(`许可告知列出的字体条目数是 ${notice.itemCount}，期望 9（9 个随包族）`)
+    } else {
+      const lacksCopyright = notice.items.filter((t) => !/Copyright|©/i.test(t))
+      if (lacksCopyright.length) {
+        fails.push(`有 ${lacksCopyright.length} 条没有版权行：${JSON.stringify(lacksCopyright)}`)
+      } else {
+        console.log(`  ✓ 9 个随包族都列出且都带版权行`)
+      }
+    }
+  }
+
   /* ── 二、随包字体必须出现在「本机中文字体」分组里 ── */
   console.log("")
   console.log("  ══ 二、随包字体是否出现在下拉里 ══")
