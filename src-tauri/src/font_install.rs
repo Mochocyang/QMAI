@@ -1862,4 +1862,262 @@ mod tests {
         out.push('"');
         out
     }
+
+    /// 去掉 NSIS 注释（`;` 到行尾），且不误伤引号里的 `;`。
+    ///
+    /// 守卫必须只看**代码**。模板的说明性注释里**故意**写着
+    /// `${StrTrimNewLines}`（用来解释"该用哪个变体、为什么"），
+    /// 若不剥注释，这条守卫就会把模板自己的文档当成违规代码 ——
+    /// 它第一次跑就是这么红的，所以这个函数不是过度设计。
+    fn strip_nsis_comments(src: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        for line in src.lines() {
+            let mut in_quote = false;
+            for c in line.chars() {
+                match c {
+                    '"' => {
+                        in_quote = !in_quote;
+                        out.push(c);
+                    }
+                    ';' if !in_quote => break,
+                    c => out.push(c),
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// 抽出某个 NSIS `Section` 的正文（到下一个 `SectionEnd` 为止）。
+    ///
+    /// NSIS 的 Section 不嵌套，所以"第一个 `SectionEnd`"就是它的结尾。
+    /// 抽不到时**必须**失败而不是返回空串：返回空串会让"区里没有违规写法"
+    /// 这类断言变成在空文本上通过 —— 正是本项目反复强调的"假绿"。
+    fn nsis_section(src: &str, header: &str) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for line in src.lines() {
+            let t = line.trim();
+            if !inside {
+                if t.starts_with(header) {
+                    inside = true;
+                }
+                continue;
+            }
+            if t == "SectionEnd" {
+                break;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        assert!(
+            !out.trim().is_empty(),
+            "没能从模板里抽出 `{header}` 的正文 —— 段名变了，守卫已失效（这是假绿，必须修）"
+        );
+        out
+    }
+
+    /// 随包字体的真实目录（`src-tauri/fonts/`）。
+    fn bundled_fonts_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts")
+    }
+
+    /// NSIS 安装器模板（`src-tauri/windows/_tauri-installer-template.nsi`）。
+    fn installer_template_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("windows/_tauri-installer-template.nsi")
+    }
+
+    /// 从模板里抽出 `QMAI_FONT_TABLE` 宏体的 `(文件名, 值名)` 列表。
+    ///
+    /// 只认 `!insertmacro QMAI_FONT_ENTRY "${mode}" "<file>" "<valueName>"` 这一种
+    /// 形状：严格到"改一处写法就会失败"，因为静默地少抽一条正是这条守卫要防的事。
+    fn parse_nsis_font_table(src: &str) -> Vec<(String, String)> {
+        let mut in_table = false;
+        let mut out = Vec::new();
+        for line in src.lines() {
+            let t = line.trim();
+            if t.starts_with("!macro QMAI_FONT_TABLE") {
+                in_table = true;
+                continue;
+            }
+            if in_table && t == "!macroend" {
+                break;
+            }
+            if !in_table || !t.starts_with("!insertmacro QMAI_FONT_ENTRY") {
+                continue;
+            }
+            // 取第 2、3 个被引号括起来的字段（第 1 个是 ${mode}）
+            let quoted: Vec<&str> = t.split('"').skip(1).step_by(2).collect();
+            assert_eq!(
+                quoted.len(),
+                3,
+                "模板里的字体表行格式不对（应为 mode/file/valueName 三段引号字段）：{t}"
+            );
+            assert_eq!(quoted[0], "${mode}", "字体表行的第一个字段必须是 ${{mode}}：{t}");
+            out.push((quoted[1].to_string(), quoted[2].to_string()));
+        }
+        assert!(
+            !out.is_empty(),
+            "没能从模板里抽出任何字体表条目 —— 宏名或行格式变了，守卫已失效（这是假绿，必须修）"
+        );
+        out
+    }
+
+    /// NSIS 模板里的字体表必须与随包清单**逐字一致**。
+    ///
+    /// ── 为什么这条测试必须存在 ──
+    /// 安装器现在会在安装时把随包字体拷到用户字体目录并写 HKCU，为此 NSIS 里
+    /// 需要一份"文件名 → 注册表值名"的表（NSIS 没有 JSON 解析能力，而它在编译期
+    /// 就知道要装什么）。于是这份表与 `fonts/fonts-manifest.json` 出现重复。
+    ///
+    /// 两者脱节的后果**不会有任何报错**：
+    ///   · 表里少了某个字体 → 装完在机器上没有它，用户以为字体丢了；
+    ///   · 值名拼错（少个空格、漏掉 Bold 后缀）→ 文件拷进去了，但系统字体表里
+    ///     没有它，所以**任何**字体下拉都不会出现它；
+    ///   · 表里多了清单没有的文件 → 安装器找不到源文件，`CopyFiles` 静默失败。
+    /// 三种都只在界面上表现为"这个字体没有"，排查成本极高。
+    ///
+    /// 它同时钉住两件事：① 值名与 `registry_value_name` 一致；
+    /// ② 同族多字重确实写成了**不同**的值名（否则后写的覆盖先写的）。
+    #[test]
+    fn 模板里的字体表必须与随包清单逐字一致() {
+        let src = fs::read_to_string(installer_template_path())
+            .expect("读不到 NSIS 安装器模板；本测试需要它来核对字体表");
+        let table = parse_nsis_font_table(&src);
+
+        let manifest = read_manifest(&bundled_fonts_dir())
+            .expect("读不到随包清单")
+            .expect("随包清单不存在");
+        assert!(!manifest.fonts.is_empty(), "随包清单是空的");
+
+        // 期望：清单里每个文件对应 registry_value_name(family, weight)
+        let mut expected: Vec<(String, String)> = manifest
+            .fonts
+            .iter()
+            .map(|e| (e.file.clone(), registry_value_name(&e.family, e.weight)))
+            .collect();
+        expected.sort();
+
+        let mut actual = table.clone();
+        actual.sort();
+
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "模板字体表与随包清单的条数不同：\n  模板 {} 条\n  清单 {} 条\n\
+             模板表：{actual:#?}\n清单推导：{expected:#?}",
+            actual.len(),
+            expected.len()
+        );
+        assert_eq!(
+            actual, expected,
+            "模板字体表与随包清单不一致（文件名或注册表值名不同）——\
+             请同步 src-tauri/windows/_tauri-installer-template.nsi 的 QMAI_FONT_TABLE"
+        );
+
+        // 反向自检：值名必须两两不同。同族多字重撞名时上面那条 assert_eq 也会红，
+        // 但这里给出的是**直接原因**，比"集合不相等"好定位得多。
+        let mut names: Vec<&String> = actual.iter().map(|(_, n)| n).collect();
+        names.sort();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(
+            before,
+            names.len(),
+            "模板字体表里出现了重复的注册表值名 —— 同族的不同字重会互相覆盖，\
+             结果是磁盘上多一个文件、系统里少一档字重：{actual:#?}"
+        );
+    }
+
+    /// 模板里的安装块必须与卸载块共用同一张表，且都用 Un 变体。
+    ///
+    /// 这不是重复上面那条：上面只核对**表的内容**，这条核对**表被怎么用**。
+    /// 具体防两件已经真实发生过的事故：
+    ///   ① 安装段写死一份、卸载段另抄一份 → 加字体时只改一处，
+    ///      结果是"装了但卸不掉"（用户卸载后字体永久残留）；
+    ///   ② 卸载段用了 StrFunc 的非 `Un` 变体 → makensis 直接编译失败，
+    ///      **整个安装包都打不出来**（真实发生过，见 bundled-fonts.md §6）。
+    #[test]
+    fn 模板的安装与卸载必须共用同一张字体表() {
+        let src = fs::read_to_string(installer_template_path()).expect("读不到 NSIS 安装器模板");
+
+        // 唯一的字面表：`QMAI_FONT_ENTRY` 的插入点只应出现在 QMAI_FONT_TABLE 宏体里
+        let entry_inserts = src
+            .lines()
+            .filter(|l| l.trim().starts_with("!insertmacro QMAI_FONT_ENTRY"))
+            .count();
+        let table_uses = src
+            .lines()
+            .filter(|l| {
+                let t = l.trim();
+                t == "!insertmacro QMAI_FONT_TABLE \"install\""
+                    || t == "!insertmacro QMAI_FONT_TABLE \"install-norecord\""
+                    || t == "!insertmacro QMAI_FONT_TABLE \"uninstall\""
+            })
+            .count();
+        assert_eq!(
+            entry_inserts,
+            parse_nsis_font_table(&src).len(),
+            "字体表条目只应出现在 QMAI_FONT_TABLE 宏体里 —— 在别处另抄一份必然与它脱节"
+        );
+        assert_eq!(table_uses, 3, "期望恰好 3 处使用字体表（install / install-norecord / uninstall）");
+
+        // 安装段与卸载段都必须真的引用这张表
+        assert!(
+            src.contains("!insertmacro QMAI_FONT_TABLE \"install\""),
+            "安装段没有使用字体表 —— 安装时不会装字体"
+        );
+        assert!(
+            src.contains("!insertmacro QMAI_FONT_TABLE \"uninstall\""),
+            "卸载段没有使用字体表 —— 『装完从未启动过应用』时字体将无法清理"
+        );
+
+        // `${StrCase}` / `${StrLoc}` / `${UnStrTrimNewLines}` 在文件顶部是**合法**的
+        // （那是 StrFunc 的宏声明，必须留在顶层）。真正致命的是在
+        // `Section Uninstall` 里**调用**非 `Un` 变体 —— NSIS 只允许在卸载区
+        // `Call un.*`，用错会让 makensis 直接编译失败、整个安装包打不出来。
+        let uninstall = strip_nsis_comments(&nsis_section(&src, "Section Uninstall"));
+        let install = strip_nsis_comments(&nsis_section(&src, "Section Install"));
+        for bad in ["${StrTrimNewLines}", "${StrCase}", "${StrLoc}"] {
+            assert!(
+                !uninstall.contains(bad),
+                "`Section Uninstall` 里调用了 `{bad}`（非 Un 变体）。NSIS 只允许在\
+                 卸载区 `Call un.*`，用错会让 makensis 编译失败、整个安装包打不出来。\
+                 请改用 `${{Un...}}` 变体。"
+            );
+        }
+        // 正向对照：Un 变体必须真的被声明，否则上一行会因为"没人用它"而永远绿
+        assert!(
+            src.contains("${UnStrTrimNewLines}"),
+            "模板没有声明 `${{UnStrTrimNewLines}}` —— 清理段会无法编译"
+        );
+
+        /*
+         * ── 两个字体段都必须显式 SetShellVarContext current ──
+         *
+         * 随包字体永远是**按用户**装的（HKCU + 用户自己的 %LOCALAPPDATA%），与
+         * Rust 侧 `user_font_dir()`/`app_data_dir()` 同一处。但 NSIS 的
+         * `$LOCALAPPDATA` 与 `$APPDATA` 会随 `SetShellVarContext` 变 —— 本机实测：
+         *     current → C:\Users\<用户>\AppData\Local
+         *     all     → C:\ProgramData
+         * 而 `.onInit` 里的 `SetContext` 是按 INSTALLMODE 设的（perMachine ⇒ all）。
+         * 今天 INSTALLMODE 是 currentUser 所以碰巧正确；一旦有人改成
+         * perMachine/both，安装段会把字体拷进 C:\ProgramData\...（而 HKCU 值指向
+         * 那里，字体全都用不了），卸载段则会去 C:\ProgramData 找记录、永远找不到，
+         * 于是字体永久残留 —— 两种都**没有任何报错**。
+         *
+         * 这条守卫与 INSTALLMODE 的当前取值无关，所以它防的是"以后有人改配置"。
+         */
+        for (name, section) in [
+            ("安装段", &install),
+            ("卸载清理段", &uninstall),
+        ] {
+            assert!(
+                section.contains("SetShellVarContext current"),
+                "{name}没有显式 `SetShellVarContext current`。随包字体是按用户装的，\
+                 而 `$LOCALAPPDATA`/`$APPDATA` 会随 INSTALLMODE 变成 C:\\ProgramData；\
+                 缺少这一句在 perMachine/both 下会静默失效（装完用不了 / 卸载残留）。"
+            );
+        }
+    }
 }

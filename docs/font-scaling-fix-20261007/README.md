@@ -55,7 +55,7 @@
 | `bundled-fonts.md` + `bundled-fonts.json` | **随包字体清单**（9 族 / 11 个字重文件，209,720,176 B = 200.00 MiB）与逐款授权依据 | 体积与清单由 `sync-fonts-manifest.mjs --check` 钉住；§1.1 记录同族多字重撞注册表值名的实测缺陷 |
 | `docs/font-license-verification/verify-bundle-licenses.mjs` | **授权判据**：逐款比对许可证原文，只认"允许把字体文件打进闭源商业安装包再分发" | 可捆绑 23 款 / 明确不可捆绑 2 款 / 0 款需人工判定。用户点名要的 MiSans 与阿里巴巴普惠体被判**不可捆绑**并给出原文依据 |
 | `scripts/sync-fonts-manifest.mjs --check` | 运行期清单与磁盘文件的一致性 + 同族值名查重 | 11 款一致；值名重复会直接退出 1 |
-| `verify-nsis-font-cleanup.mjs` | **卸载清理段的验收**：从真实模板抽出那段代码，`makensis` 编译（阶段一），并在**一次性注册表键 + 含中文的临时目录**上**真跑一遍**（阶段二 `--e2e`） | 两阶段通过。⭐ 骨架**必须**是 `Section Uninstall`：同一段代码在普通 `Section` 里编译合法，用错 StrFunc 变体（`${StrTrimNewLines}` vs `${UnStrTrimNewLines}`）会在这里假绿、却让真实安装包**完全打不出来**（实测 2×2 矩阵见 `bundled-fonts.md` §6 第 5 条）。阶段二跑的是**真正的卸载器**（`WriteUninstaller` + `/S`），因为清理段只在卸载器里执行 |
+| `verify-nsis-font-cleanup.mjs` | **安装 + 卸载两段 NSIS 代码的验收**：从真实模板抽出代码与字体表宏，`makensis` 编译（阶段一 + NSIS↔Rust 契约），在**一次性注册表键 + 含中文的临时目录**上**真跑卸载器**（阶段二）与**真跑安装段**（阶段三 `--e2e`） | 三阶段通过。⭐ 骨架**必须**复现生产上下文：清理段用 `Section Uninstall`（同一段代码在普通 `Section` 里编译合法，用错 StrFunc 变体 `${StrTrimNewLines}` vs `${UnStrTrimNewLines}` 会假绿、却让真实安装包**完全打不出来**，实测 2×2 矩阵见 `bundled-fonts.md` §6 第 5 条）；清理段只在卸载器里执行，故阶段二跑**真正的卸载器**（`WriteUninstaller` + `/S`）。⭐ 阶段三的基准是 `fonts-manifest.json`**而不是模板自己** —— 用模板当预期值时，「表里漏一款字体」「文件名拼错」两个变异都测不出来（假绿，实测抓到后已改）。末尾有**安全网**：真实字体键运行前后逐值快照比对（脚手架若沿用生产默认 key 会把测试值写进真键，我这次真踩到了） |
 | `verify-real-exe-fonts.mjs` | **真实 exe 验收**：便携版启动后读 HKCU 值、断言 9 个族都能在下拉里选到、canvas 像素哈希证明字形确实变了（含确定性对照）；**并断言许可告知真的对用户可见** | 实跑通过；11 个文件 / 9 个族；多字重部分按**文件名**匹配，不用值名前缀（否则基线里已有的 `Source Han Serif SC Heavy` 会让 Bold 未装也判过）。许可告知一节要求告知区**有可见尺寸**（`display:none`／0 尺寸 = 藏起来，不算"显著"）、声明点名 HarmonyOS Sans、9 族都带版权行 |
 | `scripts/check-bundled-font-licenses.mjs` | **界面许可告知与事实的一致性**：族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽 | 9 族全绿。鸿蒙黑体的许可**强制**要求"在软件中显著注明使用了 HarmonyOS Sans"——仅随包放许可证文本**不满足**该条，故告知必须在界面上 |
 | `src/lib/bundled-font-licenses.spec.ts` | 同上，但在**测试套件里自动跑**（脚本要人记得跑） | 9 条用例，直接读 `src-tauri/fonts/` 真实文件。9 条变异全部实测变红（删族 / 加族 / 改版权行 / 声明清空 / 不点名 / 谎称非 OFL / UI 不渲染） |
@@ -201,8 +201,10 @@ node docs/font-scaling-fix-20261007/verify-real-exe.mjs --attach --port 9333   #
 node docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs --port 9333
 
 # ── 阶段 4（随包字体）──────────────────────────────────────────────
-# 卸载清理段：先编译，再在一次性注册表键 + 含中文的临时目录上真跑一遍
+# 安装段 + 卸载段的 NSIS 代码：先编译，再在一次性注册表键 + 含中文的临时目录上真跑
 # （--e2e 需要先构建过 Rust；不带 --e2e 只做编译与契约检查）
+#   --e2e 三个阶段：①编译+契约 ②真跑卸载器 ③真跑安装段（含"装完从未启动"的兜底）
+#   末尾会比对真实字体键的快照：一旦被脚手架改动就变红
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs --e2e
 

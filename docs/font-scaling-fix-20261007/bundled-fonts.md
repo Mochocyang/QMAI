@@ -146,6 +146,33 @@ src-tauri/fonts/
 安装、许可证也无人核对）、清单列出但磁盘上没有的文件、
 以及**任意两条的注册表值名重复**（见 §1.1）。
 
+**安装动作由两条路径完成（都实施，互相幂等）**
+
+| 路径 | 位置 | 覆盖的场景 |
+|---|---|---|
+| **安装器**：拷贝 + 写 HKCU + 写卸载记录 | `_tauri-installer-template.nsi` 的 `Section Install` | 用户原话「在安装软件时自动装到电脑中」。补齐"**装完还没启动过应用**"这个空档 |
+| **应用启动**：幂等"确保" | `src-tauri/src/font_install.rs` 的 `ensure_fonts_installed`（`lib.rs` 的 `setup`） | 便携版 / AppImage（没有安装器）、更新后自愈、安装器被杀或拷贝失败时补装 |
+
+两者指向**同一组**目标（`%LOCALAPPDATA%\Microsoft\Windows\Fonts` + 同一套值名
+规则），所以先跑哪个、跑几次都收敛到同一状态。装入时机上：
+安装器装完即可用（含其它软件与导出的 HTML/PDF 按名引用），
+启动路径负责把它"确认为可用状态"（按文件大小跳过昂贵的拷贝，注册每次都重做）。
+
+安装器的字体表**写在 NSIS 里**（NSIS 无法解析 JSON，而它在编译期就知道要装什么），
+因此与 `fonts-manifest.json` 存在重复 —— 这是刻意接受的代价，由**三道守卫**钉住：
+
+1. Rust 测试 `模板里的字体表必须与随包清单逐字一致`（进 `cargo test`，自动跑）；
+2. `verify-nsis-font-cleanup.mjs --e2e` 的**阶段三**：真编译 + 真执行安装段，
+   核对 11 个文件、11 个注册表值（含数据指向）、22 行记录，再删掉记录重跑卸载兜底；
+3. 同测试的反向自检：值名两两不同、表只出现在宏体一处、
+   **两个字体段都显式 `SetShellVarContext current`**。
+
+⚠️ 第 3 条里的 `SetShellVarContext current` 不是形式主义：实测 `$LOCALAPPDATA`
+在 `all` 上下文下会变成 `C:\ProgramData`，而 `.onInit` 的 `SetContext` 按
+`INSTALLMODE` 设（`perMachine` ⇒ `all`）。今天 `INSTALLMODE` 是 `currentUser`
+所以不加也碰巧对；改成 `perMachine`/`both` 就会变成"装完一个字体都用不了"
+或"卸载后永久残留"，**两种都没有任何报错**。
+
 ---
 
 ## 3. 许可证义务（发布前必须逐条满足）
@@ -426,6 +453,30 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
    加正向 token 断言 `${UnStrTrimNewLines}`、加反向断言禁止非 `Un` 变体、
    并且阶段二改成**运行真正的卸载器**（`WriteUninstaller` + `/S`）——
    清理段只在卸载器里执行，直接跑安装器 exe 是跑不到的。
+6. **安装时也装字体（已实施，与 §9 初稿的"启动时安装"并存而非替代）**。
+   §9 的建议原文是"由应用在启动时幂等确保安装，而**非只**依赖安装器"，
+   实施按字面执行 —— 两条路径都做：
+   - **安装器**（新增）：`Section Install` 里按用户拷贝 + 写 HKCU + 写卸载记录。
+     它补的是启动路径唯一的空档：**装完还没启动过应用**（用户的原话就是
+     "在安装软件时自动安装到电脑中"）。
+   - **启动**（已有，保留）：覆盖便携版/AppImage（没有安装器）、更新后自愈、
+     安装器被杀或拷贝失败时补装。
+
+   两者写同一组目标，互相幂等，因此不是两套逻辑。更新模式（`/UPDATE`）下安装段
+   **跳过**：字体早就在机器上，重拷 200MB 无意义；而且此刻记录由 Rust 维护，
+   里面可能含"本次清单已移除、但仍留在机器上"的旧字体条目（见第 3 条），
+   用安装器的表重写记录会把那些条目**永久抹掉**。
+
+   代价是 NSIS 里多了一份字体表（与 `fonts-manifest.json` 重复），
+   由三道守卫钉住（清单/值名双向比对、真跑安装→卸载往返、
+   表只出现一处 + 两段都显式 `SetShellVarContext current`）。
+
+   ⚠️ 写这一段时踩到过一个**会静默损坏用户环境**的坑，记在这里免得重犯：
+   验收脚本的脚手架若沿用生产默认的 `QMAIFONTKEY`，就会把测试值写进**真实**字体键。
+   我这次真把 11 个指向 `%TEMP%` 的悬空值写了进去，覆盖了用户已装好的 11 个注册项
+   （不报错、不留日志，只表现为"字体莫名消失"）。已逐个恢复并用 DirectWrite 复核
+   （`ChillKai` 仍解析为 `寒蝉正楷体`）。脚本末尾现已加**安全网**：运行前后对真实
+   字体键做逐值快照比对，一旦被改动立即变红。
 
 ---
 
@@ -445,8 +496,14 @@ cd src-tauri; cargo test --offline --lib 随包字体的清单族名 -- --nocapt
 # 4) 安装/卸载记录与幂等性
 cd src-tauri; cargo test --offline --lib font_install
 
-# 5) 卸载清理段：先编译，再在一次性注册表键 + 含中文的临时目录上**真跑一遍**
+# 5) 安装 + 卸载的 NSIS 代码：先编译，再在一次性注册表键 + 含中文的临时目录上**真跑一遍**
 #    （不带 --e2e 只做编译与 NSIS↔Rust 契约检查）
+#    带 --e2e 会跑三个阶段：
+#      阶段一  清理段编译 + NSIS↔Rust 键名/文件名契约
+#      阶段二  真跑卸载器（按记录精确清理、幂等重跑、记录缺失分支、canary 不被误删）
+#      阶段三  真跑安装段（11 文件 / 11 值 / 22 行记录、模板表与清单双向比对、
+#              "装完从未启动过"的卸载兜底）
+#    末尾还有安全网：真实字体键运行前后逐值快照比对，一旦被改动立即变红。
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs
 node docs/font-scaling-fix-20261007/verify-nsis-font-cleanup.mjs --e2e
 
@@ -463,8 +520,9 @@ npx tauri build --bundles nsis
 Get-Item src-tauri\target\release\bundle\nsis\*_x64-setup.exe | Select-Object Name, Length
 ```
 
-> ⚠️ **第 8 步不可省略。** 第 5 步的骨架虽然已改成 `Section Uninstall`，
-> 但它仍是**抽出来的片段**，测不到与模板其余部分的交互。
+> ⚠️ **第 8 步不可省略。** 第 5 步的骨架虽然已改成 `Section Uninstall`（阶段二）
+> 与普通 `Section`（阶段三，与生产一致），但它仍是**抽出来的片段**，
+> 测不到与模板其余部分的交互。
 > 而 `npm run build:portable` **不跑 NSIS**（`--no-bundle`），
 > 所以它不能替代第 8 步 —— 安装包曾经因此长期完全打不出来而无人察觉（见 §6 第 5 条）。
 
