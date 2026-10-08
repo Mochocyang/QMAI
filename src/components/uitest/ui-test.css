@@ -26,20 +26,32 @@
      模型设置空状态标题），用户主动改字体时它们会一起变 —— 这是有意接受的，
      因为它们同属"书卷感"衬线层。 */
   --serif: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);
-  /* 正文字号：先跟随界面字号（rem），再叠加正文字号倍数。
-     「单一来源」是正确性要求，不是优化：正文有 4 处用同一字号，其中
-     [data-find-highlights] 是覆盖在 textarea 之上的查找高亮层，必须与输入层
-     逐像素对齐；两处各写一份数字，今天相同、改一处就错位。
-     1.125rem = 改造前的 18px（100% 根字号下计算值完全相同，判据 1 会强制保证）。
-     从属尺寸一律写 calc(<精确 rem> * 倍数)，**不用 em**：
-     实测 ::marker 的 em 基准是所属 li（16px）而非正文 18px，
-     按 12/18=0.6667em 写会得到 10.67px 而不是 12px；
-     而 0.8889em 这类近似值还会破坏判据 1 的逐位等效（×18px=16.0002px）。
-     改造前每个从属尺寸都是 16 的整数倍，即精确 rem，故此法既精确又能缩放。 */
-  --qmai-body-font-size: calc(1.125rem * var(--qmai-body-font-scale, 1));   /* 正文 18px */
-  --qmai-body-font-list: calc(1rem * var(--qmai-body-font-scale, 1));       /* 列表 16px */
-  --qmai-body-font-marker: calc(0.75rem * var(--qmai-body-font-scale, 1));  /* 无序标记 12px */
-  --qmai-body-line-height: 1.95;
+  /* 正文字号：**绝对像素**，由 App 写 --qmai-body-font-px（documentElement 行内样式）。
+     改造前是 calc(1.125rem * var(--qmai-body-font-scale, 1))，语义是
+     「正文字号 = 界面字号 × 倍数」；现在正文与界面字号彻底解耦
+     （用户已确认接受：改界面字号时正文不再跟着变）。
+
+     为什么需要这一层间接，而不让 App 直接写 --qmai-body-font-size：
+     本规则块的宿主是 .ui-test-root，它比 html **更近**。
+     若 App 把 --qmai-body-font-size 写在 html 上，本块的声明会把它盖掉，
+     表现为「设置保存了但界面不变」。写成「读一个从 html 继承下来的变量」
+     就没有这个问题 —— 改造前的 --qmai-body-font-scale 一直是好用的，
+     正是因为它走的也是"继承"这条路，本改造必须保持同一形态。
+     缺省 18px 与改造前 100% 档逐位相同（首屏、以及无 JS 场景靠它兜底）。
+
+     从属尺寸改为**由字号派生**，不再各写一份 rem 字面量：
+     改造前三者是 1.125rem / 1rem / 0.75rem 三个相互独立的数字，
+     改字号时漏改一条，列表与正文就会不同步。比例沿用改造前的
+     16/18 = 8/9 与 12/18 = 2/3，故默认档数值逐位不变（18→16、18→12）。
+     必须写 calc(变量 * 分数) 而不是 em：实测 ::marker 的 em 基准是
+     所属 li 而非正文，用 em 会算出 10.67px 而不是 12px。 */
+  --qmai-body-font-size: var(--qmai-body-font-px, 18px);                  /* 默认 18px */
+  --qmai-body-font-list: calc(var(--qmai-body-font-size) * 8 / 9);        /* 默认 16px */
+  --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 2 / 3);      /* 默认 12px */
+  /* 行间距：同样由 App 写 --qmai-body-leading，这里只做间接层。
+     必须保持**无单位**：带单位会让行高不随字号变化，用户调大字号后
+     行距被"吃掉"、文字挤在一起。缺省 1.95 与改造前逐位相同。 */
+  --qmai-body-line-height: var(--qmai-body-leading, 1.95);
   --ui-canvas: #edf1ec; --ui-paper: #fcfdfb; --ui-panel: #f2f5ef; --ui-soft: #e4ece3;
   --ui-ink: #273c35; --ui-muted: #5d6e64; --ui-accent: #45624f; --ui-on-accent: #fff;
   --ui-warm: #f3ebdf; --ui-danger: #943f36; --ui-line: #dfe6da;
