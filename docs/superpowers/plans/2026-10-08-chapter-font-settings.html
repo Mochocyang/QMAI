@@ -2467,20 +2467,46 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 2：用一条会红的断言先证明变量层真的被读</div>
+    <div class="step-h"><span class="box"></span>Step 2：跑那个**真的会红**的守卫（不是单测）</div>
     <div class="step-body">
-      <p>临时把 <code>--qmai-body-font-size</code> 改成 <code>var(--qmai-body-font-px, 99px)</code>，跑一次已有的单测确认它变红：</p>
-      <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect bad">Expected: 若此时仍全绿，说明现有断言根本没读这一行 —— 先记下这件事，任务 12 会补上真正能红的守卫。改回正确值再继续。</p>
+      <p><strong>先说实话</strong>：本任务的改动<strong>不会</strong>让任何 vitest 单测变红 ——
+      <code>ui-test-editor.spec.tsx</code> 只读 <code>ui-test-editor.css</code>，
+      而全仓没有任何 spec 读 <code>ui-test.css</code> 里那几个正文字号变量。
+      跑它是绿是红都与本任务无关（跑一下确认没回归即可）。</p>
+      <p>真正因为本任务而变红的是这个静态守卫 —— 它明文要求
+      <code>calc(&lt;rem&gt; × var(--qmai-body-font-scale, 1))</code> 这个**旧契约**，
+      而本任务正是要把那个契约换成 <code>var(--qmai-body-font-px, 18px)</code>：</p>
+      <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</code></pre>
+      <p class="expect bad">Expected: FAIL —— 三条「变量定义」报错（字号 / 列表 / 标记各一条），
+      形如「<code>--qmai-body-font-size 取值不是「精确 rem × 倍数」…</code>」。
+      <strong>这就是本任务真正的红色阶段</strong>：它证明那三个变量确实被这个守卫读着，
+      不是"改了也没人管"。</p>
+      <div class="note warn">
+        <span class="t">这个脚本在本任务之后、任务 12 之前会一直红 —— 这是有意的</span>
+        <p>它的断言里编码的是<strong>旧契约</strong>（<code>1.125rem × 倍数</code>），
+        而换契约这件事按计划属于<strong>任务 12</strong>（它的 <code>git add</code> 里就有这个文件）。
+        所以不要在本任务里顺手改它 —— 那会越过任务边界，
+        且任务 12 还要用它做「换契约前后都守住不变量」的对照。</p>
+        <p>它<strong>不在</strong> <code>npm run test:mocks</code> 里，也不被任何 npm script 或 CI 调用
+        （已核对：<code>package.json</code> 与全仓无引用），所以红着不会阻断任何门禁；
+        真正跑它是在任务 13 的全量验收。</p>
+      </div>
     </div>
   </div>
 
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 3：变异验证（提交前必做）</div>
     <div class="step-body">
-      <p>本任务写了新断言（CSS 变量层（间接层与派生比例））。按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>把它们验证一遍：改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p>本任务改了 CSS 变量层（间接层 + 从属尺寸派生比例）。
+      按「开工前必读 → 每个任务都要做变异验证」的配方，<strong>逐条</strong>验证：
+      改坏实现 → 确认对应断言变红 → 改回 → <code>git diff</code> 确认工作区干净。</p>
+      <p><strong>用哪个守卫来验证</strong>：上面那个
+      <code>verify-body-font-single-source.mjs</code> 是唯一读这一层的守卫
+      （它对变量定义、从属比例、使用点三件事都有断言）。把它当作你的"红/绿探针"。</p>
       <p>报告里要给出完整的「变异 → 是否变红 → 红的用例 → 报错原文」表格，<strong>包含没抓住的那些</strong>。没抓住就如实分类（该断言没鉴别力 / 那个变异本就无害），不要为了让表格好看而放宽测试。<strong>不要跳过这一步。</strong></p>
       <pre class="cmd"><code># 改坏一处实现后：
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+# 顺带确认没把单测弄红：
 npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
 # 改回后确认干净：
 git diff --stat</code></pre>
