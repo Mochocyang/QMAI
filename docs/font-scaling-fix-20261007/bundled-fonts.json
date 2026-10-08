@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "generatedAt": "2026-10-08T03:36:24.258Z",
+  "generatedAt": "2026-10-08T06:30:03.539Z",
   "note": "字体二进制来源与哈希。用于打包与安装时核对；改动任何一个字节都必须重新核对许可证。",
   "fonts": [
     {
@@ -10,6 +10,22 @@
       "file": "SourceHanSerifSC-Regular.otf",
       "sizeBytes": 24543332,
       "sha256": "78aa7a328fd974df2d688c8a9fd74a33d8334dfa84ab24d9d11efb2ffc464117",
+      "sourceRepo": "adobe-fonts/source-han-serif",
+      "sourceTag": "2.003R",
+      "sourceUrl": "https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/09_SourceHanSerifSC.zip",
+      "licenseFile": "licenses/source-han-serif-OFL.txt",
+      "licenseName": "OFL-1.1",
+      "weight": 400
+    },
+    {
+      "id": "source-han-serif-bold",
+      "display": "思源宋体 Bold",
+      "family": "Source Han Serif SC",
+      "familyNote": "与 Regular 同族。字重 700，注册表值名因此是「Source Han Serif SC Bold (TrueType)」—— 与 Regular 的值名不同，否则会互相覆盖、丢掉一档字重。",
+      "file": "SourceHanSerifSC-Bold.otf",
+      "weight": 700,
+      "sizeBytes": 25521732,
+      "sha256": "706b8c0de2deff6cbc0c87e2cdedfd33a78b7ffd76cebb4549012f197ba611fe",
       "sourceRepo": "adobe-fonts/source-han-serif",
       "sourceTag": "2.003R",
       "sourceUrl": "https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/09_SourceHanSerifSC.zip",
@@ -27,6 +43,22 @@
       "sourceTag": "2.005R",
       "sourceUrl": "https://github.com/adobe-fonts/source-han-sans/releases/download/2.005R/09_SourceHanSansSC.zip",
       "licenseFile": "licenses/source-han-sans-OFL.txt",
+      "licenseName": "OFL-1.1",
+      "weight": 400
+    },
+    {
+      "id": "source-han-sans-bold",
+      "display": "思源黑体 Bold",
+      "family": "Source Han Sans SC",
+      "familyNote": "与 Regular 同族。字重 700，注册表值名因此是「Source Han Sans SC Bold (TrueType)」。",
+      "file": "SourceHanSansSC-Bold.otf",
+      "weight": 700,
+      "sizeBytes": 16963428,
+      "sha256": "df2b90f5bcc6d01dfc964cec5f6d535d6b6aebd26ed7fd79a9c1b3f2112fcb6b",
+      "sourceRepo": "adobe-fonts/source-han-sans",
+      "sourceTag": "2.005R",
+      "sourceUrl": "https://github.com/adobe-fonts/source-han-sans/releases/download/2.005R/09_SourceHanSansSC.zip",
+      "licenseFile": "licenses/source-han-sans-OFL.txt",
       "licenseName": "OFL-1.1"
     },
     {
@@ -40,7 +72,8 @@
       "sourceTag": "v1.522",
       "sourceUrl": "https://github.com/lxgw/LxgwWenKai/releases/download/v1.522/LXGWWenKai-Regular.ttf",
       "licenseFile": "licenses/lxgw-wenkai-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     },
     {
       "id": "wenjin-mincho",
@@ -54,7 +87,8 @@
       "sourceTag": "v2.100",
       "sourceUrl": "https://github.com/takushun-wu/WenJinMincho/releases/download/v2.100/WenJinMincho-TTF.7z",
       "licenseFile": "licenses/wenjin-mincho-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     },
     {
       "id": "chillkai",
@@ -67,7 +101,8 @@
       "sourceTag": "v2.000",
       "sourceUrl": "https://github.com/Warren2060/ChillKai/releases/download/v2.000/ChillKai.zip",
       "licenseFile": "licenses/chillkai-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     },
     {
       "id": "harmonyos-sans",
@@ -80,7 +115,8 @@
       "sourceTag": "33ab3b81b92c01f5e340c89960872bee174d8704",
       "sourceUrl": "https://media.githubusercontent.com/media/huawei-fonts/HarmonyOS-Sans/33ab3b81b92c01f5e340c89960872bee174d8704/HarmonyOS%20Sans.zip",
       "licenseFile": "licenses/harmonyos-sans-LICENSE.txt",
-      "licenseName": "HarmonyOS Sans Fonts License Agreement"
+      "licenseName": "HarmonyOS Sans Fonts License Agreement",
+      "weight": 400
     },
     {
       "id": "smiley-sans",
@@ -94,7 +130,8 @@
       "sourceTag": "v2.0.1",
       "sourceUrl": "https://github.com/atelier-anchor/smiley-sans/releases/download/v2.0.1/smiley-sans-v2.0.1.zip",
       "licenseFile": "licenses/smiley-sans-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     },
     {
       "id": "zhuque-fangsong",
@@ -108,7 +145,8 @@
       "sourceTag": "v0.212",
       "sourceUrl": "https://github.com/TrionesType/zhuque/releases/download/v0.212/ZhuqueFangsong-v0.212.zip",
       "licenseFile": "licenses/zhuque-fangsong-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     },
     {
       "id": "sarasa-gothic",
@@ -121,7 +159,8 @@
       "sourceTag": "v1.0.42",
       "sourceUrl": "https://github.com/be5invis/Sarasa-Gothic/releases/download/v1.0.42/SarasaGothicSC-TTF-1.0.42.7z",
       "licenseFile": "licenses/sarasa-gothic-OFL.txt",
-      "licenseName": "OFL-1.1"
+      "licenseName": "OFL-1.1",
+      "weight": 400
     }
   ],
   "excludedAfterProbe": [

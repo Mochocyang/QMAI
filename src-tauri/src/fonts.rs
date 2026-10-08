@@ -32,6 +32,55 @@ pub struct CjkFont {
     pub display: String,
 }
 
+/// 系统字体表里某个族的一个**字体面**。仅测试与诊断使用。
+///
+/// 为什么需要它：`available_weights_of_family` 只报字重数字，而一个族里出现的
+/// 字重不一定来自我们装的字体 —— 本机基线上就有别人装的
+/// `Source Han Serif SC Heavy`，它会让思源宋体这个族在**我们没装 Bold** 时
+/// 也报出 700 以上的字重。带上完整名才能判断每一面到底是谁。
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FamilyFace {
+    /// DirectWrite 字重值（400 = Regular，700 = Bold）。
+    pub weight: i32,
+    /// 完整名（`FULL_NAME` 信息串，en-us 优先）；读不到为 `None`。
+    pub full_name: Option<String>,
+}
+
+/// 一个字体文件自报的完整身份。仅测试与诊断使用（见 `describe_face`）。
+///
+/// 用 `#[cfg(test)]` 而不是 `#[allow(dead_code)]`：后者会把这套诊断编进发布产物，
+/// 而"没被用到的代码"迟早会腐烂成错误的代码。
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFaceDescription {
+    /// `(locale, 族名)`，按 locale 排序。族名 = 同族各字重共用的名字。
+    pub family_names: Vec<(String, String)>,
+    /// `(locale, face 名)`，按 locale 排序。
+    /// face 名是**每个字重各不相同**的那个名字，注册表值名要用它。
+    pub face_names: Vec<(String, String)>,
+    /// DirectWrite 解析 OS/2 得到的字重（400 = Regular，700 = Bold）。
+    /// 保留 `i32` 原样：`DWRITE_FONT_WEIGHT` 就是这个类型，转 `u32` 只是
+    /// 为了好看，而"诊断读到的原始值"没有粉饰的理由。
+    pub weight: i32,
+}
+
+#[cfg(test)]
+impl FontFaceDescription {
+    /// 取英文 face 名（`en-us` 优先，其次任何一条），用于组成注册表值名。
+    pub fn english_face_name(&self) -> Option<&str> {
+        let pick = |loc: &str| {
+            self.face_names
+                .iter()
+                .find(|(l, _)| l.eq_ignore_ascii_case(loc))
+                .map(|(_, n)| n.as_str())
+        };
+        pick("en-us")
+            .or_else(|| pick("en"))
+            .or_else(|| self.face_names.first().map(|(_, n)| n.as_str()))
+    }
+}
+
 /*
  * ── 判据的探针码点 ──
  *
@@ -110,12 +159,22 @@ mod win {
         DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, DWRITE_FACTORY_TYPE_SHARED,
         DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL,
     };
+    // 诊断路径专用。单独 cfg(test) 引，避免非测试构建出现 unused import 警告。
+    #[cfg(test)]
+    use super::{FontFaceDescription, FamilyFace};
+    #[cfg(test)]
+    use windows::Win32::Graphics::DirectWrite::DWRITE_INFORMATIONAL_STRING_FULL_NAME;
+    #[cfg(test)]
+    use windows::Win32::Graphics::DirectWrite::{IDWriteFont, IDWriteFontFace3, IDWriteLocalizedStrings};
+    #[cfg(test)]
+    use windows::core::Interface;
 
     /// 读一个 `IDWriteLocalizedStrings` 的指定 locale 名字。
     ///
     /// `locale` 用 `HSTRING`（DirectWrite 内部比较用的是宽字符 locale 名）。
     /// 找不到该 locale 时返回 `None`，由调用方决定回退策略。
     unsafe fn localized_name(
+
         strings: &windows::Win32::Graphics::DirectWrite::IDWriteLocalizedStrings,
         locale: &str,
     ) -> Option<String> {
@@ -135,8 +194,38 @@ mod win {
         String::from_utf16(&buf[..end]).ok()
     }
 
-    /// 枚举本机全部字体族，过滤出中文字体。
-    pub fn list_cjk_fonts() -> Result<Vec<CjkFont>, String> {
+    /// 列出某个族在当前系统字体表里**实际可用**的全部字重（升序、去重）。
+    ///
+    /// 供诊断使用：判断"同族多字重是否真的都注册上了"。
+    /// 族不存在时返回 `Ok(vec![])` 而不是错误 —— "这个族没有"本身是有效结论。
+    ///
+    /// ── 这个数字**不足以**单独下结论，必须配合完整名 ──
+    /// 实测（本机）：`ChillKai`（只有一个 Regular 文件）也报告 `[400, 700]`，
+    /// 因为 DirectWrite 会为缺少粗体的族**合成**一个 700 面，而它的完整名与
+    /// 400 面**完全相同**（都是「寒蝉正楷体」）。所以：
+    ///   · 看到 700 不等于"真装了 Bold"；
+    ///   · 判断真伪要看完整名是否不同（真实的 Bold 会叫
+    ///     `Source Han Serif SC Bold`，合成面只会沿用 `Source Han Serif SC`）。
+    /// 另：本机 DirectWrite 把每个面都枚举**两次**（SimSun 等系统字体也一样），
+    /// 故元素个数没有意义，只有去重后的字重集合与完整名有意义。
+    #[cfg(test)]
+    pub fn available_weights_of_family(family: &str) -> Result<Vec<i32>, String> {
+        let mut weights: Vec<i32> = faces_of_family(family)?
+            .into_iter()
+            .map(|f| f.weight)
+            .collect();
+        weights.sort_unstable();
+        weights.dedup();
+        Ok(weights)
+    }
+
+    /// 一个族里每个**字体面**的身份：字重 + 完整名（`FULL_NAME`）。
+    ///
+    /// 完整名很重要：只报字重时，一个来自**另一款同族字体**的面
+    /// （本机基线上就有 `Source Han Serif SC Heavy`）会被误读成
+    /// "我们装的 Bold 生效了"。完整名能直接看出到底是哪一款。
+    #[cfg(test)]
+    pub fn faces_of_family(family: &str) -> Result<Vec<FamilyFace>, String> {
         unsafe {
             let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
                 .map_err(|e| format!("DWriteCreateFactory 失败: {e}"))?;
@@ -144,7 +233,96 @@ mod win {
             factory
                 .GetSystemFontCollection(&mut collection, false)
                 .map_err(|e| format!("GetSystemFontCollection 失败: {e}"))?;
-            let collection = collection.ok_or_else(|| "GetSystemFontCollection 返回了空集合".to_string())?;
+            let collection =
+                collection.ok_or_else(|| "GetSystemFontCollection 返回了空集合".to_string())?;
+            let name_h = HSTRING::from(family);
+            let mut index: u32 = 0;
+            let mut exists = windows::core::BOOL(0);
+            collection
+                .FindFamilyName(&name_h, &mut index, &mut exists)
+                .map_err(|e| format!("FindFamilyName 失败：{e}"))?;
+            if !exists.as_bool() {
+                return Ok(Vec::new());
+            }
+            let fam = collection
+                .GetFontFamily(index)
+                .map_err(|e| format!("GetFontFamily 失败：{e}"))?;
+            let count = fam.GetFontCount();
+            let mut out = Vec::new();
+            for i in 0..count {
+                let f = match fam.GetFont(i) {
+                    Ok(f) => f,
+                    Err(_) => continue,
+                };
+                let weight: i32 = f.GetWeight().0;
+                // 完整名要经由 FontFace3 的 informational string 取；
+                // GetFaceNames 只给 style 名（实测为 "Bold"/"Regular"），
+                // 用它当身份会把同族各面混在一起。
+                let full_name = read_full_name_of_font(&f);
+                out.push(FamilyFace { weight, full_name });
+            }
+            Ok(out)
+        }
+    }
+
+    /// 取一个 `IDWriteFont` 的完整名（en-us 优先）。取不到返回 `None`，
+    /// 不返回 `Some("")` —— 空串会被当成"有名字"从而掩盖读取失败。
+    #[cfg(test)]
+    fn read_full_name_of_font(f: &IDWriteFont) -> Option<String> {
+        unsafe {
+            let face = f.CreateFontFace().ok()?;
+            let face3: IDWriteFontFace3 = face.cast().ok()?;
+            let mut strings: Option<IDWriteLocalizedStrings> = None;
+            let mut exists = windows::core::BOOL(0);
+            face3
+                .GetInformationalStrings(
+                    DWRITE_INFORMATIONAL_STRING_FULL_NAME,
+                    &mut strings,
+                    &mut exists,
+                )
+                .ok()?;
+            if !exists.as_bool() {
+                return None;
+            }
+            let strings = strings?;
+            let n = strings.GetCount();
+            if n == 0 {
+                return None;
+            }
+            // 优先 en-us，其次第一个（与 describe_face 的策略一致）
+            let mut pick = 0u32;
+            for i in 0..n {
+                let len = strings.GetLocaleNameLength(i).ok()?;
+                let mut buf = vec![0u16; len as usize + 1];
+                if strings.GetLocaleName(i, &mut buf).is_err() {
+                    continue;
+                }
+                let loc = String::from_utf16_lossy(&buf[..len as usize]);
+                if loc.eq_ignore_ascii_case("en-us") {
+                    pick = i;
+                    break;
+                }
+            }
+            let len = strings.GetStringLength(pick).ok()?;
+            let mut buf = vec![0u16; len as usize + 1];
+            strings.GetString(pick, &mut buf).ok()?;
+            Some(String::from_utf16_lossy(&buf[..len as usize]))
+        }
+    }
+
+    /// 枚举本机全部字体族，过滤出中文字体。
+    pub fn list_cjk_fonts() -> Result<Vec<CjkFont>, String> {
+        unsafe {
+            let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
+                .map_err(|e| format!("DWriteCreateFactory 失败: {e}"))?;
+            // IDWriteFactory（v1）用输出参数返回集合，不是直接返回；
+            // 直接返回集合的是 IDWriteFactory3 的同名方法。
+            let mut collection: Option<IDWriteFontCollection> = None;
+            factory
+                .GetSystemFontCollection(&mut collection, false)
+                .map_err(|e| format!("GetSystemFontCollection 失败: {e}"))?;
+            let collection =
+                collection.ok_or_else(|| "GetSystemFontCollection 返回了空集合".to_string())?;
 
             let count = collection.GetFontFamilyCount();
             let mut out: Vec<CjkFont> = Vec::new();
@@ -251,13 +429,31 @@ mod win {
     /// 实际做字体匹配时读的是同一张 `name` 表。
     #[cfg(test)]
     pub fn describe_font_file(path: &std::path::Path) -> Result<Vec<(String, String)>, String> {
+        Ok(describe_face(path)?.family_names)
+    }
+
+    /// 读一个字体**文件**自报的完整身份：族名、face 名、字重。
+    ///
+    /// ── 为什么需要 face 名 ──
+    /// 注册表值名的约定是 `<face 名> (TrueType)`，而 **face 名不等于族名**：
+    /// 同一族的不同字重，族名相同、face 名不同
+    /// （如族名都是 `Source Han Serif SC`，face 名分别是
+    /// `Source Han Serif SC` 与 `Source Han Serif SC Bold`）。
+    /// 只用族名做值名，Regular 与 Bold 会撞在同一个键上、互相覆盖，
+    /// 结果总有一个字重的文件被写在磁盘上却从未注册 —— 即"装了但用不到"。
+    ///
+    /// 机器上 Windows 自己装出来的值名可佐证这个约定：
+    /// `Noto Sans SC (TrueType)` / `Noto Sans SC Bold (TrueType)` /
+    /// `Noto Sans SC Medium (TrueType)`、`Source Han Serif SC Heavy (TrueType)`。
+    ///
+    /// 同时返回 `weight`（DirectWrite 解析 OS/2 得到的数值），
+    /// 让"这就是 Regular"成为可断言的数值而不是靠名字猜。
+    #[cfg(test)]
+    pub fn describe_face(path: &std::path::Path) -> Result<FontFaceDescription, String> {
         use windows::Win32::Graphics::DirectWrite::{
             DWRITE_FONT_FACE_TYPE_TRUETYPE, DWRITE_FONT_SIMULATIONS_NONE, IDWriteFontFace3,
         };
-        // `Interface` 必须 in scope 才能用 `.cast()`（IDWriteFontFace → IDWriteFontFace3）。
-        // 少了它只会得到 "no method named cast"，报错信息不提示真正原因。
-        // 放在函数内是因为这个 trait 只有这条测试路径需要，放到模块顶部会在
-        // 非测试构建里变成 unused import 警告。
+        // `Interface` 必须 in scope 才能 `.cast()`，否则只报 "no method named cast"
         use windows::core::Interface;
         if !path.is_file() {
             return Err(format!("字体文件不存在：{}", path.display()));
@@ -265,7 +461,7 @@ mod win {
         unsafe {
             let factory: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)
                 .map_err(|e| format!("DWriteCreateFactory 失败: {e}"))?;
-            let wide = windows::core::HSTRING::from(path.to_string_lossy().as_ref());
+            let wide = HSTRING::from(path.to_string_lossy().as_ref());
             let file = factory
                 .CreateFontFileReference(&wide, None)
                 .map_err(|e| format!("CreateFontFileReference 失败 {}: {e}", path.display()))?;
@@ -277,47 +473,52 @@ mod win {
                     DWRITE_FONT_SIMULATIONS_NONE,
                 )
                 .map_err(|e| format!("CreateFontFace 失败 {}: {e}", path.display()))?;
-            // GetFamilyNames 在 FontFace3 上；从 FontFace 查询接口
             let face3: IDWriteFontFace3 = face
                 .cast()
                 .map_err(|e| format!("IDWriteFontFace → IDWriteFontFace3 失败：{e}"))?;
-            let names = face3
-                .GetFamilyNames()
-                .map_err(|e| format!("GetFamilyNames 失败：{e}"))?;
 
-            let count = names.GetCount();
-            let mut out: Vec<(String, String)> = Vec::new();
-            /*
-             * 逐条列出全部 locale 的名字，并**带上它自己的 locale**。
-             * locale 很关键：同一个族名在不同 locale 下可能不同
-             * （如 `WenJin Mincho Plane 0` 只在 en-us 下），
-             * 而注册表值名要用英文名、展示要用中文名，两者都要能看到。
-             */
-            for i in 0..count {
-                let len = names.GetStringLength(i).unwrap_or(0);
-                let mut buf = vec![0u16; (len as usize) + 1];
-                if names.GetString(i, &mut buf).is_err() {
-                    continue;
+            let read_all = |strings: &IDWriteLocalizedStrings| -> Vec<(String, String)> {
+                let count = strings.GetCount();
+                let mut out: Vec<(String, String)> = Vec::new();
+                for i in 0..count {
+                    let len = strings.GetStringLength(i).unwrap_or(0);
+                    let mut buf = vec![0u16; (len as usize) + 1];
+                    if strings.GetString(i, &mut buf).is_err() {
+                        continue;
+                    }
+                    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+                    let name = String::from_utf16_lossy(&buf[..end]);
+                    if name.trim().is_empty() {
+                        continue;
+                    }
+                    let locale = (|| -> Option<String> {
+                        let llen = strings.GetLocaleNameLength(i).ok()?;
+                        let mut lbuf = vec![0u16; (llen as usize) + 1];
+                        strings.GetLocaleName(i, &mut lbuf).ok()?;
+                        let lend = lbuf.iter().position(|&c| c == 0).unwrap_or(lbuf.len());
+                        let loc = String::from_utf16_lossy(&lbuf[..lend]);
+                        if loc.trim().is_empty() { None } else { Some(loc) }
+                    })()
+                    .unwrap_or_else(|| format!("index{i}"));
+                    out.push((locale, name));
                 }
-                let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-                let name = String::from_utf16_lossy(&buf[..end]);
-                if name.trim().is_empty() {
-                    continue;
-                }
-                // locale 读不到就用序号占位（不至于因此丢掉一个真实族名）
-                let locale = (|| -> Option<String> {
-                    let llen = names.GetLocaleNameLength(i).ok()?;
-                    let mut lbuf = vec![0u16; (llen as usize) + 1];
-                    names.GetLocaleName(i, &mut lbuf).ok()?;
-                    let lend = lbuf.iter().position(|&c| c == 0).unwrap_or(lbuf.len());
-                    let loc = String::from_utf16_lossy(&lbuf[..lend]);
-                    if loc.trim().is_empty() { None } else { Some(loc) }
-                })()
-                .unwrap_or_else(|| format!("index{i}"));
-                out.push((locale, name));
-            }
-            out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
-            Ok(out)
+                out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+                out
+            };
+
+            Ok(FontFaceDescription {
+                family_names: read_all(
+                    &face3
+                        .GetFamilyNames()
+                        .map_err(|e| format!("GetFamilyNames 失败：{e}"))?,
+                ),
+                face_names: read_all(
+                    &face3
+                        .GetFaceNames()
+                        .map_err(|e| format!("GetFaceNames 失败：{e}"))?,
+                ),
+                weight: face3.GetWeight().0,
+            })
         }
     }
 }
@@ -356,6 +557,15 @@ pub fn family_names_of_file(path: &std::path::Path) -> Result<Vec<String>, Strin
     names.sort_by_key(|n| n.to_lowercase());
     names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     Ok(names)
+}
+
+/// 读一个字体**文件**自报的完整身份（族名 / face 名 / 字重）。
+///
+/// 为什么要读 face 名：注册表值名必须**逐字重各不相同**，否则同族的
+/// Regular 与 Bold 会撞在同一个键上互相覆盖。规则见 `describe_face` 的注释。
+#[cfg(all(test, windows))]
+pub fn describe_face_of_file(path: &std::path::Path) -> Result<FontFaceDescription, String> {
+    win::describe_face(path)
 }
 
 /// 非 Windows 平台：本阶段的枚举只实现 Windows（WebView2）。
@@ -604,6 +814,87 @@ mod tests {
         assert!(family_names_of_file(missing).is_err());
     }
 
+    /// 清单里声明的 `weight` 必须与字体文件自报的字重一致。
+    ///
+    /// ── 为什么这条不能省 ──
+    /// `weight` 参与拼注册表值名：写错（例如把 Bold 写成 400）会让同一族的
+    /// 两个字重拼出**同一个值名**，后注册的覆盖先注册的 —— 磁盘上多一个文件、
+    /// 系统里少一档字重，而用户只看到"加粗没变化"。
+    ///
+    /// 这里不重复实现拼名逻辑，只核对"声明 = 文件自报"这个事实，
+    /// 由 DirectWrite 解析 `OS/2` 得到，不靠文件名里的 `-Bold` 猜。
+    #[cfg(windows)]
+    #[test]
+    fn 随包字体声明的字重必须与字体文件自报的一致() {
+        let fonts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
+        if !fonts_dir.join("fonts-manifest.json").is_file() {
+            println!("ⓘ 跳过：本检出不含随包字体清单");
+            return;
+        }
+        let manifest = crate::font_install::read_manifest(&fonts_dir)
+            .expect("清单应可读")
+            .expect("清单应存在");
+
+        let mut mismatched = Vec::new();
+        for entry in &manifest.fonts {
+            let path = fonts_dir.join(&entry.file);
+            let d = describe_face_of_file(&path)
+                .unwrap_or_else(|e| panic!("读取 {} 的字重失败：{e}", entry.file));
+            println!(
+                "  {:<34} 声明字重={:<4} 自报字重={}",
+                entry.file, entry.weight, d.weight
+            );
+            if d.weight as u32 != entry.weight {
+                mismatched.push(format!(
+                    "{}（id={}）：清单声明 {}，文件自报 {}",
+                    entry.file, entry.id, entry.weight, d.weight
+                ));
+            }
+        }
+        assert!(
+            mismatched.is_empty(),
+            "以下随包字体声明的字重与文件不符 —— 会拼出错误/重复的注册表值名，\
+             导致同族字重互相覆盖：\n  {}",
+            mismatched.join("\n  ")
+        );
+    }
+
+    /// 清单里任意两条的注册表值名都不得相同。
+    ///
+    /// 这是纯数据断言（不需要读文件），因此即使在没有 DirectWrite 的机器上
+    /// 也能挡住"加字重时忘了改 weight"这个错误。拼名规则与
+    /// `src-tauri/src/font_install.rs` 的 `registry_value_name` 保持一致。
+    #[test]
+    fn 清单里任意两条的注册表值名都不得相同() {
+        let fonts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
+        if !fonts_dir.join("fonts-manifest.json").is_file() {
+            println!("ⓘ 跳过：本检出不含随包字体清单");
+            return;
+        }
+        let manifest = crate::font_install::read_manifest(&fonts_dir)
+            .expect("清单应可读")
+            .expect("清单应存在");
+
+        let mut seen: Vec<(String, String)> = Vec::new();
+        let mut dupes = Vec::new();
+        for entry in &manifest.fonts {
+            // 借用生产实现，避免这里再抄一份字重映射（抄一份就一定会漂移）
+            let name = crate::font_install::registry_value_name_for_test(&entry.family, entry.weight);
+            if let Some((prev_id, _)) = seen.iter().find(|(_, n)| n == &name) {
+                dupes.push(format!(
+                    "{} 与 {} 都会写成「{name}」",
+                    prev_id, entry.id
+                ));
+            }
+            seen.push((entry.id.clone(), name));
+        }
+        assert!(
+            dupes.is_empty(),
+            "注册表值名重复 —— 后者会覆盖前者，其中一档字重在系统里不存在：\n  {}",
+            dupes.join("\n  ")
+        );
+    }
+
     /*
      * ── 随包字体必须真的能被列出来 ──
      *
@@ -690,33 +981,45 @@ mod tests {
         );
     }
 
-    /// 诊断用：把某个字体文件对每层探针的覆盖情况打出来。
+    /// 诊断用：把某个目录里每个字体文件对每层探针的覆盖情况打出来。
     ///
     /// 只在需要排查"某款随包字体为什么不出现在下拉里"时手动跑：
     /// `cargo test --lib 诊断_随包字体对探针的覆盖 -- --nocapture --ignored`
+    ///
+    /// 目录从 `QMAI_FONT_DIAG_DIR` 读，默认 `src-tauri/fonts`。
+    /// **扫描目录而不是写死文件名清单**：写死的清单会随着字体增减过期，
+    /// 而过期的诊断工具比没有更糟 —— 它会安静地漏掉新加的文件
+    /// （本函数早先就写死了已删除的 `Iansui-Regular.ttf`）。
     #[cfg(windows)]
     #[test]
     #[ignore = "诊断工具，非断言测试"]
     fn 诊断_随包字体对探针的覆盖() {
-        let fonts_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts");
-        for name in [
-            "Iansui-Regular.ttf",
-            "LXGWWenKai-Regular.ttf",
-            "WenJinMincho-Regular.ttf",
-            "ZhuqueFangsong-Regular.ttf",
-            "ChillKai-Regular.ttf",
-            "SmileySans-Regular.ttf",
-            "SarasaGothicSC-Regular.ttf",
-            "SourceHanSansSC-Regular.otf",
-            "SourceHanSerifSC-Regular.otf",
-            "HarmonyOSSansSC-Regular.ttf",
-        ] {
-            let path = fonts_dir.join(name);
-            if !path.is_file() {
-                println!("  {name}：文件不存在");
-                continue;
+        let fonts_dir = std::env::var_os("QMAI_FONT_DIAG_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts"));
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        for entry in std::fs::read_dir(&fonts_dir)
+            .unwrap_or_else(|e| panic!("读不到 {}：{e}", fonts_dir.display()))
+            .flatten()
+        {
+            let p = entry.path();
+            let ext = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if p.is_file() && matches!(ext.as_str(), "ttf" | "otf" | "ttc") {
+                files.push(p);
             }
-            match win::has_chars_of_file(&path, &DIAG_CODEPOINTS) {
+        }
+        files.sort();
+        if files.is_empty() {
+            println!("ⓘ {} 里没有字体文件", fonts_dir.display());
+            return;
+        }
+        for path in &files {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            match win::has_chars_of_file(path, &DIAG_CODEPOINTS) {
                 Ok(hits) => {
                     let basic_missing: Vec<String> = PROBE_BASIC
                         .iter()
@@ -749,6 +1052,107 @@ mod tests {
                     );
                 }
                 Err(e) => println!("  {name}：读取失败 {e}"),
+            }
+        }
+    }
+
+    /// 诊断用：打印每个字体文件自报的族名、face 名与字重。
+    ///
+    /// 注册表值名的规范是 `<face 名> (TrueType)`，而同族各字重的**族名相同、
+    /// face 名不同**。加字重之前必须先用这个工具读出真实的 face 名，
+    /// 而不是照着文件名的 `-Bold` 猜 —— 值名写错会造成同族字重互相覆盖。
+    ///
+    /// `cargo test --lib 诊断_字体文件自报的族名与字重 -- --nocapture --ignored`
+    /// 目录同 `诊断_随包字体对探针的覆盖`（`QMAI_FONT_DIAG_DIR` 可覆盖）。
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "诊断工具，非断言测试"]
+    fn 诊断_字体文件自报的族名与字重() {
+        let fonts_dir = std::env::var_os("QMAI_FONT_DIAG_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fonts"));
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        for entry in std::fs::read_dir(&fonts_dir)
+            .unwrap_or_else(|e| panic!("读不到 {}：{e}", fonts_dir.display()))
+            .flatten()
+        {
+            let p = entry.path();
+            let ext = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if p.is_file() && matches!(ext.as_str(), "ttf" | "otf" | "ttc") {
+                files.push(p);
+            }
+        }
+        files.sort();
+        if files.is_empty() {
+            println!("ⓘ {} 里没有字体文件", fonts_dir.display());
+            return;
+        }
+        for path in &files {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            match describe_face_of_file(path) {
+                Ok(d) => {
+                    let fam = d
+                        .family_names
+                        .iter()
+                        .find(|(l, _)| l.eq_ignore_ascii_case("en-us"))
+                        .map(|(_, n)| n.as_str())
+                        .unwrap_or("(无 en-us)");
+                    let face = d.english_face_name().unwrap_or("(无)");
+                    println!("  {name}");
+                    println!("     族名 = {fam}");
+                    println!("     face = {face}");
+                    println!("     字重 = {}", d.weight);
+                    println!("     注册表值名应为 = \"{face} (TrueType)\"");
+                }
+                Err(e) => println!("  {name}：读取失败 {e}"),
+            }
+        }
+    }
+
+    /// 诊断用：列出某个**族**在当前系统字体表里**实际可用**的全部字重。
+    ///
+    /// 这是判断"同一族的多个字重是否真的都注册上了"的唯一可靠办法。
+    /// `GetFirstMatchingFont` 不够用：它只返回一个**最接近**的字重，
+    /// 而"最接近"可能意味着"其实只有 Regular，其余都是拿别的字重凑的"。
+    /// 逐个列出族内字体才能看出到底有几个真实字重。
+    ///
+    /// 族名从 `QMAI_FONT_DIAG_FAMILY` 读（逗号分隔可查多个）。
+    ///
+    /// `cargo test --lib 诊断_列出某族实际可用的字重 -- --nocapture --ignored`
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "诊断工具，非断言测试"]
+    fn 诊断_列出某族实际可用的字重() {
+        let raw = std::env::var("QMAI_FONT_DIAG_FAMILY")
+            .unwrap_or_else(|_| "Source Han Serif SC,Source Han Sans SC".to_string());
+        for family in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match win::available_weights_of_family(family) {
+                Ok(weights) => {
+                    println!("  {family}：可用字重 {weights:?}（共 {} 个）", weights.len());
+                    /*
+                     * 逐面打印身份。只报字重数字会在两种情况下误导人：
+                     *   · 以为"有 700 就说明 Bold 装好了"，其实那一面可能是
+                     *     系统里另一款同族字体贡献的；
+                     *   · 反过来，看到意外的字重却无法判断它从哪来。
+                     * 打印完整名（FULL_NAME）能直接看出是哪个文件/哪一款。
+                     */
+                    match win::faces_of_family(family) {
+                        Ok(faces) => {
+                            for (i, f) in faces.iter().enumerate() {
+                                println!(
+                                    "      [{i}] 字重={} 全名={:?}",
+                                    f.weight, f.full_name
+                                );
+                            }
+                        }
+                        Err(e) => println!("      （逐面枚举失败：{e}）"),
+                    }
+                }
+                Err(e) => println!("  {family}：{e}"),
             }
         }
     }

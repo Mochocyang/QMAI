@@ -1,6 +1,6 @@
 {
   "exe": "C:\\QMAI_C\\QMAI-main\\release-portable\\QMaiWrite.exe",
-  "manifestCount": 9,
+  "manifestCount": 11,
   "steps": {
     "selects": {
       "ui": {
@@ -220,6 +220,35 @@
         ]
       },
       "uiFontVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
+    },
+    "multiWeight": {
+      "count": 17,
+      "families": {
+        "Source Han Serif SC": [
+          {
+            "file": "SourceHanSerifSC-Regular.otf",
+            "weight": 400,
+            "valueName": "Source Han Serif SC (TrueType)"
+          },
+          {
+            "file": "SourceHanSerifSC-Bold.otf",
+            "weight": 700,
+            "valueName": "Source Han Serif SC Bold (TrueType)"
+          }
+        ],
+        "Source Han Sans SC": [
+          {
+            "file": "SourceHanSansSC-Regular.otf",
+            "weight": 400,
+            "valueName": "Source Han Sans SC (TrueType)"
+          },
+          {
+            "file": "SourceHanSansSC-Bold.otf",
+            "weight": 700,
+            "valueName": "Source Han Sans SC Bold (TrueType)"
+          }
+        ]
+      }
     },
     "selection": {
       "target": "sys:ChillKai",

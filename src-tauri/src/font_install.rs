@@ -50,11 +50,24 @@ pub struct ManifestEntry {
     pub family: String,
     /// 相对 `fonts/` 的文件名。
     pub file: String,
+    /// 字重（400 = Regular，700 = Bold）。
+    ///
+    /// 参与拼注册表值名，见 `registry_value_name`：同一族的 Regular 与 Bold
+    /// 必须有**不同**的值名，否则会互相覆盖、丢掉一档字重。
+    /// 这个值不是猜的：`fonts.rs` 里有一条测试用 DirectWrite 读文件自报的字重
+    /// 与它比对，写错会直接失败。
+    #[serde(default = "default_weight")]
+    pub weight: u32,
     #[serde(rename = "sizeBytes")]
     pub size_bytes: u64,
     pub sha256: String,
     #[serde(rename = "licenseFile", default)]
     pub license_file: Option<String>,
+}
+
+/// 省略 `weight` 时按 Regular 处理（老清单没有这个字段）。
+fn default_weight() -> u32 {
+    400
 }
 
 /// 每个字体的安装结果，供界面/日志如实反映状态。
@@ -184,8 +197,58 @@ pub fn verify_manifest_files(fonts_dir: &Path, manifest: &FontManifest) -> Vec<S
 }
 
 /// 注册表值名。Windows 对 `.otf` 也用 `(TrueType)` 后缀。
-fn registry_value_name(family: &str) -> String {
-    format!("{family} (TrueType)")
+///
+/// ── 为什么必须带上字重（这是一个真实缺陷的修复）──
+/// 值名是系统字体表里**每一项的唯一键**。只用族名的话，同一族的多个字重会
+/// 撞在同一个键上：后写的覆盖先写的，于是**磁盘上有那个文件、系统里却没有
+/// 那一档字重**。实测（`诊断_列出某族实际可用的字重`）：
+/// 两个文件都在用户字体目录、只写一个值名时，该族可用字重只有 `[700]`；
+/// 写成两个不同值名后变成 `[400, 700]`。也就是说，加一个字重而值名不变，
+/// 等于白装一个文件 —— 而用户只会看到"加粗没变化"，几乎不可能归因到注册表键。
+///
+/// ── 命名规则对齐 Windows 自身 ──
+/// 机器上 Windows 自己装出来的值名可佐证：
+/// `Noto Sans SC (TrueType)` / `Noto Sans SC Bold (TrueType)` /
+/// `Noto Sans SC Medium (TrueType)`、`Source Han Serif SC Heavy (TrueType)`。
+/// 即 Regular（400）**不带**字重后缀，其余带上。遵循这个规则还有一个好处：
+/// 已有单字重字体的值名保持不变，升级时不会留下一批指向旧名字的孤儿键。
+fn registry_value_name(family: &str, weight: u32) -> String {
+    match weight_style_suffix(weight) {
+        Some(style) => format!("{family} {style} (TrueType)"),
+        None => format!("{family} (TrueType)"),
+    }
+}
+
+/// 字重对应的后缀名；Regular（400）没有后缀（对齐 Windows 的命名习惯）。
+///
+/// 名称取自 DirectWrite 的 `DWRITE_FONT_WEIGHT` 取值表。用不到的名字也一并列出，
+/// 免得日后加字重的人以为"这里只支持 400/700"而去另写一份映射。
+fn weight_style_suffix(weight: u32) -> Option<String> {
+    let name = match weight {
+        100 => "Thin",
+        200 => "ExtraLight",
+        300 => "Light",
+        350 => "SemiLight",
+        400 => return None, // Regular 不带后缀
+        500 => "Medium",
+        600 => "SemiBold",
+        700 => "Bold",
+        800 => "ExtraBold",
+        900 => "Black",
+        // 非标准字重：用数值本身，保证仍然唯一（宁可名字不好看，也不能重名）
+        other => return Some(format!("W{other}")),
+    };
+    Some(name.to_string())
+}
+
+/// 供 `fonts.rs` 的清单级不变式测试复用拼名规则。
+///
+/// 为什么暴露而不是让测试自己再写一份映射：这个映射一旦在两处存在，
+/// 加字重时就一定会有一处忘了改，而失败方式恰好是"值名重复"这种
+/// 肉眼看不出来的问题。让两边共用同一个实现，漂移就不可能发生。
+#[cfg(test)]
+pub fn registry_value_name_for_test(family: &str, weight: u32) -> String {
+    registry_value_name(family, weight)
 }
 
 /// 用户级字体目录。
@@ -250,7 +313,12 @@ fn copy_if_needed(src: &Path, dest: &Path, size_bytes: u64) -> Result<bool, Stri
 
 #[cfg(windows)]
 mod win {
-    use super::registry_value_name;
+    /*
+     * 这里**故意不**引 `registry_value_name`：
+     * 值名由上一层算好后作为参数传进来（`register_font(value_name, dest)`），
+     * 这样"值名如何保证唯一"这件事只有一个地方需要想清楚。
+     * 早先这一层自己从族名拼值名，加入字重时就成了同族字重互相覆盖的根源。
+     */
     use std::path::Path;
     use windows::core::HSTRING;
     use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
@@ -334,20 +402,24 @@ mod win {
 
     /// 幂等注册：值已指向同一绝对路径则不动。
     ///
+    /// `value_name` 是**完整的注册表值名**（由 `registry_value_name` 算好），
+    /// 不是族名 —— 值名里已经含了字重，这一层不该再关心字重怎么拼。
+    /// 分开的理由：值名的唯一性是这个模块的职责，
+    /// 而这里只负责"把名字写到指向这个路径"。
+    ///
     /// 返回 `Ok(true)` 表示确实写入了（用于决定要不要广播 `WM_FONTCHANGE`）。
-    pub fn register_font(family: &str, dest: &Path) -> Result<bool, String> {
-        let value_name = registry_value_name(family);
+    pub fn register_font(value_name: &str, dest: &Path) -> Result<bool, String> {
         // 必须是绝对路径：裸文件名只对 HKLM/%windir%\Fonts 成立（已实测）
         let abs = std::fs::canonicalize(dest).unwrap_or_else(|_| dest.to_path_buf());
         let abs_str = abs.to_string_lossy().to_string();
         let key = open_font_key()?;
         let result = (|| -> Result<bool, String> {
-            if let Some(current) = read_value(key, &value_name)? {
+            if let Some(current) = read_value(key, value_name)? {
                 if current.eq_ignore_ascii_case(&abs_str) {
                     return Ok(false);
                 }
             }
-            write_value(key, &value_name, &abs_str)?;
+            write_value(key, value_name, &abs_str)?;
             Ok(true)
         })();
         unsafe {
@@ -356,9 +428,8 @@ mod win {
         result
     }
 
-    /// 注销一个字体（卸载清理用）。
-    pub fn unregister_font(family: &str) -> Result<(), String> {
-        let value_name = registry_value_name(family);
+    /// 注销一个字体（卸载清理用）。入参是完整注册表值名，同 `register_font`。
+    pub fn unregister_font(value_name: &str) -> Result<(), String> {
         unsafe {
             let mut key = HKEY::default();
             let sub = HSTRING::from(FONT_KEY);
@@ -369,7 +440,7 @@ mod win {
             if status != ERROR_SUCCESS {
                 return Err(format!("打开 HKCU 字体键失败：{status:?}"));
             }
-            let name_h = HSTRING::from(value_name.as_str());
+            let name_h = HSTRING::from(value_name);
             let del = RegDeleteValueW(key, &name_h);
             let _ = RegCloseKey(key);
             // 值不存在不算失败（幂等）
@@ -406,7 +477,14 @@ pub const UNINSTALL_RECORD_FILE: &str = "installed-fonts.txt";
 pub const INSTALL_RECORD_FILE: &str = "qmai-installed-fonts.json";
 
 /// 写卸载器要读的纯文本记录：**每两项一组，交替两行** ——
-/// 第 1 行族名，第 2 行目标绝对路径。
+/// 第 1 行**注册表值名**（含 `(TrueType)` 后缀与字重），第 2 行目标绝对路径。
+///
+/// ── 为什么第 1 行是值名而不是族名 ──
+/// NSIS 那边执行的是 `DeleteRegValue HKCU <字体键> "$R2"`，需要一个**完整的**
+/// 值名。早先这里写族名、由 NSIS 自己拼 `" (TrueType)"`；加入字重后值名变成
+/// `"<族名> Bold (TrueType)"`，拼接逻辑分散在两处就一定会有一处忘了改。
+/// 现在记录里直接写完整值名，NSIS 原样使用，规则只存在于
+/// `registry_value_name` 一个地方。
 ///
 /// ── 为什么不用 `族名<TAB>路径` 一行一项 ──
 /// NSIS 核心指令里没有"查找子串"，一行两项就必须引 `StrFunc.nsh` 的 `${StrLoc}`
@@ -416,18 +494,38 @@ pub const INSTALL_RECORD_FILE: &str = "qmai-installed-fonts.json";
 /// 让文件好看一点重要得多。
 ///
 /// ── 因此这个文件**不能有注释行** ──
-/// 一行注释就会让后面所有行错位（族名位置读到路径）。格式说明放在此处与
+/// 一行注释就会让后面所有行错位（值名位置读到路径）。格式说明放在此处与
 /// `docs/font-scaling-fix-20261007/` 里，不放在数据文件里。
 fn write_uninstall_record(app_data_dir: &Path, record: &InstallRecord) -> Result<(), String> {
     let mut text = String::new();
     for f in &record.installed {
-        // 族名/路径都来自字体文件与文件系统，理论上是不可信输入：
-        // 一个换行就能让后续所有行错位，从而删错文件。必须剥掉。
-        let family = f.family.replace(['\t', '\r', '\n'], " ");
+        // 值名/路径都来自字体文件与文件系统，理论上是不可信输入：
+        // 一个换行就能让后续所有行错位，从而删错文件、删错注册表值。必须剥掉。
+        let value_name = match f.reg_value_name.clone() {
+            Some(n) => n,
+            None => {
+                /*
+                 * 老记录没有值名字段：按当时的规则（族名 + Regular）重拼。
+                 * 族名是空白的就退回 id，而不是拼出 `" (TrueType)"` —— 那种名字
+                 * 删不掉任何真实存在的键，却会让结构看起来正常，
+                 * 从而把"这条记录已损坏"这件事掩盖过去。
+                 */
+                if f.family.trim().is_empty() {
+                    f.id.clone()
+                } else {
+                    registry_value_name(&f.family, 400)
+                }
+            }
+        };
+        let value_name = value_name.replace(['\t', '\r', '\n'], " ");
         let dest = f.dest.replace(['\t', '\r', '\n'], " ");
-        // 族名不能为空：空行会被卸载器当成"读完了"而提前结束
-        let family = if family.trim().is_empty() { f.id.clone() } else { family };
-        text.push_str(&family);
+        // 值名不能为空：空行会被卸载器当成"读完了"而提前结束
+        let value_name = if value_name.trim().is_empty() {
+            f.id.clone()
+        } else {
+            value_name
+        };
+        text.push_str(&value_name);
         text.push_str("\r\n");
         text.push_str(&dest);
         text.push_str("\r\n");
@@ -555,7 +653,7 @@ fn install_into(
     for entry in &manifest.fonts {
         let src = fonts_dir.join(&entry.file);
         let dest = dest_dir.join(&entry.file);
-        let reg_name = registry_value_name(&entry.family);
+        let reg_name = registry_value_name(&entry.family, entry.weight);
 
         // 拷贝是真正贵的操作（单个 5–35MB），由大小一致来跳过
         let copied = match copy_if_needed(&src, &dest, entry.size_bytes) {
@@ -577,8 +675,9 @@ fn install_into(
          * 理由见上方那段长注释：注册表值可能被外部清掉，而记录不会知道；
          * 漏掉这一次注册，字体就会永久消失且不会自愈。
          * `register` 是注入的，生产环境即 `win::register_font`（幂等）。
+         * 传入的是**值名**（含字重），不是族名 —— 否则同族字重会互相覆盖。
          */
-        let registered = match register(&entry.family, &dest) {
+        let registered = match register(&reg_name, &dest) {
             Ok(changed) => changed,
             Err(e) => {
                 report.outcomes.push(FontInstallOutcome {
@@ -705,14 +804,25 @@ pub fn remove_installed_fonts(app_data_dir: &Path) -> RemovalReport {
     };
 
     for font in &record.installed {
+        /*
+         * 用记录里存下的**值名**注销，而不是用族名重新拼一个。
+         * 记录是"我们当初写了什么"的唯一凭据：万一命名规则以后再变，
+         * 按规则重拼会去删一个不存在的名字，同时把真正写下的那个名字留成孤儿。
+         * 老记录没有这个字段，退回按族名 + Regular 规则拼（当时的规则）。
+         */
+        let value_name = font
+            .reg_value_name
+            .clone()
+            .unwrap_or_else(|| registry_value_name(&font.family, 400));
+
         // 1) 注销注册表值
         #[cfg(windows)]
-        match win::unregister_font(&font.family) {
-            Ok(()) => report.unregistered.push(font.family.clone()),
-            Err(e) => report.problems.push(format!("注销 {} 失败：{e}", font.family)),
+        match win::unregister_font(&value_name) {
+            Ok(()) => report.unregistered.push(value_name.clone()),
+            Err(e) => report.problems.push(format!("注销 {value_name} 失败：{e}")),
         }
         #[cfg(not(windows))]
-        report.unregistered.push(font.family.clone());
+        report.unregistered.push(value_name.clone());
 
         // 2) 删除文件
         let path = PathBuf::from(&font.dest);
@@ -767,12 +877,16 @@ mod tests {
     }
 
     /// 造一个清单 + 对应大小的假字体文件（内容随便，运行时只看大小）。
-    fn fake_bundle(tag: &str, fonts: &[(&str, &str, &str, usize)]) -> (PathBuf, FontManifest) {
+    ///
+    /// 元组是 `(id, display, family, weight, size)`。`weight` 是显式参数而不是
+    /// 默认 400：本文件最要紧的一条不变式就是"同族不同字重必须有不同值名"，
+    /// 而那条不变式只有能造出**同族两个字重**才测得出来。
+    fn fake_bundle(tag: &str, fonts: &[(&str, &str, &str, u32, usize)]) -> (PathBuf, FontManifest) {
         let root = temp_dir(tag);
         let fonts_dir = root.join("fonts");
         fs::create_dir_all(&fonts_dir).unwrap();
         let mut entries = Vec::new();
-        for (id, display, family, size) in fonts {
+        for (id, display, family, weight, size) in fonts {
             let file = format!("{id}.ttf");
             fs::write(fonts_dir.join(&file), vec![0u8; *size]).unwrap();
             entries.push(ManifestEntry {
@@ -780,6 +894,7 @@ mod tests {
                 display: (*display).to_string(),
                 family: (*family).to_string(),
                 file,
+                weight: *weight,
                 size_bytes: *size as u64,
                 sha256: "0".repeat(64),
                 license_file: Some(format!("licenses/{id}-OFL.txt")),
@@ -829,7 +944,7 @@ mod tests {
 
     #[test]
     fn 文件大小不符会被清点出来() {
-        let (root, manifest) = fake_bundle("size", &[("a", "甲", "AFont", 128)]);
+        let (root, manifest) = fake_bundle("size", &[("a", "甲", "AFont", 400, 128)]);
         let fonts_dir = root.join("fonts");
         // 先确认干净
         assert!(verify_manifest_files(&fonts_dir, &manifest).is_empty());
@@ -842,7 +957,7 @@ mod tests {
 
     #[test]
     fn 缺失文件会被清点出来() {
-        let (root, manifest) = fake_bundle("missing", &[("a", "甲", "AFont", 8)]);
+        let (root, manifest) = fake_bundle("missing", &[("a", "甲", "AFont", 400, 8)]);
         fs::remove_file(root.join("fonts").join("a.ttf")).unwrap();
         let problems = verify_manifest_files(&root.join("fonts"), &manifest);
         assert_eq!(problems.len(), 1);
@@ -852,13 +967,127 @@ mod tests {
     #[test]
     fn 注册表值名用英文族名并带真类型后缀() {
         // Windows 对 .otf 也用 (TrueType)，不是 (OpenType) —— 写错会让字体不生效
-        assert_eq!(registry_value_name("LXGW WenKai"), "LXGW WenKai (TrueType)");
-        assert_eq!(registry_value_name("Source Han Serif SC"), "Source Han Serif SC (TrueType)");
+        assert_eq!(
+            registry_value_name("LXGW WenKai", 400),
+            "LXGW WenKai (TrueType)"
+        );
+        assert_eq!(
+            registry_value_name("Source Han Serif SC", 400),
+            "Source Han Serif SC (TrueType)"
+        );
+    }
+
+    /// Regular 不带字重后缀、其余带上 —— 对齐 Windows 自身的命名习惯
+    /// （`Noto Sans SC (TrueType)` / `Noto Sans SC Bold (TrueType)`）。
+    /// 让 Regular 不带后缀还有一个实际好处：已有单字重字体的值名保持不变，
+    /// 升级时不会留下一批指向旧名字的孤儿键。
+    #[test]
+    fn 注册表值名_常规字重不带后缀_其他字重带后缀() {
+        assert_eq!(
+            registry_value_name("Source Han Serif SC", 400),
+            "Source Han Serif SC (TrueType)"
+        );
+        assert_eq!(
+            registry_value_name("Source Han Serif SC", 700),
+            "Source Han Serif SC Bold (TrueType)"
+        );
+        assert_eq!(
+            registry_value_name("X", 300),
+            "X Light (TrueType)"
+        );
+        assert_eq!(registry_value_name("X", 500), "X Medium (TrueType)");
+        assert_eq!(registry_value_name("X", 900), "X Black (TrueType)");
+    }
+
+    /// 非标准字重也必须得到**唯一**的名字。
+    ///
+    /// 这里刻意不写 `_ => panic!()`：真遇到 250 这种字重时，崩掉不如给出
+    /// 一个唯一且可读的名字。要守住的是唯一性，不是"只允许标准字重"。
+    #[test]
+    fn 非标准字重的值名仍然唯一且非空() {
+        let a = registry_value_name("X", 250);
+        let b = registry_value_name("X", 260);
+        assert_ne!(a, b, "不同非标准字重必须得到不同值名");
+        assert!(a.contains("250"), "应能看出是哪个字重：{a}");
+        assert!(a.ends_with("(TrueType)"), "{a}");
+    }
+
+    /// **同族多字重不得撞在同一个值名上** —— 这条是本轮真实缺陷的回归测试。
+    ///
+    /// 症状与根因：值名是系统字体表里的唯一键，只用族名拼的话，同族的
+    /// Regular 与 Bold 会互相覆盖 —— 磁盘上多一个文件、系统里少一档字重。
+    /// 实测该族可用字重会只剩 `[700]`（见 `fonts.rs` 的
+    /// `诊断_列出某族实际可用的字重`）。用户看到的是"加粗没变化"。
+    #[test]
+    fn 同一族的两个字重必须得到不同的值名() {
+        let regular = registry_value_name("Source Han Serif SC", 400);
+        let bold = registry_value_name("Source Han Serif SC", 700);
+        assert_ne!(
+            regular, bold,
+            "同族 Regular 与 Bold 的值名相同，后者会覆盖前者、丢掉一档字重"
+        );
+    }
+
+    /// 走完整安装流程，断言写下的两个值名不同、且都被记进记录。
+    ///
+    /// 只测 `registry_value_name` 是不够的：真正要守住的是"安装时**确实**
+    /// 用了不同的名字"。这里用一个会记录自己被调用参数列表的假注册函数，
+    /// 直接检查实际传入的值名，而不是复算一遍期望值。
+    #[test]
+    fn 安装同族两个字重时_实际传入的值名互不相同() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let (root, _m) = fake_bundle(
+            "two-weights",
+            &[
+                ("serif", "思源宋体", "Source Han Serif SC", 400, 32),
+                ("serif-bold", "思源宋体 Bold", "Source Han Serif SC", 700, 48),
+            ],
+        );
+        let fonts_dir = root.join("fonts");
+        let data_dir = root.join("data");
+        let dest_dir = root.join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        /*
+         * 用 `Rc<RefCell<..>>` 而不是借用 `seen`：
+         * `install_into` 收的是 `&RegisterFn`，而 `RegisterFn` 这个类型别名会
+         * 擦成 `dyn Fn + 'static`，所以闭包必须 `move` 且不能借外部栈变量。
+         * 用共享所有权既满足 'static，又能在调用后读回记录。
+         */
+        let seen = Rc::new(RefCell::new(Vec::<String>::new()));
+        let seen_in_closure = Rc::clone(&seen);
+        let record_register = move |name: &str, _dest: &Path| -> Result<bool, String> {
+            seen_in_closure.borrow_mut().push(name.to_string());
+            Ok(true)
+        };
+
+        let report = install_into(&fonts_dir, &data_dir, &dest_dir, &record_register);
+        assert_eq!(report.outcomes.len(), 2, "{:?}", report.outcomes);
+        assert_eq!(report.failed(), 0, "{:?}", report.outcomes);
+
+        let names = seen.borrow().clone();
+        assert_eq!(names.len(), 2, "两个字重都应被注册：{names:?}");
+        assert_ne!(
+            names[0], names[1],
+            "两个字重被注册到同一个值名，其中一个会被覆盖：{names:?}"
+        );
+        assert!(names.iter().any(|n| n.contains("Bold")), "{names:?}");
+
+        // 记录里也必须保留各自的值名，否则卸载时会漏删一个
+        let rec = read_install_record(&data_dir).expect("记录应存在");
+        let recorded: Vec<String> = rec
+            .installed
+            .iter()
+            .filter_map(|f| f.reg_value_name.clone())
+            .collect();
+        assert_eq!(recorded.len(), 2, "{recorded:?}");
+        assert_ne!(recorded[0], recorded[1], "{recorded:?}");
     }
 
     #[test]
     fn 安装是幂等的_第二次不重复拷贝() {
-        let (root, _m) = fake_bundle("idem", &[("a", "甲", "AFont", 64)]);
+        let (root, _m) = fake_bundle("idem", &[("a", "甲", "AFont", 400, 64)]);
         let fonts_dir = root.join("fonts");
         let data = root.join("data");
 
@@ -881,7 +1110,7 @@ mod tests {
 
     #[test]
     fn 半截临时文件不会残留() {
-        let (root, _m) = fake_bundle("tmp", &[("a", "甲", "AFont", 64)]);
+        let (root, _m) = fake_bundle("tmp", &[("a", "甲", "AFont", 400, 64)]);
         let dest_dir = temp_dir("tmp-dest");
         let dest = dest_dir.join("a.ttf");
         copy_if_needed(&root.join("fonts").join("a.ttf"), &dest, 64).unwrap();
@@ -936,31 +1165,68 @@ mod tests {
         write_uninstall_record(&dir, &record).unwrap();
         let text = fs::read_to_string(dir.join(UNINSTALL_RECORD_FILE)).unwrap();
 
-        // 必须 CRLF：NSIS 的 FileRead 按行读，LF-only 会把 \r 读进族名
+        // 必须 CRLF：NSIS 的 FileRead 按行读，LF-only 会把 \r 读进值名
         assert!(text.contains("\r\n"), "应为 CRLF 换行");
         // **不得有注释行**：一行注释就会让后面全部错位
         assert!(
             !text.lines().any(|l| l.trim_start().starts_with('#')),
-            "记录文件不能有注释行（会让族名/路径错位）：{text:?}"
+            "记录文件不能有注释行（会让值名/路径错位）：{text:?}"
         );
         // 行数必须是偶数（每款字体两行）
         assert_eq!(text.split("\r\n").filter(|l| !l.is_empty()).count(), 4);
 
+        /*
+         * 第 1 行是**完整注册表值名**（含 `(TrueType)`），不是族名 ——
+         * NSIS 直接拿它 `DeleteRegValue`，值名规则只存在于一处。
+         * 加入字重后值名会变成 `"<族名> Bold (TrueType)"`，
+         * 若这里写族名、由 NSIS 拼后缀，两处规则必然有一天对不上。
+         */
         let parsed = parse_uninstall_record(&text);
         assert_eq!(
             parsed,
             vec![
-                ("AFont".to_string(), dest_a.to_string()),
-                ("BFont".to_string(), dest_b.to_string()),
+                ("AFont (TrueType)".to_string(), dest_a.to_string()),
+                ("BFont (TrueType)".to_string(), dest_b.to_string()),
             ]
         );
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// 卸载记录里必须写**带字重的完整值名**，否则卸载时删不掉那个键。
+    ///
+    /// 这条是加字重时的关键回归点：若记录里只写族名、或写了错的字重后缀，
+    /// NSIS 会去删一个不存在的值名 —— 而 `DeleteRegValue` 对不存在的值
+    /// **静默成功**，于是卸载后 HKCU 里留下指向已删文件的悬空值，
+    /// 没有任何报错。
     #[test]
-    fn 族名含制表符换行或为空时不会破坏交替行结构() {
-        // 族名来自字体文件，理论上是不可信输入；一个换行就能让后续行错位，
-        // 从而使卸载器删错文件。空族名会被当成"读完了"而提前结束清理。
+    fn 卸载记录写的是带字重的完整值名() {
+        let dir = temp_dir("uninstall-bold");
+        let record = InstallRecord {
+            manifest_version: 1,
+            installed: vec![RecordedFont {
+                id: "serif-bold".into(),
+                file: "serif-bold.otf".into(),
+                family: "Source Han Serif SC".into(),
+                dest: "/tmp/serif-bold.otf".into(),
+                reg_value_name: Some("Source Han Serif SC Bold (TrueType)".into()),
+                size_bytes: 1,
+            }],
+        };
+        write_uninstall_record(&dir, &record).unwrap();
+        let text = fs::read_to_string(dir.join(UNINSTALL_RECORD_FILE)).unwrap();
+        let parsed = parse_uninstall_record(&text);
+        assert_eq!(
+            parsed[0].0, "Source Han Serif SC Bold (TrueType)",
+            "必须写完整值名（含字重），而不是族名：{parsed:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 值名含制表符换行或为空时不会破坏交替行结构() {
+        // 族名（以及由它拼出的值名）来自字体文件，理论上是不可信输入；
+        // 一个换行就能让后续行错位，从而使卸载器删错文件。
+        // 空值名会被当成"读完了"而提前结束清理。
         let dir = temp_dir("evilname");
         let record = InstallRecord {
             manifest_version: 1,
@@ -989,8 +1255,8 @@ mod tests {
         assert_eq!(parsed.len(), 2, "必须仍然是两组：{parsed:?}");
         assert_eq!(parsed[0].1, "/tmp/a.ttf");
         assert_eq!(parsed[1].1, "/tmp/b.ttf");
-        // 空族名回退到 id，绝不能是空行
-        assert_eq!(parsed[1].0, "empty", "空族名应回退到 id");
+        // 空白族名拼不出可用值名，回退到 id，绝不能是空行
+        assert_eq!(parsed[1].0, "empty", "空白族名应回退到 id");
         assert!(!parsed[0].0.contains('\n'), "换行必须被剥掉");
         assert!(!parsed[0].0.contains('\t'), "制表符必须被剥掉");
         let _ = fs::remove_dir_all(&dir);
@@ -1151,7 +1417,7 @@ mod tests {
     #[test]
     fn 文件大小与清单不符时会在报告里出现() {
         // 端到端：清单说 128 字节，实际写 8 字节
-        let (root, _m) = fake_bundle("report-problems", &[("a", "甲", "AFont", 128)]);
+        let (root, _m) = fake_bundle("report-problems", &[("a", "甲", "AFont", 400, 128)]);
         fs::write(root.join("fonts").join("a.ttf"), vec![0u8; 8]).unwrap();
         let dest = root.join("dest");
         let report = install_into(&root.join("fonts"), &root.join("data"), &dest, &noop_register);
@@ -1178,7 +1444,7 @@ mod tests {
      */
     #[test]
     fn 目标文件已在但注册表缺失时必须重新注册而不是判为已就位() {
-        let (root, _m) = fake_bundle("heal-register", &[("a", "甲", "AFont", 16)]);
+        let (root, _m) = fake_bundle("heal-register", &[("a", "甲", "AFont", 400, 16)]);
         let fonts_dir = root.join("fonts");
         let data_dir = root.join("data");
         let dest_dir = root.join("dest");
@@ -1209,7 +1475,7 @@ mod tests {
 
     #[test]
     fn 注册失败时如实记为失败并说明已拷贝() {
-        let (root, _m) = fake_bundle("register-fail", &[("a", "甲", "AFont", 16)]);
+        let (root, _m) = fake_bundle("register-fail", &[("a", "甲", "AFont", 400, 16)]);
         let dest_dir = root.join("dest");
         let report = install_into(
             &root.join("fonts"),
@@ -1228,7 +1494,7 @@ mod tests {
 
     #[test]
     fn 清单缩小后旧字体仍留在记录里以便日后清理() {
-        let (root, _m) = fake_bundle("shrink", &[("a", "甲", "AFont", 16), ("b", "乙", "BFont", 16)]);
+        let (root, _m) = fake_bundle("shrink", &[("a", "甲", "AFont", 400, 16), ("b", "乙", "BFont", 400, 16)]);
         let fonts_dir = root.join("fonts");
         let data_dir = root.join("data");
         let dest_dir = root.join("dest");

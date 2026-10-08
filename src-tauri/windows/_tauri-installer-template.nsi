@@ -864,7 +864,9 @@ Section Uninstall
   ;
   ; 随包字体被安装到**本用户**的字体目录，并写进了 HKCU：
   ;   %LOCALAPPDATA%\Microsoft\Windows\Fonts\<file>
-  ;   HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts : "<族名> (TrueType)" = <绝对路径>
+  ;   HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts : "<值名>" = <绝对路径>
+  ; 其中**值名已含 `(TrueType)` 后缀与字重**（如 `Source Han Serif SC Bold (TrueType)`），
+  ; 由 src-tauri/src/font_install.rs 的 registry_value_name 唯一决定。
   ; 这两处**都不在 $INSTDIR 里**，所以下面那些 Delete/RMDir 一个都碰不到它们，
   ; 连"删除应用数据"选项也只清 $APPDATA/$LOCALAPPDATA 下的应用目录。
   ; 不显式清理的后果：用户卸载后字体库里永久多出十几个字体，而且没有任何提示。
@@ -873,7 +875,7 @@ Section Uninstall
   ; 不保护就会在更新过程中把字体删掉（更新完应用还得重装一遍，且用户会看到
   ; 字体短暂消失）。
   ;
-  ; 记录文件是**交替两行**的纯文本（族名一行、绝对路径一行），
+  ; 记录文件是**交替两行**的纯文本（完整值名一行、绝对路径一行），
   ; 没有注释行 —— 一行注释就会让后面全部错位、删错文件。
   ; 格式由 src-tauri/src/font_install.rs 的 write_uninstall_record 定义，
   ; 并由 Rust 侧同名测试 parse_uninstall_record 钉住。
@@ -884,7 +886,7 @@ Section Uninstall
     IfFileExists "$R0" 0 qmai_fonts_done
     FileOpen $R1 "$R0" r
   qmai_fonts_loop:
-    FileRead $R1 $R2 ; 第 1 行：族名
+    FileRead $R1 $R2 ; 第 1 行：完整注册表值名（已含后缀与字重）
     IfErrors qmai_fonts_close
     ${StrTrimNewLines} $R2 $R2
     StrCmp $R2 "" qmai_fonts_close ; 空行 = 读完了
@@ -895,9 +897,10 @@ Section Uninstall
     ; 从字体文件里删掉。被占用时 /REBOOTOK 保证重启后仍会删掉，
     ; 而不是静默留下一个孤儿字体文件。
     Delete /REBOOTOK "$R3"
-    ; 注册表值名是 "<族名> (TrueType)"，.otf 也是这个后缀
-    StrCpy $R4 "$R2 (TrueType)"
-    DeleteRegValue HKCU "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$R4"
+    ; 值名原样使用：**不要**在这里拼 " (TrueType)"。
+    ; 拼接规则若分散到 NSIS 里，加字重时必然有一处忘记改，
+    ; 结果是卸载后 HKCU 里留下一批指向已删文件的悬空值。
+    DeleteRegValue HKCU "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$R2"
     Goto qmai_fonts_loop
   qmai_fonts_close:
     FileClose $R1

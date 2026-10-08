@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join, resolve, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { spawn } from "node:child_process"
+import { spawn, execFileSync } from "node:child_process"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, "..", "..")
@@ -34,6 +34,35 @@ const OUT = argOf("--out") ?? join(HERE, "real-exe-fonts-evidence.json")
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 const fails = []
 const notes = []
+
+/**
+ * 读本用户字体注册表：`值名 -> 字体文件绝对路径`。
+ *
+ * 用 `reg.exe query` 而不是原生模块：这是**真实机器验证**脚本，
+ * 目的正是绕开"我们自己的代码"，直接看系统里到底写了什么。
+ * 读不到时返回 null（由调用方决定是跳过还是失败），
+ * 不返回空 Map —— 空 Map 会让"一个值都没有"看起来像"检查通过了"。
+ */
+function readFontRegistryValues() {
+  const KEY = "HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+  try {
+    const out = execFileSync("reg.exe", ["query", KEY], { encoding: "utf8", windowsHide: true })
+    const map = new Map()
+    for (const line of out.split(/\r?\n/)) {
+      /*
+       * reg query 输出形如：`    Source Han Serif SC (TrueType)    REG_SZ    C:\...\x.otf`
+       * 值名里本来就可能含空格/括号，所以按 `REG_SZ` 这个分隔标记切，
+       * 不用 `\s+` 去 split —— 那会把名字里的空格也切碎。
+       */
+      const m = /^\s{4}(.+?)\s{4}REG_SZ\s{4}(.*)$/.exec(line)
+      if (m) map.set(m[1].trim(), m[2].trim())
+    }
+    // 连表头都没解析出来说明输出格式变了，不能当成"0 个值"放过去
+    return map.size > 0 ? map : null
+  } catch {
+    return null
+  }
+}
 
 async function loadPlaywright() {
   for (const c of [join(process.env.APPDATA ?? "", "npm/node_modules/playwright/index.js"), join(REPO, "node_modules/playwright/index.js")]) {
@@ -272,25 +301,119 @@ async function main() {
   } else {
     console.log(`  「本机中文字体」分组：${sysGroup.options.length} 项`)
     const sysValues = new Set(sysGroup.options.map((o) => o.value))
-    // 每款随包字体都应能被选中。用 family 组成 sys: 取值来核对。
+    /*
+     * 按**族**去重，不按清单条目。
+     *
+     * 清单现在是 11 个文件但只有 9 个族：思源宋体/思源黑体各有 Regular 与 Bold，
+     * 却共用同一个 `sys:<族名>` 取值 —— 下拉里是 9 项，不是 11 项。
+     * 若按条目去断言并打印"全部 11 款都能选到"，数字看着对、说法是错的：
+     * 那会让人以为下拉里有 11 项，从而在真出问题时（少了一族）
+     * 因为"11 个条目都命中"而看不出来。
+     */
+    const families = [...new Set(manifest.fonts.map((f) => f.family))]
+    console.log(`  清单 ${manifest.fonts.length} 个文件 / ${families.length} 个族（同族多字重共用同一个取值）`)
+    // 每款随包族都应能被选中。用 family 组成 sys: 取值来核对。
     // 标题里带括号/空格的族名（如 Zhuque Fangsong (technical preview)）
-    // 是最容易在拼接环节出错的一类，所以这里逐款比对而不是只看数量。
+    // 是最容易在拼接环节出错的一类，所以这里逐族比对而不是只看数量。
     const missing = []
-    for (const f of manifest.fonts) {
-      const want = `sys:${f.family}`
+    for (const fam of families) {
+      const want = `sys:${fam}`
       const hit = sysValues.has(want)
-      console.log(`    ${hit ? "✓" : "✗"} ${f.display.padEnd(20)} ${want}`)
-      if (!hit) missing.push(`${f.display}（期望取值 ${want}）`)
+      console.log(`    ${hit ? "✓" : "✗"} ${want}`)
+      if (!hit) missing.push(`期望取值 ${want}`)
     }
     if (missing.length) {
-      fails.push(`以下随包字体没有出现在下拉里：${missing.join("；")}`)
+      fails.push(`以下随包字体族没有出现在下拉里：${missing.join("；")}`)
     } else {
-      console.log(`  ✓ 全部 ${manifest.fonts.length} 款随包字体都能在下拉里选到`)
+      console.log(`  ✓ 全部 ${families.length} 个随包字体族都能在下拉里选到`)
     }
     // 拉丁字体不该出现（负向对照）
     const latin = sysGroup.options.filter((o) => /^(Arial|Segoe UI|Times New Roman|Calibri|Consolas|Verdana)$/i.test(o.value.replace(/^sys:/, "")))
     if (latin.length) fails.push(`下拉里出现了纯拉丁字体：${latin.map((o) => o.value).join(", ")}`)
     else console.log("  ✓ 未出现纯拉丁字体（负向对照通过）")
+  }
+
+  /*
+   * ── 二·补、同族多字重必须写成**不同的注册表值名** ──
+   *
+   * 这是本轮实测发现的真实缺陷，也是加 Bold 时最容易被漏掉的一步：
+   * 值名是系统字体表里的唯一键，只用族名拼的话，同族的 Regular 与 Bold 会
+   * 互相覆盖 —— 磁盘上多一个文件、系统里少一档字重，而用户只看到"加粗没变化"。
+   *
+   * 上面那些检查全都**测不出**这个缺陷：字体装了、下拉里也有、选谁都能换字形。
+   * 所以必须直接看注册表：同族不能只有一个值名，且必须指向不同文件。
+   */
+  console.log("")
+  console.log("  ══ 二·补、同族多字重的注册表值名是否互不相同 ══")
+  const valueNames = readFontRegistryValues()
+  if (!valueNames) {
+    notes.push("ⓘ 未能读取 HKCU 字体注册表（reg.exe 不可用？），跳过同族多字重检查")
+    console.log("  ⓘ 跳过：读不到注册表")
+  } else {
+    /*
+     * 按**文件名**匹配，不按值名匹配 —— 这是一个刻意的选择。
+     *
+     * 按值名（`base === fam || base.startsWith(fam + " ")`）匹配会误纳
+     * 机器上**本来就有的**字体：本机基线里就有
+     * `Source Han Serif SC Heavy (TrueType)` → `C:\Windows\Fonts\...ttf`。
+     * 它名字以 "Source Han Serif SC " 开头，于是会被算进思源宋体这一族，
+     * 让"该族有 ≥2 个值名"在 Bold **根本没装**时也成立 —— 一个典型的
+     * 看起来在检验、其实什么都没检验的假绿。
+     *
+     * 改成"清单里的每个文件是否都作为某个注册表值的**目标**出现"，
+     * 就与命名规则无关、也不会被同名的其他字体干扰。
+     */
+    const byFile = new Map()
+    for (const [name, path] of valueNames) {
+      byFile.set(path.split(/[\\/]/).pop().toLowerCase(), name)
+    }
+    const multiWeightFamilies = [...new Set(manifest.fonts.map((f) => f.family))].filter(
+      (fam) => manifest.fonts.filter((f) => f.family === fam).length > 1,
+    )
+    console.log(`  注册表值 ${valueNames.size} 个；清单里有多字重的族：${multiWeightFamilies.length} 个`)
+    if (multiWeightFamilies.length === 0) {
+      // 不写"通过"：没有多字重族时这条检查什么也没测到
+      notes.push("ⓘ 清单里没有多字重族，同族多字重检查未生效（加 Bold 后应至少有 2 个）")
+      console.log("  ⓘ 清单里没有多字重族，本条无从检验")
+    }
+    const weightProblems = []
+    const detail = {}
+    for (const fam of multiWeightFamilies) {
+      const files = manifest.fonts.filter((f) => f.family === fam)
+      const rows = files.map((f) => ({
+        file: f.file,
+        weight: f.weight,
+        valueName: byFile.get(f.file.toLowerCase()) ?? null,
+      }))
+      detail[fam] = rows
+      const registered = rows.filter((r) => r.valueName)
+      const names = registered.map((r) => r.valueName)
+      const distinctNames = new Set(names)
+      console.log(`    ${fam}：清单 ${files.length} 个文件，注册表里 ${registered.length} 个已注册`)
+      for (const r of rows) {
+        console.log(
+          `      ${r.valueName ? "✓" : "✗"} w=${String(r.weight).padEnd(4)} ${r.file.padEnd(30)} → ${r.valueName ?? "（注册表里没有）"}`,
+        )
+      }
+      for (const r of rows) {
+        if (!r.valueName) {
+          weightProblems.push(
+            `${fam} 的 ${r.file}（字重 ${r.weight}）已装到磁盘但注册表里没有任何值指向它 —— 该字重对系统不可见`,
+          )
+        }
+      }
+      if (registered.length === files.length && distinctNames.size < files.length) {
+        weightProblems.push(
+          `${fam}：${files.length} 个文件只写成了 ${distinctNames.size} 个不同值名（${[...distinctNames].join("、")}）—— ` +
+            `同族字重撞在同一个键上，后写的覆盖先写的`,
+        )
+      }
+    }
+    if (weightProblems.length) fails.push(...weightProblems)
+    else if (multiWeightFamilies.length > 0) {
+      console.log("  ✓ 每个多字重族的各档字重都已注册，且值名互不相同")
+    }
+    evidence.steps.multiWeight = { count: valueNames.size, families: detail }
   }
 
   /* ── 三、选中随包字体后，界面真的换了字形 ── */

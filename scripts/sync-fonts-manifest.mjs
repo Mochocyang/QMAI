@@ -107,6 +107,13 @@ for (const font of source.fonts) {
     display: font.display,
     family: font.family,
     file: font.file,
+    /*
+     * 字重必须跟着进运行期清单：Rust 侧用它拼注册表值名，
+     * 而同族的 Regular 与 Bold 必须有不同值名（否则后者覆盖前者，
+     * 磁盘上多一个文件、系统里少一档字重）。缺少时按 Regular 处理，
+     * 与 Rust 侧 `default_weight()` 的默认值保持一致。
+     */
+    weight: font.weight ?? 400,
     sizeBytes: actualSize,
     sha256: actualSha,
     licenseFile: font.licenseFile,
@@ -128,6 +135,51 @@ if (orphans.length > 0) {
 }
 const missing = [...listed].filter((name) => !onDisk.includes(name))
 if (missing.length > 0) die(`清单列出但磁盘上没有：${missing.join(", ")}`)
+
+/*
+ * ── 注册表值名不得重复（这是一条源于真实缺陷的不变式）──
+ *
+ * 值名 = `<族名>[ <字重后缀>] (TrueType)`，是系统字体表里的**唯一键**。
+ * 两条目的值名相同 ⇒ 后注册的覆盖先注册的 ⇒ 磁盘上多一个文件、
+ * 系统里少一档字重。实测：同族两个文件只写一个值名时该族可用字重只有 [700]；
+ * 写成两个不同值名后才是 [400, 700]。症状是"加粗没变化"，
+ * 几乎不可能被归因到注册表键上 —— 所以必须在**生成时**就挡住。
+ *
+ * 这里的映射必须与 src-tauri/src/font_install.rs 的 weight_style_suffix 一致；
+ * Rust 侧另有一条测试对同一组字重做断言，两边任何一处漂移都会失败。
+ */
+const WEIGHT_SUFFIX = {
+  100: "Thin",
+  200: "ExtraLight",
+  300: "Light",
+  350: "SemiLight",
+  400: null, // Regular 不带后缀（对齐 Windows 命名习惯）
+  500: "Medium",
+  600: "SemiBold",
+  700: "Bold",
+  800: "ExtraBold",
+  900: "Black",
+}
+const regValueName = (e) => {
+  const w = e.weight ?? 400
+  const suffix = Object.prototype.hasOwnProperty.call(WEIGHT_SUFFIX, w)
+    ? WEIGHT_SUFFIX[w]
+    : `W${w}`
+  return suffix ? `${e.family} ${suffix} (TrueType)` : `${e.family} (TrueType)`
+}
+const byValueName = new Map()
+for (const e of entries) {
+  const name = regValueName(e)
+  const prev = byValueName.get(name)
+  if (prev) {
+    die(
+      `注册表值名重复：${prev.id} 与 ${e.id} 都会写成「${name}」。` +
+        `后者会覆盖前者，导致其中一档字重在系统里不存在（磁盘上有文件、列表里没有）。` +
+        `请给字重字段 weight 填正确值（400 = Regular，700 = Bold）。`,
+    )
+  }
+  byValueName.set(name, e)
+}
 
 const payload = {
   manifestVersion: source.manifestVersion ?? 1,

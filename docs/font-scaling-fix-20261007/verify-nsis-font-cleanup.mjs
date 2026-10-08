@@ -67,6 +67,25 @@ const REQUIRED_TOKENS = [
 for (const token of REQUIRED_TOKENS) {
   if (!block.includes(token)) fail(`抽出的片段里缺少必需内容：${token}`)
 }
+/*
+ * ── 值名必须原样使用，不得在这里再拼后缀 ──
+ *
+ * 记录文件第 1 行已经是**完整值名**（含 `(TrueType)` 与字重，如
+ * `Source Han Serif SC Bold (TrueType)`）。NSIS 只需原样 `DeleteRegValue`。
+ * 早期版本这里写 `StrCpy $R4 "$R2 (TrueType)"`，把拼名规则分散到了两处；
+ * 加入字重后值名变成 `"<族名> Bold (TrueType)"`，两处规则必然有一天对不上，
+ * 而 `DeleteRegValue` 对**不存在**的值是静默成功的 —— 卸载后会在
+ * HKCU 里留下指向已删文件的悬空值，且没有任何报错。
+ *
+ * 因此这里反过来断言：那段代码**不得**再出现拼接后缀的写法。
+ */
+if (/\$R2\s*\(TrueType\)/.test(block)) {
+  fail(
+    "清理块里仍在拼接「 (TrueType)」后缀 —— 记录文件里已经是完整值名，" +
+      "再拼一次会去删一个不存在的键（DeleteRegValue 对不存在的值静默成功），" +
+      "卸载后会留下悬空注册表值。请直接删 $R2。",
+  )
+}
 // 行数下限：一个能真正干活的清理块不可能只有几行
 const blockLines = block.split(/\r?\n/).length
 if (blockLines < 25) fail(`抽出的片段只有 ${blockLines} 行，太短，不像完整的清理块`)
