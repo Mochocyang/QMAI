@@ -233,6 +233,46 @@ cargo test --offline --lib -- --test-threads=1</code></pre>
     而它正是该任务存在的理由。</p>
   </div>
 
+  <h3>唯一的例外：任务 12 认领的 4 个验收脚本，会在任务 6 之后一直红到任务 12</h3>
+  <div class="note">
+    <span class="t">这不是上面那条规则的反例，而是它的边界 —— 而且这些红不会阻断任何人</span>
+    <p>换契约这件事会同时打到两处守卫，而它们由<strong>不同</strong>的任务认领：</p>
+    <ul>
+      <li><code>interface-sidebar-nav.spec.ts</code> —— 在 <code>npm run test:mocks</code> 里，
+      是<strong>真门禁</strong>。所以任务 3 / 5 / 9 / 10 / 11 各自改自己那一层、
+      <strong>各自随实现提交</strong>（见上一条）。</li>
+      <li><code>docs/font-scaling-fix-20261007/</code> 下的 4 个验收脚本 ——
+      <code>verify-body-font-single-source.mjs</code>、<code>verify-body-font-scale.mjs</code>、
+      <code>verify-real-exe.mjs</code>、<code>verify-real-exe-settings-save.mjs</code>。
+      它们把<strong>旧契约</strong>（<code>1.125rem × 倍数</code>、行高必须等于 <code>1.95</code>、
+      安全距离 <code>36px</code>）编码进了断言，所以任务 6 / 7 一落地它们就红。
+      按计划它们<strong>由任务 12 统一改</strong>（任务 12 的标题就是"守卫更新：只换契约，不放松"，
+      它的 <code>git add</code> 里正是这 4 个文件）。</li>
+    </ul>
+    <p><strong>为什么这个红窗口可以接受</strong>（三条都核对过，不是"大概没事"）：</p>
+    <ol>
+      <li>它们<strong>不在任何门禁里</strong>：<code>package.json</code> 的 scripts 里引用
+      <code>docs/font-scaling-fix</code> 的是 <strong>0 条</strong>，<code>.github</code> /
+      <code>vite.config.ts</code> 也无引用。所以它们红着<strong>不会</strong>让任何任务的
+      "跑测试确认变绿"失败。</li>
+      <li>它们是<strong>验收脚本</strong>，本来就在链路最末端（任务 13）才跑，
+      而任务 12 在任务 13 之前。</li>
+      <li>这个红是<strong>任务 6 唯一能拿到的红色阶段</strong> ——
+      <code>ui-test-editor.spec.tsx</code> 只读 <code>ui-test-editor.css</code>，
+      全仓没有任何 spec 读 <code>ui-test.css</code> 的正文变量（已穷举核对）。
+      所以任务 6 必须借它当探针，否则任务 6 就是"改了但没有任何东西能证明它被读到"。</li>
+    </ol>
+    <p><strong>穷举过</strong>：我按"真的读并断言那几个正文变量"为判据扫了
+    <code>docs/font-scaling-fix-20261007/</code> 下全部 41 个文件，
+    命中的正好是上面这 4 个，且 4 个都在任务 12 的 <code>git add</code> 里，
+    <strong>没有第 5 个孤儿</strong>。（判据必须这么严：放宽到"文件里出现过旧数字"
+    会误报 6 个 —— 4 个历史 <code>.md</code> 和 2 个与本改造无关的探针脚本，
+    而那 2 个的 <code>36px</code> 其实是探针输入框在 150% 档的行盒
+    <code>1.5rem × 1.5</code>。误报会让检查器被无视。）</p>
+    <p>任务 6 / 7 / 9 / 10 / 11 的实现者：<strong>看到这 4 个脚本红是预期的，不要去改它们</strong>
+    —— 改了就越过任务边界，而任务 12 还要用它们做"换契约前后都守住不变量"的对照。</p>
+  </div>
+
   <h3>写 store 测试前必读：zustand 的 getState() 是快照</h3>
   <div class="note warn">
     <span class="t">先取快照、再调 setter、再断言快照的字段 —— 这条必定红，且与你的实现无关</span>
@@ -2299,7 +2339,7 @@ git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含�
             <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect bad">Expected: FAIL —— 报「expected … to contain 'applyBodyTypography({'」。本任务还没给 App 接线，必须红。</p>
 
-      <p>最后那段依赖数组断言在红色阶段**也会红**（那时还没接 applyBodyTypography，
+      <p>最后那段依赖数组断言在红色阶段<strong>也会红</strong>（那时还没接 applyBodyTypography，
       <code>deps</code> 取到空串）—— 这是预期的，不必为它单独安排顺序。</p>
 
       <p>旧那条测试断言的两个字面量（<code>setProperty("--qmai-body-font-scale"</code>、<code>loadUiBodyFontSizeScale()</code>）在本任务里会被删掉，所以它不能留着 —— 留着就是一条永远红的断言。</p>
@@ -2467,14 +2507,14 @@ git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"<
   </div>
 
   <div class="step">
-    <div class="step-h"><span class="box"></span>Step 2：跑那个**真的会红**的守卫（不是单测）</div>
+    <div class="step-h"><span class="box"></span>Step 2：跑那个<strong>真的会红</strong>的守卫（不是单测）</div>
     <div class="step-body">
       <p><strong>先说实话</strong>：本任务的改动<strong>不会</strong>让任何 vitest 单测变红 ——
       <code>ui-test-editor.spec.tsx</code> 只读 <code>ui-test-editor.css</code>，
       而全仓没有任何 spec 读 <code>ui-test.css</code> 里那几个正文字号变量。
       跑它是绿是红都与本任务无关（跑一下确认没回归即可）。</p>
       <p>真正因为本任务而变红的是这个静态守卫 —— 它明文要求
-      <code>calc(&lt;rem&gt; × var(--qmai-body-font-scale, 1))</code> 这个**旧契约**，
+      <code>calc(&lt;rem&gt; × var(--qmai-body-font-scale, 1))</code> 这个<strong>旧契约</strong>，
       而本任务正是要把那个契约换成 <code>var(--qmai-body-font-px, 18px)</code>：</p>
       <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</code></pre>
       <p class="expect bad">Expected: FAIL —— 三条「变量定义」报错（字号 / 列表 / 标记各一条），
@@ -2533,7 +2573,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/uitest/ui-test-editor.css（7 处，逐处给出）</div>
-    <div>Modify: src/components/uitest/ui-test-editor.spec.tsx（**本任务里先改**，见 Step 1）</div>
+    <div>Modify: src/components/uitest/ui-test-editor.spec.tsx（<strong>本任务里先改</strong>，见 Step 1）</div>
     <div>不改：验证脚本（那是任务 12）</div>
   </div>
 
@@ -3684,7 +3724,7 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
   <div class="files">
     <div class="lbl">Files</div>
     <div>Modify: src/components/layout/preview-panel.tsx（import 3 行；位置助手 175–188；state 237–238 旁；章节工具栏 1520；大纲工具栏 1530 后；浮层 1930 旁）</div>
-    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前**追加**一条新 it）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（在文件末尾的顶层 describe 收尾 <code>})</code> 之前<strong>追加</strong>一条新 it）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）。（别与上面「大纲工具栏」那行混淆：那是 preview-panel.tsx 里的位置）</div>
     <div>Create: src/components/layout/preview-panel.chapter-toolbar.spec.tsx</div>
   </div>
 
@@ -4316,7 +4356,7 @@ function isDerivedRatio(value, numerator, denominator) {
         <p>第 4 步与第 5 步换掉了 <code>ROOT_OK</code> 与 <code>GOOD_EDITOR</code> 的内容，
         而两条既有反例是靠 <code>.replace(旧串, …)</code> 构造的。旧串一消失，
         <code>replace</code> 就成了 no-op（不报错、静默返回原文），于是那条"反例"
-        其实喂进去的是**完全合规的 CSS**，自然报不出红 → 自检恒 ✗。
+        其实喂进去的是<strong>完全合规的 CSS</strong>，自然报不出红 → 自检恒 ✗。
         这正是第 7 步要你确认的那种失败，所以先把它们改对：</p>
         <p><strong>① 反例⑨「变量倍数写错」</strong> —— 它 replace 的是 <code>"0.75rem"</code>，
         但新 <code>ROOT_OK</code> 里的标记尺寸已经是 <code>calc(var(--qmai-body-font-size) * 2 / 3)</code>，
@@ -4552,7 +4592,7 @@ node scripts/check-bundled-font-licenses.mjs</code></pre>
           结果"绿"也说明不了本次改动。</li>
           <li>脚本自己的头注释也写明它"<strong>不替代</strong>真实 exe 目视"。</li>
         </ul>
-        <p>真正连 CDP、驱动**真实 exe** 的是另一个脚本（<code>verify-real-exe.mjs</code>，
+        <p>真正连 CDP、驱动<strong>真实 exe</strong> 的是另一个脚本（<code>verify-real-exe.mjs</code>，
         它用 <code>--port</code> 默认为 9222 的 <code>connectOverCDP</code>），
         那个才需要先启动应用。</p>
         <p>换句话说：本步骤证明的是"改完之后 CSS 与变量的数值对得上"，
@@ -4659,7 +4699,7 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
     <li><code>BodyTypographyValue</code> 的 6 个键（<code>fontFamily / fontPx / lineHeight / letterSpacing / marginX / safeBottom</code>）在 Task 8 定义、Task 9 与 Task 11 使用，键名一致。</li>
     <li>store 字段 <code>uiBodyFontPx / uiBodyLineHeight / uiBodyLetterSpacing / uiBodyMarginX / uiBodySafeBottom</code> 在 Task 3 定义，Task 4/5/9/10/11/12 引用，无第二种拼写。</li>
     <li>localStorage 键与小写化后的 app-state 键一一对应：<code>qmai-body-font-px</code> ↔ <code>uiBodyFontPx</code>，以此类推，共 5 组，无重复。</li>
-    <li><code>defaultBodyMarginXForViewport</code> 在 Task 1 的 <code>font-settings.ts</code> 定义（与 <code>BODY_MARGIN_X_VIEWPORT_MIN/VW/MAX</code> 一起），Task 8 的组件与 spec、Task 12 的静态守卫引用它。**不存在** <code>effectiveDefaultMarginX</code> 这个第二份实现 —— 那正是要避免的"界面在说谎"。</li>
+    <li><code>defaultBodyMarginXForViewport</code> 在 Task 1 的 <code>font-settings.ts</code> 定义（与 <code>BODY_MARGIN_X_VIEWPORT_MIN/VW/MAX</code> 一起），Task 8 的组件与 spec、Task 12 的静态守卫引用它。<strong>不存在</strong> <code>effectiveDefaultMarginX</code> 这个第二份实现 —— 那正是要避免的"界面在说谎"。</li>
   </ul>
 
   <h3>已识别的风险与对应防线</h3>
