@@ -584,7 +584,25 @@ describe("测试版正文样式边界", () => {
   })
 
   it("单独提供最大800正文容器，1.25rem/1.75rem标题与单一来源的衬线正文", () => {
-    expect(css).toMatch(/max-width:\s*800px/)
+    /*
+     * 800px 是**正文宽度**，不是「正文 + 两侧边距」。
+     *
+     * 这条断言原来只查 `max-width: 800px` 这个字符串存在 —— 挡不住下面这个
+     * 真实发生过的缺陷：padding 从外层搬到本层之后，本层 box-sizing 是
+     * border-box（Tailwind preflight 全局设的），于是 800px 把 padding 也算了进去，
+     * 默认档正文只剩 800 − 2×48 = 704px（1200px 窗口实测），
+     * 而计划自己的数值对照表写的是「默认档必须与今天逐位相同」。
+     * 字符串在、断言绿，用户看到的正文却窄了 12%。
+     *
+     * 所以必须把**几何关系**钉住：上限 = 800px + 两侧边距，且 padding 用的是
+     * 同一个 fallback 变量。只查数字是否出现是不够的。
+     */
+    expect(css).toMatch(/--qmai-body-margin-x-fallback:\s*clamp\(20px, 4vw, 48px\)/)
+    expect(css).toMatch(/max-width:\s*calc\(800px \+ 2 \* var\(--qmai-body-margin-x-fallback\)\)/)
+    // 正文容器必须用同一个 fallback 变量做 padding 的兜底，否则上面那个上限算的不是同一边距
+    expect(css).toMatch(
+      /\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/,
+    )
     expect(css).toMatch(/1\.25rem\/1\.75rem\s+var\(--serif\)/)
     /*
      * 正文字号必须是**单一来源变量**，不再是字面量 1.125rem/1.95。
@@ -615,12 +633,44 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
   })
 
-  it("字间距只声明一处，靠继承保证输入层与高亮层取值必然相同", () => {
-    // 复制成三份的话，改其中一份就会让覆盖层与输入文字错位。
-    // 继承是"按构造相同"，比三处写同一个表达式更强。
-    const matches = css.match(/letter-spacing:\s*var\(--qmai-body-letter-spacing/g) ?? []
-    expect(matches.length).toBe(1)
-    expect(css).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+  it("字间距在正文层与输入层引用同一个变量，且全文件没有写死的字间距", () => {
+    /*
+     * ⚠ 这条断言原来的命题是**错的**。它写「只声明一处，靠继承保证输入层与
+     * 高亮层取值必然相同」，并且只数了 `letter-spacing: var(...)` 出现 1 次。
+     * 实测（Blink）：**继承到不了原生 textarea** —— UA 样式表给表单控件声明了
+     * `letter-spacing: normal`，而任何声明都胜过继承。父级 2px 时
+     * div 读回 2px、textarea 读回 normal，加 `letter-spacing: inherit` 才回 2px。
+     *
+     * 那条「恰好 1 处」的断言验的是「这个变量表达式只出现了一次」，
+     * 而不是「输入层与高亮层取值相同」—— 后者 jsdom 也验不了。
+     * 它把一个**碰巧**成立的状态写成了**构造上必然**成立。
+     *
+     * 现在改成两条都成立的命题：
+     *   ① 正文层与输入层各自显式引用**同一个变量**（同源 ⇒ 不可能漂移）；
+     *   ② 全文件任何 letter-spacing 声明都不得写死值（写死才会错位）。
+     * 不断言声明数量：多一处同源声明无害，少一处才是缺陷。
+     */
+    const VAR = "var(--qmai-body-letter-spacing, 0)"
+    /*
+     * ⚠ 必须先把 CSS 的块注释挖掉再扫。
+     * 下面那条注释里就写着「UA 样式表给它声明了 letter-spacing: normal」——
+     * 不挖注释的话，这条**注释本身**会被当成一处「写死的字间距」而报假红。
+     * （同一个坑本会话在 check-css-var-contract.mjs 上已经踩过一次：
+     *  它把只出现在注释里的旧变量报成「仍在被使用」。）
+     */
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
+
+    // ① 正文层：div 系（.ProseMirror / [dir][lang] / 高亮层）继承的源头
+    expect(code).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+    // ① 输入层：原生 textarea 不吃继承，必须显式写一次同一个变量
+    expect(code).toMatch(/\[data-writing-editor\] textarea[^{]*\{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+
+    // ② 全文件不得写死字间距
+    const decls = [...code.matchAll(/letter-spacing:\s*([^;}]+)/g)].map((m) => m[1].trim())
+    expect(decls.length, "应至少在正文层与输入层各声明一次").toBeGreaterThanOrEqual(2)
+    for (const d of decls) {
+      expect(d, `字间距必须引用同一个变量，不能写死值（写死会让输入层与高亮层错位）：${d}`).toBe(VAR)
+    }
   })
 
   it("列表行高跟随行间距变量，标题与表格保持固定", () => {
@@ -692,7 +742,7 @@ describe("测试版正文样式边界", () => {
     expect(css).not.toContain("padding-bottom: 36px")
     expect(css).not.toContain("padding-bottom: 28px")
     // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
-    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, clamp\(20px, 4vw, 48px\)\)/)
+    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/)
     expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
   })
 
@@ -706,7 +756,15 @@ describe("测试版正文样式边界", () => {
    */
   it("左右边距的 CSS 兜底值与 font-settings 的常量一致", () => {
     const expected = `clamp(${BODY_MARGIN_X_VIEWPORT_MIN}px, ${BODY_MARGIN_X_VIEWPORT_VW}vw, ${BODY_MARGIN_X_VIEWPORT_MAX}px)`
-    expect(css).toContain(`var(--qmai-body-margin-x, ${expected})`)
+    /*
+     * 常量的落点从「使用点内联」改成了「定义 fallback 变量」：
+     * 因为正文容器的 padding **与 max-width** 都要用同一个默认边距
+     * （max-width = 800px + 2×默认边距，见 max-800 那条用例）。
+     * 抄两遍就会漂 —— 所以只定义一次，两处都引用它。
+     * 链条是：常量 → --qmai-body-margin-x-fallback → padding 与 max-width。
+     * 使用点是否引用它，由另外两条用例覆盖。
+     */
+    expect(css).toContain(`--qmai-body-margin-x-fallback: ${expected};`)
     // 同一个表达式在设置页算出的值必须与实际渲染一致
     expect(defaultBodyMarginXForViewport(1000)).toBe(40)
   })
@@ -734,12 +792,51 @@ describe("测试版正文样式边界", () => {
     }
     expect(end, "应能找到该媒体查询的收尾大括号").toBeGreaterThan(-1)
     const block = css.slice(open, end)
-    // 反面：不许再有 .ui-test-editor 的 padding 覆盖
-    expect(block, "窄屏媒体查询里不该再有 .ui-test-editor 的 padding 覆盖").not.toMatch(
-      /\.ui-test-root \.ui-test-editor \{/,
-    )
+    /*
+     * 反面断言必须**按结构**写，不能只钉历史字面值。
+     *
+     * 原来写的是 `not.toMatch(/\.ui-test-root \.ui-test-editor \{/)` 加两条
+     * 全文件 `not.toContain("padding-bottom: 36px"/"28px")` —— 只排除了
+     * 历史上那一种写法。实测三种注入全部**照样绿**：
+     *   · 媒体查询里加 `.ui-test-editor-scroll { padding-bottom: 30px; }`
+     *   · 媒体查询里加 `.ui-test-editor-document { padding: 0 20px; }`
+     *     （这条最凶：它把本任务刚做的可调边距整体短路）
+     *   · 文件末尾再追加一条 `.ui-test-editor { padding: 0 20px; }`
+     *     （特异性相同、位置更后，层叠上真的生效）
+     * 这正是本提交自己总结的「否定式只排除一种坏值」，只是当时没修到这里。
+     *
+     * 现在按结构钉：.ui-test-editor / -document / -scroll 三者的规则里，
+     * **任何 padding 都必须引用我们那两个变量**（或就是基规则的重置 0）。
+     * 这样换值、换层、换位置都盖不住。
+     *
+     * ⚠ 第一版「允许重置 0」的条件写成 /^0(;|\s|$)/ —— 它把 `0 20px` 也放过了
+     * （`0` 后面正好跟一个空格）。实测：上面第 2、3 种注入**照样全绿**，
+     * 而这个脚本的变异表把它们标成"未抓住"才发现。
+     * 「看起来在防、实际漏掉最凶的那两种」比不写这条更坏。
+     * 现在改成**全部组件都是 0** 才算重置（`0` / `0 0` / `0 0 0 0`），
+     * 且必须先挖掉 CSS 注释，避免注释里的字样被当成规则。
+     */
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
+    const EDITOR_RULES = /\.ui-test-root \.ui-test-editor(-document|-scroll)?\s*\{([^}]*)\}/g
+    const offenders: string[] = []
+    for (const m of code.matchAll(EDITOR_RULES)) {
+      const pad = m[2].match(/padding(?:-(?:top|right|bottom|left))?:\s*([^;]+)/)
+      if (!pad) continue
+      const value = pad[1].trim()
+      const isPureZero = /^0(\s+0)*$/.test(value)          // 0 / 0 0 / 0 0 0 0
+      const usesOurVar = /var\(--qmai-body-(safe-bottom|margin-x)/.test(value)
+      if (isPureZero || usesOurVar) continue
+      offenders.push(`${m[0].split("{")[0].trim()} → padding: ${value}`)
+    }
+    expect(
+      offenders,
+      `这三个容器里的 padding 必须引用变量，写死就会在某种窗口宽度下悄悄盖掉用户的设置：\n${offenders.join("\n")}`,
+    ).toEqual([])
+
     // 正面：顶部标题那条规则要留着 —— 防止"把整个媒体查询删掉"冒充通过
     expect(block).toContain(".ui-test-editor-header")
+    // 正面：标题的 padding-top 必须仍在（上面那条结构断言把它排除了，这里补上）
+    expect(block).toMatch(/\.ui-test-root \.ui-test-editor-header \{ padding-top: var\(--ui-heading-top\); \}/)
   })
 
   it("5 个 App 独占变量不许在任何 CSS 里被声明，只能用 var(…, 兜底) 取用", () => {
@@ -797,7 +894,7 @@ describe("测试版正文样式边界", () => {
     }
     expect(
       violations,
-      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\\n` +
+      `这 5 个变量由 App 独占：声明它们会被更近的宿主规则盖掉，表现为"设置保存了但界面不变"。\n` +
         `要表达默认值，请写成使用点的第二个参数 var(--qmai-body-xxx, 兜底值)。`,
     ).toEqual([])
   })

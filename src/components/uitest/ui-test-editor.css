@@ -21,13 +21,33 @@
   height: 100%;
   min-height: 0;
   width: 100%;
-  max-width: 800px;
   min-width: 0;
   margin: 0 auto;
-  /* 左右边距的真正落点：它直接决定正文行宽（800px 上限内的可用宽度）。
-     未拖动滑块时 --qmai-body-margin-x 不存在，兜底值 clamp(20px,4vw,48px)
-     与改造前逐位相同，老用户打开不会有任何视觉变化。 */
-  padding: 0 var(--qmai-body-margin-x, clamp(20px, 4vw, 48px));
+  /* 「跟随窗口」时的默认边距。只在这里写一次，下面两处都引用它 ——
+     抄两遍的话，改一处漏一处就会让默认档的正文宽度偏掉，而且不会有红灯。
+     注意它**不是** App 独占的那 5 个变量（那些不许在 CSS 里声明字面量），
+     只是本文件内部的局部量。 */
+  --qmai-body-margin-x-fallback: clamp(20px, 4vw, 48px);
+  /* 左右边距的真正落点：它直接决定正文行宽。
+     挂在外层 .ui-test-editor 上的话，正文容器有宽度上限，
+     把外层 padding 从 48px 一路调大正文仍是同一个宽度、位置不变 ——
+     滑块看起来完全没反应，正是本仓库反复要根除的「设了没反应」。
+
+     为什么 max-width 不是裸的 800px：
+     本元素 box-sizing 是 border-box（Tailwind preflight 用 `*` 全局设的，
+     已进产物 index-*.css），max-width 会把左右 padding 一起算进去。
+     那样「800px」就从「正文宽度」变成了「正文 + 两侧边距」——
+     1200px 窗口下正文只剩 800 − 2×48 = 704px，老用户打开会发现正文窄了一圈，
+     而本计划自己的数值对照表写的是「默认档必须与今天逐位相同」。
+     所以上限必须写成「正文 800px + 两侧默认边距」。
+
+     为什么上限用**默认**边距算，而不是用用户的 --qmai-body-margin-x：
+       · 用默认边距 → 默认档正文恰好 800px，与改造前逐位相同（任意窗口宽度）；
+       · 若用用户值 → 拖动时上限跟着一起涨，正文恒为 800px，滑块又变成没反应。
+     用默认值算出的固定上限两全：默认档正文 = 800px，
+     拖动时 padding 变大、上限不动，正文随之变窄，滑块每一档都有可见效果。 */
+  max-width: calc(800px + 2 * var(--qmai-body-margin-x-fallback));
+  padding: 0 var(--qmai-body-margin-x, var(--qmai-body-margin-x-fallback));
 }
 
 .ui-test-root .ui-test-editor-header {
@@ -296,6 +316,15 @@
 /* 声明视觉缩进，不改 textarea 值、选区或写盘；原生控件的支持限制见下。 */
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea[data-ui-test-indent="visual"] { text-indent: 2em each-line; }
 .ui-test-root .ui-test-editor-body [data-writing-editor] textarea { display: block; caret-color: var(--ui-accent); }
+/* 原生 textarea 不吃继承：Blink 的 UA 样式表给它声明了 letter-spacing: normal，
+   而任何声明都胜过继承。只靠 .ui-test-editor-body 上面那一处，输入层会退回
+   normal、与覆盖其上的查找高亮层错位 —— 正是本文件最怕的「高亮与文字错位」。
+   这里显式再写一次**同一个变量**，所以仍然不可能漂移（两处同源）。
+   为什么不能只依赖别处：Tailwind preflight 里恰好有一条 textarea{letter-spacing:inherit}，
+   改造后一段时间正是靠它才碰巧一致。但那是挂在另一个文件 @layer base 上的依赖，
+   一旦 preflight 被关掉、或出现任何一条不带 layer 的 letter-spacing 声明，一致性
+   就会静默失效且没有任何红灯。这条断言在真机上读两层计算值（见 spec 与任务 12）。 */
+.ui-test-root .ui-test-editor-body [data-writing-editor] textarea { letter-spacing: var(--qmai-body-letter-spacing, 0); }
 /* Chrome textarea 的 each-line 当前只绘制首行，查找层须匹配实际绘制位置。 */
 .ui-test-root .ui-test-editor-body [data-find-highlights] { font-size: var(--qmai-body-font-size); line-height: var(--qmai-body-line-height); }
 .ui-test-root .ui-test-editor-body [data-writing-editor] > div:has(> textarea[data-ui-test-indent="visual"]) > [data-find-highlights] { text-indent: 2em; }
