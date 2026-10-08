@@ -176,6 +176,102 @@ describe("parseFrontmatter", () => {
     expect(r.body).toBe(content)
   })
 
+  it("文首第 6 行的分隔线不算 frontmatter（容错分支必须校验里面真的是 YAML）", () => {
+    // 真实事故文件 D:\QM-BOOK\楚白\QM\outlines\00-设定集.md（导入自
+    // E:\高人一等\修改方案\00-设定集.md）：
+    //
+    //   1  # 《高人一等》设定集（修订版 v1）
+    //   2
+    //   3  > 用途：……
+    //   4  > 适用范围：……
+    //   5
+    //   6  ---            ← 分隔线（不是 frontmatter 围栏）
+    //   7
+    //   8  ## 0. 定位
+    //   …  表格 + 三条全书纪律
+    //  24  ---            ← 分隔线
+    //
+    // 容错分支 FM_BLOCK_ANYWHERE_RE 会把第 6 行的 `---` 配到第 24 行，
+    // 门槛 `lineNumberAt() > 6` 恰好是 `6 > 6` 为假 → 放行；而里面那段
+    // 是 markdown（表格 + 有序列表），两轮 YAML 解析都失败，函数却仍然
+    // 返回切过的 body ⇒ 标题、用途说明、`## 0. 定位` 表格、三条全书纪律
+    // 共 727 个字符静默消失，正文直接从 `## 1. 金手指` 开始。
+    //
+    // 判据：容错分支是"猜"，猜中的必须真的是 YAML 映射；否则一律当作
+    // 没有 frontmatter。文首严格匹配的那条路不受影响（见上面
+    // "malformed but still strips the fence block" 那条用例）。
+    const content = [
+      "# 《高人一等》设定集（修订版 v1）", // 1
+      "", // 2
+      "> 用途：这是往下写每一章都要对照的“宪法”。", // 3
+      "> 适用范围：番茄/七猫签约向男频爽文。", // 4
+      "", // 5
+      "---", // 6 ← 分隔线，恰好落在容错门槛上
+      "", // 7
+      "## 0. 定位", // 8
+      "",
+      "| 项 | 内容 |",
+      "| --- | --- |",
+      "| 类型 | 男频穿越玄幻 |",
+      "",
+      "**全书纪律（三条，写崩了先回来读这三条）**",
+      "",
+      "1. 打脸要打在欠打的人身上。",
+      "2. 金手指的规则一次都不许破。",
+      "3. 每一个“爽”都要有代价。",
+      "",
+      "---", // 24 ← 分隔线
+      "",
+      "## 1. 金手指：高人一等令牌（重订）",
+      "",
+      "### 1.1 规则表（全书必须遵守）",
+      "",
+    ].join("\n")
+
+    const r = parseFrontmatter(content)
+
+    expect(r.frontmatter).toBeNull()
+    // 一个字符都不能少：解析结果就是原文。
+    expect(r.body).toBe(content)
+    expect(r.rawBlock).toBe("")
+    expect(r.body).toContain("# 《高人一等》设定集（修订版 v1）")
+    expect(r.body).toContain("## 0. 定位")
+    expect(r.body).toContain("**全书纪律（三条，写崩了先回来读这三条）**")
+    expect(r.body).toContain("## 1. 金手指：高人一等令牌（重订）")
+  })
+
+  it("围栏里不是 YAML 映射时一律不切（单行 markdown 标题也逃不掉 YAML 解析）", () => {
+    // `## 一节` 会被 YAML 当成注释、解析成 undefined；旧实现只看
+    // "开头 `---` 是否在前 6 行"，于是照样切掉。
+    const content = ["# 标题", "", "---", "", "## 一节", "", "正文", "", "---", "", "## 二节", ""].join("\n")
+    const r = parseFrontmatter(content)
+    expect(r.frontmatter).toBeNull()
+    expect(r.body).toBe(content)
+  })
+
+  it("容错分支照样认得真正的 YAML（围栏前夹几行垃圾的老场景不受影响）", () => {
+    const content = [
+      "```yaml",
+      "---",
+      "type: entity",
+      'title: "Accumulibacter"',
+      "---",
+      "```",
+      "",
+      "# Accumulibacter",
+      "",
+      "---",
+      "",
+      "正文里的分隔线要留下",
+    ].join("\n")
+    const r = parseFrontmatter(content)
+    expect(r.frontmatter?.type).toBe("entity")
+    expect(r.frontmatter?.title).toBe("Accumulibacter")
+    expect(r.body).toContain("# Accumulibacter")
+    expect(r.body).toContain("正文里的分隔线要留下")
+    expect(r.rawBlock).not.toBe("")
+  })
+
   it("repairs `key: [[a]], [[b]]` (LLM-emitted invalid wikilink list) via retry", () => {
     const content =
       "---\ntype: entity\ntitle: LTTC\nrelated: [[riyuu-jiaoben]], [[zi-yuan-bu]], [[wai-wu]]\n---\nbody"

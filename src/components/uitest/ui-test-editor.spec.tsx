@@ -48,6 +48,43 @@ const chapterPath = `${project.path}/wiki/chapters/第一卷/第16章.md`
 const outlinePath = `${project.path}/wiki/outlines/故事骨架/总纲.md`
 const chapter = "---\ntype: chapter\nchapter_number: 16\nchapter_status: draft\n---\n\n# 第16章 实际章名\n\n　　雨停了。\n\n　　有人推开了门。"
 const outline = "# 实际大纲标题\n\n## 故事一句话\n\n这是实际的大纲。\n\n- 不能缩进的列表"
+
+/**
+ * 事故文件的结构（行号与盘上的 00-设定集.md 一致）。
+ *
+ * 第 6 行的 `---` 正好落在 parseFrontmatter 容错分支的门槛
+ * `lineNumberAt() > 6` 上（6 > 6 为假 → 放行），于是标题、用途说明、
+ * `## 0. 定位` 表格和三条全书纪律被当成 frontmatter 切掉。
+ * 用户看到的正是：标题回落成文件名「00-设定集」，正文直接从
+ * `## 1. 金手指` 开始。
+ */
+const settingDoc = [
+  "# 《高人一等》设定集（修订版 v1）", // 1
+  "", // 2
+  "> 用途：这是往下写每一章都要对照的“宪法”。", // 3
+  "> 适用范围：番茄/七猫签约向男频爽文。", // 4
+  "", // 5
+  "---", // 6 ← 分隔线，不是 frontmatter 围栏
+  "", // 7
+  "## 0. 定位", // 8
+  "",
+  "| 项 | 内容 |",
+  "| --- | --- |",
+  "| 类型 | 男频穿越玄幻 |",
+  "",
+  "**全书纪律（三条，写崩了先回来读这三条）**",
+  "",
+  "1. 打脸要打在欠打的人身上。",
+  "2. 金手指的规则一次都不许破。",
+  "3. 每一个“爽”都要有代价。",
+  "",
+  "---", // 24 ← 分隔线
+  "",
+  "## 1. 金手指：高人一等令牌（重订）",
+  "",
+  "### 1.1 规则表（全书必须遵守）",
+  "",
+].join("\n")
 let container: HTMLDivElement
 let root: Root
 
@@ -191,6 +228,18 @@ describe("测试版正文编辑器", () => {
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')
     expect(textarea?.value).toContain("有人推开了门。")
     expect(fixture.write).not.toHaveBeenCalled()
+  })
+
+  it("大纲标题回落成文件名说明正文被吞了——设定集必须用文档自带的标题", async () => {
+    fixture.files.set(outlinePath, settingDoc)
+    await mount(outlinePath)
+
+    const heading = container.querySelector("h1")?.textContent ?? ""
+    // 文档自带的一级标题必须留下；旧实现把它连同 `## 0. 定位` 整节当成
+    // frontmatter 切掉，标题只能回落到文件名。
+    expect(heading).toContain("《高人一等》设定集（修订版 v1）")
+    expect(heading).not.toContain("总纲")
+    expect(container.textContent).not.toContain("00-设定集")
   })
 
   it("大纲有真实标题和记忆入口，尚未提取记忆也能看到解释", async () => {

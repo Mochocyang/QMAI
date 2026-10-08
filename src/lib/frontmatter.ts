@@ -38,7 +38,7 @@ export function parseFrontmatter(content: string): FrontmatterParseResult {
   const located = locateFrontmatterBlock(content)
   if (!located) return { frontmatter: null, body: content, rawBlock: "" }
 
-  const { yamlPayload, rawBlock, body } = located
+  const { yamlPayload, rawBlock, body, strict } = located
 
   // Two-pass YAML parse: try the payload as-is first, then on
   // failure run a single round of "wikilink-list" repair (LLMs
@@ -47,18 +47,38 @@ export function parseFrontmatter(content: string): FrontmatterParseResult {
   // string list). This is the only fixup we apply; anything
   // beyond that is reported as no-frontmatter.
   let parsed: unknown
+  let parsedOk = true
   try {
     parsed = yaml.load(yamlPayload, { schema: yaml.JSON_SCHEMA })
   } catch {
     try {
       parsed = yaml.load(repairWikilinkLists(yamlPayload), { schema: yaml.JSON_SCHEMA })
     } catch {
-      return { frontmatter: null, body, rawBlock }
+      parsedOk = false
     }
   }
 
+  const frontmatter = parsedOk ? normalize(parsed) : null
+
+  // 容错分支的候选是**猜**出来的，所以必须回过头校验"里面真的是 YAML 映射"，
+  // 否则那一对 `---` 很可能只是正文里的两条分隔线。
+  //
+  // 不校验的代价（真实事故）：`# 标题 / > 说明 / --- / ## 0. 定位 / 表格 /
+  // --- / ## 1. 金手指` 这种设定集，第 6 行的分隔线正好落在
+  // MAX_PREFIX_LINES_BEFORE_FRONTMATTER 门槛上（`6 > 6` 为假 → 放行），
+  // 中间那段 markdown 两轮 YAML 解析都失败，函数却仍然返回切过的 body，
+  // 于是标题、用途说明、整节定位表格和三条全书纪律共 727 个字符静默消失，
+  // 正文直接从 `## 1. 金手指` 开始。
+  //
+  // 文首严格匹配（strict）**不**受这条约束：那里是应用自己写的围栏，
+  // 即使 YAML 畸形也应当剥掉，见 frontmatter.test.ts 里
+  // "malformed but still strips the fence block" 那条用例。
+  if (!frontmatter && !strict) {
+    return { frontmatter: null, body: content, rawBlock: "" }
+  }
+
   return {
-    frontmatter: normalize(parsed),
+    frontmatter,
     body,
     rawBlock,
   }
@@ -72,16 +92,22 @@ export function parseFrontmatter(content: string): FrontmatterParseResult {
  * (e.g. wrapping the file in a code fence, or emitting
  * `frontmatter:\n---\n…\n---\n`). Returns null when neither finds
  * anything plausible.
+ *
+ * `strict` tells the caller which of the two it got: a top-of-file
+ * fence is authoritative, whereas the unanchored candidate is only a
+ * guess and must additionally prove itself by parsing into a YAML
+ * mapping (see parseFrontmatter).
  */
 function locateFrontmatterBlock(
   content: string,
-): { yamlPayload: string; rawBlock: string; body: string } | null {
+): { yamlPayload: string; rawBlock: string; body: string; strict: boolean } | null {
   const strict = content.match(FM_BLOCK_STRICT_RE)
   if (strict) {
     return {
       yamlPayload: strict[1],
       rawBlock: strict[0],
       body: content.slice(strict[0].length),
+      strict: true,
     }
   }
 
@@ -92,6 +118,13 @@ function locateFrontmatterBlock(
   // first few lines — that excludes section-divider HRs deep in
   // the body without limiting how long the frontmatter itself
   // can be.
+  //
+  // That line-number guard alone is NOT enough: an outline that
+  // opens with `# 标题 / > 说明 / ---` puts a divider right on the
+  // threshold, and the text between it and the next divider is
+  // markdown, not YAML. Those candidates are rejected by the
+  // caller (see `strict: false` below), which is why the returned
+  // flag matters.
   const fallback = content.match(FM_BLOCK_ANYWHERE_RE)
   if (!fallback || fallback.index === undefined) return null
 
@@ -119,6 +152,7 @@ function locateFrontmatterBlock(
       yamlPayload: fallback[1],
       rawBlock,
       body: stripped,
+      strict: false,
     }
   }
 
@@ -126,6 +160,7 @@ function locateFrontmatterBlock(
     yamlPayload: fallback[1],
     rawBlock,
     body: bodyAfterFm,
+    strict: false,
   }
 }
 
