@@ -4688,8 +4688,31 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先给写作现场补一条守卫（看到红）</div>
     <div class="step-body">
-      <p>在 <code>src/components/settings/interface-sidebar-nav.spec.ts</code>（<strong>注意是 settings 目录下那个</strong>，不是本任务的 preview-panel）
-      末尾 —— 即最外层 <code>describe</code> 收尾的 <code>})</code> 之前 —— 追加：</p>
+      <p>在 <code>src/components/settings/interface-sidebar-nav.spec.ts</code>
+      （<strong>注意是 settings 目录下那个</strong>，不是本任务的 preview-panel）
+      的<strong>最后一行之前</strong>追加这一条。</p>
+      <div class="note warn">
+        <span class="t">⚠ 是「文件的<strong>最后一行</strong>」—— 那个 <code>})</code> 在文件里出现很多次</span>
+        <p>该文件的最后一行恰好是顶格的 <code>})</code>，也就是最外层 <code>describe</code> 的收尾。
+        <strong>但缩进为两个空格的 <code>})</code> 在文件里有几十个</strong>
+        （每条用例、每个内层 <code>describe</code> 的收尾都是它）。
+        所以不要"找一个 <code>})</code> 就插" —— 那会把新用例塞进别的
+        <code>describe</code>、甚至塞进某条 <code>it</code> 内部。
+        这类错误很隐蔽：vitest 可能照样跑，只是这条用例挂到了错误的套件下，
+        或者直接语法错误。</p>
+        <p>做法：定位文件的<strong>最后一行</strong>（它的内容去掉空白后就是 <code>})</code>），
+        把新 <code>it</code> 插在它<strong>之前</strong>。</p>
+        <p><strong>追加后请自查文件末尾两行</strong>，应当恰好是：</p>
+        <ul>
+          <li>倒数第二行 = 你新加那条 <code>it</code> 的收尾（缩进两个空格的 <code>})</code>）</li>
+          <li>最后一行 = 最外层 describe 的收尾（顶格 <code>})</code>）</li>
+        </ul>
+        <p>这条提醒的通用教训：<strong>给插入位置时，若锚点在文件里出现多次，
+        必须说清"哪一个"（第一个／最后一个／第几个）</strong>，否则等于没给锚点。
+        这与 Task 10 那条"凡引用别处的位置，一律用可内容定位的标记，不要用序号"
+        是同一类问题 —— 本图纸反复出错的都是<strong>坐标系统</strong>（行号、序号、锚点）。</p>
+      </div>
+      <p>要追加的内容：</p>
 <pre><code>  /**
    * 写作现场必须也能改这 6 个参数，且与设置页共用同一个组件。
    * 用户原话：「大纲当中也要有这个设置功能」。

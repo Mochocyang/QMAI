@@ -210,8 +210,12 @@ describe("settings sidebar nav preferences", () => {
      * 上面循环里 save 那条是**前缀**匹配（结尾是 `…(draft.uiBodyMarginX`，
      * 故意不带右括号，好容纳将来可能的额外实参）。代价是
      * `saveUiBodyMarginX(draft.uiBodyMarginX ?? 0)` **照样命中**。
-     * 实测（变异 M10，见 .codex-temp/verify-m10-save-side-gap.mjs）：
+     * 实测（变异 M10，见 .codex-temp/verify-marginx-save-guard.mjs）：
      * 只把 save 侧写成 `?? 0` 时，本文件 7 条用例**全绿**。
+     * 那条脚本不只是复跑这个缺口，还会**证明这条断言真的在挡**：
+     * 基线绿 → 只改 save 变红 → 只改 set 变红 → 两侧都改变红；
+     * 并且把下面这条断言注掉后，「只改 save」必须**重新变绿** ——
+     * 这一步排除了"其实是循环里那条 set 侧断言顺手挡住了"这种可能。
      *
      * ── 这个洞为什么要当成真缺陷 ──
      * MarginX 是这 5 个参数里唯一可以为 null 的（null = 跟随窗口）。
