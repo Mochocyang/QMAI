@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { chapterSnapshotNumbersFrom, resolveChapterMemoryDotState } from "./chapter-memory-dot"
+import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState } from "./chapter-memory-dot"
 
 const snapshots = (...numbers: number[]) => new Set(numbers)
 
@@ -86,5 +86,37 @@ describe("chapterSnapshotNumbersFrom", () => {
 
   it("空列表返回空", () => {
     expect(chapterSnapshotNumbersFrom([])).toEqual([])
+  })
+})
+
+/*
+ * 章节目录的绿点不再走 chapter-ingest 的 listSnapshots（那要先加载整个重模块），
+ * 改成自己读目录名，解析规则抽到了 chapterSnapshotNumbersFromFileNames。
+ * 这两条链必须给出同一组号，否则「绿点亮不亮」和「一键提取跳过谁」就会打架。
+ */
+describe("chapterSnapshotNumbersFromFileNames", () => {
+  it("解析出章节正数号与大纲负数号，升序", () => {
+    expect(chapterSnapshotNumbersFromFileNames([
+      "007.snapshot.json", "002.snapshot.json", "outline-001.snapshot.json", "outline-013.snapshot.json",
+    ])).toEqual([-13, -1, 2, 7])
+  })
+
+  it("只认 .snapshot.json 结尾的文件", () => {
+    expect(chapterSnapshotNumbersFromFileNames([
+      "003.snapshot.json", "readme.md", "004.json", "005.snapshot.json.bak",
+    ])).toEqual([3])
+  })
+
+  it("解析不出数字的文件名丢掉，不产生 NaN", () => {
+    expect(chapterSnapshotNumbersFromFileNames([
+      "abc.snapshot.json", "outline-x.snapshot.json", "008.snapshot.json",
+    ])).toEqual([8])
+  })
+
+  it("与 listSnapshots 的契约一致：喂给 chapterSnapshotNumbersFrom 后只剩章节号", () => {
+    const all = chapterSnapshotNumbersFromFileNames([
+      "002.snapshot.json", "outline-001.snapshot.json", "outline-002.snapshot.json",
+    ])
+    expect(chapterSnapshotNumbersFrom(all)).toEqual([2])
   })
 })

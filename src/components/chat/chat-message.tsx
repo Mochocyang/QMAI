@@ -61,6 +61,8 @@ import { StreamingMarkdown } from "@/components/common/streaming-markdown";
 import { StreamingSpinner } from "@/components/common/streaming-spinner";
 import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
+import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions";
+import { isStoppedGenerationMessage } from "@/lib/novel/stopped-generation";
 
 interface ChatMessageProps {
   message: DisplayMessage;
@@ -75,6 +77,12 @@ interface ChatMessageProps {
   ) => void;
   onContinueNextChapter?: () => void;
   onContinueUnfinished?: () => void;
+  /**
+   * 「继续」：上一条回复被用户手动停止后，保留已生成内容接着往下写。
+   * 与 onContinueUnfinished 的区别：那个只服务"深度章节生成失败"这种特定场景，
+   * 这个服务任意一次手动停止。见 lib/novel/stopped-generation.ts。
+   */
+  onContinueStopped?: () => void;
   onSaveAsDraft?: (content: string) => void;
   onDiscardDraft?: () => void;
   saveStatus?: string;
@@ -104,6 +112,7 @@ export function ChatMessage({
   onSaveAsChapter,
   onContinueNextChapter,
   onContinueUnfinished,
+  onContinueStopped,
   saveStatus,
   isSaving,
   onConfirmToolSave,
@@ -123,6 +132,22 @@ export function ChatMessage({
     isLastAssistant &&
     onContinueUnfinished &&
     canContinueUnfinishedDeepChapter(message.content),
+  );
+  /**
+   * 上一条回复是被用户手动停止的（正文结尾带着「已停止生成。」这类收尾提示）。
+   *
+   * 只在**最后一条**助手消息、且这一轮已经跑完（isAgentRunning 转假）时成立：
+   * 流式当中正文里还没有收尾提示，历史消息里的停止提示也不该再长出按钮 ——
+   * 那两个按钮是给"刚刚停下、马上要决定下一步"这一刻用的。
+   *
+   * 这里刻意**不看** novelMode：停止是用户在面板上亲手按的，按钮该不该出现
+   * 只取决于"上一轮是不是被停止过"，跟项目是不是小说模式没有关系。
+   * （旁边的 canResumeUnfinished 需要 novelMode，因为它专指深度章节生成。）
+   */
+  const isStoppedGeneration = Boolean(
+    isLastAssistant &&
+    !message.isAgentRunning &&
+    isStoppedGenerationMessage(message.content),
   );
   const currentContextHubSnapshot = message.contextHubSnapshot
     ? parseContextHubSnapshotRef(message.contextHubSnapshot)
@@ -209,6 +234,20 @@ export function ChatMessage({
             </>
           )}
         </div>
+        {/*
+          * 停止生成之后的补救动作，紧贴在「已停止生成」那句提示的下方。
+          * 停止按钮是这个应用里唯一「先停下 → 换个模型 → 再来一次」的入口，
+          * 所以停下之后必须当场给出「重试」和「继续」。判定与文案都在
+          * lib/novel/stopped-generation.ts 与 novel/stopped-generation-actions 里，
+          * 大纲面板用的是同一套，两个面板不会长得不一样。
+          */}
+        {isAssistant && !message.discarded && isStoppedGeneration ? (
+          <StoppedGenerationActions
+            className="mt-1"
+            onRetry={onRegenerate}
+            onContinue={onContinueStopped}
+          />
+        ) : null}
         {isUser && !message.discarded ? <UserMessageMeta content={message.content} timestamp={message.timestamp} /> : null}
         {isAssistant && !message.discarded && (
           <CitedReferencesPanel
@@ -266,7 +305,12 @@ export function ChatMessage({
                 toolCalls={message.agentToolCalls}
               />
             )}
-            {isLastAssistant && onRegenerate && (
+            {/*
+              * 停止生成的消息不再单出一枚「重新生成」：它和上方那对
+              * 「重试」是同一个动作，并排出现只会让人猜哪个才是"换模型重来"。
+              * 重试按钮已经承担了这件事。
+              */}
+            {isLastAssistant && onRegenerate && !isStoppedGeneration && (
               <button
                 type="button"
                 onClick={onRegenerate}

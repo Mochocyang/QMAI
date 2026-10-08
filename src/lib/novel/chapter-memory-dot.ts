@@ -52,3 +52,26 @@ export function resolveChapterMemoryDotState(input: ResolveChapterMemoryDotState
 export function chapterSnapshotNumbersFrom(snapshotNumbers: readonly number[]): number[] {
   return snapshotNumbers.filter((number) => Number.isFinite(number) && number > 0)
 }
+
+/**
+ * `.novel/snapshots` 目录里的文件名 → 快照号（大纲是负数，章节是正数），升序。
+ *
+ * 这是 `listSnapshots` 的解析部分，单独抽出来是为了让**只需要这几个数字**的调用方
+ * （章节目录的绿点）不必再去动态 import `chapter-ingest` 这个重模块。
+ * 那条懒加载路径看起来省了首屏，实际代价是：目录第一次渲染时绿点要等整个
+ * chapter-ingest 模块图加载完才亮，而它本来只是读一个目录名列表。
+ * 两者解析规则必须完全一致，所以 `listSnapshots` 现在也调用这个函数。
+ */
+export function chapterSnapshotNumbersFromFileNames(fileNames: readonly string[]): number[] {
+  return fileNames
+    .filter((name) => name.endsWith(".snapshot.json"))
+    .map((name) => {
+      const stem = name.split(".")[0]
+      // outline-001 → -1, outline-002 → -2
+      const outlineMatch = stem.match(/^outline-(\d+)$/)
+      if (outlineMatch) return -parseInt(outlineMatch[1], 10)
+      return parseInt(stem, 10)
+    })
+    .filter((number) => !Number.isNaN(number))
+    .sort((left, right) => left - right)
+}
