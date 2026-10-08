@@ -3321,6 +3321,15 @@ import {
   defaultBodyMarginXForViewport,
 } from "@/lib/font-settings"
 
+/*
+ * React 19 需要这个全局，act(...) 才会正常工作且不刷警告。
+ * 同目录另外四个手写 createRoot+act 的 spec 都设了它
+ * （data-management-section / user-memory-section / interface-section /
+ *  uitest/ui-test-tools），这个文件原先漏了 —— 每条用例都会往 stderr 打
+ * `The current testing environment is not configured to support act(...)`。
+ */
+;(globalThis as typeof globalThis &amp; { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 let root: Root
 let container: HTMLDivElement
 
@@ -3586,7 +3595,8 @@ describe("BodyTypographyFields", () =&gt; {
     expect(select).not.toBeNull()
     expect(select?.value).toBe("21")
   })
-})</code></pre>
+})
+</code></pre>
       <div class="note">
         <span class="t">这 10 个范围常量已经在上面那个完整块里 import 了，<strong>不要重复 import</strong></span>
         <p>上面那段是<strong>整个 spec 文件</strong>（自带 <code>import … from "vitest"</code> 与
@@ -3983,7 +3993,35 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     <div>Modify: src/components/settings/sections/interface-section.tsx（import 区、hook 区、两行控件）</div>
     <div>Modify: src/components/settings/sections/interface-section.spec.tsx（Harness 草稿的 6 个字段）</div>
     <div>Modify: src/components/uitest/ui-test-tools.spec.tsx（「真实外观页的测试皮肤」那个 Harness 草稿的 6 个字段）—— <strong>本任务认领它</strong>，理由见下面那个 note</div>
+    <div>Modify: src/components/uitest/ui-test-tools.css（给<strong>嵌套</strong>的 <code>[data-ui="interface-fields"]</code> 归零 margin-top）—— <strong>本任务认领它</strong>，理由见「嵌套的字段容器」那个 note</div>
     <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts（「1) 设置页有两行控件」与「2) 草稿类型里有该字段」两段）—— <strong>本任务改它，并与实现一起提交它</strong>（理由见「守卫那一层与实现，必须进同一个提交」）</div>
+  </div>
+
+  <div class="note warn">
+    <span class="t">嵌套的字段容器：内层必须把 margin-top 归零</span>
+    <p>设置页的字段容器带 <code>data-ui="interface-fields"</code>，
+    而本任务引入的共享控件根节点<strong>也必须</strong>带同一个属性 ——
+    它的 <code>label</code> / <code>p</code> / <code>select</code> / <code>range</code>
+    样式全靠 <code>ui-test-tools.css</code> 里那组后代选择器
+    （该文件 1858 / 1862 / 1868 / 1886 行），去掉属性那些样式会整块失效。</p>
+    <p>于是同一条 <code>margin-top: 28px</code> 命中<strong>两层</strong>。
+    而 flex 容器里 <strong>gap 与子项 margin 是相加的</strong>，
+    所以正文那一组上方会变成 26 + 28 = 54px，同层其它行之间是 26px ——
+    大约两倍，看起来像"这里多空了一块"。</p>
+    <p>那条 28px 是在"这个块只会出现一次"的前提下写的（它负责跟皮肤区拉开距离），
+    <strong>嵌套是任务 9 才有的新情况，不是当初的有意设计</strong>。
+    所以要在 <code>ui-test-tools.css</code> 里把<strong>内层</strong>的
+    <code>margin-top</code> 归零，内外层间距交回外层的 gap（26px），与其它行一致：</p>
+<pre><code>.ui-test-root [data-ui="interface-fields"] [data-ui="interface-fields"] {
+  margin-top: 0;
+}</code></pre>
+    <p><strong>不要</strong>图省事把内层的 <code>data-ui</code> 删掉 ——
+    那会让共享控件在<strong>写作现场浮层</strong>（任务 11）里丢掉全部排版样式，
+    因为浮层里没有外层容器替它兜住后代选择器。</p>
+    <p>这条有独立守卫：<code>.codex-temp/check-nested-interface-fields-margin.mjs</code>。
+    它做的是<strong>级联解析</strong>（按特异性 + 出现顺序挑出真正生效的那条声明），
+    而不是"grep 到字符串就过"——后者发现不了"归零规则被后面更高特异性的规则覆盖回去"。
+    它还自证"删掉归零规则就会退回 28px"，即这条规则不是多余的。</p>
   </div>
 
   <div class="note warn">
@@ -4009,13 +4047,65 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     否则这个红会一直留在树里。</p>
   </div>
 
+  <div class="note">
+    <span class="t">顺手补三处与本次改动直接相关的小账</span>
+    <p><strong>1. <code>IS_REACT_ACT_ENVIRONMENT</code></strong>：React 19 需要这个全局
+    <code>act(...)</code> 才正常工作且不刷警告。同目录另外三个手写
+    <code>createRoot</code>+<code>act</code> 的 spec 都设了
+    （<code>data-management-section.spec.tsx</code>、<code>user-memory-section.spec.tsx</code>、
+    <code>uitest/ui-test-tools.spec.tsx</code>），<code>interface-section.spec.tsx</code> 漏了。
+    后果：每条用例都往 stderr 打
+    <code>The current testing environment is not configured to support act(...)</code>，
+    测试仍然通过，但<strong>真正的失败会被淹没在这堆噪声里</strong> ——
+    而本文件恰好有几条"缺字段就会炸"的用例。
+    同一个问题在任务 8 的 <code>body-typography-fields.spec.tsx</code> 里也存在，一并补上。
+    写法照抄同级文件：</p>
+<pre><code>;(globalThis as typeof globalThis &amp; { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true</code></pre>
+    <p><strong>2. 编号重复</strong>：本任务在 <code>interface-sidebar-nav.spec.ts</code> 的
+    「正文字号」用例里插入了新的 <code>2)</code> 段，原 <code>3)</code> 往后顺延时漏改，
+    结果出现<strong>两个 <code>// 3)</code></strong>。顺手改成 <code>4)</code> / <code>5)</code> / <code>6)</code>。</p>
+    <p><strong>3. 过期注释</strong>：同一个用例的文档注释还写着
+    "界面字号 80%–150%、正文字号 85%–150%，两个范围必须各自独立"。
+    正文字号已改成<strong>绝对 px（12–32）</strong>，那句话对正文字号已不成立。
+    "两者必须各自独立"这个<strong>意图</strong>仍要守，只是形式从"两个百分比范围"
+    变成"百分比 vs 绝对 px"。注释要说清这一点 ——
+    该用例下半段此刻仍钉着旧字段 <code>uiBodyFontSizeScale</code>（任务 10 才改），
+    也要在注释里点明，免得下一个人以为它是新契约。</p>
+  </div>
+
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 0：先把守卫的控件与草稿那一段改成新契约（看到红）</div>
     <div class="step-body">
       <p>在 <code>interface-sidebar-nav.spec.ts</code> 第 8 行后加一行，让共享组件也进入检查范围：</p>
 <pre><code class="cmd">const bodyTypographySource = readFileSync(resolve(__dirname, "sections/body-typography-fields.tsx"), "utf8")</code></pre>
 
-      <p>把那条测试里从 <code>// 1) 设置页有两行控件…</code> 到 <code>// 2) 草稿类型里有该字段</code> 下面那行 <code>expect(settingsTypesSource).toContain("uiBodyFontSizeScale")</code> 为止的一段替换为（改造前是第 104–113 行；本文件已被任务 3 与任务 5 改过，行号已偏移，请按内容定位）：</p>
+      <div class="note warn">
+        <span class="t">要改的是<strong>两条</strong>测试，不是一条（这一步最容易漏）</span>
+        <p>本文件里有<strong>两条</strong>测试各自断言了"控件的位置"：</p>
+        <ul>
+          <li>「正文字号接成完整一条链路，且与界面字号各自独立」——它断言
+          <code>aria-label="正文字号预设"</code> / <code>aria-label="正文字号"</code> /
+          <code>setDraft("uiBodyFontSizeScale"</code> / <code>BODY_FONT_SIZE_PRESETS/MIN/MAX</code>
+          出现在 <code>interface-section.tsx</code> 上；</li>
+          <li>「正文字体接成完整一条链路：控件、草稿字段、store、持久化」——它的
+          <strong>1) 段</strong>断言 <code>BODY_FONT_OPTIONS</code> 与
+          <code>aria-label="正文字体"</code> 也出现在 <strong><code>interface-section.tsx</code></strong> 上。</li>
+        </ul>
+        <p>而本任务 Step 2 明确要求把 <code>BODY_FONT_OPTIONS</code> 的导入从
+        <code>interface-section.tsx</code> 里删掉（搬进共享组件）。所以<strong>第二条测试的 1) 段必须一起改</strong>，
+        否则它会<strong>永久红</strong>。实测过的报错原文：</p>
+<pre><code> FAIL  src/components/settings/interface-sidebar-nav.spec.ts &gt; … &gt; 正文字体接成完整一条链路：控件、草稿字段、store、持久化
+AssertionError: expected 'import { useCallback, useEffect, useI…' to contain 'BODY_FONT_OPTIONS'
+ ❯ src/components/settings/interface-sidebar-nav.spec.ts:81:36</code></pre>
+        <p>修法用<strong>本任务自己的手法</strong>：把这两条断言也指向
+        <code>bodyTypographySource</code>。它的第 3 条
+        <code>setDraft("uiBodyFontFamily"</code> <strong>不要动</strong> ——
+        那个 switch 分支确实还在设置页里，断言仍然成立。
+        这样改<strong>不放宽鉴别力</strong>：目标契约（"控件在共享组件里、且带正确的标签"）完全一样，
+        只是断言的对象从"设置页文件"平移到"共享组件文件"。</p>
+      </div>
+
+      <p>把「正文字号」那条测试里从 <code>// 1) 设置页有两行控件…</code> 到 <code>// 2) 草稿类型里有该字段</code> 下面那行 <code>expect(settingsTypesSource).toContain("uiBodyFontSizeScale")</code> 为止的一段替换为（改造前是第 104–113 行；本文件已被任务 3 与任务 5 改过，行号已偏移，请按内容定位）：</p>
 <pre><code>    // 1) 控件在**共享组件**里，且绑定到草稿字段
     //
     // 为什么必须看共享组件：设置页与写作现场用的是同一个组件。
@@ -4033,7 +4123,21 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
       expect(bodyTypographySource).toContain(`label="${label}"`)
     }
     // 2) 设置页通过共享组件接线，而不是自己再写一套控件
-    expect(interfaceSectionSource).toContain("BodyTypographyFields")
+    //
+    // ⚠ 必须断言 `&lt;BodyTypographyFields`（带尖括号），不能只断言 `BodyTypographyFields`。
+    //
+    // 后者是**空转**的：那个串在 interface-section.tsx 里出现**两次** ——
+    // import 说明符与 JSX 各一次。只删 JSX、留下 import 时，
+    // 整文件文本里它照样在，断言照样绿。
+    //
+    // 这是 Task 9 实现者用变异 M7 实测发现的（删掉整块 JSX 而保留 import，
+    // 该 spec **0 条 FAIL**、全绿），规格评审者与代码质量评审者各自独立复核成立，
+    // 我再实测确认（收紧后同一个 M7 变红；把断言换回旧写法、同一个 M7 又变绿 ——
+    // 反向对照证明了"旧写法确实空转"，排除了"它本来就会被别的断言抓住"）。
+    //
+    // 本文件里凡断言"某个东西被用了"的地方，都要按这个标准检查：
+    // **钉到使用点，不能钉到名字出现过。**
+    expect(interfaceSectionSource).toContain("&lt;BodyTypographyFields")
     expect(interfaceSectionSource).toContain('setDraft("uiBodyFontPx"')
     expect(interfaceSectionSource).toContain('setDraft("uiBodyLineHeight"')
     expect(interfaceSectionSource).toContain('setDraft("uiBodyLetterSpacing"')
@@ -4109,10 +4213,61 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
     </div>
   </div>
 
+  <div class="note warn">
+    <span class="t">为什么 <code>default</code> 那几行不能写成 <code>default: break</code></span>
+    <p>本任务（与任务 11）都用显式 switch 把共享控件的键映射到别处的字段。
+    原先的收尾是 <code>default: break</code>，配的注释是
+    "switch 会让 tsc 立刻报错"。那句话<strong>只对"键改名"成立，对"新增键"不成立</strong>：
+    <code>default: break</code> 会把没有 case 的键<strong>吸收掉</strong>，
+    函数静默返回 <code>undefined</code>，界面上表现为"这一项怎么拖都没反应"，
+    而 <code>tsc</code> 报 <strong>0 个错</strong>。</p>
+    <p><strong>实测</strong>（仓库自带 typescript 5.9.3，编译最小复现，6 个探针，
+    见 <code>.codex-temp/probe-b1-exhaustive-switch.mjs</code>）：</p>
+    <ul>
+      <li>6 键 + <code>default: break</code> → 0 错（当前实现，基线）</li>
+      <li>7 键 + <code>default: break</code> → 0 错 ← <strong>漏洞：新增参数静默丢写</strong></li>
+      <li>6 键 + never 收尾 → 0 错（修法<strong>不误报</strong>）</li>
+      <li>7 键 + never 收尾 → 1 错 <code>TS2322</code>（修法<strong>抓住了</strong>）</li>
+      <li>7 键 + 删掉 <code>default</code> → 0 错（所以"把 default 删掉"<strong>修不好</strong>）</li>
+    </ul>
+    <p><strong>这个洞在计划里有两处</strong>（本任务的 <code>setBodyTypography</code>、
+    任务 11 的 <code>onBodyTypographyChange</code>），两处都已改成 never 收尾。
+    若只改一处，症状会是"设置页能改、写作现场浮层改不动"，
+    而那正是最难归因的一类 bug。</p>
+    <p><strong>为什么现在就要堵</strong>：这个共享组件正是任务 11 要给浮层复用的那一个，
+    而任务 11 是最可能给它加参数的时刻。</p>
+    <p>这条防线有独立守卫：<code>.codex-temp/check-exhaustive-typography-switch.mjs</code>，
+    它既断言可执行代码里存在 never 收尾、不存在 <code>default: break</code>，
+    也在内存里做两个方向的变异证明<strong>有 never 抓得住、没 never 抓不住</strong> ——
+    否则它就只是"断言源码里有个字符串"那种空转检查。</p>
+  </div>
+
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 3：删掉本地正文字体去重与两行控件，换成共享组件</div>
     <div class="step-body">
       <p>删除第 81–84 行（<code>bodySystemFonts</code> 的 useMemo）与第 87–88 行（<code>bodyScalePercent</code> / <code>bodySizePreset</code>）——这三样都由共享组件自己算。</p>
+      <div class="note warn">
+        <span class="t">顺手修一句<strong>会变成假话</strong>的文案：枚举失败的提示</span>
+        <p>本文件里枚举失败的提示原文是：</p>
+<pre><code>未能读取本机字体（{systemFontError}），两个下拉都只显示推荐的随包字体。</code></pre>
+        <p>在改造前它是<strong>真的</strong> —— 界面字体与正文字体两个下拉都在这个文件里。
+        本任务把正文字体下拉搬进共享组件后，这句话<strong>两个问题一起出现</strong>：</p>
+        <ul>
+          <li>它<strong>不真了</strong>：这个文件里只剩界面字体一个下拉；</li>
+          <li>它<strong>和共享组件的提示重复</strong>：共享组件自己会打印
+          <code>未能读取本机字体（…），正文字体下拉只显示推荐的随包字体。</code>
+          （Task 8 的产物，必须在 —— 任务 11 的写作现场浮层里没有界面字体下拉，
+          那里的用户只能靠这一句）。</li>
+        </ul>
+        <p>于是设置页会同时显示两段几乎相同、且其中一段说错的话。
+        修法：把本文件那句<strong>限定到它自己管的那一个下拉</strong>，
+        改成 <code>界面字体下拉只显示推荐的随包字体。</code>
+        两句各自贴近自己描述的那一行，措辞不再互相矛盾。</p>
+        <p><strong>为什么不是把共享组件那句去掉</strong>：任务 11 会在写作现场浮层里
+        渲染同一个组件，那里没有界面字体下拉 —— 去掉之后，浮层里的正文字体下拉
+        在枚举失败时就<strong>完全没有说明</strong>。共享组件必须自带这一句。</p>
+      </div>
+
       <p>把第 155–191 行（<code>正文字体</code>与<code>正文字号</code>两整块 <code>ui-test-interface-row</code>）替换为：</p>
 <pre><code>        {/*
           正文字体与 5 个排版参数由共享组件渲染。
@@ -4149,7 +4304,13 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
       case "letterSpacing": setDraft("uiBodyLetterSpacing", next as number); break
       case "marginX": setDraft("uiBodyMarginX", next as number | null); break
       case "safeBottom": setDraft("uiBodySafeBottom", next as number); break
-      default: break
+      default: {
+        // ⚠ 这一句不是装饰，它是必需的（见 Step 3 上方那个 note）。
+        // 走到这里说明上面漏了一个 case；赋给 never 会让 tsc 报 TS2322。
+        // 全部 case 都覆盖时 key 收窄成 never，这一句合法（不误报）。
+        const _never: never = key
+        void _never
+      }
     }
   }, [setDraft])</code></pre>
       <p>同时把第 155 行上方 <code>{systemFontError &amp;&amp; (…)}</code> 那段（150–154 行）保留 —— 它服务于界面字体下拉，仍在本文件里。</p>
@@ -4159,7 +4320,35 @@ git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</cod
   <div class="step">
     <div class="step-h"><span class="box"></span>Step 4：跑设置页的渲染测试</div>
     <div class="step-body">
-      <p><code>interface-section.spec.tsx</code> 里的 Harness 草稿还带着旧字段，先把第 66–67 行替换为新的 6 个字段：</p>
+      <div class="note warn">
+        <span class="t">还有一条断言必然变红：枚举次数 <code>toBe(1)</code> → <code>toBe(2)</code></span>
+        <p><code>interface-section.spec.tsx</code> 里有一条「枚举只请求一次」的用例
+        （<code>expect(sysFonts.calls).toBe(1)</code>）。把 <code>useSystemFonts</code>
+        搬进共享组件后，设置页有了<strong>两个</strong>消费者 ——
+        界面字体下拉在本文件、正文字体下拉在共享组件里 —— 各挂载一次，
+        所以真实值就是 <strong>2</strong>。</p>
+        <p>这不是"放宽"，而是<strong>把过期的期望值改成真实值</strong>，同时把它<strong>收紧</strong>了：
+        旧的 <code>toBe(1)</code> 在"共享组件忘记调用 <code>useSystemFonts</code>、
+        正文字体下拉丢掉本机字体分组"时会<strong>照样绿</strong>（计数恰好还是 1）；
+        新的 <code>toBe(2)</code> 抓得住这个真实回归。任何偏离 2 的破坏
+        （多一个消费者 → 3、少一个消费者 → 1）它都会红。</p>
+        <p>断言标题与注释也要一起改：它测的是"枚举次数与<strong>重渲染</strong>无关"，
+        不是"只枚举一次"。真实 <code>loadSystemCjkFonts</code> 是模块级缓存，
+        所以两个消费者各调一次对 IPC 没有额外代价。</p>
+      </div>
+
+      <p>在 <code>interface-section.spec.tsx</code> 里，把两处 Harness 的草稿换成 6 个字段（第 66–67 行的那处与第 305–306 行的那处）：</p>
+      <p><strong>顺带把那两处草稿上方的注释改成事实描述</strong>。原文（<code>git show a977295:</code> 该文件第 63–65 行）逐字是：</p>
+<pre><code>      // 正文的 6 个字段也必须给：缺了会让字号/行距算出 NaN、
+      // 正文字体下拉拿到 undefined，在 jsdom 里刷一堆与本测试无关的告警，
+      // 从而把真正的失败淹没掉</code></pre>
+      <p>"算出 NaN"是<strong>改造前</strong>的机制 —— 旧控件读 <code>draft.uiBodyFontSizeScale</code>
+      得到 NaN，<strong>不抛错</strong>，所以缺字段一直没被发现。
+      控件搬进共享组件后，缺字段是在 <code>value.lineHeight.toFixed(2)</code> 处<strong>直接抛</strong>：</p>
+<pre><code>TypeError: Cannot read properties of undefined (reading 'toFixed')</code></pre>
+      <p>注释与代码不符在本仓库按真缺陷处理。这里尤其要改对，因为这条注释是在解释
+      "缺字段会怎么坏"——机制写错会把下一个排查者带偏（他按"NaN"去找，找不到，就会怀疑别处）。</p>
+      <p>另需写明：<code>as SettingsDraft</code> 会关掉缺字段检查，所以必须手工给全。</p>
 <pre><code class="cmd">      uiBodyFontFamily: "serif-default",
       uiBodyFontPx: 18,
       uiBodyLineHeight: 1.95,
@@ -4362,7 +4551,9 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
    */
   it("写作现场浮层与设置页共用同一个控件组件", () =&gt; {
     const previewSource = readFileSync(resolve(__dirname, "../layout/preview-panel.tsx"), "utf8")
-    expect(previewSource).toContain("BodyTypographyFields")
+    // ⚠ 带尖括号 —— 与 Task 9 同一理由：不带的话 import 那行就能满足它，
+    // 于是"导入了但没渲染"这个最可能的疏漏反而是恒绿的。
+    expect(previewSource).toContain("&lt;BodyTypographyFields")
     expect(previewSource).toContain('aria-label="字体设置"')
     // 两处入口（章节 + 大纲）都调同一个打开函数
     expect(previewSource.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
@@ -4631,7 +4822,14 @@ function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties 
       case "safeBottom":
         setUiBodySafeBottom(next as number)
         break
-      default: break
+      default: {
+        // ⚠ 与 Task 9 的 setBodyTypography 同一个道理，也必须写成穷尽收尾。
+        // 任务 11 的键 → store 映射是**第二处**同样的 switch：
+        // 写成 default: break 的话，"共享控件新增第 7 个参数"会在这里静默丢写
+        // —— 表现是"设置页能改、写作现场浮层改不动"，比单点漏更难排查。
+        const _never: never = next
+        void _never
+      }
     }
     bodyTypographyPersist.current.schedule(persistAllBodyTypography)
   }, [persistAllBodyTypography, setUiBodyFontFamily, setUiBodyFontPx, setUiBodyLineHeight, setUiBodyLetterSpacing, setUiBodyMarginX, setUiBodySafeBottom])
