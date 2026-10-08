@@ -4581,7 +4581,33 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
       uiBodyLetterSpacing,
       uiBodyMarginX,
       uiBodySafeBottom,</code></pre>
-      <p>并在 <code>src/lib/project-store.ts</code> 的 import 里补上 5 个 save 函数：<code>saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom</code>，删掉 <code>saveUiBodyFontSizeScale</code>。</p>
+      <div class="note warn">
+        <span class="t">⚠ 这一段<strong>不要</strong>去改 <code>src/lib/project-store.ts</code>（图纸原文此处说错了）</span>
+        <p>要改的是 <code>settings-view.tsx</code> 里 <strong><code>handleSave</code> 内部那个<em>动态</em> import 的解构列表</strong>，
+        不是 <code>project-store.ts</code> 本身，也不是文件顶层的 import。</p>
+        <p>实测依据（都可自行复核）：</p>
+        <ul>
+          <li>那 6 个 <code>saveUiBody*</code> 函数<strong>早已</strong>在
+          <code>src/lib/project-store.ts</code> 里导出 ——
+          <code>saveUiBodyFontFamily</code>（<code>export async function</code>，第 929 行）、
+          <code>saveUiBodyFontPx</code>（968）、<code>saveUiBodyLineHeight</code>（993）、
+          <code>saveUiBodyLetterSpacing</code>（1001）、<code>saveUiBodyMarginX</code>（1013）、
+          <code>saveUiBodySafeBottom</code>（1025）。<strong>没有需要"补上"的东西。</strong></li>
+          <li>文件顶层的 import（第 23 行）只有
+          <code>saveLanguage, loadNovelConfig, loadRerankConfig</code> 三个 ——
+          正文排版那一组<strong>从来不走顶层 import</strong>。</li>
+          <li>真正的取用点是 <code>handleSave</code> 里的
+          <code>} = await import("@/lib/project-store")</code>（第 428 行）
+          这一整块解构。要做的只有：在其中把 <code>saveUiBodyFontSizeScale</code>
+          换成那 5 个新名字。</li>
+        </ul>
+        <p><strong>所以本任务的 Files 清单里没有 <code>project-store.ts</code> 是对的</strong>
+        （清单本身没错，是 Step 2 这句话与清单冲突）。
+        「补上」这个词也不准确：那是"替换解构列表里的一个名字"。</p>
+        <p>这条提醒的通用教训：把"要删掉某处对旧字段的引用"与"要去改定义这些函数的那个文件"
+        缝在同一句话里，会让读者去动一个不在自己清单里的文件。
+        <strong>凡是提到另一个文件，都要说清是"改它"还是"只是引用它"。</strong></p>
+      </div>
     </div>
   </div>
 
