@@ -4149,7 +4149,55 @@ AssertionError: expected 'import { useCallback, useEffect, useI…' to contain '
     }</code></pre>
 
             <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect bad">Expected: FAIL —— 报 <code>bodyTypographySource</code> 读取失败或「expected … to contain 'BodyTypographyFields'」。本任务还没建共享组件，必须红。</p>
+      <p class="expect bad">Expected: <strong>FAIL</strong>，但<strong>不是全部红</strong>。
+      按段说是这样：<code>1)</code> 段<strong>应当绿</strong>，
+      <code>2)</code> 与 <code>3)</code> 段会红。</p>
+      <p class="expect bad">vitest 5 的原文（<strong>实测</strong>）像这样
+      <code>AssertionError: expected '…' to contain '&lt;BodyTypographyFields'</code>
+      —— 期望串带单引号，收到的值被截断成 <code>…</code>。</p>
+
+      <div class="note warn">
+        <span class="t">⚠ 别把这句 Expected 读成「整条用例必须全红」—— <code>1)</code> 那段本来就是绿的</span>
+        <p>共享控件 <code>src/components/settings/sections/body-typography-fields.tsx</code>
+        是<strong>任务 8</strong> 创建的（<code>git show 46ca64a:…body-typography-fields.tsx</code> 有 330 行），
+        里面已经带着 <code>BODY_FONT_OPTIONS</code>、<code>aria-label="正文字体"</code>、
+        <code>aria-label="正文字号"</code>、<code>aria-label="正文字号预设"</code>。
+        所以 <code>bodyTypographySource</code> 的 <code>readFileSync</code> <strong>不会</strong>失败，
+        <code>1)</code> 那四条断言也照旧通过 —— <strong>那正是任务 8 已经做完的证明，不是缺陷。</strong></p>
+        <p>本任务要让变绿的两段，各自等一个后面的 Step：</p>
+        <ul>
+          <li><code>2)</code> 段 —— <code>interfaceSectionSource</code> 上还没有
+          <code>&lt;BodyTypographyFields</code>，<strong>等 Step 3</strong>
+          （把共享控件渲染进设置页）。</li>
+          <li><code>3)</code> 段 —— <code>settings-types.ts</code> 里还缺
+          <code>uiBodyFontPx</code>、<code>uiBodyLineHeight</code>、
+          <code>uiBodyLetterSpacing</code>、<code>uiBodyMarginX</code>、
+          <code>uiBodySafeBottom</code> 这 5 个字段，<strong>等 Step 1</strong>
+          （改草稿类型）。任务 8 只加了 <code>uiBodyFontFamily</code> 一个。</li>
+        </ul>
+        <p><strong>不要去数"红了几条"。</strong> 那些数字会随后面的任务漂移，
+        而"<code>1)</code> 段应当绿"这条不会 —— 它才是你该看的信号。
+        （这句话不是客套：本任务图纸的第一版就写错过，见下面那条说明。）</p>
+        <div class="note warn">
+          <span class="t">⚠ 这条 Expected 我自己写错过一次，留着当反例</span>
+          <p>我最初写的是「<strong>会红的只有一处</strong>：<code>2)</code> 那段」。
+          写的时候只核对了 <code>2)</code> 段，<strong>没有</strong>核对
+          <code>3)</code> 段的 <code>settings-types.ts</code> 在任务 8 时缺 5 个字段。
+          实测（<code>git show 46ca64a:src/components/settings/settings-types.ts</code>）
+          才发现 <code>3)</code> 段同样是红的。</p>
+          <p>危害很具体：你若照着"只该有一条红"去核对，看到两条就会怀疑自己改错了，
+          甚至去"修"那条本来就该红的断言。同型事故本仓库已经发生过一次 ——
+          任务 3 的 Expected 也写"必须全红"，实测是
+          <code>11 failed | 1 passed</code>，而那唯一绿的一条是"不许删旧键"的
+          禁止型断言，改造前本就该绿。
+          <strong>Expected 是预测不是事实；预期值与"哪一段该绿"冲突时，信后者。</strong></p>
+        </div>
+        <p>同型事故已发生过一次：任务 3 的 Expected 也写"必须全红"，实测是
+        <code>11 failed | 1 passed</code>，而那 1 条是"不许删旧键"的禁止型断言，
+        改造前本就该绿。<strong>Expected 是预测不是事实，以实测为准。</strong>
+        看到部分绿就去"修"那些本来就该绿的断言，会把一个有效守卫改坏 ——
+        那正是本仓库历史上踩过的坑。</p>
+      </div>
 
       <p>同一任务里还要确认上面那句 <code>readFileSync</code> 的目标文件<strong>确实会被创建</strong>（任务 8 已创建）。若它此刻还不存在，<code>readFileSync</code> 会在收集阶段就抛错，报错信息会很难懂 —— 先确认文件在，再看断言红在哪。</p>
     </div>
@@ -4436,6 +4484,27 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
       expect(settingsViewSource).toContain(`setUiBody${name}(draft.uiBody${name})`)
       expect(settingsViewSource).toContain(`saveUiBody${name}(draft.uiBody${name}`)
     }
+    /*
+     * MarginX 的 save 侧**单独再钉一次**，这次带右括号。
+     *
+     * 上面循环里 save 那条是前缀匹配（结尾故意不带右括号），
+     * 所以 `saveUiBodyMarginX(draft.uiBodyMarginX ?? 0)` **照样命中**。
+     * 实测（变异 M10）：只把 save 侧写成 `?? 0` 时本文件 7 条用例全绿。
+     *
+     * MarginX 是这 5 个参数里唯一可以为 null 的（null = 跟随窗口）。
+     * 压成 0 之后本次会话完全看不出问题（store 里仍是 null、界面照常），
+     * 但落盘的值变成了 0 —— 下次启动边距变 0、正文贴边。
+     * 这是最难归因的一类缺陷：只在重启后出现，看起来像"设置没保存"。
+     *
+     * 循环里 set 侧那条带右括号，天然挡住了 set 侧（变异 M3 变红），
+     * 但挡不住 save 侧 —— 而"写 store 对、落盘错"正是本仓库踩过的
+     * "只做一半"那个坑，所以两侧都要钉。
+     *
+     * 带右括号等于要求这个实参不被任何包装（?? / || / Number(...)）。
+     * 若将来 save 侧真要加实参（如 projectId），改这条时请先确认
+     * null 仍然原样传下去 —— 别为了让它变绿而放宽回前缀匹配。
+     */
+    expect(settingsViewSource).toContain("saveUiBodyMarginX(draft.uiBodyMarginX)")
     // 6) 界面字号与界面字体照旧保存，不能被新字段挤掉
     expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
     expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")</code></pre>
@@ -4443,9 +4512,35 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
             <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect bad">Expected: FAIL —— 报「expected … to contain 'setUiBodyFontPx(draft.uiBodyFontPx)'」。本任务的保存链路还没改，必须红。</p>
 
-      <div class="note">
-        <span class="t">注意 <code>saveUiBodyMarginX</code> 也在这一组里</span>
-        <p><code>uiBodyMarginX</code> 的取值可以是 <code>null</code>（表示"跟随窗口"），保存时不能写成 <code>?? 0</code> 之类把它压成 0 —— 那会让"跟随窗口"变成"边距为 0"，正文贴边。断言里 <code>draft.uiBodyMarginX</code> 后面那个 <code>(</code> 是有意的：允许后面还有别的实参（如 projectId），但不允许中间插入 <code>?? 0</code>。</p>
+      <div class="note warn">
+        <span class="t">⚠ <code>MarginX</code> 的两侧都要钉 —— 只钉一侧会留下一个只在<strong>重启后</strong>出现的缺陷</span>
+        <p><code>uiBodyMarginX</code> 的取值可以是 <code>null</code>（表示「跟随窗口」），
+        保存时<strong>不能</strong>写成 <code>?? 0</code> 之类把它压成 0 ——
+        那会让「跟随窗口」变成「边距为 0」，正文贴边。</p>
+        <p><strong>关键点：上面那个循环里的断言只钉得住 <code>set</code> 侧，钉不住 <code>save</code> 侧。</strong>
+        循环里 <code>save</code> 那条是<strong>前缀</strong>匹配（结尾故意不带右括号，
+        为的是容纳将来可能的额外实参）。而
+        <code>saveUiBodyMarginX(draft.uiBodyMarginX ?? 0)</code> 里，
+        <code>?? 0</code> 恰好插在 <code>draft.uiBodyMarginX</code> 与那个被省掉的右括号
+        <strong>之间</strong> —— 正是这条前缀匹配看不见的位置。
+        实测（变异 M10）：只把 <code>save</code> 侧写成 <code>?? 0</code>，
+        本文件 7 条用例<strong>全绿</strong>。</p>
+        <p>所以要在循环之后<strong>单独补一条带右括号的 <code>save</code> 侧断言</strong>（见上面代码块末尾）。
+        为什么值得单独补：这个洞的症状是「设置好像没保存」——
+        本次会话完全正常（store 里仍是 <code>null</code>、界面照常），
+        只有<strong>下次启动</strong>才看到边距变 0、正文贴边。
+        而「写 store 对、落盘错」正是本仓库踩过的"只做一半"那个坑的变体。</p>
+        <p>这条 <code>?? 0</code> 的缺口是怎么发现的（值得记下来，因为它是一类错误）：
+        图纸原文自己写着「那个 <code>(</code> 是有意的：允许别的实参，但不允许中间插入 <code>?? 0</code>」——
+        <strong>后半句不成立</strong>。前瞻性地为"将来多一个实参"放宽右边界，
+        代价是右边界变成了可以塞东西的空隙；而恰好能塞进去的，
+        就是"把 null 压成数字"这个本仓库最忌讳的写法。
+        <strong>前瞻性放宽与安全边界冲突时，安全边界优先。</strong>
+        真要加实参，改断言的人应当明确确认 null 仍原样传递。</p>
+        <p>这条断言的鉴别力有<strong>反向对照</strong>为证（<code>.codex-temp/verify-marginx-save-guard.mjs</code>）：
+        基线绿 → 只改 <code>save</code> 变红 → 只改 <code>set</code> 变红 → 两侧都改变红；
+        并且<strong>把新断言注掉后，「只改 save」必须重新变绿</strong> ——
+        这一步排除了"其实是别的断言顺手挡住了"这种可能。</p>
       </div>
     </div>
   </div>
@@ -4590,7 +4685,14 @@ git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</cod
   })</code></pre>
 
             <pre class="cmd"><code>npx vitest run src/components/settings/interface-sidebar-nav.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
-      <p class="expect bad">Expected: FAIL —— 报「expected … to contain 'BodyTypographyFields'」或 <code>openBodyFontPopover</code> 计数为 0（本任务还没改 preview-panel.tsx）。</p>
+      <p class="expect bad">Expected: <strong>FAIL</strong> —— 本条用例是<strong>新增</strong>的，所以整条都红
+      （不像任务 9 那样有"本来就是绿的"段落）。第一个红点是
+      <code>expect(previewSource).toContain("&lt;BodyTypographyFields")</code>。</p>
+      <p class="expect bad">vitest 5 的原文（<strong>实测</strong>）是
+      <code>AssertionError: expected '…' to contain '&lt;BodyTypographyFields'</code>。
+      本任务还没改 <code>preview-panel.tsx</code>，所以后面两条也会红：
+      <code>openBodyFontPopover(event.currentTarget)</code> 实测计数 <code>0</code>（要求恰好 <code>2</code>），
+      以及 <code>bodyTypographyPersist.current.flush()</code> 找不到。</p>
 
       <div class="note warn">
         <span class="t">这条断言的计数必须恰好是 2</span>

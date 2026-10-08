@@ -203,6 +203,31 @@ describe("settings sidebar nav preferences", () => {
       expect(settingsViewSource).toContain(`setUiBody${name}(draft.uiBody${name})`)
       expect(settingsViewSource).toContain(`saveUiBody${name}(draft.uiBody${name}`)
     }
+    /*
+     * MarginX 的 save 侧**单独再钉一次**，这次带右括号。
+     *
+     * ── 为什么非单独钉不可 ──
+     * 上面循环里 save 那条是**前缀**匹配（结尾是 `…(draft.uiBodyMarginX`，
+     * 故意不带右括号，好容纳将来可能的额外实参）。代价是
+     * `saveUiBodyMarginX(draft.uiBodyMarginX ?? 0)` **照样命中**。
+     * 实测（变异 M10，见 .codex-temp/verify-m10-save-side-gap.mjs）：
+     * 只把 save 侧写成 `?? 0` 时，本文件 7 条用例**全绿**。
+     *
+     * ── 这个洞为什么要当成真缺陷 ──
+     * MarginX 是这 5 个参数里唯一可以为 null 的（null = 跟随窗口）。
+     * 压成 0 之后**本次会话完全看不出问题**：store 里仍是 null，界面照常；
+     * 但**落盘的值变成了 0** —— 下次启动边距变 0、正文贴边。
+     * 这是最难归因的一类缺陷：只在重启后出现，看起来像"设置没保存"。
+     *
+     * 循环里 set 侧那条带右括号，天然挡住了 set 侧（变异 M3 实测变红），
+     * 但**挡不住** save 侧 —— 而"写 store 对、落盘错"恰好是本仓库
+     * 已经踩过的那个坑（只做一半），所以这里必须两侧都钉。
+     *
+     * 带右括号等于要求这个实参不被任何包装（?? / || / Number(...)）。
+     * 若将来 save 侧真要加实参（如 projectId），改这条断言时请先确认
+     * null 仍然原样传下去 —— 别为了让它变绿而放宽回前缀匹配。
+     */
+    expect(settingsViewSource).toContain("saveUiBodyMarginX(draft.uiBodyMarginX)")
     // 6) 界面字号与界面字体照旧保存，不能被新字段挤掉
     expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
     expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")
