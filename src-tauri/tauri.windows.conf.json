@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "resources": ["../skills"],
+    "resources": ["../skills", "fonts"],
     "windows": {
       "webviewInstallMode": {
         "type": "skip"

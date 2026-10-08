@@ -1,3 +1,10 @@
+import {
+  SYSTEM_FONT_PREFIX,
+  systemBodyFontCss,
+  systemFontCss,
+  systemFontNameOf,
+} from "@/lib/system-fonts"
+
 export const DEFAULT_UI_FONT_FAMILY = "system" as const
 
 /**
@@ -166,9 +173,21 @@ export const UI_FONT_OPTIONS = [
   },
 ] as const
 
-export type UiFontFamily = (typeof UI_FONT_OPTIONS)[number]["value"]
+export type BuiltinUiFontFamily = (typeof UI_FONT_OPTIONS)[number]["value"]
+
+/**
+ * 界面字体的合法取值：内置 id，或阶段 3 枚举来的 `sys:<族名>`。
+ *
+ * 用模板字面量类型而不是裸 `string`：`sys:` 之外的任意字符串仍是类型错误，
+ * 于是"存了个手写的字体名"这种写法在编译期就会被拦下，
+ * 而动态字体仍然能安全地流经同一个类型。
+ */
+export type UiFontFamily = BuiltinUiFontFamily | `sys:${string}`
 
 const UI_FONT_FAMILY_VALUES = new Set<string>(UI_FONT_OPTIONS.map((option) => option.value))
+
+/** 内置默认档的字体栈。动态字体找不到时回退到它，避免掉进"空字体"。 */
+const UI_FONT_FALLBACK_STACK = UI_FONT_OPTIONS[0].cssFamily
 
 /**
  * 把任意已存/传入的取值归一化到合法选项；无法识别的一律退回默认档。
@@ -185,17 +204,28 @@ const UI_FONT_FAMILY_VALUES = new Set<string>(UI_FONT_OPTIONS.map((option) => op
  *     中文界面文字其实一直是回退字体 —— 回退到默认档只是把既成事实写明。
  * 这条行为由 `font-settings.spec.ts` 的
  * 「旧值 arial 平滑回退到默认，不抛错」一条钉住。
+ *
+ * ── 阶段 3 追加：动态字体值 ──
+ * `sys:<族名>` 也合法，但**族名必须通过清理**（见 `systemFonts.ts`）：
+ * 存到本地的值可能来自旧版本或被手工改过，`sys:Foo"Bar` 这种东西必须被拒，
+ * 否则它会把 `--qmai-ui-font-family` 的值提前闭合。清理不通过时同样回退默认档。
  */
 export function normalizeUiFontFamily(value: unknown): UiFontFamily {
-  return typeof value === "string" && UI_FONT_FAMILY_VALUES.has(value)
-    ? (value as UiFontFamily)
-    : DEFAULT_UI_FONT_FAMILY
+  if (typeof value === "string" && UI_FONT_FAMILY_VALUES.has(value)) {
+    return value as BuiltinUiFontFamily
+  }
+  const sysName = systemFontNameOf(value)
+  if (sysName) return `${SYSTEM_FONT_PREFIX}${sysName}` as UiFontFamily
+  return DEFAULT_UI_FONT_FAMILY
 }
 
 export function getUiFontFamilyCss(value: unknown): string {
   const normalized = normalizeUiFontFamily(value)
+  // 动态字体：族名进栈，尾链与默认档一致（见 systemFontCss 的说明）
+  const sysCss = systemFontCss(normalized)
+  if (sysCss) return sysCss
   return UI_FONT_OPTIONS.find((option) => option.value === normalized)?.cssFamily
-    ?? UI_FONT_OPTIONS[0].cssFamily
+    ?? UI_FONT_FALLBACK_STACK
 }
 
 export function applyUiFontFamily(value: unknown, root?: HTMLElement): void {
@@ -348,18 +378,31 @@ export const BODY_FONT_OPTIONS = [
   },
 ] as const
 
-export type BodyFontFamily = (typeof BODY_FONT_OPTIONS)[number]["value"]
+export type BuiltinBodyFontFamily = (typeof BODY_FONT_OPTIONS)[number]["value"]
+
+/**
+ * 正文字体的合法取值：内置 id，或阶段 3 枚举来的 `sys:<族名>`。
+ * 与 `UiFontFamily` 同构（理由见那里）。
+ */
+export type BodyFontFamily = BuiltinBodyFontFamily | `sys:${string}`
 
 const BODY_FONT_FAMILY_VALUES = new Set<string>(BODY_FONT_OPTIONS.map((option) => option.value))
 
 export function normalizeBodyFontFamily(value: unknown): BodyFontFamily {
-  return typeof value === "string" && BODY_FONT_FAMILY_VALUES.has(value)
-    ? (value as BodyFontFamily)
-    : DEFAULT_BODY_FONT_FAMILY
+  if (typeof value === "string" && BODY_FONT_FAMILY_VALUES.has(value)) {
+    return value as BuiltinBodyFontFamily
+  }
+  // 动态族名同样必须通过清理（存到本地的值不可信）
+  const sysName = systemFontNameOf(value)
+  if (sysName) return `${SYSTEM_FONT_PREFIX}${sysName}` as BodyFontFamily
+  return DEFAULT_BODY_FONT_FAMILY
 }
 
 export function getBodyFontFamilyCss(value: unknown): string {
   const normalized = normalizeBodyFontFamily(value)
+  // 动态字体走衬线尾链（正文默认是宋体系，掉到黑体是静默视觉回归）
+  const sysCss = systemBodyFontCss(normalized)
+  if (sysCss) return sysCss
   return BODY_FONT_OPTIONS.find((option) => option.value === normalized)?.cssFamily
     ?? BODY_FONT_OPTIONS[0].cssFamily
 }

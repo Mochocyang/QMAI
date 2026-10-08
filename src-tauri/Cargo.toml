@@ -68,6 +68,28 @@ keepawake = "0.6.1"
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSProcessInfo"] }
 
+# 阶段 3：枚举本机**中文字体**。
+#
+# 为什么用 DirectWrite 而不是 GDI：
+#   GDI 会**静默替换**所请求的字体 —— 实测请求 `黑体`/`SimHei` 时实际选中的是
+#   `宋体`（字形索引与覆盖数完全相同，等于在探测宋体却以为在测黑体）。
+#   要用 GDI 就必须先 `GetTextFaceW` 校验实际选中的族名，不匹配则丢弃结果。
+#   DirectWrite 是 WebView2 实际使用的引擎，`IDWriteFont::HasCharacter` 接受
+#   UCS-4 码点（可覆盖 Ext-B 如 U+20000+），且不存在这个替换陷阱。
+#
+# 选 `windows`（而非 `windows-sys`）：DirectWrite 是 COM，`windows` crate 提供了
+# COM 接口包装；`windows-sys` 只有裸绑定，需要手写 vtable 调用。
+# 版本与 `Cargo.lock` 中已存在的传递依赖一致，避免引入第二份。
+#
+# `Win32_System_Registry` 供阶段 4 的按用户字体注册使用（写 HKCU，免管理员）。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_DirectWrite",
+  "Win32_System_Com",
+  "Win32_System_Registry",
+] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 

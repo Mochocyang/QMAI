@@ -1,6 +1,8 @@
 mod app_state;
 mod atomic_file;
 mod commands;
+mod font_install;
+mod fonts;
 #[cfg(target_os = "macos")]
 mod macos_window;
 mod panic_guard;
@@ -9,6 +11,53 @@ mod proxy;
 mod types;
 
 pub use platform_guard::assert_supported_platform;
+
+/// 阶段 3：列出本机**实际安装**的中文字体。
+///
+/// 为什么必须由 Rust 侧提供而不是前端猜：CSS 无法枚举系统字体，前端只能靠
+/// 「写一个字体名再看宽度变不变」来试探，那种探测既不可靠（度量相近的字体
+/// 测不出差别）又昂贵。DirectWrite 能直接回答"这个族有没有这个字"。
+///
+/// 失败时返回 `Err` 而不是空列表：空列表会被前端当成"本机没有中文字体"，
+/// 那是个会被用户信以为真的假结论（前端据此应回退到内置列表并说明原因）。
+#[tauri::command]
+fn list_system_cjk_fonts() -> Result<Vec<fonts::CjkFont>, String> {
+    fonts::list_cjk_fonts()
+}
+
+/// 阶段 4：把随包字体安装到本用户，并回报每个字体的真实状态。
+///
+/// 启动时会自动跑一次（见 `setup`）；这个命令供界面在用户手动重试时调用。
+#[tauri::command]
+fn ensure_bundled_fonts(app: tauri::AppHandle) -> Result<font_install::InstallReport, String> {
+    use tauri::Manager;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("无法定位资源目录：{e}"))?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位应用数据目录：{e}"))?;
+    Ok(font_install::ensure_fonts_installed(
+        &resource_dir.join("fonts"),
+        &app_data_dir,
+    ))
+}
+
+/// 阶段 4：清理本用户已安装的随包字体。
+///
+/// 供便携版（没有 NSIS 卸载器）与"设置里卸载随包字体"使用。
+/// 安装版的正规卸载仍由 NSIS 卸载器处理（它读同一个记录文件）。
+#[tauri::command]
+fn remove_bundled_fonts(app: tauri::AppHandle) -> Result<font_install::RemovalReport, String> {
+    use tauri::Manager;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位应用数据目录：{e}"))?;
+    Ok(font_install::remove_installed_fonts(&app_data_dir))
+}
 
 #[tauri::command]
 fn set_proxy_env(config: proxy::ProxyConfig) -> String {
@@ -76,6 +125,35 @@ pub fn run() {
                 commands::fs::set_resource_dir_hint(dir);
             }
             app_state::prepare_app_state_store(app.handle());
+            /*
+             * 阶段 4：先装随包字体，再让任何字体枚举发生。
+             *
+             * 顺序是**语义要求**，不只是性能考虑：本进程一旦创建过 DirectWrite
+             * 系统字体集合，新装的字体在本次启动里可能不可见（集合是缓存的），
+             * 于是出现"字体装上了，但下拉里没有它"。放在 setup 最前面保证
+             * 枚举（由前端在 webview 加载后触发）一定晚于安装。
+             */
+            match (app.path().resource_dir(), app.path().app_data_dir()) {
+                (Ok(res), Ok(data)) => {
+                    let report = font_install::ensure_fonts_installed(&res.join("fonts"), &data);
+                    eprintln!("[fonts] {}", report.summary());
+                    for outcome in report.outcomes.iter().filter(|o| o.status == "failed") {
+                        eprintln!(
+                            "[fonts] 安装失败：{}（{}）：{}",
+                            outcome.display,
+                            outcome.id,
+                            outcome.error.as_deref().unwrap_or("未知原因")
+                        );
+                    }
+                }
+                (res, data) => {
+                    eprintln!(
+                        "[fonts] 跳过随包字体安装：resource_dir={:?} app_data_dir={:?}",
+                        res.err().map(|e| e.to_string()),
+                        data.err().map(|e| e.to_string())
+                    );
+                }
+            }
             if let Ok(dir) = app.path().app_data_dir() {
                 let store_path = dir.join("app-state.json");
                 eprintln!("[proxy] reading from {}", store_path.display());
@@ -171,6 +249,9 @@ pub fn run() {
             log_error,
             log_diagnostic,
             restore_macos_window_frame,
+            list_system_cjk_fonts,
+            ensure_bundled_fonts,
+            remove_bundled_fonts,
         ])
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]

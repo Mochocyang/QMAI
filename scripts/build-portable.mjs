@@ -61,34 +61,65 @@ try {
   console.warn("警告：无法完全替换正在运行的 exe，保留旧版本，但已更新其他资源")
 }
 
-// 复制 skills 文件夹到便携版目录
-// 优先用 robocopy：比 cpSync 快两个数量级，且文件被占用时明确报错跳过（cpSync 会无限重试挂死）。
-// robocopy 成功退出码为 0–7，>=8 才是错误；命令不可用（如非 Windows）时回退到 cpSync。
-const sourceSkillDir = resolve(root, "skills")
-if (existsSync(sourceSkillDir)) {
+/*
+ * 复制一个资源目录到便携版目录。
+ *
+ * 优先用 robocopy：比 cpSync 快两个数量级，且文件被占用时明确报错跳过
+ * （cpSync 会无限重试挂死）。robocopy 成功退出码为 0–7，>=8 才是错误；
+ * 命令不可用（如非 Windows）时回退到 cpSync。
+ *
+ * 抽成函数是因为现在要复制**两个**目录（skills 与 fonts）：
+ * 字体合计上百 MB，用 cpSync 复制既有挂死风险又慢得多，
+ * 而把这段逻辑抄第二遍正是"只修了一处"的经典来源。
+ */
+function copyResourceDir(sourceDir, destDir, label) {
+  if (!existsSync(sourceDir)) {
+    console.warn(`源目录不存在，跳过 ${label}：${sourceDir}`)
+    return false
+  }
   try {
-    rmSync(outSkillDir, { recursive: true, force: true })
+    rmSync(destDir, { recursive: true, force: true })
   } catch {}
-  mkdirSync(outSkillDir, { recursive: true })
+  mkdirSync(destDir, { recursive: true })
   let copied = false
   try {
     execSync(
-      `robocopy "${sourceSkillDir}" "${outSkillDir}" /E /MT:16 /R:0 /W:0 /NFL /NDL /NJH /NJS /NP`,
+      `robocopy "${sourceDir}" "${destDir}" /E /MT:16 /R:0 /W:0 /NFL /NDL /NJH /NJS /NP`,
       { stdio: "ignore" },
     )
     copied = true
   } catch (e) {
     const code = typeof e?.status === "number" ? e.status : 8
     if (code < 8) copied = true
-    else console.warn(`robocopy 复制 skills 失败（exit=${code}），回退 cpSync`)
+    else console.warn(`robocopy 复制 ${label} 失败（exit=${code}），回退 cpSync`)
   }
   if (!copied) {
     try {
-      cpSync(sourceSkillDir, outSkillDir, { recursive: true })
+      cpSync(sourceDir, destDir, { recursive: true })
+      copied = true
     } catch (e) {
-      console.warn("cpSync 复制 skills 失败：", e?.message ?? e)
+      console.warn(`cpSync 复制 ${label} 失败：`, e?.message ?? e)
     }
   }
+  return copied
+}
+
+copyResourceDir(resolve(root, "skills"), outSkillDir, "skills")
+
+/*
+ * 随包字体（阶段 4）。
+ *
+ * 便携版**没有安装器**，字体必须平铺在 exe 旁边，由应用启动时的
+ * 「确保安装」把它装进用户字体目录（见 src-tauri/src/font_install.rs）。
+ * 字体目录名必须是 `fonts`：Rust 侧按 `resource_dir()/fonts` 解析，
+ * 而便携版的 resource_dir() 就是 exe 所在目录。
+ */
+const outFontDir = resolve(outDir, "fonts")
+const includesFonts = copyResourceDir(resolve(root, "src-tauri/fonts"), outFontDir, "fonts")
+if (includesFonts && !existsSync(resolve(outFontDir, "fonts-manifest.json"))) {
+  // 没有清单 = Rust 侧会当作"本次构建不带字体"而静默跳过，
+  // 用户看到的是"字体功能没生效"。必须显式报警，不能静默通过。
+  console.warn(`警告：${outFontDir} 缺少 fonts-manifest.json，应用将不会安装这些字体`)
 }
 
 const exeStat = statSync(outExe)
@@ -100,6 +131,7 @@ writeFileSync(manifest, JSON.stringify({
   portableExe: outExe,
   exeBytes: exeStat.size,
   includesSkills: existsSync(outSkillDir),
+  includesFonts,
   ...(isStorySimulationBranch ? { variant: "story-simulation", branch: currentBranch } : {}),
 }, null, 2), "utf8")
 

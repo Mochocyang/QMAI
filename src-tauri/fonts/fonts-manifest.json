@@ -1,0 +1,96 @@
+{
+  "manifestVersion": 1,
+  "note": "本文件由 scripts/sync-fonts-manifest.mjs 从 docs/font-scaling-fix-20261007/bundled-fonts.json 生成，请勿手工编辑。它被打进安装包，供应用启动时把随包字体安装到本用户。",
+  "fonts": [
+    {
+      "id": "source-han-serif",
+      "display": "思源宋体",
+      "family": "Source Han Serif SC",
+      "file": "SourceHanSerifSC-Regular.otf",
+      "sizeBytes": 24543332,
+      "sha256": "78aa7a328fd974df2d688c8a9fd74a33d8334dfa84ab24d9d11efb2ffc464117",
+      "licenseFile": "licenses/source-han-serif-OFL.txt"
+    },
+    {
+      "id": "source-han-sans",
+      "display": "思源黑体",
+      "family": "Source Han Sans SC",
+      "file": "SourceHanSansSC-Regular.otf",
+      "sizeBytes": 16529832,
+      "sha256": "f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256",
+      "licenseFile": "licenses/source-han-sans-OFL.txt"
+    },
+    {
+      "id": "lxgw-wenkai",
+      "display": "霞鹜文楷",
+      "family": "LXGW WenKai",
+      "file": "LXGWWenKai-Regular.ttf",
+      "sizeBytes": 25575676,
+      "sha256": "39ad71264b588165b469e35e6afb162a378dacd1f95348160240ba9038ac3009",
+      "licenseFile": "licenses/lxgw-wenkai-OFL.txt"
+    },
+    {
+      "id": "wenjin-mincho",
+      "display": "文津宋体",
+      "family": "WenJin Mincho Plane 0",
+      "file": "WenJinMincho-Regular.ttf",
+      "sizeBytes": 21796408,
+      "sha256": "2128e910bb0b335011470f38309678ca83a5f8116a09629d3b37c21b71de7f76",
+      "licenseFile": "licenses/wenjin-mincho-OFL.txt"
+    },
+    {
+      "id": "chillkai",
+      "display": "寒蝉正楷体",
+      "family": "ChillKai",
+      "file": "ChillKai-Regular.ttf",
+      "sizeBytes": 35027008,
+      "sha256": "33a4f5120f80e45c2188445fe710e4cdbf7c7ed6d89fb901a188f164b6c407fc",
+      "licenseFile": "licenses/chillkai-OFL.txt"
+    },
+    {
+      "id": "harmonyos-sans",
+      "display": "鸿蒙黑体",
+      "family": "HarmonyOS Sans SC",
+      "file": "HarmonyOSSansSC-Regular.ttf",
+      "sizeBytes": 8261128,
+      "sha256": "297b088424be212207df2ce8b98e335468b782aa6b96832af0b8b773d711e2b1",
+      "licenseFile": "licenses/harmonyos-sans-LICENSE.txt"
+    },
+    {
+      "id": "smiley-sans",
+      "display": "得意黑",
+      "family": "Smiley Sans",
+      "file": "SmileySans-Regular.ttf",
+      "sizeBytes": 2629764,
+      "sha256": "b447d7e781f08bc95c4c9f23ba71ed2b8ebb639aa7184485c71c4ca5afcd25c4",
+      "licenseFile": "licenses/smiley-sans-OFL.txt"
+    },
+    {
+      "id": "zhuque-fangsong",
+      "display": "朱雀仿宋",
+      "family": "Zhuque Fangsong (technical preview)",
+      "file": "ZhuqueFangsong-Regular.ttf",
+      "sizeBytes": 8824084,
+      "sha256": "558c62730844fe54ba220146ed62f859d4e2880188d92d985f8921c6e3743bc4",
+      "licenseFile": "licenses/zhuque-fangsong-OFL.txt"
+    },
+    {
+      "id": "sarasa-gothic",
+      "display": "更纱黑体",
+      "family": "Sarasa Gothic SC",
+      "file": "SarasaGothicSC-Regular.ttf",
+      "sizeBytes": 24047784,
+      "sha256": "1202162d0369c25f4dd571582ffc4c8a8c42bf18db469d4580da9b41b6cb64a1",
+      "licenseFile": "licenses/sarasa-gothic-OFL.txt"
+    },
+    {
+      "id": "iansui",
+      "display": "芫荽",
+      "family": "Iansui",
+      "file": "Iansui-Regular.ttf",
+      "sizeBytes": 9447424,
+      "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
+      "licenseFile": "licenses/iansui-OFL.txt"
+    }
+  ]
+}

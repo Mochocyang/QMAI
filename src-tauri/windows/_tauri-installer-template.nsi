@@ -31,6 +31,10 @@ ManifestDPIAwareness PerMonitorV2
 !include "StrFunc.nsh"
 ${StrCase}
 ${StrLoc}
+; 卸载时清理随包字体要用到（读记录文件后剥掉行尾 CRLF）。
+; 注意是 StrFunc 的 `StrTrimNewLines`（大写 N/L），不是 TextFunc 的
+; `TrimNewLines` —— 后者签名是文件级的、且 TextFunc.nsh 没被 include。
+${StrTrimNewLines}
 
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
@@ -855,6 +859,50 @@ Section Uninstall
 
   ; Remove shortcuts if not updating
   ${If} $UpdateMode <> 1
+
+  ; ── 清理随包字体（阶段 4）──
+  ;
+  ; 随包字体被安装到**本用户**的字体目录，并写进了 HKCU：
+  ;   %LOCALAPPDATA%\Microsoft\Windows\Fonts\<file>
+  ;   HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts : "<族名> (TrueType)" = <绝对路径>
+  ; 这两处**都不在 $INSTDIR 里**，所以下面那些 Delete/RMDir 一个都碰不到它们，
+  ; 连"删除应用数据"选项也只清 $APPDATA/$LOCALAPPDATA 下的应用目录。
+  ; 不显式清理的后果：用户卸载后字体库里永久多出十几个字体，而且没有任何提示。
+  ;
+  ; 必须在**另一个** $UpdateMode <> 1 里做：更新时旧卸载器会带 /UPDATE 运行，
+  ; 不保护就会在更新过程中把字体删掉（更新完应用还得重装一遍，且用户会看到
+  ; 字体短暂消失）。
+  ;
+  ; 记录文件是**交替两行**的纯文本（族名一行、绝对路径一行），
+  ; 没有注释行 —— 一行注释就会让后面全部错位、删错文件。
+  ; 格式由 src-tauri/src/font_install.rs 的 write_uninstall_record 定义，
+  ; 并由 Rust 侧同名测试 parse_uninstall_record 钉住。
+  ;
+  ; 注意：这一段必须排在下面"删除应用数据"里 RmDir /r "$APPDATA\${BUNDLEID}"
+  ; **之前** —— 否则记录文件先被删掉，字体就再也清不掉了。
+    StrCpy $R0 "$APPDATA\${BUNDLEID}\installed-fonts.txt"
+    IfFileExists "$R0" 0 qmai_fonts_done
+    FileOpen $R1 "$R0" r
+  qmai_fonts_loop:
+    FileRead $R1 $R2 ; 第 1 行：族名
+    IfErrors qmai_fonts_close
+    ${StrTrimNewLines} $R2 $R2
+    StrCmp $R2 "" qmai_fonts_close ; 空行 = 读完了
+    FileRead $R1 $R3 ; 第 2 行：目标绝对路径
+    IfErrors qmai_fonts_close
+    ${StrTrimNewLines} $R3 $R3
+    StrCmp $R3 "" qmai_fonts_close
+    ; 从字体文件里删掉。被占用时 /REBOOTOK 保证重启后仍会删掉，
+    ; 而不是静默留下一个孤儿字体文件。
+    Delete /REBOOTOK "$R3"
+    ; 注册表值名是 "<族名> (TrueType)"，.otf 也是这个后缀
+    StrCpy $R4 "$R2 (TrueType)"
+    DeleteRegValue HKCU "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" "$R4"
+    Goto qmai_fonts_loop
+  qmai_fonts_close:
+    FileClose $R1
+  qmai_fonts_done:
+
     !insertmacro DeleteAppUserModelId
 
     ; Remove start menu shortcut
