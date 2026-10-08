@@ -2912,7 +2912,7 @@ git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸�
     ).toEqual([])
   })</code></pre>
 
-      <p>这个文件顶部要补上 <code>defaultBodyMarginXForViewport</code> 与三个 <code>BODY_MARGIN_X_VIEWPORT_*</code> 的 import（来自 <code>@/lib/font-settings</code>）。</p>
+      <p>这个文件顶部要补上两类 import：</p><ul><li><code>defaultBodyMarginXForViewport</code> 与三个 <code>BODY_MARGIN_X_VIEWPORT_*</code>（来自 <code>@/lib/font-settings</code>）；</li><li><strong>以及 node 内置符号</strong>：第 6 条断言要递归扫目录，需要 <code>readdirSync</code>（补进已有的 <code>node:fs</code> 那行）与 <code>join</code>（补进已有的 <code>node:path</code> 那行）。漏了它们 <code>typecheck:tests</code> 会报 TS2304 —— 本块是**片段**不是整文件，<code>check-brief-imports</code> 抓不到这一处，只能靠这里写明。</li></ul>
 
       <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
       <p class="expect bad">Expected: FAIL —— 前 5 条变红：行高那条（CSS 还是 1.95）、<code>letter-spacing</code> 那条（CSS 里还没有）、列表行高那条（CSS 还是 1.9）、安全距离那条（CSS 还是 36px）、窄屏媒体查询那条（CSS 里还有 <code>padding: 0 20px</code>）。<strong>第 6 条（App 独占变量不许被声明）应当是绿的</strong> —— 它守的是「不许出现某种写法」，现状本来就正确。但「绿」不算验证过：必须按下面那条变异把它<strong>弄红一次</strong>，才算证明它真的在守东西。若某条这一轮就绿，说明它没测到本次要改的东西，先修断言再往下走。</p>
