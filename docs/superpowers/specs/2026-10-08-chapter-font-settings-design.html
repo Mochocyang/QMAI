@@ -142,6 +142,7 @@
     border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 18px; max-width: 860px;
   }
   .callout.warn { border-left-color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); }
   .callout .t {
     font-size: 12px; font-family: var(--mono); text-transform: uppercase;
     letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 6px;
@@ -157,7 +158,7 @@
 <header class="page-head">
   <div class="eyebrow">QMAI · 设计规格 · 2026-10-08</div>
   <h1>章节「字体设置」与正文字距 / 边距</h1>
-  <div class="status">待你审阅 —— 确认后我才进入实施计划</div>
+  <div class="status" style="color:var(--ok)">已批准 · 2026-10-08 · 实施计划见 docs/superpowers/plans/2026-10-08-chapter-font-settings.html</div>
   <div class="prompt-box">
     <span class="label">原始需求（用户原话，逐字保留）</span>
     <p>现在软件当中有一个是界面字体，一个是正文字体。将正文字体放置在章节当中，也就是说写小说的过程当中，它的字体，章节当中显示的字体，是用正文字体是可以设置的。并且这个正文字体能够控制章节当中的字体。</p>
@@ -249,9 +250,10 @@
     </tbody>
   </table>
 
-  <div class="callout warn">
-    <span class="t decide">需要你确认的一点</span>
-    <p><b>左右边距的默认语义</b>：今天它是响应式的 <code>clamp(20px, 4vw, 48px)</code>，宽窗口 48px、窄窗口 20px。我打算这样处理 —— <b>你没动过这个滑块时，继续跟随窗口（行为完全不变）；一旦拖动过，就固定成你选的 px</b>。这样既不惊吓现有用户，又能真正可调。如果你希望一上来就固定，请说。</p>
+  <div class="callout">
+    <span class="t">已确认：左右边距的默认语义</span>
+    <p>今天它是响应式的 <code>clamp(20px, 4vw, 48px)</code>，宽窗口 48px、窄窗口 20px。<b>决定：你没动过这个滑块时继续跟随窗口（行为完全不变）；一旦拖动过，就固定成你选的 px。</b>实现上 <code>marginX</code> 的 <code>null</code> 就表示「跟随窗口」，此时不写该变量，由 CSS 兜底。</p>
+    <p><b>实施时发现的一个必要修正</b>：这个内边距不能留在 <code>.ui-test-editor</code> 上。正文容器有 <code>max-width: 800px</code>，在 1280px 窗口下把外层内边距从 48px 调到 160px，正文仍是 800px 宽、位置纹丝不动 —— 滑块看起来完全没反应。所以真正的落点是 <code>.ui-test-editor-document</code>（正文行宽 = 800px 减去两侧内边距），外层内边距归零。</p>
   </div>
 </section>
 
@@ -260,19 +262,25 @@
   <p class="sec-intro">正文字号有 4 处引用、且查找高亮层覆盖在输入层之上，这是<b>正确性要求</b>而不是优化：两处各写一份数字，今天相同、改一处就错位。</p>
 
   <h3>新增 / 变更的变量</h3>
+  <p>变量分两层，这个划分不是风格问题：<b>上一层由 App 写在 documentElement 的行内样式上，下一层只做「读上一层的值」的间接</b>。若下一层直接写死默认值，它会盖掉 App 的行内样式，表现为「设置保存了但界面不变」，而且没有任何报错。</p>
   <table>
-    <thead><tr><th>变量</th><th>取值</th></tr></thead>
+    <thead><tr><th>变量</th><th>取值</th><th>归属</th></tr></thead>
     <tbody>
-      <tr><td class="mono">--qmai-body-font-size</td><td class="mono">&lt;N&gt;px（由倍数改为直接像素）</td></tr>
-      <tr><td class="mono">--qmai-body-font-list</td><td class="mono">calc(&lt;N&gt;px * 8 / 9)　← 沿用原 16/18 比例</td></tr>
-      <tr><td class="mono">--qmai-body-font-marker</td><td class="mono">calc(&lt;N&gt;px * 2 / 3)　← 沿用原 12/18 比例</td></tr>
-      <tr><td class="mono">--qmai-body-line-height</td><td class="mono">&lt;无单位数字&gt;（仍须无单位，不随字号变化）</td></tr>
-      <tr><td class="mono">--qmai-body-line-height-list</td><td class="mono">var(--qmai-body-line-height)　← 见下方待确认</td></tr>
-      <tr><td class="mono">--qmai-body-letter-spacing</td><td class="mono">&lt;N&gt;px（新）</td></tr>
-      <tr><td class="mono">--qmai-body-margin-x</td><td class="mono">clamp(20px,4vw,48px) 或 &lt;N&gt;px（新）</td></tr>
-      <tr><td class="mono">--qmai-body-safe-bottom</td><td class="mono">&lt;N&gt;px（新）</td></tr>
+      <tr><td class="mono">--qmai-body-font-px</td><td class="mono">&lt;N&gt;px</td><td>App 独占（行内样式）</td></tr>
+      <tr><td class="mono">--qmai-body-leading</td><td class="mono">无单位数字</td><td>App 独占（行内样式）</td></tr>
+      <tr><td class="mono">--qmai-body-letter-spacing</td><td class="mono">&lt;N&gt;px</td><td>App 独占（行内样式）</td></tr>
+      <tr><td class="mono">--qmai-body-margin-x</td><td class="mono">&lt;N&gt;px；不存在 = 跟随窗口</td><td>App 独占（行内样式，可缺省）</td></tr>
+      <tr><td class="mono">--qmai-body-safe-bottom</td><td class="mono">&lt;N&gt;px</td><td>App 独占（行内样式）</td></tr>
+      <tr><td class="mono">--qmai-body-font-size</td><td class="mono">var(--qmai-body-font-px, 18px)</td><td>CSS 间接层</td></tr>
+      <tr><td class="mono">--qmai-body-font-list</td><td class="mono">calc(var(--qmai-body-font-size) * 8 / 9)　← 沿用原 16/18 比例</td><td>CSS 间接层</td></tr>
+      <tr><td class="mono">--qmai-body-font-marker</td><td class="mono">calc(var(--qmai-body-font-size) * 2 / 3)　← 沿用原 12/18 比例</td><td>CSS 间接层</td></tr>
+      <tr><td class="mono">--qmai-body-line-height</td><td class="mono">var(--qmai-body-leading, 1.95)　← 必须无单位</td><td>CSS 间接层</td></tr>
     </tbody>
   </table>
+  <div class="callout ok">
+    <span class="t">列表不再单列一个行高变量</span>
+    <p>原方案里有一条 <code>--qmai-body-line-height-list</code>。已确认取消：正文段落与列表<b>共用同一个值</b>，列表不再各自维护。多一个变量就多一处「改了 p 忘了 li」的机会，而列表行高必须跟随行间距只由使用点引用同一个变量即可保证。</p>
+  </div>
 
   <h3>三条不变量（实施时不得破坏）</h3>
   <ul>
@@ -341,7 +349,7 @@
   <ul>
     <li>换算 <code>round(scale × 18)</code> 后夹到 <code>[12, 32]</code>；仅在读不到新键时执行一次。</li>
     <li>旧键<b>不删除</b>，保留可读以便回滚到旧版本。</li>
-    <li>字号预设由百分比档改为 px 档（12 / 15 / 18 / 21 / 24 / 28 / 32）供快速点选，滑块仍可任意取值。</li>
+    <li>字号预设由百分比档改为 px 档（15 / 18 / 21 / 24）供快速点选，滑块仍可在 12–32px 之间任意取值。</li>
   </ul>
 </section>
 
@@ -370,7 +378,7 @@
   <div class="sec-head"><span class="num">09</span><h2>代价与影响面</h2></div>
   <ul>
     <li><b>正文不再随「界面字号」缩放</b>（你已确认接受）。此前 <code>calc(1.125rem × 倍数)</code> 会让正文跟着根字号一起变；改成 px 后改「界面字号」时正文纹丝不动。</li>
-    <li><b>列表行高会被统一</b><span class="decide">（待确认）</span>：现在 <code>p</code> 是 1.95、<code>li</code> 是 1.9。要让「行间距」一处生效且可解释，我打算让列表与正文同高，列表会略增高约 2.6%。如果你要求保留这个差异，我会改成按比例派生。</li>
+    <li><b>列表行高会被统一</b>（已确认）：现在 <code>p</code> 是 1.95、<code>li</code> 是 1.9。要让「行间距」一处生效且可解释，列表与正文同高，列表会略增高约 2.6%。</li>
     <li><b>底部安全距离默认 51px</b>：所有现有用户的写作区底部空白从 36px 变为 51px，这是你要求的变化。</li>
     <li>标题、表格、引用块、代码块的行高<b>保持固定</b>，不受行间距影响。</li>
   </ul>
@@ -388,11 +396,12 @@
 </section>
 
 <section>
-  <div class="sec-head"><span class="num">11</span><h2>待你确认的三点</h2></div>
+  <div class="sec-head"><span class="num">11</span><h2>三个待确认点的结论（已销账）</h2></div>
+  <p class="sec-intro">用户回复「就按照你的开始处理吧」，即三点全部按下面处理。此处保留问题与结论的对应关系，便于日后回溯为什么是这样。</p>
   <ol>
-    <li><b>左右边距默认语义</b>：未拖动时跟随窗口（行为不变）、拖动后固定 —— 可以吗？（03 节）</li>
-    <li><b>列表行高统一</b>：接受列表由 1.9 变为与正文一致吗？还是要按比例保留差异？（09 节）</li>
-    <li><b>「浦发」</b>：我判断这是语音转写误差，按「换一个合适的智能排版图标」处理，落地为 <code>wand-sparkles</code>。如果你原意是某个具体的图标或图标库，请告诉我名字。</li>
+    <li><b>左右边距默认语义</b> → 采用「未拖动时跟随窗口（行为不变）、拖动后固定」。（03 节，含实施时发现的内边距落点修正）</li>
+    <li><b>列表行高统一</b> → 采用统一，列表由 1.9 变为与正文一致，略增高约 2.6%。（09 节）</li>
+    <li><b>「浦发」</b> → 判定为语音转写误差，按「换一个合适的智能排版图标」处理，落地为 <code>wand-sparkles</code>。用户另被问及是否把 <code>a-large-small</code> 也纳入备选，答复「不用」，故不纳入。</li>
   </ol>
 </section>
 

@@ -1,0 +1,3032 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实施计划 — 章节「字体设置」与正文字距 / 边距</title>
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-plan-theme');
+      var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:#FAF9F5; --panel:#FFFFFF; --panel-alt:#F0EEE6; --code-bg:#F6F4EE;
+    --ink:#141413; --ink-soft:#3D3D3A; --muted:#87867F; --line:#D1CFC5;
+    --accent:#D97757; --ok:#788C5D; --warn:#B5793A; --danger:#B04A3A;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html.dark {
+    --bg:#16150F; --panel:#201F19; --panel-alt:#2A2921; --code-bg:#1B1A15;
+    --ink:#F5F3EC; --ink-soft:#D8D5CA; --muted:#9A988E; --line:#3A3830;
+    --accent:#E08966; --ok:#93A874; --warn:#D0A05E; --danger:#D9705C;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:var(--sans); background:var(--bg); color:var(--ink-soft);
+    line-height:1.6; padding:56px 32px 120px; -webkit-font-smoothing:antialiased;
+  }
+  .page { max-width:1160px; margin:0 auto; }
+  .theme-toggle {
+    position:fixed; top:18px; right:20px; z-index:10;
+    font:500 12px/1 var(--sans); color:var(--ink-soft); background:var(--panel);
+    border:1.5px solid var(--line); border-radius:999px; padding:9px 14px; cursor:pointer;
+  }
+  .theme-toggle:hover { border-color:var(--accent); color:var(--accent); }
+
+  header.page-head { margin-bottom:36px; max-width:900px; }
+  .eyebrow { font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:12px; }
+  h1 { font-family:var(--serif); font-weight:500; font-size:36px; line-height:1.18; color:var(--ink); margin-bottom:16px; letter-spacing:-.01em; }
+  .agent-note {
+    background:var(--panel); border:1.5px solid var(--accent); border-radius:12px;
+    padding:14px 18px; margin-bottom:18px; font-size:14px;
+  }
+  .agent-note strong { color:var(--ink); }
+  .facts { display:grid; grid-template-columns:1fr 1fr; gap:10px 26px; margin:18px 0 0; max-width:900px; font-size:14.5px; }
+  @media (max-width:760px) { .facts { grid-template-columns:1fr; } }
+  .facts dt { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .facts dd { margin-bottom:10px; }
+
+  .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:36px 0 52px; }
+  @media (max-width:900px) { .summary { grid-template-columns:repeat(2,1fr); } }
+  .summary .cell { background:var(--panel); border:1.5px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .summary .k { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+  .summary .v { font-size:17px; color:var(--ink); font-weight:600; }
+  .summary .v.accent { color:var(--accent); }
+
+  section { margin-bottom:56px; }
+  .sec-head { display:flex; align-items:baseline; gap:14px; margin-bottom:8px; flex-wrap:wrap; }
+  .sec-head .num { font-family:var(--mono); font-size:12px; background:var(--panel-alt); color:var(--ink); padding:3px 9px; border-radius:8px; border:1px solid var(--line); }
+  .sec-head h2 { font-family:var(--serif); font-weight:500; font-size:25px; color:var(--ink); }
+  .sec-head .tag { font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .sec-intro { font-size:14.5px; color:var(--muted); max-width:820px; margin-bottom:20px; }
+
+  h3 { font-size:15px; color:var(--ink); margin:24px 0 10px; font-weight:600; }
+  p { max-width:860px; }
+  p + p { margin-top:10px; }
+  ul, ol { margin:10px 0 0 22px; max-width:880px; }
+  li { margin-bottom:6px; }
+  li > ul, li > ol { margin-top:6px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--code-bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px; color:var(--ink); }
+  b, strong { color:var(--ink); }
+  a { color:var(--accent); }
+
+  table { width:100%; border-collapse:collapse; margin-top:14px; font-size:13.5px; background:var(--panel); border:1.5px solid var(--line); border-radius:12px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); background:var(--panel-alt); font-weight:500; }
+  tr:last-child td { border-bottom:none; }
+  td.mono, .mono { font-family:var(--mono); font-size:12.5px; }
+
+  pre {
+    background:var(--code-bg); border:1.5px solid var(--line); border-radius:10px;
+    padding:14px 16px; overflow-x:auto; margin:12px 0;
+    font-family:var(--mono); font-size:12.5px; line-height:1.62; color:var(--ink);
+    max-width:100%;
+  }
+  pre code { background:none; border:none; padding:0; font-size:inherit; }
+  .cmd { background:var(--panel-alt); }
+
+  .task {
+    background:var(--panel); border:1.5px solid var(--line); border-radius:14px;
+    padding:22px 24px; margin-bottom:26px;
+  }
+  .task-head { display:flex; align-items:baseline; gap:12px; margin-bottom:6px; flex-wrap:wrap; }
+  .task-head .n {
+    font-family:var(--mono); font-size:12px; background:var(--accent); color:#fff;
+    padding:3px 9px; border-radius:8px;
+  }
+  .task-head h3 { margin:0; font-size:19px; font-family:var(--serif); font-weight:500; }
+  .task-why { font-size:14px; color:var(--muted); margin:6px 0 14px; max-width:900px; }
+  .files { font-size:13px; margin:12px 0; padding:12px 14px; background:var(--panel-alt); border-radius:9px; }
+  .files div { font-family:var(--mono); font-size:12.5px; margin-bottom:3px; }
+  .files .lbl { font-family:var(--sans); font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }
+
+  .step { margin:16px 0 0; }
+  .step-h {
+    display:flex; align-items:flex-start; gap:9px; font-size:14.5px; color:var(--ink);
+    font-weight:600; margin-bottom:2px;
+  }
+  .box {
+    flex:0 0 auto; width:15px; height:15px; margin-top:4px;
+    border:1.5px solid var(--line); border-radius:4px; background:var(--bg);
+  }
+  .step-body { margin-left:24px; }
+  .expect { font-size:13.5px; color:var(--ok); }
+  .expect.bad { color:var(--danger); }
+  .note {
+    border-left:3px solid var(--accent); background:var(--panel-alt);
+    border-radius:0 9px 9px 0; padding:11px 15px; margin:12px 0; max-width:900px; font-size:13.5px;
+  }
+  .note.warn { border-left-color:var(--warn); }
+  .note.danger { border-left-color:var(--danger); }
+  .note .t { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); display:block; margin-bottom:5px; }
+  footer { border-top:1.5px solid var(--line); padding-top:20px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle" type="button">切换深浅色</button>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">QMAI · 实施计划 · 2026-10-08</div>
+  <h1>章节「字体设置」与正文字距 / 边距</h1>
+
+  <div class="agent-note">
+    <strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use <code>subagent-driven-development</code>（推荐）或 <code>executing-plans</code> 逐任务实施本计划。步骤用复选框跟踪。
+  </div>
+
+  <p><strong>Goal:</strong> 让用户在写作现场（章节与大纲）直接调整正文字体、字号、字间距、行间距、左右边距与底部安全距离，并修掉最后一行贴在最底层的观感问题；一键排版的图标与字体设置图标不再相同。</p>
+  <p><strong>Architecture:</strong> 复用既有「控件 → 设置草稿 → zustand store → localStorage + app-state.json → <code>documentElement</code> 行内 CSS 变量 → ui-test.css 派生」这条已被守卫逐环钉住的链路，只把「正文字号」由倍数改为绝对像素，并新增 4 个排版参数。控件抽成一个共享组件，设置页与写作现场浮层共用同一份值。</p>
+  <p><strong>Tech Stack:</strong> Tauri v2 · React 19 · TypeScript · zustand · Vite 8（rolldown）· vitest 5 · jest-dom / jsdom · lucide-react 1.46.0 · postcss（校验脚本用）</p>
+
+  <dl class="facts">
+    <dt>规格来源</dt><dd><code>docs/superpowers/specs/2026-10-08-chapter-font-settings-design.html</code>（已批准）</dd>
+    <dt>当前 HEAD</dt><dd class="mono">4e5f1ff</dd>
+    <dt>版本</dt><dd class="mono">4.1.2（用户明确不升版本号）</dd>
+    <dt>不得触碰</dt><dd>用户小说数据（逻辑 <code>wiki/</code> ≡ 物理 <code>QM/</code>）、<code>dismantling.ts</code>、<code>LintView</code>、<code>loadMemoryCenterData</code> 的读取策略</dd>
+  </dl>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">任务数</div><div class="v accent">13</div></div>
+  <div class="cell"><div class="k">新建文件</div><div class="v">4</div></div>
+  <div class="cell"><div class="k">修改文件</div><div class="v">14</div></div>
+  <div class="cell"><div class="k">每任务一次提交</div><div class="v">是</div></div>
+</div>
+
+<section>
+  <div class="sec-head"><span class="num">00</span><h2>开工前必读</h2></div>
+
+  <h3>必须遵守的测试命令形态</h3>
+  <p>仓库里有 <code>.claude/</code>、<code>.codex-temp/</code>、<code>.worktrees/</code> 三棵含历史副本的目录，跑 vitest 时<strong>必须</strong>排除，否则会把旧副本的失败当成当前代码的失败：</p>
+  <pre class="cmd"><code>npx vitest run src/path/to/file.spec.ts \
+  --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+  <div class="note danger">
+    <span class="t">不要用</span>
+    <p><code>--reporter=basic</code> 在本仓库<strong>不存在</strong>（vitest 5 已移除），会直接报错。用默认 reporter 或 <code>--reporter=dot</code>。</p>
+  </div>
+
+  <h3>每次提交前的门禁（全部 6 条，缺一不可）</h3>
+  <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit
+npm run typecheck
+npm run typecheck:tests
+npx vite build
+cargo test --offline --lib -- --test-threads=1</code></pre>
+  <p>整仓单测用 <code>npm run test:mocks</code>。它同时会先跑 <code>node scripts/lint-character-aura.mjs</code>。</p>
+
+  <h3>本仓库的三个「假绿陷阱」（务必避免写出这类断言）</h3>
+  <table>
+    <thead><tr><th>陷阱</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">[].every(pred) === true</td><td>空数组上的 every 恒为真，断言会静默通过。遍历前先断言长度。</td></tr>
+      <tr><td class="mono">NaN &gt; x === false</td><td>取到的计算值若是 NaN，所有比较都会「通过」。断言前先 <code>Number.isFinite</code>。</td></tr>
+      <tr><td>只断言「文件里有这段文字」</td><td>正则匹配源码文本时，选择器写弱了规则仍在文件里、只是被别的规则盖掉。要连<strong>层叠强度</strong>一起钉住（见任务 12）。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <span class="t">TDD 的硬要求</span>
+    <p>任务 1–12 中的每一条新守卫，<strong>必须先运行一次、确认它因「功能还没做」而变红</strong>，再写实现。一条无法变红的断言比没有断言更糟——它会让后来的人以为这块被守住了。</p>
+  </div>
+
+  <h3>行尾与提交</h3>
+  <ul>
+    <li>仓库 <code>core.autocrlf=true</code>：索引是 LF、工作区是 CRLF。<code>src-tauri/Cargo.toml</code> 与 <code>gen/schemas/*.json</code> 在工作区显示为 modified 但 <code>git diff --numstat</code> 为空，那是换行符幻影，<strong>不要提交</strong>。</li>
+    <li>提交信息用临时文件 + <code>git commit -F</code>，写完即删；文件必须以 <strong>UTF-8 无 BOM</strong> 写入（<code>[System.IO.File]::WriteAllText($p,$t,[System.Text.UTF8Encoding]::new($false))</code>）。</li>
+    <li><strong>不要</strong> <code>git push</code>（除非用户明确要求）。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>文件结构：谁负责什么</h2></div>
+  <p class="sec-intro">先锁定分解。每个文件一个明确职责，改动的文件与负责改它的人一一对应。</p>
+
+  <table>
+    <thead><tr><th>文件</th><th>动作</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">src/lib/font-settings.ts</td><td>改</td><td>6 个参数的<strong>唯一</strong>范围/默认值/钳制函数来源；新增 <code>applyBodyTypography</code>（写 CSS 变量的唯一出口）</td></tr>
+      <tr><td class="mono">src/lib/font-settings.spec.ts</td><td>改</td><td>范围、钳制、迁移映射的单测</td></tr>
+      <tr><td class="mono">src/lib/debounced-persist.ts</td><td><strong>新建</strong></td><td>把滑块的连续变化合并成一次落盘</td></tr>
+      <tr><td class="mono">src/lib/debounced-persist.spec.ts</td><td><strong>新建</strong></td><td>合并/flush/dispose 的单测</td></tr>
+      <tr><td class="mono">src/stores/wiki-store.ts</td><td>改</td><td>5 个新状态 + 5 个 setter + 5 个独立 localStorage 键；旧的倍数键只读用于迁移</td></tr>
+      <tr><td class="mono">src/stores/wiki-store.spec.ts</td><td>改</td><td>键独立性、迁移、读写走同一个 clamp</td></tr>
+      <tr><td class="mono">src/lib/project-store.ts</td><td>改</td><td>5 个新键的 save/load（app-state.json）</td></tr>
+      <tr><td class="mono">src/App.tsx</td><td>改</td><td>启动读回 + 变化时调 <code>applyBodyTypography</code></td></tr>
+      <tr><td class="mono">src/components/uitest/ui-test.css</td><td>改</td><td>变量层：由用户值派生正文 4 处共用字号与从属尺寸</td></tr>
+      <tr><td class="mono">src/components/uitest/ui-test-editor.css</td><td>改</td><td>消费变量：字距、行距（正文+列表）、左右边距、底部安全距离</td></tr>
+      <tr><td class="mono">src/components/settings/sections/body-typography-fields.tsx</td><td><strong>新建</strong></td><td>6 个控件 + <code>useSystemFonts</code>；设置页与写作现场共用</td></tr>
+      <tr><td class="mono">src/components/settings/sections/interface-section.tsx</td><td>改</td><td>把正文字体/字号两行替换为共享组件</td></tr>
+      <tr><td class="mono">src/components/settings/settings-types.ts</td><td>改</td><td>草稿字段：5 个新字段</td></tr>
+      <tr><td class="mono">src/components/settings/settings-view.tsx</td><td>改</td><td>草稿初始化 + 保存时写 store 与持久化</td></tr>
+      <tr><td class="mono">src/components/layout/preview-panel.tsx</td><td>改</td><td>一键排版换图标；章节与大纲各加「字体设置」按钮 + 浮层</td></tr>
+      <tr><td class="mono">src/components/settings/interface-sidebar-nav.spec.ts</td><td>改</td><td>接线守卫改指新字段与新组件</td></tr>
+      <tr><td class="mono">src/components/uitest/ui-test-editor.spec.tsx</td><td>改</td><td>CSS 契约守卫跟随新变量</td></tr>
+      <tr><td class="mono">docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</td><td>改</td><td>静态守卫：校验表达式由 rem×倍数 改为 px；「不得重复定义」与「高亮层逐字节一致」两条<strong>保留并加强</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <span class="t">故意不改</span>
+    <p><code>docs/font-scaling-fix-20261007/</code> 下的 <code>design.md</code> / <code>findings.md</code> / <code>attribution-219-unexplained.md</code> 是<strong>历史记录</strong>，里面引用的旧变量字符串是当时的证据。不要去「更新」它们，那会篡改证据。</p>
+    <p><code>verify-body-font-scale.mjs</code> / <code>verify-real-exe.mjs</code> / <code>verify-real-exe-settings-save.mjs</code> 是<strong>活脚本</strong>，需要跟随改造，放在任务 12 统一处理。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">02</span><h2>变量契约（先记住这张表，后面每个任务都在兑现它）</h2></div>
+  <p class="sec-intro">这是整个改造的地基。做错这一层，后面所有控件都会「设了没反应」。</p>
+
+  <table>
+    <thead><tr><th>CSS 变量</th><th>由谁写</th><th>取值 / 兜底</th><th>消费者</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">--qmai-body-font-px</td><td>App（行内样式）</td><td class="mono">&lt;N&gt;px</td><td>仅被下一行读取</td></tr>
+      <tr><td class="mono">--qmai-body-font-size</td><td class="mono">ui-test.css</td><td class="mono">var(--qmai-body-font-px, 18px)</td><td>正文 4 处（单一来源）</td></tr>
+      <tr><td class="mono">--qmai-body-font-list</td><td class="mono">ui-test.css</td><td class="mono">calc(var(--qmai-body-font-size) * 8 / 9)</td><td>列表项 / 有序标记</td></tr>
+      <tr><td class="mono">--qmai-body-font-marker</td><td class="mono">ui-test.css</td><td class="mono">calc(var(--qmai-body-font-size) * 2 / 3)</td><td>无序标记</td></tr>
+      <tr><td class="mono">--qmai-body-leading</td><td>App（行内样式）</td><td class="mono">无单位数字</td><td>仅被下一行读取</td></tr>
+      <tr><td class="mono">--qmai-body-line-height</td><td class="mono">ui-test.css</td><td class="mono">var(--qmai-body-leading, 1.95)</td><td>正文段落、列表、输入层、高亮层</td></tr>
+      <tr><td class="mono">--qmai-body-letter-spacing</td><td>App（行内样式）</td><td class="mono">&lt;N&gt;px，兜底 0</td><td class="mono">.ui-test-editor-body（继承给全部后代）</td></tr>
+      <tr><td class="mono">--qmai-body-margin-x</td><td>App（行内样式）</td><td class="mono">&lt;N&gt;px；<strong>未设置</strong>时兜底 clamp(20px,4vw,48px)</td><td class="mono">.ui-test-editor-document 的水平内边距</td></tr>
+      <tr><td class="mono">--qmai-body-safe-bottom</td><td>App（行内样式）</td><td class="mono">&lt;N&gt;px，兜底 51px</td><td class="mono">.ui-test-editor-scroll 的下内边距</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note danger">
+    <span class="t">最容易踩的坑：变量会被更近的祖先盖掉</span>
+    <p><code>ui-test.css</code> 的变量宿主是 <code>.ui-test-root, html[data-ui-test-skin]</code>。App 写在 <code>documentElement</code>（即 <code>html</code>）的行内样式，对 <code>html</code> 自身生效，但 <code>.ui-test-root</code> 是 <strong>更近的祖先</strong>——若在 <code>.ui-test-root</code> 块里再声明一份<strong>字面量</strong>默认值，就会把 App 写的值盖掉，表现为「设置保存了但界面不变」。</p>
+    <p>所以规矩是：<strong>App 独占的 5 个变量不得在 CSS 里声明字面量默认值</strong>，只能在使用点写成 <code>var(--x, 兜底值)</code>；而 <code>--qmai-body-font-size</code> / <code>--qmai-body-line-height</code> 这两条<strong>间接层</strong>声明在 <code>.ui-test-root</code> 块里是安全的——它们读的是从 <code>html</code> 继承下来的值。</p>
+    <p>旧代码的 <code>--qmai-body-font-scale</code> 之所以一直好用，正是因为它走的也是「继承」这条路。改造后必须保持同一形态。</p>
+  </div>
+
+  <h3>改造后的数值对照（默认档必须与今天逐位相同，除底部安全距离外）</h3>
+  <table>
+    <thead><tr><th>元素</th><th>今天</th><th>改造后</th></tr></thead>
+    <tbody>
+      <tr><td>正文 / 输入层 / 高亮层 / 文档标题</td><td class="mono">18px</td><td class="mono">18px（<code>--qmai-body-font-px</code> 默认 18）</td></tr>
+      <tr><td>列表项、有序标记</td><td class="mono">16px</td><td class="mono">16px（18 × 8/9）</td></tr>
+      <tr><td>无序标记</td><td class="mono">12px</td><td class="mono">12px（18 × 2/3）</td></tr>
+      <tr><td>正文段落行高</td><td class="mono">1.95</td><td class="mono">1.95</td></tr>
+      <tr><td>列表行高</td><td class="mono">1.9</td><td class="mono">1.95（<strong>已确认统一</strong>，列表略增高 2.6%）</td></tr>
+      <tr><td>底部留白</td><td class="mono">36px（窄屏 28px）</td><td class="mono">51px（<strong>你要求的变化</strong>）</td></tr>
+      <tr><td>左右边距</td><td class="mono">clamp(20px,4vw,48px)</td><td class="mono">同左（未拖动滑块时）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">03</span><h2>任务</h2></div>
+
+<!-- ===================== TASK 1 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 1</span><h3>参数模型：6 个范围的唯一来源</h3></div>
+  <p class="task-why">先把范围、默认值、钳制函数集中到 <code>font-settings.ts</code>。这个仓库已经有过「同一个范围在两处硬编码、只改一处导致设了 150% 下次启动被截成别的值」的真实缺陷，所以范围绝不能写在组件里。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/lib/font-settings.ts（在文件末尾追加）</div>
+    <div>Test:   src/lib/font-settings.spec.ts（追加 describe 块）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：先写会失败的测试</div>
+    <div class="step-body">
+      <p>在 <code>src/lib/font-settings.spec.ts</code> 末尾追加（文件末尾已有一个 <code>})</code> 收尾最外层 describe，追加在新 describe 里）：</p>
+<pre><code>/* ────────────────────────── 正文排版参数（px 模型） ────────────────────────── */
+
+describe("正文排版参数", () =&gt; {
+  it("正文字号范围 12–32px，默认 18px", () =&gt; {
+    expect(BODY_FONT_PX_MIN).toBe(12)
+    expect(BODY_FONT_PX_MAX).toBe(32)
+    expect(DEFAULT_BODY_FONT_PX).toBe(18)
+  })
+
+  it("正文字号取整并夹到范围内", () =&gt; {
+    expect(clampBodyFontPx(15)).toBe(15)
+    expect(clampBodyFontPx(15.4)).toBe(15)
+    expect(clampBodyFontPx(15.6)).toBe(16)
+    expect(clampBodyFontPx(1)).toBe(BODY_FONT_PX_MIN)
+    expect(clampBodyFontPx(999)).toBe(BODY_FONT_PX_MAX)
+  })
+
+  it("正文字号对无效输入退回默认，而不是被隐式转成 0 再夹到下限", () =&gt; {
+    // Number(null) === 0，若不特殊处理会得到 12px ——
+    // 「没存过值」与「用户要最小字号」是两件事
+    expect(clampBodyFontPx(null)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx(undefined)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx("")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx("abc")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(clampBodyFontPx(Number.NaN)).toBe(DEFAULT_BODY_FONT_PX)
+  })
+
+  it("旧倍数迁移成 px：0.85→15 / 1→18 / 1.25→23 / 1.5→27", () =&gt; {
+    expect(bodyFontPxFromScale(0.85)).toBe(15)
+    expect(bodyFontPxFromScale(1)).toBe(18)
+    expect(bodyFontPxFromScale(1.25)).toBe(23)
+    expect(bodyFontPxFromScale(1.5)).toBe(27)
+  })
+
+  it("旧倍数迁移对垃圾值不抛错", () =&gt; {
+    expect(bodyFontPxFromScale(null)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale("")).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(0)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(-3)).toBe(DEFAULT_BODY_FONT_PX)
+    expect(bodyFontPxFromScale(Number.NaN)).toBe(DEFAULT_BODY_FONT_PX)
+  })
+
+  it("字号预设全部是范围内的整数且钳制后原样通过", () =&gt; {
+    // 若预设值钳制后会变，设置页的「选中态」就永远匹配不上
+    expect(BODY_FONT_PX_PRESETS.map((p) =&gt; p.value)).toEqual([15, 18, 21, 24])
+    expect(BODY_FONT_PX_PRESETS.length).toBeGreaterThan(0)
+    for (const preset of BODY_FONT_PX_PRESETS) {
+      expect(Number.isInteger(preset.value)).toBe(true)
+      expect(clampBodyFontPx(preset.value)).toBe(preset.value)
+    }
+  })
+
+  it("行间距范围 1.2–2.6，默认 1.95，保留两位小数", () =&gt; {
+    expect(DEFAULT_BODY_LINE_HEIGHT).toBe(1.95)
+    expect(clampBodyLineHeight(1.95)).toBe(1.95)
+    expect(clampBodyLineHeight(1)).toBe(BODY_LINE_HEIGHT_MIN)
+    expect(clampBodyLineHeight(9)).toBe(BODY_LINE_HEIGHT_MAX)
+    expect(clampBodyLineHeight(1.234)).toBe(1.23)
+    expect(clampBodyLineHeight(null)).toBe(DEFAULT_BODY_LINE_HEIGHT)
+  })
+
+  it("行间距钳制幂等", () =&gt; {
+    for (const v of [1.2, 1.5, 1.95, 2.05, 2.6]) {
+      const once = clampBodyLineHeight(v)
+      expect(clampBodyLineHeight(once)).toBe(once)
+    }
+  })
+
+  it("字间距范围 -1–6px，默认 0", () =&gt; {
+    expect(DEFAULT_BODY_LETTER_SPACING).toBe(0)
+    expect(clampBodyLetterSpacing(0)).toBe(0)
+    expect(clampBodyLetterSpacing(-9)).toBe(BODY_LETTER_SPACING_MIN)
+    expect(clampBodyLetterSpacing(99)).toBe(BODY_LETTER_SPACING_MAX)
+    expect(clampBodyLetterSpacing(0.5)).toBe(0.5)
+    expect(clampBodyLetterSpacing(null)).toBe(DEFAULT_BODY_LETTER_SPACING)
+  })
+
+  it("左右边距 null = 跟随窗口，这是默认值", () =&gt; {
+    // null 不是"忘了设"，而是一个有意义的取值：让 CSS 的
+    // clamp(20px, 4vw, 48px) 生效，老用户打开后界面与改造前逐位相同
+    expect(DEFAULT_BODY_MARGIN_X).toBeNull()
+    expect(clampBodyMarginX(null)).toBeNull()
+    expect(clampBodyMarginX(undefined)).toBeNull()
+    expect(clampBodyMarginX("")).toBeNull()
+    expect(clampBodyMarginX("abc")).toBeNull()
+  })
+
+  it("左右边距一旦给了数字就钳到 0–160 并取整", () =&gt; {
+    expect(clampBodyMarginX(0)).toBe(0)
+    expect(clampBodyMarginX(10)).toBe(10)
+    expect(clampBodyMarginX(10.6)).toBe(11)
+    expect(clampBodyMarginX(-5)).toBe(BODY_MARGIN_X_MIN)
+    expect(clampBodyMarginX(9999)).toBe(BODY_MARGIN_X_MAX)
+  })
+
+  it("底部安全距离范围 0–240px，默认 51px", () =&gt; {
+    expect(DEFAULT_BODY_SAFE_BOTTOM).toBe(51)
+    expect(clampBodySafeBottom(51)).toBe(51)
+    expect(clampBodySafeBottom(-1)).toBe(BODY_SAFE_BOTTOM_MIN)
+    expect(clampBodySafeBottom(9999)).toBe(BODY_SAFE_BOTTOM_MAX)
+    expect(clampBodySafeBottom(null)).toBe(DEFAULT_BODY_SAFE_BOTTOM)
+  })
+})
+
+describe("applyBodyTypography 写 CSS 变量", () =&gt; {
+  function makeRoot() {
+    const el = document.createElement("div")
+    return el
+  }
+
+  it("五行变量一次写齐，字号与两处 px 值带单位", () =&gt; {
+    const root = makeRoot()
+    applyBodyTypography(
+      { fontPx: 15, lineHeight: 2.1, letterSpacing: 0.5, marginX: 40, safeBottom: 80 },
+      root,
+    )
+    expect(root.style.getPropertyValue("--qmai-body-font-px")).toBe("15px")
+    expect(root.style.getPropertyValue("--qmai-body-leading")).toBe("2.1")
+    expect(root.style.getPropertyValue("--qmai-body-letter-spacing")).toBe("0.5px")
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("40px")
+    expect(root.style.getPropertyValue("--qmai-body-safe-bottom")).toBe("80px")
+  })
+
+  it("marginX 为 null 时移除该属性，让 CSS 兜底生效", () =&gt; {
+    const root = makeRoot()
+    applyBodyTypography({ fontPx: 15, lineHeight: 1.95, letterSpacing: 0, marginX: 40, safeBottom: 51 }, root)
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("40px")
+    applyBodyTypography({ fontPx: 15, lineHeight: 1.95, letterSpacing: 0, marginX: null, safeBottom: 51 }, root)
+    // 留着空字符串也会盖掉 CSS 的 clamp，必须是彻底移除
+    expect(root.style.getPropertyValue("--qmai-body-margin-x")).toBe("")
+  })
+
+  it("行高不带单位（带了 px 会让行高不随字号变化）", () =&gt; {
+    const root = makeRoot()
+    applyBodyTypography({ fontPx: 18, lineHeight: 1.95, letterSpacing: 0, marginX: null, safeBottom: 51 }, root)
+    expect(root.style.getPropertyValue("--qmai-body-leading")).not.toMatch(/px/)
+  })
+})</code></pre>
+      <p>同时把新增的具名导入加到文件顶部已有的 <code>import { … } from "@/lib/font-settings"</code> 列表里：</p>
+<pre><code>  BODY_FONT_PX_MIN,
+  BODY_FONT_PX_MAX,
+  BODY_FONT_PX_PRESETS,
+  BODY_LINE_HEIGHT_MIN,
+  BODY_LINE_HEIGHT_MAX,
+  BODY_LETTER_SPACING_MIN,
+  BODY_LETTER_SPACING_MAX,
+  BODY_MARGIN_X_MIN,
+  BODY_MARGIN_X_MAX,
+  BODY_SAFE_BOTTOM_MIN,
+  BODY_SAFE_BOTTOM_MAX,
+  DEFAULT_BODY_FONT_PX,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_LETTER_SPACING,
+  DEFAULT_BODY_MARGIN_X,
+  DEFAULT_BODY_SAFE_BOTTOM,
+  applyBodyTypography,
+  bodyFontPxFromScale,
+  clampBodyFontPx,
+  clampBodyLineHeight,
+  clampBodyLetterSpacing,
+  clampBodyMarginX,
+  clampBodySafeBottom,</code></pre>
+      <div class="note">
+        <span class="t">这个 spec 文件需要 DOM</span>
+        <p><code>applyBodyTypography</code> 的 3 条用例用到 <code>document</code>。检查 <code>font-settings.spec.ts</code> 第 1 行是否有 <code>// @vitest-environment jsdom</code>；没有就补上（现有文件已是 jsdom 环境则跳过）。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：运行，确认因「还没实现」而变红</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/lib/font-settings.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL — 报 <code>BODY_FONT_PX_MIN is not defined</code> / <code>clampBodyFontPx is not a function</code> 之类。若这一轮就通过，说明测试没被真正加载，先解决加载问题。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：实现（追加到 <code>src/lib/font-settings.ts</code> 末尾）</div>
+    <div class="step-body">
+<pre><code>/* ────────────────────────── 正文排版参数（字号 / 行距 / 字距 / 边距 / 安全距离） ────────────────────────── */
+
+/**
+ * 正文字号的允许范围（单位 px，绝对值）。
+ *
+ * ── 为什么从「倍数」改成「px」──
+ * 旧模型是 `calc(1.125rem * var(--qmai-body-font-scale, 1))`：
+ * 正文字号 = 界面字号 × 正文倍数。用户找不到「我要 15px」这个动作
+ * —— 只有 85%/100%/125%/150% 四档百分比，且改界面字号会连带改正文。
+ * 现在正文是绝对 px，与界面字号彻底解耦（用户已确认接受这一代价）。
+ *
+ * 上限 32px 低于旧模型的理论上限 40.5px（18 × 1.5 × 1.5），
+ * 故裁切 / 溢出风险是**下降**的，不是上升。
+ */
+export const BODY_FONT_PX_MIN = 12
+export const BODY_FONT_PX_MAX = 32
+export const DEFAULT_BODY_FONT_PX = 18
+
+/** 旧倍数 → 新 px 的换算基准：倍数 1 等于改造前的 18px。 */
+export const BODY_FONT_PX_BASE = 18
+
+/**
+ * 把任意输入钳到字号范围并取整。
+ *
+ * 无效输入退回默认档，而不是被 `Number(null) === 0` 带到下限：
+ * 「没有存过值」与「用户想要最小字号」是两件事，不能混为一谈
+ * （这条是仓库里已有的教训，与 clampScale 的处理保持一致）。
+ */
+export function clampBodyFontPx(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_FONT_PX
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_FONT_PX
+  return Math.max(BODY_FONT_PX_MIN, Math.min(BODY_FONT_PX_MAX, Math.round(n)))
+}
+
+/**
+ * 旧「正文倍数」一次性迁移成 px。
+ *
+ * 只在读不到新键时调用，并且**不删除**旧键 —— 用户回滚到旧版本时，
+ * 旧设置仍然在。映射：0.85→15 / 1→18 / 1.25→23 / 1.5→27。
+ * 用 round：1.25 × 18 = 22.5，取 23 与设置页旧文案的量级一致；
+ * 0.85 × 18 = 15.3，取 15（下限档）。
+ */
+export function bodyFontPxFromScale(scale: unknown): number {
+  const n = Number(scale)
+  if (!Number.isFinite(n) || n &lt;= 0) return DEFAULT_BODY_FONT_PX
+  return clampBodyFontPx(n * BODY_FONT_PX_BASE)
+}
+
+/** 正文字号预设（px）。滑块仍可任意取值，这些只是快速点选。 */
+export const BODY_FONT_PX_PRESETS = [
+  { label: "小", value: 15 },
+  { label: "默认", value: 18 },
+  { label: "大", value: 21 },
+  { label: "特大", value: 24 },
+] as const
+
+/**
+ * 行间距范围（无单位倍数）。
+ *
+ * 必须是**无单位**数字：带单位（如 32px）会让行高不随字号变化，
+ * 用户调大字号后行距被"吃掉"、文字挤在一起。
+ * 下限 1.2 是「紧凑但可读」的经验下限，上限 2.6 再往上单屏放不下几行。
+ */
+export const BODY_LINE_HEIGHT_MIN = 1.2
+export const BODY_LINE_HEIGHT_MAX = 2.6
+export const DEFAULT_BODY_LINE_HEIGHT = 1.95
+
+export function clampBodyLineHeight(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_LINE_HEIGHT
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_LINE_HEIGHT
+  // 两位小数：滑块步长 0.05，两位足够；同时避免浮点误差反复漂移
+  return Math.max(BODY_LINE_HEIGHT_MIN, Math.min(BODY_LINE_HEIGHT_MAX, Number(n.toFixed(2))))
+}
+
+/**
+ * 字间距范围（px）。
+ *
+ * 允许负值：中文排版里轻微收紧（-0.5px）能让密排的宋体更整齐，
+ * 这是真实存在的排版诉求，不是笔误。
+ */
+export const BODY_LETTER_SPACING_MIN = -1
+export const BODY_LETTER_SPACING_MAX = 6
+export const DEFAULT_BODY_LETTER_SPACING = 0
+
+export function clampBodyLetterSpacing(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_LETTER_SPACING
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_LETTER_SPACING
+  return Math.max(BODY_LETTER_SPACING_MIN, Math.min(BODY_LETTER_SPACING_MAX, Number(n.toFixed(1))))
+}
+
+/**
+ * 左右边距范围（px）。`null` 是一个**有意义的取值**：跟随窗口。
+ *
+ * 改造前正文两侧的间距是响应式的 `clamp(20px, 4vw, 48px)`。
+ * 若把默认值直接定成某个固定 px，所有现有用户打开后版面都会变 ——
+ * 那是一次没人要求的视觉回归。所以默认是 null：不写这个变量，
+ * 让 CSS 的 clamp 兜底，行为与改造前逐位相同；用户拖动滑块之后才固定。
+ */
+export const BODY_MARGIN_X_MIN = 0
+export const BODY_MARGIN_X_MAX = 160
+export const DEFAULT_BODY_MARGIN_X: number | null = null
+
+export function clampBodyMarginX(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return Math.max(BODY_MARGIN_X_MIN, Math.min(BODY_MARGIN_X_MAX, Math.round(n)))
+}
+
+/**
+ * 底部安全距离范围（px）。
+ *
+ * 这是用户报的核心不适感：写作时当前行总贴在窗口最下沿，视线被迫一直在最下面。
+ * 默认 51px 是用户确认的值（改造前是写死的 36px，窄屏还有条 28px 覆盖）。
+ */
+export const BODY_SAFE_BOTTOM_MIN = 0
+export const BODY_SAFE_BOTTOM_MAX = 240
+export const DEFAULT_BODY_SAFE_BOTTOM = 51
+
+export function clampBodySafeBottom(value: unknown): number {
+  if (value === null || value === undefined || value === "") return DEFAULT_BODY_SAFE_BOTTOM
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_BODY_SAFE_BOTTOM
+  return Math.max(BODY_SAFE_BOTTOM_MIN, Math.min(BODY_SAFE_BOTTOM_MAX, Math.round(n)))
+}
+
+export interface BodyTypographySettings {
+  fontPx: number
+  lineHeight: number
+  letterSpacing: number
+  /** null = 跟随窗口，见 clampBodyMarginX 上方说明。 */
+  marginX: number | null
+  safeBottom: number
+}
+
+/**
+ * 把 5 个排版参数写到 `documentElement` 的行内样式。
+ *
+ * ── 变量命名与那条「不能重复声明」的约束 ──
+ * 这里写的 5 个变量（--qmai-body-font-px / --qmai-body-leading /
+ * --qmai-body-letter-spacing / --qmai-body-margin-x / --qmai-body-safe-bottom）
+ * 是**用户值的唯一入口**，`ui-test.css` 里**不得**再为它们声明字面量默认值。
+ *
+ * 原因：`.ui-test-root` 比 `html` 更靠近正文。若在 `.ui-test-root` 块里也声明
+ * 同名变量，就会盖掉这里写的行内样式，表现为「设置保存了但界面不变」。
+ * CSS 侧因此一律写成 `var(--qmai-body-xxx, 兜底值)`。
+ * （旧代码的 --qmai-body-font-scale 没这个问题，因为字体栈那条读的是
+ *   **继承**下来的值，而这里读的是**本元素自己的**声明。）
+ *
+ * marginX 为 null 时**移除**该属性：留着空字符串同样会盖掉 CSS 的 clamp。
+ */
+export function applyBodyTypography(settings: BodyTypographySettings, root?: HTMLElement): void {
+  if (typeof document === "undefined" &amp;&amp; !root) return
+  const target = root ?? document.documentElement
+  target.style.setProperty("--qmai-body-font-px", `${clampBodyFontPx(settings.fontPx)}px`)
+  target.style.setProperty("--qmai-body-leading", String(clampBodyLineHeight(settings.lineHeight)))
+  target.style.setProperty("--qmai-body-letter-spacing", `${clampBodyLetterSpacing(settings.letterSpacing)}px`)
+  target.style.setProperty("--qmai-body-safe-bottom", `${clampBodySafeBottom(settings.safeBottom)}px`)
+  const marginX = clampBodyMarginX(settings.marginX)
+  if (marginX === null) target.style.removeProperty("--qmai-body-margin-x")
+  else target.style.setProperty("--qmai-body-margin-x", `${marginX}px`)
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/lib/font-settings.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect">Expected: PASS — 本文件全部用例通过（含改造前已有的那些）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/lib/font-settings.ts src/lib/font-settings.spec.ts
+git commit -m "feat(排版): 正文排版参数模型（px 字号 + 行距/字距/边距/安全距离）"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 2 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 2</span><h3>滑块落盘去抖</h3></div>
+  <p class="task-why">写作现场浮层里的滑块改动要<strong>立即</strong>生效（改 CSS 变量），但<strong>不能</strong>每挪一格就 <code>await store.save()</code> 写一遍 app-state.json —— 一次拖动会写几十遍。所以把落盘合并。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Create: src/lib/debounced-persist.ts</div>
+    <div>Test:   src/lib/debounced-persist.spec.ts</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：先写会失败的测试</div>
+    <div class="step-body">
+<pre><code>// src/lib/debounced-persist.spec.ts
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createDebouncedPersist } from "@/lib/debounced-persist"
+
+describe("createDebouncedPersist", () =&gt; {
+  beforeEach(() =&gt; { vi.useFakeTimers() })
+  afterEach(() =&gt; { vi.useRealTimers() })
+
+  it("连续多次 schedule 只落盘一次，且执行的是最后一次", async () =&gt; {
+    const calls: string[] = []
+    const d = createDebouncedPersist(400)
+    d.schedule(async () =&gt; { calls.push("a") })
+    d.schedule(async () =&gt; { calls.push("b") })
+    d.schedule(async () =&gt; { calls.push("c") })
+    expect(calls).toEqual([])
+    await vi.advanceTimersByTimeAsync(399)
+    expect(calls).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(calls).toEqual(["c"])
+  })
+
+  it("未到期时 flush 立即落盘一次，且不会重复落盘", async () =&gt; {
+    const calls: string[] = []
+    const d = createDebouncedPersist(400)
+    d.schedule(async () =&gt; { calls.push("a") })
+    d.flush()
+    expect(calls).toEqual(["a"])
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls).toEqual(["a"])
+  })
+
+  it("没有待落盘内容时 flush 什么也不做", () =&gt; {
+    const calls: string[] = []
+    const d = createDebouncedPersist(400)
+    d.flush()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls).toEqual([])
+  })
+
+  it("dispose 丢弃待落盘内容，不再触发", async () =&gt; {
+    const calls: string[] = []
+    const d = createDebouncedPersist(400)
+    d.schedule(async () =&gt; { calls.push("a") })
+    d.dispose()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls).toEqual([])
+  })
+
+  it("落盘后再次 schedule 能正常触发（定时器被正确清空）", async () =&gt; {
+    const calls: string[] = []
+    const d = createDebouncedPersist(400)
+    d.schedule(async () =&gt; { calls.push("a") })
+    await vi.advanceTimersByTimeAsync(400)
+    d.schedule(async () =&gt; { calls.push("b") })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(calls).toEqual(["a", "b"])
+  })
+})</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：运行，确认变红</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/lib/debounced-persist.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL — 模块不存在，无法解析导入。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：实现</div>
+    <div class="step-body">
+<pre><code>// src/lib/debounced-persist.ts
+/**
+ * 把「连续发生的保存请求」合并成一次落盘。
+ *
+ * ── 为什么需要它 ──
+ * 写作现场浮层里的滑块在拖动中会为每一格触发 onChange。若每次都
+ * `await save(...)`，一次拖动会写几十遍 app-state.json。
+ * 注意**立即生效**的部分（zustand store + CSS 变量）不受影响，
+ * 被合并的只是落盘这一个动作 —— 用户看到的反馈依然是即时的。
+ *
+ * ── 为什么要 flush ──
+ * 「拖完最后一下就关掉浮层」是最常见的操作顺序。若只靠定时器，
+ * 关浮层时最后一次改动会被丢掉。关闭时必须 flush。
+ */
+export interface DebouncedPersist {
+  /** 登记一次待落盘动作，覆盖之前尚未执行的那一次。 */
+  schedule(run: () => Promise&lt;void&gt;): void
+  /** 立刻执行待落盘动作（若有），并取消定时器。 */
+  flush(): void
+  /** 丢弃待落盘动作，不再触发（组件卸载时用）。 */
+  dispose(): void
+}
+
+export function createDebouncedPersist(delayMs = 400): DebouncedPersist {
+  let timer: ReturnType&lt;typeof setTimeout&gt; | null = null
+  let pending: (() =&gt; Promise&lt;void&gt;) | null = null
+
+  function clearTimer() {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  function runPending() {
+    const task = pending
+    pending = null
+    if (task) void task()
+  }
+
+  return {
+    schedule(run) {
+      pending = run
+      clearTimer()
+      timer = setTimeout(() =&gt; {
+        timer = null
+        runPending()
+      }, delayMs)
+    },
+    flush() {
+      clearTimer()
+      runPending()
+    },
+    dispose() {
+      clearTimer()
+      pending = null
+    },
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/lib/debounced-persist.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect">Expected: PASS — 5 passed。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/lib/debounced-persist.ts src/lib/debounced-persist.spec.ts
+git commit -m "feat(排版): 滑块落盘去抖（连续拖动只写一次）"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 3 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 3</span><h3>store：5 个新状态、5 个独立键、一次迁移</h3></div>
+  <p class="task-why">每个参数一个<strong>独立</strong> localStorage 键。共用一个键会让「改行距把字号也改了」这种串味缺陷出现，而且极难排查。旧的倍数键保留只读，用于一次性迁移。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/stores/wiki-store.ts（键定义区、读取函数区、state 类型、setter 区、initial state）</div>
+    <div>Test:   src/stores/wiki-store.spec.ts（追加 describe）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：先写会失败的测试</div>
+    <div class="step-body">
+      <p>追加到 <code>src/stores/wiki-store.spec.ts</code>。<strong>先读该文件顶部</strong>，照它已有的方式重置 localStorage 与 store：</p>
+<pre><code>describe("正文排版参数（store 侧）", () =&gt; {
+  beforeEach(() =&gt; { localStorage.clear() })
+
+  it("5 个参数各自一个独立的 localStorage 键", () =&gt; {
+    const s = useWikiStore.getState()
+    s.setUiBodyFontPx(20)
+    s.setUiBodyLineHeight(2.2)
+    s.setUiBodyLetterSpacing(1.5)
+    s.setUiBodyMarginX(64)
+    s.setUiBodySafeBottom(100)
+
+    expect(localStorage.getItem("qmai-body-font-px")).toBe("20")
+    expect(localStorage.getItem("qmai-body-line-height")).toBe("2.2")
+    expect(localStorage.getItem("qmai-body-letter-spacing")).toBe("1.5")
+    expect(localStorage.getItem("qmai-body-margin-x")).toBe("64")
+    expect(localStorage.getItem("qmai-body-safe-bottom")).toBe("100")
+  })
+
+  it("改一个参数不会动到其它参数（键独立性的真正含义）", () =&gt; {
+    const s = useWikiStore.getState()
+    s.setUiBodyFontPx(20)
+    s.setUiBodyLineHeight(2.2)
+    const before = useWikiStore.getState()
+    const snapshot = {
+      fontPx: before.uiBodyFontPx,
+      lineHeight: before.uiBodyLineHeight,
+      letterSpacing: before.uiBodyLetterSpacing,
+      marginX: before.uiBodyMarginX,
+      safeBottom: before.uiBodySafeBottom,
+    }
+    s.setUiBodyLetterSpacing(2)
+    const after = useWikiStore.getState()
+    expect(after.uiBodyFontPx).toBe(snapshot.fontPx)
+    expect(after.uiBodyLineHeight).toBe(snapshot.lineHeight)
+    expect(after.uiBodyMarginX).toBe(snapshot.marginX)
+    expect(after.uiBodySafeBottom).toBe(snapshot.safeBottom)
+  })
+
+  it("写入的值经过钳制（范围是单一来源，不在 store 里各写一遍）", () =&gt; {
+    const s = useWikiStore.getState()
+    s.setUiBodyFontPx(9999)
+    expect(useWikiStore.getState().uiBodyFontPx).toBe(BODY_FONT_PX_MAX)
+    s.setUiBodyLineHeight(0)
+    expect(useWikiStore.getState().uiBodyLineHeight).toBe(BODY_LINE_HEIGHT_MIN)
+    s.setUiBodySafeBottom(-5)
+    expect(useWikiStore.getState().uiBodySafeBottom).toBe(BODY_SAFE_BOTTOM_MIN)
+  })
+
+  it("左右边距可以存成「跟随窗口」(null)，且读回还是 null", () =&gt; {
+    const s = useWikiStore.getState()
+    s.setUiBodyMarginX(40)
+    expect(localStorage.getItem("qmai-body-margin-x")).toBe("40")
+    s.setUiBodyMarginX(null)
+    expect(useWikiStore.getState().uiBodyMarginX).toBeNull()
+    // null 不能落成字符串 "null"，否则读回时 Number("null") 是 NaN
+    expect(localStorage.getItem("qmai-body-margin-x")).not.toBe("null")
+  })
+
+  it("旧倍数键迁移成 px，且旧键不被删除（回滚到旧版本仍可用）", () =&gt; {
+    localStorage.clear()
+    localStorage.setItem("qmai-ui-body-font-scale", "1.25")
+    // readStoredBodyFontPx 是模块内部函数，这里通过重新读取 store 的初始值来验证：
+    // 用动态 import 拿到新鲜模块（vi.resetModules）后读 getState()
+    expect(localStorage.getItem("qmai-ui-body-font-scale")).toBe("1.25")
+  })
+})</code></pre>
+      <div class="note warn">
+        <span class="t">关于迁移那条用例</span>
+        <p>模块级 <code>readStoredBodyFontPx</code> 在模块加载时就被调用一次，普通单测很难重放「首次启动」。真正可靠的验证放在任务 12 的静态守卫里（断言读回函数确实先看新键、再看旧键，且不删旧键）。上面这条用例只负责钉住「旧键不被删除」，并用 <code>expect(localStorage.getItem(...))</code> 而非断言新值——不要把它写成看起来在测迁移、其实什么都没测的空断言。</p>
+        <p>任务 12 会补一条<strong>真正能红</strong>的迁移守卫。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：运行，确认变红</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL — <code>setUiBodyFontPx is not a function</code>。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3a：加键与读取函数</div>
+    <div class="step-body">
+      <p>把 <code>BODY_FONT_SIZE_SCALE_KEY</code> 那一行（当前在 65 行附近）替换为下面整块：</p>
+<pre><code class="cmd">/** 正文字号独立键：与界面字号分开存。 */
+const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"
+/*
+ * 旧键保留**只读**：新用户不会再写它，但读回时要用它做一次性迁移。
+ * 不删除的理由：用户回滚到旧版本时，旧设置仍然在。
+ */
+const BODY_FONT_PX_KEY = "qmai-body-font-px"
+const BODY_LINE_HEIGHT_KEY = "qmai-body-line-height"
+const BODY_LETTER_SPACING_KEY = "qmai-body-letter-spacing"
+const BODY_MARGIN_X_KEY = "qmai-body-margin-x"
+const BODY_SAFE_BOTTOM_KEY = "qmai-body-safe-bottom"</code></pre>
+
+      <p>把 <code>readStoredBodyFontSizeScale</code>（当前 98–103 行）整块替换为：</p>
+<pre><code>/**
+ * 读回正文字号（px）。
+ *
+ * 新键优先；读不到时用旧倍数键做**一次性迁移**（0.85→15 / 1→18 /
+ * 1.25→23 / 1.5→27），都读不到才是默认 18px。
+ * 旧键不写、不删，见上面常量处的说明。
+ */
+const readStoredBodyFontPx = (): number =&gt; {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_FONT_PX
+  const raw = localStorage.getItem(BODY_FONT_PX_KEY)
+  if (raw !== null) return clampBodyFontPx(raw)
+  const legacy = localStorage.getItem(BODY_FONT_SIZE_SCALE_KEY)
+  if (legacy !== null) return bodyFontPxFromScale(legacy)
+  return DEFAULT_BODY_FONT_PX
+}
+
+/**
+ * 读取一个「数字 or null」的排版参数。
+ * null 是合法取值（仅左右边距用它表示「跟随窗口」），见 clampBodyMarginX。
+ */
+const readStoredBodyLineHeight = (): number =&gt; {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_LINE_HEIGHT
+  return clampBodyLineHeight(localStorage.getItem(BODY_LINE_HEIGHT_KEY))
+}
+
+const readStoredBodyLetterSpacing = (): number =&gt; {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_LETTER_SPACING
+  return clampBodyLetterSpacing(localStorage.getItem(BODY_LETTER_SPACING_KEY))
+}
+
+const readStoredBodyMarginX = (): number | null =&gt; {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_MARGIN_X
+  return clampBodyMarginX(localStorage.getItem(BODY_MARGIN_X_KEY))
+}
+
+const readStoredBodySafeBottom = (): number =&gt; {
+  if (typeof localStorage === "undefined") return DEFAULT_BODY_SAFE_BOTTOM
+  return clampBodySafeBottom(localStorage.getItem(BODY_SAFE_BOTTOM_KEY))
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3b：更新 import 与 state 类型</div>
+    <div class="step-body">
+      <p>在 <code>wiki-store.ts</code> 顶部已有的 <code>@/lib/font-settings</code> import 块里，把 <code>DEFAULT_BODY_FONT_SIZE_SCALE</code> 与 <code>clampBodyFontSizeScale</code> 两行删掉，换成：</p>
+<pre><code>  DEFAULT_BODY_FONT_PX,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_LETTER_SPACING,
+  DEFAULT_BODY_MARGIN_X,
+  DEFAULT_BODY_SAFE_BOTTOM,
+  clampBodyFontPx,
+  clampBodyLineHeight,
+  clampBodyLetterSpacing,
+  clampBodyMarginX,
+  clampBodySafeBottom,
+  bodyFontPxFromScale,</code></pre>
+
+      <p>把 state 接口里的 <code>uiBodyFontSizeScale: number</code>（当前 671 行）替换为：</p>
+<pre><code class="cmd">  /** 正文字号（px 绝对值）。替代原 uiBodyFontSizeScale（倍数）。 */
+  uiBodyFontPx: number
+  /** 正文行间距（无单位倍数）。 */
+  uiBodyLineHeight: number
+  /** 正文字间距（px，可为负）。 */
+  uiBodyLetterSpacing: number
+  /** 正文左右边距（px）；null = 跟随窗口。 */
+  uiBodyMarginX: number | null
+  /** 正文底部安全距离（px）。 */
+  uiBodySafeBottom: number</code></pre>
+
+      <p>把 setter 接口里的 <code>setUiBodyFontSizeScale: (scale: number) =&gt; void</code> 替换为：</p>
+<pre><code class="cmd">  setUiBodyFontPx: (value: number) =&gt; void
+  setUiBodyLineHeight: (value: number) =&gt; void
+  setUiBodyLetterSpacing: (value: number) =&gt; void
+  setUiBodyMarginX: (value: number | null) =&gt; void
+  setUiBodySafeBottom: (value: number) =&gt; void</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3c：初始 state 与 setter 实现</div>
+    <div class="step-body">
+      <p>把初始 state 里的 <code>uiBodyFontSizeScale: readStoredBodyFontSizeScale(),</code>（当前 971 行）替换为：</p>
+<pre><code class="cmd">  uiBodyFontPx: readStoredBodyFontPx(),
+  uiBodyLineHeight: readStoredBodyLineHeight(),
+  uiBodyLetterSpacing: readStoredBodyLetterSpacing(),
+  uiBodyMarginX: readStoredBodyMarginX(),
+  uiBodySafeBottom: readStoredBodySafeBottom(),</code></pre>
+
+      <p>把 <code>setUiBodyFontSizeScale</code> 的实现（当前 1049–1057 行）整块替换为下面 5 个 setter。<strong>每个 setter 都必须同时做三件事</strong>：钳制、写 localStorage、写 store —— 只做其中一部分会造成「这次生效、下次启动丢失」或反之。</p>
+<pre><code>  /*
+   * 5 个排版参数的统一写法：钳制 → 落 localStorage → 写 store。
+   * 三者缺一都会出问题：
+   *   · 少钳制 → 「设成 200px 后下次启动被读回时截成别的值」；
+   *   · 少落盘 → 这次生效、下次启动丢失；
+   *   · 少写 store → 界面不刷新。
+   * 范围一律来自 font-settings.ts 的 clamp，不在这里重写数字。
+   */
+  setUiBodyFontPx: (value) =&gt; {
+    const clamped = clampBodyFontPx(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_FONT_PX_KEY, String(clamped))
+    set({ uiBodyFontPx: clamped })
+  },
+  setUiBodyLineHeight: (value) =&gt; {
+    const clamped = clampBodyLineHeight(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_LINE_HEIGHT_KEY, String(clamped))
+    set({ uiBodyLineHeight: clamped })
+  },
+  setUiBodyLetterSpacing: (value) =&gt; {
+    const clamped = clampBodyLetterSpacing(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_LETTER_SPACING_KEY, String(clamped))
+    set({ uiBodyLetterSpacing: clamped })
+  },
+  setUiBodyMarginX: (value) =&gt; {
+    const clamped = clampBodyMarginX(value)
+    if (typeof localStorage !== "undefined") {
+      // null 表示「跟随窗口」：移除该键，让读取函数回到默认的 null，
+      // 而不是写字符串 "null"（读回时 Number("null") 是 NaN）
+      if (clamped === null) localStorage.removeItem(BODY_MARGIN_X_KEY)
+      else localStorage.setItem(BODY_MARGIN_X_KEY, String(clamped))
+    }
+    set({ uiBodyMarginX: clamped })
+  },
+  setUiBodySafeBottom: (value) =&gt; {
+    const clamped = clampBodySafeBottom(value)
+    if (typeof localStorage !== "undefined") localStorage.setItem(BODY_SAFE_BOTTOM_KEY, String(clamped))
+    set({ uiBodySafeBottom: clamped })
+  },</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿；并让 tsc 暴露所有待改的调用点</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/stores/wiki-store.spec.ts --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+npx tsc -p tsconfig.app.json --noEmit</code></pre>
+      <p class="expect">Expected: 单测 PASS；tsc 会报出所有仍在用 <code>uiBodyFontSizeScale</code> / <code>setUiBodyFontSizeScale</code> 的文件。</p>
+      <div class="note">
+        <span class="t">把 tsc 的报错清单记下来</span>
+        <p>预期接下来要改：<code>settings-types.ts</code>、<code>settings-view.tsx</code>、<code>interface-section.tsx</code>、<code>App.tsx</code>、<code>project-store.ts</code>、<code>interface-section.spec.tsx</code>、<code>interface-sidebar-nav.spec.ts</code>。这些正好是任务 4–10 的范围 —— 若清单里出现别的文件，说明还有遗漏的调用点，先看清再继续。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/stores/wiki-store.ts src/stores/wiki-store.spec.ts
+git commit -m "feat(排版): store 新增 5 个正文排版参数与独立持久化键"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 4 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 4</span><h3>持久化：app-state.json 的 5 个新键</h3></div>
+  <p class="task-why">localStorage 只解决「同一台机器同一个 WebView 数据目录」，app-state.json 才是重启后真正读回的那一份（App 启动走的是 <code>loadXxx()</code>）。两条路都必须写，否则会出现「这次生效、下次启动丢失」。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/lib/project-store.ts（键定义区 892–894 行附近；save/load 区 927–938 行）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：替换键定义</div>
+    <div class="step-body">
+      <p>把这三行：</p>
+<pre><code class="cmd">const BODY_FONT_FAMILY_KEY = "uiBodyFontFamily"
+const BODY_FONT_SIZE_SCALE_KEY = "uiBodyFontSizeScale"
+const MAX_HISTORY_MESSAGES_KEY = "maxHistoryMessages"</code></pre>
+      <p>替换为：</p>
+<pre><code>const BODY_FONT_FAMILY_KEY = "uiBodyFontFamily"
+/*
+ * 旧键（倍数）保留**只读**：新版本不再写它，但读回时要用它做一次性迁移。
+ * 不删除的理由与 wiki-store.ts 那边一致 —— 用户回滚到旧版本时旧设置仍在。
+ */
+const BODY_FONT_SIZE_SCALE_KEY = "uiBodyFontSizeScale"
+const BODY_FONT_PX_KEY = "uiBodyFontPx"
+const BODY_LINE_HEIGHT_KEY = "uiBodyLineHeight"
+const BODY_LETTER_SPACING_KEY = "uiBodyLetterSpacing"
+const BODY_MARGIN_X_KEY = "uiBodyMarginX"
+const BODY_SAFE_BOTTOM_KEY = "uiBodySafeBottom"
+const MAX_HISTORY_MESSAGES_KEY = "maxHistoryMessages"</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：替换 save/load 实现</div>
+    <div class="step-body">
+      <p>把 <code>saveUiBodyFontSizeScale</code> 与 <code>loadUiBodyFontSizeScale</code>（927–938 行）整块替换为：</p>
+<pre><code>/* ── 正文排版参数（5 个键，各自独立） ──
+ *
+ * 为什么不合成一个「排版设置对象」存一个键：
+ * 这 5 个参数在设置页是 5 个独立控件、在写作现场是 5 个独立滑块。
+ * 合成对象后，任何一次「只改行距」的写入都必须把其它 4 个值一起回写，
+ * 一旦某个控件传了 undefined，就会把别的设置清掉 —— 这正是要防的串味。
+ * 所以一个参数一个键，读写只碰自己那一个。
+ */
+
+/**
+ * 「数字即全部语义」的参数通用落盘。
+ * 只有左右边距不适用（它的 null 有语义，见 saveUiBodyMarginX）。
+ */
+async function saveBodyNumber(key: string, value: number, clamp: (input: unknown) =&gt; number): Promise&lt;void&gt; {
+  const store = await getStore()
+  await store.set(key, clamp(value))
+  await store.save()
+}
+
+/** 通用读回。返回 null 表示「没有存过」，由调用方决定是否保留默认值。 */
+async function loadBodyNumber(key: string, clamp: (input: unknown) =&gt; number | null): Promise&lt;number | null&gt; {
+  const store = await getStore()
+  const saved = await store.get&lt;number&gt;(key)
+  return saved === null || saved === undefined ? null : clamp(saved)
+}
+
+/** 持久化正文字号（px）。 */
+export async function saveUiBodyFontPx(value: number): Promise&lt;void&gt; {
+  await saveBodyNumber(BODY_FONT_PX_KEY, value, clampBodyFontPx)
+}
+
+/**
+ * 读回正文字号（px）。新键优先；读不到时用**旧倍数键一次性迁移**
+ * （0.85→15 / 1→18 / 1.25→23 / 1.5→27），两者都不存在时返回 null。
+ * 旧键不删除。
+ */
+export async function loadUiBodyFontPx(): Promise&lt;number | null&gt; {
+  const direct = await loadBodyNumber(BODY_FONT_PX_KEY, clampBodyFontPx)
+  if (direct !== null) return direct
+  const store = await getStore()
+  const legacy = await store.get&lt;number&gt;(BODY_FONT_SIZE_SCALE_KEY)
+  if (legacy === null || legacy === undefined) return null
+  return bodyFontPxFromScale(legacy)
+}
+
+export async function saveUiBodyLineHeight(value: number): Promise&lt;void&gt; {
+  await saveBodyNumber(BODY_LINE_HEIGHT_KEY, value, clampBodyLineHeight)
+}
+
+export async function loadUiBodyLineHeight(): Promise&lt;number | null&gt; {
+  return loadBodyNumber(BODY_LINE_HEIGHT_KEY, clampBodyLineHeight)
+}
+
+export async function saveUiBodyLetterSpacing(value: number): Promise&lt;void&gt; {
+  await saveBodyNumber(BODY_LETTER_SPACING_KEY, value, clampBodyLetterSpacing)
+}
+
+export async function loadUiBodyLetterSpacing(): Promise&lt;number | null&gt; {
+  return loadBodyNumber(BODY_LETTER_SPACING_KEY, clampBodyLetterSpacing)
+}
+
+/**
+ * 持久化左右边距。null 表示「跟随窗口」：此时**删除**该键，
+ * 让读回也得到 null（而不是存字符串 "null"，读回时 Number("null") 是 NaN）。
+ */
+export async function saveUiBodyMarginX(value: number | null): Promise&lt;void&gt; {
+  const store = await getStore()
+  const clamped = clampBodyMarginX(value)
+  if (clamped === null) await store.delete(BODY_MARGIN_X_KEY)
+  else await store.set(BODY_MARGIN_X_KEY, clamped)
+  await store.save()
+}
+
+export async function loadUiBodyMarginX(): Promise&lt;number | null&gt; {
+  return loadBodyNumber(BODY_MARGIN_X_KEY, clampBodyMarginX)
+}
+
+export async function saveUiBodySafeBottom(value: number): Promise&lt;void&gt; {
+  await saveBodyNumber(BODY_SAFE_BOTTOM_KEY, value, clampBodySafeBottom)
+}
+
+export async function loadUiBodySafeBottom(): Promise&lt;number | null&gt; {
+  return loadBodyNumber(BODY_SAFE_BOTTOM_KEY, clampBodySafeBottom)
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：更新 import 并验证编译</div>
+    <div class="step-body">
+      <p>把文件顶部的 <code>clampBodyFontSizeScale</code> 导入替换为上面用到的 6 个：</p>
+<pre><code class="cmd">  clampBodyFontPx,
+  clampBodyLineHeight,
+  clampBodyLetterSpacing,
+  clampBodyMarginX,
+  clampBodySafeBottom,
+  bodyFontPxFromScale,</code></pre>
+      <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit 2&gt;&amp;1 | Select-String "project-store"</code></pre>
+      <p class="expect">Expected: 无输出（project-store.ts 自身已无类型错误）。其余文件的报错由后面的任务清理。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/lib/project-store.ts
+git commit -m "feat(排版): app-state 持久化 5 个正文排版参数（含旧倍数迁移）"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 5 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 5</span><h3>App：启动读回 + 应用 CSS 变量</h3></div>
+  <p class="task-why">这是「设置生效」这条链路的最后一个环节。少了它，前面全部做完也是「设了没反应」—— 本仓库历史上真实发生过一次（<code>--ui</code> 与界面字体选择之间没有任何连接，改字体 32 个界面元素 0 个变化）。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/App.tsx（import 9 行；selector 43–44 行；effect 148–157 行；启动读回 251–254 行）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：改 import 与 selector</div>
+    <div class="step-body">
+      <p>在 <code>App.tsx</code> 第 9 行的长 import 里，把 <code>loadUiBodyFontSizeScale</code> 替换为：</p>
+<pre><code class="cmd">loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom,</code></pre>
+      <p>把第 43–44 行的两个 selector 替换为 6 个：</p>
+<pre><code class="cmd">  const uiBodyFontFamily = useWikiStore((s) =&gt; s.uiBodyFontFamily)
+  const uiBodyFontPx = useWikiStore((s) =&gt; s.uiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) =&gt; s.uiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) =&gt; s.uiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) =&gt; s.uiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) =&gt; s.uiBodySafeBottom)</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：替换应用 effect（148–157 行整块）</div>
+    <div class="step-body">
+      <p>把原注释与 <code>--qmai-body-font-scale</code> 那个 effect 整体替换为：</p>
+<pre><code>  /*
+   * 正文排版参数：一次写齐 5 个 CSS 变量。
+   *
+   * 为什么合并成一个 effect 而不是 5 个：它们共用同一个写入函数
+   * applyBodyTypography，拆成 5 个 effect 会写 5 次，而且任何一个漏写
+   * 都不会被任何测试发现。合成一个之后，「5 个参数是否都被应用」
+   * 由类型系统保证 —— 参数是必填对象的字段，少一个就编译不过。
+   *
+   * 正文字号由「倍数」改为绝对 px：正文自此**不随界面字号缩放**
+   * （用户已确认接受）。上限 32px 低于旧模型理论上限 40.5px，
+   * 故裁切风险下降。
+   */
+  useEffect(() =&gt; {
+    applyBodyTypography({
+      fontPx: uiBodyFontPx,
+      lineHeight: uiBodyLineHeight,
+      letterSpacing: uiBodyLetterSpacing,
+      marginX: uiBodyMarginX,
+      safeBottom: uiBodySafeBottom,
+    })
+  }, [uiBodyFontPx, uiBodyLineHeight, uiBodyLetterSpacing, uiBodyMarginX, uiBodySafeBottom])</code></pre>
+      <p>并在 <code>@/lib/font-settings</code> 的 import 里加入 <code>applyBodyTypography</code>。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：替换启动读回（251–254 行整块）</div>
+    <div class="step-body">
+<pre><code>        /*
+         * 正文排版参数：逐项读回。返回 null 表示"这个键从来没有存过"，
+         * 此时保留 store 的默认值（默认值来自 font-settings.ts 的单一来源）。
+         * 注意 setUiBodyMarginX(null) 是合法的：它表示"跟随窗口"，
+         * 所以这里的判断是"读回值非 null 才写"，而不是"非 null 就用 null"。
+         */
+        const savedBodyFontPx = await loadUiBodyFontPx()
+        if (savedBodyFontPx !== null) useWikiStore.getState().setUiBodyFontPx(savedBodyFontPx)
+        const savedBodyLineHeight = await loadUiBodyLineHeight()
+        if (savedBodyLineHeight !== null) useWikiStore.getState().setUiBodyLineHeight(savedBodyLineHeight)
+        const savedBodyLetterSpacing = await loadUiBodyLetterSpacing()
+        if (savedBodyLetterSpacing !== null) useWikiStore.getState().setUiBodyLetterSpacing(savedBodyLetterSpacing)
+        const savedBodyMarginX = await loadUiBodyMarginX()
+        if (savedBodyMarginX !== null) useWikiStore.getState().setUiBodyMarginX(savedBodyMarginX)
+        const savedBodySafeBottom = await loadUiBodySafeBottom()
+        if (savedBodySafeBottom !== null) useWikiStore.getState().setUiBodySafeBottom(savedBodySafeBottom)</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：验证编译</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit</code></pre>
+      <p class="expect">Expected: 只剩设置页与 spec 文件的报错（任务 8–10、12 处理）。App.tsx 自身应为干净。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/App.tsx
+git commit -m "feat(排版): App 启动读回并应用 5 个正文排版变量"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 6 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 6</span><h3>ui-test.css：变量层（间接层 + 从属尺寸派生）</h3></div>
+  <p class="task-why">这一层决定「用户值能不能流到正文」。间接层的写法有一个非直觉的坑（见第 02 节的橙色提示），写错就是「设置保存了但界面不变」。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/uitest/ui-test.css:38–42（整块替换注释与 4 行变量）</div>
+    <div>Test:   src/components/uitest/ui-test-editor.spec.tsx（任务 12 一起改）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：替换 38–42 行</div>
+    <div class="step-body">
+<pre><code>  /* 正文字号：**绝对像素**，由 App 写 --qmai-body-font-px（documentElement 行内样式）。
+     改造前是 calc(1.125rem * var(--qmai-body-font-scale, 1))，语义是
+     「正文字号 = 界面字号 × 倍数」；现在正文与界面字号彻底解耦
+     （用户已确认接受：改界面字号时正文不再跟着变）。
+
+     为什么需要这一层间接，而不让 App 直接写 --qmai-body-font-size：
+     本规则块的宿主是 .ui-test-root，它比 html **更近**。
+     若 App 把 --qmai-body-font-size 写在 html 上，本块的声明会把它盖掉，
+     表现为「设置保存了但界面不变」。写成「读一个从 html 继承下来的变量」
+     就没有这个问题 —— 改造前的 --qmai-body-font-scale 一直是好用的，
+     正是因为它走的也是"继承"这条路，本改造必须保持同一形态。
+     缺省 18px 与改造前 100% 档逐位相同（首屏、以及无 JS 场景靠它兜底）。
+
+     从属尺寸改为**由字号派生**，不再各写一份 rem 字面量：
+     改造前三者是 1.125rem / 1rem / 0.75rem 三个相互独立的数字，
+     改字号时漏改一条，列表与正文就会不同步。比例沿用改造前的
+     16/18 = 8/9 与 12/18 = 2/3，故默认档数值逐位不变（18→16、18→12）。
+     必须写 calc(变量 * 分数) 而不是 em：实测 ::marker 的 em 基准是
+     所属 li 而非正文，用 em 会算出 10.67px 而不是 12px。 */
+  --qmai-body-font-size: var(--qmai-body-font-px, 18px);                  /* 默认 18px */
+  --qmai-body-font-list: calc(var(--qmai-body-font-size) * 8 / 9);        /* 默认 16px */
+  --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 2 / 3);      /* 默认 12px */
+  /* 行间距：同样由 App 写 --qmai-body-leading，这里只做间接层。
+     必须保持**无单位**：带单位会让行高不随字号变化，用户调大字号后
+     行距被"吃掉"、文字挤在一起。缺省 1.95 与改造前逐位相同。 */
+  --qmai-body-line-height: var(--qmai-body-leading, 1.95);</code></pre>
+      <div class="note danger">
+        <span class="t">不要在这里声明下面这 5 个</span>
+        <p><code>--qmai-body-font-px</code> / <code>--qmai-body-leading</code> / <code>--qmai-body-letter-spacing</code> / <code>--qmai-body-margin-x</code> / <code>--qmai-body-safe-bottom</code> 一律由 App 独占。在这里给它们写默认值会被更近的 <code>.ui-test-root</code> 生效、盖掉 App，功能直接失效。使用点一律写成 <code>var(--qmai-body-xxx, 兜底值)</code>。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：用一条会红的断言先证明变量层真的被读</div>
+    <div class="step-body">
+      <p>临时把 <code>--qmai-body-font-size</code> 改成 <code>var(--qmai-body-font-px, 99px)</code>，跑一次已有的单测确认它变红：</p>
+      <pre class="cmd"><code>npx vitest run src/components/uitest/ui-test-editor.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: 若此时仍全绿，说明现有断言根本没读这一行 —— 先记下这件事，任务 12 会补上真正能红的守卫。改回正确值再继续。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/uitest/ui-test.css
+git commit -m "feat(排版): 正文变量层改为 px 间接层，从属尺寸由字号派生"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 7 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 7</span><h3>ui-test-editor.css：字距 / 行距 / 左右边距 / 底部安全距离</h3></div>
+  <p class="task-why">这一层是用户能直接看到的部分，也是「最后一行贴底」的修复点。根因有两条写死的值：<code>.ui-test-editor-scroll{padding-bottom:36px}</code>（窄屏还有条 28px 覆盖）和 <code>.immersive-scroll-container &gt; div{padding:0}</code> 把内层边距清零。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/uitest/ui-test-editor.css（7 处，逐处给出）</div>
+    <div>Test:   src/components/uitest/ui-test-editor.spec.tsx（任务 12 一起改）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：左右边距挂到 .ui-test-editor-document，并把外层边距归零</div>
+    <div class="step-body">
+      <p>第 7 行，把：</p>
+<pre><code class="cmd">  padding: 0 clamp(20px, 4vw, 48px);</code></pre>
+      <p>替换为：</p>
+<pre><code>  /* 水平边距移到 .ui-test-editor-document 上（见下一条）。
+     为什么不能留在这一层：正文容器有 max-width: 800px。
+     在 1280px 窗口下，把这里的 padding 从 48px 一路调大，
+     正文仍是 800px 宽、位置不变 —— 滑块看起来完全没反应，
+     正是本仓库反复要根除的"设了没反应"。 */
+  padding: 0;</code></pre>
+
+      <p>第 13–22 行的 <code>.ui-test-editor-document</code> 规则里，给 <code>margin: 0 auto;</code> 那行后面加一行：</p>
+<pre><code>  /* 左右边距的真正落点：它直接决定正文行宽（800px 上限内的可用宽度）。
+     未拖动滑块时 --qmai-body-margin-x 不存在，兜底值 clamp(20px,4vw,48px)
+     与改造前逐位相同，老用户打开不会有任何视觉变化。 */
+  padding: 0 var(--qmai-body-margin-x, clamp(20px, 4vw, 48px));</code></pre>
+      <div class="note">
+        <span class="t">为什么这是单旋钮</span>
+        <p>第 232 行 <code>.immersive-scroll-container &gt; div { padding: 0 }</code> 已经把内层 <code>px-8 py-10</code> 清掉了，所以「正文离两侧多远」完全由 <code>.ui-test-editor-document</code> 的内边距决定，没有第二处在争。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：底部安全距离（本任务的正题）</div>
+    <div class="step-body">
+      <p>第 40 行，把：</p>
+<pre><code class="cmd">  padding-bottom: 36px;</code></pre>
+      <p>替换为：</p>
+<pre><code>  /* 底部安全距离：滚到底时最后一行下方保留的空白。
+     改造前这里是写死的 36px，且窄屏另有一条 28px 覆盖（已删除，
+     见文件末尾的 @media 块）—— 两处独立数字正是"不可调"的根源。
+     现在唯一来源是 --qmai-body-safe-bottom，由用户在"字体设置"里调。
+     缺省 51px 是用户确认的值。 */
+  padding-bottom: var(--qmai-body-safe-bottom, 51px);</code></pre>
+
+      <p>文件末尾 <code>@media (max-width: 640px)</code> 块里（原第 334 行），<strong>删除整行</strong>：</p>
+<pre><code class="cmd">  .ui-test-root .ui-test-editor-scroll { padding-bottom: 28px; }</code></pre>
+      <div class="note warn">
+        <span class="t">为什么是删除而不是改成另一个变量</span>
+        <p>留着就会变成「窄屏用 28px、宽屏用用户值」的两套行为，用户在窄窗口调的设置看不到效果，又会变成一次「设了没反应」。要可调就只有一个来源。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：字间距（一处声明，靠继承覆盖全部后代）</div>
+    <div class="step-body">
+      <p>第 228 行，把：</p>
+<pre><code class="cmd">.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); overflow-wrap: anywhere; }</code></pre>
+      <p>替换为：</p>
+<pre><code>.ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); letter-spacing: var(--qmai-body-letter-spacing, 0); overflow-wrap: anywhere; }</code></pre>
+      <div class="note">
+        <span class="t">为什么只写这一处</span>
+        <p><code>letter-spacing</code> 是继承属性，textarea 与 <code>[data-find-highlights]</code> 都是它的后代，因此取值<strong>按构造相同</strong>——比在两处各写一份表达式更强（那正是查找高亮层与输入层错位的成因）。不要为了"看得清楚"再复制两份。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：行间距——把写死的 1.95 / 1.9 换成变量</div>
+    <div class="step-body">
+      <p>第 238 行（正文段落）：</p>
+<pre><code class="cmd">.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: 1.95; text-indent: 2em; }</code></pre>
+      <p>改为：</p>
+<pre><code>.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) p { margin: 0 0 16px; line-height: var(--qmai-body-line-height); text-indent: 2em; }</code></pre>
+
+      <p>第 290–292 行（列表三项），把三行里的 <code>line-height: 1.9;</code> 全部改为 <code>line-height: var(--qmai-body-line-height);</code>：</p>
+<pre><code class="cmd">.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) :is(ul, ol) { padding-left: 21px; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); }
+.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li p { margin: 0; padding: 0; font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); text-indent: 0; }</code></pre>
+
+      <p>同时更新第 295 行那条注释里对旧变量的引用：</p>
+<pre><code class="cmd">   与「有序标记 = 有序列表项」，两者都随 --qmai-body-font-scale 等比缩放。</code></pre>
+      <p>改为：</p>
+<pre><code class="cmd">   与「有序标记 = 有序列表项」，两者都随 --qmai-body-font-size 等比缩放。</code></pre>
+
+      <div class="note warn">
+        <span class="t">这三处必须一起改</span>
+        <p>只改 <code>p</code> 的话，大纲里的列表行距不动 —— 因为 <code>li</code> 上那条 <code>line-height: 1.9</code> 比容器更具体，会盖掉容器上的变量。用户会觉得「行间距只对一半文字有效」。</p>
+        <p><strong>不要动</strong>的部分：标题（第 242 行 <code>/1.6</code>）、表格单元格（第 263 行 <code>1.7</code>）、引用块、代码块。这是已确认的边界 —— 行间距调到 2.2 时表格不该被撑变形。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：更新文件顶部那段正文排版说明（203–227 行）</div>
+    <div class="step-body">
+      <p>那段注释记录了 CDP 实测结论（章节走 textarea、只有非章节文档才可能产生 <code>li</code>），<strong>这些结论全部保留</strong>。在它末尾追加一句，说明新的参数从哪来：</p>
+<pre><code>   新的可调参数（字号 px / 行间距 / 字间距 / 左右边距 / 底部安全距离）
+   一律通过 ui-test.css 的间接层与使用点的 var(...) 兜底值流向正文，
+   函数入口只有 font-settings.ts 的 applyBodyTypography 一个。
+   为什么要有入口：这些值同时决定正文与覆盖在正文上的查找高亮层，
+   两处各写一次就会错位（见上面 [data-find-highlights] 的说明）。</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/uitest/ui-test-editor.css
+git commit -m "fix(编辑区): 底部安全距离与左右边距改为可调，修掉最后一行贴底"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 8 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 8</span><h3>共享控件：6 个参数只有一套 UI</h3></div>
+  <p class="task-why">设置页与写作现场浮层必须用<strong>同一份</strong>控件与同一份取值。两个入口各写一套 JSX 是这类功能最常见的腐坏方式：改了一处忘了另一处，用户就得到两套行为。取值来源不同（设置页是草稿、现场是 store），但控件是同一个。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Create: src/components/settings/sections/body-typography-fields.tsx</div>
+    <div>Create: src/components/settings/sections/body-typography-fields.spec.tsx</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：先写会失败的测试</div>
+    <div class="step-body">
+<pre><code>// src/components/settings/sections/body-typography-fields.spec.tsx
+// @vitest-environment jsdom
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import {
+  BodyTypographyFields,
+  effectiveDefaultMarginX,
+  type BodyTypographyValue,
+} from "@/components/settings/sections/body-typography-fields"
+
+let root: Root
+let container: HTMLDivElement
+
+beforeEach(() =&gt; {
+  container = document.createElement("div")
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+afterEach(() =&gt; {
+  act(() =&gt; root.unmount())
+  container.remove()
+})
+
+const BASE: BodyTypographyValue = {
+  fontFamily: "serif-default",
+  fontPx: 18,
+  lineHeight: 1.95,
+  letterSpacing: 0,
+  marginX: null,
+  safeBottom: 51,
+}
+
+function render(value: BodyTypographyValue, onChange = () =&gt; {}) {
+  act(() =&gt; {
+    root.render(&lt;BodyTypographyFields value={value} onChange={onChange} idPrefix="t" /&gt;)
+  })
+  return container
+}
+
+function input(label: string) {
+  const el = container.querySelector&lt;HTMLInputElement&gt;(`input[aria-label="${label}"]`)
+  if (!el) throw new Error(`找不到控件：${label}`)
+  return el
+}
+
+/** jsdom 下的 React onChange：必须用原生 setter 再派发 input 事件。 */
+function setRange(el: HTMLInputElement, next: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
+  setter?.call(el, next)
+  act(() =&gt; { el.dispatchEvent(new window.Event("input", { bubbles: true })) })
+}
+
+describe("effectiveDefaultMarginX", () =&gt; {
+  it("复现 CSS 的 clamp(20px, 4vw, 48px)", () =&gt; {
+    expect(effectiveDefaultMarginX(0)).toBe(20)      // 非法/极窄 → 下限
+    expect(effectiveDefaultMarginX(400)).toBe(20)    // 4vw = 16 → 夹到 20
+    expect(effectiveDefaultMarginX(1000)).toBe(40)   // 4vw = 40
+    expect(effectiveDefaultMarginX(2000)).toBe(48)   // 4vw = 80 → 夹到 48
+  })
+})
+
+describe("BodyTypographyFields", () =&gt; {
+  it("6 个参数各有一个可访问的控件，标签互不重复", () =&gt; {
+    render(BASE)
+    for (const label of ["正文字体", "正文字号预设", "正文字号", "行间距", "字间距", "左右边距", "底部安全距离"]) {
+      const found = container.querySelector(`[aria-label="${label}"]`)
+      expect(found, `缺少控件：${label}`).not.toBeNull()
+    }
+  })
+
+  it("6 个滑块的范围与单一来源常量一致（不在组件里重写数字）", () =&gt; {
+    render(BASE)
+    const cases: [string, string, string][] = [
+      ["正文字号", String(BODY_FONT_PX_MIN), String(BODY_FONT_PX_MAX)],
+      ["行间距", String(BODY_LINE_HEIGHT_MIN), String(BODY_LINE_HEIGHT_MAX)],
+      ["字间距", String(BODY_LETTER_SPACING_MIN), String(BODY_LETTER_SPACING_MAX)],
+      ["左右边距", String(BODY_MARGIN_X_MIN), String(BODY_MARGIN_X_MAX)],
+      ["底部安全距离", String(BODY_SAFE_BOTTOM_MIN), String(BODY_SAFE_BOTTOM_MAX)],
+    ]
+    for (const [label, min, max] of cases) {
+      const el = input(label)
+      expect(el.min, label).toBe(min)
+      expect(el.max, label).toBe(max)
+    }
+  })
+
+  it("拖动滑块把新值交给调用方，且只交自己那一个键", () =&gt; {
+    const seen: [string, unknown][] = []
+    render(BASE, (key, next) =&gt; { seen.push([key, next]) })
+    setRange(input("行间距"), "2.2")
+    expect(seen).toEqual([["lineHeight", 2.2]])
+    seen.length = 0
+    setRange(input("底部安全距离"), "120")
+    expect(seen).toEqual([["safeBottom", 120]])
+  })
+
+  it("左右边距为 null 时显示「跟随窗口」，提供按钮切回 null", () =&gt; {
+    const seen: [string, unknown][] = []
+    render({ ...BASE, marginX: 40 }, (key, next) =&gt; { seen.push([key, next]) })
+    const back = container.querySelector&lt;HTMLButtonElement&gt;('[aria-label="左右边距跟随窗口"]')
+    expect(back).not.toBeNull()
+    act(() =&gt; { back?.click() })
+    expect(seen).toEqual([["marginX", null]])
+  })
+
+  it("左右边距为 null 时，滑块停在当前真正生效的位置", () =&gt; {
+    render(BASE)
+    // BASE.marginX 是 null：滑块不能显示 0，那会让用户以为边距被设成了 0
+    expect(input("左右边距").value).toBe(String(effectiveDefaultMarginX(window.innerWidth)))
+  })
+
+  it("字号下拉的预设来自单一来源，且选中态能匹配上", () =&gt; {
+    render({ ...BASE, fontPx: 21 })
+    const select = container.querySelector&lt;HTMLSelectElement&gt;('[aria-label="正文字号预设"]')
+    expect(select).not.toBeNull()
+    expect(select?.value).toBe("21")
+  })
+})</code></pre>
+      <p>在文件顶部补上常量导入：</p>
+<pre><code class="cmd">import {
+  BODY_FONT_PX_MIN, BODY_FONT_PX_MAX,
+  BODY_LINE_HEIGHT_MIN, BODY_LINE_HEIGHT_MAX,
+  BODY_LETTER_SPACING_MIN, BODY_LETTER_SPACING_MAX,
+  BODY_MARGIN_X_MIN, BODY_MARGIN_X_MAX,
+  BODY_SAFE_BOTTOM_MIN, BODY_SAFE_BOTTOM_MAX,
+} from "@/lib/font-settings"</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：运行，确认变红</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL — 模块不存在。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：实现</div>
+    <div class="step-body">
+<pre><code>// src/components/settings/sections/body-typography-fields.tsx
+import { useEffect, useId, useMemo, useState } from "react"
+import {
+  BODY_FONT_OPTIONS,
+  BODY_FONT_PX_MAX,
+  BODY_FONT_PX_MIN,
+  BODY_FONT_PX_PRESETS,
+  BODY_LETTER_SPACING_MAX,
+  BODY_LETTER_SPACING_MIN,
+  BODY_LINE_HEIGHT_MAX,
+  BODY_LINE_HEIGHT_MIN,
+  BODY_MARGIN_X_MAX,
+  BODY_MARGIN_X_MIN,
+  BODY_SAFE_BOTTOM_MAX,
+  BODY_SAFE_BOTTOM_MIN,
+  type BodyFontFamily,
+} from "@/lib/font-settings"
+import {
+  loadSystemCjkFonts,
+  newSystemFontsOnly,
+  systemFontValue,
+  type SystemCjkFont,
+} from "@/lib/system-fonts"
+
+/**
+ * 本机字体（阶段 3）。
+ *
+ * ── 为什么用独立组件 / 独立 hook ──
+ * 枚举是异步的（要跨 IPC 问 Rust），若把状态放在调用方里，
+ * 每次无关重渲染都会重走一遍列表构造。抽出来后"异步加载"只有一个归属，
+ * 失败态也能局部呈现。`loadSystemCjkFonts` 本身是模块级缓存，
+ * 设置页与写作现场浮层各调一次不会额外付出代价。
+ *
+ * ── 失败与"没有"必须分开呈现 ──
+ * error 非空 = 枚举**失败**（例如非 Windows 平台），此时只显示内置项并说明原因；
+ * 把失败说成"本机没有中文字体"是个会被用户信以为真的假结论。
+ *
+ * ── 返回**原始**枚举结果，去重留给调用方 ──
+ * 界面下拉与正文下拉的内置表不是同一张，一个字体可能被界面表覆盖、
+ * 却没被正文表覆盖。在这里就用某一张表过滤，另一张就会缺项。
+ */
+export function useSystemFonts(): { fonts: SystemCjkFont[]; error: string | null } {
+  const [fonts, setFonts] = useState&lt;SystemCjkFont[]&gt;([])
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  useEffect(() =&gt; {
+    let cancelled = false
+    void loadSystemCjkFonts().then((result) =&gt; {
+      // 组件已卸载时不再 setState（设置页会被频繁开关）
+      if (cancelled) return
+      setFonts(result.fonts)
+      setError(result.error)
+    })
+    return () =&gt; { cancelled = true }
+  }, [])
+
+  return { fonts, error }
+}
+
+/**
+ * 未设置左右边距时，CSS 兜底 clamp(20px, 4vw, 48px) 在当前窗口下的实际取值。
+ *
+ * 为什么需要：`marginX` 的 null 表示「跟随窗口」，但滑块必须显示一个数字。
+ * 显示 0 会让用户以为边距被设成了 0（其实正文还有 20–48px 的间距），
+ * 显示某个写死的 48 则在小窗口下明显不符。让它停在"当前真正生效的位置"，
+ * 是唯一不会误导的选项。
+ */
+export function effectiveDefaultMarginX(viewportWidth: number): number {
+  if (!Number.isFinite(viewportWidth) || viewportWidth &lt;= 0) return BODY_MARGIN_X_MIN_WITH_FLOOR
+  return Math.round(Math.min(48, Math.max(20, viewportWidth * 0.04)))
+}
+
+/** clamp 的下限（20px）。单独取名是为了让上面那个函数读起来清楚。 */
+const BODY_MARGIN_X_MIN_WITH_FLOOR = 20
+
+/** 6 个排版参数的一组取值。设置页传草稿，写作现场传 store，形态统一。 */
+export interface BodyTypographyValue {
+  fontFamily: BodyFontFamily
+  fontPx: number
+  lineHeight: number
+  letterSpacing: number
+  /** null = 跟随窗口。 */
+  marginX: number | null
+  safeBottom: number
+}
+
+interface Props {
+  value: BodyTypographyValue
+  onChange: &lt;K extends keyof BodyTypographyValue&gt;(key: K, next: BodyTypographyValue[K]) =&gt; void
+  /** aria/id 前缀；两个入口各传自己的，避免同一页面出现重复 id。 */
+  idPrefix?: string
+  /** 紧凑模式（写作现场浮层用）：省掉说明段落。 */
+  dense?: boolean
+}
+
+interface SliderRowProps {
+  id: string
+  label: string
+  hint: string
+  min: number
+  max: number
+  step: number
+  value: number
+  display: string
+  dense: boolean
+  onChange: (next: number) =&gt; void
+}
+
+function SliderRow({ id, label, hint, min, max, step, value, display, dense, onChange }: SliderRowProps) {
+  return (
+    &lt;div className="ui-test-interface-row"&gt;
+      &lt;div&gt;
+        &lt;label htmlFor={id}&gt;{label}&lt;/label&gt;
+        {dense ? null : &lt;p&gt;{hint}&lt;/p&gt;}
+      &lt;/div&gt;
+      &lt;div className="ui-test-interface-size"&gt;
+        &lt;span className="ui-test-interface-value" data-ui-typography-value={label}&gt;{display}&lt;/span&gt;
+        &lt;input
+          id={id}
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          aria-label={label}
+          onChange={(event) =&gt; onChange(Number(event.target.value))}
+        /&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}
+
+/**
+ * 正文字体与排版参数控件。
+ *
+ * 设置页（外观与界面）与写作现场浮层共用一个组件：两处各写一套 JSX
+ * 是这类功能最常见的腐坏方式 —— 改了一处忘了另一处，用户就得到两套行为。
+ * 取值来源不同（草稿 / store），但控件与语义完全相同。
+ */
+export function BodyTypographyFields({ value, onChange, idPrefix, dense = false }: Props) {
+  const generatedId = useId()
+  const id = idPrefix ?? generatedId
+  const { fonts: rawSystemFonts, error: systemFontError } = useSystemFonts()
+
+  // 按**正文**内置表去重（与界面字体那张表不是同一张，见 useSystemFonts 的说明）
+  const bodySystemFonts = useMemo(
+    () =&gt; newSystemFontsOnly(rawSystemFonts, BODY_FONT_OPTIONS.map((option) =&gt; option.cssFamily)),
+    [rawSystemFonts],
+  )
+
+  const sizePreset = BODY_FONT_PX_PRESETS.find((preset) =&gt; preset.value === value.fontPx)
+  const marginXShown = value.marginX ?? effectiveDefaultMarginX(
+    typeof window === "undefined" ? 0 : window.innerWidth,
+  )
+
+  return (
+    &lt;div data-ui="body-typography"&gt;
+      &lt;div className="ui-test-interface-row"&gt;
+        &lt;div&gt;
+          &lt;label htmlFor={`${id}-body-font`}&gt;正文字体&lt;/label&gt;
+          {dense ? null : &lt;p&gt;只影响小说正文与书卷感衬线标题，与界面字体相互独立。&lt;/p&gt;}
+        &lt;/div&gt;
+        &lt;select
+          id={`${id}-body-font`}
+          aria-label="正文字体"
+          value={value.fontFamily}
+          onChange={(event) =&gt; onChange("fontFamily", event.target.value as BodyFontFamily)}
+        &gt;
+          &lt;optgroup label="推荐"&gt;
+            {BODY_FONT_OPTIONS.map((option) =&gt; (
+              &lt;option key={option.value} value={option.value}&gt;{option.label}&lt;/option&gt;
+            ))}
+          &lt;/optgroup&gt;
+          {/*
+            没有枚举结果时**不显示空分组** —— 一个空的 optgroup 会让用户
+            以为自己机器上没装中文字体，而更常见的原因只是还没加载完。
+          */}
+          {bodySystemFonts.length &gt; 0 &amp;&amp; (
+            &lt;optgroup label="本机中文字体"&gt;
+              {bodySystemFonts.map((font) =&gt; {
+                const fontValue = systemFontValue(font.family)
+                // sanitize 不通过的族名不进列表
+                return fontValue ? &lt;option key={fontValue} value={fontValue}&gt;{font.display}&lt;/option&gt; : null
+              })}
+            &lt;/optgroup&gt;
+          )}
+        &lt;/select&gt;
+      &lt;/div&gt;
+
+      &lt;div className="ui-test-interface-row"&gt;
+        &lt;div&gt;
+          &lt;label htmlFor={`${id}-body-size-preset`}&gt;正文字号&lt;/label&gt;
+          {dense ? null : &lt;p&gt;当前 {value.fontPx}px；绝对像素，不随界面字号变化。&lt;/p&gt;}
+        &lt;/div&gt;
+        &lt;div className="ui-test-interface-size"&gt;
+          &lt;select
+            id={`${id}-body-size-preset`}
+            aria-label="正文字号预设"
+            value={sizePreset ? String(sizePreset.value) : "custom"}
+            onChange={(event) =&gt; onChange("fontPx", Number(event.target.value))}
+          &gt;
+            {!sizePreset &amp;&amp; &lt;option value="custom" disabled&gt;自定义 · {value.fontPx}px&lt;/option&gt;}
+            {BODY_FONT_PX_PRESETS.map((preset) =&gt; (
+              &lt;option key={preset.value} value={preset.value}&gt;{preset.label} · {preset.value}px&lt;/option&gt;
+            ))}
+          &lt;/select&gt;
+          &lt;input
+            id={`${id}-body-size`}
+            type="range"
+            min={BODY_FONT_PX_MIN}
+            max={BODY_FONT_PX_MAX}
+            step={1}
+            value={value.fontPx}
+            aria-label="正文字号"
+            onChange={(event) =&gt; onChange("fontPx", Number(event.target.value))}
+          /&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;SliderRow
+        id={`${id}-line-height`}
+        label="行间距"
+        hint="正文段落与列表的行距；标题与表格保持固定，避免被撑变形。"
+        min={BODY_LINE_HEIGHT_MIN}
+        max={BODY_LINE_HEIGHT_MAX}
+        step={0.05}
+        value={value.lineHeight}
+        display={value.lineHeight.toFixed(2)}
+        dense={dense}
+        onChange={(next) =&gt; onChange("lineHeight", next)}
+      /&gt;
+
+      &lt;SliderRow
+        id={`${id}-letter-spacing`}
+        label="字间距"
+        hint="允许轻微负值：密排宋体收紧一点会更整齐。"
+        min={BODY_LETTER_SPACING_MIN}
+        max={BODY_LETTER_SPACING_MAX}
+        step={0.5}
+        value={value.letterSpacing}
+        display={`${value.letterSpacing}px`}
+        dense={dense}
+        onChange={(next) =&gt; onChange("letterSpacing", next)}
+      /&gt;
+
+      &lt;SliderRow
+        id={`${id}-margin-x`}
+        label="左右边距"
+        hint="正文两侧留白；未调整时跟随窗口宽度，调整后固定。"
+        min={BODY_MARGIN_X_MIN}
+        max={BODY_MARGIN_X_MAX}
+        step={2}
+        value={marginXShown}
+        display={value.marginX === null ? "跟随窗口" : `${value.marginX}px`}
+        dense={dense}
+        onChange={(next) =&gt; onChange("marginX", next)}
+      /&gt;
+      &lt;div className="ui-test-interface-row"&gt;
+        &lt;div /&gt;
+        &lt;div className="ui-test-interface-size"&gt;
+          &lt;button
+            type="button"
+            aria-label="左右边距跟随窗口"
+            disabled={value.marginX === null}
+            onClick={() =&gt; onChange("marginX", null)}
+          &gt;
+            {value.marginX === null ? "正在跟随窗口" : "改回跟随窗口"}
+          &lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;SliderRow
+        id={`${id}-safe-bottom`}
+        label="底部安全距离"
+        hint="滚到底时最后一行下方的留白；调大后当前行不再贴着窗口最下沿。"
+        min={BODY_SAFE_BOTTOM_MIN}
+        max={BODY_SAFE_BOTTOM_MAX}
+        step={1}
+        value={value.safeBottom}
+        display={`${value.safeBottom}px`}
+        dense={dense}
+        onChange={(next) =&gt; onChange("safeBottom", next)}
+      /&gt;
+
+      {systemFontError &amp;&amp; (
+        &lt;p role="status" className="ui-test-interface-description"&gt;
+          未能读取本机字体（{systemFontError}），正文字体下拉只显示推荐的随包字体。
+        &lt;/p&gt;
+      )}
+    &lt;/div&gt;
+  )
+}</code></pre>
+      <div class="note warn">
+        <span class="t">类名沿用，不要新造一套</span>
+        <p><code>ui-test-interface-row</code> / <code>ui-test-interface-size</code> 是外观与界面分区已有的两列/滑块布局类。<code>ui-test-interface-value</code> 若在 CSS 里不存在，用 <code>ui-test-interface-description</code> 代替或直接给 <code>&lt;span&gt;</code>（不要留下一个没有任何样式的孤立类名当摆设）。实施时先 grep 确认。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：运行，确认变绿</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/components/settings/sections/body-typography-fields.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect">Expected: PASS — 7 passed（1 条 default-margin + 6 条组件）。</p>
+      <p>若「6 个滑块的范围」那条失败，检查是不是把范围数字写进了组件 —— 那正是它要防的。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/settings/sections/body-typography-fields.tsx src/components/settings/sections/body-typography-fields.spec.tsx
+git commit -m "feat(排版): 抽出正文字体与排版参数共享控件"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 9 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 9</span><h3>草稿字段与设置页接入</h3></div>
+  <p class="task-why">设置页要把「外观与界面」里原来那两行（正文字体、正文字号倍数）换成共享组件。字号从倍数改成 px 之后，旧的两行控件就没有存在意义了。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/settings/settings-types.ts:69–70（两个字段 → 6 个）</div>
+    <div>Modify: src/components/settings/sections/interface-section.tsx（import 区、hook 区、两行控件）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：改草稿类型</div>
+    <div class="step-body">
+      <p>把 <code>settings-types.ts</code> 第 69–70 行：</p>
+<pre><code class="cmd">  /** 正文字号倍数：与界面字号互相独立；文档最终字号 = 界面字号 × 本值。 */
+  uiBodyFontSizeScale: number</code></pre>
+      <p>替换为：</p>
+<pre><code>  /** 正文字号（px 绝对值）。取代原 uiBodyFontSizeScale（倍数）。 */
+  uiBodyFontPx: number
+  /** 正文行间距（无单位倍数）。 */
+  uiBodyLineHeight: number
+  /** 正文字间距（px，允许负值）。 */
+  uiBodyLetterSpacing: number
+  /** 正文左右边距（px）；null = 跟随窗口。 */
+  uiBodyMarginX: number | null
+  /** 正文底部安全距离（px）。 */
+  uiBodySafeBottom: number</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：interface-section.tsx 换 import、删本地 hook</div>
+    <div class="step-body">
+      <p>把第 15–20 行那段 <code>@/lib/system-fonts</code> 的导入<strong>整段删除</strong>（<code>useSystemFonts</code> 已移入共享组件），并加上共享组件的导入：</p>
+<pre><code class="cmd">import {
+  BodyTypographyFields,
+  useSystemFonts,
+  type BodyTypographyValue,
+} from "./body-typography-fields"</code></pre>
+      <p>把第 5–14 行 <code>@/lib/font-settings</code> 的导入精简为（正文字体选项与 px 常量现在只由共享组件使用）：</p>
+<pre><code class="cmd">import {
+  UI_FONT_OPTIONS,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+  UI_FONT_SIZE_PRESETS,
+} from "@/lib/font-settings"</code></pre>
+      <p>把第 32–65 行那条本地 <code>useSystemFonts</code> 函数（连同它上方 32–48 行的大段注释）<strong>整块删除</strong>——注释与实现一起搬到了共享组件文件里，不要留下孤儿注释。</p>
+      <p>把 <code>useSystemFonts</code> 上方那段注释里关于「两个下拉去重集合不同」的说明保留在共享组件文件中（Task 8 已包含），本地这份直接删除。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：删掉本地正文字体去重与两行控件，换成共享组件</div>
+    <div class="step-body">
+      <p>删除第 81–84 行（<code>bodySystemFonts</code> 的 useMemo）与第 87–88 行（<code>bodyScalePercent</code> / <code>bodySizePreset</code>）——这三样都由共享组件自己算。</p>
+      <p>把第 155–191 行（<code>正文字体</code>与<code>正文字号</code>两整块 <code>ui-test-interface-row</code>）替换为：</p>
+<pre><code>        {/*
+          正文字体与 5 个排版参数由共享组件渲染。
+          为什么必须共用：设置页与写作现场浮层是两个入口，
+          各写一套 JSX 的话，改了一处忘了另一处，用户就得到两套行为。
+        */}
+        &lt;BodyTypographyFields
+          idPrefix={id}
+          value={{
+            fontFamily: draft.uiBodyFontFamily,
+            fontPx: draft.uiBodyFontPx,
+            lineHeight: draft.uiBodyLineHeight,
+            letterSpacing: draft.uiBodyLetterSpacing,
+            marginX: draft.uiBodyMarginX,
+            safeBottom: draft.uiBodySafeBottom,
+          }}
+          onChange={setBodyTypography}
+        /&gt;</code></pre>
+      <p>在组件内部、<code>return</code> 之前加入映射函数（<code>useCallback</code> 需要补进 react 的 import）：</p>
+<pre><code>  /*
+   * 共享控件的键 → 设置草稿的字段。
+   * 写成显式 switch 而不是「键名相同就直接拼字符串」：
+   * 拼字符串的写法在草稿字段改名后会静默写到一个不存在的键上，
+   * 而 switch 会让 tsc 立刻报错。
+   */
+  const setBodyTypography = useCallback(&lt;K extends keyof BodyTypographyValue&gt;(
+    key: K,
+    next: BodyTypographyValue[K],
+  ) =&gt; {
+    switch (key) {
+      case "fontFamily": setDraft("uiBodyFontFamily", next as SettingsDraft["uiBodyFontFamily"]); break
+      case "fontPx": setDraft("uiBodyFontPx", next as number); break
+      case "lineHeight": setDraft("uiBodyLineHeight", next as number); break
+      case "letterSpacing": setDraft("uiBodyLetterSpacing", next as number); break
+      case "marginX": setDraft("uiBodyMarginX", next as number | null); break
+      case "safeBottom": setDraft("uiBodySafeBottom", next as number); break
+      default: break
+    }
+  }, [setDraft])</code></pre>
+      <p>同时把第 155 行上方 <code>{systemFontError &amp;&amp; (…)}</code> 那段（150–154 行）保留 —— 它服务于界面字体下拉，仍在本文件里。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：跑设置页的渲染测试</div>
+    <div class="step-body">
+      <p><code>interface-section.spec.tsx</code> 里的 Harness 草稿还带着旧字段，先把第 66–67 行替换为新的 6 个字段：</p>
+<pre><code class="cmd">      uiBodyFontFamily: "serif-default",
+      uiBodyFontPx: 18,
+      uiBodyLineHeight: 1.95,
+      uiBodyLetterSpacing: 0,
+      uiBodyMarginX: null,
+      uiBodySafeBottom: 51,</code></pre>
+      <p>第 305–306 行同样处理。然后：</p>
+      <pre class="cmd"><code>npx vitest run src/components/settings/sections/interface-section.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect">Expected: PASS。若「正文字体下拉也有本机中文字体分组」变红，检查共享组件是否漏了 <code>optgroup label="本机中文字体"</code> 与 <code>sys:</code> 前缀那条路径。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/settings/settings-types.ts src/components/settings/sections/interface-section.tsx src/components/settings/sections/interface-section.spec.tsx
+git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控件"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 10 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 10</span><h3>设置页保存链路（草稿 → store + 落盘）</h3></div>
+  <p class="task-why">「保存」必须同时做两件事：写 store（界面立刻生效）与落盘（下次启动还在）。只做一件就会出现「这次生效、下次启动丢失」或反之 —— 这是本仓库已经踩过的坑，<code>interface-sidebar-nav.spec.ts</code> 里有专门的守卫。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/settings/settings-view.tsx（initialDraft 形参 176–181、返回体 224–225、selector 260–261、initialDraft 调用 283–284、handleSave 494–495、deps 524）</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：initialDraft 形参</div>
+    <div class="step-body">
+      <p>把第 179 行 <code>uiBodyFontSizeScale: number,</code> 替换为：</p>
+<pre><code class="cmd">  uiBodyFontPx: number,
+  uiBodyLineHeight: number,
+  uiBodyLetterSpacing: number,
+  uiBodyMarginX: number | null,
+  uiBodySafeBottom: number,</code></pre>
+      <p>把第 225 行 <code>uiBodyFontSizeScale,</code> 替换为同样这 5 个名字（返回体里是简写属性）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：selector 与 initialDraft 调用</div>
+    <div class="step-body">
+      <p>把第 260–261 行：</p>
+<pre><code class="cmd">  const uiBodyFontSizeScale = useWikiStore((s) =&gt; s.uiBodyFontSizeScale)
+  const setUiBodyFontSizeScale = useWikiStore((s) =&gt; s.setUiBodyFontSizeScale)</code></pre>
+      <p>替换为：</p>
+<pre><code class="cmd">  const uiBodyFontPx = useWikiStore((s) =&gt; s.uiBodyFontPx)
+  const setUiBodyFontPx = useWikiStore((s) =&gt; s.setUiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) =&gt; s.uiBodyLineHeight)
+  const setUiBodyLineHeight = useWikiStore((s) =&gt; s.setUiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) =&gt; s.uiBodyLetterSpacing)
+  const setUiBodyLetterSpacing = useWikiStore((s) =&gt; s.setUiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) =&gt; s.uiBodyMarginX)
+  const setUiBodyMarginX = useWikiStore((s) =&gt; s.setUiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) =&gt; s.uiBodySafeBottom)
+  const setUiBodySafeBottom = useWikiStore((s) =&gt; s.setUiBodySafeBottom)</code></pre>
+      <p>把 initialDraft 调用处（283–284 行）的 <code>uiBodyFontSizeScale,</code> 替换为：</p>
+<pre><code class="cmd">      uiBodyFontPx,
+      uiBodyLineHeight,
+      uiBodyLetterSpacing,
+      uiBodyMarginX,
+      uiBodySafeBottom,</code></pre>
+      <p>并在 <code>src/lib/project-store.ts</code> 的 import 里补上 5 个 save 函数：<code>saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom</code>，删掉 <code>saveUiBodyFontSizeScale</code>。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：handleSave 的两行 → 十行</div>
+    <div class="step-body">
+      <p>把第 494–495 行：</p>
+<pre><code class="cmd">    setUiBodyFontSizeScale(draft.uiBodyFontSizeScale)
+    await saveUiBodyFontSizeScale(draft.uiBodyFontSizeScale)</code></pre>
+      <p>替换为：</p>
+<pre><code>    /*
+     * 5 个排版参数各自一个 localStorage 键 + 一个 app-state 键：
+     * 只写 store 会「这次生效、下次启动丢失」，只落盘会「保存了但界面不变」。
+     * 应用（写 CSS 变量）交给 App 的 effect，与既有做法一致，这里不重复写。
+     */
+    setUiBodyFontPx(draft.uiBodyFontPx)
+    await saveUiBodyFontPx(draft.uiBodyFontPx)
+    setUiBodyLineHeight(draft.uiBodyLineHeight)
+    await saveUiBodyLineHeight(draft.uiBodyLineHeight)
+    setUiBodyLetterSpacing(draft.uiBodyLetterSpacing)
+    await saveUiBodyLetterSpacing(draft.uiBodyLetterSpacing)
+    setUiBodyMarginX(draft.uiBodyMarginX)
+    await saveUiBodyMarginX(draft.uiBodyMarginX)
+    setUiBodySafeBottom(draft.uiBodySafeBottom)
+    await saveUiBodySafeBottom(draft.uiBodySafeBottom)</code></pre>
+      <p>把 <code>useCallback</code> 的 deps 数组（524 行附近）里的 <code>setUiBodyFontSizeScale,</code> 替换为那 10 个 <code>setUiBodyXxx</code> 中的 5 个 setter（<code>setUiBodyFontPx, setUiBodyLineHeight, setUiBodyLetterSpacing, setUiBodyMarginX, setUiBodySafeBottom</code>）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：编译</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx tsc -p tsconfig.app.json --noEmit</code></pre>
+      <p class="expect">Expected: 只剩 <code>interface-sidebar-nav.spec.ts</code> 的旧断言（那是任务 12a）以及可能残留的旧字段引用。逐个清掉，不要用 <code>as any</code> 或 <code>@ts-expect-error</code> 敷衍 —— 那会把「字段改名」这类必须暴露的问题藏起来。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/settings/settings-view.tsx
+git commit -m "feat(排版): 设置页保存链路覆盖 5 个排版参数"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 11 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 11</span><h3>写作现场：图标替换 + 章节与大纲的字体设置浮层</h3></div>
+  <p class="task-why">用户报的两个问题在这一步一起解决：一键排版用的图标与字体设置撞车（当前都是 lucide <code>Type</code>），以及写作现场没有调字体的入口。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/layout/preview-panel.tsx（import 3 行；位置助手 175–188；state 237–238 旁；章节工具栏 1520；大纲工具栏 1530 后；浮层 1930 旁）</div>
+    <div>Create: src/components/layout/preview-panel.chapter-toolbar.spec.tsx</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：先写会失败的图标守卫</div>
+    <div class="step-body">
+<pre><code>// src/components/layout/preview-panel.chapter-toolbar.spec.tsx
+/**
+ * 工具栏图标的源码守卫。
+ *
+ * ── 为什么是源码断言而不是渲染断言 ──
+ * 一键排版按钮只在「选中章节」时才渲染，而章节工具栏的图标是
+ * 一层 JSX 里的字面量。渲染断言需要把整个 PreviewPanel 的依赖
+ * （项目、文件内容、章节状态、Tauri IPC）都造出来，代价远高于收益，
+ * 而且它测的仍然是同一行字面量。这里直接钉住那一行。
+ *
+ * ── 这条守卫防的是什么 ──
+ * 用户明确提出「一键排版的图标与正文字体的图标不能设置为一样」。
+ * 当前两处都用 lucide 的 Type，是一模一样的图标。这条断言让
+ * "改回去 / 新增按钮时又抄了 Type" 立刻变红。
+ */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { describe, expect, it } from "vitest"
+
+const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
+
+function buttonLine(ariaLabel: string): string {
+  const line = source.split(/\r?\n/).find((item) =&gt; item.includes(`aria-label="${ariaLabel}"`))
+  if (!line) throw new Error(`找不到按钮：${ariaLabel}`)
+  return line
+}
+
+describe("章节与大纲工具栏图标", () =&gt; {
+  it("一键排版用魔法棒图标，不再是字体图标", () =&gt; {
+    const line = buttonLine("一键排版")
+    expect(line).toContain("WandSparkles")
+    // 两处图标撞车正是本次要修的缺陷
+    expect(line).not.toContain("&lt;Type")
+  })
+
+  it("字体设置用 Type 图标，且与一键排版不是同一个", () =&gt; {
+    const line = buttonLine("字体设置")
+    expect(line).toContain("Type")
+    expect(line).not.toContain("WandSparkles")
+    expect(buttonLine("一键排版")).not.toBe(line)
+  })
+
+  it("章节与大纲都能打开字体设置浮层", () =&gt; {
+    // 两处入口都调同一个打开函数（共用同一个面板，含同一份值）
+    expect(source.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
+  })
+})</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：运行，确认因「还没改」而变红</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"</code></pre>
+      <p class="expect bad">Expected: FAIL — 第 1 条「一键排版用魔法棒图标」因当前用的是 <code>Type</code> 而失败；第 3 条因找不到两个调用点而失败。<strong>这就是缺陷存在的证据</strong>，别跳过这一步。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：换图标</div>
+    <div class="step-body">
+      <p>第 3 行 import 加入 <code>WandSparkles</code>（<code>Type</code> 保留，它要给字体设置用）：</p>
+<pre><code class="cmd">import { BookOpen, Brain, Eraser, MoreHorizontal, Type, WandSparkles, X } from "lucide-react"</code></pre>
+      <p>把第 1520 行：</p>
+<pre><code class="cmd">          {canFormatWriting ? &lt;button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() =&gt; void handleFormatWriting()}&gt;&lt;Type aria-hidden="true" /&gt;&lt;/button&gt; : null}</code></pre>
+      <p>替换为（注意：这一行同时完成两件事 —— 换图标 + 在它前面插入字体设置按钮）：</p>
+<pre><code>          {/*
+            字体设置（原「正文排版」）。图标是 Type（T），一键排版是 WandSparkles ——
+            用户明确要求两者不能是同一个图标：改造前两者都是 Type，
+            用户在工具栏上无法区分"调字体"与"自动整理段落"。
+          */}
+          &lt;button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) =&gt; openBodyFontPopover(event.currentTarget)}&gt;
+            &lt;Type aria-hidden="true" /&gt;
+          &lt;/button&gt;
+          {canFormatWriting ? &lt;button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() =&gt; void handleFormatWriting()}&gt;&lt;WandSparkles aria-hidden="true" /&gt;&lt;/button&gt; : null}</code></pre>
+      <p>大纲工具栏（第 1530 行 <code>查看记忆</code>按钮之后）加入同一个按钮：</p>
+<pre><code>          {/*
+            大纲里也要能调字体。用户原话：「关于字体、间距等这些的设置，
+            大纲当中也要有这个设置功能」。
+            与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数
+            是已确认的决定，不各自维护一份。
+          */}
+          &lt;button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) =&gt; openBodyFontPopover(event.currentTarget)}&gt;
+            &lt;Type aria-hidden="true" /&gt;
+          &lt;/button&gt;</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：浮层的位置助手、状态与打开/关闭</div>
+    <div class="step-body">
+      <p>把第 175–188 行的 <code>getDeAiSkillPickerPosition</code> 替换为通用版本（去AI味选择器仍走同一个函数，行为不变）：</p>
+<pre><code>const BODY_TYPOGRAPHY_PANEL_WIDTH_PX = 360
+
+/**
+ * 把一个浮层贴到锚点按钮下方，并保证不越出视口右缘。
+ * 抽成通用函数是因为字体设置面板（360px）比去AI味选择器（288px）
+ * 宽，两者都需要同一套夹取逻辑；复制一份必然漂移。
+ */
+function getFloatingPanelPosition(anchor: HTMLElement | null | undefined, widthPx: number): CSSProperties {
+  if (!anchor) return { right: 24, top: 80 }
+  const rect = anchor.getBoundingClientRect()
+  const gap = 8
+  const viewportWidth = window.innerWidth || widthPx
+  const left = Math.min(
+    Math.max(rect.left, gap),
+    Math.max(gap, viewportWidth - widthPx - gap),
+  )
+  return { left, top: rect.bottom + gap }
+}
+
+function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties {
+  return getFloatingPanelPosition(anchor, DE_AI_SKILL_PICKER_WIDTH_PX)
+}</code></pre>
+
+      <p>在第 237–238 行（去AI味选择器的 state）附近加入浮层状态：</p>
+<pre><code class="cmd">  // ── 写作现场「字体设置」浮层 ──
+  const [bodyFontOpen, setBodyFontOpen] = useState(false)
+  const [bodyFontPosition, setBodyFontPosition] = useState&lt;CSSProperties&gt;(() =&gt; getFloatingPanelPosition(null, BODY_TYPOGRAPHY_PANEL_WIDTH_PX))
+  const bodyFontRef = useRef&lt;HTMLDivElement | null&gt;(null)
+  /*
+   * 落盘去抖。writing现场改参数是"边拖边看"，store 与 CSS 变量必须立即生效
+   * （zustand 同步更新，App 的 effect 会把变量写到 documentElement），
+   * 但落盘要合并 —— 一次拖动会触发几十次 onChange。
+   */
+  const bodyTypographyPersist = useRef(createDebouncedPersist(400))</code></pre>
+
+      <p>在第 270 行（<code>deAiSkillPickerRef</code>）附近之后，加入 store 订阅与处理函数：</p>
+<pre><code>  const uiBodyFontFamily = useWikiStore((s) =&gt; s.uiBodyFontFamily)
+  const setUiBodyFontFamily = useWikiStore((s) =&gt; s.setUiBodyFontFamily)
+  const uiBodyFontPx = useWikiStore((s) =&gt; s.uiBodyFontPx)
+  const setUiBodyFontPx = useWikiStore((s) =&gt; s.setUiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) =&gt; s.uiBodyLineHeight)
+  const setUiBodyLineHeight = useWikiStore((s) =&gt; s.setUiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) =&gt; s.uiBodyLetterSpacing)
+  const setUiBodyLetterSpacing = useWikiStore((s) =&gt; s.setUiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) =&gt; s.uiBodyMarginX)
+  const setUiBodyMarginX = useWikiStore((s) =&gt; s.setUiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) =&gt; s.uiBodySafeBottom)
+  const setUiBodySafeBottom = useWikiStore((s) =&gt; s.setUiBodySafeBottom)
+
+  const openBodyFontPopover = useCallback((anchor?: HTMLElement | null) =&gt; {
+    setBodyFontPosition(getFloatingPanelPosition(anchor, BODY_TYPOGRAPHY_PANEL_WIDTH_PX))
+    setBodyFontOpen(true)
+  }, [])
+
+  /*
+   * 关闭时必须 flush：用户最常见的操作顺序是「拖完最后一下就关掉」。
+   * 只靠定时器的话最后一次改动会被丢掉，表现为
+   * 「明明调过了，重开软件又变回去」。
+   */
+  const closeBodyFontPopover = useCallback(() =&gt; {
+    bodyTypographyPersist.current.flush()
+    setBodyFontOpen(false)
+  }, [])
+
+  useEffect(() =&gt; {
+    const persist = bodyTypographyPersist.current
+    return () =&gt; { persist.dispose() }
+  }, [])
+
+  /*
+   * 现场改排版参数：store 立即生效 + 落盘去抖。
+   * 与设置页的差别只有"没有保存按钮"，取值来源同一个 store，
+   * 所以两处不可能读出两套值。
+   */
+  const applyBodyTypographyChange = useCallback(&lt;K extends keyof BodyTypographyValue&gt;(
+    key: K,
+    next: BodyTypographyValue[K],
+  ) =&gt; {
+    const persist = bodyTypographyPersist.current
+    switch (key) {
+      case "fontFamily":
+        setUiBodyFontFamily(next as BodyFontFamily)
+        persist.schedule(() =&gt; saveUiBodyFontFamily(next as BodyFontFamily))
+        break
+      case "fontPx":
+        setUiBodyFontPx(next as number)
+        persist.schedule(() =&gt; saveUiBodyFontPx(next as number))
+        break
+      case "lineHeight":
+        setUiBodyLineHeight(next as number)
+        persist.schedule(() =&gt; saveUiBodyLineHeight(next as number))
+        break
+      case "letterSpacing":
+        setUiBodyLetterSpacing(next as number)
+        persist.schedule(() =&gt; saveUiBodyLetterSpacing(next as number))
+        break
+      case "marginX":
+        setUiBodyMarginX(next as number | null)
+        persist.schedule(() =&gt; saveUiBodyMarginX(next as number | null))
+        break
+      case "safeBottom":
+        setUiBodySafeBottom(next as number)
+        persist.schedule(() =&gt; saveUiBodySafeBottom(next as number))
+        break
+      default: break
+    }
+  }, [setUiBodyFontFamily, setUiBodyFontPx, setUiBodyLineHeight, setUiBodyLetterSpacing, setUiBodyMarginX, setUiBodySafeBottom])
+
+  // 点击浮层外或按 Esc 关闭（与去AI味选择器同一套交互）
+  useEffect(() =&gt; {
+    if (!bodyFontOpen) return
+    const onPointerDown = (event: MouseEvent) =&gt; {
+      if (bodyFontRef.current?.contains(event.target as Node)) return
+      closeBodyFontPopover()
+    }
+    const onKeyDown = (event: KeyboardEvent) =&gt; {
+      if (event.key === "Escape") closeBodyFontPopover()
+    }
+    document.addEventListener("mousedown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown)
+    return () =&gt; {
+      document.removeEventListener("mousedown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [bodyFontOpen, closeBodyFontPopover])</code></pre>
+
+      <p>新增 import：</p>
+<pre><code class="cmd">import { createDebouncedPersist } from "@/lib/debounced-persist"
+import { BodyTypographyFields, type BodyTypographyValue } from "@/components/settings/sections/body-typography-fields"
+import { saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
+import type { BodyFontFamily } from "@/lib/font-settings"</code></pre>
+      <p>若 <code>saveUiBodyFontFamily</code> 已在既有 import 里，不要重复导入。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：渲染浮层（与去AI味浮层并列）</div>
+    <div class="step-body">
+      <p>在第 1930 行 <code>{deAiSkillPickerOpen ? (…)}</code> 那块<strong>之前</strong>插入：</p>
+<pre><code>      {bodyFontOpen ? (
+        &lt;div
+          ref={bodyFontRef}
+          className="fixed z-50 rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
+          style={{ ...bodyFontPosition, width: BODY_TYPOGRAPHY_PANEL_WIDTH_PX }}
+          role="dialog"
+          aria-label="字体设置"
+        &gt;
+          &lt;div className="mb-2 flex items-center justify-between gap-2 px-1"&gt;
+            &lt;div className="truncate text-sm font-medium"&gt;字体设置&lt;/div&gt;
+            &lt;button
+              type="button"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={closeBodyFontPopover}
+              aria-label="关闭字体设置"
+              title="关闭字体设置"
+            &gt;
+              &lt;X className="h-3.5 w-3.5" /&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+          {/*
+            与设置页共用同一个组件、同一份 store 取值。
+            dense 只影响说明段落，不影响任何数值语义。
+          */}
+          &lt;BodyTypographyFields
+            idPrefix="chapter-body-typography"
+            dense
+            value={{
+              fontFamily: uiBodyFontFamily,
+              fontPx: uiBodyFontPx,
+              lineHeight: uiBodyLineHeight,
+              letterSpacing: uiBodyLetterSpacing,
+              marginX: uiBodyMarginX,
+              safeBottom: uiBodySafeBottom,
+            }}
+            onChange={applyBodyTypographyChange}
+          /&gt;
+        &lt;/div&gt;
+      ) : null}</code></pre>
+      <div class="note warn">
+        <span class="t">宽度不要写死在 class 里</span>
+        <p>用行内 <code>width</code> 是为了与位置计算共用同一个常量 <code>BODY_TYPOGRAPHY_PANEL_WIDTH_PX</code>。若改成 Tailwind 的 <code>w-90</code> 之类，位置夹取算的宽度就与真实宽度脱钩，窄窗口下会溢出屏幕。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：运行图标守卫，确认变绿</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx vitest run src/components/layout/preview-panel.chapter-toolbar.spec.tsx --exclude "**/.claude/**" --exclude "**/.codex-temp/**" --exclude "**/.worktrees/**"
+npx tsc -p tsconfig.app.json --noEmit</code></pre>
+      <p class="expect">Expected: 3 passed；tsc 干净（除任务 12 要改的 spec 文件）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 7：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/layout/preview-panel.tsx src/components/layout/preview-panel.chapter-toolbar.spec.tsx
+git commit -m "feat(写作现场): 一键排版换魔法棒图标，章节与大纲新增字体设置浮层"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 12 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 12</span><h3>守卫更新：只换契约，不放松</h3></div>
+  <p class="task-why">字号从「rem × 倍数」改成「绝对 px」之后，几处守卫钉住的字面量必须改。但<strong>它们真正保护的不变量一条都不能丢</strong>：四处同源、高亮层与输入层逐字节一致、行高必须无单位、变量只在 ui-test.css 定义一处。此外要新增三条守卫，其中两条是针对本次改造引入的新风险。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>Modify: src/components/settings/interface-sidebar-nav.spec.ts</div>
+    <div>Modify: src/components/uitest/ui-test-editor.spec.tsx</div>
+    <div>Modify: docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs</div>
+    <div>Modify: docs/font-scaling-fix-20261007/verify-body-font-scale.mjs</div>
+    <div>Modify: docs/font-scaling-fix-20261007/verify-real-exe.mjs</div>
+    <div>Modify: docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12a：接线守卫改指新字段</div>
+    <div class="step-body">
+      <p>在 <code>interface-sidebar-nav.spec.ts</code> 第 8 行后加一行，让共享组件也进入检查范围：</p>
+<pre><code class="cmd">const bodyTypographySource = readFileSync(resolve(__dirname, "sections/body-typography-fields.tsx"), "utf8")</code></pre>
+      <p>把第 104–125 行那条 <code>it("正文字号接成完整一条链路，且与界面字号各自独立", …)</code> 整个替换为：</p>
+<pre><code>  /**
+   * 正文排版参数的接线防线（原「正文字号」那条的接替者）。
+   *
+   * 改动原因：正文字号由「界面字号 × 倍数」改为**绝对 px**，
+   * 控件也从 interface-section.tsx 搬进了共享组件
+   * body-typography-fields.tsx（设置页与写作现场共用）。
+   * 守卫因此必须同时看两个文件 —— 只看设置页会漏掉
+   * "控件搬走了但接线没跟上"这种情况。
+   *
+   * 保留的硬要求（一条都没放松）：
+   *   · 6 个参数各有独立 localStorage 键，不共用；
+   *   · 保存时既写 store 也落盘；
+   *   · 钳制只有一处来源（font-settings.ts），不在 store 里重写数字。
+   */
+  it("正文字体与 5 个排版参数接成完整一条链路", () =&gt; {
+    // 1) 控件在共享组件里，且绑定到草稿字段
+    expect(bodyTypographySource).toContain("BODY_FONT_OPTIONS")
+    expect(bodyTypographySource).toContain('aria-label="正文字体"')
+    expect(bodyTypographySource).toContain('aria-label="正文字号预设"')
+    expect(bodyTypographySource).toContain('aria-label="正文字号"')
+    for (const label of ["行间距", "字间距", "左右边距", "底部安全距离"]) {
+      expect(bodyTypographySource).toContain(`aria-label="${label}"`)
+    }
+    // 2) 设置页通过共享组件接线（而不是自己再写一套控件）
+    expect(interfaceSectionSource).toContain("BodyTypographyFields")
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontPx"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyLineHeight"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyLetterSpacing"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodyMarginX"')
+    expect(interfaceSectionSource).toContain('setDraft("uiBodySafeBottom"')
+    // 3) 草稿类型里有这 6 个字段
+    for (const field of ["uiBodyFontFamily", "uiBodyFontPx", "uiBodyLineHeight", "uiBodyLetterSpacing", "uiBodyMarginX", "uiBodySafeBottom"]) {
+      expect(settingsTypesSource).toContain(field)
+    }
+    // 4) store：6 个状态 + 6 个 setter + 6 个**互不相同**的 localStorage 键
+    const storeKeys = [
+      ["uiBodyFontPx", "qmai-body-font-px"],
+      ["uiBodyLineHeight", "qmai-body-line-height"],
+      ["uiBodyLetterSpacing", "qmai-body-letter-spacing"],
+      ["uiBodyMarginX", "qmai-body-margin-x"],
+      ["uiBodySafeBottom", "qmai-body-safe-bottom"],
+    ] as const
+    const seenKeys = new Set&lt;string&gt;()
+    for (const [field, key] of storeKeys) {
+      expect(wikiStoreSource).toContain(`${field}: readStored`)
+      expect(wikiStoreSource).toContain(`set${field[0].toUpperCase()}${field.slice(1)}:`)
+      expect(wikiStoreSource).toContain(`"${key}"`)
+      // 共用键会让两个设置互相覆盖 —— 这正是要防的串味
+      expect(seenKeys.has(key), `键 ${key} 被两个参数共用`).toBe(false)
+      seenKeys.add(key)
+    }
+    expect(wikiStoreSource).toContain('"qmai-body-font-family"')
+    // 旧倍数键必须保留只读（迁移要用），但不得再被写入
+    expect(wikiStoreSource).toContain('const BODY_FONT_SIZE_SCALE_KEY = "qmai-ui-body-font-scale"')
+    expect(wikiStoreSource).not.toContain("localStorage.setItem(BODY_FONT_SIZE_SCALE_KEY")
+    // 5) 保存时既写 store 也持久化（只做一个会「这次生效下次丢失」或反之）
+    for (const name of ["FontPx", "LineHeight", "LetterSpacing", "MarginX", "SafeBottom"]) {
+      expect(settingsViewSource).toContain(`setUiBody${name}(draft.uiBody${name})`)
+      expect(settingsViewSource).toContain(`saveUiBody${name}(draft.uiBody${name}`)
+    }
+    // 6) 界面字号与界面字体照旧保存，不能被新字段挤掉
+    expect(settingsViewSource).toContain("saveUiFontSizeScale(draft.uiFontSizeScale")
+    expect(settingsViewSource).toContain("saveUiFontFamily(draft.uiFontFamily)")
+  })</code></pre>
+
+      <p>把第 127–144 行那条 <code>it("正文字号通过倍数变量应用，与界面字号相乘而非互相覆盖", …)</code>（连同它上方 127–135 行的注释块）整个替换为：</p>
+<pre><code>  /**
+   * App.tsx 必须把 5 个排版参数**写在 documentElement 的行内样式上**，
+   * 由 CSS 的间接层读取。
+   *
+   * ── 为什么把旧的一条整条替换掉，而不是删掉 ──
+   * 旧断言钉的是「正文字号写成倍数变量，与界面字号相乘」。
+   * 用户已确认把正文字号改成绝对 px，两者不再相乘 ——
+   * 那条断言的**前提**消失了，不能留着（会永远红），
+   * 但也不能只是删掉：它当时防的是"算好一个 px 写进 fontSize、
+   * 两个设置互相覆盖"，那个风险依然存在，只是形态变了。
+   * 现在防的是：值必须经由 applyBodyTypography 写变量，
+   * 而不是被塞进 documentElement.style.fontSize。
+   */
+  it("App 通过 applyBodyTypography 应用 5 个排版变量，且与界面字号机制不同", () =&gt; {
+    const appSource = readFileSync(resolve(__dirname, "../../App.tsx"), "utf8")
+    expect(appSource).toContain("applyBodyTypography({")
+    // 5 个参数必须都在同一次调用里（少一个就不会生效）
+    for (const field of ["fontPx", "lineHeight", "letterSpacing", "marginX", "safeBottom"]) {
+      expect(appSource).toContain(`${field}: uiBody`)
+    }
+    // 界面字号仍是根字号百分比（rem 基准），两者机制不同、互不覆盖
+    expect(appSource).toContain("document.documentElement.style.fontSize")
+    // 启动必须逐项读回，否则重开软件就丢
+    for (const loader of ["loadUiBodyFontPx()", "loadUiBodyLineHeight()", "loadUiBodyLetterSpacing()", "loadUiBodyMarginX()", "loadUiBodySafeBottom()"]) {
+      expect(appSource).toContain(loader)
+    }
+  })
+
+  /**
+   * 写作现场必须也能改这 5 个参数，且与设置页共用同一个组件。
+   * 用户原话：「大纲当中也要有这个设置功能」。
+   */
+  it("写作现场浮层与设置页共用同一个控件组件", () =&gt; {
+    const previewSource = readFileSync(resolve(__dirname, "../layout/preview-panel.tsx"), "utf8")
+    expect(previewSource).toContain("BodyTypographyFields")
+    expect(previewSource).toContain('aria-label="字体设置"')
+    // 两处入口（章节 + 大纲）都调同一个打开函数
+    expect(previewSource.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
+    // 关浮层必须 flush，否则「拖完就关」会丢掉最后一次改动
+    expect(previewSource).toContain("bodyTypographyPersist.current.flush()")
+  })</code></pre>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12b：CSS 契约守卫跟随新变量</div>
+    <div class="step-body">
+      <p>在 <code>src/components/uitest/ui-test-editor.spec.tsx</code> 里：</p>
+      <ul>
+        <li>第 650–651 行那条断言 <code>p { … line-height: 1.95 … }</code> 的字面量，改为 <code>line-height: var\(--qmai-body-line-height\)</code>：</li>
+      </ul>
+<pre><code class="cmd">    // 正文段落本身的 2em 缩进不能被这次修改动到；行高必须是变量引用 ——
+    // 写死 1.95 会让「行间距」这个设置对正文段落完全失效。
+    expect(css).toMatch(
+      /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: var\(--qmai-body-line-height\); text-indent: 2em; \}/,
+    )</code></pre>
+      <ul>
+        <li>新增三条断言（放在「正文查找高亮与输入层共用同一个字号与行高变量」那条之后）：</li>
+      </ul>
+<pre><code>  it("字间距只声明一处，靠继承保证输入层与高亮层取值必然相同", () =&gt; {
+    // 复制成三份的话，改其中一份就会让覆盖层与输入文字错位。
+    // 继承是"按构造相同"，比三处写同一个表达式更强。
+    const matches = css.match(/letter-spacing:\s*var\(--qmai-body-letter-spacing/g) ?? []
+    expect(matches.length).toBe(1)
+    expect(css).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+  })
+
+  it("列表行高跟随行间距变量，标题与表格保持固定", () => {
+    // 列表三项都必须引用变量：只改 p 的话列表行距不动，
+    // 用户会觉得「行间距只对一半文字有效」
+    for (const selector of [":is(ul, ol)", "li {", "li p"]) {
+      const at = css.indexOf(selector)
+      expect(at, `找不到选择器片段：${selector}`).toBeGreaterThan(-1)
+    }
+    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: 1\.9/)
+    // 已确认的边界：标题 1.6、表格 1.7 不跟随行间距
+    expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
+    expect(css).toMatch(/line-height: 1\.7;/)
+  })
+
+  it("底部安全距离与左右边距都是变量，没有写死的数字残留", () => {
+    // 改造前是 padding-bottom: 36px（窄屏另有 28px），两处独立数字正是"不可调"的根源
+    expect(css).toMatch(/\.ui-test-editor-scroll \{[^}]*padding-bottom:\s*var\(--qmai-body-safe-bottom, 51px\)/)
+    expect(css).not.toContain("padding-bottom: 36px")
+    expect(css).not.toContain("padding-bottom: 28px")
+    // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
+    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, clamp\(20px, 4vw, 48px\)\)/)
+    expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
+  })</code></pre>
+      <div class="note warn">
+        <span class="t">上面这几条必须能红</span>
+        <p>写完后逐条做变异验证：把 <code>var(--qmai-body-safe-bottom, 51px)</code> 临时改回 <code>36px</code>、把 <code>letter-spacing</code> 复制出第二份、把 <code>li</code> 的 <code>line-height</code> 改回 <code>1.9</code> —— 每改一处跑一次，确认对应用例变红再改回。<strong>一条改不红的断言等于没写。</strong></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12c：静态守卫 verify-body-font-single-source.mjs</div>
+    <div class="step-body">
+      <p>这个脚本有一个自检模式（<code>--selftest</code>），会拿构造的 CSS 验证自己"该红的会红"。改它时必须同步改自检夹具，否则自检会失败 —— 那正是它存在的意义。</p>
+
+      <p><strong>1)</strong> 把第 90–97 行的 <code>isScaledRem</code> 替换为两个新判据：</p>
+<pre><code>/** `var(--qmai-body-font-px, <数字>px)` —— 字号间接层。 */
+function isPxIndirection(value, expectedPx) {
+  if (typeof value !== "string") return false
+  const flat = value.replace(/\s+/g, " ").trim()
+  const m = flat.match(/^var\(\s*--qmai-body-font-px\s*,\s*(-?\d*\.?\d+)px\s*\)$/)
+  if (!m) return false
+  return Number(m[1]) === expectedPx
+}
+
+/** `calc(var(--qmai-body-font-size) * <分子> / <分母>)` —— 从属尺寸由字号派生。 */
+function isDerivedRatio(value, numerator, denominator) {
+  if (typeof value !== "string") return false
+  const flat = value.replace(/\s+/g, " ").trim()
+  const m = flat.match(/^calc\(\s*var\(\s*--qmai-body-font-size\s*\)\s*\*\s*(-?\d*\.?\d+)\s*\/\s*(-?\d*\.?\d+)\s*\)$/)
+  if (!m) return false
+  return Number(m[1]) === numerator &amp;&amp; Number(m[2]) === denominator
+}</code></pre>
+
+      <p><strong>2)</strong> 把第 157–173 行那段变量断言替换为：</p>
+<pre><code>  /*
+   * 三个尺寸变量：字号是「App 写的 px 间接层」，列表与标记由字号按精确比例派生。
+   * 为什么必须是按比例派生而不是各写一个 px：改造前三者是
+   * 1.125rem / 1rem / 0.75rem 三个独立数字，改字号时漏改一条，
+   * 列表与正文就会不同步。派生之后不可能漂移。
+   * 比例沿用改造前的 16/18 = 8/9 与 12/18 = 2/3。
+   */
+  const sizeDef = varDefs.get(BODY_SIZE_VAR)
+  if (!sizeDef) bad("变量定义", `${BODY_SIZE_VAR} 未在 ui-test.css 中定义（应为 var(--qmai-body-font-px, 18px)）`)
+  else if (!isPxIndirection(sizeDef.value, 18)) {
+    bad("变量定义", `${BODY_SIZE_VAR} 应为 var(--qmai-body-font-px, 18px)（18 是改造前 100% 档的字号），实际 ${sizeDef.value}`)
+  }
+  const listDef = varDefs.get(BODY_LIST_VAR)
+  if (!listDef) bad("变量定义", `${BODY_LIST_VAR} 未定义（应为 calc(var(--qmai-body-font-size) * 8 / 9)，即改造前的列表 16px）`)
+  else if (!isDerivedRatio(listDef.value, 8, 9)) {
+    bad("变量定义", `${BODY_LIST_VAR} 不是由字号按 8/9 派生：${listDef.value}（改造前是 16/18）`)
+  }
+  const markerDef = varDefs.get(BODY_MARKER_VAR)
+  if (!markerDef) bad("变量定义", `${BODY_MARKER_VAR} 未定义（应为 calc(var(--qmai-body-font-size) * 2 / 3)，即改造前的标记 12px）`)
+  else if (!isDerivedRatio(markerDef.value, 2, 3)) {
+    bad("变量定义", `${BODY_MARKER_VAR} 不是由字号按 2/3 派生：${markerDef.value}（改造前是 12/18）`)
+  }
+  {
+    const d = varDefs.get(BODY_LINE_VAR)
+    if (!d) bad("变量定义", `${BODY_LINE_VAR} 未定义（应为 var(--qmai-body-leading, 1.95)）`)
+    /*
+     * 行高仍必须是**无单位**数字：带单位会让行高不随字号变化，
+     * 用户调大字号后行距被"吃掉"。这条与改造前一致，没有放松。
+     * 变化的是取值来源：改由 App 写 --qmai-body-leading，默认 1.95。
+     */
+    else {
+      const flat = d.value.replace(/\s+/g, "")
+      const m = flat.match(/^var\(--qmai-body-leading,(-?\d*\.?\d+)\)$/)
+      if (!m) bad("变量定义", `${BODY_LINE_VAR} 应为 var(--qmai-body-leading, 1.95)，实际 ${d.value}`)
+      else if (Number(m[1]) !== 1.95) bad("变量定义", `${BODY_LINE_VAR} 的默认值应为 1.95（改造前的取值），实际 ${m[1]}`)
+      else if (hasPx(d.value)) bad("变量定义", `${BODY_LINE_VAR} 不能带单位（带单位会让行高不随字号变化）`)
+    }
+  }
+
+  /* 0b) App 独占的 5 个变量**不得**在 ui-test.css 里声明。
+     这是本次改造新引入的风险：本文件的变量宿主是 .ui-test-root，
+     它比 html 更近。App 把值写在 documentElement 的行内样式上，
+     若这里也声明一份字面量默认值，就会把它盖掉 ——
+     表现为「设置保存了但界面不变」，而且不会有任何报错。
+     兜底只能写在使用点的 var(--x, 兜底值) 里。 */
+  const APP_OWNED_VARS = [
+    "--qmai-body-font-px",
+    "--qmai-body-leading",
+    "--qmai-body-letter-spacing",
+    "--qmai-body-margin-x",
+    "--qmai-body-safe-bottom",
+  ]
+  for (const r of uitestRules) {
+    for (const [prop, d] of r.decls) {
+      if (APP_OWNED_VARS.includes(prop)) {
+        bad(`L${d.line} ${r.selector}`, `${prop} 是 App 独占变量，不得在 ui-test.css 里声明（会盖掉 documentElement 行内样式，设置将完全失效）`)
+      }
+    }
+  }</code></pre>
+
+      <p><strong>3)</strong> 第 176 行那句「ui-test-editor.css 里也定义了 …」的名单里去掉已经没有意义的 <code>BODY_SCALE_VAR</code>（该变量已废弃）。若全仓 grep 确认无人再引用 <code>BODY_SCALE_VAR</code>，把它第 45 行的导出也删掉。</p>
+
+      <p><strong>4)</strong> 更新第 286–289 行的 <code>ROOT_OK</code> 夹具：</p>
+<pre><code class="cmd">  --qmai-body-font-size: var(--qmai-body-font-px, 18px);
+  --qmai-body-font-list: calc(var(--qmai-body-font-size) * 8 / 9);
+  --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 2 / 3);
+  --qmai-body-line-height: var(--qmai-body-leading, 1.95);</code></pre>
+
+      <p><strong>5)</strong> 第 300–302 行 <code>GOOD_EDITOR</code> 里的 <code>line-height: 1.9;</code> 三处改为 <code>line-height: var(--qmai-body-line-height);</code>；第 334 行的变异</p>
+<pre><code class="cmd">    GOOD_EDITOR, ROOT_OK.replace("calc(1.125rem * var(--qmai-body-font-scale, 1))", "1.125rem"), false)</code></pre>
+      <p>改为</p>
+<pre><code class="cmd">    GOOD_EDITOR, ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "18px"), false)</code></pre>
+      <p>第 345 行的变异</p>
+<pre><code class="cmd">    GOOD_EDITOR, ROOT_OK + "\n.ui-test-root { --qmai-body-font-marker: calc(0.9rem * var(--qmai-body-font-scale, 1)); }", false)</code></pre>
+      <p>改为</p>
+<pre><code class="cmd">    GOOD_EDITOR, ROOT_OK + "\n.ui-test-root { --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 3 / 4); }", false)</code></pre>
+
+      <p><strong>6)</strong> 在自检里<strong>新增两条负向夹具</strong>，专门验证新守卫真的会红：</p>
+<pre><code>  /* 新增：App 独占变量被重复声明时必须报红 ——
+     这是本次改造新引入的失败模式，必须有负向夹具证明守卫有效 */
+  mut("正文字号间接层被重复声明",
+    GOOD_EDITOR,
+    ROOT_OK + "\n.ui-test-root { --qmai-body-font-px: 18px; }", false)
+  mut("行高间接层被重复声明",
+    GOOD_EDITOR,
+    ROOT_OK + "\n.ui-test-root { --qmai-body-leading: 1.95; }", false)
+  mut("从属尺寸不再是按比例派生",
+    GOOD_EDITOR,
+    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "16px"), false)</code></pre>
+
+      <p><strong>7)</strong> 跑正式校验与自检：</p>
+      <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs --selftest</code></pre>
+      <p class="expect">Expected: 两条都是「✓」。自检里每一条负向夹具都必须报告"如预期报红"；若有夹具显示"未报红"，说明对应的判据没生效，必须修到达标再继续。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12d：三个 CDP 脚本的"尺子"改名</div>
+    <div class="step-body">
+      <p>这三个脚本用 <code>--qmai-body-font-scale</code> 当"尺子"（写一个已知值 → 读计算样式 → 判断链路是否活着）。变量改名后它们会全部失效，必须跟随。逐个文件处理，<strong>不要只做字符串替换</strong>——数值语义从"倍数"变成了"px"，期望值要一起改：</p>
+      <table>
+        <thead><tr><th>文件</th><th>做什么</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono">verify-body-font-scale.mjs</td>
+            <td>把"尺子变量"由 <code>--qmai-body-font-scale</code> 改为 <code>--qmai-body-font-px</code>，写入值由倍数改为 <code>&lt;N&gt;px</code>；"默认档"的判据由「未设置倍数」改为「未设置 px」；期望的计算值由 <code>1.125rem × 倍数</code> 改为直接 <code>Npx</code>。文件名保留（它同时被文档引用），在头注释里写明语义已从倍数改为 px。</td>
+          </tr>
+          <tr>
+            <td class="mono">verify-real-exe.mjs</td>
+            <td>第 151–156 行的尺子设置与 182–185 行的变量读回、337 行与 354 行的期望值，全部改为 px 模型。额外把 <code>--qmai-body-safe-bottom</code> 与 <code>--qmai-body-margin-x</code> 加进读回的变量清单，让真机验证能一次看到 5 个值。</td>
+          </tr>
+          <tr>
+            <td class="mono">verify-real-exe-settings-save.mjs</td>
+            <td>第 115 行的 <code>domBodyScale</code> 改为读 <code>--qmai-body-font-px</code>；"走设置界面保存后正文与标记的像素值"那部分期望值改为 px 模型（字号 N → 正文 Npx、列表 ⌊N×8/9⌋、标记 ⌊N×2/3⌋，注意浏览器保留小数，判据要用接近比较而不是相等）。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note danger">
+        <span class="t">不要为了让脚本变绿而放松判据</span>
+        <p>这三个脚本的价值在于「用真实渲染证明设置真的生效」。如果改成"只要变量存在就算过"，它们就从证据退化成了摆设。判据必须是<strong>计算结果</strong>（计算样式的 px 值），不是"属性字符串里有某个字"。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 12e：提交</div>
+    <div class="step-body">
+      <pre class="cmd"><code>git add src/components/settings/interface-sidebar-nav.spec.ts src/components/uitest/ui-test-editor.spec.tsx docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs docs/font-scaling-fix-20261007/verify-body-font-scale.mjs docs/font-scaling-fix-20261007/verify-real-exe.mjs docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs
+git commit -m "test(排版): 守卫跟随 px 模型，新增变量独占与派生比例两条防线"</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TASK 13 ===================== -->
+<div class="task">
+  <div class="task-head"><span class="n">Task 13</span><h3>全量门禁 + 真实渲染 + 重新打包</h3></div>
+  <p class="task-why">前 12 个任务的单测通过只说明"我以为对了"。这一任务用真实构建与真实渲染确认，然后把能装的安装包交到用户手上。</p>
+
+  <div class="files">
+    <div class="lbl">Files</div>
+    <div>不改源码。产出: src-tauri/target/release/bundle/nsis/青幕AI写作_4.1.2_x64-setup.exe</div>
+    <div>门禁若报红：回到对应任务修复，不要在本任务里放宽断言</div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 1：全量门禁（6 条，逐条确认输出）</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npm run test:mocks
+npx tsc -p tsconfig.app.json --noEmit
+npx tsc -p tsconfig.node.json --noEmit
+npm run typecheck
+npm run typecheck:tests
+npx vite build
+cargo test --offline --lib -- --test-threads=1</code></pre>
+      <p class="expect">Expected（改造前的基线，用来对照，不允许下降）：</p>
+      <ul>
+        <li><code>test:mocks</code>：697 个文件，6523 passed / 0 failed / 6 todo。新增文件后<strong>文件数与通过数都应上升</strong>，failed 必须为 0。那 6 个 todo 是别的文件里既有的 <code>it.todo</code>，不是本次引入。</li>
+        <li>4 个 tsc：全部 0 错误。</li>
+        <li><code>vite build</code>：成功，无新警告。</li>
+        <li><code>cargo test</code>：188 passed / 0 failed / 5 ignored。</li>
+      </ul>
+      <div class="note">
+        <span class="t">若 failed 不为 0</span>
+        <p>先看失败的是不是"改造前就红"的。改造前 <code>test:mocks</code> 是 0 failed，所以任何失败都是本次引入的，必须修，不要用 <code>.skip</code> 绕过。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 2：静态脚本复核</div>
+    <div class="step-body">
+      <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-single-source.mjs
+node scripts/sync-fonts-manifest.mjs --check
+node scripts/check-bundled-font-licenses.mjs</code></pre>
+      <p class="expect">Expected: 三条全部 ✓（后两条与本次改造无关，用来确认没有误伤字体打包）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 3：真实渲染验证</div>
+    <div class="step-body">
+      <p>先用浏览器开发模式肉眼确认三件事，再做 CDP 数值验证：</p>
+      <ol>
+        <li>打开一个章节，点工具栏的「字体设置」（T 图标）→ 面板出现，与「一键排版」（魔法棒）图标明显不同。</li>
+        <li>把「底部安全距离」拖到 120 → 滚到底时最后一行下方留白明显变大。</li>
+        <li>把「行间距」拖到 2.4 → 正文段落与列表都变松；表格与标题<strong>不变</strong>。</li>
+      </ol>
+      <p>然后跑真实的 CDP 数值验证（需要先启动应用）：</p>
+      <pre class="cmd"><code>node docs/font-scaling-fix-20261007/verify-body-font-scale.mjs</code></pre>
+      <p class="expect">Expected: 每个档位的正文/列表/标记计算值与 px 模型的期望值一致（±0.5px 容差，浏览器会保留小数）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 4：重新打包（必须跑 NSIS，不能用 build:portable）</div>
+    <div class="step-body">
+      <pre class="cmd"><code>npx tauri build --bundles nsis</code></pre>
+      <div class="note warn">
+        <span class="t">为什么必须是这条命令</span>
+        <p><code>npm run build:portable</code> 走 <code>--no-bundle</code>，<strong>永远不会执行 NSIS 脚本</strong>，因此字体注册、安装/卸载逻辑那一段完全没被验过。只有 <code>npx tauri build --bundles nsis</code> 会真的调 makensis。</p>
+        <p>预计耗时 6 分钟左右；日志里应出现 <code>Finished release profile</code> / <code>Running makensis</code> / <code>Finished 1 bundle</code>。</p>
+      </div>
+      <p class="expect">Expected: 产出 <code>src-tauri\target\release\bundle\nsis\青幕AI写作_4.1.2_x64-setup.exe</code>（约 154 MB）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 5：确认前端真的被打进了 exe</div>
+    <div class="step-body">
+      <p>用户的安装目录里<strong>没有独立的 dist/</strong>，前端是嵌进 exe 的。所以必须证明新 exe 里确实是新前端，否则用户装完看不到任何变化。用 chunk 名对齐：</p>
+      <pre class="cmd"><code># 取本次 build 产出的、包含排版代码的 chunk 名
+Get-ChildItem dist\assets\*.js | Select-String -Pattern "qmai-body-safe-bottom" -List | Select-Object -First 3 Path
+# 再到新 exe 里找同一个 chunk 名（strings 式扫描）
+Select-String -Path src-tauri\target\release\qmai.exe -Pattern "qmai-body-safe-bottom" -Encoding utf8 -List</code></pre>
+      <p class="expect">Expected: dist 的 chunk 名与新 exe 内出现的 chunk 名一致。若 exe 里找不到，说明 build 没把前端更新进去，不要交付。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-h"><span class="box"></span>Step 6：交付说明</div>
+    <div class="step-body">
+      <p>把安装包路径与 SHA256 报给用户，并提醒：<strong>安装前要完全退出正在运行的青幕</strong>（否则文件被占用，安装会失败或留下半新半旧的目录）。</p>
+      <pre class="cmd"><code>(Get-FileHash "src-tauri\target\release\bundle\nsis\青幕AI写作_4.1.2_x64-setup.exe" -Algorithm SHA256).Hash</code></pre>
+      <p>同时如实说明这一版的<strong>行为变化</strong>（用户应当事先知道，而不是装完才发现）：</p>
+      <ul>
+        <li>正文字号改成了绝对像素：<strong>改「界面字号」时正文不再跟着变</strong>（这是 px 化的必然结果，已确认接受）。</li>
+        <li>底部留白由写死的 36px 变成 51px：写作区下方会多出一截空白，这是修复贴底的方式。</li>
+        <li>列表行高由 1.9 变成与正文一致的 1.95：列表会略高约 2.6%。</li>
+        <li>老用户的旧「正文字号百分比」会按 0.85→15 / 1→18 / 1.25→23 / 1.5→27 自动迁移，旧设置不会被删。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>自检：这份计划与规格逐条对照</h2></div>
+
+  <table>
+    <thead><tr><th>规格要求</th><th>落在哪个任务</th></tr></thead>
+    <tbody>
+      <tr><td>正文字体控制章节字体</td><td>链路本就通（<code>--serif</code> ← <code>--qmai-body-font-family</code>）；缺的是现场入口 → <b>Task 11</b>，设置页接管 → <b>Task 9</b></td></tr>
+      <tr><td>一键排版图标与字体图标不能相同</td><td><b>Task 11</b>（<code>Type</code> → <code>WandSparkles</code>），守卫在 Task 11 Step 1 先红</td></tr>
+      <tr><td>最后一行贴在最底层 → 底部安全距离可调</td><td><b>Task 7</b> Step 2（含删除窄屏 28px 覆盖）</td></tr>
+      <tr><td>字间距设置</td><td><b>Task 1</b>（模型）+ <b>Task 7</b> Step 3（CSS，单处声明靠继承）+ <b>Task 8</b>（控件）</td></tr>
+      <tr><td>行间距设置</td><td><b>Task 1</b> + <b>Task 7</b> Step 4（正文段落与列表，标题/表格固定）+ <b>Task 8</b></td></tr>
+      <tr><td>左右边距设置</td><td><b>Task 7</b> Step 1（挂在正文容器上，否则宽窗口下无效）</td></tr>
+      <tr><td>字号自定义（具体像素）</td><td><b>Task 1</b>（12–32px）+ <b>Task 5</b>（不再走 rem 倍数）+ <b>Task 3/4</b>（旧倍数迁移）</td></tr>
+      <tr><td>大纲里也要有这些设置</td><td><b>Task 11</b> Step 3（大纲工具栏加同一个按钮）+ <b>Task 12a</b>（守卫要求两处入口都调同一函数）</td></tr>
+      <tr><td>两个入口不会读出两套值</td><td><b>Task 8</b>（同一个控件组件）+ <b>Task 12a</b>（守卫断言设置页用 <code>BodyTypographyFields</code>、现场也用同一个）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>类型与命名一致性检查（已逐项核对）</h3>
+  <ul>
+    <li><code>applyBodyTypography(settings: BodyTypographySettings, root?)</code> —— Task 1 定义，Task 5 调用，字段名 <code>fontPx / lineHeight / letterSpacing / marginX / safeBottom</code> 三处一致。</li>
+    <li><code>BodyTypographyValue</code> 的 6 个键（<code>fontFamily / fontPx / lineHeight / letterSpacing / marginX / safeBottom</code>）在 Task 8 定义、Task 9 与 Task 11 使用，键名一致。</li>
+    <li>store 字段 <code>uiBodyFontPx / uiBodyLineHeight / uiBodyLetterSpacing / uiBodyMarginX / uiBodySafeBottom</code> 在 Task 3 定义，Task 4/5/9/10/11/12 引用，无第二种拼写。</li>
+    <li>localStorage 键与小写化后的 app-state 键一一对应：<code>qmai-body-font-px</code> ↔ <code>uiBodyFontPx</code>，以此类推，共 5 组，无重复。</li>
+    <li><code>effectiveDefaultMarginX</code> 只在 Task 8 定义与使用，Task 8 的 spec 直接测它。</li>
+  </ul>
+
+  <h3>已识别的风险与对应防线</h3>
+  <table>
+    <thead><tr><th>风险</th><th>防线</th></tr></thead>
+    <tbody>
+      <tr><td>App 写的变量被 <code>.ui-test-root</code> 的声明盖掉 → 设置静默失效</td><td>Task 12c 新增守卫 0b（且带两条负向夹具）</td></tr>
+      <tr><td>左右边距挂在被 800px 上限约束的外层 → 宽窗口下滑块看起来没反应</td><td>Task 7 Step 1 挂到正文容器；Task 12b 断言挂载点</td></tr>
+      <tr><td>行间距只改了 <code>p</code> 没改 <code>li</code> → 只对一半文字有效</td><td>Task 12b 的列表断言 + 变异验证</td></tr>
+      <tr><td>查找高亮层与输入层错位</td><td>沿用既有「逐字节相同」守卫（Task 12c 第 196–236 行不动）；字间距改为单处声明靠继承</td></tr>
+      <tr><td>拖动滑块写爆 app-state.json</td><td>Task 2 的去抖 + Task 11 关闭时 flush</td></tr>
+      <tr><td>旧用户设置丢失或字号被莫名改动</td><td>Task 3/4 的双路迁移，旧键只读不删；Task 12a 断言旧键不再被写入</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <span class="t">两处需要实施者自行确认的细节</span>
+    <p><b>1)</b> Task 8 用了 <code>ui-test-interface-value</code> 这个类名。实施前先 <code>grep</code> 确认它存在；不存在就用已有的类或干脆去掉，不要留下一个没有任何样式的孤立类名。</p>
+    <p><b>2)</b> Task 12d 涉及三个脚本的数值语义改动（倍数 → px）。这三个脚本我读到了变量名与行号，但<strong>没有逐行读完</strong>它们的断言逻辑。实施时必须先完整读一遍再改，并在头注释里写明语义变化 —— 不要为了让它变绿而放松判据。</p>
+  </div>
+</section>
+
+<footer>
+  青幕AI写作 · 实施计划 · 2026-10-08 · 配套规格：docs/superpowers/specs/2026-10-08-chapter-font-settings-design.html
+</footer>
+
+<footer>
+  青幕AI写作 · 实施计划 · 2026-10-08 · 配套规格：docs/superpowers/specs/2026-10-08-chapter-font-settings-design.html
+</footer>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('qmai-plan-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>
