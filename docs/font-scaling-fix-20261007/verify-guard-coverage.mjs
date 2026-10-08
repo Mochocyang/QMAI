@@ -41,6 +41,42 @@ const only = process.argv.includes("--code") ? process.argv[process.argv.indexOf
 const original = readFileSync(TOOL, "utf8")
 
 /**
+ * 从工具源码里**实际**提取它会发出的守卫代号。
+ *
+ * 为什么必须有这一步：`CODES` 是一份手写清单，一旦它与代码脱节，
+ * 覆盖度就会假绿（漏掉的代号永远不会被短路，于是"没被发现无覆盖"）。
+ * 这不是假设 —— 历史上工具源码的文档注释只列了 A–J 十个"组"，
+ * 而代码实际发出 17 个代号，且 `J` 的语义在文档里（未解释 = 0）与
+ * 代码里（内容指纹丢失）**不一致**。声明与实现不一致时，
+ * **以代码为准**并让脚本直接失败，比让人去比对两份清单可靠。
+ */
+function emittedCodes(source) {
+  const codes = new Set()
+  // 引号形式都接受：现有代码统一写 fail("A/...")，但反引号/单引号同样合法。
+  // 只认双引号时，用反引号写的守卫会被**静默漏掉**，一致性检查就白设了
+  // （实测：注入 fail(`Z/…`) 时旧正则检测不到）。
+  for (const m of source.matchAll(/fail\(\s*[`"']([A-Z][A-Z0-9]*)\//g)) codes.add(m[1])
+  return [...codes].sort()
+}
+
+{
+  const actual = emittedCodes(original)
+  const declared = [...CODES].sort()
+  const missing = actual.filter((c) => !declared.includes(c))   // 代码发了但清单没写
+  const extra = declared.filter((c) => !actual.includes(c))     // 清单写了但代码没有
+  if (missing.length || extra.length) {
+    console.error("✗ CODES 与工具源码实际发出的代号不一致 —— 覆盖度会假绿，故拒绝运行：")
+    if (missing.length) console.error(`    代码有、CODES 缺: ${missing.join(", ")}`)
+    if (extra.length) console.error(`    CODES 有、代码缺: ${extra.join(", ")}`)
+    console.error(`    代码实际发出（${actual.length} 个）: ${actual.join(", ")}`)
+    console.error(`    CODES 声明  （${declared.length} 个）: ${declared.join(", ")}`)
+    console.error("    修法：更新 CODES，并为新增代号补一条 expectFailure(res, \"GUARD-FAIL\", \"<代号>\") 用例。")
+    process.exit(2)
+  }
+  console.log(`ⓘ CODES 与工具源码一致（${actual.length} 个代号）\n`)
+}
+
+/**
  * 把一个代号的**全部** `fail("X/...")` 调用短路成永不执行。
  *
  * ⚠️ 必须处理同一代号有多个 fail 点：实测 `D` 有两个分支

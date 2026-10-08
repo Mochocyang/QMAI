@@ -1,8 +1,10 @@
 {
-  "capturedAt": "2026-10-07T18:51:36.004Z",
+  "capturedAt": "2026-10-08T03:04:06.243Z",
   "rootAt150": "24px",
   "total": 5491,
   "texty": 2574,
+  "minTexty": 500,
+  "controlTexty": 0,
   "scaled": 2574,
   "unscaled": 0,
   "followRatePct": 100,

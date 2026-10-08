@@ -51,6 +51,14 @@ const PORT = Number(argOf("--port") ?? 9222)
 const ATTACH = argv.includes("--attach")
 const KEEP_OPEN = argv.includes("--keep-open")
 const SHOT_DIR = argOf("--shot-dir") ?? join(HERE, "real-exe-shots")
+/*
+ * 跟随率的**参与元素下限**（对抗性审查 P2-③）。
+ *
+ * 没有下限时，"跟随率 100%" 可以在只有 3 个文字元素的样本上成立 ——
+ * 分母小到不构成证据。实测本机 150% 档有 2574 个文字元素，故默认 500 是很宽的护栏：
+ * 正常采集远高于它，一旦页面没渲染出来或选择器失效就会跌破并失败。
+ */
+const MIN_TEXTY = Number(argOf("--min-texty") ?? 500)
 
 async function loadPlaywright() {
   for (const c of [join(process.env.APPDATA ?? "", "npm/node_modules/playwright/index.js"), join(REPO, "node_modules/playwright/index.js")]) {
@@ -198,6 +206,19 @@ const CENSUS_COLLECT = () => {
       aria: el.getAttribute?.("aria-label") ?? null,
       inSvg: !!el.closest("svg"),
       ownText: [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim().slice(0, 24),
+      /*
+       * 表单控件的"文字"不在文本节点里 —— `<textarea>` 的内容是 `.value`，
+       * `<input>` 是 value/placeholder，`<select>` 是选中项的 label。
+       * 只看文本节点会让这些元素 ownText 恒为空，于是被排除在跟随率之外。
+       * 而 QMAI 的章节正文恰好就是 textarea（见 verify-body-font-single-source.mjs 的说明），
+       * 即**最主要的书写面**曾被排除在"跟随率 100%"的分母之外。
+       * 这里补上，让它必须一起被计入。
+       */
+      ctrlText: (() => {
+        if (t === "TEXTAREA" || t === "INPUT") return String(el.value ?? el.placeholder ?? "").trim().slice(0, 24)
+        if (t === "SELECT") return String(el.selectedOptions?.[0]?.textContent ?? "").trim().slice(0, 24)
+        return ""
+      })(),
       childEls: el.children.length,
       fs: cs.fontSize, lh: cs.lineHeight,
     })
@@ -210,7 +231,7 @@ const CENSUS_READBACK = () => {
   return els.map((e) => {
     let fs = "", lh = ""
     try { const cs = getComputedStyle(e.el); fs = cs.fontSize; lh = cs.lineHeight } catch { /* 已卸载 */ }
-    return { tag: e.tag, cls: e.cls, aria: e.aria, inSvg: e.inSvg, ownText: e.ownText, childEls: e.childEls, before: e.fs, beforeLh: e.lh, after: fs, afterLh: lh }
+    return { tag: e.tag, cls: e.cls, aria: e.aria, inSvg: e.inSvg, ownText: e.ownText, ctrlText: e.ctrlText, childEls: e.childEls, before: e.fs, beforeLh: e.lh, after: fs, afterLh: lh }
   })
 }
 
@@ -399,12 +420,16 @@ async function main() {
   const px = (s) => (typeof s === "string" && s.endsWith("px") ? parseFloat(s) : NaN)
   const rows = rb.map((r) => {
     const b = px(r.before), a = px(r.after)
-    return { ...r, b, a, ratio: b > 0 && Number.isFinite(a) ? a / b : NaN, texty: r.ownText.length > 0 && !r.inSvg }
+    // 文字元素 = 有自身文本节点 **或** 是带文字的表单控件（textarea/input/select）
+    const hasText = r.ownText.length > 0 || (r.ctrlText ?? "").length > 0
+    return { ...r, b, a, ratio: b > 0 && Number.isFinite(a) ? a / b : NaN, hasText, texty: hasText && !r.inSvg }
   }).filter((r) => Number.isFinite(r.b) && r.b > 0 && Number.isFinite(r.a) && r.a > 0)
   const texty = rows.filter((r) => r.texty)
+  const controlTexty = texty.filter((r) => r.tag === "textarea" || r.tag === "input" || r.tag === "select")
   const scaled = texty.filter((r) => Math.abs(r.ratio - 1.5) < 0.02)
   const unscaled = texty.filter((r) => Math.abs(r.ratio - 1) < 0.001)
-  console.log(`  可比对元素 ${rows.length}；有自身文字且不在 SVG 内 ${texty.length}`)
+  console.log(`  可比对元素 ${rows.length}；有文字且不在 SVG 内 ${texty.length}`)
+  console.log(`    其中表单控件文字元素: ${controlTexty.length}（textarea/input/select —— 章节正文即 textarea，此前被漏在分母外）`)
   console.log(`    恰好 ×1.5（跟着界面字号变）: ${scaled.length}`)
   console.log(`    完全没变（×1.0）         : ${unscaled.length}`)
   const unscaledByCls = new Map()
@@ -413,18 +438,28 @@ async function main() {
     console.log(`    未缩放元素归类（前 15）:`)
     for (const [k, n] of [...unscaledByCls.entries()].sort((x, y) => y[1] - x[1]).slice(0, 15)) console.log(`      ×${String(n).padEnd(4)} ${k.slice(0, 110)}`)
   }
-  // 门槛：至少 95% 的可见文字元素必须跟着缩放（留少量固定尺寸的图标/装饰例外）
+  /*
+   * 门槛分两级（对抗性审查 P2-③）：
+   *   1. 分母下限：参与元素太少时，"100%" 不构成证据（很可能只是页面没渲染出来）。
+   *      这条必须失败，不能只打提示 —— 否则下限形同装饰。
+   *   2. 比例门槛：至少 95% 的可见文字元素必须跟着缩放（留少量固定尺寸的图标/装饰例外）。
+   */
+  if (texty.length < MIN_TEXTY) {
+    fails.push(`界面字号普查的参与元素仅 ${texty.length} 个（下限 ${MIN_TEXTY}）——`
+      + ` 分母过小，跟随率不构成证据（页面可能未渲染完整，或选择器失效）。若本次确实只测小页面，请显式传 --min-texty N`)
+  }
   const ratioPct = texty.length ? (scaled.length / texty.length) * 100 : 0
-  console.log(`  文字元素跟随率 = ${ratioPct.toFixed(1)}%`)
+  console.log(`  文字元素跟随率 = ${ratioPct.toFixed(1)}%（${scaled.length}/${texty.length}，下限 ${MIN_TEXTY}）`)
   await page.screenshot({ path: join(SHOT_DIR, "04-界面字号150.png") })
   writeFileSync(join(SHOT_DIR, "real-exe-ui-scale.json"), JSON.stringify({
     capturedAt: new Date().toISOString(), rootAt150: rootNow, total: rows.length, texty: texty.length,
+    minTexty: MIN_TEXTY, controlTexty: controlTexty.length,
     scaled: scaled.length, unscaled: unscaled.length, followRatePct: ratioPct,
     unscaledTop: [...unscaledByCls.entries()].sort((x, y) => y[1] - x[1]).slice(0, 40).map(([k, n]) => ({ cls: k, n })),
     unscaledSample: unscaled.slice(0, 60),
   }, null, 2), "utf8")
   if (ratioPct < 95) fails.push(`界面字号跟随率仅 ${ratioPct.toFixed(1)}%（<95%），说明仍有大量文字不跟界面字号变化`)
-  else notes.push(`界面字号跟随率 ${ratioPct.toFixed(1)}%`)
+  else if (texty.length >= MIN_TEXTY) notes.push(`界面字号跟随率 ${ratioPct.toFixed(1)}%（${scaled.length}/${texty.length} 文字元素，含 ${controlTexty.length} 个表单控件）`)
 
   await page.evaluate(SET_SCALE, { bodyScale: null, rootPct: null })
 

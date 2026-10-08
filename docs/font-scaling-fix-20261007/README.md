@@ -41,7 +41,7 @@
 | `census-after.json` | 改动后普查产物（704909 字节，**已入库**） | 与 `census-before.json` 一起使主验收**可复核复算**：`--compare census-before.json census-after.json --allow-new-elements 10` → 正确缩放 1117 / 未解释 0 / 退出 0。此前它不在 git 里（被 `.gitignore:56` 排除），命令行引用的是 `$env:TEMP` 路径 —— 那等于不可复核 |
 | `probe-font-scaling.mjs` | 完整应用界面上的字号缩放采样 | 12/12 未缩放，复现缺陷 |
 | `probe-navigable-pages.mjs` | 探明纯浏览器可覆盖哪些页面 | 结论：仅设置页可达 |
-| `verify-real-exe.mjs` | **真实 exe 验收**：CDP 附加到便携版，读真实 DOM 的 `li::marker` 各档像素值，并做**全界面**字号普查（100% vs 150% 逐元素比对） | 实跑通过；冷启动全流程（章节 → 切「大纲」→ 点开含列表文档）亦通过；**界面字号跟随率 100.0%**（2574/2574 文字元素，0 未变） |
+| `verify-real-exe.mjs` | **真实 exe 验收**：CDP 附加到便携版，读真实 DOM 的 `li::marker` 各档像素值，并做**全界面**字号普查（100% vs 150% 逐元素比对） | 实跑通过；冷启动全流程（章节 → 切「大纲」→ 点开含列表文档）亦通过；**界面字号跟随率 100.0%**（2574/2574 文字元素，0 未变；见 `real-exe-shots/real-exe-ui-scale.json`）。**两处加固**（对抗性审查 P2-③）：①**参与元素下限** `--min-texty`（默认 500，实测 2574）：分母过小则跟随率不构成证据，**直接失败**而非只提示 —— 已实测 `--min-texty 99999` → 退出 1 且不复述跟随率；②**表单控件文字纳入分母**：`<textarea>/<input>/<select>` 的文字在 `.value`/`selectedOptions` 而非文本节点，只看文本节点会让它们**整体隐身**。实测该界面为 0 个（唯一 textarea 为空），另注入文字后确认通路生效（计入分母且 ×1.5） |
 | `verify-real-exe-settings-save.mjs` | **真实 exe 端到端**：在设置界面拖滑块/选下拉 → **点保存** → 断言 DOM、localStorage 落盘、以及**真实渲染族**（CDP `CSS.getPlatformFontsForNode`） | 实跑通过；5 个用例 + 恢复初值。覆盖了「直接改 CSS 变量验不到」的保存链路（`setUiFontSizeScale` 排在约 10 个 `await` 之后）。**默认写证据** `real-exe-shots/real-exe-settings-save.json`（`--out` 可改路径）—— 文档里引用的每个数字都必须能在产物里复核 |
 | `verify-body-font-single-source.mjs` | 正文字号**静态**单一来源校验（编辑器 DOM 在浏览器里不可达，故必须与真实 exe 双管齐下） | `--selftest` 14/0；正例通过、13 类反例逐一检出 |
 | `verify-body-font-scale.mjs` | 注入式验证正文字号/行高（含查找高亮层对齐） | 实跑通过 |
@@ -125,7 +125,7 @@
 | `::marker` 伪元素 | ⚠️ **仅** changelog 的 `li`（14px，rem，本来就会缩放），共 300 条 |
 | SVG 内联 `font-size` 图元 | ⚠️ 本机可达页面实测 **0 个**（`provider-brand-icon` 因无提供方未渲染、`context-usage-ring` 在聊天页不可达）——"SVG 例外 = 0"属正常 |
 | **编辑器列表标记**（`src/components/uitest/ui-test-editor.css` 的 `li::marker` / `ol > li::marker`） | ⚠️ 本工具（浏览器）**发现不了** —— 实测 11 个分区里 `.ui-test-editor-body` 命中 **0**，点遍所有可达按钮后仍为 **0**；基线 300 条 marker 中 **0 条** 是这两条规则的。**但真实 exe 已闭环**：`verify-real-exe.mjs` 读真实 DOM 的 `li::marker`，默认档 12/16px → 150% 时 18/24px 逐位相符（见 `findings.md` §10.3） |
-| 编辑器以外的非设置页界面 | ⚠️ 浏览器里**只有设置页可达**；**真实 exe 已覆盖**：`verify-real-exe.mjs` 的全界面普查覆盖 2574 个文字元素 |
+| 编辑器以外的非设置页界面 | ⚠️ 浏览器里**只有设置页可达**；**真实 exe 已覆盖**：`verify-real-exe.mjs` 的全界面普查覆盖 **2574** 个文字元素（2026-10-07 实测，含表单控件文字；该数随应用所处页面/内容漂移，同一版本两次实测见过 2574 与 2585，**以产物 `real-exe-ui-scale.json` 为准**） |
 
 > **因此：任务 7 改那两行 `::marker`，本工具的判据 2 不会变色。**
 > 判据 2 全绿 **不能**理解为"编辑器列表标记也已验证"。

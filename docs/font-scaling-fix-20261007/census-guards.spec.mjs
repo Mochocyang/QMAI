@@ -175,6 +175,31 @@ function expectFailure(res, kind = "GUARD-FAIL", expectedCode = null) {
   }
 }
 
+/** 输出里出现的全部守卫代号（形如 `E3/参与下限`）。 */
+function guardCodesIn(res) {
+  const codes = new Set()
+  for (const m of res.output.matchAll(/GUARD-FAIL\s*\[([A-Z0-9]+)\//g)) codes.add(m[1])
+  return [...codes].sort()
+}
+
+/**
+ * 断言"只有指定代号在报警"（**隔离性**，对抗性审查 P1-②）。
+ *
+ * `expectFailure(res, ..., "E3")` 只证明"E3 出现了"，不证明"没有别的守卫也在报警"。
+ * 当夹具同时违反多条不变量时，用例名字里写的那个原因可能**根本不是**它失败的原因
+ * —— 名字于是夸大了它所证明的东西。本函数把"仅此一条"也钉死。
+ */
+function expectOnlyFailure(res, code) {
+  expectFailure(res, "GUARD-FAIL", code)
+  const codes = guardCodesIn(res)
+  expect(
+    codes,
+    `本用例声称隔离地验证守卫 ${code}，但实际报警的代号是 [${codes.join(", ")}] —— `
+    + `夹具同时违反了别的不变量，故它证明不了 ${code} 单独有效。`
+    + `请把夹具收敛到只违反这一条。\n--- stdout ---\n${res.stdout}\n--- stderr ---\n${res.stderr}`,
+  ).toEqual([code])
+}
+
 function expectPass(res) {
   const detail = `\n--- stdout ---\n${res.stdout}\n--- stderr ---\n${res.stderr}`
   expect(res.status, `必须退出 0（正向对照）。${detail}`).toBe(0)
@@ -303,9 +328,34 @@ describe("census-computed-font.mjs 防虚假通过防线", () => {
     expectFailure(runCompare(before, after), "GUARD-FAIL", "A")
   })
 
-  guardIt("缺陷1b：after 的 150% 档键数低于下限（--min-elements）→ 非 0", () => {
+  /*
+   * ── 参与下限（E3）：必须**隔离**地证明 ──
+   *
+   * 原用例名「缺陷1b：after 的 150% 档键数低于下限（--min-elements）→ 非 0」
+   * 夸大了它所证明的东西（对抗性审查 P1-②）：它的夹具把键裁到只剩前 12 个、
+   * 同时裁掉 100% 与 150% 两档，于是**掉分区（D3）与键集不一致（B/D2/F）也一起被违反**，
+   * 且两档都被裁 —— 而名字只说"150% 档键数低于下限"。
+   * 于是它只证明"这个夹具会失败且输出里有 E3"，证明不了"是参与下限抓住的"。
+   *
+   * 下面拆成两条，各司其职：
+   *   1b  **隔离**验证 E3：干净夹具（分区齐全、键集一致、无 noPair）+ 把下限抬到
+   *       参与数之上 —— 此时**只有**参与下限这一条不变量被违反。用 expectOnlyFailure
+   *       断言"仅 E3 报警"。
+   *   1b' 保留原来那个多不变量夹具，但名字改成它真正证明的事。
+   */
+
+  guardIt("守卫 E3（隔离）：干净夹具 + 下限高于参与数 → **仅** E3 报警", () => {
     const { before, after } = cleanPair()
-    // 只保留前 12 个键（仍然非空、仍覆盖全部必要分区之外的最小集）
+    // cleanPair = 11 分区 ×（3 个普通 + 1 个 marker）= 44 个键；下限取 45 即"只差一个"。
+    // 分区齐全、键集一致、配对齐全 ⇒ 除参与数外没有任何不变量被违反。
+    const participants = Object.keys(after.census["100"]).length
+    expectOnlyFailure(runCompare(before, after, ["--min-elements", String(participants + 1)]), "E3")
+  })
+
+  guardIt("缺陷1b'：键被裁到 12 个（同时掉分区、键集不一致、两档都被裁）→ 输出含 E3", () => {
+    const { before, after } = cleanPair()
+    // 注意：本夹具**同时**违反多条不变量，故它只证明"E3 出现在失败输出里"，
+    // 不证明"是参与下限抓住的"。隔离验证见上一条（守卫 E3（隔离））。
     const keep = Object.keys(after.census["100"]).slice(0, 12)
     const pick = (o) => Object.fromEntries(keep.filter((k) => k in o).map((k) => [k, o[k]]))
     after.census["100"] = pick(after.census["100"])
