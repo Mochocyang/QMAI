@@ -363,8 +363,14 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLTo
 
 if (isMain) {
   if (process.argv.includes("--selftest")) {
-    console.log("  ══ 校验器自检（正例 + 11 个反例）══")
+    /*
+     * 反例数**从实际登记数推导**，不写死。
+     * 原实现写死「正例 + 11 个反例」，实际已登记 13 个 —— 加反例时无人会想起改标题，
+     * 于是报告的规模与实际不符（对抗性审查 P4）。这里的 ${total - 1} 让标题
+     * 不可能再和 selftest() 里的 add() 条数脱节。
+     */
     const { pass, total, lines } = selftest()
+    console.log(`  ══ 校验器自检（正例 + ${total - 1} 个反例，共 ${total} 例）══`)
     for (const l of lines) console.log(l)
     console.log(`  结论: ${pass === total ? "✓ 校验器可信（能通过正例，且能逐类检出反例）" : "✗ 校验器本身有问题"}`)
     process.exit(pass === total ? 0 : 1)

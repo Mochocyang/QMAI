@@ -906,24 +906,79 @@ if (ARG_ERRORS.length) {
     server.close()
   } else {
     const census = {}
+    /*
+     * ── 采集模式的伪数据防线（对抗性审查 P3-① / P3-④）──
+     *
+     * 采集模式的产物是**下游一切判定的输入**。若它悄悄产出不完整或错档的数据，
+     * 后面所有"通过"都建立在沙上。故这里让采集失败必须退出非 0，而不是只打 ⚠️。
+     *
+     * 三条防线：
+     *   K/根字号未生效  —— 写完根字号必须**回读**。应用的 useEffect 会按自己的
+     *                      store 重设根字号，导航时可能把我的设置覆盖掉，
+     *                      于是整档数据静默错误（读到的是应用自己的档位，不是请求的档位）。
+     *   L/根字号被覆盖  —— 采集完 11 个分区后**再回读一次**：写入时对、采集中被改掉同样致命。
+     *   M/空采集        —— 键数为 0 时必须失败，绝不能写出一个空 census 让判据在 0 个元素上"通过"。
+     */
+    const captureFailures = []
+    const captureFail = (code, msg) => {
+      captureFailures.push(code)
+      console.error(`  ✗ GUARD-FAIL [${code}] ${msg}`)
+    }
+    const readRootPx = () =>
+      page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))
+
     for (const s of CENSUS_SCALES) {
       await page.evaluate((p) => { document.documentElement.style.fontSize = p + "%" }, s)
       await page.waitForTimeout(600)
+
+      // K：写后回读，确认根字号真的到了请求的档位
+      const wantPx = 16 * s / 100
+      const gotPx = await readRootPx()
+      if (!(Math.abs(gotPx - wantPx) <= 0.5)) {
+        captureFail("K/根字号未生效",
+          `请求 ${s}%（期望根字号 ≈${wantPx}px），回读得到 ${gotPx}px。`
+          + ` 应用的 useEffect 可能已按自己的 store 覆盖了根字号 —— 本档数据全部不可信。`)
+        continue
+      }
+
       const { merged, reached, home, passes, shadowed } = await censusAllSections()
-      census[String(s)] = merged
       const keys = Object.keys(merged)
+
+      // L：采集中再回读，确认 11 个分区的导航没有把根字号改掉
+      const afterPx = await readRootPx()
+      if (!(Math.abs(afterPx - wantPx) <= 0.5)) {
+        captureFail("L/根字号被覆盖",
+          `${s}% 档采集过程中根字号从 ${gotPx}px 变成 ${afterPx}px（期望 ≈${wantPx}px）。`
+          + ` 本档数据是混合档位的，不可用于判定。`)
+      }
+
+      // M：空采集
+      if (keys.length === 0) {
+        captureFail("M/空采集",
+          `${s}% 档采集到 0 个键。页面可能没渲染出来（dist 过期 / 应用启动失败）——`
+          + ` 绝不能写出空 census，否则下游判据会在 0 个元素上"通过"。`)
+        continue
+      }
+
+      census[String(s)] = merged
       const markerKeys = keys.filter((k) => k.endsWith("::marker"))
       // `reached` 恰好是 11 个分区各一次（起始分区另计），故分母分子一致
       const okReached = reached.filter((r) => r.landed === r.requested)
       const missed = reached.filter((r) => r.landed !== r.requested)
       const capturedTotal = passes.reduce((n, p) => n + p.captured, 0)
       console.log(`  采集 ${s}%: ${keys.length} 个键（其中 ::marker ${markerKeys.length} 条）`)
+      console.log(`    根字号回读 ${gotPx}px（请求 ${s}%，期望 ≈${wantPx}px）✓`)
       console.log(`    快照合计 ${capturedTotal} 条 → 去重后 ${keys.length} 个键`
         + `（重复=${capturedTotal - keys.length}：同一元素被多个分区/重复访问各记一份，键不冲突）`)
       console.log(`    分区前缀（首个为起始分区 ${SETTINGS_HOME_SECTION}，与列表首项重复）: ${passes.map((p) => `${p.sectionId}[${p.captured}→+${p.added}]`).join(" ")}`)
       if (shadowed.length) {
         console.log(`    ⚠️ 同键换成不同元素 ${shadowed.length} 处 —— 有元素可能被遮蔽，需排查:`)
         for (const d of shadowed.slice(0, 10)) console.log(`        ${d.key}  前=${JSON.stringify(d.prev)}  后=${JSON.stringify(d.next)}`)
+        // 同键被换成不同元素 = 具体元素被静默替换，采到的可能不是要测的那个元素。
+        // 只打 ⚠️ 会让"数据被顶替"这种回归无声通过，故必须失败。
+        captureFail("N/元素被遮蔽",
+          `${s}% 档有 ${shadowed.length} 个键指向了不同的元素。`
+          + ` 同键换元素意味着有元素被遮蔽/替换，采到的可能不是待测元素。`)
       } else {
         console.log(`    同键重写且元素身份不同: 0（无静默遮蔽）`)
       }
@@ -931,19 +986,33 @@ if (ARG_ERRORS.length) {
       console.log(`    实际到达分区（已到达 ${okReached.length}/${SETTINGS_SECTIONS.length} 个分区）: ${okReached.map((r) => `${r.requested}${r.label ? `(${r.label})` : ""}`).join(", ")}`)
       if (missed.length) {
         console.log(`    ⚠️ 未到达: ${missed.map((r) => `${r.requested}(clicked=${r.clicked}, landed=${r.landed})`).join(", ")}`)
+        // 分区没到达 = 该分区的元素根本没进普查，覆盖率静默缩水。
+        captureFail("O/分区未到达",
+          `${s}% 档有 ${missed.length}/${SETTINGS_SECTIONS.length} 个分区未到达：`
+          + `${missed.map((r) => r.requested).join(", ")}。缺分区的普查会低估分母。`)
+      }
+      if (home.landed !== home.requested) {
+        captureFail("P/起始分区未到达",
+          `${s}% 档起始分区未按请求到达：请求 ${home.requested}，实际 ${home.landed}。`)
       }
     }
 
     await browser.close()
     server.close()
 
-    const payload = {
-      capturedAt: new Date().toISOString(),
-      scales: CENSUS_SCALES,
-      census,
+    if (captureFailures.length) {
+      console.error(`\n  ✗ FAIL 采集未通过 ${captureFailures.length} 项防线: ${captureFailures.join(", ")}`)
+      console.error(`    未写出 census 文件 —— 不完整的普查宁可没有，也不能让下游判据在它上面"通过"。`)
+      process.exitCode = 1
+    } else {
+      const payload = {
+        capturedAt: new Date().toISOString(),
+        scales: CENSUS_SCALES,
+        census,
+      }
+      const out = OUT_FILE
+      writeFileSync(out, JSON.stringify(payload, null, 1), "utf8")
+      console.log(`\n  已写入 ${out}`)
     }
-    const out = OUT_FILE
-    writeFileSync(out, JSON.stringify(payload, null, 1), "utf8")
-    console.log(`\n  已写入 ${out}`)
   }
 }
