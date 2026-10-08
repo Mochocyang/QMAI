@@ -6,7 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontSizeScale, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -22,7 +22,7 @@ import { resolveConfig } from "@/components/settings/preset-resolver"
 import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
-import { applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
+import { applyBodyTypography, applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -41,7 +41,11 @@ function App() {
   const uiFontSizeScale = useWikiStore((s) => s.uiFontSizeScale)
   const uiFontFamily = useWikiStore((s) => s.uiFontFamily)
   const uiBodyFontFamily = useWikiStore((s) => s.uiBodyFontFamily)
-  const uiBodyFontSizeScale = useWikiStore((s) => s.uiBodyFontSizeScale)
+  const uiBodyFontPx = useWikiStore((s) => s.uiBodyFontPx)
+  const uiBodyLineHeight = useWikiStore((s) => s.uiBodyLineHeight)
+  const uiBodyLetterSpacing = useWikiStore((s) => s.uiBodyLetterSpacing)
+  const uiBodyMarginX = useWikiStore((s) => s.uiBodyMarginX)
+  const uiBodySafeBottom = useWikiStore((s) => s.uiBodySafeBottom)
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
@@ -146,15 +150,26 @@ function App() {
   }, [uiBodyFontFamily])
 
   /*
-   * 正文字号：写成**倍数变量**，而不是直接算出一个 px 值。
-   * 正文 CSS 里的字号是 calc(<精确rem> * var(--qmai-body-font-scale, 1))，
-   * rem 部分已经跟随上面的界面字号，所以这里只叠加倍数即可 ——
-   * 最终文档字号 = 界面字号 × 正文字号，两个设置各自独立生效。
-   * 写成行内样式是为了让它能继承给所有后代（含 ::marker 等伪元素）。
+   * 正文排版参数：一次写齐 5 个 CSS 变量。
+   *
+   * 为什么合并成一个 effect 而不是 5 个：它们共用同一个写入函数
+   * applyBodyTypography，拆成 5 个 effect 会写 5 次，而且任何一个漏写
+   * 都不会被任何测试发现。合成一个之后，「5 个参数是否都被应用」
+   * 由类型系统保证 —— 参数是必填对象的字段，少一个就编译不过。
+   *
+   * 正文字号由「倍数」改为绝对 px：正文自此**不随界面字号缩放**
+   * （用户已确认接受）。上限 32px 低于旧模型理论上限 40.5px，
+   * 故裁切风险下降。
    */
   useEffect(() => {
-    document.documentElement.style.setProperty("--qmai-body-font-scale", String(uiBodyFontSizeScale))
-  }, [uiBodyFontSizeScale])
+    applyBodyTypography({
+      fontPx: uiBodyFontPx,
+      lineHeight: uiBodyLineHeight,
+      letterSpacing: uiBodyLetterSpacing,
+      marginX: uiBodyMarginX,
+      safeBottom: uiBodySafeBottom,
+    })
+  }, [uiBodyFontPx, uiBodyLineHeight, uiBodyLetterSpacing, uiBodyMarginX, uiBodySafeBottom])
 
   useEffect(() => {
     applyVisualStyle("classic")
@@ -248,10 +263,33 @@ function App() {
           applyBodyFontFamily(savedUiBodyFontFamily)
         }
 
-        const savedUiBodyFontSizeScale = await loadUiBodyFontSizeScale()
-        if (savedUiBodyFontSizeScale !== null) {
-          useWikiStore.getState().setUiBodyFontSizeScale(savedUiBodyFontSizeScale)
-        }
+        /*
+         * 正文排版参数：逐项读回。返回 null 表示"这个键从来没有存过"，
+         * 此时保留 store 的默认值（默认值来自 font-settings.ts 的单一来源）。
+         * 注意 setUiBodyMarginX(null) 是合法的：它表示"跟随窗口"，
+         * 所以这里的判断是"读回值非 null 才写"，而不是"非 null 就用 null"。
+         *
+         * 正文字号要把**界面字号**传进去：老设置是"界面字号 × 正文倍数"
+         * 相乘得到的，迁移时不乘界面字号会让界面 150% 的用户发现正文变小。
+         * uiFontSizeScale 就是本组件第 41 行的 selector，可直接用。
+         *
+         * ⚠ 不要把它加进本 effect 的依赖数组。这个初始化 effect 的依赖是
+         * 空的（`}, []`，见文件里 init 那个 effect 的结尾），只跑一次；
+         * 加上去会让用户每改一次界面字号就重跑整个初始化（包含
+         * openProject 打开上次的项目）。这里的取值是安全的：
+         * wiki-store 的 uiFontSizeScale 初值由模块加载期的
+         * readStoredUiFontSizeScale() 同步算出，首帧就已经是正确值。
+         */
+        const savedBodyFontPx = await loadUiBodyFontPx(uiFontSizeScale)
+        if (savedBodyFontPx !== null) useWikiStore.getState().setUiBodyFontPx(savedBodyFontPx)
+        const savedBodyLineHeight = await loadUiBodyLineHeight()
+        if (savedBodyLineHeight !== null) useWikiStore.getState().setUiBodyLineHeight(savedBodyLineHeight)
+        const savedBodyLetterSpacing = await loadUiBodyLetterSpacing()
+        if (savedBodyLetterSpacing !== null) useWikiStore.getState().setUiBodyLetterSpacing(savedBodyLetterSpacing)
+        const savedBodyMarginX = await loadUiBodyMarginX()
+        if (savedBodyMarginX !== null) useWikiStore.getState().setUiBodyMarginX(savedBodyMarginX)
+        const savedBodySafeBottom = await loadUiBodySafeBottom()
+        if (savedBodySafeBottom !== null) useWikiStore.getState().setUiBodySafeBottom(savedBodySafeBottom)
 
         const savedConfig = await loadLlmConfig()
         if (savedConfig) {

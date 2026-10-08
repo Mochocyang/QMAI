@@ -163,21 +163,82 @@ describe("settings sidebar nav preferences", () => {
   })
 
   /**
-   * App.tsx 必须把正文字号写成**倍数变量**（--qmai-body-font-scale），
-   * 而不是算好一个 px 值写进 fontSize。
+   * App.tsx 必须把 5 个排版参数**写在 documentElement 的行内样式上**，
+   * 由 CSS 的间接层读取。
    *
-   * 为什么：正文 CSS 用 calc(<精确rem> * var(--qmai-body-font-scale, 1))，
-   * rem 部分已经跟随界面字号。若这里写成"算出最终 px 再设根字号"，
-   * 两个设置就会互相覆盖（改一个就把另一个的效果冲掉），
-   * 而且 ::marker 等伪元素拿不到。写成变量则两者天然相乘。
+   * ── 为什么把旧的一条整条替换掉，而不是删掉 ──
+   * 旧断言钉的是「正文字号写成倍数变量，与界面字号相乘」。
+   * 用户已确认把正文字号改成绝对 px，两者不再相乘 ——
+   * 那条断言的**前提**消失了，不能留着（会永远红），
+   * 但也不能只是删掉：它当时防的是"算好一个 px 写进 fontSize、
+   * 两个设置互相覆盖"，那个风险依然存在，只是形态变了。
+   * 现在防的是：值必须经由 applyBodyTypography 写变量，
+   * 而不是被塞进 documentElement.style.fontSize。
    */
-  it("正文字号通过倍数变量应用，与界面字号相乘而非互相覆盖", () => {
+  it("App 通过 applyBodyTypography 应用 5 个排版变量，且与界面字号机制不同", () => {
     const appSource = readFileSync(resolve(__dirname, "../../App.tsx"), "utf8")
-    expect(appSource).toContain('setProperty("--qmai-body-font-scale"')
-    expect(appSource).toContain("uiBodyFontSizeScale")
-    // 界面字号仍是根字号百分比（rem 基准），两者机制不同、互不覆盖
+    expect(appSource).toContain("applyBodyTypography({")
+
+    /*
+     * 5 个参数的**配对**必须逐字对上。
+     *
+     * 为什么不能只断言「字段名 + 某个 uiBody* 名字」：
+     * 那样写的话，把 lineHeight: uiBodyLineHeight 串成 lineHeight: uiBodySafeBottom
+     * 仍然绿 —— tsc 也拦不住（五个值都是 number）。
+     * 而"串味"正是这种一次写 5 个变量的写法最容易犯的错。
+     */
+    const APPLIED = [
+      ["fontPx", "uiBodyFontPx"],
+      ["lineHeight", "uiBodyLineHeight"],
+      ["letterSpacing", "uiBodyLetterSpacing"],
+      ["marginX", "uiBodyMarginX"],
+      ["safeBottom", "uiBodySafeBottom"],
+    ]
+    for (const [field, storeField] of APPLIED) {
+      expect(appSource).toContain(`${field}: ${storeField}`)
+    }
+
+    /*
+     * 启动读回：**每一条读回都必须真的写进 store**。
+     *
+     * 这是本任务最容易漏、也最难发现的一步 —— 读回来了却忘了写回，
+     * 编译过、界面不报错、本次会话也不报错，只有"重开软件设置回退"
+     * 这一个症状，而它恰恰是启动读回存在的全部理由。
+     * 所以这里断言的是"读回 + 判空 + 写回"三件事连成的整句原文：
+     * 删掉写回那一行、把 setter 换错、把判空条件改坏，都会立刻变红。
+     *
+     * 注意 marginX 用的是 !== null（null 是合法值，表示"跟随窗口"，
+     * 此时保留 store 默认值即可，不能写成 ?? 或把 null 也写进去）。
+     */
+    const ROUND_TRIP = [
+      ["savedBodyFontPx", "UiBodyFontPx"],
+      ["savedBodyLineHeight", "UiBodyLineHeight"],
+      ["savedBodyLetterSpacing", "UiBodyLetterSpacing"],
+      ["savedBodyMarginX", "UiBodyMarginX"],
+      ["savedBodySafeBottom", "UiBodySafeBottom"],
+    ]
+    for (const [saved, suffix] of ROUND_TRIP) {
+      expect(appSource).toContain(`await load${suffix}(`)
+      expect(appSource).toContain(
+        `if (${saved} !== null) useWikiStore.getState().set${suffix}(${saved})`,
+      )
+    }
+
+    /*
+     * 整个计划里最该被钉住的一行。
+     *
+     * 老用户只有旧键"正文倍数"，新字号 = 旧倍数 × 界面字号。
+     * 迁移时若忘了把界面字号传进去，界面字号 150% 的用户升级后
+     * 会发现正文**变小**了 —— 不报错、不崩溃，只是悄悄变了。
+     * 这个缺陷在计划评审阶段真的出现过一次，所以宁可单独钉一行。
+     */
+    expect(appSource).toContain("await loadUiBodyFontPx(uiFontSizeScale)")
+
+    /*
+     * 界面字号机制不许被顺手删掉：它仍是根字号百分比（rem 基准），
+     * 与正文的绝对 px 是两套机制。
+     * （这条只防"删掉"，不证明"互不覆盖" —— 后者由上面两条配对/写回断言保证。）
+     */
     expect(appSource).toContain("document.documentElement.style.fontSize")
-    // 启动必须读回，否则重开软件就丢
-    expect(appSource).toContain("loadUiBodyFontSizeScale()")
   })
 })
