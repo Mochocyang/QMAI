@@ -4544,7 +4544,10 @@ git commit -m "feat(排版): 设置页接入正文字体与排版参数共享控
         这一步排除了"其实是别的断言顺手挡住了"这种可能。</p>
         <p><strong>顺带纠正一个曾经写错的判断</strong>：Task 10 实现时把「把某条 <code>save</code> 行注释掉、测试仍全绿」归类成 <strong>「源码文本断言的固有盲区，无法避免」</strong>。这句话<strong>不对</strong>。</p>
         <p>实测（<code>.codex-temp/check-tsc-unused-net.mjs</code>，用仓库自带的 tsc、与 <code>tsconfig.app.json</code> 一致的开关）：<code>tsconfig.app.json</code> 第 20 行有 <code>noUnusedLocals: true</code>，而注释掉调用行会让<strong>对应的解构绑定变成未使用</strong> ——</p>
-        <p>（那条脚本是<strong>常驻门禁</strong>，不是用完即弃的探针：它同时盯着 <code>tsconfig.app.json</code> 里那个开关还在不在 —— 图纸这句话完全依赖它。所以<strong>不要删它</strong>；删了会有另一条检查器报警，见下。）</p>
+        <p>（那条脚本是<strong>本机门禁</strong>，不是用完即弃的探针：它同时盯着 <code>tsconfig.app.json</code> 里那个开关还在不在 —— 图纸这句话完全依赖它。所以<strong>不要删它</strong>；删了会有另一条检查器报警，见下。）</p>
+        <p><strong>但「常驻」这个词是错的，这里改正</strong>：它在 <code>.codex-temp/</code> 下，而 <code>.gitignore</code> 第 63 行忽略了 <code>.codex-temp/</code> —— 它<strong>没有被 git 跟踪</strong>，只存在于我这台机器上，别人 clone 仓库后<strong>既看不到它、也跑不了它</strong>，更不会在任何 CI 里执行。所以它是<strong>本机探针</strong>，不是常驻门禁。<br>
+        这一点必须说清楚，因为它决定了这条结论<strong>可信到什么程度</strong>：脚本只是<strong>演示</strong>过「<code>noUnusedLocals</code> 会报 TS6133」这件事；结论的持久依据是<strong>编译器行为本身</strong>（仓库自带 tsc + <code>tsconfig.app.json:20</code> 的开关），不是脚本的存在。换句话说：<strong>脚本可以丢，结论仍成立</strong> —— 但读者必须能自己重跑一遍才敢信，而脚本在仓库外就做不到这一点。</p>
+        <p>同类措辞在图纸里还有一处（<code>.codex-temp/verify-outline-font-icon-guard.mjs</code> 被称为「常驻验证脚本」），一并在下面改正；并已在「剩余风险」表里登记为一条<strong>系统性问题</strong>：图纸引用了 10 处 <code>.codex-temp/</code> 脚本，<strong>全部未被跟踪</strong>。</p>
         <ul>
           <li>基线（5 个解构名全用到）→ exit 0，绿；</li>
           <li>注释掉用 <code>saveUiBodyMarginX</code> 的那一行 → exit 2，<code>error TS6133: 'saveUiBodyMarginX' is declared but its value is never read.</code></li>
@@ -4855,7 +4858,10 @@ describe("章节与大纲工具栏图标", () =&gt; {
         <p>根因是取按钮片段的助手用了 <code>findIndex</code> —— <strong>只取第一处匹配</strong>。而「字体设置」在 <code>preview-panel.tsx</code> 里有两处（章节工具栏与大纲工具栏），两者文本<strong>逐字节相同</strong>（同一套 <code>className</code>/<code>title</code>/<code>onClick</code>/同一个 <code>&lt;Type /&gt;</code>，就像两处入口本来就该长一样）。于是大纲那处<strong>从来没进入任何断言的视野</strong>。</p>
         <p>这个盲区值得堵，因为它与本次要修的缺陷<strong>同类</strong>：用户原话是「一键排版的图标与正文字体的图标两个不能设置为一样」，而且「大纲当中也要有这个设置功能」也是用户明确要求的。只守住章节那处，等于把「大纲里又抄错了图标」这类回归放走 —— 而它恰恰是<strong>用户在界面上能直接看到</strong>的那种错。</p>
         <p><strong>做法</strong>：取按钮片段的助手要带 <strong>occurrence（第几处）</strong> 参数，并对<strong>每一处</strong>各写一条断言。找不到第 N 处时应当<strong>抛错</strong>而不是退回第一处 —— 静默退回会让「某个入口被删掉」继续假绿，那是要防的另一件事。</p>
-        <p>已有常驻验证脚本 <code>.codex-temp/verify-outline-font-icon-guard.mjs</code> 守着这条断言：基线绿 → 只改大纲图标变红（且红在<strong>新增的那条</strong>用例上）→ <strong>把新断言注掉后同一个变异重新变绿</strong>（反向对照，证明它不是摆设）→ 逐字节还原。四态 8/8 通过。</p>
+        <p>这条断言的鉴别力有<strong>反向对照</strong>为证（脚本 <code>.codex-temp/verify-outline-font-icon-guard.mjs</code>：基线绿 → 只改大纲图标变红（且红在<strong>新增的那条</strong>用例上）→ <strong>把新断言注掉后同一个变异重新变绿</strong>（反向对照，证明它不是摆设）→ 逐字节还原。四态 8/8 通过）。</p>
+        <p><strong>措辞改正：「常驻验证脚本」是错的</strong> —— 它在 <code>.codex-temp/</code> 下、<strong>未被 git 跟踪</strong>，只存在于本机，别人无法看到也无法复现「四态 8/8」这个结论。它是<strong>本机探针</strong>；真正持久的防线是<strong>已提交的那条 spec</strong>本身。</p>
+        <p><strong>还有第二个盲区，比上面那个更接近用户（本次补的）</strong>：<strong>源码文本</strong>断言只能证明那段 JSX <strong>还在文件里</strong>，证明不了它<strong>会被渲染出来</strong>。实测：把大纲那处的按钮包进 <code>{false ? (…按钮…) : null}</code>（<strong>确定</strong>渲染不出来），全部源码文本断言<strong>依然全绿</strong> —— 零分辨力，不是"恰好没覆盖到"。而「大纲里点不到字体设置」正是<strong>用户在界面上直接看到</strong>的那种错，也正是用户明确要求过的那件事。<br>
+        所以两处入口都必须有<strong>渲染层</strong>断言（<code>ui-test-editor.spec.tsx</code> 里用 <code>it.each</code> 覆盖章节与大纲：入口真的渲染出来、可点击、点击后浮层真的打开）。<strong>只覆盖章节那处等于把大纲放走。</strong></p>
         <p><strong>通用要求</strong>：以后往写作现场再加第三个入口时，同样要各自钉一遍 —— 否则这个盲区会第三次出现。</p>
       </div>
     </div>
@@ -5796,6 +5802,9 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
       <tr><td>旧用户设置丢失或字号被莫名改动</td><td>Task 3/4 的双路迁移都走 <code>resolveMigratedBodyFontPx</code>（乘入界面字号 + 补种），旧键只读不删；Task 12a 断言旧键不再被写入、且两个读回路径都调同一个纯函数</td></tr>
       <tr><td>CSS 兜底边距 <code>clamp(20px,4vw,48px)</code> 被复制到组件里 → 设置页显示的边距与实际渲染不符</td><td>三个范围常量住在 <code>font-settings.ts</code>；Task 8 用 <code>defaultBodyMarginXForViewport</code>，Task 12b 拿常量拼出期望串去比对 CSS 字面量</td></tr>
       <tr><td>400ms 内连动两个控件 → 前一个的落盘被去抖顶掉，重开软件设置回退</td><td>Task 2 在接口注释里写明「替换不是排队」；Task 11 排一个 <code>persistAllBodyTypography</code>（写全套值）而不是每字段一个</td></tr>
+      <tr><td><strong>把源码文本断言误当成「渲染层保证」</strong> → 入口被包进条件渲染后用户点不到，而所有断言依然全绿</td><td>两处入口各有<strong>渲染层</strong>断言（<code>ui-test-editor.spec.tsx</code> 的 <code>it.each</code>：入口渲染出来、可点击、点击后浮层打开，并核对 4 个控件显示的是 store 真值）。<strong>这条是实测发现后才补的</strong>：包成 <code>{false ? … : null}</code> 时源码文本断言零分辨力</td></tr>
+      <tr><td><strong>图纸把 <code>.codex-temp/</code> 下的脚本说成「常驻门禁」</strong> → 读者以为它会被 CI / 他人执行，实际 <code>.gitignore:63</code> 忽略了该目录，脚本<strong>未被 git 跟踪</strong>，只存在于本机</td><td>已改正两处措辞，并把该目录的脚本一律标为「<strong>本机探针</strong>」；持久防线是<strong>已提交的 spec</strong>，不是脚本。图纸共引用 10 处 <code>.codex-temp/</code> 脚本，<strong>全部未被跟踪</strong>，这是一条系统性问题而不是两处笔误</td></tr>
+      <tr><td><strong>自检夹具只证明「至少一个分量在起作用」</strong> → 多分量同时变动的夹具掩盖了某一路判据，守卫看起来被验证过其实没有</td><td>给 <code>isDerivedRatio</code> 的分子、分母各加一条<strong>只动一个分量</strong>的夹具（反例⑱/⑲），并用反向对照证明「删掉夹具后变异不再被自检发现」。通用做法：<strong>夹具一次只改一个分量</strong></td></tr>
     </tbody>
   </table>
 
